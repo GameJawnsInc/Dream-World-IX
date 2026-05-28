@@ -1,0 +1,817 @@
+test2_1.txt	50	Prima Vista/Cargo Room
+test2_2.txt	51	Prima Vista/Cargo Room
+test2_3.txt	52	Prima Vista/Meeting Rm
+test2_4.txt	53	Prima Vista/Meeting Rm
+test2_5.txt	54	Prima Vista/Hallway
+test2_6.txt	55	Prima Vista/Music Room
+test2_7.txt	56	Prima Vista/Engine Roo
+test2_8.txt	57	Prima Vista/Engine Roo
+test2_9.txt	58	Prima Vista/Storage
+test2_10.txt	59	Prima Vista/Interior
+test2_11.txt	60	Prima Vista/Interior
+test2_12.txt	61	Prima Vista/Interior
+test2_13.txt	62	Prima Vista/Interior
+test2_14.txt	63	Prima Vista/Interior
+test2_15.txt	64	A. Castle/Public Seats
+test2_16.txt	65	Prima Vista/Interior
+test2_17.txt	66	Prima Vista/Interior
+test2_18.txt	67	Prima Vista/Interior
+test2_19.txt	68	A. Castle/Throne
+test2_20.txt	69	A. Castle/Throne
+test2_21.txt	70	Opening-For FMV
+test2_22.txt	100	Alexandria/Main Street
+test2_23.txt	101	Alexandria/Main Street
+test2_24.txt	102	Alexandria/Main Street
+test2_25.txt	103	Alexandria/Square
+test2_26.txt	104	Alexandria/Shop
+test2_27.txt	105	Alexandria/Alley
+test2_28.txt	106	Alexandria/By the Stee
+test2_29.txt	107	Alexandria/Main Street
+test2_30.txt	108	Alexandria/Item Shop
+test2_31.txt	109	Alexandria/Wpn. Shop
+test2_32.txt	110	Alexandria/Synthesist
+test2_33.txt	111	Alexandria/Inn
+test2_34.txt	112	Alexandria/Pub
+test2_35.txt	113	Alexandria/Residence
+test2_36.txt	114	Alexandria/Residence
+test2_37.txt	115	Alexandria/Steeple
+test2_38.txt	116	Alexandria/Rooftop
+test2_39.txt	117	Alexandria/Mini-Theate
+test2_40.txt	150	A. Castle/Guardhouse
+test2_41.txt	151	A. Castle/Throne
+test2_223.txt	152	Evil Forest/Memory
+test2_42.txt	153	A. Castle/Hallway
+test2_43.txt	154	A. Castle/Hallway
+test2_44.txt	155	A. Castle/Library
+test2_45.txt	156	A. Castle/Guest Room
+test2_46.txt	157	A. Castle/Kitchen
+test2_47.txt	158	A. Castle/Courtyard
+test2_48.txt	159	A. Castle/Courtyard
+test2_49.txt	160	A. Castle/Courtyard
+test2_50.txt	161	A. Castle/Courtyard
+test2_51.txt	162	A. Castle/West Tower
+test2_52.txt	163	A. Castle/West Tower
+test2_53.txt	164	A. Castle/West Tower
+test2_54.txt	165	A. Castle/West Tower
+test2_55.txt	166	A. Castle/West Tower
+test2_56.txt	167	A. Castle/Library
+test2_57.txt	200	Prima Vista/Hallway
+test2_58.txt	201	Prima Vista/Bridge
+test2_59.txt	202	Prima Vista/Cargo Room
+test2_60.txt	203	Prima Vista/Meeting Rm
+test2_61.txt	204	Prima Vista/Hallway
+test2_62.txt	205	Prima Vista/Hallway
+test2_63.txt	206	Prima Vista/Crash Site
+test2_64.txt	207	Prima Vista/Cabin
+test2_65.txt	208	Prima Vista/Storage
+test2_66.txt	209	Prima Vista/Event
+test2_67.txt	250	Evil Forest/Trail
+test2_68.txt	251	Evil Forest/Trail
+test2_69.txt	252	Evil Forest/Trail
+test2_70.txt	253	Evil Forest/Spring
+test2_71.txt	254	Evil Forest/Swamp
+test2_72.txt	255	Evil Forest/Riverbank
+test2_73.txt	256	Evil Forest/Trail
+test2_74.txt	257	Evil Forest/Nest
+test2_75.txt	258	Evil Forest/Trail
+test2_76.txt	259	Evil Forest/Trail
+test2_77.txt	260	Evil Forest/Trail
+test2_78.txt	261	Evil Forest/Exit
+test2_79.txt	262	Evil Forest/Exit
+test2_80.txt	300	Ice Cavern/Entrance
+test2_81.txt	301	Ice Cavern/Ice Path
+test2_82.txt	302	Ice Cavern/Ice Path
+test2_83.txt	303	Ice Cavern/Icicle Fiel
+test2_84.txt	304	Ice Cavern/Ice Path
+test2_85.txt	305	Ice Cavern/Ice Path
+test2_86.txt	306	Ice Cavern/Cave
+test2_87.txt	307	Ice Cavern/Ice Path
+test2_88.txt	308	Ice Cavern/Waterfall
+test2_89.txt	309	Ice Cavern/Waterfall
+test2_90.txt	310	Ice Cavern/Waterfall
+test2_91.txt	311	Ice Cavern/Exit
+test2_92.txt	312	Ice Cavern/Outside
+test2_93.txt	350	Dali/Village Road
+test2_94.txt	351	Dali/Inn
+test2_95.txt	352	Dali/Inn
+test2_96.txt	353	Dali/Mayor’s House
+test2_97.txt	354	Dali/Wpn. Shop
+test2_98.txt	355	Dali/Pub
+test2_99.txt	356	Dali/Windmill 1F
+test2_100.txt	357	Dali/Windmill 2F
+test2_101.txt	358	Dali/Windmill
+test2_102.txt	359	Dali/???
+test2_103.txt	400	Dali/Underground
+test2_104.txt	401	Dali/Underground
+test2_105.txt	402	Dali/Production Area
+test2_106.txt	403	Dali/Production Area
+test2_107.txt	404	Dali/Entrance
+test2_108.txt	405	Dali/Underground
+test2_109.txt	406	Dali/Underground
+test2_110.txt	407	Dali/Storage Area
+test2_111.txt	408	Dali/Storage Area
+test2_112.txt	450	Dali/Field
+test2_113.txt	451	Dali/Field
+test2_114.txt	452	Dali/Field
+test2_115.txt	453	Dali/Field
+test2_116.txt	454	Dali/Field
+test2_117.txt	455	Mountain/Base
+test2_118.txt	456	Mountain/Summit
+test2_119.txt	457	Mountain/Shack
+test2_120.txt	500	Cargo Ship/Deck
+test2_121.txt	501	Cargo Ship/Deck
+test2_122.txt	502	Cargo Ship/Bridge
+test2_123.txt	503	Cargo Ship/Bridge
+test2_124.txt	504	Cargo Ship/Engine Room
+test2_125.txt	505	Cargo Ship/Rear Deck
+test2_126.txt	506	Cargo Ship/Deck
+test2_127.txt	507	Cargo Ship/Deck
+test2_128.txt	550	Lindblum/Hunter’s Gate
+test2_129.txt	551	Lindblum/B.D. Station
+test2_130.txt	552	Lindblum/Main Street
+test2_131.txt	553	Lindblum/Inn
+test2_132.txt	554	Lindblum/Inn
+test2_133.txt	555	Lindblum/Shopping Area
+test2_134.txt	556	Lindblum/Church Street
+test2_135.txt	557	Lindblum/Church
+test2_136.txt	558	Lindblum/Residence
+test2_137.txt	559	Lindblum/Square
+test2_138.txt	560	Lindblum/Synthesist
+test2_139.txt	561	Lindblum/Item Shop
+test2_140.txt	562	Lindblum/Wpn. Shop
+test2_141.txt	563	Lindblum/T.D. Station
+test2_142.txt	564	Lindblum/Studio
+test2_143.txt	565	Lindblum/Hideout
+test2_144.txt	566	Lindblum/Station Area
+test2_145.txt	567	Lindblum/Theater Ave.
+test2_146.txt	568	Lindblum/Theater
+test2_147.txt	569	Lindblum/Square
+test2_148.txt	570	Lindblum/Industrial Wa
+test2_149.txt	571	Lindblum/The Doom Pub
+test2_150.txt	572	Lindblum/I.D. Station
+test2_151.txt	573	Lindblum/Residence
+test2_152.txt	574	Lindblum/Festival
+test2_153.txt	575	Lindblum/Festival
+test2_154.txt	576	Lindblum/Festival
+test2_155.txt	600	L. Castle/Royal Cham.
+test2_156.txt	601	L. Castle/Lift
+test2_157.txt	602	L. Castle/Dragon’s Gate
+test2_158.txt	603	L. Castle/Base Level
+test2_159.txt	604	L. Castle/Harbor
+test2_160.txt	605	L. Castle/Serpent’s G.
+test2_161.txt	606	L. Castle/Event
+test2_162.txt	607	L. Castle/Hangar
+test2_163.txt	608	L. Castle/Factory
+test2_164.txt	609	L. Castle/Castle Bridg
+test2_165.txt	610	L. Castle/Castle Stati
+test2_166.txt	611	L. Castle/Guest Room
+test2_167.txt	612	L. Castle/Hallway
+test2_168.txt	613	L. Castle/Hallway
+test2_169.txt	614	L. Castle/Airship Dock
+test2_170.txt	615	L. Castle/Telescope
+test2_171.txt	616	L. Castle/Machine Room
+test2_172.txt	617	L. Castle/Hallway
+test2_173.txt	618	L. Castle/Conf. Room
+test2_174.txt	619	L. Castle/Hall
+test2_175.txt	620	L. Castle/Lift
+test2_176.txt	650	Marsh/Entrance
+test2_177.txt	651	Marsh/Shore
+test2_178.txt	652	Marsh/Shore
+test2_179.txt	653	Marsh/Shore
+test2_180.txt	654	Marsh/Shore
+test2_181.txt	655	Marsh/Thicket
+test2_224.txt	656	Marsh/Pond
+test2_182.txt	657	Marsh/Pond
+test2_225.txt	658	Marsh/Pond
+test2_226.txt	659	Marsh/Pond
+test2_183.txt	660	Marsh/Master’s House
+test2_184.txt	661	Marsh/Master’s House
+test2_227.txt	662	Marsh/Thicket
+test2_228.txt	663	Marsh/Cave
+test2_185.txt	701	Gizamaluke/Entrance
+test2_186.txt	702	Gizamaluke/Cavern
+test2_187.txt	703	Gizamaluke/Cavern
+test2_188.txt	704	Gizamaluke/Bell Room
+test2_189.txt	705	Gizamaluke/Bell Room
+test2_190.txt	706	Gizamaluke/Cavern
+test2_191.txt	707	Gizamaluke/Sacred Room
+test2_192.txt	750	Burmecia/Gate
+test2_193.txt	751	Burmecia/Suburb
+test2_194.txt	752	Burmecia/Suburb
+test2_195.txt	753	Burmecia/Suburb
+test2_196.txt	754	Burmecia/Residence
+test2_197.txt	755	Burmecia/Residence
+test2_198.txt	756	Burmecia/Residence
+test2_199.txt	757	Burmecia/Residence
+test2_200.txt	758	Burmecia/Pathway
+test2_201.txt	759	Burmecia/Uptown Area
+test2_202.txt	760	Burmecia/Uptown Area
+test2_203.txt	761	Burmecia/Uptown Area
+test2_204.txt	762	Burmecia/Uptown Area
+test2_205.txt	763	Burmecia/Square
+test2_206.txt	764	Burmecia/Vault
+test2_207.txt	765	Burmecia/Armory
+test2_208.txt	766	Burmecia/Palace
+test2_209.txt	767	Burmecia/Palace
+test2_210.txt	768	Burmecia/Palace
+test2_229.txt	769	Burmecia/Palace
+test2_211.txt	800	S. Gate/Bohden Gate
+test2_212.txt	801	S. Gate/Bohden Gate
+test2_213.txt	802	S. Gate/Bohden Sta.
+test2_230.txt	803	S. Gate/Alexan. Sta.
+test2_231.txt	804	S. Gate/Trail
+test2_232.txt	805	S. Gate/Bridge
+test2_214.txt	806	S. Gate/Dali Gate
+test2_233.txt	807	S. Gate/Treno Gate
+test2_483.txt	808	S. Gate/Bridge
+test2_234.txt	809	S. Gate/Summit Sta.
+test2_235.txt	810	S. Gate/Rest Stop
+test2_236.txt	811	S. Gate/Railroad
+test2_237.txt	812	S. Gate/Summit Sta.
+test2_215.txt	813	S. Gate/Berkmea
+test2_216.txt	814	S. Gate/Berkmea
+test2_238.txt	815	S. Gate/Berkmea
+test2_239.txt	816	S. Gate/Berkmea
+test2_217.txt	850	S. Gate/Bohden Arch
+test2_218.txt	851	N. Gate/Burm. Arch
+test2_219.txt	852	N. Gate/Melda Arch
+test2_484.txt	853	S. Gate/Treno Arch
+test2_485.txt	854	S. Gate/Bohden Arch
+test2_486.txt	855	N. Gate/Burm. Arch
+test2_487.txt	856	N. Gate/Melda Arch
+test2_240.txt	900	Treno/Pub
+test2_241.txt	901	Treno/Bishop’s House
+test2_242.txt	902	Treno/Synthesist
+test2_243.txt	903	Treno/Card Stadium
+test2_244.txt	904	Treno/Knight’s House
+test2_245.txt	905	Treno/Walkway
+test2_246.txt	906	Treno/King’s House
+test2_247.txt	907	Treno/Queen’s House
+test2_248.txt	908	Treno/Gate
+test2_249.txt	909	Treno/Auction Site
+test2_250.txt	910	Treno/Knight’s House
+test2_251.txt	911	Treno/Queen’s House
+test2_252.txt	912	Treno/Slums
+test2_253.txt	913	Treno/Tot Residence
+test2_254.txt	914	Treno/Tot Residence
+test2_255.txt	915	Treno/Bishop’s House
+test2_256.txt	916	Treno/Dock
+test2_257.txt	930	Treno/Tot Residence
+test2_258.txt	931	Treno/Event
+test2_259.txt	932	Treno/Event
+test2_260.txt	950	Gargan Roo/Entrance
+test2_261.txt	951	Gargan Roo/Passage
+test2_262.txt	952	Gargan Roo/Platform
+test2_263.txt	953	Gargan Roo/Switch Pt.
+test2_264.txt	954	Gargan Roo/Tunnel
+test2_265.txt	955	Gargan Roo/Tunnel
+test2_266.txt	956	Gargan Roo/Last Stop
+test2_267.txt	957	Gargan Roo/Passage
+test2_268.txt	1000	Cleyra/Tree Roots
+test2_269.txt	1001	Cleyra/Tree Roots
+test2_270.txt	1002	Cleyra/Tree Roots
+test2_271.txt	1003	Cleyra/Tree Trunk
+test2_272.txt	1004	Cleyra/Tree Trunk
+test2_273.txt	1005	Cleyra/Tree Trunk
+test2_274.txt	1006	Cleyra/Tree Trunk
+test2_275.txt	1007	Cleyra/Tree Trunk
+test2_276.txt	1008	Cleyra/Tree Trunk
+test2_277.txt	1009	Cleyra/Tree Trunk
+test2_278.txt	1010	Cleyra/Bridge
+test2_279.txt	1011	Cleyra/Tree Trunk
+test2_280.txt	1012	Cleyra/Tree Trunk
+test2_281.txt	1013	Cleyra/Tree Trunk
+test2_282.txt	1014	Cleyra/Tree Trunk
+test2_283.txt	1015	Cleyra/Tree Trunk
+test2_284.txt	1016	Cleyra/Tree Trunk
+test2_285.txt	1017	Cleyra/Tree Trunk
+test2_286.txt	1018	Cleyra/Tree Trunk
+test2_287.txt	1050	Cleyra/Tree Trunk
+test2_288.txt	1051	Cleyra/Entrance
+test2_289.txt	1052	Cleyra/Sandpit
+test2_290.txt	1053	Cleyra/Water Mill Area
+test2_291.txt	1054	Cleyra/Windmill Area
+test2_292.txt	1055	Cleyra/Town Area
+test2_293.txt	1056	Cleyra/Inn
+test2_294.txt	1057	Cleyra/Observation Poi
+test2_295.txt	1058	Cleyra/Cathedral
+test2_296.txt	1059	Cleyra/Cathedral
+test2_297.txt	1060	Cleyra/Cathedral
+test2_298.txt	1100	Cleyra/Tree Trunk
+test2_299.txt	1101	Cleyra/Entrance
+test2_300.txt	1102	Cleyra/Sandpit
+test2_301.txt	1103	Cleyra/Water Mill Area
+test2_302.txt	1104	Cleyra/Windmill Area
+test2_303.txt	1105	Cleyra/Town
+test2_304.txt	1106	Cleyra/Inn
+test2_305.txt	1107	Cleyra/Observation Poi
+test2_306.txt	1108	Cleyra/Cathedral
+test2_307.txt	1109	Cleyra/Cathedral
+test2_308.txt	1110	Cleyra/Cathedral
+test2_309.txt	1150	Red Rose/Deck
+test2_310.txt	1151	Red Rose/Cabin
+test2_311.txt	1152	Red Rose/Cabin
+test2_312.txt	1153	Red Rose/Bridge
+test2_313.txt	1200	A. Castle/Throne
+test2_314.txt	1201	A. Castle/Underground
+test2_315.txt	1202	A. Castle/Staircase
+test2_316.txt	1203	A. Castle/Staircase
+test2_317.txt	1204	A. Castle/Underground
+test2_318.txt	1205	A. Castle/Chapel
+test2_319.txt	1206	A. Castle/Queen’s Cham
+test2_320.txt	1207	A. Castle/Garnet’s Roo
+test2_321.txt	1208	A. Castle/Dungeon
+test2_322.txt	1209	A. Castle/Dungeon
+test2_323.txt	1210	A. Castle/West Tower
+test2_324.txt	1211	A. Castle/East Tower
+test2_325.txt	1212	A. Castle/East Tower
+test2_326.txt	1213	A. Castle/Guardhouse
+test2_327.txt	1214	A. Castle/Hallway
+test2_328.txt	1215	A. Castle/Hallway
+test2_329.txt	1216	A. Castle/Library
+test2_330.txt	1217	A. Castle/Guest Room
+test2_331.txt	1218	A. Castle/Kitchen
+test2_332.txt	1219	A. Castle/Courtyard
+test2_333.txt	1220	A. Castle/Courtyard
+test2_334.txt	1221	A. Castle/Courtyard
+test2_335.txt	1222	A. Castle/Courtyard
+test2_336.txt	1223	A. Castle/Queen’s Cham
+test2_337.txt	1224	A. Castle/Interior
+test2_338.txt	1225	A. Castle/Queen’s Cham
+test2_339.txt	1226	A. Castle/Library
+test2_340.txt	1227	A. Castle/Public Seats
+test2_341.txt	1250	A. Castle/Event
+test2_342.txt	1251	Pinnacle Rocks/Hole
+test2_343.txt	1252	Pinnacle Rocks/Path
+test2_344.txt	1253	Pinnacle Rocks/Path
+test2_345.txt	1254	Pinnacle Rocks/Path
+test2_346.txt	1255	Pinnacle Rocks/Entry
+test2_220.txt	1256	Pinnacle Rocks/Entry
+test2_347.txt	1300	Lindblum/Hunter’s Gate
+test2_348.txt	1301	Lindblum/B.D. Station
+test2_349.txt	1302	Lindblum/Main Street
+test2_350.txt	1303	Lindblum/Inn
+test2_351.txt	1304	Lindblum/Inn
+test2_352.txt	1305	Lindblum/Shopping Area
+test2_353.txt	1306	Lindblum/Residence
+test2_354.txt	1307	Lindblum/Square
+test2_355.txt	1308	Lindblum/Synthesist
+test2_356.txt	1309	Lindblum/Wpn. Shop
+test2_357.txt	1310	Lindblum/T.D. Station
+test2_358.txt	1311	Lindblum/Studio
+test2_359.txt	1312	Lindblum/Hideout
+test2_360.txt	1313	Lindblum/Station Area
+test2_361.txt	1314	Lindblum/Theater Ave.
+test2_362.txt	1315	Lindblum/Town Walls
+test2_363.txt	1350	L. Castle/Royal Cham.
+test2_364.txt	1351	L. Castle/Lift
+test2_365.txt	1352	L. Castle/Dragon’s Gat
+test2_366.txt	1353	L. Castle/Base Level
+test2_367.txt	1354	L. Castle/Harbor
+test2_368.txt	1355	L. Castle/Serpent’s Ga
+test2_369.txt	1356	L. Castle/Event
+test2_370.txt	1357	L. Castle/Hangar
+test2_371.txt	1358	L. Castle/Factory
+test2_372.txt	1359	L. Castle/Castle Bridg
+test2_373.txt	1360	L. Castle/Castle Stati
+test2_374.txt	1361	L. Castle/Guest Room
+test2_375.txt	1362	L. Castle/Hallway
+test2_376.txt	1363	L. Castle/Hallway
+test2_377.txt	1364	L. Castle/Airship Dock
+test2_378.txt	1365	L. Castle/Telescope
+test2_379.txt	1366	L. Castle/Machine Room
+test2_380.txt	1367	L. Castle/Hallway
+test2_381.txt	1368	L. Castle/Conf. Room
+test2_382.txt	1369	L. Castle/Hall
+test2_383.txt	1370	L. Castle/Lift
+test2_384.txt	1400	Fossil Roo/Cavern
+test2_385.txt	1401	Fossil Roo/Cavern
+test2_386.txt	1402	Fossil Roo/Cavern
+test2_387.txt	1403	Fossil Roo/Cavern
+test2_388.txt	1404	Fossil Roo/Cavern
+test2_389.txt	1405	Fossil Roo/Nest
+test2_390.txt	1406	Fossil Roo/Nest
+test2_391.txt	1407	Fossil Roo/Nest
+test2_392.txt	1408	Fossil Roo/Nest
+test2_393.txt	1409	Fossil Roo/Nest
+test2_394.txt	1410	Fossil Roo/Nest
+test2_395.txt	1411	Fossil Roo/Nest
+test2_396.txt	1412	Fossil Roo/Nest
+test2_397.txt	1413	Fossil Roo/Nest
+test2_398.txt	1414	Fossil Roo/Nest
+test2_399.txt	1415	Fossil Roo/Nest
+test2_400.txt	1416	Fossil Roo/Nest
+test2_401.txt	1417	Fossil Roo/Nest
+test2_402.txt	1418	Fossil Roo/Cavern
+test2_403.txt	1419	Fossil Roo/Cavern
+test2_404.txt	1420	Fossil Roo/Cavern
+test2_405.txt	1421	Fossil Roo/Mining Site
+test2_406.txt	1422	Fossil Roo/Entrance
+test2_407.txt	1423	Fossil Roo/Passage
+test2_408.txt	1424	Fossil Roo/Passage
+test2_409.txt	1425	Fossil Roo/Exit
+test2_410.txt	1450	Mage Village/Entrance
+test2_411.txt	1451	Mage Village/Pond
+test2_412.txt	1452	Mage Village/Cemetery
+test2_413.txt	1453	Mage Village/Cemetery
+test2_414.txt	1454	Mage Village/Inn
+test2_415.txt	1455	Mage Village/Synthesis
+test2_416.txt	1456	Mage Village/Wpn. Shop
+test2_417.txt	1457	Mage Village/Rooftop
+test2_418.txt	1458	Mage Village/Water Mil
+test2_419.txt	1459	Mage Village/Water Mil
+test2_420.txt	1460	Mage Village/Item Shop
+test2_421.txt	1461	Mage Village/Event
+test2_422.txt	1462	Mage Village/Event
+test2_423.txt	1463	Dead Forest/Grove
+test2_424.txt	1464	Dead Forest/Dead End
+test2_425.txt	1500	Conde Petie/Entrance
+test2_426.txt	1501	Conde Petie/Corridor
+test2_427.txt	1502	Conde Petie/Corridor
+test2_428.txt	1503	Conde Petie/Wpn. Stall
+test2_429.txt	1504	Conde Petie/Exit
+test2_430.txt	1505	Conde Petie/Shrine
+test2_431.txt	1506	Conde Petie/Event
+test2_432.txt	1507	Conde Petie/Pathway
+test2_433.txt	1508	Conde Petie/Inn
+test2_434.txt	1509	Conde Petie/Item Shop
+test2_435.txt	1550	Mountain Path/Trail
+test2_436.txt	1551	Mountain Path/Trail
+test2_437.txt	1552	Mountain Path/Trail
+test2_438.txt	1553	Mountain Path/Roots
+test2_439.txt	1554	Mountain Path/Roots
+test2_440.txt	1555	Mountain Path/Roots
+test2_441.txt	1556	Mountain Path/Roots
+test2_442.txt	1557	Mountain Path/Roots
+test2_443.txt	1600	Mdn. Sari/Entrance
+test2_444.txt	1601	Mdn. Sari/Open Area
+test2_445.txt	1602	Mdn. Sari/Path
+test2_446.txt	1603	Mdn. Sari/Path
+test2_447.txt	1604	Mdn. Sari/Eidolon Wall
+test2_448.txt	1605	Mdn. Sari/Eidolon Wall
+test2_449.txt	1606	Mdn. Sari/Resting Room
+test2_450.txt	1607	Mdn. Sari/Kitchen
+test2_451.txt	1608	Mdn. Sari/Secret Room
+test2_452.txt	1609	Mdn. Sari/Cove
+test2_453.txt	1610	Mdn. Sari/Cove
+test2_454.txt	1650	Iifa Tree/Outer Seal
+test2_455.txt	1651	Iifa Tree/Tree Roots
+test2_456.txt	1652	Iifa Tree/Roots
+test2_457.txt	1653	Iifa Tree/Tree Roots
+test2_458.txt	1654	Iifa Tree/Tree Trunk
+test2_459.txt	1655	Iifa Tree/Tree Path
+test2_460.txt	1656	Iifa Tree/Eidolon Moun
+test2_461.txt	1657	Iifa Tree/Tree Roots
+test2_462.txt	1658	Iifa Tree/Silver Drago
+test2_463.txt	1659	Iifa Tree/Seashore
+test2_464.txt	1660	Brahne’s Fleet/Event
+test2_465.txt	1661	Brahne’s Fleet/Event
+test2_466.txt	1662	Brahne’s Fleet/Event
+test2_467.txt	1663	Iifa Tree/Tree Trunk
+test2_742.txt	1700	Mdn. Sari/Entrance
+test2_743.txt	1701	Mdn. Sari/Open Area
+test2_744.txt	1702	Mdn. Sari/Path
+test2_745.txt	1703	Mdn. Sari/Path
+test2_746.txt	1704	Mdn. Sari/Eidolon Wall
+test2_747.txt	1705	Mdn. Sari/Resting Room
+test2_748.txt	1706	Mdn. Sari/Kitchen
+test2_749.txt	1707	Mdn. Sari/Secret Room
+test2_468.txt	1750	Iifa Tree/Hollow Roots
+test2_469.txt	1751	Iifa Tree/Inner Roots
+test2_470.txt	1752	Iifa Tree/Inner Roots
+test2_471.txt	1753	Iifa Tree/Inner Roots
+test2_472.txt	1754	Iifa Tree/Leaves
+test2_473.txt	1755	Iifa Tree/Bottom
+test2_474.txt	1756	Iifa Tree/Bottom
+test2_475.txt	1757	Iifa Tree/Outer Seal
+test2_476.txt	1758	Iifa Tree/Tree Roots
+test2_477.txt	1759	Iifa Tree/Roots
+test2_478.txt	1800	A. Castle/Tomb
+test2_488.txt	1801	A. Castle/Queen’s Cham
+test2_489.txt	1802	A. Castle/Garnet’s Roo
+test2_490.txt	1803	A. Castle/Guardhouse
+test2_491.txt	1806	A. Castle/Hallway
+test2_492.txt	1807	A. Castle/Hallway
+test2_493.txt	1808	A. Castle/Library
+test2_494.txt	1809	A. Castle/Guest Room
+test2_495.txt	1810	A. Castle/Kitchen
+test2_496.txt	1811	A. Castle/Courtyard
+test2_497.txt	1812	A. Castle/Courtyard
+test2_498.txt	1813	A. Castle/Courtyard
+test2_499.txt	1814	A. Castle/Courtyard
+test2_500.txt	1815	A. Castle/Courtyard
+test2_501.txt	1816	A. Castle/Courtyard
+test2_502.txt	1817	A. Castle/Neptune
+test2_503.txt	1818	A. Castle/Neptune
+test2_504.txt	1819	A. Castle/Port
+test2_505.txt	1820	A. Castle/West Tower
+test2_506.txt	1821	A. Castle/Interior
+test2_507.txt	1822	A. Castle/Library
+test2_508.txt	1823	A. Castle/Hallway
+test2_509.txt	1824	A. Castle/Public Seats
+test2_510.txt	1850	Alexandria/Main Street
+test2_511.txt	1851	Alexandria/Main Street
+test2_512.txt	1852	Alexandria/Main Street
+test2_513.txt	1853	Alexandria/Square
+test2_514.txt	1854	Alexandria/Alley
+test2_515.txt	1855	Alexandria/By the Stee
+test2_516.txt	1856	Alexandria/Main Street
+test2_517.txt	1857	Alexandria/Item Shop
+test2_518.txt	1858	Alexandria/Wpn. Shop
+test2_519.txt	1859	Alexandria/Synthesist
+test2_520.txt	1860	Alexandria/Inn
+test2_521.txt	1861	Alexandria/Pub
+test2_522.txt	1862	Alexandria/Residence
+test2_523.txt	1863	Alexandria/Residence
+test2_524.txt	1864	Alexandria/Mini-Theate
+test2_525.txt	1865	Alexandria/Steeple
+test2_526.txt	1866	Alexandria/Dock
+test2_527.txt	1900	Treno/Pub
+test2_528.txt	1901	Treno/Bishop’s House
+test2_529.txt	1902	Treno/Synthesist
+test2_530.txt	1903	Treno/Card Stadium
+test2_531.txt	1904	Treno/Knight’s House
+test2_532.txt	1905	Treno/Walkway
+test2_533.txt	1906	Treno/King’s House
+test2_534.txt	1907	Treno/Queen’s House
+test2_535.txt	1908	Treno/Gate
+test2_536.txt	1909	Treno/Auction House
+test2_537.txt	1910	Treno/Knight’s House
+test2_538.txt	1911	Treno/Queen’s House
+test2_539.txt	1912	Treno/Treno Slums
+test2_540.txt	1913	Treno/Tot Residence
+test2_541.txt	1914	Treno/Tot Residence
+test2_542.txt	1915	Treno/Bishop’s House
+test2_543.txt	1916	Treno/Knight’s House
+test2_750.txt	1917	Treno/Knight’s House
+test2_479.txt	1950	Quan’s/Cave
+test2_480.txt	1951	Quan’s/Cave
+test2_481.txt	1952	Quan’s/Cave
+test2_482.txt	1953	Quan’s/Fishing Area
+test2_544.txt	2000	Hilda Garde 2/Deck
+test2_545.txt	2001	A. Castle/Garnet’s Roo
+test2_546.txt	2002	A. Castle/Altar
+test2_547.txt	2003	A. Castle/Altar
+test2_548.txt	2004	A. Castle/Altar
+test2_549.txt	2005	A. Castle/Altar
+test2_550.txt	2006	A. Castle/Altar
+test2_551.txt	2007	A. Castle/Altar
+test2_552.txt	2008	A. Castle/Altar
+test2_553.txt	2009	A. Castle/Throne
+test2_554.txt	2050	Alexandria/Main Street
+test2_555.txt	2051	Alexandria/Main Street
+test2_556.txt	2052	Alexandria/Main Street
+test2_557.txt	2053	Alexandria/Square
+test2_558.txt	2054	Alexandria/Main Street
+test2_559.txt	2055	Invincible/Garland
+test2_560.txt	2100	Lindblum/Hunter’s Gate
+test2_561.txt	2101	Lindblum/B.D. Station
+test2_562.txt	2102	Lindblum/Main Street
+test2_563.txt	2103	Lindblum/Inn
+test2_564.txt	2104	Lindblum/Inn
+test2_565.txt	2105	Lindblum/Shopping Area
+test2_566.txt	2106	Lindblum/Residence
+test2_567.txt	2107	Lindblum/Square
+test2_568.txt	2108	Lindblum/Synthesist
+test2_569.txt	2109	Lindblum/Wpn. Shop
+test2_570.txt	2110	Lindblum/T.D. Station
+test2_571.txt	2111	Lindblum/Studio
+test2_572.txt	2112	Lindblum/Hideout
+test2_573.txt	2113	Lindblum/Station Area
+test2_574.txt	2114	Lindblum/Theater Ave.
+test2_575.txt	2150	L. Castle/Royal Cham.
+test2_576.txt	2151	L. Castle/Lift
+test2_577.txt	2152	L. Castle/Dragon’s Gat
+test2_578.txt	2153	L. Castle/Base Level
+test2_751.txt	2154	L. Castle/Harbor
+test2_579.txt	2155	L. Castle/Serpent’s Ga
+test2_580.txt	2157	L. Castle/Hangar
+test2_581.txt	2158	L. Castle/Factory
+test2_582.txt	2159	L. Castle/Castle Bridg
+test2_583.txt	2160	L. Castle/Castle Stati
+test2_584.txt	2161	L. Castle/Guest Room
+test2_585.txt	2162	L. Castle/Hallway
+test2_586.txt	2163	L. Castle/Hallway
+test2_587.txt	2164	L. Castle/Airship Dock
+test2_752.txt	2165	L. Castle/Airship Dock
+test2_753.txt	2166	L. Castle/Telescope
+test2_588.txt	2167	L. Castle/Machine Room
+test2_589.txt	2168	L. Castle/Hallway
+test2_590.txt	2169	L. Castle/Conf. Room
+test2_591.txt	2170	L. Castle/Hall
+test2_592.txt	2171	L. Castle/Lift
+test2_593.txt	2172	L. Castle/Telescope
+test2_594.txt	2173	L. Castle/Harbor
+test2_595.txt	2200	Palace/Dungeon
+test2_596.txt	2201	Palace/Dungeon
+test2_597.txt	2202	Palace/Dungeon
+test2_598.txt	2203	Palace/Rack
+test2_599.txt	2204	Palace/Odyssey
+test2_600.txt	2205	Palace/Odyssey
+test2_601.txt	2206	Palace/Hallway
+test2_602.txt	2207	Palace/Hall
+test2_603.txt	2208	Palace/Hallway
+test2_604.txt	2209	Palace/Sanctum
+test2_605.txt	2211	Palace/Dock
+test2_606.txt	2212	Palace/Entrance
+test2_607.txt	2213	Palace/Lobby
+test2_608.txt	2214	Palace/Light Chamber
+test2_609.txt	2215	Palace/Fire Chamber
+test2_610.txt	2216	Palace/Hallway
+test2_611.txt	2217	Palace/Stairwell
+test2_612.txt	2220	Palace/Library
+test2_613.txt	2221	Palace/Shadow Cham.
+test2_614.txt	2222	Palace/Top Level
+test2_615.txt	2250	Oeilvert/Outside
+test2_616.txt	2251	Oeilvert/Entrance
+test2_617.txt	2252	Oeilvert/Hall
+test2_618.txt	2253	Oeilvert/Planetarium
+test2_619.txt	2254	Oeilvert/Ship Display
+test2_620.txt	2255	Oeilvert/Stairwell
+test2_621.txt	2256	Oeilvert/Grand Hall
+test2_622.txt	2257	Oeilvert/Display
+test2_623.txt	2258	Oeilvert/Narration
+test2_624.txt	2259	Oeilvert/Star Display
+test2_625.txt	2260	Oeilvert/Tombstone
+test2_626.txt	2261	Oeilvert/Bridge
+test2_627.txt	2300	Esto Gaza/Terrace
+test2_628.txt	2301	Esto Gaza/Altar
+test2_629.txt	2302	Esto Gaza/Altar
+test2_630.txt	2303	Esto Gaza/Shop
+test2_631.txt	2304	Esto Gaza/Terrace
+test2_632.txt	2305	Esto Gaza/Path
+test2_633.txt	2350	Gulug/Interior
+test2_634.txt	2351	Gulug/Well
+test2_635.txt	2352	Gulug/Room
+test2_636.txt	2353	Gulug/Room
+test2_637.txt	2354	Gulug/Room
+test2_638.txt	2355	Gulug/Room
+test2_639.txt	2356	Gulug/Room
+test2_640.txt	2357	Gulug/Room
+test2_641.txt	2358	Gulug/Path
+test2_642.txt	2359	Gulug/Path
+test2_643.txt	2360	Gulug/Path
+test2_644.txt	2361	Gulug/Well
+test2_645.txt	2362	Gulug/Path
+test2_646.txt	2363	Gulug/Path
+test2_647.txt	2364	Gulug/Extraction Site
+test2_648.txt	2365	Gulug/Extraction Site
+test2_649.txt	2400	A. Castle/Neptune
+test2_650.txt	2401	A. Castle/Neptune
+test2_651.txt	2402	A. Castle/Port
+test2_652.txt	2403	A. Castle/Port
+test2_653.txt	2404	A. Castle/Courtyard
+test2_654.txt	2405	A. Castle/Courtyard
+test2_655.txt	2406	A. Castle/Courtyard
+test2_656.txt	2450	Alexandria/Main Street
+test2_657.txt	2451	Alexandria/Main Street
+test2_658.txt	2452	Alexandria/Square
+test2_659.txt	2453	Alexandria/Alley
+test2_660.txt	2454	Alexandria/Steeple
+test2_661.txt	2455	Alexandria/Inn
+test2_662.txt	2456	Alexandria/Steeple
+test2_663.txt	2457	Alexandria/Mini-Theate
+test2_664.txt	2458	Alexandria/Dock
+test2_665.txt	2500	I. Castle/Entrance
+test2_754.txt	2501	I. Castle/Entrance
+test2_666.txt	2502	I. Castle/Hall
+test2_667.txt	2503	I. Castle/Inverted Hal
+test2_668.txt	2504	I. Castle/Small Room
+test2_669.txt	2505	I. Castle/Inverted Roo
+test2_670.txt	2506	I. Castle/Stairwell
+test2_671.txt	2507	I. Castle/Stairwell
+test2_672.txt	2508	I. Castle/Lift
+test2_673.txt	2509	I. Castle/Lift
+test2_674.txt	2510	I. Castle/Mural Room
+test2_675.txt	2512	I. Castle/Mural Room
+test2_676.txt	2513	I. Castle/Sword Room
+test2_677.txt	2550	Earth Shrine/Entrance
+test2_678.txt	2551	Water Shrine/Entrance
+test2_679.txt	2552	Earth Shrine/Interior
+test2_680.txt	2553	Wind Shrine/Interior
+test2_681.txt	2554	Earth Shrine/Passage
+test2_682.txt	2600	Terra/Hilltop
+test2_683.txt	2601	Terra/Downhill Path
+test2_684.txt	2602	Terra/Stepping Stones
+test2_685.txt	2603	Terra/Path by the Pond
+test2_686.txt	2604	Terra/Bridge
+test2_687.txt	2605	Terra/Treetop
+test2_688.txt	2606	Terra/Tree base
+test2_689.txt	2607	Terra/Bridge
+test2_690.txt	2608	Terra/Event
+test2_691.txt	2650	Bran Bal/Stairway
+test2_692.txt	2651	Bran Bal/Entrance
+test2_693.txt	2652	Bran Bal/Gate
+test2_694.txt	2653	Bran Bal/Pond
+test2_695.txt	2654	Bran Bal/Pond
+test2_696.txt	2655	Bran Bal/Storage
+test2_697.txt	2656	Bran Bal/Meeting Hall
+test2_698.txt	2657	Bran Bal/Storage
+test2_699.txt	2658	Bran Bal/Laboratory
+test2_700.txt	2659	Bran Bal/Bridge
+test2_701.txt	2660	Bran Bal/Hilltop
+test2_702.txt	2661	Bran Bal/Entrance
+test2_703.txt	2700	Pand./Gate
+test2_704.txt	2701	Pand./Path
+test2_705.txt	2702	Pand./Observatory
+test2_706.txt	2703	Pand./Observatory
+test2_707.txt	2704	Pand./Observatory
+test2_708.txt	2705	Pand./Mind Control
+test2_709.txt	2706	Pand./Hall
+test2_710.txt	2707	Pand./Hall
+test2_711.txt	2708	Pand./Hall
+test2_712.txt	2709	Pand./Generator
+test2_713.txt	2710	Pand./Bridge
+test2_714.txt	2711	Pand./Control Room
+test2_715.txt	2712	Pand./Elevator
+test2_716.txt	2713	Pand./Elevator
+test2_717.txt	2714	Pand./Maze
+test2_718.txt	2715	Pand./Event
+test2_719.txt	2716	Pand./Event
+test2_720.txt	2717	Pand./Outer Path
+test2_721.txt	2718	Pand./Bridge
+test2_722.txt	2719	Pand./Exit
+test2_723.txt	2720	Pand./Event
+test2_724.txt	2750	Invincible/Bridge
+test2_755.txt	2751	Invincible/Bridge
+test2_756.txt	2752	Invincible/Bridge
+test2_725.txt	2753	Invincible/Core
+test2_757.txt	2754	Invincible/Controls
+test2_758.txt	2755	Hilda Garde/Bridge
+test2_759.txt	2756	Red Rose/Bridge
+test2_726.txt	2800	Daguerreo/Entrance
+test2_727.txt	2801	Daguerreo/Right Hall
+test2_728.txt	2802	Daguerreo/Left Hall
+test2_729.txt	2803	Daguerreo/2nd Floor
+test2_730.txt	2850	Hilda Garde 3/Bridge
+test2_731.txt	2851	Hilda Garde 3/Engine
+test2_732.txt	2852	Hilda Garde 3/Deck
+test2_733.txt	2853	Hilda Garde 3/Deck
+test2_734.txt	2854	Hilda Garde 3/Bridge
+test2_735.txt	2855	Blue Narciss/Bridge
+test2_736.txt	2856	Blue Narciss/Bridge
+test2_760.txt	2900	Memoria/Outside
+test2_761.txt	2901	Memoria/Entrance
+test2_762.txt	2902	Memoria/Stairs of Time
+test2_763.txt	2903	Memoria/Recollection
+test2_764.txt	2904	Memoria/Outer Path
+test2_765.txt	2905	Memoria/The Past
+test2_766.txt	2906	Memoria/Oblivion
+test2_767.txt	2907	Memoria/Recollection
+test2_768.txt	2908	Memoria/Time Interval
+test2_769.txt	2909	Memoria/Ruins
+test2_770.txt	2910	Memoria/Lost Memory
+test2_771.txt	2911	Memoria/Familiar Past
+test2_772.txt	2912	Memoria/World Fusion
+test2_773.txt	2913	Memoria/Portal
+test2_774.txt	2914	Memoria/Birth
+test2_775.txt	2915	Memoria/Ocean
+test2_776.txt	2916	Memoria/Time Warp
+test2_777.txt	2917	Memoria/Gaia’s Birth
+test2_778.txt	2918	Memoria/Stairs
+test2_779.txt	2919	Memoria/Gate to Space
+test2_780.txt	2920	Memoria/Emptiness
+test2_781.txt	2921	Memoria/To the Origin
+test2_782.txt	2922	Crystal World
+test2_783.txt	2923	Crystal World
+test2_784.txt	2924	Crystal World
+test2_785.txt	2925	Crystal World
+test2_786.txt	2926	Crystal World
+test2_787.txt	2927	Crystal World
+test2_788.txt	2928	Hill of Despair
+test2_789.txt	2929	last/cw mbg a
+test2_790.txt	2930	last/cw mbg 0
+test2_791.txt	2931	last/g3 brg 0
+test2_792.txt	2932	last/rr brg 0
+test2_793.txt	2933	last/cw mbg 1
+test2_794.txt	2934	last/cw mbg 2
+test2_221.txt	2950	Chocobo’s Forest
+test2_737.txt	2951	Chocobo’s Lagoon
+test2_738.txt	2952	Chocobo’s Air Garden
+test2_222.txt	2953	Chocobo’s Dream World
+test2_739.txt	2954	Chocobo’s Paradise
+test2_740.txt	2955	Chocobo’s Paradise
+test2_795.txt	3000	Ending/AT
+test2_796.txt	3001	Ending/AC
+test2_797.txt	3002	Ending/AC
+test2_798.txt	3003	Ending/AC
+test2_799.txt	3004	Ending/BU
+test2_800.txt	3005	Ending/KM
+test2_801.txt	3006	Ending/LB
+test2_802.txt	3007	Ending/TR
+test2_803.txt	3008	Ending/TH
+test2_804.txt	3009	Ending/TH
+test2_805.txt	3010	Ending/TH
+test2_806.txt	3011	Ending/TH
+test2_807.txt	3012	Ending/AC
+test2_808.txt	3050	Mage Village/Entrance
+test2_809.txt	3051	Mage Village/Pond
+test2_810.txt	3052	Mage Village/Cemetery
+test2_811.txt	3053	Mage Village/Inn
+test2_812.txt	3054	Mage Village/Synthesis
+test2_813.txt	3055	Mage Village/Wpn. Shop
+test2_814.txt	3056	Mage Village/Rooftop
+test2_815.txt	3057	Mage Village/Water Mil
+test2_816.txt	3058	Mage Village/Water Mil
+test2_817.txt	3059	Mage Village/Item Shop
+test2_741.txt	3100	Mognet Central

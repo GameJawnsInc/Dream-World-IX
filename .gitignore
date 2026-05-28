@@ -43,6 +43,14 @@ desktop.ini
 .vscode/
 .idea/
 
+# ── Bulk Hades Workshop field-script exports ──────────────────────────
+# Regenerable from HW via Batch → Export Field Scripts. The 800+ per-field
+# .txt files are ~80MB total — too much repo churn for something we can
+# regenerate any time. We keep reference/field-manifest.tsv committed for
+# fast ID/name lookup; the raw dump lives on disk only.
+reference/test2/
+reference/all-fields-export/
+
 # ── NOTE ───────────────────────────────────────────────────────────────
 # backups/ IS tracked on purpose (small text safety net). If you ever back
 # up a binary there, add an explicit ignore for it below:
