@@ -18,7 +18,7 @@ two unsolved problems: registering a brand-new field ID, and authoring a
 walkmesh from scratch to match new art. Do **not** attempt a from-scratch field
 ID unless explicitly told to.
 
-Working target field (the throwaway we repurpose): `TBD — set in Session 0`.
+Working target field (the throwaway we repurpose): **field `1357` — `L. Castle/Hangar`** (chosen in Session 0). Zero `Field()`/`PreloadField()` cross-refs in any other field script, smallest payload of all 817 fields (4.7 KB), already has Zidane init wired up, and no NPCs/regions/exits of its own to gut. Tradeoff accepted: gutting it will break the Lindblum Castle hangar cutscene that uses it (the only known consumer, via C# code — see `Memoria/Assembly-CSharp/Global/Field/Map/NarrowMapList.cs:487`).
 
 ---
 
@@ -179,8 +179,13 @@ If a step's exact command is unknown, find it once, then record it in section 3.
 - Exact Hades Workshop export → game-folder path for field scripts. (Confirm S0.)
 - Whether battle-background dictionary edits persist through Mod Manager
   reinstalls, or must be reapplied.
-- Does the chosen throwaway field get referenced anywhere else in the game's
-  scripts (breaking something when we gut it)? Grep before committing to it.
+- ~~Does the chosen throwaway field get referenced anywhere else in the game's
+  scripts (breaking something when we gut it)? Grep before committing to it.~~
+  **Resolved S0:** Field 1357 has zero `Field()`/`PreloadField()` references in
+  field scripts, but is registered in `NarrowMapList.cs` (a Memoria C# table) —
+  meaning a Lindblum cutscene fires from game code, not field scripts. Tradeoff
+  accepted by user. Lesson kept in memory: grep alone is insufficient because
+  cutscenes can trigger from C#.
 
 ---
 
@@ -188,4 +193,27 @@ If a step's exact command is unknown, find it once, then record it in section 3.
 > Append a dated entry every session: what you changed, what the human verified,
 > what broke, and the next concrete step. Newest at the bottom.
 
-- _YYYY-MM-DD — Session 0 — (not started)_
+### 2026-05-28 — Session 0 — Environment recon & setup
+
+**Done:**
+- Scaffolded mod repo at `C:\gd\FFIX` (commits `a91e45e`, `bec22b3`, `e5ed1f4`, `19e0906`).
+- Verified Steam install: `C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX\`.
+- Installed Memoria via `Memoria.Patcher.exe` v2025.07.04. Confirmed Memoria.Compiler.exe, Sources\Battle\, FF9_Launcher.exe (overwritten in place), and Memoria.ini all present post-patch. Human confirmed the game launches via the new Memoria-branded launcher.
+- Installed Hades Workshop v0.50 (from hiveworkshop.com mirror — no GitHub releases for that repo). Opened the game in HW.
+- Cloned reference sources: `Memoria/` and `Hades-Workshop/` (gitignored).
+- Exported field 0109 Alexandria/Wpn. Shop as the canonical script-format reference (`reference/field-0109-alexandria-wpn-shop.txt`). Learned the script format (Functions, entries, regions, exits, NPC patterns).
+- Bulk-exported all 817 field scripts to `reference/test2/` (gitignored, regenerable). Built `reference/field-manifest.tsv` mapping HW filename → in-game field ID → name.
+- Filled in CLAUDE.md §3 with all verified paths.
+- **Chose throwaway field: 1357 L. Castle/Hangar.** First grep-based recommendation (1357 + 1365) was rightly vetoed by human as cutscene-used; reframed as "which cutscene are we OK affecting" and human picked Hangar. Tradeoff: gutting it will affect the Lindblum hangar cutscene.
+
+**Human verified:**
+- Patcher ran successfully against the Steam install.
+- Game launches via the new Memoria launcher.
+- Hades Workshop opens the game project and shows the Environment → Fields panel.
+- Per game knowledge: L. Castle/Hangar and L. Castle/Telescope are both used in cutscenes (correcting my initial grep-only assessment).
+
+**Open issues / risks:**
+- Mod folder path (Memoria Mod Manager install location) still TBD — will be set in Session 1 when we install our first mod.
+- We can't actually test that field 1357 is "safe" until we gut it and play through Lindblum — accepted risk.
+
+**Next concrete step (Session 1):** Make one trivial visible edit to field 1357 (e.g. add a single NPC line or change initial player coordinates), run the full build/test loop, confirm in-game that the change shows up. Tag a new `KNOWN_GOOD` after that.
