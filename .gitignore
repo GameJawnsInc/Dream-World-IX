@@ -1,0 +1,49 @@
+# ── FF9 Memoria mod repo ───────────────────────────────────────────────
+# Track: our scripts, metadata edits, .hws source, docs, text backups.
+# Ignore: the game install, tool clones, large binaries, derived output.
+
+# ── Game install (never commit — it's huge and not ours) ───────────────
+# Keep the actual FINAL FANTASY IX folder OUTSIDE this repo. If anything
+# game-related lands inside, these catch it:
+game/
+FINAL FANTASY IX/
+**/StreamingAssets/p0data*.bin
+**/StreamingAssets/s*data*.bin
+**/*.assets
+**/*.resource
+**/*.resS
+**/*.bundle
+**/AssetBundles/
+
+# ── Tool clones (keep Memoria / Hades Workshop checkouts separate) ──────
+memoria/
+Memoria/
+hades-workshop/
+Hades-Workshop/
+
+# ── Binaries & build artifacts (derived, not source) ───────────────────
+*.dll
+*.exe
+*.so
+*.dylib
+*.pdb
+*.zip
+*.7z
+*.rar
+# Compiled battle-script output from Memoria.Compiler (regenerated on build)
+**/Scripts/Output/
+**/Compiler/*.log
+
+# ── OS / editor noise ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.vscode/
+.idea/
+
+# ── NOTE ───────────────────────────────────────────────────────────────
+# backups/ IS tracked on purpose (small text safety net). If you ever back
+# up a binary there, add an explicit ignore for it below:
+# backups/*.bin
