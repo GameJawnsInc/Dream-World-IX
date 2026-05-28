@@ -216,4 +216,11 @@ If a step's exact command is unknown, find it once, then record it in section 3.
 - Mod folder path (Memoria Mod Manager install location) still TBD — will be set in Session 1 when we install our first mod.
 - We can't actually test that field 1357 is "safe" until we gut it and play through Lindblum — accepted risk.
 
-**Next concrete step (Session 1):** Make one trivial visible edit to field 1357 (e.g. add a single NPC line or change initial player coordinates), run the full build/test loop, confirm in-game that the change shows up. Tag a new `KNOWN_GOOD` after that.
+**Next concrete step (Session 1):**
+
+1. **Set up a debug warp to field 1357.** Human has no Lindblum-area save and field 1357 is mid-Disc-2 content (hours of play to reach normally). Plan: pick a very early field (probably Alexandria/Main Street, field 100 or 101 — confirm at session start), and add `Field( 1357 )` as the first executable line of its `Main_Init` so launching a new game teleports straight to the Hangar after the unskippable intro. Memoria's `[Graphics] SkipIntros = 3` is already set, so the title-loop is bypassed.
+2. **Confirmed cleanup plan:** this warp is a debug-only hack — track it in a `backups/<early-field>.<timestamp>` snapshot of the original script so we can revert in one step. Do NOT let it ship.
+3. **Once warped in,** make one trivial visible edit to field 1357 itself (e.g. shift Zidane's spawn coordinates by a clearly-visible amount, or add a single popup window on entry). Run the full build/test loop. Human confirms in-game.
+4. **Revert the debug warp**, recompile, confirm normal game start still works, tag a new `KNOWN_GOOD`.
+
+Also rule out option C (Memoria's `[Debug] StartFieldCreator`) for our use case — it's a field *editor* scene, not a field warp; loads geometry but not player behaviour. Sanity check only.
