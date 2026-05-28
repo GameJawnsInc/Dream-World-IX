@@ -12,13 +12,15 @@ Add a new, playable field ("room") to *Final Fantasy IX* (Steam) using the
 **Memoria Engine**, then wire it into the game with working entrances/exits,
 NPCs, dialogue, and at least one encounter.
 
-**Chosen strategy: REPURPOSE, don't mint.** We take an existing field the game
-doesn't need, gut its event script, and rebuild it as our new room. This avoids
-two unsolved problems: registering a brand-new field ID, and authoring a
-walkmesh from scratch to match new art. Do **not** attempt a from-scratch field
-ID unless explicitly told to.
+**Chosen strategy: MINT new fields.** Use HW's `Memoria → Export as Custom Field` to register a brand-new field ID + `DictionaryPatch.txt` line, drop the generated assets into our mod folder, and the engine accepts it. **Proven Session 2** — see the project memory `project-ff9-mint-proven` for the verified runtime path layout and gotchas.
 
-Working target field (the throwaway we repurpose): **field `1357` — `L. Castle/Hangar`** (chosen in Session 0). Zero `Field()`/`PreloadField()` cross-refs in any other field script, smallest payload of all 817 fields (4.7 KB), already has Zidane init wired up, and no NPCs/regions/exits of its own to gut. Tradeoff accepted: gutting it will break the Lindblum Castle hangar cutscene that uses it (the only known consumer, via C# code — see `Memoria/Assembly-CSharp/Global/Field/Map/NarrowMapList.cs:487`).
+This supersedes the earlier "REPURPOSE, don't mint" plan from Session 0. Session 0's worry about "two unsolved problems (registering a new field ID, authoring a walkmesh)" turned out to be solvable: HW's Custom Field export handles registration, and Memoria's `FieldCreatorScene.cs` (in-game editor) loads `.obj` walkmeshes — so walkmesh authoring is a Blender (or other 3D tool) workflow, not hand-binary-editing.
+
+**Reference custom field we minted (Session 2):** ID `4000`, `CUSTOM_FIELD_001`, cloned from field 1357 (L. Castle/Hangar). Engine loads it; render has an atlas-UV bug inherited from HW's clone path (recognizable Hangar tiles in correct positions but many sourcing wrong atlas regions). Workaround options recorded in the project memory.
+
+**Field 1357 is no longer required.** Originally chosen as the throwaway target before we knew minting worked. Kept for now only as a known-good base to clone from. The Lindblum Castle Hangar cutscene we feared affecting is no longer at risk — we don't have to gut 1357 anymore.
+
+**Community context:** Per Session 1 research, no shipped FF9 mod has previously minted brand-new fields. We are likely the first practical reference for this workflow. Worth eventually documenting publicly (qhimm forum post, Moogles & Mods Discord).
 
 ---
 
@@ -261,3 +263,38 @@ Also rule out option C (Memoria's `[Debug] StartFieldCreator`) for our use case 
 3. **Re-import, Save Steam Mod, human plays in.** Confirm the NPC appears, can be talked to, says the line we wrote.
 4. **Iterate:** add a second NPC, an interactive object, a region trigger that pops a window. Each as its own commit, each verified in-game.
 5. After we have ~2 NPCs and 1 interactable working, **plan the exit/entrance back to a real world field** (Session 5 territory).
+
+### 2026-05-28 — Session 2 — MINT proven; pivot from REPURPOSE
+
+**Done:**
+- Researched the FF9 modding community (general-purpose agent report): confirmed no shipped mod has minted brand-new fields. We'd be the first practical reference.
+- Used HW's `Memoria → Export as Custom Field` with field 1357 as base, scriptid=4000, mapid+fieldid=CUSTOM_FIELD_001 → 13 files generated (562 KB) in expected layout. No errors.
+- HW dialog produced this DictionaryPatch line: `FieldScene 4000 57 CUSTOM_FIELD_001 CUSTOM_FIELD_001 1073`.
+- Integrated generated assets into `FF9CustomMap/StreamingAssets/...` and created `FF9CustomMap/DictionaryPatch.txt` with the registration line.
+- Redirected Session-1 warp in field 70 from `Field(1357)` → `Field(4000)`.
+- Game launched → field 4000 loaded → engine accepted the new ID and rendered the cloned BG.
+
+**Human verified:**
+- In-game render is unmistakably the Lindblum Castle Hangar (brown wooden beams, arched windows, lattice structure) — proves cloned assets are being used.
+- BUT atlas tile mapping is broken: many tiles render in correct screen positions but source from wrong/empty regions of `atlas.png`, producing a fragmented image. Player object spawned, walkable (assumed).
+
+**What this proves:**
+- ✅ Custom field IDs work (`DictionaryPatch.txt` `FieldScene` directive)
+- ✅ Memoria's asset loader honors mod-folder paths for FieldMaps + per-language EventBinary
+- ✅ Full required-path layout captured in project memory `project-ff9-mint-proven`
+- ⚠️ HW's Custom Field clone has an atlas-UV bug (or atlas extraction bug) — recognizable Hangar imagery in wrong UV positions
+- ⚠️ Same benign `invalidFieldMapID` log noise as Session 1; unrelated to atlas issue
+
+**Strategic pivot:** [CLAUDE.md §1](CLAUDE.md) rewritten around MINT (was REPURPOSE). Field 1357 is no longer needed as a sacrificial throwaway — it stays only as a known-good base to clone from. The original Lindblum hangar cutscene we feared affecting is no longer at risk.
+
+**Open issues / risks:**
+- **Atlas-UV bug** — render is broken-but-recognizable. Workaround options: (1) try a simpler base field with smaller atlas; (2) hand-author atlas.png + .bgs.bytes; (3) use Memoria's `FieldCreatorScene` in-game editor; (4) compare cloned atlas.png byte-for-byte against the original from p0data*.bin to localize the bug.
+- Field 50 still skipped by the debug warp (Session 1 carry-over).
+- We should eventually document this MINT workflow for the community (qhimm thread / Discord) — the only public reference for FF9 custom-field minting.
+
+**Next concrete step (Session 3 — repurposed as "fix the atlas / pick a clean base"):**
+
+1. **Diagnose the atlas bug.** Quick test: byte-compare the exported `atlas.png` from HW vs the original 1357 atlas inside one of the `p0data*.bin` bundles. If different → HW's extraction is the bug. If identical → the `.bgs.bytes` UV references are off.
+2. **Try a different base field.** Clone something simpler (e.g., a small intro screen) using the same MINT workflow. If THAT renders correctly, the bug is specific to 1357's atlas; if it doesn't, the bug is in HW's clone-path generally.
+3. **If atlas is hopeless: bypass HW's atlas extraction.** Use Memoria's `FieldCreatorScene` (`[Debug] StartFieldCreator=1` in Memoria.ini) to interactively set up a field's BG + walkmesh from scratch, then save. This is the engine-author's intended path for custom fields.
+4. **Once a custom field renders cleanly**, return to the Session 4 plan (add NPCs/dialogue/encounters), this time targeting our minted field rather than 1357.
