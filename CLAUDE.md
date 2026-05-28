@@ -50,15 +50,17 @@ fighting these.
 
 | Thing | Location / note | Status |
 |---|---|---|
-| Memoria source | `Albeoris/Memoria` (GitHub) | TO VERIFY |
-| Memoria installed via | `Memoria.Patcher.exe` (run once against game folder) | TO VERIFY |
-| Game install folder | `TBD` (Steam: `...\steamapps\common\FINAL FANTASY IX\`) | TO SET |
-| Memoria compiler | `<game>\StreamingAssets\Scripts\Compiler\Memoria.Compiler.exe` | TO VERIFY |
-| Battle scripts source | `<game>\StreamingAssets\Scripts\Sources\Battle\` | TO VERIFY |
-| Field scripts | edited via **Hades Workshop** (`Tirlititi/Hades-Workshop`) | TO VERIFY |
-| Hades Workshop opens | `FF9_Launcher.exe` from the game directory | TO VERIFY |
-| Mod folder | Memoria Mod Manager install path `TBD` | TO SET |
-| Memoria.ini | game folder root — engine toggles | TO VERIFY |
+| Memoria source | `C:\gd\FFIX\Memoria\` (clone of `Albeoris/Memoria`, gitignored) | ✅ verified S0 |
+| Memoria installed via | Memoria.Patcher.exe v2025.07.04 run against game folder | ✅ verified S0 |
+| Game install folder | `C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX\` | ✅ verified S0 |
+| Memoria compiler | `<game>\StreamingAssets\Scripts\Compiler\Memoria.Compiler.exe` | ✅ verified S0 |
+| Battle scripts source | `<game>\StreamingAssets\Scripts\Sources\Battle\` | ✅ verified S0 |
+| Field scripts | edited via **Hades Workshop v0.50** (`C:\gd\FFIX\Hades-Workshop\` clone for source; runtime binary installed separately) | ✅ verified S0 |
+| Hades Workshop opens | `<game>\FF9_Launcher.exe` (patcher overwrites in place; no separate Memoria.Launcher.exe is installed) | ✅ verified S0 |
+| Mod folder | Memoria Mod Manager install path `TBD` (set when first mod is installed) | TO SET |
+| Memoria.ini | `<game>\Memoria.ini` — engine toggles | ✅ verified S0 |
+| Bulk field-script export | `reference/test2/` (gitignored, 817 files, ~84 MB) — regenerable via HW Batch → Export Field Scripts | ✅ verified S0 |
+| Field manifest | `reference/field-manifest.tsv` — TSV of filename / field ID / field name | ✅ verified S0 |
 
 > Anything marked TO VERIFY: confirm the real path exists on disk and record the
 > absolute path in the Session Log before relying on it. Do not assume.
