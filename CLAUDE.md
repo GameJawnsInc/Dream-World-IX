@@ -476,3 +476,34 @@ When done with FieldCreatorScene exploration, remember to set `StartFieldCreator
 - Branch `session7-ingame-custom-scene` not yet merged.
 
 **Next concrete step (Session 8):** Now it's all content. (1) Human paints real BG art matched to GRGR's camera (1536×1792, floor lower ~40%, optional foreground layer w/ small Z for occlusion) → I wire into the `.bgx`. (2) Then NPCs/dialogue/triggers in the script, an encounter + BtlEncountBGMMetaData + battle-bg dict entry, and a real entrance/exit to a world field. Consider documenting this recipe for the community (qhimm / Moogles & Mods) — likely the first public FF9 fully-playable minted custom field.
+
+### 2026-05-29 — Session 8 — Human-painted art + walkmesh-to-floor alignment + occlusion ALL working in-game
+
+**The room is now visually real.** Field 4000 renders the human's own painted layers (back/floor/front PNGs), the walkmesh is aligned to the painted floor, movement is correct, and the front wall correctly occludes the player. Complete novel-art custom room, in real gameplay.
+
+**Done:**
+- Wired the human's 3 painted RGBA layers into `FBG_N11_ROOM01_BASE.bgx` as overlays: back (Position 0,0,4000 Size 384,314), floor (0,165,3000 Size 384,283), front (0,385,8 Size 384,63). Shader `PSX/FieldMap_Abr_None` (texkills alpha<0.1 → respects painted transparency). Kept the GRGR matched camera verbatim.
+- **Solved walkmesh↔floor alignment by direct `.bgi` editing (no editor round-trips).** Built `tools/bgi_set_quad4.py` (4 arbitrary corners, y=0, recomputes tri centers) + reused `bgi_fix_neighbors.py`. Iterated the trapezoid against user screenshots until it matched the painted floor.
+- **Derived the projection numerically** from `PSX.CalculateGTE_RTPT_POS` + `BGCAM_DEF.GetMatrixRT` + the GRGR camera, then FIT it to two user calibration points (walkmesh z=340 → painted-canvas Y165 floor seam; z=−1188 → canvas Y273 floor front). Resulting closed form: `screenY(z) = (0.7109375·z + 248)·497/(0.6477051·z + 5018) − 112`, then `canvasY ≈ −0.9247·screenY + 104.89`. This lets me solve for the exact z of any painted-canvas row — no more guessing. Used it to push the front edge to z=−3344 = canvas Y448 (floor bottom, under the wall). Final verts: v0(−1142,0,340) v1(−3,0,340) [back] v2(1465,0,−3344) v3(−1799,0,−3344) [front].
+
+**Human verified (real gameplay):**
+- Renders the painted art clean. ✅
+- Walkmesh matches the visible floor ("you nailed it fitting the visible orange floor"). ✅
+- Player walks down under the front wall and the **front wall PNG draws over him — occlusion works**. ✅
+- He stays on-screen, visible until hidden by the wall (expected). ✅
+
+**What this proves:** the full novel-custom-field pipeline is DONE — mint ID → borrow matched camera → human paints layers → wire overlays w/ depth → align walkmesh to painted floor via the projection formula → fix neighbors → occlusion via a near-Z foreground overlay. Geometry/art/movement/occlusion all solved. Captured in project memory `project-ff9-novel-bg-pipeline` (Session 8 section). Tagged `KNOWN_GOOD-s8-room-playable`.
+
+**Open issues / risks (carry-over):**
+- Debug warp field 70→4000 still active; field 50 opening still skipped. (Cleanup before any release.)
+- On entry: inherited 1357-script junk fires a "Nothing more inside." popup over black before the room loads — to be removed when we author a clean `Main_Init`.
+- Minor 1px overlay-seam tearing (cosmetic, deferred).
+- Branch `session7-ingame-custom-scene` still not merged.
+
+**Next concrete step (Session 9 — content):** Geometry is locked; everything left is script/data I can own.
+1. **Clean `Main_Init`:** remove the inherited popup, confirm player object = Zidane, set the room's flags/state cleanly on entry.
+2. **First NPC** (LibrarianA pattern from `reference/field-0109-alexandria-wpn-shop.txt`): SetModel + CreateObject + idle anim + a `_SpeakBTN` with one line of our dialogue.
+3. **Region trigger** that pops a window (proves trigger plumbing).
+4. **Encounter** + `BtlEncountBGMMetaData.txt` entry + battle-background dictionary entry.
+5. **Real entrance/exit** wiring to a world field (replaces the debug warp).
+Each = one commit + one in-game verification. Decide the room's narrative identity first (drives NPCs/dialogue/encounter theme/where it connects).
