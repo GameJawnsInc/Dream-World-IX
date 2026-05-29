@@ -44,9 +44,10 @@ HALF_FIELD_H = 112.0
 # Global canvas scale: painted-canvas-px per field-screen-px. Derived map is scale-1 on
 # both axes (canvasX = projectedPos.x + HalfW; canvasY = -projectedPos.y + HalfH), but the
 # field's ortho camera applies a single uniform scale s that static source can't reveal.
-# Session-8 GRGR pins s = 0.929 EXACTLY through the origin (both calibration points). Likely
-# 13/14 = 0.92857 or a BG-render ratio; PIN PRECISELY with one clean in-game calibration.
-S_CANVAS = 0.929
+# Pinned by the room02 checkerboard calibration (Session 10): true s = 0.889 (least-squares
+# through front+back walkmesh edges vs drawn grid; residual ~1-2px). Supersedes the Session-8
+# back-fit 0.929 (that was fit to a freehand painting, never a clean measurement).
+S_CANVAS = 0.889
 
 # ---------- tiny 3x3 / vec3 linear algebra ----------
 def mv(M, v):

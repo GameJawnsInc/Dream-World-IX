@@ -20,8 +20,7 @@ cam.depthOffset = 543; cam.viewport = [160, 224, 112, 336]
 cam.r, cam.t = C.synth_r_t(Cpos, C.rot_x(PITCH), H)
 
 FX = 1500
-zb = round(C.solve_z_for_canvasY(cam, 135.0))
-zf = round(C.solve_z_for_canvasY(cam, 425.0))
+zb, zf = 914, -2024   # FIXED to match the deployed walkmesh; grid redraws at the refined s
 print(f"floor: x +/-{FX}, z [{zf}..{zb}]  corners(canvas):")
 for nm,(x,z) in [("BL",(-FX,zb)),("BR",(FX,zb)),("FR",(FX,zf)),("FL",(-FX,zf))]:
     print(f"  {nm} {C.to_canvas((x,0,z),cam)}")
