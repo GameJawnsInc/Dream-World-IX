@@ -56,3 +56,4 @@ reference/all-fields-export/
 # up a binary there, add an explicit ignore for it below:
 # backups/*.bin
 mod/custom-room-01/npc-script-new/**/atlas.png
+tools/*.regen.bgx
