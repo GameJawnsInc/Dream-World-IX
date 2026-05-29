@@ -526,3 +526,20 @@ Geometry is locked; everything left is script/data I can own.
 4. **Encounter** + `BtlEncountBGMMetaData.txt` entry + battle-background dictionary entry.
 5. **Real entrance/exit** wiring to a world field (replaces the debug warp).
 Each = one commit + one in-game verification. Decide the room's narrative identity first (drives NPCs/dialogue/encounter theme/where it connects).
+
+### 2026-05-29 — Session 9 (cont) — Python `.eb` injection PROVEN; HW out of the script loop
+
+**The unlock:** we can now author field-script content (NPC entries, and by extension dialogue/triggers/exits) **directly into the compiled `.eb` in Python, fully byte-verified, with NO Hades Workshop.** First in-game-confirmed Python-injected NPC.
+
+**Why HW was abandoned for scripts:** importing a *new* NPC entry into field 1357 + "Export as Custom Field" produced a CORRUPT `.eb` (disassembler-confirmed: size unchanged 956, entry1=Zidane `type` 2→255, entry2 off=512 overlapping entry1, NPC func table `fpos=33168` out of range). HW reused 1357's 10-slot entry table (empty slots parked at off=512) and overwrote the player object instead of appending. HW's custom-field export can MODIFY existing functions (the clean-entry edit worked) but cannot ADD an entry. Author is retired → won't be fixed.
+
+**Tools built (reusable, in `tools/`):**
+- `eb_disasm.py` — full field `.eb` disassembler. Parses Memoria's `EventEngineUtils` opcode tables (`opArgCount`/`opArgSize`) + `DoEventCode` opcode names *directly from source* (no transcription). Walks BinaryScript→Entry→Function→Code. **Key format facts:** header 44B + PSX name 84B → entry table at offset 128 (10 slots × 8B: off2,sz2,loc1,fl1,pad2); entry = type1,funcCount1,[tag2,fpos2]×fc, then code; **`funcBasePos = entryStart+2`** (fpos measured from BEFORE the func table); 2-byte opcodes prefixed 0xFF. Key opcodes: InitObject(NEW3)=0x09 args[1,1]; Wait=0x22 args[1] (3B `22 00 NN`); SetModel(MODEL)=0x2F args[2,1]; CreateObject(POS)=0x1D args[2,2]; SetStandAnimation(AIDLE)=0x33 arg[2]; DefinePlayerCharacter(CC)=0x2C (0 args); NOP(NOTHING)=0x00; WindowSync(MES)=0x1F args[1,1,2]; WindowAsync(MESN)=0x20; TWIST=0x67.
+- `eb_inject_npc.py` — injects an NPC object entry WITHOUT shifting bytecode: clones the known-good Zidane object entry (file 640..956, 316B) as entry2, NOPs its DefinePlayerCharacter, repositions (x@658/z@666), appends it + sets entry2's table slot (off,sz), and **spawns it by overwriting one Main_Init `Wait(2)` (offset 458, `22 00 02`) with `InitObject(2,0)` (`09 02 00`) — identical length, so no shift and no jump relocation.** Asserts expected bytes per-file before patching (all 7 langs share identical bytecode regions).
+
+**Human verified (real gameplay):** a second (static) Zidane stands in the room at (400,−1400); player Zidane controllable, movement/occlusion intact, no crash. ✅ Tagged `KNOWN_GOOD-s9-npc-injected`.
+
+**Open for next steps:**
+- The injected NPC is a placeholder using the **Zidane model** (guaranteed-valid anims). To make it a real NPC: swap model→21 (LibrarianA) + patch its 5 anim IDs (Stand 2494/Walk 2501/Run 2501/Left 2499/Right 2497); footstep RunModelCode is inert for an idle NPC.
+- **Talk dialogue still needs the text/MES plumbing solved** — field 4000 reads MES id **1073** (a shared base-game block); custom lines need our own MES or a remapped mesID. This + assembling a `_SpeakBTN` (has conditionals/expressions) is the next real problem.
+- Carry-over: debug warp field 70→4000 active; field 50 opening skipped.
