@@ -55,3 +55,4 @@ reference/all-fields-export/
 # backups/ IS tracked on purpose (small text safety net). If you ever back
 # up a binary there, add an explicit ignore for it below:
 # backups/*.bin
+mod/custom-room-01/npc-script-new/**/atlas.png
