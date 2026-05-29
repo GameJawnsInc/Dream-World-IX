@@ -36,6 +36,18 @@ import math
 K_VSCALE = 14.0 / 15.0            # 0.93333..  vertical-focal scale baked into row 1
 ROT = 4096.0                      # fixed-point factor (BGCAM_DEF.ROTATTION_FACTOR)
 
+# Field-screen half-extents (PSX native 4:3). HalfFieldWidth is aspect-dependent under
+# widescreen (PsxFieldWidth/2); HalfFieldHeight is fixed (PsxFieldHeightNative/2 = 112).
+HALF_FIELD_W = 160.0
+HALF_FIELD_H = 112.0
+
+# Global canvas scale: painted-canvas-px per field-screen-px. Derived map is scale-1 on
+# both axes (canvasX = projectedPos.x + HalfW; canvasY = -projectedPos.y + HalfH), but the
+# field's ortho camera applies a single uniform scale s that static source can't reveal.
+# Session-8 GRGR pins s = 0.929 EXACTLY through the origin (both calibration points). Likely
+# 13/14 = 0.92857 or a BG-render ratio; PIN PRECISELY with one clean in-game calibration.
+S_CANVAS = 0.929
+
 # ---------- tiny 3x3 / vec3 linear algebra ----------
 def mv(M, v):
     return [M[i][0]*v[0] + M[i][1]*v[1] + M[i][2]*v[2] for i in range(3)]
@@ -80,17 +92,60 @@ class Cam:
         return [[self.r[i][j]/ROT for j in range(3)] for i in range(3)]
 
 # ---------- the exact engine projection ----------
-def project(P, cam):
-    "Replicates PSX.CalculateGTE_RTPT_POS. Returns (screenX, screenY, depthZ)."
+def project(P, cam, offset=(0.0, 0.0)):
+    """Replicates PSX.CalculateGTE_RTPT_POS. Returns (screenX, screenY, depthZ).
+    `offset` is the 2D projection offset ADDED after the perspective divide.
+    NOTE: the engine does NOT pass raw centerOffset here — it passes `compute_offset(cam)`
+    (FieldMap.cs builds projectionOffset = centerOffset +/- range/2 +/- HalfField).
+    Use project_screen() for the engine-accurate actor position."""
     Rf = cam.Rf()
     v = Fapply(P)                       # flip 1
     res = [mv(Rf, v)[i] + cam.t[i] for i in range(3)]   # R*v + t
     resz = res[2]
     res = Fapply(res)                   # flip 2 (y)
     num = abs(resz)
-    sx = res[0]*cam.proj/num + cam.centerOffset[0]
-    sy = res[1]*cam.proj/num + cam.centerOffset[1]
+    sx = res[0]*cam.proj/num + offset[0]
+    sy = res[1]*cam.proj/num + offset[1]
     return (sx, sy, resz)
+
+def compute_offset(cam, half_w=HALF_FIELD_W, half_h=HALF_FIELD_H):
+    """The projectionOffset the engine actually passes to the GTE (FieldMap.cs:393-406).
+    offset.x = centerOffset.x + w/2 - HalfFieldWidth ; offset.y = -centerOffset.y - h/2 + HalfFieldHeight"""
+    return (cam.centerOffset[0] + cam.range[0]/2.0 - half_w,
+            -cam.centerOffset[1] - cam.range[1]/2.0 + half_h)
+
+def project_screen(P, cam, half_w=HALF_FIELD_W, half_h=HALF_FIELD_H):
+    "Engine-accurate actor screen position (FieldMapActor.cs:121): GTE with the real offset."
+    return project(P, cam, compute_offset(cam, half_w, half_h))
+
+def depth(P, cam):
+    "Actor depth for OT sorting (FieldMapActor.cs:122 / shader): result.z/4 + depthOffset."
+    _, _, resz = project(P, cam)
+    return resz/4.0 + cam.depthOffset
+
+def to_canvas(P, cam, s=S_CANVAS, half_w=HALF_FIELD_W, half_h=HALF_FIELD_H):
+    """Painted-canvas pixel (top-left origin, Y down) where a world point appears.
+    Derived (source): canvasX = projectedPos.x + HalfFieldWidth ; canvasY = -projectedPos.y + HalfFieldHeight.
+    Times the global ortho scale s (Session-8 GRGR: 0.929). For walkmesh<->painted-floor alignment."""
+    px, py, _ = project_screen(P, cam, half_w, half_h)
+    return (s*(px + half_w), s*(-py + half_h))
+
+def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, s=S_CANVAS, half_h=HALF_FIELD_H,
+                        zlo=-6000.0, zhi=6000.0):
+    """Inverse: find the world z (at given x,y) whose foot projects to a painted-canvas row.
+    Bisection on the monotonic canvasY(z). Returns z or None."""
+    def cy(z): return to_canvas((x, y, z), cam, s=s, half_h=half_h)[1]
+    a, b = zlo, zhi
+    fa, fb = cy(a)-canvasY, cy(b)-canvasY
+    if fa == 0: return a
+    if fb == 0: return b
+    if (fa > 0) == (fb > 0): return None
+    for _ in range(80):
+        m = 0.5*(a+b); fm = cy(m)-canvasY
+        if abs(fm) < 1e-4: return m
+        if (fm > 0) == (fa > 0): a, fa = m, fm
+        else: b, fb = m, fm
+    return 0.5*(a+b)
 
 # ---------- decomposition: R_ff9 -> (k-per-row, R_ortho, camera pos C, R_view) ----------
 def decompose(cam):

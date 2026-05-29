@@ -33,11 +33,10 @@ def make(rec):
 PTS = [(0,0,0),(500,0,300),(-800,0,-1200),(1465,0,-3344),(300,-400,800),(-1799,0,-3344)]
 
 def pinhole(P, cam, dec):
-    "Independent projection via the decomposed clean pinhole (R_view, C)."
+    "Independent projection via the decomposed clean pinhole (R_view, C). Offset=(0,0) to match project()."
     cs = C.mv(dec["R_view"], C.sub(P, dec["C"]))
     num = abs(cs[2])
-    return (cs[0]*cam.proj/num + cam.centerOffset[0],
-            cs[1]*cam.proj/num + cam.centerOffset[1], cs[2])
+    return (cs[0]*cam.proj/num, cs[1]*cam.proj/num, cs[2])
 
 print(f"{'camera':18}  {'k(row1)':>8} {'r0':>6} {'r2':>6}  {'orthoErr':>9} {'det':>6}  "
       f"{'fovX':>6}  {'roundtrip dr/dt':>15}  {'proj match':>10}")
@@ -65,10 +64,17 @@ print("-"*108)
 print(f"mean k across cameras (should be ~{C.K_VSCALE:.5f} = 14/15): "
       f"{sum(C.decompose(make(r)[1])['k'] for r in CAMS)/len(CAMS):.6f}")
 
-# Session-8 cross-check: GRGR floor screen.y formula
+# Session-8 cross-check: GRGR floor screen.y + canvas map
 _, grgr = make(CAMS[0])
-for z in (340, -1188):
-    sx, sy, depth = C.project((0,0,z), grgr)
-    print(f"GRGR floor z={z:>6}: GTE screen.y={sy:8.3f} (Session-8 raw, pre canvas-map), depth={depth:8.1f}")
+print(f"\nGRGR offset (engine projectionOffset) = {C.compute_offset(grgr)}  (expect (32, -112))")
+print(f"{'z':>7}  {'projScreen.y':>12}  {'canvasY(s=.929)':>15}  {'Session-8':>10}  depth")
+for z, s8 in ((340, 165), (-1188, 273)):
+    px, py, _ = C.project_screen((0,0,z), grgr)
+    cx, cy = C.to_canvas((0,0,z), grgr)
+    print(f"{z:>7}  {py:12.3f}  {cy:15.2f}  {s8:>10}  {C.depth((0,0,z),grgr):8.1f}")
+# inverse: which z lands on canvasY 165 / 273?
+for cyt in (165, 273):
+    z = C.solve_z_for_canvasY(grgr, cyt)
+    print(f"solve z for canvasY={cyt}: z={z:.1f}")
 
 print("\nALL CHECKS PASS" if allgood else "\nSOME CHECKS FAILED")
