@@ -21,6 +21,10 @@ REL_X   = 658 - E1_OFF              # x const (2 bytes LE), relative
 REL_Z   = 666 - E1_OFF              # z const (2 bytes LE), relative
 REL_MODEL = 691 - E1_OFF            # SetModel model arg (2 bytes LE) -> 2F 00 [62 00] 5D ; model at 689+2
 REL_ANIMSET = 693 - E1_OFF          # SetModel animset (1 byte) -> ...5D
+# animation-setter arg offsets relative to func0 body start (file 650): each setter is op+argflag+2byte arg
+REL_ANIM = {  # name: offset-within-func0-body of the 2-byte anim id
+    "stand": 709 - 650, "walk": 713 - 650, "run": 717 - 650, "left": 721 - 650, "right": 725 - 650,
+}
 
 EXPECT = {
     WAIT2_OFF: bytes([0x22,0x00,0x02]),                 # Wait(2)
@@ -35,7 +39,7 @@ EXPECT = {
 def s16le(v): return struct.pack('<h', v)
 def u16le(v): return struct.pack('<H', v)
 
-def inject(data, npc_x, npc_z, model, animset, talk_textid=62):
+def inject(data, npc_x, npc_z, model, animset, talk_textid=62, anims=None):
     b = bytearray(data)
     for off, exp in EXPECT.items():
         if bytes(b[off:off+len(exp)]) != exp:
@@ -54,6 +58,8 @@ def inject(data, npc_x, npc_z, model, animset, talk_textid=62):
     f0[REL_Z  - (body0 - E1_OFF) : REL_Z - (body0 - E1_OFF) + 2] = s16le(npc_z)
     if model is not None:   f0[REL_MODEL - (body0 - E1_OFF):REL_MODEL - (body0 - E1_OFF)+2] = u16le(model)
     if animset is not None: f0[REL_ANIMSET - (body0 - E1_OFF)] = animset & 0xFF
+    for name, val in (anims or {}).items():
+        o = REL_ANIM[name]; f0[o:o+2] = u16le(val)
     # --- build func2 = _SpeakBTN: WindowSync(1,128,textid) ; return(0x04) ---
     f2 = bytes([0x1F, 0x00, 0x01, 0x80]) + u16le(talk_textid) + bytes([0x04])
     # --- assemble new entry: type=2, funcCount=3, 12-byte func table, then f0|f1|f2 ---
@@ -72,12 +78,19 @@ def inject(data, npc_x, npc_z, model, animset, talk_textid=62):
     b[E2_TBL+5]          = 0x00
     return bytes(b)
 
+# character presets: (model, animset, {stand,walk,run,left,right})
+PRESETS = {
+    "vivi":   (8,  61, {"stand":148, "walk":571, "run":419, "left":917, "right":918}),
+    "zidane": (None, None, None),  # leave the cloned Zidane model/anims as-is
+}
+
 if __name__ == "__main__":
     inp, outp = sys.argv[1], sys.argv[2]
     npc_x = int(sys.argv[3]) if len(sys.argv) > 3 else 400
     npc_z = int(sys.argv[4]) if len(sys.argv) > 4 else -1400
-    model = int(sys.argv[5]) if len(sys.argv) > 5 else None
-    animset = int(sys.argv[6]) if len(sys.argv) > 6 else None
-    out = inject(open(inp,'rb').read(), npc_x, npc_z, model, animset)
+    preset = sys.argv[5] if len(sys.argv) > 5 else "zidane"
+    talk_textid = int(sys.argv[6]) if len(sys.argv) > 6 else 62
+    model, animset, anims = PRESETS[preset]
+    out = inject(open(inp,'rb').read(), npc_x, npc_z, model, animset, talk_textid, anims)
     open(outp,'wb').write(out)
-    print(f"wrote {outp}: {len(out)} bytes (was {len(open(inp,'rb').read())}); NPC x={npc_x} z={npc_z} model={model}")
+    print(f"wrote {outp}: {len(out)} bytes; NPC x={npc_x} z={npc_z} preset={preset} textid={talk_textid}")
