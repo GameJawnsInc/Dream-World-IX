@@ -558,3 +558,21 @@ Each = one commit + one in-game verification. Decide the room's narrative identi
 **What's proven now (the full custom-room toolkit):** mint field → borrow camera → human art + walkmesh + occlusion → clean entry → inject NPCs (any model+anims) → talk triggers → **custom dialogue text** — all in Python, all verified by `eb_disasm.py` before deploy, no HW for any of it.
 
 **Next (to make it a real, reachable place):** replace the debug warp (field 70→4000) with a real entrance from a world field + an exit back; optional encounter (+BtlEncountBGMMetaData + battle-bg dict) and more NPCs/triggers.
+
+### 2026-05-29 — Session 10 — Novel-camera MATH cracked (Phase 1: read/decompose/synthesize ANY camera)
+
+**Strategic pivot (user's call):** Stepped back to ask what we're really building. User chose to **crack the novel-camera math** — author a camera for ANY angle from scratch, instead of only borrowing a real room's matched camera (the Session-6 workaround, forced because the editor's 5-point anchor solver is mathematically degenerate for flat floors). This is the gate to truly arbitrary novel geometry+perspective.
+
+**Done (all offline, no game — pure code/data/math, squarely in my lane; only final in-game alignment is Hard-Constraint §2 human's):**
+- Read the exact projection pipeline from Memoria source: `PSX.CalculateGTE_RTPT_POS` (PSX.cs), `BGCAM_DEF.GetMatrixRT`/`ReadData` (BGCAM_DEF.cs), the `.bgx` CAMERA parser + exporter (BGSCENE_DEF.cs). **Confirmed player/walkmesh screen position = `CalculateGTE_RTPT_POS(worldPos, identity, GetMatrixRT(), proj, centerOffset)` — `FieldMapActor.cs:121`** (localRTS = identity). The projection that places the player is exactly the one that must place the walkmesh on the painted floor.
+- **Found the invariant (the whole secret):** `R_ff9 = diag(1, k, 1)·R_ortho`, R_ortho a proper orthonormal rotation, **k = 14/15 = 0.93333… a global constant** baked into orientation-matrix row 1 (vertical-focal aspect correction; the GTE has one projection distance H for both axes). Verified across 6 real cameras (GRGR, TSHP×2, BSHP, GZML, TRNO) spanning 3/4-tilt, 90° yaw, oblique, inverted: row0 & row2 norms ≈ 1.000, **row1 norm ≈ 0.9333 every time**, mean 0.933332.
+- Built `tools/cam_lib.py` (pure stdlib): exact GTE `project()`, `decompose()` (recovers k, orthonormal R_ortho, camera world pos C, R_view, FOV), `synth_r_t()` (inverse: byte-faithful Int16 r[][]+t[] from C/R_ortho/H), `.bgx` parse/format. Derived `t = -R_ff9·(F·C)` ⇔ `C = -F·R_ff9⁻¹·t` (F = diag(1,-1,1) y-flip).
+- Built `tools/test_cameras.py` (6 cameras hardcoded). **ALL CHECKS PASS:** ortho_err ~1e-4 (quantization), det +1 for all (proper rotations), synthesis round-trips r/t to ≤1 Int16, clean pinhole form reproduces engine GTE projection to ~1e-13. GRGR floor cross-check reproduces Session 8 calibration (z=340→screen.y 46.46; z=−1188→−69.79).
+
+**What this proves:** read / decompose / re-synthesize ANY FF9 camera, byte-faithful + projection-exact, zero in-game iteration. The Session-6 dead end (degenerate editor solver) is fully bypassed. Captured in project memory `project-ff9-camera-math`. (No KNOWN_GOOD tag — nothing shipped to game yet; this is offline tooling.)
+
+**What's left:**
+- **Phase 2 (for novel ART):** canvas↔GTE-screen linear map (scale `a` + offsets) → emit the exact Blender camera (lens/sensor/resolution) whose render aligns with the GTE projection. Session 8 found GRGR's vertical map ≈ −0.929·screenY_raw + ~208 on the logical 384×448 canvas; Phase 2 = DERIVE `a` from camera params (read FieldMap camera/Unity-cam + overlay placement) and reproduce that number.
+- **Phase 3 (human, in-game):** decisive proof. Lowest-risk first test = regenerate an existing camera via `synth_r_t`, confirm room UNCHANGED in-game (validates write path in real engine, isolates synth from art). Then a true novel angle with matching art (needs Phase 2).
+
+**Next concrete step:** user choice — (A) Phase 2 (derive canvas↔screen scale → exact Blender lens), (B) in-game synth-faithfulness test now (regenerate GRGR's camera, confirm no visible change), or (C) novel-angle demo once Phase 2 lands.
