@@ -543,3 +543,18 @@ Each = one commit + one in-game verification. Decide the room's narrative identi
 - The injected NPC is a placeholder using the **Zidane model** (guaranteed-valid anims). To make it a real NPC: swap model→21 (LibrarianA) + patch its 5 anim IDs (Stand 2494/Walk 2501/Run 2501/Left 2499/Right 2497); footstep RunModelCode is inert for an idle NPC.
 - **Talk dialogue still needs the text/MES plumbing solved** — field 4000 reads MES id **1073** (a shared base-game block); custom lines need our own MES or a remapped mesID. This + assembling a `_SpeakBTN` (has conditionals/expressions) is the next real problem.
 - Carry-over: debug warp field 70→4000 active; field 50 opening skipped.
+
+### 2026-05-29 — Session 9 (cont 2) — Custom TALKING NPC (Vivi + our dialogue) — full content pipeline DONE
+
+**The whole content pipeline now works end-to-end, in real gameplay, zero Hades Workshop:** a custom NPC (Vivi) with correct model+animations, a working talk trigger, and **our own authored dialogue line** ("I miss you Zidane").
+
+**Done (all via `tools/eb_inject_npc.py` + a mod MES file):**
+- **Talk trigger:** added a `_SpeakBTN` (funcTag 3) to the injected NPC entry — `WindowSync(1,128,<textid>) ; return(0x04)`. The injector rebuilds the NPC entry with 3 functions (Init/Loop/SpeakBTN), recomputing the func table (func0/func1 shift +4 for the extra slot). Human-verified: facing the NPC + action opens a dialogue window. ✅
+- **Vivi model+anims:** injector `vivi` preset — SetModel(8,61) + patch the 5 anim-setter args to Vivi's (Stand 148/Walk 571/Run 419/Left 917/Right 918) in-place in the cloned func0. Human-verified: NPC is Vivi, idles correctly. ✅
+- **Custom dialogue TEXT — SOLVED.** Field text loads cumulatively across mods from `<mod>/FF9_Data/embeddedasset/text/<lang>/field/<mesID>.mes` (FF9TextTool.ImportStrtWithCumulativeModFiles → AssetManager.LoadStringMultiple; base processed last, so base wins per-index). The `.mes` format supports explicit `[TXID=<n>]` indices. So: drop a mod `1073.mes` with our line at a **high index the base block doesn't use** → base text untouched, our entry added. Content (all 7 langs): `_[TXID=500][STRT=10,1][TAIL=UPR]I miss you Zidane[ENDN]` (leading non-`[STRT=` char so the TXID is parsed as a re-index, not entry 0 — verified by simulating ExtractSentense: produces ONLY index 500). Repointed the NPC's `WindowSync` 62→500. Human-verified: NPC says "I miss you Zidane", window positioned fine. ✅
+
+**Tagged `KNOWN_GOOD-s9-talking-npc`.** Recipe in project memory `project-ff9-eb-script-tooling` (custom-text section).
+
+**What's proven now (the full custom-room toolkit):** mint field → borrow camera → human art + walkmesh + occlusion → clean entry → inject NPCs (any model+anims) → talk triggers → **custom dialogue text** — all in Python, all verified by `eb_disasm.py` before deploy, no HW for any of it.
+
+**Next (to make it a real, reachable place):** replace the debug warp (field 70→4000) with a real entrance from a world field + an exit back; optional encounter (+BtlEncountBGMMetaData + battle-bg dict) and more NPCs/triggers.
