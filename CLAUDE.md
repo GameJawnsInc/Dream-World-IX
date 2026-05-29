@@ -450,3 +450,29 @@ When done with FieldCreatorScene exploration, remember to set `StartFieldCreator
 - ROOM01_BASE proven only in the EDITOR — not yet in actual gameplay via DictionaryPatch + warp.
 
 **Next concrete step (Session 7):** Pick one — (A) **Art swap:** human paints a full-canvas 1536×1792 background matched to GRGR's perspective (floor lower ~40%; optional separate foreground layer w/ small Z for front-wall occlusion), I wire it into a `.bgx` with GRGR's camera + our rect walkmesh. (B) **Prove in-game:** register the custom field (DictionaryPatch FieldScene) + point the field-70 warp at it + confirm it loads in real gameplay, not just the editor.
+
+### 2026-05-28 — Session 7 — FULLY PLAYABLE custom room IN-GAME (complete end-to-end)
+
+**Chose (B) prove in-game — and nailed it.** A minted custom field (id 4000) with a borrowed GRGR camera + our own rectangular walkmesh now renders, moves, and is fully walkable in REAL gameplay. Likely the first fully-playable minted custom field with custom geometry in FF9.
+
+**Done (all on branch `session7-ingame-custom-scene`):**
+- Traced the runtime load path: `BGSCENE_DEF.LoadResources` auto-uses `FieldMaps/<FBG>/<FBG>.bgx` if present (pure-Memoria scene); walkmesh loads from `<FBG>.bgi.bytes` via `BGI_DEF.LoadBGI`. Both keyed by the FBG name.
+- Assembled `FF9CustomMap/.../FieldMaps/FBG_N11_ROOM01_BASE/` = `.bgx` (GRGR cam + overlays) + 7 PNGs + our `.bgi.bytes`. DictionaryPatch field 4000 → `FieldScene 4000 11 ROOM01_BASE CUSTOM_FIELD_001 1073` (unique name, no real-field collision). `StartFieldCreator=0`.
+- **Fixed movement rotation:** binary-patched the TWIST opcode `SetControlDirection -60,-60 → -1,-1` (=0°, standard WASD) in all 7 language `EVT_CUSTOM_FIELD_001.eb.bytes` (`67 00 C4 C4 → 67 00 FF FF`). The -60 was the Hangar tuning; GRGR's camera is yaw-free.
+- **Fixed walkmesh "invisible walls":** `ConvertToBGI` links triangle neighbors unreliably (order-sensitive Edge equality) → diagonal became a wall, trapping the player in a triangle. Wrote `tools/bgi_fix_neighbors.py` to rebuild ALL neighbor links + edgeClones from shared-vertex analysis (convention reverse-engineered from HW's working walkmesh). Re-deployed the patched `.bgi`.
+
+**Human verified (in real gameplay, step by step):**
+- Custom room renders clean (GRGR Alexandria-castle bg placeholder; minor 1px overlay-seam tearing). ✅
+- Party normal (Zidane), menu works. ✅
+- WASD standard (W up / S down / A left / D right) after the TWIST fix. ✅
+- **Entire rectangle walkable, diagonal no longer blocks, perimeter still stops you** after the .bgi neighbor fix. ✅
+
+**What this proves — the complete novel-custom-field recipe (all in project memory `project-ff9-novel-bg-pipeline`, Session 7 section):** mint field ID → borrow a real room's matched camera + framed region → author a custom walkmesh `.obj` in that region → editor Save to get `.bgi.bytes` → run `bgi_fix_neighbors.py` → assemble `FieldMaps/<FBG>/` (.bgx + PNGs + .bgi.bytes) + DictionaryPatch + warp → set TWIST for the camera. Reproducible.
+
+**Open issues / risks (carry-over cleanup):**
+- Debug warp field 70→4000 still active; field 50 opening still skipped.
+- `StartFieldCreator` toggles between 0 (play) and 1 (editor) each walkmesh iteration — friction; `bgi_fix_neighbors.py` reduces editor trips.
+- Minor 1px overlay-seam tearing (cosmetic, deferred).
+- Branch `session7-ingame-custom-scene` not yet merged.
+
+**Next concrete step (Session 8):** Now it's all content. (1) Human paints real BG art matched to GRGR's camera (1536×1792, floor lower ~40%, optional foreground layer w/ small Z for occlusion) → I wire into the `.bgx`. (2) Then NPCs/dialogue/triggers in the script, an encounter + BtlEncountBGMMetaData + battle-bg dict entry, and a real entrance/exit to a world field. Consider documenting this recipe for the community (qhimm / Moogles & Mods) — likely the first public FF9 fully-playable minted custom field.
