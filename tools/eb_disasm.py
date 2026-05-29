@@ -103,7 +103,7 @@ def disasm(path, only_entry=None):
         for f in range(fc):
             tag = raw[q]|(raw[q+1]<<8); fpos=raw[q+2]|(raw[q+3]<<8); q+=4
             ftab.append((tag,fpos))
-        fbase = q
+        fbase = ep+2  # funcBasePos = entryStart+2 (fpos is measured from BEFORE the func table)
         print(f"  type={etype} funcCount={fc} tags={[t for t,_ in ftab]}")
         for f,(tag,fpos) in enumerate(ftab):
             fstart = fbase+fpos
