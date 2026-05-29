@@ -428,3 +428,25 @@ When done with FieldCreatorScene exploration, remember to set `StartFieldCreator
 2. **Then author a minimal NOVEL field:** simplest viable = one flat painted BG overlay + a flat rectangular walkmesh (Blender `.obj`) + one camera aligned via 5-point anchor. Human paints + models; we wire the `.bgx`/paths.
 3. Integrate into `FF9CustomMap` + `DictionaryPatch` + warp; verify in-game.
 4. Consider documenting the PNG-path bug + workaround for the community (qhimm / Moogles & Mods Discord) — we may be the first to get this editor working.
+
+### 2026-05-28 — Session 6 — Borrowed-camera walkmesh PROVEN; custom room core solved
+
+**The breakthrough:** A novel flat-floor field's hard problem is the CAMERA, not the walkmesh. The editor's 5-point anchor is mathematically degenerate for a flat floor (all walkmesh verts y=0 → rank-deficient solve → 5th point blows the matrix up → walkmesh flies off-screen). Confirmed in source (`PointScreenAnchor.PerformAnchorOnCamera` + `Math3D.SolveMatrixEquation`). Dead end. **Solution: borrow a real room's matched camera + walkmesh region instead of solving one.**
+
+**Done:**
+- Read the projection pipeline (`PSX.CalculateGTE_RTPT_POS`, `BGCAM_DEF.GetMatrixRT`, `FieldMapActor` shader) + the anchor solver — diagnosed the flat-floor degeneracy precisely.
+- Had user Load Internal Field `FBG_N21_GRGR_MAP420_GR_CEN_0` (cleanest sample: symmetric ~50° 3/4 tilt, 7 overlays) and Save as custom field `ROOM01_BASE` → harvested its REAL matched camera + walkmesh.
+- Found our prior placeholder camera was a de-tuned GRGR (wrong Position.Y -160 vs -248, Range 320×267 vs 384×448, Viewport) — a big reason alignment failed before. Preserved GRGR's verbatim camera + real walkmesh in `mod/custom-room-01/borrowed-grgr/`.
+- Swapped GRGR's walkmesh for a rectangle inside its framed region (X±800, Z -900..300, 3×3 grid), kept GRGR's camera + real bg, deleted stale `.bgi.bytes`. One-variable test.
+
+**Human verified (screenshot):** Real GRGR bg renders; rectangular custom walkmesh lies **flat on the floor in correct perspective**; Zidane **stands on it naturally** and moves in-plane. ✅
+
+**What this proves:** custom walkmesh + borrowed matched camera = a correctly-rendered, walkable custom floor. The editor's broken anchor is fully bypassed. Core of a playable custom room. Recipe + canvas facts in project memory `project-ff9-novel-bg-pipeline` (Session 6 section).
+
+**Canvas facts for art wiring:** logical canvas 384×448; PNGs 4× upscaled (full layer 1536×1792). Overlay Position=top-left logical px (Y down), Size=px/4, Z=depth (smaller=in front of char). Floor sits canvas Y~240-416.
+
+**Open issues / risks:**
+- `[Debug] StartFieldCreator=1` still set — game boots into editor; reset to 0 to play.
+- ROOM01_BASE proven only in the EDITOR — not yet in actual gameplay via DictionaryPatch + warp.
+
+**Next concrete step (Session 7):** Pick one — (A) **Art swap:** human paints a full-canvas 1536×1792 background matched to GRGR's perspective (floor lower ~40%; optional separate foreground layer w/ small Z for front-wall occlusion), I wire it into a `.bgx` with GRGR's camera + our rect walkmesh. (B) **Prove in-game:** register the custom field (DictionaryPatch FieldScene) + point the field-70 warp at it + confirm it loads in real gameplay, not just the editor.
