@@ -500,8 +500,27 @@ When done with FieldCreatorScene exploration, remember to set `StartFieldCreator
 - Minor 1px overlay-seam tearing (cosmetic, deferred).
 - Branch `session7-ingame-custom-scene` still not merged.
 
-**Next concrete step (Session 9 — content):** Geometry is locked; everything left is script/data I can own.
-1. **Clean `Main_Init`:** remove the inherited popup, confirm player object = Zidane, set the room's flags/state cleanly on entry.
+### 2026-05-29 — Session 9 — Clean entry DONE; content-script pipeline (edit-1357 → reclone) proven
+
+**Done:**
+- Removed the inherited "Error Env Play()" / "Nothing more inside." entry popup and baked the movement fix into source. **Key discovery: HW does NOT track minted custom fields (4000) in its Fields panel** — they exist only as our DictionaryPatch line + mod-folder `EVT_CUSTOM_FIELD_001.eb`. So the script pipeline for our custom field is: **edit the base field it was cloned from (1357) in HW → "Export as Custom Field" (which writes straight into `FF9CustomMap`) → it regenerates `EVT_CUSTOM_FIELD_001.eb`**. No runtime text→.eb path exists (DataPatchers.cs:441 always loads the compiled `.eb`).
+- User edited field 1357's `Main_Init` inline in HW: deleted both `WindowAsync(6,0,62)` popup blocks + `SetControlDirection(-60,-60)→(-1,-1)`. Re-exported.
+- **Built an `.eb` opcode verifier** from Memoria's `EventEngineUtils` tables (opArgCount/opArgSize). Key opcodes: TWIST=0x67 `SetControlDirection` (`67 00 FF FF` = -1,-1), MESN=0x20 `WindowAsync` (`20 00 06 00 3E 00` = (6,0,62)), MESVALUE=0x66, RAISE=0x8E, WAITMES=0x54. Verified all 7 languages: TWIST(-1,-1)=1, TWIST(-60,-60)=0, WindowAsync=0. DictionaryPatch unaffected (HW shows the area-57 line in its dialog but did NOT overwrite our file).
+
+**Human verified (real gameplay):** Clean load — **no popup**, standard WASD movement, room renders. ✅ Tagged `KNOWN_GOOD-s9-clean-entry`.
+
+**Notes for content work:**
+- The reclone overwrites `FF9CustomMap` content but NOT our `FBG_N11_ROOM01_BASE` art (HW writes a separate unused `FBG_N57_...`). Re-verify DictionaryPatch after each export (keep `mod/FF9CustomMap-DictionaryPatch.txt` as the source of truth).
+- Do NOT "Save Steam Mod" after editing 1357 (that would push 1357 edits to the live Hangar) — "Export as Custom Field" alone is enough.
+- **Open question for NPCs/dialogue:** field 4000 uses MES text id **1073** (borrowed/shared base-game text — Session 3 found it resolves to unrelated end-game lines). Authoring our own dialogue needs either our own MES or a remapped mesID. Resolve when adding the first NPC.
+
+**Next concrete step:** First NPC on field 1357 (→ reclone): a `#HW newentry` with `_Init` (SetModel/CreateObject/idle anim/position) + `_SpeakBTN` (TurnTowardObject + dialogue window), using the LibrarianA pattern in `reference/field-0109-alexandria-wpn-shop.txt`. Sort out the text/MES plumbing as part of it.
+
+---
+
+#### (Original Session 9 plan — content)
+Geometry is locked; everything left is script/data I can own.
+1. **Clean `Main_Init`:** remove the inherited popup, confirm player object = Zidane, set the room's flags/state cleanly on entry. **(DONE — see Session 9 above.)**
 2. **First NPC** (LibrarianA pattern from `reference/field-0109-alexandria-wpn-shop.txt`): SetModel + CreateObject + idle anim + a `_SpeakBTN` with one line of our dialogue.
 3. **Region trigger** that pops a window (proves trigger plumbing).
 4. **Encounter** + `BtlEncountBGMMetaData.txt` entry + battle-background dictionary entry.
