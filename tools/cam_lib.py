@@ -126,10 +126,14 @@ def depth(P, cam):
 
 def to_canvas(P, cam, s=S_CANVAS, half_w=HALF_FIELD_W, half_h=HALF_FIELD_H):
     """Painted-canvas pixel (top-left origin, Y down) where a world point appears.
-    Derived (source): canvasX = projectedPos.x + HalfFieldWidth ; canvasY = -projectedPos.y + HalfFieldHeight.
-    Times the global ortho scale s (Session-8 GRGR: 0.929). For walkmesh<->painted-floor alignment."""
+    Calibrated (room02 grid, Session 10):
+      canvasX = w/2 + s*(projectedPos.x - offsetX)   # centered on canvas mid; offsetX = projX at x=0
+      canvasY = s*(-projectedPos.y + HalfFieldHeight) # scales about the top
+    Horizontal centers at the canvas midpoint (world x=0 -> canvasX = w/2); vertical scales
+    about the top. (Asymmetry confirmed empirically; the engine's field ortho camera differs per axis.)"""
     px, py, _ = project_screen(P, cam, half_w, half_h)
-    return (s*(px + half_w), s*(-py + half_h))
+    offx, _ = compute_offset(cam, half_w, half_h)
+    return (cam.range[0]/2.0 + s*(px - offx), s*(-py + half_h))
 
 def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, s=S_CANVAS, half_h=HALF_FIELD_H,
                         zlo=-6000.0, zhi=6000.0):
