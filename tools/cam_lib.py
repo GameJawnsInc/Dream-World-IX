@@ -44,10 +44,12 @@ HALF_FIELD_H = 112.0
 # Global canvas scale: painted-canvas-px per field-screen-px. Derived map is scale-1 on
 # both axes (canvasX = projectedPos.x + HalfW; canvasY = -projectedPos.y + HalfH), but the
 # field's ortho camera applies a single uniform scale s that static source can't reveal.
-# Pinned by the room02 checkerboard calibration (Session 10): true s = 0.889 (least-squares
-# through front+back walkmesh edges vs drawn grid; residual ~1-2px). Supersedes the Session-8
-# back-fit 0.929 (that was fit to a freehand painting, never a clean measurement).
-S_CANVAS = 0.889
+# Pinned by the room02 checkerboard calibration (Session 10). The field ortho camera scales the
+# two axes DIFFERENTLY (non-square): vertical 0.889 (top/bottom edges), horizontal 0.926 (left/right
+# edges). Supersedes the Session-8 back-fit 0.929 (fit to a freehand painting, never a clean grid).
+S_CANVAS_X = 0.926
+S_CANVAS_Y = 0.889
+S_CANVAS = S_CANVAS_Y   # back-compat alias
 
 # ---------- tiny 3x3 / vec3 linear algebra ----------
 def mv(M, v):
@@ -124,22 +126,22 @@ def depth(P, cam):
     _, _, resz = project(P, cam)
     return resz/4.0 + cam.depthOffset
 
-def to_canvas(P, cam, s=S_CANVAS, half_w=HALF_FIELD_W, half_h=HALF_FIELD_H):
+def to_canvas(P, cam, sx=S_CANVAS_X, sy=S_CANVAS_Y, half_w=HALF_FIELD_W, half_h=HALF_FIELD_H):
     """Painted-canvas pixel (top-left origin, Y down) where a world point appears.
     Calibrated (room02 grid, Session 10):
-      canvasX = w/2 + s*(projectedPos.x - offsetX)   # centered on canvas mid; offsetX = projX at x=0
-      canvasY = s*(-projectedPos.y + HalfFieldHeight) # scales about the top
-    Horizontal centers at the canvas midpoint (world x=0 -> canvasX = w/2); vertical scales
-    about the top. (Asymmetry confirmed empirically; the engine's field ortho camera differs per axis.)"""
+      canvasX = w/2 + sx*(projectedPos.x - offsetX)   # centered on canvas mid; offsetX = projX at x=0
+      canvasY =       sy*(-projectedPos.y + HalfFieldHeight)  # scales about the top
+    Horizontal centers at the canvas midpoint (world x=0 -> canvasX = w/2) and uses sx=0.926;
+    vertical scales about the top with sy=0.889 (the field ortho camera is non-square)."""
     px, py, _ = project_screen(P, cam, half_w, half_h)
     offx, _ = compute_offset(cam, half_w, half_h)
-    return (cam.range[0]/2.0 + s*(px - offx), s*(-py + half_h))
+    return (cam.range[0]/2.0 + sx*(px - offx), sy*(-py + half_h))
 
-def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, s=S_CANVAS, half_h=HALF_FIELD_H,
+def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, sy=S_CANVAS_Y, half_h=HALF_FIELD_H,
                         zlo=-6000.0, zhi=6000.0):
     """Inverse: find the world z (at given x,y) whose foot projects to a painted-canvas row.
     Bisection on the monotonic canvasY(z). Returns z or None."""
-    def cy(z): return to_canvas((x, y, z), cam, s=s, half_h=half_h)[1]
+    def cy(z): return to_canvas((x, y, z), cam, sy=sy, half_h=half_h)[1]
     a, b = zlo, zhi
     fa, fb = cy(a)-canvasY, cy(b)-canvasY
     if fa == 0: return a
