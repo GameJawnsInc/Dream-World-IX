@@ -22,10 +22,8 @@ cam.range = [CANVAS_W, CANVAS_H]; cam.depthOffset = 543; cam.viewport = [160, 22
 cam.r, cam.t = C.synth_r_t(Cpos, C.rot_x(PITCH), H)
 
 # ---------------- floor: world rectangle on y=0, framed to fill the canvas ----------------
-CANVASY_BACK, CANVASY_FRONT = 135.0, 425.0        # where floor back/front edges land
 FX = 1500                                          # floor half-width in world units
-zb = C.solve_z_for_canvasY(cam, CANVASY_BACK)      # back edge (far, +z)
-zf = C.solve_z_for_canvasY(cam, CANVASY_FRONT)     # front edge (near, -z)
+zb, zf = 914, -2024                                # FIXED: the deployed+calibrated walkmesh corners
 # walkmesh corners (bgi vert order v0,v1 back; v2,v3 front)
 verts = [(-FX,0,zb),(FX,0,zb),(FX,0,zf),(-FX,0,zf)]
 
@@ -69,10 +67,11 @@ for z in range(int(round(zb/200)*200), int(zf)-1, -200):
 # center vertical (x=0)
 ct = P2px(*cv((0,0,zb))); cb = P2px(*cv((0,0,zf)))
 dr.line([ct,cb], fill=(120,200,255,120), width=1)
-# region labels
-dr.text((W*0.30, P2px(0,CANVASY_BACK)[1]-90), "BACK WALL / BACKGROUND  (paint above the floor)",
+# region labels (use the floor edges' canvasY)
+cyb = cv((0,0,zb))[1]; cyf = cv((0,0,zf))[1]
+dr.text((W*0.30, cyb*SCALE-90), "BACK WALL / BACKGROUND  (paint above the floor)",
         fill=(180,200,255), font=font)
-dr.text((W*0.32, P2px(0,CANVASY_FRONT)[1]+18), "front lip / under-wall (optional occlusion overlay)",
+dr.text((W*0.32, cyf*SCALE+18), "front lip / under-wall (optional occlusion overlay)",
         fill=(180,200,255), font=font)
 dr.text((10,10), f"PAINT GUIDE — steeper top-down (pitch {int(PITCH)}deg)\n"
         f"canvas {CANVAS_W}x{CANVAS_H} (this png is {SCALE}x).  Paint the FLOOR inside the orange quad;\n"
