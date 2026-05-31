@@ -1,0 +1,8 @@
+CAMERA
+ViewDistance: 497
+CenterOffset: 0, 0
+Position: 0, 0, 4500
+Range: 384, 448
+DepthOffset: 543
+Viewport: 160, 224, 112, 336
+OrientationMatrix: 1, 0, 0, 0, 0.6245117, -0.6936035, 0, 0.7431641, 0.6691895
