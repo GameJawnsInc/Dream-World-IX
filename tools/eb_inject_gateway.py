@@ -28,10 +28,10 @@ assert len(TEMPLATE) == 272, len(TEMPLATE)
 REL_PTS, REL_ENTRANCE, REL_FIELD = 13, 263, 269   # offsets within the entry
 WAIT2_OFF = 458                                    # Main_Init Wait(2) filler -> InitRegion
 
-def inject(data, target, slot, entrance, zone):
+def inject(data, target, slot, entrance, zone, wait_off=WAIT2_OFF):
     b = bytearray(data)
-    if bytes(b[WAIT2_OFF:WAIT2_OFF+3]) != bytes([0x22,0x00,0x02]):
-        raise SystemExit(f"no Wait(2) filler at {WAIT2_OFF}: {b[WAIT2_OFF:WAIT2_OFF+3].hex()}")
+    if bytes(b[wait_off:wait_off+3]) != bytes([0x22,0x00,0x02]):
+        raise SystemExit(f"no Wait(2) filler at {wait_off}: {b[wait_off:wait_off+3].hex()}")
     tslot = 128 + slot*8
     if bytes(b[tslot:tslot+4]) != bytes([0x00,0x02,0x00,0x00]):
         raise SystemExit(f"entry slot {slot} not empty (off2 sz0): {b[tslot:tslot+8].hex()}")
@@ -40,7 +40,7 @@ def inject(data, target, slot, entrance, zone):
         struct.pack_into('<hh', e, REL_PTS+i*4, x, z)
     struct.pack_into('<H', e, REL_ENTRANCE, entrance)
     struct.pack_into('<H', e, REL_FIELD, target)
-    b[WAIT2_OFF:WAIT2_OFF+3] = bytes([0x08, slot, 0x00])   # InitRegion(slot,0)
+    b[wait_off:wait_off+3] = bytes([0x08, slot, 0x00])     # InitRegion(slot,0)
     off = len(b) - 128
     b += e
     struct.pack_into('<H', b, tslot, off)          # entry table slot: off, sz, loc=0, fl=0
