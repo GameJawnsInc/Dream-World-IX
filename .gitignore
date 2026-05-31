@@ -57,3 +57,4 @@ reference/all-fields-export/
 # backups/*.bin
 mod/custom-room-01/npc-script-new/**/atlas.png
 tools/*.regen.bgx
+__pycache__/
