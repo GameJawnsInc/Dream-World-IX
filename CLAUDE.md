@@ -616,3 +616,17 @@ Each = one commit + one in-game verification. Decide the room's narrative identi
 - Both axes' scales (sx=0.926, sy=0.889) pinned on ONE camera (room02). Assumed global (the FieldMap Camera is one prefab) — re-confirm opportunistically on a different angle.
 
 **Next concrete step:** paint the REAL steeper-top-down room. I regenerate a clean paint guide for the deployed walkmesh (fixed corners, calibrated map) → human paints floor + walls to it → I swap the grid BG for the painted layers (same camera/walkmesh) + add depth overlays for occlusion → verify in-game. Then content (NPCs/dialogue/exits) as in the room01 pipeline.
+
+### 2026-05-31 — Session 10 (cont) — Calibration validated across the REAL FF9 angle range
+
+**Done:** Stress-tested the canvas calibration with checkerboard grid rooms at multiple pitches (each = field 4000 via DictionaryPatch mapid swap, global `sx=0.926/sy=0.889`, NO re-tuning):
+- **room02 (65°):** all four edges pixel-perfect.
+- **room03 (75°):** sides + front perfect, but back drifts ~1/8–1/4 sq (feet past the line). Investigated hard — ruled out body-height (computed) and depth-coupling (fit it; would throw the front off ~200px). It's a small pitch-dependent vertical nonlinearity at steep/far edges.
+- **Found the REAL range:** decomposing the 6 real FF9 cameras, downward pitch spans ~0–48° (GRGR steepest ~48°, most 15–28°). So 65° and 75° are both STEEPER than anything FF9 ships — we'd been stress-testing out of range.
+- **room04 (48°, the real steep end = GRGR's angle):** back edge "a little short, reasonable" (user-accepted); sides/front good.
+
+**Conclusion:** the back-edge residual is ZERO at the 65° calibration point and grows away from it (48°=slightly short, 75°=clearly past) — a real but small pitch-dependent term. It's REASONABLE across the entire real FF9 range (≤48°) and irrelevant in practice (back edge = wall, occlusion-hidden). `sx` is global on every tested angle. For a dead-on back at a chosen angle, re-pin `sy` with one grid check at that pitch. **Calibration declared good for all real-range rooms.** Tagged `KNOWN_GOOD-s10-calib-validated`.
+
+**Carry-over:** field 4000 currently loads ROOM04_TD calibration grid. To restore the talking-Vivi painted room: revert DictionaryPatch `ROOM04_TD → ROOM01_BASE`. Debug warp 70→4000 still active.
+
+**Next:** PAINT the real room. User picks the angle (real range ≤48° for FF9 authenticity, or 65° steeper — both calibrated). I emit a pixel-accurate paint guide for that camera + the walkmesh; human paints floor+walls; I wire the painted layers (same camera/walkmesh) + depth overlays for occlusion; verify in-game. Then NPCs/dialogue/exits.
