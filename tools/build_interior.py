@@ -32,7 +32,12 @@ EXIT_TARGET = 4000
 EXIT_SLOT   = 3       # entry slot (Vivi=2); InitRegion(3,0) over the 2nd Main_Init Wait(2) @461
 EXIT_WAIT   = 461     # the second Wait(2) filler (the first @458 was used for Vivi's InitObject)
 EXIT_ENTR   = 0       # target has no EntryList -> entrance ignored, spawns at 4000's default (10,-754)
-EXIT_ZONE   = [(-900, -2000), (900, -2000), (900, -2267), (0, -2267), (-900, -2267)]  # front strip (deep+wide)
+# IsInQuad (EventEngine.TreadQuad.cs) tests the player against a FAN of consecutive vertex
+# triplets (q[i],q[i+1],q[i+2]), NOT the true polygon. Three collinear points => a zero-area
+# triangle and a DEAD ZONE in the polygon centre (the old z[-2050,-2267] 5-pt strip had its
+# whole front edge collinear -> centre-front never triggered). Use a CONVEX QUAD with the last
+# vertex DOUBLED (5 pts, no degenerate triple) so the fan covers the region completely.
+EXIT_ZONE   = [(-1100, -2000), (1100, -2000), (1100, -2300), (-1100, -2300), (-1100, -2300)]
 
 PX_OFF, PZ_OFF = 658, 666   # player (entry1) X / Z const bytes, file offsets in the clean script
 
