@@ -592,3 +592,27 @@ Each = one commit + one in-game verification. Decide the room's narrative identi
 **Open (small):** pin `s` precisely (0.929 vs 13/14) and confirm it's truly global, via ONE clean in-game calibration: place walkmesh verts at known (x,0,z), human reports the exact canvas pixel the feet rest on, 3-4 well-spaced points. `s=0.929` already works (Session 8 used it); this just refines + de-risks for novel rooms.
 
 **Next concrete step:** Phase 3b — build a TRUE novel-angle room: I author a new camera (e.g. different pitch/yaw), use `to_canvas`/`solve_z_for_canvasY` to give the human a paint guide + place the walkmesh, human paints art to match, verify alignment in-game. (Optionally do the clean `s`-calibration as part of the same playtest.)
+
+### 2026-05-31 — Session 10 (cont) — Phase 2 + 3b DONE: novel-angle camera authored, calibrated, walkable in-game
+
+**The whole novel-camera goal is now achieved end-to-end.** A brand-new camera angle (65° top-down, vs the old room's 49.6°), authored from scratch via the math, with a walkmesh that lands pixel-accurate on the projected floor — confirmed in real gameplay. Likely the first FF9 custom field at a from-scratch-authored camera angle.
+
+**Done:**
+- **Phase 2 (canvas↔screen map) cracked from source + CALIBRATED in-game.** Read the actor shader (`FieldMapActor.txt`) + `FieldMap.cs` camera setup + `BGSCENE_DEF` overlay placement. EXACT pieces: projectionOffset = `(cx + w/2 − HalfFieldW, −cy − h/2 + HalfFieldH)` (the engine passes THIS to the GTE, not raw centerOffset; its `−112` is Session 8's mystery constant); depth = `result.z/4 + depthOffset`; overlay world placement `(canvasX − HalfW, HalfH − canvasY)`.
+- **Built `tools/cam_lib.py` canvas API:** `compute_offset`, `project_screen`, `depth`, `to_canvas`, `solve_z_for_canvasY`.
+- **Built a clean in-game calibration** (`tools/build_room02_calib.py`): a perspective checkerboard floor as the BG + a walkmesh of the SAME world corners, deployed as field 4000 via a DictionaryPatch mapid swap (`ROOM01_BASE → ROOM02_TD`; room01 untouched, one-line revert). Iterated against the player walking to each edge:
+  1. top/bottom gaps → vertical scale **sy = 0.889** (least-squares; Session 8's 0.929 was a freehand back-fit, ~4% off).
+  2. sides uniformly shifted → my X scaled about the canvas CORNER not the MIDPOINT → **center X at w/2**.
+  3. sides then symmetric-over → X scale ≠ Y scale → horizontal scale **sx = 0.926**. The field ortho camera is non-square.
+- Final map: `canvasX = w/2 + sx·(projX − offX)`, `canvasY = sy·(−projY + HalfH)`. All 6 camera checks still pass.
+
+**Human verified (in real gameplay, step by step):** renders the steeper top-down ✓; spawns on the floor ✓; WASD correct ✓; after the sx/sy + centering fixes, **all four walkmesh edges land on the drawn floor lines — "nailed it"** ✓.
+
+**What this completes:** the full novel-custom-field pipeline now includes ARBITRARY camera angles. Recipe: author camera (`synth_r_t` from pitch/yaw/pos/FOV) → frame the floor + emit a pixel-accurate paint guide (`to_canvas`/`solve_z_for_canvasY`) → build the walkmesh in that frame → human paints to the guide → walkmesh aligns. Captured in project memory `project-ff9-camera-math` (Phase 2/3b sections). Tagged `KNOWN_GOOD-s10-novel-camera`.
+
+**Open issues / risks (carry-over):**
+- Field 4000 currently loads the ROOM02_TD **calibration grid** (not room01's painted art). To restore the talking-Vivi room: revert the DictionaryPatch line `ROOM02_TD → ROOM01_BASE` (or `backups/DictionaryPatch.txt.20260529-194021`).
+- Debug warp field 70→4000 still active; field 50 opening still skipped.
+- Both axes' scales (sx=0.926, sy=0.889) pinned on ONE camera (room02). Assumed global (the FieldMap Camera is one prefab) — re-confirm opportunistically on a different angle.
+
+**Next concrete step:** paint the REAL steeper-top-down room. I regenerate a clean paint guide for the deployed walkmesh (fixed corners, calibrated map) → human paints floor + walls to it → I swap the grid BG for the painted layers (same camera/walkmesh) + add depth overlays for occlusion → verify in-game. Then content (NPCs/dialogue/exits) as in the room01 pipeline.
