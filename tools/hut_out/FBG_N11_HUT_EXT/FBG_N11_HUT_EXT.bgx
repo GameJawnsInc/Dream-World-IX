@@ -4,7 +4,7 @@ CameraId: 0
 ViewportId: 0
 Position: 0, 0, 3000
 Size: 384, 448
-Image: ground.png
+Image: hut.png
 Shader: PSX/FieldMap_Abr_None
 
 OVERLAY
@@ -12,7 +12,7 @@ CameraId: 0
 ViewportId: 0
 Position: 0, 0, 4000
 Size: 384, 448
-Image: hut.png
+Image: ground.png
 Shader: PSX/FieldMap_Abr_None
 
 CAMERA

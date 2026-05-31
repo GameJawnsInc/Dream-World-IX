@@ -4,7 +4,7 @@ CameraId: 0
 ViewportId: 0
 Position: 0, 0, 3000
 Size: 384, 448
-Image: floor.png
+Image: walls.png
 Shader: PSX/FieldMap_Abr_None
 
 OVERLAY
@@ -12,7 +12,7 @@ CameraId: 0
 ViewportId: 0
 Position: 0, 0, 4000
 Size: 384, 448
-Image: walls.png
+Image: floor.png
 Shader: PSX/FieldMap_Abr_None
 
 CAMERA
