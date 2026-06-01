@@ -668,3 +668,26 @@ Each = one commit + one in-game verification. Decide the room's narrative identi
 **Revert/bisect for the morning:** `py tools/restore_memoria_dll.py baseline` swaps the engine back to the no-edits rebuild (isolates my edits from the rebuild itself). Full original = re-run the patcher. Do NOT Steam-"verify integrity" (reverts the Managed DLLs).
 
 **NEXT (needs the human):** Playtest. (1) Game launches & field 4000 behaves normally? (rebuild sanity). (2) Battle-return + door re-entry fade fast & not see-through? (cache). (3) Battles instantly fast with no F-keys? (booster). Report per-item; if anything's broken, run the restore script and say so. Open questions left in chat.
+
+### 2026-06-01 — Session 12 (cont) — Engine build verified; battle music, fade, BGM, New-Game skip, cold-start all SOLVED in-game
+
+Human playtested everything from the overnight build forward; all verified. Big polish session — the room is now a clean, fast, audio-complete experience.
+
+**Done + human-verified (newest commits):**
+- **Engine build works in-game** (`820ad51`): fade texture-cache + booster auto-enable rebuild launches & plays normally. Baseline-rebuild is the no-edits revert (`tools/restore_memoria_dll.py baseline`); true original = re-run patcher.
+- **See-through fade FIXED** (`4be67bd`): flattened the exterior rear layer (`ground.png`) opaque over user-chosen #2d4739 — surround no longer shows black through the fade. (Appearance fix; the *slowness* was separate ↓.)
+- **Slow battle-return fade FIXED — it was a TIMED fade, not perf** (`87ada84`): `BattleResultUI` fires `FF9Wipe_FadeInEx(256)` = a 256-frame timed fade; normal fields' Main_Init issues a quick `FadeFilter(~16)` to override it, but after BATTLE the field runs tag-10 (Main_Reinit), and ours was bare `EnableMove;return`. Fix: `tools/eb_reinit_add_fade.py` prepends `FadeFilter(2,16,0,0,0,0)` to tag-10. The engine texture-cache turned out NOT to be the fade fix (kept anyway, harmless). Memory updated (`project-ff9-encounters`).
+- **Battle music FIXED** (`5667230`): `BattlePatch.txt` `Music:` takes the akao **song-play** id, NOT the music-file number — `Music: 6` played Game Over; **`Music: 0`** = Battle Theme. (Same id-space gotcha bit field BGM ↓.)
+- **Field BGM = Vivi's Theme** (`300b240`): `RunSoundCode(0, 9)` (`ff9fldsnd_song_play(9)` → music008) added via `tools/eb_add_field_music.py` to the encounter init-entry (on room entry) + tag-10 (after battle). Song id **9**, not file-number 8 (verified vs real fields 100/103). Human: plays on entry + resumes after battle. ✓
+- **New Game → field 4000 directly** (`f3f32af`): skips the opening FMV (debug build). Human-confirmed.
+- **Cold-start (laggy first map) FIXED via mod file-lists** (`b25f6ac`): root cause was ~9,700 listless mod files → disk-bound asset lookups (`AssetManager` `File.Exists` fallback when `AssetList` empty). One `UseFileList=2` indexing launch generated `ModFileList.txt` for all mods → back to `=1` + **deleted FF9CustomMap's list** (our active mod stays disk-truth = no stale-list footgun; static Moguri/AF lists give HashSet lookups). Map load now fast.
+- **Superspeed off-by-default but F1-toggleable** (`ea5d544` + `c292567`): dropped the SpeedMode auto-enable in `SettingsState` (kept Attack9999 auto-on); ini `SpeedMode=1` keeps the F1 hotkey live. Human: F1 toggles. ✓
+- **Residual ~8s TITLE lag diagnosed + accepted** (`c292567`): added a temporary frame-hitch logger to `SceneDirector.Update`, captured the profile → ~2-3.7s asset-bundle stall (Moguri/OS-cache variable) + ~6s of dead-regular **GC-flat** ~400ms stalls = **shader/asset compile warm-up** (persists with Moguri OFF → not Moguri, not our field). Title-screen only, never touches gameplay → accepted. Logger removed; engine clean. Memory `project-ff9-memoria-build` covers the build/auto-deploy/version-match gotchas.
+
+**Tags:** `KNOWN_GOOD-s12-fade-fixed`, `-s12-music+newgame`, `-s12-vivi-theme`, `-s12-polish` (current clean engine).
+
+**Engine state (deployed):** Assembly-CSharp = base `6b8bb2d5` + fade texture-cache + Attack9999 auto-on (SpeedMode off/F1-toggle). Patch: `memoria-patches/s12-engine-edits.patch`. ini: `UseFileList=1` (+ static mod lists), `SpeedMode=1`, `Attack9999=1`.
+
+**Carry-over / cleanup before any release:** debug New-Game→4000 skip + field-70 warp still active (field 50 opening skipped); custom field not yet wired into a normal playthrough; engine is a debug build (boosters auto-on).
+
+**Next concrete step:** **wire the real-world entrance** — a gateway from an existing world field into 4000 + an exit back (replacing the debug New-Game skip), so the room is reachable in a normal playthrough. Then optional content (more NPCs/story, a second encounter) and the release cleanup pass.
