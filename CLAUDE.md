@@ -691,3 +691,22 @@ Human playtested everything from the overnight build forward; all verified. Big 
 **Carry-over / cleanup before any release:** debug New-Game→4000 skip + field-70 warp still active (field 50 opening skipped); custom field not yet wired into a normal playthrough; engine is a debug build (boosters auto-on).
 
 **Next concrete step:** **wire the real-world entrance** — a gateway from an existing world field into 4000 + an exit back (replacing the debug New-Game skip), so the room is reachable in a normal playthrough. Then optional content (more NPCs/story, a second encounter) and the release cleanup pass.
+
+### 2026-06-01 — Session 12 (cont) — Custom room WIRED INTO ALEXANDRIA (round trip, in-game verified)
+
+**The room is now reachable from the real game world.** Field 4000 ↔ Alexandria Main Street (field 100) round trip works in gameplay: walk out the room's left exit → arrive in Alexandria → walk up the street to a well-placed door → back in the room. Tagged `KNOWN_GOOD-s12-alexandria-entrance`.
+
+**Done:**
+- Confirmed `evt_alex1_at_street_a` = **field 100 (Alexandria/Main Street)** by exit fingerprint (its exits `Field(101)/(107)/(114)` match the HW export of field 100). AlternateFantasy ships this `.eb` on disk → **no Hades Workshop needed**; edit AF's copy + deploy as a higher-priority **FF9CustomMap override** (FF9CustomMap is first in FolderNames + listless = disk-truth, so it wins and needs no ModFileList entry).
+- Built `tools/wire_alexandria.py`: full-range (entry-count-aware) gateway injector. Clones field 109's proven exit-region TEMPLATE (272 B), appends into a free entry slot, and activates via `InitRegion(slot,0)` inserted at a **jump-safe** offset (grow containing entry + shift later entries; internal fpos are relative so unchanged).
+  - **EXIT** HUT 4000 → `Field(100)` ent 204: slot 4, `InitRegion(4,0)` inserted after `InitRegion(2,0)` @465 (HUT Main_Init has NO jumps → trivially safe). Zone = left side of room, clear of the front-center 4002 door. **Entrance 204 = the value field 107 uses to enter 100** → player arrives at a real walkable spot (bottom of Main St).
+  - **DOOR** field 100 → `Field(4000)` ent 0: slot 18, `InitRegion(18,0)` inserted after `InitRegion(11,0)` @743 (jump-safe — the only two Main_Init jumps target 752/841, both *past* the insert). Zone = center-left mid-street, away from the 3 existing exits + the from-107 spawn.
+- Verified post-inject (disasm): original exits (101/107/114) + cutscene entry 19 intact; all 7 langs identical size (1550 / 13799). Backups: `backups/*.prealexit.*` (HUT) / `*.afbase.*` (field 100).
+
+**Human verified (in-game):** exit-out works; **Alexandria walkable on arrival** (no full cutscene hijack — the festival is flag-gated off); spawn at the normal bottom-of-walkway point; **door back "worked and well placed."** ✅
+
+**Two benign quirks — user chose to LEAVE AS-IS:** entering field 100 via the debug round trip shows (a) **Vivi as the on-screen avatar** (field 100 is the early-game festival field — you canonically control Vivi there; our debug party is Zidane, so model=Vivi but menu=Zidane) and (b) an **"Error Env Play() Slot=0" popup** (a leftover dev *placeholder string* baked into many base fields' text tables — found in `1073.mes`, `121.mes`, `124.mes`, …; NOT an engine error and NOT our code; field 100 surfaces it from its out-of-context festival audio/NPC setup). Neither crashes. Both are **debug-context artifacts** — a story-positioned Disc-4 entrance runs field 100's town-mode (Zidane, no festival, no popup), and our door region runs unconditionally so it works in both modes. Polish deferred to the release pass.
+
+**Open / carry-over:** debug New-Game→4000 skip still active (the round trip currently starts *in the room*, not Alexandria); field 50 opening skipped; engine is a debug build (Attack9999 auto-on). The field-100 override door is permanent in any future real playthrough (intended).
+
+**Next:** options — (a) more room content (NPCs/story/dialogue, a second encounter); (b) a story-positioned *real-playthrough* entrance (replace the New-Game→4000 skip); or (c) begin the release-cleanup pass (remove debug warp, retune door if needed, revisit the quirks).
