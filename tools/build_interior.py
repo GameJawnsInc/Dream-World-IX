@@ -23,8 +23,8 @@ GAME = ("C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9Custo
         "assets/resources/commonasset/eventengine/eventbinary/field/{}/EVT_HUT_INT.eb.bytes")
 
 # --- tunable positions (world x, z) ---
-VIVI   = (0, -950)    # canvasY ~274, centre of the visible floor
-PLAYER = (0, -1850)   # canvasY ~372, front/bottom near the door; clear of the front exit zone
+VIVI   = (0, -700)    # back/upper area, ahead of the player on entry
+PLAYER = (0, -1350)   # mid floor, clearly ABOVE the exit zone (no spawn-in-zone instant-exit)
 TEXTID = 500          # Vivi's custom line ("I miss you Zidane")
 
 # --- exit gateway: front strip of the floor -> back outside (Field 4000) ---
@@ -37,7 +37,10 @@ EXIT_ENTR   = 0       # target has no EntryList -> entrance ignored, spawns at 4
 # triangle and a DEAD ZONE in the polygon centre (the old z[-2050,-2267] 5-pt strip had its
 # whole front edge collinear -> centre-front never triggered). Use a CONVEX QUAD with the last
 # vertex DOUBLED (5 pts, no degenerate triple) so the fan covers the region completely.
-EXIT_ZONE   = [(-1100, -2000), (1100, -2000), (1100, -2300), (-1100, -2300), (-1100, -2300)]
+# Point ORDER matters beyond coverage: CalculateExitPosition (0xA4) projects the player onto the
+# q[0]->q[1] edge and ExitField (0x9E) walks them there before the fade. Put the FRONT edge
+# (z=-2400) first so the down-walking player continues FORWARD into the fade (no turn-around arc).
+EXIT_ZONE   = [(-1100, -2400), (1100, -2400), (1100, -1750), (-1100, -1750), (-1100, -1750)]
 
 PX_OFF, PZ_OFF = 658, 666   # player (entry1) X / Z const bytes, file offsets in the clean script
 
