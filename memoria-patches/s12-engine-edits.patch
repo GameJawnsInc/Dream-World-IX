@@ -33,10 +33,10 @@ index 1e42a31d..4e3452fe 100644
                  bgOverlay.memoriaMaterial.mainTexture = bgOverlay.memoriaImage;
          }
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.Initialize.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.Initialize.cs
-index 17f2f56b..5d2ff039 100644
+index 17f2f56b..c508127d 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.Initialize.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.Initialize.cs
-@@ -44,8 +44,18 @@ public partial class EventEngine
+@@ -44,8 +44,19 @@ public partial class EventEngine
          FF9StateSystem.EventState.gAbilityUsage.Clear();
          FF9StateSystem.EventState.gScriptVector.Clear();
          FF9StateSystem.EventState.gScriptDictionary.Clear();
@@ -49,11 +49,12 @@ index 17f2f56b..5d2ff039 100644
 +        // opening before shipping. (was 4000 = direct-to-room; before that 70 = Opening-For FMV.)
 +        FF9StateSystem.Common.FF9.fldMapNo = 100; // Alexandria/Main Street
 +        FF9StateSystem.Common.FF9.fldLocNo = (Int16)EventEngineUtils.eventIDToMESID[100];
-+        // Enter field 100 at entrance 204 (the "from field 107" arrival = bottom of the walkway),
-+        // NOT the default entrance 0 which triggers the festival ticket cutscene (softlocks out of
-+        // context). 204 is the walkable branch confirmed via the 4000->100 round trip. This is
-+        // General_FieldEntrance (gEventGlobal[2..3]); same value the engine reads at EventEngine.cs:657.
-+        FF9StateSystem.EventState.FieldEntrance = 204;
++        // Enter field 100 at entrance 231 (the "from field 114" arrival), whose player-init block
++        // (block B) we've repainted to the bottom-of-walkway spawn (0,332). 201/231/204 are field
++        // 100's three NON-festival entrances (Main_Init switch @587); any other value triggers the
++        // festival ticket cutscene (softlock). We use 231 for New Game so the room-door spawn (block
++        // C, entrance 204) stays decoupled for the 4000->100 return. FieldEntrance = gEventGlobal[2..3].
++        FF9StateSystem.EventState.FieldEntrance = 231;
          FF9StateSystem.Settings.time = 0.0;
          this._encountTimer = Configuration.Battle.EncounterInitial;
          this._encountBase = 0;
