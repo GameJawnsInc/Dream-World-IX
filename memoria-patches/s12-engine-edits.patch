@@ -1,3 +1,39 @@
+diff --git a/Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs b/Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs
+index 239720c7..a1c67726 100644
+--- a/Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs
++++ b/Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs
+@@ -201,6 +201,7 @@ namespace Assets.Scripts.Common
+ 
+         private void Update()
+         {
++            MemoriaStartupHitchLog();   // [Memoria DEBUG] cold-start hitch diagnosis (remove after)
+             for (Int32 updateCount = 0; updateCount < FPSManager.MainLoopUpdateCount; updateCount++)
+             {
+                 this._logger.Update();
+@@ -208,6 +209,23 @@ namespace Assets.Scripts.Common
+             }
+         }
+ 
++        // [Memoria DEBUG - remove after cold-start diagnosis] Logs frame hitches (>50ms) in the first
++        // 25s after launch (realtimeSinceStartup, current scene, gen-0 GC count, managed memory MB) to
++        // pin what the ~8s title warm-up is (asset streaming vs GC vs other). Capped to avoid spam.
++        private static Int32 _memHitchCount = 0;
++        private void MemoriaStartupHitchLog()
++        {
++            Single t = Time.realtimeSinceStartup;
++            if (t > 25f || _memHitchCount > 200)
++                return;
++            Single dt = Time.unscaledDeltaTime;
++            if (dt > 0.05f)
++            {
++                _memHitchCount++;
++                Memoria.Prime.Log.Message($"[Hitch] t={t:F2}s dt={dt * 1000f:F0}ms scene={this.CurrentScene} gc0={System.GC.CollectionCount(0)} mem={System.GC.GetTotalMemory(false) / 1048576L}MB");
++            }
++        }
++
+         private void OnGUI()
+         {
+             GUI.depth = -2147483647;
 diff --git a/Assembly-CSharp/Global/BGSCENE_DEF.cs b/Assembly-CSharp/Global/BGSCENE_DEF.cs
 index 1e42a31d..4e3452fe 100644
 --- a/Assembly-CSharp/Global/BGSCENE_DEF.cs
@@ -51,27 +87,25 @@ index 17f2f56b..11d3af5d 100644
          this._encountTimer = Configuration.Battle.EncounterInitial;
          this._encountBase = 0;
 diff --git a/Assembly-CSharp/Global/SettingsState.cs b/Assembly-CSharp/Global/SettingsState.cs
-index f683c782..f1a6a558 100644
+index f683c782..a9648677 100644
 --- a/Assembly-CSharp/Global/SettingsState.cs
 +++ b/Assembly-CSharp/Global/SettingsState.cs
-@@ -77,6 +77,11 @@ public class SettingsState : MonoBehaviour
+@@ -77,6 +77,10 @@ public class SettingsState : MonoBehaviour
      {
          Boolean[] flagArray = new Boolean[8];
          flagArray[2] = true;
-+        // [Memoria debug build] Auto-enable the ini-enabled fast-test boosters at startup so they don't
-+        // need re-pressing each launch. [1]=SpeedMode (F1, SpeedFactor x), [3]=Attack9999 (F3, 9999 dmg).
-+        // [4]=NoRandomEncounter is intentionally left OFF (encounters are wanted for testing).
-+        flagArray[1] = Configuration.Cheats.SpeedMode;
++        // [Memoria debug build] Auto-enable Attack9999 (F3, one-shot) for fast test battles. SpeedMode
++        // (F1 superspeed) is intentionally NOT auto-enabled -> starts OFF but stays F1-toggleable
++        // (Cheats.SpeedMode=1 keeps the hotkey live). NoRandomEncounter also stays OFF (want encounters).
 +        flagArray[3] = Configuration.Cheats.Attack9999;
          IsBoosterButtonActive = flagArray;
      }
  
-@@ -130,6 +135,8 @@ public class SettingsState : MonoBehaviour
+@@ -130,6 +134,7 @@ public class SettingsState : MonoBehaviour
          cfg = new FF9CFG();
          Boolean[] flagArray = new Boolean[8];
          flagArray[2] = true;
-+        flagArray[1] = Configuration.Cheats.SpeedMode;     // [Memoria debug build] auto-enable F1 SpeedMode
-+        flagArray[3] = Configuration.Cheats.Attack9999;    // [Memoria debug build] auto-enable F3 Attack9999
++        flagArray[3] = Configuration.Cheats.Attack9999;    // [Memoria debug build] auto-enable F3 Attack9999 (SpeedMode stays OFF, F1-toggleable)
          IsBoosterButtonActive = flagArray;
          SetSound();
          SetSoundEffect();
