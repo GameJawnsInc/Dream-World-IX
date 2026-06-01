@@ -33,20 +33,22 @@ index 1e42a31d..4e3452fe 100644
                  bgOverlay.memoriaMaterial.mainTexture = bgOverlay.memoriaImage;
          }
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.Initialize.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.Initialize.cs
-index 17f2f56b..11d3af5d 100644
+index 17f2f56b..8cf69b35 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.Initialize.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.Initialize.cs
-@@ -44,8 +44,11 @@ public partial class EventEngine
+@@ -44,8 +44,13 @@ public partial class EventEngine
          FF9StateSystem.EventState.gAbilityUsage.Clear();
          FF9StateSystem.EventState.gScriptVector.Clear();
          FF9StateSystem.EventState.gScriptDictionary.Clear();
 -        FF9StateSystem.Common.FF9.fldMapNo = 70; // Opening-For FMV
 -        FF9StateSystem.Common.FF9.fldLocNo = (Int16)EventEngineUtils.eventIDToMESID[70];
-+        // [Memoria DEBUG build] New Game jumps straight to custom field 4000, skipping the opening
-+        // FMV/field 70 entirely. eventIDToMESID[4000] is populated by our DictionaryPatch FieldScene
-+        // line (DataPatchers.cs:400). REVERT both lines to 70 for the normal opening before shipping.
-+        FF9StateSystem.Common.FF9.fldMapNo = 4000; // was 70 (Opening-For FMV)
-+        FF9StateSystem.Common.FF9.fldLocNo = (Int16)EventEngineUtils.eventIDToMESID[4000]; // was [70]
++        // [Memoria DEBUG build] New Game lands in Alexandria/Main Street (field 100), skipping the
++        // opening FMV/field 70. From there you walk up the street to our custom-field door (the
++        // FF9CustomMap override of field 100 adds a region -> Field(4000)) -- i.e. you reach the
++        // room by walking through the real game world. REVERT both lines to 70 for the normal
++        // opening before shipping. (was 4000 = direct-to-room; before that 70 = Opening-For FMV.)
++        FF9StateSystem.Common.FF9.fldMapNo = 100; // Alexandria/Main Street
++        FF9StateSystem.Common.FF9.fldLocNo = (Int16)EventEngineUtils.eventIDToMESID[100];
          FF9StateSystem.Settings.time = 0.0;
          this._encountTimer = Configuration.Battle.EncounterInitial;
          this._encountBase = 0;
