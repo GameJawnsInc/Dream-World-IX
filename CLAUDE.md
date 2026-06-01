@@ -710,3 +710,24 @@ Human playtested everything from the overnight build forward; all verified. Big 
 **Open / carry-over:** debug New-Game→4000 skip still active (the round trip currently starts *in the room*, not Alexandria); field 50 opening skipped; engine is a debug build (Attack9999 auto-on). The field-100 override door is permanent in any future real playthrough (intended).
 
 **Next:** options — (a) more room content (NPCs/story/dialogue, a second encounter); (b) a story-positioned *real-playthrough* entrance (replace the New-Game→4000 skip); or (c) begin the release-cleanup pass (remove debug warp, retune door if needed, revisit the quirks).
+
+### 2026-06-01 — Session 12 (cont) — Real-playthrough Alexandria entrance: New Game → walk in → room (fully polished)
+
+**New Game now lands you in a clean, walkable Alexandria and you reach the room by walking to a door** — no more New-Game→room skip. Full in-game-verified loop: New Game → Alexandria (Vivi's Theme, bottom-of-walkway spawn) → walk up to the door → room 4000 → interior 4002 → room → back out the door, **stepping out right at the Alexandria door**. Tagged `KNOWN_GOOD-s12-alex-entrance-polished`.
+
+**Engine (rebuilt + auto-deployed each step; patch `memoria-patches/s12-engine-edits.patch`):**
+- New-Game target `EventEngine.Initialize.NewGame()`: `fldMapNo` 4000 → **100** (Alexandria/Main St; opening FMV still skipped).
+- Set `EventState.FieldEntrance = 231` in NewGame() so field 100 enters via a **non-festival** branch. (Default entrance 0 triggers the festival ticket cutscene, which **softlocks** out of context — Vivi loops his pick-up anim, no control.)
+
+**Field 100 (FF9CustomMap override of AF's `evt_alex1_at_street_a.eb`, all 7 langs; tools in `tools/`):**
+- **Festival gating decoded** (`Main_Init` switch @587): entrances **201/231/204 → normal/walkable** branch; **anything else → festival** (InitCode 14 + ticket cutscene). So only those three values are safe; the "default" block is the festival path.
+- **Player-init position switch** (entry 19 @10805): 201→block A (top), 231→block B, 204→block C. Each block sets `D9(0)=X,D9(4)=Z,D9(6)=dir` then `CreateObject`.
+- **Door-spawn + decouple:** block C (204) repainted to the door (−250, 2100) for the **4000→100 return**; block B (231) repainted to the bottom-of-walkway (0, 332) for **New Game** → the two spawns are independent. (`alex_door_spawn` / `alex_newgame_spawn.py`.) Side effect: real arrivals from fields 107/114 now land at the door/bottom — debug-only paths, acceptable.
+- **Popups suppressed:** the two `WindowAsync(6,0,68)` calls showed a leftover dev placeholder ("Error Env Play() Slot=0/1") on re-entry — NOPed cleanly (`field100: suppress…`).
+- **Music:** Alexandria was silent on cold entry (its `RunSoundCode(1792,9)` resume-variant no-ops when the song was never loaded). Added `RunSoundCode(0, 9)` (song_play, Vivi's Theme = field 100's canonical Disc-1 track) — same call the room uses, so street↔room is seamless. (`alex_add_music.py`.)
+
+**Human verified (in real gameplay, step by step):** New Game → walkable Alexandria ✓; door round-trip both ways ✓; step out **at** the door on return ✓; New-Game spawn decoupled to the bottom ✓; no popups ✓; Vivi's Theme plays in Alexandria + seamless into the room ✓.
+
+**Open / carry-over (release cleanup):** debug **New-Game→100** skip still active (the opening FMV/field 50/70 is bypassed) — a real story-positioned entrance would replace it (and would naturally run field 100's *story* mode rather than our debug-warped state); engine is a debug build (Attack9999 auto-on); the field-100 block-B/C repaints + door + music are permanent overrides (fine for the mod, but they alter real 107/114→100 arrivals).
+
+**Next:** (a) more room content (NPCs/story/dialogue, 2nd encounter); or (b) the release-cleanup pass.
