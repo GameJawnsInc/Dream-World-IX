@@ -43,7 +43,7 @@ if __name__ == "__main__":
     MOD  = os.path.dirname(os.path.abspath(__file__)) + "/../mod/hut/eb/{}-EVT_HUT_EXT.eb.bytes"
     GAME = ("C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX/FF9CustomMap/StreamingAssets/"
             "assets/resources/commonasset/eventengine/eventbinary/field/{}/EVT_HUT_EXT.eb.bytes")
-    SLOT, WAIT, SCENE, FREQ = 3, 461, 22, 255   # scene 22 = Ice Cavern (weak early enemies)
+    SLOT, WAIT, SCENE, FREQ = 3, 461, 67, 255   # scene 67 = Evil Forest/Trail (first battle, weakest)
     for L in LANGS:
         src = open(GAME.format(L), 'rb').read()
         out = inject(src, SLOT, WAIT, pattern=1, scenes=(SCENE,)*4, freq=FREQ)
