@@ -55,6 +55,10 @@ reference/all-fields-export/
 # backups/ IS tracked on purpose (small text safety net). If you ever back
 # up a binary there, add an explicit ignore for it below:
 # backups/*.bin
+# Binary DLL/exe backups (e.g. Assembly-CSharp.dll.<label>.<timestamp>) — big &
+# regenerable from memoria-patches/ + a rebuild, so keep them on disk only.
+backups/*.dll.*
+backups/*.exe.*
 mod/custom-room-01/npc-script-new/**/atlas.png
 tools/*.regen.bgx
 __pycache__/
