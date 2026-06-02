@@ -141,6 +141,29 @@ def _cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_new(args: argparse.Namespace) -> int:
+    from .pack import new_project, suggest_base
+    proj = new_project(args.name, args.dest, field_id=args.id, area=args.area, pitch=args.pitch)
+    fid = args.id if args.id is not None else suggest_base(args.name)
+    print(f"scaffolded {proj}  (suggested field id {fid}, area {args.area})")
+    print(f"  edit {proj}/{args.name.lower()}.field.toml, add art, then: ff9mapkit build "
+          f"{proj}/{args.name.lower()}.field.toml")
+    return 0
+
+
+def _cmd_pack(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from .pack import pack_mod
+    out = args.out or (Path(args.mod_root).resolve().name + ".zip")
+    try:
+        z = pack_mod(args.mod_root, out)
+    except FileNotFoundError as e:
+        print(f"mod folder not found: {e}", file=sys.stderr)
+        return 2
+    print(f"packed {args.mod_root} -> {z}")
+    return 0
+
+
 def _not_yet(phase: str):
     def _run(args: argparse.Namespace) -> int:
         print(f"'{args._cmd}' is not implemented yet (coming in {phase}).", file=sys.stderr)
@@ -192,9 +215,18 @@ def build_parser() -> argparse.ArgumentParser:
     bd.add_argument("--description", default="", help="mod description")
     bd.set_defaults(func=_cmd_build)
 
-    for name, phase in (("new", "Phase 5"), ("pack", "Phase 5")):
-        s = sub.add_parser(name, help=f"(coming in {phase})")
-        s.set_defaults(func=_not_yet(phase))
+    nw = sub.add_parser("new", help="scaffold a new field project directory")
+    nw.add_argument("name", help="field name (e.g. MY_ROOM)")
+    nw.add_argument("--dest", default=".", help="where to create the project dir")
+    nw.add_argument("--id", type=int, default=None, help="custom field id (default: suggested)")
+    nw.add_argument("--area", type=int, default=11, help="area id (>= 10)")
+    nw.add_argument("--pitch", type=float, default=48.0, help="camera pitch for the template")
+    nw.set_defaults(func=_cmd_new)
+
+    pk = sub.add_parser("pack", help="zip a built mod for distribution")
+    pk.add_argument("mod_root", help="path to a built mod folder")
+    pk.add_argument("--out", default=None, help="output .zip (default: <modname>.zip)")
+    pk.set_defaults(func=_cmd_pack)
 
     return p
 
