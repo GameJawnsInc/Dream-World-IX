@@ -17,6 +17,9 @@ keywords = ["final-fantasy-ix", "ff9", "memoria", "modding", "field", "map"]
 # TOML reading) is pure stdlib so the kit runs anywhere Python 3.11+ does.
 dependencies = ["Pillow>=9.0"]
 
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
 [project.urls]
 Homepage = "https://github.com/"          # filled in when published
 Repository = "https://github.com/"
@@ -30,4 +33,4 @@ include = ["ff9mapkit*"]
 
 [tool.setuptools.package-data]
 # Ship the canonical blank field script + the field-109 region template with the wheel.
-ff9mapkit = ["data/*.bytes", "data/*.bin"]
+ff9mapkit = ["data/*.bin", "data/blank_field/*.bytes"]

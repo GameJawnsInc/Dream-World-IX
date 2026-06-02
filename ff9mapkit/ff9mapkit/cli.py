@@ -44,6 +44,27 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_disasm(args: argparse.Namespace) -> int:
+    from .eb import EbScript
+
+    eb = EbScript.from_file(args.file)
+    print(f"=== {args.file}  size={len(eb.data)} entries={eb.entry_count} ===")
+    for e in eb.entries:
+        if e.empty:
+            if args.all:
+                print(f"\nENTRY {e.index}: (empty, off={e.off})")
+            continue
+        if args.entry is not None and e.index != args.entry:
+            continue
+        print(f"\nENTRY {e.index}: off={e.off} sz={e.size} type={e.type} "
+              f"funcs={[f.tag for f in e.funcs]}  [{e.abs_start}..{e.abs_end}]")
+        for f in e.funcs:
+            print(f"  --- func{f.index} tag={f.tag} [{f.abs_start}..{f.abs_end}]")
+            for ins in eb.instrs(f):
+                print(f"    {ins}")
+    return 0
+
+
 def _not_yet(phase: str):
     def _run(args: argparse.Namespace) -> int:
         print(f"'{args._cmd}' is not implemented yet (coming in {phase}).", file=sys.stderr)
@@ -61,8 +82,14 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor", help="show resolved paths and sanity-check the install")
     d.set_defaults(func=_cmd_doctor)
 
+    ds = sub.add_parser("disasm", help="disassemble a .eb field script")
+    ds.add_argument("file", help="path to a .eb / .eb.bytes file")
+    ds.add_argument("-e", "--entry", type=int, default=None, help="only this entry index")
+    ds.add_argument("-a", "--all", action="store_true", help="also list empty entry slots")
+    ds.set_defaults(func=_cmd_disasm)
+
     for name, phase in (
-        ("disasm", "Phase 1"), ("camera", "Phase 2"), ("walkmesh", "Phase 2"),
+        ("camera", "Phase 2"), ("walkmesh", "Phase 2"),
         ("guide", "Phase 2"), ("build", "Phase 4"), ("new", "Phase 5"), ("pack", "Phase 5"),
     ):
         s = sub.add_parser(name, help=f"(coming in {phase})")
