@@ -226,6 +226,7 @@ class FieldResult:
     dict_line: str
     battle: tuple | None = None     # (scene, music) for BattlePatch, or None
     fbg: str = ""
+    warnings: list = _dc_field(default_factory=list)
 
 
 def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> FieldResult:
@@ -239,6 +240,10 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     # --- scene: camera + walkmesh + overlays -> .bgx / .bgi / PNGs ---
     camera = resolve_camera(project)
+    warnings = []
+    pw = cam.pitch_warning(cam.pitch_deg(camera))
+    if pw:
+        warnings.append(pw)
     bgi_bytes = resolve_walkmesh(project, camera)
     overlays = build_overlays(project)
     bgx_text = bgx.build(camera, overlays, header_comment=project.field.get("title", project.name))
@@ -263,7 +268,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     if "encounter" in project.raw:
         e = project.raw["encounter"]
         battle = (int(e["scene"]), int(e.get("battle_music", 0)))
-    return FieldResult(dict_line=dict_line, battle=battle, fbg=fbg)
+    return FieldResult(dict_line=dict_line, battle=battle, fbg=fbg, warnings=warnings)
 
 
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
@@ -294,4 +299,5 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
         encoding="utf-8", newline="\n")
 
     return {"root": str(layout.root), "fields": [r.fbg for r in results],
-            "dictionary": [r.dict_line for r in results]}
+            "dictionary": [r.dict_line for r in results],
+            "warnings": [w for r in results for w in r.warnings]}

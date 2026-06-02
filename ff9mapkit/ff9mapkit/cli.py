@@ -74,7 +74,10 @@ def _cmd_camera(args: argparse.Namespace) -> int:
     c = scene.cameras[0]
     d = cam.decompose(c)
     print(f"camera: proj(H)={c.proj} pos={c.t} range={c.range} fovX={d['fov_x_deg']:.2f} "
-          f"k={d['k']:.5f} C={tuple(round(x) for x in d['C'])}")
+          f"k={d['k']:.5f} C={tuple(round(x) for x in d['C'])} pitch={cam.pitch_deg(c):.1f}")
+    w = cam.pitch_warning(cam.pitch_deg(c))
+    if w:
+        print(f"warning: {w}", file=sys.stderr)
     if args.regen:
         r, t = cam.synth_r_t(d["C"], d["R_ortho"], c.proj, k=d["k"])
         c.r, c.t = r, t
@@ -108,6 +111,9 @@ def _cmd_guide(args: argparse.Namespace) -> int:
     g = guide.make_camera(args.pitch, args.distance, fov_x_deg=args.fov)
     fr = guide.frame_floor(g, back_canvas_y=args.back, front_canvas_y=args.front)
     print(f"camera pitch={args.pitch} fovX={cam.decompose(g)['fov_x_deg']:.1f} dist={args.distance}")
+    w = cam.pitch_warning(args.pitch)
+    if w:
+        print(f"warning: {w}", file=sys.stderr)
     print(f"floor world z [{fr.zf}..{fr.zb}] half-width {fr.half_width}")
     for nm, w, cv in zip(("BL", "BR", "FR", "FL"), fr.corners_world, fr.corners_canvas):
         print(f"  {nm}: world {w} -> canvas px {cv}")
@@ -136,6 +142,8 @@ def _cmd_build(args: argparse.Namespace) -> int:
     print(f"built mod '{args.mod_name}' -> {info['root']}")
     for line in info["dictionary"]:
         print(f"  {line}")
+    for w in info.get("warnings", []):
+        print(f"warning: {w}", file=sys.stderr)
     print("To install: copy that folder into the game install (next to FF9_Launcher.exe), or "
           "build with --out pointing at the game's mod folder.")
     return 0

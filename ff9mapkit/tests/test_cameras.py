@@ -75,6 +75,15 @@ def test_mean_k_is_14_over_15():
     assert abs(sum(ks) / len(ks) - C.K_VSCALE) < 1e-3
 
 
+def test_pitch_warning_supported_range():
+    # in-range pitches are silent; the steepest real camera (GRGR ~49.6) is in range; 65 warns.
+    assert C.pitch_warning(28) is None
+    assert C.pitch_warning(50) is None
+    assert C.pitch_warning(65) is not None
+    _, grgr = _make(CAMS[0])
+    assert C.pitch_warning(C.pitch_deg(grgr)) is None
+
+
 def test_grgr_projection_offset_and_canvas_inverse():
     _, grgr = _make(CAMS[0])
     # engine projectionOffset for GRGR is (32, -112) — the -112 is the Session-8 constant,
