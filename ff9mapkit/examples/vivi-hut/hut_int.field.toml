@@ -1,0 +1,49 @@
+# "Vivi's House" — the interior room (custom field 4002).
+# This is the worked example for ff9mapkit and the byte-exact build oracle: compiling it
+# reproduces the in-game-verified EVT_HUT_INT.eb script exactly. The art here is placeholder
+# (the human supplies real painted layers); the geometry/script is the real thing.
+
+[field]
+id = 4002
+name = "HUT_INT"        # -> FBG_N11_HUT_INT (background) + EVT_HUT_INT.eb (script)
+area = 11               # must be >= 10
+text_block = 1073
+title = "Vivi's House"
+
+[camera]
+pitch = 48              # degrees of downward tilt
+distance = 4500
+fov = 42.2              # horizontal field of view (degrees)
+[camera.frame]
+back = 205              # painted-canvas row the floor's back edge sits on
+front = 432             # ... and its front edge (used to auto-frame the walkmesh)
+
+# The walkable floor, as 4 world-space corners (x, z), y=0.
+[walkmesh]
+quad = [[-1400, -2400], [1400, -2400], [1400, -800], [-1400, -800]]
+
+# Background layers, back-to-front. z is depth: smaller = nearer the camera (drawn in front).
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+# Where the player appears on entry.
+[player]
+spawn = [0, -1350]
+
+# An NPC: Vivi, standing in the middle of the room, with a line of dialogue.
+[[npc]]
+name = "Vivi"
+preset = "vivi"         # model + idle/walk animations
+pos = [0, -700]
+dialogue = "I miss you Zidane"
+
+# A door back out to the exterior (custom field 4000). The 4-corner zone becomes an
+# IsInQuad-safe trigger automatically.
+[[gateway]]
+to = 4000
+entrance = 0
+zone = [[-1100, -2400], [1100, -2400], [1100, -1750], [-1100, -1750]]

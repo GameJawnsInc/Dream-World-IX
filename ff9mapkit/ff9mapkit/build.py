@@ -1,0 +1,297 @@
+"""Compile a declarative ``field.toml`` project into a Memoria mod folder.
+
+One ``field.toml`` describes one field; a mod is one or more of them sharing a mod root. The
+builder turns a project into:
+  * the background scene  FieldMaps/<FBG>/<FBG>.bgx + overlay PNGs + <FBG>.bgi.bytes (walkmesh)
+  * the event script      field/<lang>/EVT_<name>.eb.bytes  (all languages), built from the
+                          blank field by the content injectors
+  * dialogue text         FF9_Data/embeddedasset/text/<lang>/field/<textBlock>.mes
+  * registration          a DictionaryPatch FieldScene line, BattlePatch (if encounters),
+                          and ModDescription.xml
+
+See docs/FORMAT.md for the schema. The whole build is offline and deterministic, so it can be
+validated by diffing against known-good assets before ever launching the game.
+"""
+
+from __future__ import annotations
+
+import shutil
+import tomllib
+from dataclasses import dataclass, field as _dc_field
+from pathlib import Path
+
+from .config import LANGS, ModLayout, fbg_name
+from .content import encounter as _enc
+from .content import gateway as _gw
+from .content import music as _music
+from .content import npc as _npc
+from .content import reinit as _reinit
+from .content import text as _text
+from . import data as _data
+from .scene import bgi, bgx, cam, guide
+
+
+class BuildError(RuntimeError):
+    pass
+
+
+# --------------------------------------------------------------------------- project model
+
+@dataclass
+class FieldProject:
+    raw: dict
+    base_dir: Path
+
+    @classmethod
+    def load(cls, toml_path) -> "FieldProject":
+        p = Path(toml_path)
+        with p.open("rb") as fh:
+            return cls(tomllib.load(fh), p.parent)
+
+    # convenience accessors
+    @property
+    def field(self) -> dict:
+        return self.raw.get("field", {})
+
+    @property
+    def id(self) -> int:
+        return int(self.field["id"])
+
+    @property
+    def name(self) -> str:
+        return self.field["name"]
+
+    @property
+    def area(self) -> int:
+        return int(self.field["area"])
+
+    @property
+    def text_block(self) -> int:
+        return int(self.field.get("text_block", 1073))
+
+    @property
+    def fbg(self) -> str:
+        return fbg_name(self.area, self.name)
+
+    def path(self, rel: str) -> Path:
+        return (self.base_dir / rel).resolve()
+
+
+# --------------------------------------------------------------------------- validation
+
+def validate(project: FieldProject) -> list[str]:
+    """Return a list of human-readable problems (empty => OK)."""
+    problems = []
+    f = project.field
+    for key in ("id", "name", "area"):
+        if key not in f:
+            problems.append(f"[field] missing required key '{key}'")
+    if "area" in f and int(f["area"]) < 10:
+        problems.append(f"[field] area must be >= 10 (got {f['area']}); single-digit areas black-screen")
+    cam_cfg = project.raw.get("camera", {})
+    if not cam_cfg:
+        problems.append("[camera] section is required")
+    elif "borrow" not in cam_cfg and "pitch" not in cam_cfg:
+        problems.append("[camera] needs either 'borrow' or 'pitch' (+ distance/fov)")
+    wm = project.raw.get("walkmesh", {})
+    if wm.get("obj") and not project.path(wm["obj"]).is_file():
+        problems.append(f"[walkmesh] obj not found: {wm['obj']}")
+    for layer in project.raw.get("layers", []):
+        if "image" not in layer:
+            problems.append("[[layers]] entry missing 'image'")
+        elif not project.path(layer["image"]).is_file():
+            problems.append(f"[[layers]] image not found: {layer['image']}")
+    for gw in project.raw.get("gateway", []):
+        z = gw.get("zone", [])
+        if len(z) not in (4, 5):
+            problems.append(f"[[gateway]] zone must have 4 or 5 points (got {len(z)})")
+    return problems
+
+
+# --------------------------------------------------------------------------- scene assembly
+
+def resolve_camera(project: FieldProject) -> cam.Cam:
+    c = project.raw["camera"]
+    if "borrow" in c:
+        cams = cam.parse_bgx_cameras(str(project.path(c["borrow"])))
+        if not cams:
+            raise BuildError(f"no CAMERA in borrowed scene {c['borrow']}")
+        return cams[0]
+    return guide.make_camera(
+        float(c["pitch"]), float(c.get("distance", 4500)),
+        fov_x_deg=float(c.get("fov", 42.2)), yaw_deg=float(c.get("yaw", 0)),
+        range_wh=tuple(c.get("range", (384, 448))),
+        depth_offset=int(c.get("depth_offset", guide.DEFAULT_DEPTH_OFFSET)),
+        viewport=tuple(c.get("viewport", guide.DEFAULT_VIEWPORT)),
+        center_offset=tuple(c.get("center_offset", (0, 0))),
+    )
+
+
+def resolve_walkmesh(project: FieldProject, camera: cam.Cam) -> bytes:
+    wm = project.raw.get("walkmesh", {})
+    if wm.get("obj"):
+        return bgi.obj_to_bgi(str(project.path(wm["obj"])))
+    if wm.get("quad"):
+        return bgi.quad(wm["quad"]).to_bytes()
+    # auto: frame the floor from the camera
+    fr = project.raw.get("camera", {}).get("frame", {})
+    frame = guide.frame_floor(camera, back_canvas_y=float(fr.get("back", 205)),
+                              front_canvas_y=float(fr.get("front", 432)))
+    return bgi.quad(guide.walkmesh_corners(frame)).to_bytes()
+
+
+def build_overlays(project: FieldProject) -> list:
+    overlays = []
+    for layer in project.raw.get("layers", []):
+        pos = layer.get("position", [0, 0])
+        overlays.append(bgx.Overlay(
+            image=Path(layer["image"]).name,
+            position=(int(pos[0]), int(pos[1]), int(layer["z"])),
+            size=tuple(layer.get("size", (384, 448))),
+            shader=layer.get("shader", bgx.DEFAULT_SHADER),
+        ))
+    return overlays
+
+
+# --------------------------------------------------------------------------- script assembly
+
+def build_script(project: FieldProject, lang: str, dialogue_txids: dict) -> bytes:
+    """Build one language's .eb by applying the project's content to the blank field."""
+    eb = _data.blank_field_bytes(lang)
+    has_encounter = "encounter" in project.raw
+
+    # NPCs (cloned from the player object) first, so their cloned positions are independent.
+    for i, n in enumerate(project.raw.get("npc", [])):
+        pos = n["pos"]
+        txid = dialogue_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
+        kwargs = {}
+        if "preset" in n:
+            kwargs["preset"] = n["preset"]
+        else:
+            kwargs.update(model=n.get("model"), animset=n.get("animset"), anims=n.get("anims"))
+        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, **kwargs)
+
+    # gateways
+    for gw in project.raw.get("gateway", []):
+        zone = gw["zone"]
+        if len(zone) == 4:
+            zone = _gw.quad_zone(zone)
+        eb = _gw.inject_gateway(eb, int(gw["to"]), entrance=int(gw.get("entrance", 0)),
+                                zone=[tuple(p) for p in zone])
+
+    # player spawn (order-independent w.r.t. the appends above)
+    if "player" in project.raw and "spawn" in project.raw["player"]:
+        sp = project.raw["player"]["spawn"]
+        eb = _npc.set_player_spawn(eb, int(sp[0]), int(sp[1]))
+
+    # encounter (+ the after-battle reinit it requires)
+    if has_encounter:
+        e = project.raw["encounter"]
+        eb = _enc.inject_encounter(eb, scene=int(e["scene"]), freq=int(e.get("freq", 255)),
+                                   pattern=int(e.get("pattern", 1)),
+                                   scenes=e.get("scenes"))
+        eb = _reinit.add_reinit(eb, with_fade=True)
+
+    # field music
+    if "music" in project.raw:
+        song = int(project.raw["music"]["song"])
+        eb = _music.add_field_music(eb, song)
+        if has_encounter:  # resume after battle
+            eb = _music.add_music_to_reinit(eb, song)
+    elif has_encounter:
+        # encounter but no music still needs reinit (added above); nothing else to do
+        pass
+
+    return eb
+
+
+def collect_dialogue(project: FieldProject):
+    """Return (mes_body, txid_by_npc_index). Empty body if no NPC has dialogue."""
+    lines, idx_map = [], {}
+    for i, n in enumerate(project.raw.get("npc", [])):
+        if "dialogue" in n:
+            idx_map[i] = len(lines)
+            lines.append(n["dialogue"])
+    if not lines:
+        return "", {}
+    body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID)
+    txid_by_npc = {npc_i: mapping[line_i] for npc_i, line_i in idx_map.items()}
+    return body, txid_by_npc
+
+
+# --------------------------------------------------------------------------- the build
+
+@dataclass
+class FieldResult:
+    dict_line: str
+    battle: tuple | None = None     # (scene, music) for BattlePatch, or None
+    fbg: str = ""
+
+
+def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> FieldResult:
+    """Write one field's assets into the mod ``layout``. Returns its registration info."""
+    problems = validate(project)
+    if problems:
+        raise BuildError("invalid field project:\n  - " + "\n  - ".join(problems))
+
+    fbg = project.fbg
+    layout.ensure_dirs(fbg, langs=langs)
+
+    # --- scene: camera + walkmesh + overlays -> .bgx / .bgi / PNGs ---
+    camera = resolve_camera(project)
+    bgi_bytes = resolve_walkmesh(project, camera)
+    overlays = build_overlays(project)
+    bgx_text = bgx.build(camera, overlays, header_comment=project.field.get("title", project.name))
+
+    fm = layout.fieldmap_dir(fbg)
+    (fm / f"{fbg}.bgx").write_text(bgx_text, encoding="utf-8", newline="\n")
+    (fm / f"{fbg}.bgi.bytes").write_bytes(bgi_bytes)
+    for layer in project.raw.get("layers", []):
+        src = project.path(layer["image"])
+        shutil.copyfile(src, fm / Path(layer["image"]).name)
+
+    # --- dialogue + per-language script ---
+    mes_body, txids = collect_dialogue(project)
+    for lang in langs:
+        eb = build_script(project, lang, txids)
+        layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
+        if mes_body:
+            layout.mes_path(lang, project.text_block).write_text(mes_body, encoding="utf-8", newline="\n")
+
+    dict_line = f"FieldScene {project.id} {project.area} {project.name} {project.name} {project.text_block}"
+    battle = None
+    if "encounter" in project.raw:
+        e = project.raw["encounter"]
+        battle = (int(e["scene"]), int(e.get("battle_music", 0)))
+    return FieldResult(dict_line=dict_line, battle=battle, fbg=fbg)
+
+
+def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
+              langs=LANGS) -> dict:
+    """Build one or more fields into a mod at ``out_root``; write the registration files."""
+    layout = ModLayout(Path(out_root).resolve())
+    results = [build_field(p, layout, langs=langs) for p in projects]
+
+    layout.dictionary_patch.write_text(
+        "\n".join(r.dict_line for r in results) + "\n", encoding="utf-8", newline="\n")
+
+    battles = [r.battle for r in results if r.battle]
+    if battles:
+        lines = []
+        for scene, mus in battles:
+            lines.append(f"Battle: {scene}")
+            lines.append(f"Music: {mus}")
+        layout.battle_patch.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+    layout.mod_description.write_text(
+        "<Mod>\n"
+        f"    <Name>{mod_name}</Name>\n"
+        f"    <Author>{author}</Author>\n"
+        f"    <InstallationPath>{mod_name}</InstallationPath>\n"
+        "    <Category></Category>\n"
+        f"    <Description>{description}</Description>\n"
+        "</Mod>\n",
+        encoding="utf-8", newline="\n")
+
+    return {"root": str(layout.root), "fields": [r.fbg for r in results],
+            "dictionary": [r.dict_line for r in results]}

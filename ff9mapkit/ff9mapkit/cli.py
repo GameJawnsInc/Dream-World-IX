@@ -118,6 +118,29 @@ def _cmd_guide(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_build(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from .build import BuildError, FieldProject, build_mod
+    try:
+        projects = [FieldProject.load(p) for p in args.field]
+    except (OSError, ValueError) as e:
+        print(f"failed to load project: {e}", file=sys.stderr)
+        return 2
+    out = Path(args.out)
+    try:
+        info = build_mod(projects, out, mod_name=args.mod_name, author=args.author,
+                         description=args.description)
+    except BuildError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"built mod '{args.mod_name}' -> {info['root']}")
+    for line in info["dictionary"]:
+        print(f"  {line}")
+    print("To install: copy that folder into the game install (next to FF9_Launcher.exe), or "
+          "build with --out pointing at the game's mod folder.")
+    return 0
+
+
 def _not_yet(phase: str):
     def _run(args: argparse.Namespace) -> int:
         print(f"'{args._cmd}' is not implemented yet (coming in {phase}).", file=sys.stderr)
@@ -161,7 +184,15 @@ def build_parser() -> argparse.ArgumentParser:
     gd.add_argument("--png", help="write a checkerboard paint-guide PNG here")
     gd.set_defaults(func=_cmd_guide)
 
-    for name, phase in (("build", "Phase 4"), ("new", "Phase 5"), ("pack", "Phase 5")):
+    bd = sub.add_parser("build", help="compile field.toml project(s) into a Memoria mod")
+    bd.add_argument("field", nargs="+", help="one or more field.toml files")
+    bd.add_argument("--out", default="dist", help="output mod folder (default: ./dist)")
+    bd.add_argument("--mod-name", default="FF9CustomMap", help="mod name / InstallationPath")
+    bd.add_argument("--author", default="", help="mod author")
+    bd.add_argument("--description", default="", help="mod description")
+    bd.set_defaults(func=_cmd_build)
+
+    for name, phase in (("new", "Phase 5"), ("pack", "Phase 5")):
         s = sub.add_parser(name, help=f"(coming in {phase})")
         s.set_defaults(func=_not_yet(phase))
 
