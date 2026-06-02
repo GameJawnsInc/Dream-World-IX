@@ -62,3 +62,4 @@ backups/*.exe.*
 mod/custom-room-01/npc-script-new/**/atlas.png
 tools/*.regen.bgx
 __pycache__/
+blendertest/
