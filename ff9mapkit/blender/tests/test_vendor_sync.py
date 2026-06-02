@@ -15,7 +15,7 @@ VENDOR = BLENDER / "ff9mapkit_blender" / "vendor"
 SCENE = BLENDER.parent / "ff9mapkit" / "scene"         # .../ff9mapkit/ff9mapkit/scene
 
 
-@pytest.mark.parametrize("name", ["cam.py", "bgi.py", "bgx.py"])
+@pytest.mark.parametrize("name", ["cam.py", "bgi.py", "bgx.py", "guide.py"])
 def test_vendor_matches_source(name):
     assert (VENDOR / name).read_bytes() == (SCENE / name).read_bytes(), \
         f"vendor/{name} drifted from ff9mapkit/scene/{name}; run build_addon.py to re-sync"

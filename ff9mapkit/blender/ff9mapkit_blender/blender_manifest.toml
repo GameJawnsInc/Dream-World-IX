@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "ff9mapkit_blender"
+version = "0.1.0"
+name = "FF9 Map Kit"
+tagline = "Visually author FF9 custom-field cameras and walkmeshes"
+maintainer = "FF9 Map Kit contributors"
+type = "add-on"
+
+# Targets Blender 4.2+ (tested intent: 5.x). Pure-Python; no wheels.
+blender_version_min = "4.2.0"
+
+license = ["SPDX:MIT"]
+
+tags = ["Import-Export", "3D View"]
