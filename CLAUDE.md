@@ -757,3 +757,20 @@ Human playtested everything from the overnight build forward; all verified. Big 
 - Distribution polish: bundled blank-field/region templates are game-derived — for a clean public release, extract the blank from the user's own install instead (noted in ENGINE.md).
 - Branches `tier1-mapkit` (this) and `session7-ingame-custom-scene` (older) both unmerged.
 - **Tier 2** (Blender add-on for visual camera/walkmesh authoring) is the natural follow-on; `scene.cam`/`guide` are ready for it.
+
+### 2026-06-02 — Session 13 (cont) — Tier 1 MERGED + Tier 2 (Blender add-on) built (offline-validated)
+
+**Done:**
+- **Merged `tier1-mapkit` → `master`** (fast-forward; the toolkit is now on master).
+- **Built the Tier-2 Blender add-on** (`ff9mapkit/blender/`, branch **`tier2-blender`**, NOT merged) — a *front-end* that visually authors the camera + walkmesh and exports `camera.bgx` + `walkmesh.obj` + a `field.toml` for `ff9mapkit build` (the proven Tier-1 builder stays the source of truth). Targets Blender **4.2+/5.x** (user has 5.1).
+  - **P1 — the crux, offline-validated:** `bridge.py` (bpy-FREE) maps a Blender camera ↔ FF9 `cam.Cam` (coordinate map M + camera-basis conventions, built on `cam.decompose`/`synth_r_t`) + `mesh_to_ff9_obj`. `tests/test_bridge.py`: **all 6 real cameras round-trip r/t within 1** through Blender params and back, + a semantic anchor (a pure-Blender look-down camera → FF9 camera at the right position/pitch, floor centered + right-side-up).
+  - **Supported-range guidance (user's ask):** `cam.SUPPORTED_PITCH_DEG=(0,50)` (covers GRGR's 49.6, the steepest real camera) + `pitch_deg()`/`pitch_warning()`; **advisory, non-blocking** warning surfaced in the add-on panel AND backported to `ff9mapkit guide`/`camera`/`build`. (Synthesis is exact at any pitch; only the *paint-guide back edge* drifts past the real range — re-pin `S_CANVAS_Y` with one grid check for a dead-on steep angle.)
+  - **P2:** vendored the pure-stdlib scene math (cam/bgi/bgx/guide) so the add-on is self-contained in Blender; `build_addon.py` zips it; a drift-guard test keeps vendor byte-identical to `ff9mapkit/scene/*`.
+  - **P3:** the `bpy` add-on — `ops.py` (Setup FF9 Scene / Pose Camera / Compute Paint Guide / Export Field) + `ui.py` (N-panel w/ live FF9 readout + range warning) + `blender_manifest.toml` + `bl_info`. All `py_compile` clean.
+  - **P4:** `blender/README.md` (install + workflow + "render is a placement aid, paint guide is truth" + range note) + an **end-to-end dry-run** test: a bridged Blender camera + mesh → `camera.bgx`/`walkmesh.obj`/`field.toml` → compiled by the REAL `ff9mapkit build` into a valid mod. **13 blender tests + 59 kit tests pass.**
+
+**Constraint honored:** I cannot run Blender, so the *math* is validated offline (round-trip + dry-run); the **`bpy` UI itself is unverified by me** — the user installs the add-on and verifies the UI + the final in-game alignment (Hard-Constraint §2).
+
+**Open / next:**
+- **Tier-2 in-Blender test (the human step):** `python ff9mapkit/blender/build_addon.py` → Install from Disk in Blender 5.1 → Setup FF9 Scene → confirm the camera readout is sane → model a flat walkmesh → Export → `ff9mapkit build` the emitted `field.toml` → confirm in-game the walkmesh lands on the floor for a visually-posed camera. Fast pre-check: pose a camera to match a known field, `ff9mapkit camera camera.bgx` reports the expected pitch/FOV.
+- Merge `tier2-blender` once UI-verified; submit the 2 Memoria PRs (needs GitHub fork).
