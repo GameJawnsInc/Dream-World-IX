@@ -1,0 +1,38 @@
+# TESTROOM (field 4003) — a brand-new field built ENTIRELY by ff9mapkit, used to prove the
+# toolkit's output loads & plays in real Memoria. It reuses the existing interior's painted art,
+# borrowed camera, and walkmesh (so the render is aligned), but is a NET-NEW field id the engine
+# has never loaded — with Vivi placed off to the LEFT so it's visibly distinct from the interior.
+
+[field]
+id = 4003
+name = "TESTROOM"          # -> FBG_N11_TESTROOM + EVT_TESTROOM.eb
+area = 11
+text_block = 1073
+title = "ff9mapkit test room"
+
+[camera]
+borrow = "camera-ref.bgx"  # the interior's exact camera (pitch 48, H 497)
+
+[walkmesh]
+quad = [[-1069, -85], [1069, -85], [1069, -2267], [-1069, -2267]]
+
+[[layers]]
+image = "art/walls.png"
+z = 3000
+[[layers]]
+image = "art/floor.png"
+z = 4000
+
+[player]
+spawn = [0, -1100]         # back-center, clear of the front exit zone (z -1750..-2400)
+
+[[npc]]
+name = "Vivi"
+preset = "vivi"
+pos = [-700, -900]         # off to the LEFT (interior's Vivi is centered at 0,-700)
+dialogue = "I miss you Zidane"
+
+[[gateway]]
+to = 4000                  # a door back out to the exterior
+entrance = 0
+zone = [[-1100, -2400], [1100, -2400], [1100, -1750], [-1100, -1750]]

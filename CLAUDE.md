@@ -750,8 +750,9 @@ Human playtested everything from the overnight build forward; all verified. Big 
 
 **Key decisions (user-chosen):** project format = **TOML**; engine = **zero runtime dependency + upstream the polish fixes** as PRs.
 
+**IN-GAME PROOF — DONE (Hard-Constraint §2 human-verified).** Built a NET-NEW field **`4003/TESTROOM`** entirely with `ff9mapkit build` (reusing the interior's art + borrowed camera + walkmesh, Vivi placed left, gateway back out), deployed it additively (backups + a one-command `examples/toolkit-test/revert.py`), and reached it via a temporary interior-door repoint (`4002→4003`). **Human verified in real gameplay:** renders cleanly, Vivi on the left + talks, movement works, gateway back works. (First pass caught a *content* bug — I spawned the player inside the exit zone → instant kick-out — fixed by one line in `field.toml` [`spawn -1900 → -1100`] + rebuild, then re-verified. Exactly the author-mistake-fixable-in-TOML loop the kit is for.) Test reverted; game back to the known-good 3-field state. **The toolkit is now end-to-end proven: a field built entirely by `ff9mapkit` loads, renders, runs an NPC + custom dialogue, moves, and gateways in real Memoria.**
+
 **Open / next:**
-- **The one remaining in-game step:** deploy a *builder-produced* field (`ff9mapkit build … --out <game>/FF9CustomMap` with real painted art + a gateway from a world field) and confirm it loads in real gameplay. Offline byte-equality already proves the builder reproduces an in-game-verified script exactly, so risk is low — this is the Hard-Constraint §2 human confirmation.
 - Submit the 2 Memoria PRs (needs the user's GitHub fork).
 - Distribution polish: bundled blank-field/region templates are game-derived — for a clean public release, extract the blank from the user's own install instead (noted in ENGINE.md).
 - Branches `tier1-mapkit` (this) and `session7-ingame-custom-scene` (older) both unmerged.
