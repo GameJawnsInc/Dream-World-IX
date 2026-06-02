@@ -27,7 +27,7 @@ class FF9MK_PT_panel(bpy.types.Panel):
         col.prop(p, "pitch")
         col.prop(p, "distance")
         col.prop(p, "fov")
-        box.operator("ff9mk.pose_camera", icon="CON_CAMERASOLVED")
+        box.operator("ff9mk.pose_camera", icon="VIEW_CAMERA")
         c = None
         try:
             c = ops.active_camera_to_ff9(context)
