@@ -54,6 +54,10 @@ def _pose_camera(cam_obj, pitch, distance, fov):
     cam_obj.data.sensor_fit = "HORIZONTAL"
     cam_obj.data.sensor_width = b["sensor_width"]
     cam_obj.data.lens = b["lens"]
+    # FF9 world units are large (cameras sit thousands of units from the floor); widen the
+    # camera clip range so the scene isn't culled by Blender's default 1000-unit far clip.
+    cam_obj.data.clip_start = 1.0
+    cam_obj.data.clip_end = 100000.0
 
 
 def active_camera_to_ff9(context):
@@ -108,7 +112,13 @@ class FF9MK_OT_setup_scene(bpy.types.Operator):
             wm = bpy.data.objects.new(WALKMESH_NAME, mesh)
             coll.objects.link(wm)
         p.walkmesh = wm
-        self.report({"INFO"}, "FF9 scene ready: pose the camera, shape FF9_Walkmesh on z=0.")
+        # widen the 3D viewport clipping too, so the large FF9-scale scene is visible when you orbit
+        for area in context.screen.areas:
+            if area.type == "VIEW_3D":
+                area.spaces.active.clip_start = 1.0
+                area.spaces.active.clip_end = 100000.0
+        self.report({"INFO"}, "FF9 scene ready: pose the camera, shape FF9_Walkmesh on z=0. "
+                              "Press Home to frame everything.")
         return {"FINISHED"}
 
 
