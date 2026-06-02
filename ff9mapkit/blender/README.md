@@ -13,9 +13,18 @@ Targets **Blender 4.2+ / 5.x**.
 python build_addon.py        # -> dist/ff9mapkit_blender-0.1.0.zip
 ```
 
-Then in Blender: **Edit → Preferences → Add-ons → (▾ top-right) → Install from Disk…** → pick the
-zip → enable **FF9 Map Kit**. (On 4.2+/5.x you can also install it via the Extensions “Install
-from Disk”.) A **FF9 Map Kit** tab appears in the 3D viewport sidebar (press **N**).
+Then install it as an **extension** (the Blender 4.2+/5.x way — the zip is an extension with
+`blender_manifest.toml` at its root):
+
+> **Edit → Preferences → Get Extensions → ▾ (top-right) → Install from Disk…** → pick the zip.
+> (Or just **drag-and-drop the zip onto the Blender window**.) Then make sure **FF9 Map Kit** is
+> enabled in the list.
+
+A **FF9 Map Kit** tab then appears in the 3D viewport sidebar (press **N** to open it).
+
+> Note: use **Get Extensions → Install from Disk**, *not* the legacy *Add-ons → Install from
+> Disk* — on 5.1 the legacy path reports “Modules Installed ()” and nothing appears, because
+> this is an extension (manifest-based), not a legacy `bl_info`-only add-on.
 
 You'll also want the CLI for the final build step: `pip install -e ..` (the `ff9mapkit` package).
 

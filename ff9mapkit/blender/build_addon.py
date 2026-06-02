@@ -33,6 +33,11 @@ def sync_vendor() -> None:
 
 
 def package(out_dir: Path | None = None) -> Path:
+    """Build a Blender 4.2+/5.x EXTENSION zip: blender_manifest.toml + the modules at the zip ROOT.
+
+    Install via Blender: Preferences > Get Extensions > (v top-right) > Install from Disk...
+    (or just drag-drop the zip onto the Blender window).
+    """
     out_dir = out_dir or (HERE / "dist")
     out_dir.mkdir(parents=True, exist_ok=True)
     zip_path = out_dir / f"ff9mapkit_blender-{VERSION}.zip"
@@ -42,7 +47,7 @@ def package(out_dir: Path | None = None) -> Path:
                 continue
             if p.suffix in (".pyc",):
                 continue
-            zf.write(p, arcname=str(p.relative_to(PKG.parent)))   # rooted at ff9mapkit_blender/
+            zf.write(p, arcname=str(p.relative_to(PKG)))   # manifest + files at the ROOT (extension layout)
     return zip_path
 
 

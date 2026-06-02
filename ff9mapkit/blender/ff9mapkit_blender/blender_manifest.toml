@@ -13,3 +13,8 @@ blender_version_min = "4.2.0"
 license = ["SPDX:MIT"]
 
 tags = ["Import-Export", "3D View"]
+
+# The Export / Compute-Paint-Guide operators read painted layers and write the exported field
+# assets (camera.bgx, walkmesh.obj, field.toml, guide.txt) to the folder you choose.
+[permissions]
+files = "Read painted layers; write exported camera.bgx / walkmesh.obj / field.toml / guide.txt"
