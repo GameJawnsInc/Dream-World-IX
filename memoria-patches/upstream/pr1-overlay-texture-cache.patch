@@ -1,0 +1,34 @@
+diff --git a/Assembly-CSharp/Global/BGSCENE_DEF.cs b/Assembly-CSharp/Global/BGSCENE_DEF.cs
+index 1e42a31d..4e3452fe 100644
+--- a/Assembly-CSharp/Global/BGSCENE_DEF.cs
++++ b/Assembly-CSharp/Global/BGSCENE_DEF.cs
+@@ -44,6 +44,13 @@ public class BGSCENE_DEF
+     private const Single UVBorderShift = 0.5f;
+     private static readonly Int32 TileSize = Configuration.Graphics.TileSize;
+ 
++    // [Memoria custom-field fade fix] Pure-.bgx scenes (ProcessMemoriaOverlay) re-decode their overlay
++    // PNGs from disc on EVERY field load (fresh BGSCENE_DEF per load), causing a slow, see-through fade
++    // on (re)entry and battle-return. Cache the decoded Texture2D by resolved path. The static reference
++    // also keeps the textures alive across the battle scene change (Resources.UnloadUnusedAssets won't
++    // free referenced assets). Self-heals: a destroyed texture reads as Unity-null and is reloaded.
++    private static readonly Dictionary<String, Texture2D> MemoriaOverlayTextureCache = new Dictionary<String, Texture2D>();
++
+     public UInt16 sceneLength;
+     public UInt16 depthBitShift;
+ 
+@@ -300,7 +307,14 @@ public class BGSCENE_DEF
+         //}
+         else if (operation == "Image" && arguments.Length >= 1)
+         {
+-            bgOverlay.memoriaImage = AssetManager.LoadFromDisc<Texture2D>(AssetManager.UsePathWithDefaultFolder(this.memoriaDirectory, arguments[0]));
++            String imagePath = AssetManager.UsePathWithDefaultFolder(this.memoriaDirectory, arguments[0]);
++            Texture2D cachedImage;
++            if (!MemoriaOverlayTextureCache.TryGetValue(imagePath, out cachedImage) || cachedImage == null)
++            {
++                cachedImage = AssetManager.LoadFromDisc<Texture2D>(imagePath);
++                MemoriaOverlayTextureCache[imagePath] = cachedImage;
++            }
++            bgOverlay.memoriaImage = cachedImage;
+             if (bgOverlay.memoriaMaterial != null)
+                 bgOverlay.memoriaMaterial.mainTexture = bgOverlay.memoriaImage;
+         }
