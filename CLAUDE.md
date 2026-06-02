@@ -731,3 +731,28 @@ Human playtested everything from the overnight build forward; all verified. Big 
 **Open / carry-over (release cleanup):** debug **New-Game→100** skip still active (the opening FMV/field 50/70 is bypassed) — a real story-positioned entrance would replace it (and would naturally run field 100's *story* mode rather than our debug-warped state); engine is a debug build (Attack9999 auto-on); the field-100 block-B/C repaints + door + music are permanent overrides (fine for the mod, but they alter real 107/114→100 arrivals).
 
 **Next:** (a) more room content (NPCs/story/dialogue, 2nd encounter); or (b) the release-cleanup pass.
+
+### 2026-06-02 — Session 13 — Tier 1 toolkit: `ff9mapkit` built end-to-end (offline-validated)
+
+**User's strategic pivot:** productize everything we've learned into a distributable toolkit so *other people* can author their own FF9 custom fields. Approved plan in `~/.claude/plans/sunny-zooming-bonbon.md`; built all 7 phases. New self-contained package at `C:\gd\FFIX\ff9mapkit\` on branch **`tier1-mapkit`** (NOT merged). **No game files touched — nothing to playtest yet.**
+
+**The product:** pip-installable `ff9mapkit` that compiles a declarative **`field.toml`** into a complete drop-in Memoria mod (background scene `.bgx`+PNGs, walkmesh `.bgi`, 7-lang event `.eb`, dialogue `.mes`, DictionaryPatch/BattlePatch/ModDescription). CLI: `doctor / new / guide / camera / walkmesh / disasm / build / pack`. **Runs on stock (unmodified) Memoria** — zero runtime engine dependency.
+
+**Done (committed per phase; 50 passing tests; validated entirely offline via golden-master byte-equality — honors Hard-Constraint §2 "can't verify in-game"):**
+- **P0** package skeleton + `config.py` (path resolution via `$FF9_GAME_PATH`/`~/.ff9mapkit.toml`/`--game` — kills the ~12 hardcoded-path tools) + `binutils`.
+- **P1** the `.eb` library: `model` (parse↔serialize **byte-identical**, 28/28 room scripts round-trip; per-lang bytes are ONLY the name field [44..69], bytecode is lang-identical), consolidated `edit.insert_bytes`/`append_entry`/symbolic locators (parity-checked vs legacy), `disasm` over **opcode tables baked from Memoria source** (`_optables.py`, no runtime source dep), `opcodes` encoders (all match the original tools' exact bytes).
+- **P2** scene libs: `cam` (camera math verbatim + regression suite), `bgi` (**byte-faithful walkmesh codec** — round-trips the 232B HUT *and* the 5030B editor multi-floor field; **pure-Python `obj_to_bgi`/`quad` reproduce the HUT walkmesh byte-exact**, removing the editor's ConvertToBGI dependency + bad neighbor links), `bgx` (scene text format), `guide` (camera-from-pitch/fov → frame floor → paint guide + walkmesh corners).
+- **P3** generalized content injectors (`npc/gateway/encounter/reinit/music/text`) on `EbScript`, NO hardcoded offsets (opcodes located via disasm). **Reproduces the in-game-verified Vivi-hut INTERIOR `.eb` BYTE-FOR-BYTE** (1555 bytes).
+- **P4** `field.toml` schema + `build.py`. `examples/vivi-hut/hut_int.field.toml` compiles to the **byte-exact** `EVT_HUT_INT.eb` (all 7 langs) + exact DictionaryPatch line + Session-9 `.mes` + valid scene/walkmesh.
+- **P5** `pack.py`: custom-id namespace (`>=4000`, per-mod 100-blocks via `suggest_base`), `pack` (zip), `new` (scaffold).
+- **P6** docs: `FORMAT.md`, `PIPELINE.md` (human paint + Blender-walkmesh steps), `ENGINE.md`, README + example README.
+- **P7** 2 clean debug-free **upstream PRs** for Memoria in `memoria-patches/upstream/` (overlay-texture-cache fade fix + FieldCreatorScene PNG-export-path one-liner) — both **verified to `git apply` cleanly to pristine HEAD**, individually + stacked. UPSTREAM.md has rationale/submission; the New-Game warp + booster auto-enable are deliberately excluded.
+
+**Key decisions (user-chosen):** project format = **TOML**; engine = **zero runtime dependency + upstream the polish fixes** as PRs.
+
+**Open / next:**
+- **The one remaining in-game step:** deploy a *builder-produced* field (`ff9mapkit build … --out <game>/FF9CustomMap` with real painted art + a gateway from a world field) and confirm it loads in real gameplay. Offline byte-equality already proves the builder reproduces an in-game-verified script exactly, so risk is low — this is the Hard-Constraint §2 human confirmation.
+- Submit the 2 Memoria PRs (needs the user's GitHub fork).
+- Distribution polish: bundled blank-field/region templates are game-derived — for a clean public release, extract the blank from the user's own install instead (noted in ENGINE.md).
+- Branches `tier1-mapkit` (this) and `session7-ingame-custom-scene` (older) both unmerged.
+- **Tier 2** (Blender add-on for visual camera/walkmesh authoring) is the natural follow-on; `scene.cam`/`guide` are ready for it.
