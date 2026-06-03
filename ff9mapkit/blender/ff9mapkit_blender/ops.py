@@ -130,10 +130,11 @@ def active_camera_to_ff9(context):
     loc = [mw.translation[i] for i in range(3)]
     rw, rh = _range_wh(p)
     if p.scroll_enabled:
-        # the FF9 camera's sensor_width is the full painting width (set in _pose_camera), so the
-        # focal recovers to the window proj with no window_width override needed.
+        # the FF9 scroll camera's frame IS the full painting, so interpret the sensor as the canvas
+        # width (proj = lens). This is robust to a STALE camera posed by an older add-on version
+        # (whose sensor is 384) — otherwise the focal would come out doubled (proj 996 not 498).
         return bridge.blender_cam_to_ff9(
-            loc, R_bl, cam_obj.data.lens, sensor_width=cam_obj.data.sensor_width,
+            loc, R_bl, cam_obj.data.lens, sensor_width=float(rw),
             range_wh=(rw, rh), viewport=tuple(cam.scroll_bounds((rw, rh))))
     return bridge.blender_cam_to_ff9(loc, R_bl, cam_obj.data.lens,
                                      sensor_width=cam_obj.data.sensor_width, range_wh=(rw, rh))
