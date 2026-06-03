@@ -910,3 +910,24 @@ Walked the two prepped Memoria PRs with the user, one at a time. **Result: ONE P
 **Engine/game state:** unchanged from the prior entry — dev engine (Session-12 build); live FF9CustomMap = clean 2-room state (4000 HUT_EXT + 4002 HUT_INT) + Alexandria door. No new in-game state → no KNOWN_GOOD tag. Branch `master`.
 
 **Next options:** a 2nd connected room (chain via gateway) to demo the multi-room approach; in-room **scrolling** or **multi-camera** as a new kit feature; respond to PR #1433 maintainer feedback; or the local engine→stock restore + a true-player-experience playthrough.
+
+### 2026-06-03 — Session 15 — SCROLLING fields: in-game proven + landed in the kit (Phases 0-2)
+
+**User goal:** bigger, more immersive rooms — larger-than-screen fields where the view pans to follow the player (FF9 streets/corridors). Approved plan (`~/.claude/plans/sunny-zooming-bonbon.md`): **scrolling first, then multi-camera; kit/field.toml first, Blender later.**
+
+**The engine already does the panning — it's almost all data.** Source dive (3 Explore agents + targeted reads) established:
+- `FieldMap.SceneService3DScroll` (`FieldMap.cs:1959`) auto-pans `curVRP` to follow the player, clamped to the camera's `vrpMin/Max` — but **gated on the field `Active` flag** (`IsActive => flags & FieldMapFlags.Active`, `:2385`).
+- `Active` is set by the script opcode **`BGCACTIVE 0x71` "EnableCameraServices"** (`EventEngine.DoEventCode.cs:1858`; args isActive/frameCount/sinusOrLinear). The blank/1357-cloned field never calls it.
+- `.bgx` `Range:` = full painting size; `Viewport:` = scroll clamp (`BGSCENE_DEF.cs:389,398`). **Scroll bounds = `(HalfNative, w-HalfNative, HalfNative_h, h-HalfNative_h)`** (`FieldMap.cs:1111-1114`); HalfNative = 160×112 = the kit's `HALF_FIELD_W/H`. For a 384×448 screen this is the kit's existing `DEFAULT_VIEWPORT` (no real scroll).
+- **Focal length must stay normal for a wider painting:** build `proj` from the visible WINDOW width (384), only widen `Range` — else a 768-wide painting doubles the FOV. (`make_camera` couples proj↔range_w, so the spike borrowed a hand-built camera; the kit now has `window_width` to express this.)
+
+**Phase 0 — scroll spike (in-game PROVEN).** `tools/build_scroll_test.py` built a 768×448 (2×-wide) checkerboard room with numbered landmark columns + a flat walkmesh spanning it, `Viewport (160,608,112,336)`, and `BGCACTIVE(1,0,0)` injected into Main_Init. Deployed reversibly as field **4003/SCROLL01** via the interior-door repoint (`Field(4000)→Field(4003)`, all 7 langs, same-length patch) + merged DictionaryPatch line; dry-validated (camera/geometry/build/inject/repoint) before touching the game. **Human verified: the view scrolls to follow the player, the floor + walkmesh + character pan together aligned, and it clamps at the edges** ("everything looks good"). The "off by 1 square top/bottom" is the existing `character_offset`/collision-radius constant (spike used `character_offset=0` for a clean read), NOT a scroll issue. → `BGCACTIVE` enables scroll on a minted field; the bounds formula is correct; no calibration needed.
+
+**Phases 1-2 — landed in the kit (offline, 108 tests, normal fields byte-identical):**
+- `cam.scroll_bounds(range_wh)` (in-game-proven formula).
+- `guide`: paint guide/template + frame size now key off `cam.range`, so a wide painting gets a full-size guide.
+- `content/camera.enable_camera_services` (injects `BGCACTIVE` via `edit.insert_bytes` into Main_Init).
+- `build`: `[camera.scroll] enabled` → auto scroll viewport + `BGCACTIVE` inject; `[camera] window_width`/`proj` decouple focal from a wide `Range`; layers default to the canvas size. `docs/FORMAT.md` updated; Blender vendor re-synced. The declarative path reproduces the spike's camera (Range 768×448 / Viewport 160,608,112,336 / proj 498) + `BGCACTIVE` in all langs.
+- Commits `bd65d46` (spike tool), `46963dc` (kit support). Field 4003 currently holds the SCROLL01 spike grid (revert: `py tools/scroll_out/revert_scroll_test.py`).
+
+**Next — Phase 3 (needs human art):** human paints a real wide scrolling room to a kit-generated full-size paint guide; I wire the layers + walkmesh + `[camera.scroll]` and verify in-game; then PIPELINE.md/ENGINE.md narrative + tag KNOWN_GOOD. Then **multi-camera** (the later effort): N painted backgrounds + script-driven `SETCAM 0x7E` switch zones (scene side already parses N cameras).
