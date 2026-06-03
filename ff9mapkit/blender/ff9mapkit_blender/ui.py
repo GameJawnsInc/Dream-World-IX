@@ -29,6 +29,11 @@ class FF9MK_PT_panel(bpy.types.Panel):
         col.prop(p, "pitch")
         col.prop(p, "distance")
         col.prop(p, "fov")
+        box.prop(p, "scroll_enabled")
+        if p.scroll_enabled:
+            row = box.row(align=True)
+            row.prop(p, "canvas_w")
+            row.prop(p, "canvas_h")
         box.operator("ff9mk.pose_camera", icon="VIEW_CAMERA")
         c = None
         try:

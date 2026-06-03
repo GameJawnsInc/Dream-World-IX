@@ -37,12 +37,17 @@ Background Art → Content → Export**. A typical pass:
    (FF9's floor is y=0, which maps to Blender's z=0). Press **Home** to frame it.
 2. **Pose the camera** (*Camera* box) — set Pitch / Distance / FOV and hit *Pose Camera*, or just
    move/aim the camera freely. The panel shows the derived **FF9 pitch + FOV** live, and warns
-   (advisory) if the pitch leaves the validated range — see below.
+   (advisory) if the pitch leaves the validated range — see below. For a **larger-than-screen
+   scrolling room**, tick **Scrolling room** and set **Canvas W/H** (e.g. `768 × 448` = 2× wide);
+   the FOV stays measured at the 384 screen, so the painting just gets wider — see *Scrolling rooms*
+   below.
 3. **Get a paint guide** (*Walkmesh* box) — two complementary aids for the current camera:
-   - *Compute Paint Guide* reports where the floor edges + your walkmesh land on the 384×448
-     painted canvas, writes `guide.txt`, and draws a reference floor grid in the viewport.
-   - *Export Paint Template* writes a transparent **1536×1792** `paint_template.png` (floor outline
-     + perspective grid) to trace over — paint your room on layers *under* it.
+   - *Compute Paint Guide* reports where the floor edges + your walkmesh land on the painted canvas,
+     writes `guide.txt`, and draws a reference floor grid **plus vertical height guides** (poles at
+     the floor edges + a ceiling box) in the viewport — so you can model/paint walls in perspective.
+   - *Export Paint Template* writes a transparent `paint_template.png` (floor outline + perspective
+     grid + height guides) to trace over — paint your room on layers *under* it. It sizes to the
+     **full painting** (so a scrolling room gets a wide template).
 4. **(Human) paint the background layers** to that guide/template. Typical layers back-to-front: a
    **back** layer (everything behind the player), a **floor** layer, and optionally a **front**
    layer with a small `z` so it draws *over* the player (occlusion). Save PNGs (RGBA) — see the
@@ -72,6 +77,21 @@ Background Art → Content → Export**. A typical pass:
    from the markers). Painted PNGs are copied next to it.
 9. **Build** — `ff9mapkit build <name>.field.toml --out <game>/FF9CustomMap` (see the main docs),
    then play.
+
+## Scrolling rooms (larger-than-screen)
+
+Tick **Scrolling room** in the *Camera* box and set **Canvas W/H** (e.g. `768 × 448` = 2× wide).
+Then author exactly as above — the add-on handles the difference:
+
+- the camera keeps its normal focal length (the FOV is measured at the 384 screen; only the painting
+  gets wider), posed with the scroll bounds baked in;
+- the floor guide + paint template **fill the wide canvas** and the walkmesh starts spanning it;
+- *Export Field* writes a wide-`Range` `camera.bgx` and adds `[camera.scroll] enabled = true`, so
+  `ff9mapkit build` injects the engine's `EnableCameraServices` and Memoria pans the view to follow
+  the player.
+
+Paint the full-width canvas (content along the whole length so scrolling reveals it). Runs on stock
+Memoria. See the CLI worked example `../examples/scroll-demo/`.
 
 ## Two things to know
 

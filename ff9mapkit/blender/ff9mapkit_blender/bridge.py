@@ -87,11 +87,15 @@ def H_to_lens(H, sensor_width, range_w):
 # --- the two conversions ------------------------------------------------------------------
 def blender_cam_to_ff9(loc_bl, R_bl, lens, *, sensor_width=DEFAULT_SENSOR,
                        range_wh=(384, 448), depth_offset=543, viewport=(160, 224, 112, 336),
-                       center_offset=(0, 0), k=cam.K_VSCALE):
+                       center_offset=(0, 0), k=cam.K_VSCALE, window_width=None):
     """Convert a Blender camera (world location + 3x3 world rotation + lens) to an FF9 `Cam`.
 
     This is the EXPORT direction. loc_bl is the camera world position (Blender coords); R_bl is
     its world rotation matrix (columns = local axes). Returns a fully-populated cam.Cam.
+
+    ``window_width`` (default = ``range_wh[0]``) is the canvas width the camera's FOV/focal is
+    measured against. For a SCROLLING field the painting (``range_wh[0]``) is wider than the
+    visible screen, so pass ``window_width=384`` to keep the focal length normal.
     """
     C = cam.mv(M_FB, list(loc_bl))
     right_bl = _col(R_bl, 0)
@@ -102,7 +106,7 @@ def blender_cam_to_ff9(loc_bl, R_bl, lens, *, sensor_width=DEFAULT_SENSOR,
     ff9_fwd = cam.mv(M_FB, fwd_bl)
     R_o = _rows_to_matrix(ff9_right, ff9_camY, ff9_fwd)   # camera basis as rows = R_o'
     R_ortho = cam.mm(F, cam.mm(R_o, F))                   # R_ortho = F * R_o' * F
-    H = lens_to_H(lens, sensor_width, range_wh[0])
+    H = lens_to_H(lens, sensor_width, range_wh[0] if window_width is None else window_width)
 
     c = cam.Cam()
     c.proj = int(round(H))
@@ -114,10 +118,12 @@ def blender_cam_to_ff9(loc_bl, R_bl, lens, *, sensor_width=DEFAULT_SENSOR,
     return c
 
 
-def ff9_cam_to_blender(c, *, sensor_width=DEFAULT_SENSOR):
+def ff9_cam_to_blender(c, *, sensor_width=DEFAULT_SENSOR, window_width=None):
     """Convert an FF9 `Cam` to Blender camera params. Returns dict(location, rotation, lens, sensor_width).
 
     The IMPORT direction — used to drop a correctly-posed Blender camera into the scene.
+    ``window_width`` (default = ``c.range[0]``) is the canvas width the FOV is measured against;
+    pass ``384`` for a scrolling camera so the Blender lens encodes the visible-screen FOV.
     """
     d = cam.decompose(c)
     R_ortho = d["R_ortho"]
@@ -132,7 +138,7 @@ def ff9_cam_to_blender(c, *, sensor_width=DEFAULT_SENSOR):
             [right_bl[1], up_bl[1], z_bl[1]],
             [right_bl[2], up_bl[2], z_bl[2]]]
     loc_bl = cam.mv(M_BF, Cpos)
-    lens = H_to_lens(c.proj, sensor_width, c.range[0])
+    lens = H_to_lens(c.proj, sensor_width, c.range[0] if window_width is None else window_width)
     return {"location": loc_bl, "rotation": R_bl, "lens": lens, "sensor_width": sensor_width}
 
 
@@ -147,6 +153,76 @@ def ff9_verts_to_blender(ff9_verts):
     return [tuple(cam.mv(M_BF, list(v))) for v in ff9_verts]
 
 
+# --- floor framing + vertical height guides (scrolling-aware) -----------------------------
+SCREEN_W = 384                              # visible field width; a wider painting scrolls
+
+
+def scroll_floor_frame(c, back_canvas_y, front_canvas_y, margin_px=24):
+    """frame_floor whose half-width is solved so the FRONT row spans the (wide) canvas edge to edge."""
+    zf = cam.solve_z_for_canvasY(c, front_canvas_y)
+    target = c.range[0] - margin_px
+    lo, hi = 0.0, 40000.0
+    flo = cam.to_canvas((lo, 0, zf), c)[0] - target
+    for _ in range(80):
+        m = 0.5 * (lo + hi)
+        fm = cam.to_canvas((m, 0, zf), c)[0] - target
+        if abs(fm) < 0.01:
+            break
+        if (fm > 0) == (flo > 0):
+            lo, flo = m, fm
+        else:
+            hi = m
+    hw = max(1, round(0.5 * (lo + hi)))
+    return guide.frame_floor(c, back_canvas_y=back_canvas_y, front_canvas_y=front_canvas_y,
+                             half_width=hw)
+
+
+def _floor_frame(c, back_canvas_y, front_canvas_y):
+    """Frame the floor; for a wider-than-screen (scrolling) camera, FILL the wide canvas width."""
+    if c.range and c.range[0] > SCREEN_W:
+        return scroll_floor_frame(c, back_canvas_y, front_canvas_y)
+    return guide.frame_floor(c, back_canvas_y=back_canvas_y, front_canvas_y=front_canvas_y)
+
+
+def _grid_nx(c, nx):
+    rw = c.range[0] if c.range and c.range[0] else SCREEN_W
+    return max(nx, round(nx * rw / SCREEN_W))
+
+
+def _height_segments(c, frame, S, wall_h):
+    """Line segments (PNG px) for vertical perspective guides: poles at the floor corners/mid-edges,
+    back-wall rings at quarter heights, and the room-box (ceiling) outline. World-accurate."""
+    def px(x, y, z):
+        cx, cy = cam.to_canvas((x, y, z), c)
+        return (cx * S, cy * S)
+    (blx, _a, blz), (brx, _b, brz), (frx, _cc, frz), (flx, _d, flz) = frame.corners_world
+    bl, br, fr, fl = (blx, blz), (brx, brz), (frx, frz), (flx, flz)
+    bm = ((blx + brx) / 2.0, blz)
+    fm = ((flx + frx) / 2.0, flz)
+    ticks = [wall_h * k / 4.0 for k in range(1, 5)]
+    segs = [(px(x, 0, z), px(x, wall_h, z)) for (x, z) in (bl, br, fr, fl, bm, fm)]   # poles
+    segs += [(px(bl[0], h, bl[1]), px(br[0], h, br[1])) for h in ticks]               # back rings
+    tops = [px(x, wall_h, z) for (x, z) in (bl, br, fr, fl)]                           # ceiling box
+    segs += [(tops[i], tops[(i + 1) % 4]) for i in range(4)]
+    return segs
+
+
+def _height_wireframe_blender(frame, wall_h):
+    """Vertical-guide wireframe in BLENDER coords: poles at floor corners/mid-edges + ceiling box.
+    Returns (verts, edges) for a viewport wireframe object so walls can be modelled/painted in 3D."""
+    (blx, _a, blz), (brx, _b, brz), (frx, _cc, frz), (flx, _d, flz) = frame.corners_world
+    posts = [(blx, blz), (brx, brz), (frx, frz), (flx, flz),
+             ((blx + brx) / 2.0, blz), ((flx + frx) / 2.0, flz)]
+    ff9 = []
+    for (x, z) in posts:                       # base + top of each pole
+        ff9 += [(x, 0.0, z), (x, wall_h, z)]
+    verts = ff9_verts_to_blender(ff9)
+    edges = [(2 * i, 2 * i + 1) for i in range(len(posts))]      # the poles
+    tops = [1, 3, 5, 7]                                          # bl/br/fr/fl tops
+    edges += [(tops[i], tops[(i + 1) % 4]) for i in range(4)]    # ceiling box
+    return verts, edges
+
+
 # --- Phase 1: viewport guide geometry + background-layer TOML (bpy-free) ------------------
 def floor_guide_geometry(c, back_canvas_y, front_canvas_y, nx=6, nz=6):
     """Reference floor grid + key markers for the PAINTED floor, in BLENDER world coords.
@@ -158,7 +234,8 @@ def floor_guide_geometry(c, back_canvas_y, front_canvas_y, nx=6, nz=6):
       markers    : [(label, (x,y,z))...] Blender coords (origin / back / front / right / left)
       half_width, zb, zf : the FF9-world frame, for reference
     """
-    frame = guide.frame_floor(c, back_canvas_y=back_canvas_y, front_canvas_y=front_canvas_y)
+    frame = _floor_frame(c, back_canvas_y, front_canvas_y)
+    nx = _grid_nx(c, nx)
     fx, zb, zf = frame.half_width, frame.zb, frame.zf
     xs = [-fx + 2.0 * fx * i / nx for i in range(nx + 1)]
     zs = [zb + (zf - zb) * j / nz for j in range(nz + 1)]
@@ -171,7 +248,9 @@ def floor_guide_geometry(c, back_canvas_y, front_canvas_y, nx=6, nz=6):
     mk = [("origin", (0.0, 0.0, 0.0)), ("back", (0.0, 0.0, zb)), ("front", (0.0, 0.0, zf)),
           ("right", (fx, 0.0, czc)), ("left", (-fx, 0.0, czc))]
     markers = [(lab, ff9_verts_to_blender([p])[0]) for lab, p in mk]
+    wall_verts, wall_edges = _height_wireframe_blender(frame, abs(zb - zf))   # vertical height guides
     return {"grid_verts": grid_verts, "grid_faces": grid_faces, "markers": markers,
+            "wall_verts": wall_verts, "wall_edges": wall_edges,
             "half_width": fx, "zb": zb, "zf": zf}
 
 
@@ -181,7 +260,7 @@ def floor_quad_blender(c, back_canvas_y, front_canvas_y):
     Use this to start the walkmesh ON the painted floor so it lines up with the guide grid; the
     artist then reshapes it. Same frame as `floor_guide_geometry` (scale-1 `to_canvas`).
     """
-    fr = guide.frame_floor(c, back_canvas_y=back_canvas_y, front_canvas_y=front_canvas_y)
+    fr = _floor_frame(c, back_canvas_y, front_canvas_y)
     fx, zb, zf = fr.half_width, fr.zb, fr.zf
     return ff9_verts_to_blender([(-fx, 0, zb), (fx, 0, zb), (fx, 0, zf), (-fx, 0, zf)])
 
@@ -189,12 +268,17 @@ def floor_quad_blender(c, back_canvas_y, front_canvas_y):
 def paint_template_lines(c, back_canvas_y, front_canvas_y, scale=4, nx=8, nz=8):
     """Line segments (in PNG pixels) for a trace-over paint template, bpy-free + testable.
 
-    Returns {"size": (W, H), "grid": [((x0,y0),(x1,y1))...], "outline": [...]} where the canvas is
-    384x448 * scale and (x,y) are top-left-origin PNG pixels. The bpy operator rasterizes these.
+    Returns {"size": (W, H), "grid": [...], "outline": [...], "height": [...]} where the canvas is
+    the camera's Range * scale (the FULL painting for a scrolling field) and (x,y) are top-left-origin
+    PNG pixels. ``height`` is the vertical perspective guides (poles/rings/ceiling). The bpy operator
+    rasterizes these. The floor fills the wide canvas for a scrolling camera.
     """
-    fr = guide.frame_floor(c, back_canvas_y=back_canvas_y, front_canvas_y=front_canvas_y)
+    fr = _floor_frame(c, back_canvas_y, front_canvas_y)
     fx, zb, zf = fr.half_width, fr.zb, fr.zf
     S = scale
+    nx = _grid_nx(c, nx)
+    rw = c.range[0] if c.range and c.range[0] else SCREEN_W
+    rh = c.range[1] if c.range and c.range[1] else 448
 
     def px(x, z):
         cx, cy = cam.to_canvas((x, 0, z), c)
@@ -205,7 +289,8 @@ def paint_template_lines(c, back_canvas_y, front_canvas_y, scale=4, nx=8, nz=8):
     grid = [(px(x, zb), px(x, zf)) for x in xs] + [(px(-fx, z), px(fx, z)) for z in zs]
     co = [px(*p) for p in ((-fx, zb), (fx, zb), (fx, zf), (-fx, zf))]
     outline = [(co[i], co[(i + 1) % 4]) for i in range(4)]
-    return {"size": (384 * S, 448 * S), "grid": grid, "outline": outline}
+    height = _height_segments(c, fr, S, abs(zb - zf))
+    return {"size": (rw * S, rh * S), "grid": grid, "outline": outline, "height": height}
 
 
 def layers_to_toml(layers):

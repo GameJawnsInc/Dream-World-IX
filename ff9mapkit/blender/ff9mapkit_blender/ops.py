@@ -21,6 +21,13 @@ from .vendor import bgx, cam, guide
 CAMERA_NAME = "FF9_Camera"
 WALKMESH_NAME = "FF9_Walkmesh"
 RANGE_WH = (384, 448)
+SCREEN_W = 384          # the visible field width; a scrolling painting is wider and the FOV is
+                        # always measured at this width (a wide Range must not change the focal length)
+
+
+def _range_wh(p):
+    """The painted-canvas size: the full painting for a scrolling field, else one 384x448 screen."""
+    return (int(p.canvas_w), int(p.canvas_h)) if p.scroll_enabled else RANGE_WH
 
 # content markers (Phase 2): tagged Blender objects -> [[npc]]/[[gateway]]/[player] on export.
 MARKER_KEY = "ff9_marker"            # obj[MARKER_KEY] in {"npc", "gateway", "spawn"}
@@ -54,6 +61,15 @@ class FF9MKProps(bpy.types.PropertyGroup):
     pitch: bpy.props.FloatProperty(name="Pitch", default=48.0, min=0.0, max=89.0)
     distance: bpy.props.FloatProperty(name="Distance", default=4500.0, min=1.0)
     fov: bpy.props.FloatProperty(name="FOV", default=42.2, min=1.0, max=170.0)
+    # larger-than-screen scrolling: the painting is wider/taller than the 384x448 screen and the
+    # view pans to follow the player. FOV stays measured at the 384 screen width (window_width).
+    scroll_enabled: bpy.props.BoolProperty(
+        name="Scrolling room", default=False,
+        description="Larger-than-screen painting the view pans across (FF9 streets/corridors)")
+    canvas_w: bpy.props.IntProperty(name="Canvas W", default=768, min=384,
+                                    description="Full painting width (>= 384; 768 = 2x screen)")
+    canvas_h: bpy.props.IntProperty(name="Canvas H", default=448, min=448,
+                                    description="Full painting height (>= 448)")
     back_y: bpy.props.FloatProperty(name="Floor back (canvas Y)", default=205.0)
     front_y: bpy.props.FloatProperty(name="Floor front (canvas Y)", default=432.0)
     walkmesh: bpy.props.PointerProperty(name="Walkmesh", type=bpy.types.Object,
@@ -75,9 +91,16 @@ def _matrix_from_bridge(b):
                    (0.0, 0.0, 0.0, 1.0)))
 
 
-def _pose_camera(cam_obj, pitch, distance, fov):
-    ff9 = guide.make_camera(pitch, distance, fov_x_deg=fov, range_wh=RANGE_WH)
-    b = bridge.ff9_cam_to_blender(ff9)
+def _pose_camera(cam_obj, p):
+    rw, rh = _range_wh(p)
+    if p.scroll_enabled:
+        # wide painting, normal focal length (proj from the 384 screen), + scroll bounds
+        ff9 = guide.make_camera(p.pitch, p.distance, proj=guide.proj_from_fov_x(p.fov, SCREEN_W),
+                                range_wh=(rw, rh), viewport=tuple(cam.scroll_bounds((rw, rh))))
+        b = bridge.ff9_cam_to_blender(ff9, window_width=SCREEN_W)
+    else:
+        ff9 = guide.make_camera(p.pitch, p.distance, fov_x_deg=p.fov, range_wh=(rw, rh))
+        b = bridge.ff9_cam_to_blender(ff9)
     cam_obj.matrix_world = _matrix_from_bridge(b)
     cam_obj.data.sensor_fit = "HORIZONTAL"
     cam_obj.data.sensor_width = b["sensor_width"]
@@ -93,12 +116,18 @@ def active_camera_to_ff9(context):
     cam_obj = context.scene.camera
     if cam_obj is None or cam_obj.type != "CAMERA":
         return None
+    p = context.scene.ff9mapkit
     mw = cam_obj.matrix_world
     m3 = mw.to_3x3()
     R_bl = [[m3[i][j] for j in range(3)] for i in range(3)]   # columns = local axes in world
     loc = [mw.translation[i] for i in range(3)]
+    rw, rh = _range_wh(p)
+    if p.scroll_enabled:
+        return bridge.blender_cam_to_ff9(
+            loc, R_bl, cam_obj.data.lens, sensor_width=cam_obj.data.sensor_width,
+            range_wh=(rw, rh), viewport=tuple(cam.scroll_bounds((rw, rh))), window_width=SCREEN_W)
     return bridge.blender_cam_to_ff9(loc, R_bl, cam_obj.data.lens,
-                                     sensor_width=cam_obj.data.sensor_width, range_wh=RANGE_WH)
+                                     sensor_width=cam_obj.data.sensor_width, range_wh=(rw, rh))
 
 
 def _walkmesh_world_mesh(obj):
@@ -153,6 +182,18 @@ def _rebuild_floor_guide(context, c, back_y, front_y):
     grid.hide_select = True
     grid.show_in_front = True
     coll.objects.link(grid)
+    # vertical height guides (poles at the floor edges + a ceiling box) so walls can be modelled
+    # and painted in correct perspective — not just a flat floor.
+    if g.get("wall_verts") and g.get("wall_edges"):
+        wmesh = bpy.data.meshes.new("FF9_Guide_Walls")
+        wmesh.from_pydata([list(v) for v in g["wall_verts"]],
+                          [list(e) for e in g["wall_edges"]], [])
+        wmesh.update()
+        walls = bpy.data.objects.new("FF9_Guide_Walls", wmesh)
+        walls.display_type = "WIRE"
+        walls.hide_select = True
+        walls.show_in_front = True
+        coll.objects.link(walls)
     # key-point markers
     for label, pos in g["markers"]:
         e = bpy.data.objects.new(f"FF9_Guide_{label}", None)
@@ -180,7 +221,7 @@ class FF9MK_OT_setup_scene(bpy.types.Operator):
             cam_data = bpy.data.cameras.new(CAMERA_NAME)
             cam_obj = bpy.data.objects.new(CAMERA_NAME, cam_data)
             coll.objects.link(cam_obj)
-        _pose_camera(cam_obj, p.pitch, p.distance, p.fov)
+        _pose_camera(cam_obj, p)
         context.scene.camera = cam_obj
         # walkmesh = the floor-frame quad on z=0, so it starts ON the painted floor (lined up with
         # the guide grid). The user reshapes it from there.
@@ -218,7 +259,7 @@ class FF9MK_OT_pose_camera(bpy.types.Operator):
             self.report({"ERROR"}, "No active camera (run Setup FF9 Scene first).")
             return {"CANCELLED"}
         p = context.scene.ff9mapkit
-        _pose_camera(cam_obj, p.pitch, p.distance, p.fov)
+        _pose_camera(cam_obj, p)
         return {"FINISHED"}
 
 
@@ -338,6 +379,8 @@ class FF9MK_OT_paint_template(bpy.types.Operator):
 
         for a, b in t["grid"]:                                # faint perspective grid
             line(a, b, (0.82, 0.84, 0.90, 0.35))
+        for a, b in t.get("height", []):                      # vertical guides: poles/rings/ceiling
+            line(a, b, (0.35, 0.86, 0.92, 0.80))
         for a, b in t["outline"]:                             # bright floor outline (~3px)
             for o in (-1, 0, 1):
                 line((a[0], a[1] + o), (b[0], b[1] + o), (1.0, 0.67, 0.24, 0.95))
@@ -386,8 +429,9 @@ class FF9MK_OT_add_layer(bpy.types.Operator):
             self.report({"ERROR"}, "No image selected.")
             return {"CANCELLED"}
         # match the painted canvas aspect so a FIT background lines up with the FF9 frame
-        context.scene.render.resolution_x = RANGE_WH[0]
-        context.scene.render.resolution_y = RANGE_WH[1]
+        rw, rh = _range_wh(p)
+        context.scene.render.resolution_x = rw
+        context.scene.render.resolution_y = rh
         img = bpy.data.images.load(self.filepath, check_existing=True)
         cam_data = cam_obj.data
         cam_data.show_background_images = True
@@ -630,7 +674,9 @@ def _field_toml(p, layers, npcs=(), gateways=(), spawn=None):
         f"text_block = {p.text_block}\n\n"
         f"[camera]\n"
         f'borrow = "camera.bgx"   # the exact camera you posed in Blender\n'
-        f"[camera.frame]\n"
+        + ("[camera.scroll]\nenabled = true   # larger-than-screen painting; the view scrolls\n"
+           if p.scroll_enabled else "")
+        + f"[camera.frame]\n"
         f"back = {p.back_y:g}\n"
         f"front = {p.front_y:g}\n\n"
         f"[walkmesh]\n"
