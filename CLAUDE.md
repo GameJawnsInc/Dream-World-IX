@@ -898,3 +898,15 @@ Walked the two prepped Memoria PRs with the user, one at a time. **Result: ONE P
 **Status:** `memoria-patches/upstream/` = ONE submission (FieldCreatorScene fix) + UPSTREAM.md.
 
 **PR OPENED (user approved + forked):** **https://github.com/Albeoris/Memoria/pull/1433** — "Fix FieldCreatorScene export writing overlay PNGs to the game root instead of the field folder" (base `main` ← `GameJawnsInc:fix-fieldcreator-png-export-path`, 1 file, +4/−1). Opened via `gh` from a fresh clone of the fork at `C:/gd/memoria-pr` (separate from the dev `Memoria/` tree). The fix line was byte-identical on current upstream `main` (blob `1e42a31d`), so it applied clean. Awaiting maintainer review; the `memoria-pr` clone is kept around for easy follow-up pushes if changes are requested. **This is our first upstream contribution to Memoria.**
+
+### 2026-06-03 — Session 14 (cont) — Blender Tier-2 Phase 3: add-on docs/version finalize (offline, no game change)
+
+**Done (docs/version/packaging only — Claude-owned per Hard-Constraint §2; nothing in-game-visible, so no playtest):** the add-on had shipped two feature waves since v0.1.0 with no version bump or doc refresh — Phase 1 (viewport floor guide, Export Paint Template, paint-art backdrop layers) and Phase 2 (NPC/gateway/spawn content markers). Finalized:
+- **Bumped the add-on to 0.3.0** across all three version sites (`blender_manifest.toml`, `__init__.py` `bl_info`, `build_addon.py` `VERSION`) and repackaged the extension zip (`dist/ff9mapkit_blender-0.3.0.zip`; vendor re-synced, drift-guard clean). The main `ff9mapkit` CLI/library stays on its own track (0.1.0) — untouched.
+- **Filled the README workflow gaps:** it never documented `Export Paint Template`, `Add/Clear Background Layer` (load painted art as a backdrop to model against; occlusion via small z), or `Reset Walkmesh to Floor`. Reworked the workflow to mirror the actual panel order (Setup → Camera → Walkmesh → Background Art → Content → Export).
+- **Cross-linked** the Blender add-on from `docs/PIPELINE.md` as the visual front-end for the camera + walkmesh steps.
+- 99 tests pass (kit + blender). Commit `e59b074`.
+
+**Engine/game state:** unchanged from the prior entry — dev engine (Session-12 build); live FF9CustomMap = clean 2-room state (4000 HUT_EXT + 4002 HUT_INT) + Alexandria door. No new in-game state → no KNOWN_GOOD tag. Branch `master`.
+
+**Next options:** a 2nd connected room (chain via gateway) to demo the multi-room approach; in-room **scrolling** or **multi-camera** as a new kit feature; respond to PR #1433 maintainer feedback; or the local engine→stock restore + a true-player-experience playthrough.
