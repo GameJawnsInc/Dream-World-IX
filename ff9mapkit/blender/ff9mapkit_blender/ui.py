@@ -55,6 +55,7 @@ class FF9MK_PT_panel(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="Background Art", icon="IMAGE_DATA")
+        box.operator("ff9mk.paint_template", icon="GRID")
         row = box.row(align=True)
         row.operator("ff9mk.add_layer", icon="ADD", text="Add Layer")
         row.operator("ff9mk.clear_layers", icon="TRASH", text="")

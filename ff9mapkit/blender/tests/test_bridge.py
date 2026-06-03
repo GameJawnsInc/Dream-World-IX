@@ -146,3 +146,15 @@ def test_floor_quad_blender():
     exp = bridge.ff9_verts_to_blender([(-fx, 0, zb), (fx, 0, zb), (fx, 0, zf), (-fx, 0, zf)])
     for a, b in zip(q, exp):
         assert max(abs(a[i] - b[i]) for i in range(3)) < 1e-6
+
+
+def test_paint_template_lines():
+    _, c = _make(CAMS[0])
+    t = bridge.paint_template_lines(c, 130.0, 420.0, scale=4, nx=8, nz=8)
+    assert t["size"] == (384 * 4, 448 * 4)
+    assert len(t["grid"]) == (8 + 1) + (8 + 1)      # longitudinal + latitudinal
+    assert len(t["outline"]) == 4                   # quad
+    # outline back edge y < front edge y (back is higher on the canvas)
+    (_, by0), (_, by1) = t["outline"][0]            # back edge
+    (_, fy0), _ = t["outline"][2]                   # front edge start
+    assert max(by0, by1) < fy0

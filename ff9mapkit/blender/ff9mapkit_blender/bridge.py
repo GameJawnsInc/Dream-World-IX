@@ -186,6 +186,28 @@ def floor_quad_blender(c, back_canvas_y, front_canvas_y):
     return ff9_verts_to_blender([(-fx, 0, zb), (fx, 0, zb), (fx, 0, zf), (-fx, 0, zf)])
 
 
+def paint_template_lines(c, back_canvas_y, front_canvas_y, scale=4, nx=8, nz=8):
+    """Line segments (in PNG pixels) for a trace-over paint template, bpy-free + testable.
+
+    Returns {"size": (W, H), "grid": [((x0,y0),(x1,y1))...], "outline": [...]} where the canvas is
+    384x448 * scale and (x,y) are top-left-origin PNG pixels. The bpy operator rasterizes these.
+    """
+    fr = guide.frame_floor(c, back_canvas_y=back_canvas_y, front_canvas_y=front_canvas_y)
+    fx, zb, zf = fr.half_width, fr.zb, fr.zf
+    S = scale
+
+    def px(x, z):
+        cx, cy = cam.to_canvas((x, 0, z), c)
+        return (cx * S, cy * S)
+
+    xs = [-fx + 2.0 * fx * i / nx for i in range(nx + 1)]
+    zs = [zb + (zf - zb) * j / nz for j in range(nz + 1)]
+    grid = [(px(x, zb), px(x, zf)) for x in xs] + [(px(-fx, z), px(fx, z)) for z in zs]
+    co = [px(*p) for p in ((-fx, zb), (fx, zb), (fx, zf), (-fx, zf))]
+    outline = [(co[i], co[(i + 1) % 4]) for i in range(4)]
+    return {"size": (384 * S, 448 * S), "grid": grid, "outline": outline}
+
+
 def layers_to_toml(layers):
     """Emit the `[[layers]]` TOML block from an ordered list of {image, z} (dict or (image, z))."""
     blocks = []

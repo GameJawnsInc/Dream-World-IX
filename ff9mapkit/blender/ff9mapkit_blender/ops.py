@@ -24,10 +24,21 @@ RANGE_WH = (384, 448)
 
 
 # --------------------------------------------------------------------------- properties
+def _layer_z_update(self, context):
+    """Foreground layers (small z) preview IN FRONT of the scene; background layers behind."""
+    cam_obj = context.scene.camera
+    if cam_obj is None or cam_obj.type != "CAMERA":
+        return
+    tgt = os.path.basename(self.image)
+    for bg in cam_obj.data.background_images:
+        if bg.image and os.path.basename(bg.image.filepath) == tgt:
+            bg.display_depth = "FRONT" if self.z < 1000 else "BACK"
+
+
 class FF9MKLayer(bpy.types.PropertyGroup):
     """One painted background layer: a PNG + its depth Z (smaller Z = in front)."""
     image: bpy.props.StringProperty(name="Image", subtype="FILE_PATH")
-    z: bpy.props.IntProperty(name="Depth Z", default=4000)
+    z: bpy.props.IntProperty(name="Depth Z", default=4000, update=_layer_z_update)
 
 
 class FF9MKProps(bpy.types.PropertyGroup):
@@ -275,6 +286,60 @@ class FF9MK_OT_compute_guide(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class FF9MK_OT_paint_template(bpy.types.Operator):
+    bl_idname = "ff9mk.paint_template"
+    bl_label = "Export Paint Template"
+    bl_description = ("Write a transparent 1536x1792 trace-over paint template (floor outline + "
+                      "perspective grid) for the current camera; paint your room on layers UNDER it")
+
+    def execute(self, context):
+        import array
+        c = active_camera_to_ff9(context)
+        if c is None:
+            self.report({"ERROR"}, "No active camera (run Setup FF9 Scene first).")
+            return {"CANCELLED"}
+        p = context.scene.ff9mapkit
+        t = bridge.paint_template_lines(c, p.back_y, p.front_y, scale=4)
+        W, H = t["size"]
+        buf = array.array("f", bytes(W * H * 4 * 4))          # all 0.0 -> transparent
+
+        def line(p0, p1, rgba):
+            x0, y0 = p0; x1, y1 = p1
+            dx, dy = x1 - x0, y1 - y0
+            n = int(max(abs(dx), abs(dy)))
+            for i in range(n + 1):
+                tt = i / n if n else 0.0
+                x = int(round(x0 + dx * tt)); y = int(round(y0 + dy * tt))
+                if 0 <= x < W and 0 <= y < H:
+                    idx = ((H - 1 - y) * W + x) * 4           # bpy image rows are bottom-up
+                    buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3] = rgba
+
+        for a, b in t["grid"]:                                # faint perspective grid
+            line(a, b, (0.82, 0.84, 0.90, 0.35))
+        for a, b in t["outline"]:                             # bright floor outline (~3px)
+            for o in (-1, 0, 1):
+                line((a[0], a[1] + o), (b[0], b[1] + o), (1.0, 0.67, 0.24, 0.95))
+                line((a[0] + o, a[1]), (b[0] + o, b[1]), (1.0, 0.67, 0.24, 0.95))
+
+        old = bpy.data.images.get("FF9_PaintTemplate")
+        if old:
+            bpy.data.images.remove(old)
+        img = bpy.data.images.new("FF9_PaintTemplate", W, H, alpha=True)
+        img.pixels.foreach_set(buf)
+        out = _resolve_out_dir(p.export_dir)
+        try:
+            os.makedirs(out, exist_ok=True)
+            path = os.path.join(out, "paint_template.png")
+            img.filepath_raw = path
+            img.file_format = "PNG"
+            img.save()
+        except OSError as e:
+            self.report({"ERROR"}, f"can't write template: {e.strerror}. Save the .blend or set 'Export to'.")
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"paint template ({W}x{H}) -> {path}; paint your room on layers UNDER it")
+        return {"FINISHED"}
+
+
 class FF9MK_OT_add_layer(bpy.types.Operator):
     bl_idname = "ff9mk.add_layer"
     bl_label = "Add Background Layer"
@@ -306,13 +371,14 @@ class FF9MK_OT_add_layer(bpy.types.Operator):
         cam_data.show_background_images = True
         bg = cam_data.background_images.new()
         bg.image = img
-        bg.display_depth = "BACK"
         bg.frame_method = "FIT"
         bg.alpha = 1.0
         # record the layer; back-most defaults to 4000, each subsequent 1000 in front
         L = p.layers.add()
         L.image = self.filepath
-        L.z = 4000 - 1000 * (len(p.layers) - 1)
+        z = 4000 - 1000 * (len(p.layers) - 1)
+        bg.display_depth = "FRONT" if z < 1000 else "BACK"
+        L.z = z                                       # also fires _layer_z_update
         p.layers_index = len(p.layers) - 1
         self.report({"INFO"}, f"added layer {os.path.basename(self.filepath)} (z={L.z}); "
                               f"view through the FF9 camera (Numpad 0) to model against it")
@@ -422,8 +488,8 @@ def _field_toml(p, layers):
 
 
 CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera,
-           FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_add_layer,
-           FF9MK_OT_clear_layers, FF9MK_OT_export_field)
+           FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_paint_template,
+           FF9MK_OT_add_layer, FF9MK_OT_clear_layers, FF9MK_OT_export_field)
 
 
 def register():
