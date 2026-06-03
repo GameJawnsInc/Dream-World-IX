@@ -73,3 +73,6 @@ backups/*.bgi.bytes.*
 backups/*.bgx.*
 backups/*.png.*
 backups/pre-reclone-*/
+
+# Blender working/test projects (user art + exports)
+ff9mapkit/blender/debug_proj/

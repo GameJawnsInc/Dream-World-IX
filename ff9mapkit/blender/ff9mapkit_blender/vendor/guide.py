@@ -143,3 +143,56 @@ def render_paint_guide(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int
     mark((0, 0, zb), (255, 120, 120), f"back z={zb}")
     mark((0, 0, zf), (255, 120, 120), f"front z={zf}")
     img.save(png_path)
+
+
+def render_paint_template(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int = 4,
+                          nx: int = 8, nz: int = 8) -> tuple:
+    """Render a TRANSPARENT trace-over paint template (canvas_w*scale x canvas_h*scale).
+
+    Unlike render_paint_guide (an opaque calibration checkerboard), this is a transparent overlay:
+    open it in your paint app, paint your room on layers BELOW it, then hide/delete this guide layer.
+    Draws a faint perspective floor grid + a bright floor outline + the canvas border + labels.
+    Returns the image (w, h) in pixels.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    S = scale
+    W, H = CANVAS_W * S, CANVAS_H * S
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    dr = ImageDraw.Draw(img, "RGBA")
+
+    def px(P):
+        cx, cy = _cam.to_canvas(P, cam)
+        return (cx * S, cy * S)
+
+    fx, zb, zf = frame.half_width, frame.zb, frame.zf
+    xs = [-fx + 2 * fx * i / nx for i in range(nx + 1)]
+    zs = [zb + (zf - zb) * j / nz for j in range(nz + 1)]
+    GRID = (210, 215, 230, 70)                              # faint perspective grid
+    for x in xs:
+        dr.line([px((x, 0, zb)), px((x, 0, zf))], fill=GRID, width=1)
+    for z in zs:
+        dr.line([px((-fx, 0, z)), px((fx, 0, z))], fill=GRID, width=1)
+    # bright floor outline (back edge thicker)
+    edge = [px(P) for P in frame.corners_world]
+    dr.line(edge + [edge[0]], fill=(255, 170, 60, 220), width=2 * S)
+    dr.line([edge[0], edge[1]], fill=(255, 170, 60, 255), width=3 * S)
+    # canvas border (the full paint area)
+    dr.rectangle([1, 1, W - 2, H - 2], outline=(120, 200, 255, 160), width=2)
+    try:
+        fnt = ImageFont.truetype("arial.ttf", 12 * S)
+    except OSError:
+        fnt = ImageFont.load_default()
+
+    def label(P, txt, col):
+        x, y = px(P)
+        dr.text((x + 6, y - 8 * S), txt, fill=col, font=fnt,
+                stroke_width=max(1, S // 2), stroke_fill=(0, 0, 0, 200))
+
+    label((0, 0, zb), "FLOOR BACK", (255, 170, 60, 255))
+    label((0, 0, zf), "FLOOR FRONT", (255, 170, 60, 255))
+    label((0, 0, (zb + zf) / 2), "floor center", (90, 255, 120, 255))
+    dr.text((10, 10), f"paint canvas {W}x{H} (logical {CANVAS_W}x{CANVAS_H})  -  trace UNDER this layer",
+            fill=(120, 200, 255, 230), font=fnt, stroke_width=max(1, S // 2), stroke_fill=(0, 0, 0, 220))
+    img.save(png_path)
+    return (W, H)

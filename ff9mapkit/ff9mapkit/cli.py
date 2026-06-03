@@ -108,19 +108,32 @@ def _cmd_walkmesh(args: argparse.Namespace) -> int:
 
 def _cmd_guide(args: argparse.Namespace) -> int:
     from .scene import bgi, cam, guide
-    g = guide.make_camera(args.pitch, args.distance, fov_x_deg=args.fov)
+    if args.from_bgx:                              # use an existing camera (e.g. the Blender export)
+        cams = cam.parse_bgx_cameras(args.from_bgx)
+        if not cams:
+            print(f"no CAMERA in {args.from_bgx}", file=sys.stderr)
+            return 2
+        g = cams[0]
+        pitch = cam.pitch_deg(g)
+    else:                                          # author a camera from pitch/distance/fov
+        g = guide.make_camera(args.pitch, args.distance, fov_x_deg=args.fov)
+        pitch = args.pitch
     fr = guide.frame_floor(g, back_canvas_y=args.back, front_canvas_y=args.front)
-    print(f"camera pitch={args.pitch} fovX={cam.decompose(g)['fov_x_deg']:.1f} dist={args.distance}")
-    w = cam.pitch_warning(args.pitch)
+    print(f"camera pitch={pitch:.1f} fovX={cam.decompose(g)['fov_x_deg']:.1f}")
+    w = cam.pitch_warning(pitch)
     if w:
         print(f"warning: {w}", file=sys.stderr)
     print(f"floor world z [{fr.zf}..{fr.zb}] half-width {fr.half_width}")
-    for nm, w, cv in zip(("BL", "BR", "FR", "FL"), fr.corners_world, fr.corners_canvas):
-        print(f"  {nm}: world {w} -> canvas px {cv}")
+    for nm, wld, cv in zip(("BL", "BR", "FR", "FL"), fr.corners_world, fr.corners_canvas):
+        print(f"  {nm}: world {wld} -> canvas px {cv}")
     print(f"walkmesh corners (x,z): {guide.walkmesh_corners(fr)}")
     if args.png:
-        guide.render_paint_guide(g, fr, args.png)
-        print(f"paint guide -> {args.png}")
+        if args.template:
+            wpx, hpx = guide.render_paint_template(g, fr, args.png)
+            print(f"paint template ({wpx}x{hpx}, transparent - paint UNDER it) -> {args.png}")
+        else:
+            guide.render_paint_guide(g, fr, args.png)
+            print(f"paint guide (checkerboard) -> {args.png}")
     return 0
 
 
@@ -206,13 +219,17 @@ def build_parser() -> argparse.ArgumentParser:
     wm.add_argument("output", nargs="?", help="output path (.bgi); for fix defaults to input")
     wm.set_defaults(func=_cmd_walkmesh)
 
-    gd = sub.add_parser("guide", help="author a camera + emit a paint guide for a flat floor")
-    gd.add_argument("--pitch", type=float, required=True, help="downward pitch in degrees")
+    gd = sub.add_parser("guide", help="emit a paint guide/template for a flat floor")
+    gd.add_argument("--from-bgx", help="use an existing camera .bgx (e.g. the Blender export) "
+                                       "instead of --pitch/--distance/--fov")
+    gd.add_argument("--pitch", type=float, default=48.0, help="downward pitch in degrees (if not --from-bgx)")
     gd.add_argument("--distance", type=float, default=4500, help="camera distance from origin")
     gd.add_argument("--fov", type=float, default=42.2, help="horizontal FOV in degrees")
     gd.add_argument("--back", type=float, default=205, help="canvas Y of the floor back edge")
     gd.add_argument("--front", type=float, default=432, help="canvas Y of the floor front edge")
-    gd.add_argument("--png", help="write a checkerboard paint-guide PNG here")
+    gd.add_argument("--png", help="write a PNG here (checkerboard guide, or template with --template)")
+    gd.add_argument("--template", action="store_true",
+                    help="write a TRANSPARENT trace-over paint template (paint your room under it)")
     gd.set_defaults(func=_cmd_guide)
 
     bd = sub.add_parser("build", help="compile field.toml project(s) into a Memoria mod")

@@ -94,3 +94,17 @@ def test_grgr_projection_offset_and_canvas_inverse():
     for z in (340, -1188, -3344):
         cy = C.to_canvas((0, 0, z), grgr)[1]
         assert abs(C.solve_z_for_canvasY(grgr, cy) - z) < 0.5
+
+
+def test_paint_template_renders():
+    pytest.importorskip("PIL")
+    import tempfile, os
+    from ff9mapkit.scene import guide as G
+    _, cam = _make(CAMS[0])
+    fr = G.frame_floor(cam, back_canvas_y=160.0, front_canvas_y=400.0)
+    p = os.path.join(tempfile.gettempdir(), "ff9mk_tmpl_test.png")
+    wh = G.render_paint_template(cam, fr, p)
+    assert wh == (384 * 4, 448 * 4)
+    from PIL import Image
+    im = Image.open(p)
+    assert im.size == (1536, 1792) and im.mode == "RGBA"
