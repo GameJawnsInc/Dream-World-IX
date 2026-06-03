@@ -78,9 +78,22 @@ class FloorFrame:
 
 def frame_floor(cam: _cam.Cam, *, back_canvas_y: float = 130.0, front_canvas_y: float = 420.0,
                 half_width: int | None = None, back_span_px: float = 130.0) -> FloorFrame:
-    """Frame a flat floor between two painted-canvas rows; auto half-width if not given."""
-    zb = round(_cam.solve_z_for_canvasY(cam, back_canvas_y))
-    zf = round(_cam.solve_z_for_canvasY(cam, front_canvas_y))
+    """Frame a flat floor between two painted-canvas rows; auto half-width if not given.
+
+    Raises ValueError if a requested row is above the camera's horizon (unreachable) — typically a
+    too-shallow pitch. The message reports the horizon row so you can steepen the pitch or move the
+    floor rows below it."""
+    zb_f = _cam.solve_z_for_canvasY(cam, back_canvas_y)
+    zf_f = _cam.solve_z_for_canvasY(cam, front_canvas_y)
+    if zb_f is None or zf_f is None:
+        hy = _cam.horizon_canvas_y(cam)
+        bad = "back" if zb_f is None else "front"
+        val = back_canvas_y if zb_f is None else front_canvas_y
+        raise ValueError(
+            f"floor {bad} edge (canvas Y={val:g}) is above the horizon for this camera "
+            f"(pitch {_cam.pitch_deg(cam):.1f} deg, horizon at canvas Y~{hy:.0f}): no floor projects "
+            f"there. Use a steeper pitch, or keep the floor rows below Y~{hy:.0f} (larger values).")
+    zb, zf = round(zb_f), round(zf_f)
     if half_width is None:
         nb = abs(_cam.project((0, 0, zb), cam)[2])           # depth at back center
         # scale-1 map: canvas half-span = half_width * proj / depth  ->  invert for half_width

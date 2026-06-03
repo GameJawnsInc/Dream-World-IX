@@ -118,7 +118,11 @@ def _cmd_guide(args: argparse.Namespace) -> int:
     else:                                          # author a camera from pitch/distance/fov
         g = guide.make_camera(args.pitch, args.distance, fov_x_deg=args.fov)
         pitch = args.pitch
-    fr = guide.frame_floor(g, back_canvas_y=args.back, front_canvas_y=args.front)
+    try:
+        fr = guide.frame_floor(g, back_canvas_y=args.back, front_canvas_y=args.front)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     print(f"camera pitch={pitch:.1f} fovX={cam.decompose(g)['fov_x_deg']:.1f}")
     w = cam.pitch_warning(pitch)
     if w:
@@ -149,7 +153,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
     try:
         info = build_mod(projects, out, mod_name=args.mod_name, author=args.author,
                          description=args.description)
-    except BuildError as e:
+    except (BuildError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
     print(f"built mod '{args.mod_name}' -> {info['root']}")

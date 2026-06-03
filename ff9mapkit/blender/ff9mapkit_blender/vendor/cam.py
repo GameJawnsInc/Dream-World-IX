@@ -162,9 +162,10 @@ def to_canvas(P, cam):
     px, py, _ = project(P, cam)                 # RAW GTE projection (offset 0,0)
     return (px + cam.range[0]/2.0, cam.range[1]/2.0 - py)
 
-def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, zlo=-6000.0, zhi=6000.0):
+def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, zlo=-30000.0, zhi=30000.0):
     """Inverse: find the world z (at given x,y) whose foot projects to a painted-canvas row.
-    Bisection on the monotonic canvasY(z). Returns z or None."""
+    Bisection on the monotonic canvasY(z). Returns z, or None if the row is unreachable (the
+    floor never projects there at this camera — i.e. above the horizon, or beyond the z search)."""
     def cy(z): return to_canvas((x, y, z), cam)[1]
     a, b = zlo, zhi
     fa, fb = cy(a)-canvasY, cy(b)-canvasY
@@ -177,6 +178,11 @@ def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, zlo=-6000.0, zhi=6000.0):
         if (fm > 0) == (fa > 0): a, fa = m, fm
         else: b, fb = m, fm
     return 0.5*(a+b)
+
+def horizon_canvas_y(cam, x=0.0):
+    """The painted-canvas Y the floor (y=0 plane) approaches as z -> +inf: the camera's horizon.
+    Floor rows ABOVE this (smaller canvasY) are unreachable — there's no floor point there."""
+    return to_canvas((x, 0.0, 1.0e7), cam)[1]
 
 # ---------- decomposition: R_ff9 -> (k-per-row, R_ortho, camera pos C, R_view) ----------
 def decompose(cam):

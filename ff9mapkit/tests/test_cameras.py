@@ -108,3 +108,22 @@ def test_paint_template_renders():
     from PIL import Image
     im = Image.open(p)
     assert im.size == (1536, 1792) and im.mode == "RGBA"
+
+
+def test_frame_floor_shallow_pitch_raises_gracefully():
+    from ff9mapkit.scene import guide as G
+    c = G.make_camera(8, 4500, fov_x_deg=42)        # too shallow -> floor rows above horizon
+    with pytest.raises(ValueError, match="horizon"):
+        G.frame_floor(c, back_canvas_y=205, front_canvas_y=432)
+    assert isinstance(C.horizon_canvas_y(c), float)
+    # a steep enough camera frames fine
+    c2 = G.make_camera(40, 4500, fov_x_deg=42)
+    fr = G.frame_floor(c2, back_canvas_y=205, front_canvas_y=432)
+    assert fr.zb != fr.zf
+
+
+def test_walkmesh_int16_bound_raises_gracefully():
+    from ff9mapkit.scene import bgi as B
+    B.build_flat([(-800, 0, -800), (800, 0, -800), (0, 0, 800)], [(0, 1, 2)])   # ok
+    with pytest.raises(ValueError, match="Int16"):
+        B.build_flat([(-50000, 0, 0), (50000, 0, 0), (0, 0, 50000)], [(0, 1, 2)])

@@ -340,6 +340,14 @@ def build_flat(verts, faces, *, tri_flags: int = 1, floor_flags: int = 0,
     m = BgiWalkmesh()
     hv = Vec3(*header_vec)
     m.orgPos, m.curPos, m.minPos, m.maxPos, m.charPos = (Vec3(*header_vec) for _ in range(5))
+    verts = list(verts)
+    for (x, y, z) in verts:                       # .bgi stores verts as Int16
+        for v in (x, y, z):
+            if not (-32768 <= round(v) <= 32767):
+                raise ValueError(
+                    f"walkmesh vertex coordinate {v:.0f} exceeds the .bgi Int16 range +/-32767 "
+                    f"-- the room/floor is too large in world units; scale it down (FF9 rooms are "
+                    f"typically a few thousand units across).")
     m.verts = [Vec3(int(round(x)), int(round(y)), int(round(z))) for (x, y, z) in verts]
     for ti, (i, j, k) in enumerate(faces):
         t = Tri(tri_flags=tri_flags, floor_ndx=0, normal_ndx=-1)

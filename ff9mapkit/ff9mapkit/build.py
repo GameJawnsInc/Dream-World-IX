@@ -163,8 +163,11 @@ def resolve_walkmesh(project: FieldProject, camera: cam.Cam) -> bytes:
     # auto: frame the floor from the camera, then slide the walkmesh toward the camera by the
     # character ground offset so a 3D character looks planted on the scale-1-painted floor.
     fr = project.raw.get("camera", {}).get("frame", {})
-    frame = guide.frame_floor(camera, back_canvas_y=float(fr.get("back", 205)),
-                              front_canvas_y=float(fr.get("front", 432)))
+    try:
+        frame = guide.frame_floor(camera, back_canvas_y=float(fr.get("back", 205)),
+                                  front_canvas_y=float(fr.get("front", 432)))
+    except ValueError as e:
+        raise BuildError(f"[camera.frame] {e}") from e
     off = float(wm.get("character_offset", cam.CHARACTER_GROUND_OFFSET_Z))
     corners = _shift_toward_camera(guide.walkmesh_corners(frame), camera, off)
     return bgi.quad(corners).to_bytes()

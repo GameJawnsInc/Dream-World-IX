@@ -180,7 +180,11 @@ class FF9MK_OT_setup_scene(bpy.types.Operator):
         # walkmesh = the floor-frame quad on z=0, so it starts ON the painted floor (lined up with
         # the guide grid). The user reshapes it from there.
         c = active_camera_to_ff9(context)
-        corners = bridge.floor_quad_blender(c, p.back_y, p.front_y)
+        try:
+            corners = bridge.floor_quad_blender(c, p.back_y, p.front_y)
+        except ValueError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
         wm = bpy.data.objects.get(WALKMESH_NAME)
         if wm is None:
             wm = bpy.data.objects.new(WALKMESH_NAME, bpy.data.meshes.new(WALKMESH_NAME))
@@ -230,7 +234,12 @@ class FF9MK_OT_walkmesh_from_floor(bpy.types.Operator):
         if wm is None or wm.type != "MESH":
             self.report({"ERROR"}, "No walkmesh set (run Setup FF9 Scene first).")
             return {"CANCELLED"}
-        _set_quad_mesh(wm, bridge.floor_quad_blender(c, p.back_y, p.front_y))
+        try:
+            corners = bridge.floor_quad_blender(c, p.back_y, p.front_y)
+        except ValueError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        _set_quad_mesh(wm, corners)
         self.report({"INFO"}, "walkmesh reset to the current floor frame")
         return {"FINISHED"}
 
@@ -246,7 +255,11 @@ class FF9MK_OT_compute_guide(bpy.types.Operator):
             self.report({"ERROR"}, "No active camera.")
             return {"CANCELLED"}
         p = context.scene.ff9mapkit
-        frame = guide.frame_floor(c, back_canvas_y=p.back_y, front_canvas_y=p.front_y)
+        try:
+            frame = guide.frame_floor(c, back_canvas_y=p.back_y, front_canvas_y=p.front_y)
+        except ValueError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
         lines = ["FF9 Map Kit paint guide (canvas is 384 x 448, top-left origin, Y down)", ""]
         lines.append(f"camera pitch ~{cam.pitch_deg(c):.1f} deg, FOV_x {cam.decompose(c)['fov_x_deg']:.1f} deg")
         w = cam.pitch_warning(cam.pitch_deg(c))
@@ -299,7 +312,11 @@ class FF9MK_OT_paint_template(bpy.types.Operator):
             self.report({"ERROR"}, "No active camera (run Setup FF9 Scene first).")
             return {"CANCELLED"}
         p = context.scene.ff9mapkit
-        t = bridge.paint_template_lines(c, p.back_y, p.front_y, scale=4)
+        try:
+            t = bridge.paint_template_lines(c, p.back_y, p.front_y, scale=4)
+        except ValueError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
         W, H = t["size"]
         buf = array.array("f", bytes(W * H * 4 * 4))          # all 0.0 -> transparent
 
