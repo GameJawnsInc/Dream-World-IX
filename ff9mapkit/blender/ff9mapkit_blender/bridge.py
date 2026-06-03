@@ -218,6 +218,62 @@ def layers_to_toml(layers):
     return "\n".join(blocks)
 
 
+# --- Phase 2: content markers (NPC / gateway / player spawn) -> TOML ----------------------
+def _toml_str(s):
+    """A TOML basic-string literal with the special characters escaped."""
+    s = str(s).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
+    return f'"{s}"'
+
+
+def marker_floor_pos(world_loc):
+    """Blender world location of a floor marker -> FF9 (x, z) ints (FF9 y, the height, is dropped)."""
+    fx, _fy, fz = blender_verts_to_ff9([list(world_loc)])[0]
+    return (int(round(fx)), int(round(fz)))
+
+
+def npcs_to_toml(npcs):
+    """`[[npc]]` blocks from dicts: {pos:(x,z), name?, preset?, model?, animset?, anims?,
+    dialogue?, text_id?}. ``pos`` is required; ``preset`` (e.g. "vivi") OR model/animset/anims."""
+    blocks = []
+    for n in npcs:
+        L = ["[[npc]]"]
+        if n.get("name"):
+            L.append(f"name = {_toml_str(n['name'])}")
+        if n.get("preset"):
+            L.append(f"preset = {_toml_str(n['preset'])}")
+        else:
+            if n.get("model") is not None:
+                L.append(f"model = {int(n['model'])}")
+            if n.get("animset") is not None:
+                L.append(f"animset = {int(n['animset'])}")
+            if n.get("anims"):
+                L.append("anims = [" + ", ".join(str(int(a)) for a in n["anims"]) + "]")
+        L.append(f"pos = [{int(n['pos'][0])}, {int(n['pos'][1])}]")
+        if n.get("dialogue"):
+            L.append(f"dialogue = {_toml_str(n['dialogue'])}")
+        if n.get("text_id") is not None:
+            L.append(f"text_id = {int(n['text_id'])}")
+        blocks.append("\n".join(L))
+    return "\n\n".join(blocks)
+
+
+def gateways_to_toml(gateways):
+    """`[[gateway]]` blocks from dicts: {to, entrance?, zone:[(x,z) x4]}. ``zone`` is the 4 floor
+    corners; point ORDER sets the walk-out direction (the q0->q1 edge is walked across on exit)."""
+    blocks = []
+    for g in gateways:
+        zone = ", ".join(f"[{int(x)}, {int(z)}]" for (x, z) in g["zone"])
+        L = ["[[gateway]]", f"to = {int(g['to'])}", f"entrance = {int(g.get('entrance', 0))}",
+             f"zone = [{zone}]"]
+        blocks.append("\n".join(L))
+    return "\n\n".join(blocks)
+
+
+def player_to_toml(spawn):
+    """`[player]` block. ``spawn`` is (x, z)."""
+    return f"[player]\nspawn = [{int(spawn[0])}, {int(spawn[1])}]"
+
+
 def mesh_to_ff9_obj(world_verts, tri_faces):
     """Wavefront .obj text for a Blender mesh (world verts + triangle faces), in FF9 coords."""
     fv = blender_verts_to_ff9(world_verts)

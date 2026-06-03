@@ -22,6 +22,11 @@ CAMERA_NAME = "FF9_Camera"
 WALKMESH_NAME = "FF9_Walkmesh"
 RANGE_WH = (384, 448)
 
+# content markers (Phase 2): tagged Blender objects -> [[npc]]/[[gateway]]/[player] on export.
+MARKER_KEY = "ff9_marker"            # obj[MARKER_KEY] in {"npc", "gateway", "spawn"}
+GATEWAY_HALF_W = 700.0               # default gateway quad half-extents (FF9 ~= Blender units)
+GATEWAY_HALF_D = 250.0
+
 
 # --------------------------------------------------------------------------- properties
 def _layer_z_update(self, context):
@@ -420,6 +425,124 @@ class FF9MK_OT_clear_layers(bpy.types.Operator):
         return {"FINISHED"}
 
 
+# --------------------------------------------------------------------------- content markers
+def _cursor_floor(context):
+    """3D-cursor x,y with z forced to 0 (markers live on the FF9 floor plane)."""
+    cur = context.scene.cursor.location
+    return (cur[0], cur[1], 0.0)
+
+
+def _link_active(context, obj):
+    context.collection.objects.link(obj)
+    for o in context.selected_objects:
+        o.select_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+
+
+def _collect_markers(context):
+    """Read tagged marker objects into (npcs, gateways, spawn), in FF9 floor coords.
+
+    Deterministic: NPCs + gateways are sorted by object name. ``spawn`` is the last FF9_Spawn
+    found (there should be one), or None."""
+    npcs, gateways, spawn = [], [], None
+    for obj in sorted(context.scene.objects, key=lambda o: o.name):
+        mk = obj.get(MARKER_KEY)
+        if not mk:
+            continue
+        if mk == "spawn":
+            spawn = bridge.marker_floor_pos(obj.matrix_world.translation)
+        elif mk == "npc":
+            n = {"pos": bridge.marker_floor_pos(obj.matrix_world.translation)}
+            if obj.get("ff9_name"):
+                n["name"] = obj["ff9_name"]
+            if obj.get("ff9_preset"):
+                n["preset"] = obj["ff9_preset"]
+            if obj.get("ff9_dialogue"):
+                n["dialogue"] = obj["ff9_dialogue"]
+            npcs.append(n)
+        elif mk == "gateway" and obj.type == "MESH":
+            mw = obj.matrix_world
+            verts = [list(mw @ v.co) for v in obj.data.vertices[:4]]
+            if len(verts) < 4:
+                continue
+            gateways.append({"to": int(obj.get("ff9_to", 100)),
+                             "entrance": int(obj.get("ff9_entrance", 0)),
+                             "zone": [bridge.marker_floor_pos(v) for v in verts]})
+    return npcs, gateways, spawn
+
+
+class FF9MK_OT_add_npc(bpy.types.Operator):
+    bl_idname = "ff9mk.add_npc"
+    bl_label = "Add NPC"
+    bl_description = ("Drop an NPC marker (Empty) at the 3D cursor on the floor. Edit its model + "
+                      "dialogue in Object Properties > Custom Properties (ff9_preset / ff9_dialogue)")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        e = bpy.data.objects.new("FF9_NPC", None)
+        e.empty_display_type = "ARROWS"
+        e.empty_display_size = 200.0
+        e.location = _cursor_floor(context)
+        e[MARKER_KEY] = "npc"
+        e["ff9_name"] = "NPC"
+        e["ff9_preset"] = "vivi"
+        e["ff9_dialogue"] = "Hello."
+        _link_active(context, e)
+        self.report({"INFO"}, f"added NPC '{e.name}' — set ff9_preset / ff9_dialogue in Custom Properties")
+        return {"FINISHED"}
+
+
+class FF9MK_OT_add_gateway(bpy.types.Operator):
+    bl_idname = "ff9mk.add_gateway"
+    bl_label = "Add Gateway"
+    bl_description = ("Drop an exit-zone quad at the 3D cursor on the floor. Move/scale it over the "
+                      "exit; set ff9_to (target field) + ff9_entrance in Custom Properties")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        cx, cy, _ = _cursor_floor(context)
+        hw, hd = GATEWAY_HALF_W, GATEWAY_HALF_D
+        # convex CCW rectangle; q0->q1 (the -y / front edge) is the walked-across exit edge
+        corners = [(cx - hw, cy - hd, 0.0), (cx + hw, cy - hd, 0.0),
+                   (cx + hw, cy + hd, 0.0), (cx - hw, cy + hd, 0.0)]
+        mesh = bpy.data.meshes.new("FF9_Gateway")
+        mesh.from_pydata([list(c) for c in corners], [], [(0, 1, 2, 3)])
+        mesh.update()
+        obj = bpy.data.objects.new("FF9_Gateway", mesh)
+        obj.display_type = "WIRE"
+        obj.show_in_front = True
+        obj[MARKER_KEY] = "gateway"
+        obj["ff9_to"] = 100
+        obj["ff9_entrance"] = 0
+        _link_active(context, obj)
+        self.report({"INFO"}, f"added gateway '{obj.name}' — set ff9_to / ff9_entrance in Custom Properties")
+        return {"FINISHED"}
+
+
+class FF9MK_OT_set_spawn(bpy.types.Operator):
+    bl_idname = "ff9mk.set_spawn"
+    bl_label = "Set Player Spawn"
+    bl_description = "Place (or move) the single player-spawn marker at the 3D cursor on the floor"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        e = None
+        for obj in context.scene.objects:
+            if obj.get(MARKER_KEY) == "spawn":
+                e = obj
+                break
+        if e is None:
+            e = bpy.data.objects.new("FF9_Spawn", None)
+            e.empty_display_type = "SPHERE"
+            e.empty_display_size = 180.0
+            e[MARKER_KEY] = "spawn"
+            _link_active(context, e)
+        e.location = _cursor_floor(context)
+        self.report({"INFO"}, f"player spawn at {bridge.marker_floor_pos(e.matrix_world.translation)}")
+        return {"FINISHED"}
+
+
 class FF9MK_OT_export_field(bpy.types.Operator):
     bl_idname = "ff9mk.export_field"
     bl_label = "Export Field"
@@ -460,27 +583,46 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             if os.path.abspath(src) != os.path.abspath(dst):
                 shutil.copyfile(src, dst)
             layers.append({"image": os.path.basename(src), "z": int(L.z)})
+        # content markers -> [[npc]] / [[gateway]] / [player]
+        npcs, gateways, spawn = _collect_markers(context)
         # field.toml
-        toml = _field_toml(p, layers)
+        toml = _field_toml(p, layers, npcs, gateways, spawn)
         with open(os.path.join(out, f"{p.field_name.lower()}.field.toml"), "w",
                   encoding="utf-8", newline="\n") as fh:
             fh.write(toml)
-        self.report({"INFO"}, f"exported {len(layers)} layer(s) to {out}; now run: ff9mapkit "
+        self.report({"INFO"}, f"exported {len(layers)} layer(s), {len(npcs)} NPC(s), "
+                              f"{len(gateways)} gateway(s) to {out}; now run: ff9mapkit "
                               f"build {p.field_name.lower()}.field.toml")
         return {"FINISHED"}
 
 
-def _field_toml(p, layers):
+def _field_toml(p, layers, npcs=(), gateways=(), spawn=None):
     # [[layers]] block: real if the user loaded painted art, else a commented hint
     if layers:
         layers_block = bridge.layers_to_toml(layers) + "\n"
     else:
         layers_block = ('# [[layers]]\n#   image = "back.png"\n#   z = 4000\n'
                         '# [[layers]]\n#   image = "floor.png"\n#   z = 3000\n')
+    # [player] spawn: from the FF9_Spawn marker, else a default with a hint
+    if spawn is not None:
+        player_block = bridge.player_to_toml(spawn) + "\n"
+    else:
+        player_block = '[player]\nspawn = [0, -1100]   # add an FF9_Spawn marker to set this visually\n'
+    # [[npc]] / [[gateway]]: from markers, else commented hints
+    if npcs:
+        npc_block = bridge.npcs_to_toml(npcs) + "\n"
+    else:
+        npc_block = ('# [[npc]]\n#   name = "Someone"\n#   preset = "vivi"\n#   pos = [0, -700]\n'
+                     '#   dialogue = "Hello."\n')
+    if gateways:
+        gw_block = bridge.gateways_to_toml(gateways) + "\n"
+    else:
+        gw_block = ('# [[gateway]]\n#   to = 100\n#   entrance = 0\n'
+                    '#   zone = [[-1100,-2400],[1100,-2400],[1100,-1750],[-1100,-1750]]\n')
     return (
         f"# {p.field_name} — exported from Blender by FF9 Map Kit. Compile with:\n"
         f"#   ff9mapkit build {p.field_name.lower()}.field.toml\n"
-        f"# The painted PNGs were copied next to this file; fill in [[npc]] / [[gateway]] as needed.\n\n"
+        f"# Painted PNGs + content markers (NPC/gateway/spawn) came from your Blender scene.\n\n"
         f"[field]\n"
         f"id = {p.field_id}\n"
         f'name = "{p.field_name}"\n'
@@ -496,17 +638,17 @@ def _field_toml(p, layers):
         f"# slide the walkmesh toward the camera so the 3D character looks planted on the 2D floor\n"
         f"character_offset = {cam.CHARACTER_GROUND_OFFSET_Z:g}\n\n"
         f"{layers_block}\n"
-        f"[player]\nspawn = [0, -1100]\n\n"
-        f"# [[npc]]\n#   name = \"Someone\"\n#   preset = \"vivi\"\n#   pos = [0, -700]\n"
-        f"#   dialogue = \"Hello.\"\n\n"
-        f"# [[gateway]]\n#   to = 100\n#   entrance = 0\n"
-        f"#   zone = [[-1100,-2400],[1100,-2400],[1100,-1750],[-1100,-1750]]\n"
+        f"{player_block}\n"
+        f"{npc_block}\n"
+        f"{gw_block}"
     )
 
 
 CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera,
            FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_paint_template,
-           FF9MK_OT_add_layer, FF9MK_OT_clear_layers, FF9MK_OT_export_field)
+           FF9MK_OT_add_layer, FF9MK_OT_clear_layers,
+           FF9MK_OT_add_npc, FF9MK_OT_add_gateway, FF9MK_OT_set_spawn,
+           FF9MK_OT_export_field)
 
 
 def register():

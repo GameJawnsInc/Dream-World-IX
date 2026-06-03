@@ -67,6 +67,36 @@ class FF9MK_PT_panel(bpy.types.Panel):
             box.label(text="add painted PNG(s) to model against", icon="INFO")
 
         box = layout.box()
+        box.label(text="Content", icon="OUTLINER_OB_EMPTY")
+        row = box.row(align=True)
+        row.operator("ff9mk.add_npc", icon="OUTLINER_OB_ARMATURE", text="NPC")
+        row.operator("ff9mk.add_gateway", icon="MOD_BOOLEAN", text="Gateway")
+        row.operator("ff9mk.set_spawn", icon="MESH_UVSPHERE", text="Spawn")
+        # tally + per-type edit hint for the active marker
+        npc_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "npc")
+        gw_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "gateway")
+        spawn_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "spawn")
+        box.label(text=f"{npc_n} NPC · {gw_n} gateway · {spawn_n} spawn")
+        ao = context.active_object
+        mk = ao.get(ops.MARKER_KEY) if ao else None
+        if mk == "npc":
+            col = box.column(align=True)
+            col.label(text=f"{ao.name} (move to position)")
+            for key in ("ff9_name", "ff9_preset", "ff9_dialogue"):
+                if key in ao:
+                    col.prop(ao, f'["{key}"]', text=key[4:])
+        elif mk == "gateway":
+            col = box.column(align=True)
+            col.label(text=f"{ao.name} (move/scale over the exit)")
+            for key in ("ff9_to", "ff9_entrance"):
+                if key in ao:
+                    col.prop(ao, f'["{key}"]', text=key[4:])
+        elif mk == "spawn":
+            box.label(text=f"{ao.name} (move to set spawn)")
+        else:
+            box.label(text="select a marker to edit its properties", icon="INFO")
+
+        box = layout.box()
         box.label(text="Export", icon="EXPORT")
         col = box.column(align=True)
         col.prop(p, "field_id")

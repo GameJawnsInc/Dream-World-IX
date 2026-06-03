@@ -39,9 +39,20 @@ You'll also want the CLI for the final build step: `pip install -e ..` (the `ff9
    area. Keep it the object selected in the **Walkmesh** field.
 4. **Compute Paint Guide** — reports where the floor edges + your walkmesh land on the 384×448
    painted canvas and writes `guide.txt`. Paint your background layers to match those coordinates.
-5. **Export Field** — writes `camera.bgx`, `walkmesh.obj`, and `<name>.field.toml` to the export
-   folder. Drop your painted PNGs next to it and fill in `[[layers]]` / `[[npc]]` / `[[gateway]]`.
-6. **Build** — `ff9mapkit build <name>.field.toml --out <game>/FF9CustomMap` (see the main docs),
+5. **Place content (optional)** — in the **Content** panel:
+   - *NPC* drops an Empty (`FF9_NPC`) on the floor at the 3D cursor. Move it where the NPC stands;
+     set its model + line in **Object Properties → Custom Properties**: `ff9_preset` (e.g. `vivi`)
+     and `ff9_dialogue`. (For a non-preset model, delete `ff9_preset` and add `ff9_model` /
+     `ff9_animset` / `ff9_anims` in the TOML after export.)
+   - *Gateway* drops a wire quad (`FF9_Gateway`) — move/scale it over the exit on the floor, and set
+     `ff9_to` (destination field id) + `ff9_entrance` in Custom Properties. The player walks out
+     across the quad's first edge, so orient that edge toward where they should step out.
+   - *Spawn* places the single `FF9_Spawn` marker — where the player appears on entry.
+   Markers are read on export; their floor positions are taken from where you place them.
+6. **Export Field** — writes `camera.bgx`, `walkmesh.obj`, and `<name>.field.toml` (with your
+   `[[layers]]`, `[[npc]]`, `[[gateway]]`, and `[player]` filled in from the markers) to the export
+   folder. Painted PNGs are copied next to it.
+7. **Build** — `ff9mapkit build <name>.field.toml --out <game>/FF9CustomMap` (see the main docs),
    then play.
 
 ## Two things to know
