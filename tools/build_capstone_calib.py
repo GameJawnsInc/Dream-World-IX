@@ -28,12 +28,18 @@ frame = G.frame_floor(cam, back_canvas_y=160.0, front_canvas_y=400.0, half_width
 fx, zb, zf = frame.half_width, frame.zb, frame.zf
 print(f"painted floor: x +/-{fx}, z [{zf}(front)..{zb}(back)]   canvas corners {frame.corners_canvas}")
 
-# walkmesh = floor extended OUTWARD by the collision radius so feet reach the painted edge
+# CHARACTER GROUND OFFSET: the 3D-rendered character's feet sit ~0.6 checker-cell "up" (toward
+# back) from the 2D GTE ground projection (FF9 3D-char vs 2D-BG mismatch). To make feet land on the
+# scale-1 painted floor, shift the WALKMESH toward the front (camera) by that world-z amount, so the
+# player stands a touch forward and his offset feet land on the line. (Paint stays pure scale-1.)
+CHAR_OFF_Z = 298.0                       # ~0.6 checker cell; empirical, to confirm + then refine
 cz = (zb + zf) / 2.0
-zb_w = zb + (RAD if zb > cz else -RAD)
-zf_w = zf + (RAD if zf > cz else -RAD)
+def fwd(z):  # shift toward front (decreasing z if front is -z, else increasing)
+    return z - CHAR_OFF_Z if zf < zb else z + CHAR_OFF_Z
+zb_w = fwd(zb) + (RAD if zb > cz else -RAD)
+zf_w = fwd(zf) + (RAD if zf > cz else -RAD)
 wm = [(-fx - RAD, zb_w), (fx + RAD, zb_w), (fx + RAD, zf_w), (-fx - RAD, zf_w)]
-print(f"walkmesh (extended {RAD}u): {wm}")
+print(f"walkmesh (char_off {CHAR_OFF_Z} + extend {RAD}u): {wm}")
 
 # ---------- draw the painted layers via the NEW to_canvas ----------
 S = 4
@@ -92,7 +98,7 @@ image = "cfloor.png"
 z = 3000
 
 [player]
-spawn = [0, {int((zb + zf) / 2)}]
+spawn = [0, {int(fwd((zb + zf) / 2))}]
 """
 tp = os.path.join(OUT, "capstone.field.toml")
 open(tp, "w", newline="\n", encoding="utf-8").write(toml)

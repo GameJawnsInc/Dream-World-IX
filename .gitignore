@@ -66,3 +66,10 @@ blendertest/
 
 # capstone calibration build output (derived)
 tools/capstone_out/
+
+# Binary backups under backups/ (regenerable; keep on disk only, like the .dll/.exe rule)
+backups/*.eb.bytes.*
+backups/*.bgi.bytes.*
+backups/*.bgx.*
+backups/*.png.*
+backups/pre-reclone-*/
