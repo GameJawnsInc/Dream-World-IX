@@ -297,6 +297,17 @@ def pitch_deg(cam):
     return math.degrees(math.atan2(R[2][1], R[1][1]))
 
 
+def yaw_deg(cam):
+    """Camera yaw (orbit about world-Y), degrees, recovered from R_ortho row 0. 0 = front-facing.
+
+    Exact for the make_camera form R_ortho = rot_x(pitch)·rot_y(-yaw), whose row 0 is
+    (cos yaw, 0, -sin yaw); a reasonable estimate for arbitrary real cameras. Drives the player
+    movement control-direction (TWIST): the WASD vector must rotate by the camera yaw so "up"
+    stays "up the screen". See content.movement.control_value_for_angle."""
+    R = decompose(cam)["R_ortho"]
+    return math.degrees(math.atan2(-R[0][2], R[0][0]))
+
+
 def pitch_warning(pitch, lo_hi=SUPPORTED_PITCH_DEG):
     """Return an advisory message if `pitch` (deg) is outside the supported range, else None."""
     lo, hi = lo_hi

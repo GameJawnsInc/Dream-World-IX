@@ -64,8 +64,8 @@ tools/*.regen.bgx
 __pycache__/
 blendertest/
 
-# capstone calibration build output (derived)
-tools/capstone_out/
+# calibration / bounds-test build output (derived, regenerable from tools/build_*.py)
+tools/*_out/
 
 # Binary backups under backups/ (regenerable; keep on disk only, like the .dll/.exe rule)
 backups/*.eb.bytes.*

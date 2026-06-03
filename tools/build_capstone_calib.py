@@ -16,7 +16,11 @@ from PIL import Image, ImageDraw, ImageFont
 OUT = os.path.abspath(os.path.join(os.path.dirname(__file__), "capstone_out"))
 os.makedirs(OUT, exist_ok=True)
 CW, CH = 384, 448
-PITCH, DIST, FOVX = 40.0, 4500.0, 42.2   # FOVX must match build.py's [camera] fov default (proj 498)
+# args: [pitch] [name] [half_width]  (defaults: 40, BLENDERROOM, auto)
+PITCH = float(sys.argv[1]) if len(sys.argv) > 1 else 40.0
+NAME = sys.argv[2] if len(sys.argv) > 2 else "BLENDERROOM"
+HALF_W = int(sys.argv[3]) if len(sys.argv) > 3 else None
+DIST, FOVX = 4500.0, 42.2                 # FOVX must match build.py's [camera] fov default (proj 498)
 RAD = int(C.COLLISION_RADIUS_W)          # ~48 world units the player centre can't cross
 
 cam = G.make_camera(PITCH, DIST, fov_x_deg=FOVX)
@@ -24,7 +28,7 @@ print(f"camera: pitch {PITCH}  proj {cam.proj}  FOVx {C.decompose(cam)['fov_x_de
 
 # frame the painted floor between two canvas rows (the NEW scale-1 map).
 # explicit half-width so all four edges stay on-screen (the floor is wide at the near edge).
-frame = G.frame_floor(cam, back_canvas_y=160.0, front_canvas_y=400.0, half_width=820)
+frame = G.frame_floor(cam, back_canvas_y=160.0, front_canvas_y=400.0, half_width=HALF_W)
 fx, zb, zf = frame.half_width, frame.zb, frame.zf
 print(f"painted floor: x +/-{fx}, z [{zf}(front)..{zb}(back)]   canvas corners {frame.corners_canvas}")
 
@@ -75,10 +79,10 @@ flo.save(os.path.join(OUT, "cfloor.png"))
 print(f"wrote {OUT}/csurround.png + cfloor.png")
 
 # ---------- field.toml ----------
-toml = f"""# Capstone calibration room — exact scale-1 canvas map (ff9mapkit)
+toml = f"""# Calibration room (pitch {PITCH}) - exact scale-1 canvas map (ff9mapkit)
 [field]
 id = 4003
-name = "BLENDERROOM"
+name = "{NAME}"
 area = 11
 text_block = 1073
 

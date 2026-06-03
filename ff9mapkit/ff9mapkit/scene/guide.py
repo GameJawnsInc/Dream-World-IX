@@ -39,8 +39,11 @@ def make_camera(pitch_deg: float, distance: float, *, fov_x_deg: float | None = 
                 center_offset: tuple = (0, 0)) -> _cam.Cam:
     """Synthesize a Cam looking down at *pitch_deg* from *distance*, optional *yaw_deg*.
 
-    Provide either ``fov_x_deg`` or ``proj`` (H). Mirrors the proven recipe: camera at
-    (0, D·sinθ, −D·cosθ) with R = rot_y(yaw)·rot_x(pitch), then synth_r_t.
+    Provide either ``fov_x_deg`` or ``proj`` (H). The camera ORBITS the scene centre: position at
+    rot_y(yaw)·(0, D·sinθ, −D·cosθ), view rotation R = rot_x(pitch)·rot_y(−yaw), then synth_r_t.
+    The post-multiply (−yaw) is required: because the projection applies R AFTER the y-flip F,
+    pre-multiplying rot_y(yaw) would NOT keep the origin centred (the floor flies off-screen). This
+    form keeps (0,0,0) projecting to the canvas centre at every yaw (verified).
     """
     if proj is None:
         if fov_x_deg is None:
@@ -50,8 +53,8 @@ def make_camera(pitch_deg: float, distance: float, *, fov_x_deg: float | None = 
     Cpos = (0.0, distance * math.sin(th), -distance * math.cos(th))
     R = _cam.rot_x(pitch_deg)
     if yaw_deg:
-        R = _cam.mm(_cam.rot_y(yaw_deg), R)
-        # rotate the camera position by yaw about the origin too, so it keeps looking at center
+        R = _cam.mm(R, _cam.rot_y(-yaw_deg))
+        # orbit the camera position by yaw about the origin too, so it keeps looking at center
         cy, sy = math.cos(math.radians(yaw_deg)), math.sin(math.radians(yaw_deg))
         x, y, z = Cpos
         Cpos = (cy * x + sy * z, y, -sy * x + cy * z)

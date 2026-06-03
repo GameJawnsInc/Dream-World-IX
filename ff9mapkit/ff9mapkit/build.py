@@ -24,6 +24,7 @@ from pathlib import Path
 from .config import LANGS, ModLayout, fbg_name
 from .content import encounter as _enc
 from .content import gateway as _gw
+from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
 from .content import reinit as _reinit
@@ -188,9 +189,25 @@ def build_overlays(project: FieldProject) -> list:
 
 # --------------------------------------------------------------------------- script assembly
 
-def build_script(project: FieldProject, lang: str, dialogue_txids: dict) -> bytes:
+def resolve_control_value(project: FieldProject, camera: cam.Cam) -> int:
+    """The SetControlDirection (TWIST) value that makes WASD match the camera.
+
+    Explicit ``[camera] control_direction`` wins; otherwise it is derived from the camera's yaw so a
+    yawed/orbited camera still moves "up = up the screen". A front-facing camera yields -1 (the kit
+    default = 0 deg), so front-facing fields are byte-identical to before."""
+    c = project.raw.get("camera", {})
+    if "control_direction" in c:
+        return int(c["control_direction"])
+    return _movement.control_value_for_angle(cam.yaw_deg(camera))
+
+
+def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
+                 control_value: int = -1) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
     eb = _data.blank_field_bytes(lang)
+    # movement control-direction first (shift-free, before any appends that move bytecode)
+    if control_value != -1:
+        eb = _movement.set_control_direction(eb, control_value)
     has_encounter = "encounter" in project.raw
 
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
@@ -290,8 +307,9 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     # --- dialogue + per-language script ---
     mes_body, txids = collect_dialogue(project)
+    control_value = resolve_control_value(project, camera)
     for lang in langs:
-        eb = build_script(project, lang, txids)
+        eb = build_script(project, lang, txids, control_value)
         layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
         if mes_body:
             layout.mes_path(lang, project.text_block).write_text(mes_body, encoding="utf-8", newline="\n")
