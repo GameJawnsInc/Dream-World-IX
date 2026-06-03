@@ -133,3 +133,16 @@ def test_layers_to_toml():
     d = tomllib.loads(t)
     assert [l["image"] for l in d["layers"]] == ["back.png", "floor.png"]
     assert [l["z"] for l in d["layers"]] == [4000, 3000]
+
+
+def test_floor_quad_blender():
+    _, c = _make(CAMS[0])
+    q = bridge.floor_quad_blender(c, 130.0, 420.0)
+    assert len(q) == 4
+    assert all(abs(v[2]) < 1e-6 for v in q)     # flat on the Blender floor (z=0)
+    # corners match the guide frame's BL/BR/FR/FL
+    g = bridge.floor_guide_geometry(c, 130.0, 420.0)
+    fx, zb, zf = g["half_width"], g["zb"], g["zf"]
+    exp = bridge.ff9_verts_to_blender([(-fx, 0, zb), (fx, 0, zb), (fx, 0, zf), (-fx, 0, zf)])
+    for a, b in zip(q, exp):
+        assert max(abs(a[i] - b[i]) for i in range(3)) < 1e-6

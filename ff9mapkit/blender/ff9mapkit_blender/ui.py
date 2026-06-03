@@ -51,6 +51,7 @@ class FF9MK_PT_panel(bpy.types.Panel):
         row.prop(p, "back_y")
         row.prop(p, "front_y")
         box.operator("ff9mk.compute_guide", icon="IMAGE_REFERENCE")
+        box.operator("ff9mk.walkmesh_from_floor", icon="MOD_LATTICE")
 
         box = layout.box()
         box.label(text="Background Art", icon="IMAGE_DATA")

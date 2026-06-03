@@ -95,6 +95,15 @@ def _walkmesh_world_mesh(obj):
     return verts, faces
 
 
+def _set_quad_mesh(obj, corners):
+    """Reset a mesh object to a single flat quad at world `corners` (object transform -> identity)."""
+    obj.matrix_world = Matrix.Identity(4)
+    mesh = obj.data
+    mesh.clear_geometry()
+    mesh.from_pydata([list(c) for c in corners], [], [(0, 1, 2, 3)])
+    mesh.update()
+
+
 def _resolve_out_dir(export_dir):
     """Absolute output dir. If the .blend is unsaved, `//` can't resolve -> fall back to ~/ff9field."""
     out = bpy.path.abspath(export_dir)
@@ -157,16 +166,15 @@ class FF9MK_OT_setup_scene(bpy.types.Operator):
             coll.objects.link(cam_obj)
         _pose_camera(cam_obj, p.pitch, p.distance, p.fov)
         context.scene.camera = cam_obj
-        # walkmesh plane on z=0 (FF9 floor y=0). A simple 2000-unit square the user reshapes.
+        # walkmesh = the floor-frame quad on z=0, so it starts ON the painted floor (lined up with
+        # the guide grid). The user reshapes it from there.
+        c = active_camera_to_ff9(context)
+        corners = bridge.floor_quad_blender(c, p.back_y, p.front_y)
         wm = bpy.data.objects.get(WALKMESH_NAME)
         if wm is None:
-            mesh = bpy.data.meshes.new(WALKMESH_NAME)
-            s = 1000.0
-            mesh.from_pydata([(-s, -s, 0), (s, -s, 0), (s, s, 0), (-s, s, 0)], [],
-                             [(0, 1, 2, 3)])
-            mesh.update()
-            wm = bpy.data.objects.new(WALKMESH_NAME, mesh)
+            wm = bpy.data.objects.new(WALKMESH_NAME, bpy.data.meshes.new(WALKMESH_NAME))
             coll.objects.link(wm)
+        _set_quad_mesh(wm, corners)
         p.walkmesh = wm
         # widen the 3D viewport clipping too, so the large FF9-scale scene is visible when you orbit
         for area in context.screen.areas:
@@ -191,6 +199,28 @@ class FF9MK_OT_pose_camera(bpy.types.Operator):
             return {"CANCELLED"}
         p = context.scene.ff9mapkit
         _pose_camera(cam_obj, p.pitch, p.distance, p.fov)
+        return {"FINISHED"}
+
+
+class FF9MK_OT_walkmesh_from_floor(bpy.types.Operator):
+    bl_idname = "ff9mk.walkmesh_from_floor"
+    bl_label = "Reset Walkmesh to Floor"
+    bl_description = ("Replace the walkmesh with a flat quad matching the CURRENT floor frame "
+                      "(re-pose the camera, then click this to re-align). Discards its current shape")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        c = active_camera_to_ff9(context)
+        if c is None:
+            self.report({"ERROR"}, "No active camera (run Setup FF9 Scene first).")
+            return {"CANCELLED"}
+        p = context.scene.ff9mapkit
+        wm = p.walkmesh
+        if wm is None or wm.type != "MESH":
+            self.report({"ERROR"}, "No walkmesh set (run Setup FF9 Scene first).")
+            return {"CANCELLED"}
+        _set_quad_mesh(wm, bridge.floor_quad_blender(c, p.back_y, p.front_y))
+        self.report({"INFO"}, "walkmesh reset to the current floor frame")
         return {"FINISHED"}
 
 
@@ -392,8 +422,8 @@ def _field_toml(p, layers):
 
 
 CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera,
-           FF9MK_OT_compute_guide, FF9MK_OT_add_layer, FF9MK_OT_clear_layers,
-           FF9MK_OT_export_field)
+           FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_add_layer,
+           FF9MK_OT_clear_layers, FF9MK_OT_export_field)
 
 
 def register():

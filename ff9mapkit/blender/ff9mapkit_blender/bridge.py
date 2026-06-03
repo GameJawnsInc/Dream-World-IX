@@ -175,6 +175,17 @@ def floor_guide_geometry(c, back_canvas_y, front_canvas_y, nx=6, nz=6):
             "half_width": fx, "zb": zb, "zf": zf}
 
 
+def floor_quad_blender(c, back_canvas_y, front_canvas_y):
+    """The 4 floor-frame corners (a flat quad) in Blender world coords (BL, BR, FR, FL).
+
+    Use this to start the walkmesh ON the painted floor so it lines up with the guide grid; the
+    artist then reshapes it. Same frame as `floor_guide_geometry` (scale-1 `to_canvas`).
+    """
+    fr = guide.frame_floor(c, back_canvas_y=back_canvas_y, front_canvas_y=front_canvas_y)
+    fx, zb, zf = fr.half_width, fr.zb, fr.zf
+    return ff9_verts_to_blender([(-fx, 0, zb), (fx, 0, zb), (fx, 0, zf), (-fx, 0, zf)])
+
+
 def layers_to_toml(layers):
     """Emit the `[[layers]]` TOML block from an ordered list of {image, z} (dict or (image, z))."""
     blocks = []
