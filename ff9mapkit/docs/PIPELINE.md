@@ -18,6 +18,11 @@ else — the camera math, the paint guide, the `.obj`→`.bgi` conversion, the s
                                                   └─────────────┘
 ```
 
+> **Prefer to work visually?** The [Blender add-on](../blender/README.md) is a front-end for
+> steps 2 and 4 (the camera + walkmesh): pose the camera in the 3D viewport, model the walkmesh
+> against your painted art, place NPC/gateway/spawn markers, and one-click *Export Field* to a
+> `field.toml` you then `build` exactly as below. The CLI steps here are the ground truth either way.
+
 ## 0. Install
 
 ```bash
