@@ -63,6 +63,19 @@ S_CANVAS = 1.0
 # past the painted floor by ~this much if the player should be able to stand at the visual edge.
 COLLISION_RADIUS_W = 48.0
 
+# Character GROUND offset, world units. FF9 renders the field BACKGROUND + walkmesh via the 2D GTE
+# projection (to_canvas, scale-1, exact), but the CHARACTER MODEL via a separate 3D perspective
+# camera (PSX.ConvertCameraPsx2Unity). The two don't line up vertically: a character's feet sit a
+# roughly CONSTANT amount "behind" (toward the far edge of) its 2D ground projection. To make a
+# character look planted on a scale-1-painted floor, place the walkmesh this far TOWARD THE CAMERA
+# of the painted floor (the player stands a touch forward, his offset feet land on the paint).
+# Calibrated in-game at 40 deg pitch (= ~0.6 checker cell on the room02 grid); user-confirmed "very
+# precise". This is exactly what the old per-pitch sx/sy SCALE was approximating -- and because a
+# scale can only match a constant at one point, that approximation is what produced the old
+# "back-edge drift". May vary slightly with pitch (it's a 3D-vs-2D camera mismatch); re-pin with one
+# grid check if a steep room needs it dead-on. Override per field via [walkmesh] character_offset.
+CHARACTER_GROUND_OFFSET_Z = 298.0
+
 # ---------- tiny 3x3 / vec3 linear algebra ----------
 def mv(M, v):
     return [M[i][0]*v[0] + M[i][1]*v[1] + M[i][2]*v[2] for i in range(3)]

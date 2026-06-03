@@ -15,6 +15,7 @@ validated by diffing against known-good assets before ever launching the game.
 
 from __future__ import annotations
 
+import math
 import shutil
 import tomllib
 from dataclasses import dataclass, field as _dc_field
@@ -127,17 +128,46 @@ def resolve_camera(project: FieldProject) -> cam.Cam:
     )
 
 
+def _shift_toward_camera(corners, camera: cam.Cam, dist: float):
+    """Slide flat-floor corners `dist` world-units toward the camera (in the xz-plane).
+
+    Used to apply the CHARACTER_GROUND_OFFSET so a 3D-rendered character looks planted on the
+    2D-projected painted floor (see cam.CHARACTER_GROUND_OFFSET_Z). dist=0 is a no-op (identity).
+    """
+    pts = [(c[0], 0, c[1]) if len(c) == 2 else tuple(c) for c in corners]
+    if not dist:
+        return pts
+    C = cam.decompose(camera)["C"]
+    cx = sum(p[0] for p in pts) / len(pts)
+    cz = sum(p[2] for p in pts) / len(pts)
+    dx, dz = C[0] - cx, C[2] - cz
+    n = math.hypot(dx, dz)
+    if n < 1e-6:
+        return pts
+    ux, uz = dx / n, dz / n
+    return [(p[0] + ux * dist, p[1], p[2] + uz * dist) for p in pts]
+
+
 def resolve_walkmesh(project: FieldProject, camera: cam.Cam) -> bytes:
     wm = project.raw.get("walkmesh", {})
     if wm.get("obj"):
-        return bgi.obj_to_bgi(str(project.path(wm["obj"])))
+        # explicit (e.g. Blender-authored): the author placed the verts; default no character shift.
+        off = float(wm.get("character_offset", 0.0))
+        verts, faces = bgi.load_obj(str(project.path(wm["obj"])))
+        verts = _shift_toward_camera(verts, camera, off)
+        return bgi.build_flat(verts, faces).to_bytes()
     if wm.get("quad"):
-        return bgi.quad(wm["quad"]).to_bytes()
-    # auto: frame the floor from the camera
+        off = float(wm.get("character_offset", 0.0))
+        corners = _shift_toward_camera(wm["quad"], camera, off)
+        return bgi.quad(corners).to_bytes()
+    # auto: frame the floor from the camera, then slide the walkmesh toward the camera by the
+    # character ground offset so a 3D character looks planted on the scale-1-painted floor.
     fr = project.raw.get("camera", {}).get("frame", {})
     frame = guide.frame_floor(camera, back_canvas_y=float(fr.get("back", 205)),
                               front_canvas_y=float(fr.get("front", 432)))
-    return bgi.quad(guide.walkmesh_corners(frame)).to_bytes()
+    off = float(wm.get("character_offset", cam.CHARACTER_GROUND_OFFSET_Z))
+    corners = _shift_toward_camera(guide.walkmesh_corners(frame), camera, off)
+    return bgi.quad(corners).to_bytes()
 
 
 def build_overlays(project: FieldProject) -> list:
