@@ -26,9 +26,9 @@ character_offset = 298
 [[layers]]
 image = "art/back.png"           # the whole painting (floor + walls + scenery)
 z = 4000
-# [[layers]]                      # optional foreground occluders (small z draws OVER the player)
-# image = "art/front.png"
-# z = 8
+[[layers]]
+image = "art/front.png"          # hanging lamp — foreground occluder (small z draws OVER the player)
+z = 8
 
 [player]
 spawn = [0, -1102]
