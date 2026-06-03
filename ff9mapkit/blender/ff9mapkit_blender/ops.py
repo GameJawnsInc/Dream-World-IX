@@ -134,7 +134,13 @@ def active_camera_to_ff9(context):
 
 
 def _walkmesh_world_mesh(obj):
-    """(world_verts, tri_faces) for a mesh object, triangulated."""
+    """(world_verts, tri_faces) for a mesh object, triangulated.
+
+    Flushes live Edit-Mode edits first: Blender doesn't push edit-mode changes to ``obj.data``
+    until you leave Edit Mode, so exporting mid-edit would otherwise capture the STALE mesh.
+    """
+    if obj.mode == "EDIT":
+        obj.update_from_editmode()
     mesh = obj.data
     mesh.calc_loop_triangles()
     mw = obj.matrix_world
