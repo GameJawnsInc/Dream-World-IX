@@ -855,3 +855,20 @@ canvasX = rawProj.x + range.w/2 ;  canvasY = range.h/2 - rawProj.y
 **Engine/game state:** clean Session-12 engine. MY_ROOM (4003) currently holds the **yaw-45 calibration grid** (last bounds test) — revert with `ff9mapkit/blender/debug_proj/revert_myroom.py`. Debug New-Game→Alexandria warp still active.
 
 **Next:** Blender Tier-2 **Phase 2** (NPC/gateway/spawn Empties → field.toml), or revert MY_ROOM and pick the next direction.
+
+### 2026-06-03 — Session 14 (cont) — Blender Tier-2 Phase 2: visual content markers (in-game verified)
+
+**Place NPCs / gateways / the player spawn in the Blender viewport instead of hand-editing TOML — end-to-end verified in real gameplay.** Commit `1c01788`; 99 kit + 23 blender tests pass.
+
+**Done:**
+- New **Content** panel (`ops.py`/`ui.py`): *Add NPC* drops an Empty (`FF9_NPC`, custom props `ff9_preset`/`ff9_dialogue`/`ff9_name`); *Add Gateway* drops a wire quad whose 4 floor corners are the exit zone (props `ff9_to`/`ff9_entrance`; first edge = walk-out direction); *Set Spawn* places the single `FF9_Spawn`. All snap to the FF9 floor (Blender z=0). Panel shows a marker tally + inline custom-prop editors for the selected marker.
+- **Export** reads every tagged marker, maps its Blender world pos → FF9 floor (x,z) via the existing bridge (y↔z swap), and emits real `[[npc]]` / `[[gateway]]` / `[player]` blocks (absent → the old commented hints).
+- **bpy-free formatters** in `bridge.py` (`npcs_to_toml`/`gateways_to_toml`/`player_to_toml`/`marker_floor_pos`, TOML-escaped) → unit-testable without Blender. `test_content_markers.py`: coord mapping, valid-TOML round-trip, + a full dry-run building an NPC(preset+dialogue)+gateway+spawn through the real builder (dialogue→.mes confirmed). README workflow updated.
+
+**Human verified (real gameplay):** authored an NPC + gateway + spawn visually in Blender → Export → `ff9mapkit build` → walked the loop as MY_ROOM (4003): NPC (Vivi) appears + talks ("Hello."), spawn correct, gateway exits to Alexandria (entrance 204, walkable). **"the markers I placed are accurately represented"** — so the known `character_offset`-not-applied-to-markers gap is imperceptible for point markers (≈⅓ tile); not worth fixing.
+
+**Deploy gotcha (shared text):** custom fields 4000/4002/4003 all use text_block 1073, and the kit hardcodes dialogue at TXID 500 (`DEFAULT_BASE_TXID`) → collision. For the multi-field DEV mod, **merged** MY_ROOM's line at TXID 501 into the live `1073.mes` (kept the hut's 500 "I miss you Zidane") and repointed MY_ROOM's `WindowSync` 500→501. (For the kit's intended one-field-per-mod distribution there's no collision; per-field text namespacing would be the kit-level fix if multi-field-per-mod ever matters.) mes backups: `backups/<lang>-1073.mes.20260603-phase2`.
+
+**Engine/game state:** clean Session-12 engine. MY_ROOM (4003) now holds the Blender Phase-2 room (NPC+gateway+spawn) via the interior door; revert with `ff9mapkit/blender/debug_proj/revert_myroom.py` (note: it doesn't strip the harmless TXID-501 mes entry). Debug New-Game→Alexandria warp still active.
+
+**Next:** Blender Tier-2 **Phase 3** (docs + repackage the add-on), or revert MY_ROOM and start the release-cleanup pass (remove the debug warp, package, prep the 2 Memoria upstream PRs).
