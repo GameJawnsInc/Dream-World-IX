@@ -100,7 +100,11 @@ def _pose_camera(cam_obj, p):
         # wide painting, normal focal length (proj from the 384 screen), + scroll bounds
         ff9 = guide.make_camera(p.pitch, p.distance, proj=guide.proj_from_fov_x(p.fov, SCREEN_W),
                                 range_wh=(rw, rh), viewport=tuple(cam.scroll_bounds((rw, rh))))
-        b = bridge.ff9_cam_to_blender(ff9, window_width=SCREEN_W)
+        # sensor = the FULL painting width so the Blender viewport shows the backdrop + walkmesh at
+        # the SAME scale as in-game (to_canvas). Using the 384 window here made the camera FOV too
+        # narrow (~42 vs ~75 deg), so the backdrop looked ~1.8x too big and walkmeshes got modelled
+        # ~1.8x too small. proj is still the window focal, so the EXPORTED camera is unchanged.
+        b = bridge.ff9_cam_to_blender(ff9, sensor_width=float(rw))
     else:
         ff9 = guide.make_camera(p.pitch, p.distance, fov_x_deg=p.fov, range_wh=(rw, rh))
         b = bridge.ff9_cam_to_blender(ff9)
@@ -126,9 +130,11 @@ def active_camera_to_ff9(context):
     loc = [mw.translation[i] for i in range(3)]
     rw, rh = _range_wh(p)
     if p.scroll_enabled:
+        # the FF9 camera's sensor_width is the full painting width (set in _pose_camera), so the
+        # focal recovers to the window proj with no window_width override needed.
         return bridge.blender_cam_to_ff9(
             loc, R_bl, cam_obj.data.lens, sensor_width=cam_obj.data.sensor_width,
-            range_wh=(rw, rh), viewport=tuple(cam.scroll_bounds((rw, rh))), window_width=SCREEN_W)
+            range_wh=(rw, rh), viewport=tuple(cam.scroll_bounds((rw, rh))))
     return bridge.blender_cam_to_ff9(loc, R_bl, cam_obj.data.lens,
                                      sensor_width=cam_obj.data.sensor_width, range_wh=(rw, rh))
 

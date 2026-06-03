@@ -39,6 +39,21 @@ def test_scrolling_camera_roundtrips_with_window_width():
         assert abs(c2.t[i] - c.t[i]) <= 1
 
 
+def test_scroll_preview_uses_full_painting_fov():
+    # the Blender preview camera must show the backdrop at the SAME scale as in-game, so its sensor
+    # is the FULL painting width -> ~75 deg FOV (not the 42 deg window). Else a walkmesh modelled to
+    # "fill the floor" comes out ~1.8x too small. The exported proj is still the window focal.
+    import math
+    c = _scroll_cam()                                          # range 768, proj 498
+    b = bridge.ff9_cam_to_blender(c, sensor_width=768.0)
+    fov = 2 * math.degrees(math.atan((b["sensor_width"] / 2) / b["lens"]))
+    assert 70 < fov < 80                                       # ~75.3, NOT the ~42 window
+    c2 = bridge.blender_cam_to_ff9(b["location"], b["rotation"], b["lens"],
+                                   sensor_width=b["sensor_width"], range_wh=(768, 448),
+                                   viewport=C.scroll_bounds((768, 448)))
+    assert c2.range == [768, 448] and abs(c2.proj - c.proj) <= 1
+
+
 def test_normal_camera_lens_unchanged_by_default():
     # window_width defaults to range width, so a normal field is untouched
     c = G.make_camera(40, 4500, fov_x_deg=42.2)                # range 384x448
