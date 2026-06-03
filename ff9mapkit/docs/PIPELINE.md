@@ -92,6 +92,34 @@ real field (add a `[[gateway]]` to it in an existing field, or use a debug warp)
 ff9mapkit pack dist/MyMod --out MyMod.zip      # to share it
 ```
 
+## Camera movement & bigger environments
+
+FF9 fields are **fixed-perspective pre-rendered art** — the angle is baked into the painting and
+is never re-rendered from a new viewpoint at runtime. What looks like "camera movement" in the
+real game is one of three things:
+
+1. **Scrolling.** Most rooms are *larger than the screen*: one big fixed-perspective painting, and
+   the engine pans the view window across it to follow the player (`SceneService2DScroll`/`3DScroll`
+   in the engine). The angle never changes — only the 2D scroll offset does.
+2. **Multiple cameras per field.** A field's scene can hold more than one camera block, each with
+   its **own** pre-rendered art for a different part of the room; crossing a zone boundary *switches*
+   cameras (a cut, or scroll-then-switch). That's how a room shows two genuinely different angles —
+   two paintings, not a moving 3D camera.
+3. **Scripted cutscene pans** — animated pan/zoom *over* the big pre-render (the cinematic stuff is
+   pre-rendered FMV).
+
+So when you author with this kit you **set one pose and paint one perspective** — that pose + painting
+is the unit. Make a single screen feel alive with depth layers (foreground occlusion), animated
+overlay sprites (torches/water), and lighting baked into the art — not by moving the camera.
+
+**What the kit supports today:** one fixed camera, one screen (any pitch/yaw, occlusion layers, NPCs,
+gateways). **Not yet built:** in-room scrolling (larger-than-screen background) and multi-camera
+switch zones — the engine does both, but the kit's canvas math + paint guide are calibrated for a
+single static screen. **For a bigger explorable space now, chain several single-screen rooms with
+gateways** (proven) — exactly how FF9 itself moves you between field screens. (Scrolling and
+multi-camera are each a scoped future feature: scroll = a larger canvas + scroll-window authoring;
+multi-camera = N camera blocks + camera-switch trigger zones.)
+
 ## What the kit does NOT do
 - **Paint art** — you do (step 3). The kit only tells you where things land.
 - **Judge walkmesh/camera alignment against the running game** — you verify that in-game.
