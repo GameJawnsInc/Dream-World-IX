@@ -76,3 +76,6 @@ backups/pre-reclone-*/
 
 # Blender working/test projects (user art + exports)
 ff9mapkit/blender/debug_proj/
+
+# release: track the packaged mod source, not the built zip
+release/*.zip

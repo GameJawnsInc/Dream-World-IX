@@ -1,0 +1,25 @@
+# Vivi's House (interior)
+OVERLAY
+CameraId: 0
+ViewportId: 0
+Position: 0, 0, 3000
+Size: 384, 448
+Image: walls.png
+Shader: PSX/FieldMap_Abr_None
+
+OVERLAY
+CameraId: 0
+ViewportId: 0
+Position: 0, 0, 4000
+Size: 384, 448
+Image: floor.png
+Shader: PSX/FieldMap_Abr_None
+
+CAMERA
+ViewDistance: 497
+CenterOffset: 0, 0
+Position: 0, 0, 4500
+Range: 384, 448
+DepthOffset: 543
+Viewport: 160, 224, 112, 336
+OrientationMatrix: 1, 0, 0, 0, 0.6245117, -0.6936035, 0, 0.7431641, 0.6691895

@@ -1,0 +1,5 @@
+// FF9CustomMap battle music: Evil Forest battle (scene 67) -> normal Battle theme.
+// NOTE: Music: is the song-PLAY id space (Battle=0, Boss=35, Faerie=61 per btl_util.cs:190),
+// NOT the musicNNN file number (Music:6 -> Game Over). 0 = the normal random-battle theme.
+Battle: 67
+Music: 0
