@@ -94,3 +94,42 @@ def test_pitch_warning_range():
     assert C.pitch_warning(30) is None
     assert C.pitch_warning(48) is None
     assert C.pitch_warning(65) is not None
+
+
+# --- Phase 1: viewport guide geometry + layer TOML (bpy-free) ---------------------------
+def test_ff9_blender_vert_roundtrip():
+    pts = [(0, 0, 0), (123, 0, -456), (-800, 0, 1200), (50, 0, 50)]
+    back = bridge.blender_verts_to_ff9(bridge.ff9_verts_to_blender(pts))
+    for a, b in zip(pts, back):
+        assert max(abs(a[i] - b[i]) for i in range(3)) < 1e-9
+
+
+def test_floor_guide_geometry():
+    _, c = _make(CAMS[0])                       # GRGR
+    g = bridge.floor_guide_geometry(c, 130.0, 420.0, nx=6, nz=6)
+    assert len(g["grid_verts"]) == 7 * 7        # (nx+1)*(nz+1)
+    assert len(g["grid_faces"]) == 6 * 6
+    # floor grid lies on the Blender floor plane (z=0, since FF9 y=0 -> Blender z)
+    assert all(abs(v[2]) < 1e-6 for v in g["grid_verts"])
+    # every quad indexes 4 distinct, in-range verts
+    n = len(g["grid_verts"])
+    for f in g["grid_faces"]:
+        assert len(set(f)) == 4 and all(0 <= i < n for i in f)
+    # the 'back' marker maps to the same Blender point as projecting FF9 (0,0,zb)
+    labels = dict(g["markers"])
+    assert "back" in labels and "front" in labels and "origin" in labels
+    assert max(abs(labels["origin"][i]) for i in range(3)) < 1e-6
+    # back marker == ff9 (0,0,zb) -> blender
+    exp = bridge.ff9_verts_to_blender([(0, 0, g["zb"])])[0]
+    assert max(abs(labels["back"][i] - exp[i]) for i in range(3)) < 1e-6
+
+
+def test_layers_to_toml():
+    t = bridge.layers_to_toml([{"image": "back.png", "z": 4000}, ("floor.png", 3000)])
+    assert '[[layers]]\nimage = "back.png"\nz = 4000' in t
+    assert '[[layers]]\nimage = "floor.png"\nz = 3000' in t
+    # parseable as TOML
+    import tomllib
+    d = tomllib.loads(t)
+    assert [l["image"] for l in d["layers"]] == ["back.png", "floor.png"]
+    assert [l["z"] for l in d["layers"]] == [4000, 3000]

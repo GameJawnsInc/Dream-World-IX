@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import math
 
-from .vendor import bgi, cam
+from .vendor import bgi, cam, guide
 
 # --- coordinate convention (pinned by tests) ---------------------------------------------
 # Blender world is Z-up; FF9 world is +y up with the floor at y=0 and +z = depth toward the
@@ -140,6 +140,49 @@ def ff9_cam_to_blender(c, *, sensor_width=DEFAULT_SENSOR):
 def blender_verts_to_ff9(world_verts):
     """Map Blender world-space vertices to FF9 world coords (list of (x, y, z))."""
     return [tuple(cam.mv(M_FB, list(v))) for v in world_verts]
+
+
+def ff9_verts_to_blender(ff9_verts):
+    """Inverse of blender_verts_to_ff9: FF9 world coords -> Blender world coords."""
+    return [tuple(cam.mv(M_BF, list(v))) for v in ff9_verts]
+
+
+# --- Phase 1: viewport guide geometry + background-layer TOML (bpy-free) ------------------
+def floor_guide_geometry(c, back_canvas_y, front_canvas_y, nx=6, nz=6):
+    """Reference floor grid + key markers for the PAINTED floor, in BLENDER world coords.
+
+    The grid spans the painted-floor frame (scale-1 `to_canvas`, no character offset) so it shows
+    where to paint AND where to model the walkmesh. Returns a dict:
+      grid_verts : [(x,y,z)...] Blender coords, (nx+1)*(nz+1) points on the floor plane (z=0)
+      grid_faces : [(i,j,k,l)...] row-major quad faces
+      markers    : [(label, (x,y,z))...] Blender coords (origin / back / front / right / left)
+      half_width, zb, zf : the FF9-world frame, for reference
+    """
+    frame = guide.frame_floor(c, back_canvas_y=back_canvas_y, front_canvas_y=front_canvas_y)
+    fx, zb, zf = frame.half_width, frame.zb, frame.zf
+    xs = [-fx + 2.0 * fx * i / nx for i in range(nx + 1)]
+    zs = [zb + (zf - zb) * j / nz for j in range(nz + 1)]
+    ff9_grid = [(x, 0.0, z) for z in zs for x in xs]            # row-major by z
+    grid_verts = ff9_verts_to_blender(ff9_grid)
+    w = nx + 1
+    grid_faces = [(j * w + i, j * w + i + 1, j * w + i + 1 + w, j * w + i + w)
+                  for j in range(nz) for i in range(nx)]
+    czc = (zb + zf) / 2.0
+    mk = [("origin", (0.0, 0.0, 0.0)), ("back", (0.0, 0.0, zb)), ("front", (0.0, 0.0, zf)),
+          ("right", (fx, 0.0, czc)), ("left", (-fx, 0.0, czc))]
+    markers = [(lab, ff9_verts_to_blender([p])[0]) for lab, p in mk]
+    return {"grid_verts": grid_verts, "grid_faces": grid_faces, "markers": markers,
+            "half_width": fx, "zb": zb, "zf": zf}
+
+
+def layers_to_toml(layers):
+    """Emit the `[[layers]]` TOML block from an ordered list of {image, z} (dict or (image, z))."""
+    blocks = []
+    for L in layers:
+        img = L["image"] if isinstance(L, dict) else L[0]
+        z = L["z"] if isinstance(L, dict) else L[1]
+        blocks.append(f'[[layers]]\nimage = "{img}"\nz = {int(z)}')
+    return "\n".join(blocks)
 
 
 def mesh_to_ff9_obj(world_verts, tri_faces):

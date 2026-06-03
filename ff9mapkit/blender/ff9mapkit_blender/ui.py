@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import bpy
 
 from . import ops
@@ -49,6 +51,18 @@ class FF9MK_PT_panel(bpy.types.Panel):
         row.prop(p, "back_y")
         row.prop(p, "front_y")
         box.operator("ff9mk.compute_guide", icon="IMAGE_REFERENCE")
+
+        box = layout.box()
+        box.label(text="Background Art", icon="IMAGE_DATA")
+        row = box.row(align=True)
+        row.operator("ff9mk.add_layer", icon="ADD", text="Add Layer")
+        row.operator("ff9mk.clear_layers", icon="TRASH", text="")
+        for L in p.layers:
+            r = box.row(align=True)
+            r.label(text=os.path.basename(L.image) or "(none)", icon="IMAGE_REFERENCE")
+            r.prop(L, "z", text="z")
+        if not p.layers:
+            box.label(text="add painted PNG(s) to model against", icon="INFO")
 
         box = layout.box()
         box.label(text="Export", icon="EXPORT")

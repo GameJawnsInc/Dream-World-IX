@@ -56,3 +56,44 @@ def test_blender_export_feeds_ffmapkit_build(tmp_path):
     fm = L.fieldmap_dir("FBG_N11_BLENDER_ROOM")
     assert (fm / "FBG_N11_BLENDER_ROOM.bgi.bytes").is_file()
     assert (fm / "FBG_N11_BLENDER_ROOM.bgx").is_file()
+
+
+def test_blender_export_with_layers_and_character_offset(tmp_path):
+    """The Phase-1 export contract: painted [[layers]] + [walkmesh] character_offset -> build."""
+    from PIL import Image
+    from ff9mapkit.scene import bgi as _bgi, cam as _cam
+    from ff9mapkit_blender import bridge
+
+    proj = tmp_path / "proj"; proj.mkdir()
+    # camera + flat quad walkmesh (same as the basic dry run)
+    eye = (0.0, -3000.0, 3000.0)
+    R_bl = bridge.look_at_blender(eye, (0.0, 0.0, 0.0))
+    c = bridge.blender_cam_to_ff9(eye, R_bl, bridge.H_to_lens(497, bridge.DEFAULT_SENSOR, 384))
+    (proj / "camera.bgx").write_text(bgx.build(c, []), encoding="utf-8")
+    verts_bl = [(-1000.0, -2000.0, 0.0), (1000.0, -2000.0, 0.0), (1000.0, 0.0, 0.0), (-1000.0, 0.0, 0.0)]
+    (proj / "walkmesh.obj").write_text(bridge.mesh_to_ff9_obj(verts_bl, [(0, 1, 2), (0, 2, 3)]), encoding="utf-8")
+    # painted PNG layers (what Add Background Layer produces)
+    for nm in ("back.png", "floor.png"):
+        Image.new("RGBA", (384, 448), (10, 20, 30, 255)).save(proj / nm)
+    (proj / "room.field.toml").write_text(
+        '[field]\nid = 4008\nname = "BLENDER_ART"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\nborrow = "camera.bgx"\n\n'
+        f'[walkmesh]\nobj = "walkmesh.obj"\ncharacter_offset = {_cam.CHARACTER_GROUND_OFFSET_Z:g}\n\n'
+        + bridge.layers_to_toml([{"image": "back.png", "z": 4000}, {"image": "floor.png", "z": 3000}]) + "\n\n"
+        '[player]\nspawn = [0, -800]\n', encoding="utf-8")
+
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(proj / "room.field.toml")], out, mod_name="FF9CustomMap")
+    fm = ModLayout(out).fieldmap_dir("FBG_N11_BLENDER_ART")
+    # painted layers copied in + referenced as overlays
+    assert (fm / "back.png").is_file() and (fm / "floor.png").is_file()
+    bgx_txt = (fm / "FBG_N11_BLENDER_ART.bgx").read_text(encoding="utf-8")
+    assert "Image: back.png" in bgx_txt and "Image: floor.png" in bgx_txt
+    # the walkmesh was slid toward the camera by the character offset (NOT the raw obj coords)
+    raw_ff9 = set(tuple(round(v) for v in p) for p in bridge.blender_verts_to_ff9(verts_bl))
+    built = set((v.x, v.y, v.z) for v in _bgi.BgiWalkmesh.from_file(fm / "FBG_N11_BLENDER_ART.bgi.bytes").verts)
+    assert built != raw_ff9                       # shifted
+    # shift magnitude ~= CHARACTER_GROUND_OFFSET_Z (in the xz-plane)
+    import math
+    dz = [b[2] - r[2] for b, r in zip(sorted(built), sorted(raw_ff9))]
+    assert all(abs(abs(d) - _cam.CHARACTER_GROUND_OFFSET_Z) < 1.5 for d in dz)
