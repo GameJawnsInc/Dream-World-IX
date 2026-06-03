@@ -836,3 +836,22 @@ canvasX = rawProj.x + range.w/2 ;  canvasY = range.h/2 - rawProj.y
 **Engine/game state:** clean Session-12 engine. MY_ROOM (4003) is the Blender test room, reachable via the interior door (revert: `ff9mapkit/blender/debug_proj/revert_myroom.py`). Debug New-Game→Alexandria warp still active.
 
 **Next:** Blender Tier-2 **Phase 2** — NPC / gateway / spawn markers (Empties) → real `[[npc]]`/`[[gateway]]`/`[player]` in the field.toml, so Blender rooms get content + a real exit. Then Phase 3 (docs + repackage). Commits this session: `b656616 39f048f 134e035 9d31aed b5e242b b053772 47e7f89 82c6c5c 73b380f 89f93da`.
+
+### 2026-06-03 — Session 14 (cont) — Bounds smoke test: concave walkmeshes + yawed cameras (all in-game verified)
+
+**Stress-tested the Blender→`ff9mapkit` pipeline at its limits** (user: "we got one success, but we need to test the bounds"). Each test deployed as field 4003/MY_ROOM via the interior-door repoint; each in-game verified. The geometry+camera pipeline holds across the bounds — with one real bug + one real gap found and fixed.
+
+**Done + human-verified:**
+- **Steep pitch (65°):** char-offset 298 still plants. "great."
+- **Concave L-walkmesh** (`tools/build_lshape_test.py`, corner-notch): navigation (front walkable, inner corner smooth, notch blocked, confined) ✓; planting ✓ with `character_offset=298` — the uniform shift works on non-rectangular geometry (`rebuild_neighbors` handles concave tri-fans).
+- **Concave U-walkmesh** (`tools/build_ushape_test.py`, back-center bay, walkable wraps around it, TWO inner corners): all 4 checks ✓. (User's "bay edge ½-square off" = my test floor.png coloring the checker by fine-cell *center* vs the boundary at `zmid`; the walkmesh vertex is exactly at `zmid` → coordinate-perfect. Pure test-art quantization, not a kit issue.)
+- **Yawed camera (45°)** (`tools/build_yaw_test.py`) — the last unverified bound. TWO findings, both fixed (commit `fc4b6d8`, 95 tests pass, 22 new):
+  1. **`make_camera` yaw bug:** it composed `rot_y(yaw)·rot_x` (pre-multiply). The GTE applies R *after* the y-flip F, so pre-multiply did NOT keep the origin centred — any yaw flung the floor off-screen (origin → canvas x≈2575 at yaw 45). Fix: **`R = rot_x(pitch)·rot_y(−yaw)`** (post-multiply); origin stays at the canvas centre at every yaw. In-game: floor renders as a centered rotated quad, walkmesh aligned.
+  2. **Movement gap:** the kit hardcoded the control-direction (TWIST `0x67`) to 0°, so on a yawed camera "W" pushed world-+Z (rendered up-left), not up-screen — confirmed exactly by painted world-axis arrows. Fix: the builder now **auto-derives the control value from the camera yaw** — `value = round(yaw/360·256)−1`, the inverse of the engine's `(v+1)/256·360` (`FieldState.SetTwistAD`). After: W goes straight up the screen ✓. This is what real FF9 yawed-camera fields ship (decomposed the 6 real cameras: TSHP1 ≈ −90°, GZML0 ≈ −24° — the game sets TWIST per camera). Front-facing cameras derive −1 (= blank default) → all existing fields byte-identical; also covers Blender-posed cameras (exported as a borrowed `.bgx`) and borrowed real-field cameras. `[camera] control_direction` overrides.
+- **Graceful-failure bounds (offline):** shallow-pitch-above-horizon and Int16-overflow walkmesh both raise clear errors.
+
+**New kit surface:** `scene.cam.yaw_deg`; `content.movement` (`control_value_for_angle` + shift-free in-place `set_control_direction`); `build.resolve_control_value` wiring. Vendor cam/guide synced. `tools/build_{lshape,ushape,yaw}_test.py` bounds-test builders (their `*_out/` output gitignored). Worth folding the yaw findings into project memory `project-ff9-camera-math`.
+
+**Engine/game state:** clean Session-12 engine. MY_ROOM (4003) currently holds the **yaw-45 calibration grid** (last bounds test) — revert with `ff9mapkit/blender/debug_proj/revert_myroom.py`. Debug New-Game→Alexandria warp still active.
+
+**Next:** Blender Tier-2 **Phase 2** (NPC/gateway/spawn Empties → field.toml), or revert MY_ROOM and pick the next direction.
