@@ -83,7 +83,8 @@ def frame_floor(cam: _cam.Cam, *, back_canvas_y: float = 130.0, front_canvas_y: 
     zf = round(_cam.solve_z_for_canvasY(cam, front_canvas_y))
     if half_width is None:
         nb = abs(_cam.project((0, 0, zb), cam)[2])           # depth at back center
-        half_width = int(round(back_span_px * nb / (_cam.S_CANVAS_X * cam.proj)))
+        # scale-1 map: canvas half-span = half_width * proj / depth  ->  invert for half_width
+        half_width = int(round(back_span_px * nb / cam.proj))
     fx = half_width
     world = [(-fx, 0, zb), (fx, 0, zb), (fx, 0, zf), (-fx, 0, zf)]   # BL, BR, FR, FL
     canvas = [tuple(round(v, 1) for v in _cam.to_canvas(P, cam)) for P in world]

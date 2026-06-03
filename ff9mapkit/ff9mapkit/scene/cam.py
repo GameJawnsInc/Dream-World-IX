@@ -41,15 +41,27 @@ ROT = 4096.0                      # fixed-point factor (BGCAM_DEF.ROTATTION_FACT
 HALF_FIELD_W = 160.0
 HALF_FIELD_H = 112.0
 
-# Global canvas scale: painted-canvas-px per field-screen-px. Derived map is scale-1 on
-# both axes (canvasX = projectedPos.x + HalfW; canvasY = -projectedPos.y + HalfH), but the
-# field's ortho camera applies a single uniform scale s that static source can't reveal.
-# Pinned by the room02 checkerboard calibration (Session 10). The field ortho camera scales the
-# two axes DIFFERENTLY (non-square): vertical 0.889 (top/bottom edges), horizontal 0.926 (left/right
-# edges). Supersedes the Session-8 back-fit 0.929 (fit to a freehand painting, never a clean grid).
-S_CANVAS_X = 0.926
-S_CANVAS_Y = 0.889
-S_CANVAS = S_CANVAS_Y   # back-compat alias
+# ---------- painted-canvas map (EXACT, scale-1) ----------
+# A painted-canvas pixel (cx, cy) is placed by the engine's overlay system at FieldMap-world
+# (cx - HalfFieldWidth, HalfFieldHeight - cy) (BGSCENE_DEF.CreateScene_OverlayGo, scale 1); the field
+# actor/walkmesh is placed at its GTE-projected (px, py). Both render through the same ortho FieldMap
+# camera, so a world point appears under canvas pixel (cx, cy) exactly when (px, py) == (cx - HFW,
+# HFH - cy). Writing px,py as the RAW GTE projection plus the engine offset (range/2 - HFW in x,
+# -range/2 + HFH in y), the HalfField terms cancel and the map is EXACTLY scale-1, no fudge:
+#       canvasX = rawProj.x + range.w/2 ;  canvasY = range.h/2 - rawProj.y
+# Verified noise-free against an in-engine projection probe (overlay corners + actor grid, 2026-06-02).
+# The earlier S_CANVAS_X/Y = 0.926/0.889 were an eyeball fit that silently absorbed the player
+# COLLISION_RADIUS_W (below) -- removed; kept here as 1.0 for any external caller.
+S_CANVAS_X = 1.0
+S_CANVAS_Y = 1.0
+S_CANVAS = 1.0
+
+# Walking-character collision radius, world units. FieldMap.cs sets the controller radius to
+# bgiRad*4 (bgiRad from the .bgi; flat quads use the default ~12 -> ~48). The player CENTRE cannot
+# reach the painted floor edge -- it stops ~this far inside (most visible at the foreshortened back
+# edge; THIS was the old "back edge a bit short"). Physics, not a map error: extend the walkmesh
+# past the painted floor by ~this much if the player should be able to stand at the visual edge.
+COLLISION_RADIUS_W = 48.0
 
 # ---------- tiny 3x3 / vec3 linear algebra ----------
 def mv(M, v):
@@ -126,22 +138,21 @@ def depth(P, cam):
     _, _, resz = project(P, cam)
     return resz/4.0 + cam.depthOffset
 
-def to_canvas(P, cam, sx=S_CANVAS_X, sy=S_CANVAS_Y, half_w=HALF_FIELD_W, half_h=HALF_FIELD_H):
+def to_canvas(P, cam):
     """Painted-canvas pixel (top-left origin, Y down) where a world point appears.
-    Calibrated (room02 grid, Session 10):
-      canvasX = w/2 + sx*(projectedPos.x - offsetX)   # centered on canvas mid; offsetX = projX at x=0
-      canvasY =       sy*(-projectedPos.y + HalfFieldHeight)  # scales about the top
-    Horizontal centers at the canvas midpoint (world x=0 -> canvasX = w/2) and uses sx=0.926;
-    vertical scales about the top with sy=0.889 (the field ortho camera is non-square)."""
-    px, py, _ = project_screen(P, cam, half_w, half_h)
-    offx, _ = compute_offset(cam, half_w, half_h)
-    return (cam.range[0]/2.0 + sx*(px - offx), sy*(-py + half_h))
+    EXACT, scale-1 (no calibration fudge):
+      canvasX = rawProj.x + range.w/2 ;  canvasY = range.h/2 - rawProj.y
+    Derived from the engine overlay placement (BGSCENE_DEF) + the GTE actor projection (FieldMap),
+    and verified noise-free against an in-engine projection probe.
+    NB: this is pure geometry -- the player's COLLISION_RADIUS_W keeps the player CENTRE a constant
+    ~48 world units inside any painted edge; account for it in the walkmesh, not here."""
+    px, py, _ = project(P, cam)                 # RAW GTE projection (offset 0,0)
+    return (px + cam.range[0]/2.0, cam.range[1]/2.0 - py)
 
-def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, sy=S_CANVAS_Y, half_h=HALF_FIELD_H,
-                        zlo=-6000.0, zhi=6000.0):
+def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, zlo=-6000.0, zhi=6000.0):
     """Inverse: find the world z (at given x,y) whose foot projects to a painted-canvas row.
     Bisection on the monotonic canvasY(z). Returns z or None."""
-    def cy(z): return to_canvas((x, y, z), cam, sy=sy, half_h=half_h)[1]
+    def cy(z): return to_canvas((x, y, z), cam)[1]
     a, b = zlo, zhi
     fa, fb = cy(a)-canvasY, cy(b)-canvasY
     if fa == 0: return a
@@ -250,11 +261,11 @@ def _fmt(x):
 
 
 # ---------- supported camera-pitch range (advisory) ----------
-# The camera SYNTHESIS (synth_r_t) is exact at any pitch, but the painted-canvas map (to_canvas
-# via S_CANVAS_X/Y) was calibrated in-game and its back-edge accuracy is best across the real FF9
-# downward-pitch range. By this metric the shipped cameras span ~0-50 deg (GRGR steepest ~49.6;
-# most 15-30); past ~50 the back-edge paint guide drifts (visible at 65+). ADVISORY only —
-# nothing is blocked.
+# Both the camera SYNTHESIS (synth_r_t) and the painted-canvas map (to_canvas) are EXACT at any
+# pitch (the map is pure projection, verified noise-free in-engine 2026-06-02). This range is now
+# only an AUTHENTICITY advisory: the shipped FF9 cameras span ~0-50 deg downward pitch (GRGR steepest
+# ~49.6; most 15-30). Steeper angles render correctly but look non-vanilla, and the constant
+# COLLISION_RADIUS_W inset is more visible at a steep/foreshortened back edge. ADVISORY only.
 SUPPORTED_PITCH_DEG = (0.0, 50.0)
 
 
@@ -272,7 +283,7 @@ def pitch_warning(pitch, lo_hi=SUPPORTED_PITCH_DEG):
     lo, hi = lo_hi
     if lo <= pitch <= hi:
         return None
-    return (f"camera pitch {pitch:.1f} deg is outside the validated FF9 range "
-            f"[{lo:.0f}-{hi:.0f} deg]: the in-game render is still exact, but the painted-canvas "
-            f"paint guide may drift at the far/back edge. For a dead-on back edge at this angle, "
-            f"re-pin the vertical canvas scale (S_CANVAS_Y) with one in-game grid check.")
+    return (f"camera pitch {pitch:.1f} deg is outside the typical FF9 range "
+            f"[{lo:.0f}-{hi:.0f} deg]: the render and paint guide are still exact, but the angle "
+            f"looks non-vanilla and the player's collision-radius inset is more visible at a steep "
+            f"back edge. Advisory only.")
