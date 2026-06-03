@@ -38,15 +38,31 @@ Author a camera from a simple spec **or** borrow a real one.
 | `distance` | camera distance from the origin (default `4500`). |
 | `fov` | horizontal field of view in degrees (default `42.2`). |
 | `yaw` | optional rotation about vertical (default `0`). |
-| `range`, `depth_offset`, `viewport`, `center_offset` | advanced overrides (sensible GRGR-derived defaults). |
+| `range` | painted-canvas size `[w, h]` (default `[384, 448]` = one screen). Set wider/taller for a **scrolling** room. |
+| `window_width` | the width the `fov` is measured against (default = `range[0]`). For a scrolling room set it to the visible screen width (`384`) so a wide `range` doesn't change the focal length. |
+| `proj`, `depth_offset`, `viewport`, `center_offset` | advanced overrides (`proj` = explicit focal length; sensible GRGR-derived defaults). |
 | `borrow` | path to a `.bgx` whose `CAMERA` block to copy verbatim (instead of `pitch`/`fov`). |
+
+### `[camera.scroll]` (optional — larger-than-screen rooms)
+A field whose painting is **bigger than the screen** scrolls the view to follow the player (FF9
+streets/corridors). The engine does the panning automatically once enabled.
+
+| key | meaning |
+|---|---|
+| `enabled` | `true` to make this a scrolling field: injects the engine's `EnableCameraServices` and auto-sets the scroll `viewport` so the view can pan across the whole `range`. |
+| `frame_count` | frames the camera takes to ease to the player when it activates (default `0` = instant). |
+| `scroll_type` | `8` = sinusoidal easing, else linear (default `0`). |
+
+> To author one: set a wide `range` (e.g. `[768, 448]` for 2× width), `window_width = 384`, and
+> `[camera.scroll] enabled = true`. Paint the full-`range` canvas (the paint guide auto-sizes to it),
+> and make the walkmesh span the painting. Proven in-game on a 768×448 field.
 
 ### `[camera.frame]` (optional)
 Used to auto-frame a flat walkmesh and the paint guide.
 
 | key | meaning |
 |---|---|
-| `back` | painted-canvas row (Y, 0..448) the floor's back edge sits on (default `205`). |
+| `back` | painted-canvas row (Y, 0..`range[1]`) the floor's back edge sits on (default `205`). |
 | `front` | ... and its front edge (default `432`). |
 
 ---
@@ -61,7 +77,7 @@ player → use a small `z` for a foreground piece that should occlude the charac
 | `image` | ✓ | path to the PNG (copied into the field folder). |
 | `z` | ✓ | depth. |
 | `position` | | `[x, y]` top-left in logical canvas px (default `[0, 0]`). |
-| `size` | | `[w, h]` (default `[384, 448]`). |
+| `size` | | `[w, h]` (default = the camera `range`, i.e. the full painting — `[384, 448]` for a normal field). |
 | `shader` | | default `PSX/FieldMap_Abr_None` (respects painted alpha). |
 
 > Painting the layers is a **human** task. `ff9mapkit guide` tells you exactly where the floor

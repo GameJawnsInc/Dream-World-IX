@@ -31,6 +31,15 @@ def proj_from_fov_x(fov_x_deg: float, range_w: int = CANVAS_W) -> int:
     return int(round((range_w / 2.0) / math.tan(math.radians(fov_x_deg) / 2.0)))
 
 
+def _canvas_wh(cam: _cam.Cam) -> tuple:
+    """The painted-canvas size (px) for this camera = its Range, else the 384x448 default.
+    A larger-than-screen (scrolling) field has Range > screen, so the paint guide/template must be
+    that full size, not the 384x448 single screen."""
+    w = int(cam.range[0]) if cam.range and cam.range[0] else CANVAS_W
+    h = int(cam.range[1]) if cam.range and cam.range[1] else CANVAS_H
+    return (w, h)
+
+
 def make_camera(pitch_deg: float, distance: float, *, fov_x_deg: float | None = None,
                 proj: int | None = None, yaw_deg: float = 0.0,
                 range_wh: tuple = (CANVAS_W, CANVAS_H),
@@ -122,7 +131,8 @@ def render_paint_guide(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int
     from PIL import Image, ImageDraw, ImageFont
 
     S = scale
-    img = Image.new("RGB", (CANVAS_W * S, CANVAS_H * S), (20, 22, 28))
+    cw, ch = _canvas_wh(cam)
+    img = Image.new("RGB", (cw * S, ch * S), (20, 22, 28))
     dr = ImageDraw.Draw(img, "RGBA")
 
     def px(P):
@@ -173,7 +183,8 @@ def render_paint_template(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: 
     from PIL import Image, ImageDraw, ImageFont
 
     S = scale
-    W, H = CANVAS_W * S, CANVAS_H * S
+    cw, ch = _canvas_wh(cam)
+    W, H = cw * S, ch * S
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     dr = ImageDraw.Draw(img, "RGBA")
 
@@ -208,7 +219,7 @@ def render_paint_template(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: 
     label((0, 0, zb), "FLOOR BACK", (255, 170, 60, 255))
     label((0, 0, zf), "FLOOR FRONT", (255, 170, 60, 255))
     label((0, 0, (zb + zf) / 2), "floor center", (90, 255, 120, 255))
-    dr.text((10, 10), f"paint canvas {W}x{H} (logical {CANVAS_W}x{CANVAS_H})  -  trace UNDER this layer",
+    dr.text((10, 10), f"paint canvas {W}x{H} (logical {cw}x{ch})  -  trace UNDER this layer",
             fill=(120, 200, 255, 230), font=fnt, stroke_width=max(1, S // 2), stroke_fill=(0, 0, 0, 220))
     img.save(png_path)
     return (W, H)

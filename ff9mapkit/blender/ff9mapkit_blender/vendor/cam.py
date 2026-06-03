@@ -76,6 +76,20 @@ COLLISION_RADIUS_W = 48.0
 # grid check if a steep room needs it dead-on. Override per field via [walkmesh] character_offset.
 CHARACTER_GROUND_OFFSET_Z = 298.0
 
+# ---------- scroll bounds (larger-than-screen fields) ----------
+def scroll_bounds(range_wh, half_w=HALF_FIELD_W, half_h=HALF_FIELD_H):
+    """Camera Viewport (vrpMinX, vrpMaxX, vrpMinY, vrpMaxY) that lets the native view window pan
+    across the WHOLE painting, so a larger-than-screen field scrolls edge to edge.
+
+    From Memoria's clamp (FieldMap.cs:1111-1114): vrpMin = HalfNative, vrpMax = size - HalfNative
+    (HalfNative = PSX 160 x 112, == HALF_FIELD_W/H here). For a screen-sized painting (w,h == 384,448)
+    this is (160, 224, 112, 336) = the kit's DEFAULT_VIEWPORT (min<->max gap is tiny, so no real
+    scroll). For a wider painting the gap opens and the engine pans. In-game-proven on the 768x448
+    spike (field 4003): Viewport (160, 608, 112, 336) scrolls + clamps cleanly with no over-scroll."""
+    w, h = int(range_wh[0]), int(range_wh[1])
+    return (int(half_w), int(w - half_w), int(half_h), int(h - half_h))
+
+
 # ---------- tiny 3x3 / vec3 linear algebra ----------
 def mv(M, v):
     return [M[i][0]*v[0] + M[i][1]*v[1] + M[i][2]*v[2] for i in range(3)]

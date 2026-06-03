@@ -22,6 +22,7 @@ from dataclasses import dataclass, field as _dc_field
 from pathlib import Path
 
 from .config import LANGS, ModLayout, fbg_name
+from .content import camera as _camera
 from .content import encounter as _enc
 from .content import gateway as _gw
 from .content import movement as _movement
@@ -112,6 +113,11 @@ def validate(project: FieldProject) -> list[str]:
 
 # --------------------------------------------------------------------------- scene assembly
 
+def is_scrolling(project: FieldProject) -> bool:
+    """True if the field is a larger-than-screen scrolling room ([camera.scroll] enabled)."""
+    return bool(project.raw.get("camera", {}).get("scroll", {}).get("enabled"))
+
+
 def resolve_camera(project: FieldProject) -> cam.Cam:
     c = project.raw["camera"]
     if "borrow" in c:
@@ -119,14 +125,31 @@ def resolve_camera(project: FieldProject) -> cam.Cam:
         if not cams:
             raise BuildError(f"no CAMERA in borrowed scene {c['borrow']}")
         return cams[0]
-    return guide.make_camera(
-        float(c["pitch"]), float(c.get("distance", 4500)),
-        fov_x_deg=float(c.get("fov", 42.2)), yaw_deg=float(c.get("yaw", 0)),
-        range_wh=tuple(c.get("range", (384, 448))),
+    range_wh = tuple(c.get("range", (384, 448)))
+    # viewport: explicit wins; else auto scroll bounds (span the painting) for a scrolling field;
+    # else the static single-screen default.
+    if "viewport" in c:
+        viewport = tuple(c["viewport"])
+    elif is_scrolling(project):
+        viewport = cam.scroll_bounds(range_wh)
+    else:
+        viewport = guide.DEFAULT_VIEWPORT
+    common = dict(
+        yaw_deg=float(c.get("yaw", 0)), range_wh=range_wh,
         depth_offset=int(c.get("depth_offset", guide.DEFAULT_DEPTH_OFFSET)),
-        viewport=tuple(c.get("viewport", guide.DEFAULT_VIEWPORT)),
-        center_offset=tuple(c.get("center_offset", (0, 0))),
+        viewport=viewport, center_offset=tuple(c.get("center_offset", (0, 0))),
     )
+    pitch, dist = float(c["pitch"]), float(c.get("distance", 4500))
+    # focal length: an explicit `proj` wins; else FOV measured at `window_width` (the visible screen
+    # width for a scrolling field — default = the painting width, so normal fields are unchanged).
+    # This decouples the focal length from a wide Range (a 768-wide painting must not double the FOV).
+    if "proj" in c:
+        return guide.make_camera(pitch, dist, proj=int(c["proj"]), **common)
+    fov = float(c.get("fov", 42.2))
+    win_w = int(c.get("window_width", range_wh[0]))
+    if win_w != range_wh[0]:
+        return guide.make_camera(pitch, dist, proj=guide.proj_from_fov_x(fov, win_w), **common)
+    return guide.make_camera(pitch, dist, fov_x_deg=fov, **common)
 
 
 def _shift_toward_camera(corners, camera: cam.Cam, dist: float):
@@ -174,14 +197,16 @@ def resolve_walkmesh(project: FieldProject, camera: cam.Cam) -> bytes:
     return bgi.quad(corners).to_bytes()
 
 
-def build_overlays(project: FieldProject) -> list:
+def build_overlays(project: FieldProject, range_wh=(384, 448)) -> list:
     overlays = []
     for layer in project.raw.get("layers", []):
         pos = layer.get("position", [0, 0])
         overlays.append(bgx.Overlay(
             image=Path(layer["image"]).name,
             position=(int(pos[0]), int(pos[1]), int(layer["z"])),
-            size=tuple(layer.get("size", (384, 448))),
+            # a full-cover layer defaults to the painted canvas size (the camera Range), so a
+            # larger-than-screen scrolling painting isn't clipped to a single 384x448 screen.
+            size=tuple(layer.get("size", (int(range_wh[0]), int(range_wh[1])))),
             shader=layer.get("shader", bgx.DEFAULT_SHADER),
         ))
     return overlays
@@ -209,6 +234,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if control_value != -1:
         eb = _movement.set_control_direction(eb, control_value)
     has_encounter = "encounter" in project.raw
+
+    # larger-than-screen scrolling: enable the field's camera services (Active flag) so the engine's
+    # 3D scroll follows the player. The wide Range + scroll Viewport come from the camera/scene.
+    sc = project.raw.get("camera", {}).get("scroll", {})
+    if sc.get("enabled"):
+        eb = _camera.enable_camera_services(eb, frame_count=int(sc.get("frame_count", 0)),
+                                            scroll_type=int(sc.get("scroll_type", 0)))
 
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
     for i, n in enumerate(project.raw.get("npc", [])):
@@ -295,7 +327,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     if pw:
         warnings.append(pw)
     bgi_bytes = resolve_walkmesh(project, camera)
-    overlays = build_overlays(project)
+    overlays = build_overlays(project, range_wh=tuple(camera.range))
     bgx_text = bgx.build(camera, overlays, header_comment=project.field.get("title", project.name))
 
     fm = layout.fieldmap_dir(fbg)
