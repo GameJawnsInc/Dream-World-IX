@@ -68,5 +68,10 @@ bgsStr += ExportMemoriaBGXOverlay(bgOverlay, folder + fileName);
 1. Fork `Albeoris/Memoria`, branch off `main`.
 2. Apply the relevant patch(es): `git apply path/to/prN-*.patch` (or make the edits by hand — both
    are tiny). Build to confirm it compiles.
+   - The patch files use **CRLF** line endings to match the Memoria repo, so `git apply` works
+     directly on a Windows clone. On an LF checkout / CI, add `--ignore-whitespace`.
+   - Verified (2026-06-03) against pristine `main`@`6b8bb2d5`: PR1's base blob matches HEAD exactly
+     and reverse-applies as the exact diff; PR2 forward-applies cleanly and independently. Both are
+     against `Assembly-CSharp/Global/BGSCENE_DEF.cs` only.
 3. Open the PR(s) with the rationale above. Reference that they support custom-field authoring
    (pure-`.bgx` scenes) and the FieldCreatorScene editor.
