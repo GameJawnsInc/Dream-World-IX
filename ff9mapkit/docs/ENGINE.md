@@ -14,6 +14,10 @@ ships in [Memoria](https://github.com/Albeoris/Memoria):
 The after-battle freeze fix (the entry-0 tag-10 "Main_Reinit") is emitted as **script
 bytecode** by the kit, not an engine change, so encounters work on stock Memoria too.
 
+**Scrolling** (larger-than-screen rooms) is likewise pure data: the kit widens the scene's
+`Range`/`Viewport` and emits the standard `EnableCameraServices` opcode, and Memoria's built-in
+3D scroll does the panning. No engine change.
+
 Install a built mod by copying its folder next to `FF9_Launcher.exe` (or zip it with
 `ff9mapkit pack`). No DLL is shipped or required.
 

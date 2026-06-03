@@ -117,13 +117,29 @@ So when you author with this kit you **set one pose and paint one perspective** 
 is the unit. Make a single screen feel alive with depth layers (foreground occlusion), animated
 overlay sprites (torches/water), and lighting baked into the art — not by moving the camera.
 
-**What the kit supports today:** one fixed camera, one screen (any pitch/yaw, occlusion layers, NPCs,
-gateways). **Not yet built:** in-room scrolling (larger-than-screen background) and multi-camera
-switch zones — the engine does both, but the kit's canvas math + paint guide are calibrated for a
-single static screen. **For a bigger explorable space now, chain several single-screen rooms with
-gateways** (proven) — exactly how FF9 itself moves you between field screens. (Scrolling and
-multi-camera are each a scoped future feature: scroll = a larger canvas + scroll-window authoring;
-multi-camera = N camera blocks + camera-switch trigger zones.)
+### Scrolling rooms (larger-than-screen) — supported
+
+A room whose painting is **bigger than the screen** scrolls the view to follow the player. The
+engine does the panning automatically; you just paint a bigger canvas and flip a flag:
+
+```toml
+[camera]
+range = [768, 448]      # the painting is 2× the screen wide
+window_width = 384      # keep the focal length normal (don't widen the FOV)
+[camera.scroll]
+enabled = true          # auto scroll bounds + the engine's EnableCameraServices
+```
+
+`ff9mapkit guide` (and the demo generator) auto-size the **paint guide to the full painting**, with
+**height guides** (poles/rings/room-box at the floor edges) so you can paint walls in correct
+vertical perspective — not just a floor. Make the walkmesh span the painting; the kit auto-derives
+the scroll bounds and injects the enable opcode. Runs on **stock Memoria**. Proven in-game on a
+768×448 room (see `examples/scroll-demo/`). For an even bigger space, **chain scrolling rooms with
+gateways**.
+
+**Still future:** **multi-camera** switch zones (one field, several pre-rendered angles switched at
+trigger zones) — the engine supports it (`SETCAM`), and the scene format already parses N cameras;
+the kit doesn't yet author the switch script.
 
 ## What the kit does NOT do
 - **Paint art** — you do (step 3). The kit only tells you where things land.
