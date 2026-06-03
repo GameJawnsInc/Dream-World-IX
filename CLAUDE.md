@@ -817,3 +817,22 @@ canvasX = rawProj.x + range.w/2 ;  canvasY = range.h/2 - rawProj.y
 **Engine/game state:** clean probe-free Memoria (Session-12 build). Field 4003 is the capstone calibration room (40° grid, walkmesh char-shifted) reachable via the interior door (4002→4003). Debug New-Game→100 warp still active. Revert the test field with `blendertest/revert_blender_test.py`.
 
 **Open / next:** the char offset (298) was pinned at 40° — it's a 3D-vs-2D mismatch so it may vary with pitch; re-confirm/​re-pin opportunistically for a steep room (the kit makes this a one-line `[walkmesh] character_offset`). Then: clean up the debug warp + retire the calibration field, and the kit's geometry pipeline (camera + paint guide + walkmesh + character planting) is production-complete.
+
+### 2026-06-03 — Session 14 — Blender Tier-2 Phase 1: visual authoring loop (in-game verified)
+
+**Back-edge anomaly fully closed (Session 13 cont):** the painted-canvas map is EXACT scale-1 (`canvasX = rawProj.x + w/2`, `canvasY = h/2 − rawProj.y`, proven 0.0005px vs an in-engine probe + walkmesh verts landing on the painted lines), and the old per-pitch `sx/sy` were a SCALE approximating a CONSTANT character-ground offset (FF9 3D-char vs 2D-BG, `cam.CHARACTER_GROUND_OFFSET_Z=298`, applied to walkmesh placement) — that constant-vs-scale mismatch was the years-old "back-edge drift." `cam.COLLISION_RADIUS_W≈48` is a separate physics inset. Tagged `KNOWN_GOOD-s13-canvas-map-cracked`.
+
+**Cleanup:** reverted the calibration field; removed dead dev-journey fields (broken HW clones 4001/CUSTOM_FIELD_001/002 + calib grids ROOM02/03/04_TD, archived to a gitignored zip). Live mod = 4000 HUT_EXT + 4002 HUT_INT (+ ROOM01_BASE art archive).
+
+**Blender Tier-2 Phase 1 — DONE, human-verified in-game.** The add-on is now a full visual front-end:
+- **viewport floor guide** (wireframe grid + markers where the painted floor lands) and **walkmesh starts ON the floor frame** (+ "Reset Walkmesh to Floor" after re-posing) — fixed the "walkmesh vs grid in a weird place" confusion.
+- **painted-art backdrop**: Add/Clear Background Layer load painted PNGs as FF9-camera background images (model the walkmesh against the art); foreground layers (small z) preview IN FRONT (occlusion preview).
+- **Export Paint Template** button: rasterizes a transparent 1536×1792 trace-over template (floor outline + perspective grid) into a Blender image, no PIL/subprocess. Also a CLI: `ff9mapkit guide --from-bgx <cam.bgx> --template --png`.
+- **export** emits real `[[layers]]` (PNGs copied) + `[walkmesh] character_offset` so 3D chars look planted.
+- Taught the user the FF9 field model (painted picture + invisible walkmesh + char on top; layers share one canvas; draw order by z, smaller=in front).
+
+**Human verified (real gameplay):** built a hand-painted room in Blender (pose camera → Export Paint Template → paint back+front layers → Add Layer → reshape walkmesh → Export → `ff9mapkit build` → deploy), walked into it as field 4003/MY_ROOM, and the painted background + Blender walkmesh + **front-layer occlusion** all render correctly. "success." All offline-validated (71 tests; bpy-free bridge + dry-runs); the bpy UI is human-verified.
+
+**Engine/game state:** clean Session-12 engine. MY_ROOM (4003) is the Blender test room, reachable via the interior door (revert: `ff9mapkit/blender/debug_proj/revert_myroom.py`). Debug New-Game→Alexandria warp still active.
+
+**Next:** Blender Tier-2 **Phase 2** — NPC / gateway / spawn markers (Empties) → real `[[npc]]`/`[[gateway]]`/`[player]` in the field.toml, so Blender rooms get content + a real exit. Then Phase 3 (docs + repackage). Commits this session: `b656616 39f048f 134e035 9d31aed b5e242b b053772 47e7f89 82c6c5c 73b380f 89f93da`.
