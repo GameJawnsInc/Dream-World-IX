@@ -798,3 +798,22 @@ canvasX = rawProj.x + range.w/2 ;  canvasY = range.h/2 - rawProj.y
 **Engine/game state:** clean probe-free Memoria redeployed (= Session-12 fade-cache + booster build). Debug New-Game→100 warp + interior-door→4003 repoint still active; **field 4003 currently broken** (renders the interior) — revert via `blendertest/revert_blender_test.py` or rebuild fresh. No KNOWN_GOOD tag (offline tooling fix; nothing new shipped to a working in-game state this session).
 
 **Next (optional capstone):** rebuild BLENDERROOM cleanly via `ff9mapkit build` (consistent .bgx+.bgi+grid via the new scale-1 map, walkmesh extended ~48u past the floor) → user walks to each edge → feet land exactly on the line (now that the radius is accounted for) → visual confirmation of the closed-form map in real gameplay. The map itself is already proven (0.0005px vs the engine), so this is confirmation-only.
+
+### 2026-06-02 — Session 13 (cont) — In-game capstone: character-ground offset found; full alignment model COMPLETE
+
+**The "back-edge anomaly" is fully, cleanly cracked — both halves.** Built a fresh calibration room (field 4003, 40° camera, checkerboard floor via the new scale-1 `to_canvas`, walkmesh via `ff9mapkit build`) and walked it. Result + root cause:
+
+- **The canvas MAP is exact (scale-1), triple-confirmed:** the engine probe (0.0005px), the deployed walkmesh verts projecting EXACTLY onto the painted floor lines, and **sides pixel-perfect in-game**.
+- **The residual was a CHARACTER offset, not a map error.** First pass: feet sat a uniform **~0.6 checker cell** above the paint (back overshoot = front undershoot = same amount; sides fine). Root cause (from source): FF9 draws the field **background + walkmesh via the 2D GTE projection** (what `to_canvas` models, exact) but the **character MODEL via a separate 3D perspective camera** (`PSX.ConvertCameraPsx2Unity`) — the classic FF9 3D-char-vs-2D-BG vertical mismatch. The character's feet sit a ~constant world amount toward the far edge of its 2D ground point.
+- **Fix = a constant, not a scale.** Shifted the walkmesh **~298 world-u toward the camera** (= 0.6 cell @40°); **user: "looking very precise"** — back edge now symmetric with front/sides. This constant is **exactly what the old per-pitch `sx/sy` SCALE was approximating** — and since a scale can only match a constant at one point, that's precisely what produced the years-old "back-edge drift." Mystery fully explained.
+
+**The complete, separated alignment model (now in `ff9mapkit`):**
+1. `cam.to_canvas` — scale-1, exact — where a world point appears on the painted canvas. Used for **art/overlay placement + the paint guide**.
+2. `cam.CHARACTER_GROUND_OFFSET_Z = 298` — slide the **walkmesh** toward the camera by this so the 3D character looks planted on the 2D floor. `build.resolve_walkmesh` applies it to the **auto-framed** walkmesh by default; explicit obj/quad default **0** (Blender-authored coords + golden byte-exact tests untouched); override via `[walkmesh] character_offset`.
+3. `cam.COLLISION_RADIUS_W ≈ 48` (`bgiRad*4`) — separate, smaller physics inset (player centre can't reach the walkmesh edge); extend the walkmesh ~48u past the floor to let the player reach the visual edge.
+
+**Commits:** `b656616` (exact scale-1 map), `39f048f` (capstone builder), `134e035` (character offset + kit wiring). 64 tests pass (golden byte-exact reproductions intact). Memory `project-ff9-camera-math` updated with both halves.
+
+**Engine/game state:** clean probe-free Memoria (Session-12 build). Field 4003 is the capstone calibration room (40° grid, walkmesh char-shifted) reachable via the interior door (4002→4003). Debug New-Game→100 warp still active. Revert the test field with `blendertest/revert_blender_test.py`.
+
+**Open / next:** the char offset (298) was pinned at 40° — it's a 3D-vs-2D mismatch so it may vary with pitch; re-confirm/​re-pin opportunistically for a steep room (the kit makes this a one-line `[walkmesh] character_offset`). Then: clean up the debug warp + retire the calibration field, and the kit's geometry pipeline (camera + paint guide + walkmesh + character planting) is production-complete.
