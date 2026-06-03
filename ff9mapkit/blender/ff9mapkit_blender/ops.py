@@ -95,6 +95,14 @@ def _walkmesh_world_mesh(obj):
     return verts, faces
 
 
+def _resolve_out_dir(export_dir):
+    """Absolute output dir. If the .blend is unsaved, `//` can't resolve -> fall back to ~/ff9field."""
+    out = bpy.path.abspath(export_dir)
+    if not os.path.isabs(out):
+        out = os.path.join(os.path.expanduser("~"), "ff9field")
+    return out
+
+
 def _guide_collection(context):
     """Get (or create) the 'FF9 Guide' collection, emptied of its previous guide objects."""
     coll = bpy.data.collections.get(GUIDE_COLLECTION)
@@ -220,15 +228,19 @@ class FF9MK_OT_compute_guide(bpy.types.Operator):
             lines.append(f"walkmesh '{p.walkmesh.name}' canvas bounds: "
                          f"x[{min(xs):.0f}..{max(xs):.0f}] y[{min(ys):.0f}..{max(ys):.0f}]")
         text = "\n".join(lines)
-        # write guide.txt next to the export dir
-        out = bpy.path.abspath(p.export_dir)
-        os.makedirs(out, exist_ok=True)
-        with open(os.path.join(out, "guide.txt"), "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(text + "\n")
-        # build the visible floor guide (grid + markers) in the viewport
+        # build the visible floor guide (grid + markers) in the viewport (needs no file path)
         _rebuild_floor_guide(context, c, p.back_y, p.front_y)
-        self.report({"INFO"}, f"paint guide written to {os.path.join(out, 'guide.txt')} + "
-                              f"'{GUIDE_COLLECTION}' floor grid in the viewport")
+        # write guide.txt (best-effort; never let an unwritable path abort the guide)
+        msg = f"'{GUIDE_COLLECTION}' floor grid built in the viewport"
+        out = _resolve_out_dir(p.export_dir)
+        try:
+            os.makedirs(out, exist_ok=True)
+            with open(os.path.join(out, "guide.txt"), "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text + "\n")
+            msg += f"; guide.txt -> {out}"
+        except OSError as e:
+            msg += f" (guide.txt not written: {e.strerror}; save the .blend or set Export to)"
+        self.report({"INFO"}, msg)
         print("[FF9 Map Kit]\n" + text)
         return {"FINISHED"}
 
@@ -309,8 +321,13 @@ class FF9MK_OT_export_field(bpy.types.Operator):
         if not p.walkmesh or p.walkmesh.type != "MESH":
             self.report({"ERROR"}, "Set a Walkmesh mesh object.")
             return {"CANCELLED"}
-        out = bpy.path.abspath(p.export_dir)
-        os.makedirs(out, exist_ok=True)
+        out = _resolve_out_dir(p.export_dir)
+        try:
+            os.makedirs(out, exist_ok=True)
+        except OSError as e:
+            self.report({"ERROR"}, f"can't write to {out}: {e.strerror}. Save the .blend or set "
+                                   f"'Export to' to a real folder.")
+            return {"CANCELLED"}
 
         # camera.bgx (camera-only; field.toml borrows it)
         with open(os.path.join(out, "camera.bgx"), "w", encoding="utf-8", newline="\n") as fh:
