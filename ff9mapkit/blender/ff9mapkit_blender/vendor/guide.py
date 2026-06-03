@@ -40,6 +40,48 @@ def _canvas_wh(cam: _cam.Cam) -> tuple:
     return (w, h)
 
 
+def _height_ticks(wall_h: float) -> list:
+    """Sensible labeled heights up to wall_h (quarters)."""
+    return [round(wall_h * k / 4) for k in range(1, 5)]
+
+
+def _draw_height_guides(dr, cam: _cam.Cam, frame: "FloorFrame", S: int, wall_h: float, fnt) -> None:
+    """Vertical perspective guides so the artist can paint WALLS/objects at the right height.
+
+    A flat floor grid can't show how "up" foreshortens. This draws, in world-accurate projection:
+      * vertical POLES at the floor's 4 corners + back/front mid-edges (y=0 -> wall_h),
+      * back-wall horizontal RINGS at each tick height (the grid for painting the backdrop),
+      * the room-box TOP outline (the ceiling rectangle),
+      * height LABELS (world units) up the back-left pole.
+    Heights are in the SAME world units as the floor grid, so vertical and horizontal scale match.
+    """
+    def pc(x, y, z):
+        cx, cy = _cam.to_canvas((x, y, z), cam)
+        return (cx * S, cy * S)
+
+    (blx, _, blz), (brx, _, brz), (frx, _, frz), (flx, _, flz) = frame.corners_world
+    bl, br, fr, fl = (blx, blz), (brx, brz), (frx, frz), (flx, flz)
+    bm = ((blx + brx) / 2.0, blz)        # back-mid
+    fm = ((flx + frx) / 2.0, flz)        # front-mid
+    ticks = _height_ticks(wall_h)
+    POLE = (90, 220, 235, 235)
+    RING = (90, 215, 230, 130)
+    BOX = (130, 240, 255, 240)
+    LAB = (160, 235, 248, 255)
+    w = max(1, S // 2)
+
+    for (x, z) in (bl, br, fr, fl, bm, fm):           # vertical poles
+        dr.line([pc(x, 0, z), pc(x, wall_h, z)], fill=POLE, width=w)
+    for h in ticks:                                   # back-wall horizontal rings
+        dr.line([pc(bl[0], h, bl[1]), pc(br[0], h, br[1])], fill=RING, width=w)
+    tops = [pc(x, wall_h, z) for (x, z) in (bl, br, fr, fl)]   # ceiling rectangle
+    dr.line(tops + [tops[0]], fill=BOX, width=w)
+    for h in ticks:                                   # height labels up the back-left pole
+        x, y = pc(bl[0], h, bl[1])
+        dr.text((x - 11 * S, y - 7), f"{int(h)}", fill=LAB, font=fnt,
+                stroke_width=max(1, S // 3), stroke_fill=(0, 0, 0, 210))
+
+
 def make_camera(pitch_deg: float, distance: float, *, fov_x_deg: float | None = None,
                 proj: int | None = None, yaw_deg: float = 0.0,
                 range_wh: tuple = (CANVAS_W, CANVAS_H),
@@ -126,8 +168,11 @@ def walkmesh_corners(frame: FloorFrame) -> list:
 
 
 def render_paint_guide(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int = 4,
-                       nx: int = 6, nz: int = 6) -> None:
-    """Render a checkerboard floor + reference markers onto the canvas, as a paint underlay."""
+                       nx: int = 6, nz: int = 6, wall_height: float | None = None) -> None:
+    """Render a checkerboard floor + reference markers onto the canvas, as a paint underlay.
+
+    ``wall_height`` adds vertical height guides (poles/rings/ceiling) so walls can be painted in
+    correct perspective; ``None`` = auto (the floor's depth), ``0`` = floor only."""
     from PIL import Image, ImageDraw, ImageFont
 
     S = scale
@@ -168,11 +213,14 @@ def render_paint_guide(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int
     mark((-1000, 0, 0), (120, 200, 255), "(-1000,0,0)")
     mark((0, 0, zb), (255, 120, 120), f"back z={zb}")
     mark((0, 0, zf), (255, 120, 120), f"front z={zf}")
+    wall_h = abs(zb - zf) if wall_height is None else wall_height
+    if wall_h > 0:
+        _draw_height_guides(dr, cam, frame, S, wall_h, fnt)
     img.save(png_path)
 
 
 def render_paint_template(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int = 4,
-                          nx: int = 8, nz: int = 8) -> tuple:
+                          nx: int = 8, nz: int = 8, wall_height: float | None = None) -> tuple:
     """Render a TRANSPARENT trace-over paint template (canvas_w*scale x canvas_h*scale).
 
     Unlike render_paint_guide (an opaque calibration checkerboard), this is a transparent overlay:
@@ -216,6 +264,9 @@ def render_paint_template(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: 
         dr.text((x + 6, y - 8 * S), txt, fill=col, font=fnt,
                 stroke_width=max(1, S // 2), stroke_fill=(0, 0, 0, 200))
 
+    wall_h = abs(zb - zf) if wall_height is None else wall_height
+    if wall_h > 0:
+        _draw_height_guides(dr, cam, frame, S, wall_h, fnt)
     label((0, 0, zb), "FLOOR BACK", (255, 170, 60, 255))
     label((0, 0, zf), "FLOOR FRONT", (255, 170, 60, 255))
     label((0, 0, (zb + zf) / 2), "floor center", (90, 255, 120, 255))

@@ -1,0 +1,34 @@
+# Scrolling demo room: a 2x-wide (768x448) painting the view pans across.
+# Paint art/back.png (the whole scene; floor inside the outline, walls above) and optionally
+# art/front.png (foreground occluders). Then:  ff9mapkit build scroll_demo.field.toml
+[field]
+id = 4003
+name = "SCROLLDEMO"
+area = 11
+text_block = 1073
+title = "Scrolling demo"
+
+[camera]
+pitch = 40.0
+distance = 4500
+fov = 42.2
+range = [768, 448]   # the painting is 2x the screen wide
+window_width = 384           # keep the focal length normal (don't widen the FOV)
+
+[camera.scroll]
+enabled = true                   # auto scroll bounds + the engine EnableCameraServices
+
+[walkmesh]
+quad = [[-2122,-161],[2122,-161],[2122,-2043],[-2122,-2043]]
+# character_offset defaults to 298 (auto-framed); explicit quad here defaults to 0. Use 298 to plant.
+character_offset = 298
+
+[[layers]]
+image = "art/back.png"           # the whole painting (floor + walls + scenery)
+z = 4000
+# [[layers]]                      # optional foreground occluders (small z draws OVER the player)
+# image = "art/front.png"
+# z = 8
+
+[player]
+spawn = [0, -1102]
