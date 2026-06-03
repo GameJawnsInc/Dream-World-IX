@@ -1,0 +1,2 @@
+[console_scripts]
+ff9mapkit = ff9mapkit.cli:main

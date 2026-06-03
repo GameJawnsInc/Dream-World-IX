@@ -27,6 +27,12 @@ A **FF9 Map Kit** tab then appears in the 3D viewport sidebar (press **N** to op
 > this is an extension (manifest-based), not a legacy `bl_info`-only add-on.
 
 You'll also want the CLI for the final build step: `pip install -e ..` (the `ff9mapkit` package).
+If the `ff9mapkit` command isn't found afterward (its Scripts dir isn't on PATH), use
+**`py -m ff9mapkit build …`** instead — it works from any folder once the package is installed.
+
+> **Export folder:** the *Export to* field defaults to `ff9field`, written **next to your saved
+> `.blend`** (or `~/ff9field` if the .blend is unsaved). You can type an absolute path or browse to
+> one. The export operator reports the exact folder it wrote to in the status bar.
 
 ## Workflow
 

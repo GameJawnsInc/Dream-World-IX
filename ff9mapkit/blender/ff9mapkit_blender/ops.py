@@ -74,7 +74,10 @@ class FF9MKProps(bpy.types.PropertyGroup):
     front_y: bpy.props.FloatProperty(name="Floor front (canvas Y)", default=432.0)
     walkmesh: bpy.props.PointerProperty(name="Walkmesh", type=bpy.types.Object,
                                         poll=lambda self, o: o.type == "MESH")
-    export_dir: bpy.props.StringProperty(name="Export to", subtype="DIR_PATH", default="//ff9field")
+    export_dir: bpy.props.StringProperty(
+        name="Export to", subtype="DIR_PATH", default="ff9field",
+        description="Output folder. A plain name (or //name) resolves next to the .blend; or pick "
+                    "an absolute folder. If the .blend is unsaved it falls back to ~/<name>")
     layers: bpy.props.CollectionProperty(type=FF9MKLayer)
     layers_index: bpy.props.IntProperty(default=0)
 
@@ -150,11 +153,22 @@ def _set_quad_mesh(obj, corners):
 
 
 def _resolve_out_dir(export_dir):
-    """Absolute output dir. If the .blend is unsaved, `//` can't resolve -> fall back to ~/ff9field."""
-    out = bpy.path.abspath(export_dir)
-    if not os.path.isabs(out):
-        out = os.path.join(os.path.expanduser("~"), "ff9field")
-    return out
+    """Absolute output dir from the 'Export to' value, robust to Blender 5.x's `//` handling.
+
+    - an absolute path is used as-is;
+    - a plain name ("ff9field") or a //-relative name resolves NEXT TO the .blend if it's saved;
+    - if the .blend is unsaved, falls back to ~/<name>.
+    (Blender 5.x flags `//` on this property type, so we resolve relative names ourselves rather
+    than relying on bpy.path.abspath of a `//` string.)
+    """
+    s = (export_dir or "").strip()
+    if s and os.path.isabs(s):
+        return s
+    name = s[2:] if s.startswith("//") else s          # strip the blend-relative prefix
+    name = name or "ff9field"
+    blend = bpy.data.filepath
+    base = os.path.dirname(blend) if blend else os.path.expanduser("~")
+    return os.path.join(base, name)
 
 
 def _guide_collection(context):
