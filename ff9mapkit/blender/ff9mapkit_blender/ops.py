@@ -474,12 +474,24 @@ class FF9MK_OT_clear_layers(bpy.types.Operator):
     def execute(self, context):
         p = context.scene.ff9mapkit
         p.layers.clear()
-        cam_obj = context.scene.camera
-        if cam_obj is not None and cam_obj.type == "CAMERA":
-            bgs = cam_obj.data.background_images
-            while len(bgs):
-                bgs.remove(bgs[0])
-        self.report({"INFO"}, "cleared background layers")
+        # clear the camera background images AND switch the preview off, on both the FF9 camera
+        # (by name) and the active scene camera — covers the case where they differ.
+        seen = set()
+        for cam_obj in (bpy.data.objects.get(CAMERA_NAME), context.scene.camera):
+            if cam_obj is None or cam_obj.type != "CAMERA" or cam_obj.name in seen:
+                continue
+            seen.add(cam_obj.name)
+            cd = cam_obj.data
+            try:
+                cd.background_images.clear()
+            except AttributeError:                       # older API: remove one by one
+                while len(cd.background_images):
+                    cd.background_images.remove(cd.background_images[0])
+            cd.show_background_images = False             # hide the preview even if one lingered
+        for area in context.screen.areas:                # repaint so it disappears immediately
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
+        self.report({"INFO"}, "cleared background layers + camera preview")
         return {"FINISHED"}
 
 
