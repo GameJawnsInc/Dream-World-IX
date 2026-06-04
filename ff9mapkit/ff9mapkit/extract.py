@@ -206,16 +206,28 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     # real .bgi verts are corner-origin; world_vert = vert + orgPos puts the walkmesh in the world
     # (camera) frame so it/content land on the painted art (and in the engine's frame).
     ox, oy, oz = cam.walkmesh_world_offset((wm.orgPos.x, wm.orgPos.y, wm.orgPos.z))
-    # spawn: charPos is stored per-field in EITHER the corner frame (like the verts) or already world
-    # -- pick whichever lands inside the world walkmesh bounds; else fall back to the centroid.
+    # spawn: charPos is stored per-field in EITHER the corner frame (like the verts) or already world.
+    # Prefer it if it lands on the walkmesh AND on-camera (within the painting); else spawn at the
+    # centre of the ON-CAMERA walkmesh -- a real field's walkmesh often runs far past the screen into
+    # gated tunnels (charPos can sit out there), and the player should appear on-screen.
     wx = [v.x + ox for v in wm.verts]
     wz = [v.z + oz for v in wm.verts]
     bx0, bx1, bz0, bz1 = min(wx), max(wx), min(wz), max(wz)
+    rw, rh = c0.range
     def _inb(px, pz):
         return bx0 <= px <= bx1 and bz0 <= pz <= bz1
-    _spawn = next(((px, pz) for px, pz in ((wm.charPos.x + ox, wm.charPos.z + oz),
-                                           (wm.charPos.x, wm.charPos.z)) if _inb(px, pz)),
-                  (sum(wx) / len(wx), sum(wz) / len(wz)))
+    def _oncam(px, pz):
+        cx, cy = cam.to_canvas((px, 0.0, pz), c0)
+        return 0 <= cx <= rw and 0 <= cy <= rh
+    _cp = [(wm.charPos.x + ox, wm.charPos.z + oz), (wm.charPos.x, wm.charPos.z)]
+    _oncam_verts = [(px, pz) for px, pz in zip(wx, wz) if _oncam(px, pz)]
+    _spawn = next((p for p in _cp if _inb(*p) and _oncam(*p)), None)
+    if _spawn is None and _oncam_verts:                       # centre of the visible walkmesh
+        mcx = sum(p[0] for p in _oncam_verts) / len(_oncam_verts)
+        mcz = sum(p[1] for p in _oncam_verts) / len(_oncam_verts)
+        _spawn = min(_oncam_verts, key=lambda p: (p[0] - mcx) ** 2 + (p[1] - mcz) ** 2)
+    if _spawn is None:                                        # no on-camera verts: in-bounds / centroid
+        _spawn = next((p for p in _cp if _inb(*p)), (sum(wx) / len(wx), sum(wz) / len(wz)))
     _spawn = [round(_spawn[0]), round(_spawn[1])]
     meta = {
         "field": folder,
