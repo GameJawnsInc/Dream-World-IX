@@ -153,15 +153,31 @@ def ff9_verts_to_blender(ff9_verts):
     return [tuple(cam.mv(M_BF, list(v))) for v in ff9_verts]
 
 
-def bgi_walkmesh_to_blender(bgi_bytes):
+def walkmesh_frame_offset(bgi_bytes, c):
+    """(dx,dy,dz) the imported walkmesh needs so it lands on the painted art for camera `c`.
+    A real .bgi is corner-origin with orgPos=world-corner; the borrowed camera sits in either the
+    raw or the world frame (cam.detect_walkmesh_offset picks which). This IS the engine's frame,
+    so content placed on the shifted walkmesh exports correctly -- no undo needed."""
+    wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
+    return cam.detect_walkmesh_offset(
+        [(v.x, v.y, v.z) for v in wm.verts], (wm.orgPos.x, wm.orgPos.y, wm.orgPos.z), c)
+
+
+def bgi_walkmesh_to_blender(bgi_bytes, c=None):
     """Parse a REAL field's .bgi walkmesh -> (blender_verts, faces) for an editable Blender mesh.
 
     Used by 'Import FF9 Field': verts map FF9 world (x, y~0, z) -> Blender via ff9_verts_to_blender;
     faces are each triangle's 3 vertex indices. Round-trips with blender_verts_to_ff9 (tested).
-    NO offset: the engine projects the raw .bgi frame directly, so the verts already sit on the
-    painted art -- the walkmesh may extend past the screen edges (tunnels), which is correct."""
+    If camera `c` is given, the corner-vs-world frame offset is auto-detected + applied so the
+    walkmesh lands on the painted art (and stays in the engine's frame for content export). The
+    walkmesh may still extend past the screen edges (tunnels) -- that's correct."""
     wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
-    ff9 = [(v.x, v.y, v.z) for v in wm.verts]
+    if c is not None:
+        ox, oy, oz = cam.detect_walkmesh_offset(
+            [(v.x, v.y, v.z) for v in wm.verts], (wm.orgPos.x, wm.orgPos.y, wm.orgPos.z), c)
+    else:
+        ox = oy = oz = 0
+    ff9 = [(v.x + ox, v.y + oy, v.z + oz) for v in wm.verts]
     faces = [tuple(t.vtx) for t in wm.tris]
     return ff9_verts_to_blender(ff9), faces
 

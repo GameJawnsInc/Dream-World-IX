@@ -203,6 +203,10 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     c0 = cameras[0]
     d = cam.decompose(c0)
     scrolling = c0.range[0] > 384 or c0.range[1] > 448
+    # the borrowed camera lives in either the raw corner frame or the world frame; detect which so
+    # the walkmesh/spawn/content all land on the painted art (and in the engine's frame).
+    ox, oy, oz = cam.detect_walkmesh_offset(
+        [(v.x, v.y, v.z) for v in wm.verts], (wm.orgPos.x, wm.orgPos.y, wm.orgPos.z), c0)
     meta = {
         "field": folder,
         "bundle": os.path.basename(path),
@@ -217,10 +221,11 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
             "proj": c0.proj,
         },
         "scrolling": scrolling,
-        "player_start": [wm.charPos.x, wm.charPos.z],
-        "walkmesh_bounds": {
-            "x": [wm.minPos.x, wm.maxPos.x],
-            "z": [wm.minPos.z, wm.maxPos.z],
+        "frame_offset": [ox, oy, oz],
+        "player_start": [wm.charPos.x + ox, wm.charPos.z + oz],
+        "walkmesh_bounds": {     # in the DETECTED frame (vert extent + offset) = where content goes
+            "x": [min(v.x for v in wm.verts) + ox, max(v.x for v in wm.verts) + ox],
+            "z": [min(v.z for v in wm.verts) + oz, max(v.z for v in wm.verts) + oz],
             "verts": len(wm.verts),
             "tris": len(wm.tris),
         },
@@ -273,12 +278,14 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
 
     if draw_footprint and "bgi" in roles:
         wm = bgi.BgiWalkmesh.from_bytes(_raw_bytes(env.container[roles["bgi"]].read()))
+        ox, oy, oz = cam.detect_walkmesh_offset(
+            [(v.x, v.y, v.z) for v in wm.verts], (wm.orgPos.x, wm.orgPos.y, wm.orgPos.z), c0)
         draw = ImageDraw.Draw(canvas, "RGBA")
         for t in wm.tris:
             pts = []
             for vi in t.vtx:
                 v = wm.verts[vi]
-                cx, cy = cam.to_canvas((v.x, v.y, v.z), c0)   # exact GTE projection, raw frame (no offset)
+                cx, cy = cam.to_canvas((v.x + ox, v.y + oy, v.z + oz), c0)   # exact GTE, detected frame
                 pts.append((cx * upscale, cy * upscale))
             draw.polygon(pts, fill=(90, 180, 255, 45), outline=(120, 225, 255, 160))
     canvas.save(out_path)
