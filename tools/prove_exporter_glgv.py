@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Prove the ff9mapkit EXPORTER in-game.
+"""Prove the ff9mapkit EXPORTER in-game, WITH per-overlay occlusion.
 
-Fork GLGV as a full CUSTOM SCENE (NOT borrow) whose walkmesh is RE-EXPORTED from the real field's
-.bgi: import it (BgiWalkmesh.world_verts -> world coords) then write it back via bgi.build (world
-frame, orgPos=0, every floor.org=0). Pair it with GLGV's real camera (camera.bgx) + its composited
-art (background.png). If the player walks a floor aligned with the art in-game, the new exporter is
-engine-validated -- the kit produced a walkmesh the engine renders exactly where authored.
+Fork GLGV (rm1) as a full CUSTOM SCENE (NOT borrow):
+  * walkmesh  -- RE-EXPORTED from the real .bgi via bgi.build (world frame, orgPos=0).
+  * art       -- extract_layers(): one [[layers]] per DEPTH (not a flat composite), so the engine
+                 redraws the depth-ordered scene and occlusion is preserved (foreground overlays
+                 draw over the player) -- the "editable art" path.
+  * camera    -- GLGV's real camera.bgx.
+If the player walks the floor aligned with the art AND foreground pieces occlude him, the exporter +
+multi-layer extract are engine-validated.
 
-Run:  py tools/prove_exporter_glgv.py        # writes tools/scroll_out/glgv_exp/
-then:  py tools/deploy_field.py tools/scroll_out/glgv_exp/GLGV_EXP.field.toml
+Run:  py tools/prove_exporter_glgv.py
+then: py tools/deploy_field.py tools/scroll_out/glgv_exp/GLGV_EXP.field.toml
 """
 import os
 import shutil
@@ -17,15 +20,16 @@ from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
+from ff9mapkit import extract
 from ff9mapkit.scene import bgi
 
+FIELD = "glgv_map792_gv_rm1"
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "tools" / "scroll_out" / "glgv_import"
 OUT = ROOT / "tools" / "scroll_out" / "glgv_exp"
 OUT.mkdir(parents=True, exist_ok=True)
 
 # 1) RE-EXPORT the walkmesh: import (world_verts) -> bgi.build (world frame, org=0) -> walkmesh.obj.
-#    The .obj carries the exact world coords; `[walkmesh] frame="world"` makes the kit emit org=0.
 wm = bgi.BgiWalkmesh.from_bytes((SRC / "walkmesh.bgi").read_bytes())
 wv = wm.world_verts()
 faces = [tuple(t.vtx) for t in wm.tris]
@@ -48,16 +52,20 @@ else:
         lines.append(f"f {a + 1} {b + 1} {c + 1}")
 (OUT / "walkmesh.obj").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
-# 2) reuse GLGV's REAL camera + composited art verbatim
+# 2) EXTRACT the art as depth-ordered layers (preserves occlusion) + the real camera
 shutil.copyfile(SRC / "camera.bgx", OUT / "camera.bgx")
-shutil.copyfile(SRC / "background.png", OUT / "background.png")
+info = extract.extract_layers(FIELD, OUT)
+if info is None:
+    sys.exit(f"{FIELD} not [Export] Field=1'd in-game yet -- no per-overlay PNGs on disk.")
+layers = info["layers"]
+print(f"layers: {len(layers)} depths {[L['z'] for L in layers]}  (skipped {info['skipped_blend_overlays']} blend overlays)")
 
-# 3) custom-scene field.toml: NO borrow_bg => the kit writes its own .bgx (GLGV camera + the art
-#    overlay) + our re-exported .bgi. A Vivi NPC + spawn confirm content lands on the re-exported floor.
+# 3) custom-scene field.toml: real camera + re-exported walkmesh + per-depth art layers
 spawn = (1430, -205)
-toml = f"""# EXPORTER PROOF -- GLGV forked as a CUSTOM SCENE. The walkmesh below is RE-EXPORTED from the
-# real field's .bgi via ff9mapkit's world-frame builder (bgi.build, orgPos=0). If the player walks a
-# floor aligned with the art, the exporter is engine-validated.
+layer_blocks = "\n".join(f'[[layers]]\nimage = "{L["image"]}"\nz = {L["z"]}' for L in layers)
+toml = f"""# EXPORTER + MULTI-LAYER PROOF -- GLGV forked as a CUSTOM SCENE. Walkmesh re-exported via
+# bgi.build (org=0); art split into one layer per depth so the engine preserves occlusion (the player
+# is drawn over by foreground pieces and draws over the floor), exactly like the real field.
 [field]
 id = 4003
 name = "GLGV_EXP"
@@ -73,9 +81,7 @@ enabled = true
 obj = "walkmesh.obj"
 frame = "world"
 
-[[layers]]
-image = "background.png"
-z = 4000
+{layer_blocks}
 
 [player]
 spawn = [{spawn[0]}, {spawn[1]}]
@@ -84,11 +90,10 @@ spawn = [{spawn[0]}, {spawn[1]}]
 name = "Vivi"
 preset = "vivi"
 pos = [{spawn[0]}, {spawn[1] + 250}]
-dialogue = "Re-exported walkmesh. If I'm planted on the floor, the exporter works."
+dialogue = "Re-exported walkmesh + layered art. If a wall hides me, occlusion survived."
 """
 p = OUT / "GLGV_EXP.field.toml"
 p.write_text(toml, encoding="utf-8", newline="\n")
-
 print(f"wrote {p}")
-print(f"walkmesh: {len(wv)} verts, {len(faces)} tris, {len(order)} floor(s) -- re-exported at org=0")
+print(f"walkmesh: {len(wv)} verts, {len(faces)} tris, {len(order)} floor(s) -- org=0")
 print(f"\nDeploy:  py tools/deploy_field.py {p.as_posix()}")

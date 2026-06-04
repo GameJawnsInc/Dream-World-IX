@@ -313,6 +313,63 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
     return (W, H)
 
 
+def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, opaque_only=True):
+    """Per-overlay art layers (depth-grouped) for an EDITABLE custom-scene fork that PRESERVES
+    occlusion -- the inverse of `compose_background`'s flat merge.
+
+    Groups the field's overlays by DEPTH and writes one transparent full-canvas PNG per distinct
+    depth, returning the `[[layers]]` list ({image, z}) for a custom scene. The engine then redraws
+    the depth-ordered scene, so the 3D player is occluded by / occludes each layer exactly like the
+    real field (smaller z = nearer the camera = drawn in front). Depth + position follow Memoria's
+    OWN .bgx exporter (BGSCENE_DEF.cs:606):  z = scene.orgZ + overlay.orgZ + min(sprite.depth),
+    position = scene.org{X,Y} + overlay.org{X,Y} + min(sprite.off{X,Y}) -- baked into each full-canvas
+    PNG so the kit layer is just position [0,0], size = range.
+
+    Returns None if the field hasn't been `[Export] Field=1`'d in-game yet (no per-overlay PNGs on
+    disk). `opaque_only` (default) skips additive/subtractive light+shadow overlays (trans != 0) --
+    those need blend shaders (a later pass); the opaque overlays carry the structural occlusion.
+    """
+    art = field_art_dir(field, game)
+    if art is None:
+        return None
+    from PIL import Image  # noqa: PLC0415 - only the art path needs PIL
+    _, _, roles, env = find_field(field, game=game, bundle=bundle)
+    bgs_bytes = _raw_bytes(env.container[roles["bgs"]].read())
+    h, overlays = bgs.parse_overlays(bgs_bytes)
+    bgs.resolve_sprites(bgs_bytes, overlays, 2048, 40)        # atlas params irrelevant for off/depth
+    sOrgX, sOrgY, sOrgZ = h.bounds[2], h.bounds[3], h.bounds[0]
+    c0 = bgs.parse_cameras(bgs_bytes)[0]
+    W, H = c0.range[0] * upscale, c0.range[1] * upscale
+
+    groups = {}      # z -> [(overlay_index, Overlay)]  (overlays at one depth tile a single plane)
+    skipped = 0
+    for i, o in enumerate(overlays):
+        if not o.sprites:
+            continue
+        if opaque_only and o.sprites[0].trans != 0:
+            skipped += 1
+            continue
+        if not (art / f"Overlay{i}.png").is_file():
+            continue
+        z = sOrgZ + o.orgZ + min(s.depth for s in o.sprites)
+        groups.setdefault(z, []).append((i, o))
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    layers = []
+    for z in sorted(groups, reverse=True):                   # back (large z) -> front
+        canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        for i, o in groups[z]:
+            im = Image.open(art / f"Overlay{i}.png").convert("RGBA")
+            mnX = min(s.offX for s in o.sprites)
+            mnY = min(s.offY for s in o.sprites)
+            canvas.alpha_composite(im, ((sOrgX + o.orgX + mnX) * upscale, (sOrgY + o.orgY + mnY) * upscale))
+        name = f"layer_{int(z):05d}.png"
+        canvas.save(out / name)
+        layers.append({"image": name, "z": int(z)})
+    return {"layers": layers, "skipped_blend_overlays": skipped, "range": list(c0.range)}
+
+
 def write_field_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                         text_block: int = 1073, game=None, bundle=None, want_atlas=False):
     """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx in out_dir.
