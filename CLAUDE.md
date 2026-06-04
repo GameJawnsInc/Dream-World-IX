@@ -983,3 +983,25 @@ Walked the two prepped Memoria PRs with the user, one at a time. **Result: ONE P
 - Remaining for the full Tier-3: a real `ff9mapkit import <field>` **CLI command** + a cached **field→bundle index** (so no bundle hint); the **camera-preset/survey library** (the other deliverable — all ~800 cameras → archetype presets + faithfulness ranges, now trivial given the extractor); **editable-art v1b** (atlas+overlay → composite PNG layers, OR lean on Memoria's PSD export); docs + project-memory capture of the p0data format.
 
 Tagged `KNOWN_GOOD-s16-import-field`.
+
+### 2026-06-04 — Session 16 (cont) — `ff9mapkit import` CLI + Blender "Import FF9 Field" (fork-and-author in Blender, in-game verified)
+
+**Finished the import tool + wired it into Blender: fork any of 674 real fields, import into Blender, place content visually, export → walkable in-game.** User goal "finish the tool so we can try to get it working in Blender" — done end to end.
+
+**CLI (`097e573`):** `ff9mapkit import <field>` (full FBG / bare mapid / unique substring) → ready-to-edit BG-borrow `field.toml` + `camera.bgx` + `walkmesh.bgi`, in ~2s. `ff9mapkit list-fields <pat>` to discover. Backed by a cached **field→bundle index** (`build_field_index`: scans all p0data bundles' container paths ONCE, ~10s, → `.ff9mapkit-field-index.json` next to the bundles; then instant). **674 importable field backgrounds** across 51 map codes (LDBM 70, ALXC 60, ALXT 38, TRNO/TSHP/CYSW/…). Auto-derives the fork name `<MAPID-first-token>_FORK`.
+
+**Blender add-on v0.5.x (`ab15898` + polish `…`):** new **Import FF9 Field** operator — point it at an `ff9mapkit import` folder; it parses `camera.bgx` → poses the real camera, `walkmesh.bgi` → an editable Blender mesh (`bridge.bgi_walkmesh_to_blender`, bpy-free + round-trip tested), sets `borrow_bg` (so Export emits a borrow `field.toml`), drops an FF9_Spawn at the field's start, and remembers the project dir so the EXACT extracted `camera.bgx` is preserved on export. Place NPC/gateway/spawn markers → **Export Field** → borrow `field.toml`. UI: "New Scene / Import Field" + a "forked from …" banner.
+
+**Human-verified IN-GAME (the whole loop, no text editing):** imported real Gargan Roo in Blender → dropped a Vivi NPC empty at `[866,537]` + typed "YIPPEEE" → Export → `deploy_field.py` (now also deploys the dialogue `.mes`) → walked field 4003: **Vivi stood where placed in the Blender viewport and said the line.** ("it worked in game.")
+
+**Camera-PREVIEW polish (two real bugs, user-confirmed fixed):**
+- v0.5.1: the matched FF9 camera was shown through Blender's default **1920×1080 landscape**; Setup/Pose/Import now set render resolution to the field canvas (384×448 portrait / scroll canvas).
+- v0.5.2: imported walkmesh sat in a CORNER. Root cause (diagnosed offline): a real `.bgi`'s verts are in a **corner-origin local frame** (`x[0,4170] y[0,2135] z[0,1502]`, and NOT flat — GRGR has real height) while the extracted **camera is in the centred world frame**; the engine reconciles them via the BGI `orgPos`/`curPos`, but the Blender pose didn't, so the camera aimed off the floor. Fix: a **position-only camera reframe** — slide the camera so its view axis hits the walkmesh centroid (yaw/pitch + the preserved `camera.bgx` untouched → in-game movement/camera unaffected; markers stay in the working export frame). User: "looks great."
+
+**New surface:** `scene/bgs.py`, `extract.py` (`extract_field`/`write_field_project`/`build_field_index`/`resolve_field`/`list_fields`), `build.py` `borrow_bg` mode, CLI `import`/`list-fields`, `bridge.bgi_walkmesh_to_blender`, Blender Import operator + borrow export. UnityPy is the only new dep (lazy — core kit + Blender stay stdlib/bpy). 122 kit + 32 blender tests pass.
+
+**Honest gaps (deferred):** the imported Blender preview is BARE (no field art behind the walkmesh) — that's the **editable-art v1b** (atlas+overlays → composite PNG layers, OR Memoria's PSD export). Real walkmesh height shows as 3D geometry (correct, just not a flat plane). Borrow mode = reuse art only (can't repaint yet).
+
+**Carry-over:** field 4003 = `GRGR_FORK` (Blender-authored YIPPEEE NPC) deployed; revert `py tools/scroll_out/revert_deploy.py`. Debug New-Game→Alexandria warp still active. UnityPy required for extraction (`py -m pip install UnityPy`).
+
+Tagged `KNOWN_GOOD-s16-blender-import`.
