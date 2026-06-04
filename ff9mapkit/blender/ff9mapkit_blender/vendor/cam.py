@@ -176,21 +176,6 @@ def to_canvas(P, cam):
     px, py, _ = project(P, cam)                 # RAW GTE projection (offset 0,0)
     return (px + cam.range[0]/2.0, cam.range[1]/2.0 - py)
 
-def walkmesh_world_offset(org):
-    """The offset that places a REAL field's walkmesh into the world (camera) frame: simply `org`.
-
-    A real `.bgi` stores walkmesh verts CORNER-ORIGIN (0-based); the header `orgPos` (== minPos ==
-    `org` here) is the world position of that corner, so `world_vert = vert + orgPos` -- verified
-    universal: `vert + orgPos == [minPos, maxPos]` for every sampled field, and the camera projects
-    world, so `to_canvas(vert + orgPos)` is where the walkmesh appears in-game (confirmed in-art on
-    GLGV). This is the exact corner-origin<->world transform the EXPORTER inverts: write verts
-    corner-origin + store `orgPos`.
-
-    (An earlier f0-vs-world auto-detector was a detour: GRGR only *looked* like f0 because its spawn
-    dot is a world coord that sits on-screen at either framing, and its 7 overlapping floors read as
-    a stack at any frame -- complexity, not framing.) `org` is (orgPos.x, .y, .z)."""
-    return (org[0], org[1], org[2])
-
 
 def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, zlo=-30000.0, zhi=30000.0):
     """Inverse: find the world z (at given x,y) whose foot projects to a painted-canvas row.

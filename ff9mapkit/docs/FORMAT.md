@@ -91,9 +91,27 @@ Pick one (or omit all three to auto-frame from `[camera.frame]`):
 
 | key | meaning |
 |---|---|
-| `obj` | a Wavefront `.obj` in FF9 world coords (x, y=0, z); faces become walk triangles. |
+| `obj` | a Wavefront `.obj` in FF9 world coords (x, y, z); faces become walk triangles. |
 | `quad` | 4 corners `[[x, z], ...]` for a flat quad floor. |
 | *(none)* | auto: a quad framed to the painted floor via `[camera.frame]`. |
+| `character_offset` | (single-floor `obj`/`quad`) world units to slide the floor toward the camera so a 3D character looks planted on the 2D painting; defaults to `0` for explicit meshes, `298` for the auto frame. |
+
+### The frame (how a vertex maps to the screen)
+
+The engine renders a walkmesh vertex at `world = vertex + floor.org + bgi.orgPos`
+(`WalkMesh.cs`). The kit's exporter writes **`orgPos = 0` and every `floor.org = 0`**, so the
+coordinates you author *are* the in-game world positions — what `ff9mapkit guide` /
+`cam.to_canvas` predict on the canvas is exactly where the player walks. (`minPos`/`maxPos` in the
+file are loaded but unused by the engine; `charPos` is only the debug spawn.)
+
+### Multiple floors (height levels / re-exported real fields)
+
+A single flat `obj`/`quad` is one floor. To author a **multi-level** room — or to re-export a real
+field forked with `ff9mapkit import` (e.g. Gargan Roo's 7 floors) — give the `.obj` one
+`o <name>` (or `g <name>`) **object per floor**; each becomes a BGI floor, with the verts carrying
+their real world height (`y`). The Blender add-on does this automatically: each material slot on the
+walkmesh exports as one floor. Multi-floor meshes use the world frame directly (no
+`character_offset`), since the imported/authored verts are already the exact engine positions.
 
 ---
 
