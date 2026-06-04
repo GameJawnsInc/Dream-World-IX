@@ -769,6 +769,18 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             _spawn_at_ff9(context, spawn)
         p.export_dir = d                       # re-export here, preserving the exact camera.bgx
 
+        # real-art backdrop, if `ff9mapkit import` composited one (needs a one-time in-game field
+        # export). Loads it as the camera's BACK background so you model against the actual room.
+        bg_path = os.path.join(d, "background.png")
+        if os.path.isfile(bg_path):
+            img = bpy.data.images.load(bg_path, check_existing=True)
+            cam_obj.data.show_background_images = True
+            bg = cam_obj.data.background_images.new()
+            bg.image = img
+            bg.frame_method = "FIT"
+            bg.alpha = 1.0
+            bg.display_depth = "BACK"
+
         self.report({"INFO"}, f"imported {p.borrow_bg or p.field_name}: real camera + walkmesh loaded. "
                               f"Add NPC/gateway/spawn markers, then Export Field.")
         return {"FINISHED"}

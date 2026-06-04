@@ -229,6 +229,46 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     return meta
 
 
+def field_art_dir(field: str, game=None):
+    """The folder where Memoria's `[Export] Field=1` dumped this field's per-overlay PNGs, or None
+    if it hasn't been exported in-game yet (StreamingAssets/FieldMaps/<FBG>/Overlay*.png)."""
+    folder, _ = resolve_field(field, game)
+    d = config.find_game_path(game) / "StreamingAssets" / "FieldMaps" / folder.upper()
+    return d if (d / "Overlay0.png").is_file() else None
+
+
+def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=4):
+    """Composite the field's OPAQUE base art into one background PNG, for the Blender backdrop.
+
+    Uses Memoria's engine-exported per-overlay PNGs (correct tile assembly) placed by the .bgs
+    overlay positions/depths; skips additive/subtractive light+shadow overlays (the "splotches").
+    Returns (w, h) or None if the field hasn't been exported in-game (run `[Export] Field=1` once)."""
+    art = field_art_dir(field, game)
+    if art is None:
+        return None
+    from PIL import Image  # noqa: PLC0415 - only the art path needs PIL
+    _, _, roles, env = find_field(field, game=game, bundle=bundle)
+    bgs_bytes = _raw_bytes(env.container[roles["bgs"]].read())
+    h, overlays = bgs.parse_overlays(bgs_bytes)
+    bgs.resolve_sprites(bgs_bytes, overlays, 2048, 40)        # atlas params irrelevant for positions
+    sOrgX, sOrgY = h.bounds[2], h.bounds[3]
+    rng = bgs.parse_cameras(bgs_bytes)[0].range
+    W, H = rng[0] * upscale, rng[1] * upscale
+    canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    opaque = [(i, o) for i, o in enumerate(overlays) if o.sprites and o.sprites[0].trans == 0]
+    opaque.sort(key=lambda io: -(io[1].curZ + io[1].orgZ))    # back (high depth) -> front
+    for i, o in opaque:
+        png = art / f"Overlay{i}.png"
+        if not png.is_file():
+            continue
+        im = Image.open(png).convert("RGBA")
+        mnX = min(s.offX for s in o.sprites)
+        mnY = min(s.offY for s in o.sprites)
+        canvas.alpha_composite(im, ((sOrgX + o.orgX + mnX) * upscale, (sOrgY + o.orgY + mnY) * upscale))
+    canvas.save(out_path)
+    return (W, H)
+
+
 def write_field_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                         text_block: int = 1073, game=None, bundle=None, want_atlas=False):
     """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx in out_dir.
@@ -238,6 +278,14 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
     `ff9mapkit build <path>` compiles it; the author fills in NPCs/gateways/dialogue first."""
     meta = extract_field(field, out_dir, game=game, bundle=bundle, want_atlas=want_atlas)
     name = name or (meta["mapid"].split("_")[0] + "_FORK")
+    # real-art backdrop for the Blender import (only if the field was exported in-game once via
+    # Memoria.ini [Export] Field=1). In-game still uses BG-borrow; this is the Blender modelling view.
+    meta["background"] = None
+    try:
+        if compose_background(field, Path(out_dir) / "background.png", game=game, bundle=bundle):
+            meta["background"] = "background.png"
+    except Exception:
+        pass
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
     x, z = meta["player_start"]
