@@ -25,7 +25,7 @@ if reverts:
 tmp = Path(tempfile.mkdtemp(prefix="deployfield_"))
 info = B.build_mod([B.FieldProject.load(TOML)], tmp / "mod", mod_name="FF9CustomMap")
 FBG = info["fields"][0]
-name = info["dictionary"][0].split()[3]                     # field name from the dict line
+name = info["dictionary"][0].split()[4]                     # script/field name (field 4: ...area MAPID NAME textid)
 tl = ModLayout(tmp / "mod")
 eb0 = tl.eb_path("us", f"EVT_{name}.eb.bytes").read_bytes()
 s0 = EbScript.from_bytes(eb0); f0 = s0.entry(0).func_by_tag(0)
@@ -40,8 +40,10 @@ shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preDEPLOY.{STA
 for L in LANGS:
     shutil.copyfile(live.eb_path(L, "EVT_HUT_INT.eb.bytes"),
                     BK / f"{L}-EVT_HUT_INT.eb.bytes.preDEPLOY.{STAMP}")
-shutil.rmtree(live.fieldmap_dir(FBG), ignore_errors=True)
-shutil.copytree(tl.fieldmap_dir(FBG), live.fieldmap_dir(FBG))
+src_fm = tl.fieldmap_dir(FBG)
+if src_fm.exists() and any(src_fm.iterdir()):          # borrow fields ship no scene -> skip
+    shutil.rmtree(live.fieldmap_dir(FBG), ignore_errors=True)
+    shutil.copytree(src_fm, live.fieldmap_dir(FBG))
 for L in LANGS:
     live.ensure_dirs(FBG, langs=[L])
     shutil.copyfile(tl.eb_path(L, f"EVT_{name}.eb.bytes"), live.eb_path(L, f"EVT_{name}.eb.bytes"))
