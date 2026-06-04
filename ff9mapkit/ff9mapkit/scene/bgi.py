@@ -25,6 +25,7 @@ File layout (little-endian; offsets in the header are relative to byte 4):
 from __future__ import annotations
 
 import struct
+from collections import deque
 from dataclasses import dataclass, field
 
 MAGIC = 0xACDCDEAD
@@ -204,6 +205,33 @@ class BgiWalkmesh:
             fo = self.floors[fi].org if (fi is not None and fi < len(self.floors)) else Vec3(0, 0, 0)
             out.append((v.x + op.x + fo.x, v.y + op.y + fo.y, v.z + op.z + fo.z))
         return out
+
+    # ---------------- connectivity (the navmesh adjacency graph) ----------------
+    def all_floors(self) -> set:
+        return {t.floor_ndx for t in self.tris}
+
+    def reachable_floors(self, start_tri: int | None = None) -> set:
+        """Floor indices walk-reachable from start_tri (default activeTri) by following triangle
+        neighbor links -- the SAME links the engine pathfinds over. If this is a strict subset of
+        all_floors(), some floors are stranded (unreachable on foot).
+
+        This is the build-time guard for the obj->build connectivity loss: a multi-floor walkmesh
+        gives each floor a DISJOINT vertex set, so rebuild_neighbors (which links by shared vertex
+        index) can only connect within a floor -- cross-floor seams vanish and the player is trapped.
+        The .bgi codec itself preserves the original links; only the obj intermediate drops them."""
+        start = start_tri if start_tri is not None else self.activeTri
+        if not (0 <= start < len(self.tris)):
+            start = 0
+        seen, q = set(), deque([start])
+        while q:
+            t = q.popleft()
+            if t in seen or not (0 <= t < len(self.tris)):
+                continue
+            seen.add(t)
+            for n in self.tris[t].nbr:
+                if n >= 0:
+                    q.append(n)
+        return {self.tris[t].floor_ndx for t in seen}
 
     # ---------------- parse ----------------
     @classmethod

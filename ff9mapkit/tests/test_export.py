@@ -115,6 +115,40 @@ def test_load_obj_floors_groups_by_object():
         os.unlink(path)
 
 
+def test_obj_reexport_loses_cross_floor_connectivity(tmp_path):
+    """KNOWN LIMITATION (guarded here so it can't silently regress): the .bgi CODEC is lossless, but
+    the obj INTERMEDIATE is not -- it carries geometry, not the navmesh ADJACENCY graph. obj->build
+    rebuilds neighbor links by shared vertex INDEX, so a multi-floor mesh (disjoint vertex sets per
+    floor) loses cross-floor links and floors strand. Forks must ship the original via [walkmesh] bgi;
+    authoring/reshaping multi-floor geometry needs the seam sidecar (docs/WALKMESH_EDITING.md)."""
+    from ff9mapkit import extract
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    assert src.reachable_floors() == src.all_floors()              # codec lossless: every floor connected
+    obj = tmp_path / "wm.obj"
+    obj.write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
+    verts, faces, fids = bgi.load_obj_floors(str(obj))
+    rex = bgi.build(verts, faces, floor_ids=fids)
+    assert rex.all_floors() == src.all_floors()                   # geometry + partition survive
+    assert rex.reachable_floors() < src.all_floors()              # but cross-floor connectivity is LOST
+
+
+def test_build_warns_on_stranded_floors(tmp_path):
+    """build() surfaces a warning when a shipped custom-scene walkmesh has unreachable floors -- the
+    build-time guard for the obj-reexport multi-floor footgun (the in-game GRGR symptom)."""
+    from ff9mapkit import extract
+    from ff9mapkit.build import FieldProject, build_mod
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    (tmp_path / "wm.obj").write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
+    v, f, fid = bgi.load_obj_floors(str(tmp_path / "wm.obj"))
+    (tmp_path / "wm.bgi").write_bytes(bgi.build(v, f, floor_ids=fid).to_bytes())
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(
+        '[field]\nid = 4003\nname = "X"\narea = 21\n\n[camera]\nborrow = "camera.bgx"\n\n'
+        '[walkmesh]\nbgi = "wm.bgi"\n', encoding="utf-8")
+    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+    assert any("not walk-reachable" in w for w in info["warnings"])
+
+
 def test_walkmesh_bgi_mode_ships_verbatim(tmp_path):
     """[walkmesh] bgi = "<file>" ships the .bgi byte-for-byte (preserves real-field connectivity),
     unlike obj->build which rebuilds neighbor links."""

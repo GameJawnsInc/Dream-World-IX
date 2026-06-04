@@ -351,6 +351,14 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     borrow_bg = project.field.get("borrow_bg")
     if not borrow_bg:
         bgi_bytes = resolve_walkmesh(project, camera)
+        wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
+        stranded = wmesh.all_floors() - wmesh.reachable_floors()
+        if stranded:
+            warnings.append(
+                f"walkmesh: floor(s) {sorted(stranded)} not walk-reachable from the start "
+                f"({len(stranded)} of {len(wmesh.all_floors())} floors stranded). If you re-exported "
+                f"a multi-floor walkmesh via [walkmesh] obj, cross-floor links were lost -- ship the "
+                f"original with [walkmesh] bgi, or declare seams (docs/WALKMESH_EDITING.md).")
         overlays = build_overlays(project, range_wh=tuple(camera.range))
         bgx_text = bgx.build(camera, overlays, header_comment=project.field.get("title", project.name))
 
