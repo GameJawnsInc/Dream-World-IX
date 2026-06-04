@@ -26,6 +26,7 @@ tmp = Path(tempfile.mkdtemp(prefix="deployfield_"))
 info = B.build_mod([B.FieldProject.load(TOML)], tmp / "mod", mod_name="FF9CustomMap")
 FBG = info["fields"][0]
 name = info["dictionary"][0].split()[4]                     # script/field name (field 4: ...area MAPID NAME textid)
+text_block = int(info["dictionary"][0].split()[5])          # textid (field 5) -> dialogue .mes block
 tl = ModLayout(tmp / "mod")
 eb0 = tl.eb_path("us", f"EVT_{name}.eb.bytes").read_bytes()
 s0 = EbScript.from_bytes(eb0); f0 = s0.entry(0).func_by_tag(0)
@@ -40,6 +41,9 @@ shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preDEPLOY.{STA
 for L in LANGS:
     shutil.copyfile(live.eb_path(L, "EVT_HUT_INT.eb.bytes"),
                     BK / f"{L}-EVT_HUT_INT.eb.bytes.preDEPLOY.{STAMP}")
+    lm = live.mes_path(L, text_block)
+    if lm.exists():
+        shutil.copyfile(lm, BK / f"{L}-{text_block}.mes.preDEPLOY.{STAMP}")
 src_fm = tl.fieldmap_dir(FBG)
 if src_fm.exists() and any(src_fm.iterdir()):          # borrow fields ship no scene -> skip
     shutil.rmtree(live.fieldmap_dir(FBG), ignore_errors=True)
@@ -47,6 +51,10 @@ if src_fm.exists() and any(src_fm.iterdir()):          # borrow fields ship no s
 for L in LANGS:
     live.ensure_dirs(FBG, langs=[L])
     shutil.copyfile(tl.eb_path(L, f"EVT_{name}.eb.bytes"), live.eb_path(L, f"EVT_{name}.eb.bytes"))
+    sm = tl.mes_path(L, text_block)
+    if sm.exists():                                        # dialogue: deploy the field's .mes block
+        live.mes_path(L, text_block).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(sm, live.mes_path(L, text_block))
 dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines()
       if ln.strip() and ln.split()[1:2] != [str(FID)]]
 dp.append(info["dictionary"][0])
@@ -76,7 +84,9 @@ shutil.rmtree(live.fieldmap_dir("{FBG}"), ignore_errors=True)
 for L in LANGS:
     p=live.eb_path(L,"EVT_{name}.eb.bytes")
     if p.exists(): p.unlink()
-print("reverted: interior door + DictionaryPatch restored; {name} removed.")
+    mb=BK/f"{{L}}-{text_block}.mes.preDEPLOY.{{STAMP}}"
+    if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block}))
+print("reverted: interior door + DictionaryPatch + dialogue restored; {name} removed.")
 '''
 (OUT / "revert_deploy.py").write_text(revert, encoding="utf-8", newline="\n")
 shutil.rmtree(tmp, ignore_errors=True)
