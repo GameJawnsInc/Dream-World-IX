@@ -433,6 +433,7 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     meta = extract_field(field, out, game=game, bundle=bundle)     # writes camera.bgx + walkmesh.bgi
     name = name or (meta["mapid"].split("_")[0] + "_EDIT")
     wm = bgi.BgiWalkmesh.from_bytes((out / "walkmesh.bgi").read_bytes())
+    nfloors = len(wm.floors)
     (out / "walkmesh.obj").write_text(_world_walkmesh_obj_text(wm), encoding="utf-8", newline="\n")
 
     layers_info = extract_layers(field, out, game=game, bundle=bundle)
@@ -455,6 +456,16 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         s = f'[[layers]]\nimage = "{L["image"]}"\nz = {L["z"]}'
         return s + (f'\nshader = "{L["shader"]}"' if L.get("shader") else "")
     layer_blocks = "\n".join(_layer_block(L) for L in layers)
+
+    reshape = ("# (multi-floor: editing the .obj re-derives links by shared vertex and may drop\n"
+               "#  cross-floor connectivity -- keep the .bgi unless you must reshape the geometry.)\n"
+               if nfloors > 1 else "")
+    walkmesh_toml = (
+        f"[walkmesh]\n"
+        f'bgi = "walkmesh.bgi"   # the real field\'s walkmesh ({nfloors} floor(s)) -- connectivity preserved\n'
+        f'# To RESHAPE: edit walkmesh.obj, then swap the line above for:  obj = "walkmesh.obj" / frame = "world"\n'
+        f"{reshape}"
+    )
     toml = (
         f"# EDITABLE fork of {meta['field']} (area {meta['area']}) by ff9mapkit -- a full CUSTOM SCENE.\n"
         f"# Re-exported walkmesh + the real art split into one layer per DEPTH (occlusion preserved).\n"
@@ -469,9 +480,7 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f"[camera]\n"
         f'borrow = "camera.bgx"\n'
         f"{scroll}\n"
-        f"[walkmesh]\n"
-        f'obj = "walkmesh.obj"\n'
-        f'frame = "world"\n\n'
+        f"{walkmesh_toml}\n"
         f"{layer_blocks}\n\n"
         f"[player]\n"
         f"spawn = [{x}, {z}]\n\n"

@@ -99,6 +99,8 @@ def validate(project: FieldProject) -> list[str]:
     wm = project.raw.get("walkmesh", {})
     if wm.get("obj") and not project.path(wm["obj"]).is_file():
         problems.append(f"[walkmesh] obj not found: {wm['obj']}")
+    if wm.get("bgi") and not project.path(wm["bgi"]).is_file():
+        problems.append(f"[walkmesh] bgi not found: {wm['bgi']}")
     for layer in project.raw.get("layers", []):
         if "image" not in layer:
             problems.append("[[layers]] entry missing 'image'")
@@ -174,6 +176,11 @@ def _shift_toward_camera(corners, camera: cam.Cam, dist: float):
 
 def resolve_walkmesh(project: FieldProject, camera: cam.Cam) -> bytes:
     wm = project.raw.get("walkmesh", {})
+    if wm.get("bgi"):
+        # ship a pre-built .bgi verbatim (e.g. an imported real field's walkmesh). This PRESERVES its
+        # exact floors + neighbor/edge connectivity -- a multi-floor obj->build would rebuild links by
+        # shared vertex index and disconnect floors that use disjoint vertex sets (stairs/tunnels).
+        return project.path(wm["bgi"]).read_bytes()
     # frame: "world" => emit verts verbatim with org=0/floor.org=0 (imported real fields, or any
     # geometry already in exact world coords); "legacy" (default) => the calibrated flat-room path
     # (build_flat, org=(0,0,300) + optional character_offset). Multi-floor is always world.

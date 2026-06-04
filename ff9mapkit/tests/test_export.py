@@ -115,6 +115,20 @@ def test_load_obj_floors_groups_by_object():
         os.unlink(path)
 
 
+def test_walkmesh_bgi_mode_ships_verbatim(tmp_path):
+    """[walkmesh] bgi = "<file>" ships the .bgi byte-for-byte (preserves real-field connectivity),
+    unlike obj->build which rebuilds neighbor links."""
+    from ff9mapkit.build import FieldProject, resolve_camera, resolve_walkmesh
+    raw = (FIX / "editor_multifloor.bgi.bytes").read_bytes()
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "walkmesh.bgi").write_bytes(raw)
+    (tmp_path / "f.field.toml").write_text(
+        '[field]\nid = 4003\nname = "X"\narea = 21\n\n[camera]\nborrow = "camera.bgx"\n\n'
+        '[walkmesh]\nbgi = "walkmesh.bgi"\n', encoding="utf-8")
+    proj = FieldProject.load(tmp_path / "f.field.toml")
+    assert resolve_walkmesh(proj, resolve_camera(proj)) == raw    # verbatim, 3 floors + links intact
+
+
 def test_editable_world_obj_roundtrips_multifloor(tmp_path):
     """write_editable_project's walkmesh re-export (.bgi -> world .obj -> build) preserves world
     positions + floor partition. Covers the offline core of `import --editable` (no game data)."""
