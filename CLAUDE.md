@@ -950,3 +950,36 @@ Walked the two prepped Memoria PRs with the user, one at a time. **Result: ONE P
 **Open with the user:** circle back to the walkmesh adjustment + paint a real wide background for their room (wide guide is in `…/debug_proj/scroll_test/paint_*_WIDE.png`). Then **multi-camera** is the last planned camera-movement feature.
 
 **Fully closed out (in-game verified):** user painted a real wide background (back+front layers, 3072×1792) + reshaped the walkmesh to a trapezoid, and it renders + scrolls + occludes correctly on field 4003 ("all clear"). Three more first-run add-on fixes shipped (v0.4.2 `76cb8bb`, v0.4.3 `de70c63`): **Clear Background Layers** now also turns off `show_background_images` + clears the FF9 camera by name + tags a redraw (the camera preview persisted before); **Export** calls `obj.update_from_editmode()` so a walkmesh reshaped in Edit Mode exports its CURRENT shape (Blender keeps live edits in the bmesh until you leave Edit Mode — the trapezoid first exported as the stale rectangle). New general `tools/deploy_field.py <toml>` builds+deploys any field.toml to 4003 reversibly (reverts the prior 4003 test first). Field 4003 holds the user's painted trapezoid MY_ROOM; revert via `py tools/scroll_out/revert_deploy.py`. **Blender scrolling = production-verified end to end.** Next: multi-camera, or more content.
+
+### 2026-06-04 — Session 16 — IMPORT ANY FF9 FIELD (Tier-3): offline p0data extraction → BG-borrow fork, proven in-game
+
+**The headline capability landed: fork ANY of FF9's ~800 fields as an editable custom field — extracting its real camera + walkmesh + identity straight from the game data offline, with zero in-game/HW step — then drop your own content on it.** Proven end-to-end in real gameplay.
+
+**How it started (the user's two questions):**
+- *"Can I get a grasp on the design extremes the devs used?"* → mined all 817 HW field scripts (`reference/test2/`): camera yaw (SetControlDirection) is overwhelmingly head-on (545× zero) with a smooth tail to ~±90° and rare ±180°; **multi-camera is rare — ~8% of fields (56 use 2 cams, 8 use 3, 1 uses 4, max 4)**; scroll extents (SetCameraBounds) run from 1× screen up to ~2× each axis (640×224 streets, 320×560 towers, 624×416 plazas) — exactly what our scrolling already covers.
+- *"If we build the full extractor, could the editor build from any level?"* → **yes.** Decomposed "a level" into camera (clean) + walkmesh (clean) + art (reuse = free via BG-borrow; repaint = heavy tail) + behavior (author fresh, don't import).
+
+**The spike (proved the linchpin, committed `6d825c5`):** FF9's field assets live in `StreamingAssets/p0data*.bin` = **UnityRaw 5.2.3 assetbundles** (UnityPy reads them; `py -m pip install UnityPy`). Field assets at `assets/resources/fieldmaps/<fbg>/` = `atlas.png` (Texture2D art) + `<fbg>.bgi.bytes` (walkmesh) + `<fbg>.bgs.bytes` (scene+cameras, per-language). **62 fields in one bundle; ~800 across the BG bundles (p0data141/15/…).** Cross-check was decisive: the camera decoded from GRGR's binary `.bgs` matched the engine's own `.bgx` export **byte-for-byte on every field** (proj 497, orient matrix, position, range, depth, viewport), and `decompose` → GRGR's exact pitch 49.6/FOV 42.2.
+
+**Format facts (verified):** `BGSCENE_DEF` header (little-endian): `u16 sceneLength,depthBitShift,animCount,overlayCount,lightCount,cameraCount` then `u32 animOffset,overlayOffset,lightOffset,cameraOffset` then 12×i16 bounds — so **cameraCount@offset 10, cameraOffset@24 (absolute)**. Each `BGCAM_DEF` = **52 bytes**: `u16 proj; i16 r[3][3] (÷4096); i32 t[3]; i16 centerOffset[2]; i16 w,h; i16 vrpMinX,vrpMaxX,vrpMinY,vrpMaxY; i32 depthOffset`. Maps 1:1 onto the kit's `cam.Cam`.
+
+**Built (the import pipeline, all committed):**
+- `scene/bgs.py` (`b5b1ccd`): parse a real field's binary `.bgs` cameras (the 52-byte struct). Round-trip + real-GRGR-value tests, no game data shipped.
+- `extract.py` (`229f02c`): `extract_field(name)` pulls cameras (via bgs) + walkmesh/player-start (via bgi) + area/mapid from any field, offline. UnityPy **lazy-imported** → core kit stays pure-stdlib. `write_field_project(name, name=…)` emits a ready-to-edit BG-borrow `field.toml` + `camera.bgx`.
+- `build.py` BG-borrow mode (`bc15846`): `[field] borrow_bg = "<real mapid>"` → emits `FieldScene <id> <area> <MAPID> <name> <textid>` and ships **only the custom script** (no scene); the engine renders the real field's art+walkmesh+camera (proven Session-4 path). **Purely additive — 121 kit tests pass, golden builds byte-identical.**
+- `tools/deploy_field.py` fixes (`6f13974`,`5a8505a`): borrow line's script name is dict **field 4** (not 3 — they coincided only when mapid==name); skip the empty borrow scene copy; **deploy + restore the dialogue `.mes`** (text block = dict field 5).
+
+**Human verified (real gameplay, GRGR_FORK = field 4003):**
+- Bare fork → **renders the real Gargan Roo cleanly + walkable** ("looks good"). The whole field was produced offline from p0data.
+- + a `[[npc]]` Vivi with a custom line → **Vivi appears on the real GRGR floor and says "So this is Gargan Roo… it feels different, now that you're here."** ("good"). Full fork-then-author loop, from a ~20-line `field.toml`.
+
+**The recipe:** `extract.write_field_project("<field>", name="<FORK>")` → edit the `field.toml` (add `[[npc]]`/`[[gateway]]`/`[[encounter]]`/dialogue within the reported walkmesh bounds) → `ff9mapkit build` → deploy. Art is **reuse-only** for now (BG-borrow renders the real art; editable repaint = the v1b atlas→composite decode, deferred).
+
+**User steer (important):** *"don't fret so much on saving the state of these authored scenes… I just want to demonstrate functionality."* → move faster, stop being precious about preserving test scenes/painted layers; keep the LIVE install revertible (good hygiene) but don't agonize over authored artifacts.
+
+**Open / next:**
+- Carry-over: field 4003 = `GRGR_FORK` (Vivi) deployed; revert `py tools/scroll_out/revert_deploy.py`. Debug New-Game→Alexandria warp still active.
+- UnityPy is now an extraction dependency (lazy; core kit unaffected).
+- Remaining for the full Tier-3: a real `ff9mapkit import <field>` **CLI command** + a cached **field→bundle index** (so no bundle hint); the **camera-preset/survey library** (the other deliverable — all ~800 cameras → archetype presets + faithfulness ranges, now trivial given the extractor); **editable-art v1b** (atlas+overlay → composite PNG layers, OR lean on Memoria's PSD export); docs + project-memory capture of the p0data format.
+
+Tagged `KNOWN_GOOD-s16-import-field`.
