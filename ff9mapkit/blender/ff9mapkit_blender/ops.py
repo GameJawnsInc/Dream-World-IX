@@ -739,7 +739,11 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             context.scene.collection.objects.link(wm_obj)
         old = wm_obj.data
         mesh = bpy.data.meshes.new(WALKMESH_NAME)
-        mesh.from_pydata([list(v) for v in verts], [], [list(f) for f in faces])
+        # Flatten to the floor plane (z=0). FF9 walkmeshes are ~flat (typically 90%+ of verts at one
+        # height); the few raised verts (ramps/ladder markers) otherwise read as confusing vertical
+        # strips against the flat backdrop. BG-borrow uses the REAL 3D walkmesh in-game; this flat
+        # footprint is the modelling reference for placing content on the art.
+        mesh.from_pydata([[v[0], v[1], 0.0] for v in verts], [], [list(f) for f in faces])
         mesh.update()
         wm_obj.data = mesh
         if old and old.users == 0:
