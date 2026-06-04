@@ -746,6 +746,24 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             bpy.data.meshes.remove(old)
         p.walkmesh = wm_obj
 
+        # Reframe (viewport-only): a real field's .bgi verts live in a corner-origin local frame, but
+        # the extracted camera is in the centred world frame, so the posed camera aims off the floor.
+        # Slide the camera (POSITION only) so its view axis hits the walkmesh centroid — yaw/pitch and
+        # the preserved camera.bgx are untouched, so in-game movement + camera are unaffected, and the
+        # walkmesh/markers stay in the frame that exports correctly.
+        if verts:
+            context.view_layer.update()
+            mw = cam_obj.matrix_world
+            fwd = -mw.to_3x3().col[2]                 # camera looks down local -Z
+            if abs(fwd.z) > 1e-6:
+                k = -mw.translation.z / fwd.z
+                aim_x = mw.translation.x + k * fwd.x
+                aim_y = mw.translation.y + k * fwd.y
+                cx = sum(v[0] for v in verts) / len(verts)
+                cy = sum(v[1] for v in verts) / len(verts)
+                cam_obj.location.x += cx - aim_x
+                cam_obj.location.y += cy - aim_y
+
         spawn = cfg.get("player", {}).get("spawn")
         if spawn and len(spawn) == 2:
             _spawn_at_ff9(context, spawn)
