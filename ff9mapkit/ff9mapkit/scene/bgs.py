@@ -76,3 +76,78 @@ def parse_cameras(data: bytes) -> list:
     """All cameras from a .bgs byte blob, as kit Cam objects."""
     h = parse_header(data)
     return [camera_from_block(data, h.cameraOffset + i * CAMERA_SIZE) for i in range(h.cameraCount)]
+
+
+# --------------------------------------------------------------------------- overlays + sprites (art)
+# A field's background is a stack of OVERLAYS (depth layers); each overlay is a grid of 16-px TILES,
+# each tile sampling a cell of the upscaled atlas.png. Porting BGSCENE_DEF.ExtractOverlayData/
+# ExtractSpriteData + ExtractHeaderData lets us re-composite the real art offline (see scene.bgart).
+_OVERLAY = struct.Struct("<I HH hhhh hhhh hh hh hh I I I I I")   # BGOVERLAY_DEF.ReadData, 56 B
+HEADER12 = struct.Struct("<12h")
+
+
+def _bits(v, start, n):
+    return (v >> start) & ((1 << n) - 1)
+
+
+class Sprite:
+    __slots__ = ("offX", "offY", "depth", "trans", "alpha", "atlasX", "atlasY")
+
+    def __init__(self, offX, offY, depth, trans, alpha, atlasX=0, atlasY=0):
+        self.offX, self.offY, self.depth = offX, offY, depth
+        self.trans, self.alpha = trans, alpha
+        self.atlasX, self.atlasY = atlasX, atlasY
+
+
+class Overlay:
+    __slots__ = ("curZ", "orgZ", "orgX", "orgY", "w", "h", "spriteCount", "locOffset", "prmOffset", "sprites")
+
+    def __init__(self, **kw):
+        for k, v in kw.items():
+            setattr(self, k, v)
+        self.sprites = []
+
+
+def parse_overlays(data: bytes):
+    """(header, [Overlay]) — overlays with their tile sprites resolved to atlas grid cells.
+
+    Sprite atlas cells follow BGSCENE_DEF's upscale layout: a global tile index laid out
+    `countPerRow = atlasW // (tile_size+4)`, `atlasX = 2 + i%cpr*(tile_size+4)`, y analogous.
+    `tile_size` defaults to 64 (the Steam 4x atlas); pass the real value if it differs."""
+    h = parse_header(data)
+    overlays = []
+    off = h.overlayOffset
+    for _ in range(h.overlayCount):
+        f = _OVERLAY.unpack_from(data, off)
+        off += _OVERLAY.size
+        buf, buf2 = f[0], f[17]
+        overlays.append(Overlay(
+            curZ=_bits(buf, 8, 12), orgZ=_bits(buf, 20, 12),
+            orgX=f[3], orgY=f[4], w=f[1], h=f[2],
+            spriteCount=_bits(buf2, 16, 16), locOffset=f[18], prmOffset=f[19]))
+    return h, overlays
+
+
+def resolve_sprites(data: bytes, overlays, atlas_w: int, tile_size: int = 64):
+    """Fill each overlay's .sprites (offX/offY/depth + atlas cell). Mutates in place."""
+    cpr = atlas_w // (tile_size + 4)
+    idx = 0
+    for ov in overlays:
+        alpha_trans = []
+        po = ov.prmOffset
+        for _ in range(ov.spriteCount):
+            p1, p2 = struct.unpack_from("<II", data, po)
+            po += 8
+            alpha_trans.append((_bits(p1, 22, 2), _bits(p2, 28, 1)))   # alpha, trans (shader)
+        lo = ov.locOffset
+        for j in range(ov.spriteCount):
+            (L,) = struct.unpack_from("<I", data, lo)
+            lo += 4
+            depth, offY, offX = _bits(L, 0, 12), _bits(L, 12, 10), _bits(L, 22, 10)
+            alpha, trans = alpha_trans[j]
+            ov.sprites.append(Sprite(
+                offX, offY, depth, trans, alpha,
+                atlasX=2 + idx % cpr * (tile_size + 4),
+                atlasY=2 + idx // cpr * (tile_size + 4)))
+            idx += 1
+    return overlays
