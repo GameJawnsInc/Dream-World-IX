@@ -746,21 +746,31 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             context.scene.collection.objects.link(wm_obj)
         old = wm_obj.data
         mesh = bpy.data.meshes.new(WALKMESH_NAME)
-        # Flatten to the floor plane (z=0). FF9 walkmeshes are ~flat (typically 90%+ of verts at one
-        # height); the few raised verts (ramps/ladder markers) otherwise read as confusing vertical
-        # strips against the flat backdrop. BG-borrow uses the REAL 3D walkmesh in-game; this flat
-        # footprint is the modelling reference for placing content on the art.
-        mesh.from_pydata([[v[0], v[1], 0.0] for v in verts], [], [list(f) for f in faces])
+        # Keep the REAL world height (don't flatten): the floor sits at its actual world Y (e.g. GRGR
+        # at -2135), which the matched camera + the view-offset fit both assume. A few tall features
+        # (ladders) read as vertical strips -- that's the real 3D walkmesh, and it's correct.
+        mesh.from_pydata([[v[0], v[1], v[2]] for v in verts], [], [list(f) for f in faces])
         mesh.update()
         wm_obj.data = mesh
         if old and old.users == 0:
             bpy.data.meshes.remove(old)
         p.walkmesh = wm_obj
 
+        # Per-camera VIEW nudge: Blender's pinhole != FF9's exact 2D-BG projection (cam.to_canvas),
+        # so the imported walkmesh lands a few px off the painted art -- worst for head-on cameras
+        # (GLGV needs ~+42 height). Offset the CAMERA by -D (moving the object by +D == moving the
+        # camera by -D), which aligns the view while leaving the walkmesh + content in the raw engine
+        # frame, so content still exports correctly (the tilted-camera D has a depth term that would
+        # corrupt content if applied to the mesh). Only when there's art to align to.
+        if has_art:
+            D = bridge.walkmesh_view_offset(bgi_bytes, c0)
+            cam_obj.location.x -= D[0]
+            cam_obj.location.y -= D[1]
+            cam_obj.location.z -= D[2]
+
         # Reframe (viewport-only) ONLY the bare no-art case: centre the camera on the walkmesh so the
-        # footprint is readable. With an art backdrop, the raw walkmesh already lands on the painted
-        # floor (the engine projects this frame straight through the camera), so keep the camera
-        # exactly as extracted -- don't fight the alignment.
+        # footprint is readable. With an art backdrop, the view-offset above aligns it; keep the
+        # extracted camera otherwise.
         if verts and not has_art:
             context.view_layer.update()
             mw = cam_obj.matrix_world

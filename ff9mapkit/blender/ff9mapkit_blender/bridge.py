@@ -161,6 +161,67 @@ def walkmesh_frame_offset(bgi_bytes):
     return cam.walkmesh_world_offset((wm.orgPos.x, wm.orgPos.y, wm.orgPos.z))
 
 
+def _blender_pixel(P_bl, b, res, off=(0.0, 0.0, 0.0)):
+    """Blender's pinhole projection (sensor_fit=HORIZONTAL) of a Blender-world point -> (px,py)."""
+    L, R, f, sw = b["location"], b["rotation"], b["lens"], b["sensor_width"]
+    rx, ry = res
+    rel = [P_bl[i] + off[i] - L[i] for i in range(3)]
+    xc = sum(rel[i] * R[i][0] for i in range(3))     # camera basis = COLUMNS of R (right/up/+Z=back)
+    yc = sum(rel[i] * R[i][1] for i in range(3))
+    zc = sum(rel[i] * R[i][2] for i in range(3))
+    if -zc <= 1e-6:
+        return None
+    tan_x = (sw / 2.0) / f
+    tan_y = tan_x * (ry / rx)
+    return (((xc / -zc) / tan_x * 0.5 + 0.5) * rx, (0.5 - (yc / -zc) / tan_y * 0.5) * ry)
+
+
+def walkmesh_view_offset(bgi_bytes, c):
+    """Per-camera 3D Blender nudge (the 3D-char-vs-2D-BG residual): Blender's pinhole projection of
+    the imported walkmesh vs FF9's EXACT 2D-BG projection (cam.to_canvas, which the footprint nails).
+    Returned as a Blender offset D; the import applies it as `camera.location -= D` so the walkmesh +
+    content stay in the raw engine frame (content unaffected -- only the VIEW shifts). Fit on the
+    floor verts by coordinate descent. (GLGV head-on -> ~+42 height; tilted cams -> height+depth.)"""
+    import statistics
+    wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
+    ox, oy, oz = cam.walkmesh_world_offset((wm.orgPos.x, wm.orgPos.y, wm.orgPos.z))
+    med = statistics.median([v.y for v in wm.verts])         # main walkable surface
+    floor = [(v.x + ox, v.y + oy, v.z + oz) for v in wm.verts if abs(v.y - med) < 60]
+    if not floor:
+        return (0.0, 0.0, 0.0)
+    scrolling = c.range[0] > 384 or c.range[1] > 448
+    b = ff9_cam_to_blender(c, sensor_width=float(c.range[0])) if scrolling else ff9_cam_to_blender(c)
+    res = (c.range[0], c.range[1])
+    floor_bl = [ff9_verts_to_blender([P])[0] for P in floor]
+    gte = [cam.to_canvas(P, c) for P in floor]
+
+    def cost(D):
+        s = 0.0
+        for Pbl, (gx, gy) in zip(floor_bl, gte):
+            bp = _blender_pixel(Pbl, b, res, D)
+            if bp is None:
+                return 1e18
+            s += (gx - bp[0]) ** 2 + (gy - bp[1]) ** 2
+        return s
+
+    D = [0.0, 0.0, 0.0]
+    step = 64.0
+    for _ in range(60):
+        improved = False
+        for i in range(3):
+            for s in (step, -step):
+                cand = D[:]
+                cand[i] += s
+                if cost(cand) < cost(D):
+                    D = cand
+                    improved = True
+        if not improved:
+            step /= 2.0
+            if step < 0.05:
+                break
+    return tuple(D)
+
+
 def bgi_walkmesh_to_blender(bgi_bytes, offset=(0, 0, 0)):
     """Parse a .bgi walkmesh -> (blender_verts, faces) for an editable Blender mesh.
 
