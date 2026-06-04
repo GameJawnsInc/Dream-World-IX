@@ -156,6 +156,34 @@ def _apply_canvas_resolution(context, rw, rh):
     r.resolution_percentage = 100
 
 
+_FLOOR_PALETTE = [(0.90, 0.30, 0.30), (0.30, 0.65, 0.95), (0.40, 0.85, 0.40), (0.95, 0.80, 0.25),
+                  (0.85, 0.45, 0.90), (0.45, 0.82, 0.85), (0.95, 0.55, 0.30), (0.60, 0.60, 0.95),
+                  (0.80, 0.80, 0.45), (0.55, 0.85, 0.66), (0.95, 0.40, 0.60), (0.50, 0.75, 0.40)]
+
+
+def _color_mesh_by_floor(mesh, floor_ids):
+    """Give each FF9 walkmesh floor a distinct material colour so multi-floor fields are legible
+    (a 7-floor coplanar tangle like GRGR reads as colour-separated regions, not one stack)."""
+    nf = (max(floor_ids) + 1) if floor_ids else 1
+    mesh.materials.clear()
+    for fi in range(nf):
+        r, g, b = _FLOOR_PALETTE[fi % len(_FLOOR_PALETTE)]
+        mat = bpy.data.materials.new(f"FF9_Floor_{fi:02d}")
+        mat.diffuse_color = (r, g, b, 1.0)        # shows in Solid view (Color = Material)
+        mesh.materials.append(mat)
+    for i, poly in enumerate(mesh.polygons):
+        poly.material_index = floor_ids[i] if i < len(floor_ids) else 0
+
+
+def _show_material_colors(context):
+    """Set 3D viewports to Solid + Material colour so the per-floor colours are visible."""
+    for area in context.screen.areas:
+        if area.type == "VIEW_3D":
+            for space in area.spaces:
+                if space.type == "VIEW_3D":
+                    space.shading.color_type = "MATERIAL"
+
+
 def active_camera_to_ff9(context):
     """The scene's active camera as an FF9 cam.Cam (None if there is no camera)."""
     cam_obj = context.scene.camera
@@ -751,9 +779,11 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         # (ladders) read as vertical strips -- that's the real 3D walkmesh, and it's correct.
         mesh.from_pydata([[v[0], v[1], v[2]] for v in verts], [], [list(f) for f in faces])
         mesh.update()
+        _color_mesh_by_floor(mesh, bridge.walkmesh_floor_ids(bgi_bytes))   # legible multi-floor fields
         wm_obj.data = mesh
         if old and old.users == 0:
             bpy.data.meshes.remove(old)
+        _show_material_colors(context)
         p.walkmesh = wm_obj
 
         # Per-camera VIEW nudge: Blender's pinhole != FF9's exact 2D-BG projection (cam.to_canvas),

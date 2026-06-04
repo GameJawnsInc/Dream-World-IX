@@ -222,6 +222,18 @@ def walkmesh_view_offset(bgi_bytes, c):
     return tuple(D)
 
 
+def walkmesh_floor_ids(bgi_bytes):
+    """Floor index per triangle, in the SAME order as `bgi_walkmesh_to_blender` faces. Used to
+    color-code the imported walkmesh so multi-floor fields (e.g. GRGR's 7 coplanar tiled floors)
+    are legible instead of reading as one stacked tangle."""
+    wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
+    tri_floor = {}
+    for fi, fl in enumerate(wm.floors):
+        for ti in fl.tri_ndx_list:
+            tri_floor[ti] = fi
+    return [tri_floor.get(i, 0) for i in range(len(wm.tris))]
+
+
 def bgi_walkmesh_to_blender(bgi_bytes, offset=(0, 0, 0)):
     """Parse a .bgi walkmesh -> (blender_verts, faces) for an editable Blender mesh.
 
