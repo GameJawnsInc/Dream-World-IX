@@ -146,6 +146,16 @@ def _spawn_at_ff9(context, xz):
     e.location = loc
 
 
+def _apply_canvas_resolution(context, rw, rh):
+    """Match the render resolution to the FF9 canvas so the camera frames the field at the right
+    aspect. FF9 fields are 384x448 portrait (wider when scrolling); Blender defaults to 1920x1080
+    landscape, which makes the matched camera look too wide / off-centre in the viewport."""
+    r = context.scene.render
+    r.resolution_x = int(rw)
+    r.resolution_y = int(rh)
+    r.resolution_percentage = 100
+
+
 def active_camera_to_ff9(context):
     """The scene's active camera as an FF9 cam.Cam (None if there is no camera)."""
     cam_obj = context.scene.camera
@@ -277,6 +287,7 @@ class FF9MK_OT_setup_scene(bpy.types.Operator):
             cam_obj = bpy.data.objects.new(CAMERA_NAME, cam_data)
             coll.objects.link(cam_obj)
         _pose_camera(cam_obj, p)
+        _apply_canvas_resolution(context, *_range_wh(p))
         context.scene.camera = cam_obj
         # walkmesh = the floor-frame quad on z=0, so it starts ON the painted floor (lined up with
         # the guide grid). The user reshapes it from there.
@@ -315,6 +326,7 @@ class FF9MK_OT_pose_camera(bpy.types.Operator):
             return {"CANCELLED"}
         p = context.scene.ff9mapkit
         _pose_camera(cam_obj, p)
+        _apply_canvas_resolution(context, *_range_wh(p))
         return {"FINISHED"}
 
 
@@ -715,6 +727,7 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             cam_obj = bpy.data.objects.new(CAMERA_NAME, bpy.data.cameras.new(CAMERA_NAME))
             context.scene.collection.objects.link(cam_obj)
         _pose_camera_from_ff9(cam_obj, c0, scrolling)
+        _apply_canvas_resolution(context, c0.range[0], c0.range[1])
         context.scene.camera = cam_obj
 
         # real walkmesh -> editable mesh (reference for placing markers; borrow ships the real one)
