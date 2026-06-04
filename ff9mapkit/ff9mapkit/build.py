@@ -320,22 +320,29 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     fbg = project.fbg
     layout.ensure_dirs(fbg, langs=langs)
 
-    # --- scene: camera + walkmesh + overlays -> .bgx / .bgi / PNGs ---
     camera = resolve_camera(project)
     warnings = []
     pw = cam.pitch_warning(cam.pitch_deg(camera))
     if pw:
         warnings.append(pw)
-    bgi_bytes = resolve_walkmesh(project, camera)
-    overlays = build_overlays(project, range_wh=tuple(camera.range))
-    bgx_text = bgx.build(camera, overlays, header_comment=project.field.get("title", project.name))
 
-    fm = layout.fieldmap_dir(fbg)
-    (fm / f"{fbg}.bgx").write_text(bgx_text, encoding="utf-8", newline="\n")
-    (fm / f"{fbg}.bgi.bytes").write_bytes(bgi_bytes)
-    for layer in project.raw.get("layers", []):
-        src = project.path(layer["image"])
-        shutil.copyfile(src, fm / Path(layer["image"]).name)
+    # BG-borrow (import mode): the DictionaryPatch points the BG lookup at a REAL base-game field
+    # (areaID + borrow_bg mapid), so the engine renders that field's art + walkmesh + camera while
+    # running OUR script. We ship only the .eb (no custom scene). The borrowed `camera.bgx` still
+    # drives movement/scroll derivation + content guidance. Proven path (Session 4). Otherwise build
+    # a full custom scene (camera + walkmesh + overlays -> .bgx / .bgi / PNGs).
+    borrow_bg = project.field.get("borrow_bg")
+    if not borrow_bg:
+        bgi_bytes = resolve_walkmesh(project, camera)
+        overlays = build_overlays(project, range_wh=tuple(camera.range))
+        bgx_text = bgx.build(camera, overlays, header_comment=project.field.get("title", project.name))
+
+        fm = layout.fieldmap_dir(fbg)
+        (fm / f"{fbg}.bgx").write_text(bgx_text, encoding="utf-8", newline="\n")
+        (fm / f"{fbg}.bgi.bytes").write_bytes(bgi_bytes)
+        for layer in project.raw.get("layers", []):
+            src = project.path(layer["image"])
+            shutil.copyfile(src, fm / Path(layer["image"]).name)
 
     # --- dialogue + per-language script ---
     mes_body, txids = collect_dialogue(project)
@@ -346,7 +353,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if mes_body:
             layout.mes_path(lang, project.text_block).write_text(mes_body, encoding="utf-8", newline="\n")
 
-    dict_line = f"FieldScene {project.id} {project.area} {project.name} {project.name} {project.text_block}"
+    bg_mapid = borrow_bg if borrow_bg else project.name
+    dict_line = f"FieldScene {project.id} {project.area} {bg_mapid} {project.name} {project.text_block}"
     battle = None
     if "encounter" in project.raw:
         e = project.raw["encounter"]

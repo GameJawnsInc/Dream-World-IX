@@ -142,7 +142,7 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     c0 = cameras[0]
     d = cam.decompose(c0)
     scrolling = c0.range[0] > 384 or c0.range[1] > 448
-    return {
+    meta = {
         "field": folder,
         "bundle": os.path.basename(path),
         "area": area,
@@ -165,3 +165,45 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
         },
         "out": str(out),
     }
+    return meta
+
+
+def write_field_project(field: str, out_dir, *, name: str, field_id: int = 4003,
+                        text_block: int = 1073, game=None, bundle=None, want_atlas=False):
+    """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx in out_dir.
+
+    `name` is the custom script/field id (must be unique vs real fieldids; e.g. 'GRGR_FORK').
+    Returns (metadata, field_toml_path). `ff9mapkit build <path>` compiles it; the author fills in
+    NPCs/gateways/dialogue first."""
+    meta = extract_field(field, out_dir, game=game, bundle=bundle, want_atlas=want_atlas)
+    cm = meta["camera"]
+    wb = meta["walkmesh_bounds"]
+    x, z = meta["player_start"]
+    scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
+    toml = (
+        f"# Imported from {meta['field']} (area {meta['area']}) by ff9mapkit -- BG-borrow.\n"
+        f"# Renders the REAL field's art + walkmesh + camera while running your script.\n"
+        f"# Camera: pitch {cm['pitch_deg']} deg, FOV {cm['fov_deg']} deg, range {cm['range'][0]}x{cm['range'][1]}"
+        f"{' (SCROLLING)' if meta['scrolling'] else ''}.\n"
+        f"# Walkmesh bounds: x {wb['x']}  z {wb['z']}  -- place NPCs/gateways within these.\n"
+        f"# Edit the content below, then:  ff9mapkit build {name}.field.toml\n\n"
+        f"[field]\n"
+        f"id = {field_id}\n"
+        f'name = "{name}"\n'
+        f"area = {meta['area']}\n"
+        f'borrow_bg = "{meta["mapid"]}"\n'
+        f"text_block = {text_block}\n\n"
+        f"[camera]\n"
+        f'borrow = "camera.bgx"\n'
+        f"{scroll}\n"
+        f"[player]\n"
+        f"spawn = [{x}, {z}]\n\n"
+        f"# --- add your content below (uncomment + edit) ---\n"
+        f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n#\n'
+        f"# [[gateway]]\n# to = 100          # destination field id\n# entrance = 204\n"
+        f"# zone = [[-200, 200], [200, 200], [200, 400], [-200, 400]]\n"
+    )
+    p = Path(out_dir) / f"{name}.field.toml"
+    p.write_text(toml, encoding="utf-8", newline="\n")
+    meta["field_toml"] = str(p)
+    return meta, p
