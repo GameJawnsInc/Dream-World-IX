@@ -41,6 +41,21 @@ ff9mapkit new MY_ROOM --area 11
 
 Creates `MY_ROOM/my_room.field.toml` (a commented template) + `MY_ROOM/art/`.
 
+### …or fork a REAL field instead of starting blank
+
+To start from one of FF9's ~674 real fields (needs `pip install UnityPy`):
+
+```bash
+ff9mapkit list-fields grotto              # find a field
+ff9mapkit import glgv_map792_gv_rm1 --out MY_FORK            # BG-borrow: reuse its art/walkmesh/camera
+ff9mapkit import glgv_map792_gv_rm1 --out MY_FORK --editable # editable custom scene (see below)
+```
+
+- **BG-borrow** (default) renders the real field's art + walkmesh + camera and runs your script on top — fastest, but the art is not editable.
+- **`--editable`** forks it into a full custom scene you can repaint: the walkmesh is re-exported to `walkmesh.obj`, and the background is split into **one `layer_*.png` per depth** (occlusion preserved — foreground pieces still draw over the player). Repaint any single layer, reshape the walkmesh, add content, then `ff9mapkit build`. Requires the field to have been exported in-game once via `Memoria.ini [Export] Field=1` (so the per-overlay PNGs exist on disk); additive light/shadow overlays are skipped in this first pass.
+
+Either way you get a ready-to-edit `field.toml` — skip to step 5.
+
 ## 2. Choose a camera and get a paint guide
 
 Decide the angle. Real FF9 fields tilt down `~15–48°`; steeper (top-down) also works.

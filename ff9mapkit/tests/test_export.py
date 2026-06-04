@@ -115,6 +115,22 @@ def test_load_obj_floors_groups_by_object():
         os.unlink(path)
 
 
+def test_editable_world_obj_roundtrips_multifloor(tmp_path):
+    """write_editable_project's walkmesh re-export (.bgi -> world .obj -> build) preserves world
+    positions + floor partition. Covers the offline core of `import --editable` (no game data)."""
+    from ff9mapkit import extract
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    obj = tmp_path / "wm.obj"
+    obj.write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
+    verts, faces, floor_ids = bgi.load_obj_floors(str(obj))
+    out = bgi.build(verts, faces, floor_ids=floor_ids)
+    assert len(out.floors) == len(src.floors)                 # 3 floors preserved
+    assert (out.orgPos.x, out.orgPos.y, out.orgPos.z) == (0, 0, 0)
+    rt = bgi.BgiWalkmesh.from_bytes(out.to_bytes())
+    assert all(tuple(a) == tuple(b) for a, b in zip(rt.world_verts(), src.world_verts()))
+    assert _partition(rt) == _partition(src)
+
+
 def test_walkmesh_frame_world_emits_org0_vs_legacy_300(tmp_path):
     """[walkmesh] frame = "world" -> bgi.build (org=0); default -> legacy build_flat (org=300)."""
     from ff9mapkit.build import FieldProject, resolve_camera, resolve_walkmesh

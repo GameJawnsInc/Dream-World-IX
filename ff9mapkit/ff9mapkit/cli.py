@@ -9,6 +9,8 @@ Subcommands are wired up incrementally as the library lands:
     build     - compile a field.toml into a Memoria mod folder              (Phase 4)
     new       - scaffold a new field project directory                      (Phase 5)
     pack      - package a built mod for distribution                        (Phase 5)
+    import    - fork a real FF9 field (BG-borrow, or --editable custom scene) (Tier 3)
+    list-fields - list the real FF9 fields available to import              (Tier 3)
 
 Anything not yet implemented prints a clear "coming in Phase N" message rather than failing
 with an import error, so the installed console script is always runnable.
@@ -193,19 +195,32 @@ def _cmd_import(args: argparse.Namespace) -> int:
     from pathlib import Path
     from . import extract
     try:
-        meta, toml = extract.write_field_project(
-            args.field, Path(args.out), name=args.name, field_id=args.id,
-            game=args.game, want_atlas=args.atlas)
+        if args.editable:
+            meta, toml = extract.write_editable_project(
+                args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game)
+        else:
+            meta, toml = extract.write_field_project(
+                args.field, Path(args.out), name=args.name, field_id=args.id,
+                game=args.game, want_atlas=args.atlas)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
     cm = meta["camera"]
     print(f"imported {meta['field']}  (area {meta['area']}, mapid {meta['mapid']})")
+    if args.editable:
+        skip = meta.get("blend_overlays_skipped", 0)
+        print(f"  mode   : EDITABLE custom scene ({meta['layers']} art layers"
+              f"{f', {skip} light/shadow overlays skipped' if skip else ''})")
+    else:
+        print("  mode   : BG-borrow (reuses the real art as-is)")
     print(f"  camera : pitch {cm['pitch_deg']} fov {cm['fov_deg']} range {cm['range']}"
           f"{'  SCROLLING' if meta['scrolling'] else ''}")
     print(f"  spawn  : {meta['player_start']}   walkmesh x{meta['walkmesh_bounds']['x']} z{meta['walkmesh_bounds']['z']}")
     print(f"  wrote  : {toml}")
-    print(f"Next: edit it (add [[npc]]/[[gateway]]/dialogue), then: ff9mapkit build {toml}")
+    if args.editable:
+        print(f"Next: repaint any layer_*.png / reshape walkmesh.obj / add content, then: ff9mapkit build {toml}")
+    else:
+        print(f"Next: edit it (add [[npc]]/[[gateway]]/dialogue), then: ff9mapkit build {toml}")
     return 0
 
 
@@ -293,9 +308,13 @@ def build_parser() -> argparse.ArgumentParser:
     im = sub.add_parser("import", help="fork a REAL FF9 field into an editable field.toml (needs UnityPy)")
     im.add_argument("field", help="field name: full FBG, bare mapid, or a unique substring (e.g. grgr_map420)")
     im.add_argument("--out", default=".", help="project dir to write into (default: .)")
-    im.add_argument("--name", default=None, help="custom field/script id (default: <MAPID-first-token>_FORK)")
+    im.add_argument("--name", default=None, help="custom field/script id (default: <MAPID-first-token>_FORK/_EDIT)")
     im.add_argument("--id", type=int, default=4003, help="custom field id (default: 4003)")
-    im.add_argument("--atlas", action="store_true", help="also extract the raw atlas.png (packed art)")
+    im.add_argument("--editable", action="store_true",
+                    help="fork as a full editable CUSTOM SCENE (re-exported walkmesh + the real art split "
+                         "into one repaintable layer per depth, occlusion preserved) instead of BG-borrow; "
+                         "needs the field exported in-game once via Memoria.ini [Export] Field=1")
+    im.add_argument("--atlas", action="store_true", help="also extract the raw atlas.png (BG-borrow mode only)")
     im.set_defaults(func=_cmd_import)
 
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")

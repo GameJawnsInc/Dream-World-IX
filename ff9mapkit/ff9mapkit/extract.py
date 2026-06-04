@@ -370,6 +370,94 @@ def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, op
     return {"layers": layers, "skipped_blend_overlays": skipped, "range": list(c0.range)}
 
 
+def _world_walkmesh_obj_text(wm) -> str:
+    """A world-frame Wavefront .obj (multi-floor aware) re-exported from a parsed walkmesh: the verts
+    ARE the world coords (BgiWalkmesh.world_verts), one `o floor_N` per floor -- build with
+    `[walkmesh] frame = "world"` (bgi.build, orgPos=0) so the engine renders them verbatim."""
+    wv = wm.world_verts()
+    faces = [tuple(t.vtx) for t in wm.tris]
+    floor_ids = [t.floor_ndx for t in wm.tris]
+    order = []
+    for f in floor_ids:
+        if f not in order:
+            order.append(f)
+    lines = ["# walkmesh re-exported by ff9mapkit (world frame, orgPos=0)"]
+    for (x, y, z) in wv:
+        lines.append(f"v {x} {y} {z}")
+    if len(order) > 1:
+        for fid in order:
+            lines.append(f"o floor_{fid}")
+            for (a, b, c), fl in zip(faces, floor_ids):
+                if fl == fid:
+                    lines.append(f"f {a + 1} {b + 1} {c + 1}")
+    else:
+        for (a, b, c) in faces:
+            lines.append(f"f {a + 1} {b + 1} {c + 1}")
+    return "\n".join(lines) + "\n"
+
+
+def write_editable_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
+                           text_block: int = 1073, game=None, bundle=None):
+    """Fork a real field as a fully EDITABLE custom scene (vs BG-borrow): re-export its walkmesh via the
+    world-frame builder + extract its art as per-DEPTH layers (occlusion preserved) + reuse its camera.
+
+    Emits a custom-scene `field.toml` (NO borrow_bg) ready for `ff9mapkit build` and for repainting any
+    single `layer_*.png` / editing `walkmesh.obj`. Returns (metadata, field_toml_path). Requires the
+    field to have been `[Export] Field=1`'d in-game once (per-overlay PNGs on disk); raises RuntimeError
+    with guidance otherwise (use plain import for a BG-borrow fork that reuses the art as-is)."""
+    out = Path(out_dir)
+    meta = extract_field(field, out, game=game, bundle=bundle)     # writes camera.bgx + walkmesh.bgi
+    name = name or (meta["mapid"].split("_")[0] + "_EDIT")
+    wm = bgi.BgiWalkmesh.from_bytes((out / "walkmesh.bgi").read_bytes())
+    (out / "walkmesh.obj").write_text(_world_walkmesh_obj_text(wm), encoding="utf-8", newline="\n")
+
+    layers_info = extract_layers(field, out, game=game, bundle=bundle)
+    if layers_info is None:
+        raise RuntimeError(
+            f"{meta['field']}: editable art needs the field exported in-game once. Set Memoria.ini "
+            f"[Export] Enabled=1 + Field=1, visit the field, then retry -- OR use `ff9mapkit import "
+            f"{field}` (BG-borrow: reuses the real art as-is, no repaint).")
+    layers = layers_info["layers"]
+    meta["layers"] = len(layers)
+    meta["blend_overlays_skipped"] = layers_info["skipped_blend_overlays"]
+    meta["editable_name"] = name
+
+    cm = meta["camera"]
+    wb = meta["walkmesh_bounds"]
+    x, z = meta["player_start"]
+    scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
+    layer_blocks = "\n".join(f'[[layers]]\nimage = "{L["image"]}"\nz = {L["z"]}' for L in layers)
+    toml = (
+        f"# EDITABLE fork of {meta['field']} (area {meta['area']}) by ff9mapkit -- a full CUSTOM SCENE.\n"
+        f"# Re-exported walkmesh + the real art split into one layer per DEPTH (occlusion preserved).\n"
+        f"# Repaint any layer_*.png, reshape walkmesh.obj, add content -- then:  ff9mapkit build {name}.field.toml\n"
+        f"# Camera: pitch {cm['pitch_deg']} deg, FOV {cm['fov_deg']} deg, range {cm['range'][0]}x{cm['range'][1]}"
+        f"{' (SCROLLING)' if meta['scrolling'] else ''}.  Walkmesh bounds: x {wb['x']}  z {wb['z']}.\n\n"
+        f"[field]\n"
+        f"id = {field_id}\n"
+        f'name = "{name}"\n'
+        f"area = {meta['area']}\n"
+        f"text_block = {text_block}\n\n"
+        f"[camera]\n"
+        f'borrow = "camera.bgx"\n'
+        f"{scroll}\n"
+        f"[walkmesh]\n"
+        f'obj = "walkmesh.obj"\n'
+        f'frame = "world"\n\n'
+        f"{layer_blocks}\n\n"
+        f"[player]\n"
+        f"spawn = [{x}, {z}]\n\n"
+        f"# --- add content (uncomment + edit); keep positions within the walkmesh bounds above ---\n"
+        f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n#\n'
+        f"# [[gateway]]\n# to = 100          # destination field id\n# entrance = 204\n"
+        f"# zone = [[-200, 200], [200, 200], [200, 400], [-200, 400]]\n"
+    )
+    p = Path(out_dir) / f"{name}.field.toml"
+    p.write_text(toml, encoding="utf-8", newline="\n")
+    meta["field_toml"] = str(p)
+    return meta, p
+
+
 def write_field_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                         text_block: int = 1073, game=None, bundle=None, want_atlas=False):
     """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx in out_dir.
