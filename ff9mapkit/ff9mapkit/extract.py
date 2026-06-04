@@ -237,23 +237,28 @@ def field_art_dir(field: str, game=None):
     return d if (d / "Overlay0.png").is_file() else None
 
 
-def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=4):
+def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=4,
+                       draw_footprint=True):
     """Composite the field's OPAQUE base art into one background PNG, for the Blender backdrop.
 
     Uses Memoria's engine-exported per-overlay PNGs (correct tile assembly) placed by the .bgs
     overlay positions/depths; skips additive/subtractive light+shadow overlays (the "splotches").
-    Returns (w, h) or None if the field hasn't been exported in-game (run `[Export] Field=1` once)."""
+    When `draw_footprint` (default), also draws the walkable footprint -- the .bgi tris projected by
+    the EXACT GTE->canvas map (cam.to_canvas), with NO offset: the engine projects the raw walkmesh
+    frame directly, so this lands exactly where the player walks in-game. The walkmesh may extend
+    past the canvas edges (tunnels) -- that's correct, not a misalignment. Returns (w, h) or None
+    if the field hasn't been exported in-game yet."""
     art = field_art_dir(field, game)
     if art is None:
         return None
-    from PIL import Image  # noqa: PLC0415 - only the art path needs PIL
+    from PIL import Image, ImageDraw  # noqa: PLC0415 - only the art path needs PIL
     _, _, roles, env = find_field(field, game=game, bundle=bundle)
     bgs_bytes = _raw_bytes(env.container[roles["bgs"]].read())
     h, overlays = bgs.parse_overlays(bgs_bytes)
     bgs.resolve_sprites(bgs_bytes, overlays, 2048, 40)        # atlas params irrelevant for positions
     sOrgX, sOrgY = h.bounds[2], h.bounds[3]
-    rng = bgs.parse_cameras(bgs_bytes)[0].range
-    W, H = rng[0] * upscale, rng[1] * upscale
+    c0 = bgs.parse_cameras(bgs_bytes)[0]
+    W, H = c0.range[0] * upscale, c0.range[1] * upscale
     canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     opaque = [(i, o) for i, o in enumerate(overlays) if o.sprites and o.sprites[0].trans == 0]
     opaque.sort(key=lambda io: -(io[1].curZ + io[1].orgZ))    # back (high depth) -> front
@@ -265,6 +270,17 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
         mnX = min(s.offX for s in o.sprites)
         mnY = min(s.offY for s in o.sprites)
         canvas.alpha_composite(im, ((sOrgX + o.orgX + mnX) * upscale, (sOrgY + o.orgY + mnY) * upscale))
+
+    if draw_footprint and "bgi" in roles:
+        wm = bgi.BgiWalkmesh.from_bytes(_raw_bytes(env.container[roles["bgi"]].read()))
+        draw = ImageDraw.Draw(canvas, "RGBA")
+        for t in wm.tris:
+            pts = []
+            for vi in t.vtx:
+                v = wm.verts[vi]
+                cx, cy = cam.to_canvas((v.x, v.y, v.z), c0)   # exact GTE projection, raw frame (no offset)
+                pts.append((cx * upscale, cy * upscale))
+            draw.polygon(pts, fill=(90, 180, 255, 45), outline=(120, 225, 255, 160))
     canvas.save(out_path)
     return (W, H)
 

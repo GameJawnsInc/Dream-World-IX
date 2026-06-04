@@ -567,7 +567,8 @@ def _collect_markers(context):
     """Read tagged marker objects into (npcs, gateways, spawn), in FF9 floor coords.
 
     Deterministic: NPCs + gateways are sorted by object name. ``spawn`` is the last FF9_Spawn
-    found (there should be one), or None."""
+    found (there should be one), or None. Marker world coords map straight to the FF9 raw frame
+    (the engine's frame), so they export as-is -- no offset."""
     npcs, gateways, spawn = [], [], None
     for obj in sorted(context.scene.objects, key=lambda o: o.name):
         mk = obj.get(MARKER_KEY)
@@ -730,9 +731,14 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         _apply_canvas_resolution(context, c0.range[0], c0.range[1])
         context.scene.camera = cam_obj
 
-        # real walkmesh -> editable mesh (reference for placing markers; borrow ships the real one)
+        # real walkmesh -> editable mesh (reference for placing markers; borrow ships the real one).
+        # NO offset: the engine projects the raw .bgi frame directly, so the verts already line up
+        # with the painted art (proven: charPos -> to_canvas lands on the floor where the player
+        # spawns). The mesh may extend past the screen edges (tunnels) -- correct, not a misalignment.
         with open(bgi_path, "rb") as fh:
-            verts, faces = bridge.bgi_walkmesh_to_blender(fh.read())
+            bgi_bytes = fh.read()
+        has_art = os.path.isfile(os.path.join(d, "background.png"))
+        verts, faces = bridge.bgi_walkmesh_to_blender(bgi_bytes)
         wm_obj = bpy.data.objects.get(WALKMESH_NAME)
         if wm_obj is None:
             wm_obj = bpy.data.objects.new(WALKMESH_NAME, bpy.data.meshes.new(WALKMESH_NAME))
@@ -750,11 +756,10 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             bpy.data.meshes.remove(old)
         p.walkmesh = wm_obj
 
-        # Reframe (viewport-only): centre the camera on the walkmesh so the bare footprint is readable.
-        # SKIP this when there's a real-art backdrop: the engine projects the walkmesh straight through
-        # the camera (FieldMap.cs:390), so the walkmesh + the art (the real-camera render) already share
-        # one frame — reframing would shove the walkmesh off the painted floor.
-        has_art = os.path.isfile(os.path.join(d, "background.png"))
+        # Reframe (viewport-only) ONLY the bare no-art case: centre the camera on the walkmesh so the
+        # footprint is readable. With an art backdrop, the raw walkmesh already lands on the painted
+        # floor (the engine projects this frame straight through the camera), so keep the camera
+        # exactly as extracted -- don't fight the alignment.
         if verts and not has_art:
             context.view_layer.update()
             mw = cam_obj.matrix_world

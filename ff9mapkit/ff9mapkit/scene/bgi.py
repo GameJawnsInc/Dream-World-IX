@@ -28,6 +28,13 @@ import struct
 from dataclasses import dataclass, field
 
 MAGIC = 0xACDCDEAD
+# The engine projects the player/walkmesh in the RAW .bgi frame directly (FieldMap projects
+# FieldMapActorController.curPos, set from bgi.charPos, with NO orgPos shift). So a walkmesh vert
+# drawn via cam.to_canvas (the exact GTE projection) lands where it appears in-game -- the
+# walkmesh imports onto its painted art with ZERO offset. (Verified on GRGR: charPos -> to_canvas
+# lands dead-on the floor where the player spawns.) The all-positive corner-origin verts simply
+# mean the walkmesh legitimately extends past the visible screen edges (e.g. tunnels); that is NOT
+# an offset to correct. orgPos/curPos are runtime floor-movement bookkeeping, not a render transform.
 HEADER_SIZE = 64           # magic+dataSize+5*vec(30)+activeFloor/Tri(4)+12*u16(24)
 FIRST_SECTION_REL = 0x3C   # triOffset (relative to byte 4)
 TRI_SIZE, EDGE_SIZE, ANM_SIZE, FLOOR_SIZE, NORMAL_SIZE, VERT_SIZE = 40, 4, 16, 32, 16, 6

@@ -157,7 +157,9 @@ def bgi_walkmesh_to_blender(bgi_bytes):
     """Parse a REAL field's .bgi walkmesh -> (blender_verts, faces) for an editable Blender mesh.
 
     Used by 'Import FF9 Field': verts map FF9 world (x, y~0, z) -> Blender via ff9_verts_to_blender;
-    faces are each triangle's 3 vertex indices. Round-trips with blender_verts_to_ff9 (tested)."""
+    faces are each triangle's 3 vertex indices. Round-trips with blender_verts_to_ff9 (tested).
+    NO offset: the engine projects the raw .bgi frame directly, so the verts already sit on the
+    painted art -- the walkmesh may extend past the screen edges (tunnels), which is correct."""
     wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
     ff9 = [(v.x, v.y, v.z) for v in wm.verts]
     faces = [tuple(t.vtx) for t in wm.tris]
