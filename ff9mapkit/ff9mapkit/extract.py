@@ -204,8 +204,19 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     d = cam.decompose(c0)
     scrolling = c0.range[0] > 384 or c0.range[1] > 448
     # real .bgi verts are corner-origin; world_vert = vert + orgPos puts the walkmesh in the world
-    # (camera) frame so it/the spawn/content land on the painted art (and in the engine's frame).
+    # (camera) frame so it/content land on the painted art (and in the engine's frame).
     ox, oy, oz = cam.walkmesh_world_offset((wm.orgPos.x, wm.orgPos.y, wm.orgPos.z))
+    # spawn: charPos is stored per-field in EITHER the corner frame (like the verts) or already world
+    # -- pick whichever lands inside the world walkmesh bounds; else fall back to the centroid.
+    wx = [v.x + ox for v in wm.verts]
+    wz = [v.z + oz for v in wm.verts]
+    bx0, bx1, bz0, bz1 = min(wx), max(wx), min(wz), max(wz)
+    def _inb(px, pz):
+        return bx0 <= px <= bx1 and bz0 <= pz <= bz1
+    _spawn = next(((px, pz) for px, pz in ((wm.charPos.x + ox, wm.charPos.z + oz),
+                                           (wm.charPos.x, wm.charPos.z)) if _inb(px, pz)),
+                  (sum(wx) / len(wx), sum(wz) / len(wz)))
+    _spawn = [round(_spawn[0]), round(_spawn[1])]
     meta = {
         "field": folder,
         "bundle": os.path.basename(path),
@@ -221,7 +232,7 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
         },
         "scrolling": scrolling,
         "frame_offset": [ox, oy, oz],
-        "player_start": [wm.charPos.x + ox, wm.charPos.z + oz],
+        "player_start": _spawn,
         "walkmesh_bounds": {     # in the DETECTED frame (vert extent + offset) = where content goes
             "x": [min(v.x for v in wm.verts) + ox, max(v.x for v in wm.verts) + ox],
             "z": [min(v.z for v in wm.verts) + oz, max(v.z for v in wm.verts) + oz],
