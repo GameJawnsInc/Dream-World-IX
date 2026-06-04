@@ -133,8 +133,12 @@ If you re-exported a multi-floor walkmesh via [walkmesh] obj, cross-floor links 
 original with [walkmesh] bgi, or declare seams (docs/WALKMESH_EDITING.md).
 ```
 
-This turns the in-game "trapped on one floor" symptom into a **build-time** warning. (Tests:
-`test_obj_reexport_loses_cross_floor_connectivity`, `test_build_warns_on_stranded_floors`.)
+This turns the in-game "trapped on one floor" symptom into a **build-time** warning. It runs only for
+**(re)built** walkmeshes (obj/quad/auto); a verbatim `[walkmesh] bgi` is the authoritative original
+and is **skipped** — some real fields legitimately reach floors by **script**, not on foot (the sweep
+found `udft_map120`, a 23-floor vertical shaft, walk-reaches only 9 of 23), so checking a verbatim
+ship would cry wolf. (Tests: `test_obj_reexport_loses_cross_floor_connectivity`,
+`test_build_warns_on_stranded_floors_for_obj`, `test_build_skips_reachability_for_verbatim_bgi`.)
 
 ## 5. Tooling
 
@@ -155,6 +159,33 @@ This turns the in-game "trapped on one floor" symptom into a **build-time** warn
   Unlocks editing the *interior* geometry of a multi-floor fork while keeping connectivity.
 - **v3.** Edge-flag + anim carry; the `walkmesh verify` CLI; Blender seam viz + re-anchor + "suggest
   seams" for newly-added floors.
+
+## 7. Research findings (game-wide, validated offline)
+
+Before building v2, the assumptions were checked against **all 674 fields** (`tools/sweep_seams.py`)
+and the reconcile was prototyped (`tools/smoke_reconcile.py`). Results:
+
+- **674 fields, 550 multi-floor** (floor counts 1–23; histogram peak at 2–4 floors).
+- **Floors are ALWAYS disjoint-vertex** — 674/674. The disjoint-vertex premise is universal, so
+  `rebuild_neighbors` (shared-index) can *never* recover a cross-floor seam; v1's verbatim ship is the
+  only correct option for forks, as designed.
+- **5,983 cross-floor seams: 0 shared-index, 5,956 coincident-position (99.5%), 27 bridge.** The 27
+  bridges are all in **one** field (`udft_map120`, the 23-floor Iifa-roots shaft): seam edges that
+  share X/Z but differ in **Y** (vertically-stacked floors). These reconcile fine — the spec stores
+  `a_edge` and `b_edge` independently and keys by **full 3D** position, so a vertical offset is just a
+  distinct key. **No bridge needs anything beyond the design as written.**
+- **Seam edge flags are ALWAYS 0** game-wide → the `[[edge_flag]]` sidecar is **not needed for
+  connectivity**. (Non-seam, intra-floor edges *may* carry flags — one-way ledges — which the obj path
+  also drops; that's a separate, lower-priority concern, out of scope for seams.)
+- **Reconcile smoke test PASSED** on 3/4/7/23-floor fields: position-keyed seams reproduced the
+  original's **exact** cross-floor link set (`missing=0`, link-set identical), not just reachability.
+- **Caveat discovered:** connectivity ≠ reachability. `udft_map120`'s walkmesh walk-reaches only 9 of
+  23 floors; the rest are script-reached (warps/elevators). So the reachability guard must **trust
+  verbatim ships** and only check (re)built walkmeshes — implemented (§4).
+
+**Net effect on the spec:** v2 is *simpler* than first drafted — drop the `[[edge_flag]]` seam entries
+(always default), keep `[[seam]]` (3D-position keys cover coincident *and* vertical-bridge), and the
+reconcile is proven to reproduce real fields' links exactly. The position-key approach is sound.
 
 ## 7. Non-goals / open questions
 

@@ -351,14 +351,20 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     borrow_bg = project.field.get("borrow_bg")
     if not borrow_bg:
         bgi_bytes = resolve_walkmesh(project, camera)
-        wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
-        stranded = wmesh.all_floors() - wmesh.reachable_floors()
-        if stranded:
-            warnings.append(
-                f"walkmesh: floor(s) {sorted(stranded)} not walk-reachable from the start "
-                f"({len(stranded)} of {len(wmesh.all_floors())} floors stranded). If you re-exported "
-                f"a multi-floor walkmesh via [walkmesh] obj, cross-floor links were lost -- ship the "
-                f"original with [walkmesh] bgi, or declare seams (docs/WALKMESH_EDITING.md).")
+        # reachability guard for (re)BUILT walkmeshes (obj/quad/auto): rebuild_neighbors links only
+        # within a floor, so a multi-floor obj strands its floors. A verbatim [walkmesh] bgi is the
+        # authoritative original and is SKIPPED -- some real fields legitimately reach floors by
+        # script, not on foot (e.g. UDFT: 9 of 23 floors walk-reachable), so checking it cries wolf.
+        if not project.raw.get("walkmesh", {}).get("bgi"):
+            wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
+            stranded = wmesh.all_floors() - wmesh.reachable_floors()
+            if stranded:
+                warnings.append(
+                    f"walkmesh: floor(s) {sorted(stranded)} not walk-reachable from the start "
+                    f"({len(stranded)} of {len(wmesh.all_floors())} floors stranded). A multi-floor "
+                    f"[walkmesh] obj loses cross-floor links (rebuild_neighbors only links within a "
+                    f"floor) -- ship the original with [walkmesh] bgi, or declare seams "
+                    f"(docs/WALKMESH_EDITING.md).")
         overlays = build_overlays(project, range_wh=tuple(camera.range))
         bgx_text = bgx.build(camera, overlays, header_comment=project.field.get("title", project.name))
 

@@ -132,21 +132,32 @@ def test_obj_reexport_loses_cross_floor_connectivity(tmp_path):
     assert rex.reachable_floors() < src.all_floors()              # but cross-floor connectivity is LOST
 
 
-def test_build_warns_on_stranded_floors(tmp_path):
-    """build() surfaces a warning when a shipped custom-scene walkmesh has unreachable floors -- the
-    build-time guard for the obj-reexport multi-floor footgun (the in-game GRGR symptom)."""
+def _multifloor_scene_toml(tmp_path, walkmesh_block):
     from ff9mapkit import extract
-    from ff9mapkit.build import FieldProject, build_mod
     src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
     (tmp_path / "wm.obj").write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
     v, f, fid = bgi.load_obj_floors(str(tmp_path / "wm.obj"))
-    (tmp_path / "wm.bgi").write_bytes(bgi.build(v, f, floor_ids=fid).to_bytes())
+    (tmp_path / "wm.bgi").write_bytes(bgi.build(v, f, floor_ids=fid).to_bytes())   # stranded re-export
     (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
     (tmp_path / "f.field.toml").write_text(
         '[field]\nid = 4003\nname = "X"\narea = 21\n\n[camera]\nborrow = "camera.bgx"\n\n'
-        '[walkmesh]\nbgi = "wm.bgi"\n', encoding="utf-8")
-    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+        + walkmesh_block, encoding="utf-8")
+    from ff9mapkit.build import FieldProject, build_mod
+    return build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+
+
+def test_build_warns_on_stranded_floors_for_obj(tmp_path):
+    """build() warns when a (re)BUILT multi-floor walkmesh strands floors -- the obj-reexport footgun
+    (the in-game GRGR symptom), surfaced at build time."""
+    info = _multifloor_scene_toml(tmp_path, '[walkmesh]\nobj = "wm.obj"\nframe = "world"\n')
     assert any("not walk-reachable" in w for w in info["warnings"])
+
+
+def test_build_skips_reachability_for_verbatim_bgi(tmp_path):
+    """A verbatim [walkmesh] bgi is authoritative and SKIPPED -- avoids crying wolf on the real fields
+    that legitimately reach some floors by script, not on foot (e.g. UDFT: 9 of 23 walk-reachable)."""
+    info = _multifloor_scene_toml(tmp_path, '[walkmesh]\nbgi = "wm.bgi"\n')
+    assert not any("not walk-reachable" in w for w in info["warnings"])
 
 
 def test_walkmesh_bgi_mode_ships_verbatim(tmp_path):
