@@ -16,6 +16,7 @@ from pathlib import Path
 # make the add-on package importable (it's bpy-guarded, so import is safe without Blender)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # .../ff9mapkit/blender
 from ff9mapkit_blender import bridge                            # noqa: E402
+from ff9mapkit_blender.vendor import bgi as B                   # noqa: E402
 from ff9mapkit_blender.vendor import cam as C                   # noqa: E402
 
 # the 6 real cameras (same dataset as ff9mapkit/tests/test_cameras.py)
@@ -172,3 +173,40 @@ def test_bgi_walkmesh_to_blender_roundtrip():
     back = bridge.blender_verts_to_ff9(bl_verts)
     for a, b in zip(back, expected):
         assert all(abs(x - y) < 1e-6 for x, y in zip(a, b))
+
+
+# --- Export Field: multi-floor walkmesh (material slot -> floor) --------------------------
+_BL_VERTS = [(0, 0, 0), (100, 0, 0), (100, 100, 0), (0, 100, 0),     # Blender (z-up) ground quad
+             (0, 200, 50), (100, 200, 50), (50, 300, 50)]            # a raised ledge
+_BL_FACES = [(0, 1, 2), (0, 2, 3), (4, 5, 6)]
+_FLOOR_IDS = [0, 0, 1]                                               # 2 material slots = 2 floors
+
+
+def test_mesh_to_ff9_obj_emits_floor_groups():
+    """Per-face floor_ids -> one `o floor_N` group each; load_obj_floors reconstructs the partition."""
+    import os
+    import tempfile
+    text = bridge.mesh_to_ff9_obj(_BL_VERTS, _BL_FACES, _FLOOR_IDS)
+    assert text.count("\no floor_") == 2
+    fd, path = tempfile.mkstemp(suffix=".obj")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+        _verts, faces, floor_ids = B.load_obj_floors(path)
+        assert len(faces) == 3
+        assert floor_ids == [0, 0, 1]
+    finally:
+        os.unlink(path)
+    # a single floor (or None) writes a flat list, no `o` groups
+    assert "o floor_" not in bridge.mesh_to_ff9_obj(_BL_VERTS, _BL_FACES, [0, 0, 0])
+    assert "o floor_" not in bridge.mesh_to_ff9_obj(_BL_VERTS, _BL_FACES, None)
+
+
+def test_mesh_to_bgi_bytes_multifloor():
+    """Distinct floor_ids -> a world-frame multi-floor .bgi (org=0); single floor -> flat builder."""
+    wm = B.BgiWalkmesh.from_bytes(bridge.mesh_to_bgi_bytes(_BL_VERTS, _BL_FACES, _FLOOR_IDS))
+    assert len(wm.floors) == 2
+    assert [t.floor_ndx for t in wm.tris] == [0, 0, 1]
+    assert (wm.orgPos.x, wm.orgPos.y, wm.orgPos.z) == (0, 0, 0)
+    flat = B.BgiWalkmesh.from_bytes(bridge.mesh_to_bgi_bytes(_BL_VERTS, _BL_FACES, None))
+    assert len(flat.floors) == 1

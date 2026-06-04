@@ -175,9 +175,14 @@ def _shift_toward_camera(corners, camera: cam.Cam, dist: float):
 def resolve_walkmesh(project: FieldProject, camera: cam.Cam) -> bytes:
     wm = project.raw.get("walkmesh", {})
     if wm.get("obj"):
-        # explicit (e.g. Blender-authored): the author placed the verts; default no character shift.
+        verts, faces, floor_ids = bgi.load_obj_floors(str(project.path(wm["obj"])))
+        if len(set(floor_ids)) > 1:
+            # multi-floor authored / re-exported real geometry: WORLD frame (org=0, every floor.org=0).
+            # The verts ARE the exact in-game positions, so NO character shift (that slide is a
+            # flat-room paint-alignment hack, not a real frame transform).
+            return bgi.build(verts, faces, floor_ids=floor_ids).to_bytes()
+        # single-floor (e.g. flat Blender-authored): the author placed the verts; default no shift.
         off = float(wm.get("character_offset", 0.0))
-        verts, faces = bgi.load_obj(str(project.path(wm["obj"])))
         verts = _shift_toward_camera(verts, camera, off)
         return bgi.build_flat(verts, faces).to_bytes()
     if wm.get("quad"):

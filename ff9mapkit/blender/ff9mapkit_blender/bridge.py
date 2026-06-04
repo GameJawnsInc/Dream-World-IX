@@ -447,17 +447,40 @@ def player_to_toml(spawn):
     return f"[player]\nspawn = [{int(spawn[0])}, {int(spawn[1])}]"
 
 
-def mesh_to_ff9_obj(world_verts, tri_faces):
-    """Wavefront .obj text for a Blender mesh (world verts + triangle faces), in FF9 coords."""
+def mesh_to_ff9_obj(world_verts, tri_faces, floor_ids=None):
+    """Wavefront .obj text for a Blender mesh (world verts + triangle faces), in FF9 coords.
+
+    With per-face ``floor_ids`` (distinct ids => a multi-level walkmesh), emit one ``o floor_<id>``
+    group per floor so ``ff9mapkit build`` (load_obj_floors) reconstructs the floors. A single floor
+    or ``floor_ids=None`` writes a flat face list, unchanged.
+    """
     fv = blender_verts_to_ff9(world_verts)
     lines = ["# ff9mapkit walkmesh (FF9 world coords; y=0 floor)"]
     for (x, y, z) in fv:
         lines.append(f"v {x:.4f} {y:.4f} {z:.4f}")
-    for (a, b, cc) in tri_faces:
-        lines.append(f"f {a + 1} {b + 1} {cc + 1}")     # .obj is 1-based
+    if floor_ids and len(set(floor_ids)) > 1:
+        order = []
+        for fid in floor_ids:
+            if fid not in order:
+                order.append(fid)
+        for fid in order:
+            lines.append(f"o floor_{fid}")
+            for (a, b, cc), f in zip(tri_faces, floor_ids):
+                if f == fid:
+                    lines.append(f"f {a + 1} {b + 1} {cc + 1}")     # .obj is 1-based
+    else:
+        for (a, b, cc) in tri_faces:
+            lines.append(f"f {a + 1} {b + 1} {cc + 1}")
     return "\n".join(lines) + "\n"
 
 
-def mesh_to_bgi_bytes(world_verts, tri_faces):
-    """.bgi.bytes for a Blender mesh (world verts + triangle faces)."""
-    return bgi.build_flat(blender_verts_to_ff9(world_verts), list(tri_faces)).to_bytes()
+def mesh_to_bgi_bytes(world_verts, tri_faces, floor_ids=None):
+    """.bgi.bytes for a Blender mesh (world verts + triangle faces).
+
+    Distinct per-face ``floor_ids`` => a multi-floor WORLD-frame walkmesh (bgi.build, org=0, every
+    floor.org=0 -- the verts render verbatim); a single floor uses the flat builder.
+    """
+    fv = blender_verts_to_ff9(world_verts)
+    if floor_ids and len(set(floor_ids)) > 1:
+        return bgi.build(fv, list(tri_faces), floor_ids=list(floor_ids)).to_bytes()
+    return bgi.build_flat(fv, list(tri_faces)).to_bytes()

@@ -207,9 +207,11 @@ def active_camera_to_ff9(context):
 
 
 def _walkmesh_world_mesh(obj):
-    """(world_verts, tri_faces) for a mesh object, triangulated.
+    """(world_verts, tri_faces, floor_ids) for a mesh object, triangulated.
 
-    Flushes live Edit-Mode edits first: Blender doesn't push edit-mode changes to ``obj.data``
+    ``floor_ids`` is each triangle's material slot index (the per-floor colouring set on import, so a
+    re-exported multi-floor field keeps its floors); a single/zero-material mesh yields all-0 = one
+    floor. Flushes live Edit-Mode edits first: Blender doesn't push edit-mode changes to ``obj.data``
     until you leave Edit Mode, so exporting mid-edit would otherwise capture the STALE mesh.
     """
     if obj.mode == "EDIT":
@@ -219,7 +221,8 @@ def _walkmesh_world_mesh(obj):
     mw = obj.matrix_world
     verts = [list(mw @ v.co) for v in mesh.vertices]
     faces = [tuple(lt.vertices) for lt in mesh.loop_triangles]
-    return verts, faces
+    floor_ids = [int(lt.material_index) for lt in mesh.loop_triangles]
+    return verts, faces, floor_ids
 
 
 def _set_quad_mesh(obj, corners):
@@ -414,7 +417,7 @@ class FF9MK_OT_compute_guide(bpy.types.Operator):
         lines.append(f"  walkmesh corners (x,z): {guide.walkmesh_corners(frame)}")
         # the designated walkmesh's own world bounds projected to canvas
         if p.walkmesh and p.walkmesh.type == "MESH":
-            verts, _ = _walkmesh_world_mesh(p.walkmesh)
+            verts, _, _ = _walkmesh_world_mesh(p.walkmesh)
             ff9v = bridge.blender_verts_to_ff9(verts)
             canv = [cam.to_canvas(v, c) for v in ff9v]
             xs = [cx for cx, cy in canv]
@@ -878,10 +881,10 @@ class FF9MK_OT_export_field(bpy.types.Operator):
         # camera.bgx (camera-only; field.toml borrows it)
         with open(os.path.join(out, "camera.bgx"), "w", encoding="utf-8", newline="\n") as fh:
             fh.write(bgx.build(c, [], header_comment=f"{p.field_name} camera (ff9mapkit blender)"))
-        # walkmesh.obj (FF9 coords)
-        verts, faces = _walkmesh_world_mesh(p.walkmesh)
+        # walkmesh.obj (FF9 coords; one `o floor_N` group per material slot => multi-floor)
+        verts, faces, floor_ids = _walkmesh_world_mesh(p.walkmesh)
         with open(os.path.join(out, "walkmesh.obj"), "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(bridge.mesh_to_ff9_obj(verts, faces))
+            fh.write(bridge.mesh_to_ff9_obj(verts, faces, floor_ids))
         # painted layers: copy each PNG next to the toml + collect (basename, z)
         layers = []
         for L in p.layers:
