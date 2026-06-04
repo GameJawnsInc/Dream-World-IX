@@ -20,7 +20,7 @@ PKG = HERE / "ff9mapkit_blender"
 VENDOR = PKG / "vendor"
 SCENE = HERE.parent / "ff9mapkit" / "scene"         # .../ff9mapkit/ff9mapkit/scene
 VENDORED = ("cam.py", "bgi.py", "bgx.py", "guide.py")   # guide imports PIL only lazily (render only)
-VERSION = "0.5.4"
+VERSION = "0.5.5"
 EXCLUDE_DIRS = {"__pycache__"}
 
 

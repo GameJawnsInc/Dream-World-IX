@@ -750,12 +750,12 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             bpy.data.meshes.remove(old)
         p.walkmesh = wm_obj
 
-        # Reframe (viewport-only): a real field's .bgi verts live in a corner-origin local frame, but
-        # the extracted camera is in the centred world frame, so the posed camera aims off the floor.
-        # Slide the camera (POSITION only) so its view axis hits the walkmesh centroid — yaw/pitch and
-        # the preserved camera.bgx are untouched, so in-game movement + camera are unaffected, and the
-        # walkmesh/markers stay in the frame that exports correctly.
-        if verts:
+        # Reframe (viewport-only): centre the camera on the walkmesh so the bare footprint is readable.
+        # SKIP this when there's a real-art backdrop: the engine projects the walkmesh straight through
+        # the camera (FieldMap.cs:390), so the walkmesh + the art (the real-camera render) already share
+        # one frame — reframing would shove the walkmesh off the painted floor.
+        has_art = os.path.isfile(os.path.join(d, "background.png"))
+        if verts and not has_art:
             context.view_layer.update()
             mw = cam_obj.matrix_world
             fwd = -mw.to_3x3().col[2]                 # camera looks down local -Z
