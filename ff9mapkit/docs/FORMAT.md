@@ -94,7 +94,8 @@ Pick one (or omit all three to auto-frame from `[camera.frame]`):
 | `obj` | a Wavefront `.obj` in FF9 world coords (x, y, z); faces become walk triangles. |
 | `quad` | 4 corners `[[x, z], ...]` for a flat quad floor. |
 | *(none)* | auto: a quad framed to the painted floor via `[camera.frame]`. |
-| `character_offset` | (single-floor `obj`/`quad`) world units to slide the floor toward the camera so a 3D character looks planted on the 2D painting; defaults to `0` for explicit meshes, `298` for the auto frame. |
+| `character_offset` | (single-floor legacy `obj`/`quad`) world units to slide the floor toward the camera so a 3D character looks planted on the 2D painting; defaults to `0` for explicit meshes, `298` for the auto frame. |
+| `frame` | `"world"` => write verts verbatim with `orgPos=0` (geometry already in exact world coords — imported real fields, or Blender-authored against the art); `"legacy"` (default) => the calibrated flat-room path above. Multi-floor meshes are always world. |
 
 ### The frame (how a vertex maps to the screen)
 

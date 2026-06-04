@@ -174,21 +174,26 @@ def _shift_toward_camera(corners, camera: cam.Cam, dist: float):
 
 def resolve_walkmesh(project: FieldProject, camera: cam.Cam) -> bytes:
     wm = project.raw.get("walkmesh", {})
+    # frame: "world" => emit verts verbatim with org=0/floor.org=0 (imported real fields, or any
+    # geometry already in exact world coords); "legacy" (default) => the calibrated flat-room path
+    # (build_flat, org=(0,0,300) + optional character_offset). Multi-floor is always world.
+    world_frame = wm.get("frame") == "world"
     if wm.get("obj"):
         verts, faces, floor_ids = bgi.load_obj_floors(str(project.path(wm["obj"])))
-        if len(set(floor_ids)) > 1:
-            # multi-floor authored / re-exported real geometry: WORLD frame (org=0, every floor.org=0).
-            # The verts ARE the exact in-game positions, so NO character shift (that slide is a
-            # flat-room paint-alignment hack, not a real frame transform).
+        if world_frame or len(set(floor_ids)) > 1:
+            # WORLD frame: the verts ARE the exact in-game positions, so NO character shift (that
+            # slide is a flat-room paint-alignment hack, not a real frame transform).
             return bgi.build(verts, faces, floor_ids=floor_ids).to_bytes()
-        # single-floor (e.g. flat Blender-authored): the author placed the verts; default no shift.
+        # single-floor legacy (e.g. flat Blender-authored): the author placed the verts; no shift.
         off = float(wm.get("character_offset", 0.0))
         verts = _shift_toward_camera(verts, camera, off)
         return bgi.build_flat(verts, faces).to_bytes()
     if wm.get("quad"):
+        corners = [(c[0], 0, c[1]) if len(c) == 2 else tuple(c) for c in wm["quad"]]
+        if world_frame:
+            return bgi.build(corners, [(0, 1, 2), (0, 2, 3)]).to_bytes()
         off = float(wm.get("character_offset", 0.0))
-        corners = _shift_toward_camera(wm["quad"], camera, off)
-        return bgi.quad(corners).to_bytes()
+        return bgi.quad(_shift_toward_camera(wm["quad"], camera, off)).to_bytes()
     # auto: frame the floor from the camera, then slide the walkmesh toward the camera by the
     # character ground offset so a 3D character looks planted on the scale-1-painted floor.
     fr = project.raw.get("camera", {}).get("frame", {})

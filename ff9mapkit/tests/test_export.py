@@ -115,6 +115,25 @@ def test_load_obj_floors_groups_by_object():
         os.unlink(path)
 
 
+def test_walkmesh_frame_world_emits_org0_vs_legacy_300(tmp_path):
+    """[walkmesh] frame = "world" -> bgi.build (org=0); default -> legacy build_flat (org=300)."""
+    from ff9mapkit.build import FieldProject, resolve_camera, resolve_walkmesh
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "wm.obj").write_text("v 0 0 0\nv 100 0 0\nv 100 0 100\nv 0 0 100\nf 1 2 3\nf 1 3 4\n")
+    base = ('[field]\nid = 4003\nname = "X"\narea = 21\n\n'
+            '[camera]\nborrow = "camera.bgx"\n\n[walkmesh]\nobj = "wm.obj"\n')
+
+    (tmp_path / "world.field.toml").write_text(base + 'frame = "world"\n', encoding="utf-8")
+    pw = FieldProject.load(tmp_path / "world.field.toml")
+    ww = bgi.BgiWalkmesh.from_bytes(resolve_walkmesh(pw, resolve_camera(pw)))
+    assert (ww.orgPos.x, ww.orgPos.y, ww.orgPos.z) == (0, 0, 0)
+
+    (tmp_path / "legacy.field.toml").write_text(base, encoding="utf-8")
+    pl = FieldProject.load(tmp_path / "legacy.field.toml")
+    wl = bgi.BgiWalkmesh.from_bytes(resolve_walkmesh(pl, resolve_camera(pl)))
+    assert (wl.orgPos.x, wl.orgPos.y, wl.orgPos.z) == (0, 0, 300)
+
+
 def test_load_obj_single_object_unchanged():
     """A single-object (or object-less) .obj still goes through the legacy flat path (header 300)."""
     import tempfile
