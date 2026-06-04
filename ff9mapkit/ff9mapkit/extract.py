@@ -313,21 +313,38 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
     return (W, H)
 
 
-def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, opaque_only=True):
-    """Per-overlay art layers (depth-grouped) for an EDITABLE custom-scene fork that PRESERVES
-    occlusion -- the inverse of `compose_background`'s flat merge.
+_ABR_NONE = "PSX/FieldMap_Abr_None"
 
-    Groups the field's overlays by DEPTH and writes one transparent full-canvas PNG per distinct
-    depth, returning the `[[layers]]` list ({image, z}) for a custom scene. The engine then redraws
-    the depth-ordered scene, so the 3D player is occluded by / occludes each layer exactly like the
-    real field (smaller z = nearer the camera = drawn in front). Depth + position follow Memoria's
-    OWN .bgx exporter (BGSCENE_DEF.cs:606):  z = scene.orgZ + overlay.orgZ + min(sprite.depth),
-    position = scene.org{X,Y} + overlay.org{X,Y} + min(sprite.off{X,Y}) -- baked into each full-canvas
-    PNG so the kit layer is just position [0,0], size = range.
+
+def _overlay_shader(sprite) -> str:
+    """The PSX field-map shader for an overlay, from its first sprite -- mirrors Memoria's OWN .bgx
+    exporter (BGSCENE_DEF.cs:611): opaque (trans==0) => Abr_None, else Abr_{min(3, alpha)} (the PSX
+    ABR blend mode: 0 average, 1 additive, 2 subtractive, 3 add-quarter). The .bgx importer honors
+    the `Shader:` directive (BGSCENE_DEF.cs:321), so light/shadow overlays blend correctly."""
+    if sprite.trans == 0:
+        return _ABR_NONE
+    return f"PSX/FieldMap_Abr_{min(3, sprite.alpha)}"
+
+
+def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, include_blend=True):
+    """Per-overlay art layers (grouped by depth + blend mode) for an EDITABLE custom-scene fork that
+    PRESERVES occlusion AND lighting -- the inverse of `compose_background`'s flat merge.
+
+    Groups the field's overlays by (DEPTH, SHADER) and writes one transparent full-canvas PNG per
+    group, returning the `[[layers]]` list ({image, z, [shader]}) for a custom scene. The engine
+    redraws the depth-ordered scene, so the 3D player is occluded by / occludes each layer exactly
+    like the real field (smaller z = nearer the camera = drawn in front), and light/shadow overlays
+    blend (Abr shaders). Depth + position follow Memoria's OWN .bgx exporter (BGSCENE_DEF.cs:606):
+    z = scene.orgZ + overlay.orgZ + min(sprite.depth); position = scene.org{X,Y}+overlay.org{X,Y}+
+    min(sprite.off{X,Y}) -- baked into each full-canvas PNG, so the kit layer is position [0,0], size
+    = range. Shader per BGSCENE_DEF.cs:611.
 
     Returns None if the field hasn't been `[Export] Field=1`'d in-game yet (no per-overlay PNGs on
-    disk). `opaque_only` (default) skips additive/subtractive light+shadow overlays (trans != 0) --
-    those need blend shaders (a later pass); the opaque overlays carry the structural occlusion.
+    disk). `include_blend` (default) emits the additive/subtractive light+shadow overlays too (they
+    carry a lot of a field's art -- e.g. GRGR is 5/7 blend); set False for opaque structure only.
+
+    Co-located same-(depth,shader) overlays merge into one layer (correct for a tiled plane,
+    approximate for overlapping animation frames -- a known v1 simplification).
     """
     art = field_art_dir(field, game)
     if art is None:
@@ -341,33 +358,40 @@ def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, op
     c0 = bgs.parse_cameras(bgs_bytes)[0]
     W, H = c0.range[0] * upscale, c0.range[1] * upscale
 
-    groups = {}      # z -> [(overlay_index, Overlay)]  (overlays at one depth tile a single plane)
+    groups = {}      # (z, shader) -> [(overlay_index, Overlay)]
     skipped = 0
     for i, o in enumerate(overlays):
         if not o.sprites:
             continue
-        if opaque_only and o.sprites[0].trans != 0:
+        shader = _overlay_shader(o.sprites[0])
+        if not include_blend and shader != _ABR_NONE:
             skipped += 1
             continue
         if not (art / f"Overlay{i}.png").is_file():
             continue
         z = sOrgZ + o.orgZ + min(s.depth for s in o.sprites)
-        groups.setdefault(z, []).append((i, o))
+        groups.setdefault((z, shader), []).append((i, o))
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    layers = []
-    for z in sorted(groups, reverse=True):                   # back (large z) -> front
+    layers, blend = [], 0
+    for (z, shader) in sorted(groups, key=lambda k: (-k[0], k[1])):    # back (large z) -> front
         canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        for i, o in groups[z]:
+        for i, o in groups[(z, shader)]:
             im = Image.open(art / f"Overlay{i}.png").convert("RGBA")
             mnX = min(s.offX for s in o.sprites)
             mnY = min(s.offY for s in o.sprites)
             canvas.alpha_composite(im, ((sOrgX + o.orgX + mnX) * upscale, (sOrgY + o.orgY + mnY) * upscale))
-        name = f"layer_{int(z):05d}.png"
+        abr = shader.rsplit("_", 1)[-1]                       # None / 0 / 1 / 2 / 3
+        name = f"layer_{int(z):05d}_{abr}.png"
         canvas.save(out / name)
-        layers.append({"image": name, "z": int(z)})
-    return {"layers": layers, "skipped_blend_overlays": skipped, "range": list(c0.range)}
+        L = {"image": name, "z": int(z)}
+        if shader != _ABR_NONE:
+            L["shader"] = shader
+            blend += 1
+        layers.append(L)
+    return {"layers": layers, "blend_layers": blend, "skipped_blend_overlays": skipped,
+            "range": list(c0.range)}
 
 
 def _world_walkmesh_obj_text(wm) -> str:
@@ -419,14 +443,18 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
             f"{field}` (BG-borrow: reuses the real art as-is, no repaint).")
     layers = layers_info["layers"]
     meta["layers"] = len(layers)
-    meta["blend_overlays_skipped"] = layers_info["skipped_blend_overlays"]
+    meta["blend_layers"] = layers_info["blend_layers"]
     meta["editable_name"] = name
 
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
     x, z = meta["player_start"]
     scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
-    layer_blocks = "\n".join(f'[[layers]]\nimage = "{L["image"]}"\nz = {L["z"]}' for L in layers)
+
+    def _layer_block(L):
+        s = f'[[layers]]\nimage = "{L["image"]}"\nz = {L["z"]}'
+        return s + (f'\nshader = "{L["shader"]}"' if L.get("shader") else "")
+    layer_blocks = "\n".join(_layer_block(L) for L in layers)
     toml = (
         f"# EDITABLE fork of {meta['field']} (area {meta['area']}) by ff9mapkit -- a full CUSTOM SCENE.\n"
         f"# Re-exported walkmesh + the real art split into one layer per DEPTH (occlusion preserved).\n"

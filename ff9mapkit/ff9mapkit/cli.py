@@ -208,9 +208,9 @@ def _cmd_import(args: argparse.Namespace) -> int:
     cm = meta["camera"]
     print(f"imported {meta['field']}  (area {meta['area']}, mapid {meta['mapid']})")
     if args.editable:
-        skip = meta.get("blend_overlays_skipped", 0)
+        nb = meta.get("blend_layers", 0)
         print(f"  mode   : EDITABLE custom scene ({meta['layers']} art layers"
-              f"{f', {skip} light/shadow overlays skipped' if skip else ''})")
+              f"{f', {nb} light/shadow' if nb else ''})")
     else:
         print("  mode   : BG-borrow (reuses the real art as-is)")
     print(f"  camera : pitch {cm['pitch_deg']} fov {cm['fov_deg']} range {cm['range']}"
