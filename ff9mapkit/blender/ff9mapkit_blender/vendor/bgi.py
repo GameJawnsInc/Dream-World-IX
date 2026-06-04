@@ -172,6 +172,35 @@ class BgiWalkmesh:
         self.normals: list[FVec] = []
         self.verts: list[Vec3] = []
 
+    # ---------------- world transform (corner-origin per-floor -> world) ----------------
+    def vert_floor_map(self) -> dict:
+        """vert index -> floor index. A real .bgi gives each floor a DISJOINT vertex set, so this
+        is well-defined; unowned verts map to floor 0."""
+        m = {}
+        for fi, fl in enumerate(self.floors):
+            for ti in fl.tri_ndx_list:
+                if 0 <= ti < len(self.tris):
+                    for vi in self.tris[ti].vtx:
+                        m[vi] = fi
+        return m
+
+    def world_verts(self):
+        """World (camera/art/engine) position of each vertex = vert + header.orgPos + its floor.org.
+
+        Each FLOOR stores its verts CORNER-ORIGIN in the floor's own frame; `floor.org` tiles the
+        floors and the header `orgPos` places the whole walkmesh in the world. Verified: this lands
+        every GRGR vert exactly inside the header [minPos,maxPos] and tiles its 7 floors into a
+        coherent centred tunnel. Single-floor fields have floor.org=(0,0,0), so this reduces to
+        vert + orgPos (GLGV unchanged). This is the exact transform the EXPORTER inverts."""
+        vf = self.vert_floor_map()
+        op = self.orgPos
+        out = []
+        for i, v in enumerate(self.verts):
+            fi = vf.get(i)
+            fo = self.floors[fi].org if (fi is not None and fi < len(self.floors)) else Vec3(0, 0, 0)
+            out.append((v.x + op.x + fo.x, v.y + op.y + fo.y, v.z + op.z + fo.z))
+        return out
+
     # ---------------- parse ----------------
     @classmethod
     def from_bytes(cls, data: bytes) -> "BgiWalkmesh":

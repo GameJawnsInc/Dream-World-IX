@@ -203,15 +203,16 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     c0 = cameras[0]
     d = cam.decompose(c0)
     scrolling = c0.range[0] > 384 or c0.range[1] > 448
-    # real .bgi verts are corner-origin; world_vert = vert + orgPos puts the walkmesh in the world
-    # (camera) frame so it/content land on the painted art (and in the engine's frame).
-    ox, oy, oz = cam.walkmesh_world_offset((wm.orgPos.x, wm.orgPos.y, wm.orgPos.z))
-    # spawn: charPos is stored per-field in EITHER the corner frame (like the verts) or already world.
-    # Prefer it if it lands on the walkmesh AND on-camera (within the painting); else spawn at the
-    # centre of the ON-CAMERA walkmesh -- a real field's walkmesh often runs far past the screen into
-    # gated tunnels (charPos can sit out there), and the player should appear on-screen.
-    wx = [v.x + ox for v in wm.verts]
-    wz = [v.z + oz for v in wm.verts]
+    # real .bgi verts are corner-origin per FLOOR; world_vert = vert + orgPos + floor.org puts the
+    # whole (multi-floor) walkmesh in the world (camera) frame, on the painted art + the engine frame.
+    wv = wm.world_verts()
+    wx = [p[0] for p in wv]
+    wz = [p[2] for p in wv]
+    ox, oz = wm.orgPos.x, wm.orgPos.z         # header offset (for the charPos spawn guesses below)
+    # spawn: charPos is stored per-field in EITHER the corner frame or already world, and is unreliable
+    # for multi-floor fields. Prefer it only if it lands on the walkmesh AND on-camera; else spawn at
+    # the centre of the ON-CAMERA walkmesh (a real walkmesh often runs far past the screen into gated
+    # tunnels, so the player should appear on-screen).
     bx0, bx1, bz0, bz1 = min(wx), max(wx), min(wz), max(wz)
     rw, rh = c0.range
     def _inb(px, pz):
@@ -243,11 +244,11 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
             "proj": c0.proj,
         },
         "scrolling": scrolling,
-        "frame_offset": [ox, oy, oz],
+        "frame_offset": [wm.orgPos.x, wm.orgPos.y, wm.orgPos.z],   # header base (+ per-floor floor.org)
         "player_start": _spawn,
-        "walkmesh_bounds": {     # in the DETECTED frame (vert extent + offset) = where content goes
-            "x": [min(v.x for v in wm.verts) + ox, max(v.x for v in wm.verts) + ox],
-            "z": [min(v.z for v in wm.verts) + oz, max(v.z for v in wm.verts) + oz],
+        "walkmesh_bounds": {     # WORLD frame (vert + orgPos + floor.org) = where content goes
+            "x": [round(min(wx)), round(max(wx))],
+            "z": [round(min(wz)), round(max(wz))],
             "verts": len(wm.verts),
             "tris": len(wm.tris),
         },
@@ -300,13 +301,12 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
 
     if draw_footprint and "bgi" in roles:
         wm = bgi.BgiWalkmesh.from_bytes(_raw_bytes(env.container[roles["bgi"]].read()))
-        ox, oy, oz = cam.walkmesh_world_offset((wm.orgPos.x, wm.orgPos.y, wm.orgPos.z))
+        wv = wm.world_verts()                          # vert + orgPos + per-floor floor.org
         draw = ImageDraw.Draw(canvas, "RGBA")
         for t in wm.tris:
             pts = []
             for vi in t.vtx:
-                v = wm.verts[vi]
-                cx, cy = cam.to_canvas((v.x + ox, v.y + oy, v.z + oz), c0)   # exact GTE, detected frame
+                cx, cy = cam.to_canvas(wv[vi], c0)      # exact GTE projection, world frame
                 pts.append((cx * upscale, cy * upscale))
             draw.polygon(pts, fill=(90, 180, 255, 45), outline=(120, 225, 255, 160))
     canvas.save(out_path)

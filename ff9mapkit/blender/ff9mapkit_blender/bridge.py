@@ -153,14 +153,6 @@ def ff9_verts_to_blender(ff9_verts):
     return [tuple(cam.mv(M_BF, list(v))) for v in ff9_verts]
 
 
-def walkmesh_frame_offset(bgi_bytes):
-    """(dx,dy,dz) to put an IMPORTED real walkmesh into the world (camera/art/engine) frame =
-    its orgPos (verts are corner-origin; world_vert = vert + orgPos). Content placed on the shifted
-    walkmesh is already in the engine's frame, so it exports with no undo."""
-    wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
-    return cam.walkmesh_world_offset((wm.orgPos.x, wm.orgPos.y, wm.orgPos.z))
-
-
 def _blender_pixel(P_bl, b, res, off=(0.0, 0.0, 0.0)):
     """Blender's pinhole projection (sensor_fit=HORIZONTAL) of a Blender-world point -> (px,py)."""
     L, R, f, sw = b["location"], b["rotation"], b["lens"], b["sensor_width"]
@@ -184,9 +176,9 @@ def walkmesh_view_offset(bgi_bytes, c):
     floor verts by coordinate descent. (GLGV head-on -> ~+42 height; tilted cams -> height+depth.)"""
     import statistics
     wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
-    ox, oy, oz = cam.walkmesh_world_offset((wm.orgPos.x, wm.orgPos.y, wm.orgPos.z))
+    wv = wm.world_verts()
     med = statistics.median([v.y for v in wm.verts])         # main walkable surface
-    floor = [(v.x + ox, v.y + oy, v.z + oz) for v in wm.verts if abs(v.y - med) < 60]
+    floor = [wv[i] for i, v in enumerate(wm.verts) if abs(v.y - med) < 60]
     if not floor:
         return (0.0, 0.0, 0.0)
     scrolling = c.range[0] > 384 or c.range[1] > 448
@@ -234,18 +226,17 @@ def walkmesh_floor_ids(bgi_bytes):
     return [tri_floor.get(i, 0) for i in range(len(wm.tris))]
 
 
-def bgi_walkmesh_to_blender(bgi_bytes, offset=(0, 0, 0)):
+def bgi_walkmesh_to_blender(bgi_bytes, world=False):
     """Parse a .bgi walkmesh -> (blender_verts, faces) for an editable Blender mesh.
 
     Verts map FF9 (x, y~0, z) -> Blender via ff9_verts_to_blender; faces are each triangle's 3
-    vertex indices. Round-trips with blender_verts_to_ff9 (tested). `offset=(dx,dy,dz)` shifts verts
-    in FF9 coords before conversion: for an IMPORTED real field pass walkmesh_frame_offset(bgi_bytes)
-    (= orgPos) so the corner-origin walkmesh lands in world (where the camera + art live); kit-built
-    walkmeshes are already world, so the default 0 leaves them untouched. The walkmesh may extend
-    past the screen edges (tunnels) -- that's correct."""
+    vertex indices. Round-trips with blender_verts_to_ff9 (tested). `world=True` applies the per-floor
+    world transform (vert + orgPos + floor.org -- BgiWalkmesh.world_verts) so an IMPORTED real field's
+    corner-origin, multi-floor walkmesh lands on the painted art as a coherent whole; kit-built
+    walkmeshes are already world, so the default leaves them untouched. The mesh may extend past the
+    screen edges (tunnels) -- that's correct."""
     wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
-    ox, oy, oz = offset
-    ff9 = [(v.x + ox, v.y + oy, v.z + oz) for v in wm.verts]
+    ff9 = wm.world_verts() if world else [(v.x, v.y, v.z) for v in wm.verts]
     faces = [tuple(t.vtx) for t in wm.tris]
     return ff9_verts_to_blender(ff9), faces
 
