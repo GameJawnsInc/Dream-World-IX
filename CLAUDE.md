@@ -1002,6 +1002,34 @@ Tagged `KNOWN_GOOD-s16-import-field`.
 
 **Honest gaps (deferred):** the imported Blender preview is BARE (no field art behind the walkmesh) — that's the **editable-art v1b** (atlas+overlays → composite PNG layers, OR Memoria's PSD export). Real walkmesh height shows as 3D geometry (correct, just not a flat plane). Borrow mode = reuse art only (can't repaint yet).
 
+**Honest gaps (deferred):** the imported Blender preview is BARE (no field art behind the walkmesh) — that's the **editable-art v1b** (atlas+overlays → composite PNG layers, OR Memoria's PSD export). Real walkmesh height shows as 3D geometry (correct, just not a flat plane). Borrow mode = reuse art only (can't repaint yet).
+
 **Carry-over:** field 4003 = `GRGR_FORK` (Blender-authored YIPPEEE NPC) deployed; revert `py tools/scroll_out/revert_deploy.py`. Debug New-Game→Alexandria warp still active. UnityPy required for extraction (`py -m pip install UnityPy`).
 
 Tagged `KNOWN_GOOD-s16-blender-import`.
+
+### 2026-06-04 — Session 16 (cont) — Import walkmesh FRAME cracked (universal `vert + orgPos`); simple-field fork validated in-game
+
+**The headline:** the rule that places an imported real field's walkmesh on its painted art is **universal: `world_vert = vert + orgPos`** — and a SIMPLE-walkmesh field (GLGV / Gizamaluke's Grotto) now forks end-to-end and is **walkable + content-correct in real gameplay**. User's scope caveat (kept honest): this is proven for *simple single-floor fields*, NOT yet complex multi-floor ones.
+
+**The frame problem + the long path to it (all offline, art-as-ground-truth via the user's eyes):**
+- A real `.bgi` stores walkmesh verts **CORNER-ORIGIN** (0-based, e.g. GRGR x[0,4170]); the header **`orgPos` (== `minPos`) is the world position of that corner**, so `world_vert = vert + orgPos`. Verified universal: `vert + orgPos == [minPos, maxPos]` for every sampled field (GRGR/BMVL/GLGV/BRMC/TRNO), and `FieldMapActor` projects the player/walkmesh in WORLD via the camera, so `cam.to_canvas(vert + orgPos)` is exactly where the walkmesh appears in-game. **Confirmed in-art: GLGV at `+orgPos` "nailed it."**
+- **Detours that were WRONG (so don't repeat):** (1) a uniform `orgPos/2` slide (eyeballed "f52" — it can't fix x and z in opposite directions); (2) plain `f0`/raw (looked right on GRGR only because GRGR's spawn dot is a world coord that sits on-screen at *either* framing, and GRGR's 7 overlapping floors read as a "stack" at *any* frame — complexity, not framing); (3) an `f0`-vs-`+org` auto-DETECTOR (on-canvas heuristic ties on simple fields and chose wrong — GLGV needed `+org` but it picked `f0`). The clean answer is just **always `+org`**; detector deleted.
+- **Art-placement check (ruled out as the culprit):** `FieldSceneExporter.cs:255` places each exported `Overlay*.png` PSD layer at **`(curX, curY)`**, NOT `orgX/orgY + minSpriteOff`. For GRGR these coincide (`curX==orgX`, `minOffX==0`) so the composited backdrop was already correct — the misalignment was the walkmesh frame, not the art.
+- **`charPos` (debug spawn) is itself per-field** — sometimes corner (GRGR), sometimes already world (GLGV: `charPos.x=-856` is outside the corner vert range), and often sits in a **gated off-screen tunnel** (a real walkmesh runs far past the visible screen). New spawn logic: prefer `charPos` only if in-bounds AND on-camera; else spawn at the **centre of the ON-CAMERA walkmesh**; else centroid.
+
+**Tools (committed; 122 tests green):** `cam.walkmesh_world_offset(org)` (the rule, with the rationale baked into the docstring for the exporter). `extract.extract_field`/`compose_background` auto-apply `+orgPos` to the footprint, walkmesh, reported bounds, and spawn (now on-camera). `bridge.bgi_walkmesh_to_blender(bytes, offset)` + `walkmesh_frame_offset` (Blender import shifts the mesh into world; kit-built walkmeshes default offset 0 so golden tests are untouched). Add-on bumped to **v0.5.7**. Commits `609a06a`(f0 detour) `666f7b3`(detector detour) `4b15a92`(**the rule**) `67cdfda`(robust spawn+v0.5.7) `068bdbd`(on-camera spawn).
+
+**Human verified IN-GAME (GLGV_FORK = field 4003, deployed via the interior door):** grotto renders clean ✓; walkable ✓; **Vivi stands ON the painted floor** at walkmesh `(3082,273)` ✓; dialogue ✓; spawn now lands **on-camera** (auto-fixed from the off-screen tunnel). First arbitrary forked field (one we'd never touched) taken fork → `+org` frame → author NPC → in-game with content landing where placed.
+
+**Honest scope (user's correction — do NOT overclaim "fork-any-field"):**
+- ✅ **Simple single-floor walkmesh fields** (GLGV: 1 floor, 51 verts, scrolling, area 36) — reliable end-to-end.
+- ⚠️ **Complex multi-floor fields** (GRGR's 7 floors) import with a CORRECT frame but read as a dense **stack** in Blender — not yet legible/authorable. (Floors are distinct/tiled, just densely packed in projection + a wireframe.) Next-lever candidate: color-by-floor + keep real 3D height so they're orbitable.
+- ⚠️ **BRMC** "walkmesh doesn't go deep enough" — unconfirmed whether a real residual or just its walkable area being a subset of the painted room.
+- ⚠️ **Blender 3D-camera cosmetic offset** — head-on fields (GLGV pitch ~1°) need a small Blender-view nudge (user calibrated GLGV ≈ Blender `Z+42` = FF9 height); it's the FF9 3D-char-vs-2D-BG / pinhole≈GTE residual. **Cosmetic for content** (NPCs key off floor x,z, which the exact `to_canvas` footprint nails); not folded in.
+
+**Carry-over:** field 4003 = `GLGV_FORK` (Vivi on floor) deployed; revert `py tools/scroll_out/revert_deploy.py`. Debug New-Game→Alexandria warp still active. Add-on dist = `ff9mapkit_blender-0.5.7.zip`. Diagnostics in `tools/grgr_*.py` (GRGR frame/floor analysis), `tools/scroll_out/p0spike/*.png` (offline footprint comparisons, gitignored).
+
+**Next options:** (a) complex-field readability (color-by-floor + real-3D in Blender) to extend past simple fields; (b) derive the per-camera Blender-view cosmetic offset; (c) editable-art v1b; (d) other content/world-wiring work.
+
+Tagged `KNOWN_GOOD-s16-import-frame`.
