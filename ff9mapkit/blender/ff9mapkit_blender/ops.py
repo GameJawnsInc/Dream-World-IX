@@ -732,14 +732,14 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         context.scene.camera = cam_obj
 
         # real walkmesh -> editable mesh (reference for placing markers; borrow ships the real one).
-        # Auto-detect the corner-vs-world frame for THIS camera (some fields' verts are raw, others
-        # sit out at a far world orgPos) so the mesh lands on the painted art. That detected frame IS
-        # the engine's frame, so content placed on the mesh exports correctly with no undo. The mesh
-        # may still extend past the screen edges (tunnels) -- correct, not a misalignment.
+        # Real .bgi verts are corner-origin; shift by orgPos into the world (camera) frame so the mesh
+        # lands on the painted art. That world frame IS the engine's frame, so content placed on the
+        # mesh exports correctly with no undo. The mesh may still extend past the screen edges
+        # (tunnels) -- correct, not a misalignment.
         with open(bgi_path, "rb") as fh:
             bgi_bytes = fh.read()
         has_art = os.path.isfile(os.path.join(d, "background.png"))
-        verts, faces = bridge.bgi_walkmesh_to_blender(bgi_bytes, c0)
+        verts, faces = bridge.bgi_walkmesh_to_blender(bgi_bytes, bridge.walkmesh_frame_offset(bgi_bytes))
         wm_obj = bpy.data.objects.get(WALKMESH_NAME)
         if wm_obj is None:
             wm_obj = bpy.data.objects.new(WALKMESH_NAME, bpy.data.meshes.new(WALKMESH_NAME))

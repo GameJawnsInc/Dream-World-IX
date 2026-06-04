@@ -176,29 +176,20 @@ def to_canvas(P, cam):
     px, py, _ = project(P, cam)                 # RAW GTE projection (offset 0,0)
     return (px + cam.range[0]/2.0, cam.range[1]/2.0 - py)
 
-def detect_walkmesh_offset(verts, org, cam):
-    """Pick the frame offset that lands a REAL field's walkmesh on its painted canvas.
+def walkmesh_world_offset(org):
+    """The offset that places a REAL field's walkmesh into the world (camera) frame: simply `org`.
 
-    A real `.bgi` stores verts CORNER-ORIGIN (0-based) with `org` (= the header orgPos/minPos)
-    the world position of that corner. The borrowed camera may be authored in EITHER frame:
-      * small/near-origin org  -> the camera matches the raw verts        -> offset (0,0,0)   (e.g. GRGR)
-      * far-world org          -> the camera lives out at the world pos    -> offset = org     (e.g. TRNO)
-    We can't know a priori which, so project the walkmesh BOTH ways and keep whichever lands more
-    of it on the canvas. Metric = fraction of verts inside [0,range], with a generous off-edge
-    margin so a field's legitimately-off-screen geometry (e.g. a tunnel) doesn't flip the choice.
-    Returns (dx, dy, dz); ties prefer (0,0,0). `org` is (orgPos.x, .y, .z)."""
-    rw, rh = cam.range
-    mx, my = rw * 0.75, rh * 0.75            # tolerate this much past each edge (tunnels/ramps)
-    def on_count(o):
-        n = 0
-        for v in verts:
-            cx, cy = to_canvas((v[0] + o[0], v[1] + o[1], v[2] + o[2]), cam)
-            if -mx <= cx <= rw + mx and -my <= cy <= rh + my:
-                n += 1
-        return n
-    zero = (0, 0, 0)
-    org = (org[0], org[1], org[2])
-    return zero if on_count(zero) >= on_count(org) else org
+    A real `.bgi` stores walkmesh verts CORNER-ORIGIN (0-based); the header `orgPos` (== minPos ==
+    `org` here) is the world position of that corner, so `world_vert = vert + orgPos` -- verified
+    universal: `vert + orgPos == [minPos, maxPos]` for every sampled field, and the camera projects
+    world, so `to_canvas(vert + orgPos)` is where the walkmesh appears in-game (confirmed in-art on
+    GLGV). This is the exact corner-origin<->world transform the EXPORTER inverts: write verts
+    corner-origin + store `orgPos`.
+
+    (An earlier f0-vs-world auto-detector was a detour: GRGR only *looked* like f0 because its spawn
+    dot is a world coord that sits on-screen at either framing, and its 7 overlapping floors read as
+    a stack at any frame -- complexity, not framing.) `org` is (orgPos.x, .y, .z)."""
+    return (org[0], org[1], org[2])
 
 
 def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, zlo=-30000.0, zhi=30000.0):

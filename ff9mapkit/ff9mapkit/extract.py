@@ -203,10 +203,9 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     c0 = cameras[0]
     d = cam.decompose(c0)
     scrolling = c0.range[0] > 384 or c0.range[1] > 448
-    # the borrowed camera lives in either the raw corner frame or the world frame; detect which so
-    # the walkmesh/spawn/content all land on the painted art (and in the engine's frame).
-    ox, oy, oz = cam.detect_walkmesh_offset(
-        [(v.x, v.y, v.z) for v in wm.verts], (wm.orgPos.x, wm.orgPos.y, wm.orgPos.z), c0)
+    # real .bgi verts are corner-origin; world_vert = vert + orgPos puts the walkmesh in the world
+    # (camera) frame so it/the spawn/content land on the painted art (and in the engine's frame).
+    ox, oy, oz = cam.walkmesh_world_offset((wm.orgPos.x, wm.orgPos.y, wm.orgPos.z))
     meta = {
         "field": folder,
         "bundle": os.path.basename(path),
@@ -278,8 +277,7 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
 
     if draw_footprint and "bgi" in roles:
         wm = bgi.BgiWalkmesh.from_bytes(_raw_bytes(env.container[roles["bgi"]].read()))
-        ox, oy, oz = cam.detect_walkmesh_offset(
-            [(v.x, v.y, v.z) for v in wm.verts], (wm.orgPos.x, wm.orgPos.y, wm.orgPos.z), c0)
+        ox, oy, oz = cam.walkmesh_world_offset((wm.orgPos.x, wm.orgPos.y, wm.orgPos.z))
         draw = ImageDraw.Draw(canvas, "RGBA")
         for t in wm.tris:
             pts = []
