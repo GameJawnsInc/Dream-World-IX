@@ -160,6 +160,61 @@ def test_build_skips_reachability_for_verbatim_bgi(tmp_path):
     assert not any("not walk-reachable" in w for w in info["warnings"])
 
 
+# ---- v2: seam sidecar (reshape a multi-floor walkmesh while keeping connectivity) ----
+
+def test_seam_extract_apply_reconciles_multifloor():
+    """v2 reconcile: extract_seams (from the original) + apply_seams (onto a geometry-only obj round-
+    trip) reproduces the original cross-floor link set + full reachability. The smoke test, as a unit."""
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    seams = src.extract_seams()
+    assert seams                                                   # multi-floor has cross-floor seams
+    wv = src.world_verts()
+    geom = bgi.build([(int(x), int(y), int(z)) for (x, y, z) in wv],
+                     [tuple(t.vtx) for t in src.tris], floor_ids=[t.floor_ndx for t in src.tris])
+    assert geom.reachable_floors() < src.all_floors()             # geometry-only: floors stranded
+    linked, missing, _ = geom.apply_seams(seams)
+    assert missing == 0 and linked == len(seams)
+    assert geom.reachable_floors() == src.all_floors()            # reconciled: connectivity restored
+
+
+def test_build_obj_with_links_reconciles(tmp_path):
+    """[walkmesh] obj + links rebuilds geometry AND reconciles cross-floor seams -> no stranded-floor
+    warning, fully-connected built .bgi."""
+    from ff9mapkit import extract
+    from ff9mapkit.build import FieldProject, build_mod
+    from ff9mapkit.config import ModLayout
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    (tmp_path / "wm.obj").write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
+    extract._write_links_toml(src, tmp_path / "wm.links.toml")
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(
+        '[field]\nid = 4003\nname = "X"\narea = 21\n\n[camera]\nborrow = "camera.bgx"\n\n'
+        '[walkmesh]\nobj = "wm.obj"\nlinks = "wm.links.toml"\nframe = "world"\n', encoding="utf-8")
+    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+    assert not any("not walk-reachable" in w for w in info["warnings"])
+    fm = ModLayout(tmp_path / "mod").fieldmap_dir(info["fields"][0])
+    built = bgi.BgiWalkmesh.from_bytes((fm / f"{info['fields'][0]}.bgi.bytes").read_bytes())
+    assert built.reachable_floors() == built.all_floors()         # fully connected after reconcile
+
+
+def test_build_obj_links_warns_on_broken_seam(tmp_path):
+    """A seam whose connecting edge was moved/deleted warns (no silent mis-link)."""
+    from ff9mapkit import extract
+    from ff9mapkit.build import FieldProject, build_mod
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    (tmp_path / "wm.obj").write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
+    extract._write_links_toml(src, tmp_path / "wm.links.toml")
+    with open(tmp_path / "wm.links.toml", "a", encoding="utf-8") as fh:   # an unmatchable seam
+        fh.write("\n[[seam]]\na_floor = 0\na_edge = [[99999, 0, 0], [99998, 0, 0]]\n"
+                 "b_floor = 1\nb_edge = [[99999, 0, 0], [99998, 0, 0]]\n")
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(
+        '[field]\nid = 4003\nname = "X"\narea = 21\n\n[camera]\nborrow = "camera.bgx"\n\n'
+        '[walkmesh]\nobj = "wm.obj"\nlinks = "wm.links.toml"\nframe = "world"\n', encoding="utf-8")
+    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+    assert any("could" in w and "seam" in w for w in info["warnings"])
+
+
 def test_walkmesh_bgi_mode_ships_verbatim(tmp_path):
     """[walkmesh] bgi = "<file>" ships the .bgi byte-for-byte (preserves real-field connectivity),
     unlike obj->build which rebuilds neighbor links."""

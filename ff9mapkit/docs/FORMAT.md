@@ -92,7 +92,8 @@ Pick one (or omit all three to auto-frame from `[camera.frame]`):
 | key | meaning |
 |---|---|
 | `bgi` | a pre-built `.bgi.bytes` shipped **verbatim** — e.g. an imported real field's walkmesh. Preserves its exact floors + neighbor/edge connectivity (a multi-floor `obj` rebuild would disconnect floors with disjoint vertex sets). What `import --editable` uses. |
-| `obj` | a Wavefront `.obj` in FF9 world coords (x, y, z); faces become walk triangles. Use for authoring new geometry; single-floor or simple edits. |
+| `obj` | a Wavefront `.obj` in FF9 world coords (x, y, z); faces become walk triangles. Use for authoring new geometry, or reshaping a forked field (pair with `links` + `frame = "world"`). |
+| `links` | an adjacency sidecar (`walkmesh.links.toml`) paired with `obj` to **reshape an imported multi-floor field while keeping connectivity** — rebuild_neighbors only links within a floor, so the sidecar re-attaches cross-floor seams by world position (warns on a moved/deleted seam). Written by `import --editable`. See [WALKMESH_EDITING.md](WALKMESH_EDITING.md). |
 | `quad` | 4 corners `[[x, z], ...]` for a flat quad floor. |
 | *(none)* | auto: a quad framed to the painted floor via `[camera.frame]`. |
 | `character_offset` | (single-floor legacy `obj`/`quad`) world units to slide the floor toward the camera so a 3D character looks planted on the 2D painting; defaults to `0` for explicit meshes, `298` for the auto frame. |

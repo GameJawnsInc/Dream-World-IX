@@ -1085,3 +1085,14 @@ The GLGV editable-fork proof is now a first-class command: **`ff9mapkit import -
 - **Reconcile smoke test (`tools/smoke_reconcile.py`):** prototyped extract-seams + position-keyed reconcile; **reproduces the original's EXACT cross-floor link set** (missing=0, link-set identical) on 3/4/7/23-floor fields → the v2 design is sound.
 - **Found + fixed a v1 guard bug:** connectivity ≠ reachability — UDFT walk-reaches only **9/23** floors (rest are script/warp-reached). My build reachability warning would false-positive on a *correct* verbatim UDFT fork. Fix: the guard now **skips verbatim `[walkmesh] bgi`** (authoritative original) and only checks (re)built obj/quad/auto walkmeshes. Tests: `_for_obj` warns, `_for_verbatim_bgi` doesn't. 137 tests.
 - Spec updated with a "Research findings" section; memory `project-ff9-import-frame` updated. Tools `analyze_seams.py`/`sweep_seams.py`/`smoke_reconcile.py` committed. **Conclusion: the position-key v2 design is validated end-to-end offline; ready to build when wanted.**
+
+### 2026-06-04 — Session 17 (cont 5) — v2 BUILT: seam sidecar + reconcile (editable multi-floor walkmesh)
+
+**Built the v2 reshape path** so a forked multi-floor walkmesh can have its GEOMETRY edited while keeping cross-floor connectivity (the research de-risked it; this ships it). All offline, 140 tests.
+- **Codec:** `BgiWalkmesh.extract_seams()` (cross-floor seams as sorted WORLD-position edge pairs) + `apply_seams(seams)` (re-link by position; sets nbr+edgeClone like rebuild_neighbors; returns linked/missing/misses).
+- **Export:** `import --editable` now also writes `walkmesh.links.toml` (seams + `[header]` active_floor/tri + char_pos) for multi-floor forks. Default still ships `[walkmesh] bgi` verbatim (lossless); the field.toml documents the one-swap to the reshape path.
+- **Build:** `[walkmesh] obj + links` → `bgi.build` (geometry + intra-floor links) then `_apply_links` reconciles the seams by position + restores header; **warns** (doesn't silently mis-link) on a moved/deleted seam. Reachability guard already gates to (re)built meshes.
+- **Per research:** `[[edge_flag]]` omitted (seam flags always 0 game-wide); 3D position keys cover coincident + vertical-bridge.
+- **Dogfooded on real 7-floor GRGR:** sidecar = 33 seams; switching to obj+links builds **7/7 floors reachable, no warnings.** Tests: extract/apply round-trip, build-obj+links reconciles, broken-seam warns. Docs (WALKMESH_EDITING.md v2→DONE, FORMAT.md `links` row, PIPELINE n/a) + memory updated. Tagged `KNOWN_GOOD-s17-walkmesh-v2`.
+
+**Note:** v2 is OFFLINE-proven (reconcile reproduces the original's exact links + the dogfood builds connected). An actual *reshaped* multi-floor field hasn't been walked in-game yet — the reconcile is exact for unedited seams, so the next real test is a human editing a fork's floor interior + playing it. v3 remaining: anim carry, `walkmesh verify` CLI, Blender seam viz/re-anchor.

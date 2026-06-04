@@ -233,6 +233,67 @@ class BgiWalkmesh:
                     q.append(n)
         return {self.tris[t].floor_ndx for t in seen}
 
+    # ---------------- seam extract / reconcile (the editable-multi-floor sidecar; WALKMESH_EDITING.md) ----------------
+    def _tri_floor(self) -> dict:
+        return {ti: fi for fi, fl in enumerate(self.floors) for ti in fl.tri_ndx_list}
+
+    def _edge_world_pos(self, wv, ti, slot):
+        """The slot's edge as a sorted pair of world positions (a stable, renumber-proof key)."""
+        i, j = SLOT_PAIRS[slot]
+        return tuple(sorted((wv[self.tris[ti].vtx[i]], wv[self.tris[ti].vtx[j]])))
+
+    def extract_seams(self):
+        """Cross-floor seams as (a_floor, a_edge, b_floor, b_edge); each edge a sorted world-position
+        pair. This is the adjacency a geometry-only `.obj` can't carry (rebuild_neighbors links only
+        within a floor, and FF9 floors use disjoint vertex sets). Pair with `apply_seams` to reconcile
+        an edited obj against an imported field. Validated game-wide (tools/sweep_seams.py)."""
+        wv = self.world_verts()
+        fo = self._tri_floor()
+        seams, seen = [], set()
+        for ti, t in enumerate(self.tris):
+            fa = fo.get(ti)
+            for k in range(3):
+                nb = t.nbr[k]
+                if nb < 0 or nb >= len(self.tris) or fo.get(nb) == fa:
+                    continue
+                key = (min(ti, nb), max(ti, nb))
+                if key in seen:
+                    continue
+                seen.add(key)
+                ec = self.edges[t.edge[k]].clone if 0 <= t.edge[k] < len(self.edges) else -1
+                a = self._edge_world_pos(wv, ti, k)
+                b = self._edge_world_pos(wv, nb, ec) if 0 <= ec < 3 else None
+                seams.append((fa, a, fo.get(nb), b))
+        return seams
+
+    def apply_seams(self, seams):
+        """Link cross-floor neighbors by matching each seam's edge endpoints by WORLD POSITION (this
+        mesh already has intra-floor links from `bgi.build`). Sets `nbr` + `edgeClone` on both sides,
+        the same convention as `rebuild_neighbors`. Returns (linked, missing, misses) -- a miss means
+        a seam's connecting edge was moved/deleted in the edit. The v2 reconcile."""
+        wv = self.world_verts()
+        fo = self._tri_floor()
+        lut = {}
+        for ti in range(len(self.tris)):
+            for k in range(3):
+                lut[(fo[ti], self._edge_world_pos(wv, ti, k))] = (ti, k)
+        linked = missing = 0
+        misses = []
+        for (fa, a_edge, fb, b_edge) in seams:
+            ta = lut.get((fa, a_edge))
+            tb = lut.get((fb, b_edge)) if b_edge else None
+            if ta and tb:
+                (ia, sa), (ib, sb) = ta, tb
+                self.tris[ia].nbr[sa] = ib
+                self.tris[ib].nbr[sb] = ia
+                self.edges[self.tris[ia].edge[sa]].clone = sb
+                self.edges[self.tris[ib].edge[sb]].clone = sa
+                linked += 1
+            else:
+                missing += 1
+                misses.append((fa, a_edge, fb, b_edge))
+        return linked, missing, misses
+
     # ---------------- parse ----------------
     @classmethod
     def from_bytes(cls, data: bytes) -> "BgiWalkmesh":

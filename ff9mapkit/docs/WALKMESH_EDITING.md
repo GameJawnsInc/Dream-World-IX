@@ -1,6 +1,6 @@
 # Spec — editing an imported multi-floor walkmesh without losing connectivity
 
-Status: **v1 shipped** (verbatim ship + build-time guard). v2/v3 designed below, not yet built.
+Status: **v1 + v2 shipped** (verbatim ship + build guard; obj+links seam reconcile). v3 designed below.
 
 ## 1. The problem
 
@@ -155,10 +155,15 @@ ship would cry wolf. (Tests: `test_obj_reexport_loses_cross_floor_connectivity`,
 - **v1 — DONE.** `[walkmesh] bgi` ships a real walkmesh **verbatim** (forks are lossless); build-time
   reachability warning; tests guard the obj-reexport loss. This is enough to fork *and keep* any
   multi-floor field — you just can't reshape its geometry yet.
-- **v2.** Auto-export the seam sidecar + build reconciliation by position + warn-on-broken-seam.
-  Unlocks editing the *interior* geometry of a multi-floor fork while keeping connectivity.
-- **v3.** Edge-flag + anim carry; the `walkmesh verify` CLI; Blender seam viz + re-anchor + "suggest
-  seams" for newly-added floors.
+- **v2 — DONE.** `import --editable` auto-writes `walkmesh.links.toml` (seams + header) for multi-floor
+  forks; `[walkmesh] obj + links` reconciles seams by world position on build, warns on broken seams.
+  `BgiWalkmesh.extract_seams`/`apply_seams`; `build._read_links`/`_apply_links`. Dogfooded on the real
+  7-floor GRGR (33 seams → reshape path builds 7/7 floors reachable). Unlocks editing the *interior*
+  geometry of a multi-floor fork while keeping connectivity. Per the research, `[[edge_flag]]` is
+  omitted (seam flags are always 0 game-wide). Tests: `test_seam_extract_apply_reconciles_multifloor`,
+  `test_build_obj_with_links_reconciles`, `test_build_obj_links_warns_on_broken_seam`.
+- **v3.** Anim (moving-platform) carry; the `walkmesh verify` CLI; Blender seam viz + re-anchor +
+  "suggest seams" for newly-added floors.
 
 ## 7. Research findings (game-wide, validated offline)
 

@@ -101,6 +101,8 @@ def validate(project: FieldProject) -> list[str]:
         problems.append(f"[walkmesh] obj not found: {wm['obj']}")
     if wm.get("bgi") and not project.path(wm["bgi"]).is_file():
         problems.append(f"[walkmesh] bgi not found: {wm['bgi']}")
+    if wm.get("links") and not project.path(wm["links"]).is_file():
+        problems.append(f"[walkmesh] links not found: {wm['links']}")
     for layer in project.raw.get("layers", []):
         if "image" not in layer:
             problems.append("[[layers]] entry missing 'image'")
@@ -174,7 +176,40 @@ def _shift_toward_camera(corners, camera: cam.Cam, dist: float):
     return [(p[0] + ux * dist, p[1], p[2] + uz * dist) for p in pts]
 
 
-def resolve_walkmesh(project: FieldProject, camera: cam.Cam) -> bytes:
+def _read_links(links_path):
+    """Parse a walkmesh.links.toml adjacency sidecar -> (seams, header). Seams in the shape
+    `BgiWalkmesh.apply_seams` expects: (a_floor, a_edge, b_floor, b_edge), each edge a sorted pair of
+    (x,y,z) tuples (matching the WORLD-position keys extract_seams emits)."""
+    with open(links_path, "rb") as fh:
+        d = tomllib.load(fh)
+    seams = []
+    for s in d.get("seam", []):
+        a = tuple(sorted(tuple(int(c) for c in p) for p in s["a_edge"]))
+        b = tuple(sorted(tuple(int(c) for c in p) for p in s["b_edge"])) if s.get("b_edge") else None
+        seams.append((int(s["a_floor"]), a, int(s.get("b_floor", s["a_floor"])), b))
+    return seams, d.get("header", {})
+
+
+def _apply_links(mesh, links_path, warnings):
+    """Reconcile cross-floor seams (+ restore header) onto a freshly (re)built multi-floor walkmesh."""
+    seams, header = _read_links(links_path)
+    linked, missing, misses = mesh.apply_seams(seams)
+    if "active_floor" in header:
+        mesh.activeFloor = int(header["active_floor"])
+    if "active_tri" in header:
+        mesh.activeTri = int(header["active_tri"])
+    cp = header.get("char_pos")
+    if cp and len(cp) == 3:
+        mesh.charPos = bgi.Vec3(int(cp[0]), int(cp[1]), int(cp[2]))
+    if missing and warnings is not None:
+        fa, a_edge, fb, _ = misses[0]
+        warnings.append(
+            f"walkmesh: {missing} of {linked + missing} cross-floor seam(s) couldn't be matched "
+            f"(a connecting edge was moved/deleted, e.g. floor {fa}<->{fb} near {a_edge[0]}). "
+            f"Re-anchor it in the .obj or restore [walkmesh] bgi (docs/WALKMESH_EDITING.md).")
+
+
+def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> bytes:
     wm = project.raw.get("walkmesh", {})
     if wm.get("bgi"):
         # ship a pre-built .bgi verbatim (e.g. an imported real field's walkmesh). This PRESERVES its
@@ -190,7 +225,12 @@ def resolve_walkmesh(project: FieldProject, camera: cam.Cam) -> bytes:
         if world_frame or len(set(floor_ids)) > 1:
             # WORLD frame: the verts ARE the exact in-game positions, so NO character shift (that
             # slide is a flat-room paint-alignment hack, not a real frame transform).
-            return bgi.build(verts, faces, floor_ids=floor_ids).to_bytes()
+            mesh = bgi.build(verts, faces, floor_ids=floor_ids)
+            if wm.get("links"):
+                # reconcile the imported field's cross-floor connectivity onto the edited geometry
+                # (rebuild_neighbors only links within a floor). v2 -- see docs/WALKMESH_EDITING.md.
+                _apply_links(mesh, project.path(wm["links"]), warnings)
+            return mesh.to_bytes()
         # single-floor legacy (e.g. flat Blender-authored): the author placed the verts; no shift.
         off = float(wm.get("character_offset", 0.0))
         verts = _shift_toward_camera(verts, camera, off)
@@ -350,7 +390,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # a full custom scene (camera + walkmesh + overlays -> .bgx / .bgi / PNGs).
     borrow_bg = project.field.get("borrow_bg")
     if not borrow_bg:
-        bgi_bytes = resolve_walkmesh(project, camera)
+        bgi_bytes = resolve_walkmesh(project, camera, warnings)
         # reachability guard for (re)BUILT walkmeshes (obj/quad/auto): rebuild_neighbors links only
         # within a floor, so a multi-floor obj strands its floors. A verbatim [walkmesh] bgi is the
         # authoritative original and is SKIPPED -- some real fields legitimately reach floors by

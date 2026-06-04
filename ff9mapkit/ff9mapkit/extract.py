@@ -420,6 +420,33 @@ def _world_walkmesh_obj_text(wm) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _write_links_toml(wm, path) -> int:
+    """Write the adjacency sidecar (cross-floor seams + header) for an editable multi-floor walkmesh.
+    walkmesh.obj carries geometry; this carries the seams geometry can't express. Reconciled on build
+    by world position (build._apply_links). Returns the seam count. See docs/WALKMESH_EDITING.md."""
+    seams = wm.extract_seams()
+    L = ["# Adjacency sidecar for an editable multi-floor walkmesh (ff9mapkit). walkmesh.obj carries the",
+         "# geometry; this carries the CROSS-FLOOR seams geometry can't express (FF9 floors use disjoint",
+         "# vertex sets, so rebuild-from-geometry can't recover them). On build with `[walkmesh] obj +",
+         "# links`, each seam is re-matched to your edited geometry by WORLD POSITION; a seam whose edge",
+         "# you moved/deleted warns instead of silently dropping. Auto-generated -- rarely hand-edited.",
+         "",
+         "[header]",
+         f"active_floor = {wm.activeFloor}",
+         f"active_tri = {wm.activeTri}",
+         f"char_pos = [{wm.charPos.x}, {wm.charPos.y}, {wm.charPos.z}]",
+         ""]
+    for (fa, a, fb, b) in seams:
+        L += ["[[seam]]", f"a_floor = {fa}",
+              f"a_edge = [[{a[0][0]}, {a[0][1]}, {a[0][2]}], [{a[1][0]}, {a[1][1]}, {a[1][2]}]]",
+              f"b_floor = {fb}"]
+        if b:
+            L.append(f"b_edge = [[{b[0][0]}, {b[0][1]}, {b[0][2]}], [{b[1][0]}, {b[1][1]}, {b[1][2]}]]")
+        L.append("")
+    Path(path).write_text("\n".join(L) + "\n", encoding="utf-8", newline="\n")
+    return len(seams)
+
+
 def write_editable_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                            text_block: int = 1073, game=None, bundle=None):
     """Fork a real field as a fully EDITABLE custom scene (vs BG-borrow): re-export its walkmesh via the
@@ -435,6 +462,7 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     wm = bgi.BgiWalkmesh.from_bytes((out / "walkmesh.bgi").read_bytes())
     nfloors = len(wm.floors)
     (out / "walkmesh.obj").write_text(_world_walkmesh_obj_text(wm), encoding="utf-8", newline="\n")
+    nseams = _write_links_toml(wm, out / "walkmesh.links.toml") if nfloors > 1 else 0
 
     layers_info = extract_layers(field, out, game=game, bundle=bundle)
     if layers_info is None:
@@ -457,13 +485,17 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         return s + (f'\nshader = "{L["shader"]}"' if L.get("shader") else "")
     layer_blocks = "\n".join(_layer_block(L) for L in layers)
 
-    reshape = ("# (multi-floor: editing the .obj re-derives links by shared vertex and may drop\n"
-               "#  cross-floor connectivity -- keep the .bgi unless you must reshape the geometry.)\n"
-               if nfloors > 1 else "")
+    if nfloors > 1:
+        reshape = ('# To RESHAPE the geometry: edit walkmesh.obj, then replace the bgi line above with:\n'
+                   '#   obj = "walkmesh.obj"\n#   links = "walkmesh.links.toml"\n#   frame = "world"\n'
+                   f'# (the seam sidecar re-attaches this field\'s {nseams} cross-floor links to your edits\n'
+                   '#  by world position; a seam whose edge you moved warns instead of dropping silently.)\n')
+    else:
+        reshape = ('# To RESHAPE: edit walkmesh.obj, then replace the bgi line above with:\n'
+                   '#   obj = "walkmesh.obj"\n#   frame = "world"\n')
     walkmesh_toml = (
         f"[walkmesh]\n"
         f'bgi = "walkmesh.bgi"   # the real field\'s walkmesh ({nfloors} floor(s)) -- connectivity preserved\n'
-        f'# To RESHAPE: edit walkmesh.obj, then swap the line above for:  obj = "walkmesh.obj" / frame = "world"\n'
         f"{reshape}"
     )
     toml = (
