@@ -17,6 +17,7 @@ Proven against GRGR in the offline spike (2026-06-04): the decoded camera matche
 from __future__ import annotations
 
 import glob
+import json
 import os
 import re
 from pathlib import Path
@@ -69,49 +70,109 @@ def _bundles(game=None):
     return sorted(glob.glob(str(_streaming_assets(game) / "p0data*.bin")))
 
 
-def _match_field_folder(container_keys, field: str):
-    """Find the unique fieldmaps/<folder>/ whose folder contains `field` (case-insensitive)."""
-    want = field.strip().lower()
-    want = re.sub(r"^fbg_n\d+_", "", want)          # accept full FBG name or bare mapid
-    folders = {}
-    for k in container_keys:
-        m = re.search(r"fieldmaps/([^/]+)/", k.lower())
-        if m:
-            folders.setdefault(m.group(1), True)
-    hits = [f for f in folders if want in f]
-    return hits
+# ---- field -> bundle index (built once, cached; so lookups don't rescan ~50 bundles) ----
+INDEX_NAME = ".ff9mapkit-field-index.json"
+
+
+def _index_path(game=None) -> Path:
+    return _streaming_assets(game) / INDEX_NAME
+
+
+def build_field_index(game=None, *, force=False, verbose=True) -> dict:
+    """Map every field folder -> its p0data bundle. Cached next to the bundles; first build scans
+    them all (~1-2 min), then it's instant. `force=True` rebuilds."""
+    UnityPy = _unitypy()
+    idx = _index_path(game)
+    if idx.exists() and not force:
+        try:
+            return json.loads(idx.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+    index = {}
+    bundles = _bundles(game)
+    for i, path in enumerate(bundles):
+        if verbose:
+            print(f"  indexing {i + 1}/{len(bundles)} {os.path.basename(path)} ...", flush=True)
+        try:
+            env = UnityPy.load(path)
+        except Exception:
+            continue
+        bn = os.path.basename(path)
+        for k in env.container:
+            m = re.search(r"fieldmaps/([^/]+)/", k.lower())
+            if m:
+                index.setdefault(m.group(1), bn)
+    try:
+        idx.write_text(json.dumps(index, indent=0), encoding="utf-8")
+    except OSError:
+        pass
+    if verbose:
+        print(f"  indexed {len(index)} fields -> {idx}")
+    return index
+
+
+def resolve_field(field: str, game=None):
+    """(folder, bundle) for a field name (full FBG, bare mapid, or unique substring) via the index."""
+    want = re.sub(r"^fbg_n\d+_", "", field.strip().lower())
+    index = build_field_index(game, verbose=True)
+    if field.strip().lower() in index:
+        f = field.strip().lower()
+        return f, index[f]
+    hits = [f for f in index if want in f]
+    if not hits:
+        raise FileNotFoundError(f"no field matches {field!r}. Try: ff9mapkit list-fields {want}")
+    if len(hits) > 1:
+        raise ValueError(f"{field!r} matches {len(hits)} fields; be more specific. e.g. {sorted(hits)[:8]}")
+    return hits[0], index[hits[0]]
+
+
+def list_fields(pattern=None, game=None):
+    """Sorted (folder, area, mapid) for all fields (optionally filtered by substring)."""
+    index = build_field_index(game, verbose=False)
+    pat = pattern.lower() if pattern else None
+    out = []
+    for folder in sorted(index):
+        if pat and pat not in folder:
+            continue
+        try:
+            area, mapid = parse_fbg_folder(folder)
+        except ValueError:
+            continue
+        out.append((folder, area, mapid))
+    return out
 
 
 def find_field(field: str, game=None, bundle: str | None = None):
-    """Locate a field's bundle + container paths. Returns (bundle_path, folder, {role: key}).
+    """Locate a field's bundle + container paths. Returns (bundle_path, folder, {role: key}, env).
 
-    `bundle` (e.g. 'p0data141.bin') short-circuits the scan when you know where it lives."""
+    Uses the cached field index unless `bundle` (e.g. 'p0data141.bin') is given to short-circuit it."""
     UnityPy = _unitypy()
     sa = _streaming_assets(game)
-    cand = [str(sa / bundle)] if bundle else _bundles(game)
-    for path in cand:
-        env = UnityPy.load(path)
-        keys = list(env.container.keys())
-        hits = _match_field_folder(keys, field)
+    folder = None
+    if not bundle:
+        folder, bundle = resolve_field(field, game)
+    env = UnityPy.load(str(sa / bundle))
+    if folder is None:                                  # explicit bundle: match within it
+        want = re.sub(r"^fbg_n\d+_", "", field.strip().lower())
+        folders = {m.group(1) for k in env.container
+                   if (m := re.search(r"fieldmaps/([^/]+)/", k.lower()))}
+        hits = [f for f in folders if want in f]
         if not hits:
+            raise FileNotFoundError(f"field {field!r} not in {bundle}")
+        folder = field.strip().lower() if field.strip().lower() in hits else hits[0]
+    roles = {}
+    for k in env.container:
+        kl = k.lower()
+        if f"fieldmaps/{folder}/" not in kl:
             continue
-        if len(hits) > 1 and field.strip().lower() not in hits:
-            raise ValueError(f"{field!r} is ambiguous in {os.path.basename(path)}: {hits}")
-        folder = hits[0] if field.strip().lower() not in hits else field.strip().lower()
-        roles = {}
-        for k, v in env.container.items():
-            kl = k.lower()
-            if f"fieldmaps/{folder}/" not in kl:
-                continue
-            base = kl.rsplit("/", 1)[-1]
-            if base == "atlas.png":
-                roles["atlas"] = k
-            elif base.endswith(".bgi.bytes"):
-                roles["bgi"] = k
-            elif base.endswith(".bgs.bytes") and not re.search(r"_(es|fr|gr|it|jp)\.bgs", base):
-                roles["bgs"] = k                       # default (us/en) scene
-        return path, folder, roles, env
-    raise FileNotFoundError(f"field {field!r} not found in any p0data bundle under {sa}")
+        base = kl.rsplit("/", 1)[-1]
+        if base == "atlas.png":
+            roles["atlas"] = k
+        elif base.endswith(".bgi.bytes"):
+            roles["bgi"] = k
+        elif base.endswith(".bgs.bytes") and not re.search(r"_(es|fr|gr|it|jp)\.bgs", base):
+            roles["bgs"] = k                            # default (us/en) scene
+    return str(sa / bundle), folder, roles, env
 
 
 def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=False) -> dict:
@@ -168,14 +229,15 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     return meta
 
 
-def write_field_project(field: str, out_dir, *, name: str, field_id: int = 4003,
+def write_field_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                         text_block: int = 1073, game=None, bundle=None, want_atlas=False):
     """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx in out_dir.
 
-    `name` is the custom script/field id (must be unique vs real fieldids; e.g. 'GRGR_FORK').
-    Returns (metadata, field_toml_path). `ff9mapkit build <path>` compiles it; the author fills in
-    NPCs/gateways/dialogue first."""
+    `name` is the custom script/field id (must be unique vs real fieldids; defaults to
+    '<MAPID-first-token>_FORK', e.g. 'GRGR_FORK'). Returns (metadata, field_toml_path).
+    `ff9mapkit build <path>` compiles it; the author fills in NPCs/gateways/dialogue first."""
     meta = extract_field(field, out_dir, game=game, bundle=bundle, want_atlas=want_atlas)
+    name = name or (meta["mapid"].split("_")[0] + "_FORK")
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
     x, z = meta["player_start"]

@@ -189,6 +189,39 @@ def _cmd_pack(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_import(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from . import extract
+    try:
+        meta, toml = extract.write_field_project(
+            args.field, Path(args.out), name=args.name, field_id=args.id,
+            game=args.game, want_atlas=args.atlas)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    cm = meta["camera"]
+    print(f"imported {meta['field']}  (area {meta['area']}, mapid {meta['mapid']})")
+    print(f"  camera : pitch {cm['pitch_deg']} fov {cm['fov_deg']} range {cm['range']}"
+          f"{'  SCROLLING' if meta['scrolling'] else ''}")
+    print(f"  spawn  : {meta['player_start']}   walkmesh x{meta['walkmesh_bounds']['x']} z{meta['walkmesh_bounds']['z']}")
+    print(f"  wrote  : {toml}")
+    print(f"Next: edit it (add [[npc]]/[[gateway]]/dialogue), then: ff9mapkit build {toml}")
+    return 0
+
+
+def _cmd_list_fields(args: argparse.Namespace) -> int:
+    from . import extract
+    try:
+        rows = extract.list_fields(args.pattern, game=args.game)
+    except (RuntimeError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    for folder, area, mapid in rows:
+        print(f"  area {area:>2}  {mapid:<28}  ({folder})")
+    print(f"{len(rows)} field(s)")
+    return 0
+
+
 def _not_yet(phase: str):
     def _run(args: argparse.Namespace) -> int:
         print(f"'{args._cmd}' is not implemented yet (coming in {phase}).", file=sys.stderr)
@@ -256,6 +289,18 @@ def build_parser() -> argparse.ArgumentParser:
     pk.add_argument("mod_root", help="path to a built mod folder")
     pk.add_argument("--out", default=None, help="output .zip (default: <modname>.zip)")
     pk.set_defaults(func=_cmd_pack)
+
+    im = sub.add_parser("import", help="fork a REAL FF9 field into an editable field.toml (needs UnityPy)")
+    im.add_argument("field", help="field name: full FBG, bare mapid, or a unique substring (e.g. grgr_map420)")
+    im.add_argument("--out", default=".", help="project dir to write into (default: .)")
+    im.add_argument("--name", default=None, help="custom field/script id (default: <MAPID-first-token>_FORK)")
+    im.add_argument("--id", type=int, default=4003, help="custom field id (default: 4003)")
+    im.add_argument("--atlas", action="store_true", help="also extract the raw atlas.png (packed art)")
+    im.set_defaults(func=_cmd_import)
+
+    lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")
+    lf.add_argument("pattern", nargs="?", default=None, help="substring filter (e.g. alex, treno, grgr)")
+    lf.set_defaults(func=_cmd_list_fields)
 
     return p
 
