@@ -21,7 +21,11 @@ class FF9MK_PT_panel(bpy.types.Panel):
         layout = self.layout
         p = context.scene.ff9mapkit
 
-        layout.operator("ff9mk.setup_scene", icon="SCENE_DATA")
+        row = layout.row(align=True)
+        row.operator("ff9mk.setup_scene", icon="SCENE_DATA", text="New Scene")
+        row.operator("ff9mk.import_field", icon="IMPORT", text="Import Field")
+        if p.borrow_bg:
+            layout.label(text=f"forked from {p.borrow_bg} (BG-borrow)", icon="LINKED")
 
         box = layout.box()
         box.label(text="Camera", icon="CAMERA_DATA")

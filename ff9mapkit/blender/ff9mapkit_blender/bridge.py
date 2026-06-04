@@ -153,6 +153,17 @@ def ff9_verts_to_blender(ff9_verts):
     return [tuple(cam.mv(M_BF, list(v))) for v in ff9_verts]
 
 
+def bgi_walkmesh_to_blender(bgi_bytes):
+    """Parse a REAL field's .bgi walkmesh -> (blender_verts, faces) for an editable Blender mesh.
+
+    Used by 'Import FF9 Field': verts map FF9 world (x, y~0, z) -> Blender via ff9_verts_to_blender;
+    faces are each triangle's 3 vertex indices. Round-trips with blender_verts_to_ff9 (tested)."""
+    wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
+    ff9 = [(v.x, v.y, v.z) for v in wm.verts]
+    faces = [tuple(t.vtx) for t in wm.tris]
+    return ff9_verts_to_blender(ff9), faces
+
+
 # --- floor framing + vertical height guides (scrolling-aware) -----------------------------
 SCREEN_W = 384                              # visible field width; a wider painting scrolls
 

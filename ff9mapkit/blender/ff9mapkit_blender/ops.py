@@ -58,6 +58,9 @@ class FF9MKProps(bpy.types.PropertyGroup):
     field_name: bpy.props.StringProperty(name="Name", default="MY_ROOM")
     area: bpy.props.IntProperty(name="Area", default=11, min=10)
     text_block: bpy.props.IntProperty(name="Text Block", default=1073)
+    # set by "Import FF9 Field": the REAL field's mapid. When non-empty the field is BG-borrow
+    # (engine renders that field's art/walkmesh/camera) and Export emits a borrow field.toml.
+    borrow_bg: bpy.props.StringProperty(name="Borrow BG", default="")
     pitch: bpy.props.FloatProperty(name="Pitch", default=48.0, min=0.0, max=89.0)
     distance: bpy.props.FloatProperty(name="Distance", default=4500.0, min=1.0)
     fov: bpy.props.FloatProperty(name="FOV", default=42.2, min=1.0, max=170.0)
@@ -116,6 +119,31 @@ def _pose_camera(cam_obj, p):
     # camera clip range so the scene isn't culled by Blender's default 1000-unit far clip.
     cam_obj.data.clip_start = 1.0
     cam_obj.data.clip_end = 100000.0
+
+
+def _pose_camera_from_ff9(cam_obj, c0, scrolling):
+    """Pose a Blender camera to match an EXACT FF9 cam.Cam (used by Import FF9 Field)."""
+    rw = float(c0.range[0])
+    b = bridge.ff9_cam_to_blender(c0, sensor_width=rw) if scrolling else bridge.ff9_cam_to_blender(c0)
+    cam_obj.matrix_world = _matrix_from_bridge(b)
+    cam_obj.data.sensor_fit = "HORIZONTAL"
+    cam_obj.data.sensor_width = b["sensor_width"]
+    cam_obj.data.lens = b["lens"]
+    cam_obj.data.clip_start = 1.0
+    cam_obj.data.clip_end = 100000.0
+
+
+def _spawn_at_ff9(context, xz):
+    """Place (or move) the single FF9_Spawn marker at FF9 floor (x, z)."""
+    loc = bridge.ff9_verts_to_blender([(xz[0], 0, xz[1])])[0]
+    e = next((o for o in context.scene.objects if o.get(MARKER_KEY) == "spawn"), None)
+    if e is None:
+        e = bpy.data.objects.new("FF9_Spawn", None)
+        e.empty_display_type = "SPHERE"
+        e.empty_display_size = 180.0
+        e[MARKER_KEY] = "spawn"
+        _link_active(context, e)
+    e.location = loc
 
 
 def active_camera_to_ff9(context):
@@ -626,6 +654,95 @@ class FF9MK_OT_set_spawn(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class FF9MK_OT_import_field(bpy.types.Operator):
+    bl_idname = "ff9mk.import_field"
+    bl_label = "Import FF9 Field"
+    bl_description = ("Load a field forked by `ff9mapkit import <field>`: poses the real camera, "
+                      "builds the real walkmesh, and sets BG-borrow so the engine renders that "
+                      "field's art/walkmesh/camera. Then place NPC/gateway/spawn markers + Export.")
+    bl_options = {"REGISTER", "UNDO"}
+
+    directory: bpy.props.StringProperty(subtype="DIR_PATH")
+    filter_glob: bpy.props.StringProperty(default="*.bgx;*.toml", options={"HIDDEN"})
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        import glob as _glob
+        import tomllib
+        d = self.directory
+        if not d or not os.path.isdir(d):
+            self.report({"ERROR"}, "Pick the folder produced by `ff9mapkit import <field> --out <folder>`.")
+            return {"CANCELLED"}
+        bgx_path = os.path.join(d, "camera.bgx")
+        bgi_path = os.path.join(d, "walkmesh.bgi")
+        tomls = _glob.glob(os.path.join(d, "*.field.toml"))
+        if not (os.path.isfile(bgx_path) and os.path.isfile(bgi_path) and tomls):
+            self.report({"ERROR"}, "Folder needs camera.bgx + walkmesh.bgi + a *.field.toml "
+                                   "(run: ff9mapkit import <field> --out <folder>).")
+            return {"CANCELLED"}
+        with open(tomls[0], "rb") as fh:
+            cfg = tomllib.load(fh)
+        field = cfg.get("field", {})
+        cams = cam.parse_bgx_cameras(bgx_path)
+        if not cams:
+            self.report({"ERROR"}, "no CAMERA in camera.bgx")
+            return {"CANCELLED"}
+        c0 = cams[0]
+        scrolling = c0.range[0] > 384 or c0.range[1] > 448
+
+        p = context.scene.ff9mapkit
+        p.field_id = int(field.get("id", 4003))
+        p.field_name = field.get("name", "FORK")
+        p.area = int(field.get("area", 11))
+        p.text_block = int(field.get("text_block", 1073))
+        p.borrow_bg = field.get("borrow_bg", "")
+        p.scroll_enabled = scrolling
+        if scrolling:
+            p.canvas_w, p.canvas_h = int(c0.range[0]), int(c0.range[1])
+        p.pitch = round(cam.pitch_deg(c0), 2)
+        dec = cam.decompose(c0)
+        if dec["fov_x_deg"]:
+            p.fov = round(dec["fov_x_deg"], 2)
+        C = dec["C"]
+        p.distance = round((C[0] ** 2 + C[1] ** 2 + C[2] ** 2) ** 0.5, 1)
+
+        # camera (exact, from the extracted .bgx — for the Blender view + movement/scroll on export)
+        cam_obj = bpy.data.objects.get(CAMERA_NAME)
+        if cam_obj is None:
+            cam_obj = bpy.data.objects.new(CAMERA_NAME, bpy.data.cameras.new(CAMERA_NAME))
+            context.scene.collection.objects.link(cam_obj)
+        _pose_camera_from_ff9(cam_obj, c0, scrolling)
+        context.scene.camera = cam_obj
+
+        # real walkmesh -> editable mesh (reference for placing markers; borrow ships the real one)
+        with open(bgi_path, "rb") as fh:
+            verts, faces = bridge.bgi_walkmesh_to_blender(fh.read())
+        wm_obj = bpy.data.objects.get(WALKMESH_NAME)
+        if wm_obj is None:
+            wm_obj = bpy.data.objects.new(WALKMESH_NAME, bpy.data.meshes.new(WALKMESH_NAME))
+            context.scene.collection.objects.link(wm_obj)
+        old = wm_obj.data
+        mesh = bpy.data.meshes.new(WALKMESH_NAME)
+        mesh.from_pydata([list(v) for v in verts], [], [list(f) for f in faces])
+        mesh.update()
+        wm_obj.data = mesh
+        if old and old.users == 0:
+            bpy.data.meshes.remove(old)
+        p.walkmesh = wm_obj
+
+        spawn = cfg.get("player", {}).get("spawn")
+        if spawn and len(spawn) == 2:
+            _spawn_at_ff9(context, spawn)
+        p.export_dir = d                       # re-export here, preserving the exact camera.bgx
+
+        self.report({"INFO"}, f"imported {p.borrow_bg or p.field_name}: real camera + walkmesh loaded. "
+                              f"Add NPC/gateway/spawn markers, then Export Field.")
+        return {"FINISHED"}
+
+
 class FF9MK_OT_export_field(bpy.types.Operator):
     bl_idname = "ff9mk.export_field"
     bl_label = "Export Field"
@@ -647,6 +764,23 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             self.report({"ERROR"}, f"can't write to {out}: {e.strerror}. Save the .blend or set "
                                    f"'Export to' to a real folder.")
             return {"CANCELLED"}
+
+        if p.borrow_bg:
+            # BG-borrow (imported field): the engine renders the REAL field's art+walkmesh+camera,
+            # so we ship only the camera (its yaw drives movement) + a borrow field.toml + markers.
+            # Preserve the EXACT extracted camera.bgx if it's already here; else write the posed one.
+            cbgx = os.path.join(out, "camera.bgx")
+            if not os.path.isfile(cbgx):
+                with open(cbgx, "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write(bgx.build(c, [], header_comment=f"{p.field_name} camera (borrowed)"))
+            npcs, gateways, spawn = _collect_markers(context)
+            with open(os.path.join(out, f"{p.field_name.lower()}.field.toml"), "w",
+                      encoding="utf-8", newline="\n") as fh:
+                fh.write(_field_toml_borrow(p, npcs, gateways, spawn))
+            self.report({"INFO"}, f"exported BG-borrow fork of {p.borrow_bg}: {len(npcs)} NPC(s), "
+                                  f"{len(gateways)} gateway(s) -> {out}; run: ff9mapkit build "
+                                  f"{p.field_name.lower()}.field.toml")
+            return {"FINISHED"}
 
         # camera.bgx (camera-only; field.toml borrows it)
         with open(os.path.join(out, "camera.bgx"), "w", encoding="utf-8", newline="\n") as fh:
@@ -729,11 +863,37 @@ def _field_toml(p, layers, npcs=(), gateways=(), spawn=None):
     )
 
 
+def _field_toml_borrow(p, npcs=(), gateways=(), spawn=None):
+    """field.toml for a BG-borrow fork (imported real field): no scene/walkmesh/layers — the engine
+    renders the real field's; we add a custom script + content markers."""
+    player_block = (bridge.player_to_toml(spawn) + "\n") if spawn is not None else "[player]\nspawn = [0, 0]\n"
+    npc_block = (bridge.npcs_to_toml(npcs) + "\n") if npcs else (
+        '# [[npc]]\n#   name = "Someone"\n#   preset = "vivi"\n#   pos = [0, 0]\n#   dialogue = "Hello."\n')
+    gw_block = (bridge.gateways_to_toml(gateways) + "\n") if gateways else (
+        '# [[gateway]]\n#   to = 100\n#   entrance = 204\n#   zone = [[-200,200],[200,200],[200,400],[-200,400]]\n')
+    scroll = "[camera.scroll]\nenabled = true\n" if p.scroll_enabled else ""
+    return (
+        f"# {p.field_name} — forked from real field {p.borrow_bg} (BG-borrow) via FF9 Map Kit.\n"
+        f"# Renders that field's art + walkmesh + camera; your markers add the content. Compile:\n"
+        f"#   ff9mapkit build {p.field_name.lower()}.field.toml\n\n"
+        f"[field]\n"
+        f"id = {p.field_id}\n"
+        f'name = "{p.field_name}"\n'
+        f"area = {p.area}\n"
+        f'borrow_bg = "{p.borrow_bg}"\n'
+        f"text_block = {p.text_block}\n\n"
+        f"[camera]\n"
+        f'borrow = "camera.bgx"\n'
+        f"{scroll}\n"
+        f"{player_block}\n{npc_block}\n{gw_block}"
+    )
+
+
 CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera,
            FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_paint_template,
            FF9MK_OT_add_layer, FF9MK_OT_clear_layers,
            FF9MK_OT_add_npc, FF9MK_OT_add_gateway, FF9MK_OT_set_spawn,
-           FF9MK_OT_export_field)
+           FF9MK_OT_import_field, FF9MK_OT_export_field)
 
 
 def register():

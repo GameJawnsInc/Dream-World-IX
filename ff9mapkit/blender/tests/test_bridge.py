@@ -158,3 +158,17 @@ def test_paint_template_lines():
     (_, by0), (_, by1) = t["outline"][0]            # back edge
     (_, fy0), _ = t["outline"][2]                   # front edge start
     assert max(by0, by1) < fy0
+
+
+def test_bgi_walkmesh_to_blender_roundtrip():
+    """Import FF9 Field: a real field's .bgi -> editable Blender mesh -> back to FF9 = same verts."""
+    from ff9mapkit_blender.vendor import bgi
+    data = bgi.quad([(-100, 50), (100, 50), (100, -50), (-100, -50)]).to_bytes()
+    wm = bgi.BgiWalkmesh.from_bytes(data)
+    expected = [(v.x, v.y, v.z) for v in wm.verts]
+    bl_verts, faces = bridge.bgi_walkmesh_to_blender(data)
+    assert len(bl_verts) == len(expected) == 4
+    assert len(faces) == len(wm.tris) == 2
+    back = bridge.blender_verts_to_ff9(bl_verts)
+    for a, b in zip(back, expected):
+        assert all(abs(x - y) < 1e-6 for x, y in zip(a, b))
