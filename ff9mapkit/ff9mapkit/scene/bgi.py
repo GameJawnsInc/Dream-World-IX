@@ -28,13 +28,17 @@ import struct
 from dataclasses import dataclass, field
 
 MAGIC = 0xACDCDEAD
-# The engine projects the player/walkmesh in the RAW .bgi frame directly (FieldMap projects
-# FieldMapActorController.curPos, set from bgi.charPos, with NO orgPos shift). So a walkmesh vert
-# drawn via cam.to_canvas (the exact GTE projection) lands where it appears in-game -- the
-# walkmesh imports onto its painted art with ZERO offset. (Verified on GRGR: charPos -> to_canvas
-# lands dead-on the floor where the player spawns.) The all-positive corner-origin verts simply
-# mean the walkmesh legitimately extends past the visible screen edges (e.g. tunnels); that is NOT
-# an offset to correct. orgPos/curPos are runtime floor-movement bookkeeping, not a render transform.
+# THE FRAME (confirmed from Memoria source -- WalkMesh.cs:53,141,227):
+#     world_vertex = vertexList[i] + floor.org + bgi.orgPos          (collision uses *.cur, equal
+#                                                                      to *.org for a static field)
+# So orgPos and each floor.org ARE a render/collision transform, NOT mere bookkeeping. A real .bgi
+# stores each FLOOR's verts CORNER-ORIGIN in the floor's own frame and tiles them with floor.org,
+# with bgi.orgPos placing the whole mesh in the world (== header.minPos by convention). The IMPORTER
+# inverts this in BgiWalkmesh.world_verts(); this EXPORTER is its inverse: for authored/edited
+# WORLD-coordinate geometry it emits orgPos=0 and every floor.org=0, so world_vertex = vertexList[i]
+# verbatim -- what you author is exactly where the engine renders it. (header.minPos/maxPos and the
+# per-floor min/max are loaded but UNUSED at runtime -- WavefrontObject.cs sets them, nothing reads
+# them; charPos is the debug spawn. Verified in-game across GLGV/GRGR/BRMC/BMVL, 1..7 floors.)
 HEADER_SIZE = 64           # magic+dataSize+5*vec(30)+activeFloor/Tri(4)+12*u16(24)
 FIRST_SECTION_REL = 0x3C   # triOffset (relative to byte 4)
 TRI_SIZE, EDGE_SIZE, ANM_SIZE, FLOOR_SIZE, NORMAL_SIZE, VERT_SIZE = 40, 4, 16, 32, 16, 6
@@ -363,20 +367,14 @@ class BgiWalkmesh:
 
 # ----------------------------------------------------------------------------- builders
 
-def build_flat(verts, faces, *, tri_flags: int = 1, floor_flags: int = 0,
-               header_vec=(0, 0, 300)) -> BgiWalkmesh:
-    """Build a complete single-floor walkmesh from world-space verts + triangle faces.
+def _bbox(verts):
+    xs = [v[0] for v in verts]
+    ys = [v[1] for v in verts]
+    zs = [v[2] for v in verts]
+    return (min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs))
 
-    verts : iterable of (x, y, z) — FF9 world coords (flat floor => y = 0)
-    faces : iterable of (i, j, k) — 0-based vertex indices (one triangle each)
-    Computes triangle centers, the 3-edges-per-triangle table, neighbor/edgeClone links via
-    shared-vertex analysis, and one floor covering all triangles. Reproduces the structure
-    Memoria's editor emits, byte-for-byte, for the proven flat-quad case.
-    """
-    m = BgiWalkmesh()
-    hv = Vec3(*header_vec)
-    m.orgPos, m.curPos, m.minPos, m.maxPos, m.charPos = (Vec3(*header_vec) for _ in range(5))
-    verts = list(verts)
+
+def _check_int16(verts):
     for (x, y, z) in verts:                       # .bgi stores verts as Int16
         for v in (x, y, z):
             if not (-32768 <= round(v) <= 32767):
@@ -384,9 +382,58 @@ def build_flat(verts, faces, *, tri_flags: int = 1, floor_flags: int = 0,
                     f"walkmesh vertex coordinate {v:.0f} exceeds the .bgi Int16 range +/-32767 "
                     f"-- the room/floor is too large in world units; scale it down (FF9 rooms are "
                     f"typically a few thousand units across).")
-    m.verts = [Vec3(int(round(x)), int(round(y)), int(round(z))) for (x, y, z) in verts]
+
+
+def build(verts, faces, *, floor_ids=None, tri_flags: int = 1, floor_flags: int = 0,
+          org=(0, 0, 0), header_min=None, header_max=None, char=None) -> BgiWalkmesh:
+    """Build a complete walkmesh from WORLD-space verts + triangle faces (the EXPORTER).
+
+    This is the inverse of :meth:`BgiWalkmesh.world_verts`: with ``org=(0,0,0)`` and every floor at
+    ``org=(0,0,0)`` the engine renders ``world = vert + 0 + 0``, so the verts you pass ARE the
+    in-game positions (see the frame note at the top of this module).
+
+    verts     : iterable of (x, y, z) — FF9 WORLD coords (flat floor => y = 0)
+    faces     : iterable of (i, j, k) — 0-based vertex indices (one triangle each)
+    floor_ids : optional per-FACE floor id (len == len(faces)). ``None`` => one floor with every
+                triangle (the flat case). Distinct ids => one BGI floor each — a multi-level room or
+                a faithful re-export of an imported real field (e.g. GRGR's 7 floors). Tris are
+                grouped by id; each floor sits at org=cur=(0,0,0) (verts already carry world height).
+
+    Computes triangle centers, the 3-edges-per-triangle table, and neighbor/edgeClone links via
+    shared-vertex analysis. header.minPos/maxPos default to the true world bounding box (informative;
+    the engine ignores them — see the frame note); charPos (debug spawn) defaults to the bbox centre.
+    """
+    verts = [(round(x), round(y), round(z)) for (x, y, z) in verts]
+    faces = [tuple(f) for f in faces]
+    _check_int16(verts)
+    if floor_ids is None:
+        floor_ids = [0] * len(faces)
+    if len(floor_ids) != len(faces):
+        raise ValueError(f"floor_ids has {len(floor_ids)} entries for {len(faces)} faces")
+
+    m = BgiWalkmesh()
+    bmin, bmax = _bbox(verts) if verts else ((0, 0, 0), (0, 0, 0))
+    hmin = tuple(header_min) if header_min is not None else bmin
+    hmax = tuple(header_max) if header_max is not None else bmax
+    hchar = tuple(char) if char is not None else ((bmin[0] + bmax[0]) // 2,
+                                                  (bmin[1] + bmax[1]) // 2,
+                                                  (bmin[2] + bmax[2]) // 2)
+    m.orgPos = Vec3(*org)
+    m.curPos = Vec3(*org)
+    m.minPos = Vec3(*hmin)
+    m.maxPos = Vec3(*hmax)
+    m.charPos = Vec3(*hchar)
+    m.verts = [Vec3(x, y, z) for (x, y, z) in verts]
+
+    # distinct floor ids in first-seen order -> contiguous BGI floor indices 0..N-1
+    order = []
+    for fid in floor_ids:
+        if fid not in order:
+            order.append(fid)
+    remap = {fid: i for i, fid in enumerate(order)}
+
     for ti, (i, j, k) in enumerate(faces):
-        t = Tri(tri_flags=tri_flags, floor_ndx=0, normal_ndx=-1)
+        t = Tri(tri_flags=tri_flags, floor_ndx=remap[floor_ids[ti]], normal_ndx=-1)
         t.vtx = [i, j, k]
         t.edge = [ti * 3 + 0, ti * 3 + 1, ti * 3 + 2]
         cx = (m.verts[i].x + m.verts[j].x + m.verts[k].x) / 3.0
@@ -395,10 +442,25 @@ def build_flat(verts, faces, *, tri_flags: int = 1, floor_flags: int = 0,
         t.center = Vec3(int(round(cx)), int(round(cy)), int(round(cz)))
         m.tris.append(t)
         m.edges += [Edge(0, -1), Edge(0, -1), Edge(0, -1)]
-    floor = Floor(flags=floor_flags, ndx=0, tri_ndx_list=list(range(len(m.tris))))
-    m.floors.append(floor)
+
+    for fi, fid in enumerate(order):              # floor.org=cur=min=max=(0,0,0): verts carry world
+        tris = [ti for ti, f in enumerate(floor_ids) if f == fid]
+        m.floors.append(Floor(flags=floor_flags, ndx=fi, tri_ndx_list=tris))
     m.rebuild_neighbors()
     return m
+
+
+def build_flat(verts, faces, *, tri_flags: int = 1, floor_flags: int = 0,
+               header_vec=(0, 0, 300)) -> BgiWalkmesh:
+    """Legacy single-floor builder with a UNIFORM header vector (a thin wrapper over :func:`build`).
+
+    Equivalent to ``build(..., org=header_vec, header_min/max=header_vec, char=header_vec)`` with one
+    floor — kept so the proven HUT / auto-frame pipeline (calibrated against ``header_vec=(0,0,300)``)
+    stays byte-for-byte unchanged. NEW multi-floor / world-frame authoring calls :func:`build`
+    (``org`` defaults to 0, so what you author is exactly where the engine renders it).
+    """
+    return build(verts, faces, floor_ids=None, tri_flags=tri_flags, floor_flags=floor_flags,
+                 org=header_vec, header_min=header_vec, header_max=header_vec, char=header_vec)
 
 
 def quad(corners) -> BgiWalkmesh:
@@ -418,13 +480,15 @@ def quad(corners) -> BgiWalkmesh:
     return build_flat(verts, [(0, 1, 2), (0, 2, 3)])
 
 
-def load_obj(path):
-    """Parse a Wavefront .obj into (verts, faces). Vertices are FF9 world coords.
+def load_obj_floors(path):
+    """Parse a Wavefront .obj into (verts, faces, floor_ids), one floor per ``o``/``g`` object.
 
-    Faces with >3 vertices are fan-triangulated. ``v``/``f`` lines only; ``vn``/``vt``/``o``
-    are ignored (all walkpaths merge into one flat floor). Face vertex refs may be ``a//n``.
+    Each ``o <name>`` (or ``g <name>``) starts a new floor; a repeated name reuses its floor; faces
+    before any object go to floor 0. Vertices are FF9 world coords (shared across floors — OBJ vertex
+    indices are file-global). Faces with >3 verts are fan-triangulated; refs may be ``a/b/c``.
     """
-    verts, faces = [], []
+    verts, faces, floor_ids = [], [], []
+    names, cur, next_id = {}, 0, 0
     with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             s = line.split()
@@ -432,14 +496,33 @@ def load_obj(path):
                 continue
             if s[0] == "v":
                 verts.append((float(s[1]), float(s[2]), float(s[3])))
+            elif s[0] in ("o", "g"):
+                name = s[1] if len(s) > 1 else ""
+                if name not in names:
+                    names[name] = next_id
+                    next_id += 1
+                cur = names[name]
             elif s[0] == "f":
                 idx = [int(tok.split("/")[0]) - 1 for tok in s[1:]]  # 1-based -> 0-based
                 for k in range(1, len(idx) - 1):
                     faces.append((idx[0], idx[k], idx[k + 1]))
+                    floor_ids.append(cur)
+    return verts, faces, floor_ids
+
+
+def load_obj(path):
+    """Parse a Wavefront .obj into (verts, faces) — floors merged. See :func:`load_obj_floors`."""
+    verts, faces, _ = load_obj_floors(path)
     return verts, faces
 
 
 def obj_to_bgi(path, **kwargs) -> bytes:
-    """Convert a Wavefront .obj walkmesh (FF9 world coords) to .bgi bytes."""
-    verts, faces = load_obj(path)
+    """Convert a Wavefront .obj walkmesh (FF9 world coords) to .bgi bytes.
+
+    Multiple ``o``/``g`` objects => a multi-floor world-frame walkmesh (:func:`build`, org=0); a
+    single object => the legacy flat builder (:func:`build_flat`), so existing output is unchanged.
+    """
+    verts, faces, floor_ids = load_obj_floors(path)
+    if len(set(floor_ids)) > 1:
+        return build(verts, faces, floor_ids=floor_ids).to_bytes()
     return build_flat(verts, faces, **kwargs).to_bytes()
