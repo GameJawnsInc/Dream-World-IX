@@ -74,7 +74,8 @@ def wait(n: int) -> bytes:                          # 0x22
 
 RETURN = bytes([0x04])          # function return (level-0 return drives ExitBattleEnd)
 NOP = bytes([0x00])
-ENABLE_MOVE = bytes([0x2E])     # EnableMove (0 args)
+ENABLE_MOVE = bytes([0x2E])     # EnableMove (0 args) -- give the player control
+DISABLE_MOVE = bytes([0x2D])    # DisableMove (0 args) -- lock control (cutscenes)
 DEFINE_PLAYER_CHARACTER = bytes([0x2C])
 
 

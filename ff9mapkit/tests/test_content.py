@@ -12,7 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from ff9mapkit import data
-from ff9mapkit.content import camera, encounter, event, gateway, music, npc, region, reinit, text
+from ff9mapkit.content import (camera, cutscene, encounter, event, gateway, music, npc, region,
+                               reinit, text)
 from ff9mapkit.eb import EbScript, opcodes
 from ff9mapkit.eb.disasm import iter_code
 
@@ -258,6 +259,37 @@ def test_event_requires_flag():
     _, rng = _event_region(eb)
     # movement gate, then the requires-flag gate, then the body
     assert rng.startswith(region.MOVEMENT_GATE + region.flag_gate(region.GLOB_BOOL, 215))
+
+
+def test_cutscene_body_once_structure():
+    steps = [cutscene.say(500), cutscene.wait(30), cutscene.set_flag(210)]
+    body = cutscene.build_body(steps, once_flag=230)
+    # `if (!once230) { DisableMove; <steps>; EnableMove; once230 = 1 }` then return
+    assert body.startswith(region.cond_not(region.GLOB_BOOL, 230))     # the once guard
+    assert opcodes.DISABLE_MOVE in body and opcodes.ENABLE_MOVE in body
+    assert opcodes.window_sync(1, 128, 500) in body                   # say -> WindowSync
+    assert opcodes.wait(30) in body
+    assert region.set_var(region.GLOB_BOOL, 210, 1) in body           # the set_flag step
+    assert region.set_var(region.GLOB_BOOL, 230, 1) in body           # once-guard set on completion
+    assert body.endswith(opcodes.RETURN)
+    # DisableMove precedes EnableMove (control locked for the duration)
+    assert body.index(opcodes.DISABLE_MOVE) < body.index(opcodes.ENABLE_MOVE)
+
+
+def test_cutscene_body_no_once_is_unguarded():
+    body = cutscene.build_body([cutscene.wait(5)], once_flag=None)
+    assert body == opcodes.DISABLE_MOVE + cutscene.wait(5) + opcodes.ENABLE_MOVE + opcodes.RETURN
+
+
+def test_cutscene_injected_and_armed():
+    out = cutscene.inject_cutscene(CLEAN, [cutscene.say(500), cutscene.set_flag(210)], once_flag=230)
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out
+    cs = next(e for e in eb.entries if not e.empty and e.type == 0 and e.index != 0
+              and any(i.op == 0x2D for i in iter_code(eb.data, e.func_by_tag(0).abs_start,
+                                                      e.func_by_tag(0).abs_end)))
+    assert cs is not None
+    assert 0x07 in _ops(eb, 0, 0)                                     # InitCode arms it from Main_Init
 
 
 def test_text_mes_format_and_mapping():

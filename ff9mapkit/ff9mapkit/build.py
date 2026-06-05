@@ -24,6 +24,7 @@ from pathlib import Path
 
 from .config import LANGS, ModLayout, fbg_name
 from .content import camera as _camera
+from .content import cutscene as _cutscene
 from .content import encounter as _enc
 from .content import event as _event
 from .content import gateway as _gw
@@ -206,6 +207,15 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[event]] zone must have 4 or 5 points (got {len(z)})")
         if not any(k in ev for k in ("message", "give_item", "gil", "set_flag")):
             problems.append("[[event]] needs at least one action (message / give_item / gil / set_flag)")
+    cs = project.raw.get("cutscene")
+    if cs is not None:
+        steps = cs.get("steps")
+        if not isinstance(steps, list) or not steps:
+            problems.append("[cutscene] needs a non-empty steps = [ {say=...}, {wait=...}, ... ] list")
+        else:
+            for k, s in enumerate(steps):
+                if sum(key in s for key in ("say", "wait", "set_flag")) != 1:
+                    problems.append(f"[cutscene] step {k} needs exactly one of: say / wait / set_flag")
     return problems
 
 
@@ -230,6 +240,14 @@ def lint_logic(project: FieldProject) -> list[str]:
             else:
                 auto_once.add(_event.EVENT_FLAG_BASE + counter)
             counter += 1
+    cs = raw.get("cutscene")           # a cutscene also sets flags (set_flag steps + its own once-flag)
+    if cs:
+        for step in cs.get("steps", []):
+            if "set_flag" in step:
+                settable.add(int(step["set_flag"][0])); explicit.add(int(step["set_flag"][0]))
+        if cs.get("once", True):
+            f = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
+            settable.add(f); explicit.add(f)
     settable |= auto_once
 
     # everything that READS a flag (require SET needs a setter; require CLEAR is fine by default).
@@ -603,9 +621,11 @@ def _gate_of(d: dict):
 
 
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
-                 control_value: int = -1, event_txids: dict | None = None) -> bytes:
+                 control_value: int = -1, event_txids: dict | None = None,
+                 cutscene_txids: list | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
     event_txids = event_txids or {}
+    cutscene_txids = cutscene_txids or []
     eb = _data.blank_field_bytes(lang)
     # movement control-direction first (shift-free, before any appends that move bytecode)
     if control_value != -1:
@@ -691,6 +711,23 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                           "requires_flag": gf, "requires_set": gs})
         eb = _event.inject_events(eb, specs)
 
+    # cutscene: an ordered, control-locked sequence on entry (once). v1 steps = say / wait / set_flag.
+    cs = project.raw.get("cutscene")
+    if cs:
+        steps, say_i = [], 0
+        for step in cs.get("steps", []):
+            if "say" in step:
+                steps.append(_cutscene.say(cutscene_txids[say_i])); say_i += 1
+            elif "wait" in step:
+                steps.append(_cutscene.wait(int(step["wait"])))
+            elif "set_flag" in step:
+                sf = step["set_flag"]
+                steps.append(_cutscene.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
+        once_flag = None
+        if cs.get("once", True):
+            once_flag = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
+        eb = _cutscene.inject_cutscene(eb, steps, once_flag=once_flag)
+
     # player spawn (order-independent w.r.t. the appends above)
     if "player" in project.raw and "spawn" in project.raw["player"]:
         sp = project.raw["player"]["spawn"]
@@ -725,10 +762,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 
 
 def collect_text(project: FieldProject):
-    """Return (mes_body, npc_txids, event_txids). All field text (NPC dialogue + event messages) goes
-    in one .mes block, NPCs first (so a field with no events is byte-identical to the old layout)."""
+    """Return (mes_body, npc_txids, event_txids, cutscene_txids). All field text (NPC dialogue, event
+    messages, cutscene 'say' lines) shares one .mes block, NPCs first (so a field with no events/
+    cutscene is byte-identical to the old layout); cutscene_txids is a list (one per 'say' step)."""
     lines = []
-    npc_pos, ev_pos = {}, {}
+    npc_pos, ev_pos, cs_pos = {}, {}, []
     for i, n in enumerate(project.raw.get("npc", [])):
         if "dialogue" in n:
             npc_pos[i] = len(lines)
@@ -737,12 +775,17 @@ def collect_text(project: FieldProject):
         if "message" in ev:
             ev_pos[j] = len(lines)
             lines.append(ev["message"])
+    for step in project.raw.get("cutscene", {}).get("steps", []):
+        if "say" in step:
+            cs_pos.append(len(lines))
+            lines.append(step["say"])
     if not lines:
-        return "", {}, {}
+        return "", {}, {}, []
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
-    return body, npc_txids, event_txids
+    cutscene_txids = [mapping[p] for p in cs_pos]
+    return body, npc_txids, event_txids, cutscene_txids
 
 
 # --------------------------------------------------------------------------- the build
@@ -807,10 +850,11 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             _validate_content_placement(project, ref, warnings)
 
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     for lang in langs:
-        eb = build_script(project, lang, txids, control_value, event_txids=event_txids)
+        eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
+                          cutscene_txids=cutscene_txids)
         layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
         if mes_body:
             layout.mes_path(lang, project.text_block).write_text(mes_body, encoding="utf-8", newline="\n")

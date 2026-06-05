@@ -267,6 +267,35 @@ entity names. `build` runs the same lints and shows them as warnings.
 
 ---
 
+## `[cutscene]` (optional)
+
+An ordered, **control-locked** scripted sequence that plays on field entry — the one thing the
+declarative content can't express (steps run *in order*). The player can't move while it runs.
+
+```toml
+[cutscene]
+once = true          # play once, then never again (default; flag-gated). false = every entry.
+# flag = 230         # explicit GlobBool for the once-guard (default 230)
+steps = [
+  { say = "The hut is silent..." },   # a window; blocks until the player dismisses it
+  { wait = 30 },                        # pause 30 frames
+  { say = "...for now." },
+  { set_flag = [210, 1] },              # advance/record story state mid-scene
+]
+```
+
+| step (one key each) | meaning |
+|---|---|
+| `say` | a dialogue/narration window (added to the field's `.mes`). |
+| `wait` | pause this many frames. |
+| `set_flag` | `[var, value]` — set a GlobBool story flag mid-scene. |
+
+> v1 covers the controller-level steps (text / timing / flags). Actor movement, animation, and camera
+> pans are a later layer — they target a specific actor's context. The scene auto-locks control
+> (`DisableMove`…`EnableMove`); with `once` it won't replay on re-entry.
+
+---
+
 ## `[encounter]` (optional)
 
 | key | meaning |

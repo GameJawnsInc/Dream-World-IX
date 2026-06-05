@@ -491,6 +491,25 @@ def test_validate_npc_needs_position(tmp_path):
     assert any("has no position" in m for m in probs)
 
 
+def test_cutscene_field_builds(tmp_path):
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.eb.disasm import iter_code
+    p = tmp_path / "x.field.toml"
+    p.write_text(_LINT_BASE + '[cutscene]\nsteps = [ {say="hi"}, {wait=20}, {set_flag=[210,1]} ]\n',
+                 encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out)
+    L = ModLayout(out)
+    eb = EbScript.from_bytes(L.eb_path("us", "EVT_X.eb.bytes").read_bytes())
+    cs = next(e for e in eb.entries if not e.empty and e.type == 0 and e.index != 0
+              and any(i.op == 0x2D for i in iter_code(eb.data, e.func_by_tag(0).abs_start,
+                                                      e.func_by_tag(0).abs_end)))
+    ops = [i.op for i in iter_code(eb.data, cs.func_by_tag(0).abs_start, cs.func_by_tag(0).abs_end)]
+    assert 0x2D in ops and 0x1F in ops and 0x2E in ops    # DisableMove, WindowSync, EnableMove
+    assert "hi" in L.mes_path("us", 1073).read_text(encoding="utf-8")
+
+
 def test_validate_rejects_low_area(tmp_path):
     bad = tmp_path / "bad.field.toml"
     bad.write_text('[field]\nid=4002\nname="X"\narea=7\n[camera]\npitch=48\n', encoding="utf-8")
