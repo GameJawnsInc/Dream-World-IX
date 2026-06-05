@@ -1198,3 +1198,16 @@ Tagged `KNOWN_GOOD-s18-from-scratch`.
 **Engine/game state:** clean S12 engine redeployed (probe removed; fade-cache + booster intact). Field 4003 = OFFCAL 30° grid (revert `tools/scroll_out/revert_deploy.py`); Alexandria fast-warp active. No KNOWN_GOOD tag (measurement + offline kit change; the in-game proof was the OFFCAL grid, already validated).
 
 **Deferred (optional, needs care + a playtest):** fully ripping the org=300/offset=298 double-count from the LEGACY path (so all rooms are convention-B `org=0`) would require re-aligning the hut example's art — "moves verified geometry," so left alone. New work should just use `frame="world"`.
+
+### 2026-06-05 — Session 18 (cont) — Legacy double-count RIPPED + PIL dropped from the guide (cleanups, in-game smoke-tested)
+
+Acting on the measured offset=0 + user's "no need for legacy stuff":
+- **Ripped the org=300/character_offset double-count.** `build.resolve_walkmesh` now builds EVERY authored walkmesh in true world coords (org=0, no shift) — the honest model. Removed `_shift_toward_camera` + the character_offset usage (the `character_offset`/`frame` keys are accepted-but-ignored for back-compat). `frame="world"` is the default behavior now. `bgi.build_flat`/`bgi.quad` (org=300) KEPT only as codec functions — the byte-golden + importer/exporter reproduce real fields' org. Scaffold, Blender from-scratch export, and the scroll-demo example emit `frame="world"` instead of `character_offset`.
+- **Dropped PIL from the guide.** `guide.render_paint_guide`/`render_paint_template` are now pure-stdlib (reuse `placeholder._png_rgba` + a new `placeholder.draw_line` + `_fill_quad`; `_height_segments` replaces the PIL `_draw_height_guides`). Coordinate labels dropped (the CLI prints them). Kit core (guide/build/pack/placeholder) is PIL-free; only `extract.py`'s editable-art compositing lazy-imports PIL (fork-only).
+- Tests updated to the honest model (walkmesh verbatim, no shift); 163 pass; vendor synced. Offline: hut_int rebuilds to ~2u of its old position.
+
+**Human verified (in-game):** deployed a PLAIN-`quad` room (no frame, no character_offset — the exact default path the rip changed) to field 4003; character spawns on the cyan cross + stays centered on the grid cells while walking ("looks good"). So the org=0 default is correct and `character_offset` is confirmed unneeded — no regression. Tagged `KNOWN_GOOD-s18-honest-walkmesh`. Commit `4311b0d`.
+
+**Engine/game state:** clean S12 engine (probe removed). Field 4003 = the plain-quad OFFCAL grid (test field; revert `tools/scroll_out/revert_deploy.py`). Alexandria fast-warp active.
+
+**Agenda remaining (user asked):** (a) multi-camera switch-zones — the last unbuilt camera-movement feature (scene format already parses N cameras; needs bgx.build N-cams + per-layer camera + a SETCAM switch-zone injector); (b) productize/ship — replace the debug warp with a story-positioned entrance, package, the open Memoria PR #1433; (c) more content (rooms/story/encounters). Camera/geometry/art/import/export pipeline is COMPLETE + measured-correct.
