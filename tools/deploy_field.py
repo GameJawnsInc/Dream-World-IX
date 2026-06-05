@@ -16,10 +16,12 @@ FID = 4003
 OUT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "scroll_out")))
 OUT.mkdir(exist_ok=True)
 
-# revert whatever 4003 test is currently deployed (newest revert script wins)
-reverts = sorted(glob.glob(str(OUT / "revert_*.py")), key=os.path.getmtime, reverse=True)
-if reverts:
-    os.system(f'py "{reverts[0]}"')
+# revert the PRIOR field deploy only (our own revert_deploy.py) -- NOT other tools' reverts
+# (e.g. revert_alex_fast_warp.py): the Alexandria fast-warp points at 4003 and must SURVIVE a
+# field deploy, so we never run it here.
+prior = OUT / "revert_deploy.py"
+if prior.exists():
+    os.system(f'py "{prior}"')
 
 # build
 tmp = Path(tempfile.mkdtemp(prefix="deployfield_"))
@@ -60,14 +62,17 @@ dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines(
 dp.append(info["dictionary"][0])
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
 for L in LANGS:
-    p = live.eb_path(L, "EVT_HUT_INT.eb.bytes"); eb = p.read_bytes(); s = EbScript.from_bytes(eb); ok = False
+    p = live.eb_path(L, "EVT_HUT_INT.eb.bytes"); eb = p.read_bytes(); s = EbScript.from_bytes(eb)
+    has_field = False
     for ent in s.entries:
         for fn in ent.funcs:
             for ins in disasm.iter_code(eb, fn.abs_start, fn.abs_end):
-                if ins.op == 0x2B and ins.imm(0) != FID:
-                    eb = edit.patch_bytes(eb, (ins.end - ins.length) + 2, struct.pack("<H", FID),
-                                          expect=struct.pack("<H", ins.imm(0))); ok = True
-    assert ok, f"{L}: no interior Field() to repoint"
+                if ins.op == 0x2B:
+                    has_field = True
+                    if ins.imm(0) != FID:                       # already-FID is fine (idempotent)
+                        eb = edit.patch_bytes(eb, (ins.end - ins.length) + 2, struct.pack("<H", FID),
+                                              expect=struct.pack("<H", ins.imm(0)))
+    assert has_field, f"{L}: no interior Field() at all"
     p.write_bytes(eb)
 print(f"deployed {name} -> field {FID}; interior door -> {FID}")
 
