@@ -93,3 +93,16 @@ def test_guide_floor_lands_on_requested_canvas_rows():
     wm = bgi.quad(guide.walkmesh_corners(fr))
     assert len(wm.tris) == 2
     assert wm.to_bytes()[:4] == bytes.fromhex("addedcac")  # magic 0xACDCDEAD
+
+
+def test_bgx_build_multi_camera():
+    """bgx.build accepts N cameras (multi-camera field) -> N CAMERA blocks; single Cam unchanged."""
+    from ff9mapkit.scene import bgx, guide
+    c0 = guide.make_camera(48, 4500, fov_x_deg=42.2)
+    c1 = guide.make_camera(30, 4500, fov_x_deg=42.2)
+    ov = [bgx.Overlay(image="a.png", position=(0, 0, 4000), size=(384, 448), camera_id=0),
+          bgx.Overlay(image="b.png", position=(0, 0, 4000), size=(384, 448), camera_id=1)]
+    assert bgx.build(c0, ov) == bgx.build([c0], ov)              # single == list-of-one (back-compat)
+    sc = bgx.BgxScene.parse(bgx.build([c0, c1], ov))
+    assert len(sc.cameras) == 2
+    assert [o.camera_id for o in sc.overlays] == [0, 1]          # overlays keep their camera

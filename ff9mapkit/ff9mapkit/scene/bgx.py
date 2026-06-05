@@ -162,9 +162,15 @@ class BgxScene:
         self.blocks.append(_Block("CAMERA", [(k, v) for k, v in fields]))
 
 
-def build(camera: _cam.Cam, overlays: list[Overlay], *, header_comment: str | None = None,
+def build(camera, overlays: list[Overlay], *, header_comment: str | None = None,
           base_scene: str | None = None) -> str:
-    """Assemble a complete ``.bgx`` text from a camera + ordered overlays."""
+    """Assemble a complete ``.bgx`` text from a camera (or list of cameras) + ordered overlays.
+
+    ``camera`` may be a single ``cam.Cam`` (one CAMERA block, unchanged) or a list of Cams for a
+    MULTI-CAMERA field -- N CAMERA blocks in order (camera index = list position). Each overlay's
+    ``camera_id`` selects which camera shows it; the script switches the active camera via
+    SetFieldCamera (see content.camera). The engine reads cameras in file order (camIdx 0..N-1)."""
+    cameras = camera if isinstance(camera, (list, tuple)) else [camera]
     out: list[str] = []
     if header_comment:
         out.append(f"# {header_comment}")
@@ -173,6 +179,7 @@ def build(camera: _cam.Cam, overlays: list[Overlay], *, header_comment: str | No
     for ov in overlays:
         out += ov.to_lines()
         out.append("")
-    out += _camera_to_lines(camera)
-    out.append("")
+    for c in cameras:
+        out += _camera_to_lines(c)
+        out.append("")
     return "\n".join(out).rstrip("\n") + "\n"

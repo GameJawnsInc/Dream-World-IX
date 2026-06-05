@@ -1211,3 +1211,24 @@ Acting on the measured offset=0 + user's "no need for legacy stuff":
 **Engine/game state:** clean S12 engine (probe removed). Field 4003 = the plain-quad OFFCAL grid (test field; revert `tools/scroll_out/revert_deploy.py`). Alexandria fast-warp active.
 
 **Agenda remaining (user asked):** (a) multi-camera switch-zones — the last unbuilt camera-movement feature (scene format already parses N cameras; needs bgx.build N-cams + per-layer camera + a SETCAM switch-zone injector); (b) productize/ship — replace the debug warp with a story-positioned entrance, package, the open Memoria PR #1433; (c) more content (rooms/story/encounters). Camera/geometry/art/import/export pipeline is COMPLETE + measured-correct.
+
+### 2026-06-05 — Session 18 (cont) — Multi-camera: dev convention captured from real fields (Phase 0)
+
+User: build multi-camera switch-zones, learning the convention from live-game imports (not guessing). Researched the mechanism + the dev pattern from real fields before authoring.
+
+**Mechanism (engine source):** the active camera is purely SCRIPT-driven — opcode `SETCAM 0x7E "SetFieldCamera"(camID)` (1 arg) → `FieldMap.SetCurrentCameraIndex` (`DoEventCode.cs:1936`, `FieldMap.cs:383`), which swaps the active BG GameObject + the per-camera `projectedWalkMesh` + offsets. There is NO automatic per-triangle/region camera switch. `camIdx` starts at 0. (The :1940 special-cases are dev bug-fixes for camera "flapping" on maps 153/1214/1806 — proof that sloppy overlapping switch zones flap.)
+
+**Dev convention (real field — Gargan Roo/Passage, id 951 / test2_261):** camera switching is the GATEWAY-region mechanism repurposed:
+- `RegionN_Init`: `SetRegion((x,z)×4)` — a quad zone (identical to gateway regions).
+- `RegionN_Range` (the player-in-zone trigger, func tag 2): `ifnot IsMovementEnabled return` then `if (flag != target) { ...; SetFieldCamera(target); set flag = target }`.
+- A PAIR of zones at the boundary (one sets cam 1 crossing in, one sets cam 0 crossing back), gated by a STATE FLAG (`VAR_GlobUInt8_24`) so each fires only on the transition → no flapping. That flag is the anti-flap discipline the engine bug-fix patched for fields that lacked it.
+- `Main_Reinit` (entry-0 tag-10): `if (flag) SetFieldCamera(1)` — restores the correct camera on re-entry (e.g. after battle).
+
+**Scene side (already supported):** `.bgx`/`bgs` already model N cameras + per-overlay `CameraId` (which camera's BG each layer belongs to). `bgx.Overlay.camera_id` + `BgxScene.cameras()` (list) exist; `bgs.parse_cameras` reads N. GAPS: `bgx.build` takes ONE camera (needs N); `bgs.parse_overlays` doesn't yet capture `camNdx` (study-only).
+
+**Implementation plan:**
+- P1 (scene): `bgx.build` accept `cameras: list[Cam]` (write N CAMERA blocks); layer schema `[[layers]] camera = N` → `overlay.camera_id`; `build.resolve_camera` returns N for a `[[camera]]` array (single-camera path unchanged).
+- P2 (script): `content/camera.py` switch-zone injector — clone the gateway region template, but the Range body = `if flag!=target { SetFieldCamera(target); flag=target }`; + inject the flag-restore into Main_Reinit (the tag-10 reinit we already add for encounters). field.toml `[[camera_zone]] to_camera=N zone=[...]`.
+- P3 (in-game): author a 2-camera test field (borrow two real GRGR cameras + a switch-zone pair), deploy, verify the camera switches as the player crosses + restores on re-entry.
+
+Captured in project memory `project-ff9-camera-math` (multi-camera section).
