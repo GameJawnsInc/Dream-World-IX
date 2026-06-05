@@ -95,3 +95,42 @@ def test_blender_export_with_layers_world_frame(tmp_path):
     built = set((round(v.x), round(v.y), round(v.z))
                 for v in _bgi.BgiWalkmesh.from_file(fm / "FBG_N11_BLENDER_ART.bgi.bytes").verts)
     assert built == raw_ff9                        # verbatim world coords (no character shift)
+
+
+def test_two_file_split_export_builds(tmp_path):
+    """The add-on's two-file export (scene.toml spatial + field.toml logic stub) feeds the real
+    builder: build the field.toml -> it auto-merges the sibling scene.toml -> a working NPC."""
+    from PIL import Image
+    from ff9mapkit.eb import EbScript
+    proj = tmp_path
+    eye = (0.0, -3000.0, 3000.0)
+    c = bridge.blender_cam_to_ff9(eye, bridge.look_at_blender(eye, (0.0, 0.0, 0.0)),
+                                  bridge.H_to_lens(497, bridge.DEFAULT_SENSOR, 384))
+    (proj / "camera.bgx").write_text(bgx.build(c, []), encoding="utf-8")
+    verts = [(-1000.0, -2000.0, 0.0), (1000.0, -2000.0, 0.0), (1000.0, 0.0, 0.0), (-1000.0, 0.0, 0.0)]
+    (proj / "walkmesh.obj").write_text(bridge.mesh_to_ff9_obj(verts, [(0, 1, 2), (0, 2, 3)]), encoding="utf-8")
+    Image.new("RGBA", (384, 448), (10, 20, 30, 255)).save(proj / "floor.png")
+
+    npcs = [{"name": "guard", "preset": "vivi", "pos": (-400, -600), "dialogue": "Halt!"}]
+    scene_body = ('[camera]\nborrow = "camera.bgx"\n\n[walkmesh]\nobj = "walkmesh.obj"\nframe = "world"\n\n'
+                  + bridge.layers_to_toml([{"image": "floor.png", "z": 4000}]) + "\n")
+    (proj / "room.scene.toml").write_text(bridge.scene_toml("ROOM", scene_body, npcs, (), (0, -300)),
+                                          encoding="utf-8")
+    meta = {"field_id": 4003, "field_name": "ROOM", "area": 11, "text_block": 1073}
+    (proj / "room.field.toml").write_text(bridge.field_logic_stub(meta, npcs, ()), encoding="utf-8")
+
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(proj / "room.field.toml")], out)        # auto-merges room.scene.toml
+    L = ModLayout(out)
+    eb = EbScript.from_bytes(L.eb_path("us", "EVT_ROOM.eb.bytes").read_bytes())
+    # merged NPC: pos from scene + dialogue from logic -> a talkable NPC + the line in the .mes
+    assert any(e.func_by_tag(3) for e in eb.entries if not e.empty and e.index != 0)
+    assert "Halt!" in L.mes_path("us", 1073).read_text(encoding="utf-8")
+
+
+def test_scene_toml_has_no_logic():
+    """scene.toml must carry only spatial keys (name/pos/zone) -- never dialogue/conditions."""
+    npcs = [{"name": "g", "preset": "vivi", "pos": (1, 2), "dialogue": "secret"}]
+    s = bridge.scene_toml("X", '[camera]\nborrow = "camera.bgx"\n', npcs, (), (0, 0))
+    assert "pos = [1, 2]" in s and 'name = "g"' in s
+    assert "secret" not in s and "vivi" not in s             # logic VALUES never leak into the scene

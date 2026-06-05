@@ -506,6 +506,77 @@ def player_to_toml(spawn):
     return f"[player]\nspawn = [{int(spawn[0])}, {int(spawn[1])}]"
 
 
+# --- Two-file split (Godot-style): scene.toml (spatial, Blender-owned) + field.toml (logic, yours) -
+def _entity_scene_blocks(npcs=(), gateways=()):
+    """Spatial-only entity blocks for scene.toml: just ``name`` + ``pos`` / ``zone`` (the logic --
+    dialogue/conditions/target -- lives in the field.toml, joined by name)."""
+    out = []
+    for n in npcs:
+        L = ["[[npc]]"]
+        if n.get("name"):
+            L.append(f"name = {_toml_str(n['name'])}")
+        L.append(f"pos = [{int(n['pos'][0])}, {int(n['pos'][1])}]")
+        out.append("\n".join(L))
+    for g in gateways:
+        zone = ", ".join(f"[{int(x)}, {int(z)}]" for (x, z) in g["zone"])
+        L = ["[[gateway]]"]
+        if g.get("name"):
+            L.append(f"name = {_toml_str(g['name'])}")
+        L.append(f"zone = [{zone}]")
+        out.append("\n".join(L))
+    return "\n\n".join(out)
+
+
+def scene_toml(field_name, scene_body, npcs=(), gateways=(), spawn=None):
+    """The Blender-owned spatial overlay ``<field>.scene.toml``: the path-specific ``scene_body``
+    (``[camera]`` / ``[walkmesh]`` / ``[[layers]]`` text) + ``[player]`` + each entity's name+pos/zone.
+    OVERWRITTEN on every export; holds no logic, so re-exporting can't clobber your script."""
+    parts = [f"# {field_name} -- SCENE (spatial; Blender-owned, overwritten on export).",
+             f"# Logic (dialogue/conditions/events) is in {field_name.lower()}.field.toml.",
+             scene_body.strip()]
+    if spawn is not None:
+        parts.append(player_to_toml(spawn))
+    eb = _entity_scene_blocks(npcs, gateways)
+    if eb:
+        parts.append(eb)
+    return "\n\n".join(p for p in parts if p) + "\n"
+
+
+def field_logic_stub(meta, npcs=(), gateways=()):
+    """The user-owned logic file ``<field>.field.toml``, scaffolded ONCE (Blender will not overwrite an
+    existing one). ``[field]`` + per-entity logic by name (NPC preset/dialogue, gateway target) +
+    hints for story conditions and text-authored events."""
+    nm = meta["field_name"]
+    L = [f"# {nm} -- LOGIC (yours; Blender will NOT overwrite this file once it exists).",
+         f"# Placement (camera/walkmesh/positions) is in {nm.lower()}.scene.toml, merged by name.",
+         f"#   ff9mapkit build {nm.lower()}.field.toml",
+         "", "[field]", f"id = {meta['field_id']}", f'name = "{nm}"', f"area = {meta['area']}",
+         f"text_block = {meta['text_block']}"]
+    if meta.get("borrow_bg"):
+        L.append(f'borrow_bg = "{meta["borrow_bg"]}"')
+    L.append("")
+    for n in npcs:
+        L.append("[[npc]]")
+        if n.get("name"):
+            L.append(f"name = {_toml_str(n['name'])}")
+        if n.get("preset"):
+            L.append(f"preset = {_toml_str(n['preset'])}")
+        L.append(f"dialogue = {_toml_str(n.get('dialogue') or '...')}")
+        L.append("# requires_flag = 200   # gate this NPC on a story flag (appears when set)")
+        L.append("")
+    for g in gateways:
+        L.append("[[gateway]]")
+        if g.get("name"):
+            L.append(f"name = {_toml_str(g['name'])}")
+        L.append(f"to = {int(g.get('to', 100))}")
+        L.append(f"entrance = {int(g.get('entrance', 0))}")
+        L.append("# requires_flag = 200   # a locked door (opens when the flag is set)")
+        L.append("")
+    L += ["# --- events / story (text-authored; zone set in the scene, logic here) ---",
+          '# [[event]]', '# name = "lever"', '# set_flag = [200, 1]', '# message = "click"']
+    return "\n".join(L) + "\n"
+
+
 def mesh_to_ff9_obj(world_verts, tri_faces, floor_ids=None):
     """Wavefront .obj text for a Blender mesh (world verts + triangle faces), in FF9 coords.
 

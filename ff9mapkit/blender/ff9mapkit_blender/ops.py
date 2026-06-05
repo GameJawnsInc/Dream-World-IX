@@ -944,12 +944,13 @@ class FF9MK_OT_export_field(bpy.types.Operator):
                 with open(cbgx, "w", encoding="utf-8", newline="\n") as fh:
                     fh.write(bgx.build(c, [], header_comment=f"{p.field_name} camera (borrowed)"))
             npcs, gateways, spawn = _collect_markers(context)
-            with open(os.path.join(out, f"{p.field_name.lower()}.field.toml"), "w",
-                      encoding="utf-8", newline="\n") as fh:
-                fh.write(_field_toml_borrow(p, npcs, gateways, spawn))
-            self.report({"INFO"}, f"exported BG-borrow fork of {p.borrow_bg}: {len(npcs)} NPC(s), "
-                                  f"{len(gateways)} gateway(s) -> {out}; run: ff9mapkit build "
-                                  f"{p.field_name.lower()}.field.toml")
+            scene_body = '[camera]\nborrow = "camera.bgx"\n'
+            if p.scroll_enabled:
+                scene_body += "[camera.scroll]\nenabled = true\n"
+            stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, borrow_bg=p.borrow_bg)
+            self.report({"INFO"}, f"BG-borrow fork of {p.borrow_bg}: scene.toml written"
+                                  f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
+                                  f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
             return {"FINISHED"}
 
         if p.editable_fork:
@@ -977,15 +978,20 @@ class FF9MK_OT_export_field(bpy.types.Operator):
                 layers.append({"image": os.path.basename(src), "z": int(L.z),
                                "shader": L.shader or None})
             npcs, gateways, spawn = _collect_markers(context)
-            meta = {"field_id": p.field_id, "field_name": p.field_name, "area": p.area,
-                    "text_block": p.text_block, "scroll_enabled": p.scroll_enabled}
-            with open(os.path.join(out, f"{p.field_name.lower()}.field.toml"), "w",
-                      encoding="utf-8", newline="\n") as fh:
-                fh.write(bridge.editable_field_toml(meta, layers, npcs, gateways, spawn, has_links))
-            self.report({"INFO"}, f"exported editable fork {p.field_name}: {len(layers)} layer(s), "
-                                  f"{'multi-floor (obj+links)' if has_links else 'single-floor'}, "
-                                  f"{len(npcs)} NPC(s) -> {out}; run: ff9mapkit build "
-                                  f"{p.field_name.lower()}.field.toml")
+            scene_body = '[camera]\nborrow = "camera.bgx"\n'
+            if p.scroll_enabled:
+                scene_body += "[camera.scroll]\nenabled = true\n"
+            scene_body += '\n[walkmesh]\nobj = "walkmesh.obj"\n'
+            if has_links:
+                scene_body += 'links = "walkmesh.links.toml"\n'
+            scene_body += 'frame = "world"\n'
+            if layers:
+                scene_body += "\n" + bridge.layers_to_toml(layers) + "\n"
+            stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn)
+            self.report({"INFO"}, f"editable fork {p.field_name}: scene.toml ({len(layers)} layer(s), "
+                                  f"{'multi-floor' if has_links else 'single-floor'})"
+                                  f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
+                                  f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
             return {"FINISHED"}
 
         # camera.bgx (camera-only; field.toml borrows it)
@@ -1006,92 +1012,38 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             if os.path.abspath(src) != os.path.abspath(dst):
                 shutil.copyfile(src, dst)
             layers.append({"image": os.path.basename(src), "z": int(L.z)})
-        # content markers -> [[npc]] / [[gateway]] / [player]
+        # content markers -> scene (positions) + field.toml logic stub
         npcs, gateways, spawn = _collect_markers(context)
-        # field.toml
-        toml = _field_toml(p, layers, npcs, gateways, spawn)
-        with open(os.path.join(out, f"{p.field_name.lower()}.field.toml"), "w",
-                  encoding="utf-8", newline="\n") as fh:
-            fh.write(toml)
-        self.report({"INFO"}, f"exported {len(layers)} layer(s), {len(npcs)} NPC(s), "
-                              f"{len(gateways)} gateway(s) to {out}; now run: ff9mapkit "
-                              f"build {p.field_name.lower()}.field.toml")
+        scene_body = ('[camera]\nborrow = "camera.bgx"\n'
+                      + ("[camera.scroll]\nenabled = true\n" if p.scroll_enabled else "")
+                      + f"[camera.frame]\nback = {p.back_y:g}\nfront = {p.front_y:g}\n"
+                      + '\n[walkmesh]\nobj = "walkmesh.obj"\nframe = "world"\n')
+        if layers:
+            scene_body += "\n" + bridge.layers_to_toml(layers) + "\n"
+        stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn)
+        self.report({"INFO"}, f"exported {p.field_name}: scene.toml ({len(layers)} layer(s), "
+                              f"{len(npcs)} NPC(s), {len(gateways)} gateway(s))"
+                              f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
+                              f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
         return {"FINISHED"}
 
 
-def _field_toml(p, layers, npcs=(), gateways=(), spawn=None):
-    # [[layers]] block: real if the user loaded painted art, else a commented hint
-    if layers:
-        layers_block = bridge.layers_to_toml(layers) + "\n"
-    else:
-        layers_block = ('# [[layers]]\n#   image = "back.png"\n#   z = 4000\n'
-                        '# [[layers]]\n#   image = "floor.png"\n#   z = 3000\n')
-    # [player] spawn: from the FF9_Spawn marker, else a default with a hint
-    if spawn is not None:
-        player_block = bridge.player_to_toml(spawn) + "\n"
-    else:
-        player_block = '[player]\nspawn = [0, -1100]   # add an FF9_Spawn marker to set this visually\n'
-    # [[npc]] / [[gateway]]: from markers, else commented hints
-    if npcs:
-        npc_block = bridge.npcs_to_toml(npcs) + "\n"
-    else:
-        npc_block = ('# [[npc]]\n#   name = "Someone"\n#   preset = "vivi"\n#   pos = [0, -700]\n'
-                     '#   dialogue = "Hello."\n')
-    if gateways:
-        gw_block = bridge.gateways_to_toml(gateways) + "\n"
-    else:
-        gw_block = ('# [[gateway]]\n#   to = 100\n#   entrance = 0\n'
-                    '#   zone = [[-1100,-2400],[1100,-2400],[1100,-1750],[-1100,-1750]]\n')
-    return (
-        f"# {p.field_name} — exported from Blender by FF9 Map Kit. Compile with:\n"
-        f"#   ff9mapkit build {p.field_name.lower()}.field.toml\n"
-        f"# Painted PNGs + content markers (NPC/gateway/spawn) came from your Blender scene.\n\n"
-        f"[field]\n"
-        f"id = {p.field_id}\n"
-        f'name = "{p.field_name}"\n'
-        f"area = {p.area}\n"
-        f"text_block = {p.text_block}\n\n"
-        f"[camera]\n"
-        f'borrow = "camera.bgx"   # the exact camera you posed in Blender\n'
-        + ("[camera.scroll]\nenabled = true   # larger-than-screen painting; the view scrolls\n"
-           if p.scroll_enabled else "")
-        + f"[camera.frame]\n"
-        f"back = {p.back_y:g}\n"
-        f"front = {p.front_y:g}\n\n"
-        f"[walkmesh]\n"
-        f'obj = "walkmesh.obj"\n'
-        f'frame = "world"   # walkmesh = true world coords = the painted floor (no character offset)\n\n'
-        f"{layers_block}\n"
-        f"{player_block}\n"
-        f"{npc_block}\n"
-        f"{gw_block}"
-    )
-
-
-def _field_toml_borrow(p, npcs=(), gateways=(), spawn=None):
-    """field.toml for a BG-borrow fork (imported real field): no scene/walkmesh/layers — the engine
-    renders the real field's; we add a custom script + content markers."""
-    player_block = (bridge.player_to_toml(spawn) + "\n") if spawn is not None else "[player]\nspawn = [0, 0]\n"
-    npc_block = (bridge.npcs_to_toml(npcs) + "\n") if npcs else (
-        '# [[npc]]\n#   name = "Someone"\n#   preset = "vivi"\n#   pos = [0, 0]\n#   dialogue = "Hello."\n')
-    gw_block = (bridge.gateways_to_toml(gateways) + "\n") if gateways else (
-        '# [[gateway]]\n#   to = 100\n#   entrance = 204\n#   zone = [[-200,200],[200,200],[200,400],[-200,400]]\n')
-    scroll = "[camera.scroll]\nenabled = true\n" if p.scroll_enabled else ""
-    return (
-        f"# {p.field_name} — forked from real field {p.borrow_bg} (BG-borrow) via FF9 Map Kit.\n"
-        f"# Renders that field's art + walkmesh + camera; your markers add the content. Compile:\n"
-        f"#   ff9mapkit build {p.field_name.lower()}.field.toml\n\n"
-        f"[field]\n"
-        f"id = {p.field_id}\n"
-        f'name = "{p.field_name}"\n'
-        f"area = {p.area}\n"
-        f'borrow_bg = "{p.borrow_bg}"\n'
-        f"text_block = {p.text_block}\n\n"
-        f"[camera]\n"
-        f'borrow = "camera.bgx"\n'
-        f"{scroll}\n"
-        f"{player_block}\n{npc_block}\n{gw_block}"
-    )
+def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=None):
+    """Two-file export: write ``<name>.scene.toml`` (spatial; ALWAYS overwritten) + ``<name>.field.toml``
+    (logic stub; created ONLY if it doesn't already exist, so the user's script is never clobbered).
+    ``scene_body`` is the path-specific ``[camera]``/``[walkmesh]``/``[[layers]]`` text. Returns True if
+    a fresh field.toml stub was written (False = an existing one was kept)."""
+    base = p.field_name.lower()
+    with open(os.path.join(out, f"{base}.scene.toml"), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(bridge.scene_toml(p.field_name, scene_body, npcs, gateways, spawn))
+    field_path = os.path.join(out, f"{base}.field.toml")
+    if os.path.isfile(field_path):
+        return False
+    meta = {"field_id": p.field_id, "field_name": p.field_name, "area": p.area,
+            "text_block": p.text_block, "borrow_bg": borrow_bg}
+    with open(field_path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(bridge.field_logic_stub(meta, npcs, gateways))
+    return True
 
 
 CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera,

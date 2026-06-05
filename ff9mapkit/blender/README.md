@@ -2,8 +2,9 @@
 
 Visually author a custom FF9 field's **camera** and **walkmesh** in Blender's 3D viewport, then
 one-click export the pieces the [`ff9mapkit`](../README.md) CLI compiles into a Memoria mod. The
-add-on is a front-end: it produces `camera.bgx` + `walkmesh.obj` + a `field.toml`; `ff9mapkit
-build` does the rest.
+add-on is a front-end for the **spatial** layer: it produces `camera.bgx` + `walkmesh.obj` + a
+`<name>.scene.toml` (placement) and scaffolds a `<name>.field.toml` (your logic — dialogue, story,
+events) once; `ff9mapkit build` merges them. Scripts live in text, not Blender.
 
 Targets **Blender 4.2+ / 5.x**.
 
@@ -78,11 +79,15 @@ Background Art → Content → Export**. A typical pass:
    - *Spawn* places the single `FF9_Spawn` marker — where the player appears on entry.
    Markers are read on export; their floor positions are taken from where you place them.
 8. **Export Field** (*Export* box) — set the field `id` / `name` / `area` / `text_block` and the
-   *Export to* folder, then *Export Field* writes `camera.bgx`, `walkmesh.obj`, and
-   `<name>.field.toml` (with your `[[layers]]`, `[[npc]]`, `[[gateway]]`, and `[player]` filled in
-   from the markers). Painted PNGs are copied next to it.
-9. **Build** — `ff9mapkit build <name>.field.toml --out <game>/FF9CustomMap` (see the main docs),
-   then play.
+   *Export to* folder, then *Export Field* writes `camera.bgx`, `walkmesh.obj`, the painted PNGs, and
+   **two TOMLs** (Godot-style — placement vs. script):
+   - `<name>.scene.toml` — the **spatial** layer (camera, walkmesh, layers, spawn, and each marker's
+     position/zone by name). **Overwritten every export**, so re-export freely.
+   - `<name>.field.toml` — the **logic** layer (`[field]` + per-entity dialogue/conditions + events).
+     Written **only the first time** (a scaffold from your markers); after that it's *yours* and
+     Export never touches it. Edit dialogue, story flags, and events here in a text editor.
+9. **Build** — `ff9mapkit build <name>.field.toml --out <game>/FF9CustomMap` — it auto-merges the
+   sibling `<name>.scene.toml` by entity name (scene = where, field = what). Then play.
 
 ## Fork an existing FF9 field (Import)
 
