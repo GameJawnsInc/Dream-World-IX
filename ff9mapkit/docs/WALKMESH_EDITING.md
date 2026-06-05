@@ -1,6 +1,7 @@
 # Spec — editing an imported multi-floor walkmesh without losing connectivity
 
-Status: **v1 + v2 shipped** (verbatim ship + build guard; obj+links seam reconcile). v3 designed below.
+Status: **v1 + v2 shipped** (verbatim ship + build guard; obj+links seam reconcile) + **v3 partial**
+(`walkmesh verify` CLI + Blender `FF9_Seams` overlay). Remaining v3 (anim carry, re-anchor) below.
 
 ## 1. The problem
 
@@ -145,10 +146,17 @@ ship would cry wolf. (Tests: `test_obj_reexport_loses_cross_floor_connectivity`,
 - **extract** (v2): write `walkmesh.links.toml` alongside `walkmesh.obj`; `field.toml` emits
   `[walkmesh] obj = "walkmesh.obj"` + `links = "walkmesh.links.toml"`.
 - **build** (v2): the reconciliation in 3.3 behind that `[walkmesh] obj + links` form.
-- **`ff9mapkit walkmesh verify <bgi>`** (v3): reachability + dangling-link report as a standalone check.
-- **Blender** (v3): draw seam edges as a marked edge set; a "re-anchor seam" operator; surface the
-  stranded-floor warning in the panel. Investigate Blender **custom face attributes** as a more
-  robust key than position for the in-Blender path (they survive many edits that move vertices).
+- **`ff9mapkit walkmesh verify <path>`** (v3 — DONE): run the full check suite standalone, no build.
+  Accepts a `.field.toml` (resolves the walkmesh exactly as build does — custom-scene obj/quad/bgi or a
+  BG-borrow fork's reference/sibling — then runs content-placement + layer + reachability/degenerate
+  checks) or a raw `.bgi` (geometry only: floors, walk-reachable, stranded, seams, degenerate tris,
+  bounds). Exits non-zero if any warning, so it's scriptable. `build.verify_walkmesh` / `_walkmesh_stats`.
+- **Blender seam viz** (v3 — DONE): importing an editable multi-floor fork builds a bright amber
+  `FF9_Seams` wireframe overlay of the cross-floor seam edges (`bridge.seam_edges_blender`,
+  `show_in_front`, non-selectable) so you can see which edges NOT to move when reshaping; the panel
+  notes it. Removed automatically for single-floor forks.
+- **Blender** (still v3): a "re-anchor seam" operator; investigate Blender **custom edge attributes**
+  as a key more robust than world position for the in-Blender path (survives edits that move vertices).
 
 ## 6. Incremental delivery
 
@@ -162,8 +170,9 @@ ship would cry wolf. (Tests: `test_obj_reexport_loses_cross_floor_connectivity`,
   geometry of a multi-floor fork while keeping connectivity. Per the research, `[[edge_flag]]` is
   omitted (seam flags are always 0 game-wide). Tests: `test_seam_extract_apply_reconciles_multifloor`,
   `test_build_obj_with_links_reconciles`, `test_build_obj_links_warns_on_broken_seam`.
-- **v3.** Anim (moving-platform) carry; the `walkmesh verify` CLI; Blender seam viz + re-anchor +
-  "suggest seams" for newly-added floors.
+- **v3 — partly DONE.** `ff9mapkit walkmesh verify` CLI + Blender `FF9_Seams` overlay shipped (see §5).
+  Still open: anim (moving-platform) carry; a Blender "re-anchor seam" operator + "suggest seams" for
+  newly-added floors.
 
 ## 7. Research findings (game-wide, validated offline)
 

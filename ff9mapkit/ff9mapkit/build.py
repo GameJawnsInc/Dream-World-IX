@@ -308,6 +308,64 @@ def _validate_content_placement(project: FieldProject, wmesh, warnings: list) ->
                     f"walkmesh -- the player may not be able to reach the trigger.")
 
 
+def _validate_walkmesh_geometry(project: FieldProject, wmesh, warnings: list) -> None:
+    """Reachability + degenerate-tri warnings for a (re)BUILT walkmesh (obj/quad/auto). A verbatim
+    [walkmesh] bgi is the authoritative original and is SKIPPED -- some real fields legitimately reach
+    floors by script, not on foot (e.g. UDFT: 9 of 23 walk-reachable), so checking it cries wolf."""
+    if project.raw.get("walkmesh", {}).get("bgi"):
+        return
+    stranded = wmesh.all_floors() - wmesh.reachable_floors()
+    if stranded:
+        warnings.append(
+            f"walkmesh: floor(s) {sorted(stranded)} not walk-reachable from the start "
+            f"({len(stranded)} of {len(wmesh.all_floors())} floors stranded). A multi-floor "
+            f"[walkmesh] obj loses cross-floor links (rebuild_neighbors only links within a "
+            f"floor) -- ship the original with [walkmesh] bgi, or declare seams "
+            f"(docs/WALKMESH_EDITING.md).")
+    degen = wmesh.degenerate_tris()
+    if degen:
+        warnings.append(
+            f"walkmesh: {len(degen)} zero-area triangle(s) {degen[:5]}"
+            f"{'...' if len(degen) > 5 else ''} -- collinear verts make a dead zone in the "
+            f"engine's IsInQuad test (the player can't stand there); fix them in the .obj.")
+
+
+def _walkmesh_stats(wmesh) -> dict:
+    """Geometry summary of a BgiWalkmesh for the `walkmesh verify` report."""
+    floors = sorted(wmesh.all_floors())
+    reach = sorted(wmesh.reachable_floors())
+    wv = wmesh.world_verts()
+    xs, zs = [v[0] for v in wv], [v[2] for v in wv]
+    return {"floors": floors, "reachable": reach, "stranded": sorted(set(floors) - set(reach)),
+            "degenerate": wmesh.degenerate_tris(), "seams": len(wmesh.extract_seams()),
+            "tris": len(wmesh.tris), "verts": len(wmesh.verts),
+            "bounds": {"x": [min(xs), max(xs)], "z": [min(zs), max(zs)]} if wv else None}
+
+
+def verify_walkmesh(project: FieldProject) -> dict:
+    """Run the walkmesh + content-placement checks for a project WITHOUT building the mod (the
+    `walkmesh verify` CLI). Resolves the walkmesh exactly as build does -- a custom scene's
+    obj/quad/bgi, or a BG-borrow fork's reference/sibling walkmesh -- then returns
+    {**stats, source, warnings}. Same checks build_field runs, so a clean verify == a clean build."""
+    warnings: list = []
+    if project.field.get("borrow_bg"):
+        wmesh = _borrow_walkmesh(project)
+        source = f"BG-borrow ({project.field['borrow_bg']})"
+        if wmesh is None:
+            return {"source": source, "warnings": [
+                "no walkmesh to verify -- a BG-borrow fork without a [walkmesh] reference or a sibling "
+                "walkmesh.bgi (hand-written borrow toml). The engine uses the real field's walkmesh."]}
+        _validate_content_placement(project, wmesh, warnings)     # content only (borrowed mesh is authoritative)
+    else:
+        camera = resolve_camera(project)
+        wmesh = bgi.BgiWalkmesh.from_bytes(resolve_walkmesh(project, camera, warnings))
+        source = "custom scene"
+        _validate_content_placement(project, wmesh, warnings)
+        _validate_layer_art(project, camera.range, warnings)
+        _validate_walkmesh_geometry(project, wmesh, warnings)
+    return {"source": source, **_walkmesh_stats(wmesh), "warnings": warnings}
+
+
 def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> bytes:
     wm = project.raw.get("walkmesh", {})
     if wm.get("bgi"):
@@ -496,25 +554,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         _validate_content_placement(project, wmesh, warnings)
         # art: warn when a (repainted) layer's PNG aspect won't match its size quad (stretch/misalign).
         _validate_layer_art(project, camera.range, warnings)
-        # reachability + degenerate-tri guards for (re)BUILT walkmeshes (obj/quad/auto): rebuild_neighbors
-        # links only within a floor, so a multi-floor obj strands its floors. A verbatim [walkmesh] bgi is
-        # the authoritative original and is SKIPPED -- some real fields legitimately reach floors by script,
-        # not on foot (e.g. UDFT: 9 of 23 floors walk-reachable), so checking it cries wolf.
-        if not project.raw.get("walkmesh", {}).get("bgi"):
-            stranded = wmesh.all_floors() - wmesh.reachable_floors()
-            if stranded:
-                warnings.append(
-                    f"walkmesh: floor(s) {sorted(stranded)} not walk-reachable from the start "
-                    f"({len(stranded)} of {len(wmesh.all_floors())} floors stranded). A multi-floor "
-                    f"[walkmesh] obj loses cross-floor links (rebuild_neighbors only links within a "
-                    f"floor) -- ship the original with [walkmesh] bgi, or declare seams "
-                    f"(docs/WALKMESH_EDITING.md).")
-            degen = wmesh.degenerate_tris()
-            if degen:
-                warnings.append(
-                    f"walkmesh: {len(degen)} zero-area triangle(s) {degen[:5]}"
-                    f"{'...' if len(degen) > 5 else ''} -- collinear verts make a dead zone in the "
-                    f"engine's IsInQuad test (the player can't stand there); fix them in the .obj.")
+        _validate_walkmesh_geometry(project, wmesh, warnings)
         overlays = build_overlays(project, range_wh=tuple(camera.range))
         bgx_text = bgx.build(camera, overlays, header_comment=project.field.get("title", project.name))
 

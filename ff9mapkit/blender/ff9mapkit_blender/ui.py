@@ -29,6 +29,8 @@ class FF9MK_PT_panel(bpy.types.Panel):
         elif p.editable_fork:
             layout.label(text="editable fork (custom scene): reshape + repaint, then Export",
                          icon="MOD_MULTIRES")
+            if bpy.data.objects.get(ops.SEAMS_NAME):
+                layout.label(text="amber FF9_Seams = cross-floor edges; don't move them", icon="INFO")
 
         box = layout.box()
         box.label(text="Camera", icon="CAMERA_DATA")

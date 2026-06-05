@@ -431,3 +431,23 @@ def test_build_gateway_zone_exempt_from_near_edge(tmp_path):
     (tmp_path / "f.field.toml").write_text(_quad_scene_toml(extra=gw), encoding="utf-8")
     info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
     assert not any("collision radius" in w for w in info["warnings"])   # gateways exempt
+
+
+# ---- walkmesh verify (the standalone check, no build) ----
+
+def test_verify_walkmesh_clean_custom_scene(tmp_path):
+    from ff9mapkit.build import FieldProject, verify_walkmesh
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(
+        _quad_scene_toml(npc_pos=(100, 100), spawn=(0, 0)), encoding="utf-8")
+    rep = verify_walkmesh(FieldProject.load(tmp_path / "f.field.toml"))
+    assert rep["source"] == "custom scene"
+    assert rep["floors"] == [0] and rep["stranded"] == [] and rep["warnings"] == []
+
+
+def test_verify_walkmesh_flags_off_mesh(tmp_path):
+    from ff9mapkit.build import FieldProject, verify_walkmesh
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(_quad_scene_toml(npc_pos=(9000, 9000)), encoding="utf-8")
+    rep = verify_walkmesh(FieldProject.load(tmp_path / "f.field.toml"))
+    assert any("off the walkmesh" in w for w in rep["warnings"])

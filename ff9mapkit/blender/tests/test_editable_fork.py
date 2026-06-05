@@ -111,3 +111,24 @@ def test_editable_fork_builds_with_layers_and_shaders(tmp_path):
     assert (fm / "FBG_N21_FORK_EDIT.bgi.bytes").is_file()
     for lang in LANGS:
         assert L.eb_path(lang, "EVT_FORK_EDIT.eb.bytes").is_file()
+
+
+# --------------------------------------------------------------------------- seam overlay (v3)
+def test_seam_edges_blender_returns_cross_floor_edges():
+    from ff9mapkit.scene import bgi
+    # two floors sharing the z=1000 edge by world position (disjoint vertex sets)
+    verts = [(-500, 0, 0), (500, 0, 0), (500, 0, 1000), (-500, 0, 1000),        # floor 0
+             (-500, 0, 1000), (500, 0, 1000), (500, 0, 2000), (-500, 0, 2000)]  # floor 1
+    wm = bgi.build(verts, [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)], floor_ids=[0, 0, 1, 1])
+    shared = tuple(sorted([(-500, 0, 1000), (500, 0, 1000)]))
+    linked, missing, _ = wm.apply_seams([(0, shared, 1, shared)])
+    assert linked == 1 and missing == 0
+    v, e = bridge.seam_edges_blender(wm.to_bytes())
+    assert len(e) == 1 and len(v) == 2                       # one cross-floor seam edge
+
+
+def test_seam_edges_blender_empty_for_single_floor():
+    from ff9mapkit.scene import bgi
+    flat = bgi.build([(-100, 0, -100), (100, 0, -100), (100, 0, 100), (-100, 0, 100)],
+                     [(0, 1, 2), (0, 2, 3)])
+    assert bridge.seam_edges_blender(flat.to_bytes()) == ([], [])

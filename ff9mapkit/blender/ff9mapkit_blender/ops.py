@@ -20,6 +20,7 @@ from .vendor import bgx, cam, guide
 
 CAMERA_NAME = "FF9_Camera"
 WALKMESH_NAME = "FF9_Walkmesh"
+SEAMS_NAME = "FF9_Seams"
 RANGE_WH = (384, 448)
 SCREEN_W = 384          # the visible field width; a scrolling painting is wider and the FOV is
                         # always measured at this width (a wide Range must not change the focal length)
@@ -180,6 +181,37 @@ def _color_mesh_by_floor(mesh, floor_ids):
         mesh.materials.append(mat)
     for i, poly in enumerate(mesh.polygons):
         poly.material_index = floor_ids[i] if i < len(floor_ids) else 0
+
+
+def _build_seam_overlay(context, bgi_bytes):
+    """(Re)build a bright wireframe overlay (FF9_Seams) of the cross-floor SEAM edges -- the edges you
+    must NOT move when reshaping a multi-floor fork (they re-attach the floors by world position on
+    build). Removes a stale overlay; creates nothing for a single-floor field. Returns the seam count."""
+    sverts, sedges = bridge.seam_edges_blender(bgi_bytes)
+    obj = bpy.data.objects.get(SEAMS_NAME)
+    if not sedges:                                      # single floor / no seams -> remove any stale one
+        if obj is not None:
+            old = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if old and old.users == 0:
+                bpy.data.meshes.remove(old)
+        return 0
+    mesh = bpy.data.meshes.new(SEAMS_NAME)
+    mesh.from_pydata([list(v) for v in sverts], [tuple(e) for e in sedges], [])
+    mesh.update()
+    if obj is None:
+        obj = bpy.data.objects.new(SEAMS_NAME, mesh)
+        context.scene.collection.objects.link(obj)
+    else:
+        old = obj.data
+        obj.data = mesh
+        if old and old.users == 0:
+            bpy.data.meshes.remove(old)
+    obj.display_type = "WIRE"
+    obj.show_in_front = True            # always visible, floating on the walkmesh
+    obj.hide_select = True              # reference only -- don't grab it while reshaping
+    obj.color = (1.0, 0.85, 0.1, 1.0)   # amber
+    return len(sedges)
 
 
 def _show_material_colors(context):
@@ -824,6 +856,10 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         _show_material_colors(context)
         p.walkmesh = wm_obj
 
+        # highlight the cross-floor SEAM edges (FF9_Seams) so you don't move them when reshaping a
+        # multi-floor fork -- they re-attach the floors by world position on build.
+        n_seams = _build_seam_overlay(context, bgi_bytes) if p.editable_fork else 0
+
         # Per-camera VIEW nudge: Blender's pinhole != FF9's exact 2D-BG projection (cam.to_canvas),
         # so the imported walkmesh lands a few px off the painted art -- worst for head-on cameras
         # (GLGV needs ~+42 height). Offset the CAMERA by -D (moving the object by +D == moving the
@@ -870,8 +906,10 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             bg.alpha = 1.0
             bg.display_depth = "BACK"
 
-        self.report({"INFO"}, f"imported {p.borrow_bg or p.field_name}: real camera + walkmesh loaded. "
-                              f"Add NPC/gateway/spawn markers, then Export Field.")
+        seam_note = (f" {n_seams} cross-floor seam(s) highlighted (FF9_Seams) -- don't move those edges."
+                     if n_seams else "")
+        self.report({"INFO"}, f"imported {p.borrow_bg or p.field_name}: real camera + walkmesh loaded."
+                              f"{seam_note} Add NPC/gateway/spawn markers, then Export Field.")
         return {"FINISHED"}
 
 

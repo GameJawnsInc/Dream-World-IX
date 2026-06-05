@@ -226,6 +226,19 @@ def walkmesh_floor_ids(bgi_bytes):
     return [tri_floor.get(i, 0) for i in range(len(wm.tris))]
 
 
+def seam_edges_blender(bgi_bytes):
+    """Cross-floor SEAM edges of a walkmesh as (blender_verts, edges) for a highlight overlay -- the
+    edges you must NOT move when reshaping a multi-floor fork (they re-attach the floors by world
+    position on build). Empty for a single-floor field (no cross-floor seams). bpy-free + testable."""
+    wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
+    verts, edges = [], []
+    for (_fa, a_edge, _fb, _b) in wm.extract_seams():
+        i = len(verts)
+        verts += ff9_verts_to_blender([list(a_edge[0]), list(a_edge[1])])
+        edges.append((i, i + 1))
+    return verts, edges
+
+
 def bgi_walkmesh_to_blender(bgi_bytes, world=False):
     """Parse a .bgi walkmesh -> (blender_verts, faces) for an editable Blender mesh.
 

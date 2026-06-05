@@ -4,7 +4,7 @@ Subcommands are wired up incrementally as the library lands:
     doctor    - show resolved game/mod paths and sanity-check the install   (Phase 0)
     disasm    - disassemble a .eb field script                              (Phase 1)
     camera    - read/synthesize/round-trip a .bgx camera                    (Phase 2)
-    walkmesh  - convert an .obj walkmesh to .bgi / fix neighbor links       (Phase 2)
+    walkmesh  - convert .obj->.bgi / fix neighbor links / verify a walkmesh  (Phase 2)
     guide     - emit a paint guide + walkmesh-in-frame for a camera spec    (Phase 2)
     build     - compile a field.toml into a Memoria mod folder              (Phase 4)
     new       - scaffold a new field project directory                      (Phase 5)
@@ -105,6 +105,40 @@ def _cmd_walkmesh(args: argparse.Namespace) -> int:
         with open(args.output or args.input, "wb") as fh:
             fh.write(out)
         print(f"rebuilt neighbor links for {len(m.tris)} tris -> {args.output or args.input}")
+    elif args.action == "verify":
+        return _walkmesh_verify(args.input)
+    return 0
+
+
+def _walkmesh_verify(path: str) -> int:
+    """Run the walkmesh + content checks standalone (no build). Accepts a .field.toml (full checks:
+    geometry, content placement, layer art) or a raw .bgi (geometry only). Exit 1 if any warning."""
+    from .scene import bgi
+    if str(path).endswith(".toml"):
+        from .build import FieldProject, verify_walkmesh
+        rep = verify_walkmesh(FieldProject.load(path))
+        print(f"walkmesh verify: {path}  [{rep.get('source', '?')}]")
+    else:
+        from .build import _walkmesh_stats
+        rep = {**_walkmesh_stats(bgi.BgiWalkmesh.from_file(path)), "warnings": []}
+        print(f"walkmesh verify: {path}")
+    if rep.get("floors") is not None:
+        line = f"  floors {rep['floors']}  |  walk-reachable {rep['reachable']}"
+        if rep["stranded"]:
+            line += f"  |  NOT reachable on foot: {rep['stranded']}"
+        print(line)
+        extra = f", {len(rep['degenerate'])} degenerate tri(s)" if rep["degenerate"] else ""
+        print(f"  {rep['tris']} tris, {rep['verts']} verts, {rep['seams']} cross-floor seam(s){extra}")
+        if rep.get("bounds"):
+            b = rep["bounds"]
+            print(f"  bounds  x{b['x']}  z{b['z']}")
+    warns = rep.get("warnings", [])
+    if warns:
+        print(f"  {len(warns)} warning(s):")
+        for m in warns:
+            print(f"    ! {m}")
+        return 1
+    print("  OK -- no warnings.")
     return 0
 
 
@@ -265,9 +299,10 @@ def build_parser() -> argparse.ArgumentParser:
     cm.add_argument("--regen", metavar="OUT.bgx", help="rewrite with a re-synthesized camera (round-trip check)")
     cm.set_defaults(func=_cmd_camera)
 
-    wm = sub.add_parser("walkmesh", help="convert/repair a walkmesh")
-    wm.add_argument("action", choices=["obj", "fix"], help="obj: .obj->.bgi ; fix: rebuild neighbor links")
-    wm.add_argument("input", help="input .obj (obj) or .bgi (fix)")
+    wm = sub.add_parser("walkmesh", help="convert/repair/verify a walkmesh")
+    wm.add_argument("action", choices=["obj", "fix", "verify"],
+                    help="obj: .obj->.bgi ; fix: rebuild neighbor links ; verify: run the checks")
+    wm.add_argument("input", help="input .obj (obj), .bgi (fix), or .bgi/.field.toml (verify)")
     wm.add_argument("output", nargs="?", help="output path (.bgi); for fix defaults to input")
     wm.set_defaults(func=_cmd_walkmesh)
 
