@@ -247,23 +247,27 @@ def test_editable_world_obj_roundtrips_multifloor(tmp_path):
     assert _partition(rt) == _partition(src)
 
 
-def test_walkmesh_frame_world_emits_org0_vs_legacy_300(tmp_path):
-    """[walkmesh] frame = "world" -> bgi.build (org=0); default -> legacy build_flat (org=300)."""
+def test_walkmesh_always_world_frame_org0(tmp_path):
+    """All authored walkmeshes build in TRUE world coords (org=0): the honest model (measured
+    Session 18 -- no character offset, no +300). `frame`/`character_offset` are ignored for
+    back-compat, so an obj with or without them resolves identically (org=0, verts verbatim)."""
     from ff9mapkit.build import FieldProject, resolve_camera, resolve_walkmesh
     (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
     (tmp_path / "wm.obj").write_text("v 0 0 0\nv 100 0 0\nv 100 0 100\nv 0 0 100\nf 1 2 3\nf 1 3 4\n")
     base = ('[field]\nid = 4003\nname = "X"\narea = 21\n\n'
             '[camera]\nborrow = "camera.bgx"\n\n[walkmesh]\nobj = "wm.obj"\n')
 
-    (tmp_path / "world.field.toml").write_text(base + 'frame = "world"\n', encoding="utf-8")
-    pw = FieldProject.load(tmp_path / "world.field.toml")
-    ww = bgi.BgiWalkmesh.from_bytes(resolve_walkmesh(pw, resolve_camera(pw)))
-    assert (ww.orgPos.x, ww.orgPos.y, ww.orgPos.z) == (0, 0, 0)
+    (tmp_path / "a.field.toml").write_text(base, encoding="utf-8")
+    pa = FieldProject.load(tmp_path / "a.field.toml")
+    wa = bgi.BgiWalkmesh.from_bytes(resolve_walkmesh(pa, resolve_camera(pa)))
+    assert (wa.orgPos.x, wa.orgPos.y, wa.orgPos.z) == (0, 0, 0)
+    assert sorted(round(v[2]) for v in wa.world_verts()) == [0, 0, 100, 100]   # verts verbatim
 
-    (tmp_path / "legacy.field.toml").write_text(base, encoding="utf-8")
-    pl = FieldProject.load(tmp_path / "legacy.field.toml")
-    wl = bgi.BgiWalkmesh.from_bytes(resolve_walkmesh(pl, resolve_camera(pl)))
-    assert (wl.orgPos.x, wl.orgPos.y, wl.orgPos.z) == (0, 0, 300)
+    # legacy keys (frame="world", character_offset) are accepted but change nothing
+    (tmp_path / "b.field.toml").write_text(base + 'frame = "world"\ncharacter_offset = 298\n', encoding="utf-8")
+    pb = FieldProject.load(tmp_path / "b.field.toml")
+    wb = bgi.BgiWalkmesh.from_bytes(resolve_walkmesh(pb, resolve_camera(pb)))
+    assert wb.to_bytes() == wa.to_bytes()
 
 
 def test_load_obj_single_object_unchanged():

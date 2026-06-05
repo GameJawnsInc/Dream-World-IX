@@ -20,8 +20,7 @@ enabled = true                   # auto scroll bounds + the engine EnableCameraS
 
 [walkmesh]
 quad = [[-2122,-161],[2122,-161],[2122,-2043],[-2122,-2043]]
-# character_offset defaults to 298 (auto-framed); explicit quad here defaults to 0. Use 298 to plant.
-character_offset = 298
+frame = "world"   # the quad's 4 corners are true world coords = the painted floor (no character offset)
 
 [[layers]]
 image = "art/back.png"           # the whole painting (floor + walls + scenery)

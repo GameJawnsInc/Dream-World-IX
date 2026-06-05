@@ -159,26 +159,6 @@ def resolve_camera(project: FieldProject) -> cam.Cam:
     return guide.make_camera(pitch, dist, fov_x_deg=fov, **common)
 
 
-def _shift_toward_camera(corners, camera: cam.Cam, dist: float):
-    """Slide flat-floor corners `dist` world-units toward the camera (in the xz-plane).
-
-    Used to apply the CHARACTER_GROUND_OFFSET so a 3D-rendered character looks planted on the
-    2D-projected painted floor (see cam.CHARACTER_GROUND_OFFSET_Z). dist=0 is a no-op (identity).
-    """
-    pts = [(c[0], 0, c[1]) if len(c) == 2 else tuple(c) for c in corners]
-    if not dist:
-        return pts
-    C = cam.decompose(camera)["C"]
-    cx = sum(p[0] for p in pts) / len(pts)
-    cz = sum(p[2] for p in pts) / len(pts)
-    dx, dz = C[0] - cx, C[2] - cz
-    n = math.hypot(dx, dz)
-    if n < 1e-6:
-        return pts
-    ux, uz = dx / n, dz / n
-    return [(p[0] + ux * dist, p[1], p[2] + uz * dist) for p in pts]
-
-
 def _read_links(links_path):
     """Parse a walkmesh.links.toml adjacency sidecar -> (seams, header). Seams in the shape
     `BgiWalkmesh.apply_seams` expects: (a_floor, a_edge, b_floor, b_edge), each edge a sorted pair of
@@ -373,46 +353,30 @@ def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> b
         # exact floors + neighbor/edge connectivity -- a multi-floor obj->build would rebuild links by
         # shared vertex index and disconnect floors that use disjoint vertex sets (stairs/tunnels).
         return project.path(wm["bgi"]).read_bytes()
-    # frame: "world" => emit verts verbatim with org=0/floor.org=0 (imported real fields, or any
-    # geometry already in exact world coords); "legacy" (default) => the calibrated flat-room path
-    # (build_flat, org=(0,0,300) + optional character_offset). Multi-floor is always world.
-    world_frame = wm.get("frame") == "world"
+    # All authored walkmeshes are in TRUE WORLD coords (org=0): the player renders at its world
+    # position (= to_canvas), so the walkmesh IS the painted floor -- no character offset (MEASURED
+    # in-game Session 18; the old org=(0,0,300) + character_offset=298 double-count is gone). The
+    # `frame` and `character_offset` keys are accepted-but-ignored for back-compat.
     if wm.get("obj"):
         verts, faces, floor_ids = bgi.load_obj_floors(str(project.path(wm["obj"])))
-        if world_frame or len(set(floor_ids)) > 1:
-            # WORLD frame: the verts ARE the exact in-game positions, so NO character shift (that
-            # slide is a flat-room paint-alignment hack, not a real frame transform).
-            mesh = bgi.build(verts, faces, floor_ids=floor_ids)
-            if wm.get("links"):
-                # reconcile the imported field's cross-floor connectivity onto the edited geometry
-                # (rebuild_neighbors only links within a floor). v2 -- see docs/WALKMESH_EDITING.md.
-                _apply_links(mesh, project.path(wm["links"]), warnings)
-            return mesh.to_bytes()
-        # single-floor legacy (e.g. flat Blender-authored): the author placed the verts; no shift.
-        off = float(wm.get("character_offset", 0.0))
-        verts = _shift_toward_camera(verts, camera, off)
-        return bgi.build_flat(verts, faces).to_bytes()
+        mesh = bgi.build(verts, faces, floor_ids=floor_ids)
+        if wm.get("links"):
+            # reconcile the imported field's cross-floor connectivity onto the edited geometry
+            # (rebuild_neighbors only links within a floor). v2 -- see docs/WALKMESH_EDITING.md.
+            _apply_links(mesh, project.path(wm["links"]), warnings)
+        return mesh.to_bytes()
     if wm.get("quad"):
         corners = [(c[0], 0, c[1]) if len(c) == 2 else tuple(c) for c in wm["quad"]]
-        if world_frame:
-            return bgi.build(corners, [(0, 1, 2), (0, 2, 3)]).to_bytes()
-        # legacy flat path: bgi.quad/build_flat injects org=(0,0,300); the character_offset slides
-        # the quad toward the camera to ~cancel it (so the walkmesh lands on the scale-1-painted
-        # floor). Default to CHARACTER_GROUND_OFFSET_Z so an explicit quad matches the floor the SAME
-        # way the auto path does -- defaulting to 0 left the +300 org uncancelled (walkmesh 300u off).
-        off = float(wm.get("character_offset", cam.CHARACTER_GROUND_OFFSET_Z))
-        return bgi.quad(_shift_toward_camera(wm["quad"], camera, off)).to_bytes()
-    # auto: frame the floor from the camera, then slide the walkmesh toward the camera by the
-    # character ground offset so a 3D character looks planted on the scale-1-painted floor.
+        return bgi.build(corners, [(0, 1, 2), (0, 2, 3)]).to_bytes()
+    # auto: frame the floor from the camera; the frame corners ARE world coords (via to_canvas).
     fr = project.raw.get("camera", {}).get("frame", {})
     try:
         frame = guide.frame_floor(camera, back_canvas_y=float(fr.get("back", 205)),
                                   front_canvas_y=float(fr.get("front", 432)))
     except ValueError as e:
         raise BuildError(f"[camera.frame] {e}") from e
-    off = float(wm.get("character_offset", cam.CHARACTER_GROUND_OFFSET_Z))
-    corners = _shift_toward_camera(guide.walkmesh_corners(frame), camera, off)
-    return bgi.quad(corners).to_bytes()
+    corners = [(x, 0, z) for (x, z) in guide.walkmesh_corners(frame)]
+    return bgi.build(corners, [(0, 1, 2), (0, 2, 3)]).to_bytes()
 
 
 def build_overlays(project: FieldProject, range_wh=(384, 448)) -> list:

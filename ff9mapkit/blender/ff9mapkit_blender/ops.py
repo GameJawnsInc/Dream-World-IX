@@ -1060,8 +1060,7 @@ def _field_toml(p, layers, npcs=(), gateways=(), spawn=None):
         f"front = {p.front_y:g}\n\n"
         f"[walkmesh]\n"
         f'obj = "walkmesh.obj"\n'
-        f"# slide the walkmesh toward the camera so the 3D character looks planted on the 2D floor\n"
-        f"character_offset = {cam.CHARACTER_GROUND_OFFSET_Z:g}\n\n"
+        f'frame = "world"   # walkmesh = true world coords = the painted floor (no character offset)\n\n'
         f"{layers_block}\n"
         f"{player_block}\n"
         f"{npc_block}\n"

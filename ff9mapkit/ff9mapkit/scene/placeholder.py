@@ -58,6 +58,28 @@ def _fill_quad(buf: bytearray, W: int, H: int, pts, rgba) -> None:
             o += 4
 
 
+def draw_line(buf: bytearray, W: int, H: int, p0, p1, rgba, thick: int = 1) -> None:
+    """Draw a thick straight line into the RGBA buffer (square brush, overwrite -- no blend)."""
+    x0, y0 = p0
+    x1, y1 = p1
+    n = int(max(abs(x1 - x0), abs(y1 - y0)))
+    r, g, b, a = rgba
+    half = max(0, thick - 1)
+    for i in range(n + 1):
+        t = i / n if n else 0.0
+        cx, cy = int(round(x0 + (x1 - x0) * t)), int(round(y0 + (y1 - y0) * t))
+        for oy in range(-half, half + 1):
+            yi = cy + oy
+            if not (0 <= yi < H):
+                continue
+            row = yi * W
+            for ox in range(-half, half + 1):
+                xi = cx + ox
+                if 0 <= xi < W:
+                    o = (row + xi) * 4
+                    buf[o], buf[o + 1], buf[o + 2], buf[o + 3] = r, g, b, a
+
+
 def write_placeholders(camera: _cam.Cam, frame, back_path, floor_path, *,
                        scale: int = 4, nx: int = 12, nz: int = 12):
     """Write a solid backdrop (`back_path`, z behind) + a perspective checkerboard floor

@@ -45,41 +45,28 @@ def _height_ticks(wall_h: float) -> list:
     return [round(wall_h * k / 4) for k in range(1, 5)]
 
 
-def _draw_height_guides(dr, cam: _cam.Cam, frame: "FloorFrame", S: int, wall_h: float, fnt) -> None:
-    """Vertical perspective guides so the artist can paint WALLS/objects at the right height.
-
-    A flat floor grid can't show how "up" foreshortens. This draws, in world-accurate projection:
+def _height_segments(cam: _cam.Cam, frame: "FloorFrame", S: int, wall_h: float) -> list:
+    """Vertical perspective guides (as colored line segments) so the artist can paint WALLS at the
+    right height. A flat floor grid can't show how "up" foreshortens. World-accurate projection:
       * vertical POLES at the floor's 4 corners + back/front mid-edges (y=0 -> wall_h),
-      * back-wall horizontal RINGS at each tick height (the grid for painting the backdrop),
-      * the room-box TOP outline (the ceiling rectangle),
-      * height LABELS (world units) up the back-left pole.
-    Heights are in the SAME world units as the floor grid, so vertical and horizontal scale match.
-    """
+      * back-wall horizontal RINGS at each quarter-height tick,
+      * the room-box TOP outline (the ceiling rectangle).
+    Returns [(p0_px, p1_px, rgba), ...]; heights share the floor's world units so the scales match.
+    (Height tick *labels* are omitted in the stdlib renderer -- the CLI prints the coordinates.)"""
     def pc(x, y, z):
         cx, cy = _cam.to_canvas((x, y, z), cam)
         return (cx * S, cy * S)
 
     (blx, _, blz), (brx, _, brz), (frx, _, frz), (flx, _, flz) = frame.corners_world
     bl, br, fr, fl = (blx, blz), (brx, brz), (frx, frz), (flx, flz)
-    bm = ((blx + brx) / 2.0, blz)        # back-mid
-    fm = ((flx + frx) / 2.0, flz)        # front-mid
-    ticks = _height_ticks(wall_h)
-    POLE = (90, 220, 235, 235)
-    RING = (90, 215, 230, 130)
-    BOX = (130, 240, 255, 240)
-    LAB = (160, 235, 248, 255)
-    w = max(1, S // 2)
-
-    for (x, z) in (bl, br, fr, fl, bm, fm):           # vertical poles
-        dr.line([pc(x, 0, z), pc(x, wall_h, z)], fill=POLE, width=w)
-    for h in ticks:                                   # back-wall horizontal rings
-        dr.line([pc(bl[0], h, bl[1]), pc(br[0], h, br[1])], fill=RING, width=w)
-    tops = [pc(x, wall_h, z) for (x, z) in (bl, br, fr, fl)]   # ceiling rectangle
-    dr.line(tops + [tops[0]], fill=BOX, width=w)
-    for h in ticks:                                   # height labels up the back-left pole
-        x, y = pc(bl[0], h, bl[1])
-        dr.text((x - 11 * S, y - 7), f"{int(h)}", fill=LAB, font=fnt,
-                stroke_width=max(1, S // 3), stroke_fill=(0, 0, 0, 210))
+    bm = ((blx + brx) / 2.0, blz)
+    fm = ((flx + frx) / 2.0, flz)
+    POLE, RING, BOX = (90, 220, 235, 255), (90, 215, 230, 200), (130, 240, 255, 255)
+    segs = [(pc(x, 0, z), pc(x, wall_h, z), POLE) for (x, z) in (bl, br, fr, fl, bm, fm)]
+    segs += [(pc(bl[0], h, bl[1]), pc(br[0], h, br[1]), RING) for h in _height_ticks(wall_h)]
+    tops = [pc(x, wall_h, z) for (x, z) in (bl, br, fr, fl)]
+    segs += [(tops[k], tops[(k + 1) % 4], BOX) for k in range(4)]
+    return segs
 
 
 def make_camera(pitch_deg: float, distance: float, *, fov_x_deg: float | None = None,
@@ -168,17 +155,17 @@ def walkmesh_corners(frame: FloorFrame) -> list:
 
 
 def render_paint_guide(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int = 4,
-                       nx: int = 6, nz: int = 6, wall_height: float | None = None) -> None:
-    """Render a checkerboard floor + reference markers onto the canvas, as a paint underlay.
-
-    ``wall_height`` adds vertical height guides (poles/rings/ceiling) so walls can be painted in
-    correct perspective; ``None`` = auto (the floor's depth), ``0`` = floor only."""
-    from PIL import Image, ImageDraw, ImageFont
+                       nx: int = 6, nz: int = 6, wall_height: float | None = None) -> tuple:
+    """Render an opaque checkerboard floor + reference cross-markers as a paint underlay (pure
+    stdlib, no PIL). ``wall_height`` adds vertical height guides (poles/rings/ceiling); ``None`` =
+    auto (the floor's depth), ``0`` = floor only. Coordinate values are PRINTED by the CLI, not
+    drawn (stdlib has no font), so the markers are crosses without text. Returns (W, H) px."""
+    from . import placeholder as _ph
 
     S = scale
     cw, ch = _canvas_wh(cam)
-    img = Image.new("RGB", (cw * S, ch * S), (20, 22, 28))
-    dr = ImageDraw.Draw(img, "RGBA")
+    W, H = cw * S, ch * S
+    buf = bytearray(bytes((20, 22, 28, 255))) * (W * H)        # opaque dark
 
     def px(P):
         cx, cy = _cam.to_canvas(P, cam)
@@ -191,50 +178,46 @@ def render_paint_guide(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int
         for i in range(nx):
             q = [px((xs[i], 0, zs[j])), px((xs[i + 1], 0, zs[j])),
                  px((xs[i + 1], 0, zs[j + 1])), px((xs[i], 0, zs[j + 1]))]
-            dr.polygon(q, fill=((90, 110, 140, 200) if (i + j) % 2 == 0 else (50, 60, 80, 200)))
+            _ph._fill_quad(buf, W, H, q, (90, 110, 140, 255) if (i + j) % 2 == 0 else (50, 60, 80, 255))
     edge = [px(P) for P in frame.corners_world]
-    dr.polygon(edge, outline=(255, 180, 70, 255))
-    dr.line([edge[0], edge[1]], fill=(255, 180, 70, 255), width=3)   # back edge highlighted
-    try:
-        fnt = ImageFont.truetype("arial.ttf", 30)
-    except OSError:
-        fnt = ImageFont.load_default()
+    for k in range(4):
+        _ph.draw_line(buf, W, H, edge[k], edge[(k + 1) % 4], (255, 180, 70, 255), 2)
+    _ph.draw_line(buf, W, H, edge[0], edge[1], (255, 180, 70, 255), 3)     # back edge highlighted
 
-    def mark(P, col, lab):
+    def mark(P, col):
         x, y = px(P)
-        r = 9
-        dr.ellipse([x - r, y - r, x + r, y + r], fill=col)
-        dr.line([x - 18, y, x + 18, y], fill=col, width=2)
-        dr.line([x, y - 18, x, y + 18], fill=col, width=2)
-        dr.text((x + 14, y - 34), lab, fill=col, font=fnt)
+        _ph.draw_line(buf, W, H, (x - 18, y), (x + 18, y), col, 2)
+        _ph.draw_line(buf, W, H, (x, y - 18), (x, y + 18), col, 2)
 
-    mark((0, 0, 0), (90, 255, 120), "(0,0,0)")
-    mark((1000, 0, 0), (120, 200, 255), "(1000,0,0)")
-    mark((-1000, 0, 0), (120, 200, 255), "(-1000,0,0)")
-    mark((0, 0, zb), (255, 120, 120), f"back z={zb}")
-    mark((0, 0, zf), (255, 120, 120), f"front z={zf}")
+    mark((0, 0, 0), (90, 255, 120, 255))                                   # origin
+    mark((1000, 0, 0), (120, 200, 255, 255))
+    mark((-1000, 0, 0), (120, 200, 255, 255))
+    mark((0, 0, zb), (255, 120, 120, 255))                                 # floor back
+    mark((0, 0, zf), (255, 120, 120, 255))                                 # floor front
     wall_h = abs(zb - zf) if wall_height is None else wall_height
     if wall_h > 0:
-        _draw_height_guides(dr, cam, frame, S, wall_h, fnt)
-    img.save(png_path)
+        for p0, p1, col in _height_segments(cam, frame, S, wall_h):
+            _ph.draw_line(buf, W, H, p0, p1, col, max(1, S // 2))
+    with open(png_path, "wb") as fh:
+        fh.write(_ph._png_rgba(W, H, buf))
+    return (W, H)
 
 
 def render_paint_template(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int = 4,
                           nx: int = 8, nz: int = 8, wall_height: float | None = None) -> tuple:
-    """Render a TRANSPARENT trace-over paint template (canvas_w*scale x canvas_h*scale).
+    """Render a TRANSPARENT trace-over paint template (canvas_w*scale x canvas_h*scale), pure stdlib.
 
-    Unlike render_paint_guide (an opaque calibration checkerboard), this is a transparent overlay:
-    open it in your paint app, paint your room on layers BELOW it, then hide/delete this guide layer.
-    Draws a faint perspective floor grid + a bright floor outline + the canvas border + labels.
-    Returns the image (w, h) in pixels.
+    A transparent overlay: open it in your paint app, paint your room on layers BELOW it, then
+    hide/delete this layer. Draws a faint perspective floor grid + a bright floor outline + the
+    canvas border + vertical height guides. Coordinate labels are PRINTED by the CLI (no font in
+    stdlib). Returns the image (w, h) in pixels.
     """
-    from PIL import Image, ImageDraw, ImageFont
+    from . import placeholder as _ph
 
     S = scale
     cw, ch = _canvas_wh(cam)
     W, H = cw * S, ch * S
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    dr = ImageDraw.Draw(img, "RGBA")
+    buf = bytearray(W * H * 4)                                  # transparent
 
     def px(P):
         cx, cy = _cam.to_canvas(P, cam)
@@ -243,34 +226,22 @@ def render_paint_template(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: 
     fx, zb, zf = frame.half_width, frame.zb, frame.zf
     xs = [-fx + 2 * fx * i / nx for i in range(nx + 1)]
     zs = [zb + (zf - zb) * j / nz for j in range(nz + 1)]
-    GRID = (210, 215, 230, 70)                              # faint perspective grid
+    GRID = (210, 215, 230, 90)                                  # faint perspective grid
     for x in xs:
-        dr.line([px((x, 0, zb)), px((x, 0, zf))], fill=GRID, width=1)
+        _ph.draw_line(buf, W, H, px((x, 0, zb)), px((x, 0, zf)), GRID, 1)
     for z in zs:
-        dr.line([px((-fx, 0, z)), px((fx, 0, z))], fill=GRID, width=1)
-    # bright floor outline (back edge thicker)
-    edge = [px(P) for P in frame.corners_world]
-    dr.line(edge + [edge[0]], fill=(255, 170, 60, 220), width=2 * S)
-    dr.line([edge[0], edge[1]], fill=(255, 170, 60, 255), width=3 * S)
-    # canvas border (the full paint area)
-    dr.rectangle([1, 1, W - 2, H - 2], outline=(120, 200, 255, 160), width=2)
-    try:
-        fnt = ImageFont.truetype("arial.ttf", 12 * S)
-    except OSError:
-        fnt = ImageFont.load_default()
-
-    def label(P, txt, col):
-        x, y = px(P)
-        dr.text((x + 6, y - 8 * S), txt, fill=col, font=fnt,
-                stroke_width=max(1, S // 2), stroke_fill=(0, 0, 0, 200))
-
+        _ph.draw_line(buf, W, H, px((-fx, 0, z)), px((fx, 0, z)), GRID, 1)
+    edge = [px(P) for P in frame.corners_world]                # bright floor outline (back thicker)
+    for k in range(4):
+        _ph.draw_line(buf, W, H, edge[k], edge[(k + 1) % 4], (255, 170, 60, 255), 2 * S)
+    _ph.draw_line(buf, W, H, edge[0], edge[1], (255, 170, 60, 255), 3 * S)
+    for a, b in (((1, 1), (W - 2, 1)), ((W - 2, 1), (W - 2, H - 2)),       # canvas border
+                 ((W - 2, H - 2), (1, H - 2)), ((1, H - 2), (1, 1))):
+        _ph.draw_line(buf, W, H, a, b, (120, 200, 255, 200), 2)
     wall_h = abs(zb - zf) if wall_height is None else wall_height
     if wall_h > 0:
-        _draw_height_guides(dr, cam, frame, S, wall_h, fnt)
-    label((0, 0, zb), "FLOOR BACK", (255, 170, 60, 255))
-    label((0, 0, zf), "FLOOR FRONT", (255, 170, 60, 255))
-    label((0, 0, (zb + zf) / 2), "floor center", (90, 255, 120, 255))
-    dr.text((10, 10), f"paint canvas {W}x{H} (logical {cw}x{ch})  -  trace UNDER this layer",
-            fill=(120, 200, 255, 230), font=fnt, stroke_width=max(1, S // 2), stroke_fill=(0, 0, 0, 220))
-    img.save(png_path)
+        for p0, p1, col in _height_segments(cam, frame, S, wall_h):
+            _ph.draw_line(buf, W, H, p0, p1, col, max(1, S // 2))
+    with open(png_path, "wb") as fh:
+        fh.write(_ph._png_rgba(W, H, buf))
     return (W, H)
