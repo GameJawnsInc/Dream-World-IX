@@ -1181,3 +1181,20 @@ Re-exercised the **from-scratch** authoring path (`new` → `build`), unused for
 - This re-surfaced the **Session-17 deferred double-count** (`org=300` + `offset=298` near-cancel) as a genuine hack, and the user's question — *did we ever pin how real maps relate walkmesh↔painted floor?* The honest answer: we nailed the projection (`to_canvas`, exact) but never empirically measured the dev convention / character-planting offset (298 was a 40°-only calibration). Next: a **solid measurement plan** (below) to replace the guesswork — being careful, since past eyeball-fits (sx/sy) misled.
 
 Tagged `KNOWN_GOOD-s18-from-scratch`.
+
+### 2026-06-05 — Session 18 (cont) — Character offset MEASURED = 0 (engine probe); the 298/300 was an artifact
+
+**Cracked the long-standing "character-vs-floor offset" with hard data instead of eyeball-fits (the user explicitly wanted no more guesswork).** Result: **there is NO real character offset** — the old `CHARACTER_GROUND_OFFSET_Z=298` was purely the partner of the legacy `org=(0,0,300)` builder artifact (the Session-17 double-count).
+
+**Method (engine probe, the rigorous route):**
+- Source dive corrected a stale assumption: `PSX.ConvertCameraPsx2Unity` is DEAD (commented out). The field char MODEL is positioned by its **vertex shader's GTE** (`FieldMapActor.txt`: `_MatrixRT`/`_ViewDistance`/perspective-divide/`_OffsetX/Y`/`_MulX/Y`, writes `oPos` directly) — the SAME GTE the floor/walkmesh use (`FieldMap_Abr_None.txt` is just `mvp*v0` on C#-placed canvas verts). So the model is NOT positioned by the Unity camera's `WorldToScreenPoint` — my first probe column (VP) was off-screen garbage precisely because of that. Confirmed the real mechanism before trusting any number.
+- Added a temporary `FF9PROBE` to `FieldMapActorController.HonoLateUpdate` (player on field 4003: log world `P`, GTE `projectedPos`, `WorldToScreenPoint`/`Viewport`, screen/cam mapping), rebuilt the engine (VS18 BuildTools `/p:SolutionDir=...\Memoria\`, auto-deploys; backed up the S12 DLL first), user walked a **`to_canvas`-painted 200u grid** (`tools/build_offset_calib.py`, world-frame walkmesh org=0, no offset, cyan cross = world origin) at **48° then 30°**. Removed the probe + rebuilt clean (verified `FF9PROBE` gone from the deployed DLL).
+- **Data:** feet land on the painted grid at the player's true world `P` at every spot, both pitches — e.g. 30° read world `(-900,0)` vs probe `P=(-900,0,0)`; 48° read `(+920,+200)` vs `P=(926,230)`. Offset = **0 within ±~½ cell**, i.e. ≤~30u vs the 298 we'd baked in (10× smaller). Pitch-independent.
+
+**Why this matches the shaders:** char + floor share the GTE projection → char renders at `to_canvas(worldP)` = where the floor for `P` is painted → walkmesh-in-true-world-coords == painted floor, no fudge. The HONEST model is `[walkmesh] frame="world"` (org=0, no offset), exact at any angle — what OFFCAL used.
+
+**Fix (forward, low-risk — does NOT touch verified geometry):** `ff9mapkit new` now scaffolds `[walkmesh] frame="world"` (org=0, no character offset). The legacy quad/auto path + `CHARACTER_GROUND_OFFSET_Z=298` are KEPT for back-compat: the real hut `.bgi` ships `org=(0,0,300)` (the byte-golden `test_build_flat_delegates_byte_identical_to_legacy` proves it) and its art is aligned to that +300, so existing rooms/examples stay self-consistent. Only NEW scaffolds use the honest model. Corrected the `cam.CHARACTER_GROUND_OFFSET_Z` docstring to the measured truth. Commit `9972a47`; 163 tests.
+
+**Engine/game state:** clean S12 engine redeployed (probe removed; fade-cache + booster intact). Field 4003 = OFFCAL 30° grid (revert `tools/scroll_out/revert_deploy.py`); Alexandria fast-warp active. No KNOWN_GOOD tag (measurement + offline kit change; the in-game proof was the OFFCAL grid, already validated).
+
+**Deferred (optional, needs care + a playtest):** fully ripping the org=300/offset=298 double-count from the LEGACY path (so all rooms are convention-B `org=0`) would require re-aligning the hut example's art — "moves verified geometry," so left alone. New work should just use `frame="world"`.
