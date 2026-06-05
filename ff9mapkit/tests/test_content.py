@@ -312,10 +312,13 @@ def test_actor_opcodes_roundtrip():
     assert ins.imm(0) == 10 and ins.imm(1) == (-20 & 0xFFFF)
 
 
-def test_actor_walk_step_is_initwalk_then_walk():
-    assert cutscene.actor_walk(100, -200) == opcodes.init_walk() + opcodes.walk(100, -200)
-    assert cutscene.actor_walk(100, -200, speed=15) == (
-        opcodes.set_walk_speed(15) + opcodes.init_walk() + opcodes.walk(100, -200))
+def test_actor_walk_turns_to_face_then_walks():
+    """A walk turns IN PLACE to face the destination first (TurnTowardPosition + WaitTurn), then
+    InitWalk + Walk -- so it never arcs/orbits a target behind the actor."""
+    expected = (opcodes.turn_toward_position(100, -200) + opcodes.wait_turn()
+                + opcodes.init_walk() + opcodes.walk(100, -200))
+    assert cutscene.actor_walk(100, -200) == expected
+    assert cutscene.actor_walk(100, -200, speed=15) == opcodes.set_walk_speed(15) + expected
 
 
 def test_choreography_compiles_ordered_actor_steps():
@@ -352,7 +355,7 @@ def test_choreography_warmup_waits_before_acting():
     circle (and its synchronous Walk doesn't hang)."""
     choreo = cutscene.build_choreography([{"walk": [0, -700]}], [], once_flag=None, warmup=30)
     assert choreo == (opcodes.DISABLE_MOVE + opcodes.wait(30)
-                      + opcodes.init_walk() + opcodes.walk(0, -700) + opcodes.ENABLE_MOVE)
+                      + cutscene.actor_walk(0, -700) + opcodes.ENABLE_MOVE)
     # default applies a non-zero warm-up
     assert opcodes.DISABLE_MOVE + opcodes.wait(cutscene.DEFAULT_WARMUP) in \
         cutscene.build_choreography([{"walk": [0, -700]}], [], once_flag=8100)

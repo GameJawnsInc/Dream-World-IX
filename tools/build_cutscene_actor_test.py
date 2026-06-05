@@ -26,11 +26,14 @@ OUT = Path(os.path.dirname(__file__)) / "cutscene_actor_out"
 OUT.mkdir(exist_ok=True)
 
 PITCH, FOV, SCALE = 45.0, 42.2, 4
+# z convention: MORE-negative = FRONT (toward camera / bottom of screen); less-negative = back (top).
+# Vivi spawns at the BACK facing the camera, so walking FORWARD to greet needs no turn; the walk BACK
+# is a 180deg about-face -> exercises the turn-to-face-first fix (no arc/orbit).
 FLOOR = [(-1200, -100), (1200, -100), (1200, -1400), (-1200, -1400)]
-SPAWN = (0, -300)
-REST = (0, -900)          # Vivi's home (his [[npc]] pos; where he is on a replay visit)
-FWD = (0, -450)           # Vivi walks here on entry (toward the player)
-DOOR = [(-250, -1250), (250, -1250), (250, -1380), (-250, -1380)]   # back: leave to re-test "once"
+SPAWN = (0, -1100)        # player: front (toward camera)
+REST = (0, -450)          # Vivi's home (his [[npc]] pos; back, facing the camera)
+FWD = (0, -800)           # Vivi walks forward here on entry (toward the player)
+DOOR = [(-250, -150), (250, -150), (250, -320), (-250, -320)]   # back edge: leave to re-test "once"
 
 A, B = (95, 100, 120, 255), (55, 60, 78, 255)
 CYAN, MAG, GRN, SPN, BG = (70, 220, 230, 255), (235, 90, 235, 255), (90, 235, 110, 255), (240, 80, 80, 255), (24, 26, 32, 255)

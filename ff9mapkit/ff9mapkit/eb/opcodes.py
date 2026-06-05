@@ -149,6 +149,14 @@ def turn_toward_object(uid: int, speed: int = 16) -> bytes:  # 0x51 (TURNA) args
     return encode(0x51, uid, speed)
 
 
+def turn_toward_position(x: int, z: int) -> bytes:   # 0x9B (TURNTO) argsize [2, 2]
+    """TurnTowardPosition(x, z): turn the actor IN PLACE to face world (x, z), animated (uses the
+    actor's turn speed). No Z-negation (uses posZ directly, like Walk). Pair with WaitTurn. Emit this
+    before a Walk so the actor faces its destination first -- otherwise it ARCS toward a target behind
+    it (moves at full speed while turning only ~omega/frame) and orbits a nearby point forever."""
+    return encode(0x9B, x, z)
+
+
 def wait_turn() -> bytes:                            # 0x50 (WAITTURN) 0 args
     """WaitTurn(): block until the executing actor's (animated) turn has finished."""
     return encode(0x50)

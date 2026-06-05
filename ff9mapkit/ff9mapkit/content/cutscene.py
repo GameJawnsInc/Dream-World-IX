@@ -63,10 +63,17 @@ def set_flag(idx: int, value: int = 1, *, flag_class=CUTSCENE_FLAG_CLASS) -> byt
 
 # --- actor-context steps (v2) -- only valid inside an `actor` cutscene (run in the NPC's entry) ---
 def actor_walk(x: int, z: int, speed: int | None = None) -> bytes:
-    """Step: the actor walks to world (x, z). ``InitWalk`` + ``Walk`` (Walk blocks until arrival);
-    optional ``speed`` sets the walk speed first. Uses the NPC's walk animation (set in its Init)."""
+    """Step: the actor walks to world (x, z).
+
+    Turns IN PLACE to face the destination first (``TurnTowardPosition`` + ``WaitTurn``), THEN walks
+    straight (``InitWalk`` + ``Walk``, which blocks until arrival). The pre-turn is essential: FF9's
+    Walk moves at full speed while rotating only ~omega/frame toward the target, so without it a walk
+    to a point BEHIND the actor arcs and orbits a nearby point forever (its synchronous Walk then
+    hangs). The pre-turn no-ops when already facing the target. Optional ``speed`` sets the walk
+    speed. Uses the NPC's walk animation (set in its Init)."""
     pre = opcodes.set_walk_speed(int(speed)) if speed is not None else b""
-    return pre + opcodes.init_walk() + opcodes.walk(int(x), int(z))
+    face = opcodes.turn_toward_position(int(x), int(z)) + opcodes.wait_turn()
+    return pre + face + opcodes.init_walk() + opcodes.walk(int(x), int(z))
 
 
 def actor_teleport(x: int, z: int) -> bytes:
