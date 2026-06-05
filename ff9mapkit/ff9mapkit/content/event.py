@@ -53,6 +53,10 @@ def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_C
         return (_region.MOVEMENT_GATE
                 + _region.if_block(_region.cond_not(flag_class, once_flag), guarded)
                 + opcodes.RETURN)
+    # No flag = the raw region trigger: tag 2 is LEVEL-triggered (the engine fires it every frame the
+    # player treads the quad -- TreadQuad is a pure position test, no edge detection), so a `once=false`
+    # message re-fires as soon as it closes while the player is still inside. That's correct for a
+    # continuous effect; an edge-triggered "once per visit" would need a leave-detecting re-arm zone.
     return _region.MOVEMENT_GATE + body + opcodes.RETURN
 
 

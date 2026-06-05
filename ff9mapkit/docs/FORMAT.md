@@ -210,7 +210,7 @@ once = false
 | `give_item` | `[item_id, count]` — `AddItem`. |
 | `gil` | gil to add — `AddGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
-| `once` | `true` (default) = fires once, then never again (a GlobBool persists the state); `false` = every entry. |
+| `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
 | `flag` | explicit GlobBool index for the `once` guard (default auto from `200`; **override to a free index for a shipped mod** so it can't clash with save state). |
 
 > An event needs at least one action. The same conditional-region primitive underlies chests, story
