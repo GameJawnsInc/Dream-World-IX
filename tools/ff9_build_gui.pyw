@@ -77,6 +77,8 @@ class App:
 
         # --- buttons ---
         btns = ttk.Frame(root); btns.pack(fill="x", **pad)
+        self.chk = ttk.Button(btns, text="Check logic", command=self.on_check)
+        self.chk.pack(side="left", padx=(0, 8))
         self.go = ttk.Button(btns, text="Build / Deploy", command=self.on_go)
         self.go.pack(side="left")
         self.rev = ttk.Button(btns, text="Revert test field", command=self.on_revert)
@@ -154,11 +156,39 @@ class App:
     # ---- run ----
     def _busy(self, b):
         self.busy = b
-        self.go.state(["disabled"] if b else ["!disabled"])
+        st = ["disabled"] if b else ["!disabled"]
+        self.go.state(st)
+        self.chk.state(st)
 
     def _start(self, fn, *args):
         self._busy(True)
         threading.Thread(target=fn, args=args, daemon=True).start()
+
+    def on_check(self):
+        if self.busy:
+            return
+        field = self.field.get().strip()
+        if not field or not Path(field).is_file():
+            messagebox.showerror("No field", "Pick a .field.toml first.")
+            return
+        self._start(self._check, field)
+
+    def _check(self, field):
+        try:
+            from ff9mapkit.build import FieldProject, lint_logic, validate
+            self.post(f"\n--- check {Path(field).name} (no build) ---")
+            p = FieldProject.load(field)
+            probs, lints = validate(p), lint_logic(p)
+            for m in probs:
+                self.post("  ERROR  " + m)
+            for m in lints:
+                self.post("  warn   " + m)
+            self.post("  OK -- no problems." if not (probs or lints)
+                      else f"  {len(probs)} error(s), {len(lints)} warning(s)")
+        except Exception:
+            self.post("ERROR:\n" + traceback.format_exc())
+        finally:
+            self.root.after(0, lambda: self._busy(False))
 
     def on_go(self):
         if self.busy:

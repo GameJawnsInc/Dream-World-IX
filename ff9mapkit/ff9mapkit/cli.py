@@ -6,6 +6,7 @@ Subcommands are wired up incrementally as the library lands:
     camera    - read/synthesize/round-trip a .bgx camera                    (Phase 2)
     walkmesh  - convert .obj->.bgi / fix neighbor links / verify a walkmesh  (Phase 2)
     guide     - emit a paint guide + walkmesh-in-frame for a camera spec    (Phase 2)
+    lint      - check a field.toml's logic (story flags / dup names / placement)  (P2)
     build     - compile a field.toml into a Memoria mod folder              (Phase 4)
     new       - scaffold a new field project directory                      (Phase 5)
     pack      - package a built mod for distribution                        (Phase 5)
@@ -202,6 +203,29 @@ def _cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_lint(args: argparse.Namespace) -> int:
+    """Check a field.toml WITHOUT building: schema errors (validate) + story/flag lints (lint_logic).
+    Exits 1 if anything is reported, so it's scriptable. Merges a sibling scene.toml first."""
+    from .build import FieldProject, lint_logic, validate
+    try:
+        proj = FieldProject.load(args.field)
+    except (OSError, ValueError) as e:
+        print(f"failed to load: {e}", file=sys.stderr)
+        return 2
+    problems = validate(proj)
+    lints = lint_logic(proj)
+    print(f"lint: {args.field}")
+    for p in problems:
+        print(f"  ERROR  {p}")
+    for w in lints:
+        print(f"  warn   {w}")
+    if not problems and not lints:
+        print("  OK -- no problems.")
+        return 0
+    print(f"  {len(problems)} error(s), {len(lints)} warning(s)")
+    return 1
+
+
 def _cmd_new(args: argparse.Namespace) -> int:
     from .pack import new_project, suggest_base
     proj = new_project(args.name, args.dest, field_id=args.id, area=args.area, pitch=args.pitch)
@@ -326,6 +350,10 @@ def build_parser() -> argparse.ArgumentParser:
     bd.add_argument("--author", default="", help="mod author")
     bd.add_argument("--description", default="", help="mod description")
     bd.set_defaults(func=_cmd_build)
+
+    ln = sub.add_parser("lint", help="check a field.toml's logic (story flags, dup names, placement) without building")
+    ln.add_argument("field", help="path to a .field.toml")
+    ln.set_defaults(func=_cmd_lint)
 
     nw = sub.add_parser("new", help="scaffold a new field project directory")
     nw.add_argument("name", help="field name (e.g. MY_ROOM)")

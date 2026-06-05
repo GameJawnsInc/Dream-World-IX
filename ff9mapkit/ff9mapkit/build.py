@@ -190,7 +190,13 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[[layers]] entry missing 'image'")
         elif not project.path(layer["image"]).is_file():
             problems.append(f"[[layers]] image not found: {layer['image']}")
+    for i, n in enumerate(project.raw.get("npc", [])):
+        if "pos" not in n:
+            problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} has no position -- set "
+                            f"pos = [x, z] in the field.toml, or place its marker in the Blender scene.")
     for gw in project.raw.get("gateway", []):
+        if "to" not in gw:
+            problems.append("[[gateway]] needs a 'to' (destination field id).")
         z = gw.get("zone", [])
         if len(z) not in (4, 5):
             problems.append(f"[[gateway]] zone must have 4 or 5 points (got {len(z)})")
@@ -201,6 +207,62 @@ def validate(project: FieldProject) -> list[str]:
         if not any(k in ev for k in ("message", "give_item", "gil", "set_flag")):
             problems.append("[[event]] needs at least one action (message / give_item / gil / set_flag)")
     return problems
+
+
+def lint_logic(project: FieldProject) -> list[str]:
+    """Story/flag sanity checks on the merged project -- catch logic that silently can't work as rooms
+    grow. Advisory (returned as build warnings; the `lint` CLI exits non-zero on any). Checks:
+      * a `requires_flag` (appears/fires when SET) that NO event ever sets -> dead content;
+      * an explicit flag index that collides with an auto-allocated `once`-event flag (base 200+);
+      * duplicate entity names (the scene<->field merge key would be ambiguous)."""
+    raw = project.raw
+    out = []
+
+    # flags that can ever become SET: event set_flag targets + each once-event's guard flag.
+    settable, auto_once, explicit = set(), set(), set()
+    counter = 0
+    for ev in raw.get("event", []):
+        if "set_flag" in ev:
+            settable.add(int(ev["set_flag"][0])); explicit.add(int(ev["set_flag"][0]))
+        if ev.get("once", True):                       # mirror build_script's auto-allocation exactly
+            if "flag" in ev:
+                settable.add(int(ev["flag"])); explicit.add(int(ev["flag"]))
+            else:
+                auto_once.add(_event.EVENT_FLAG_BASE + counter)
+            counter += 1
+    settable |= auto_once
+
+    # everything that READS a flag (require SET needs a setter; require CLEAR is fine by default).
+    need_set = []
+    for coll, label in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event")):
+        for i, e in enumerate(raw.get(coll, [])):
+            gf, gs = _gate_of(e)
+            if gf is None:
+                continue
+            explicit.add(gf)
+            who = e.get("name") or e.get("to") or f"#{i}"
+            if gs:
+                need_set.append((gf, f"{label} {who!r}"))
+
+    for flag, who in need_set:
+        if flag not in settable:
+            out.append(f"{who} requires flag {flag}, but no event sets it -- it can never appear/fire. "
+                       f"Add an event with set_flag = [{flag}, 1] (or fix the flag index).")
+    clash = sorted(explicit & auto_once)
+    if clash:
+        out.append(f"flag index(es) {clash} are used explicitly AND auto-allocated for 'once' events "
+                   f"(base {_event.EVENT_FLAG_BASE}+) -- they will clash. Put an explicit `flag = N` on "
+                   f"your once-events, or move story flags out of the {_event.EVENT_FLAG_BASE}+ band.")
+    for coll, label in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event")):
+        counts = {}
+        for e in raw.get(coll, []):
+            if e.get("name"):
+                counts[e["name"]] = counts.get(e["name"], 0) + 1
+        for nm, c in sorted(counts.items()):
+            if c > 1:
+                out.append(f"duplicate {label} name {nm!r} ({c}x) -- the scene<->field merge by name "
+                           f"will be ambiguous; give each a unique name.")
+    return out
 
 
 # --------------------------------------------------------------------------- scene assembly
@@ -703,7 +765,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     layout.ensure_dirs(fbg, langs=langs)
 
     camera = resolve_camera(project)
-    warnings = []
+    warnings = list(lint_logic(project))          # story/flag sanity (dangling requires, collisions, dup names)
     pw = cam.pitch_warning(cam.pitch_deg(camera))
     if pw:
         warnings.append(pw)

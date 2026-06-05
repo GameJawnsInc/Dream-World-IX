@@ -434,6 +434,63 @@ def test_explicit_scene_file_reference(tmp_path):
     assert any(n.get("pos") == [-400, -600] for n in proj.raw["npc"])
 
 
+_LINT_BASE = """
+[field]
+id = 4003
+name = "X"
+area = 11
+[camera]
+pitch = 45
+[walkmesh]
+quad = [[-500, -100], [500, -100], [500, -600], [-500, -600]]
+[player]
+spawn = [0, -300]
+"""
+
+
+def _lint(tmp_path, body):
+    from ff9mapkit.build import FieldProject, lint_logic
+    p = tmp_path / "x.field.toml"
+    p.write_text(_LINT_BASE + body, encoding="utf-8")
+    return lint_logic(FieldProject.load(p))
+
+
+def test_lint_dangling_requires_flag(tmp_path):
+    lints = _lint(tmp_path, '[[npc]]\nname="g"\npreset="vivi"\npos=[0,-200]\n'
+                            'dialogue="hi"\nrequires_flag=300\n')
+    assert any("requires flag 300" in m and "no event sets it" in m for m in lints)
+
+
+def test_lint_satisfied_flag_is_clean(tmp_path):
+    lints = _lint(tmp_path,
+                  '[[npc]]\nname="g"\npreset="vivi"\npos=[0,-200]\ndialogue="hi"\nrequires_flag=200\n'
+                  '[[event]]\nname="e"\nzone=[[100,-100],[200,-100],[200,-200],[100,-200]]\n'
+                  'set_flag=[200,1]\nonce=false\n')
+    assert lints == []                                          # 200 is set by the event -> no warning
+
+
+def test_lint_flag_collision_with_auto_once(tmp_path):
+    # the event is once (default) -> auto-allocates flag 200; the NPC also uses 200 explicitly
+    lints = _lint(tmp_path,
+                  '[[npc]]\nname="g"\npreset="vivi"\npos=[0,-200]\ndialogue="hi"\nrequires_flag=200\n'
+                  '[[event]]\nname="e"\nzone=[[100,-100],[200,-100],[200,-200],[100,-200]]\nmessage="x"\n')
+    assert any("clash" in m and "200" in m for m in lints)
+
+
+def test_lint_duplicate_names(tmp_path):
+    lints = _lint(tmp_path, '[[npc]]\nname="g"\npreset="vivi"\npos=[0,-150]\ndialogue="a"\n'
+                            '[[npc]]\nname="g"\npreset="vivi"\npos=[100,-150]\ndialogue="b"\n')
+    assert any("duplicate" in m and "'g'" in m for m in lints)
+
+
+def test_validate_npc_needs_position(tmp_path):
+    from ff9mapkit.build import FieldProject, validate
+    p = tmp_path / "x.field.toml"
+    p.write_text(_LINT_BASE + '[[npc]]\nname="g"\npreset="vivi"\ndialogue="hi"\n', encoding="utf-8")
+    probs = validate(FieldProject.load(p))
+    assert any("has no position" in m for m in probs)
+
+
 def test_validate_rejects_low_area(tmp_path):
     bad = tmp_path / "bad.field.toml"
     bad.write_text('[field]\nid=4002\nname="X"\narea=7\n[camera]\npitch=48\n', encoding="utf-8")

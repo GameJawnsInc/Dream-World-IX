@@ -260,6 +260,11 @@ free band (the kit's auto `once` flags start at 200 — keep your story flags cl
 auto-allocate, or set them explicitly). For unbounded mod state beyond simple flags, Memoria also
 provides save-backed vector/dictionary stores (a future kit feature).
 
+**Check your logic before building:** `ff9mapkit lint <field.toml>` (or the GUI's *Check logic*
+button) reports schema errors plus story-flag lints — a `requires_flag` that no event ever sets (dead
+content), an explicit flag index that collides with an auto-allocated `once` flag, and duplicate
+entity names. `build` runs the same lints and shows them as warnings.
+
 ---
 
 ## `[encounter]` (optional)
