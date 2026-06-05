@@ -116,6 +116,14 @@ def set_walk_speed(speed: int) -> bytes:             # 0x26 (MSPEED) argsize [1]
     return encode(0x26, speed)
 
 
+def set_walk_turn_speed(speed: int) -> bytes:        # 0x55 (MROT) argsize [1]
+    """SetWalkTurnSpeed(speed): how fast the actor rotates toward its target WHILE walking (omega;
+    default 16 ~= 11 deg/frame). Cranking it high (255 ~= 179 deg/frame) shrinks the turn-while-walk
+    arc to ~nothing, so a Walk to a point BEHIND the actor turns and goes straight instead of orbiting
+    it forever -- without the animated-turn path (TimedTurn/TurnTowardPosition) that can hang at 180."""
+    return encode(0x55, speed)
+
+
 def move_instant_xzy(x: int, z: int, y: int = 0) -> bytes:   # 0xA1 (POS3) argsize [2, 2, 2]
     """MoveInstantXZY(x, z, y): teleport the actor to world (x, z, y) -- no walk animation.
 
