@@ -396,7 +396,11 @@ def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> b
         corners = [(c[0], 0, c[1]) if len(c) == 2 else tuple(c) for c in wm["quad"]]
         if world_frame:
             return bgi.build(corners, [(0, 1, 2), (0, 2, 3)]).to_bytes()
-        off = float(wm.get("character_offset", 0.0))
+        # legacy flat path: bgi.quad/build_flat injects org=(0,0,300); the character_offset slides
+        # the quad toward the camera to ~cancel it (so the walkmesh lands on the scale-1-painted
+        # floor). Default to CHARACTER_GROUND_OFFSET_Z so an explicit quad matches the floor the SAME
+        # way the auto path does -- defaulting to 0 left the +300 org uncancelled (walkmesh 300u off).
+        off = float(wm.get("character_offset", cam.CHARACTER_GROUND_OFFSET_Z))
         return bgi.quad(_shift_toward_camera(wm["quad"], camera, off)).to_bytes()
     # auto: frame the floor from the camera, then slide the walkmesh toward the camera by the
     # character ground offset so a 3D character looks planted on the scale-1-painted floor.
