@@ -391,3 +391,43 @@ def test_build_no_layer_warning_correct_aspect(tmp_path):
     from ff9mapkit.scene import cam
     rw, rh = cam.parse_bgx_cameras(str(FIX / "grgr.bgx"))[0].range
     assert not any("stretched" in w for w in _layer_scene(tmp_path, rw * 4, rh * 4)["warnings"])
+
+
+# ---- collision-radius edge proximity (content on-mesh but too close to a wall to reach) ----
+
+def test_distance_to_boundary():
+    wm = bgi.build([(-500, 0, -500), (500, 0, -500), (500, 0, 500), (-500, 0, 500)],
+                   [(0, 1, 2), (0, 2, 3)])
+    assert abs(wm.distance_to_boundary(0, 0) - 500) < 1e-6      # centre: 500u to each wall
+    assert abs(wm.distance_to_boundary(470, 0) - 30) < 1e-6     # near the +x wall
+    assert wm.distance_to_boundary(9999, 9999) is None          # off the walkmesh
+
+
+def test_build_warns_npc_within_collision_radius_of_edge(tmp_path):
+    """An NPC on the mesh but within the ~48u player collision radius of a wall is flagged advisory --
+    the player's centre can't reach it. (470,0) is 30u from the +x edge of the 1000u quad."""
+    from ff9mapkit.build import FieldProject, build_mod
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(_quad_scene_toml(npc_pos=(470, 0)), encoding="utf-8")
+    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+    assert any("collision radius" in w for w in info["warnings"])
+    assert not any("off the walkmesh" in w for w in info["warnings"])    # it IS on the mesh
+
+
+def test_build_no_near_edge_warning_well_inside(tmp_path):
+    from ff9mapkit.build import FieldProject, build_mod
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(_quad_scene_toml(npc_pos=(100, 100)), encoding="utf-8")
+    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+    assert not any("collision radius" in w for w in info["warnings"])
+
+
+def test_build_gateway_zone_exempt_from_near_edge(tmp_path):
+    """An exit zone is edge-placed BY DESIGN (a door), so the near-edge advisory must NOT fire on it."""
+    from ff9mapkit.build import FieldProject, build_mod
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    gw = ('[[gateway]]\nto = 100\nentrance = 0\n'
+          'zone = [[440, -30], [500, -30], [500, 30], [440, 30]]\n')   # centre ~ (470,0), 30u from wall
+    (tmp_path / "f.field.toml").write_text(_quad_scene_toml(extra=gw), encoding="utf-8")
+    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+    assert not any("collision radius" in w for w in info["warnings"])   # gateways exempt

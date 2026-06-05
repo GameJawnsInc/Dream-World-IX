@@ -258,19 +258,46 @@ def _borrow_walkmesh(project: FieldProject):
 def _validate_content_placement(project: FieldProject, wmesh, warnings: list) -> None:
     """Warn when authored content sits OFF the walkable area -- the recurring in-game mistake (an NPC
     floats / the player can't reach a trigger / spawns off the floor). Top-down XZ point-in-walkmesh
-    test. Custom-scene only (where the kit has the walkmesh); a warning, never a hard error."""
+    test. Custom-scene only (where the kit has the walkmesh); a warning, never a hard error.
+
+    Also an ADVISORY near-edge check for NPCs + the player spawn: content on the mesh but within the
+    player COLLISION_RADIUS_W of a wall, which the point-in-walkmesh test passes but the player's
+    centre can't actually reach (it stops ~that far from any wall). NOT applied to gateways -- an
+    exit zone is edge-placed by design, so that would false-positive on every door."""
+    R = cam.COLLISION_RADIUS_W
     def off(x, z):
         return wmesh.point_on_walkmesh(int(round(x)), int(round(z))) is None
+
+    def near_edge(x, z):
+        """Distance to the nearest wall if on-mesh AND within the collision radius, else None."""
+        d = wmesh.distance_to_boundary(int(round(x)), int(round(z)))
+        return d if (d is not None and d < R) else None
+
     for i, n in enumerate(project.raw.get("npc", [])):
         p = n.get("pos")
-        if p and off(p[0], p[1]):
-            warnings.append(
-                f"NPC {n.get('name', f'#{i}')!r} at ({int(p[0])}, {int(p[1])}) is off the walkmesh -- "
-                f"it will float / be unreachable. Move it onto the walkable area.")
+        if not p:
+            continue
+        label = f"NPC {n.get('name', f'#{i}')!r} at ({int(p[0])}, {int(p[1])})"
+        if off(p[0], p[1]):
+            warnings.append(f"{label} is off the walkmesh -- it will float / be unreachable. "
+                            f"Move it onto the walkable area.")
+        else:
+            d = near_edge(p[0], p[1])
+            if d is not None:
+                warnings.append(f"{label} is only ~{d:.0f}u from a walkmesh edge (< the ~{R:.0f}u "
+                                f"player collision radius) -- the player may not be able to walk up "
+                                f"to it. Move it inward, or extend the walkmesh past it. (advisory)")
     sp = project.raw.get("player", {}).get("spawn")
-    if sp and off(sp[0], sp[1]):
-        warnings.append(
-            f"player spawn ({int(sp[0])}, {int(sp[1])}) is off the walkmesh -- you'll start off the floor.")
+    if sp:
+        if off(sp[0], sp[1]):
+            warnings.append(f"player spawn ({int(sp[0])}, {int(sp[1])}) is off the walkmesh -- "
+                            f"you'll start off the floor.")
+        else:
+            d = near_edge(sp[0], sp[1])
+            if d is not None:
+                warnings.append(f"player spawn ({int(sp[0])}, {int(sp[1])}) is only ~{d:.0f}u from a "
+                                f"walkmesh edge (< the ~{R:.0f}u collision radius) -- the engine will "
+                                f"shove you inward on entry. Move it toward the floor centre. (advisory)")
     for gw in project.raw.get("gateway", []):
         zone = gw.get("zone", [])
         if zone:

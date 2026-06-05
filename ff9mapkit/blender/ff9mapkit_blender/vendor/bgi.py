@@ -56,6 +56,16 @@ def _pt_in_tri_xz(px, pz, a, b, c) -> bool:
     return not ((d1 < 0 or d2 < 0 or d3 < 0) and (d1 > 0 or d2 > 0 or d3 > 0))
 
 
+def _pt_seg_dist_xz(px, pz, a, b) -> float:
+    """Distance from (px,pz) to segment a-b in the XZ plane (Y ignored)."""
+    ax, az, bx, bz = a[0], a[2], b[0], b[2]
+    dx, dz = bx - ax, bz - az
+    l2 = dx * dx + dz * dz
+    t = 0.0 if l2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / l2))
+    cx, cz = ax + t * dx, az + t * dz
+    return ((px - cx) ** 2 + (pz - cz) ** 2) ** 0.5
+
+
 def _i16(b, o):
     return struct.unpack_from("<h", b, o)[0]
 
@@ -313,6 +323,30 @@ class BgiWalkmesh:
             if _pt_in_tri_xz(x, z, wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]]):
                 return fo.get(ti, t.floor_ndx)
         return None
+
+    def distance_to_boundary(self, x, z):
+        """Min XZ distance from (x,z) to the nearest collision WALL of the floor it sits on -- a
+        walkmesh-boundary edge (one with no neighbor across it). A cross-floor SEAM is NOT a wall
+        (the player crosses it to the next floor), so a seamed edge is skipped. Returns None if the
+        point is off the walkmesh. The player's CENTRE can't get within ~COLLISION_RADIUS_W of a
+        wall, so content closer than that to an edge may be unreachable / shoved inward in-game."""
+        floor = self.point_on_walkmesh(x, z)
+        if floor is None:
+            return None
+        wv = self.world_verts()
+        fo = self._tri_floor()
+        best = None
+        for ti, t in enumerate(self.tris):
+            if fo.get(ti, t.floor_ndx) != floor:
+                continue
+            for k in range(3):
+                if t.nbr[k] >= 0:                       # neighbor across this edge -> not a wall
+                    continue
+                i, j = SLOT_PAIRS[k]
+                d = _pt_seg_dist_xz(x, z, wv[t.vtx[i]], wv[t.vtx[j]])
+                if best is None or d < best:
+                    best = d
+        return best
 
     def degenerate_tris(self):
         """Triangle indices with ~zero XZ area -- collinear/vertical verts make a DEAD ZONE in the
