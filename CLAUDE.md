@@ -1340,3 +1340,16 @@ Captured in project memory `project-ff9-camera-math` (multi-camera section).
 - FORMAT.md "Story flags" documents it. `jawnland` lints clean.
 
 **Roadmap status:** P1 (scene/logic split, CLI+Blender) ✅ verified in-game (jawnland). P2 (logic linter) ✅ offline. P3 (sequential cutscene format) = later, when ordered move/wait/say/pan/branch is needed.
+
+### 2026-06-05 — Session 18 (cont) — Roadmap P3: cutscenes v1 (ordered, control-locked sequencer)
+
+**P3 — the last authoring gap: cutscenes (ordered actions, which declarative content can't express).** v1 shipped offline (196 tests); in-game test deployed.
+- `content/cutscene.py`: a `[cutscene]` compiles to a code entry whose function runs an ORDERED sequence with control disabled (`DisableMove`…`EnableMove`), optionally once (flag-gated, default GlobBool 230), armed on field entry via `InitCode`. v1 steps = `say` (WindowSync), `wait` (Wait), `set_flag` — the controller-level actions that need no per-actor context.
+- build: `[cutscene]` schema + validate (steps list, one action each) + `collect_text` gathers `say` lines into the `.mes` + `lint_logic` accounts for cutscene `set_flag`/once-flag. `opcodes.DISABLE_MOVE` (0x2D). FORMAT.md `[cutscene]` section.
+- **v2 (deferred):** actor movement / animation / camera pans — `Walk` (0x23), `RunAnimation` (0x40), `MoveCamera` (0x6F) target a specific object's context, so they need the sequence to run in that actor's entry. The vocabulary is mapped; the sequencer + trigger + control-lock (the hard architecture) is done.
+
+**In-game test DEPLOYED** (`tools/cutscene_out/cs.field.toml` → field 4003 = CUTSCENE): on entry, control locks + a text sequence plays + a flag sets + control returns; a back gateway (→ hut interior) lets you leave + re-enter to confirm it plays ONCE. Revert `py tools/scroll_out/revert_deploy.py`.
+
+**Roadmap COMPLETE:** P1 scene/logic split ✅ (in-game), P2 logic linter ✅, P3 cutscenes ✅ (v1). The authoring toolkit now spans spatial (Blender) + logic (text, linted) + sequences (cutscenes).
+
+**AWAITING PLAYTEST.** (1) On entry: control LOCKED, text boxes play in order, then control returns. (2) Walk to the BACK → exit → re-enter → cutscene does NOT replay (control immediate). Watch for: doesn't play / not locked (can move during text) / out of order / replays on re-entry.
