@@ -169,6 +169,8 @@ walkmesh exports as one floor. Multi-floor meshes use the world frame directly (
 | `pos` | `[x, z]`. |
 | `dialogue` | a line shown when talked to (assigned a non-colliding high text id automatically). |
 | `text_id` | use an explicit text id instead of `dialogue`. |
+| `requires_flag` | GlobBool index — the NPC only **appears** when that story flag is SET (its Init returns early otherwise: no model, not interactable). For story-gated characters. |
+| `requires_flag_clear` | …only appears when the flag is CLEAR (the inverse — e.g. an NPC that leaves once an event fires). |
 
 ---
 
@@ -181,6 +183,7 @@ A region the player walks into to warp to another field.
 | `to` | target field id. |
 | `entrance` | which entrance to arrive at in the target (default `0`). |
 | `zone` | 4 corners `[[x, z], ...]` (auto-made IsInQuad-safe) or 5 explicit points. Order: the `q0→q1` edge is the walk-out direction (put the front edge first). |
+| `requires_flag` / `requires_flag_clear` | GlobBool index — the exit only **fires** when that story flag is SET / CLEAR (a locked door that opens once a switch flag is set). |
 
 ---
 
@@ -212,10 +215,21 @@ once = false
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
 | `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
 | `flag` | explicit GlobBool index for the `once` guard (default auto from `200`; **override to a free index for a shipped mod** so it can't clash with save state). |
+| `requires_flag` / `requires_flag_clear` | GlobBool index — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
 
 > An event needs at least one action. The same conditional-region primitive underlies chests, story
 > flags, and one-time triggers. (Engine-validated bytecode + a real-chest `AddItem`/message
 > convention; in-game proof pending.)
+
+### Story flags & branching
+
+A **story flag** is a GlobBool (a single bit in FF9's 2048-byte save-backed event memory) that an
+event SETs (`set_flag = [N, 1]`) and other content reads (`requires_flag = N`). That's how the world
+gains state: hit a switch (event `set_flag`) → a guard appears (`[[npc]] requires_flag`) and a door
+unlocks (`[[gateway]] requires_flag`); open a chest once → it stays opened. Pick flag indices in a
+free band (the kit's auto `once` flags start at 200 — keep your story flags clear of indices you also
+auto-allocate, or set them explicitly). For unbounded mod state beyond simple flags, Memoria also
+provides save-backed vector/dictionary stores (a future kit feature).
 
 ---
 

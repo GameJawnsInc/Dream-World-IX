@@ -19,6 +19,7 @@ import struct
 from ..binutils import pi16, pu16
 from ..eb import EbScript, edit, opcodes
 from ..eb.disasm import iter_code
+from . import region as _region
 
 # Character presets: (model, animset, {stand, walk, run, left, right} animation ids)
 PRESETS = {
@@ -73,8 +74,14 @@ def _find_var_const(body: bytes, var_index: int) -> int:
 
 def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, animset=None,
                anims=None, talk_text_id: int = 62, slot: int | None = None,
-               spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
-    """Inject an NPC at world (x, z). Returns new .eb bytes."""
+               spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
+               gate_flag: int | None = None, gate_require_set: bool = True) -> bytes:
+    """Inject an NPC at world (x, z). Returns new .eb bytes.
+
+    ``gate_flag`` (a GlobBool index) makes the NPC conditional: its Init returns early -- so it never
+    creates its model and is absent/non-interactable -- unless the flag is in the required state
+    (``gate_require_set`` True = appears when the flag is SET, False = when CLEAR). This is the
+    standard FF9 way to show/hide an NPC by story state."""
     if preset is not None:
         model, animset, anims = PRESETS[preset]
 
@@ -107,6 +114,13 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                 o = loc["stand"] + 4 * k
                 body0[o:o + 2] = pu16(anims[name])
 
+    # 4b) optional story-flag gate: prepend `ifnot (flag) return` to the Init so a gated-out NPC
+    # returns before CreateObject -> no model, absent. (body0 grows; the func table is rebuilt from
+    # body lengths below, so fpos stays correct.)
+    if gate_flag is not None:
+        body0 = bytearray(_region.flag_gate(_region.GLOB_BOOL, gate_flag,
+                                            require_set=gate_require_set)) + body0
+
     # 5) _SpeakBTN (func tag 3): WindowSync(1, 128, text) ; return
     f2 = opcodes.window_sync(1, 128, talk_text_id) + opcodes.RETURN
 
@@ -120,10 +134,8 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
     if slot is None:
         slot = eb.first_free_slot()
     out = edit.append_entry(data, slot, entry_bytes)
-    wait_off = edit.find_wait(EbScript.from_bytes(out), n=spawn_wait_n,
-                              occurrence=spawn_wait_occurrence)
-    out = edit.patch_bytes(out, wait_off, opcodes.init_object(slot, 0),
-                           expect=opcodes.wait(spawn_wait_n))
+    out = edit.activate(out, opcodes.init_object(slot, 0), spawn_wait_n=spawn_wait_n,
+                        spawn_wait_occurrence=spawn_wait_occurrence)
     return out
 
 

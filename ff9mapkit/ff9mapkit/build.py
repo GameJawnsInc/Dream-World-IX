@@ -470,6 +470,16 @@ def resolve_control_value(project: FieldProject, camera: cam.Cam) -> int:
     return _movement.control_value_for_angle(cam.yaw_deg(camera))
 
 
+def _gate_of(d: dict):
+    """(flag_index, require_set) from a content item's flag condition, or (None, True). ``requires_flag``
+    = active when that GlobBool is SET; ``requires_flag_clear`` = active when it is CLEAR."""
+    if "requires_flag" in d:
+        return int(d["requires_flag"]), True
+    if "requires_flag_clear" in d:
+        return int(d["requires_flag_clear"]), False
+    return None, True
+
+
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
@@ -497,15 +507,18 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             kwargs["preset"] = n["preset"]
         else:
             kwargs.update(model=n.get("model"), animset=n.get("animset"), anims=n.get("anims"))
-        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, **kwargs)
+        gf, gs = _gate_of(n)
+        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid,
+                             gate_flag=gf, gate_require_set=gs, **kwargs)
 
     # gateways
     for gw in project.raw.get("gateway", []):
         zone = gw["zone"]
         if len(zone) == 4:
             zone = _gw.quad_zone(zone)
+        gf, gs = _gate_of(gw)
         eb = _gw.inject_gateway(eb, int(gw["to"]), entrance=int(gw.get("entrance", 0)),
-                                zone=[tuple(p) for p in zone])
+                                zone=[tuple(p) for p in zone], gate_flag=gf, gate_require_set=gs)
 
     # multi-camera switch zones (the Gargan Roo convention): a forward + reverse zone pair that
     # cuts the active background camera as the player crosses, each re-tuning movement for its
@@ -543,8 +556,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             if ev.get("once", True):
                 once_flag = int(ev["flag"]) if "flag" in ev else (_event.EVENT_FLAG_BASE + flag_counter)
                 flag_counter += 1
+            gf, gs = _gate_of(ev)
             specs.append({"zone": [tuple(p) for p in ev["zone"][:4]],
-                          "body": b"".join(parts), "once_flag": once_flag})
+                          "body": b"".join(parts), "once_flag": once_flag,
+                          "requires_flag": gf, "requires_set": gs})
         eb = _event.inject_events(eb, specs)
 
     # player spawn (order-independent w.r.t. the appends above)

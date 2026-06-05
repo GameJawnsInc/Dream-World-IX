@@ -45,27 +45,34 @@ def set_flag(flag_idx: int, value: int = 1, *, flag_class=EVENT_FLAG_CLASS) -> b
     return _region.set_var(flag_class, flag_idx, value)
 
 
-def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_CLASS) -> bytes:
-    """The region ``_Range`` body for an event: a movement gate, then ``body`` (gated
-    ``if (!flag) { body; flag = 1 }`` when ``once_flag`` is set, so it fires once)."""
+def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_CLASS,
+                     requires_flag: int | None = None, requires_set: bool = True) -> bytes:
+    """The region ``_Range`` body for an event: a movement gate, an optional ``requires_flag`` story
+    gate (the event only fires when that flag is in-state), then ``body`` -- gated
+    ``if (!flag) { body; flag = 1 }`` when ``once_flag`` is set, so it fires once."""
+    parts = [_region.MOVEMENT_GATE]
+    if requires_flag is not None:
+        parts.append(_region.flag_gate(flag_class, requires_flag, require_set=requires_set))
     if once_flag is not None:
-        guarded = body + _region.set_var(flag_class, once_flag, 1)
-        return (_region.MOVEMENT_GATE
-                + _region.if_block(_region.cond_not(flag_class, once_flag), guarded)
-                + opcodes.RETURN)
-    # No flag = the raw region trigger: tag 2 is LEVEL-triggered (the engine fires it every frame the
-    # player treads the quad -- TreadQuad is a pure position test, no edge detection), so a `once=false`
-    # message re-fires as soon as it closes while the player is still inside. That's correct for a
-    # continuous effect; an edge-triggered "once per visit" would need a leave-detecting re-arm zone.
-    return _region.MOVEMENT_GATE + body + opcodes.RETURN
+        parts.append(_region.if_block(_region.cond_not(flag_class, once_flag),
+                                      body + _region.set_var(flag_class, once_flag, 1)))
+    else:
+        # No once flag = the raw region trigger: tag 2 is LEVEL-triggered (the engine fires it every
+        # frame the player treads the quad -- TreadQuad is a pure position test, no edge detection), so
+        # a `once=false` message re-fires as soon as it closes while still inside. Correct for a
+        # continuous effect; edge-triggered "once per visit" would need a leave-detecting re-arm zone.
+        parts.append(body)
+    parts.append(opcodes.RETURN)
+    return b"".join(parts)
 
 
 def inject_event(data, *, zone, body: bytes, once_flag: int | None = None,
+                 requires_flag: int | None = None, requires_set: bool = True,
                  flag_class=EVENT_FLAG_CLASS, slot=None, spawn_wait_n: int = 2,
                  spawn_wait_occurrence: int = 0):
     """Inject ONE walk-in event region (armed at load via InitRegion-over-Wait). Returns
     ``(new_bytes, slot)``. For several events prefer :func:`inject_events` (one shared arm entry)."""
-    range_body = event_range_body(body, once_flag, flag_class)
+    range_body = event_range_body(body, once_flag, flag_class, requires_flag, requires_set)
     return _region.inject_region(data, zone, range_body, slot=slot, activate=True,
                                  spawn_wait_n=spawn_wait_n, spawn_wait_occurrence=spawn_wait_occurrence)
 
@@ -84,7 +91,8 @@ def inject_events(data, events, *, flag_class=EVENT_FLAG_CLASS, spawn_wait_n: in
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     region_slots = []
     for ev in events:
-        rb = event_range_body(ev["body"], ev.get("once_flag"), flag_class)
+        rb = event_range_body(ev["body"], ev.get("once_flag"), flag_class,
+                              ev.get("requires_flag"), ev.get("requires_set", True))
         out, slot = _region.inject_region(out, ev["zone"], rb, activate=False)
         region_slots.append(slot)
 
@@ -92,8 +100,6 @@ def inject_events(data, events, *, flag_class=EVENT_FLAG_CLASS, spawn_wait_n: in
     arm_entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + arm
     arm_slot = EbScript.from_bytes(out).first_free_slot()
     out = edit.append_entry(out, arm_slot, arm_entry)
-    wait_off = edit.find_wait(EbScript.from_bytes(out), n=spawn_wait_n,
-                              occurrence=spawn_wait_occurrence)
-    out = edit.patch_bytes(out, wait_off, opcodes.init_code(arm_slot, 0),
-                           expect=opcodes.wait(spawn_wait_n))
+    out = edit.activate(out, opcodes.init_code(arm_slot, 0), spawn_wait_n=spawn_wait_n,
+                        spawn_wait_occurrence=spawn_wait_occurrence)
     return out

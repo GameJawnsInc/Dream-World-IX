@@ -211,6 +211,46 @@ def edit_waits(data):
     return [i for i in iter_code(eb.data, f.abs_start, f.abs_end) if i.op == 0x22 and i.imm(0) == 2]
 
 
+def test_flag_gate_bytes():
+    # require_set: 'ifnot(flag) return' = push flag, jump-if-TRUE past return, return
+    assert region.flag_gate(region.GLOB_BOOL, 200, require_set=True).hex() == "05c5c87f03010004"
+    # require_clear: 'if(flag) return' = push flag, jump-if-FALSE past return, return
+    assert region.flag_gate(region.GLOB_BOOL, 200, require_set=False).hex() == "05c5c87f02010004"
+
+
+def test_npc_gated_by_flag():
+    """A gated NPC's Init starts with the flag gate, so it returns before CreateObject when absent."""
+    plain = npc.inject_npc(CLEAN, 100, -500, preset="vivi", talk_text_id=500)
+    gated = npc.inject_npc(CLEAN, 100, -500, preset="vivi", talk_text_id=500, gate_flag=205)
+    assert gated != plain
+    eb = EbScript.from_bytes(gated)
+    e = next(x for x in eb.entries if not x.empty and x.func_by_tag(3) and x.index != 0)
+    init = e.func_by_tag(0)
+    assert eb.data[init.abs_start:init.abs_start + 8] == region.flag_gate(region.GLOB_BOOL, 205)
+    # the model setup still follows the gate (CreateObject 0x1D present after it)
+    assert 0x1D in _ops(eb, e.index, 0)
+
+
+def test_gateway_gated_by_flag():
+    ZONE = [(-1100, -2400), (1100, -2400), (1100, -1750), (-1100, -1750), (-1100, -1750)]
+    gated = gateway.inject_gateway(CLEAN, 4000, entrance=0, slot=3, zone=ZONE, gate_flag=210)
+    eb = EbScript.from_bytes(gated)
+    assert eb.to_bytes() == gated
+    rng = eb.entry(3).func_by_tag(2)
+    assert eb.data[rng.abs_start:rng.abs_start + 8] == region.flag_gate(region.GLOB_BOOL, 210)
+    assert 0x2B in _ops(eb, 3, 2)                                # Field() exit still present after the gate
+
+
+def test_event_requires_flag():
+    out = event.inject_events(CLEAN, [{"zone": [(0, 0), (100, 0), (100, 100), (0, 100)],
+                                       "body": event.message(500), "once_flag": None,
+                                       "requires_flag": 215, "requires_set": True}])
+    eb = EbScript.from_bytes(out)
+    _, rng = _event_region(eb)
+    # movement gate, then the requires-flag gate, then the body
+    assert rng.startswith(region.MOVEMENT_GATE + region.flag_gate(region.GLOB_BOOL, 215))
+
+
 def test_text_mes_format_and_mapping():
     line = text.mes_entry("I miss you Zidane", 500)
     assert line == "_[TXID=500][STRT=10,1][TAIL=UPR]I miss you Zidane[ENDN]"

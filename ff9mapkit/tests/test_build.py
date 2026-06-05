@@ -182,6 +182,68 @@ def test_event_field_validates_and_builds(tmp_path):
     assert sum(1 for e in eb.entries if not e.empty and e.type == 1 and e.func_by_tag(2)) == 2
 
 
+STORY = """
+[field]
+id = 4003
+name = "STORYROOM"
+area = 11
+text_block = 1073
+
+[camera]
+pitch = 45
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -1400], [-1200, -1400]]
+
+[player]
+spawn = [0, -300]
+
+[[event]]                       # a switch that sets story flag 200
+zone = [[300, -400], [700, -400], [700, -800], [300, -800]]
+set_flag = [200, 1]
+message = "*click* something opened."
+
+[[npc]]                         # only appears once flag 200 is set
+name = "Guard"
+preset = "vivi"
+pos = [-500, -600]
+dialogue = "You opened it!"
+requires_flag = 200
+
+[[gateway]]                     # door that unlocks once flag 200 is set
+to = 100
+entrance = 204
+zone = [[-200, -1200], [200, -1200], [200, -1350], [-200, -1350]]
+requires_flag = 200
+"""
+
+
+def test_story_flag_branching_builds(tmp_path):
+    from ff9mapkit.content import region
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.eb.disasm import iter_code
+    p = tmp_path / "story.field.toml"
+    p.write_text(STORY, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    eb = EbScript.from_bytes(ModLayout(out).eb_path("us", "EVT_STORYROOM.eb.bytes").read_bytes())
+    gate = region.flag_gate(region.GLOB_BOOL, 200)
+    # the NPC's Init is gated by flag 200
+    npc_e = next(e for e in eb.entries if not e.empty and e.func_by_tag(3) and e.index != 0)
+    init = npc_e.func_by_tag(0)
+    assert eb.data[init.abs_start:init.abs_start + 8] == gate
+    # a gateway region (Field 0x2B in Range) is gated by flag 200
+    gw = next(e for e in eb.entries if not e.empty and e.type == 1 and e.func_by_tag(2)
+              and any(i.op == 0x2B for i in iter_code(eb.data, e.func_by_tag(2).abs_start,
+                                                      e.func_by_tag(2).abs_end)))
+    grng = gw.func_by_tag(2)
+    assert eb.data[grng.abs_start:grng.abs_start + 8] == gate
+    # the event sets flag 200 (SetVar GlobBool 200 = 1 in some region's Range)
+    allbytes = eb.to_bytes()
+    assert region.set_var(region.GLOB_BOOL, 200, 1) in allbytes
+
+
 def test_validate_rejects_low_area(tmp_path):
     bad = tmp_path / "bad.field.toml"
     bad.write_text('[field]\nid=4002\nname="X"\narea=7\n[camera]\npitch=48\n', encoding="utf-8")

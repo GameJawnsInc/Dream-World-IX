@@ -138,6 +138,27 @@ def find_wait(eb: EbScript, *, n: int | None = None, entry_index: int = 0,
     return matches[occurrence].off
 
 
+def activate(data, init_bytes: bytes, *, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
+    """Activate an appended entry from Main_Init with a 3-byte ``Init*`` call (``InitObject`` /
+    ``InitRegion`` / ``InitCode``).
+
+    Overwrites a Main_Init ``Wait(n)`` filler (shift-free) when one is free; otherwise INSERTS the
+    call at the start of Main_Init. The blank field has only 2 Wait fillers, so a content-rich field
+    (NPCs + gateways + events) overflows them -- the insert path lets any amount of content activate.
+    The insert is safe because entry-0's only other function is an empty placeholder (its ``fpos``
+    points past the code), the same reason ``content.camera.enable_camera_services`` can insert.
+    Within-budget fields hit the Wait path and stay byte-identical to before."""
+    eb = EbScript.from_bytes(data)
+    try:
+        off = find_wait(eb, n=spawn_wait_n, occurrence=spawn_wait_occurrence)
+    except ValueError:
+        f0 = eb.entry(0).func_by_tag(0)
+        if f0 is None:
+            raise ValueError("entry 0 has no Main_Init to activate from")
+        return insert_bytes(data, f0.abs_start, bytes(init_bytes))
+    return patch_bytes(data, off, bytes(init_bytes), expect=bytes([WAIT_OP, 0x00, spawn_wait_n & 0xFF]))
+
+
 # --------------------------------------------------------------------------- jump safety (best effort)
 
 JMP_OP = 0x03  # unconditional relative jump: operand is signed int16, target = instr.end + offset

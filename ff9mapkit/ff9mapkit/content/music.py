@@ -29,10 +29,8 @@ def add_field_music(eb_bytes, song: int, *, slot: int | None = None, spawn_wait_
     if slot is None:
         slot = eb.first_free_slot()
     out = edit.append_entry(eb_bytes, slot, _music_entry(song))
-    wait_off = edit.find_wait(EbScript.from_bytes(out), n=spawn_wait_n,
-                              occurrence=spawn_wait_occurrence)
-    out = edit.patch_bytes(out, wait_off, opcodes.init_code(slot, 0),
-                           expect=opcodes.wait(spawn_wait_n))
+    out = edit.activate(out, opcodes.init_code(slot, 0), spawn_wait_n=spawn_wait_n,
+                        spawn_wait_occurrence=spawn_wait_occurrence)
     return out
 
 

@@ -93,8 +93,6 @@ def inject_camera_switch(data, *, forward_zone, reverse_zone, to_camera: int = 1
                  + opcodes.init_region(fwd_slot, 0) + opcodes.RETURN)
     init_entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + init_body
     out = edit.append_entry(out, init_slot, init_entry)
-    wait_off = edit.find_wait(EbScript.from_bytes(out), n=spawn_wait_n,
-                              occurrence=spawn_wait_occurrence)
-    out = edit.patch_bytes(out, wait_off, opcodes.init_code(init_slot, 0),
-                           expect=opcodes.wait(spawn_wait_n))
+    out = edit.activate(out, opcodes.init_code(init_slot, 0), spawn_wait_n=spawn_wait_n,
+                        spawn_wait_occurrence=spawn_wait_occurrence)
     return out

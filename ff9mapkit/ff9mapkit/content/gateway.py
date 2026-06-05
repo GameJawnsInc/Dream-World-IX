@@ -18,6 +18,7 @@ import struct
 
 from .. import data
 from ..eb import EbScript, edit, opcodes
+from . import region as _region
 
 # offsets within the 272-byte region template
 REL_PTS, REL_ENTRANCE, REL_FIELD = 13, 263, 269
@@ -32,8 +33,13 @@ def quad_zone(corners) -> list:
 
 
 def inject_gateway(eb_bytes, target: int, *, entrance: int = 0, zone, slot: int | None = None,
-                   spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
-    """Inject an exit gateway to ``Field(target)`` arriving at ``entrance``. Returns new bytes."""
+                   spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
+                   gate_flag: int | None = None, gate_require_set: bool = True) -> bytes:
+    """Inject an exit gateway to ``Field(target)`` arriving at ``entrance``. Returns new bytes.
+
+    ``gate_flag`` (a GlobBool index) locks the exit behind a story flag: the region's trigger returns
+    early unless the flag is in the required state (``gate_require_set`` True = open when SET, e.g. a
+    door that unlocks once a switch flag is set; False = open when CLEAR)."""
     zone = list(zone)
     if len(zone) != 5:
         raise ValueError("zone must be 5 points (convex quad + doubled last vertex); see quad_zone()")
@@ -47,8 +53,9 @@ def inject_gateway(eb_bytes, target: int, *, entrance: int = 0, zone, slot: int 
     if slot is None:
         slot = eb.first_free_slot()
     out = edit.append_entry(eb_bytes, slot, bytes(tpl))
-    wait_off = edit.find_wait(EbScript.from_bytes(out), n=spawn_wait_n,
-                              occurrence=spawn_wait_occurrence)
-    out = edit.patch_bytes(out, wait_off, opcodes.init_region(slot, 0),
-                           expect=opcodes.wait(spawn_wait_n))
+    out = edit.activate(out, opcodes.init_region(slot, 0), spawn_wait_n=spawn_wait_n,
+                        spawn_wait_occurrence=spawn_wait_occurrence)
+    if gate_flag is not None:
+        out = _region.prepend_range_gate(out, slot, _region.flag_gate(
+            _region.GLOB_BOOL, gate_flag, require_set=gate_require_set))
     return out

@@ -93,6 +93,17 @@ def if_block(cond: bytes, body: bytes) -> bytes:
     return cond + bytes([JMP_FALSE]) + _i16(len(body)) + body
 
 
+def flag_gate(var_class, idx: int, *, require_set: bool = True) -> bytes:
+    """A story-flag PROLOGUE: ``ifnot (flag matches) { return }``. Prepend it to a function so the
+    function only proceeds when the flag is in the required state (the way real FF9 gates NPCs /
+    triggers by scenario). ``require_set`` True -> proceed only when the flag is SET; False -> only
+    when CLEAR. Same shape as :data:`MOVEMENT_GATE` (push flag, conditional jump over an early
+    ``return``)."""
+    cond = cond_truthy(var_class, idx)               # pushes the flag's truth
+    jmp = JMP_TRUE if require_set else JMP_FALSE      # skip the 'return' when the flag is in-state
+    return cond + bytes([jmp]) + _i16(1) + opcodes.RETURN
+
+
 # --- region entry assembly ---
 def set_region(points) -> bytes:
     """``SetRegion`` polygon op: ``29 00 <count> <(x,z) i16 pairs>``. 4 convex corners is the
@@ -119,6 +130,19 @@ def build_region_entry(zone, range_body: bytes) -> bytes:
     return bytes([REGION_ENTRY_TYPE, len(funcs)]) + bytes(table) + b"".join(b for _, b in funcs)
 
 
+def prepend_range_gate(data, slot: int, gate_bytes: bytes) -> bytes:
+    """Insert ``gate_bytes`` at the start of the region in ``slot``'s Range (tag 2) function, so the
+    trigger only runs when the gate passes. Safe via :func:`edit.insert_bytes`: Range is the entry's
+    LAST function, so the gate just becomes its first bytes and no func-table ``fpos`` needs fixing."""
+    eb = EbScript.from_bytes(data)
+    rng = eb.entry(slot).func_by_tag(RANGE_TAG)
+    if rng is None:
+        raise ValueError(f"entry {slot} has no Range (tag {RANGE_TAG}) to gate")
+    if rng.abs_end != eb.entry(slot).abs_end:
+        raise ValueError(f"Range is not the last function of entry {slot}; cannot prepend safely")
+    return edit.insert_bytes(data, rng.abs_start, gate_bytes)
+
+
 def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, activate: bool = True,
                   spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0):
     """Append a conditional region (Init=SetRegion(zone), Range=range_body) into a free slot.
@@ -132,8 +156,6 @@ def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, act
     entry = build_region_entry(zone, range_body)
     out = edit.append_entry(data, slot, entry)
     if activate:
-        wait_off = edit.find_wait(EbScript.from_bytes(out), n=spawn_wait_n,
-                                  occurrence=spawn_wait_occurrence)
-        out = edit.patch_bytes(out, wait_off, opcodes.init_region(slot, 0),
-                               expect=opcodes.wait(spawn_wait_n))
+        out = edit.activate(out, opcodes.init_region(slot, 0), spawn_wait_n=spawn_wait_n,
+                            spawn_wait_occurrence=spawn_wait_occurrence)
     return out, slot
