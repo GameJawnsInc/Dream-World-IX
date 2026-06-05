@@ -1163,3 +1163,12 @@ Added the last build-time placement guard: content **on** the walkmesh but withi
 **Validation suite now:** geometry errors (empty/bad-index) · content off the walkmesh (all forks) · content within the collision radius of an edge (NPC/spawn, advisory) · stranded floors · broken seams · zero-area tris · layer aspect mismatch · camera pitch range.
 
 **Next options:** v3 walkmesh (`walkmesh verify` CLI, Blender seam viz); revert the test field + fast-warp + move to content/release work.
+
+### 2026-06-05 — Session 18 (cont) — Walkmesh v3 (partial): `walkmesh verify` CLI + Blender seam overlay
+
+Two v3 walkmesh tools (offline; bpy seam overlay awaits a glance in Blender per §2):
+- **`ff9mapkit walkmesh verify <path>`** — runs the whole check suite standalone, no build. A `.field.toml` resolves the walkmesh exactly as build does (custom-scene obj/quad/bgi, or a BG-borrow fork's `reference`/sibling `walkmesh.bgi`) + runs content-placement + layer + reachability/degenerate checks; a raw `.bgi` reports geometry (floors, walk-reachable, stranded, seams, degenerate, bounds). Exits 1 on any warning (scriptable). Factored `build_field`'s reachability/degenerate block into `_validate_walkmesh_geometry`; added `_walkmesh_stats` + `verify_walkmesh`. Verified on the live GRGR fork (7/7 floors, 33 seams, clean) + raw `.bgi`.
+- **Blender `FF9_Seams` overlay** — importing an editable multi-floor fork builds a bright amber wireframe of the cross-floor **seam edges** (`bridge.seam_edges_blender`, `show_in_front`, `hide_select`) so you can see which edges NOT to move when reshaping; panel note + import message report the count; auto-removed for single-floor forks. Add-on → **v0.6.1**.
+- 161 tests (4 new: verify clean/off-mesh, seam-edges multi/single-floor); vendor synced; `docs/WALKMESH_EDITING.md` §5/§6 marked v3-partial. Commit `b5c59c5`. Offline → no tag.
+
+**Remaining v3 (open):** anim/moving-platform carry; a Blender "re-anchor seam" operator + "suggest seams" for newly-added floors.
