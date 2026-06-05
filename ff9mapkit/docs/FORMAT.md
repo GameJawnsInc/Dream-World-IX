@@ -9,6 +9,28 @@ ff9mapkit build my_room.field.toml --out dist --mod-name MyMod --author you
 
 ---
 
+## Two files: scene (spatial) + field (logic)
+
+You can keep everything in one `field.toml`, **or** split *where things are* from *what they do*
+(the Godot model — placement in the scene, scripts on the nodes):
+
+- **`<x>.scene.toml`** — owned/overwritten by the Blender add-on: `[[camera]]`, `[walkmesh]`,
+  `[[layers]]`, `[player]`, `[[camera_zone]]`, and each entity's **position/zone** tagged by `name`.
+- **`<x>.field.toml`** — yours: `[field]` + the **logic** for each entity (dialogue, conditions,
+  events, encounters) referenced by `name`.
+
+`build` **overlays** the scene onto the field by entity `name` (scene supplies the spatial keys, your
+file supplies the logic), so re-exporting from Blender never clobbers your script. The scene is found
+automatically as a sibling `<x>.scene.toml`, or via an explicit `[scene]\nfile = "..."` key. A
+single-file `field.toml` (no scene sibling) builds exactly as before — the split is optional and
+purely additive. Keep both files in the same folder (asset paths resolve there).
+
+> Give entities a `name` to split them across files (NPCs already take `name`; add it to
+> `[[gateway]]` / `[[event]]`). An entity placed in the scene with no matching logic still builds
+> (spatial-only); logic with no scene match uses the position in the field file.
+
+---
+
 ## `[field]` (required)
 
 | key | required | meaning |

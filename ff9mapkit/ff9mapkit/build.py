@@ -42,6 +42,66 @@ class BuildError(RuntimeError):
 
 
 # --------------------------------------------------------------------------- project model
+# Two-surface authoring (Godot-style): the SCENE (where things are) and the LOGIC (what they do) can
+# live in separate files. `<x>.field.toml` is the project (logic: dialogue, conditions, events,
+# encounters + content identity by `name`); a sibling `<x>.scene.toml` is owned/overwritten by the
+# Blender add-on (spatial: camera, walkmesh, layers, player spawn, camera zones, and each entity's
+# position/zone tagged by name). `load` OVERLAYS the scene onto the field by name, so Blender never
+# clobbers your script. Single-file field.tomls (no scene sibling) build exactly as before.
+
+_SCENE_SCALAR = ("camera", "walkmesh", "layers", "camera_zone")   # spatial sections the scene owns
+_ENTITY_LISTS = ("npc", "gateway", "event")                        # split by name (logic + spatial)
+
+
+def _merge_entities(base_list, scene_list):
+    """Merge two entity lists by `name`: a base (logic) entity is updated with its same-named scene
+    (spatial) entity's keys (scene wins per-key); scene-only entities are appended; base-only kept."""
+    scene_by_name = {e["name"]: e for e in scene_list if "name" in e}
+    used = set()
+    out = []
+    for b in base_list:
+        nm = b.get("name")
+        if nm is not None and nm in scene_by_name:
+            out.append({**b, **scene_by_name[nm]})       # scene supplies pos/zone, base the logic
+            used.add(nm)
+        else:
+            out.append(dict(b))
+    for e in scene_list:                                  # entities placed in Blender, no logic yet
+        if e.get("name") not in used:
+            out.append(dict(e))
+    return out
+
+
+def _merge_scene(base: dict, scene: dict) -> dict:
+    """Overlay a Blender `scene.toml` onto a `field.toml` dict. Spatial sections come from the scene;
+    content lists merge by name (scene = position/zone, field = logic)."""
+    merged = dict(base)
+    for key in _SCENE_SCALAR:
+        if key in scene:
+            merged[key] = scene[key]
+    if "player" in scene:
+        merged["player"] = {**base.get("player", {}), **scene["player"]}
+    for key in _ENTITY_LISTS:
+        if key in base or key in scene:
+            merged[key] = _merge_entities(base.get(key, []), scene.get(key, []))
+    return merged
+
+
+def _find_scene(field_path: Path, base: dict):
+    """The scene overlay for a field.toml: explicit ``[scene] file`` wins, else a sibling
+    ``<stem>.scene.toml`` (``<x>.field.toml`` -> ``<x>.scene.toml``). Returns the parsed dict or None."""
+    ref = base.get("scene", {}).get("file")
+    if ref:
+        sp = (field_path.parent / ref)
+    else:
+        nm = field_path.name
+        stem = nm[:-len(".field.toml")] if nm.endswith(".field.toml") else field_path.stem
+        sp = field_path.parent / f"{stem}.scene.toml"
+    if not sp.is_file():
+        return None
+    with sp.open("rb") as fh:
+        return tomllib.load(fh)
+
 
 @dataclass
 class FieldProject:
@@ -52,7 +112,10 @@ class FieldProject:
     def load(cls, toml_path) -> "FieldProject":
         p = Path(toml_path)
         with p.open("rb") as fh:
-            return cls(tomllib.load(fh), p.parent)
+            base = tomllib.load(fh)
+        scene = _find_scene(p, base)
+        raw = _merge_scene(base, scene) if scene is not None else base
+        return cls(raw, p.parent)
 
     # convenience accessors
     @property

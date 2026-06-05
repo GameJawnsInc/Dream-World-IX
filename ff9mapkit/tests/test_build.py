@@ -309,6 +309,131 @@ def test_threecam_builds_with_restore(tmp_path):
     assert region.cond_eq(region.GLOB_UINT8, 24, 2) in body
 
 
+_COMBINED = """
+[field]
+id = 4003
+name = "SPLITROOM"
+area = 11
+text_block = 1073
+[camera]
+pitch = 45
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+[[layers]]
+image = "floor.png"
+z = 4000
+[[npc]]
+name = "guard"
+preset = "vivi"
+pos = [-400, -600]
+dialogue = "Halt!"
+requires_flag = 200
+[[gateway]]
+name = "north"
+to = 100
+entrance = 204
+zone = [[-200, -1200], [200, -1200], [200, -1350], [-200, -1350]]
+[[event]]
+name = "lever"
+zone = [[300, -400], [700, -400], [700, -800], [300, -800]]
+set_flag = [200, 1]
+message = "click"
+[player]
+spawn = [0, -300]
+"""
+_LOGIC = """
+[field]
+id = 4003
+name = "SPLITROOM"
+area = 11
+text_block = 1073
+[[npc]]
+name = "guard"
+preset = "vivi"
+dialogue = "Halt!"
+requires_flag = 200
+[[gateway]]
+name = "north"
+to = 100
+entrance = 204
+[[event]]
+name = "lever"
+set_flag = [200, 1]
+message = "click"
+"""
+_SCENE = """
+[camera]
+pitch = 45
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+[[layers]]
+image = "floor.png"
+z = 4000
+[[npc]]
+name = "guard"
+pos = [-400, -600]
+[[gateway]]
+name = "north"
+zone = [[-200, -1200], [200, -1200], [200, -1350], [-200, -1350]]
+[[event]]
+name = "lever"
+zone = [[300, -400], [700, -400], [700, -800], [300, -800]]
+[player]
+spawn = [0, -300]
+"""
+
+
+def _png(path, w=384, h=448):
+    from PIL import Image
+    Image.new("RGBA", (w, h), (10, 20, 30, 255)).save(path)
+
+
+def test_two_file_split_equals_single_file(tmp_path):
+    """The Blender split (scene.toml spatial + field.toml logic, merged by name) must build the SAME
+    bytes as the equivalent single-file project -- the whole correctness guarantee of the overlay."""
+    c = tmp_path / "combined"; c.mkdir(); _png(c / "floor.png")
+    (c / "x.field.toml").write_text(_COMBINED, encoding="utf-8")
+    build_mod([FieldProject.load(c / "x.field.toml")], c / "mod")
+
+    s = tmp_path / "split"; s.mkdir(); _png(s / "floor.png")
+    (s / "x.field.toml").write_text(_LOGIC, encoding="utf-8")
+    (s / "x.scene.toml").write_text(_SCENE, encoding="utf-8")     # auto-discovered sibling
+    build_mod([FieldProject.load(s / "x.field.toml")], s / "mod")
+
+    L1, L2 = ModLayout(c / "mod"), ModLayout(s / "mod")
+    for lang in LANGS:
+        assert L1.eb_path(lang, "EVT_SPLITROOM.eb.bytes").read_bytes() == \
+            L2.eb_path(lang, "EVT_SPLITROOM.eb.bytes").read_bytes()
+    fm1, fm2 = L1.fieldmap_dir("FBG_N11_SPLITROOM"), L2.fieldmap_dir("FBG_N11_SPLITROOM")
+    assert (fm1 / "FBG_N11_SPLITROOM.bgx").read_text() == (fm2 / "FBG_N11_SPLITROOM.bgx").read_text()
+    assert (fm1 / "FBG_N11_SPLITROOM.bgi.bytes").read_bytes() == (fm2 / "FBG_N11_SPLITROOM.bgi.bytes").read_bytes()
+    assert L1.mes_path("us", 1073).read_text() == L2.mes_path("us", 1073).read_text()
+
+
+def test_scene_merge_unit():
+    from ff9mapkit.build import _merge_scene
+    base = {"field": {"id": 4003}, "npc": [{"name": "g", "dialogue": "hi"}],
+            "gateway": [{"name": "d", "to": 100}]}
+    scene = {"camera": {"pitch": 45}, "player": {"spawn": [0, 0]},
+             "npc": [{"name": "g", "pos": [1, 2]}, {"name": "extra", "pos": [3, 4]}],
+             "gateway": [{"name": "d", "zone": [[0, 0]]}]}
+    m = _merge_scene(base, scene)
+    assert m["camera"] == {"pitch": 45} and m["player"] == {"spawn": [0, 0]}
+    g = next(n for n in m["npc"] if n["name"] == "g")
+    assert g["dialogue"] == "hi" and g["pos"] == [1, 2]          # logic + spatial joined by name
+    assert any(n["name"] == "extra" for n in m["npc"])           # scene-only entity appended
+    assert m["gateway"][0]["to"] == 100 and m["gateway"][0]["zone"] == [[0, 0]]
+
+
+def test_explicit_scene_file_reference(tmp_path):
+    s = tmp_path; _png(s / "floor.png")
+    (s / "logic.field.toml").write_text(_LOGIC + '\n[scene]\nfile = "myscene.toml"\n', encoding="utf-8")
+    (s / "myscene.toml").write_text(_SCENE, encoding="utf-8")
+    proj = FieldProject.load(s / "logic.field.toml")
+    assert validate(proj) == []                                  # merged project is complete
+    assert any(n.get("pos") == [-400, -600] for n in proj.raw["npc"])
+
+
 def test_validate_rejects_low_area(tmp_path):
     bad = tmp_path / "bad.field.toml"
     bad.write_text('[field]\nid=4002\nname="X"\narea=7\n[camera]\npitch=48\n', encoding="utf-8")
