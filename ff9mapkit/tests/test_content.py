@@ -342,8 +342,20 @@ def test_choreography_compiles_ordered_actor_steps():
 
 
 def test_choreography_no_once_is_ungated():
-    choreo = cutscene.build_choreography([{"wait": 5}], [], once_flag=None)
+    choreo = cutscene.build_choreography([{"wait": 5}], [], once_flag=None, warmup=0)
     assert choreo == opcodes.DISABLE_MOVE + opcodes.wait(5) + opcodes.ENABLE_MOVE
+
+
+def test_choreography_warmup_waits_before_acting():
+    """The warm-up Wait comes right after DisableMove (so the player can't wander) and before the
+    first actor step -- it lets the field's entry fade/smooth-updater settle so the actor doesn't
+    circle (and its synchronous Walk doesn't hang)."""
+    choreo = cutscene.build_choreography([{"walk": [0, -700]}], [], once_flag=None, warmup=30)
+    assert choreo == (opcodes.DISABLE_MOVE + opcodes.wait(30)
+                      + opcodes.init_walk() + opcodes.walk(0, -700) + opcodes.ENABLE_MOVE)
+    # default applies a non-zero warm-up
+    assert opcodes.DISABLE_MOVE + opcodes.wait(cutscene.DEFAULT_WARMUP) in \
+        cutscene.build_choreography([{"walk": [0, -700]}], [], once_flag=8100)
 
 
 def test_actor_cutscene_spliced_into_npc_init():

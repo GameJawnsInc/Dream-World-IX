@@ -660,7 +660,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     cs_once_flag = None
     if cs and cs.get("once", True):
         cs_once_flag = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
-    actor_choreo = _cutscene.build_choreography(cs["steps"], cutscene_txids, cs_once_flag) if cs_actor else None
+    actor_choreo = None
+    if cs_actor:
+        actor_choreo = _cutscene.build_choreography(
+            cs["steps"], cutscene_txids, cs_once_flag,
+            warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)))
 
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
     gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)

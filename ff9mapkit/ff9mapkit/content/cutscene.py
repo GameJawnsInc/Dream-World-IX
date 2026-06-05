@@ -38,6 +38,13 @@ DEFAULT_CUTSCENE_FLAG = 8100
 
 PLAYER_UID = 250        # GetObjUID(250) resolves to the player's control character (engine convention)
 
+# A field's Main_Init enables control then runs a ~16-frame entry FadeFilter; for the first frames
+# the field is still fading + the smooth-frame-updater is settling actor positions. Issuing an actor
+# Walk during that window makes the actor circle and never converge (its synchronous Walk then hangs
+# -> softlock). So an ACTOR cutscene waits a warm-up before commanding the actor -- exactly what real
+# entry cutscenes do (Main_Loop `Wait(...)` before RunScript). Tunable via `[cutscene] warmup = N`.
+DEFAULT_WARMUP = 30     # frames (~1s @ 30fps); generous margin over the 16-frame entry fade
+
 
 def say(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:
     """Step: open a dialogue/narration window showing ``text_id`` (blocks until the player dismisses)."""
@@ -114,14 +121,21 @@ def compile_steps(steps, txids) -> bytes:
     return b"".join(out)
 
 
-def build_choreography(steps, txids, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS) -> bytes:
+def build_choreography(steps, txids, once_flag: int | None, *, warmup: int = DEFAULT_WARMUP,
+                       flag_class=CUTSCENE_FLAG_CLASS) -> bytes:
     """The gated choreography block for an ACTOR cutscene, spliced into the actor NPC's Init (before
     its RETURN) by :func:`ff9mapkit.content.npc.inject_npc`. Runs in the NPC's context so the actor
     steps target it.
 
-    Shape: ``if (!once) { DisableMove; <steps>; EnableMove; once=1 }`` (no trailing RETURN -- the
-    Init's own RETURN follows). With ``once_flag=None`` the scene replays on every entry (ungated)."""
-    inner = opcodes.DISABLE_MOVE + compile_steps(steps, txids) + opcodes.ENABLE_MOVE
+    Shape: ``if (!once) { DisableMove; Wait(warmup); <steps>; EnableMove; once=1 }`` (no trailing
+    RETURN -- the Init's own RETURN follows). The ``warmup`` Wait (after the lock, so the player can't
+    wander) lets the field's entry fade + smooth-updater settle before the actor walks, or the actor
+    circles during load and its synchronous Walk hangs. With ``once_flag=None`` the scene replays on
+    every entry (ungated)."""
+    inner = opcodes.DISABLE_MOVE
+    if warmup > 0:
+        inner += opcodes.wait(int(warmup))
+    inner += compile_steps(steps, txids) + opcodes.ENABLE_MOVE
     if once_flag is not None:
         inner += _region.set_var(flag_class, once_flag, 1)
         return _region.if_block(_region.cond_not(flag_class, once_flag), inner)
