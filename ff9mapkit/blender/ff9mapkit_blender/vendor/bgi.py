@@ -48,6 +48,14 @@ TRI_SIZE, EDGE_SIZE, ANM_SIZE, FLOOR_SIZE, NORMAL_SIZE, VERT_SIZE = 40, 4, 16, 3
 SLOT_PAIRS = [(0, 2), (0, 1), (1, 2)]
 
 
+def _pt_in_tri_xz(px, pz, a, b, c) -> bool:
+    """(px,pz) inside-or-on triangle (a,b,c) using only X and Z (top-down). Same-sign barycentric."""
+    def cross(p, q):
+        return (px - q[0]) * (p[2] - q[2]) - (p[0] - q[0]) * (pz - q[2])
+    d1, d2, d3 = cross(a, b), cross(b, c), cross(c, a)
+    return not ((d1 < 0 or d2 < 0 or d3 < 0) and (d1 > 0 or d2 > 0 or d3 > 0))
+
+
 def _i16(b, o):
     return struct.unpack_from("<h", b, o)[0]
 
@@ -294,6 +302,29 @@ class BgiWalkmesh:
                 misses.append((fa, a_edge, fb, b_edge))
         return linked, missing, misses
 
+    # ---------------- placement / geometry validation (catch authoring mistakes pre-build) ----------------
+    def point_on_walkmesh(self, x, z):
+        """Floor index of the triangle whose XZ-projection contains (x, z), else None. Validates that
+        authored content (NPC / player spawn / gateway zone) sits on the walkable area before build --
+        a top-down point-in-triangle test (multi-floor fields can overlap in XZ; returns first match)."""
+        wv = self.world_verts()
+        fo = self._tri_floor()
+        for ti, t in enumerate(self.tris):
+            if _pt_in_tri_xz(x, z, wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]]):
+                return fo.get(ti, t.floor_ndx)
+        return None
+
+    def degenerate_tris(self):
+        """Triangle indices with ~zero XZ area -- collinear/vertical verts make a DEAD ZONE in the
+        engine's IsInQuad fan test (the player can't stand there). Almost always an editing mistake."""
+        wv = self.world_verts()
+        out = []
+        for ti, t in enumerate(self.tris):
+            a, b, c = wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]]
+            if (b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2]) == 0:
+                out.append(ti)
+        return out
+
     # ---------------- parse ----------------
     @classmethod
     def from_bytes(cls, data: bytes) -> "BgiWalkmesh":
@@ -495,6 +526,17 @@ def build(verts, faces, *, floor_ids=None, tri_flags: int = 1, floor_flags: int 
     verts = [(round(x), round(y), round(z)) for (x, y, z) in verts]
     faces = [tuple(f) for f in faces]
     _check_int16(verts)
+    if not verts or not faces:
+        raise ValueError("walkmesh has no geometry (need at least one vertex and one triangle) -- "
+                         "check the .obj has both 'v' and 'f' lines.")
+    nv = len(verts)
+    for ti, f in enumerate(faces):
+        if len(f) != 3:
+            raise ValueError(f"walkmesh face {ti} has {len(f)} vertices, expected 3 (a triangle).")
+        for vi in f:
+            if not (0 <= vi < nv):
+                raise ValueError(f"walkmesh face {ti} references vertex index {vi}, out of range "
+                                 f"0..{nv - 1} -- a malformed or mis-edited .obj.")
     if floor_ids is None:
         floor_ids = [0] * len(faces)
     if len(floor_ids) != len(faces):

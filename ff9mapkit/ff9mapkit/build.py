@@ -209,6 +209,32 @@ def _apply_links(mesh, links_path, warnings):
             f"Re-anchor it in the .obj or restore [walkmesh] bgi (docs/WALKMESH_EDITING.md).")
 
 
+def _validate_content_placement(project: FieldProject, wmesh, warnings: list) -> None:
+    """Warn when authored content sits OFF the walkable area -- the recurring in-game mistake (an NPC
+    floats / the player can't reach a trigger / spawns off the floor). Top-down XZ point-in-walkmesh
+    test. Custom-scene only (where the kit has the walkmesh); a warning, never a hard error."""
+    def off(x, z):
+        return wmesh.point_on_walkmesh(int(round(x)), int(round(z))) is None
+    for i, n in enumerate(project.raw.get("npc", [])):
+        p = n.get("pos")
+        if p and off(p[0], p[1]):
+            warnings.append(
+                f"NPC {n.get('name', f'#{i}')!r} at ({int(p[0])}, {int(p[1])}) is off the walkmesh -- "
+                f"it will float / be unreachable. Move it onto the walkable area.")
+    sp = project.raw.get("player", {}).get("spawn")
+    if sp and off(sp[0], sp[1]):
+        warnings.append(
+            f"player spawn ({int(sp[0])}, {int(sp[1])}) is off the walkmesh -- you'll start off the floor.")
+    for gw in project.raw.get("gateway", []):
+        zone = gw.get("zone", [])
+        if zone:
+            cx, cz = sum(p[0] for p in zone) / len(zone), sum(p[1] for p in zone) / len(zone)
+            if off(cx, cz):
+                warnings.append(
+                    f"gateway -> field {gw.get('to')}: zone centre ({int(cx)}, {int(cz)}) is off the "
+                    f"walkmesh -- the player may not be able to reach the trigger.")
+
+
 def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> bytes:
     wm = project.raw.get("walkmesh", {})
     if wm.get("bgi"):
@@ -391,12 +417,15 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     borrow_bg = project.field.get("borrow_bg")
     if not borrow_bg:
         bgi_bytes = resolve_walkmesh(project, camera, warnings)
-        # reachability guard for (re)BUILT walkmeshes (obj/quad/auto): rebuild_neighbors links only
-        # within a floor, so a multi-floor obj strands its floors. A verbatim [walkmesh] bgi is the
-        # authoritative original and is SKIPPED -- some real fields legitimately reach floors by
-        # script, not on foot (e.g. UDFT: 9 of 23 floors walk-reachable), so checking it cries wolf.
+        wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
+        # content placement: warn when an NPC / spawn / gateway sits OFF the walkable area -- the
+        # recurring in-game mistake (an NPC floats, the player can't reach a trigger). Always checked.
+        _validate_content_placement(project, wmesh, warnings)
+        # reachability + degenerate-tri guards for (re)BUILT walkmeshes (obj/quad/auto): rebuild_neighbors
+        # links only within a floor, so a multi-floor obj strands its floors. A verbatim [walkmesh] bgi is
+        # the authoritative original and is SKIPPED -- some real fields legitimately reach floors by script,
+        # not on foot (e.g. UDFT: 9 of 23 floors walk-reachable), so checking it cries wolf.
         if not project.raw.get("walkmesh", {}).get("bgi"):
-            wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
             stranded = wmesh.all_floors() - wmesh.reachable_floors()
             if stranded:
                 warnings.append(
@@ -405,6 +434,12 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                     f"[walkmesh] obj loses cross-floor links (rebuild_neighbors only links within a "
                     f"floor) -- ship the original with [walkmesh] bgi, or declare seams "
                     f"(docs/WALKMESH_EDITING.md).")
+            degen = wmesh.degenerate_tris()
+            if degen:
+                warnings.append(
+                    f"walkmesh: {len(degen)} zero-area triangle(s) {degen[:5]}"
+                    f"{'...' if len(degen) > 5 else ''} -- collinear verts make a dead zone in the "
+                    f"engine's IsInQuad test (the player can't stand there); fix them in the .obj.")
         overlays = build_overlays(project, range_wh=tuple(camera.range))
         bgx_text = bgx.build(camera, overlays, header_comment=project.field.get("title", project.name))
 

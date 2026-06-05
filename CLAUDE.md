@@ -1096,3 +1096,11 @@ The GLGV editable-fork proof is now a first-class command: **`ff9mapkit import -
 - **Dogfooded on real 7-floor GRGR:** sidecar = 33 seams; switching to obj+links builds **7/7 floors reachable, no warnings.** Tests: extract/apply round-trip, build-obj+links reconciles, broken-seam warns. Docs (WALKMESH_EDITING.md v2→DONE, FORMAT.md `links` row, PIPELINE n/a) + memory updated. Tagged `KNOWN_GOOD-s17-walkmesh-v2`.
 
 **Note:** v2 is OFFLINE-proven (reconcile reproduces the original's exact links + the dogfood builds connected). An actual *reshaped* multi-floor field hasn't been walked in-game yet — the reconcile is exact for unedited seams, so the next real test is a human editing a fork's floor interior + playing it. v3 remaining: anim carry, `walkmesh verify` CLI, Blender seam viz/re-anchor.
+
+### 2026-06-04 — Session 17 (cont 6) — Build-time validation for user-EDITED forks (catch mistakes offline)
+
+**Hardened the import→edit→re-export path so an altered fork fails LOUDLY at build, not silently in-game** (the only §2-legal lever — I can't see the game). All offline, 144 tests.
+- **`bgi.build` ERRORS on broken geometry:** empty mesh (no verts/faces), or a face referencing an out-of-range vertex index — clear messages instead of a cryptic crash (catches mis-edited `.obj`s).
+- **Content-placement WARNING — the big one** (catches the recurring in-game pain: Vivi off-screen / behind-desk / player-in-exit-zone): `BgiWalkmesh.point_on_walkmesh(x,z)` (top-down point-in-triangle over `world_verts`) → `build` warns when an NPC / player spawn / gateway-zone-centre sits **off the walkmesh**. Verified **no false-positive** on real in-game-OK content (GRGR Vivi (-367,-1009)→floor 3, spawn (404,127)→floor 0; (9000,9000)→off). Honest limit: catches OFF-mesh, not on-mesh-but-blocked.
+- **Zero-area-triangle WARNING:** `degenerate_tris()` flags collinear verts → IsInQuad dead zones (the bug we hit in gateway work), gated to (re)built meshes.
+- All wired into `build_field` warnings (content always for custom scenes; degenerate/reachability gated to non-verbatim). Docs: PIPELINE.md "the build checks your work". Tests: bad-geometry rejects, point/degenerate behavior, off-walkmesh warns, on-walkmesh doesn't. Tagged `KNOWN_GOOD-s17-edit-validation`.

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ff9mapkit.scene import bgi
 
 FIX = Path(__file__).parent / "fixtures"
@@ -277,3 +279,53 @@ def test_load_obj_single_object_unchanged():
         assert (m.orgPos.x, m.orgPos.y, m.orgPos.z) == (0, 0, 300)   # legacy uniform header
     finally:
         os.unlink(path)
+
+
+# ---- robustness: validation for user-edited / altered exports ----
+
+def test_build_rejects_bad_geometry():
+    """A mis-edited .obj fails LOUDLY at build (clear error), not with a cryptic crash."""
+    with pytest.raises(ValueError, match="no geometry"):
+        bgi.build([], [])
+    with pytest.raises(ValueError, match="out of range"):
+        bgi.build([(0, 0, 0), (10, 0, 0), (0, 0, 10)], [(0, 1, 5)])   # vertex 5 doesn't exist
+
+
+def test_point_on_walkmesh_and_degenerate():
+    wm = bgi.build([(-100, 0, -100), (100, 0, -100), (100, 0, 100), (-100, 0, 100)],
+                   [(0, 1, 2), (0, 2, 3)])
+    assert wm.point_on_walkmesh(0, 0) is not None        # inside the square
+    assert wm.point_on_walkmesh(9999, 9999) is None      # far outside
+    assert wm.degenerate_tris() == []
+    deg = bgi.build([(0, 0, 0), (10, 0, 0), (20, 0, 0), (0, 0, 50)],   # tri 0 collinear in XZ
+                    [(0, 1, 2), (0, 2, 3)])
+    assert 0 in deg.degenerate_tris()
+
+
+def _quad_scene_toml(npc_pos=None, spawn=None, extra=""):
+    t = ('[field]\nid = 4003\nname = "X"\narea = 21\n\n[camera]\nborrow = "camera.bgx"\n\n'
+         '[walkmesh]\nquad = [[-500, -500], [500, -500], [500, 500], [-500, 500]]\nframe = "world"\n\n')
+    if spawn:
+        t += f'[player]\nspawn = [{spawn[0]}, {spawn[1]}]\n\n'
+    if npc_pos:
+        t += f'[[npc]]\nname = "N"\npreset = "vivi"\npos = [{npc_pos[0]}, {npc_pos[1]}]\n\n'
+    return t + extra
+
+
+def test_build_warns_content_off_walkmesh(tmp_path):
+    """The recurring in-game mistake (NPC/spawn off the walkable area) is now a build-time warning."""
+    from ff9mapkit.build import FieldProject, build_mod
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(
+        _quad_scene_toml(npc_pos=(9000, 9000), spawn=(0, 0)), encoding="utf-8")
+    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+    assert any("off the walkmesh" in w for w in info["warnings"])       # NPC at (9000,9000) flagged
+    assert not any("player spawn" in w for w in info["warnings"])       # spawn (0,0) is ON the mesh
+
+
+def test_build_no_content_warning_when_on_walkmesh(tmp_path):
+    from ff9mapkit.build import FieldProject, build_mod
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(_quad_scene_toml(npc_pos=(100, 100)), encoding="utf-8")
+    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+    assert not any("off the walkmesh" in w for w in info["warnings"])
