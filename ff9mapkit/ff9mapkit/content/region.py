@@ -93,6 +93,11 @@ def if_block(cond: bytes, body: bytes) -> bytes:
     return cond + bytes([JMP_FALSE]) + _i16(len(body)) + body
 
 
+def if_not_block(cond: bytes, body: bytes) -> bytes:
+    """``if (!cond) { body }`` -> cond + ``03 <len(body):i16>`` (jump-if-TRUE past body) + body."""
+    return cond + bytes([JMP_TRUE]) + _i16(len(body)) + body
+
+
 def flag_gate(var_class, idx: int, *, require_set: bool = True) -> bytes:
     """A story-flag PROLOGUE: ``ifnot (flag matches) { return }``. Prepend it to a function so the
     function only proceeds when the flag is in the required state (the way real FF9 gates NPCs /

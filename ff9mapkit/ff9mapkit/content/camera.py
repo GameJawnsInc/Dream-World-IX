@@ -41,58 +41,83 @@ def enable_camera_services(eb_bytes, *, frame_count: int = 0, scroll_type: int =
 
 
 # --------------------------------------------------------------------------- multi-camera switch
-# The real-field convention (decoded byte-for-byte from Gargan Roo/Passage, evt_gargan_gr_lef_0):
-# a PAIR of region zones at the boundary between two background cameras, gated by a state flag so
-# each fires only on the crossing (the anti-flap discipline the engine itself had to hot-fix for
-# fields that lacked it). Crossing the forward zone switches camera 0 -> target, sets the flag,
-# re-tunes movement (SetControlDirection for the target camera), turns the reverse zone ON, and
-# terminates itself; the reverse zone mirrors it back. An init code-entry resets the flag to 0 and
-# arms the forward zone on every field load, so state is always consistent on (re)entry.
+# Generalizes the real-field convention (decoded byte-for-byte from Gargan Roo/Passage,
+# evt_gargan_gr_lef_0) to N cameras via an AREA model: a state flag holds the CURRENT camera index,
+# and each zone owns the floor area where its camera should be active. Entering a zone for camera K
+# while flag != K switches to camera K, stores K in the flag, and re-tunes movement
+# (SetControlDirection for K's yaw). The flag guard stops re-firing while you stand in a zone;
+# NON-OVERLAPPING zones can't flap. An init code-entry resets the flag to 0 + arms every zone on
+# field load (state is consistent on entry); after a battle (Main_Init doesn't run) the tag-10
+# restore (:func:`add_camera_restore`) re-applies the stored camera + movement.
 
-def _switch_body(cond: bytes, to_camera: int, control_value: int, flag, other_slot: int) -> bytes:
-    """A switch zone's Range body: movement-gate, then `if (cond) { SetFieldCamera; set flag;
-    SetControlDirection; InitRegion(other); TerminateEntry(this) }`."""
+REINIT_TAG = 10
+
+
+def _zone_body(to_camera: int, control_value: int, flag) -> bytes:
+    """A camera zone's Range body: movement-gate, then `if (flag != to_camera) { SetFieldCamera;
+    set flag = to_camera; SetControlDirection }`."""
     flag_class, flag_idx = flag
-    body = (opcodes.set_field_camera(to_camera)
-            + _region.set_var(flag_class, flag_idx, to_camera)
-            + opcodes.set_control_direction(control_value, control_value)
-            + opcodes.init_region(other_slot, 0)
-            + opcodes.terminate_entry(255))
-    return _region.MOVEMENT_GATE + _region.if_block(cond, body) + opcodes.RETURN
+    actions = (opcodes.set_field_camera(to_camera)
+               + _region.set_var(flag_class, flag_idx, to_camera)
+               + opcodes.set_control_direction(control_value, control_value))
+    return (_region.MOVEMENT_GATE
+            + _region.if_not_block(_region.cond_eq(flag_class, flag_idx, to_camera), actions)
+            + opcodes.RETURN)
 
 
-def inject_camera_switch(data, *, forward_zone, reverse_zone, to_camera: int = 1,
-                         control_value_0: int = -1, control_value_target: int = -1,
-                         flag=DEFAULT_FLAG, spawn_wait_n: int = 2,
-                         spawn_wait_occurrence: int = 0) -> bytes:
-    """Inject a two-camera switch pair (the Gargan Roo convention). Returns new .eb bytes.
+def inject_camera_zones(data, zones, control_values, *, flag=DEFAULT_FLAG, spawn_wait_n: int = 2,
+                        spawn_wait_occurrence: int = 0) -> bytes:
+    """Inject N camera-switch zones (the area model). Returns new .eb bytes.
 
-    ``forward_zone`` / ``reverse_zone`` are each 4 (x, z) convex corners. Crossing ``forward_zone``
-    switches the active background camera ``0 -> to_camera``; crossing ``reverse_zone`` switches it
-    back. ``control_value_0`` / ``control_value_target`` are the per-camera SetControlDirection
-    (TWIST) values (derive from each camera's yaw) so "up" stays up-screen after a switch. Needs 3
-    free entry slots (2 zones + the load-time init/arm entry)."""
+    ``zones`` = list of ``(to_camera, [4 (x, z) corners])``; ``control_values[k]`` = the
+    SetControlDirection (TWIST) value for camera ``k`` (derive from its yaw). Each zone owns the floor
+    area where its camera is active; standing in it sets that camera. Zones SHOULD NOT overlap
+    (overlapping zones flap). Needs ``len(zones) + 1`` free entry slots (the zones + one load-time
+    init/arm entry that resets the flag to 0 and arms them all)."""
     flag_class, flag_idx = flag
+    zones = list(zones)
     eb = EbScript.from_bytes(data)
-    free = eb.free_slots()
-    if len(free) < 3:
-        raise ValueError(f"need 3 free entry slots for a camera switch, have {len(free)}")
-    fwd_slot, rev_slot, init_slot = free[0], free[1], free[2]
-
-    fwd_body = _switch_body(_region.cond_not(flag_class, flag_idx), to_camera,
-                            control_value_target, flag, rev_slot)
-    rev_body = _switch_body(_region.cond_truthy(flag_class, flag_idx), 0,
-                            control_value_0, flag, fwd_slot)
-
-    # both zones appended but NOT auto-armed (the init entry arms the forward one at load)
-    out, _ = _region.inject_region(data, forward_zone, fwd_body, slot=fwd_slot, activate=False)
-    out, _ = _region.inject_region(out, reverse_zone, rev_body, slot=rev_slot, activate=False)
-
-    # init/arm code entry: reset flag = 0 (camera 0) + InitRegion(forward), run from Main_Init.
-    init_body = (_region.set_var(flag_class, flag_idx, 0)
-                 + opcodes.init_region(fwd_slot, 0) + opcodes.RETURN)
+    if len(eb.free_slots()) < len(zones) + 1:
+        raise ValueError(f"need {len(zones) + 1} free entry slots for {len(zones)} camera zones, "
+                         f"have {len(eb.free_slots())}")
+    out = data
+    slots = []
+    for to_camera, corners in zones:
+        body = _zone_body(int(to_camera), int(control_values[int(to_camera)]), flag)
+        out, slot = _region.inject_region(out, [tuple(p) for p in corners], body, activate=False)
+        slots.append(slot)
+    # init/arm entry: reset flag = 0 (camera 0 at load) + arm every zone.
+    init_body = _region.set_var(flag_class, flag_idx, 0)
+    for s in slots:
+        init_body += opcodes.init_region(s, 0)
+    init_body += opcodes.RETURN
     init_entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + init_body
+    init_slot = EbScript.from_bytes(out).first_free_slot()
     out = edit.append_entry(out, init_slot, init_entry)
     out = edit.activate(out, opcodes.init_code(init_slot, 0), spawn_wait_n=spawn_wait_n,
                         spawn_wait_occurrence=spawn_wait_occurrence)
     return out
+
+
+def add_camera_restore(data, cameras_used, control_values, *, flag=DEFAULT_FLAG) -> bytes:
+    """Add an after-battle camera restore to Main_Reinit (tag 10). Returns new .eb bytes.
+
+    For each non-zero camera ``K`` in ``cameras_used``: ``if (flag == K) { SetFieldCamera(K);
+    SetControlDirection(K) }``. After a battle the field runs tag-10 (NOT Main_Init, so the flag isn't
+    reset) -- this re-applies the camera + movement the player was on. Requires an existing tag-10
+    (``content.reinit.add_reinit`` / an encounter); a no-op if no non-zero camera is used."""
+    flag_class, flag_idx = flag
+    eb = EbScript.from_bytes(data)
+    f = eb.entry(0).func_by_tag(REINIT_TAG)
+    if f is None:
+        raise ValueError("entry 0 has no tag-10 handler (run content.reinit.add_reinit first)")
+    restore = b""
+    for k in sorted({int(c) for c in cameras_used}):
+        if k == 0:
+            continue
+        actions = opcodes.set_field_camera(k) + opcodes.set_control_direction(
+            int(control_values[k]), int(control_values[k]))
+        restore += _region.if_block(_region.cond_eq(flag_class, flag_idx, k), actions)
+    if not restore:
+        return data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
+    return edit.insert_bytes(data, f.abs_start, restore)

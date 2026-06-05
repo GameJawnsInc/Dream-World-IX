@@ -244,6 +244,71 @@ def test_story_flag_branching_builds(tmp_path):
     assert region.set_var(region.GLOB_BOOL, 200, 1) in allbytes
 
 
+THREECAM = """
+[field]
+id = 4003
+name = "TRICAM"
+area = 11
+text_block = 1073
+
+[[camera]]
+pitch = 45
+yaw = 0
+[[camera]]
+pitch = 45
+yaw = 25
+[[camera]]
+pitch = 45
+yaw = -25
+
+[[camera_zone]]
+to_camera = 0
+zone = [[-1100, -100], [-400, -100], [-400, -900], [-1100, -900]]
+[[camera_zone]]
+to_camera = 1
+zone = [[-300, -100], [300, -100], [300, -900], [-300, -900]]
+[[camera_zone]]
+to_camera = 2
+zone = [[400, -100], [1100, -100], [1100, -900], [400, -900]]
+
+[walkmesh]
+quad = [[-1200, -50], [1200, -50], [1200, -1000], [-1200, -1000]]
+
+[player]
+spawn = [0, -300]
+
+[encounter]
+scene = 67
+"""
+
+
+def test_threecam_builds_with_restore(tmp_path):
+    from ff9mapkit.content import region
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.eb.disasm import iter_code
+    p = tmp_path / "tri.field.toml"
+    p.write_text(THREECAM, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    L = ModLayout(out)
+    scene = bgx.BgxScene.from_file(L.fieldmap_dir("FBG_N11_TRICAM") / "FBG_N11_TRICAM.bgx")
+    assert len(scene.cameras) == 3
+    eb = EbScript.from_bytes(L.eb_path("us", "EVT_TRICAM.eb.bytes").read_bytes())
+    assert eb.to_bytes() == eb.data
+    # three type-1 switch regions, each with SETCAM
+    sw = [e for e in eb.entries if not e.empty and e.type == 1 and e.func_by_tag(2)
+          and any(i.op == 0x7E for i in iter_code(eb.data, e.func_by_tag(2).abs_start,
+                                                  e.func_by_tag(2).abs_end))]
+    assert len(sw) == 3
+    # after-battle restore in tag-10: cond_eq(flag, K) + SetFieldCamera(K) for cams 1 and 2
+    t10 = eb.entry(0).func_by_tag(10)
+    body = eb.data[t10.abs_start:t10.abs_end]
+    from ff9mapkit.eb import opcodes
+    assert region.cond_eq(region.GLOB_UINT8, 24, 1) in body and opcodes.set_field_camera(1) in body
+    assert region.cond_eq(region.GLOB_UINT8, 24, 2) in body
+
+
 def test_validate_rejects_low_area(tmp_path):
     bad = tmp_path / "bad.field.toml"
     bad.write_text('[field]\nid=4002\nname="X"\narea=7\n[camera]\npitch=48\n', encoding="utf-8")

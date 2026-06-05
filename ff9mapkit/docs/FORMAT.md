@@ -61,34 +61,41 @@ streets/corridors). The engine does the panning automatically once enabled.
 A field can show the room from **more than one fixed camera** and cut between them as the player
 walks (FF9 does this in ~8% of fields — corners, hub rooms). Declare the cameras as an **array**
 (`[[camera]]` instead of `[camera]`) — camera **0 is the one shown at load** — and place
-**switch zones** that cut to another camera when crossed. This follows the real-game convention
-(decoded from Gargan Roo/Passage): a forward + reverse zone pair gated by a state flag, each
-re-tuning movement for its camera's yaw. v1 supports a single 2-camera pair.
+**switch zones** that cut to another camera when crossed. Generalizes the real-game convention
+(decoded from Gargan Roo/Passage) to **N cameras** via an *area model*: a state flag holds the
+current camera index, and each zone owns the floor area where its camera is active — stand in it and
+that camera is shown. Scales to any number of cameras (FF9 ships up to 4).
 
 ```toml
 [[camera]]                 # camera 0 — active at load
 borrow = "cam0.bgx"        #   (or pitch/yaw/fov, exactly like [camera])
-[[camera]]                 # camera 1 — the alternate angle
+[[camera]]                 # camera 1
 borrow = "cam1.bgx"
+[[camera]]                 # camera 2 ... (any number)
+borrow = "cam2.bgx"
 
-[[camera_zone]]            # crossing this cuts to camera 1
-to_camera = 1
-zone = [[500,-150],[900,-150],[900,-550],[500,-550]]   # 4 convex (x,z) corners
-[[camera_zone]]            # crossing this cuts back to camera 0
+[[camera_zone]]            # the floor area shown by camera 0
 to_camera = 0
-zone = [[-900,-150],[-500,-150],[-500,-550],[-900,-550]]
+zone = [[-1100,-100],[-400,-100],[-400,-900],[-1100,-900]]   # 4 convex (x,z) corners
+[[camera_zone]]            # ... camera 1's area
+to_camera = 1
+zone = [[-300,-100],[300,-100],[300,-900],[-300,-900]]
+[[camera_zone]]            # ... camera 2's area
+to_camera = 2
+zone = [[400,-100],[1100,-100],[1100,-900],[400,-900]]
 ```
 
 | key | meaning |
 |---|---|
-| `[[camera]]` | one block per camera (same keys as `[camera]`); index = order, 0 = default. |
+| `[[camera]]` | one block per camera (same keys as `[camera]`); index = order, 0 = default at load. |
 | `[[layers]] camera = N` | which camera a background layer belongs to (default `0`) — paint a backdrop per camera. |
-| `[[camera_zone]] to_camera` | the camera index this zone switches **to**. |
-| `[[camera_zone]] zone` | 4 convex `(x,z)` corners of the trigger region (place where the player walks across the boundary). |
+| `[[camera_zone]] to_camera` | the camera index whose area this zone is. |
+| `[[camera_zone]] zone` | 4 convex `(x,z)` corners of that camera's floor area. |
 
-> Needs one zone back to camera 0 and one to another camera. The kit derives each camera's
-> `SetControlDirection` from its yaw, so "up" stays up-screen after a switch. Border the two zones
-> along the boundary line between the camera views. (Engine-validated bytecode; in-game proof pending.)
+> Partition the floor into one zone per camera. The kit derives each camera's `SetControlDirection`
+> from its yaw (so "up" stays up-screen after a cut). **Zones must not overlap** (overlapping zones
+> flap). If the field has encounters, the camera is **restored after battle** (the active camera + its
+> movement re-apply on battle return). (Engine-validated bytecode; in-game proof pending.)
 
 ### `[camera.frame]` (optional)
 Used to auto-frame a flat walkmesh and the paint guide.

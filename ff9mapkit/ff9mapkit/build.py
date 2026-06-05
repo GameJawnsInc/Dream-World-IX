@@ -113,10 +113,6 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"[[camera_zone]] to_camera {z['to_camera']} out of range (have {len(cfgs)} cameras)")
             elif len(z["zone"]) not in (4, 5):
                 problems.append(f"[[camera_zone]] zone must have 4 or 5 points (got {len(z['zone'])})")
-        tos = {int(z["to_camera"]) for z in zones if "to_camera" in z}
-        if zones and (0 not in tos or len(tos) < 2):
-            problems.append("[[camera_zone]] needs one zone back to camera 0 and one to another camera "
-                            "(v1 supports a single 2-camera switch pair)")
     wm = project.raw.get("walkmesh", {})
     if wm.get("obj") and not project.path(wm["obj"]).is_file():
         problems.append(f"[walkmesh] obj not found: {wm['obj']}")
@@ -525,20 +521,18 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         eb = _gw.inject_gateway(eb, int(gw["to"]), entrance=int(gw.get("entrance", 0)),
                                 zone=[tuple(p) for p in zone], gate_flag=gf, gate_require_set=gs)
 
-    # multi-camera switch zones (the Gargan Roo convention): a forward + reverse zone pair that
-    # cuts the active background camera as the player crosses, each re-tuning movement for its
-    # camera's yaw. v1 = a single 2-camera pair (one zone to camera 0, one to another).
+    # multi-camera switch zones (area model): each zone owns the floor area where its camera is
+    # active; crossing into it cuts the active background camera + re-tunes movement for that camera's
+    # yaw. Scales to N cameras (flag = current camera index prevents re-fire; non-overlapping zones
+    # can't flap). cam_restore is stashed for the after-battle restore added after the reinit below.
+    cam_restore = None
     zones = project.raw.get("camera_zone", [])
     if zones:
         cams = resolve_cameras(project)
         cvs = [_movement.control_value_for_angle(cam.yaw_deg(c)) for c in cams]
-        fwd = next(z for z in zones if int(z["to_camera"]) != 0)
-        rev = next(z for z in zones if int(z["to_camera"]) == 0)
-        target = int(fwd["to_camera"])
-        eb = _camera.inject_camera_switch(
-            eb, forward_zone=[tuple(p) for p in fwd["zone"][:4]],
-            reverse_zone=[tuple(p) for p in rev["zone"][:4]], to_camera=target,
-            control_value_0=cvs[0], control_value_target=cvs[target])
+        zspecs = [(int(z["to_camera"]), [tuple(p) for p in z["zone"][:4]]) for z in zones]
+        eb = _camera.inject_camera_zones(eb, zspecs, cvs)
+        cam_restore = ({tc for tc, _ in zspecs}, cvs)
 
     # events: walk-in triggers (message / give item / gil / set flag), optionally once. All N events
     # are armed by ONE shared init entry (so they don't each eat a Main_Init Wait filler).
@@ -594,6 +588,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     elif has_encounter:
         # encounter but no music still needs reinit (added above); nothing else to do
         pass
+
+    # after-battle camera restore: a multi-camera field with encounters runs tag-10 (not Main_Init)
+    # on battle return, so the flag isn't reset -- re-apply the stored camera. Needs the tag-10 that
+    # add_reinit created above.
+    if cam_restore is not None and has_encounter:
+        used_cams, cvs = cam_restore
+        eb = _camera.add_camera_restore(eb, used_cams, cvs)
 
     return eb
 

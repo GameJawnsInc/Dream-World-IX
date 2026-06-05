@@ -115,47 +115,56 @@ def test_region_forward_body_reproduces_dev_byte_exact():
     assert mine == dev
 
 
-def test_camera_switch_structure_and_bodies():
-    fwd = [(267, -2299), (-257, -2047), (-283, -3154), (257, -3064)]
-    rev = [(-2231, -3598), (-1737, -3000), (-1422, -3240), (-1902, -3816)]
-    out = camera.inject_camera_switch(CLEAN, forward_zone=fwd, reverse_zone=rev, to_camera=1,
-                                      control_value_0=-1, control_value_target=63)
+def test_camera_zones_structure_and_bodies():
+    """N-camera area model: 3 zones, each owning its camera's area, flag-guarded (no toggle)."""
+    zones = [(0, [(-900, -100), (-300, -100), (-300, -700), (-900, -700)]),
+             (1, [(-200, -100), (200, -100), (200, -700), (-200, -700)]),
+             (2, [(300, -100), (900, -100), (900, -700), (300, -700)])]
+    cvs = [-1, 20, 30]
+    out = camera.inject_camera_zones(CLEAN, zones, cvs)
     eb = EbScript.from_bytes(out)
-    assert eb.to_bytes() == out                       # structurally valid round-trip
+    assert eb.to_bytes() == out                       # round-trip valid
 
     free0 = EbScript.from_bytes(CLEAN).free_slots()
-    fwd_slot, rev_slot, init_slot = free0[0], free0[1], free0[2]
-
-    # two type-1 region entries, each Init(SetRegion 0x29) + Range(tag 2)
-    for slot, to_cam, cond_first in ((fwd_slot, 1, 0x0E), (rev_slot, 0, 0x7F)):
+    zone_slots = free0[:3]
+    init_slot = free0[3]
+    for slot, k in zip(zone_slots, (0, 1, 2)):
         e = eb.entry(slot)
         assert e.type == 1 and e.func_by_tag(0) and e.func_by_tag(2)
         assert _ops(eb, slot, 0)[0] == 0x29           # SetRegion in Init
-        rng = _ops(eb, slot, 2)
-        assert rng[:2] == [0x05, 0x03]                # movement gate (expr + jump-if-true)
-        assert 0x7E in rng and 0x67 in rng and 0x08 in rng and 0x1C in rng  # SETCAM/TWIST/InitRegion/Terminate
-
-    # the forward zone switches TO camera 1 and arms the reverse slot; reverse switches to 0, arms fwd
-    fwd_rng = eb.entry(fwd_slot).func_by_tag(2)
-    fwd_bytes = eb.data[fwd_rng.abs_start:fwd_rng.abs_end]
-    assert opcodes.set_field_camera(1) in fwd_bytes and opcodes.init_region(rev_slot, 0) in fwd_bytes
-    rev_rng = eb.entry(rev_slot).func_by_tag(2)
-    rev_bytes = eb.data[rev_rng.abs_start:rev_rng.abs_end]
-    assert opcodes.set_field_camera(0) in rev_bytes and opcodes.init_region(fwd_slot, 0) in rev_bytes
-
-    # init/arm code entry (type 0): reset flag=0 + InitRegion(forward); activated from Main_Init
+        rb = eb.data[e.func_by_tag(2).abs_start:e.func_by_tag(2).abs_end]
+        # body: movement gate, then `if (flag != k) { SetFieldCamera(k); flag=k; SetControlDirection }`
+        assert rb.startswith(region.MOVEMENT_GATE + region.cond_eq(region.GLOB_UINT8, 24, k))
+        assert opcodes.set_field_camera(k) in rb and region.set_var(region.GLOB_UINT8, 24, k) in rb
+        assert opcodes.set_control_direction(cvs[k], cvs[k]) in rb
+    # init/arm entry (type 0): reset flag=0 + InitRegion every zone; armed from Main_Init
     ie = eb.entry(init_slot)
     assert ie.type == 0
-    init_bytes = eb.data[ie.func_by_tag(0).abs_start:ie.func_by_tag(0).abs_end]
-    assert region.set_var(region.GLOB_UINT8, 24, 0) in init_bytes
-    assert opcodes.init_region(fwd_slot, 0) in init_bytes
-    assert 0x07 in _ops(eb, 0, 0)                     # InitCode arms the init entry from Main_Init
+    ib = eb.data[ie.func_by_tag(0).abs_start:ie.func_by_tag(0).abs_end]
+    assert region.set_var(region.GLOB_UINT8, 24, 0) in ib
+    assert all(opcodes.init_region(s, 0) in ib for s in zone_slots)
+    assert 0x07 in _ops(eb, 0, 0)                     # InitCode arms it from Main_Init
 
 
-def test_camera_switch_player_object_survives():
+def test_camera_restore_after_battle():
+    """add_camera_restore puts `if (flag==K) { SetFieldCamera(K); SetControlDirection }` in tag-10."""
+    out = reinit.add_reinit(CLEAN, with_fade=False)
+    out = camera.add_camera_restore(out, {0, 1, 2}, [-1, 20, 30])
+    eb = EbScript.from_bytes(out)
+    t10 = eb.entry(0).func_by_tag(10)
+    body = eb.data[t10.abs_start:t10.abs_end]
+    # cameras 1 and 2 restored (0 is the default, skipped); EnableMove/return still present
+    assert region.cond_eq(region.GLOB_UINT8, 24, 1) in body and opcodes.set_field_camera(1) in body
+    assert region.cond_eq(region.GLOB_UINT8, 24, 2) in body and opcodes.set_field_camera(2) in body
+    assert opcodes.set_field_camera(0) not in body
+    assert 0x2E in _ops(eb, 0, 10)                    # EnableMove (the reinit) survived
+
+
+def test_camera_zones_player_object_survives():
     """The injection must not disturb the player object (entry 1) or its DefinePlayerCharacter."""
-    out = camera.inject_camera_switch(CLEAN, forward_zone=[(0, 0), (100, 0), (100, 100), (0, 100)],
-                                      reverse_zone=[(0, 200), (100, 200), (100, 300), (0, 300)])
+    out = camera.inject_camera_zones(CLEAN, [(0, [(0, 0), (100, 0), (100, 100), (0, 100)]),
+                                             (1, [(0, 200), (100, 200), (100, 300), (0, 300)])],
+                                     [-1, 20])
     eb = EbScript.from_bytes(out)
     assert 0x2C in _ops(eb, 1, 0)                     # DefinePlayerCharacter intact
 
