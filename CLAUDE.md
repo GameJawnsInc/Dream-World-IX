@@ -1232,3 +1232,21 @@ User: build multi-camera switch-zones, learning the convention from live-game im
 - P3 (in-game): author a 2-camera test field (borrow two real GRGR cameras + a switch-zone pair), deploy, verify the camera switches as the player crosses + restores on re-entry.
 
 Captured in project memory `project-ff9-camera-math` (multi-camera section).
+
+### 2026-06-05 — Session 18 (cont) — Multi-camera P1+P2 BUILT (byte-exact from real game); in-game test deployed
+
+**Built the whole multi-camera feature offline, grounded byte-for-byte in real FF9 bytecode, and deployed an in-game test (awaiting playtest, Hard-Constraint §2).** 171 tests pass.
+
+**Import-driven grounding (the user's ask — "solve authorship the way the devs did"):** extracted the REAL camera-switch region from `evt_gargan_gr_lef_0` (Gargan Roo, field 951's sibling) straight out of `p0data7.bin` (events live at `assets/resources/commonasset/eventengine/eventbinary/field/<lang>/`, 818 us fields) and disassembled it. Decoded the field-script **expression sub-language** (opcode `0x05` + a `0x7F`-terminated RPN stack): push var `<class><idx>` (`0xD5`=GlobUInt8, `0xC5`=GlobBool), push const `0x7D <i16>`, ops `0x0E`=NOT / `0x20`=`==` / `0x2C`=assign; conditional jumps `0x02`=jump-if-false (the `if` skip, operand=body byte-len) / `0x03`=jump-if-true (the `ifnot`). The dev switch convention: a forward+reverse **region pair** gated by `VAR_GlobUInt8_24`, each doing `SetFieldCamera` + flag-set + per-camera `SetControlDirection` + `InitRegion(other)` + `TerminateEntry(255)`; `Main_Reinit` restores on re-entry. (Engine: `SETCAM 0x7E`→`SetCurrentCameraIndex`; the `0x71 BGCACTIVE`/scroll path is separate.)
+
+**Built (committed; the kit's first AUTHORED-LOGIC injector):**
+- `content/region.py` — the general flag-gated **conditional region** primitive: `set_var`/`cond_truthy`/`cond_not`/`cond_eq`/`if_block`/`MOVEMENT_GATE` + `set_region`/`build_region_entry`/`inject_region`. Reproduces the real-field bytes EXACTLY (tested), incl. the full Gargan forward-zone Range body byte-for-byte (43/43). This same primitive generalizes to chests/story-flags (`if (!done){ give; done=1 }`).
+- `opcodes.set_field_camera` (0x7E), `opcodes.terminate_entry` (0x1C).
+- `content/camera.inject_camera_switch` — the dev 2-camera pattern (forward/reverse zones + per-camera control direction derived from yaw + a load-time init entry that resets the flag so state is consistent on every load; no reinit needed for a no-battle room).
+- **build wiring:** `resolve_camera`→`resolve_cameras` (single `[camera]` stays BYTE-IDENTICAL; `[[camera]]` array → N cams → N CAMERA blocks via `bgx.build(list)`); per-layer `camera` → `overlay.camera_id`; `[[camera_zone]]` injects the switch (control dir auto-derived per camera); `validate()` + `camera_cfgs()` for dict-vs-list. `docs/FORMAT.md` schema added.
+
+**In-game test DEPLOYED (field 4003 = MULTICAM, reachable via the New-Game→Alexandria→hut-door warp):** `tools/build_multicam_test.py` — one flat floor, camera 0 (cyan, head-on) ↔ camera 1 (orange, yaw 35°), each with its own `to_canvas` calibration grid + a green switch-zone outline. Walk into green → cut to the other camera (colour + re-projected grid = unmistakable proof); walking straight after = per-camera control-direction proof; cross back = reverse + anti-flap. Revert: `py tools/scroll_out/revert_deploy.py`.
+
+**Commits:** `multicam P2: conditional-region + flag primitives + camera-switch injector`; `multicam P2: field.toml wiring`; `multicam P2: FORMAT.md schema + in-game test-field builder`.
+
+**AWAITING PLAYTEST (P3).** Look for: (1) loads showing the CYAN grid, player on floor; (2) walk RIGHT into green → view CUTS to ORANGE rotated grid; (3) WASD still goes up=up-screen after the cut; (4) walk into green again → cuts back to cyan; (5) no flicker/flapping at the boundary. Report each. (Then: fold yaw/expr findings into project memory `project-ff9-camera-math`; v2 = 3+ cameras / Main_Reinit restore for battle fields.)
