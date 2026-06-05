@@ -75,10 +75,12 @@ def actor_walk(x: int, z: int, speed: int | None = None) -> bytes:
 
     Sets a high walk-turn-speed first so the Walk rotates tightly toward the destination and walks
     straight (no arc), converging even when the target is directly BEHIND the actor -- without the
-    animated pre-turn that hangs at ~180deg. ``Walk`` blocks until arrival. Optional ``speed`` sets
-    the walk movement speed. Uses the NPC's walk animation (set in its Init)."""
+    animated pre-turn that hangs at ~180deg. ``StopAnimation`` clears the anim flags first so the
+    engine actually swaps idle->walk while moving (else a player-cloned NPC glides in its idle pose).
+    ``Walk`` blocks until arrival. Optional ``speed`` sets the walk movement speed. Uses the NPC's
+    walk animation (set in its Init)."""
     pre = opcodes.set_walk_speed(int(speed)) if speed is not None else b""
-    return (pre + opcodes.set_walk_turn_speed(WALK_TURN_SPEED)
+    return (pre + opcodes.set_walk_turn_speed(WALK_TURN_SPEED) + opcodes.stop_animation()
             + opcodes.init_walk() + opcodes.walk(int(x), int(z)))
 
 

@@ -316,7 +316,7 @@ def test_actor_walk_sets_high_turn_speed_then_walks():
     """A walk cranks the walk-turn-speed first, then InitWalk + Walk -- so the Walk rotates tightly
     toward the target and goes straight (never arcs/orbits a point behind the actor), with no animated
     pre-turn that could hang at 180."""
-    expected = (opcodes.set_walk_turn_speed(cutscene.WALK_TURN_SPEED)
+    expected = (opcodes.set_walk_turn_speed(cutscene.WALK_TURN_SPEED) + opcodes.stop_animation()
                 + opcodes.init_walk() + opcodes.walk(100, -200))
     assert cutscene.actor_walk(100, -200) == expected
     assert cutscene.actor_walk(100, -200, speed=15) == opcodes.set_walk_speed(15) + expected

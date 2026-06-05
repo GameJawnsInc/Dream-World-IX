@@ -96,7 +96,7 @@ dialogue = "Oh! You're finally here. I came all this way to meet you."
 
 [cutscene]
 actor = "vivi"
-once = true
+once = false                                   # TEST: replays on every re-entry (fast reload loop)
 steps = [
   {{ walk = [{GREET[0]}, {GREET[1]}] }},   # walk in to greet the player
   {{ face_player = true }},                 # turn to look at you

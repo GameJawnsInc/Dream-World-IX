@@ -142,6 +142,14 @@ def wait_animation() -> bytes:                       # 0x41 (WAITANIM) 0 args
     return encode(0x41)
 
 
+def stop_animation() -> bytes:                       # 0x42 (ENDANIM) 0 args
+    """StopAnimation(): stop the current animation -> resets to idle and CLEARS the anim flags
+    (afExec/afLower/afFreeze). Needed before a Walk: the engine only swaps idle->walk when moving if
+    those flags are clear (ProcessEvents), and a player-cloned NPC's idle can leave afExec set, so it
+    glides in the idle pose. StopAnimation first => the auto walk-anim swap fires."""
+    return encode(0x42)
+
+
 def turn_instant(angle: int) -> bytes:               # 0x36 (DIRE) argsize [1]
     """TurnInstant(angle): face an angle instantly (0=south, 64=west, 128=north, 192=east)."""
     return encode(0x36, angle)
