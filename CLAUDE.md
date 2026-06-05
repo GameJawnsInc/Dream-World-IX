@@ -1330,3 +1330,13 @@ Captured in project memory `project-ff9-camera-math` (multi-camera section).
 **AWAITING (Blender, not in-game):** install `dist/ff9mapkit_blender-0.7.0.zip`, Export a field → confirm `<name>.scene.toml` + `<name>.field.toml` both appear; add a line of dialogue to the field.toml; re-export → field.toml preserved, scene.toml refreshed; `ff9mapkit build <name>.field.toml` → works.
 
 **Human verified (real gameplay): the WHOLE two-file pipeline works in the user's hands ✅.** User authored field `jawnland` entirely through the new workflow — Blender (pose camera, design walkmesh, place NPC marker) → Export = `jawnland.scene.toml` (spatial) + `jawnland.field.toml` (logic stub) → hand-edited Vivi's dialogue in the field.toml → the **Tkinter GUI** (`tools/ff9_build_gui.pyw`) built + deployed it to test field 4003 → in-game: **walkmesh lines up with the Blender design, Vivi is in his placed spot saying the authored dialogue.** Re-export confirmed it doesn't clobber the field.toml edits. Black background only because no painted layer was added (expected — art is the next optional step). **Tagged `KNOWN_GOOD-s18-two-file-authoring`.** The scene/logic split + the GUI front-end are both in-game-proven, self-service. Roadmap P1 done in practice.
+
+### 2026-06-05 — Session 18 (cont) — Roadmap P2: logic linter + tighter validation (offline)
+
+**P2 of the authoring roadmap — "logic ergonomics in text," so the script side stays safe as rooms grow.** All offline (192 tests).
+- `build.lint_logic(project)` — story/flag sanity on the merged project: a `requires_flag` (appears/fires when SET) that **no event ever sets** → dead content; an explicit flag index that **collides with an auto-allocated `once` flag** (base 200+); **duplicate entity names** (ambiguous scene↔field merge). Folded into `build` warnings.
+- `validate()` tightened: an `[[npc]]` with no position / a `[[gateway]]` with no `to` now **error cleanly** instead of crashing the build (matters for the two-file split, where pos comes from the scene).
+- Surfaced standalone: **`ff9mapkit lint <field.toml>`** (exits 1 on any issue) + a **"Check logic"** button in the GUI (`tools/ff9_build_gui.pyw`) that lints without building.
+- FORMAT.md "Story flags" documents it. `jawnland` lints clean.
+
+**Roadmap status:** P1 (scene/logic split, CLI+Blender) ✅ verified in-game (jawnland). P2 (logic linter) ✅ offline. P3 (sequential cutscene format) = later, when ordered move/wait/say/pan/branch is needed.
