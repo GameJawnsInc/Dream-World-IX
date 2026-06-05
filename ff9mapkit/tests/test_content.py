@@ -350,6 +350,27 @@ def test_choreography_no_once_is_ungated():
     assert choreo == opcodes.DISABLE_MOVE + opcodes.wait(5) + opcodes.ENABLE_MOVE
 
 
+def test_actor_teleport_moves_then_reenables_pathing():
+    """A teleport instant-moves (MoveInstantXZY, Z-negated) then SetPathing(1) so a following walk
+    paths normally."""
+    assert cutscene.actor_teleport(-1150, -800) == (
+        opcodes.move_instant_xzy(-1150, -800, 0) + opcodes.set_pathing(1))
+
+
+def test_leading_teleport_runs_before_warmup():
+    """A walk-in (teleport then walk) emits the teleport BEFORE the warm-up Wait -- so the actor
+    settles off-screen instead of flashing at its spawn -- then warms up, then walks in."""
+    choreo = cutscene.build_choreography(
+        [{"teleport": [-1150, -800]}, {"walk": [0, -800]}], [], once_flag=None, warmup=30)
+    assert choreo == (opcodes.DISABLE_MOVE + cutscene.actor_teleport(-1150, -800)
+                      + opcodes.wait(30) + cutscene.actor_walk(0, -800) + opcodes.ENABLE_MOVE)
+    # a NON-leading teleport (after a walk) stays in sequence, after the warm-up
+    choreo2 = cutscene.build_choreography(
+        [{"walk": [0, -800]}, {"teleport": [100, 100]}], [], once_flag=None, warmup=10)
+    assert choreo2 == (opcodes.DISABLE_MOVE + opcodes.wait(10) + cutscene.actor_walk(0, -800)
+                       + cutscene.actor_teleport(100, 100) + opcodes.ENABLE_MOVE)
+
+
 def test_choreography_warmup_waits_before_acting():
     """The warm-up Wait comes right after DisableMove (so the player can't wander) and before the
     first actor step -- it lets the field's entry fade/smooth-updater settle so the actor doesn't

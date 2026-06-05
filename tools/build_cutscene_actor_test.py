@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Build a v2 ACTOR-CUTSCENE test field (4003): an NPC walks during a control-locked scene.
+"""Build a v2 ACTOR-CUTSCENE test field (4003) showcasing the polish: a teleport WALK-IN + an emote.
 
-On entry: control LOCKS, Vivi (at the magenta rest cross) walks forward to the green cross, turns to
-face the player, says a line, then walks back to his rest spot -- and control returns. Walk to the
-back DOOR (cyan) to leave (-> hut interior); re-enter to confirm the scene plays ONCE (Vivi just
-stands at rest, no walk).
+On entry: control LOCKS, Vivi appears at the cyan cross on the LEFT (teleported off-screen-ish),
+walks IN to his spot (magenta), turns to face the player, plays a talk-gesture animation, and says a
+line -- then control returns. Walk to the back DOOR (cyan box) to leave; re-enter to confirm it plays
+ONCE (Vivi just stands at his spot).
 
-This isolates the grounded core (walk / face / say); animation + teleport walk-in are quick
-follow-ups. Steps run in Vivi's own context (the choreography is spliced into his Init).
-
-Run:  python tools/build_cutscene_actor_test.py
+Exercises: teleport (MoveInstantXZY + SetPathing, leading -> runs before the warm-up), walk-in (the
+high-turn-speed walk), face_player, animation (RunAnimation 7302 = Vivi Talk_3_1, a confirmed
+model-8/animset-61 one-shot), say. Run:
+    python tools/build_cutscene_actor_test.py
 then: python tools/deploy_field.py tools/cutscene_actor_out/cs2.field.toml
 """
 import os
@@ -27,16 +27,15 @@ OUT.mkdir(exist_ok=True)
 
 PITCH, FOV, SCALE = 45.0, 42.2, 4
 # z convention: MORE-negative = FRONT (toward camera / bottom of screen); less-negative = back (top).
-# Vivi spawns at the BACK facing the camera, so walking FORWARD to greet needs no turn; the walk BACK
-# is a 180deg about-face -> exercises the turn-to-face-first fix (no arc/orbit).
 FLOOR = [(-1200, -100), (1200, -100), (1200, -1400), (-1200, -1400)]
 SPAWN = (0, -1100)        # player: front (toward camera)
-REST = (0, -450)          # Vivi's home (his [[npc]] pos; back, facing the camera)
-FWD = (0, -800)           # Vivi walks forward here on entry (toward the player)
+REST = (0, -800)          # Vivi's home (his [[npc]] pos; where he walks to + is on a replay visit)
+LEFT = (-1150, -800)      # teleport-in spot (left edge): Vivi appears here, then walks in
+ANIM = 7302               # Vivi Talk_3_1 (confirmed model-8/animset-61 one-shot, from real field 790)
 DOOR = [(-250, -150), (250, -150), (250, -320), (-250, -320)]   # back edge: leave to re-test "once"
 
 A, B = (95, 100, 120, 255), (55, 60, 78, 255)
-CYAN, MAG, GRN, SPN, BG = (70, 220, 230, 255), (235, 90, 235, 255), (90, 235, 110, 255), (240, 80, 80, 255), (24, 26, 32, 255)
+CYAN, MAG, SPN, BG = (70, 220, 230, 255), (235, 90, 235, 255), (240, 80, 80, 255), (24, 26, 32, 255)
 
 
 def cross(buf, W, H, x, y, col, r=34, t=8):
@@ -59,7 +58,7 @@ def main():
     zc = [tuple(c * SCALE for c in C.to_canvas((x, 0.0, z), cam)) for (x, z) in DOOR]
     for i in range(4):
         P.draw_line(buf, W, H, zc[i], zc[(i + 1) % 4], CYAN, thick=7)
-    for (px, pz), col in ((REST, MAG), (FWD, GRN), (SPAWN, SPN)):
+    for (px, pz), col in ((LEFT, CYAN), (REST, MAG), (SPAWN, SPN)):
         cx, cy = (c * SCALE for c in C.to_canvas((px, 0.0, pz), cam))
         cross(buf, W, H, cx, cy, col)
     (OUT / "floor.png").write_bytes(P._png_rgba(W, H, buf))
@@ -67,14 +66,15 @@ def main():
     def quad(z):
         return "[" + ", ".join(f"[{x}, {zz}]" for (x, zz) in z) + "]"
 
-    toml = f"""# v2 actor-cutscene test (field 4003). Vivi (magenta rest) walks to the green cross, faces the
-# player, talks, walks back -- control locked. Walk to the cyan DOOR to leave + re-enter (plays once).
+    toml = f"""# v2 actor-cutscene POLISH test (field 4003): teleport walk-in + emote.
+# Vivi appears at the cyan LEFT cross, walks in to the magenta cross, faces the player, does a
+# talk-gesture, says a line. Walk to the cyan DOOR to leave + re-enter (plays once).
 [field]
 id = 4003
 name = "CUTSCENE2"
 area = 11
 text_block = 1073
-title = "Actor cutscene test"
+title = "Actor cutscene polish"
 
 [camera]
 pitch = {PITCH:g}
@@ -88,19 +88,20 @@ z = 4000
 name = "vivi"
 preset = "vivi"
 pos = [{REST[0]}, {REST[1]}]
-dialogue = "Oh! You're finally here. I walked all this way to meet you."
+dialogue = "Oh! You're finally here. I came all this way to meet you."
 
 [cutscene]
 actor = "vivi"
 once = true
 steps = [
-  {{ walk = [{FWD[0]}, {FWD[1]}] }},   # Vivi walks forward to greet the player
-  {{ face_player = true }},             # turns to look at you
-  {{ say = "...hi." }},                 # a line
-  {{ walk = [{REST[0]}, {REST[1]}] }},  # walks back to his spot (= his pos, so replay is consistent)
+  {{ teleport = [{LEFT[0]}, {LEFT[1]}] }},   # appear at the left (leading -> before the warm-up)
+  {{ walk = [{REST[0]}, {REST[1]}] }},        # walk in to his spot
+  {{ face_player = true }},                    # turn to look at you
+  {{ animation = {ANIM} }},                    # a talk-gesture emote (Vivi Talk_3_1)
+  {{ say = "...hi." }},                        # a line
 ]
 
-[[gateway]]                             # leave to re-enter and confirm the scene plays ONCE
+[[gateway]]                                    # leave to re-enter and confirm the scene plays ONCE
 to = 4002
 entrance = 0
 zone = {quad(DOOR)}

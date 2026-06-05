@@ -83,9 +83,11 @@ def actor_walk(x: int, z: int, speed: int | None = None) -> bytes:
 
 
 def actor_teleport(x: int, z: int) -> bytes:
-    """Step: instantly move the actor to world (x, z) -- no walk animation. Place it off-screen before
-    a walk-in (the kit handles the engine's POS3 Z-negation)."""
-    return opcodes.move_instant_xzy(int(x), int(z), 0)
+    """Step: instantly move the actor to world (x, z) -- no walk animation -- then re-enable its
+    walkmesh pathing (MoveInstantXZY disables it). Use it as a cutscene's FIRST step to place the
+    actor off-screen for a walk-in (the kit handles the engine's POS3 Z-negation; a leading teleport
+    runs before the warm-up so the actor settles off-screen rather than flashing at its spawn)."""
+    return opcodes.move_instant_xzy(int(x), int(z), 0) + opcodes.set_pathing(1)
 
 
 def actor_animation(anim: int) -> bytes:
@@ -140,15 +142,19 @@ def build_choreography(steps, txids, once_flag: int | None, *, warmup: int = DEF
     its RETURN) by :func:`ff9mapkit.content.npc.inject_npc`. Runs in the NPC's context so the actor
     steps target it.
 
-    Shape: ``if (!once) { DisableMove; Wait(warmup); <steps>; EnableMove; once=1 }`` (no trailing
-    RETURN -- the Init's own RETURN follows). The ``warmup`` Wait (after the lock, so the player can't
-    wander) lets the field's entry fade + smooth-updater settle before the actor walks, or the actor
-    circles during load and its synchronous Walk hangs. With ``once_flag=None`` the scene replays on
-    every entry (ungated)."""
-    inner = opcodes.DISABLE_MOVE
+    Shape: ``if (!once) { DisableMove; <leading teleports>; Wait(warmup); <rest>; EnableMove; once=1 }``
+    (no trailing RETURN -- the Init's own RETURN follows). The ``warmup`` Wait (after the lock, so the
+    player can't wander) lets the field's entry fade + smooth-updater settle before the actor WALKS,
+    or the actor circles during load and its synchronous Walk hangs. A LEADING ``teleport`` is emitted
+    BEFORE the warm-up (it's instant + safe during the entry transition), so a walk-in actor settles
+    off-screen instead of flashing at its spawn. With ``once_flag=None`` the scene replays every entry."""
+    lead = 0
+    while lead < len(steps) and "teleport" in steps[lead]:    # leading teleports (no `say` among them)
+        lead += 1
+    inner = opcodes.DISABLE_MOVE + compile_steps(steps[:lead], [])
     if warmup > 0:
         inner += opcodes.wait(int(warmup))
-    inner += compile_steps(steps, txids) + opcodes.ENABLE_MOVE
+    inner += compile_steps(steps[lead:], txids) + opcodes.ENABLE_MOVE
     if once_flag is not None:
         inner += _region.set_var(flag_class, once_flag, 1)
         return _region.if_block(_region.cond_not(flag_class, once_flag), inner)

@@ -170,6 +170,13 @@ def wait_turn() -> bytes:                            # 0x50 (WAITTURN) 0 args
     return encode(0x50)
 
 
+def set_pathing(active: int) -> bytes:               # 0xA8 (BGI) argsize [1]
+    """SetPathing(active): enable(1)/disable(0) the actor's walkmesh collision. MoveInstantXZY
+    DISABLES it (so a teleport off the mesh doesn't snap back); call SetPathing(1) after to re-enable
+    it before walking (the real walk-in pattern: MoveInstantXZY -> SetPathing(1) -> ... -> Walk)."""
+    return encode(0xA8, active)
+
+
 def disable_move() -> bytes:                         # 0x2D (UCOFF) 0 args
     """DisableMove(): lock the player's movement control (cutscene start)."""
     return DISABLE_MOVE
