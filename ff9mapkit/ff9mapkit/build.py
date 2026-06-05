@@ -33,6 +33,7 @@ from .content import npc as _npc
 from .content import reinit as _reinit
 from .content import text as _text
 from . import data as _data
+from .eb import EbScript
 from .scene import bgi, bgx, cam, guide
 
 
@@ -499,6 +500,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                             scroll_type=int(sc.get("scroll_type", 0)))
 
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
+    gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)
     for i, n in enumerate(project.raw.get("npc", [])):
         pos = n["pos"]
         txid = dialogue_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
@@ -508,8 +510,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         else:
             kwargs.update(model=n.get("model"), animset=n.get("animset"), anims=n.get("anims"))
         gf, gs = _gate_of(n)
-        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid,
+        slot = EbScript.from_bytes(eb).first_free_slot()
+        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
                              gate_flag=gf, gate_require_set=gs, **kwargs)
+        if gf is not None:
+            gated_npc_slots.setdefault(gf, []).append(slot)
 
     # gateways
     for gw in project.raw.get("gateway", []):
@@ -551,7 +556,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 parts.append(_event.message(event_txids[j]))
             if "set_flag" in ev:
                 sf = ev["set_flag"]
-                parts.append(_event.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
+                fidx = int(sf[0])
+                parts.append(_event.set_flag(fidx, int(sf[1]) if len(sf) > 1 else 1))
+                # live reveal: re-init any NPC gated on this flag so it appears/vanishes immediately
+                # (its Init re-checks the gate with the flag's new value), not just on field re-entry.
+                for npc_slot in gated_npc_slots.get(fidx, []):
+                    parts.append(_event.reveal_object(npc_slot))
             once_flag = None
             if ev.get("once", True):
                 once_flag = int(ev["flag"]) if "flag" in ev else (_event.EVENT_FLAG_BASE + flag_counter)

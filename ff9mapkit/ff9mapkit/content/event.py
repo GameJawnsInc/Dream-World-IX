@@ -45,6 +45,14 @@ def set_flag(flag_idx: int, value: int = 1, *, flag_class=EVENT_FLAG_CLASS) -> b
     return _region.set_var(flag_class, flag_idx, value)
 
 
+def reveal_object(slot: int) -> bytes:
+    """Body part: re-run an object's Init (``InitObject``). Used after :func:`set_flag` to make a
+    flag-gated NPC appear (or vanish) LIVE in the same room -- its Init re-evaluates the gate with the
+    flag's new value (without this, a gated NPC only updates on field re-entry, since Init runs once
+    at spawn)."""
+    return opcodes.init_object(slot, 0)
+
+
 def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_CLASS,
                      requires_flag: int | None = None, requires_set: bool = True) -> bytes:
     """The region ``_Range`` body for an event: a movement gate, an optional ``requires_flag`` story
