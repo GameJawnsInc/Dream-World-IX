@@ -63,17 +63,17 @@ S_CANVAS = 1.0
 # past the painted floor by ~this much if the player should be able to stand at the visual edge.
 COLLISION_RADIUS_W = 48.0
 
-# Character GROUND offset, world units. FF9 renders the field BACKGROUND + walkmesh via the 2D GTE
-# projection (to_canvas, scale-1, exact), but the CHARACTER MODEL via a separate 3D perspective
-# camera (PSX.ConvertCameraPsx2Unity). The two don't line up vertically: a character's feet sit a
-# roughly CONSTANT amount "behind" (toward the far edge of) its 2D ground projection. To make a
-# character look planted on a scale-1-painted floor, place the walkmesh this far TOWARD THE CAMERA
-# of the painted floor (the player stands a touch forward, his offset feet land on the paint).
-# Calibrated in-game at 40 deg pitch (= ~0.6 checker cell on the room02 grid); user-confirmed "very
-# precise". This is exactly what the old per-pitch sx/sy SCALE was approximating -- and because a
-# scale can only match a constant at one point, that approximation is what produced the old
-# "back-edge drift". May vary slightly with pitch (it's a 3D-vs-2D camera mismatch); re-pin with one
-# grid check if a steep room needs it dead-on. Override per field via [walkmesh] character_offset.
+# Character GROUND offset, world units. MEASURED IN-GAME = ~0 (Session 18 engine probe + grid, 3
+# spots x 2 pitches): the character MODEL is projected by its vertex shader's GTE (FieldMapActor.txt:
+# _MatrixRT/_ViewDistance/_OffsetX/Y) EXACTLY like the floor/walkmesh, so the feet render at the
+# true world position -- there is NO real character-vs-floor offset. The earlier "3D-perspective-
+# camera, feet sit behind" story (and the per-pitch sx/sy scale) was WRONG; both were fitting an
+# artifact. The artifact: the legacy flat builder (bgi.quad/build_flat) injects orgPos=(0,0,300), so
+# its walkmesh sits +300z off a to_canvas-painted floor; this 298 is the near-cancel that undoes it.
+# So it is NOT a real offset -- it's the partner of the +300 org (the Session-17 double-count). The
+# HONEST model is `[walkmesh] frame = "world"` => org=0 + NO offset (walkmesh in true world coords =
+# the painted floor; exact at any angle). New scaffolds use that. This constant is kept ONLY so the
+# legacy org=300 quad/auto path still cancels (head-on); prefer frame="world" for new work.
 CHARACTER_GROUND_OFFSET_Z = 298.0
 
 # ---------- scroll bounds (larger-than-screen fields) ----------

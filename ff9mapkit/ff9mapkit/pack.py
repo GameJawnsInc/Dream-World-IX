@@ -82,10 +82,11 @@ back = 205               # painted-canvas rows the floor's back/front edges sit 
 front = 432
 
 [walkmesh]
-# either an exported Blender mesh in FF9 world coords ...
-# obj = "walkmesh.obj"
-# ... or a flat quad's 4 corners (x, z), or omit both to auto-frame from [camera.frame]:
+# The walkmesh is in TRUE world coords = where the painted floor is (frame = "world"): the player
+# renders exactly on it, no fudge (measured in-game, Session 18). `quad` = the floor's 4 corners,
+# matching the placeholder floor below. Swap for an exported Blender mesh with `obj = "walkmesh.obj"`.
 quad = {quad}
+frame = "world"
 
 [[layers]]               # background layers, back-to-front (z = depth; smaller = nearer)
 image = "art/back.png"   # PLACEHOLDER (solid) -- repaint to match your camera
