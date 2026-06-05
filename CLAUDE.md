@@ -1172,3 +1172,12 @@ Two v3 walkmesh tools (offline; bpy seam overlay awaits a glance in Blender per 
 - 161 tests (4 new: verify clean/off-mesh, seam-edges multi/single-floor); vendor synced; `docs/WALKMESH_EDITING.md` §5/§6 marked v3-partial. Commit `b5c59c5`. Offline → no tag.
 
 **Remaining v3 (open):** anim/moving-platform carry; a Blender "re-anchor seam" operator + "suggest seams" for newly-added floors.
+
+### 2026-06-05 — Session 18 (cont) — From-scratch path smoke-tested + polished; quad/floor offset bug fixed (in-game)
+
+Re-exercised the **from-scratch** authoring path (`new` → `build`), unused for a while. Findings + fixes, in-game confirmed ("SMOKE is clear"):
+- **First-run cliff:** `new` then `build` hard-errored on missing art. Fix: `new` now scaffolds pure-stdlib **placeholder art** (`scene/placeholder.py`: solid backdrop + perspective checkerboard floor matched to the template camera) + derives the walkmesh quad from that camera frame → a fresh scaffold BUILDS + is walkable immediately; human replaces the PNGs. Commit `5065a33`.
+- **Walkmesh-vs-floor offset bug (real):** the explicit-`quad` path defaulted `character_offset` to **0**, but `bgi.quad`/`build_flat` injects `org=(0,0,300)`; the AUTO path defaults the offset to 298 which **cancels** the +300 (why painted rooms aligned), so the quad path left +300 uncancelled → walkmesh ~300u toward the floor's back (the user's asymmetric "back overshoots / front undershoots" under perspective). Fix: quad path now defaults `character_offset` to `CHARACTER_GROUND_OFFSET_Z`, matching auto. Verified offline (walkmesh canvasY 204.9/431.6 vs floor 205/432) + in-game. Commit `13b1c54`. 163 tests.
+- This re-surfaced the **Session-17 deferred double-count** (`org=300` + `offset=298` near-cancel) as a genuine hack, and the user's question — *did we ever pin how real maps relate walkmesh↔painted floor?* The honest answer: we nailed the projection (`to_canvas`, exact) but never empirically measured the dev convention / character-planting offset (298 was a 40°-only calibration). Next: a **solid measurement plan** (below) to replace the guesswork — being careful, since past eyeball-fits (sx/sy) misled.
+
+Tagged `KNOWN_GOOD-s18-from-scratch`.
