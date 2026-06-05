@@ -1310,3 +1310,5 @@ Captured in project memory `project-ff9-camera-math` (multi-camera section).
 **Commit:** `multicam v2: N cameras (area model) + after-battle camera restore` (+ test builder).
 
 **AWAITING PLAYTEST.** (1) Walk left↔mid↔right → the view cuts among 3 cameras (tint + perspective), WASD stays correct; (2) trigger a battle on the orange RIGHT band, win → camera restored to orange (not reset to cyan). Report each.
+
+**Human verified (real gameplay): multicam v2 COMPLETE ✅ (all 4).** 3-camera switching across the bands (tint + perspective cut), WASD screen-correct on each, AND the after-battle restore (won a battle on the orange camera → returned still on orange, not reset). **Tagged `KNOWN_GOOD-s18-multicam-v2`.** N-camera area model + after-battle restore both proven in-game. This was the last camera-movement feature on the roadmap.
