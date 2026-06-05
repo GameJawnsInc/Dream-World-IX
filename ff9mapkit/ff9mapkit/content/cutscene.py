@@ -22,9 +22,10 @@ import struct
 from ..eb import EbScript, edit, opcodes
 from . import region as _region
 
-# Default GlobBool for a "play once" cutscene (high, clear of the event auto-once band at 200+).
+# Default flag for a "play once" cutscene: the SAVE-PERSISTENT Global bool (survives reloads), high in
+# gEventGlobal and clear of the event auto-once band (8000+).
 CUTSCENE_FLAG_CLASS = _region.GLOB_BOOL
-DEFAULT_CUTSCENE_FLAG = 230
+DEFAULT_CUTSCENE_FLAG = 8100
 
 
 def say(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:

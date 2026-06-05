@@ -32,10 +32,15 @@ import struct
 
 from ..eb import EbScript, edit, opcodes
 
-# --- expression var classes (the engine's variable namespaces) ---
-GLOB_UINT8 = 0xD5     # VAR_GlobUInt8_*  (persists across fields)
-GLOB_BOOL = 0xC5      # VAR_GlobBool_*
-VAR_CLASSES = {"glob_uint8": GLOB_UINT8, "glob_bool": GLOB_BOOL}
+# --- expression var classes (the engine's variable scopes) ---
+# A var token byte = 0xC0 | (VariableType << 2) | VariableSource (EBin.getVarOperation). CRITICAL: the
+# SOURCE decides PERSISTENCE -- Global (src 0) reads/writes the SAVE-BACKED gEventGlobal (survives
+# field reloads); Map (src 1) is a PER-FIELD array WIPED on every field load. (HW's naming is
+# inverted: HW "GenBool" = engine Global = persistent; HW "GlobBool" = engine Map = transient.)
+GLOB_BOOL = 0xC4      # Global + Bit  -> SAVE-PERSISTENT bool (story flags, chest "once", etc.)
+MAP_BOOL = 0xC5       # Map + Bit     -> transient per-field bool (resets on reload; rarely what you want)
+GLOB_UINT8 = 0xD5     # Map + Byte    -> transient byte (the camera-switch flag; reset per load by design)
+VAR_CLASSES = {"glob_bool": GLOB_BOOL, "map_bool": MAP_BOOL, "glob_uint8": GLOB_UINT8}
 
 # --- expression opcodes / tokens ---
 EXPR_OP = 0x05        # expression statement (its single operand is a token stream)
@@ -61,25 +66,36 @@ def _i16(v: int) -> bytes:
     return struct.pack("<h", int(v))
 
 
+def _push_var(var_class, idx: int) -> bytes:
+    """Encode a variable reference token. Index <= 0xFF -> ``<cls> <idx>``; a larger index sets the
+    long-index bit (0x20) on the class byte and uses a 2-byte little-endian index, exactly as the
+    engine encodes it (EBin.getVarOperation: ``index << 8``, ``| 0x20`` when index > 0xFF). This lets
+    flags live high in gEventGlobal (clear of base-game flags) and still decode correctly."""
+    c = _cls(var_class)
+    if 0 <= idx <= 0xFF:
+        return bytes([c, idx])
+    return bytes([c | 0x20]) + struct.pack("<H", idx & 0xFFFF)
+
+
 # --- expression statements (opcode 0x05 + token stream) ---
 def set_var(var_class, idx: int, value: int) -> bytes:
-    """``set VAR = value`` -> ``05 <cls> <idx> 7D <value:i16> 2C 7F``."""
-    return bytes([EXPR_OP, _cls(var_class), idx & 0xFF, T_CONST]) + _i16(value) + bytes([T_ASSIGN, T_END])
+    """``set VAR = value`` -> ``05 <var> 7D <value:i16> 2C 7F``."""
+    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([T_ASSIGN, T_END])
 
 
 def cond_truthy(var_class, idx: int) -> bytes:
-    """``if (VAR)`` condition expr -> ``05 <cls> <idx> 7F``."""
-    return bytes([EXPR_OP, _cls(var_class), idx & 0xFF, T_END])
+    """``if (VAR)`` condition expr -> ``05 <var> 7F``."""
+    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_END])
 
 
 def cond_not(var_class, idx: int) -> bytes:
-    """``if (!VAR)`` condition expr -> ``05 <cls> <idx> 0E 7F``."""
-    return bytes([EXPR_OP, _cls(var_class), idx & 0xFF, T_NOT, T_END])
+    """``if (!VAR)`` condition expr -> ``05 <var> 0E 7F``."""
+    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_NOT, T_END])
 
 
 def cond_eq(var_class, idx: int, value: int) -> bytes:
-    """``if (VAR == value)`` condition expr -> ``05 <cls> <idx> 7D <value:i16> 20 7F``."""
-    return bytes([EXPR_OP, _cls(var_class), idx & 0xFF, T_CONST]) + _i16(value) + bytes([T_EQ, T_END])
+    """``if (VAR == value)`` condition expr -> ``05 <var> 7D <value:i16> 20 7F``."""
+    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([T_EQ, T_END])
 
 
 # --- control flow ---

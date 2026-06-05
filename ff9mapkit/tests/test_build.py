@@ -470,11 +470,13 @@ def test_lint_satisfied_flag_is_clean(tmp_path):
 
 
 def test_lint_flag_collision_with_auto_once(tmp_path):
-    # the event is once (default) -> auto-allocates flag 200; the NPC also uses 200 explicitly
+    # the event is once (default) -> auto-allocates EVENT_FLAG_BASE (8000); the NPC also uses 8000
+    from ff9mapkit.content.event import EVENT_FLAG_BASE
     lints = _lint(tmp_path,
-                  '[[npc]]\nname="g"\npreset="vivi"\npos=[0,-200]\ndialogue="hi"\nrequires_flag=200\n'
+                  f'[[npc]]\nname="g"\npreset="vivi"\npos=[0,-200]\ndialogue="hi"\n'
+                  f'requires_flag={EVENT_FLAG_BASE}\n'
                   '[[event]]\nname="e"\nzone=[[100,-100],[200,-100],[200,-200],[100,-200]]\nmessage="x"\n')
-    assert any("clash" in m and "200" in m for m in lints)
+    assert any("clash" in m and str(EVENT_FLAG_BASE) in m for m in lints)
 
 
 def test_lint_duplicate_names(tmp_path):

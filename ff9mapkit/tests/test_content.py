@@ -91,7 +91,7 @@ def test_region_primitives_match_real_field_bytes():
     assert region.set_var(region.GLOB_UINT8, 24, 1).hex() == "05d5187d01002c7f"  # set flag = 1
     assert region.cond_not(region.GLOB_UINT8, 24).hex() == "05d5180e7f"          # if (!flag)
     assert region.cond_truthy(region.GLOB_UINT8, 24).hex() == "05d5187f"         # if (flag)
-    assert region.cond_eq(region.GLOB_BOOL, 159, 1).hex() == "05c59f7d0100207f"  # if (V == 1)
+    assert region.cond_eq(region.MAP_BOOL, 159, 1).hex() == "05c59f7d0100207f"   # if (V == 1) (dev's Map bool 0xC5)
     assert region.MOVEMENT_GATE.hex() == "057a027f03010004"                      # ifnot(IsMovementEnabled) ret
     assert opcodes.set_field_camera(1).hex() == "7e0001"
     assert opcodes.terminate_entry(255).hex() == "1c00ff"
@@ -222,10 +222,12 @@ def edit_waits(data):
 
 
 def test_flag_gate_bytes():
-    # require_set: 'ifnot(flag) return' = push flag, jump-if-TRUE past return, return
-    assert region.flag_gate(region.GLOB_BOOL, 200, require_set=True).hex() == "05c5c87f03010004"
+    # require_set: 'ifnot(flag) return' = push flag (Global bool 0xC4), jump-if-TRUE past return, return
+    assert region.flag_gate(region.GLOB_BOOL, 200, require_set=True).hex() == "05c4c87f03010004"
     # require_clear: 'if(flag) return' = push flag, jump-if-FALSE past return, return
-    assert region.flag_gate(region.GLOB_BOOL, 200, require_set=False).hex() == "05c5c87f02010004"
+    assert region.flag_gate(region.GLOB_BOOL, 200, require_set=False).hex() == "05c4c87f02010004"
+    # high index (> 0xFF) uses the long-index encoding: class|0x20 (0xE4) + 2-byte LE index
+    assert region.flag_gate(region.GLOB_BOOL, 8000, require_set=True).hex() == "05e4401f7f03010004"
 
 
 def test_npc_gated_by_flag():

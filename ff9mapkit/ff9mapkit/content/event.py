@@ -19,10 +19,11 @@ import struct
 from ..eb import EbScript, edit, opcodes
 from . import region as _region
 
-# 'once' flags live in GlobBool (0xC5) -- the boolean state class real fields use for chest/story
-# flags. The default base is high to avoid the low indices base-game scripts use; override per event.
+# 'once' flags live in the SAVE-PERSISTENT Global bool (region.GLOB_BOOL) so a looted chest / one-time
+# event stays done across field reloads + saves. The base is high in gEventGlobal (byte ~1000) to stay
+# clear of the base game's flags (which sit low); override per event with `flag = N`.
 EVENT_FLAG_CLASS = _region.GLOB_BOOL
-EVENT_FLAG_BASE = 200
+EVENT_FLAG_BASE = 8000
 
 
 def message(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:

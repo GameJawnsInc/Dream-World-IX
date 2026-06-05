@@ -243,7 +243,7 @@ once = false
 | `gil` | gil to add — `AddGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
 | `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
-| `flag` | explicit GlobBool index for the `once` guard (default auto from `200`; **override to a free index for a shipped mod** so it can't clash with save state). |
+| `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `8000`, a high band clear of base-game flags; override for a shipped mod to avoid clashes). |
 | `requires_flag` / `requires_flag_clear` | GlobBool index — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
 
 > An event needs at least one action. The same conditional-region primitive underlies chests, story
@@ -252,13 +252,16 @@ once = false
 
 ### Story flags & branching
 
-A **story flag** is a GlobBool (a single bit in FF9's 2048-byte save-backed event memory) that an
-event SETs (`set_flag = [N, 1]`) and other content reads (`requires_flag = N`). That's how the world
-gains state: hit a switch (event `set_flag`) → a guard appears (`[[npc]] requires_flag`) and a door
-unlocks (`[[gateway]] requires_flag`); open a chest once → it stays opened. Pick flag indices in a
-free band (the kit's auto `once` flags start at 200 — keep your story flags clear of indices you also
-auto-allocate, or set them explicitly). For unbounded mod state beyond simple flags, Memoria also
-provides save-backed vector/dictionary stores (a future kit feature).
+A **story flag** is a single bit in FF9's **save-backed** event memory (the engine's *Global*
+variable scope — `gEventGlobal`) that an event SETs (`set_flag = [N, 1]`) and other content reads
+(`requires_flag = N`). Being save-backed, it **persists across field reloads and saves** — so a
+looted chest stays looted, a one-time scene stays played. (The kit uses the persistent *Global* bool,
+not the transient per-field *Map* bool.) That's how the world gains state: hit a switch (event
+`set_flag`) → a guard appears (`[[npc]] requires_flag`) and a door unlocks (`[[gateway]]
+requires_flag`). The kit's auto `once` flags occupy a high band (from **8000**) well clear of the
+base game's flags (which sit low) — pick your explicit flag indices in that high range too, and keep
+them clear of indices the kit auto-allocates (or set them explicitly). For unbounded mod state beyond
+simple flags, Memoria also provides save-backed vector/dictionary stores (a future kit feature).
 
 **Check your logic before building:** `ff9mapkit lint <field.toml>` (or the GUI's *Check logic*
 button) reports schema errors plus story-flag lints — a `requires_flag` that no event ever sets (dead
