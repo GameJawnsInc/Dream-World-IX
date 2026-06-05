@@ -142,19 +142,16 @@ def build_choreography(steps, txids, once_flag: int | None, *, warmup: int = DEF
     its RETURN) by :func:`ff9mapkit.content.npc.inject_npc`. Runs in the NPC's context so the actor
     steps target it.
 
-    Shape: ``if (!once) { DisableMove; <leading teleports>; Wait(warmup); <rest>; EnableMove; once=1 }``
-    (no trailing RETURN -- the Init's own RETURN follows). The ``warmup`` Wait (after the lock, so the
-    player can't wander) lets the field's entry fade + smooth-updater settle before the actor WALKS,
-    or the actor circles during load and its synchronous Walk hangs. A LEADING ``teleport`` is emitted
-    BEFORE the warm-up (it's instant + safe during the entry transition), so a walk-in actor settles
-    off-screen instead of flashing at its spawn. With ``once_flag=None`` the scene replays every entry."""
-    lead = 0
-    while lead < len(steps) and "teleport" in steps[lead]:    # leading teleports (no `say` among them)
-        lead += 1
-    inner = opcodes.DISABLE_MOVE + compile_steps(steps[:lead], [])
+    Shape: ``if (!once) { DisableMove; Wait(warmup); <steps>; EnableMove; once=1 }`` (no trailing
+    RETURN -- the Init's own RETURN follows). The ``warmup`` Wait (after the lock, so the player can't
+    wander) lets the field's entry fade + smooth-frame-updater settle before ANY actor command runs --
+    ALL of them, including a ``teleport``: issuing a teleport mid-transition makes the smooth-updater
+    fight it (the actor warps/slides erratically and the following walk never converges -> hang).
+    With ``once_flag=None`` the scene replays on every entry (ungated)."""
+    inner = opcodes.DISABLE_MOVE
     if warmup > 0:
         inner += opcodes.wait(int(warmup))
-    inner += compile_steps(steps[lead:], txids) + opcodes.ENABLE_MOVE
+    inner += compile_steps(steps, txids) + opcodes.ENABLE_MOVE
     if once_flag is not None:
         inner += _region.set_var(flag_class, once_flag, 1)
         return _region.if_block(_region.cond_not(flag_class, once_flag), inner)
