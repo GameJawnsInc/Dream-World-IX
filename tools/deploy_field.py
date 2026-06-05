@@ -21,7 +21,9 @@ OUT.mkdir(exist_ok=True)
 # field deploy, so we never run it here.
 prior = OUT / "revert_deploy.py"
 if prior.exists():
-    os.system(f'py "{prior}"')
+    import subprocess
+    _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0   # no console flash when called by the GUI
+    subprocess.run([sys.executable, str(prior)], creationflags=_flags)
 
 # build
 tmp = Path(tempfile.mkdtemp(prefix="deployfield_"))
