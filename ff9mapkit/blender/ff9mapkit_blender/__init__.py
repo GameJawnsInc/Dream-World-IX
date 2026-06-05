@@ -10,7 +10,7 @@ Blender. register()/unregister() are no-ops outside Blender.
 bl_info = {
     "name": "FF9 Map Kit",
     "author": "FF9 Map Kit contributors",
-    "version": (0, 5, 10),
+    "version": (0, 6, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > FF9 Map Kit",
     "description": "Visually author FF9 custom-field cameras + walkmeshes; export for ff9mapkit build.",

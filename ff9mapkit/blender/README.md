@@ -84,6 +84,30 @@ Background Art → Content → Export**. A typical pass:
 9. **Build** — `ff9mapkit build <name>.field.toml --out <game>/FF9CustomMap` (see the main docs),
    then play.
 
+## Fork an existing FF9 field (Import)
+
+Instead of starting from a blank plane, **Import Field** loads a project produced by
+`ff9mapkit import <field> --out <folder>` (run the CLI first). Two flavours:
+
+- **BG-borrow** (`ff9mapkit import …`) — the engine renders the *real* field's art + walkmesh +
+  camera; you only place NPC/gateway/spawn markers on top. The panel shows *forked from … (BG-borrow)*.
+  Export writes a borrow `field.toml` (no scene/art — it can't be repainted).
+- **Editable fork** (`ff9mapkit import … --editable`) — a full **custom scene** over the real field:
+  the real camera, the walkmesh, and the background split into **one layer per depth** (occlusion +
+  light/shadow shaders preserved). The panel shows *editable fork (custom scene)*. Import poses the
+  exact camera, loads the per-depth art as the camera backdrop, and builds the real (multi-floor,
+  color-coded) walkmesh to model against. Now you can:
+  - **reshape the walkmesh** (move/add verts within a floor; for a multi-floor field, leave the
+    cross-floor seam edges where they are — they're re-attached by world position on build),
+  - **repaint any `layer_*.png`** (a single depth) without touching the others,
+  - **place content**, then **Export Field**.
+
+  Export preserves the exact `camera.bgx`, re-writes `walkmesh.obj` from your edits, and emits a
+  `field.toml` with `[walkmesh] obj + frame = "world"` (and `+ links` for a multi-floor field, so a
+  reshape stays connected) — **no character offset** (a forked real field is already in the engine
+  frame). `ff9mapkit build` it exactly as above. This matches the CLI `import --editable` output, so
+  a Blender re-export and a CLI build produce the same field.
+
 ## Scrolling rooms (larger-than-screen)
 
 Tick **Scrolling room** in the *Camera* box and set **Canvas W/H** (e.g. `768 × 448` = 2× wide).

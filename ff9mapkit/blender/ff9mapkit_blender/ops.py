@@ -48,9 +48,11 @@ def _layer_z_update(self, context):
 
 
 class FF9MKLayer(bpy.types.PropertyGroup):
-    """One painted background layer: a PNG + its depth Z (smaller Z = in front)."""
+    """One painted background layer: a PNG + its depth Z (smaller Z = in front). ``shader`` is the
+    overlay blend mode (empty = opaque; e.g. "PSX/FieldMap_Abr_1" for an imported light/glow layer)."""
     image: bpy.props.StringProperty(name="Image", subtype="FILE_PATH")
     z: bpy.props.IntProperty(name="Depth Z", default=4000, update=_layer_z_update)
+    shader: bpy.props.StringProperty(name="Shader", default="")
 
 
 class FF9MKProps(bpy.types.PropertyGroup):
@@ -61,6 +63,11 @@ class FF9MKProps(bpy.types.PropertyGroup):
     # set by "Import FF9 Field": the REAL field's mapid. When non-empty the field is BG-borrow
     # (engine renders that field's art/walkmesh/camera) and Export emits a borrow field.toml.
     borrow_bg: bpy.props.StringProperty(name="Borrow BG", default="")
+    # set by "Import FF9 Field" for an EDITABLE (--editable) fork: a full custom scene over a real
+    # field (real camera + per-depth art + world-frame walkmesh). Export preserves the exact camera +
+    # ships obj+links+frame=world (no character offset) so a reshape stays connected. False = a
+    # from-scratch novel room (re-posable camera, flat walkmesh + character_offset).
+    editable_fork: bpy.props.BoolProperty(name="Editable Fork", default=False)
     pitch: bpy.props.FloatProperty(name="Pitch", default=48.0, min=0.0, max=89.0)
     distance: bpy.props.FloatProperty(name="Distance", default=4500.0, min=1.0)
     fov: bpy.props.FloatProperty(name="FOV", default=42.2, min=1.0, max=170.0)
@@ -310,6 +317,8 @@ class FF9MK_OT_setup_scene(bpy.types.Operator):
 
     def execute(self, context):
         p = context.scene.ff9mapkit
+        p.borrow_bg = ""               # a fresh scene is a from-scratch novel room, not a fork
+        p.editable_fork = False
         coll = context.collection
         # camera
         cam_obj = bpy.data.objects.get(CAMERA_NAME)
@@ -762,6 +771,32 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         _apply_canvas_resolution(context, c0.range[0], c0.range[1])
         context.scene.camera = cam_obj
 
+        # EDITABLE (--editable) fork = a custom scene with no borrow_bg. Load its per-depth art
+        # ([[layers]]) as the camera backdrop + the field's layer list (with shaders) so you model
+        # against the real room AND re-export keeps the occlusion + light/shadow blends intact.
+        p.editable_fork = not bool(p.borrow_bg)
+        p.layers.clear()
+        try:
+            cam_obj.data.background_images.clear()
+        except AttributeError:
+            while len(cam_obj.data.background_images):
+                cam_obj.data.background_images.remove(cam_obj.data.background_images[0])
+        for Lc in sorted(cfg.get("layers", []), key=lambda L: -int(L.get("z", 0))):   # back (hi z) first
+            img_path = os.path.join(d, Lc.get("image", ""))
+            if not os.path.isfile(img_path):
+                continue
+            img = bpy.data.images.load(img_path, check_existing=True)
+            cam_obj.data.show_background_images = True
+            bg = cam_obj.data.background_images.new()
+            bg.image = img
+            bg.frame_method = "FIT"
+            bg.alpha = 1.0
+            bg.display_depth = "FRONT" if int(Lc.get("z", 4000)) < 1000 else "BACK"
+            La = p.layers.add()
+            La.image = img_path
+            La.z = int(Lc.get("z", 4000))
+            La.shader = Lc.get("shader", "") or ""
+
         # real walkmesh -> editable mesh (reference for placing markers; borrow ships the real one).
         # Real .bgi verts are corner-origin PER FLOOR; the world transform (vert+orgPos+floor.org) lands
         # the whole multi-floor mesh on the painted art as a coherent whole. That world frame IS the
@@ -769,7 +804,7 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         # still extend past the screen edges (tunnels) -- correct, not a misalignment.
         with open(bgi_path, "rb") as fh:
             bgi_bytes = fh.read()
-        has_art = os.path.isfile(os.path.join(d, "background.png"))
+        has_art = bool(p.layers) or os.path.isfile(os.path.join(d, "background.png"))
         verts, faces = bridge.bgi_walkmesh_to_blender(bgi_bytes, world=True)
         wm_obj = bpy.data.objects.get(WALKMESH_NAME)
         if wm_obj is None:
@@ -822,10 +857,11 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             _spawn_at_ff9(context, spawn)
         p.export_dir = d                       # re-export here, preserving the exact camera.bgx
 
-        # real-art backdrop, if `ff9mapkit import` composited one (needs a one-time in-game field
-        # export). Loads it as the camera's BACK background so you model against the actual room.
+        # real-art backdrop, if `ff9mapkit import` composited a single flattened one (older path).
+        # Loads it as the camera's BACK background so you model against the actual room. Skipped when
+        # per-depth [[layers]] were already loaded above (the editable-fork path).
         bg_path = os.path.join(d, "background.png")
-        if os.path.isfile(bg_path):
+        if not p.layers and os.path.isfile(bg_path):
             img = bpy.data.images.load(bg_path, check_existing=True)
             cam_obj.data.show_background_images = True
             bg = cam_obj.data.background_images.new()
@@ -875,6 +911,42 @@ class FF9MK_OT_export_field(bpy.types.Operator):
                 fh.write(_field_toml_borrow(p, npcs, gateways, spawn))
             self.report({"INFO"}, f"exported BG-borrow fork of {p.borrow_bg}: {len(npcs)} NPC(s), "
                                   f"{len(gateways)} gateway(s) -> {out}; run: ff9mapkit build "
+                                  f"{p.field_name.lower()}.field.toml")
+            return {"FINISHED"}
+
+        if p.editable_fork:
+            # EDITABLE fork (imported real field as a custom scene): preserve the EXACT extracted
+            # camera (don't re-pose — the view-offset nudge applied on import would corrupt it) +
+            # the per-depth art; ship a WORLD-frame walkmesh (obj + seam sidecar if multi-floor) so
+            # a reshape stays connected, with NO character offset (real-field frame).
+            cbgx = os.path.join(out, "camera.bgx")
+            if not os.path.isfile(cbgx):
+                with open(cbgx, "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write(bgx.build(c, [], header_comment=f"{p.field_name} camera (forked)"))
+            verts, faces, floor_ids = _walkmesh_world_mesh(p.walkmesh)
+            with open(os.path.join(out, "walkmesh.obj"), "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(bridge.mesh_to_ff9_obj(verts, faces, floor_ids))
+            has_links = os.path.isfile(os.path.join(out, "walkmesh.links.toml"))
+            layers = []
+            for L in p.layers:
+                src = bpy.path.abspath(L.image)
+                if not src or not os.path.isfile(src):
+                    self.report({"WARNING"}, f"layer image missing, skipped: {L.image}")
+                    continue
+                dst = os.path.join(out, os.path.basename(src))
+                if os.path.abspath(src) != os.path.abspath(dst):
+                    shutil.copyfile(src, dst)
+                layers.append({"image": os.path.basename(src), "z": int(L.z),
+                               "shader": L.shader or None})
+            npcs, gateways, spawn = _collect_markers(context)
+            meta = {"field_id": p.field_id, "field_name": p.field_name, "area": p.area,
+                    "text_block": p.text_block, "scroll_enabled": p.scroll_enabled}
+            with open(os.path.join(out, f"{p.field_name.lower()}.field.toml"), "w",
+                      encoding="utf-8", newline="\n") as fh:
+                fh.write(bridge.editable_field_toml(meta, layers, npcs, gateways, spawn, has_links))
+            self.report({"INFO"}, f"exported editable fork {p.field_name}: {len(layers)} layer(s), "
+                                  f"{'multi-floor (obj+links)' if has_links else 'single-floor'}, "
+                                  f"{len(npcs)} NPC(s) -> {out}; run: ff9mapkit build "
                                   f"{p.field_name.lower()}.field.toml")
             return {"FINISHED"}
 

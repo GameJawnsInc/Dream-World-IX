@@ -26,6 +26,9 @@ class FF9MK_PT_panel(bpy.types.Panel):
         row.operator("ff9mk.import_field", icon="IMPORT", text="Import Field")
         if p.borrow_bg:
             layout.label(text=f"forked from {p.borrow_bg} (BG-borrow)", icon="LINKED")
+        elif p.editable_fork:
+            layout.label(text="editable fork (custom scene): reshape + repaint, then Export",
+                         icon="MOD_MULTIRES")
 
         box = layout.box()
         box.label(text="Camera", icon="CAMERA_DATA")

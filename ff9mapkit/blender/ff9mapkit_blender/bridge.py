@@ -382,13 +382,59 @@ def paint_template_lines(c, back_canvas_y, front_canvas_y, scale=4, nx=8, nz=8):
 
 
 def layers_to_toml(layers):
-    """Emit the `[[layers]]` TOML block from an ordered list of {image, z} (dict or (image, z))."""
+    """Emit the `[[layers]]` TOML block from an ordered list of {image, z, shader?} (dict or
+    (image, z) / (image, z, shader)). A non-empty ``shader`` (e.g. "PSX/FieldMap_Abr_1" for an
+    additive light overlay) is emitted so an imported fork's per-depth occlusion + blend survive
+    re-export; omit it for plain opaque layers."""
     blocks = []
     for L in layers:
-        img = L["image"] if isinstance(L, dict) else L[0]
-        z = L["z"] if isinstance(L, dict) else L[1]
-        blocks.append(f'[[layers]]\nimage = "{img}"\nz = {int(z)}')
+        if isinstance(L, dict):
+            img, z, shader = L["image"], L["z"], L.get("shader")
+        else:
+            img, z = L[0], L[1]
+            shader = L[2] if len(L) > 2 else None
+        block = f'[[layers]]\nimage = "{img}"\nz = {int(z)}'
+        if shader:
+            block += f'\nshader = "{shader}"'
+        blocks.append(block)
     return "\n".join(blocks)
+
+
+def editable_field_toml(meta, layers, npcs=(), gateways=(), spawn=None, has_links=False):
+    """field.toml for an EDITABLE fork re-exported from Blender (a custom scene over a forked real
+    field). The camera + per-depth art are the real field's (preserved on export); the walkmesh is
+    WORLD-frame (verts render verbatim, NO character offset — that slide is a flat-novel-room hack).
+    With a multi-floor seam sidecar present it ships obj+links so a reshape stays connected.
+
+    meta: dict(field_id, field_name, area, text_block, scroll_enabled?). Mirrors the CLI's
+    `import --editable` output so a Blender re-export builds identically.
+    """
+    wm = '[walkmesh]\nobj = "walkmesh.obj"\n'
+    if has_links:
+        wm += 'links = "walkmesh.links.toml"\n'
+    wm += 'frame = "world"   # forked real-field frame: verts are exact, no character shift\n'
+    layers_block = (layers_to_toml(layers) + "\n") if layers else ""
+    player_block = (player_to_toml(spawn) + "\n") if spawn is not None else "[player]\nspawn = [0, 0]\n"
+    npc_block = (npcs_to_toml(npcs) + "\n") if npcs else ""
+    gw_block = (gateways_to_toml(gateways) + "\n") if gateways else ""
+    scroll = "[camera.scroll]\nenabled = true\n" if meta.get("scroll_enabled") else ""
+    name = meta["field_name"]
+    return (
+        f"# {name} — EDITABLE fork re-exported from Blender (FF9 Map Kit).\n"
+        f"# Custom scene over a forked real field: real camera + per-depth art + world-frame walkmesh.\n"
+        f"#   ff9mapkit build {name.lower()}.field.toml\n\n"
+        f"[field]\n"
+        f"id = {meta['field_id']}\n"
+        f'name = "{name}"\n'
+        f"area = {meta['area']}\n"
+        f"text_block = {meta['text_block']}\n\n"
+        f"[camera]\n"
+        f'borrow = "camera.bgx"\n'
+        f"{scroll}\n"
+        f"{wm}\n"
+        f"{layers_block}\n"
+        f"{player_block}\n{npc_block}\n{gw_block}"
+    )
 
 
 # --- Phase 2: content markers (NPC / gateway / player spawn) -> TOML ----------------------
