@@ -311,6 +311,9 @@ dialogue = "..."
 [cutscene]
 actor = "vivi"            # the steps run in Vivi's context
 once = true
+# warmup = 30            # frames to wait before the actor moves (default 30). The field's entry
+                         #   fade + smooth-updater must settle first, or the actor circles on load
+                         #   and its walk hangs. Bump it if the actor still circles on entry.
 steps = [
   { teleport = [-2000, -300] },   # snap off-screen (instant) so he can walk IN
   { walk = [0, -300] },           # walk to his resting spot (= his pos)
