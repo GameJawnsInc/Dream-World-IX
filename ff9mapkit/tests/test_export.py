@@ -360,3 +360,34 @@ def test_borrow_fork_validates_via_sibling_walkmesh(tmp_path):
     importer writes next to the field.toml (zero-config convention)."""
     info = _borrow_toml(tmp_path, (9000, 9000), ref_line="", wm_name="walkmesh.bgi")
     assert any("off the walkmesh" in w for w in info["warnings"])
+
+
+# ---- art/layer sanity (a repaint at the wrong aspect would stretch in-game) ----
+
+def _fake_png(path, w, h):
+    import struct as _s
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + _s.pack(">I", 13) + b"IHDR" + _s.pack(">II", w, h)
+                     + b"\x08\x06\x00\x00\x00" + b"\x00" * 8)   # valid 24-byte IHDR header is enough
+
+
+def _layer_scene(tmp_path, png_w, png_h):
+    _fake_png(tmp_path / "back.png", png_w, png_h)
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(
+        '[field]\nid = 4003\nname = "X"\narea = 21\n\n[camera]\nborrow = "camera.bgx"\n\n'
+        '[walkmesh]\nquad = [[-100, -100], [100, -100], [100, 100], [-100, 100]]\nframe = "world"\n\n'
+        '[[layers]]\nimage = "back.png"\nz = 4000\n', encoding="utf-8")
+    from ff9mapkit.build import FieldProject, build_mod
+    return build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+
+
+def test_build_warns_layer_aspect_mismatch(tmp_path):
+    """A repainted layer whose PNG aspect != its size quad is flagged (it'd stretch in-game)."""
+    assert any("stretched" in w for w in _layer_scene(tmp_path, 1000, 200)["warnings"])
+
+
+def test_build_no_layer_warning_correct_aspect(tmp_path):
+    """A layer at size x4 (the convention) matches the canvas aspect -> no warning."""
+    from ff9mapkit.scene import cam
+    rw, rh = cam.parse_bgx_cameras(str(FIX / "grgr.bgx"))[0].range
+    assert not any("stretched" in w for w in _layer_scene(tmp_path, rw * 4, rh * 4)["warnings"])

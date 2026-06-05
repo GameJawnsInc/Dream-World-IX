@@ -1111,3 +1111,11 @@ The GLGV editable-fork proof is now a first-class command: **`ff9mapkit import -
 - `build._borrow_walkmesh(project)` loads `[walkmesh] reference` (if set) else the sibling `walkmesh.bgi` (zero-config convention); `build_field`'s borrow branch runs `_validate_content_placement` against it.
 - `write_field_project` (borrow import) now emits a `[walkmesh] reference = "walkmesh.bgi"` block (clearly labeled validation-only, not shipped); `validate()` checks the reference file exists.
 - Tests: borrow fork warns on an off-mesh NPC (via `reference` AND via the sibling convention), no warning on-mesh. 147 tests; no vendor change. Tagged `KNOWN_GOOD-s17-borrow-validation`.
+
+### 2026-06-04 — Session 17 (cont 8) — Art/layer sanity: the last common edit is guarded
+
+**Completed the "every common fork edit is validated" goal** — added a repaint check, so the build's validation layer now covers content placement (NPC/spawn/gateway), walkmesh geometry/connectivity/seams, AND art. All offline, 149 tests.
+- **The real repaint bug = aspect-ratio mismatch:** the engine maps a layer's PNG onto a `size`-logical quad (BGSCENE overlay mesh), so a repaint at a different aspect is non-uniformly STRETCHED / misaligned. `build._validate_layer_art` warns when a layer PNG's aspect != its `size` aspect (size defaults to the camera canvas; convention = PNG size×4). `_png_size` reads the PNG IHDR header directly — **no PIL dependency** (build stays stdlib).
+- Wired into the custom-scene build block (after content placement). Tests: wrong-aspect PNG warns, size×4 PNG doesn't. PIPELINE.md "the build checks your work" updated. Tagged `KNOWN_GOOD-s17-art-validation`.
+
+**The build-time validation suite (the full "altered export" safety net) is now:** geometry errors (empty/bad-index) · content off the walkmesh (all forks) · stranded floors · broken seams · zero-area tris · layer aspect mismatch · camera pitch range. Every common edit a user makes to a fork is caught offline before playtest — the strongest §2-legal guard, since I can't see the game.

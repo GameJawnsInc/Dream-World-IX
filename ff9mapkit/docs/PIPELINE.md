@@ -107,8 +107,9 @@ broken geometry (a `.obj` with no triangles, or a face referencing a missing ver
 when something will look wrong in-game — content placed **off the walkmesh** (an NPC that would float,
 a spawn off the floor, a gateway zone the player can't reach), a **multi-floor walkmesh whose floors
 got disconnected** (a `.obj` reshape without the seam sidecar), **zero-area triangles** (dead zones),
-a **broken seam** (you moved a connecting edge), or a **camera pitch** outside FF9's real range. Read
-the warnings before you playtest — they catch the mistakes that otherwise only show up in-game.
+a **broken seam** (you moved a connecting edge), a **repainted layer whose aspect ratio no longer
+matches** its size (it would stretch), or a **camera pitch** outside FF9's real range. Read the
+warnings before you playtest — they catch the mistakes that otherwise only show up in-game.
 
 ## 7. Install + playtest
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import shutil
+import struct
 import tomllib
 from dataclasses import dataclass, field as _dc_field
 from pathlib import Path
@@ -209,6 +210,40 @@ def _apply_links(mesh, links_path, warnings):
             f"walkmesh: {missing} of {linked + missing} cross-floor seam(s) couldn't be matched "
             f"(a connecting edge was moved/deleted, e.g. floor {fa}<->{fb} near {a_edge[0]}). "
             f"Re-anchor it in the .obj or restore [walkmesh] bgi (docs/WALKMESH_EDITING.md).")
+
+
+def _png_size(path):
+    """(width, height) from a PNG's IHDR header, or None -- no PIL dependency (build stays stdlib)."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(24)
+    except OSError:
+        return None
+    if head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    return struct.unpack(">II", head[16:24])
+
+
+def _validate_layer_art(project: FieldProject, range_wh, warnings: list) -> None:
+    """Warn when a layer's PNG aspect doesn't match its `size` -- the engine maps the texture onto a
+    `size`-logical quad (BGSCENE overlay mesh), so a repaint at the wrong aspect is STRETCHED /
+    misaligned in-game. `size` defaults to the camera canvas (range); the convention is PNG = size x4."""
+    rw, rh = int(range_wh[0]), int(range_wh[1])
+    for layer in project.raw.get("layers", []):
+        img = project.path(layer["image"])
+        dims = _png_size(img)
+        if dims is None:
+            continue                                       # missing/non-PNG: validate() handles missing
+        pw, ph = dims
+        size = layer.get("size", [rw, rh])
+        sw, sh = int(size[0]), int(size[1])
+        if min(pw, ph, sw, sh) <= 0:
+            continue
+        if abs(pw / ph - sw / sh) > 0.01:                  # aspect mismatch => non-uniform stretch
+            warnings.append(
+                f"layer {Path(layer['image']).name!r} is {pw}x{ph}px (aspect {pw / ph:.2f}) but its "
+                f"size {sw}x{sh} expects aspect {sw / sh:.2f} -- it'll be stretched / misaligned. "
+                f"Repaint at {sw * 4}x{sh * 4} (size x4) or keep the aspect ratio.")
 
 
 def _borrow_walkmesh(project: FieldProject):
@@ -432,6 +467,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         # content placement: warn when an NPC / spawn / gateway sits OFF the walkable area -- the
         # recurring in-game mistake (an NPC floats, the player can't reach a trigger). Always checked.
         _validate_content_placement(project, wmesh, warnings)
+        # art: warn when a (repainted) layer's PNG aspect won't match its size quad (stretch/misalign).
+        _validate_layer_art(project, camera.range, warnings)
         # reachability + degenerate-tri guards for (re)BUILT walkmeshes (obj/quad/auto): rebuild_neighbors
         # links only within a floor, so a multi-floor obj strands its floors. A verbatim [walkmesh] bgi is
         # the authoritative original and is SKIPPED -- some real fields legitimately reach floors by script,
