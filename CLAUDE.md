@@ -1353,3 +1353,15 @@ Captured in project memory `project-ff9-camera-math` (multi-camera section).
 **Roadmap COMPLETE:** P1 scene/logic split ✅ (in-game), P2 logic linter ✅, P3 cutscenes ✅ (v1). The authoring toolkit now spans spatial (Blender) + logic (text, linted) + sequences (cutscenes).
 
 **AWAITING PLAYTEST.** (1) On entry: control LOCKED, text boxes play in order, then control returns. (2) Walk to the BACK → exit → re-enter → cutscene does NOT replay (control immediate). Watch for: doesn't play / not locked (can move during text) / out of order / replays on re-entry.
+
+### 2026-06-05 — Session 18 (cont) — IMPORTANT FIX: story/once flags must be SAVE-PERSISTENT (Global), not Map
+
+**In-game the cutscene replayed on re-entry → found a fundamental flag bug affecting ALL persistent content (chest "once", story flags, cutscene "once").** We'd only ever tested "once" WITHIN a visit; the first reload test exposed it.
+
+**Root cause (engine source):** a var token byte = `0xC0 | (VariableType<<2) | VariableSource`. The SOURCE decides persistence — **Global (src 0)** read/writes the save-backed `gEventGlobal` (persists across field reloads + saves); **Map (src 1)** is a PER-FIELD array WIPED on every field load (`EvaluateValueExpression`: Global→`gEventGlobal`, Map→`GetMapVar()`). The kit used `0xC5` = Map+Bit → every flag reset on reload. (HW naming is inverted: HW "GlobBool" = engine Map = transient; HW "GenBool" = engine Global = persistent.)
+
+**Fix:** `region.GLOB_BOOL` 0xC5 → **0xC4** (Global+Bit, persistent); kept `MAP_BOOL`=0xC5 for the dev-repro. Flag bases moved high in gEventGlobal, clear of base-game flags (which sit low): `EVENT_FLAG_BASE` 200→**8000**, cutscene default 230→**8100**. `region._push_var` now emits the engine long-index encoding (`class|0x20` + 2-byte LE) for indices >0xFF. **Camera flag stays Map+Byte (0xD5)** — transient by design (reset per load + restored via tag-10 within a load; verified). 196 tests; FORMAT.md Story-flags rewritten. CUTSCENE (4003) redeployed: once-flag now `GlobalBool[8100]`.
+
+**Implication:** this also fixes event `once` chests (they'd have re-looted on revisit) + all `requires_flag`/`set_flag` story state to actually persist. Re-verify the cutscene once-on-reentry, then the toolkit's persistence is solid.
+
+**AWAITING RE-PLAYTEST (CUTSCENE 4003):** enter → cutscene plays (control locked) → leave via the back gateway → re-enter → it should NOT replay (control immediate). (May need a fresh entry; the old Map flag is gone, the new Global flag starts clear.)
