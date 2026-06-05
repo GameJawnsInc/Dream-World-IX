@@ -1141,3 +1141,17 @@ The GLGV editable-fork proof is now a first-class command: **`ff9mapkit import -
 **Engine/game state:** Session-12 dev engine (New-Game→100 + boosters). Live FF9CustomMap: field 100 door now → 4003 + spawn-at-door (fast-warp); field 4003 = GRGR_EDIT reshaped fork (revert `tools/scroll_out/revert_deploy.py`); 4000/4002 hut rooms intact. Tagged `KNOWN_GOOD-s18-reshape-ingame`.
 
 **Next options:** (a) wire the Blender editable-multi-floor reshape path (the 3 gaps above) so the visual loop matches the CLI; (b) collision-radius-edge content warning (on-mesh-but-near-edge); (c) v3 walkmesh (`walkmesh verify` CLI, Blender seam viz); (d) revert the test field + fast-warp and move to other content/release work.
+
+### 2026-06-05 — Session 18 (cont) — Blender editable-fork reshape VERIFIED in-game (full CLI parity)
+
+**The offline parity work is now in-game-proven.** User installed add-on v0.6.0, ran `ff9mapkit import grgr_map420_gr_cen_0 --editable`, **Import Field** in Blender, reshaped a floor, **Export Field**, deployed to 4003, and walked it: renders (real Gargan Roo art), the reshape is present + walkable, and **all 7 floors still connect**. So the Blender front-end now round-trips an editable multi-floor fork identically to the CLI — both loops proven in the live engine.
+
+**Blender export confirmed correct:** the exported toml was `[walkmesh] obj + links + frame="world"` (no character_offset) + per-depth `[[layers]]` with shaders + preserved `camera.bgx` — exactly the parity code. Build: no warnings, 7/7 reachable.
+
+**Also fixed a deploy-tool footgun (`tools/deploy_field.py`, commit `8a182cc`):** it had (a) run "the newest `revert_*.py`", which picked up `revert_alex_fast_warp.py` and undid the Alexandria shortcut — now it runs ONLY its own `revert_deploy.py` so the fast-warp (which points at 4003) survives field deploys; and (b) asserted a `Field(≠4003)` existed in the interior door — crashing when a prior deploy already left it 4003 — now idempotent (already-4003 = no-op). Surfaced exactly because this was the first deploy *after* the fast-warp existed.
+
+**Light-map preview caveat (cosmetic):** additive light/shadow layers show flat in Blender's viewport (its background images don't additive-blend) but render additive in-game (the shader is carried through export→build, asserted by `test_editable_fork`). Not a correctness issue.
+
+**State:** field 4003 = the Blender-reshaped GRGR (7/7 floors); Alexandria fast-warp active (door→4003 + spawn at door); add-on v0.6.0. Tagged `KNOWN_GOOD-s18-blender-reshape-parity`. The import→edit→re-export toolkit is now complete + in-game-proven from BOTH the CLI and Blender.
+
+**Next options:** collision-radius edge content warning (on-mesh-but-near-edge); v3 walkmesh (`walkmesh verify` CLI, Blender seam viz); or revert the test field + fast-warp and move to other content/release work.
