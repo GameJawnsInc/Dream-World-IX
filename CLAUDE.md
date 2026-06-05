@@ -1155,3 +1155,11 @@ The GLGV editable-fork proof is now a first-class command: **`ff9mapkit import -
 **State:** field 4003 = the Blender-reshaped GRGR (7/7 floors); Alexandria fast-warp active (door→4003 + spawn at door); add-on v0.6.0. Tagged `KNOWN_GOOD-s18-blender-reshape-parity`. The import→edit→re-export toolkit is now complete + in-game-proven from BOTH the CLI and Blender.
 
 **Next options:** collision-radius edge content warning (on-mesh-but-near-edge); v3 walkmesh (`walkmesh verify` CLI, Blender seam viz); or revert the test field + fast-warp and move to other content/release work.
+
+### 2026-06-05 — Session 18 (cont) — Collision-radius edge warning (offline tooling)
+
+Added the last build-time placement guard: content **on** the walkmesh but within the player's collision radius (`cam.COLLISION_RADIUS_W` ≈ 48u = `bgiRad*4`) of a **wall** — the near-miss the point-in-walkmesh test passes but the player's centre can't actually reach. New `BgiWalkmesh.distance_to_boundary(x,z)` (min XZ distance to a no-neighbor edge of the floor the point is on; a cross-floor **seam** is not a wall). `build` warns **advisory** for NPCs + player spawn; **gateways are exempt** (an exit zone is edge-placed by design → would false-positive on every door). 4 tests; 157 pass; vendor synced. Commit `53db6bd`. Offline tooling, no in-game change → no tag.
+
+**Validation suite now:** geometry errors (empty/bad-index) · content off the walkmesh (all forks) · content within the collision radius of an edge (NPC/spawn, advisory) · stranded floors · broken seams · zero-area tris · layer aspect mismatch · camera pitch range.
+
+**Next options:** v3 walkmesh (`walkmesh verify` CLI, Blender seam viz); revert the test field + fast-warp + move to content/release work.
