@@ -134,6 +134,54 @@ def test_multicam_eb_has_switch_zones(twocam):
     assert any(ins.op == 0x07 for ins in iter_code(eb.data, f0.abs_start, f0.abs_end))
 
 
+EVENTS = """
+[field]
+id = 4003
+name = "EVENTROOM"
+area = 11
+text_block = 1073
+
+[camera]
+pitch = 45
+
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+
+[player]
+spawn = [0, -300]
+
+[[event]]                       # walk-in chest: give a Potion + a message, once
+zone = [[300, -400], [700, -400], [700, -800], [300, -800]]
+give_item = [232, 1]
+message = "Got a Potion!"
+
+[[event]]                       # repeatable line
+zone = [[-700, -400], [-300, -400], [-300, -800], [-700, -800]]
+message = "A cool breeze blows through."
+once = false
+"""
+
+
+def test_event_field_validates_and_builds(tmp_path):
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.eb.disasm import iter_code
+    p = tmp_path / "ev.field.toml"
+    p.write_text(EVENTS, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    L = ModLayout(out)
+    eb = EbScript.from_bytes(L.eb_path("us", "EVT_EVENTROOM.eb.bytes").read_bytes())
+    ops = [i.op for e in eb.entries if not e.empty for f in e.funcs
+           for i in iter_code(eb.data, f.abs_start, f.abs_end)]
+    assert 0x48 in ops                                          # AddItem from the chest event
+    # both event messages land in the .mes (NPC-free field starts at TXID 500)
+    mes = L.mes_path("us", 1073).read_text(encoding="utf-8")
+    assert "Got a Potion!" in mes and "A cool breeze blows through." in mes
+    # two event regions exist
+    assert sum(1 for e in eb.entries if not e.empty and e.type == 1 and e.func_by_tag(2)) == 2
+
+
 def test_validate_rejects_low_area(tmp_path):
     bad = tmp_path / "bad.field.toml"
     bad.write_text('[field]\nid=4002\nname="X"\narea=7\n[camera]\npitch=48\n', encoding="utf-8")

@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ff9mapkit import data
-from ff9mapkit.content import camera, encounter, gateway, music, npc, region, reinit, text
+from ff9mapkit.content import camera, encounter, event, gateway, music, npc, region, reinit, text
 from ff9mapkit.eb import EbScript, opcodes
 from ff9mapkit.eb.disasm import iter_code
 
@@ -158,6 +158,57 @@ def test_camera_switch_player_object_survives():
                                       reverse_zone=[(0, 200), (100, 200), (100, 300), (0, 300)])
     eb = EbScript.from_bytes(out)
     assert 0x2C in _ops(eb, 1, 0)                     # DefinePlayerCharacter intact
+
+
+def _event_region(eb):
+    """The injected event region (type-1 with a Range tag 2), and its Range bytes."""
+    e = next(x for x in eb.entries if not x.empty and x.type == 1 and x.func_by_tag(2))
+    f = e.func_by_tag(2)
+    return e, eb.data[f.abs_start:f.abs_end]
+
+
+def test_event_give_item_once_structure():
+    ZONE = [(200, -300), (600, -300), (600, -700), (200, -700)]
+    body = event.give_item(232, 1) + event.message(500)
+    out = event.inject_events(CLEAN, [{"zone": ZONE, "body": body, "once_flag": 200}])
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out
+    _, rng = _event_region(eb)
+    assert opcodes.add_item(232, 1) in rng                       # AddItem(232,1)
+    assert opcodes.window_sync(1, 128, 500) in rng              # got-item message
+    assert region.cond_not(region.GLOB_BOOL, 200) in rng        # if (!flag)
+    assert region.set_var(region.GLOB_BOOL, 200, 1) in rng      # flag = 1 (fires once)
+    # armed via a shared init code entry (InitCode in Main_Init)
+    assert 0x07 in _ops(eb, 0, 0)
+
+
+def test_event_repeatable_has_no_flag():
+    ZONE = [(0, 0), (100, 0), (100, 100), (0, 100)]
+    out = event.inject_events(CLEAN, [{"zone": ZONE, "body": event.give_gil(500), "once_flag": None}])
+    eb = EbScript.from_bytes(out)
+    _, rng = _event_region(eb)
+    assert opcodes.add_gil(500) in rng
+    assert region.cond_not(region.GLOB_BOOL, 200) not in rng    # no once-guard
+    # range body = movement gate + body + return (no flag machinery)
+    assert rng == region.MOVEMENT_GATE + event.give_gil(500) + opcodes.RETURN
+
+
+def test_event_batch_shares_one_wait():
+    """Two events must consume only ONE Main_Init Wait filler (shared arming entry)."""
+    evs = [{"zone": [(i * 100, 0), (i * 100 + 50, 0), (i * 100 + 50, 50), (i * 100, 50)],
+            "body": event.message(500 + i), "once_flag": 200 + i} for i in range(2)]
+    before = len(edit_waits(CLEAN))
+    out = event.inject_events(CLEAN, evs)
+    after = len(edit_waits(out))
+    assert before - after == 1                                   # only one Wait consumed for 2 events
+    eb = EbScript.from_bytes(out)
+    assert sum(1 for e in eb.entries if not e.empty and e.type == 1 and e.func_by_tag(2)) == 2
+
+
+def edit_waits(data):
+    eb = EbScript.from_bytes(data)
+    f = eb.entry(0).func_by_tag(0)
+    return [i for i in iter_code(eb.data, f.abs_start, f.abs_end) if i.op == 0x22 and i.imm(0) == 2]
 
 
 def test_text_mes_format_and_mapping():

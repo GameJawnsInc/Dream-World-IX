@@ -132,3 +132,14 @@ def set_field_camera(cam_id: int) -> bytes:            # 0x7E (SETCAM) [1]
 def terminate_entry(entry: int = 255) -> bytes:        # 0x1C (KILL) [1]
     """TerminateEntry(entry): stop an entry's code (255 = This). Used to deactivate a switch zone."""
     return encode(0x1C, entry)
+
+
+# --- inventory (events / treasure) ---
+def add_item(item_id: int, count: int = 1) -> bytes:   # 0x48 (ITEM) argsize [2, 1]
+    """AddItem(item_id, count): add an item to the party inventory (real-chest opcode)."""
+    return encode(0x48, item_id, count)
+
+
+def add_gil(amount: int) -> bytes:                     # 0xCE (GETGIL) argsize [3]
+    """AddGil(amount): add gil to the party purse."""
+    return encode(0xCE, amount)

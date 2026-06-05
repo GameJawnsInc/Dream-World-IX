@@ -25,6 +25,7 @@ from pathlib import Path
 from .config import LANGS, ModLayout, fbg_name
 from .content import camera as _camera
 from .content import encounter as _enc
+from .content import event as _event
 from .content import gateway as _gw
 from .content import movement as _movement
 from .content import music as _music
@@ -133,6 +134,12 @@ def validate(project: FieldProject) -> list[str]:
         z = gw.get("zone", [])
         if len(z) not in (4, 5):
             problems.append(f"[[gateway]] zone must have 4 or 5 points (got {len(z)})")
+    for ev in project.raw.get("event", []):
+        z = ev.get("zone", [])
+        if len(z) not in (4, 5):
+            problems.append(f"[[event]] zone must have 4 or 5 points (got {len(z)})")
+        if not any(k in ev for k in ("message", "give_item", "gil", "set_flag")):
+            problems.append("[[event]] needs at least one action (message / give_item / gil / set_flag)")
     return problems
 
 
@@ -329,6 +336,14 @@ def _validate_content_placement(project: FieldProject, wmesh, warnings: list) ->
                 warnings.append(
                     f"gateway -> field {gw.get('to')}: zone centre ({int(cx)}, {int(cz)}) is off the "
                     f"walkmesh -- the player may not be able to reach the trigger.")
+    for k, ev in enumerate(project.raw.get("event", [])):
+        zone = ev.get("zone", [])
+        if zone:
+            cx, cz = sum(p[0] for p in zone) / len(zone), sum(p[1] for p in zone) / len(zone)
+            if off(cx, cz):
+                warnings.append(
+                    f"event #{k}: zone centre ({int(cx)}, {int(cz)}) is off the walkmesh -- "
+                    f"the player may not be able to walk into it.")
 
 
 def _validate_walkmesh_geometry(project: FieldProject, wmesh, warnings: list) -> None:
@@ -456,8 +471,9 @@ def resolve_control_value(project: FieldProject, camera: cam.Cam) -> int:
 
 
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
-                 control_value: int = -1) -> bytes:
+                 control_value: int = -1, event_txids: dict | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
+    event_txids = event_txids or {}
     eb = _data.blank_field_bytes(lang)
     # movement control-direction first (shift-free, before any appends that move bytecode)
     if control_value != -1:
@@ -506,6 +522,31 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             reverse_zone=[tuple(p) for p in rev["zone"][:4]], to_camera=target,
             control_value_0=cvs[0], control_value_target=cvs[target])
 
+    # events: walk-in triggers (message / give item / gil / set flag), optionally once. All N events
+    # are armed by ONE shared init entry (so they don't each eat a Main_Init Wait filler).
+    events = project.raw.get("event", [])
+    if events:
+        specs, flag_counter = [], 0
+        for j, ev in enumerate(events):
+            parts = []
+            if "give_item" in ev:
+                gi = ev["give_item"]
+                parts.append(_event.give_item(int(gi[0]), int(gi[1]) if len(gi) > 1 else 1))
+            if "gil" in ev:
+                parts.append(_event.give_gil(int(ev["gil"])))
+            if j in event_txids:
+                parts.append(_event.message(event_txids[j]))
+            if "set_flag" in ev:
+                sf = ev["set_flag"]
+                parts.append(_event.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
+            once_flag = None
+            if ev.get("once", True):
+                once_flag = int(ev["flag"]) if "flag" in ev else (_event.EVENT_FLAG_BASE + flag_counter)
+                flag_counter += 1
+            specs.append({"zone": [tuple(p) for p in ev["zone"][:4]],
+                          "body": b"".join(parts), "once_flag": once_flag})
+        eb = _event.inject_events(eb, specs)
+
     # player spawn (order-independent w.r.t. the appends above)
     if "player" in project.raw and "spawn" in project.raw["player"]:
         sp = project.raw["player"]["spawn"]
@@ -532,18 +573,25 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     return eb
 
 
-def collect_dialogue(project: FieldProject):
-    """Return (mes_body, txid_by_npc_index). Empty body if no NPC has dialogue."""
-    lines, idx_map = [], {}
+def collect_text(project: FieldProject):
+    """Return (mes_body, npc_txids, event_txids). All field text (NPC dialogue + event messages) goes
+    in one .mes block, NPCs first (so a field with no events is byte-identical to the old layout)."""
+    lines = []
+    npc_pos, ev_pos = {}, {}
     for i, n in enumerate(project.raw.get("npc", [])):
         if "dialogue" in n:
-            idx_map[i] = len(lines)
+            npc_pos[i] = len(lines)
             lines.append(n["dialogue"])
+    for j, ev in enumerate(project.raw.get("event", [])):
+        if "message" in ev:
+            ev_pos[j] = len(lines)
+            lines.append(ev["message"])
     if not lines:
-        return "", {}
+        return "", {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID)
-    txid_by_npc = {npc_i: mapping[line_i] for npc_i, line_i in idx_map.items()}
-    return body, txid_by_npc
+    npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
+    event_txids = {j: mapping[p] for j, p in ev_pos.items()}
+    return body, npc_txids, event_txids
 
 
 # --------------------------------------------------------------------------- the build
@@ -608,10 +656,10 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             _validate_content_placement(project, ref, warnings)
 
     # --- dialogue + per-language script ---
-    mes_body, txids = collect_dialogue(project)
+    mes_body, txids, event_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     for lang in langs:
-        eb = build_script(project, lang, txids, control_value)
+        eb = build_script(project, lang, txids, control_value, event_txids=event_txids)
         layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
         if mes_body:
             layout.mes_path(lang, project.text_block).write_text(mes_body, encoding="utf-8", newline="\n")

@@ -184,6 +184,41 @@ A region the player walks into to warp to another field.
 
 ---
 
+## `[[event]]` (optional, repeatable)
+
+A region the player **walks into** that fires authored logic — show a message, give an item / gil,
+set a story flag — optionally **once** (a looted chest, a one-time line, an ATE). Built on the same
+flag-gated conditional region as the camera switch; any number of events share one arming slot.
+
+```toml
+[[event]]                 # a treasure: give a Potion + a message, once
+zone = [[300,-400],[700,-400],[700,-800],[300,-800]]   # 4 convex (x,z) corners
+give_item = [232, 1]      # [item_id, count]
+gil = 500                 # (optional) also add gil
+message = "Got a Potion!" # (optional) popup dialogue
+
+[[event]]                 # a repeatable ambient line
+zone = [[-700,-400],[-300,-400],[-300,-800],[-700,-800]]
+message = "A cool breeze blows through."
+once = false
+```
+
+| key | meaning |
+|---|---|
+| `zone` | 4 convex `(x,z)` corners of the trigger region (place where the player walks). |
+| `message` | text shown in a dialogue window when triggered (added to the field's `.mes`). |
+| `give_item` | `[item_id, count]` — `AddItem`. |
+| `gil` | gil to add — `AddGil`. |
+| `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
+| `once` | `true` (default) = fires once, then never again (a GlobBool persists the state); `false` = every entry. |
+| `flag` | explicit GlobBool index for the `once` guard (default auto from `200`; **override to a free index for a shipped mod** so it can't clash with save state). |
+
+> An event needs at least one action. The same conditional-region primitive underlies chests, story
+> flags, and one-time triggers. (Engine-validated bytecode + a real-chest `AddItem`/message
+> convention; in-game proof pending.)
+
+---
+
 ## `[encounter]` (optional)
 
 | key | meaning |
