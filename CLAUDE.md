@@ -1272,3 +1272,21 @@ Captured in project memory `project-ff9-camera-math` (multi-camera section).
 **Human verified (real gameplay): "looks good" ✅** — events work in-game: walk into the GOLD zone → message + (menu) a new item + 1000 gil; re-enter → nothing (the `once` GlobBool holds); CYAN repeatable line fires on entry. **Tagged `KNOWN_GOOD-s18-events`.** User noted (precisely, accepted): a `once=false` event is LEVEL-triggered — closing its window while still inside the zone re-pops it immediately (FF9's region tag-2 fires every frame you tread the quad; `TreadQuad` is a pure position test, no edge detection — confirmed in `EventCollision.cs`/`TreadQuad.cs`). `once=true` (chests/one-time lines) is unaffected. Documented in FORMAT.md + event.py; a true "once-per-visit" (re-arm on leave) is a noted future enhancement (needs a leave-detecting zone, like the camera-switch toggle).
 
 **The kit's content stack is now complete + in-game-proven:** rooms → cameras (single / scrolling / **multi-camera**) → walkmesh (incl. import/reshape) → NPCs/dialogue → gateways → encounters → **events (chests / gil / story flags / triggers)**. Enough to author a real, populated FF9 area end-to-end.
+
+### 2026-06-05 — Session 18 (cont) — STORY LOGIC / branching (flag-gated NPCs / gateways / events) + activation-overflow fix
+
+**Built branching — content that gains state from story flags — and answered the user's architecture question first** (script limits: we MINT fields by name = unbounded; the `.eb` is bounded only by u16 offsets [~64KB/255 entries] = never hit; the real "stock memory" is the **2048-byte save-backed `gEventGlobal`** flag array, shared with the base game → pick a free range; Memoria ADDS save-persisted unbounded `gScriptVector`/`gScriptDictionary` stores = the "extend past stock" path). Captured for the user.
+
+**Built (offline, 180 tests; grounded in the conditional-region primitive):**
+- `region.flag_gate(idx, require_set)` — an `ifnot(flag) return` prologue (same expr/jump primitive).
+- `[[npc]] requires_flag` / `requires_flag_clear` — prepend the gate to the Init → a gated-out NPC returns before CreateObject (no model, absent). The standard FF9 show/hide-by-story pattern.
+- `[[gateway]] requires_flag` — prepend to the Range (last func → safe insert) → a locked door that only exits when the flag matches.
+- `[[event]] requires_flag` + the existing `set_flag` — a switch sets a flag; NPCs/doors/events read it.
+- **Activation-overflow fix `edit.activate`** (the blocker): the blank has only 2 `Wait` fillers but a story field (NPC+gateway+event) needs 3+ activations. `activate()` overwrites a Wait when free, else INSERTS the `Init*` call into Main_Init (safe — entry-0's other func is an empty placeholder, the `enable_camera_services` mechanism). ALL injectors route through it; **within-budget builds stay byte-identical** (golden hut / multicam / events unchanged), over-budget builds now work. Verified: a NPC+gateway+event field round-trips (2 InitObject + 1 InitRegion over Waits + 1 InitCode inserted).
+- FORMAT.md: `requires_flag` rows + a "Story flags & branching" section.
+
+**In-game test DEPLOYED** (`tools/build_story_test.py` → field 4003 = STORYROOM): a GOLD switch zone sets flag 200; while clear, a GUARD (magenta marker) is ABSENT and the back DOOR (cyan) is LOCKED; flip the switch → guard appears + door unlocks (→ Alexandria). Revert `py tools/scroll_out/revert_deploy.py`.
+
+**Commits:** `story logic: flag-gated NPCs / gateways / events + activation-overflow fix`; test builder.
+
+**AWAITING PLAYTEST.** (1) Guard absent + door does nothing on entry; (2) walk into GOLD → "*CLICK*"; (3) guard now present + talks; (4) walk into the door → now exits to Alexandria. Report each. With this, the kit authors real *stateful* areas (switches, locked doors, story-gated NPCs).
