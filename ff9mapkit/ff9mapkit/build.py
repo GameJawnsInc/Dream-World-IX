@@ -92,11 +92,29 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[field] missing required key '{key}'")
     if "area" in f and int(f["area"]) < 10:
         problems.append(f"[field] area must be >= 10 (got {f['area']}); single-digit areas black-screen")
-    cam_cfg = project.raw.get("camera", {})
-    if not cam_cfg:
+    cfgs = camera_cfgs(project)
+    if not cfgs:
         problems.append("[camera] section is required")
-    elif "borrow" not in cam_cfg and "pitch" not in cam_cfg:
-        problems.append("[camera] needs either 'borrow' or 'pitch' (+ distance/fov)")
+    for ci, cc in enumerate(cfgs):
+        if "borrow" not in cc and "pitch" not in cc:
+            problems.append(f"[camera] #{ci} needs either 'borrow' or 'pitch' (+ distance/fov)")
+        if cc.get("borrow") and not project.path(cc["borrow"]).is_file():
+            problems.append(f"[camera] borrow scene not found: {cc['borrow']}")
+    zones = project.raw.get("camera_zone", [])
+    if zones:
+        if len(cfgs) < 2:
+            problems.append("[[camera_zone]] needs at least 2 cameras ([[camera]] array)")
+        for z in zones:
+            if "to_camera" not in z or "zone" not in z:
+                problems.append("[[camera_zone]] needs 'to_camera' and 'zone'")
+            elif not 0 <= int(z["to_camera"]) < len(cfgs):
+                problems.append(f"[[camera_zone]] to_camera {z['to_camera']} out of range (have {len(cfgs)} cameras)")
+            elif len(z["zone"]) not in (4, 5):
+                problems.append(f"[[camera_zone]] zone must have 4 or 5 points (got {len(z['zone'])})")
+        tos = {int(z["to_camera"]) for z in zones if "to_camera" in z}
+        if zones and (0 not in tos or len(tos) < 2):
+            problems.append("[[camera_zone]] needs one zone back to camera 0 and one to another camera "
+                            "(v1 supports a single 2-camera switch pair)")
     wm = project.raw.get("walkmesh", {})
     if wm.get("obj") and not project.path(wm["obj"]).is_file():
         problems.append(f"[walkmesh] obj not found: {wm['obj']}")
@@ -120,13 +138,22 @@ def validate(project: FieldProject) -> list[str]:
 
 # --------------------------------------------------------------------------- scene assembly
 
+def camera_cfgs(project: FieldProject) -> list:
+    """The field's camera config dict(s). ``[camera]`` (a table) -> one; ``[[camera]]`` (an array of
+    tables, for a MULTI-camera field) -> N, in index order (camera 0 is the default at load)."""
+    c = project.raw.get("camera")
+    if isinstance(c, list):
+        return c
+    return [c] if c else []
+
+
 def is_scrolling(project: FieldProject) -> bool:
     """True if the field is a larger-than-screen scrolling room ([camera.scroll] enabled)."""
-    return bool(project.raw.get("camera", {}).get("scroll", {}).get("enabled"))
+    cfgs = camera_cfgs(project)
+    return bool(cfgs and cfgs[0].get("scroll", {}).get("enabled"))
 
 
-def resolve_camera(project: FieldProject) -> cam.Cam:
-    c = project.raw["camera"]
+def _resolve_one_camera(project: FieldProject, c: dict, scrolling: bool) -> cam.Cam:
     if "borrow" in c:
         cams = cam.parse_bgx_cameras(str(project.path(c["borrow"])))
         if not cams:
@@ -137,7 +164,7 @@ def resolve_camera(project: FieldProject) -> cam.Cam:
     # else the static single-screen default.
     if "viewport" in c:
         viewport = tuple(c["viewport"])
-    elif is_scrolling(project):
+    elif scrolling:
         viewport = cam.scroll_bounds(range_wh)
     else:
         viewport = guide.DEFAULT_VIEWPORT
@@ -157,6 +184,22 @@ def resolve_camera(project: FieldProject) -> cam.Cam:
     if win_w != range_wh[0]:
         return guide.make_camera(pitch, dist, proj=guide.proj_from_fov_x(fov, win_w), **common)
     return guide.make_camera(pitch, dist, fov_x_deg=fov, **common)
+
+
+def resolve_cameras(project: FieldProject) -> list:
+    """All of the field's cameras (one for a single ``[camera]``, N for ``[[camera]]``). Camera 0 is
+    the active one at load; a multi-camera field switches between them via ``[[camera_zone]]``."""
+    cfgs = camera_cfgs(project)
+    scrolling = is_scrolling(project)
+    return [_resolve_one_camera(project, c, scrolling) for c in cfgs]
+
+
+def resolve_camera(project: FieldProject) -> cam.Cam:
+    """The primary (index-0) camera -- drives the walkmesh frame, movement, content guidance."""
+    cams = resolve_cameras(project)
+    if not cams:
+        raise BuildError("[camera] section is required")
+    return cams[0]
 
 
 def _read_links(links_path):
@@ -369,7 +412,8 @@ def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> b
         corners = [(c[0], 0, c[1]) if len(c) == 2 else tuple(c) for c in wm["quad"]]
         return bgi.build(corners, [(0, 1, 2), (0, 2, 3)]).to_bytes()
     # auto: frame the floor from the camera; the frame corners ARE world coords (via to_canvas).
-    fr = project.raw.get("camera", {}).get("frame", {})
+    _cfgs = camera_cfgs(project)
+    fr = (_cfgs[0].get("frame", {}) if _cfgs else {})
     try:
         frame = guide.frame_floor(camera, back_canvas_y=float(fr.get("back", 205)),
                                   front_canvas_y=float(fr.get("front", 432)))
@@ -390,6 +434,8 @@ def build_overlays(project: FieldProject, range_wh=(384, 448)) -> list:
             # larger-than-screen scrolling painting isn't clipped to a single 384x448 screen.
             size=tuple(layer.get("size", (int(range_wh[0]), int(range_wh[1])))),
             shader=layer.get("shader", bgx.DEFAULT_SHADER),
+            # which camera shows this layer (multi-camera fields paint a backdrop per camera).
+            camera_id=int(layer.get("camera", 0)),
         ))
     return overlays
 
@@ -402,7 +448,8 @@ def resolve_control_value(project: FieldProject, camera: cam.Cam) -> int:
     Explicit ``[camera] control_direction`` wins; otherwise it is derived from the camera's yaw so a
     yawed/orbited camera still moves "up = up the screen". A front-facing camera yields -1 (the kit
     default = 0 deg), so front-facing fields are byte-identical to before."""
-    c = project.raw.get("camera", {})
+    cfgs = camera_cfgs(project)
+    c = cfgs[0] if cfgs else {}
     if "control_direction" in c:
         return int(c["control_direction"])
     return _movement.control_value_for_angle(cam.yaw_deg(camera))
@@ -419,7 +466,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 
     # larger-than-screen scrolling: enable the field's camera services (Active flag) so the engine's
     # 3D scroll follows the player. The wide Range + scroll Viewport come from the camera/scene.
-    sc = project.raw.get("camera", {}).get("scroll", {})
+    _cfgs = camera_cfgs(project)
+    sc = _cfgs[0].get("scroll", {}) if _cfgs else {}
     if sc.get("enabled"):
         eb = _camera.enable_camera_services(eb, frame_count=int(sc.get("frame_count", 0)),
                                             scroll_type=int(sc.get("scroll_type", 0)))
@@ -442,6 +490,21 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             zone = _gw.quad_zone(zone)
         eb = _gw.inject_gateway(eb, int(gw["to"]), entrance=int(gw.get("entrance", 0)),
                                 zone=[tuple(p) for p in zone])
+
+    # multi-camera switch zones (the Gargan Roo convention): a forward + reverse zone pair that
+    # cuts the active background camera as the player crosses, each re-tuning movement for its
+    # camera's yaw. v1 = a single 2-camera pair (one zone to camera 0, one to another).
+    zones = project.raw.get("camera_zone", [])
+    if zones:
+        cams = resolve_cameras(project)
+        cvs = [_movement.control_value_for_angle(cam.yaw_deg(c)) for c in cams]
+        fwd = next(z for z in zones if int(z["to_camera"]) != 0)
+        rev = next(z for z in zones if int(z["to_camera"]) == 0)
+        target = int(fwd["to_camera"])
+        eb = _camera.inject_camera_switch(
+            eb, forward_zone=[tuple(p) for p in fwd["zone"][:4]],
+            reverse_zone=[tuple(p) for p in rev["zone"][:4]], to_camera=target,
+            control_value_0=cvs[0], control_value_target=cvs[target])
 
     # player spawn (order-independent w.r.t. the appends above)
     if "player" in project.raw and "spawn" in project.raw["player"]:
@@ -524,7 +587,11 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         _validate_layer_art(project, camera.range, warnings)
         _validate_walkmesh_geometry(project, wmesh, warnings)
         overlays = build_overlays(project, range_wh=tuple(camera.range))
-        bgx_text = bgx.build(camera, overlays, header_comment=project.field.get("title", project.name))
+        # multi-camera: write all N CAMERA blocks (overlays carry their camera_id); single-camera
+        # fields pass one Cam and are byte-identical to before.
+        cameras = resolve_cameras(project)
+        scene_cam = cameras if len(cameras) > 1 else camera
+        bgx_text = bgx.build(scene_cam, overlays, header_comment=project.field.get("title", project.name))
 
         fm = layout.fieldmap_dir(fbg)
         (fm / f"{fbg}.bgx").write_text(bgx_text, encoding="utf-8", newline="\n")

@@ -68,6 +68,72 @@ def test_build_scene_and_walkmesh(built):
     assert (fm / "back.png").is_file() and (fm / "floor.png").is_file()
 
 
+TWOCAM = """
+[field]
+id = 4003
+name = "TWOCAM"
+area = 11
+text_block = 1073
+
+[[camera]]
+pitch = 40
+yaw = 0
+[[camera]]
+pitch = 40
+yaw = 30
+
+[[camera_zone]]
+to_camera = 1
+zone = [[500, -150], [900, -150], [900, -550], [500, -550]]
+[[camera_zone]]
+to_camera = 0
+zone = [[-900, -150], [-500, -150], [-500, -550], [-900, -550]]
+
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+
+[player]
+spawn = [0, -500]
+"""
+
+
+@pytest.fixture()
+def twocam(tmp_path):
+    p = tmp_path / "twocam.field.toml"
+    p.write_text(TWOCAM, encoding="utf-8")
+    out = tmp_path / "mod"
+    info = build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    return out, info
+
+
+def test_multicam_validates_clean(tmp_path):
+    p = tmp_path / "twocam.field.toml"
+    p.write_text(TWOCAM, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+
+
+def test_multicam_scene_has_two_cameras(twocam):
+    out, _ = twocam
+    scene = bgx.BgxScene.from_file(ModLayout(out).fieldmap_dir("FBG_N11_TWOCAM") / "FBG_N11_TWOCAM.bgx")
+    assert len(scene.cameras) == 2
+
+
+def test_multicam_eb_has_switch_zones(twocam):
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.eb.disasm import iter_code
+    out, _ = twocam
+    eb = EbScript.from_bytes(ModLayout(out).eb_path("us", "EVT_TWOCAM.eb.bytes").read_bytes())
+    assert eb.to_bytes() == eb.data                       # valid round-trip
+    # two type-1 region entries whose Range (tag 2) contains SetFieldCamera (0x7E)
+    switch_regions = [e for e in eb.entries if not e.empty and e.type == 1 and e.func_by_tag(2)
+                      and any(ins.op == 0x7E for f in [e.func_by_tag(2)]
+                              for ins in iter_code(eb.data, f.abs_start, f.abs_end))]
+    assert len(switch_regions) == 2
+    # Main_Init arms the switch (InitCode 0x07 for the load-time init entry)
+    f0 = eb.entry(0).func_by_tag(0)
+    assert any(ins.op == 0x07 for ins in iter_code(eb.data, f0.abs_start, f0.abs_end))
+
+
 def test_validate_rejects_low_area(tmp_path):
     bad = tmp_path / "bad.field.toml"
     bad.write_text('[field]\nid=4002\nname="X"\narea=7\n[camera]\npitch=48\n', encoding="utf-8")
