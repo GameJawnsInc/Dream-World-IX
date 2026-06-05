@@ -12,8 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from ff9mapkit import data
-from ff9mapkit.content import encounter, gateway, music, npc, reinit, text
-from ff9mapkit.eb import EbScript
+from ff9mapkit.content import camera, encounter, gateway, music, npc, region, reinit, text
+from ff9mapkit.eb import EbScript, opcodes
 from ff9mapkit.eb.disasm import iter_code
 
 FIX = Path(__file__).parent / "fixtures"
@@ -82,6 +82,82 @@ def test_music_on_entry_and_reinit():
     out2 = music.add_music_to_reinit(out2, 9)
     eb2 = EbScript.from_bytes(out2)
     assert _ops(eb2, 0, 10)[0] == 0xC5               # RunSoundCode now first in tag-10
+
+
+def test_region_primitives_match_real_field_bytes():
+    """The flag/expression/conditional builders reproduce the exact bytecode decoded from the real
+    Gargan Roo/Passage camera-switch region (evt_gargan_gr_lef_0)."""
+    assert region.set_var(region.GLOB_UINT8, 24, 1).hex() == "05d5187d01002c7f"  # set flag = 1
+    assert region.cond_not(region.GLOB_UINT8, 24).hex() == "05d5180e7f"          # if (!flag)
+    assert region.cond_truthy(region.GLOB_UINT8, 24).hex() == "05d5187f"         # if (flag)
+    assert region.cond_eq(region.GLOB_BOOL, 159, 1).hex() == "05c59f7d0100207f"  # if (V == 1)
+    assert region.MOVEMENT_GATE.hex() == "057a027f03010004"                      # ifnot(IsMovementEnabled) ret
+    assert opcodes.set_field_camera(1).hex() == "7e0001"
+    assert opcodes.terminate_entry(255).hex() == "1c00ff"
+    # if_block jump-if-false offset == body length (matches dev `02 0b 00` for an 11-byte body)
+    body = opcodes.set_field_camera(1) + region.set_var(region.GLOB_UINT8, 24, 1)
+    assert region.if_block(region.cond_truthy(region.GLOB_UINT8, 24), body).hex() \
+        == "05d5187f" + "020b00" + body.hex()
+
+
+def test_region_forward_body_reproduces_dev_byte_exact():
+    """The generic switch-body builder, given the field's own ChestA RunScriptSync, reproduces the
+    real Gargan forward zone (entry 5 Range) byte-for-byte -- proof the conditional-region primitive
+    matches shipped game bytecode, not just a plausible encoding."""
+    runscript = bytes.fromhex("1400020811")          # RunScriptSync(2, 8, 17): field-specific anim
+    body = (runscript + opcodes.set_field_camera(1) + region.set_var(region.GLOB_UINT8, 24, 1)
+            + opcodes.set_control_direction(-36, -32) + opcodes.init_region(6, 0)
+            + opcodes.terminate_entry(255))
+    mine = region.MOVEMENT_GATE + region.if_block(region.cond_not(region.GLOB_UINT8, 24), body) \
+        + opcodes.RETURN
+    dev = bytes.fromhex("057a027f030100" "04" "05d5180e7f" "021a00" "1400020811" "7e0001"
+                        "05d5187d01002c7f" "6700dce0" "080600" "1c00ff" "04")
+    assert mine == dev
+
+
+def test_camera_switch_structure_and_bodies():
+    fwd = [(267, -2299), (-257, -2047), (-283, -3154), (257, -3064)]
+    rev = [(-2231, -3598), (-1737, -3000), (-1422, -3240), (-1902, -3816)]
+    out = camera.inject_camera_switch(CLEAN, forward_zone=fwd, reverse_zone=rev, to_camera=1,
+                                      control_value_0=-1, control_value_target=63)
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out                       # structurally valid round-trip
+
+    free0 = EbScript.from_bytes(CLEAN).free_slots()
+    fwd_slot, rev_slot, init_slot = free0[0], free0[1], free0[2]
+
+    # two type-1 region entries, each Init(SetRegion 0x29) + Range(tag 2)
+    for slot, to_cam, cond_first in ((fwd_slot, 1, 0x0E), (rev_slot, 0, 0x7F)):
+        e = eb.entry(slot)
+        assert e.type == 1 and e.func_by_tag(0) and e.func_by_tag(2)
+        assert _ops(eb, slot, 0)[0] == 0x29           # SetRegion in Init
+        rng = _ops(eb, slot, 2)
+        assert rng[:2] == [0x05, 0x03]                # movement gate (expr + jump-if-true)
+        assert 0x7E in rng and 0x67 in rng and 0x08 in rng and 0x1C in rng  # SETCAM/TWIST/InitRegion/Terminate
+
+    # the forward zone switches TO camera 1 and arms the reverse slot; reverse switches to 0, arms fwd
+    fwd_rng = eb.entry(fwd_slot).func_by_tag(2)
+    fwd_bytes = eb.data[fwd_rng.abs_start:fwd_rng.abs_end]
+    assert opcodes.set_field_camera(1) in fwd_bytes and opcodes.init_region(rev_slot, 0) in fwd_bytes
+    rev_rng = eb.entry(rev_slot).func_by_tag(2)
+    rev_bytes = eb.data[rev_rng.abs_start:rev_rng.abs_end]
+    assert opcodes.set_field_camera(0) in rev_bytes and opcodes.init_region(fwd_slot, 0) in rev_bytes
+
+    # init/arm code entry (type 0): reset flag=0 + InitRegion(forward); activated from Main_Init
+    ie = eb.entry(init_slot)
+    assert ie.type == 0
+    init_bytes = eb.data[ie.func_by_tag(0).abs_start:ie.func_by_tag(0).abs_end]
+    assert region.set_var(region.GLOB_UINT8, 24, 0) in init_bytes
+    assert opcodes.init_region(fwd_slot, 0) in init_bytes
+    assert 0x07 in _ops(eb, 0, 0)                     # InitCode arms the init entry from Main_Init
+
+
+def test_camera_switch_player_object_survives():
+    """The injection must not disturb the player object (entry 1) or its DefinePlayerCharacter."""
+    out = camera.inject_camera_switch(CLEAN, forward_zone=[(0, 0), (100, 0), (100, 100), (0, 100)],
+                                      reverse_zone=[(0, 200), (100, 200), (100, 300), (0, 300)])
+    eb = EbScript.from_bytes(out)
+    assert 0x2C in _ops(eb, 1, 0)                     # DefinePlayerCharacter intact
 
 
 def test_text_mes_format_and_mapping():

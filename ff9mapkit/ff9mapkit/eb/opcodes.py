@@ -121,3 +121,14 @@ def set_random_battles(slot: int, b1: int, b2: int, b3: int, b4: int) -> bytes: 
 
 def set_random_battle_frequency(freq: int) -> bytes:   # 0x57 [1]
     return encode(0x57, freq)
+
+
+# --- field camera (multi-camera) ---
+def set_field_camera(cam_id: int) -> bytes:            # 0x7E (SETCAM) [1]
+    """SetFieldCamera(cam_id): switch the active background camera (engine SetCurrentCameraIndex)."""
+    return encode(0x7E, cam_id)
+
+
+def terminate_entry(entry: int = 255) -> bytes:        # 0x1C (KILL) [1]
+    """TerminateEntry(entry): stop an entry's code (255 = This). Used to deactivate a switch zone."""
+    return encode(0x1C, entry)
