@@ -1252,3 +1252,19 @@ Captured in project memory `project-ff9-camera-math` (multi-camera section).
 **Human verified (real gameplay): "good" ✅** — the 2-camera switch WORKS in-game: loads on the cyan head-on camera; crossing the green zone CUTS to the orange yaw-35 camera (colour + re-projected grid); movement stays screen-correct after the cut (per-camera control direction); and it cuts back. Multi-camera switch zones proven end-to-end. **Tagged `KNOWN_GOOD-s18-multicam`.** Findings folded into project memory `project-ff9-camera-math` (multi-camera section) — incl. the decoded field-script EXPRESSION sub-language (opcode 0x05 RPN: var classes, const, NOT/==/assign, if/ifnot jumps), reusable for chests/story-flags via the same `content/region.py` conditional-region primitive.
 
 **Open / next:** field 4003 = MULTICAM test grid (revert `py tools/scroll_out/revert_deploy.py`). v2 (open) = 3+ cameras / Main_Reinit camera-restore for battle fields. The general `content/region.py` conditional region is now available to author **chests / story flags / one-shot events** (`if (!done){ give; done=1 }`) — the natural next script-capability lever.
+
+### 2026-06-05 — Session 18 (cont) — EVENTS: cashed in the conditional-region primitive (chests/flags/triggers)
+
+**Cashed in the multicam conditional-region primitive as the broad script-capability expansion the user wanted: one-shot field EVENTS — walk-in triggers that give items/gil, show messages, set story flags, optionally once.** Built + tested offline (175 tests); in-game test deployed (awaiting playtest, §2).
+
+**Grounded (import-driven):** decoded a REAL treasure handler from `p0data7.bin` — `AddItem(id,count)` (0x48) + `SetTextVariable(0,id)` (0x66) + a "received X" `WindowSync`. Added `opcodes.add_item` (0x48 `[id:2,count:1]`) + `add_gil` (0xCE `[gil:3]`), both round-trip-verified.
+
+**Built:**
+- `content/event.py` — walk-in event triggers on `content/region.py`: compose a body from `message`/`give_item`/`give_gil`/`set_flag`, fire it from a region, optionally ONCE (gated by a persistent GlobBool — `if (!flag){ body; flag=1 }`, the same shape as the camera switch). `inject_events` batches any N events through ONE arming code-entry, so they don't each eat a Main_Init `Wait` filler (the blank only has 2).
+- **build wiring:** `[[event]]` schema (`zone`/`message`/`give_item`/`gil`/`set_flag`/`once`/`flag`); `collect_dialogue`→`collect_text` (NPC dialogue + event messages share the `.mes`, NPCs first → golden hut/multicam builds byte-identical); validate + off-walkmesh placement check. `docs/FORMAT.md` documents it. "once" flags default to GlobBool base 200 (author overrides for a shipped mod).
+
+**In-game test DEPLOYED** (`tools/build_event_test.py` → field 4003 = EVENTROOM, via the Alexandria→hut-door warp): a GOLD zone = ONCE (`AddItem(232,1)` + 1000 gil + message; re-enter → nothing) and a CYAN zone = REPEATABLE (ambient line every time), on a grid floor with the zones + spawn outlined. Revert `py tools/scroll_out/revert_deploy.py`.
+
+**Commits:** `events: cash in the conditional-region primitive ([[event]] one-shot triggers)`; test builder.
+
+**AWAITING PLAYTEST.** Look for: (1) walk into GOLD → message + (menu) a new item + gil up 1000; (2) re-enter GOLD → NOTHING (proves once); (3) walk into CYAN → the line fires EVERY time (proves repeatable + no-flag). Report each. Then the kit has the full content stack: rooms → cameras (incl. multi) → NPCs/dialogue → gateways → encounters → **events (chests/flags/triggers)**.
