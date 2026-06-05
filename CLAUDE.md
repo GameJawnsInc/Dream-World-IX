@@ -1104,3 +1104,10 @@ The GLGV editable-fork proof is now a first-class command: **`ff9mapkit import -
 - **Content-placement WARNING — the big one** (catches the recurring in-game pain: Vivi off-screen / behind-desk / player-in-exit-zone): `BgiWalkmesh.point_on_walkmesh(x,z)` (top-down point-in-triangle over `world_verts`) → `build` warns when an NPC / player spawn / gateway-zone-centre sits **off the walkmesh**. Verified **no false-positive** on real in-game-OK content (GRGR Vivi (-367,-1009)→floor 3, spawn (404,127)→floor 0; (9000,9000)→off). Honest limit: catches OFF-mesh, not on-mesh-but-blocked.
 - **Zero-area-triangle WARNING:** `degenerate_tris()` flags collinear verts → IsInQuad dead zones (the bug we hit in gateway work), gated to (re)built meshes.
 - All wired into `build_field` warnings (content always for custom scenes; degenerate/reachability gated to non-verbatim). Docs: PIPELINE.md "the build checks your work". Tests: bad-geometry rejects, point/degenerate behavior, off-walkmesh warns, on-walkmesh doesn't. Tagged `KNOWN_GOOD-s17-edit-validation`.
+
+### 2026-06-04 — Session 17 (cont 7) — Off-walkmesh guard made UNIVERSAL (borrow forks too)
+
+**Closed the gap: the off-walkmesh content warning now covers BG-borrow forks** — the common case — not just custom scenes. A borrow fork ships no walkmesh (engine uses the borrowed field's real one), but `import` already wrote the extracted `walkmesh.bgi` next to the field.toml, so the build validates content against it.
+- `build._borrow_walkmesh(project)` loads `[walkmesh] reference` (if set) else the sibling `walkmesh.bgi` (zero-config convention); `build_field`'s borrow branch runs `_validate_content_placement` against it.
+- `write_field_project` (borrow import) now emits a `[walkmesh] reference = "walkmesh.bgi"` block (clearly labeled validation-only, not shipped); `validate()` checks the reference file exists.
+- Tests: borrow fork warns on an off-mesh NPC (via `reference` AND via the sibling convention), no warning on-mesh. 147 tests; no vendor change. Tagged `KNOWN_GOOD-s17-borrow-validation`.

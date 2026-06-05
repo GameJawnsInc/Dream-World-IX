@@ -103,6 +103,8 @@ def validate(project: FieldProject) -> list[str]:
         problems.append(f"[walkmesh] bgi not found: {wm['bgi']}")
     if wm.get("links") and not project.path(wm["links"]).is_file():
         problems.append(f"[walkmesh] links not found: {wm['links']}")
+    if wm.get("reference") and not project.path(wm["reference"]).is_file():
+        problems.append(f"[walkmesh] reference not found: {wm['reference']}")
     for layer in project.raw.get("layers", []):
         if "image" not in layer:
             problems.append("[[layers]] entry missing 'image'")
@@ -207,6 +209,15 @@ def _apply_links(mesh, links_path, warnings):
             f"walkmesh: {missing} of {linked + missing} cross-floor seam(s) couldn't be matched "
             f"(a connecting edge was moved/deleted, e.g. floor {fa}<->{fb} near {a_edge[0]}). "
             f"Re-anchor it in the .obj or restore [walkmesh] bgi (docs/WALKMESH_EDITING.md).")
+
+
+def _borrow_walkmesh(project: FieldProject):
+    """The real walkmesh a BG-borrow fork runs on, for content validation ONLY (never shipped). Uses
+    `[walkmesh] reference` if set, else the sibling `walkmesh.bgi` the importer wrote next to the
+    field.toml. Returns a BgiWalkmesh, or None if neither is present (hand-written borrow toml)."""
+    ref = project.raw.get("walkmesh", {}).get("reference")
+    p = project.path(ref) if ref else (project.base_dir / "walkmesh.bgi")
+    return bgi.BgiWalkmesh.from_bytes(p.read_bytes()) if p.is_file() else None
 
 
 def _validate_content_placement(project: FieldProject, wmesh, warnings: list) -> None:
@@ -449,6 +460,13 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         for layer in project.raw.get("layers", []):
             src = project.path(layer["image"])
             shutil.copyfile(src, fm / Path(layer["image"]).name)
+    else:
+        # BG-borrow ships no walkmesh (the engine uses the borrowed field's real one), but we can still
+        # validate content placement against it: [walkmesh] reference (or the sibling walkmesh.bgi the
+        # importer wrote). Makes the off-walkmesh guard universal -- borrow forks are the common case.
+        ref = _borrow_walkmesh(project)
+        if ref is not None:
+            _validate_content_placement(project, ref, warnings)
 
     # --- dialogue + per-language script ---
     mes_body, txids = collect_dialogue(project)

@@ -564,6 +564,9 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
         f"[camera]\n"
         f'borrow = "camera.bgx"\n'
         f"{scroll}\n"
+        f"[walkmesh]\n"
+        f'reference = "walkmesh.bgi"   # validation only -- NOT shipped (the engine uses the borrowed\n'
+        f"# field's real walkmesh). The build WARNS if the content below sits off this walkable area.\n\n"
         f"[player]\n"
         f"spawn = [{x}, {z}]\n\n"
         f"# --- add your content below (uncomment + edit) ---\n"

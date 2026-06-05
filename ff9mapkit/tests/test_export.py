@@ -329,3 +329,34 @@ def test_build_no_content_warning_when_on_walkmesh(tmp_path):
     (tmp_path / "f.field.toml").write_text(_quad_scene_toml(npc_pos=(100, 100)), encoding="utf-8")
     info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
     assert not any("off the walkmesh" in w for w in info["warnings"])
+
+
+# ---- borrow-fork content validation (the off-walkmesh guard, now universal) ----
+
+def _borrow_toml(tmp_path, npc_pos, *, ref_line='[walkmesh]\nreference = "wm.bgi"\n\n', wm_name="wm.bgi"):
+    (tmp_path / wm_name).write_bytes(bgi.build(
+        [(-500, 0, -500), (500, 0, -500), (500, 0, 500), (-500, 0, 500)],
+        [(0, 1, 2), (0, 2, 3)]).to_bytes())                      # square reference walkmesh
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(
+        '[field]\nid = 4003\nname = "X"\narea = 21\nborrow_bg = "GRGR_MAP420_GR_CEN_0"\n\n'
+        '[camera]\nborrow = "camera.bgx"\n\n' + ref_line +
+        f'[[npc]]\nname = "N"\npreset = "vivi"\npos = [{npc_pos[0]}, {npc_pos[1]}]\n', encoding="utf-8")
+    from ff9mapkit.build import FieldProject, build_mod
+    return build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+
+
+def test_borrow_fork_warns_content_off_walkmesh(tmp_path):
+    """BG-borrow forks (the common case) now also get the off-walkmesh warning, via [walkmesh] reference."""
+    assert any("off the walkmesh" in w for w in _borrow_toml(tmp_path, (9000, 9000))["warnings"])
+
+
+def test_borrow_fork_no_warning_on_walkmesh(tmp_path):
+    assert not any("off the walkmesh" in w for w in _borrow_toml(tmp_path, (0, 0))["warnings"])
+
+
+def test_borrow_fork_validates_via_sibling_walkmesh(tmp_path):
+    """Without [walkmesh] reference, a borrow fork still validates against the sibling walkmesh.bgi the
+    importer writes next to the field.toml (zero-config convention)."""
+    info = _borrow_toml(tmp_path, (9000, 9000), ref_line="", wm_name="walkmesh.bgi")
+    assert any("off the walkmesh" in w for w in info["warnings"])
