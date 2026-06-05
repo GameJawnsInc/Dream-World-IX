@@ -327,9 +327,9 @@ Actor steps (only valid when `actor` is set — they need the NPC's context):
 
 | step (one key each) | meaning |
 |---|---|
-| `walk` | `[x, z]` — walk to a world position (uses the NPC's walk animation; blocks until it arrives). Optional `speed = N` (with `walk`) sets the walk speed. |
-| `teleport` | `[x, z]` — instantly move (no walk). Use first to start a walk-in from off-screen. |
-| `animation` | animation id — play it and wait for it to finish. |
+| `walk` | `[x, z]` — walk to a world position (uses the NPC's walk animation; blocks until it arrives). Optional `speed = N` (with `walk`) sets the walk speed. Works to any point incl. directly behind the actor (it turns tight, no orbit). |
+| `teleport` | `[x, z]` — instantly move (no walk). Put it **first** to start a walk-in from off-screen — a leading teleport runs before the warm-up so the actor settles there, then walks in. |
+| `animation` | animation id — play it and wait for it to finish. Must be a **one-shot** (non-looping) animation **valid for the NPC's model** (a looping/invalid id makes it wait forever). E.g. for the `vivi` preset: `7302` (Talk gesture), `6693` (Look Down). |
 | `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — turn to face it, animated. |
 | `face_player` | `true` — turn to face the player. |
 

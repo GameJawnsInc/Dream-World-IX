@@ -1407,3 +1407,14 @@ Captured in project memory `project-ff9-camera-math` (multi-camera section).
 **Carry-over:** field 4003 = CUTSCENE2 test (revert `py tools/scroll_out/revert_deploy.py`). Debug New-Game→Alexandria warp still active.
 
 **Next (optional v2 follow-ups, NOT yet in-game-tested):** `animation` (a wave/emote — kit supports it; needs a verified Vivi anim id) and `teleport` walk-in from off-screen (carries the `MoveInstantXZY` Z-negation). Or move on to other content/release work.
+
+### 2026-06-05 — Session 18 (cont) — v2 cutscene POLISH: teleport walk-in + emote animation (built + deployed, AWAITING PLAYTEST)
+
+Both deferred v2 follow-ups, grounded + built:
+- **Animation** — `{ animation = <id> }` = `RunAnimation(id) + WaitAnimation`. The id must be a ONE-SHOT anim valid for the NPC's model (a looping/invalid id → WaitAnimation waits forever). **Grounded** a Vivi (model 8 / animset 61 — our exact preset) anim id from real field 790's Vivi entry: **7302 = Talk_3_1** (used there as `RunAnimation(7302)+WaitAnimation`, so a confirmed one-shot). Other confirmed Vivi ids: 6693/6698/6702 (Look_Down), 7312/7320 (Talk_3).
+- **Teleport walk-in** — `{ teleport = [x,z] }` = `MoveInstantXZY(x,z)` (Z-negated, source-confirmed) **+ `SetPathing(1)`** (0xA8; MoveInstantXZY DISABLES walkmesh collision, SetPathing(1) re-enables it — the real `Vivi_18` walk-in pattern). `build_choreography` emits a **leading teleport BEFORE the warm-up** (instant + safe during the entry transition) so the actor settles off-screen instead of flashing at its spawn, then warms up + walks in.
+- New opcode `set_pathing`(0xA8). 208 tests. Disasm-verified the showcase: `DisableMove; MoveInstantXZY(-1150,-800); SetPathing(1); Wait(30); SetWalkTurnSpeed(255); InitWalk; Walk(0,-800); TurnTowardObject(250); WaitTurn; RunAnimation(7302); WaitAnimation; WindowSync(501); EnableMove; flag=1`. The teleport's MoveInstantXZY x/z decode to (-1150,-800) (Z-negation correct).
+
+**In-game test redeployed (4003 = CUTSCENE2):** Vivi appears at the cyan LEFT cross (teleport), walks in to his magenta spot, faces the player, plays the Talk_3_1 gesture, says "Oh! You're finally here…"/"...hi.". `tools/build_cutscene_actor_test.py` rewritten for this; FORMAT.md notes the one-shot-anim caveat.
+
+**AWAITING PLAYTEST.** Reach 4003. Look for: control locks → Vivi **appears at the LEFT (cyan)** → **walks in** to the magenta spot → **faces you** → **plays a talk-gesture animation** → says the line → control returns; leave + re-enter → he just stands at his spot (plays once). Flag if: teleport lands at the wrong spot (Z-negation) / he flashes at center before the left / the animation glitches or hangs (bad anim id) / the walk-in fails.
