@@ -39,7 +39,11 @@ The output runs on a **stock, unmodified Memoria install** — see [ENGINE.md](E
 ff9mapkit new MY_ROOM --area 11
 ```
 
-Creates `MY_ROOM/my_room.field.toml` (a commented template) + `MY_ROOM/art/`.
+Creates `MY_ROOM/my_room.field.toml` (a commented template) + `MY_ROOM/art/` with **placeholder art**
+(a solid backdrop + a perspective checkerboard floor, generated to match the template camera) and a
+walkmesh quad derived from that camera. So `ff9mapkit build MY_ROOM/my_room.field.toml` works
+**immediately** — you get a walkable placeholder room to test the loop, then replace `art/back.png` +
+`art/floor.png` with your painted layers (step 3).
 
 ### …or fork a REAL field instead of starting blank
 

@@ -51,3 +51,25 @@ def test_pack_mod_zips_built_mod(tmp_path):
     assert any(n.endswith("DictionaryPatch.txt") for n in names)
     assert any(n.endswith("EVT_HUT_INT.eb.bytes") for n in names)
     assert all(n.startswith("FF9CustomMap/") for n in names)
+
+
+def test_new_project_writes_placeholder_art(tmp_path):
+    """`new` scaffolds placeholder back.png + floor.png (valid PNGs, same canvas dims) and derives
+    the walkmesh quad from the camera frame so it lines up with the placeholder floor."""
+    from ff9mapkit.build import _png_size
+    proj = pack.new_project("SMOKE", tmp_path, area=11)
+    back, floor = proj / "art" / "back.png", proj / "art" / "floor.png"
+    assert back.is_file() and floor.is_file()
+    assert back.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert _png_size(back) == _png_size(floor)
+    data = tomllib.loads((proj / "smoke.field.toml").read_text(encoding="utf-8"))
+    assert data["walkmesh"]["quad"] != [[-1400, -2400], [1400, -2400], [1400, -800], [-1400, -800]]
+
+
+def test_new_project_builds_clean(tmp_path):
+    """A fresh scaffold (placeholder art) builds with no errors AND no warnings -- the from-scratch
+    path is end-to-end out of the box."""
+    proj = pack.new_project("SMOKE", tmp_path, area=11)
+    info = build_mod([FieldProject.load(proj / "smoke.field.toml")], tmp_path / "mod")
+    assert info["dictionary"][0].split()[2:4] == ["11", "SMOKE"]
+    assert info["warnings"] == []
