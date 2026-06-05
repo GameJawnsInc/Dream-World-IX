@@ -112,15 +112,41 @@ class App:
         self.root.after(120, self._drain)
 
     # ---- pickers ----
+    @staticmethod
+    def _initial(text):
+        """(initialdir, initialfile) for a dialog from whatever is typed -- a file, a folder, or a
+        partial/not-yet-existing path (falls back to the nearest existing ancestor folder)."""
+        text = (text or "").strip().strip('"')
+        if not text:
+            return (None, None)
+        p = Path(text)
+        if p.is_dir():
+            return (str(p), None)
+        if p.is_file():
+            return (str(p.parent), p.name)
+        parent = p.parent                                  # nonexistent: climb to an existing folder
+        while parent != parent.parent and not parent.is_dir():
+            parent = parent.parent
+        return (str(parent) if parent.is_dir() else None, p.name or None)
+
     def browse_field(self):
+        idir, ifile = self._initial(self.field.get())
+        kw = {}
+        if idir:
+            kw["initialdir"] = idir
+        if ifile:
+            kw["initialfile"] = ifile
         f = filedialog.askopenfilename(
             title="Pick a field.toml",
-            filetypes=[("Field project", "*.field.toml"), ("TOML", "*.toml"), ("All files", "*.*")])
+            filetypes=[("Field project", "*.field.toml"), ("TOML", "*.toml"), ("All files", "*.*")],
+            **kw)
         if f:
             self.field.set(f)
 
     def browse_other(self):
-        d = filedialog.askdirectory(title="Output folder")
+        idir, _ = self._initial(self.other.get() or self.field.get())   # fall back to the field's folder
+        kw = {"initialdir": idir} if idir else {}
+        d = filedialog.askdirectory(title="Output folder", **kw)
         if d:
             self.other.set(d)
             self.target.set("other")
