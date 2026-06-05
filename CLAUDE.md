@@ -1312,3 +1312,19 @@ Captured in project memory `project-ff9-camera-math` (multi-camera section).
 **AWAITING PLAYTEST.** (1) Walk left↔mid↔right → the view cuts among 3 cameras (tint + perspective), WASD stays correct; (2) trigger a battle on the orange RIGHT band, win → camera restored to orange (not reset to cyan). Report each.
 
 **Human verified (real gameplay): multicam v2 COMPLETE ✅ (all 4).** 3-camera switching across the bands (tint + perspective cut), WASD screen-correct on each, AND the after-battle restore (won a battle on the orange camera → returned still on orange, not reset). **Tagged `KNOWN_GOOD-s18-multicam-v2`.** N-camera area model + after-battle restore both proven in-game. This was the last camera-movement feature on the roadmap.
+
+### 2026-06-05 — Session 18 (cont) — Two-file authoring (Godot-style): scene.toml (spatial) + field.toml (logic)
+
+**User's roadmap call: don't cram scripting into Blender. Split *where things are* (Blender) from *what they do* (text), like Godot.** Built Phase 1 — the scene/logic decoupling — CLI-first (proven) then Blender.
+
+**The problem (grounded):** Blender's Export wrote a *fresh* `field.toml`, so hand-authored dialogue/events got clobbered on every re-export. The fix is clean ownership, not a scripting UI in Blender.
+
+**Architecture:** `<x>.scene.toml` (Blender-owned, overwritten: camera/walkmesh/layers/spawn/camera_zone + each entity's name+pos/zone) overlays `<x>.field.toml` (yours: `[field]` + per-entity logic by name). `build` merges by entity name (scene = spatial keys, field = logic). Single-file field.tomls (no scene sibling) build unchanged — purely additive.
+
+**CLI (committed, tested):** `FieldProject.load` auto-discovers a sibling `<x>.scene.toml` (or explicit `[scene] file`) and `_merge_scene`/`_merge_entities` overlays it. **Golden equivalence test: the split build == the single-file build byte-for-byte** (.eb all langs, .bgx, .bgi, .mes) + merge unit tests. FORMAT.md "Two files" section.
+
+**Blender (add-on v0.7.0, committed; needs in-Blender verify per §2):** Export Field now writes `<name>.scene.toml` (spatial) EVERY time + scaffolds `<name>.field.toml` (logic stub) ONLY if absent — re-export never clobbers your script. All 3 export paths route through `_write_split_files`; bpy-free `bridge.scene_toml`/`field_logic_stub`/`_entity_scene_blocks`. Dry-run test: split export → real builder → talkable NPC (pos from scene, dialogue from logic); scene.toml carries no logic values. 187 tests; README updated.
+
+**Roadmap (agreed):** P1 decouple surfaces ✅ (this). P2 = logic ergonomics in TOML (story/flag linter, validation, scaffolds). P3 (later) = a sequential format for cutscenes (the one thing declarative TOML is bad at: ordered move/wait/say/pan/branch).
+
+**AWAITING (Blender, not in-game):** install `dist/ff9mapkit_blender-0.7.0.zip`, Export a field → confirm `<name>.scene.toml` + `<name>.field.toml` both appear; add a line of dialogue to the field.toml; re-export → field.toml preserved, scene.toml refreshed; `ff9mapkit build <name>.field.toml` → works.
