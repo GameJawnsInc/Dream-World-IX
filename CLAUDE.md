@@ -1365,3 +1365,9 @@ Captured in project memory `project-ff9-camera-math` (multi-camera section).
 **Implication:** this also fixes event `once` chests (they'd have re-looted on revisit) + all `requires_flag`/`set_flag` story state to actually persist. Re-verify the cutscene once-on-reentry, then the toolkit's persistence is solid.
 
 **AWAITING RE-PLAYTEST (CUTSCENE 4003):** enter → cutscene plays (control locked) → leave via the back gateway → re-enter → it should NOT replay (control immediate). (May need a fresh entry; the old Map flag is gone, the new Global flag starts clear.)
+
+**Human verified (real gameplay): persistent-flag fix WORKS ✅ — "that fixed it."** The cutscene now plays once and does NOT replay on re-entry (the once-flag survives the field reload now that it's in the save-backed Global scope). This also means event `once` chests stay looted + `requires_flag`/`set_flag` story state persists across visits (the latent bug we'd never caught). **Tagged `KNOWN_GOOD-s18-cutscenes` (cutscenes v1 + persistent flags, in-game verified).**
+
+**Orientation lesson (user correction):** I mislabeled the exit as "back" — for these (pitch-down, no-yaw) cameras, **more-negative z = FRONT (toward the camera / bottom of screen)**; less-negative z = back (top). The gateway at z≈−880..−1000 rendered at the front. Use the paint guide's BL/BR/FR/FL corner labels rather than guessing front/back from raw z.
+
+**Roadmap COMPLETE + in-game-verified:** P1 scene/logic split, P2 logic linter, P3 cutscenes v1 — plus the persistent-flag correctness fix. Full authoring toolkit: spatial (Blender) + logic (text, linted, save-persistent flags) + sequences (cutscenes), with a GUI front-end.
