@@ -512,6 +512,52 @@ def test_cutscene_field_builds(tmp_path):
     assert "hi" in L.mes_path("us", 1073).read_text(encoding="utf-8")
 
 
+def test_actor_cutscene_builds_into_npc_init(tmp_path):
+    """An actor cutscene bakes its choreography into the named NPC's Init (gExec == that NPC) so
+    walk/animation/turn act on it -- and there's NO standalone director entry."""
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.eb.disasm import iter_code
+    p = tmp_path / "x.field.toml"
+    p.write_text(_LINT_BASE +
+                 '[[npc]]\nname = "vivi"\npreset = "vivi"\npos = [0, -300]\ndialogue = "x"\n'
+                 '[cutscene]\nactor = "vivi"\n'
+                 'steps = [ {walk=[200,-300]}, {animation=921}, {face_player=true}, '
+                 '{say="welcome"}, {walk=[0,-300]} ]\n', encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out)
+    L = ModLayout(out)
+    eb = EbScript.from_bytes(L.eb_path("us", "EVT_X.eb.bytes").read_bytes())
+    npc_entries = [e for e in eb.entries if not e.empty and e.func_by_tag(3) and e.index != 0]
+    assert len(npc_entries) == 1
+    init = npc_entries[0].func_by_tag(0)
+    ops = [i.op for i in iter_code(eb.data, init.abs_start, init.abs_end)]
+    for op in (0x1D, 0x2D, 0x23, 0x40, 0x51, 0x1F, 0x2E):   # CreateObject, Disable, Walk, Anim, Turn, Window, Enable
+        assert op in ops, hex(op)
+    assert ops.index(0x1D) < ops.index(0x2D)               # CreateObject before the choreography lock
+    assert ops[-1] == 0x04                                  # Init still ends with RETURN
+    # the ONLY non-Main entry with DisableMove is the NPC -- no separate director was injected.
+    disable = [e.index for e in eb.entries if not e.empty and e.index != 0 and e.func_by_tag(0)
+               and any(i.op == 0x2D for i in iter_code(eb.data, e.func_by_tag(0).abs_start,
+                                                       e.func_by_tag(0).abs_end))]
+    assert disable == [npc_entries[0].index]
+    assert "welcome" in L.mes_path("us", 1073).read_text(encoding="utf-8")
+    for lang in LANGS:                                      # every language built
+        assert L.eb_path(lang, "EVT_X.eb.bytes").is_file()
+
+
+def test_actor_step_without_actor_is_rejected(tmp_path):
+    p = tmp_path / "x.field.toml"
+    p.write_text(_LINT_BASE + '[cutscene]\nsteps = [ {walk=[0,-300]} ]\n', encoding="utf-8")
+    assert any("needs an actor" in s for s in validate(FieldProject.load(p)))
+
+
+def test_cutscene_unknown_actor_is_rejected(tmp_path):
+    p = tmp_path / "x.field.toml"
+    p.write_text(_LINT_BASE + '[cutscene]\nactor = "ghost"\nsteps = [ {wait=5} ]\n', encoding="utf-8")
+    assert any("not a defined [[npc]] name" in s for s in validate(FieldProject.load(p)))
+
+
 def test_validate_rejects_low_area(tmp_path):
     bad = tmp_path / "bad.field.toml"
     bad.write_text('[field]\nid=4002\nname="X"\narea=7\n[camera]\npitch=48\n', encoding="utf-8")

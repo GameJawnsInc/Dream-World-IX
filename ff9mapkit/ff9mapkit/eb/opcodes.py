@@ -96,6 +96,74 @@ def set_control_direction(x: int, y: int) -> bytes:  # 0x67 (TWIST)
     return encode(0x67, x, y)
 
 
+# --- actor movement / animation / turning (cutscene "v2" steps) ---
+# These all act on the EXECUTING object (gExec) -- so they're emitted into a specific NPC's own
+# function (its Init choreography), where gExec == that NPC. Grounded in the engine's DoEventCode
+# handlers + real cutscene scripts (e.g. Gargan/Kuja walk functions: SetWalkSpeed -> RunAnimation ->
+# WaitAnimation -> InitWalk -> Walk).
+def init_walk() -> bytes:                            # 0x25 (CLRDIST) 0 args
+    """InitWalk(): make the following Walk synchronous (the canonical idiom; Walk also self-blocks)."""
+    return encode(0x25)
+
+
+def walk(x: int, z: int) -> bytes:                   # 0x23 (MOVE) argsize [2, 2]
+    """Walk(x, z): walk the executing actor to world (x, z); blocks (stay()) until it arrives."""
+    return encode(0x23, x, z)
+
+
+def set_walk_speed(speed: int) -> bytes:             # 0x26 (MSPEED) argsize [1]
+    """SetWalkSpeed(speed): set the actor's walk speed (units/frame; vanilla cutscenes use ~15)."""
+    return encode(0x26, speed)
+
+
+def move_instant_xzy(x: int, z: int, y: int = 0) -> bytes:   # 0xA1 (POS3) argsize [2, 2, 2]
+    """MoveInstantXZY(x, z, y): teleport the actor to world (x, z, y) -- no walk animation.
+
+    GOTCHA: the engine reads ``destZ = -getv2()`` (POS3 negates Z; CreateObject/Walk do NOT), so to
+    land at world z we encode -z. Use to place an actor off-screen before a walk-in."""
+    return encode(0xA1, x, -z, y)
+
+
+def run_animation(anim: int) -> bytes:               # 0x40 (ANIM) argsize [2]
+    """RunAnimation(anim): play an animation on the executing actor (async; pair WaitAnimation)."""
+    return encode(0x40, anim)
+
+
+def wait_animation() -> bytes:                       # 0x41 (WAITANIM) 0 args
+    """WaitAnimation(): block until the executing actor's current animation has ended."""
+    return encode(0x41)
+
+
+def turn_instant(angle: int) -> bytes:               # 0x36 (DIRE) argsize [1]
+    """TurnInstant(angle): face an angle instantly (0=south, 64=west, 128=north, 192=east)."""
+    return encode(0x36, angle)
+
+
+def timed_turn(angle: int, speed: int = 16) -> bytes:        # 0x56 (TURN) argsize [1, 1]
+    """TimedTurn(angle, speed): face an angle, animated (0=S,64=W,128=N,192=E; pair WaitTurn)."""
+    return encode(0x56, angle, speed)
+
+
+def turn_toward_object(uid: int, speed: int = 16) -> bytes:  # 0x51 (TURNA) argsize [1, 1]
+    """TurnTowardObject(uid, speed): turn to face an object by UID (250=player), animated; pair WaitTurn."""
+    return encode(0x51, uid, speed)
+
+
+def wait_turn() -> bytes:                            # 0x50 (WAITTURN) 0 args
+    """WaitTurn(): block until the executing actor's (animated) turn has finished."""
+    return encode(0x50)
+
+
+def disable_move() -> bytes:                         # 0x2D (UCOFF) 0 args
+    """DisableMove(): lock the player's movement control (cutscene start)."""
+    return DISABLE_MOVE
+
+
+def enable_move() -> bytes:                          # 0x2E (UCON) 0 args
+    """EnableMove(): restore the player's movement control (cutscene end)."""
+    return ENABLE_MOVE
+
+
 # --- text windows ---
 def window_sync(win: int, flags: int, text_id: int) -> bytes:   # 0x1F
     return encode(0x1F, win, flags, text_id)

@@ -75,13 +75,18 @@ def _find_var_const(body: bytes, var_index: int) -> int:
 def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, animset=None,
                anims=None, talk_text_id: int = 62, slot: int | None = None,
                spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
-               gate_flag: int | None = None, gate_require_set: bool = True) -> bytes:
+               gate_flag: int | None = None, gate_require_set: bool = True,
+               intro: bytes | None = None) -> bytes:
     """Inject an NPC at world (x, z). Returns new .eb bytes.
 
     ``gate_flag`` (a GlobBool index) makes the NPC conditional: its Init returns early -- so it never
     creates its model and is absent/non-interactable -- unless the flag is in the required state
     (``gate_require_set`` True = appears when the flag is SET, False = when CLEAR). This is the
-    standard FF9 way to show/hide an NPC by story state."""
+    standard FF9 way to show/hide an NPC by story state.
+
+    ``intro`` (bytes) is an ACTOR cutscene's gated choreography block (from
+    :func:`ff9mapkit.content.cutscene.build_choreography`), spliced into this NPC's Init just before
+    its RETURN so it runs in the NPC's own object context (``gExec`` == this NPC) after CreateObject."""
     if preset is not None:
         model, animset, anims = PRESETS[preset]
 
@@ -120,6 +125,15 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
     if gate_flag is not None:
         body0 = bytearray(_region.flag_gate(_region.GLOB_BOOL, gate_flag,
                                             require_set=gate_require_set)) + body0
+
+    # 4c) optional ACTOR-cutscene choreography: splice the gated block into the Init right before its
+    # trailing RETURN, so it runs in THIS NPC's context (gExec == the NPC) after CreateObject. The block
+    # self-gates `if (!once) {...}` so it plays once. The func table is rebuilt from body lengths below,
+    # so growing body0 is safe.
+    if intro:
+        if not body0 or body0[-1] != opcodes.RETURN[0]:
+            raise ValueError("NPC Init does not end with RETURN; cannot splice cutscene choreography")
+        body0 = body0[:-1] + bytearray(intro) + body0[-1:]
 
     # 5) _SpeakBTN (func tag 3): WindowSync(1, 128, text) ; return
     f2 = opcodes.window_sync(1, 128, talk_text_id) + opcodes.RETURN

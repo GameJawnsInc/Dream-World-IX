@@ -210,12 +210,23 @@ def validate(project: FieldProject) -> list[str]:
     cs = project.raw.get("cutscene")
     if cs is not None:
         steps = cs.get("steps")
+        actor = cs.get("actor")
+        global_keys = ("say", "wait", "set_flag")
+        actor_keys = ("walk", "teleport", "animation", "turn", "face_player")
+        allowed = global_keys + (actor_keys if actor else ())
         if not isinstance(steps, list) or not steps:
             problems.append("[cutscene] needs a non-empty steps = [ {say=...}, {wait=...}, ... ] list")
         else:
             for k, s in enumerate(steps):
-                if sum(key in s for key in ("say", "wait", "set_flag")) != 1:
-                    problems.append(f"[cutscene] step {k} needs exactly one of: say / wait / set_flag")
+                present = [key for key in global_keys + actor_keys if key in s]
+                if len(present) != 1:
+                    problems.append(f"[cutscene] step {k} needs exactly one action "
+                                    f"({' / '.join(allowed)})")
+                elif present[0] not in allowed:
+                    problems.append(f"[cutscene] step {k} uses {present[0]!r}, which needs an actor -- "
+                                    f"set [cutscene] actor = \"<npc name>\" (it runs in that NPC).")
+        if actor is not None and actor not in {n.get("name") for n in project.raw.get("npc", [])}:
+            problems.append(f"[cutscene] actor {actor!r} is not a defined [[npc]] name")
     return problems
 
 
@@ -640,6 +651,17 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         eb = _camera.enable_camera_services(eb, frame_count=int(sc.get("frame_count", 0)),
                                             scroll_type=int(sc.get("scroll_type", 0)))
 
+    # cutscene plumbing computed up-front: an ACTOR cutscene's gated choreography is spliced into the
+    # named NPC's Init (so it runs in that NPC's own context -- gExec == the NPC -- letting walk/
+    # animation/turn act on it with base opcodes). A narration cutscene (no actor) is a standalone
+    # director code entry, injected after the content blocks below.
+    cs = project.raw.get("cutscene")
+    cs_actor = cs.get("actor") if cs else None
+    cs_once_flag = None
+    if cs and cs.get("once", True):
+        cs_once_flag = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
+    actor_choreo = _cutscene.build_choreography(cs["steps"], cutscene_txids, cs_once_flag) if cs_actor else None
+
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
     gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)
     for i, n in enumerate(project.raw.get("npc", [])):
@@ -652,8 +674,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             kwargs.update(model=n.get("model"), animset=n.get("animset"), anims=n.get("anims"))
         gf, gs = _gate_of(n)
         slot = EbScript.from_bytes(eb).first_free_slot()
+        intro = actor_choreo if (cs_actor and n.get("name") == cs_actor) else None
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
-                             gate_flag=gf, gate_require_set=gs, **kwargs)
+                             gate_flag=gf, gate_require_set=gs, intro=intro, **kwargs)
         if gf is not None:
             gated_npc_slots.setdefault(gf, []).append(slot)
 
@@ -711,22 +734,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                           "requires_flag": gf, "requires_set": gs})
         eb = _event.inject_events(eb, specs)
 
-    # cutscene: an ordered, control-locked sequence on entry (once). v1 steps = say / wait / set_flag.
-    cs = project.raw.get("cutscene")
-    if cs:
-        steps, say_i = [], 0
-        for step in cs.get("steps", []):
-            if "say" in step:
-                steps.append(_cutscene.say(cutscene_txids[say_i])); say_i += 1
-            elif "wait" in step:
-                steps.append(_cutscene.wait(int(step["wait"])))
-            elif "set_flag" in step:
-                sf = step["set_flag"]
-                steps.append(_cutscene.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
-        once_flag = None
-        if cs.get("once", True):
-            once_flag = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
-        eb = _cutscene.inject_cutscene(eb, steps, once_flag=once_flag)
+    # cutscene (narration, no actor): an ordered, control-locked sequence on entry (once), run as a
+    # standalone director code entry. Steps = say / wait / set_flag. An ACTOR cutscene was already
+    # spliced into its NPC's Init above (actor_choreo), so it's skipped here.
+    if cs and not cs_actor:
+        steps = [_cutscene.compile_steps(cs["steps"], cutscene_txids)]
+        eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag)
 
     # player spawn (order-independent w.r.t. the appends above)
     if "player" in project.raw and "spawn" in project.raw["player"]:

@@ -277,8 +277,8 @@ declarative content can't express (steps run *in order*). The player can't move 
 
 ```toml
 [cutscene]
-once = true          # play once, then never again (default; flag-gated). false = every entry.
-# flag = 230         # explicit GlobBool for the once-guard (default 230)
+once = true          # play once, then never again (default; save-persistent flag). false = every entry.
+# flag = 8100        # explicit GlobBool for the once-guard (default 8100, save-backed)
 steps = [
   { say = "The hut is silent..." },   # a window; blocks until the player dismisses it
   { wait = 30 },                        # pause 30 frames
@@ -293,9 +293,46 @@ steps = [
 | `wait` | pause this many frames. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag mid-scene. |
 
-> v1 covers the controller-level steps (text / timing / flags). Actor movement, animation, and camera
-> pans are a later layer — they target a specific actor's context. The scene auto-locks control
-> (`DisableMove`…`EnableMove`); with `once` it won't replay on re-entry.
+The scene auto-locks control (`DisableMove`…`EnableMove`); with `once` it won't replay on re-entry.
+
+### Actor cutscenes — `actor = "<npc name>"`
+
+Add `actor = "<an [[npc]] name>"` to make the cutscene drive **that NPC**: walk, animate, turn. The
+sequence is spliced into the NPC's own script (so the movement steps act on it), the player is locked
+for the duration, and it plays once. This is the iconic "a character walks in and talks".
+
+```toml
+[[npc]]
+name = "vivi"
+preset = "vivi"
+pos = [0, -300]            # where Vivi RESTS (and where he is on a replay visit)
+dialogue = "..."
+
+[cutscene]
+actor = "vivi"            # the steps run in Vivi's context
+once = true
+steps = [
+  { teleport = [-2000, -300] },   # snap off-screen (instant) so he can walk IN
+  { walk = [0, -300] },           # walk to his resting spot (= his pos)
+  { face_player = true },          # turn to face the player
+  { animation = 921 },             # play an animation (e.g. a wave), waits for it to finish
+  { say = "...hi." },              # a dialogue window
+]
+```
+
+Actor steps (only valid when `actor` is set — they need the NPC's context):
+
+| step (one key each) | meaning |
+|---|---|
+| `walk` | `[x, z]` — walk to a world position (uses the NPC's walk animation; blocks until it arrives). Optional `speed = N` (with `walk`) sets the walk speed. |
+| `teleport` | `[x, z]` — instantly move (no walk). Use first to start a walk-in from off-screen. |
+| `animation` | animation id — play it and wait for it to finish. |
+| `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — turn to face it, animated. |
+| `face_player` | `true` — turn to face the player. |
+
+`say` / `wait` / `set_flag` also work in an actor cutscene (interleaved in order). The NPC ends where
+its last `walk`/`teleport` leaves it on the first visit; on a replay visit it's at its `pos`, so end
+the last `walk` at `pos` (or just `teleport` in and `walk` back to `pos`) to stay consistent.
 
 ---
 

@@ -283,6 +283,91 @@ def test_cutscene_body_no_once_is_unguarded():
     assert body == opcodes.DISABLE_MOVE + cutscene.wait(5) + opcodes.ENABLE_MOVE + opcodes.RETURN
 
 
+# --- v2 cutscenes: actor movement / animation / turn ----------------------------------------------
+
+def test_actor_opcodes_roundtrip():
+    """The v2 actor opcodes encode to bytes that disassemble back to the same opcode (the kit's
+    self-consistency check; arg layouts mirror the engine's DoEventCode handlers)."""
+    from ff9mapkit.eb.disasm import read_code
+    cases = [
+        (opcodes.init_walk(), 0x25, 1),
+        (opcodes.walk(1346, -1713), 0x23, 6),
+        (opcodes.set_walk_speed(15), 0x26, 3),
+        (opcodes.move_instant_xzy(100, 200), 0xA1, 8),
+        (opcodes.run_animation(1713), 0x40, 4),
+        (opcodes.wait_animation(), 0x41, 1),
+        (opcodes.turn_instant(64), 0x36, 3),
+        (opcodes.timed_turn(128, 16), 0x56, 4),
+        (opcodes.turn_toward_object(250, 16), 0x51, 4),
+        (opcodes.wait_turn(), 0x50, 1),
+    ]
+    for b, op, length in cases:
+        ins, pos = read_code(b, 0)
+        assert ins.op == op and ins.length == length and pos == len(b), f"{op:#x} {b.hex()}"
+    # Walk stores signed z directly; MoveInstantXZY NEGATES z (engine POS3 reads destZ = -getv2()),
+    # so a world z=20 is stored as raw -20 -- the kit's gotcha, verified here.
+    ins, _ = read_code(opcodes.walk(10, -20), 0)
+    assert ins.imm(0) == 10 and ins.imm(1) == (-20 & 0xFFFF)
+    ins, _ = read_code(opcodes.move_instant_xzy(10, 20), 0)
+    assert ins.imm(0) == 10 and ins.imm(1) == (-20 & 0xFFFF)
+
+
+def test_actor_walk_step_is_initwalk_then_walk():
+    assert cutscene.actor_walk(100, -200) == opcodes.init_walk() + opcodes.walk(100, -200)
+    assert cutscene.actor_walk(100, -200, speed=15) == (
+        opcodes.set_walk_speed(15) + opcodes.init_walk() + opcodes.walk(100, -200))
+
+
+def test_choreography_compiles_ordered_actor_steps():
+    steps = [
+        {"teleport": [-2000, 300]},
+        {"walk": [-200, 300]},
+        {"animation": 921},
+        {"face_player": True},
+        {"say": "Hi"},
+        {"wait": 20},
+        {"set_flag": [205]},
+    ]
+    choreo = cutscene.build_choreography(steps, [500], once_flag=8100)
+    assert choreo.startswith(region.cond_not(region.GLOB_BOOL, 8100))            # gated once
+    assert choreo.index(opcodes.DISABLE_MOVE) < choreo.index(opcodes.ENABLE_MOVE)  # control locked
+    # the actor + global ops appear, in order, inside the lock
+    parts = [opcodes.move_instant_xzy(-2000, 300), opcodes.init_walk() + opcodes.walk(-200, 300),
+             opcodes.run_animation(921), opcodes.turn_toward_object(250, 16),
+             opcodes.window_sync(1, 128, 500), opcodes.wait(20), region.set_var(region.GLOB_BOOL, 205, 1)]
+    idx = [choreo.index(p) for p in parts]
+    assert idx == sorted(idx), "actor steps must compile in declared order"
+    assert region.set_var(region.GLOB_BOOL, 8100, 1) in choreo                  # once-set on completion
+    assert not choreo.endswith(opcodes.RETURN)         # the Init's own RETURN follows when spliced
+
+
+def test_choreography_no_once_is_ungated():
+    choreo = cutscene.build_choreography([{"wait": 5}], [], once_flag=None)
+    assert choreo == opcodes.DISABLE_MOVE + opcodes.wait(5) + opcodes.ENABLE_MOVE
+
+
+def test_actor_cutscene_spliced_into_npc_init():
+    choreo = cutscene.build_choreography([{"walk": [0, -700]}, {"say": "hi"}], [500], once_flag=8100)
+    out = npc.inject_npc(CLEAN, 0, -700, preset="vivi", talk_text_id=500, intro=choreo)
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out                                     # structurally valid
+    npc_entry = next(e for e in eb.entries if not e.empty and e.func_by_tag(3) and e.index != 0)
+    init_ops = _ops(eb, npc_entry.index, 0)
+    assert 0x2D in init_ops and 0x2E in init_ops                    # DisableMove/EnableMove in the Init
+    assert 0x23 in init_ops and 0x1F in init_ops                    # Walk + WindowSync (the say)
+    assert init_ops[-1] == 0x04                                     # Init still ends with RETURN
+    assert init_ops.index(0x1D) < init_ops.index(0x2D)             # CreateObject before the lock/choreo
+    # the SpeakBTN (tag 3) is still intact and separate from the choreography
+    assert 0x1F in _ops(eb, npc_entry.index, 3)
+
+
+def test_npc_without_intro_is_byte_identical():
+    """An NPC with no cutscene intro is byte-identical to before (the splice is purely additive)."""
+    a = npc.inject_npc(CLEAN, 100, -500, preset="vivi", talk_text_id=500)
+    b = npc.inject_npc(CLEAN, 100, -500, preset="vivi", talk_text_id=500, intro=None)
+    assert a == b
+
+
 def test_cutscene_injected_and_armed():
     out = cutscene.inject_cutscene(CLEAN, [cutscene.say(500), cutscene.set_flag(210)], once_flag=230)
     eb = EbScript.from_bytes(out)
