@@ -1294,3 +1294,19 @@ Captured in project memory `project-ff9-camera-math` (multi-camera section).
 **Human verified (real gameplay): story logic COMPLETE ✅.** First test: switch + door worked, but the flag-gated NPC didn't appear in-visit ("no Vivi") — diagnosed precisely: a gateway's gate is in its `_Range` (re-checked every step → live), but the NPC's gate is in its Init (runs once at spawn → only updates on re-entry). User chose **live reveal**; fix = the `set_flag` event also `InitObject`s NPCs gated on that flag (engine source confirms re-InitObject `DisposeObj`s the old actor + re-runs Init with the flag set — clean replace, no ghost). Re-test: **"good"** — switch fires → message → guard appears live + talks → door unlocks. **Tagged `KNOWN_GOOD-s18-story-logic`.**
 
 **The kit now authors fully STATEFUL areas:** an event sets a GlobBool story flag; NPCs (`requires_flag`), gateways (locked doors), and other events react — **live in-room AND across visits**. Combined with the complete content stack (rooms → cameras incl. multi → walkmesh import/reshape → NPCs/dialogue → gateways → encounters → events → **branching**), `ff9mapkit` covers the full breadth of FF9 field scenario authoring. Activation-overflow fix (`edit.activate`: Wait-or-insert) means content-rich fields are no longer capped by the blank's 2 Wait slots.
+
+### 2026-06-05 — Session 18 (cont) — Multi-camera v2: N cameras (area model) + after-battle restore
+
+**Generalized multi-camera from the v1 2-camera pair to ANY number of cameras, + added the after-battle camera restore the user asked for.** Offline, 182 tests; in-game test deployed (awaiting playtest).
+
+**Area model (replaces the v1 forward/reverse toggle):** the state flag (GlobUInt8_24) holds the CURRENT camera index; each `[[camera_zone]]` owns the floor area where its camera is active and, when entered with flag != that camera, switches to it + stores it + re-tunes movement (SetControlDirection for that camera's yaw). Flag-guarded → no re-fire while standing; non-overlapping zones can't flap. Scales to N (FF9 ships ≤4). An init code-entry resets flag=0 + arms all zones on load. `content.camera.inject_camera_zones` + `region.if_not_block` (cond + jump-if-true).
+
+**After-battle restore:** `add_camera_restore` puts a per-camera `if (flag==K) { SetFieldCamera(K); SetControlDirection }` chain in Main_Reinit (tag 10). On battle return Main_Init doesn't run (flag not reset), so this re-applies the camera + movement. Wired when a field has camera_zones + encounters.
+
+**Build/validation:** dropped the v1 'single 2-camera pair' rule; `[[camera_zone]]` now just needs valid `to_camera` + a 4/5-pt zone. The TWOCAM build still passes via the area model. FORMAT.md updated (area model + non-overlap caveat + restore note).
+
+**In-game test DEPLOYED** (`tools/build_tricam_test.py` → field 4003 = TRICAM): floor split into 3 X-bands — LEFT=cam2 (green, yaw −25), MID=cam0 (cyan, yaw 0, spawn), RIGHT=cam1 (orange, yaw +25) — + encounters (freq 160) to test the restore. Revert `py tools/scroll_out/revert_deploy.py`.
+
+**Commit:** `multicam v2: N cameras (area model) + after-battle camera restore` (+ test builder).
+
+**AWAITING PLAYTEST.** (1) Walk left↔mid↔right → the view cuts among 3 cameras (tint + perspective), WASD stays correct; (2) trigger a battle on the orange RIGHT band, win → camera restored to orange (not reset to cyan). Report each.
