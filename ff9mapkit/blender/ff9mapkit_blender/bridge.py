@@ -501,15 +501,57 @@ def gateways_to_toml(gateways):
     return "\n\n".join(blocks)
 
 
+def _set_flag_pair(sf):
+    """Normalize a set_flag value (int index, or [idx] / [idx, val]) -> (idx, val)."""
+    if isinstance(sf, (list, tuple)):
+        return int(sf[0]), (int(sf[1]) if len(sf) > 1 else 1)
+    return int(sf), 1
+
+
+def events_to_toml(events):
+    """`[[event]]` blocks from dicts: {name?, zone:[(x,z)...], message?, give_item?:[id,count],
+    gil?, set_flag?:(idx or [idx,val]), once?, flag?, requires_flag?, requires_flag_clear?}. A walk-in
+    trigger needs a ``zone`` + at least one action (message/give_item/gil/set_flag). Used for the full
+    (single-file) form; the two-file split puts ``zone`` in the scene and the rest in the field."""
+    blocks = []
+    for e in events:
+        L = ["[[event]]"]
+        if e.get("name"):
+            L.append(f"name = {_toml_str(e['name'])}")
+        if e.get("zone"):
+            zone = ", ".join(f"[{int(x)}, {int(z)}]" for (x, z) in e["zone"])
+            L.append(f"zone = [{zone}]")
+        if e.get("message"):
+            L.append(f"message = {_toml_str(e['message'])}")
+        if e.get("give_item"):
+            gi = e["give_item"]
+            L.append(f"give_item = [{int(gi[0])}, {int(gi[1]) if len(gi) > 1 else 1}]")
+        if e.get("gil") is not None:
+            L.append(f"gil = {int(e['gil'])}")
+        if e.get("set_flag") is not None:
+            idx, val = _set_flag_pair(e["set_flag"])
+            L.append(f"set_flag = [{idx}, {val}]")
+        if e.get("once") is not None:
+            L.append(f"once = {'true' if e['once'] else 'false'}")
+        if e.get("flag") is not None:
+            L.append(f"flag = {int(e['flag'])}")
+        if e.get("requires_flag") is not None:
+            L.append(f"requires_flag = {int(e['requires_flag'])}")
+        if e.get("requires_flag_clear") is not None:
+            L.append(f"requires_flag_clear = {int(e['requires_flag_clear'])}")
+        blocks.append("\n".join(L))
+    return "\n\n".join(blocks)
+
+
 def player_to_toml(spawn):
     """`[player]` block. ``spawn`` is (x, z)."""
     return f"[player]\nspawn = [{int(spawn[0])}, {int(spawn[1])}]"
 
 
 # --- Two-file split (Godot-style): scene.toml (spatial, Blender-owned) + field.toml (logic, yours) -
-def _entity_scene_blocks(npcs=(), gateways=()):
+def _entity_scene_blocks(npcs=(), gateways=(), events=()):
     """Spatial-only entity blocks for scene.toml: just ``name`` + ``pos`` / ``zone`` (the logic --
-    dialogue/conditions/target -- lives in the field.toml, joined by name)."""
+    dialogue/conditions/target/actions -- lives in the field.toml, joined by name)."""
     out = []
     for n in npcs:
         L = ["[[npc]]"]
@@ -524,10 +566,17 @@ def _entity_scene_blocks(npcs=(), gateways=()):
             L.append(f"name = {_toml_str(g['name'])}")
         L.append(f"zone = [{zone}]")
         out.append("\n".join(L))
+    for e in events:
+        zone = ", ".join(f"[{int(x)}, {int(z)}]" for (x, z) in e["zone"])
+        L = ["[[event]]"]
+        if e.get("name"):
+            L.append(f"name = {_toml_str(e['name'])}")
+        L.append(f"zone = [{zone}]")
+        out.append("\n".join(L))
     return "\n\n".join(out)
 
 
-def scene_toml(field_name, scene_body, npcs=(), gateways=(), spawn=None):
+def scene_toml(field_name, scene_body, npcs=(), gateways=(), spawn=None, events=()):
     """The Blender-owned spatial overlay ``<field>.scene.toml``: the path-specific ``scene_body``
     (``[camera]`` / ``[walkmesh]`` / ``[[layers]]`` text) + ``[player]`` + each entity's name+pos/zone.
     OVERWRITTEN on every export; holds no logic, so re-exporting can't clobber your script."""
@@ -536,16 +585,16 @@ def scene_toml(field_name, scene_body, npcs=(), gateways=(), spawn=None):
              scene_body.strip()]
     if spawn is not None:
         parts.append(player_to_toml(spawn))
-    eb = _entity_scene_blocks(npcs, gateways)
+    eb = _entity_scene_blocks(npcs, gateways, events)
     if eb:
         parts.append(eb)
     return "\n\n".join(p for p in parts if p) + "\n"
 
 
-def field_logic_stub(meta, npcs=(), gateways=()):
+def field_logic_stub(meta, npcs=(), gateways=(), events=()):
     """The user-owned logic file ``<field>.field.toml``, scaffolded ONCE (Blender will not overwrite an
-    existing one). ``[field]`` + per-entity logic by name (NPC preset/dialogue, gateway target) +
-    hints for story conditions and text-authored events."""
+    existing one). ``[field]`` + per-entity logic by name (NPC preset/dialogue, gateway target, event
+    actions) + hints for story conditions. Zones/positions live in the scene file, merged by name."""
     nm = meta["field_name"]
     L = [f"# {nm} -- LOGIC (yours; Blender will NOT overwrite this file once it exists).",
          f"# Placement (camera/walkmesh/positions) is in {nm.lower()}.scene.toml, merged by name.",
@@ -572,8 +621,26 @@ def field_logic_stub(meta, npcs=(), gateways=()):
         L.append(f"entrance = {int(g.get('entrance', 0))}")
         L.append("# requires_flag = 200   # a locked door (opens when the flag is set)")
         L.append("")
-    L += ["# --- events / story (text-authored; zone set in the scene, logic here) ---",
-          '# [[event]]', '# name = "lever"', '# set_flag = [200, 1]', '# message = "click"']
+    if events:
+        L.append("# --- events (zone set in the scene; actions here, joined by name) ---")
+        for e in events:
+            L.append("[[event]]")
+            if e.get("name"):
+                L.append(f"name = {_toml_str(e['name'])}")
+            # always emit an action so the merged event is buildable (message defaults to a placeholder)
+            if e.get("set_flag") is not None:
+                idx, val = _set_flag_pair(e["set_flag"])
+                L.append(f"set_flag = [{idx}, {val}]")
+            L.append(f"message = {_toml_str(e.get('message') or '...')}")
+            if e.get("once") is not None and not e["once"]:
+                L.append("once = false")
+            L.append("# give_item = [232, 1]   # optional: item id + count")
+            L.append("# gil = 1000             # optional: gil reward")
+            L.append("# requires_flag = 200    # only fire when a story flag is set")
+            L.append("")
+    else:
+        L += ["# --- events / story (text-authored; zone set in the scene, logic here) ---",
+              '# [[event]]', '# name = "lever"', '# set_flag = [200, 1]', '# message = "click"']
     return "\n".join(L) + "\n"
 
 

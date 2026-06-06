@@ -76,3 +76,61 @@ def test_markers_build_into_a_field(tmp_path):
     # the NPC dialogue became a .mes entry
     mes = L.mes_path("us", 1073).read_text(encoding="utf-8")
     assert "Welcome to my room." in mes
+
+
+# --- event-zone markers (Phase 1) ---------------------------------------------------------
+def test_events_to_toml_is_valid_and_complete():
+    events = [
+        {"name": "chest", "zone": [(-700, -2400), (700, -2400), (700, -1900), (-700, -1900)],
+         "message": "You got a Potion!", "give_item": [232, 1], "gil": 1000,
+         "set_flag": [200, 1], "once": True},
+        {"name": "lever", "zone": [(0, 0), (100, 0), (100, 100), (0, 100)], "set_flag": 201,
+         "once": False, "requires_flag": 200},
+    ]
+    doc = tomllib.loads(bridge.events_to_toml(events))
+    assert doc["event"][0]["name"] == "chest" and len(doc["event"][0]["zone"]) == 4
+    assert doc["event"][0]["give_item"] == [232, 1] and doc["event"][0]["gil"] == 1000
+    assert doc["event"][0]["set_flag"] == [200, 1] and doc["event"][0]["once"] is True
+    assert doc["event"][1]["set_flag"] == [201, 1]      # a bare int index -> [idx, 1]
+    assert doc["event"][1]["once"] is False and doc["event"][1]["requires_flag"] == 200
+
+
+def test_event_scene_field_split_keeps_zone_and_logic_apart():
+    events = [{"name": "chest", "zone": [(-700, -2400), (700, -2400), (700, -1900), (-700, -1900)],
+               "message": "You got a Potion!", "set_flag": [200, 1], "once": True}]
+    # scene.toml: ONLY spatial (name + zone), no logic
+    scene = tomllib.loads(bridge.scene_toml("ROOM", '[camera]\nborrow = "camera.bgx"\n', events=events))
+    assert scene["event"][0]["name"] == "chest" and len(scene["event"][0]["zone"]) == 4
+    assert "message" not in scene["event"][0] and "set_flag" not in scene["event"][0]
+    # field.toml stub: the logic (name + message + set_flag), NO zone
+    meta = {"field_id": 4009, "field_name": "ROOM", "area": 11, "text_block": 1073}
+    field = tomllib.loads(bridge.field_logic_stub(meta, events=events))
+    assert field["event"][0]["name"] == "chest"
+    assert field["event"][0]["message"] == "You got a Potion!"
+    assert field["event"][0]["set_flag"] == [200, 1] and "zone" not in field["event"][0]
+
+
+def test_event_markers_build_into_a_field(tmp_path):
+    proj = tmp_path / "proj"; proj.mkdir()
+    eye = (0.0, -3000.0, 3000.0)
+    R_bl = bridge.look_at_blender(eye, (0.0, 0.0, 0.0))
+    c = bridge.blender_cam_to_ff9(eye, R_bl, bridge.H_to_lens(497, bridge.DEFAULT_SENSOR, 384))
+    (proj / "camera.bgx").write_text(bgx.build(c, []), encoding="utf-8")
+    verts = [(-1000.0, -2000.0, 0.0), (1000.0, -2000.0, 0.0), (1000.0, 0.0, 0.0), (-1000.0, 0.0, 0.0)]
+    (proj / "walkmesh.obj").write_text(bridge.mesh_to_ff9_obj(verts, [(0, 1, 2), (0, 2, 3)]), encoding="utf-8")
+
+    events = [{"name": "chest", "zone": [(-900, -1900), (900, -1900), (900, -1500), (-900, -1500)],
+               "message": "You found a chest!", "set_flag": [200, 1], "once": True}]
+    # exactly what Blender writes: zone in the scene, actions in the field stub, merged by name.
+    (proj / "room.scene.toml").write_text(
+        bridge.scene_toml("EVT_ROOM",
+                          '[camera]\nborrow = "camera.bgx"\n\n[walkmesh]\nobj = "walkmesh.obj"\n',
+                          events=events), encoding="utf-8")
+    meta = {"field_id": 4011, "field_name": "EVT_ROOM", "area": 11, "text_block": 1073}
+    (proj / "room.field.toml").write_text(bridge.field_logic_stub(meta, events=events), encoding="utf-8")
+
+    out = tmp_path / "mod"
+    info = build_mod([FieldProject.load(proj / "room.field.toml")], out, mod_name="FF9CustomMap")
+    assert info["dictionary"] == ["FieldScene 4011 11 EVT_ROOM EVT_ROOM 1073"]
+    mes = ModLayout(out).mes_path("us", 1073).read_text(encoding="utf-8")
+    assert "You found a chest!" in mes

@@ -635,13 +635,22 @@ def _link_active(context, obj):
     context.view_layer.objects.active = obj
 
 
-def _collect_markers(context):
-    """Read tagged marker objects into (npcs, gateways, spawn), in FF9 floor coords.
+def _zone_corners(obj):
+    """The first 4 vertices of a zone mesh (gateway/event quad) as FF9 (x, z) floor coords, or None."""
+    mw = obj.matrix_world
+    verts = [list(mw @ v.co) for v in obj.data.vertices[:4]]
+    if len(verts) < 4:
+        return None
+    return [bridge.marker_floor_pos(v) for v in verts]
 
-    Deterministic: NPCs + gateways are sorted by object name. ``spawn`` is the last FF9_Spawn
+
+def _collect_markers(context):
+    """Read tagged marker objects into (npcs, gateways, spawn, events), in FF9 floor coords.
+
+    Deterministic: NPCs/gateways/events are sorted by object name. ``spawn`` is the last FF9_Spawn
     found (there should be one), or None. Marker world coords map straight to the FF9 raw frame
     (the engine's frame), so they export as-is -- no offset."""
-    npcs, gateways, spawn = [], [], None
+    npcs, gateways, events, spawn = [], [], [], None
     for obj in sorted(context.scene.objects, key=lambda o: o.name):
         mk = obj.get(MARKER_KEY)
         if not mk:
@@ -658,14 +667,25 @@ def _collect_markers(context):
                 n["dialogue"] = obj["ff9_dialogue"]
             npcs.append(n)
         elif mk == "gateway" and obj.type == "MESH":
-            mw = obj.matrix_world
-            verts = [list(mw @ v.co) for v in obj.data.vertices[:4]]
-            if len(verts) < 4:
+            zone = _zone_corners(obj)
+            if zone is None:
                 continue
             gateways.append({"to": int(obj.get("ff9_to", 100)),
-                             "entrance": int(obj.get("ff9_entrance", 0)),
-                             "zone": [bridge.marker_floor_pos(v) for v in verts]})
-    return npcs, gateways, spawn
+                             "entrance": int(obj.get("ff9_entrance", 0)), "zone": zone})
+        elif mk == "event" and obj.type == "MESH":
+            zone = _zone_corners(obj)
+            if zone is None:
+                continue
+            ev = {"zone": zone, "once": bool(int(obj.get("ff9_once", 1)))}
+            if obj.get("ff9_name"):
+                ev["name"] = obj["ff9_name"]
+            if obj.get("ff9_message"):
+                ev["message"] = obj["ff9_message"]
+            sf = int(obj.get("ff9_set_flag", -1))
+            if sf >= 0:
+                ev["set_flag"] = [sf, 1]
+            events.append(ev)
+    return npcs, gateways, spawn, events
 
 
 class FF9MK_OT_add_npc(bpy.types.Operator):
@@ -713,6 +733,37 @@ class FF9MK_OT_add_gateway(bpy.types.Operator):
         obj["ff9_entrance"] = 0
         _link_active(context, obj)
         self.report({"INFO"}, f"added gateway '{obj.name}' — set ff9_to / ff9_entrance in Custom Properties")
+        return {"FINISHED"}
+
+
+class FF9MK_OT_add_event(bpy.types.Operator):
+    bl_idname = "ff9mk.add_event"
+    bl_label = "Add Event"
+    bl_description = ("Drop a walk-in trigger zone at the 3D cursor on the floor. Move/scale it over "
+                      "the trigger spot; set its message / set_flag (story flag) / once in Custom "
+                      "Properties or the form editor. Use for chests, levers, story triggers")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        cx, cy, _ = _cursor_floor(context)
+        hw, hd = GATEWAY_HALF_W, GATEWAY_HALF_D
+        corners = [(cx - hw, cy - hd, 0.0), (cx + hw, cy - hd, 0.0),
+                   (cx + hw, cy + hd, 0.0), (cx - hw, cy + hd, 0.0)]
+        mesh = bpy.data.meshes.new("FF9_Event")
+        mesh.from_pydata([list(c) for c in corners], [], [(0, 1, 2, 3)])
+        mesh.update()
+        obj = bpy.data.objects.new("FF9_Event", mesh)
+        obj.display_type = "WIRE"
+        obj.show_in_front = True
+        obj.color = (1.0, 0.85, 0.1, 1.0)            # amber, to read apart from gateways
+        obj[MARKER_KEY] = "event"
+        obj["ff9_name"] = "event"
+        obj["ff9_message"] = "..."                   # a line shown on trigger (a real action => builds)
+        obj["ff9_set_flag"] = -1                     # -1 = set no story flag; >=0 = set that flag
+        obj["ff9_once"] = 1                           # 1 = fire once ever; 0 = every entry
+        _link_active(context, obj)
+        self.report({"INFO"}, f"added event '{obj.name}' — set ff9_message / ff9_set_flag / ff9_once "
+                              f"in Custom Properties (or the form editor)")
         return {"FINISHED"}
 
 
@@ -943,11 +994,12 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             if not os.path.isfile(cbgx):
                 with open(cbgx, "w", encoding="utf-8", newline="\n") as fh:
                     fh.write(bgx.build(c, [], header_comment=f"{p.field_name} camera (borrowed)"))
-            npcs, gateways, spawn = _collect_markers(context)
+            npcs, gateways, spawn, events = _collect_markers(context)
             scene_body = '[camera]\nborrow = "camera.bgx"\n'
             if p.scroll_enabled:
                 scene_body += "[camera.scroll]\nenabled = true\n"
-            stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, borrow_bg=p.borrow_bg)
+            stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn,
+                                      borrow_bg=p.borrow_bg, events=events)
             self.report({"INFO"}, f"BG-borrow fork of {p.borrow_bg}: scene.toml written"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
                                   f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
@@ -977,7 +1029,7 @@ class FF9MK_OT_export_field(bpy.types.Operator):
                     shutil.copyfile(src, dst)
                 layers.append({"image": os.path.basename(src), "z": int(L.z),
                                "shader": L.shader or None})
-            npcs, gateways, spawn = _collect_markers(context)
+            npcs, gateways, spawn, events = _collect_markers(context)
             scene_body = '[camera]\nborrow = "camera.bgx"\n'
             if p.scroll_enabled:
                 scene_body += "[camera.scroll]\nenabled = true\n"
@@ -987,7 +1039,7 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             scene_body += 'frame = "world"\n'
             if layers:
                 scene_body += "\n" + bridge.layers_to_toml(layers) + "\n"
-            stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn)
+            stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events)
             self.report({"INFO"}, f"editable fork {p.field_name}: scene.toml ({len(layers)} layer(s), "
                                   f"{'multi-floor' if has_links else 'single-floor'})"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
@@ -1013,43 +1065,44 @@ class FF9MK_OT_export_field(bpy.types.Operator):
                 shutil.copyfile(src, dst)
             layers.append({"image": os.path.basename(src), "z": int(L.z)})
         # content markers -> scene (positions) + field.toml logic stub
-        npcs, gateways, spawn = _collect_markers(context)
+        npcs, gateways, spawn, events = _collect_markers(context)
         scene_body = ('[camera]\nborrow = "camera.bgx"\n'
                       + ("[camera.scroll]\nenabled = true\n" if p.scroll_enabled else "")
                       + f"[camera.frame]\nback = {p.back_y:g}\nfront = {p.front_y:g}\n"
                       + '\n[walkmesh]\nobj = "walkmesh.obj"\nframe = "world"\n')
         if layers:
             scene_body += "\n" + bridge.layers_to_toml(layers) + "\n"
-        stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn)
+        stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events)
         self.report({"INFO"}, f"exported {p.field_name}: scene.toml ({len(layers)} layer(s), "
-                              f"{len(npcs)} NPC(s), {len(gateways)} gateway(s))"
+                              f"{len(npcs)} NPC(s), {len(gateways)} gateway(s), {len(events)} event(s))"
                               f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
                               f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
         return {"FINISHED"}
 
 
-def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=None):
+def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=None, events=()):
     """Two-file export: write ``<name>.scene.toml`` (spatial; ALWAYS overwritten) + ``<name>.field.toml``
     (logic stub; created ONLY if it doesn't already exist, so the user's script is never clobbered).
-    ``scene_body`` is the path-specific ``[camera]``/``[walkmesh]``/``[[layers]]`` text. Returns True if
-    a fresh field.toml stub was written (False = an existing one was kept)."""
+    ``scene_body`` is the path-specific ``[camera]``/``[walkmesh]``/``[[layers]]`` text. Event zones go
+    in the scene; their actions go in the field stub (joined by name). Returns True if a fresh
+    field.toml stub was written (False = an existing one was kept)."""
     base = p.field_name.lower()
     with open(os.path.join(out, f"{base}.scene.toml"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(bridge.scene_toml(p.field_name, scene_body, npcs, gateways, spawn))
+        fh.write(bridge.scene_toml(p.field_name, scene_body, npcs, gateways, spawn, events=events))
     field_path = os.path.join(out, f"{base}.field.toml")
     if os.path.isfile(field_path):
         return False
     meta = {"field_id": p.field_id, "field_name": p.field_name, "area": p.area,
             "text_block": p.text_block, "borrow_bg": borrow_bg}
     with open(field_path, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(bridge.field_logic_stub(meta, npcs, gateways))
+        fh.write(bridge.field_logic_stub(meta, npcs, gateways, events))
     return True
 
 
 CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera,
            FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_paint_template,
            FF9MK_OT_add_layer, FF9MK_OT_clear_layers,
-           FF9MK_OT_add_npc, FF9MK_OT_add_gateway, FF9MK_OT_set_spawn,
+           FF9MK_OT_add_npc, FF9MK_OT_add_gateway, FF9MK_OT_add_event, FF9MK_OT_set_spawn,
            FF9MK_OT_import_field, FF9MK_OT_export_field)
 
 

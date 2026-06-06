@@ -85,12 +85,15 @@ class FF9MK_PT_panel(bpy.types.Panel):
         row = box.row(align=True)
         row.operator("ff9mk.add_npc", icon="OUTLINER_OB_ARMATURE", text="NPC")
         row.operator("ff9mk.add_gateway", icon="MOD_BOOLEAN", text="Gateway")
+        row = box.row(align=True)
+        row.operator("ff9mk.add_event", icon="FORCE_FORCE", text="Event")
         row.operator("ff9mk.set_spawn", icon="MESH_UVSPHERE", text="Spawn")
         # tally + per-type edit hint for the active marker
         npc_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "npc")
         gw_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "gateway")
+        ev_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "event")
         spawn_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "spawn")
-        box.label(text=f"{npc_n} NPC · {gw_n} gateway · {spawn_n} spawn")
+        box.label(text=f"{npc_n} NPC · {gw_n} gateway · {ev_n} event · {spawn_n} spawn")
         ao = context.active_object
         mk = ao.get(ops.MARKER_KEY) if ao else None
         if mk == "npc":
@@ -105,6 +108,13 @@ class FF9MK_PT_panel(bpy.types.Panel):
             for key in ("ff9_to", "ff9_entrance"):
                 if key in ao:
                     col.prop(ao, f'["{key}"]', text=key[4:])
+        elif mk == "event":
+            col = box.column(align=True)
+            col.label(text=f"{ao.name} (move/scale over the trigger)")
+            for key in ("ff9_name", "ff9_message", "ff9_set_flag", "ff9_once"):
+                if key in ao:
+                    col.prop(ao, f'["{key}"]', text=key[4:])
+            col.label(text="set_flag: -1 = none; once: 1 = fire once, 0 = every entry", icon="INFO")
         elif mk == "spawn":
             box.label(text=f"{ao.name} (move to set spawn)")
         else:
