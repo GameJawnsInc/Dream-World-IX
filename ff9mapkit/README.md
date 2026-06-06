@@ -46,6 +46,9 @@ ff9mapkit build MY_ROOM/my_room.field.toml --out dist --mod-name MyMod
 ff9mapkit pack dist/MyMod --out MyMod.zip     # share it
 ```
 
+> **`ff9mapkit` command not found?** Its Scripts dir may not be on your PATH. Use
+> **`py -m ff9mapkit <command>`** instead — it's identical and works from any folder.
+
 **Prefer not to touch TOML?** Author the *logic* (dialogue, events, story flags, encounters,
 music, cutscenes) in a form-based editor instead:
 
