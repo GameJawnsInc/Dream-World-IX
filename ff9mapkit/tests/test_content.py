@@ -304,12 +304,13 @@ def test_actor_opcodes_roundtrip():
     for b, op, length in cases:
         ins, pos = read_code(b, 0)
         assert ins.op == op and ins.length == length and pos == len(b), f"{op:#x} {b.hex()}"
-    # Walk stores signed z directly; MoveInstantXZY NEGATES z (engine POS3 reads destZ = -getv2()),
-    # so a world z=20 is stored as raw -20 -- the kit's gotcha, verified here.
+    # Walk stores signed z directly. MoveInstantXZY maps args as (X, -Y, Z) -- the engine does
+    # SetActorPosition(po, destX, destZ=-arg2, destY=arg3) => po.x=arg1, po.y=-arg2, po.z=arg3 -- so a
+    # floor teleport to world (x=10, z=20, y=0) encodes arg1=10, arg2=0 (-y), arg3=20 (z).
     ins, _ = read_code(opcodes.walk(10, -20), 0)
     assert ins.imm(0) == 10 and ins.imm(1) == (-20 & 0xFFFF)
-    ins, _ = read_code(opcodes.move_instant_xzy(10, 20), 0)
-    assert ins.imm(0) == 10 and ins.imm(1) == (-20 & 0xFFFF)
+    ins, _ = read_code(opcodes.move_instant_xzy(10, 20), 0)   # x=10, z=20, y=0
+    assert ins.imm(0) == 10 and ins.imm(1) == 0 and ins.imm(2) == 20
 
 
 def test_actor_walk_sets_high_turn_speed_then_walks():

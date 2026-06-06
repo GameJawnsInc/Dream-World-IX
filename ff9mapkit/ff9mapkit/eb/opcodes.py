@@ -125,11 +125,13 @@ def set_walk_turn_speed(speed: int) -> bytes:        # 0x55 (MROT) argsize [1]
 
 
 def move_instant_xzy(x: int, z: int, y: int = 0) -> bytes:   # 0xA1 (POS3) argsize [2, 2, 2]
-    """MoveInstantXZY(x, z, y): teleport the actor to world (x, z, y) -- no walk animation.
+    """MoveInstantXZY: teleport the actor to world (x, z) at height y -- no walk animation.
 
-    GOTCHA: the engine reads ``destZ = -getv2()`` (POS3 negates Z; CreateObject/Walk do NOT), so to
-    land at world z we encode -z. Use to place an actor off-screen before a walk-in."""
-    return encode(0xA1, x, -z, y)
+    GOTCHA (verified from source): the engine reads ``destX=arg1; destZ=-arg2; destY=arg3`` then calls
+    ``SetActorPosition(po, destX, destZ, destY)`` = ``po.x=destX; po.y=destZ; po.z=destY``. So despite
+    the "XZY" name the bytecode args are (worldX, -worldY, worldZ): arg2 is the NEGATED height, arg3 is
+    the world depth Z (NOT arg2). So encode (x, -y, z). Use to place an actor before a walk-in."""
+    return encode(0xA1, x, -y, z)
 
 
 def run_animation(anim: int) -> bytes:               # 0x40 (ANIM) argsize [2]
