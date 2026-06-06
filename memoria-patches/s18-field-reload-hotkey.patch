@@ -1,0 +1,22 @@
+diff --git a/Assembly-CSharp/Global/Field/Map/FieldMap.cs b/Assembly-CSharp/Global/Field/Map/FieldMap.cs
+index d3e0e55f..6735ceab 100644
+--- a/Assembly-CSharp/Global/Field/Map/FieldMap.cs
++++ b/Assembly-CSharp/Global/Field/Map/FieldMap.cs
+@@ -290,6 +290,17 @@ public class FieldMap : HonoBehavior
+ 
+     public override void HonoLateUpdate()
+     {
++        // [ff9mapkit dev] F6 = reload the current field. Re-runs Main_Init (replays once=false
++        // cutscenes, re-creates NPCs) and frees you from any cutscene softlock -- fast content
++        // iteration without restarting the game. Replicates the Field() opcode's reload path
++        // (SetNextMap + nextMode=1 + change-scene attr). Dev engine only; not part of the shipped mod.
++        if (UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.F6))
++        {
++            PersistenSingleton<EventEngine>.Instance.SetNextMap(FF9StateSystem.Common.FF9.fldMapNo);
++            FF9StateSystem.Field.FF9Field.loc.map.nextMode = 1;
++            PersistenSingleton<FF9StateSystem>.Instance.attr |= 8u;
++            return;
++        }
+         this.SceneService2DScroll();
+         this.SceneService3DScroll();
+         if (Configuration.Graphics.InitializeWidescreenSupport())
