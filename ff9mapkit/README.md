@@ -72,7 +72,7 @@ and `build` compiles both.
 | `walkmesh obj <in> <out>` | convert an `.obj` walkmesh to `.bgi`; `walkmesh fix` rebuilds neighbor links; `walkmesh verify` runs the checks |
 | `disasm <eb>` | disassemble a field event script |
 | `build <field.toml>...` | compile project(s) into a Memoria mod |
-| `import <field>` | fork a **real** FF9 field into an editable `field.toml` (BG-borrow, or `--editable` custom scene) |
+| `import <field>` | fork a **real** FF9 field into an editable `field.toml` (BG-borrow, or `--editable` custom scene) — also extracts its exits/encounters/BGM/movement |
 | `list-fields [pat]` | list the real FF9 fields available to `import` |
 | `edit [field.toml]` | open the **form-based logic editor** (no TOML hand-editing) |
 | `lint <field.toml>` | check story-flag/placement logic without building |
