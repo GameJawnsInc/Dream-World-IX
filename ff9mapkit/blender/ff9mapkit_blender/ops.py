@@ -269,6 +269,21 @@ def selected_or_scene_camera_ff9(context):
     return _camera_obj_to_ff9(context, cam_obj)
 
 
+def _read_camera_into_props(context, cam_obj):
+    """Load a camera object's pitch/distance/FOV/yaw into the panel props (the inverse of _pose_camera),
+    so you can read a camera's current values, tweak, and re-Pose it. Scroll/canvas are field-level and
+    left as-is (multi-camera fields aren't scrolling)."""
+    p = context.scene.ff9mapkit
+    c = _camera_obj_to_ff9(context, cam_obj)
+    dec = cam.decompose(c)
+    p.pitch = round(cam.pitch_deg(c), 2)
+    p.yaw = round(cam.yaw_deg(c), 2)
+    if dec.get("fov_x_deg"):
+        p.fov = round(dec["fov_x_deg"], 2)
+    C = dec["C"]
+    p.distance = round((C[0] ** 2 + C[1] ** 2 + C[2] ** 2) ** 0.5, 1)
+
+
 def _collect_cameras(context):
     """All FF9 camera objects, sorted by their ``ff9_cam`` index (0 = default at load). The main
     FF9_Camera counts as index 0 even if untagged (single-camera fields). Returns a list of objects."""
@@ -444,6 +459,27 @@ class FF9MK_OT_pose_camera(bpy.types.Operator):
         _pose_camera(cam_obj, p)
         _apply_canvas_resolution(context, *_range_wh(p))
         self.report({"INFO"}, f"posed {cam_obj.name} (pitch {p.pitch:g}, yaw {p.yaw:g})")
+        return {"FINISHED"}
+
+
+class FF9MK_OT_read_camera(bpy.types.Operator):
+    bl_idname = "ff9mk.read_camera"
+    bl_label = "Read Camera"
+    bl_description = ("Load the SELECTED camera's Pitch / Distance / FOV / Yaw into the panel above "
+                      "(so switching between cameras shows that camera's values; then tweak + Pose)")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        cam_obj = context.active_object
+        if cam_obj is None or cam_obj.type != "CAMERA":
+            cam_obj = context.scene.camera
+        if cam_obj is None or cam_obj.type != "CAMERA":
+            self.report({"ERROR"}, "Select a camera first.")
+            return {"CANCELLED"}
+        _read_camera_into_props(context, cam_obj)
+        context.scene.camera = cam_obj                          # view through it
+        p = context.scene.ff9mapkit
+        self.report({"INFO"}, f"read {cam_obj.name}: pitch {p.pitch:g}, yaw {p.yaw:g}, fov {p.fov:g}")
         return {"FINISHED"}
 
 
@@ -1230,7 +1266,7 @@ def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=N
     return True
 
 
-CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera,
+CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera, FF9MK_OT_read_camera,
            FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_paint_template,
            FF9MK_OT_add_layer, FF9MK_OT_clear_layers,
            FF9MK_OT_add_npc, FF9MK_OT_add_gateway, FF9MK_OT_add_event,

@@ -49,7 +49,8 @@ class FF9MK_PT_panel(bpy.types.Panel):
             row.prop(p, "canvas_h")
         row = box.row(align=True)
         row.operator("ff9mk.pose_camera", icon="VIEW_CAMERA")
-        row.operator("ff9mk.add_camera", icon="ADD", text="Add Camera")
+        row.operator("ff9mk.read_camera", icon="IMPORT", text="Read Camera")
+        box.operator("ff9mk.add_camera", icon="ADD", text="Add Camera")
         if multicam:
             box.label(text=f"{ncam} cameras. Select one to pose it; give each a layer + a Cam Zone.",
                       icon="OUTLINER_OB_CAMERA")
