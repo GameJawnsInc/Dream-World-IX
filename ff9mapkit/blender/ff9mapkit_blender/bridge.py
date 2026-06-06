@@ -395,22 +395,44 @@ def paint_template_lines(c, back_canvas_y, front_canvas_y, scale=4, nx=8, nz=8):
 
 
 def layers_to_toml(layers):
-    """Emit the `[[layers]]` TOML block from an ordered list of {image, z, shader?} (dict or
+    """Emit the `[[layers]]` TOML block from an ordered list of {image, z, shader?, camera?} (dict or
     (image, z) / (image, z, shader)). A non-empty ``shader`` (e.g. "PSX/FieldMap_Abr_1" for an
     additive light overlay) is emitted so an imported fork's per-depth occlusion + blend survive
-    re-export; omit it for plain opaque layers."""
+    re-export; omit it for plain opaque layers. ``camera`` (an int) ties the layer to one camera in a
+    MULTI-camera field (the BG that shows while that camera is active); omit/0 for single-camera."""
     blocks = []
     for L in layers:
         if isinstance(L, dict):
-            img, z, shader = L["image"], L["z"], L.get("shader")
+            img, z, shader, cam_id = L["image"], L["z"], L.get("shader"), L.get("camera")
         else:
             img, z = L[0], L[1]
             shader = L[2] if len(L) > 2 else None
+            cam_id = None
         block = f'[[layers]]\nimage = "{img}"\nz = {int(z)}'
         if shader:
             block += f'\nshader = "{shader}"'
+        if cam_id:                                   # only emit a non-zero camera (0 is the default)
+            block += f'\ncamera = {int(cam_id)}'
         blocks.append(block)
     return "\n".join(blocks)
+
+
+def cameras_borrow_toml(filenames):
+    """Emit a multi-camera `[[camera]]` array, each entry borrowing one camera ``.bgx`` (the exact
+    posed camera; the build resolves each `[[camera]]` independently). Index 0 is the default at load.
+    A SINGLE camera keeps the existing `[camera] borrow = "camera.bgx"` form (handled in the exporter)."""
+    return "\n\n".join(f'[[camera]]\nborrow = "{fn}"' for fn in filenames)
+
+
+def camera_zones_to_toml(zones):
+    """Emit `[[camera_zone]]` blocks from dicts {to_camera, zone:[(x,z)...]}. Each zone is the floor
+    area where its camera is active; crossing into it cuts the view to ``to_camera`` (engine SETCAM).
+    Zones must NOT overlap (overlapping zones flap). 4 floor corners; point order is free for a zone."""
+    blocks = []
+    for zdef in zones:
+        zone = ", ".join(f"[{int(x)}, {int(z)}]" for (x, z) in zdef["zone"])
+        blocks.append(f"[[camera_zone]]\nto_camera = {int(zdef['to_camera'])}\nzone = [{zone}]")
+    return "\n\n".join(blocks)
 
 
 def editable_field_toml(meta, layers, npcs=(), gateways=(), spawn=None, has_links=False):

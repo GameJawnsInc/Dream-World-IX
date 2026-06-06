@@ -17,9 +17,10 @@ sys.path.insert(0, str(BLENDER))
 sys.path.insert(0, str(KIT_ROOT))
 
 from ff9mapkit_blender import bridge                  # noqa: E402
-from ff9mapkit_blender.vendor import bgx              # noqa: E402
+from ff9mapkit_blender.vendor import bgx, cam         # noqa: E402
 from ff9mapkit.build import FieldProject, build_mod   # noqa: E402
 from ff9mapkit.config import ModLayout, LANGS         # noqa: E402
+from ff9mapkit.eb import EbScript, disasm             # noqa: E402
 
 
 def test_marker_floor_pos_maps_blender_to_ff9_xz():
@@ -134,3 +135,56 @@ def test_event_markers_build_into_a_field(tmp_path):
     assert info["dictionary"] == ["FieldScene 4011 11 EVT_ROOM EVT_ROOM 1073"]
     mes = ModLayout(out).mes_path("us", 1073).read_text(encoding="utf-8")
     assert "You found a chest!" in mes
+
+
+# --- multi-camera: camera array + switch zones (Phase A bridge) -------------------------
+def test_multicam_bridge_toml_is_valid():
+    import tomllib
+    cams = tomllib.loads(bridge.cameras_borrow_toml(["camera0.bgx", "camera1.bgx", "camera2.bgx"]))
+    assert [c["borrow"] for c in cams["camera"]] == ["camera0.bgx", "camera1.bgx", "camera2.bgx"]
+    zones = tomllib.loads(bridge.camera_zones_to_toml([
+        {"to_camera": 1, "zone": [(100, -1900), (900, -1900), (900, -1500), (100, -1500)]},
+        {"to_camera": 0, "zone": [(-900, -1900), (-100, -1900), (-100, -1500), (-900, -1500)]}]))
+    assert zones["camera_zone"][0]["to_camera"] == 1 and len(zones["camera_zone"][0]["zone"]) == 4
+    assert zones["camera_zone"][1]["to_camera"] == 0
+    lay = tomllib.loads(bridge.layers_to_toml([{"image": "bg0.png", "z": 4000, "camera": 0},
+                                               {"image": "bg1.png", "z": 4000, "camera": 1}]))
+    assert "camera" not in lay["layers"][0]            # camera 0 is the default -> omitted
+    assert lay["layers"][1]["camera"] == 1
+
+
+def _bcam(yaw_deg, tmp_path, name):
+    """A posed FF9 camera written to a one-CAMERA .bgx (what the Blender export does per camera)."""
+    eye = (0.0, -3000.0, 3000.0)
+    R = bridge.look_at_blender(eye, (0.0, 0.0, 0.0))
+    c = bridge.blender_cam_to_ff9(eye, R, bridge.H_to_lens(497, bridge.DEFAULT_SENSOR, 384))
+    c.r, c.t = cam.synth_r_t(cam.decompose(c)["C"], cam.decompose(c)["R_ortho"], c.proj)  # keep it valid
+    (tmp_path / name).write_text(bgx.build(c, []), encoding="utf-8")
+    return name
+
+
+def test_multicam_field_builds_with_two_cameras_and_a_switch_zone(tmp_path):
+    proj = tmp_path / "proj"; proj.mkdir()
+    c0 = _bcam(0.0, proj, "camera0.bgx")
+    c1 = _bcam(25.0, proj, "camera1.bgx")
+    verts = [(-1200.0, -2000.0, 0.0), (1200.0, -2000.0, 0.0), (1200.0, 0.0, 0.0), (-1200.0, 0.0, 0.0)]
+    (proj / "walkmesh.obj").write_text(bridge.mesh_to_ff9_obj(verts, [(0, 1, 2), (0, 2, 3)]), encoding="utf-8")
+    cam_block = bridge.cameras_borrow_toml([c0, c1])
+    zone_block = bridge.camera_zones_to_toml(
+        [{"to_camera": 1, "zone": [(100, -1900), (1100, -1900), (1100, -1500), (100, -1500)]}])
+    (proj / "mc.field.toml").write_text(
+        '[field]\nid = 4012\nname = "MULTICAM_T"\narea = 11\ntext_block = 1073\n\n'
+        + cam_block + '\n\n[walkmesh]\nobj = "walkmesh.obj"\nframe = "world"\n\n'
+        + '[player]\nspawn = [0, -900]\n\n' + zone_block + "\n", encoding="utf-8")
+
+    out = tmp_path / "mod"
+    info = build_mod([FieldProject.load(proj / "mc.field.toml")], out, mod_name="FF9CustomMap")
+    fbg = info["fields"][0]
+    # the built scene .bgx carries BOTH cameras
+    scene_bgx = ModLayout(out).fieldmap_dir(fbg) / f"{fbg}.bgx"
+    assert len(cam.parse_bgx_cameras(str(scene_bgx))) == 2
+    # the script got a SETCAM (0x7E) switch from the camera zone
+    eb = ModLayout(out).eb_path("us", f"EVT_{info['dictionary'][0].split()[4]}.eb.bytes").read_bytes()
+    s = EbScript.from_bytes(eb)
+    ops = {i.op for ent in s.entries for fn in ent.funcs for i in disasm.iter_code(eb, fn.abs_start, fn.abs_end)}
+    assert 0x7E in ops          # SetFieldCamera injected by the switch zone
