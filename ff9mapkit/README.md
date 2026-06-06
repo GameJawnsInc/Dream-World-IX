@@ -88,6 +88,7 @@ and `build` compiles both.
 - [`docs/FORMAT.md`](docs/FORMAT.md) — the `field.toml` schema.
 - [`docs/PIPELINE.md`](docs/PIPELINE.md) — the full authoring workflow.
 - [`docs/ENGINE.md`](docs/ENGINE.md) — engine requirements (stock Memoria) + provenance notes.
+- [`docs/TECHNICAL.md`](docs/TECHNICAL.md) — the hard problems solved (camera math, `.eb` format, import).
 - [`examples/vivi-hut/`](examples/vivi-hut) — a complete worked example.
 - [`blender/`](blender/README.md) — the **Blender add-on**: visually author the camera + walkmesh,
   then export a `field.toml` for `build` (Blender 4.2+/5.x).
