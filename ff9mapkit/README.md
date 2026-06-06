@@ -15,6 +15,9 @@ encounters · events (chests / gil / story flags) · story branching · cutscene
 actor walk/turn/emote/teleport) — authored from one `field.toml`, a **form-based editor**, and
 a **[Blender add-on](blender/README.md)**.
 
+> **The full capability list is in [`docs/FEATURES.md`](docs/FEATURES.md)** (with a before/now
+> comparison), and [`docs/gallery/`](docs/gallery/) shows each feature in action.
+
 ## What it does
 
 Given a `field.toml` describing one field — its camera, painted background layers, walkmesh,
@@ -80,6 +83,8 @@ and `build` compiles both.
 
 ## Docs
 
+- [`docs/FEATURES.md`](docs/FEATURES.md) — **the full capability list** (+ before/now comparison).
+- [`docs/gallery/`](docs/gallery/) — each feature in action (screenshots / GIFs).
 - [`docs/FORMAT.md`](docs/FORMAT.md) — the `field.toml` schema.
 - [`docs/PIPELINE.md`](docs/PIPELINE.md) — the full authoring workflow.
 - [`docs/ENGINE.md`](docs/ENGINE.md) — engine requirements (stock Memoria) + provenance notes.
