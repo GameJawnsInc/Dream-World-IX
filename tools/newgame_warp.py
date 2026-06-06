@@ -63,29 +63,33 @@ def warp_entry(target: int, entrance: int) -> bytes:
     return bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
 
 
-def _activation_off(eb: EbScript) -> int:
-    """Offset of the first Main_Init Wait after the LAST InitRegion -- the common 'field is set up'
-    block (where the door's InitRegion lives), reached by the town-mode entrances incl. 231."""
+def _activation(eb: EbScript):
+    """A shift-free, EXECUTED overwrite site in Main_Init: the first RunSoundCode (0xC5) right AFTER
+    the InitRegion cluster. That cluster is where the door's InitRegion lives (proven executed in-game)
+    and it runs BEFORE the unconditional jump (op 0x01) that skips the trailing Wait -- so a Wait after
+    the cluster is DEAD CODE (the first attempt overwrote one and never fired). The resume-variant
+    RunSoundCode here is redundant (the field BGM song_play that follows is untouched). Returns
+    (off, length)."""
     f0 = eb.entry(0).func_by_tag(0)
-    last = None
+    last_reg = None
     for ins in eb.instrs(f0):
-        if ins.op == 0x08:                             # InitRegion
-            last = ins.end
-    if last is None:
-        raise SystemExit("field 100 Main_Init has no InitRegion to anchor the activation on")
+        if ins.op == 0x08:                             # InitRegion -- find the last of the cluster
+            last_reg = ins.end
+    if last_reg is None:
+        raise SystemExit("field 100 Main_Init has no InitRegion cluster to anchor the activation on")
     for ins in eb.instrs(f0):
-        if ins.op == 0x22 and ins.off >= last:         # Wait (22 00 nn) -> 3-byte shift-free overwrite
-            return ins.off
-    raise SystemExit("no Wait after the InitRegion cluster to overwrite")
+        if ins.op == 0xC5 and ins.off >= last_reg:     # RunSoundCode after the cluster = executed
+            return ins.off, ins.length
+    raise SystemExit("no RunSoundCode after the InitRegion cluster to overwrite")
 
 
 def inject(data: bytes, target: int, entrance: int = NEWGAME_ENTRANCE):
     eb = EbScript.from_bytes(data)
     slot = eb.first_free_slot()
     out = edit.append_entry(data, slot, warp_entry(target, entrance))
-    off = _activation_off(EbScript.from_bytes(out))
-    out = edit.patch_bytes(out, off, opcodes.init_code(slot, 0),
-                           expect=out[off:off + 3])     # must be a 3-byte Wait
+    off, length = _activation(EbScript.from_bytes(out))
+    new = opcodes.init_code(slot, 0) + bytes(length - 3)   # InitCode(slot,0) (3B) + NOP pad to keep length
+    out = edit.patch_bytes(out, off, new, expect=out[off:off + length])   # shift-free overwrite
     return out, slot, off
 
 
