@@ -26,7 +26,19 @@ from . import __version__
 from .config import ConfigError, ModLayout, find_game_path, find_mod_root
 
 
+def _has_unitypy() -> bool:
+    """True if UnityPy imports (the optional dep used by `import` / `list-fields`)."""
+    try:
+        import UnityPy  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
+    # Environment first, so these show even if the game path isn't configured yet.
+    print(f"ff9mapkit {__version__}")
+    print(f"  UnityPy    : {'present' if _has_unitypy() else 'absent (only needed for import / list-fields)'}")
     try:
         game = find_game_path(args.game)
     except ConfigError as e:
@@ -34,11 +46,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         return 2
     mod_root = find_mod_root(game, args.mod_folder)
     layout = ModLayout(mod_root)
-    print(f"ff9mapkit {__version__}")
     print(f"game install : {game}")
     print(f"  exists     : {game.is_dir()}")
     launcher = game / "FF9_Launcher.exe"
     print(f"  launcher   : {'found' if launcher.is_file() else 'MISSING'} ({launcher.name})")
+    streaming = game / "StreamingAssets"
+    print(f"  assets     : {'found' if streaming.is_dir() else 'MISSING'} (StreamingAssets)")
     print(f"mod root     : {mod_root}")
     print(f"  exists     : {mod_root.is_dir()}")
     print(f"  FieldMaps  : {layout.fieldmaps_dir}")
