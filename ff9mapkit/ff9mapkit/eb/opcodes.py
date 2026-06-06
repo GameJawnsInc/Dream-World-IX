@@ -224,6 +224,14 @@ def set_random_battle_frequency(freq: int) -> bytes:   # 0x57 [1]
 
 
 # --- field camera (multi-camera) ---
+def run_script_sync(script_level: int, uid: int, func_tag: int) -> bytes:   # 0x14 (REQEW) [1,1,1]
+    """RunScriptSync(level, uid, tag): run object ``uid``'s function ``tag`` and WAIT until it returns
+    (the engine's REQEW). Targets by UID (GetObjUID). A director uses this to drive an NPC's
+    choreography function -- which then runs while the NPC is 'running' (so its animations advance,
+    unlike code spliced into the NPC's Init). ``level`` is the script level (real cutscenes use 2)."""
+    return encode(0x14, script_level, uid, func_tag)
+
+
 def set_field_camera(cam_id: int) -> bytes:            # 0x7E (SETCAM) [1]
     """SetFieldCamera(cam_id): switch the active background camera (engine SetCurrentCameraIndex)."""
     return encode(0x7E, cam_id)

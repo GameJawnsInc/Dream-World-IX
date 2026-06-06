@@ -332,7 +332,7 @@ def test_choreography_compiles_ordered_actor_steps():
         {"wait": 20},
         {"set_flag": [205]},
     ]
-    choreo = cutscene.build_choreography(steps, [500], once_flag=8100)
+    choreo = cutscene.build_choreography(steps, [500], 8100)
     assert choreo.startswith(region.cond_not(region.GLOB_BOOL, 8100))            # gated once
     assert choreo.index(opcodes.DISABLE_MOVE) < choreo.index(opcodes.ENABLE_MOVE)  # control locked
     # the actor + global ops appear, in order, inside the lock
@@ -341,13 +341,17 @@ def test_choreography_compiles_ordered_actor_steps():
              opcodes.window_sync(1, 128, 500), opcodes.wait(20), region.set_var(region.GLOB_BOOL, 205, 1)]
     idx = [choreo.index(p) for p in parts]
     assert idx == sorted(idx), "actor steps must compile in declared order"
-    assert region.set_var(region.GLOB_BOOL, 8100, 1) in choreo                  # once-set on completion
-    assert not choreo.endswith(opcodes.RETURN)         # the Init's own RETURN follows when spliced
+    assert region.set_var(region.GLOB_BOOL, 8100, 1) in choreo                  # flag set on completion
+    assert not choreo.endswith(opcodes.RETURN)         # prepended to the loop; the loop body's RETURN follows
 
 
-def test_choreography_no_once_is_ungated():
-    choreo = cutscene.build_choreography([{"wait": 5}], [], once_flag=None, warmup=0)
-    assert choreo == opcodes.DISABLE_MOVE + opcodes.wait(5) + opcodes.ENABLE_MOVE
+def test_choreography_always_gated():
+    """The choreography is ALWAYS gated -- it's prepended to the loop (runs every frame), so an ungated
+    block would re-fire endlessly. A Map flag = transient (replays per visit)."""
+    choreo = cutscene.build_choreography([{"wait": 5}], [], 80, flag_class=region.MAP_BOOL, warmup=0)
+    inner = (opcodes.DISABLE_MOVE + opcodes.wait(5) + opcodes.ENABLE_MOVE
+             + region.set_var(region.MAP_BOOL, 80, 1))
+    assert choreo == region.if_block(region.cond_not(region.MAP_BOOL, 80), inner)
 
 
 def test_actor_teleport_moves_then_reenables_pathing():
@@ -362,36 +366,39 @@ def test_all_steps_including_teleport_run_after_warmup():
     during the field's entry transition makes the smooth-updater fight it (warp/slide + the next walk
     never converges), so the warm-up must gate it too."""
     choreo = cutscene.build_choreography(
-        [{"teleport": [-1150, -800]}, {"walk": [0, -800]}], [], once_flag=None, warmup=30)
-    assert choreo == (opcodes.DISABLE_MOVE + opcodes.wait(30) + cutscene.actor_teleport(-1150, -800)
-                      + cutscene.actor_walk(0, -800) + opcodes.ENABLE_MOVE)
+        [{"teleport": [-1150, -800]}, {"walk": [0, -800]}], [], 8100, warmup=30)
+    seq = [opcodes.DISABLE_MOVE, opcodes.wait(30), cutscene.actor_teleport(-1150, -800),
+           cutscene.actor_walk(0, -800), opcodes.ENABLE_MOVE]
+    idx = [choreo.index(p) for p in seq]
+    assert idx == sorted(idx)
 
 
 def test_choreography_warmup_waits_before_acting():
     """The warm-up Wait comes right after DisableMove (so the player can't wander) and before the
     first actor step -- it lets the field's entry fade/smooth-updater settle so the actor doesn't
     circle (and its synchronous Walk doesn't hang)."""
-    choreo = cutscene.build_choreography([{"walk": [0, -700]}], [], once_flag=None, warmup=30)
-    assert choreo == (opcodes.DISABLE_MOVE + opcodes.wait(30)
-                      + cutscene.actor_walk(0, -700) + opcodes.ENABLE_MOVE)
+    choreo = cutscene.build_choreography([{"walk": [0, -700]}], [], 8100, warmup=30)
+    assert opcodes.DISABLE_MOVE + opcodes.wait(30) + cutscene.actor_walk(0, -700) in choreo
     # default applies a non-zero warm-up
     assert opcodes.DISABLE_MOVE + opcodes.wait(cutscene.DEFAULT_WARMUP) in \
-        cutscene.build_choreography([{"walk": [0, -700]}], [], once_flag=8100)
+        cutscene.build_choreography([{"walk": [0, -700]}], [], 8100)
 
 
-def test_actor_cutscene_spliced_into_npc_init():
-    choreo = cutscene.build_choreography([{"walk": [0, -700]}, {"say": "hi"}], [500], once_flag=8100)
+def test_actor_cutscene_in_npc_loop():
+    """The choreography is PREPENDED to the NPC's LOOP (tag 1), not its Init -- so it runs while the
+    object is 'running' (engine state 1), where animation frames advance (the Init runs at state 2,
+    where they stay frozen)."""
+    choreo = cutscene.build_choreography([{"walk": [0, -700]}, {"say": "hi"}], [500], 8100)
     out = npc.inject_npc(CLEAN, 0, -700, preset="vivi", talk_text_id=500, intro=choreo)
     eb = EbScript.from_bytes(out)
     assert eb.to_bytes() == out                                     # structurally valid
     npc_entry = next(e for e in eb.entries if not e.empty and e.func_by_tag(3) and e.index != 0)
+    loop_ops = _ops(eb, npc_entry.index, 1)                         # tag 1 = the loop (where the choreo lives)
+    assert 0x2D in loop_ops and 0x2E in loop_ops                    # DisableMove/EnableMove in the LOOP
+    assert 0x23 in loop_ops and 0x1F in loop_ops                    # Walk + WindowSync (the say)
     init_ops = _ops(eb, npc_entry.index, 0)
-    assert 0x2D in init_ops and 0x2E in init_ops                    # DisableMove/EnableMove in the Init
-    assert 0x23 in init_ops and 0x1F in init_ops                    # Walk + WindowSync (the say)
-    assert init_ops[-1] == 0x04                                     # Init still ends with RETURN
-    assert init_ops.index(0x1D) < init_ops.index(0x2D)             # CreateObject before the lock/choreo
-    # the SpeakBTN (tag 3) is still intact and separate from the choreography
-    assert 0x1F in _ops(eb, npc_entry.index, 3)
+    assert 0x1D in init_ops and 0x2D not in init_ops               # CreateObject in Init; NO lock in the Init
+    assert 0x1F in _ops(eb, npc_entry.index, 3)                     # SpeakBTN (tag 3) intact
 
 
 def test_npc_without_intro_is_byte_identical():

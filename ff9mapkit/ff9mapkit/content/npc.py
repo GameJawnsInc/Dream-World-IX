@@ -126,14 +126,14 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
         body0 = bytearray(_region.flag_gate(_region.GLOB_BOOL, gate_flag,
                                             require_set=gate_require_set)) + body0
 
-    # 4c) optional ACTOR-cutscene choreography: splice the gated block into the Init right before its
-    # trailing RETURN, so it runs in THIS NPC's context (gExec == the NPC) after CreateObject. The block
-    # self-gates `if (!once) {...}` so it plays once. The func table is rebuilt from body lengths below,
-    # so growing body0 is safe.
+    # 4c) optional ACTOR-cutscene choreography: PREPEND the gated block to the LOOP (tag 1), NOT the
+    # Init (tag 0). The engine only advances animation frames while an object is 'running' (state 1 =
+    # its loop) -- never while its Init runs (state 2) -- so a cutscene baked into the Init glides
+    # FROZEN (in-engine probe confirmed). The loop runs at state 1, so the choreography animates there.
+    # It self-gates (if !flag) so it runs once per visit, not every loop iteration. The func table is
+    # rebuilt from body lengths below, so growing body1 is safe; gExec is still this NPC.
     if intro:
-        if not body0 or body0[-1] != opcodes.RETURN[0]:
-            raise ValueError("NPC Init does not end with RETURN; cannot splice cutscene choreography")
-        body0 = body0[:-1] + bytearray(intro) + body0[-1:]
+        body1 = bytes(intro) + body1
 
     # 5) _SpeakBTN (func tag 3): WindowSync(1, 128, text) ; return
     f2 = opcodes.window_sync(1, 128, talk_text_id) + opcodes.RETURN

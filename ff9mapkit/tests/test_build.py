@@ -512,9 +512,10 @@ def test_cutscene_field_builds(tmp_path):
     assert "hi" in L.mes_path("us", 1073).read_text(encoding="utf-8")
 
 
-def test_actor_cutscene_builds_into_npc_init(tmp_path):
-    """An actor cutscene bakes its choreography into the named NPC's Init (gExec == that NPC) so
-    walk/animation/turn act on it -- and there's NO standalone director entry."""
+def test_actor_cutscene_in_npc_loop(tmp_path):
+    """An actor cutscene prepends its choreography to the named NPC's LOOP (tag 1), not its Init -- so
+    it runs while the object is 'running' (engine state 1) and its animation frames advance (the Init
+    runs at state 2 where they freeze). No standalone director entry."""
     from ff9mapkit.eb import EbScript
     from ff9mapkit.eb.disasm import iter_code
     p = tmp_path / "x.field.toml"
@@ -530,16 +531,20 @@ def test_actor_cutscene_builds_into_npc_init(tmp_path):
     eb = EbScript.from_bytes(L.eb_path("us", "EVT_X.eb.bytes").read_bytes())
     npc_entries = [e for e in eb.entries if not e.empty and e.func_by_tag(3) and e.index != 0]
     assert len(npc_entries) == 1
-    init = npc_entries[0].func_by_tag(0)
-    ops = [i.op for i in iter_code(eb.data, init.abs_start, init.abs_end)]
-    for op in (0x1D, 0x2D, 0x23, 0x40, 0x51, 0x1F, 0x2E):   # CreateObject, Disable, Walk, Anim, Turn, Window, Enable
+    loop = npc_entries[0].func_by_tag(1)                    # tag 1 = the loop (the choreography lives here)
+    ops = [i.op for i in iter_code(eb.data, loop.abs_start, loop.abs_end)]
+    for op in (0x2D, 0x23, 0x40, 0x51, 0x1F, 0x2E):        # Disable, Walk, Anim, Turn(face), Window, Enable
         assert op in ops, hex(op)
-    assert ops.index(0x1D) < ops.index(0x2D)               # CreateObject before the choreography lock
-    assert ops[-1] == 0x04                                  # Init still ends with RETURN
-    # the ONLY non-Main entry with DisableMove is the NPC -- no separate director was injected.
-    disable = [e.index for e in eb.entries if not e.empty and e.index != 0 and e.func_by_tag(0)
-               and any(i.op == 0x2D for i in iter_code(eb.data, e.func_by_tag(0).abs_start,
-                                                       e.func_by_tag(0).abs_end))]
+    init = npc_entries[0].func_by_tag(0)
+    init_ops = [i.op for i in iter_code(eb.data, init.abs_start, init.abs_end)]
+    assert 0x1D in init_ops and 0x2D not in init_ops       # CreateObject in Init; NO lock in the Init
+    # the ONLY entry with DisableMove is the NPC -- no separate director was injected.
+    disable = []
+    for e in eb.entries:
+        if e.empty or e.index == 0:
+            continue
+        if any(i.op == 0x2D for f in e.funcs for i in iter_code(eb.data, f.abs_start, f.abs_end)):
+            disable.append(e.index)
     assert disable == [npc_entries[0].index]
     assert "welcome" in L.mes_path("us", 1073).read_text(encoding="utf-8")
     for lang in LANGS:                                      # every language built

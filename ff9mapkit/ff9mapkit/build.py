@@ -662,8 +662,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         cs_once_flag = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
     actor_choreo = None
     if cs_actor:
+        cs_fclass, cs_fidx = _cutscene.once_flag_for(cs)   # GLOB (once ever) or MAP (replay per visit)
         actor_choreo = _cutscene.build_choreography(
-            cs["steps"], cutscene_txids, cs_once_flag,
+            cs["steps"], cutscene_txids, cs_fidx, flag_class=cs_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)))
 
     # NPCs (cloned from the player object) first, so their cloned positions are independent.

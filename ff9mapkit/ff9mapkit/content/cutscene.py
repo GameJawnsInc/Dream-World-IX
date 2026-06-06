@@ -34,7 +34,9 @@ from . import region as _region
 # Default flag for a "play once" cutscene: the SAVE-PERSISTENT Global bool (survives reloads), high in
 # gEventGlobal and clear of the event auto-once band (8000+).
 CUTSCENE_FLAG_CLASS = _region.GLOB_BOOL
-DEFAULT_CUTSCENE_FLAG = 8100
+DEFAULT_CUTSCENE_FLAG = 8100        # GLOB (save-persistent) once-flag: plays once EVER
+DEFAULT_CUTSCENE_MAP_FLAG = 80      # MAP-bit (transient, byte 10 -- clear of the field's init bits 144-159
+                                    # and the camera Map-byte 24): replays each visit, still once per visit
 
 PLAYER_UID = 250        # GetObjUID(250) resolves to the player's control character (engine convention)
 
@@ -148,26 +150,32 @@ def compile_steps(steps, txids) -> bytes:
     return b"".join(out)
 
 
-def build_choreography(steps, txids, once_flag: int | None, *, warmup: int = DEFAULT_WARMUP,
-                       flag_class=CUTSCENE_FLAG_CLASS) -> bytes:
-    """The gated choreography block for an ACTOR cutscene, spliced into the actor NPC's Init (before
-    its RETURN) by :func:`ff9mapkit.content.npc.inject_npc`. Runs in the NPC's context so the actor
-    steps target it.
+def once_flag_for(cs: dict):
+    """(flag_class, flag_idx) for a cutscene's gate. ``once=true`` -> a SAVE-PERSISTENT Global bool
+    (plays once ever); ``once=false`` -> a TRANSIENT Map bool (replays each visit -- the Map var resets
+    on field load -- but still runs once per visit). An explicit ``flag = N`` overrides the index."""
+    if cs.get("once", True):
+        return _region.GLOB_BOOL, int(cs.get("flag", DEFAULT_CUTSCENE_FLAG))
+    return _region.MAP_BOOL, int(cs.get("flag", DEFAULT_CUTSCENE_MAP_FLAG))
 
-    Shape: ``if (!once) { DisableMove; Wait(warmup); <steps>; EnableMove; once=1 }`` (no trailing
-    RETURN -- the Init's own RETURN follows). The ``warmup`` Wait (after the lock, so the player can't
-    wander) lets the field's entry fade + smooth-frame-updater settle before ANY actor command runs --
-    ALL of them, including a ``teleport``: issuing a teleport mid-transition makes the smooth-updater
-    fight it (the actor warps/slides erratically and the following walk never converges -> hang).
-    With ``once_flag=None`` the scene replays on every entry (ungated)."""
+
+def build_choreography(steps, txids, flag_idx: int, *, flag_class=CUTSCENE_FLAG_CLASS,
+                       warmup: int = DEFAULT_WARMUP) -> bytes:
+    """The gated choreography block, PREPENDED to the actor NPC's LOOP (tag 1) -- NOT its Init -- by
+    :func:`ff9mapkit.content.npc.inject_npc`. Runs in the NPC's own context (so the actor steps target
+    it) AND while the object is 'running' (engine state 1), where the engine ADVANCES animation frames.
+    (An Init runs at state 2, where ProcessAnime is skipped -> the model glides frozen; confirmed by an
+    in-engine probe -- so the choreography must live in the loop, like real FF9 cutscenes.)
+
+    Shape: ``if (!flag) { DisableMove; Wait(warmup); <steps>; EnableMove; flag=1 }`` (no trailing RETURN
+    -- the loop body + its RETURN follow). ALWAYS gated -- the loop runs every frame, so an ungated
+    block would re-fire endlessly; the flag makes it run once per visit. The ``warmup`` Wait (after the
+    lock, so the player can't wander) lets the field's entry fade settle before the actor moves."""
     inner = opcodes.DISABLE_MOVE
     if warmup > 0:
         inner += opcodes.wait(int(warmup))
-    inner += compile_steps(steps, txids) + opcodes.ENABLE_MOVE
-    if once_flag is not None:
-        inner += _region.set_var(flag_class, once_flag, 1)
-        return _region.if_block(_region.cond_not(flag_class, once_flag), inner)
-    return inner
+    inner += compile_steps(steps, txids) + opcodes.ENABLE_MOVE + _region.set_var(flag_class, flag_idx, 1)
+    return _region.if_block(_region.cond_not(flag_class, flag_idx), inner)
 
 
 def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS) -> bytes:
