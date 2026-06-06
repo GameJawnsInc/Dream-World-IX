@@ -13,6 +13,10 @@ from ff9mapkit.eb import EbScript, edit, disasm
 
 TOML = Path(sys.argv[1])
 FID = 4003
+# The 4003 slot is a SANDBOX: force the test build to id 4003 + a fixed name so ANY field.toml
+# (any id/name) tests here without colliding with a live field. (A field named like a live one --
+# e.g. HUT_INT -- would otherwise overwrite, and the revert delete, the real field's eb+scene.)
+TEST_NAME = "TESTROOM"
 OUT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "scroll_out")))
 OUT.mkdir(exist_ok=True)
 
@@ -25,9 +29,16 @@ if prior.exists():
     _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0   # no console flash when called by the GUI
     subprocess.run([sys.executable, str(prior)], creationflags=_flags)
 
-# build
+# build -- forced into the 4003 sandbox identity (id + name), so a field that declares id 4002 or a
+# live-colliding name still tests safely. The on-disk field.toml is untouched (override is in-memory).
 tmp = Path(tempfile.mkdtemp(prefix="deployfield_"))
-info = B.build_mod([B.FieldProject.load(TOML)], tmp / "mod", mod_name="FF9CustomMap")
+proj = B.FieldProject.load(TOML)
+_orig_id, _orig_name = proj.field.get("id"), proj.field.get("name")
+proj.raw.setdefault("field", {})["id"] = FID
+proj.raw["field"]["name"] = TEST_NAME
+if (_orig_id, _orig_name) != (FID, TEST_NAME):
+    print(f"sandbox: {_orig_name} (id {_orig_id}) -> {TEST_NAME} (id {FID}) for the test slot")
+info = B.build_mod([proj], tmp / "mod", mod_name="FF9CustomMap")
 FBG = info["fields"][0]
 name = info["dictionary"][0].split()[4]                     # script/field name (field 4: ...area MAPID NAME textid)
 text_block = int(info["dictionary"][0].split()[5])          # textid (field 5) -> dialogue .mes block
