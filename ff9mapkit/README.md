@@ -40,6 +40,18 @@ ff9mapkit build MY_ROOM/my_room.field.toml --out dist --mod-name MyMod
 ff9mapkit pack dist/MyMod --out MyMod.zip     # share it
 ```
 
+**Prefer not to touch TOML?** Author the *logic* (dialogue, events, story flags, encounters,
+music, cutscenes) in a form-based editor instead:
+
+```bash
+ff9mapkit edit MY_ROOM/my_room.field.toml     # forms, dropdowns, a cutscene step list
+```
+
+The visual side has a front-end too — the [**Blender add-on**](blender/README.md) places the
+camera, walkmesh, painted layers, and markers (NPCs, gateways, event zones, spawn) and writes the
+`scene.toml`. So the suite splits cleanly: **Blender = where things are, the editor = what they do**,
+and `build` compiles both.
+
 ## Commands
 
 | command | what it does |
@@ -51,6 +63,8 @@ ff9mapkit pack dist/MyMod --out MyMod.zip     # share it
 | `walkmesh obj <in> <out>` | convert an `.obj` walkmesh to `.bgi`; `walkmesh fix <bgi>` rebuilds neighbor links |
 | `disasm <eb>` | disassemble a field event script |
 | `build <field.toml>...` | compile project(s) into a Memoria mod |
+| `edit [field.toml]` | open the **form-based logic editor** (no TOML hand-editing) |
+| `lint <field.toml>` | check story-flag/placement logic without building |
 | `pack <mod>` | zip a built mod for distribution |
 
 ## Docs

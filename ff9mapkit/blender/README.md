@@ -76,6 +76,9 @@ Background Art → Content → Export**. A typical pass:
    - *Gateway* drops a wire quad (`FF9_Gateway`) — move/scale it over the exit on the floor, and set
      `ff9_to` (destination field id) + `ff9_entrance`. The player walks out across the quad's first
      edge, so orient that edge toward where they should step out.
+   - *Event* drops an amber wire quad (`FF9_Event`) — a walk-in trigger for chests / levers / story
+     events. Move/scale it over the trigger spot; set `ff9_message`, `ff9_set_flag` (-1 = none),
+     `ff9_once` inline (or flesh out the actions — give_item/gil/requires_flag — in the editor).
    - *Spawn* places the single `FF9_Spawn` marker — where the player appears on entry.
    Markers are read on export; their floor positions are taken from where you place them.
 8. **Export Field** (*Export* box) — set the field `id` / `name` / `area` / `text_block` and the
