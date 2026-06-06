@@ -295,6 +295,17 @@ def _cmd_list_fields(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_edit(args: argparse.Namespace) -> int:
+    """Launch the form-based field-logic editor (Tkinter)."""
+    try:
+        from .editor import app
+    except Exception as e:                       # noqa: BLE001 - e.g. tkinter missing on a headless box
+        print(f"could not start the editor UI (is tkinter installed?): {e}", file=sys.stderr)
+        return 2
+    app.main(args.field)
+    return 0
+
+
 def _not_yet(phase: str):
     def _run(args: argparse.Namespace) -> int:
         print(f"'{args._cmd}' is not implemented yet (coming in {phase}).", file=sys.stderr)
@@ -383,6 +394,10 @@ def build_parser() -> argparse.ArgumentParser:
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")
     lf.add_argument("pattern", nargs="?", default=None, help="substring filter (e.g. alex, treno, grgr)")
     lf.set_defaults(func=_cmd_list_fields)
+
+    ed = sub.add_parser("edit", help="open the form-based field-logic editor (no TOML hand-editing)")
+    ed.add_argument("field", nargs="?", default=None, help="a .field.toml to open (optional)")
+    ed.set_defaults(func=_cmd_edit)
 
     return p
 
