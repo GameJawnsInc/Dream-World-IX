@@ -447,6 +447,15 @@ def _write_links_toml(wm, path) -> int:
     return len(seams)
 
 
+MIN_CUSTOM_AREA = 10   # engine builds 'FBG_N<area>' + reads exactly 2 chars -> areas 0-9 black-screen
+
+
+def safe_custom_area(area: int) -> int:
+    """An area a CUSTOM scene (ships its own art) can safely render: a source area >= 10 as-is, else a
+    safe default (11). For BG-borrow the area MUST equal the real field's, so 0-9 can't borrow at all."""
+    return area if area >= MIN_CUSTOM_AREA else 11
+
+
 def write_editable_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                            text_block: int = 1073, game=None, bundle=None):
     """Fork a real field as a fully EDITABLE custom scene (vs BG-borrow): re-export its walkmesh via the
@@ -459,6 +468,14 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     out = Path(out_dir)
     meta = extract_field(field, out, game=game, bundle=bundle)     # writes camera.bgx + walkmesh.bgi
     name = name or (meta["mapid"].split("_")[0] + "_EDIT")
+    # A custom scene ships its own art under FBG_N<area>_<name>, so the area is just a folder key --
+    # any value >= 10 works (single-digit areas black-screen via the engine's 2-char FBG lookup).
+    # Remap a low source area to a safe one so forks of early-game (area 0-9) fields build + render.
+    safe_area = safe_custom_area(meta["area"])
+    remap_note = ("" if safe_area == meta["area"] else
+                  f"# NOTE: source area {meta['area']} < 10 black-screens via the engine's FBG_N<area> "
+                  f"lookup, so this\n# custom scene uses area {safe_area} (it ships its own art -- the "
+                  f"source area is just a folder key).\n")
     wm = bgi.BgiWalkmesh.from_bytes((out / "walkmesh.bgi").read_bytes())
     nfloors = len(wm.floors)
     (out / "walkmesh.obj").write_text(_world_walkmesh_obj_text(wm), encoding="utf-8", newline="\n")
@@ -503,11 +520,12 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f"# Re-exported walkmesh + the real art split into one layer per DEPTH (occlusion preserved).\n"
         f"# Repaint any layer_*.png, reshape walkmesh.obj, add content -- then:  ff9mapkit build {name}.field.toml\n"
         f"# Camera: pitch {cm['pitch_deg']} deg, FOV {cm['fov_deg']} deg, range {cm['range'][0]}x{cm['range'][1]}"
-        f"{' (SCROLLING)' if meta['scrolling'] else ''}.  Walkmesh bounds: x {wb['x']}  z {wb['z']}.\n\n"
+        f"{' (SCROLLING)' if meta['scrolling'] else ''}.  Walkmesh bounds: x {wb['x']}  z {wb['z']}.\n"
+        f"{remap_note}\n"
         f"[field]\n"
         f"id = {field_id}\n"
         f'name = "{name}"\n'
-        f"area = {meta['area']}\n"
+        f"area = {safe_area}\n"
         f"text_block = {text_block}\n\n"
         f"[camera]\n"
         f'borrow = "camera.bgx"\n'
@@ -534,6 +552,17 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
     `name` is the custom script/field id (must be unique vs real fieldids; defaults to
     '<MAPID-first-token>_FORK', e.g. 'GRGR_FORK'). Returns (metadata, field_toml_path).
     `ff9mapkit build <path>` compiles it; the author fills in NPCs/gateways/dialogue first."""
+    # BG-borrow reuses the REAL field's BG via FBG_N<area>_<mapid>; the engine builds that name with
+    # no zero-padding and reads exactly 2 chars for the area, so single-digit areas (0-9) black-screen.
+    # Catch it here with a clear pointer to --editable rather than emitting a field.toml that won't build.
+    folder, _b = resolve_field(field, game)
+    src_area, _m = parse_fbg_folder(folder)
+    if src_area < MIN_CUSTOM_AREA:
+        raise RuntimeError(
+            f"{folder} is in area {src_area}: BG-borrow can't render single-digit areas (the engine "
+            f"builds 'FBG_N<area>' and reads exactly 2 chars, so areas 0-9 black-screen). "
+            f"Fork it as a custom scene instead:  ff9mapkit import {field} --editable  "
+            f"(it ships its own art, so it runs at a safe area).")
     meta = extract_field(field, out_dir, game=game, bundle=bundle, want_atlas=want_atlas)
     name = name or (meta["mapid"].split("_")[0] + "_FORK")
     # real-art backdrop for the Blender import (only if the field was exported in-game once via
