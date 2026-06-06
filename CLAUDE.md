@@ -1450,3 +1450,24 @@ Both deferred v2 follow-ups, grounded + built:
 **The full content + scripting stack is now COMPLETE and in-game-proven:** rooms → cameras (single / scrolling / multi) → walkmesh (author / import / reshape) → NPCs / dialogue → gateways → encounters → events (chests / gil / flags) → story branching → **cutscenes (narration v1 + actor walk/turn/emote/teleport v2)** — authored declaratively (`field.toml` + Blender), linted, save-persistent flags, all in Python, zero Hades Workshop.
 
 **Next options:** (a) author a real, populated demo area end-to-end with the full stack (narrative content); (b) wire a story-positioned real-playthrough entrance + release-cleanup pass (remove debug warp, package); (c) Blender front-end support for cutscenes/events (the script side is text-authored today); (d) multi-camera v2 follow-ons or other polish.
+
+### 2026-06-06 — Session 19 — Authorship-suite UX: Blender event markers + a FORM-BASED logic editor (offline-built, AWAITING human verify)
+
+**User goal:** complete the authorship suite — "everything available to place in Blender" + "an easier way to edit scripts (accessible to people who don't wanna edit TOML)". User chose (AskUserQuestion) the **form-based desktop editor** over all-in-Blender / web / node-graph. The architecture that fell out: **Blender = where things are (spatial); a Tkinter editor = what they do (logic)**, keeping the proven `scene.toml` (Blender-owned) / `field.toml` (logic) split. All offline (Hard-Constraint §2: I can't run the Blender or Tk UI — the human verifies; the non-UI cores are fully unit-tested).
+
+**Done (234 tests pass; bpy-free + tk-free cores tested, UIs py_compiled):**
+- **Blender event-zone markers (add-on v0.8.0).** New `FF9_Event` marker (amber zone quad like a gateway) + operator + panel button + props (name/message/set_flag/once). Export splits it exactly like NPCs/gateways: the **zone → scene.toml**, the **actions → field.toml** stub, merged by name (the kit's `_ENTITY_LISTS` already had `"event"`). bpy-free `bridge.events_to_toml` + scene/field-split helpers; 3 offline tests. Rebuilt `dist/ff9mapkit_blender-0.8.0.zip`. So Blender now places NPC / gateway / **event** / spawn.
+- **The form-based logic editor (`ff9mapkit edit`).** Ships in-kit at `ff9mapkit/editor/`:
+  - `model.py` (tk-free): `dumps()` = a dependency-free, round-trip-safe TOML writer (`tomllib.loads(dumps(d)) == d`, proven on a representative doc + every bundled example) + `FieldDoc` that edits/saves the **logic file only**, never the Blender scene, with a `merged()` view that reuses `build._merge_scene` so what you see == what `build` compiles. 8 tests.
+  - `forms.py` (tk-free): spec-driven field definitions + parsers + entity↔form round-trip + cutscene-step helpers. 13 tests.
+  - `app.py` (Tkinter): a tree of logic sections (Field / Encounter / Music / Cutscene / NPCs / Gateways / Events), a generic spec-form panel, add/delete entities, a reorderable **cutscene step editor**, and **Check logic / Build to game / Build & Test(4003) / Revert** (reuses `build_mod` + `validate`/`lint_logic` + the dev deploy tools when present). The `_apply` glue is tested headlessly (2 tests).
+  - CLI `ff9mapkit edit [field.toml]` + `tools/ff9_editor.pyw` double-click launcher. README + Blender README updated.
+- Commits: `blender: event-zone markers`, `editor: model layer`, `editor: form-based field-logic editor`, `suite: add-on v0.8.0 + docs`.
+
+**Deliberately deferred (not yet built):** Blender **camera-switch zones + multi-camera posing** (the last "place in Blender" item — multi-camera *posing* is the hardest Blender piece, and it only makes sense paired with camera-zone markers; the editor intentionally punts all camera/spatial to Blender). Tracked as the next task.
+
+**AWAITING HUMAN VERIFY (two independent things):**
+1. **The editor:** run `py tools/ff9_editor.pyw` (or `ff9mapkit edit ff9mapkit/examples/vivi-hut/hut_int.field.toml`). Open an example, edit dialogue / add an event / add a cutscene with steps, Save, Check logic, and (optionally) Build & Test(4003). Confirm the UI works and the saved field.toml builds + plays.
+2. **Blender event markers:** install `ff9mapkit/blender/dist/ff9mapkit_blender-0.8.0.zip` (Get Extensions → Install from Disk), drop an **Event** marker, set message/set_flag, Export → `ff9mapkit build` → walk into the zone in-game (chest/lever fires).
+
+**Next:** after verify — Blender camera-zones + multi-camera posing (task #55); then final docs/packaging polish (task #60).
