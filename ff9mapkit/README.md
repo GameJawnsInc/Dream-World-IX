@@ -83,6 +83,7 @@ and `build` compiles both.
 
 ## Docs
 
+- [`docs/TUTORIAL.md`](docs/TUTORIAL.md) — **start here:** your first custom field in ~10 minutes.
 - [`docs/FEATURES.md`](docs/FEATURES.md) — **the full capability list** (+ before/now comparison).
 - [`docs/gallery/`](docs/gallery/) — each feature in action (screenshots / GIFs).
 - [`docs/FORMAT.md`](docs/FORMAT.md) — the `field.toml` schema.
