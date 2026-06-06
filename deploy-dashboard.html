@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FF9 Map Kit — Command Dashboard</title>
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --ink: #e6ecf5;
+      --accent: #4a9fd4;
+      --accent-soft: rgba(74, 159, 212, 0.35);
+      --muted: #6a7585;
+      --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--mono);
+      min-height: 100vh;
+      padding: 2rem 1.5rem 4rem;
+    }
+    header { max-width: 1100px; margin: 0 auto 2.5rem; text-align: center; }
+    header h1 {
+      font-size: 1.6rem; font-weight: 400; letter-spacing: 0.15em;
+      text-transform: uppercase; color: var(--ink);
+    }
+    header p { margin-top: 0.5rem; font-size: 0.9rem; letter-spacing: 0.05em; color: var(--muted); }
+    main { max-width: 1100px; margin: 0 auto; display: grid; gap: 2.5rem; }
+    section h2 {
+      font-size: 1rem; font-weight: 400; letter-spacing: 0.15em; text-transform: uppercase;
+      color: var(--accent); border-bottom: 1px solid var(--accent-soft);
+      padding-bottom: 0.5rem; margin-bottom: 1rem;
+    }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 1rem; }
+    .tile {
+      background: rgba(0, 0, 0, 0.3); border: 1px solid var(--muted); padding: 1.25rem 1.5rem;
+      cursor: pointer; transition: border-color 0.15s ease, background-color 0.15s ease;
+      text-align: left; font-family: inherit; color: inherit;
+      display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .tile:hover { border-color: var(--accent); background: rgba(74, 159, 212, 0.06); }
+    .tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tile-title { font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); }
+    .tile-desc { font-size: 0.85rem; line-height: 1.45; color: var(--muted); }
+    .tile-cmd {
+      margin-top: 0.25rem; padding: 0.6rem 0.8rem; background: rgba(0, 0, 0, 0.5);
+      border-left: 2px solid var(--accent-soft); font-size: 0.78rem; color: var(--ink);
+      word-break: break-all; white-space: pre-wrap;
+    }
+    .tile-cmd b { color: var(--accent); font-weight: 600; }
+    .tile-hint { font-size: 0.72rem; color: var(--accent); letter-spacing: 0.04em; }
+    .tile.copied { border-color: var(--accent); }
+    .tile.copied .tile-title::after { content: '  ✓ Copied'; color: var(--accent); letter-spacing: 0.05em; }
+
+    /* argument modal */
+    .overlay {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.72); z-index: 20;
+      display: none; align-items: flex-start; justify-content: center; padding: 4vh 1.5rem;
+    }
+    .overlay.show { display: flex; }
+    .modal {
+      background: var(--bg); border: 1px solid var(--accent); width: 100%; max-width: 700px;
+      max-height: 92vh; overflow: auto; padding: 1.75rem 1.9rem;
+    }
+    .modal h3 { font-size: 1.1rem; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); }
+    .modal .modal-desc { margin-top: 0.5rem; font-size: 0.85rem; line-height: 1.5; color: var(--muted); }
+    .field { margin-top: 1.25rem; }
+    .field label { display: block; font-size: 0.82rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink); margin-bottom: 0.3rem; }
+    .field label .opt { color: var(--muted); text-transform: none; letter-spacing: 0; }
+    .field .help { font-size: 0.78rem; line-height: 1.45; color: var(--muted); margin-bottom: 0.45rem; }
+    .field input {
+      width: 100%; padding: 0.55rem 0.7rem; background: rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--muted); color: var(--ink); font-family: var(--mono); font-size: 0.86rem;
+    }
+    .field input:focus { outline: none; border-color: var(--accent); }
+    .modal-preview {
+      margin-top: 1.4rem; padding: 0.7rem 0.9rem; background: rgba(0, 0, 0, 0.55);
+      border-left: 2px solid var(--accent); font-size: 0.82rem; color: var(--ink);
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .modal-preview .missing { color: #e0894a; }
+    .modal-actions { margin-top: 1.4rem; display: flex; gap: 0.75rem; justify-content: flex-end; }
+    .btn {
+      padding: 0.55rem 1.2rem; background: transparent; border: 1px solid var(--muted); color: var(--ink);
+      font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+    .toast {
+      position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%) translateY(2rem);
+      padding: 0.7rem 1.5rem; background: var(--accent); color: var(--bg); font-size: 0.85rem;
+      letter-spacing: 0.1em; text-transform: uppercase; opacity: 0; pointer-events: none; z-index: 30;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    footer {
+      max-width: 1100px; margin: 3rem auto 0; padding-top: 1.5rem; border-top: 1px solid var(--muted);
+      font-size: 0.75rem; color: var(--muted); letter-spacing: 0.05em; line-height: 1.6; text-align: center;
+    }
+    footer code { font-family: var(--mono); color: var(--ink); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>FF9 Map Kit — Command Dashboard</h1>
+    <p>Click a tile to copy its command. Tiles with arguments open a fill-in form.</p>
+  </header>
+
+  <main><!-- rendered from the JS below --></main>
+
+  <footer>
+    Each command <code>cd</code>s into the repo first, so it works from any prompt. Tiles marked
+    <span style="color:var(--accent)">▸ fill in arguments</span> open a form; the rest copy on click.
+    Tools live in <code>C:/gd/FFIX/tools/</code>; the CLI is <code>py -m ff9mapkit</code>.
+    Find a field name with <b>list-fields</b> (map codes look like <code>ALXC / GRGR / GLGV / TRNO</code>).
+  </footer>
+
+  <div class="overlay" id="overlay"></div>
+  <div class="toast" id="toast">Copied to clipboard</div>
+
+  <script>
+    // Forward slashes work fine in PowerShell + Python on Windows.
+    var ROOT = 'C:/gd/FFIX';
+    var CD = 'cd ' + ROOT + '; ';                 // prefix so commands run from any prompt
+    var CDKIT = 'cd ' + ROOT + '/ff9mapkit; ';    // pytest runs from the package dir
+
+    // A tile is: { title, desc, cmd, [args] }.
+    //   No `args`  -> clicking copies `cmd` verbatim.
+    //   With `args` -> `cmd` is a template with {tokens}; clicking opens a form that fills them in.
+    //   Each arg: { name (token), label, help, example, optional? }.
+    var TOML = { name: 'toml', label: 'field.toml path', example: 'human/GLGV_FORK.field.toml',
+      help: 'Path to the field.toml you imported or authored (relative to the repo). e.g. human/GLGV_FORK.field.toml' };
+    var FIELD = { name: 'field', label: 'Field name', example: 'glgv_map792_gv_rm1_0',
+      help: 'The real FF9 field to fork — its FBG folder name. Find one with the "Find a field" tile. e.g. glgv_map792_gv_rm1_0' };
+    var OUT = { name: 'out', label: 'Output folder', example: 'human',
+      help: 'Folder to write the generated field.toml + camera/walkmesh into (relative to the repo).' };
+
+    var sections = [
+      {
+        name: 'Import a real field (fork)',
+        tiles: [
+          {
+            title: 'Find a field',
+            desc: 'List real FF9 fields whose name contains a substring (needs UnityPy). Use a printed name in the import tiles.',
+            cmd: CD + 'py -m ff9mapkit list-fields {pattern}',
+            args: [{ name: 'pattern', label: 'Search substring', example: 'grotto', optional: true,
+              help: 'Part of a field name or map code (ALXC=Alexandria, GRGR=Gargan Roo, GLGV=Gizamaluke, TRNO=Treno…). Leave blank to list every field.' }]
+          },
+          {
+            title: 'Import — BG-borrow',
+            desc: 'Fork a real field reusing its art + walkmesh + camera, and EXTRACT its exits / encounter / BGM / movement into the field.toml. Fastest; art is not editable.',
+            cmd: CD + 'py -m ff9mapkit import {field} --out {out}',
+            args: [FIELD, OUT]
+          },
+          {
+            title: 'Import — editable',
+            desc: 'Fork into a full repaintable custom scene (one PNG layer per depth, occlusion kept) + extracted content. Needs the field exported in-game once via Memoria.ini [Export] Field=1.',
+            cmd: CD + 'py -m ff9mapkit import {field} --editable --out {out}',
+            args: [FIELD, OUT]
+          }
+        ]
+      },
+      {
+        name: 'Build & test (the loop)',
+        tiles: [
+          {
+            title: 'Deploy to test field 4003',
+            desc: 'Build ANY field.toml and deploy it to the 4003 sandbox (reachable via the hut interior door / Alexandria warp). Reverts any prior 4003 test first. The everyday test command.',
+            cmd: CD + 'py tools/deploy_field.py {toml}',
+            args: [TOML]
+          },
+          {
+            title: 'Revert the 4003 test field',
+            desc: 'Undo the last deploy_field.py — restores field 4003 to its previous state. Run before switching tests, or to clean up. (No arguments.)',
+            cmd: CD + 'py tools/scroll_out/revert_deploy.py'
+          },
+          {
+            title: 'Build a mod (no deploy)',
+            desc: 'Compile a field.toml into a standalone drop-in Memoria mod folder. Use to package, not to quick-test.',
+            cmd: CD + 'py -m ff9mapkit build {toml} --out {out} --mod-name {mod}',
+            args: [TOML,
+              { name: 'out', label: 'Output mod folder', example: 'dist', help: 'Where to write the built mod (relative to the repo).' },
+              { name: 'mod', label: 'Mod name', example: 'MyMod', help: 'Mod folder name + ModDescription Name. Letters/digits.' }]
+          },
+          {
+            title: 'Lint logic',
+            desc: 'Story-flag + content-placement sanity checks on a field.toml without building (dangling requires_flag, off-walkmesh content, dup names). Exits non-zero on any issue.',
+            cmd: CD + 'py -m ff9mapkit lint {toml}',
+            args: [TOML]
+          },
+          {
+            title: 'Verify walkmesh',
+            desc: 'Floors / reachability / seams / content-placement checks for a field, without building.',
+            cmd: CD + 'py -m ff9mapkit walkmesh verify {toml}',
+            args: [{ name: 'toml', label: 'field.toml or .bgi path', example: 'human/GLGV_FORK.field.toml',
+              help: 'A field.toml (resolved like build), or a raw walkmesh .bgi to inspect.' }]
+          }
+        ]
+      },
+      {
+        name: 'Author (GUIs + scaffolds)',
+        tiles: [
+          {
+            title: 'Build GUI',
+            desc: 'Point-and-click window to build + test-deploy a field.toml (wraps build/deploy/revert). Easiest if you forget the CLI. (No arguments.)',
+            cmd: CD + 'py tools/ff9_build_gui.pyw'
+          },
+          {
+            title: 'Logic editor',
+            desc: 'Form-based editor for the LOGIC half (dialogue, events, encounters, story flags, cutscenes) — no TOML by hand. Open a copy, not a bundled example.',
+            cmd: CD + 'py -m ff9mapkit edit {toml}',
+            args: [TOML]
+          },
+          {
+            title: 'New blank field',
+            desc: 'Scaffold a fresh project (placeholder art + flat walkmesh) that builds immediately; then paint/edit it.',
+            cmd: CD + 'py -m ff9mapkit new {name} --area {area}',
+            args: [
+              { name: 'name', label: 'Field name', example: 'MY_ROOM', help: 'Short tag (letters/digits/_). Becomes FBG_N<area>_<name>.' },
+              { name: 'area', label: 'Area number', example: '11', help: 'Must be >= 10 — single-digit areas black-screen in the engine.' }]
+          },
+          {
+            title: 'Paint guide',
+            desc: 'Render a pixel-accurate paint guide PNG for a chosen camera pitch (floor outline + perspective grid + height poles) to trace your background over.',
+            cmd: CD + 'py -m ff9mapkit guide --pitch {pitch} --png {png}',
+            args: [
+              { name: 'pitch', label: 'Camera pitch (degrees)', example: '48', help: 'Downward tilt. Real FF9 fields: ~15–48; steeper top-down also works.' },
+              { name: 'png', label: 'Output PNG path', example: 'guide.png', help: 'Where to write the guide image.' }]
+          }
+        ]
+      },
+      {
+        name: 'Reach the room in-game (debug warp)',
+        tiles: [
+          {
+            title: 'Alexandria fast-warp ON',
+            desc: 'New Game spawns you AT the Alexandria door → step in → field 4003 (skips the hut hops). Reversible. Real exits 101/107/114 untouched. (No arguments.)',
+            cmd: CD + 'py tools/alex_fast_warp.py'
+          },
+          {
+            title: 'Revert fast-warp',
+            desc: 'Restore the normal Alexandria door target + New-Game spawn. (No arguments.)',
+            cmd: CD + 'py tools/scroll_out/revert_alex_fast_warp.py'
+          }
+        ]
+      },
+      {
+        name: 'Engine & housekeeping',
+        tiles: [
+          {
+            title: 'Doctor',
+            desc: 'Resolve + sanity-check the game/mod paths, kit version, and UnityPy. Run first if anything misbehaves. (No arguments.)',
+            cmd: CD + 'py -m ff9mapkit doctor'
+          },
+          {
+            title: 'Restore engine DLL (baseline)',
+            desc: 'Revert Assembly-CSharp to the no-edits rebuild (isolates the dev engine edits). Full stock = re-run the Memoria patcher. (No arguments.)',
+            cmd: CD + 'py tools/restore_memoria_dll.py baseline'
+          },
+          {
+            title: 'Run kit tests',
+            desc: 'The offline test suite (codecs, builder, content injectors, import scanner). Should be all green. (No arguments.)',
+            cmd: CDKIT + 'py -m pytest -q'
+          },
+          {
+            title: 'Build Blender add-on',
+            desc: 'Re-sync the vendored math + repackage the add-on zip into ff9mapkit/blender/dist/. Run after changing the add-on. (No arguments.)',
+            cmd: CD + 'py ff9mapkit/blender/build_addon.py'
+          }
+        ]
+      }
+    ];
+
+    var main = document.querySelector('main');
+    var overlay = document.getElementById('overlay');
+    var toast = document.getElementById('toast');
+    var toastTimer = null;
+
+    sections.forEach(function (section) {
+      var sec = document.createElement('section');
+      var h2 = document.createElement('h2');
+      h2.textContent = section.name;
+      sec.appendChild(h2);
+      var grid = document.createElement('div');
+      grid.className = 'tiles';
+      section.tiles.forEach(function (tile) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tile';
+        var hint = tile.args ? '<div class="tile-hint">▸ fill in arguments</div>' : '';
+        btn.innerHTML =
+          '<div class="tile-title">' + escapeHtml(tile.title) + '</div>' +
+          '<div class="tile-desc">'  + escapeHtml(tile.desc)  + '</div>' +
+          '<div class="tile-cmd">'   + renderCmd(tile)        + '</div>' + hint;
+        btn.addEventListener('click', function () {
+          if (tile.args) openModal(tile); else copyCmd(btn, tile.cmd);
+        });
+        grid.appendChild(btn);
+      });
+      sec.appendChild(grid);
+      main.appendChild(sec);
+    });
+
+    // --- argument modal ---
+    var escListener = null;
+    function openModal(tile) {
+      var fieldsHtml = tile.args.map(function (a) {
+        return '<div class="field">' +
+          '<label for="arg_' + a.name + '">' + escapeHtml(a.label) +
+            (a.optional ? ' <span class="opt">(optional)</span>' : '') + '</label>' +
+          '<div class="help">' + escapeHtml(a.help) + '</div>' +
+          '<input id="arg_' + a.name + '" data-arg="' + a.name + '" value="' + escapeHtml(a.example || '') + '">' +
+        '</div>';
+      }).join('');
+      overlay.innerHTML =
+        '<div class="modal" role="dialog" aria-modal="true">' +
+          '<h3>' + escapeHtml(tile.title) + '</h3>' +
+          '<p class="modal-desc">' + escapeHtml(tile.desc) + '</p>' +
+          fieldsHtml +
+          '<div class="modal-preview" id="modalPreview"></div>' +
+          '<div class="modal-actions">' +
+            '<button class="btn" type="button" data-close>Cancel</button>' +
+            '<button class="btn primary" type="button" id="modalCopy">Copy command</button>' +
+          '</div>' +
+        '</div>';
+      var inputs = overlay.querySelectorAll('input[data-arg]');
+      function values() {
+        var v = {};
+        inputs.forEach(function (i) { v[i.getAttribute('data-arg')] = i.value; });
+        return v;
+      }
+      function refresh() {
+        document.getElementById('modalPreview').innerHTML = previewHtml(tile.cmd, values(), tile.args);
+      }
+      inputs.forEach(function (i) {
+        i.addEventListener('input', refresh);
+        i.addEventListener('keydown', function (e) { if (e.key === 'Enter') doCopy(); });
+      });
+      function doCopy() {
+        copyText(fill(tile.cmd, values(), tile.args));
+        closeModal();
+      }
+      overlay.querySelector('#modalCopy').addEventListener('click', doCopy);
+      overlay.querySelector('[data-close]').addEventListener('click', closeModal);
+      overlay.addEventListener('click', onOverlayClick);
+      escListener = function (e) { if (e.key === 'Escape') closeModal(); };
+      document.addEventListener('keydown', escListener);
+      overlay.classList.add('show');
+      refresh();
+      if (inputs[0]) { inputs[0].focus(); inputs[0].select(); }
+    }
+    function onOverlayClick(e) { if (e.target === overlay) closeModal(); }
+    function closeModal() {
+      overlay.classList.remove('show');
+      overlay.removeEventListener('click', onOverlayClick);
+      if (escListener) { document.removeEventListener('keydown', escListener); escListener = null; }
+      overlay.innerHTML = '';
+    }
+
+    // Substitute {tokens}; required-empty -> <name> placeholder, optional-empty -> dropped.
+    function fill(tmpl, values, spec) {
+      return tmpl.replace(/\{(\w+)\}/g, function (m, k) {
+        var v = (values[k] || '').trim();
+        if (v) return v;
+        var a = spec && spec.filter(function (x) { return x.name === k; })[0];
+        return (a && a.optional) ? '' : '<' + k + '>';
+      }).replace(/[ \t]{2,}/g, ' ').replace(/\s+$/,'');
+    }
+    function previewHtml(tmpl, values, spec) {
+      // same as fill, but mark unresolved <name> placeholders in warning colour
+      var out = fill(tmpl, values, spec);
+      return escapeHtml(out).replace(/&lt;\w+&gt;/g, function (m) { return '<span class="missing">' + m + '</span>'; });
+    }
+
+    // --- tile command rendering (templates show their {tokens} highlighted) ---
+    function renderCmd(tile) {
+      var s = escapeHtml(tile.cmd);
+      if (tile.args) s = s.replace(/\{(\w+)\}/g, function (m, k) { return '<b>&lt;' + k + '&gt;</b>'; });
+      return s;
+    }
+
+    // --- clipboard + toast ---
+    function copyCmd(btn, text) {
+      copyText(text, function () {
+        btn.classList.add('copied');
+        setTimeout(function () { btn.classList.remove('copied'); }, 1400);
+      });
+    }
+    function copyText(text, onOk) {
+      function done() { if (onOk) onOk(); showToast(); }
+      function fail(err) { showToast('Copy failed - select it manually'); console.error(err); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(fail);
+      } else {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+          document.body.removeChild(ta); done();
+        } catch (e) { fail(e); }
+      }
+    }
+    function showToast(msg) {
+      toast.textContent = msg || 'Copied to clipboard';
+      toast.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { toast.classList.remove('show'); }, 1600);
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+  </script>
+</body>
+</html>

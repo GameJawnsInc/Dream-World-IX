@@ -1543,3 +1543,23 @@ User (post version-bump): polish the **script editor** for clarity/noob-friendli
 **Offline end-to-end PROVEN against the real game (read-only, no launch):** `import glgv_map792_gv_rm1_0` → field.toml with its **2 real exits** (→2350 ent 20, →2351 ent 21), real **encounter** (scenes [210,210,210,349] freq 104), **BGM 110**, movement 0 — and it **`build`s** clean. (The Blender import/editable path is unaffected — content lives in the logic `field.toml`, which Blender export preserves.)
 
 **AWAITING IN-GAME (user):** import a real field (borrow), `build` + deploy to 4003, walk into an exit → it should warp to the real destination; confirm encounters trigger + BGM plays. Then the fork keeps the real place's exits/battles/music out of the box. **Next options:** multi-camera *switch-zone* extraction (the deferred ~8% case); or back to the release plan.
+
+### 2026-06-06 — Session 19 (cont) — Instant New-Game warp + engine reduced to STOCK + F6 (in-game verified)
+
+**Two deliverables, both in-game-verified.** (1) A command **dashboard** (`deploy-dashboard.html`, repo root) — click-to-copy of the everyday commands; arg'd commands open a fill-in form (labels + help + live preview), no-arg ones copy on click. (2) **Instant New-Game warp into 4003**, then **reduced the dev engine to stock + only the F6 hotkey** so the mod is fully stock-Memoria-releasable (user goal: stop depending on Memoria / PRs).
+
+**Engine inventory + the PR (answered for the user):** 4 local Assembly-CSharp edits existed — `BGSCENE_DEF` fade-cache, `SettingsState` booster-auto-on, `EventEngine.Initialize` New-Game→100, `FieldMap` F6. **The shipped mod needed NONE of them** (content + the battle-return fade [`.eb` tag-10 FadeFilter] are mod files). **PR #1433 (FieldCreatorScene PNG path) is irrelevant to us** — it fixes the in-game editor's `ExportMemoriaBGX`; the `[Export] Field=1` path `--editable` import relies on is a *separate* function (`FieldSceneExporter` → `FieldMaps/<FBG>/OverlayN.png`) that never calls it. So we owe Memoria nothing.
+
+**Decision (user):** keep ONLY F6 in the dev engine → drop the other 3. Reverted them in the clone (`git checkout`, kept `FieldMap.cs`), rebuilt (`msbuild … '-p:SolutionDir=C:\gd\FFIX\Memoria\'`, auto-deploys x64+x86; verified fade-cache marker gone, New-Game back to stock `fldMapNo=70`, F6 intact). Backed up the 4-edit DLL first (`backups/Assembly-CSharp.dll.4edit-dev.*`). Deployed engine now = base `6b8bb2d5` + F6 only.
+
+**The warp (`tools/newgame_warp.py`, pure-mod, reversible `tools/scroll_out/revert_newgame_warp.py`):** appends a code entry that does the **proven field-70 fade+Field transition** (verbatim block: DisableMove; DisableMenu; FadeFilter; Wait(25); set D8:2=entrance; PreloadField; Field), activated by a **shift-free overwrite** of an executed instruction in Main_Init.
+- **Dev-engine mode (default):** field 100 (where the dev engine sent New Game) → Field(4003), gated on entrance 231 so the hut-return (204)/normal arrivals are untouched.
+- **`--stock` mode (now live):** field 70 (stock New-Game opening) → `Field(100, 231)` → field 100 sets up the party + runs its →4003 warp → 4003. **Why the double-hop:** `EventEngine.NewGame()` does NOT create the party (verified in source) — field 100's script does, so routing through it keeps a normal party (a direct field-70→4003 would land party-less).
+
+**Two bugs cracked en route (both in memory `project-ff9-eb-script-tooling`):**
+1. **Dead-code activation.** First attempt overwrote a Main_Init `Wait` that sits right after `op_01` — which is the engine's **unconditional JMP** (undocumented in `DoEventCode` alongside 0x02/0x03/0x06), so it was skipped and the warp never fired (New Game → normal Alexandria). Fix: activate at an instruction inside the **InitRegion cluster** (proven executed — the door's InitRegion lives there), before that jump.
+2. **Party not from NewGame().** `NewGame()` only clears state + picks the field; the party comes from the entered field's script → the stock warp must route through field 100.
+
+**Human verified (in-game):** New Game on the stock+F6 engine → ~200ms opening + ~200ms Alexandria (the two field loads/fades of the double-hop) → **4003**. User: insignificant wait, accepted as-is (removing the Alexandria flash = skipping field 100 = losing the party). Tagged `KNOWN_GOOD-s19-stock-f6-warp`.
+
+**State:** dev engine = stock + F6 (mod is engine-independent / stock-releasable). Warp deployed `--stock` (field 70→100→4003). Boosters now manual (ini cheats + F1/F3; auto-on dropped). `s12-engine-edits.patch` no longer deployed (kept as record + the 4-edit DLL backup); only `s18-field-reload-hotkey.patch` (F6) is live. PR #1433 left as-is (not needed).
