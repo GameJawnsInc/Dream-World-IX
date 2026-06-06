@@ -73,10 +73,13 @@ class EditorApp:
 
         self.status = scrolledtext.ScrolledText(root, height=7, state="disabled", wrap="word")
         self.status.pack(fill="x", padx=6, pady=(0, 6))
-        self._log("Open a .field.toml, or New. Edit logic on the right; placement stays in Blender.")
+        self._log("Open a .field.toml, or New. Edit logic on the right; placement stays in Blender. "
+                  "New here? Click Help for a 30-second tour.")
         root.after(120, self._drain)
         if path:
             self._load(Path(path))
+        else:
+            self._show_welcome()
 
     # --------------------------------------------------------------- toolbar
     def _build_toolbar(self):
@@ -98,6 +101,31 @@ class EditorApp:
             ttk.Button(bar, text="Revert test", command=self.on_revert).pack(side="left", padx=(6, 0))
         self.title_lbl = ttk.Label(bar, text="(no file)")
         self.title_lbl.pack(side="right")
+        ttk.Button(bar, text="Help", command=self.on_help).pack(side="right", padx=(0, 8))
+
+    def on_help(self):
+        messagebox.showinfo(
+            "FF9 Map Kit - Field Editor",
+            "WHAT THIS IS\n"
+            "A form-based editor for a field's LOGIC: dialogue, NPCs, events, story flags, "
+            "encounters, music, and cutscenes. No hand-writing TOML.\n\n"
+            "WHERE PLACEMENT LIVES\n"
+            "The camera, the walkmesh, and where things stand are SPATIAL -- you set those in "
+            "Blender (the FF9 Map Kit add-on). This editor only touches the logic file "
+            "(<name>.field.toml) and never your Blender scene (<name>.scene.toml).\n\n"
+            "GETTING A FILE TO OPEN\n"
+            "  - ff9mapkit new MY_ROOM      scaffold a blank room\n"
+            "  - ff9mapkit import <field>   fork a real FF9 field (add --editable to repaint it)\n"
+            "  - the Blender add-on's Export\n\n"
+            "WORKFLOW\n"
+            "Open -> pick a section on the left -> fill the form -> Save -> Check logic -> Build.\n"
+            "A section marked (+) can be added; NPCs / Gateways / Events each hold a list of items.\n\n"
+            "A FEW FIELDS\n"
+            "  - Field ID: any unique number >= 4000.\n"
+            "  - Area: must be >= 10 (lower areas don't render).\n"
+            "  - Text block: leave at 1073 unless you know otherwise.\n"
+            "  - NPC preset: vivi or zidane is the easy path (a custom model also needs anims set "
+            "in the .toml).")
 
     # --------------------------------------------------------------- logging
     def _log(self, msg):
@@ -135,7 +163,7 @@ class EditorApp:
         split = " (+ scene.toml)" if self.doc.scene_data is not None else ""
         self.title_lbl.configure(text=path.name + split)
         self._log(f"opened {path.name}{split}")
-        self._refresh_tree()
+        self._refresh_tree(reselect="field")     # land on the Field form (clears the welcome)
 
     def on_new(self):
         f = filedialog.asksaveasfilename(title="New field.toml", defaultextension=".field.toml",
@@ -151,7 +179,7 @@ class EditorApp:
         self.doc = FieldDoc.new(p, name=name.upper())
         self.active = None
         self.title_lbl.configure(text=p.name + " (new, unsaved)")
-        self._refresh_tree()
+        self._refresh_tree(reselect="field")     # land on the Field form (clears the welcome)
         self._log(f"new field {name.upper()} -- fill in [field], add content, then Save.")
 
     def on_save(self):
@@ -216,6 +244,24 @@ class EditorApp:
         self.getters = {}
         self.step_widgets = None
         self.active = None
+
+    def _show_welcome(self):
+        """Empty-state guidance shown before any file is open (newcomer's first screen)."""
+        self._clear_form()
+        msg = (
+            "FF9 Map Kit - Field Editor\n\n"
+            "This edits a field's LOGIC: dialogue, NPCs, events, story flags, encounters, music, and "
+            "cutscenes. The SPATIAL side -- the camera, the walkmesh, and where things stand -- is "
+            "authored in Blender; this editor never changes it.\n\n"
+            "Open a .field.toml to start. You can get one from:\n"
+            "    - ff9mapkit new MY_ROOM       a blank room\n"
+            "    - ff9mapkit import <field>    fork a real FF9 field\n"
+            "    - the Blender add-on's Export\n\n"
+            "Then: pick a section on the left, fill in the form, Save, Check logic, Build.\n\n"
+            "On the left, a section marked (+) is one you can add (Encounter, Music, Cutscene) or add "
+            "items to (NPCs, Gateways, Events). Click Help in the toolbar any time."
+        )
+        ttk.Label(self.form, text=msg, justify="left", wraplength=560).pack(anchor="nw", padx=14, pady=14)
 
     def _show(self, iid):
         self._clear_form()
