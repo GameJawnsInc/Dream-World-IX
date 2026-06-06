@@ -92,19 +92,29 @@ def actor_teleport(x: int, z: int) -> bytes:
     return opcodes.move_instant_xzy(int(x), int(z), 0) + opcodes.set_pathing(1)
 
 
-def actor_animation(anim: int) -> bytes:
-    """Step: play animation ``anim`` on the actor and wait for it to finish (RunAnimation+WaitAnimation)."""
-    return opcodes.run_animation(int(anim)) + opcodes.wait_animation()
+# Cutscene steps are NON-BLOCKING on the animation system: we never use WaitAnimation/WaitTurn,
+# because they HANG if the actor's anim playback doesn't drive them to completion (a player-cloned
+# NPC's walk/turn anims don't always engage -> WaitTurn/WaitAnimation never return -> softlock). A
+# turn is done INSTANTLY (no turn anim needed); an animation is played then given a fixed hold.
+ANIM_HOLD = 40          # frames to let a played animation run before the next step (~1.3s)
 
 
-def actor_turn(angle: int, speed: int = 16) -> bytes:
-    """Step: turn the actor to face ``angle`` (0=south, 64=west, 128=north, 192=east), animated."""
-    return opcodes.timed_turn(int(angle), int(speed)) + opcodes.wait_turn()
+def actor_animation(anim: int, hold: int = ANIM_HOLD) -> bytes:
+    """Step: play animation ``anim`` on the actor, then hold ``hold`` frames (RunAnimation + a fixed
+    Wait -- NOT WaitAnimation, which hangs if the anim doesn't complete)."""
+    return opcodes.run_animation(int(anim)) + opcodes.wait(int(hold))
+
+
+def actor_turn(angle: int) -> bytes:
+    """Step: face ``angle`` INSTANTLY (0=south, 64=west, 128=north, 192=east). Instant (TurnInstant) so
+    it works without a turn animation and never hangs."""
+    return opcodes.turn_instant(int(angle))
 
 
 def actor_face(uid: int = PLAYER_UID, speed: int = 16) -> bytes:
-    """Step: turn the actor to face an object by UID (default 250 = the player), animated."""
-    return opcodes.turn_toward_object(int(uid), int(speed)) + opcodes.wait_turn()
+    """Step: turn the actor to face an object by UID (default 250 = the player), animated, non-blocking
+    (no WaitTurn). Visible only if the turn anim engages; for a guaranteed instant facing use ``turn``."""
+    return opcodes.turn_toward_object(int(uid), int(speed))
 
 
 def compile_steps(steps, txids) -> bytes:
