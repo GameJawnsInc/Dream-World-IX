@@ -55,7 +55,7 @@ class FF9MK_PT_panel(bpy.types.Panel):
                       icon="OUTLINER_OB_CAMERA")
         c = None
         try:
-            c = ops.active_camera_to_ff9(context)
+            c = ops.selected_or_scene_camera_ff9(context)   # readout follows the selected camera
         except Exception:   # noqa: BLE001 - never let a readout break the panel
             c = None
         if c is not None:

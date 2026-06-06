@@ -258,6 +258,17 @@ def active_camera_to_ff9(context):
     return _camera_obj_to_ff9(context, cam_obj)
 
 
+def selected_or_scene_camera_ff9(context):
+    """The SELECTED camera as an FF9 cam.Cam (so the panel readout follows the camera you're editing in
+    a multi-camera field), else the scene's active camera. None if there's no camera."""
+    cam_obj = context.active_object
+    if cam_obj is None or cam_obj.type != "CAMERA":
+        cam_obj = context.scene.camera
+    if cam_obj is None or cam_obj.type != "CAMERA":
+        return None
+    return _camera_obj_to_ff9(context, cam_obj)
+
+
 def _collect_cameras(context):
     """All FF9 camera objects, sorted by their ``ff9_cam`` index (0 = default at load). The main
     FF9_Camera counts as index 0 even if untagged (single-camera fields). Returns a list of objects."""
@@ -420,13 +431,19 @@ class FF9MK_OT_pose_camera(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        cam_obj = context.scene.camera
+        # pose the SELECTED camera if one is selected (so you can edit camera 1, 2, ... independently);
+        # else the scene's active camera. Setting scene.camera makes the viewport look through it.
+        cam_obj = context.active_object
         if cam_obj is None or cam_obj.type != "CAMERA":
-            self.report({"ERROR"}, "No active camera (run Setup FF9 Scene first).")
+            cam_obj = context.scene.camera
+        if cam_obj is None or cam_obj.type != "CAMERA":
+            self.report({"ERROR"}, "Select a camera (or run Setup FF9 Scene first).")
             return {"CANCELLED"}
         p = context.scene.ff9mapkit
+        context.scene.camera = cam_obj
         _pose_camera(cam_obj, p)
         _apply_canvas_resolution(context, *_range_wh(p))
+        self.report({"INFO"}, f"posed {cam_obj.name} (pitch {p.pitch:g}, yaw {p.yaw:g})")
         return {"FINISHED"}
 
 
@@ -656,7 +673,8 @@ def _cursor_floor(context):
 
 
 def _link_active(context, obj):
-    context.collection.objects.link(obj)
+    if obj.name not in context.collection.objects:       # idempotent: don't double-link an already-linked obj
+        context.collection.objects.link(obj)
     for o in context.selected_objects:
         o.select_set(False)
     obj.select_set(True)
@@ -824,11 +842,10 @@ class FF9MK_OT_add_camera(bpy.types.Operator):
         cam_data = bpy.data.cameras.new(f"FF9_Camera_{idx}")
         obj = bpy.data.objects.new(f"FF9_Camera_{idx}", cam_data)
         obj[CAM_KEY] = idx
-        context.collection.objects.link(obj)
-        context.scene.camera = obj                              # pose targets the active camera
+        _link_active(context, obj)                              # links + selects + makes active
+        context.scene.camera = obj                              # view + pose this camera
         _pose_camera(obj, p)
         _apply_canvas_resolution(context, *_range_wh(p))
-        _link_active(context, obj)
         self.report({"INFO"}, f"added camera {idx} (now active) — set Yaw/Pitch + Pose, add its "
                               f"background layer (camera={idx}) + a Cam Zone")
         return {"FINISHED"}
