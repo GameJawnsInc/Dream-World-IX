@@ -178,10 +178,23 @@ def build_choreography(steps, txids, flag_idx: int, *, flag_class=CUTSCENE_FLAG_
     return _region.if_block(_region.cond_not(flag_class, flag_idx), inner)
 
 
-def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS) -> bytes:
-    """The cutscene function body: ``DisableMove`` + the ordered ``steps`` + ``EnableMove``, all gated
-    ``if (!once_flag) { ...; once_flag = 1 }`` when ``once_flag`` is set (so it plays once)."""
-    inner = opcodes.DISABLE_MOVE + b"".join(steps) + opcodes.ENABLE_MOVE
+# A narration cutscene runs in a SEPARATE code entry armed by `InitCode` in Main_Init -- but Main_Init
+# itself calls `EnableMove` (and a fade) AFTER that InitCode. If the director's `DisableMove` ran first
+# it would be immediately overridden by Main_Init's `EnableMove`, so the player keeps control during the
+# text. Yielding a couple of frames first lets Main_Init reach its `EnableMove` (it does so in the first
+# frame), so the director's `DisableMove` is the LAST control-setter and the lock sticks. (An ACTOR
+# cutscene avoids this by living in the NPC's LOOP, which only runs after Init completes.) ~2 frames is
+# imperceptible (<100ms) and the window only shows during the entry fade.
+REORDER_WAIT = 2
+
+
+def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
+               reorder: int = REORDER_WAIT) -> bytes:
+    """The cutscene function body: a brief reorder ``Wait`` (so the lock outlives Main_Init's EnableMove)
+    then ``DisableMove`` + the ordered ``steps`` + ``EnableMove``, all gated ``if (!once_flag) { ...;
+    once_flag = 1 }`` when ``once_flag`` is set (so it plays once)."""
+    pre = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
+    inner = pre + opcodes.DISABLE_MOVE + b"".join(steps) + opcodes.ENABLE_MOVE
     if once_flag is not None:
         inner += _region.set_var(flag_class, once_flag, 1)
         return _region.if_block(_region.cond_not(flag_class, once_flag), inner) + opcodes.RETURN

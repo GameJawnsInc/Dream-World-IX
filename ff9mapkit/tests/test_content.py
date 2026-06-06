@@ -280,7 +280,17 @@ def test_cutscene_body_once_structure():
 
 def test_cutscene_body_no_once_is_unguarded():
     body = cutscene.build_body([cutscene.wait(5)], once_flag=None)
-    assert body == opcodes.DISABLE_MOVE + cutscene.wait(5) + opcodes.ENABLE_MOVE + opcodes.RETURN
+    # a leading reorder Wait (so the lock outlives Main_Init's EnableMove), then the ungated sequence
+    assert body == (cutscene.wait(cutscene.REORDER_WAIT) + opcodes.DISABLE_MOVE + cutscene.wait(5)
+                    + opcodes.ENABLE_MOVE + opcodes.RETURN)
+
+
+def test_cutscene_body_reorder_wait_precedes_disablemove():
+    """The narration director yields briefly BEFORE DisableMove so Main_Init's EnableMove can't override
+    the lock (the in-game 'control not locked' fix)."""
+    body = cutscene.build_body([cutscene.say(500)], once_flag=None)
+    assert body.startswith(cutscene.wait(cutscene.REORDER_WAIT))
+    assert body.index(cutscene.wait(cutscene.REORDER_WAIT)) < body.index(opcodes.DISABLE_MOVE)
 
 
 # --- v2 cutscenes: actor movement / animation / turn ----------------------------------------------
