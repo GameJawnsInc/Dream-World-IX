@@ -167,9 +167,10 @@ the scroll bounds and injects the enable opcode. Runs on **stock Memoria**. Prov
 768×448 room (see `examples/scroll-demo/`). For an even bigger space, **chain scrolling rooms with
 gateways**.
 
-**Still future:** **multi-camera** switch zones (one field, several pre-rendered angles switched at
-trigger zones) — the engine supports it (`SETCAM`), and the scene format already parses N cameras;
-the kit doesn't yet author the switch script.
+**Multi-camera** switch zones (one field, several pre-rendered angles switched as the player crosses
+trigger zones) are **supported**: declare a `[[camera]]` array + `[[camera_zone]]` switches (see
+[`FORMAT.md`](FORMAT.md)) or place them visually in the [Blender add-on](../blender/README.md). The
+kit injects the `SETCAM` switch script and the after-battle camera restore for you.
 
 ## What the kit does NOT do
 - **Paint art** — you do (step 3). The kit only tells you where things land.

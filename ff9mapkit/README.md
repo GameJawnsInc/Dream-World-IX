@@ -4,10 +4,16 @@ Author **novel custom field maps** for *Final Fantasy IX* (Steam, via the
 [Memoria engine](https://github.com/Albeoris/Memoria)) from a single declarative
 `field.toml`, compiled into a drop-in Memoria mod.
 
-> **Status: under construction (v0.1.0).** This is the productized form of a proven,
-> in-game-verified pipeline for minting brand-new playable FF9 fields with custom camera
-> angles, painted backgrounds, walkmeshes, NPCs, dialogue, gateways, and encounters. The
-> output runs on a **stock, unmodified Memoria install** — no engine patching required.
+> **v0.9.3 — feature-complete and in-game-verified.** The productized form of a proven
+> pipeline for minting brand-new playable FF9 fields, end to end. The output runs on a
+> **stock, unmodified Memoria install** — no engine patching required.
+
+**What's in the box:** custom camera angles (single / scrolling / multi-camera) · painted
+background layers with depth + occlusion · hand-modeled *or* **imported-from-the-real-game**
+walkmeshes (including multi-floor reshape) · NPCs with custom dialogue · gateways · random
+encounters · events (chests / gil / story flags) · story branching · cutscenes (narration +
+actor walk/turn/emote/teleport) — authored from one `field.toml`, a **form-based editor**, and
+a **[Blender add-on](blender/README.md)**.
 
 ## What it does
 
@@ -60,9 +66,11 @@ and `build` compiles both.
 | `new <name>` | scaffold a `field.toml` project + `art/` dir |
 | `guide --pitch P` | author a camera, frame a flat floor, print/draw a paint guide |
 | `camera <bgx>` | inspect a scene camera (`--regen` to round-trip it) |
-| `walkmesh obj <in> <out>` | convert an `.obj` walkmesh to `.bgi`; `walkmesh fix <bgi>` rebuilds neighbor links |
+| `walkmesh obj <in> <out>` | convert an `.obj` walkmesh to `.bgi`; `walkmesh fix` rebuilds neighbor links; `walkmesh verify` runs the checks |
 | `disasm <eb>` | disassemble a field event script |
 | `build <field.toml>...` | compile project(s) into a Memoria mod |
+| `import <field>` | fork a **real** FF9 field into an editable `field.toml` (BG-borrow, or `--editable` custom scene) |
+| `list-fields [pat]` | list the real FF9 fields available to `import` |
 | `edit [field.toml]` | open the **form-based logic editor** (no TOML hand-editing) |
 | `lint <field.toml>` | check story-flag/placement logic without building |
 | `pack <mod>` | zip a built mod for distribution |

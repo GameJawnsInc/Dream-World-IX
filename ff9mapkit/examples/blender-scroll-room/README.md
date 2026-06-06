@@ -2,14 +2,14 @@
 
 The hard-won lesson: **a re-used `.blend` can carry a camera posed by an older add-on version**,
 which silently mis-scales. So always start a scrolling room from a **new** `.blend` and **Pose the
-camera fresh**. This checklist is the known-good path (add-on **v0.4.5+**).
+camera fresh**. This checklist is the known-good path (add-on **v0.9.3**).
 
 ## 0. One-time
 ```
-py ff9mapkit/blender/build_addon.py          # -> dist/ff9mapkit_blender-0.4.5.zip
+py ff9mapkit/blender/build_addon.py          # -> dist/ff9mapkit_blender-0.9.3.zip
 py -m pip install -e ff9mapkit               # so `py -m ff9mapkit build ...` works anywhere
 ```
-In Blender: **Edit ▸ Preferences ▸ Get Extensions ▸ ▾ ▸ Install from Disk…** → pick the 0.4.5 zip →
+In Blender: **Edit ▸ Preferences ▸ Get Extensions ▸ ▾ ▸ Install from Disk…** → pick the 0.9.3 zip →
 make sure **FF9 Map Kit** is enabled. (If an older version was installed, remove it first.)
 
 ## 1. New file
@@ -21,8 +21,8 @@ make sure **FF9 Map Kit** is enabled. (If an older version was installed, remove
 - Tick **Scrolling room**; **Canvas W 768**, **Canvas H 448** (a 2×-wide painting).
 - **Setup FF9 Scene**, then **Pose Camera from Pitch/FOV**.
 - **Sanity check:** the readout should say **FF9: pitch ~40 deg, FOV ~75 deg**. The **~75** (not 42)
-  confirms v0.4.5 is showing the backdrop at the true in-game scale. If it says ~42, your add-on is
-  stale — reinstall.
+  confirms the add-on is showing the backdrop at the true in-game scale. If it says ~42, your add-on
+  is stale — rebuild + reinstall.
 
 ## 3. Paint guide → paint
 - **Compute Paint Guide** (viewport grid + height wireframe) and **Export Paint Template** (writes
@@ -43,7 +43,7 @@ make sure **FF9 Map Kit** is enabled. (If an older version was installed, remove
 - Send me the folder path → I run `py -m ff9mapkit build … ` + deploy to field 4003.
 
 ## What we're confirming in-game (the two values that matter)
-1. **Walkmesh fills the floor** — you can walk to the painted floor edges (validates the v0.4.5
+1. **Walkmesh fills the floor** — you can walk to the painted floor edges (validates the
    preview-scale fix end-to-end).
 2. **The player plants on the floor** — feet sit on the surface, not floating/sunk (validates
    `character_offset = 298` for this camera; we re-tune it if the player is off).

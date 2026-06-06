@@ -11,7 +11,7 @@ Targets **Blender 4.2+ / 5.x**.
 ## Install
 
 ```bash
-python build_addon.py        # -> dist/ff9mapkit_blender-0.3.0.zip
+python build_addon.py        # -> dist/ff9mapkit_blender-0.9.3.zip
 ```
 
 Then install it as an **extension** (the Blender 4.2+/5.x way — the zip is an extension with
