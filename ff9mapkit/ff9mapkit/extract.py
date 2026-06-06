@@ -23,6 +23,8 @@ import re
 from pathlib import Path
 
 from . import config
+from . import eventscan
+from ._fieldtable import FBG_TO_EVT
 from .scene import bgs, bgi, cam
 
 
@@ -140,6 +142,116 @@ def list_fields(pattern=None, game=None):
             continue
         out.append((folder, area, mapid))
     return out
+
+
+# ---- event script (.eb) extraction: fork a field WITH its gateways/music/encounters -----
+EVT_LANG = "us"                       # event binaries are per-language; the bytecode we scan is identical
+_EVENTS_BUNDLE_CACHE = ".ff9mapkit-events-bundle.txt"
+
+
+def _events_bundle(game=None):
+    """The p0data bundle holding field event binaries (``eventbinary/field/...``). Cached next to the
+    bundles; on a miss it's detected p0data7-first (where they historically live), so the common case
+    loads one bundle, not all of them."""
+    cache = _streaming_assets(game) / _EVENTS_BUNDLE_CACHE
+    if cache.exists():
+        name = cache.read_text(encoding="utf-8").strip()
+        if name:
+            return name
+    UnityPy = _unitypy()
+    bundles = sorted(_bundles(game),
+                     key=lambda p: (0 if "p0data7." in os.path.basename(p) else 1, p))
+    for path in bundles:
+        try:
+            env = UnityPy.load(path)
+        except Exception:
+            continue
+        if any("eventbinary/field/" in k.lower() for k in env.container):
+            name = os.path.basename(path)
+            try:
+                cache.write_text(name, encoding="utf-8")
+            except OSError:
+                pass
+            return name
+    return None
+
+
+def event_name_for(field: str, game=None):
+    """The ``EVT_<name>`` event-script name for an imported field's FBG folder, or None if it isn't a
+    standard field map (world/special fields have no field event). Uses the baked FBG->event table."""
+    folder, _ = resolve_field(field, game)
+    rec = FBG_TO_EVT.get(folder)
+    return rec[1] if rec else None
+
+
+def extract_event_script(field: str, *, game=None):
+    """The compiled ``.eb`` bytes of a real field's event script (us), or None if it can't be located
+    (no FBG->event mapping, or the binary isn't present). Used by ``import`` to extract gateways /
+    music / encounters / movement from the real field -- it never raises, so a missing script just
+    means the fork imports without that content (camera/walkmesh/art are unaffected)."""
+    try:
+        evt = event_name_for(field, game)
+        if not evt:
+            return None
+        bundle = _events_bundle(game)
+        if not bundle:
+            return None
+        UnityPy = _unitypy()
+        env = UnityPy.load(str(_streaming_assets(game) / bundle))
+        want = f"eventbinary/field/{EVT_LANG}/{evt}.eb".lower()
+        for k, obj in env.container.items():
+            kl = k.lower()
+            if want in kl and kl.endswith(".eb.bytes"):
+                return _raw_bytes(obj.read())
+    except Exception:
+        return None
+    return None
+
+
+def _imported_content_toml(eb_bytes):
+    """field.toml blocks (gateways / encounter / music) + the control-direction value, extracted LIVE
+    from a real field's ``.eb``. Returns (blocks_text, control_dir, summary). blocks_text is appended
+    at the end of the toml; control_dir (or None) goes in the [camera] block; summary feeds the CLI."""
+    content = eventscan.scan_content(eb_bytes)
+    parts = []
+    gws = content["gateways"]
+    if gws:
+        parts.append(
+            "# --- EXITS imported from the real field (LIVE). `to` is the REAL destination field id --\n"
+            "# retarget each to your own room ids, or leave them to walk back into the live game. ---")
+        for g in gws:
+            zone = ", ".join(f"[{x}, {z}]" for x, z in g["zone"])
+            parts.append(f"[[gateway]]\nto = {g['to']}\nentrance = {g['entrance']}\nzone = [{zone}]")
+    enc = content["encounter"]
+    if enc:
+        block = f"[encounter]\nscene = {enc['scenes'][0]}\nfreq = {enc['freq']}"
+        if len(set(enc["scenes"])) != 1:
+            block += f"\nscenes = [{', '.join(str(s) for s in enc['scenes'])}]"
+        parts.append("# random battles imported from the real field (build adds the after-battle "
+                     "reinit)\n" + block)
+    if content["music"] is not None:
+        parts.append(f"# field BGM imported from the real field\n[music]\nsong = {content['music']}")
+    summary = {"gateways": len(gws), "encounter": enc is not None,
+               "music": content["music"], "control_direction": content["control_direction"]}
+    return "\n\n".join(parts), content["control_direction"], summary
+
+
+def _content_for_import(field: str, game):
+    """(content_blocks, control_dir, summary) for a field's import. Locates + scans the real .eb;
+    returns ("", None, None) if it can't (no mapping / no game / UnityPy absent) so import still works."""
+    eb_bytes = extract_event_script(field, game=game)
+    if not eb_bytes:
+        return "", None, None
+    return _imported_content_toml(eb_bytes)
+
+
+def _content_section(content_blocks: str, x: int, z: int) -> str:
+    """The trailing content of the field.toml: the LIVE imported blocks, or a commented gateway stub
+    when nothing was imported (the old hand-authoring hint)."""
+    if content_blocks:
+        return content_blocks + "\n"
+    return ("# [[gateway]]\n# to = 100          # destination field id\n# entrance = 204\n"
+            "# zone = [[-200, 200], [200, 200], [200, 400], [-200, 400]]\n")
 
 
 def find_field(field: str, game=None, bundle: str | None = None):
@@ -492,10 +604,13 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     meta["blend_layers"] = layers_info["blend_layers"]
     meta["editable_name"] = name
 
+    content_blocks, control_dir, content_summary = _content_for_import(field, game)
+    meta["imported_content"] = content_summary
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
     x, z = meta["player_start"]
     scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
+    control_line = f"control_direction = {control_dir}   # imported WASD-vs-camera tuning\n" if control_dir is not None else ""
 
     def _layer_block(L):
         s = f'[[layers]]\nimage = "{L["image"]}"\nz = {L["z"]}'
@@ -529,15 +644,15 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f"text_block = {text_block}\n\n"
         f"[camera]\n"
         f'borrow = "camera.bgx"\n'
+        f"{control_line}"
         f"{scroll}\n"
         f"{walkmesh_toml}\n"
         f"{layer_blocks}\n\n"
         f"[player]\n"
         f"spawn = [{x}, {z}]\n\n"
-        f"# --- add content (uncomment + edit); keep positions within the walkmesh bounds above ---\n"
-        f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n#\n'
-        f"# [[gateway]]\n# to = 100          # destination field id\n# entrance = 204\n"
-        f"# zone = [[-200, 200], [200, 200], [200, 400], [-200, 400]]\n"
+        f"# --- add NPCs/dialogue (uncomment + edit); keep positions within the walkmesh bounds above ---\n"
+        f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n\n'
+        f"{_content_section(content_blocks, x, z)}"
     )
     p = Path(out_dir) / f"{name}.field.toml"
     p.write_text(toml, encoding="utf-8", newline="\n")
@@ -573,10 +688,14 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
             meta["background"] = "background.png"
     except Exception:
         pass
+    # extract the real field's LIVE content (gateways / encounter / music / movement) from its .eb
+    content_blocks, control_dir, content_summary = _content_for_import(field, game)
+    meta["imported_content"] = content_summary
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
     x, z = meta["player_start"]
     scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
+    control_line = f"control_direction = {control_dir}   # imported WASD-vs-camera tuning\n" if control_dir is not None else ""
     toml = (
         f"# Imported from {meta['field']} (area {meta['area']}) by ff9mapkit -- BG-borrow.\n"
         f"# Renders the REAL field's art + walkmesh + camera while running your script.\n"
@@ -592,16 +711,16 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
         f"text_block = {text_block}\n\n"
         f"[camera]\n"
         f'borrow = "camera.bgx"\n'
+        f"{control_line}"
         f"{scroll}\n"
         f"[walkmesh]\n"
         f'reference = "walkmesh.bgi"   # validation only -- NOT shipped (the engine uses the borrowed\n'
         f"# field's real walkmesh). The build WARNS if the content below sits off this walkable area.\n\n"
         f"[player]\n"
         f"spawn = [{x}, {z}]\n\n"
-        f"# --- add your content below (uncomment + edit) ---\n"
-        f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n#\n'
-        f"# [[gateway]]\n# to = 100          # destination field id\n# entrance = 204\n"
-        f"# zone = [[-200, 200], [200, 200], [200, 400], [-200, 400]]\n"
+        f"# --- add NPCs/dialogue (uncomment + edit); keep positions within the walkmesh bounds above ---\n"
+        f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n\n'
+        f"{_content_section(content_blocks, x, z)}"
     )
     p = Path(out_dir) / f"{name}.field.toml"
     p.write_text(toml, encoding="utf-8", newline="\n")

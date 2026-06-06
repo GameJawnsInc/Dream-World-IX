@@ -80,3 +80,32 @@ def test_encounter_distinct_scenes_roundtrip():
     eb = _enc.inject_encounter(CLEAN, scene=67, scenes=(10, 11, 12, 13), freq=128)
     enc = eventscan.scan_encounter(eb)
     assert enc["scenes"] == [10, 11, 12, 13] and enc["freq"] == 128
+
+
+# --- import emission (the field.toml blocks ff9mapkit import writes) ----------------------
+def test_imported_content_toml_is_valid_and_complete():
+    import tomllib
+    from ff9mapkit import extract
+    blocks, cd, summary = extract._imported_content_toml(ALEX100)
+    assert cd == 0
+    assert summary == {"gateways": 4, "encounter": False, "music": 9, "control_direction": 0}
+    # embed in a complete borrow field.toml -> it must be valid TOML with the right structures
+    toml = ('[field]\nid=4003\nname="T"\narea=2\nborrow_bg="X"\n\n'
+            f'[camera]\nborrow="c.bgx"\ncontrol_direction={cd}\n\n[player]\nspawn=[0,0]\n\n{blocks}')
+    d = tomllib.loads(toml)
+    assert {g["to"] for g in d["gateway"]} == {101, 107, 114, 4000}
+    assert all(len(g["zone"]) == 4 for g in d["gateway"])
+    assert d["music"]["song"] == 9
+
+
+def test_content_section_falls_back_to_commented_stub_when_empty():
+    from ff9mapkit import extract
+    assert extract._content_section("", 5, 7).lstrip().startswith("# [[gateway]]")
+    assert extract._content_section("[[gateway]]\nto = 9", 0, 0).startswith("[[gateway]]")
+
+
+def test_fieldtable_maps_known_fields_to_event_names():
+    from ff9mapkit._fieldtable import FBG_TO_EVT
+    assert len(FBG_TO_EVT) > 600
+    assert FBG_TO_EVT["fbg_n21_grgr_map420_gr_cen_0"][1] == "EVT_GARGAN_GR_CEN_0"
+    assert FBG_TO_EVT["fbg_n36_glgv_map792_gv_rm1_0"][1] == "EVT_GULUGU_GV_RM1_0"

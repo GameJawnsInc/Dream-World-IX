@@ -287,11 +287,24 @@ def _cmd_import(args: argparse.Namespace) -> int:
     print(f"  camera : pitch {cm['pitch_deg']} fov {cm['fov_deg']} range {cm['range']}"
           f"{'  SCROLLING' if meta['scrolling'] else ''}")
     print(f"  spawn  : {meta['player_start']}   walkmesh x{meta['walkmesh_bounds']['x']} z{meta['walkmesh_bounds']['z']}")
+    ic = meta.get("imported_content")
+    if ic:
+        bits = []
+        if ic["gateways"]:
+            bits.append(f"{ic['gateways']} gateway(s)")
+        if ic["encounter"]:
+            bits.append("encounter")
+        if ic["music"] is not None:
+            bits.append(f"BGM song {ic['music']}")
+        if ic["control_direction"] is not None:
+            bits.append(f"movement dir {ic['control_direction']}")
+        print(f"  content: {', '.join(bits) if bits else 'none found in the source script'}"
+              + ("   (gateways point at REAL fields -- retarget them)" if ic["gateways"] else ""))
     print(f"  wrote  : {toml}")
     if args.editable:
         print(f"Next: repaint any layer_*.png / reshape walkmesh.obj / add content, then: ff9mapkit build {toml}")
     else:
-        print(f"Next: edit it (add [[npc]]/[[gateway]]/dialogue), then: ff9mapkit build {toml}")
+        print(f"Next: edit it (retarget imported gateways, add [[npc]]/dialogue), then: ff9mapkit build {toml}")
     return 0
 
 
