@@ -44,23 +44,27 @@ NEWGAME_ENTRANCE = 231          # the value EventEngine.NewGame() sets for field
 # below): DisableMove; DisableMenu; FadeFilter(6,24,{D5:17},255,255,255); Wait(25); set D8:2=0;
 # PreloadField(5,4000); Field(4000). Field 100's Main_Init sets D5:17 early, so the fade arg resolves.
 _TRANSITION = bytes.fromhex("2dabec040618d5117fffffff22001905d8027d00002c7ffd0005a00f2b00a00f")
-_T_PRELOAD_OFF, _T_FIELD_OFF = 26, 30      # the two 4000 targets inside _TRANSITION
+_T_ENTRANCE_OFF, _T_PRELOAD_OFF, _T_FIELD_OFF = 19, 26, 30   # set-D8:2 value, PreloadField + Field targets
 
 
-def transition_for(target: int) -> bytes:
+def transition_for(target: int, dest_entrance: int = 0) -> bytes:
+    """The proven fade+Field block, repatched to land on `target` at `dest_entrance` (set into D8:2)."""
     t = bytearray(_TRANSITION)
     assert struct.unpack_from("<H", t, _T_PRELOAD_OFF)[0] == 4000
     assert struct.unpack_from("<H", t, _T_FIELD_OFF)[0] == 4000
+    struct.pack_into("<H", t, _T_ENTRANCE_OFF, dest_entrance)
     struct.pack_into("<H", t, _T_PRELOAD_OFF, target)
     struct.pack_into("<H", t, _T_FIELD_OFF, target)
     return bytes(t)
 
 
-def warp_entry(target: int, entrance: int) -> bytes:
-    """A type-0 code entry: `if (FieldEntrance == entrance) { transition to Field(target) }; return`."""
-    gate = region.cond_eq(0xD8, 2, entrance)           # D8:02 == FieldEntrance (gEventGlobal[2..3])
-    body = region.if_block(gate, transition_for(target)) + opcodes.RETURN
-    return bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
+def warp_entry(target: int, dest_entrance: int = 0, gate_entrance: int | None = None) -> bytes:
+    """A type-0 code entry that transitions to Field(target) at dest_entrance. If `gate_entrance` is
+    given, it only fires when FieldEntrance == gate_entrance (the field-100 case, so non-New-Game
+    arrivals are untouched); None = unconditional (the field-70 opening, only entered at New Game)."""
+    trans = transition_for(target, dest_entrance)
+    body = region.if_block(region.cond_eq(0xD8, 2, gate_entrance), trans) if gate_entrance is not None else trans
+    return bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body + opcodes.RETURN
 
 
 def _activation(eb: EbScript):
@@ -83,13 +87,45 @@ def _activation(eb: EbScript):
     raise SystemExit("no RunSoundCode after the InitRegion cluster to overwrite")
 
 
-def inject(data: bytes, target: int, entrance: int = NEWGAME_ENTRANCE):
+def inject(data: bytes, target: int, gate_entrance: int = NEWGAME_ENTRANCE):
+    """field 100: warp to Field(target) at its entrance 0, ONLY when entered at gate_entrance (231 =
+    New Game) so the hut-return (204) + normal arrivals stay normal. Activate at the executed
+    RunSoundCode after the InitRegion cluster."""
     eb = EbScript.from_bytes(data)
     slot = eb.first_free_slot()
-    out = edit.append_entry(data, slot, warp_entry(target, entrance))
+    out = edit.append_entry(data, slot, warp_entry(target, dest_entrance=0, gate_entrance=gate_entrance))
     off, length = _activation(EbScript.from_bytes(out))
     new = opcodes.init_code(slot, 0) + bytes(length - 3)   # InitCode(slot,0) (3B) + NOP pad to keep length
     out = edit.patch_bytes(out, off, new, expect=out[off:off + length])   # shift-free overwrite
+    return out, slot, off
+
+
+# --- stock path: field 70 (the stock New-Game opening) -> Field(100, 231) so field 100 sets up the
+# party + runs its own ->4003 warp. NewGame() does NOT create the party, so we must route through a
+# field that does (field 100). Field 70 is the opening, only entered at New Game -> unconditional. ---
+F70_OVERRIDE = ("FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/"
+                "eventbinary/field/{lang}/evt_alex1_ts_opening.eb.bytes")
+
+
+def _activation_f70(eb: EbScript):
+    """An executed, shift-free site EARLY in field 70's Main_Init (before the opening cinematic): the
+    first RunSoundCode (the opening BGM, 0xC5), which runs before field 70's first jump. Returns
+    (off, length). We warp immediately, so losing the opening BGM is moot."""
+    f0 = eb.entry(0).func_by_tag(0)
+    for ins in eb.instrs(f0):
+        if ins.op == 0xC5:
+            return ins.off, ins.length
+    raise SystemExit("field 70 Main_Init has no RunSoundCode to anchor the activation on")
+
+
+def inject_f70(data: bytes):
+    """field 70 -> Field(100) entrance 231 (unconditional; field 70 is the opening, New-Game only)."""
+    eb = EbScript.from_bytes(data)
+    slot = eb.first_free_slot()
+    out = edit.append_entry(data, slot, warp_entry(100, dest_entrance=NEWGAME_ENTRANCE))
+    off, length = _activation_f70(EbScript.from_bytes(out))
+    new = opcodes.init_code(slot, 0) + bytes(length - 3)
+    out = edit.patch_bytes(out, off, new, expect=out[off:off + length])
     return out, slot, off
 
 
@@ -116,27 +152,44 @@ def _revert_prior():
         runpy.run_path(str(rev), run_name="__main__")
 
 
+def _patch(rel_template, fname, stamp, backups, inject_fn, label):
+    """Back up + patch one override across all 7 languages with inject_fn(src) -> (out, slot, off)."""
+    for L in LANGS:
+        p = GAME / rel_template.format(lang=L)
+        if not p.is_file():
+            raise SystemExit(f"missing override: {p}\n(run from a build that has FF9CustomMap)")
+        src = p.read_bytes()
+        bkp = BKP / f"{L}-{fname}.prewarp.{stamp}"
+        bkp.write_bytes(src)
+        backups.append((str(p), str(bkp)))
+        out, slot, off = inject_fn(src)
+        p.write_bytes(out)
+        print(f"  {label} {L}: {len(src)}->{len(out)} (+{len(out)-len(src)})  slot {slot}, InitCode@{off}")
+
+
 def main():
-    target = int(sys.argv[1]) if len(sys.argv) > 1 else 4003
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    stock = "--stock" in sys.argv
+    target = int(args[0]) if args else 4003
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     _revert_prior()
     BKP.mkdir(exist_ok=True)
     backups = []
-    for L in LANGS:
-        p = GAME / OVERRIDE.format(lang=L)
-        if not p.is_file():
-            raise SystemExit(f"missing field-100 override: {p}\n(run from a build that has FF9CustomMap)")
-        src = p.read_bytes()
-        bkp = BKP / f"{L}-evt_alex1_at_street_a.eb.bytes.prewarp.{stamp}"
-        bkp.write_bytes(src)
-        backups.append((str(p), str(bkp)))
-        out, slot, off = inject(src, target)
-        p.write_bytes(out)
-        print(f"{L}: {len(src)}->{len(out)} (+{len(out)-len(src)})  slot {slot}, InitCode@{off}  "
-              f"-> New Game (entrance {NEWGAME_ENTRANCE}) warps to Field({target})")
+    # field 100 -> Field(target) at entrance 0, gated on the New-Game entrance 231 (always).
+    _patch(OVERRIDE, "evt_alex1_at_street_a.eb.bytes", stamp, backups,
+           lambda s: inject(s, target), "field100")
+    if stock:
+        # field 70 (stock New-Game opening) -> Field(100, 231); field 100 then sets up the party and
+        # runs its ->target warp. Needed only when the engine is STOCK (New Game -> field 70).
+        _patch(F70_OVERRIDE, "evt_alex1_ts_opening.eb.bytes", stamp, backups, inject_f70, "field70")
     rev = _write_revert(backups, stamp)
-    print(f"\nNew Game now jumps straight to field {target} (gated on entrance {NEWGAME_ENTRANCE}).")
+    chain = (f"New Game -> field 70 -> field 100 (entrance {NEWGAME_ENTRANCE}) -> field {target}"
+             if stock else
+             f"New Game (dev engine -> field 100, entrance {NEWGAME_ENTRANCE}) -> field {target}")
+    print(f"\n{chain}")
     print(f"  NOTE: field {target} must be registered -- deploy to it first (e.g. py tools/deploy_field.py <toml>).")
+    if not stock:
+        print("  (dev-engine mode. For a STOCK + F6 engine, re-run with --stock to add the field-70 hop.)")
     print(f"  revert: py {rev.relative_to(HERE.parent).as_posix()}")
 
 
