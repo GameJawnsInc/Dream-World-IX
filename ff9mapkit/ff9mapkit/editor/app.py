@@ -23,7 +23,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from . import forms
-from .model import FieldDoc
+from .model import FieldDoc, protected_reason
 
 # single-table logic sections and their specs; the rest are arrays-of-tables.
 SINGLE_SPECS = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "music": forms.MUSIC_SPEC}
@@ -143,6 +143,10 @@ class EditorApp:
         if not f:
             return
         p = Path(f)
+        reason = protected_reason(p)
+        if reason:
+            messagebox.showerror("Can't create here", f"{p}\n\n{reason}.\n\nPick a folder of your own.")
+            return
         name = p.name[:-len(".field.toml")] if p.name.endswith(".field.toml") else p.stem
         self.doc = FieldDoc.new(p, name=name.upper())
         self.active = None
@@ -152,15 +156,22 @@ class EditorApp:
 
     def on_save(self):
         if not self._commit_active():
-            return
+            return False
         if self.doc is None:
-            return
+            return False
+        reason = protected_reason(self.doc.path)
+        if reason:
+            messagebox.showerror("Can't save here", f"{self.doc.path}\n\n{reason}.\n\n"
+                                 "Save a copy in a folder of your own first.")
+            return False
         try:
             self._cleanup_empty()
             self.doc.save()
             self._log(f"saved {self.doc.path.name}")
         except Exception as e:               # noqa: BLE001
             messagebox.showerror("Save failed", str(e))
+            return False
+        return True
 
     def _cleanup_empty(self):
         """Drop empty array sections so we don't write ``npc = []`` etc."""

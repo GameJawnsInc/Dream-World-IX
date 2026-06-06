@@ -118,6 +118,37 @@ def loads(text: str) -> dict:
     return tomllib.loads(text)
 
 
+# --------------------------------------------------------------------------- save guard
+def _within(p: Path, base: Path) -> bool:
+    """True if ``p`` is ``base`` or sits underneath it (lexical; no filesystem access)."""
+    try:
+        return p == base or p.is_relative_to(base)
+    except ValueError:
+        return False
+
+
+def protected_reason(path) -> "str | None":
+    """A reason string if ``path`` is a location the editor must NOT overwrite, else None.
+
+    Guards the footgun where Save clobbers a shipped asset (e.g. the golden
+    ``examples/vivi-hut/hut_int.field.toml``) or an installed package file -- both have bitten us.
+    Pure + unit-testable (no Tk). Author on a copy, or scaffold a fresh project with
+    ``ff9mapkit new``.
+    """
+    try:
+        p = Path(path).resolve()
+    except (OSError, ValueError):
+        return None
+    if any(part.lower() in ("site-packages", "dist-packages") for part in p.parts):
+        return "that path is inside Python's site-packages (an installed copy of the kit)"
+    pkg = Path(__file__).resolve().parents[1]          # the importable `ff9mapkit` package dir
+    if _within(p, pkg):
+        return "that path is inside the installed ff9mapkit package"
+    if _within(p, pkg.parent / "examples"):            # bundled examples in a source checkout
+        return "that is a bundled example -- edit a copy, or scaffold one with `ff9mapkit new`"
+    return None
+
+
 # --------------------------------------------------------------------------- the document
 def _find_scene_path(field_path: Path, data: dict):
     """The sibling scene file for a field.toml: explicit ``[scene] file`` wins, else ``<stem>.scene.toml``

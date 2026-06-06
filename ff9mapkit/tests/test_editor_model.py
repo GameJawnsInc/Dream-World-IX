@@ -107,3 +107,15 @@ def test_new_doc_and_section_helpers(tmp_path):
     assert rt["field"]["id"] == 4005 and rt["field"]["area"] == 12
     assert rt["encounter"]["scene"] == 67 and rt["music"]["song"] == 9
     assert rt["npc"][0]["name"] == "A"
+
+
+def test_protected_reason_blocks_bundled_and_installed_paths(tmp_path):
+    """The save-guard: refuse to overwrite a bundled example or an installed-package file
+    (the footgun that clobbered the golden hut_int example), but allow a normal user folder."""
+    import ff9mapkit
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    pkg = Path(ff9mapkit.__file__).resolve().parent
+    assert model.protected_reason(examples / "vivi-hut" / "hut_int.field.toml")   # bundled example
+    assert model.protected_reason(pkg / "editor" / "sneaky.field.toml")           # inside the package
+    assert model.protected_reason(tmp_path / "lib" / "site-packages" / "x.field.toml")  # installed copy
+    assert model.protected_reason(tmp_path / "my_room" / "room.field.toml") is None     # user's own folder
