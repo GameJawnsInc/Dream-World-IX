@@ -30,10 +30,11 @@ def _range_wh(p):
     """The painted-canvas size: the full painting for a scrolling field, else one 384x448 screen."""
     return (int(p.canvas_w), int(p.canvas_h)) if p.scroll_enabled else RANGE_WH
 
-# content markers (Phase 2): tagged Blender objects -> [[npc]]/[[gateway]]/[player] on export.
-MARKER_KEY = "ff9_marker"            # obj[MARKER_KEY] in {"npc", "gateway", "spawn"}
+# content markers (Phase 2): tagged Blender objects -> [[npc]]/[[gateway]]/[[event]]/[player] on export.
+MARKER_KEY = "ff9_marker"            # obj[MARKER_KEY] in {"npc", "gateway", "event", "camzone", "spawn"}
 GATEWAY_HALF_W = 700.0               # default gateway quad half-extents (FF9 ~= Blender units)
 GATEWAY_HALF_D = 250.0
+CAM_KEY = "ff9_cam"                  # obj[CAM_KEY] = camera index (0 = default at load) for a multi-cam field
 
 
 # --------------------------------------------------------------------------- properties
@@ -54,6 +55,9 @@ class FF9MKLayer(bpy.types.PropertyGroup):
     image: bpy.props.StringProperty(name="Image", subtype="FILE_PATH")
     z: bpy.props.IntProperty(name="Depth Z", default=4000, update=_layer_z_update)
     shader: bpy.props.StringProperty(name="Shader", default="")
+    camera: bpy.props.IntProperty(name="Camera", default=0, min=0,
+                                  description="Which camera shows this layer in a multi-camera field "
+                                              "(0 = the only/default camera)")
 
 
 class FF9MKProps(bpy.types.PropertyGroup):
@@ -72,6 +76,9 @@ class FF9MKProps(bpy.types.PropertyGroup):
     pitch: bpy.props.FloatProperty(name="Pitch", default=48.0, min=0.0, max=89.0)
     distance: bpy.props.FloatProperty(name="Distance", default=4500.0, min=1.0)
     fov: bpy.props.FloatProperty(name="FOV", default=42.2, min=1.0, max=170.0)
+    yaw: bpy.props.FloatProperty(name="Yaw", default=0.0, min=-180.0, max=180.0,
+                                 description="Rotation about vertical (0 = head-on). Vary it per camera "
+                                             "in a multi-camera field")
     # larger-than-screen scrolling: the painting is wider/taller than the 384x448 screen and the
     # view pans to follow the player. FOV stays measured at the 384 screen width (window_width).
     scroll_enabled: bpy.props.BoolProperty(
@@ -110,14 +117,15 @@ def _pose_camera(cam_obj, p):
     if p.scroll_enabled:
         # wide painting, normal focal length (proj from the 384 screen), + scroll bounds
         ff9 = guide.make_camera(p.pitch, p.distance, proj=guide.proj_from_fov_x(p.fov, SCREEN_W),
-                                range_wh=(rw, rh), viewport=tuple(cam.scroll_bounds((rw, rh))))
+                                yaw_deg=p.yaw, range_wh=(rw, rh),
+                                viewport=tuple(cam.scroll_bounds((rw, rh))))
         # sensor = the FULL painting width so the Blender viewport shows the backdrop + walkmesh at
         # the SAME scale as in-game (to_canvas). Using the 384 window here made the camera FOV too
         # narrow (~42 vs ~75 deg), so the backdrop looked ~1.8x too big and walkmeshes got modelled
         # ~1.8x too small. proj is still the window focal, so the EXPORTED camera is unchanged.
         b = bridge.ff9_cam_to_blender(ff9, sensor_width=float(rw))
     else:
-        ff9 = guide.make_camera(p.pitch, p.distance, fov_x_deg=p.fov, range_wh=(rw, rh))
+        ff9 = guide.make_camera(p.pitch, p.distance, fov_x_deg=p.fov, yaw_deg=p.yaw, range_wh=(rw, rh))
         b = bridge.ff9_cam_to_blender(ff9)
     cam_obj.matrix_world = _matrix_from_bridge(b)
     cam_obj.data.sensor_fit = "HORIZONTAL"
@@ -223,11 +231,8 @@ def _show_material_colors(context):
                     space.shading.color_type = "MATERIAL"
 
 
-def active_camera_to_ff9(context):
-    """The scene's active camera as an FF9 cam.Cam (None if there is no camera)."""
-    cam_obj = context.scene.camera
-    if cam_obj is None or cam_obj.type != "CAMERA":
-        return None
+def _camera_obj_to_ff9(context, cam_obj):
+    """Any Blender camera OBJECT as an FF9 cam.Cam (used per-camera for a multi-camera export)."""
     p = context.scene.ff9mapkit
     mw = cam_obj.matrix_world
     m3 = mw.to_3x3()
@@ -243,6 +248,29 @@ def active_camera_to_ff9(context):
             range_wh=(rw, rh), viewport=tuple(cam.scroll_bounds((rw, rh))))
     return bridge.blender_cam_to_ff9(loc, R_bl, cam_obj.data.lens,
                                      sensor_width=cam_obj.data.sensor_width, range_wh=(rw, rh))
+
+
+def active_camera_to_ff9(context):
+    """The scene's active camera as an FF9 cam.Cam (None if there is no camera)."""
+    cam_obj = context.scene.camera
+    if cam_obj is None or cam_obj.type != "CAMERA":
+        return None
+    return _camera_obj_to_ff9(context, cam_obj)
+
+
+def _collect_cameras(context):
+    """All FF9 camera objects, sorted by their ``ff9_cam`` index (0 = default at load). The main
+    FF9_Camera counts as index 0 even if untagged (single-camera fields). Returns a list of objects."""
+    cams = []
+    for o in context.scene.objects:
+        if o.type != "CAMERA":
+            continue
+        if CAM_KEY in o:
+            cams.append((int(o[CAM_KEY]), o))
+        elif o.name == CAMERA_NAME:
+            cams.append((0, o))
+    cams.sort(key=lambda t: t[0])
+    return [o for _, o in cams]
 
 
 def _walkmesh_world_mesh(obj):
@@ -688,6 +716,18 @@ def _collect_markers(context):
     return npcs, gateways, spawn, events
 
 
+def _collect_camzones(context):
+    """Camera-switch zone markers -> [{to_camera, zone}], sorted by name. The floor area where each
+    camera is active; crossing in cuts the view to ``to_camera``."""
+    zones = []
+    for obj in sorted(context.scene.objects, key=lambda o: o.name):
+        if obj.get(MARKER_KEY) == "camzone" and obj.type == "MESH":
+            zone = _zone_corners(obj)
+            if zone is not None:
+                zones.append({"to_camera": int(obj.get("ff9_to_camera", 1)), "zone": zone})
+    return zones
+
+
 class FF9MK_OT_add_npc(bpy.types.Operator):
     bl_idname = "ff9mk.add_npc"
     bl_label = "Add NPC"
@@ -764,6 +804,60 @@ class FF9MK_OT_add_event(bpy.types.Operator):
         _link_active(context, obj)
         self.report({"INFO"}, f"added event '{obj.name}' — set ff9_message / ff9_set_flag / ff9_once "
                               f"in Custom Properties (or the form editor)")
+        return {"FINISHED"}
+
+
+class FF9MK_OT_add_camera(bpy.types.Operator):
+    bl_idname = "ff9mk.add_camera"
+    bl_label = "Add Camera"
+    bl_description = ("Add another FF9 camera (a multi-camera field cuts between cameras as you walk "
+                      "across Cam Zones). Poses it from the Pitch/Distance/FOV/Yaw above + makes it "
+                      "active; adjust + Pose, give it its own background layer + a Cam Zone")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        p = context.scene.ff9mapkit
+        main = bpy.data.objects.get(CAMERA_NAME)
+        if main is not None and CAM_KEY not in main:
+            main[CAM_KEY] = 0                                   # tag the original as camera 0
+        idx = len(_collect_cameras(context))                   # next index
+        cam_data = bpy.data.cameras.new(f"FF9_Camera_{idx}")
+        obj = bpy.data.objects.new(f"FF9_Camera_{idx}", cam_data)
+        obj[CAM_KEY] = idx
+        context.collection.objects.link(obj)
+        context.scene.camera = obj                              # pose targets the active camera
+        _pose_camera(obj, p)
+        _apply_canvas_resolution(context, *_range_wh(p))
+        _link_active(context, obj)
+        self.report({"INFO"}, f"added camera {idx} (now active) — set Yaw/Pitch + Pose, add its "
+                              f"background layer (camera={idx}) + a Cam Zone")
+        return {"FINISHED"}
+
+
+class FF9MK_OT_add_camzone(bpy.types.Operator):
+    bl_idname = "ff9mk.add_camzone"
+    bl_label = "Add Cam Zone"
+    bl_description = ("Drop a camera-switch zone on the floor: walking into it cuts the view to its "
+                      "target camera. Set ff9_to_camera. Zones must NOT overlap. (Needs 2+ cameras.)")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        cx, cy, _ = _cursor_floor(context)
+        hw, hd = GATEWAY_HALF_W, GATEWAY_HALF_D
+        corners = [(cx - hw, cy - hd, 0.0), (cx + hw, cy - hd, 0.0),
+                   (cx + hw, cy + hd, 0.0), (cx - hw, cy + hd, 0.0)]
+        mesh = bpy.data.meshes.new("FF9_CamZone")
+        mesh.from_pydata([list(c) for c in corners], [], [(0, 1, 2, 3)])
+        mesh.update()
+        obj = bpy.data.objects.new("FF9_CamZone", mesh)
+        obj.display_type = "WIRE"
+        obj.show_in_front = True
+        obj.color = (0.5, 0.6, 1.0, 1.0)             # blue, to read apart from gateways/events
+        obj[MARKER_KEY] = "camzone"
+        obj["ff9_to_camera"] = 1
+        _link_active(context, obj)
+        self.report({"INFO"}, f"added cam zone '{obj.name}' — set ff9_to_camera (which camera to "
+                              f"switch to); place it over that camera's area, no overlaps")
         return {"FINISHED"}
 
 
@@ -1046,14 +1140,30 @@ class FF9MK_OT_export_field(bpy.types.Operator):
                                   f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
             return {"FINISHED"}
 
-        # camera.bgx (camera-only; field.toml borrows it)
-        with open(os.path.join(out, "camera.bgx"), "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(bgx.build(c, [], header_comment=f"{p.field_name} camera (ff9mapkit blender)"))
+        # cameras: SINGLE -> [camera] borrow camera.bgx; MULTI -> [[camera]] borrow cameraK.bgx each
+        # (each camera is written exact; the build resolves the array to N cameras, index 0 = default).
+        cam_objs = _collect_cameras(context)
+        multicam = len(cam_objs) > 1
+        if multicam:
+            cam_files = []
+            for k, cobj in enumerate(cam_objs):
+                ck = _camera_obj_to_ff9(context, cobj)
+                fn = f"camera{k}.bgx"
+                with open(os.path.join(out, fn), "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write(bgx.build(ck, [], header_comment=f"{p.field_name} camera {k}"))
+                cam_files.append(fn)
+            cam_body = bridge.cameras_borrow_toml(cam_files) + "\n"
+        else:
+            with open(os.path.join(out, "camera.bgx"), "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(bgx.build(c, [], header_comment=f"{p.field_name} camera (ff9mapkit blender)"))
+            cam_body = ('[camera]\nborrow = "camera.bgx"\n'
+                        + ("[camera.scroll]\nenabled = true\n" if p.scroll_enabled else "")
+                        + f"[camera.frame]\nback = {p.back_y:g}\nfront = {p.front_y:g}\n")
         # walkmesh.obj (FF9 coords; one `o floor_N` group per material slot => multi-floor)
         verts, faces, floor_ids = _walkmesh_world_mesh(p.walkmesh)
         with open(os.path.join(out, "walkmesh.obj"), "w", encoding="utf-8", newline="\n") as fh:
             fh.write(bridge.mesh_to_ff9_obj(verts, faces, floor_ids))
-        # painted layers: copy each PNG next to the toml + collect (basename, z)
+        # painted layers: copy each PNG next to the toml + collect (basename, z [, camera])
         layers = []
         for L in p.layers:
             src = bpy.path.abspath(L.image)
@@ -1063,18 +1173,22 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             dst = os.path.join(out, os.path.basename(src))
             if os.path.abspath(src) != os.path.abspath(dst):
                 shutil.copyfile(src, dst)
-            layers.append({"image": os.path.basename(src), "z": int(L.z)})
+            ld = {"image": os.path.basename(src), "z": int(L.z)}
+            if multicam:
+                ld["camera"] = int(L.camera)           # which camera's background this layer is
+            layers.append(ld)
         # content markers -> scene (positions) + field.toml logic stub
         npcs, gateways, spawn, events = _collect_markers(context)
-        scene_body = ('[camera]\nborrow = "camera.bgx"\n'
-                      + ("[camera.scroll]\nenabled = true\n" if p.scroll_enabled else "")
-                      + f"[camera.frame]\nback = {p.back_y:g}\nfront = {p.front_y:g}\n"
-                      + '\n[walkmesh]\nobj = "walkmesh.obj"\nframe = "world"\n')
+        camzones = _collect_camzones(context) if multicam else []
+        scene_body = cam_body + '\n[walkmesh]\nobj = "walkmesh.obj"\nframe = "world"\n'
         if layers:
             scene_body += "\n" + bridge.layers_to_toml(layers) + "\n"
+        if camzones:
+            scene_body += "\n" + bridge.camera_zones_to_toml(camzones) + "\n"
         stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events)
-        self.report({"INFO"}, f"exported {p.field_name}: scene.toml ({len(layers)} layer(s), "
-                              f"{len(npcs)} NPC(s), {len(gateways)} gateway(s), {len(events)} event(s))"
+        cz = f", {len(camzones)} cam-zone(s)" if multicam else ""
+        self.report({"INFO"}, f"exported {p.field_name}: {len(cam_objs)} camera(s), {len(layers)} layer(s), "
+                              f"{len(npcs)} NPC(s), {len(gateways)} gateway(s), {len(events)} event(s){cz}"
                               f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
                               f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
         return {"FINISHED"}
@@ -1102,7 +1216,8 @@ def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=N
 CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera,
            FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_paint_template,
            FF9MK_OT_add_layer, FF9MK_OT_clear_layers,
-           FF9MK_OT_add_npc, FF9MK_OT_add_gateway, FF9MK_OT_add_event, FF9MK_OT_set_spawn,
+           FF9MK_OT_add_npc, FF9MK_OT_add_gateway, FF9MK_OT_add_event,
+           FF9MK_OT_add_camera, FF9MK_OT_add_camzone, FF9MK_OT_set_spawn,
            FF9MK_OT_import_field, FF9MK_OT_export_field)
 
 

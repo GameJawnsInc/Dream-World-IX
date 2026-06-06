@@ -20,6 +20,9 @@ class FF9MK_PT_panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         p = context.scene.ff9mapkit
+        ncam = len([o for o in context.scene.objects
+                    if o.type == "CAMERA" and (ops.CAM_KEY in o or o.name == ops.CAMERA_NAME)])
+        multicam = ncam > 1
 
         row = layout.row(align=True)
         row.operator("ff9mk.setup_scene", icon="SCENE_DATA", text="New Scene")
@@ -38,12 +41,18 @@ class FF9MK_PT_panel(bpy.types.Panel):
         col.prop(p, "pitch")
         col.prop(p, "distance")
         col.prop(p, "fov")
+        col.prop(p, "yaw")
         box.prop(p, "scroll_enabled")
         if p.scroll_enabled:
             row = box.row(align=True)
             row.prop(p, "canvas_w")
             row.prop(p, "canvas_h")
-        box.operator("ff9mk.pose_camera", icon="VIEW_CAMERA")
+        row = box.row(align=True)
+        row.operator("ff9mk.pose_camera", icon="VIEW_CAMERA")
+        row.operator("ff9mk.add_camera", icon="ADD", text="Add Camera")
+        if multicam:
+            box.label(text=f"{ncam} cameras. Select one to pose it; give each a layer + a Cam Zone.",
+                      icon="OUTLINER_OB_CAMERA")
         c = None
         try:
             c = ops.active_camera_to_ff9(context)
@@ -77,6 +86,8 @@ class FF9MK_PT_panel(bpy.types.Panel):
             r = box.row(align=True)
             r.label(text=os.path.basename(L.image) or "(none)", icon="IMAGE_REFERENCE")
             r.prop(L, "z", text="z")
+            if multicam:
+                r.prop(L, "camera", text="cam")          # which camera's background this layer is
         if not p.layers:
             box.label(text="add painted PNG(s) to model against", icon="INFO")
 
@@ -88,12 +99,18 @@ class FF9MK_PT_panel(bpy.types.Panel):
         row = box.row(align=True)
         row.operator("ff9mk.add_event", icon="FORCE_FORCE", text="Event")
         row.operator("ff9mk.set_spawn", icon="MESH_UVSPHERE", text="Spawn")
+        row = box.row(align=True)
+        sub = row.row(align=True)
+        sub.enabled = multicam                            # cam zones need 2+ cameras
+        sub.operator("ff9mk.add_camzone", icon="OUTLINER_OB_CAMERA", text="Cam Zone")
         # tally + per-type edit hint for the active marker
         npc_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "npc")
         gw_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "gateway")
         ev_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "event")
+        cz_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "camzone")
         spawn_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "spawn")
-        box.label(text=f"{npc_n} NPC · {gw_n} gateway · {ev_n} event · {spawn_n} spawn")
+        tally = f"{npc_n} NPC · {gw_n} gateway · {ev_n} event · {spawn_n} spawn"
+        box.label(text=tally + (f" · {cz_n} cam-zone" if multicam or cz_n else ""))
         ao = context.active_object
         mk = ao.get(ops.MARKER_KEY) if ao else None
         if mk == "npc":
@@ -115,6 +132,11 @@ class FF9MK_PT_panel(bpy.types.Panel):
                 if key in ao:
                     col.prop(ao, f'["{key}"]', text=key[4:])
             col.label(text="set_flag: -1 = none; once: 1 = fire once, 0 = every entry", icon="INFO")
+        elif mk == "camzone":
+            col = box.column(align=True)
+            col.label(text=f"{ao.name} (place over the target camera's area; no overlaps)")
+            if "ff9_to_camera" in ao:
+                col.prop(ao, '["ff9_to_camera"]', text="to_camera")
         elif mk == "spawn":
             box.label(text=f"{ao.name} (move to set spawn)")
         else:

@@ -81,6 +81,13 @@ Background Art → Content → Export**. A typical pass:
      `ff9_once` inline (or flesh out the actions — give_item/gil/requires_flag — in the editor).
    - *Spawn* places the single `FF9_Spawn` marker — where the player appears on entry.
    Markers are read on export; their floor positions are taken from where you place them.
+8b. **Multi-camera (optional)** — for a field that cuts between camera angles as you walk (FF9
+   streets/plazas). In the **Camera** box, **Add Camera** drops another FF9 camera (set its own
+   *Yaw/Pitch/FOV* + *Pose*; select a camera to edit it). Give each camera its own painted
+   background via **Add Layer**, then set that layer's **cam** index in the layer row. In **Content**,
+   **Cam Zone** drops a blue zone — set `ff9_to_camera` (which camera to switch to) and place it over
+   that camera's area; **zones must not overlap**. Export emits a `[[camera]]` array (camera 0 =
+   default at load), per-layer `camera`, and `[[camera_zone]]` switches.
 8. **Export Field** (*Export* box) — set the field `id` / `name` / `area` / `text_block` and the
    *Export to* folder, then *Export Field* writes `camera.bgx`, `walkmesh.obj`, the painted PNGs, and
    **two TOMLs** (Godot-style — placement vs. script):
