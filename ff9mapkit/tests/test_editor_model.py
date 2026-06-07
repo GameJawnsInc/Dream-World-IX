@@ -45,6 +45,9 @@ def test_dumps_roundtrips_every_value_type():
         "cutscene": {"actor": "Vivi", "once": True, "warmup": 30,
                      "steps": [{"say": "hello"}, {"wait": 30}, {"walk": [0, -800]},
                                {"face_player": True}, {"animation": 7302}, {"set_flag": [201, 1]}]},
+        "choice": [{"npc": "Vivi", "prompt": "What?",      # nested array-of-tables (options)
+                    "options": [{"text": "Potion", "reply": "ok", "give_item": ["Potion", 1], "gil": -100},
+                                {"text": "Nothing", "set_flag": [8001, 1]}]}],
     }
     assert tomllib.loads(model.dumps(d)) == d
 

@@ -29,7 +29,7 @@ _INLINE_AOT_KEYS = frozenset({"steps"})
 
 # Canonical section order for readable output (unknown keys keep their insertion order, appended).
 _ROOT_ORDER = ("field", "camera", "walkmesh", "layers", "player", "npc", "gateway", "event",
-               "camera_zone", "encounter", "music", "cutscene", "scene")
+               "choice", "camera_zone", "encounter", "music", "cutscene", "scene")
 
 
 # --------------------------------------------------------------------------- serializer
