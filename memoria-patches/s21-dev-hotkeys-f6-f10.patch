@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
-index b8091950..136edc96 100644
+index b8091950..ce87b3c7 100644
 --- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
 +++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
-@@ -155,6 +155,34 @@ public class UIKeyTrigger : MonoBehaviour
+@@ -155,6 +155,40 @@ public class UIKeyTrigger : MonoBehaviour
              AccelerateKeyNavigation();
              if (HandleMenuControlKeyPressCustomInput())
                  return;
@@ -28,6 +28,12 @@ index b8091950..136edc96 100644
 +                        FF9StateSystem.EventState.gScriptVector.Clear();
 +                        FF9StateSystem.EventState.gScriptDictionary.Clear();
 +                    }
++                    // Drop user control before the (soft) reload. The player object keeps its current
++                    // position across SetNextMap+nextMode=1, so without this a region you're STANDING IN
++                    // (a tread zone / chest) fires on the first frame after reload -- before Main_Init
++                    // repositions you to spawn -- because the tread check is gated only on usercontrol.
++                    // Main_Init re-enables control after positioning, by which point you're at spawn.
++                    PersistenSingleton<EventEngine>.Instance.SetUserControl(false);
 +                    PersistenSingleton<EventEngine>.Instance.SetNextMap(FF9StateSystem.Common.FF9.fldMapNo);
 +                    FF9StateSystem.Field.FF9Field.loc.map.nextMode = 1;
 +                    PersistenSingleton<FF9StateSystem>.Instance.attr |= 8u;
