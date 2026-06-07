@@ -1685,3 +1685,21 @@ Two user asks, both fully landed + in-game-verified: (1) modernize the Field Edi
 **Kit:** `opcodes.enable_dialog_choices` (0x7C), `content.choice.pre_choose` (returns setup opcode + `[PCHC]`/`[PCHM]` tag) + `setup` param on `region_body`/`speak_body`, build wiring (NPC + zone choice paths + collect_text tag), `validate` (default/cancel range, not-all-disabled) + `lint_logic` (unhonorable default warning), editor `CHOICE_SPEC` default/cancel + `disabled` option, FORMAT.md. 348 tests. Commits `4a792fe`→`af4d787`. Engine unchanged (probe removed; clean F6/F10 Release redeployed). Field 4003 = the default+cancel demo (revert `py tools/scroll_out/revert_deploy.py`).
 
 **Next (v2 — the genuinely useful disable):** flag-gated hide — a row hidden UNTIL a story flag is set ("show *Use the key* only once you have it"). Needs the runtime-mask path scoped during this dig: build the mask in a scratch var from flags (`set_var` + `if(flag) or_var`, ops `B_OR_LET`/`B_PLUS_LET` confirmed) and pass it as an EXPRESSION arg to `EnableDialogChoices` (gArgFlag bit + bare-RPN `<var-token> 0x7F`; `encode(..., arg_flags=1)` already supports it). Var tokens: GLOB UInt16 scratch = `0xDC` (VariableType.UInt16=7). Verify the expression-arg byte format against a real field first.
+
+### 2026-06-07 — Session 21 (cont) — Choices v2: flag-gated hide (option visible until/once a story flag) — real-field-verified + in-game
+
+**Built the genuinely-useful disable: `[[choice.options]] requires_flag = N` (row hidden UNTIL flag N set) / `requires_flag_clear = N` (hidden ONCE set). In-game verified incl. F10 reset.** The kit builds the availability mask AT RUNTIME from story flags and passes it to `EnableDialogChoices` as an EXPRESSION arg.
+
+**Verified byte-for-byte against a REAL field first (user's explicit ask).** Mapped the HW exports' `EnableDialogChoices( VAR | const )` usages → field IDs (manifest is HW-index→field-ID, so test2_NNN ≠ field NNN), extracted **field 407 (Dali/Storage Area, `fbg_n08_udft_map122_uf_sto_0`)** from p0data, disassembled its CHOOSEPARAM bytes — the moogle-mail menu builds its mask exactly this way:
+```
+05 d9 21 7d 02 00 3f 7f          VAR_MapInt16#33 |= 2        (B_OR_LET = 0x3F)
+7c 01 d9 21 7d 04 00 26 7f 00    EnableDialogChoices(VAR | 4, 0)   (gArgFlag=01 -> arg0 is an EXPRESSION)
+7c 03 .. (arg `d6 09 7f` = a BARE var + 0x7F)                       (bare-var expression-arg is valid)
+```
+So confirmed: opcode arg N is an expression iff gArgFlag bit N set (the `[op][gArgFlag][args]` byte after every opcode, `EventEngine.getv1/getv2`→`CalcExpr`); expression-arg = bare RPN terminated `0x7F` (NO leading `0x05`); `B_OR`=0x26, `B_OR_LET`=0x3F. Var byte-mapping (`EBin.GetVariableValueInternal`): Byte/Int16/UInt16 index = a direct BYTE offset into the 2048-byte gEventGlobal (Bit index = bit number) — and a **UInt16 read via the expression path is UNSIGNED** (no `0xFFFF`→-1 trap).
+
+**Kit (real-field-grounded):** `region.GLOB_UINT16=0xDC` + `MASK_SCRATCH_IDX=2040` (high byte offset, clear of base vars + the 8000+ bit-flags; F10-reset-safe since rebuilt each open) + `or_var`(0x3F) + `var_expr` (bare-var expr-arg); `opcodes.enable_dialog_choices_var` (arg_flags=1); `choice.dynamic_mask_setup` (set_var base + `if(flag) or_var` per gated bit + EnableDialogChoices expr-arg) + `pre_choose` 3-mode (flag-gated→runtime mask, static-hide→literal partial mask, default/cancel→all-on `(1<<n)-1`). validate (no both requires set+clear) + lint (a `requires_flag` with no setter = dead; gated rows extend the default warning) + editor option fields + FORMAT.md. 353 tests (+5).
+
+**Human verified (in-game):** CONSOLE first shows only Buy/Leave; walking the SWITCH (an event set_flag=8001) reveals "Use the Gate Key"; **F10 reset re-hides it.** Tagged `KNOWN_GOOD-s21-prechoose-v2`. Commits `aafdaab` (v2) + test builder. (Benign UX note: the switch's message is a synchronous window, so its set_flag lands after you close it — standard "you got X → then it's yours"; not a choice issue.)
+
+**The choice system is now COMPLETE end-to-end:** NPC/zone triggers → branch → reply/item/gil/flag → default/cancel row → static hide → **flag-gated hide**. Field 4003 = the flaggate test (revert `py tools/scroll_out/revert_deploy.py`).
