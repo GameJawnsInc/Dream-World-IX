@@ -137,6 +137,41 @@ def test_event_markers_build_into_a_field(tmp_path):
     assert "You found a chest!" in mes
 
 
+# --- waypoint markers (movement points) ---------------------------------------------------
+def test_markers_to_toml_and_scene_split():
+    markers = [{"name": "door", "pos": (0, -700)}, {"name": "altar", "pos": (100, 200)}]
+    d = tomllib.loads(bridge.markers_to_toml(markers))
+    assert d["marker"][0] == {"name": "door", "pos": [0, -700]}
+    # markers are spatial-only -> they land in the scene.toml (no logic counterpart)
+    scene = tomllib.loads(bridge.scene_toml("R", '[camera]\nborrow = "c.bgx"\n', markers=markers))
+    assert [m["name"] for m in scene["marker"]] == ["door", "altar"]
+
+
+def test_waypoint_marker_builds_into_a_field(tmp_path):
+    proj = tmp_path / "proj"; proj.mkdir()
+    eye = (0.0, -3000.0, 3000.0)
+    R = bridge.look_at_blender(eye, (0.0, 0.0, 0.0))
+    c = bridge.blender_cam_to_ff9(eye, R, bridge.H_to_lens(497, bridge.DEFAULT_SENSOR, 384))
+    (proj / "camera.bgx").write_text(bgx.build(c, []), encoding="utf-8")
+    verts = [(-1000.0, -2000.0, 0.0), (1000.0, -2000.0, 0.0), (1000.0, 0.0, 0.0), (-1000.0, 0.0, 0.0)]
+    (proj / "walkmesh.obj").write_text(bridge.mesh_to_ff9_obj(verts, [(0, 1, 2), (0, 2, 3)]), encoding="utf-8")
+    # scene: an NPC position + a named movement marker (the walk target) -- both spatial
+    (proj / "room.scene.toml").write_text(
+        bridge.scene_toml("WP_ROOM", '[camera]\nborrow = "camera.bgx"\n\n[walkmesh]\nobj = "walkmesh.obj"\n',
+                          npcs=[{"name": "Vivi", "pos": (0, -200)}],
+                          markers=[{"name": "spot", "pos": (0, -1500)}]), encoding="utf-8")
+    # field: NPC logic + a cutscene that walks to the marker BY NAME
+    (proj / "room.field.toml").write_text(
+        '[field]\nid = 4012\nname = "WP_ROOM"\narea = 11\ntext_block = 1073\n\n'
+        '[[npc]]\nname = "Vivi"\npreset = "vivi"\n\n'
+        '[cutscene]\nactor = "Vivi"\nonce = false\nsteps = [ { walk = "spot" } ]\n', encoding="utf-8")
+    from ff9mapkit.build import validate
+    p = FieldProject.load(proj / "room.field.toml")
+    assert not any("spot" in m for m in validate(p))           # the marker resolves (merged from scene)
+    info = build_mod([p], tmp_path / "mod", mod_name="FF9CustomMap")
+    assert info["dictionary"] == ["FieldScene 4012 11 WP_ROOM WP_ROOM 1073"]
+
+
 # --- multi-camera: camera array + switch zones (Phase A bridge) -------------------------
 def test_multicam_bridge_toml_is_valid():
     import tomllib

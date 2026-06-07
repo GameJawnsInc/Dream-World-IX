@@ -80,6 +80,9 @@ Background Art → Content → Export**. A typical pass:
      events. Move/scale it over the trigger spot; set `ff9_message`, `ff9_set_flag` (-1 = none),
      `ff9_once` inline (or flesh out the actions — give_item/gil/requires_flag — in the editor).
    - *Spawn* places the single `FF9_Spawn` marker — where the player appears on entry.
+   - *Waypoint* drops a named point (`FF9_Waypoint`) — set `ff9_name`, then reference it from a
+     cutscene by name (`walk = "<name>"` / `path = ["a", "b"]`) instead of typing coordinates. (A
+     plain `walk` auto-routes around obstacles; waypoints are for forcing an exact route.)
    Markers are read on export; their floor positions are taken from where you place them.
 8b. **Multi-camera (optional)** — for a field that cuts between camera angles as you walk (FF9
    streets/plazas). In the **Camera** box, **Add Camera** drops another FF9 camera (set its own

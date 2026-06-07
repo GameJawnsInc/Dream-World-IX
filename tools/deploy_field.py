@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Build any field.toml and deploy it to field 4003 reversibly, reachable via the New-Game auto-warp.
 Reverts any prior 4003 test first. Run:  python tools/deploy_field.py <path-to-field.toml>
+
+DEV LOOP (no relaunch): after deploying, press F6 in-game (our dev-engine reload hotkey) to reload the
+current field straight from the mod folder -- script (.eb), text (.mes), and scene/walkmesh/art all
+re-read on the field load. So: edit field.toml -> deploy_field.py -> F6. Only the FIRST deploy of a
+session needs one relaunch (to register field 4003 in DictionaryPatch); BattlePatch + engine DLL
+changes also need a relaunch. F6 reloads only the field you're standing in.
 """
 import os, sys, struct, shutil, tempfile, datetime, glob
 from pathlib import Path

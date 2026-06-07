@@ -31,7 +31,7 @@ def _range_wh(p):
     return (int(p.canvas_w), int(p.canvas_h)) if p.scroll_enabled else RANGE_WH
 
 # content markers (Phase 2): tagged Blender objects -> [[npc]]/[[gateway]]/[[event]]/[player] on export.
-MARKER_KEY = "ff9_marker"            # obj[MARKER_KEY] in {"npc", "gateway", "event", "camzone", "spawn"}
+MARKER_KEY = "ff9_marker"            # obj[MARKER_KEY] in {"npc","gateway","event","camzone","spawn","waypoint"}
 GATEWAY_HALF_W = 700.0               # default gateway quad half-extents (FF9 ~= Blender units)
 GATEWAY_HALF_D = 250.0
 CAM_KEY = "ff9_cam"                  # obj[CAM_KEY] = camera index (0 = default at load) for a multi-cam field
@@ -782,6 +782,19 @@ def _collect_camzones(context):
     return zones
 
 
+def _collect_waypoints(context):
+    """Named movement markers -> [{name, pos}], sorted by name. A cutscene's walk/path references these
+    by name (placed visually instead of typing coords): walk = "<ff9_name>"."""
+    out = []
+    for obj in sorted(context.scene.objects, key=lambda o: o.name):
+        if obj.get(MARKER_KEY) == "waypoint":
+            m = {"pos": bridge.marker_floor_pos(obj.matrix_world.translation)}
+            if obj.get("ff9_name"):
+                m["name"] = obj["ff9_name"]
+            out.append(m)
+    return out
+
+
 class FF9MK_OT_add_npc(bpy.types.Operator):
     bl_idname = "ff9mk.add_npc"
     bl_label = "Add NPC"
@@ -800,6 +813,25 @@ class FF9MK_OT_add_npc(bpy.types.Operator):
         e["ff9_dialogue"] = "Hello."
         _link_active(context, e)
         self.report({"INFO"}, f"added NPC '{e.name}' — set ff9_preset / ff9_dialogue in Custom Properties")
+        return {"FINISHED"}
+
+
+class FF9MK_OT_add_waypoint(bpy.types.Operator):
+    bl_idname = "ff9mk.add_waypoint"
+    bl_label = "Add Waypoint"
+    bl_description = ("Drop a named movement marker (Empty) at the 3D cursor on the floor. A cutscene "
+                      "references it by name: walk = \"<ff9_name>\". Set ff9_name in Custom Properties")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        e = bpy.data.objects.new("FF9_Waypoint", None)
+        e.empty_display_type = "SPHERE"
+        e.empty_display_size = 120.0
+        e.location = _cursor_floor(context)
+        e[MARKER_KEY] = "waypoint"
+        e["ff9_name"] = "waypoint"
+        _link_active(context, e)
+        self.report({"INFO"}, f"added waypoint '{e.name}' — set ff9_name, then walk = \"<name>\" in a cutscene")
         return {"FINISHED"}
 
 
@@ -1146,7 +1178,8 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             if p.scroll_enabled:
                 scene_body += "[camera.scroll]\nenabled = true\n"
             stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn,
-                                      borrow_bg=p.borrow_bg, events=events)
+                                      borrow_bg=p.borrow_bg, events=events,
+                                      markers=_collect_waypoints(context))
             self.report({"INFO"}, f"BG-borrow fork of {p.borrow_bg}: scene.toml written"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
                                   f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
@@ -1186,7 +1219,8 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             scene_body += 'frame = "world"\n'
             if layers:
                 scene_body += "\n" + bridge.layers_to_toml(layers) + "\n"
-            stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events)
+            stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events,
+                                  markers=_collect_waypoints(context))
             self.report({"INFO"}, f"editable fork {p.field_name}: scene.toml ({len(layers)} layer(s), "
                                   f"{'multi-floor' if has_links else 'single-floor'})"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
@@ -1238,7 +1272,8 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             scene_body += "\n" + bridge.layers_to_toml(layers) + "\n"
         if camzones:
             scene_body += "\n" + bridge.camera_zones_to_toml(camzones) + "\n"
-        stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events)
+        stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events,
+                                  markers=_collect_waypoints(context))
         cz = f", {len(camzones)} cam-zone(s)" if multicam else ""
         self.report({"INFO"}, f"exported {p.field_name}: {len(cam_objs)} camera(s), {len(layers)} layer(s), "
                               f"{len(npcs)} NPC(s), {len(gateways)} gateway(s), {len(events)} event(s){cz}"
@@ -1247,15 +1282,16 @@ class FF9MK_OT_export_field(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=None, events=()):
+def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=None, events=(), markers=()):
     """Two-file export: write ``<name>.scene.toml`` (spatial; ALWAYS overwritten) + ``<name>.field.toml``
     (logic stub; created ONLY if it doesn't already exist, so the user's script is never clobbered).
     ``scene_body`` is the path-specific ``[camera]``/``[walkmesh]``/``[[layers]]`` text. Event zones go
-    in the scene; their actions go in the field stub (joined by name). Returns True if a fresh
-    field.toml stub was written (False = an existing one was kept)."""
+    in the scene; their actions go in the field stub (joined by name). Named movement ``markers`` are
+    spatial-only -> scene.toml. Returns True if a fresh field.toml stub was written (False = kept)."""
     base = p.field_name.lower()
     with open(os.path.join(out, f"{base}.scene.toml"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(bridge.scene_toml(p.field_name, scene_body, npcs, gateways, spawn, events=events))
+        fh.write(bridge.scene_toml(p.field_name, scene_body, npcs, gateways, spawn, events=events,
+                                   markers=markers))
     field_path = os.path.join(out, f"{base}.field.toml")
     if os.path.isfile(field_path):
         return False
@@ -1269,7 +1305,7 @@ def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=N
 CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera, FF9MK_OT_read_camera,
            FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_paint_template,
            FF9MK_OT_add_layer, FF9MK_OT_clear_layers,
-           FF9MK_OT_add_npc, FF9MK_OT_add_gateway, FF9MK_OT_add_event,
+           FF9MK_OT_add_npc, FF9MK_OT_add_waypoint, FF9MK_OT_add_gateway, FF9MK_OT_add_event,
            FF9MK_OT_add_camera, FF9MK_OT_add_camzone, FF9MK_OT_set_spawn,
            FF9MK_OT_import_field, FF9MK_OT_export_field)
 

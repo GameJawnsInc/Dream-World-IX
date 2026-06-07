@@ -101,6 +101,7 @@ class FF9MK_PT_panel(bpy.types.Panel):
         row.operator("ff9mk.add_event", icon="FORCE_FORCE", text="Event")
         row.operator("ff9mk.set_spawn", icon="MESH_UVSPHERE", text="Spawn")
         row = box.row(align=True)
+        row.operator("ff9mk.add_waypoint", icon="EMPTY_AXIS", text="Waypoint")
         sub = row.row(align=True)
         sub.enabled = multicam                            # cam zones need 2+ cameras
         sub.operator("ff9mk.add_camzone", icon="OUTLINER_OB_CAMERA", text="Cam Zone")
@@ -110,8 +111,10 @@ class FF9MK_PT_panel(bpy.types.Panel):
         ev_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "event")
         cz_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "camzone")
         spawn_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "spawn")
+        wp_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "waypoint")
         tally = f"{npc_n} NPC · {gw_n} gateway · {ev_n} event · {spawn_n} spawn"
-        box.label(text=tally + (f" · {cz_n} cam-zone" if multicam or cz_n else ""))
+        box.label(text=tally + (f" · {wp_n} waypoint" if wp_n else "")
+                  + (f" · {cz_n} cam-zone" if multicam or cz_n else ""))
         ao = context.active_object
         mk = ao.get(ops.MARKER_KEY) if ao else None
         if mk == "npc":
@@ -138,6 +141,12 @@ class FF9MK_PT_panel(bpy.types.Panel):
             col.label(text=f"{ao.name} (place over the target camera's area; no overlaps)")
             if "ff9_to_camera" in ao:
                 col.prop(ao, '["ff9_to_camera"]', text="to_camera")
+        elif mk == "waypoint":
+            col = box.column(align=True)
+            col.label(text=f"{ao.name} (move to position)")
+            if "ff9_name" in ao:
+                col.prop(ao, '["ff9_name"]', text="name")
+            col.label(text='reference in a cutscene: walk = "<name>"', icon="INFO")
         elif mk == "spawn":
             box.label(text=f"{ao.name} (move to set spawn)")
         else:

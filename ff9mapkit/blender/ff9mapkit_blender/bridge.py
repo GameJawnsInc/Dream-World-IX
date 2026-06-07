@@ -570,11 +570,31 @@ def player_to_toml(spawn):
     return f"[player]\nspawn = [{int(spawn[0])}, {int(spawn[1])}]"
 
 
+def markers_to_toml(markers):
+    """`[[marker]]` blocks from dicts {name, pos:(x,z)} -- named movement waypoints (no logic), so a
+    cutscene can ``walk = "<name>"`` instead of raw coords."""
+    blocks = []
+    for m in markers:
+        L = ["[[marker]]"]
+        if m.get("name"):
+            L.append(f"name = {_toml_str(m['name'])}")
+        L.append(f"pos = [{int(m['pos'][0])}, {int(m['pos'][1])}]")
+        blocks.append("\n".join(L))
+    return "\n\n".join(blocks)
+
+
 # --- Two-file split (Godot-style): scene.toml (spatial, Blender-owned) + field.toml (logic, yours) -
-def _entity_scene_blocks(npcs=(), gateways=(), events=()):
+def _entity_scene_blocks(npcs=(), gateways=(), events=(), markers=()):
     """Spatial-only entity blocks for scene.toml: just ``name`` + ``pos`` / ``zone`` (the logic --
-    dialogue/conditions/target/actions -- lives in the field.toml, joined by name)."""
+    dialogue/conditions/target/actions -- lives in the field.toml, joined by name). Markers are
+    spatial-only (named points), so they live ENTIRELY here."""
     out = []
+    for m in markers:
+        L = ["[[marker]]"]
+        if m.get("name"):
+            L.append(f"name = {_toml_str(m['name'])}")
+        L.append(f"pos = [{int(m['pos'][0])}, {int(m['pos'][1])}]")
+        out.append("\n".join(L))
     for n in npcs:
         L = ["[[npc]]"]
         if n.get("name"):
@@ -598,16 +618,17 @@ def _entity_scene_blocks(npcs=(), gateways=(), events=()):
     return "\n\n".join(out)
 
 
-def scene_toml(field_name, scene_body, npcs=(), gateways=(), spawn=None, events=()):
+def scene_toml(field_name, scene_body, npcs=(), gateways=(), spawn=None, events=(), markers=()):
     """The Blender-owned spatial overlay ``<field>.scene.toml``: the path-specific ``scene_body``
-    (``[camera]`` / ``[walkmesh]`` / ``[[layers]]`` text) + ``[player]`` + each entity's name+pos/zone.
-    OVERWRITTEN on every export; holds no logic, so re-exporting can't clobber your script."""
+    (``[camera]`` / ``[walkmesh]`` / ``[[layers]]`` text) + ``[player]`` + each entity's name+pos/zone
+    + named movement markers. OVERWRITTEN on every export; holds no logic, so re-exporting can't
+    clobber your script."""
     parts = [f"# {field_name} -- SCENE (spatial; Blender-owned, overwritten on export).",
              f"# Logic (dialogue/conditions/events) is in {field_name.lower()}.field.toml.",
              scene_body.strip()]
     if spawn is not None:
         parts.append(player_to_toml(spawn))
-    eb = _entity_scene_blocks(npcs, gateways, events)
+    eb = _entity_scene_blocks(npcs, gateways, events, markers)
     if eb:
         parts.append(eb)
     return "\n\n".join(p for p in parts if p) + "\n"
