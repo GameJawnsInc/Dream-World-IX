@@ -1582,3 +1582,29 @@ User's goal: make `ff9mapkit` a **stellar release** and **capture the breadth** 
 3. `0.9.3 → 1.0.0` bump when shipped. The 2 Memoria upstream items: PR #1433 (FieldCreatorScene) left open/irrelevant; nothing else to submit.
 
 **`KNOWN_GOOD-s19-stock-f6-warp`** remains the current tag (no in-game change this pass).
+
+### 2026-06-06 — Session 19 (cont) — PROVENANCE GATE CLEARED: repo ships zero SE game data + privacy scan clean
+
+**The release blocker is solved.** `ff9mapkit` now contains **no Final Fantasy IX game bytes** — it regenerates the few base assets it needs from the user's OWN install, like a "bring your own ROM" tool. All offline, Claude-owned; 253 kit tests pass. Commit `b214773` on `master`.
+
+**What was game-derived + how it's handled now (validated against the live install):**
+- **blank field** (956B/lang, every built field's base) ← field 1357 (Hangar) cleaned: **92.6% copied from the user's file, only ~3–39B/lang are our edits**.
+- **exit-region template** (272B) ← `ALEX3_AT_WEAPON` (`fbg_n01_alxt_map031_at_wpn_0`, the real "field 109") exit region: **98.2% copy, 5B edits**. (The old "field 109" was the HW filename; the real source is ALEX3_AT_WEAPON, found by brute-force diff over all 818 fields.)
+- **test fixtures** ← regenerated from identified sources: `alex100-us` = **vanilla** `ALEX1_AT_STREET_A` + the kit's own door injection (no AlternateFantasy bytes; eventscan oracle unchanged); `grgr.bgx` = real GRGR camera; `multifloor.bgi` = a real **3-floor** walkmesh (`tshp_map008_th_upr_0`) that round-trips byte-exact + is seam-clean (GRGR's 7-floor has 2 padding bytes the codec drops, so it failed the round-trip test → swapped).
+- **build goldens** (the hut, which embeds the blank) → compared by **SHA-256** in the manifest, not shipped bytes.
+
+**What ships instead (all ours, no game bytes):** copy/insert **patches** (`data/provenance/*.patch`) + a SHA-256 **manifest**. New `ff9mapkit/provision.py` (patch codec + extraction orchestration; loaders read a gitignored cache + raise a clear "run extract-templates") + maintainer `data/_regen_provenance.py` (authors the patches from a vanilla install, asserts byte-exact reproduction). New CLI **`ff9mapkit extract-templates`** + a `doctor` "templates: extracted/NOT" line.
+
+**Airtight INVARIANT (guarded + tested):** no patch insert run ≥4 bytes ever duplicates a run present in the source field — so even the per-language field name is *copied* (referenced by offset), never shipped. `make_patch` decomposes inserts to enforce it (`provision.patch_game_runs` audits; `_regen_provenance` asserts). Proven: the jp patch's 35B Shift-JIS name insert → 0 after the fix.
+
+**Verified at every layer:** (1) `git ls-files` — the only tracked binary is `hut_ext.bgi.bytes` (OUR 232B quad from `bgi.quad()`, not game data) + example/placeholder PNGs; no `blank_field`/`region_template`/fixtures tracked. (2) **A built wheel contains zero game bytes** (`package-data` restricted to `data/provenance/*`, so a wheel can't bundle FF9 bytes even on a machine where extract-templates has run). (3) `extract-templates` regenerates all 11 blobs + self-verifies against the manifest. (4) `conftest.py` skips the byte-level suite cleanly (pointer to extract-templates) when templates absent — pure-logic suite (cam math, editor, provision codec) still runs offline; `tests/test_provision.py` (5 tests) covers the patch codec + invariant.
+
+**`_fieldtable.py` kept** (676 field-name identifiers) — derived from **Memoria's open-source** tables (not the game), the same data Memoria publishes; documented in `docs/PROVENANCE.md`. Flagged as the one gray area; user's call.
+
+**Docs:** new `docs/PROVENANCE.md` (rationale + the airtight guarantee + setup); README quickstart adds `extract-templates`; ENGINE.md/CHANGELOG updated. `.gitignore` makes game-derived data un-committable by default (`*.eb.bytes`/`*.bgx`/`*.bgi.bytes` ignored except our hut quad) + ignores `blender/human_testing/` scratch.
+
+**Privacy scan (the follow-up) — CLEAN.** Whole tracked tree + commit history + untracked-not-ignored files: no personal email (gmail absent everywhere), no secrets/keys/tokens, no real name, no Steam IDs, no other-user paths, no tracked personal config. **Git commits already use the GitHub noreply identity** (`122755272+GameJawnsInc@users.noreply.github.com`) — no real name/email leaks via history. Only identifiers present: the intentional `GameJawnsInc` handle + `skaki` in paths (user said skaki is fine). Per the user, skaki paths were excluded from scope.
+
+**Note (out of scope, flagged):** `release/` + `mod/` (the FFIX dev repo's actual FF9CustomMap mod) contain game-derived *mod* content by nature — that's normal mod-distribution territory (any FF9 mod modifies game data), distinct from the toolkit. The provenance fix is about the **toolkit** not shipping game data; the mod is the user's call if they ever publish the whole FFIX repo (vs just `ff9mapkit/`).
+
+**Remaining before a public 1.0:** gallery screenshots (user-owned) + the YouTube video (earmarked); `0.9.3 → 1.0.0` bump when shipped. The provenance blocker is now cleared — `ff9mapkit/` is safe to publish (it contains no SE data and no private info). **Standing constraint still in force: nothing pushed/made public.**
