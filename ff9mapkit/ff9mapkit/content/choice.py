@@ -28,7 +28,10 @@ from __future__ import annotations
 from ..eb import opcodes
 from . import event as _event, region as _region
 
-# zone-triggered choices auto-allocate a gate flag from here (clear of events 8000 + cutscene 8100).
+# zone-triggered choices auto-allocate a GLOB gate flag from here (clear of events 8000 + cutscene
+# 8100). It must be GLOB (gEventGlobal is large); the per-field MAP array is only 80 bytes, so a high
+# index there is out of bounds and crashes. once-per-visit is done by resetting this flag in the
+# region's Init (re-runs each field load), not by a transient MAP flag.
 CHOICE_FLAG_BASE = 8200
 
 

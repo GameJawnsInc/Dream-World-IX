@@ -158,9 +158,11 @@ def set_region(points) -> bytes:
     return out
 
 
-def build_region_entry(zone, range_body: bytes) -> bytes:
-    """Assemble a type-1 region entry: Init (tag 0 = SetRegion(zone); return) + Range (tag 2 = body)."""
-    init_body = set_region(zone) + opcodes.RETURN
+def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"") -> bytes:
+    """Assemble a type-1 region entry: Init (tag 0 = SetRegion(zone) + ``init_extra``; return) + Range
+    (tag 2 = body). ``init_extra`` runs once on field load (when InitRegion arms the region) -- e.g. a
+    ``set flag = 0`` to re-arm a once-per-visit trigger each visit."""
+    init_body = set_region(zone) + init_extra + opcodes.RETURN
     funcs = [(0, init_body), (RANGE_TAG, range_body)]
     table_len = len(funcs) * 4
     table = bytearray()
@@ -185,16 +187,18 @@ def prepend_range_gate(data, slot: int, gate_bytes: bytes) -> bytes:
 
 
 def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, activate: bool = True,
-                  spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0):
-    """Append a conditional region (Init=SetRegion(zone), Range=range_body) into a free slot.
+                  spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0, init_extra: bytes = b""):
+    """Append a conditional region (Init=SetRegion(zone) + ``init_extra``, Range=range_body) into a
+    free slot.
 
     Returns ``(new_bytes, slot)``. If ``activate`` (default), the region is turned on at field load
     by overwriting a Main_Init ``Wait(n)`` filler with ``InitRegion(slot, 0)`` -- shift-free. Pass
-    ``activate=False`` for a zone that another zone enables at runtime (the switch-pair toggle)."""
+    ``activate=False`` for a zone that another zone enables at runtime (the switch-pair toggle).
+    ``init_extra`` runs in the region's Init on each load (e.g. a flag reset for once-per-visit)."""
     eb = EbScript.from_bytes(data)
     if slot is None:
         slot = eb.first_free_slot()
-    entry = build_region_entry(zone, range_body)
+    entry = build_region_entry(zone, range_body, init_extra=init_extra)
     out = edit.append_entry(data, slot, entry)
     if activate:
         out = edit.activate(out, opcodes.init_region(slot, 0), spawn_wait_n=spawn_wait_n,

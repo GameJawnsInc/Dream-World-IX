@@ -60,6 +60,11 @@ def test_zone_choice_injects_a_loop_safe_region(tmp_path):
     ops = _ops(s, reg.index, 2)
     assert 0x2D in ops and 0x2E in ops                          # DisableMove + EnableMove around the menu
     assert 0x1F in ops                                          # WindowSync (prompt)
+    # the gate flag must be GLOB, not MAP: the 80-byte MAP array can't hold flag 8200 (out-of-bounds
+    # crash). 8200 > 0xFF -> long index: GLOB_BOOL token 0xE4, MAP_BOOL token 0xE5.
+    t2 = eb[reg.func_by_tag(2).abs_start:reg.func_by_tag(2).abs_end]
+    assert bytes([0xE4]) in t2 and bytes([0xE5]) not in t2      # GLOB gate flag, never MAP
+    assert 0x05 in _ops(s, reg.index, 0)                        # once=false -> Init resets the flag each visit
 
 
 def test_npc_speak_body_choice_branch():

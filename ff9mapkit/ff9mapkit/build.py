@@ -349,14 +349,11 @@ def lint_logic(project: FieldProject) -> list[str]:
         for o in ch.get("options", []):
             if "set_flag" in o:
                 settable.add(int(o["set_flag"][0])); explicit.add(int(o["set_flag"][0]))
-        if "zone" in ch:                        # a zone-choice's loop-safe gate flag (mirror build)
-            glob = ch.get("once", True)         # once=true -> persistent GLOB; once=false -> transient
+        if "zone" in ch:                        # a zone-choice's GLOB gate flag (mirror build's counter)
             if "flag" in ch:
-                if glob:
-                    settable.add(int(ch["flag"])); explicit.add(int(ch["flag"]))
+                settable.add(int(ch["flag"])); explicit.add(int(ch["flag"]))
             else:
-                if glob:
-                    auto_once.add(_choice.CHOICE_FLAG_BASE + choice_counter)
+                auto_once.add(_choice.CHOICE_FLAG_BASE + choice_counter)
                 choice_counter += 1
     settable |= auto_once
 
@@ -884,7 +881,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # zone-triggered choices: walk into a region -> a choice menu (a lever / sign with a decision).
     # A region trigger is LEVEL-triggered, so a synchronous menu would re-pop every frame in the zone;
     # the flag gate (reusing event_range_body: MOVEMENT_GATE + if(!flag){body; flag=1} + RETURN) makes
-    # it loop-safe -- once=true -> persistent (once ever), once=false -> transient MAP (once per visit).
+    # it loop-safe. The gate flag is GLOB (the per-field MAP array is only 80 bytes -- a high index
+    # there is out of bounds and CRASHES). once=true -> persistent (once ever); once=false -> reset the
+    # flag to 0 in the region's Init (runs each field load via InitRegion) -> re-arms once per visit.
     choice_flag_counter = 0
     for c, ch in enumerate(project.raw.get("choice", [])):
         if "zone" not in ch:
@@ -893,12 +892,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         replies = ct.get("replies", {})
         opt_bodies = [_choice.option_body(o, replies.get(oi))
                       for oi, o in enumerate(ch.get("options", []))]
-        fclass = _region.GLOB_BOOL if ch.get("once", True) else _region.MAP_BOOL
         fidx = int(ch["flag"]) if "flag" in ch else (_choice.CHOICE_FLAG_BASE + choice_flag_counter)
         if "flag" not in ch:
             choice_flag_counter += 1
-        rb = _event.event_range_body(_choice.region_body(ct["prompt"], opt_bodies), fidx, flag_class=fclass)
-        eb, _slot = _region.inject_region(eb, [tuple(p) for p in ch["zone"][:4]], rb)
+        rb = _event.event_range_body(_choice.region_body(ct["prompt"], opt_bodies), fidx,
+                                     flag_class=_region.GLOB_BOOL)
+        reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
+        eb, _slot = _region.inject_region(eb, [tuple(p) for p in ch["zone"][:4]], rb, init_extra=reset)
 
     # cutscene (narration, no actor): an ordered, control-locked sequence on entry (once), run as a
     # standalone director code entry. Steps = say / wait / set_flag. An ACTOR cutscene was already
