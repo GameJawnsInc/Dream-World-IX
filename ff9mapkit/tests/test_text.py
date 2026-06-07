@@ -63,3 +63,59 @@ def test_invalid_tail_code_is_rejected(tmp_path):
         '[[npc]]\nname = "V"\npos = [0, 0]\ndialogue = "hi"\ntail = "NOPE"\n', encoding="utf-8")
     # validate may flag other things (e.g. the missing borrow file), but the bad tail must be among them
     assert any("tail" in m and "NOPE" in m for m in validate(FieldProject.load(p)))
+
+
+# --- proportional auto-wrap --------------------------------------------------------------
+def test_measure_is_proportional():
+    # wide glyphs cost more than narrow ones (the whole point of "accurate" wrapping)
+    assert text.measure("WWWW") > text.measure("iiii") * 2
+    assert text.measure("[VIVI]") > 0                       # a name tag renders ~a name
+    assert text.measure("[C8C8C8]") == 0                    # a color tag renders nothing
+
+
+def test_wrap_breaks_a_long_line_within_budget():
+    line = "This is a very long sentence that clearly does not fit on a single dialogue line at all."
+    wrapped, overflow = text.wrap_text(line, 28)
+    assert "\n" in wrapped and not overflow
+    assert wrapped.replace("\n", " ") == line              # only breaks added; words intact, in order
+    assert all(text.measure(ln) <= 28 for ln in wrapped.split("\n"))
+
+
+def test_wrap_respects_existing_breaks_and_pages():
+    t = "short one\nshort two[PAGE]page two"
+    wrapped, _ = text.wrap_text(t, 28)
+    assert wrapped == t                                     # already fits -> byte-identical, breaks kept
+
+
+def test_wrap_short_line_is_byte_identical():
+    assert text.wrap_text("I miss you Zidane", 28) == ("I miss you Zidane", [])
+
+
+def test_wrap_reports_unbreakable_overflow_word():
+    huge = "Supercalifragilisticexpialidocious!!!!!!!!!!"
+    _, overflow = text.wrap_text(huge, 28)
+    assert huge in overflow
+    assert text.overflow_lines(huge, 28) == [huge]
+
+
+def test_collect_text_wraps_long_dialogue_but_not_short():
+    long_line = ("If you should ever find your way back to this little place, "
+                 "know that you are always welcome here, old friend.")
+    raw = {"npc": [{"name": "L", "dialogue": long_line}, {"name": "S", "dialogue": "Hi."}]}
+    body, _, _, _ = build.collect_text(_Stub(raw))
+    assert body.count("\n") >= 2          # more than the single entry-separator -> the long line wrapped
+    assert long_line not in body          # the long line was broken (not a contiguous run)
+    assert "Hi.[ENDN]" in body            # the short line is verbatim, no inserted break
+
+
+def test_dialogue_wrap_can_be_disabled(tmp_path):
+    from ff9mapkit.build import FieldProject, lint_logic
+    p = tmp_path / "f.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "X"\narea = 11\n\n[dialogue]\nwrap = false\n\n'
+        '[camera]\nborrow = "c.bgx"\n\n[walkmesh]\nquad = [[0,0],[10,0],[10,10],[0,10]]\n\n'
+        '[[npc]]\nname = "V"\npos = [0, 0]\ndialogue = "' + "word " * 40 + '"\n', encoding="utf-8")
+    proj = FieldProject.load(p)
+    body, _, _, _ = build.collect_text(proj)
+    assert "\n" not in body.split("[ENDN]")[0]              # not wrapped (one giant line)
+    assert any("wrap is off" in m for m in lint_logic(proj))

@@ -302,6 +302,30 @@ def lint_logic(project: FieldProject) -> list[str]:
             if c > 1:
                 out.append(f"duplicate {label} name {nm!r} ({c}x) -- the scene<->field merge by name "
                            f"will be ambiguous; give each a unique name.")
+
+    # dialogue that won't fit on screen. With wrapping ON, only an unbreakable over-wide word can
+    # still overflow; with wrapping OFF, any hand-written line over the budget will run off-screen.
+    wrap = _wrap_width(project)
+    texts = []
+    for n in raw.get("npc", []):
+        if "dialogue" in n:
+            texts.append((f"NPC {n.get('name', '?')!r}", _text.with_speaker(n.get("speaker"), n["dialogue"])))
+    for ev in raw.get("event", []):
+        if "message" in ev:
+            texts.append((f"event {ev.get('name', '?')!r}", _text.with_speaker(ev.get("speaker"), ev["message"])))
+    for k, s in enumerate(raw.get("cutscene", {}).get("steps", [])):
+        if "say" in s:
+            texts.append((f"cutscene say #{k}", _text.with_speaker(s.get("speaker"), s["say"])))
+    for who, t in texts:
+        if wrap is None:                       # wrapping disabled: every over-budget line overflows
+            for ln in t.replace("[PAGE]", "\n").split("\n"):
+                if _text.measure(ln) > _text.DEFAULT_WRAP_WIDTH:
+                    out.append(f"{who} dialogue line is wider than the screen and [dialogue] wrap is "
+                               f"off -- add line breaks (\\n) or enable wrapping. Line: {ln!r}")
+        else:
+            for ln in _text.overflow_lines(t, wrap):
+                out.append(f"{who} has a word too wide to fit one line ({ln!r}) -- it will overflow; "
+                           f"shorten it or raise [dialogue] wrap.")
     return out
 
 
@@ -790,16 +814,34 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     return eb
 
 
+def _wrap_width(project: FieldProject):
+    """The dialogue auto-wrap budget (width units) from ``[dialogue] wrap``, or ``None`` if disabled
+    (``wrap = false`` / ``0``). Default :data:`content.text.DEFAULT_WRAP_WIDTH` (wrapping ON)."""
+    w = project.raw.get("dialogue", {}).get("wrap", _text.DEFAULT_WRAP_WIDTH)
+    if w is False or w == 0:
+        return None
+    if w is True:
+        return _text.DEFAULT_WRAP_WIDTH
+    return float(w)
+
+
 def collect_text(project: FieldProject):
     """Return (mes_body, npc_txids, event_txids, cutscene_txids). All field text (NPC dialogue, event
     messages, cutscene 'say' lines) shares one .mes block, NPCs first (so a field with no events/
-    cutscene is byte-identical to the old layout); cutscene_txids is a list (one per 'say' step)."""
+    cutscene is byte-identical to the old layout); cutscene_txids is a list (one per 'say' step).
+
+    Lines are auto-wrapped to fit the screen (FF9 doesn't wrap; see content.text) unless
+    ``[dialogue] wrap = false``; a line that already fits is left byte-identical."""
     lines, tails = [], []
     npc_pos, ev_pos, cs_pos = {}, {}, []
+    wrap = _wrap_width(project)
 
     def _add(src, text):
-        # apply the optional `speaker` prefix + per-line `tail`; record where this line landed
-        lines.append(_text.with_speaker(src.get("speaker"), text))
+        # apply the optional `speaker` prefix + per-line `tail`, then auto-wrap; record where it landed
+        line = _text.with_speaker(src.get("speaker"), text)
+        if wrap is not None:
+            line = _text.wrap_text(line, wrap)[0]
+        lines.append(line)
         tails.append(src.get("tail"))
         return len(lines) - 1
 

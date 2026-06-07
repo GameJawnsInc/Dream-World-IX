@@ -231,16 +231,41 @@ tail = "UPL"                          # pointer from the upper-left
 FF9 dialogue windows are **not** one screen — they take multiple lines and multiple pages. In any
 `dialogue` / `message` / `say` string:
 
-- **line break** = a `\n`. The engine lays out lines from your explicit `\n` (it *can* word-wrap very
-  long text to the window width, but don't rely on that — put the breaks where you want them):
+- **auto-wrap (default ON).** FF9 itself does **not** word-wrap: the window grows to fit the widest
+  line, so an unbroken long line runs off the screen. ff9mapkit therefore breaks long lines for you at
+  build time. You can just write a whole sentence and it will be wrapped to fit:
+  ```toml
+  dialogue = "It's so good to see you again — I have so much I want to tell you about everything."
+  ```
+- **manual line break** = a `\n` — wrapping respects your breaks (it only re-flows a line that is still
+  too long), so use `\n` when you want the breaks in an exact spot:
   ```toml
   dialogue = "First line.\nSecond line."
   # or a multi-line string:
   dialogue = """First line.
   Second line."""
   ```
-- **new page** = the `[PAGE]` tag — the window shows a ▼ and advances on confirm:
-  `dialogue = "Page one.[PAGE]Page two."`
+- **new page** = the `[PAGE]` tag — the window shows a ▼ and advances on confirm (each page wraps on
+  its own): `dialogue = "Page one.[PAGE]Page two."`
+
+#### `[dialogue]` — wrap control (optional)
+
+| key | meaning |
+|---|---|
+| `wrap` | max line width in *width units* (≈ average characters). Default **28** (conservative — never overflows). `wrap = false` (or `0`) turns auto-wrap **off** (you hand-break every line). |
+
+```toml
+[dialogue]
+wrap = 32          # allow fuller lines; or `false` to wrap nothing
+```
+
+> **Why "width units" and not pixels.** FF9's dialogue font is a *runtime dynamic TrueType* font (the
+> bundled `TBUDGoStd-Bold`, or whatever you set in `Memoria.ini [Font]`), measured by Unity at a
+> configurable size — so there's **no fixed pixel width** to target and the exact fit differs per
+> install. ff9mapkit models *relative* glyph widths (a `W` costs ~3× an `i`) and wraps at a safe
+> budget, erring toward wrapping a hair early. If you want fuller lines, do one in-game check and raise
+> `wrap` to your install's true maximum. A single word too wide to fit a line is reported as a build
+> warning.
 
 > **Multi-page sizing gotcha.** FF9 sizes the window **once** to fit the *biggest* page (widest page's
 > width, tallest page's line count) and reuses that size for every page (`Dialog.cs`) — so a short
