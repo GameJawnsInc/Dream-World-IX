@@ -18,6 +18,8 @@ from dataclasses import dataclass
 # field kinds
 STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE = (
     "str", "int", "optint", "bool", "preset", "coord", "pair", "zone")
+# cutscene-step kinds: a movement target (a name OR "x, z"), a route (list of those), a gesture (name OR id)
+POINT, PATH, ANIM = "point", "path", "anim"
 
 PRESETS = ["vivi", "zidane"]          # known NPC presets (combo also accepts a custom string)
 
@@ -86,19 +88,53 @@ CUTSCENE_SPEC = [
     Field("once", "Play once", BOOL, "off = replays every visit", default=True),
     Field("warmup", "Warmup frames", OPTINT, "default 30 (let the field settle)"),
 ]
+MARKER_SPEC = [
+    Field("name", "Name", STR, "a label; reference it in a cutscene as walk = \"<name>\""),
+    Field("pos", "Position (x, z)", COORD, "where it sits on the floor; or place it in Blender"),
+]
+DIALOGUE_SPEC = [
+    Field("wrap", "Auto-wrap width", OPTINT, "max chars per line (default 28); set 0 to turn wrapping off"),
+]
+
+# one-line purpose for each section, shown at the top of its form (the "what is this" cue).
+SECTION_HELP = {
+    "field": "The field's identity: a unique id (>= 4000), a short name, and the area (>= 10).",
+    "camera": "Camera / walkmesh / layers / positions are SPATIAL -- author them in Blender. Read-only here.",
+    "dialogue": "Text options. Auto-wrap breaks long dialogue lines to fit the screen (FF9 won't).",
+    "encounter": "Random battles on this field (battle scene id + frequency + battle music).",
+    "music": "The field's background music (a song id, e.g. 9 = Vivi's Theme).",
+    "cutscene": "A scripted scene. Steps run in order with control locked; an 'actor' NPC can walk/emote.",
+    "npc": "People who stand in the room: a model (preset), a line of dialogue, optional story gate.",
+    "gateway": "An exit zone -> another field (the door the player walks into).",
+    "event": "A walk-in trigger: show a message, give an item/gil, or set a story flag.",
+    "marker": "Named points on the floor. A cutscene walk/path can reach them by name (no coords).",
+}
 
 # cutscene steps: each is a dict with exactly one action key.
 STEP_KIND = {
     "say": STR, "wait": INT, "set_flag": PAIR,                    # any cutscene
-    "walk": COORD, "teleport": COORD, "animation": INT, "turn": INT, "face_player": BOOL,  # actor only
+    "walk": POINT, "path": PATH, "teleport": POINT,              # actor only (movement)
+    "animation": ANIM, "turn": INT, "face_player": BOOL,        # actor only (anim/facing)
 }
 STEP_LABEL = {
     "say": "Say (dialogue)", "wait": "Wait (frames)", "set_flag": "Set flag (idx, val)",
-    "walk": "Walk to (x, z)", "teleport": "Teleport to (x, z)", "animation": "Play animation (id)",
-    "turn": "Turn (angle 0-255)", "face_player": "Face the player",
+    "walk": "Walk to", "path": "Walk a route", "teleport": "Teleport to",
+    "animation": "Play animation", "turn": "Turn (angle 0-255)", "face_player": "Face the player",
+}
+# live hint shown for the selected step type (what to type in the Value box).
+STEP_HELP = {
+    "say": "dialogue text shown in a window",
+    "wait": "frames to pause (30 ≈ 1 second)",
+    "set_flag": "story flag as \"index, value\" -- e.g. 8000, 1",
+    "walk": "a marker name, @player, or \"x, z\" (auto-routes around obstacles)",
+    "path": "a route through waypoints: \"a; b; c\" (names or x z)",
+    "teleport": "instantly move to a marker / @player / \"x, z\"",
+    "animation": "a gesture name (e.g. glad, angry, nod) or a numeric id",
+    "turn": "face an angle 0-255 (0=south, 64=west, 128=north, 192=east)",
+    "face_player": "(no value) turn to face the player",
 }
 GLOBAL_STEPS = ("say", "wait", "set_flag")
-ACTOR_STEPS = ("walk", "teleport", "animation", "turn", "face_player")
+ACTOR_STEPS = ("walk", "path", "teleport", "animation", "turn", "face_player")
 
 
 # --- parsers (raise ValueError with a clear message on bad input) -------------------------
@@ -151,6 +187,42 @@ def format_pair(v):
 
 def format_zone(v):
     return "; ".join(f"{int(x)} {int(z)}" for (x, z) in v)
+
+
+def _is_int(s):
+    return bool(re.fullmatch(r"-?\d+", str(s).strip()))
+
+
+def _format_point(v):
+    """A movement point: ``[x, z]`` -> "x, z"; a name string -> itself."""
+    return format_pair(v) if isinstance(v, (list, tuple)) else _str(v)
+
+
+def parse_point(raw):
+    """A movement target: "x, z" -> [x, z], or any other text -> a marker / @player / @npc name."""
+    s = _str(raw).strip()
+    if s == "":
+        raise ValueError("needs a marker name or \"x, z\"")
+    parts = [p for p in re.split(r"[ ,]+", s) if p]
+    if len(parts) == 2 and _is_int(parts[0]) and _is_int(parts[1]):
+        return [int(parts[0]), int(parts[1])]
+    return s
+
+
+def parse_path(raw):
+    """A route: "a; b; c" (or newlines) -> a list of points (each a name or [x, z])."""
+    chunks = [c.strip() for c in re.split(r"[;\n]+", _str(raw)) if c.strip()]
+    if not chunks:
+        raise ValueError("a route needs at least one waypoint, e.g. \"a; b; c\"")
+    return [parse_point(c) for c in chunks]
+
+
+def parse_anim(raw):
+    """A gesture: a numeric id -> int, or a name (e.g. "glad") -> the name string."""
+    s = _str(raw).strip()
+    if s == "":
+        raise ValueError("needs a gesture name or id")
+    return int(s) if _is_int(s) else s
 
 
 def _parse_field(kind, raw):
@@ -218,9 +290,16 @@ def make_step(key: str, raw) -> dict:
     """One cutscene step dict from a step type + a raw value (face_player ignores the value)."""
     if key not in STEP_KIND:
         raise ValueError(f"unknown step {key!r}")
-    if key == "face_player":
-        return {"face_player": True}
-    v = _parse_field(STEP_KIND[key], raw)
+    kind = STEP_KIND[key]
+    if kind == BOOL:                       # face_player
+        return {key: True}
+    if kind == POINT:
+        return {key: parse_point(raw)}
+    if kind == PATH:
+        return {key: parse_path(raw)}
+    if kind == ANIM:
+        return {key: parse_anim(raw)}
+    v = _parse_field(kind, raw)
     if v is None:
         raise ValueError(f"step '{key}' needs a value")
     return {key: v}
@@ -237,12 +316,17 @@ def step_key(step: dict) -> str:
 def step_value_text(step: dict) -> str:
     """The step's value as editable text ('' for face_player)."""
     k = step_key(step)
-    if not k or k == "face_player":
+    kind = STEP_KIND.get(k)
+    if not k or kind == BOOL:
         return ""
     v = step[k]
-    if STEP_KIND.get(k) in (COORD, PAIR):
+    if kind in (COORD, PAIR):
         return format_pair(v)
-    if isinstance(v, list):                 # e.g. a `path` (list of waypoints) -- show, don't crash
+    if kind == POINT:
+        return _format_point(v)
+    if kind == PATH:
+        return "; ".join(_format_point(p) for p in v)
+    if isinstance(v, list):                 # any other list value -- show, don't crash
         return ", ".join(str(p) for p in v)
     return str(v)
 

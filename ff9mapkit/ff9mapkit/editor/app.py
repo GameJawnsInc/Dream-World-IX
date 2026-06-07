@@ -26,10 +26,12 @@ from . import forms
 from .model import FieldDoc, protected_reason
 
 # single-table logic sections and their specs; the rest are arrays-of-tables.
-SINGLE_SPECS = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "music": forms.MUSIC_SPEC}
-LIST_SPECS = {"npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC, "event": forms.EVENT_SPEC}
-LIST_LABELS = {"npc": "NPCs", "gateway": "Gateways", "event": "Events"}
-OPTIONAL_SINGLES = ("encounter", "music", "cutscene")     # add/remove-able
+SINGLE_SPECS = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC,
+                "music": forms.MUSIC_SPEC, "dialogue": forms.DIALOGUE_SPEC}
+LIST_SPECS = {"npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC, "event": forms.EVENT_SPEC,
+              "marker": forms.MARKER_SPEC}
+LIST_LABELS = {"npc": "NPCs", "gateway": "Gateways", "event": "Events", "marker": "Markers"}
+OPTIONAL_SINGLES = ("encounter", "music", "cutscene", "dialogue")     # add/remove-able
 
 
 def _find_tool(name):
@@ -119,7 +121,15 @@ class EditorApp:
             "  - the Blender add-on's Export\n\n"
             "WORKFLOW\n"
             "Open -> pick a section on the left -> fill the form -> Save -> Check logic -> Build.\n"
-            "A section marked (+) can be added; NPCs / Gateways / Events each hold a list of items.\n\n"
+            "A section marked (+) can be added; NPCs / Gateways / Events / Markers each hold a list.\n\n"
+            "SECTIONS\n"
+            "  - NPCs / Gateways / Events: people, exits, and walk-in triggers.\n"
+            "  - Markers: named floor points a cutscene can walk to by name.\n"
+            "  - Cutscene: ordered steps (control locks). An 'actor' NPC can walk / emote.\n"
+            "  - Dialogue: auto-wrap width for long lines. Encounter / Music: battles + BGM.\n\n"
+            "CUTSCENE STEPS\n"
+            "  - walk/teleport: a marker name, @player, or \"x, z\" (walk auto-routes around things).\n"
+            "  - path: a route, \"a; b; c\".   animation: a gesture name (glad) or id.   say: a line.\n\n"
             "A FEW FIELDS\n"
             "  - Field ID: any unique number >= 4000.\n"
             "  - Area: must be >= 10 (lower areas don't render).\n"
@@ -215,11 +225,12 @@ class EditorApp:
             return
         self.tree.insert("", "end", iid="field", text="Field")
         self.tree.insert("", "end", iid="camera", text="Camera (Blender)")
-        for key in ("encounter", "music", "cutscene"):
+        for key in ("dialogue", "encounter", "music", "cutscene"):
             present = key in self.doc.data
-            label = {"encounter": "Encounter", "music": "Music", "cutscene": "Cutscene"}[key]
+            label = {"dialogue": "Dialogue", "encounter": "Encounter",
+                     "music": "Music", "cutscene": "Cutscene"}[key]
             self.tree.insert("", "end", iid=key, text=label + ("" if present else "  (+)"))
-        for key in ("npc", "gateway", "event"):
+        for key in ("npc", "gateway", "event", "marker"):
             parent = self.tree.insert("", "end", iid=key, text=f"{LIST_LABELS[key]}  (+)", open=True)
             for i, e in enumerate(self.doc.data.get(key, [])):
                 nm = e.get("name") or f"#{i}"
@@ -269,7 +280,7 @@ class EditorApp:
             self._show_single("field", forms.FIELD_SPEC, "Field")
         elif iid == "camera":
             self._show_camera()
-        elif iid in ("encounter", "music"):
+        elif iid in ("encounter", "music", "dialogue"):
             self._show_optional_single(iid, SINGLE_SPECS[iid], iid.capitalize())
         elif iid == "cutscene":
             self._show_cutscene()
@@ -279,8 +290,12 @@ class EditorApp:
             kind, idx = iid.split(":")
             self._show_entity(kind, int(idx))
 
-    def _header(self, text):
+    def _header(self, text, key=None):
         ttk.Label(self.form, text=text, font=("", 11, "bold")).pack(anchor="w", padx=8, pady=(8, 2))
+        note = forms.SECTION_HELP.get(key) if key else None
+        if note:
+            ttk.Label(self.form, text=note, foreground="#567", wraplength=580, justify="left").pack(
+                anchor="w", padx=10, pady=(0, 4))
 
     def _form_grid(self):
         g = ttk.Frame(self.form)
@@ -309,20 +324,20 @@ class EditorApp:
         return getters
 
     def _show_single(self, key, spec, title):
-        self._header(title)
+        self._header(title, key)
         values = forms.entity_to_values(spec, self.doc.data.get(key, {}))
         self.getters = self._render_spec(self._form_grid(), spec, values)
         self.active = {"type": key, "section": key}
 
     def _show_optional_single(self, key, spec, title):
         if key not in self.doc.data:
-            self._header(title + " (not set)")
+            self._header(title + " (not set)", key)
             ttk.Label(self.form, text=f"No {title.lower()} on this field.").pack(anchor="w", padx=10)
             ttk.Button(self.form, text=f"Add {title}",
                        command=lambda: self._add_single(key)).pack(anchor="w", padx=10, pady=6)
             self.active = None
             return
-        self._header(title)
+        self._header(title, key)
         values = forms.entity_to_values(spec, self.doc.data.get(key, {}))
         self.getters = self._render_spec(self._form_grid(), spec, values)
         self.active = {"type": key, "section": key}
@@ -341,7 +356,7 @@ class EditorApp:
         self._show(key)
 
     def _show_list_parent(self, kind):
-        self._header(LIST_LABELS[kind])
+        self._header(LIST_LABELS[kind], kind)
         ttk.Button(self.form, text=f"Add {kind}", command=lambda: self._add_entity(kind)).pack(
             anchor="w", padx=10, pady=6)
         n = len(self.doc.data.get(kind, []))
@@ -352,7 +367,8 @@ class EditorApp:
     def _add_entity(self, kind):
         defaults = {"npc": {"name": "NPC", "preset": "vivi", "dialogue": "..."},
                     "gateway": {"name": "door", "to": 100, "entrance": 0},
-                    "event": {"name": "event", "message": "..."}}[kind]
+                    "event": {"name": "event", "message": "..."},
+                    "marker": {"name": "spot", "pos": [0, 0]}}[kind]
         lst = self.doc.list_section(kind)
         lst.append(dict(defaults))
         self._refresh_tree(reselect=f"{kind}:{len(lst) - 1}")
@@ -364,7 +380,7 @@ class EditorApp:
         if idx >= len(lst):
             return
         entity = lst[idx]
-        self._header(f"{LIST_LABELS[kind][:-1]}: {entity.get('name') or '#' + str(idx)}")
+        self._header(f"{LIST_LABELS[kind][:-1]}: {entity.get('name') or '#' + str(idx)}", kind)
         self.getters = self._render_spec(self._form_grid(), spec, forms.entity_to_values(spec, entity))
         self.active = {"type": kind, "section": kind, "index": idx}
         # show the Blender-placed spatial value (read-only hint) if it's in the scene file
@@ -385,7 +401,7 @@ class EditorApp:
         self._show(kind)
 
     def _show_camera(self):
-        self._header("Camera & placement")
+        self._header("Camera & placement", "camera")
         msg = ("Camera, walkmesh, layers, and entity positions/zones are SPATIAL — author them in "
                "Blender (FF9 Map Kit add-on), which writes the sibling scene.toml. This editor owns "
                "the logic only.")
@@ -401,7 +417,7 @@ class EditorApp:
         if "cutscene" not in self.doc.data:
             self._show_optional_single("cutscene", forms.CUTSCENE_SPEC, "Cutscene")
             return
-        self._header("Cutscene")
+        self._header("Cutscene", "cutscene")
         cs = self.doc.data["cutscene"]
         self.getters = self._render_spec(self._form_grid(), forms.CUTSCENE_SPEC,
                                          forms.entity_to_values(forms.CUTSCENE_SPEC, cs))
@@ -423,6 +439,12 @@ class EditorApp:
         val = tk.StringVar()
         ttk.Label(side, text="Value:").pack(anchor="w", pady=(6, 0))
         ttk.Entry(side, textvariable=val, width=16).pack(anchor="w")
+        hint = ttk.Label(side, text=forms.STEP_HELP.get(kind.get(), ""), foreground="#567",
+                         wraplength=150, justify="left")
+        hint.pack(anchor="w", pady=(3, 0))
+        kind.trace_add("write", lambda *_: hint.configure(text=forms.STEP_HELP.get(kind.get(), "")))
+        ttk.Label(side, text="(walk/path/teleport/animation/\nturn/face need an actor)",
+                  foreground="#999", justify="left").pack(anchor="w", pady=(4, 0))
         self.step_widgets = {"listbox": lb, "kind": kind, "val": val}
         ttk.Button(side, text="Add / Update", command=self._step_add).pack(fill="x", pady=(8, 2))
         ttk.Button(side, text="Remove", command=self._step_remove).pack(fill="x", pady=2)

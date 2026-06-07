@@ -80,3 +80,62 @@ def test_step_value_text_roundtrip():
                  {"animation": 7302}, {"face_player": True}):
         k = forms.step_key(step)
         assert forms.make_step(k, forms.step_value_text(step)) == step
+
+
+# --- movement steps: names, coords, routes, gestures (script-builder coverage) -------------
+def test_parse_point_accepts_coords_or_a_name():
+    assert forms.parse_point("0, -800") == [0, -800]
+    assert forms.parse_point("400 -200") == [400, -200]
+    assert forms.parse_point("fountain") == "fountain"     # a marker name
+    assert forms.parse_point("@player") == "@player"       # an entity ref
+    with pytest.raises(ValueError):
+        forms.parse_point("")
+
+
+def test_parse_path_mixes_names_and_coords():
+    assert forms.parse_path("door; fountain; @player") == ["door", "fountain", "@player"]
+    assert forms.parse_path("0 0; 100 200") == [[0, 0], [100, 200]]
+    with pytest.raises(ValueError):
+        forms.parse_path("   ")
+
+
+def test_parse_anim_id_or_name():
+    assert forms.parse_anim("7302") == 7302
+    assert forms.parse_anim("glad") == "glad"
+    with pytest.raises(ValueError):
+        forms.parse_anim("")
+
+
+def test_make_step_covers_all_kinds():
+    assert forms.make_step("walk", "fountain") == {"walk": "fountain"}
+    assert forms.make_step("walk", "0, -800") == {"walk": [0, -800]}
+    assert forms.make_step("path", "a; b") == {"path": ["a", "b"]}
+    assert forms.make_step("teleport", "@player") == {"teleport": "@player"}
+    assert forms.make_step("animation", "glad") == {"animation": "glad"}
+    assert forms.make_step("animation", "7302") == {"animation": 7302}
+    assert forms.make_step("face_player", "") == {"face_player": True}
+
+
+def test_step_value_text_round_trips_new_kinds():
+    for step in ({"walk": "fountain"}, {"walk": [0, -800]}, {"path": ["a", [1, 2]]},
+                 {"animation": "glad"}, {"animation": 7302}, {"teleport": "@player"}):
+        k = forms.step_key(step)
+        assert forms.make_step(k, forms.step_value_text(step)) == step
+    assert "fountain" in forms.step_summary({"walk": "fountain"})
+
+
+def test_step_help_covers_every_step_type():
+    assert set(forms.STEP_HELP) == set(forms.STEP_KIND)
+
+
+def test_marker_and_dialogue_specs_round_trip():
+    m = {"name": "spot", "pos": [10, -20]}
+    assert forms.build_entity(forms.MARKER_SPEC, forms.entity_to_values(forms.MARKER_SPEC, m)) == m
+    d = {"wrap": 0}
+    assert forms.build_entity(forms.DIALOGUE_SPEC, forms.entity_to_values(forms.DIALOGUE_SPEC, d)) == d
+
+
+def test_section_help_present_for_all_sections():
+    for key in ("field", "camera", "dialogue", "encounter", "music", "cutscene",
+                "npc", "gateway", "event", "marker"):
+        assert forms.SECTION_HELP.get(key)
