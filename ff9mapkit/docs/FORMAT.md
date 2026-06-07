@@ -198,8 +198,33 @@ walkmesh exports as one floor. Multi-floor meshes use the world frame directly (
 | `pos` | `[x, z]`. |
 | `dialogue` | a line shown when talked to (assigned a non-colliding high text id automatically). |
 | `text_id` | use an explicit text id instead of `dialogue`. |
+| `speaker` | optional name shown before the line → `"Vivi: …"`. See *Speaker names & the tail* below. |
+| `tail` | the dialogue window's pointer corner (`UPR` default). See below. |
 | `requires_flag` | GlobBool index — the NPC only **appears** when that story flag is SET (its Init returns early otherwise: no model, not interactable). For story-gated characters. |
 | `requires_flag_clear` | …only appears when the flag is CLEAR (the inverse — e.g. an NPC that leaves once an event fires). |
+
+### Speaker names & the dialogue tail
+
+FF9 has **no speaker name-box**. Who's talking is shown by the dialogue window's **tail** (the little
+pointer), and a name — when shown at all — is just part of the text. Two optional keys (on `[[npc]]`,
+`[[event]]`, and cutscene `say` steps) make that ergonomic:
+
+- **`speaker`** — prefixes the name onto the line: `speaker = "Vivi"` → `"Vivi: <your line>"`. Use one
+  of FF9's **renameable name tags** for a party member so it tracks the player's chosen name:
+  `speaker = "[VIVI]"` (also `[ZDNE]` Zidane, `[DGGR]` Dagger, `[STNR]` Steiner, `[FRYA]`, `[QUIN]`,
+  `[EIKO]`, `[AMRT]`, `[PTY1]`–`[PTY4]`). You can also just type the name into `dialogue` yourself.
+- **`tail`** — which corner the window's pointer comes from: `UPR` (default) `UPL` `LOR` `LOL` upper/
+  lower-right/left, `UPC` `LOC` upper/lower-center, the `…F` force variants, or `DEFT` (engine
+  default/auto). Handy when the default points the wrong way for an NPC's on-screen position.
+
+```toml
+[[npc]]
+name = "Vivi"
+preset = "vivi"
+dialogue = "I missed you, [ZDNE]."   # renders "Vivi: I missed you, Zidane."
+speaker = "[VIVI]"                    # renameable name; or just "Vivi"
+tail = "UPL"                          # pointer from the upper-left
+```
 
 ---
 
@@ -239,6 +264,7 @@ once = false
 |---|---|
 | `zone` | 4 convex `(x,z)` corners of the trigger region (place where the player walks). |
 | `message` | text shown in a dialogue window when triggered (added to the field's `.mes`). |
+| `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + the window pointer); see *Speaker names & the tail*. Usually omit `speaker` for an unsigned popup. |
 | `give_item` | `[item_id, count]` — `AddItem`. |
 | `gil` | gil to add — `AddGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
@@ -287,9 +313,9 @@ steps = [
 ]
 ```
 
-| step (one key each) | meaning |
+| step (one key each, plus optional modifiers) | meaning |
 |---|---|
-| `say` | a dialogue/narration window (added to the field's `.mes`). |
+| `say` | a dialogue/narration window (added to the field's `.mes`). A `say` step may also carry `speaker` and `tail` (e.g. `{ say = "...", speaker = "[VIVI]", tail = "UPL" }`) — same as `[[npc]]`. |
 | `wait` | pause this many frames. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag mid-scene. |
 

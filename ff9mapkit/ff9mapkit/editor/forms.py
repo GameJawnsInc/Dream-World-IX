@@ -46,6 +46,8 @@ NPC_SPEC = [
     Field("model", "Model id", OPTINT, "advanced: a custom model instead of a preset"),
     Field("animset", "Animset id", OPTINT, "advanced: with a custom model (also add anims in the .toml)"),
     Field("dialogue", "Dialogue", STR, "the line shown when the player talks to it"),
+    Field("speaker", "Speaker name", STR, "optional name before the line, e.g. Vivi (or [VIVI] for a renameable party name)"),
+    Field("tail", "Window tail", STR, "dialogue pointer corner: UPR/UPL/LOR/LOL/UPC/LOC (default UPR)"),
     Field("pos", "Position (x, z)", COORD, "where it stands on the floor; usually placed in Blender"),
     Field("requires_flag", "Appears when flag set", OPTINT, "story gate: show only after this flag is set"),
     Field("requires_flag_clear", "Appears when flag clear", OPTINT, "show only while this flag is unset"),
@@ -61,6 +63,8 @@ GATEWAY_SPEC = [
 EVENT_SPEC = [
     Field("name", "Name", STR, "a label (links to its Blender marker)"),
     Field("message", "Message", STR, "text shown when the player steps in"),
+    Field("speaker", "Speaker name", STR, "optional name before the message (blank for an unsigned popup)"),
+    Field("tail", "Window tail", STR, "dialogue pointer corner: UPR/UPL/LOR/LOL/UPC/LOC (default UPR)"),
     Field("give_item", "Give item (id, count)", PAIR, "e.g. 232, 1"),
     Field("gil", "Gil", OPTINT, "gil to award"),
     Field("set_flag", "Set flag (idx, val)", PAIR, "raise a story flag, e.g. 8000, 1"),

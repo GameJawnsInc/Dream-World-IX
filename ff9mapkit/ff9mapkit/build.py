@@ -207,6 +207,14 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[event]] zone must have 4 or 5 points (got {len(z)})")
         if not any(k in ev for k in ("message", "give_item", "gil", "set_flag")):
             problems.append("[[event]] needs at least one action (message / give_item / gil / set_flag)")
+    # speaker (a name prefix) + tail (the dialogue-window pointer) are optional dialogue modifiers
+    for label, items in (("[[npc]]", project.raw.get("npc", [])),
+                         ("[[event]]", project.raw.get("event", []))):
+        for it in items:
+            t = it.get("tail")
+            if t is not None and t not in _text.TAIL_CODES:
+                problems.append(f"{label} tail {t!r} is not a valid TAIL code "
+                                f"({', '.join(sorted(_text.TAIL_CODES))})")
     cs = project.raw.get("cutscene")
     if cs is not None:
         steps = cs.get("steps")
@@ -225,6 +233,9 @@ def validate(project: FieldProject) -> list[str]:
                 elif present[0] not in allowed:
                     problems.append(f"[cutscene] step {k} uses {present[0]!r}, which needs an actor -- "
                                     f"set [cutscene] actor = \"<npc name>\" (it runs in that NPC).")
+                t = s.get("tail")
+                if t is not None and t not in _text.TAIL_CODES:
+                    problems.append(f"[cutscene] step {k} tail {t!r} is not a valid TAIL code")
         if actor is not None and actor not in {n.get("name") for n in project.raw.get("npc", [])}:
             problems.append(f"[cutscene] actor {actor!r} is not a defined [[npc]] name")
     return problems
@@ -783,23 +794,27 @@ def collect_text(project: FieldProject):
     """Return (mes_body, npc_txids, event_txids, cutscene_txids). All field text (NPC dialogue, event
     messages, cutscene 'say' lines) shares one .mes block, NPCs first (so a field with no events/
     cutscene is byte-identical to the old layout); cutscene_txids is a list (one per 'say' step)."""
-    lines = []
+    lines, tails = [], []
     npc_pos, ev_pos, cs_pos = {}, {}, []
+
+    def _add(src, text):
+        # apply the optional `speaker` prefix + per-line `tail`; record where this line landed
+        lines.append(_text.with_speaker(src.get("speaker"), text))
+        tails.append(src.get("tail"))
+        return len(lines) - 1
+
     for i, n in enumerate(project.raw.get("npc", [])):
         if "dialogue" in n:
-            npc_pos[i] = len(lines)
-            lines.append(n["dialogue"])
+            npc_pos[i] = _add(n, n["dialogue"])
     for j, ev in enumerate(project.raw.get("event", [])):
         if "message" in ev:
-            ev_pos[j] = len(lines)
-            lines.append(ev["message"])
+            ev_pos[j] = _add(ev, ev["message"])
     for step in project.raw.get("cutscene", {}).get("steps", []):
         if "say" in step:
-            cs_pos.append(len(lines))
-            lines.append(step["say"])
+            cs_pos.append(_add(step, step["say"]))
     if not lines:
         return "", {}, {}, []
-    body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID)
+    body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
     cutscene_txids = [mapping[p] for p in cs_pos]
