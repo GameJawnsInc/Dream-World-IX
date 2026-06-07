@@ -14,4 +14,4 @@ Public surface is organized as:
   ff9mapkit.build     — the field.toml -> mod-folder builder
 """
 
-__version__ = "0.9.4"
+__version__ = "0.9.5"

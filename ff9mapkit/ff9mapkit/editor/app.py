@@ -20,10 +20,11 @@ import traceback
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from . import forms
 from .model import FieldDoc, protected_reason
+from .theme import apply_theme
 
 # single-table logic sections and their specs; the rest are arrays-of-tables.
 SINGLE_SPECS = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC,
@@ -57,11 +58,13 @@ class EditorApp:
         self.revert = _find_tool("revert_deploy.py")
         self.q: queue.Queue = queue.Queue()
 
+        self.palette = apply_theme(root)             # modern look (auto light/dark) -> palette colours
         root.title("FF9 Map Kit - Field Editor")
-        root.minsize(900, 560)
+        root.minsize(960, 600)
         self._build_toolbar()
+        ttk.Separator(root, orient="horizontal").pack(fill="x")
         panes = ttk.PanedWindow(root, orient="horizontal")
-        panes.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+        panes.pack(fill="both", expand=True, padx=8, pady=8)
         left = ttk.Frame(panes)
         self.tree = ttk.Treeview(left, show="tree", selectmode="browse")
         self.tree.pack(fill="both", expand=True, side="left")
@@ -73,8 +76,7 @@ class EditorApp:
         self.form = ttk.Frame(panes)
         panes.add(self.form, weight=3)
 
-        self.status = scrolledtext.ScrolledText(root, height=7, state="disabled", wrap="word")
-        self.status.pack(fill="x", padx=6, pady=(0, 6))
+        self.status = self._build_log(root)
         self._log("Open a .field.toml, or New. Edit logic on the right; placement stays in Blender. "
                   "New here? Click Help for a 30-second tour.")
         root.after(120, self._drain)
@@ -89,7 +91,7 @@ class EditorApp:
         bar.pack(fill="x", padx=6, pady=6)
         ttk.Button(bar, text="Open", command=self.on_open).pack(side="left")
         ttk.Button(bar, text="New", command=self.on_new).pack(side="left", padx=(6, 0))
-        self.btn_save = ttk.Button(bar, text="Save", command=self.on_save)
+        self.btn_save = ttk.Button(bar, text="Save", command=self.on_save, style="Accent.TButton")
         self.btn_save.pack(side="left", padx=(6, 0))
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         self.btn_check = ttk.Button(bar, text="Check logic", command=self.on_check)
@@ -97,7 +99,8 @@ class EditorApp:
         self.btn_build = ttk.Button(bar, text="Build to game", command=self.on_build_game)
         self.btn_build.pack(side="left", padx=(6, 0))
         if self.deploy:
-            self.btn_test = ttk.Button(bar, text="Build & Test (4003)", command=self.on_test)
+            self.btn_test = ttk.Button(bar, text="Build & Test (4003)", command=self.on_test,
+                                       style="Accent.TButton")
             self.btn_test.pack(side="left", padx=(6, 0))
         if self.revert:
             ttk.Button(bar, text="Revert test", command=self.on_revert).pack(side="left", padx=(6, 0))
@@ -138,9 +141,39 @@ class EditorApp:
             "in the .toml).")
 
     # --------------------------------------------------------------- logging
+    def _build_log(self, root):
+        """A flat console log (Text + ttk scrollbar) with severity colour tags."""
+        pal = self.palette
+        wrap = ttk.Frame(root)
+        wrap.pack(fill="x", padx=8, pady=(0, 8))
+        txt = tk.Text(wrap, height=7, state="disabled", wrap="word", relief="flat", borderwidth=0,
+                      background=pal["log_bg"], foreground=pal["log_fg"], padx=10, pady=8,
+                      highlightthickness=1, highlightbackground=pal["border"],
+                      highlightcolor=pal["border"], insertbackground=pal["text"])
+        txt.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(wrap, orient="vertical", command=txt.yview)
+        sb.pack(side="right", fill="y")
+        txt.configure(yscrollcommand=sb.set)
+        for tag, col in (("error", pal["error"]), ("warn", pal["warn"]),
+                         ("ok", pal["success"]), ("muted", pal["muted"])):
+            txt.tag_configure(tag, foreground=col)
+        return txt
+
     def _log(self, msg):
+        text = str(msg).rstrip() + "\n"
+        probe = text.strip()
+        if probe.startswith(("ERROR", "INVALID")) or "  ERROR  " in text:
+            tag = "error"
+        elif probe.startswith("warn") or probe[:12].startswith("warning"):
+            tag = "warn"
+        elif probe.startswith(("OK", ">>>")):
+            tag = "ok"
+        elif probe.startswith("---"):
+            tag = "muted"
+        else:
+            tag = None
         self.status.configure(state="normal")
-        self.status.insert("end", str(msg).rstrip() + "\n")
+        self.status.insert("end", text, (tag,) if tag else ())
         self.status.see("end")
         self.status.configure(state="disabled")
 
@@ -294,8 +327,8 @@ class EditorApp:
         ttk.Label(self.form, text=text, font=("", 11, "bold")).pack(anchor="w", padx=8, pady=(8, 2))
         note = forms.SECTION_HELP.get(key) if key else None
         if note:
-            ttk.Label(self.form, text=note, foreground="#567", wraplength=580, justify="left").pack(
-                anchor="w", padx=10, pady=(0, 4))
+            ttk.Label(self.form, text=note, foreground=self.palette["muted"], wraplength=580,
+                      justify="left").pack(anchor="w", padx=10, pady=(0, 4))
 
     def _form_grid(self):
         g = ttk.Frame(self.form)
@@ -318,8 +351,8 @@ class EditorApp:
                 ttk.Entry(parent, textvariable=var).grid(row=r, column=1, sticky="we")
             getters[f.key] = var.get
             if f.help:
-                ttk.Label(parent, text=f.help, foreground="#777").grid(row=r, column=2,
-                                                                       sticky="w", padx=6)
+                ttk.Label(parent, text=f.help, foreground=self.palette["muted"]).grid(
+                    row=r, column=2, sticky="w", padx=6)
         parent.columnconfigure(1, weight=1)
         return getters
 
@@ -387,8 +420,8 @@ class EditorApp:
         scene_e = self.doc.scene_entities(kind).get(entity.get("name", ""))
         if scene_e:
             spatial = scene_e.get("pos") or scene_e.get("zone")
-            ttk.Label(self.form, text=f"placed in Blender: {spatial}", foreground="#3a7").pack(
-                anchor="w", padx=10, pady=(2, 0))
+            ttk.Label(self.form, text=f"placed in Blender: {spatial}",
+                      foreground=self.palette["success"]).pack(anchor="w", padx=10, pady=(2, 0))
         ttk.Button(self.form, text=f"Delete this {kind}",
                    command=lambda: self._delete_entity(kind, idx)).pack(anchor="w", padx=10, pady=8)
 
@@ -408,8 +441,8 @@ class EditorApp:
         ttk.Label(self.form, text=msg, wraplength=520, justify="left").pack(anchor="w", padx=10, pady=8)
         cam = (self.doc.merged() if self.doc else {}).get("camera", {})
         if cam:
-            ttk.Label(self.form, text=f"current: {cam}", foreground="#777", wraplength=520,
-                      justify="left").pack(anchor="w", padx=10)
+            ttk.Label(self.form, text=f"current: {cam}", foreground=self.palette["muted"],
+                      wraplength=520, justify="left").pack(anchor="w", padx=10)
         self.active = None
 
     # --------------------------------------------------------------- cutscene (steps)
@@ -419,6 +452,7 @@ class EditorApp:
             return
         self._header("Cutscene", "cutscene")
         cs = self.doc.data["cutscene"]
+        pal = self.palette
         self.getters = self._render_spec(self._form_grid(), forms.CUTSCENE_SPEC,
                                          forms.entity_to_values(forms.CUTSCENE_SPEC, cs))
         # --- the step list ---
@@ -426,7 +460,11 @@ class EditorApp:
                   font=("", 10, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
         body = ttk.Frame(self.form)
         body.pack(fill="both", expand=True, padx=10)
-        lb = tk.Listbox(body, height=8, exportselection=False)
+        lb = tk.Listbox(body, height=8, exportselection=False, relief="flat", borderwidth=0,
+                        background=pal["field"], foreground=pal["text"], activestyle="none",
+                        selectbackground=pal["accent"], selectforeground=pal["accent_fg"],
+                        highlightthickness=1, highlightbackground=pal["border"],
+                        highlightcolor=pal["accent"])
         lb.pack(side="left", fill="both", expand=True)
         for st in cs.get("steps", []):
             lb.insert("end", forms.step_summary(st))
@@ -439,12 +477,12 @@ class EditorApp:
         val = tk.StringVar()
         ttk.Label(side, text="Value:").pack(anchor="w", pady=(6, 0))
         ttk.Entry(side, textvariable=val, width=16).pack(anchor="w")
-        hint = ttk.Label(side, text=forms.STEP_HELP.get(kind.get(), ""), foreground="#567",
+        hint = ttk.Label(side, text=forms.STEP_HELP.get(kind.get(), ""), foreground=pal["muted"],
                          wraplength=150, justify="left")
         hint.pack(anchor="w", pady=(3, 0))
         kind.trace_add("write", lambda *_: hint.configure(text=forms.STEP_HELP.get(kind.get(), "")))
         ttk.Label(side, text="(walk/path/teleport/animation/\nturn/face need an actor)",
-                  foreground="#999", justify="left").pack(anchor="w", pady=(4, 0))
+                  foreground=pal["muted"], justify="left").pack(anchor="w", pady=(4, 0))
         self.step_widgets = {"listbox": lb, "kind": kind, "val": val}
         ttk.Button(side, text="Add / Update", command=self._step_add).pack(fill="x", pady=(8, 2))
         ttk.Button(side, text="Remove", command=self._step_remove).pack(fill="x", pady=2)

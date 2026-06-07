@@ -5,6 +5,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — modern Field Editor look
+- The form-based editor (`ff9mapkit edit`) now ships a cohesive theme: a flat `clam`-based palette
+  that **matches your Windows light/dark setting** (with a safe light fallback), Segoe UI typography,
+  an accent on the primary actions (Save / Build & Test), roomier tree rows, and a colour-tagged
+  console log. No new dependency — the palettes + OS probe are pure-stdlib (`editor/theme.py`).
+
 ### Changed — provenance: the repo ships no Square Enix game data
 - The blank field, exit-region template, and binary test fixtures are no longer committed. They are
   regenerated from the user's **own** FF9 install by the new **`ff9mapkit extract-templates`**
