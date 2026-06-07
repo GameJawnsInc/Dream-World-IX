@@ -113,6 +113,46 @@ def test_walk_up_to_object_does_not_falseflag_its_own_approach(tmp_path):
     assert not any("collision box" in m or "passes through" in m for m in w)
 
 
+# --- multi-waypoint path -----------------------------------------------------------------
+def test_resolve_path_resolves_each_waypoint(tmp_path):
+    import math
+    proj = _load('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-700]\n'
+                 '[[npc]]\nname="V"\npos=[-900,-700]\n'
+                 '[[marker]]\nname="a"\npos=[-400,-200]\n[[marker]]\nname="b"\npos=[400,-200]\n'
+                 '[cutscene]\nactor="V"\nsteps=[ { path = ["a", "b", "@player"] } ]\n', tmp_path)
+    out = build._resolve_move_steps(proj.raw["cutscene"]["steps"], proj, proj.raw["npc"][0])
+    p = out[0]["path"]
+    assert p[0] == [-400, -200] and p[1] == [400, -200]        # markers are exact
+    assert math.dist(p[2], [0, -700]) > 192                    # last @player waypoint stops short of the box
+
+
+def test_path_compiles_to_consecutive_walks():
+    from ff9mapkit.content import cutscene as cs
+    two_walks = cs.compile_steps([{"walk": [0, 0]}, {"walk": [100, 0]}], [])
+    one_path = cs.compile_steps([{"path": [[0, 0], [100, 0]]}], [])
+    assert one_path == two_walks                               # a 2-point path == two walks
+
+
+def test_validate_flags_unknown_path_waypoint(tmp_path):
+    proj = _load('[field]\nid=4003\nname="X"\narea=11\n[camera]\nborrow="c.bgx"\n'
+                 '[walkmesh]\nquad=[[0,0],[10,0],[10,10],[0,10]]\n'
+                 '[[npc]]\nname="V"\npreset="vivi"\npos=[0,0]\n'
+                 '[cutscene]\nactor="V"\nsteps=[ { path = ["ghost"] } ]\n', tmp_path)
+    assert any("ghost" in m for m in build.validate(proj))
+
+
+def test_validate_path_legs_checked_for_stall(tmp_path):
+    wm = _quad_wmesh()
+    body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-150]\n'
+            '[[npc]]\nname="V"\npreset="vivi"\npos=[-400,0]\n'
+            '[[marker]]\nname="mid"\npos=[-400,-300]\n[[marker]]\nname="far"\npos=[400,0]\n'
+            '[cutscene]\nactor="V"\nsteps=[ { path = ["mid","far"] } ]\n')   # 2nd leg grazes the player
+    proj = _load(body, tmp_path)
+    w = []
+    build._validate_cutscene_movement(proj, wm, w)
+    assert any("passes through" in m for m in w)
+
+
 def test_validate_cutscene_movement_warns_offmesh_and_clean(tmp_path):
     wm = _quad_wmesh()
     base = ('[field]\nid=4003\nname="X"\narea=11\n'

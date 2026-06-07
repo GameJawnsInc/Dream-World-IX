@@ -240,8 +240,10 @@ def step_value_text(step: dict) -> str:
     if not k or k == "face_player":
         return ""
     v = step[k]
-    if STEP_KIND[k] in (COORD, PAIR):
+    if STEP_KIND.get(k) in (COORD, PAIR):
         return format_pair(v)
+    if isinstance(v, list):                 # e.g. a `path` (list of waypoints) -- show, don't crash
+        return ", ".join(str(p) for p in v)
     return str(v)
 
 

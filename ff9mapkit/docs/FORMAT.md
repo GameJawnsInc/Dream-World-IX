@@ -404,6 +404,7 @@ Actor steps (only valid when `actor` is set — they need the NPC's context):
 | step (one key each) | meaning |
 |---|---|
 | `walk` | a **target** to walk to — a marker/entity **name** (`"fountain"`, `"@player"`, `"@Steiner"`) or raw `[x, z]`. Uses the NPC's walk animation; blocks until it arrives; turns tight (no orbit). Optional `speed = N`. See *Movement targets* below. |
+| `path` | a **list** of targets to walk through in order — `path = ["door", "fountain", "altar"]` (names or `[x,z]`). Each leg is a straight walk and is stall‑checked. Use it to route an actor **around** an obstacle (a wall or a standing character) that a single straight `walk` can't cross. |
 | `teleport` | a target to **instantly** move to (name or `[x, z]`). Put it **first** to start a walk-in from off-screen — a leading teleport runs before the warm-up so the actor settles there, then walks in. |
 | `animation` | a gesture **by name** (`"glad"`, `"angry"`, `"yawn"`, …) resolved against the actor's preset model, **or** a raw numeric id. Played, then held ~40 frames (no hang on a looping clip). See *Character gestures* below. |
 | `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — turn to face it, animated. |

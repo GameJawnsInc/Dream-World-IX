@@ -121,8 +121,8 @@ def actor_face(uid: int = PLAYER_UID, speed: int = 16) -> bytes:
 
 def compile_steps(steps, txids) -> bytes:
     """Compile ordered cutscene step dicts to bytes. Handles global steps (``say`` / ``wait`` /
-    ``set_flag``) and actor-context steps (``walk`` / ``teleport`` / ``animation`` / ``turn`` /
-    ``face_player``). ``say`` steps consume ``txids`` (a list of resolved text ids) in order.
+    ``set_flag``) and actor-context steps (``walk`` / ``path`` / ``teleport`` / ``animation`` /
+    ``turn`` / ``face_player``). ``say`` steps consume ``txids`` (a list of resolved text ids) in order.
 
     Actor steps are only meaningful inside an ``actor`` cutscene (they act on the executing object);
     :func:`ff9mapkit.build.validate` enforces that. Same encoders the round-trip tests cover."""
@@ -137,6 +137,9 @@ def compile_steps(steps, txids) -> bytes:
             out.append(set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
         elif "walk" in s:
             out.append(actor_walk(s["walk"][0], s["walk"][1], s.get("speed")))
+        elif "path" in s:                          # a multi-waypoint route = consecutive straight walks
+            for pt in s["path"]:
+                out.append(actor_walk(int(pt[0]), int(pt[1])))
         elif "teleport" in s:
             out.append(actor_teleport(s["teleport"][0], s["teleport"][1]))
         elif "animation" in s:

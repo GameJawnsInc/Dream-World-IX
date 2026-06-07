@@ -224,7 +224,7 @@ def validate(project: FieldProject) -> list[str]:
         steps = cs.get("steps")
         actor = cs.get("actor")
         global_keys = ("say", "wait", "set_flag")
-        actor_keys = ("walk", "teleport", "animation", "turn", "face_player")
+        actor_keys = ("walk", "path", "teleport", "animation", "turn", "face_player")
         allowed = global_keys + (actor_keys if actor else ())
         actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == actor), None)
         anim_token = actor_npc.get("preset") if actor_npc else None
@@ -259,6 +259,15 @@ def validate(project: FieldProject) -> list[str]:
                             _resolve_point(s[mk], move_reg)
                         except ValueError as e:
                             problems.append(f"[cutscene] step {k}: {e}")
+                if isinstance(s.get("path"), list):        # each path waypoint must resolve too
+                    if len(s["path"]) < 1:
+                        problems.append(f"[cutscene] step {k}: path needs at least one waypoint")
+                    for elem in s["path"]:
+                        if isinstance(elem, str):
+                            try:
+                                _resolve_point(elem, move_reg)
+                            except ValueError as e:
+                                problems.append(f"[cutscene] step {k}: {e}")
         if actor is not None and actor not in {n.get("name") for n in project.raw.get("npc", [])}:
             problems.append(f"[cutscene] actor {actor!r} is not a defined [[npc]] name")
     return problems
@@ -927,24 +936,32 @@ def _resolve_move_steps(steps, project: FieldProject, actor_npc=None):
     reg = _position_registry(project)
     objs = _object_names(project)
     pos = (int(actor_npc["pos"][0]), int(actor_npc["pos"][1])) if (actor_npc and actor_npc.get("pos")) else None
+    def _one(v, offset):
+        """Resolve one walk/path target to (x, z); offset @object refs short of their box if `offset`."""
+        nonlocal pos
+        if isinstance(v, str):
+            name = v[1:] if v.startswith("@") else v
+            tgt = _resolve_point(v, reg)
+            if offset and name in objs and pos is not None:
+                tgt = _approach_offset(pos, tgt)         # stop adjacent, not inside the object's box
+            tgt = (int(tgt[0]), int(tgt[1]))
+        else:
+            tgt = (int(v[0]), int(v[1]))
+        pos = tgt
+        return [tgt[0], tgt[1]]
+
     out = []
     for s in steps:
         s2 = s
         for mk in ("walk", "teleport"):
-            if mk not in s:
-                continue
-            v = s[mk]
-            if isinstance(v, str):
-                name = v[1:] if v.startswith("@") else v
-                tgt = _resolve_point(v, reg)
-                if mk == "walk" and name in objs and pos is not None:
-                    tgt = _approach_offset(pos, tgt)     # stop adjacent, not inside the object's box
+            if mk in s:
                 if s2 is s:
                     s2 = dict(s)
-                s2[mk] = [int(tgt[0]), int(tgt[1])]
-            else:
-                tgt = (int(v[0]), int(v[1]))
-            pos = (int(tgt[0]), int(tgt[1]))
+                s2[mk] = _one(s[mk], offset=(mk == "walk"))
+        if "path" in s:                                  # a route: each leg resolves like a walk
+            if s2 is s:
+                s2 = dict(s)
+            s2["path"] = [_one(elem, offset=True) for elem in s["path"]]
         out.append(s2)
     return out
 
@@ -1010,11 +1027,33 @@ def _segment_hits_object(project: FieldProject, a, b, exclude_actor):
     return None
 
 
+def _check_walk_leg(project, wmesh, k, frm, tgt, actor, warnings) -> None:
+    """One straight walk leg ``frm``->``tgt``: warn if it would stall (target off the floor / inside a
+    character's box, or the path crosses a wall / through a character). Shared by ``walk`` + ``path``."""
+    if wmesh.point_on_walkmesh(tgt[0], tgt[1]) is None:
+        warnings.append(f"[cutscene] step {k}: walk target {tgt} is off the walkmesh -- the actor "
+                        f"can't reach it and the scene will stall. Aim at a floor point / marker.")
+        return
+    hits = _object_collisions(project, tgt, actor)
+    blocker = _segment_hits_object(project, frm, tgt, actor)
+    if hits:
+        warnings.append(f"[cutscene] step {k}: walk target {tgt} is inside {hits[0]}'s collision box -- "
+                        f"the actor presses into it and the scene stalls. Walk to @<that object> "
+                        f"(auto-stops adjacent), or aim beside it.")
+    elif blocker:
+        warnings.append(f"[cutscene] step {k}: the walk from {frm} to {tgt} passes through {blocker}'s "
+                        f"collision box -- the actor is blocked mid-path and the scene stalls. Route "
+                        f"around it via an intermediate marker / a path.")
+    elif _segment_leaves_floor(wmesh, frm, tgt):
+        warnings.append(f"[cutscene] step {k}: the walk from {frm} to {tgt} crosses off the walkmesh -- "
+                        f"the actor presses into the wall and the scene hangs. Route around it via an "
+                        f"intermediate marker / a path.")
+
+
 def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) -> None:
     """Warn when an ACTOR cutscene's walk would STALL in-game (a field walk is synchronous + straight-
-    line, so a blocked path softlocks the scene). Validates the FINAL resolved targets (with @object
-    auto-approach applied) for: a target off the walkmesh, a target inside another object's collision
-    box, or a path that crosses a wall. Turns a runtime hang into a build warning."""
+    line, so a blocked leg softlocks the scene). Validates the FINAL resolved targets (with @object
+    auto-approach applied), for ``walk`` AND each ``path`` leg. Turns a runtime hang into a build warning."""
     cs = project.raw.get("cutscene")
     if not cs or not cs.get("actor"):
         return
@@ -1031,25 +1070,13 @@ def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) ->
             pos = (int(s["teleport"][0]), int(s["teleport"][1]))
         elif "walk" in s:
             tgt = (int(s["walk"][0]), int(s["walk"][1]))
-            if wmesh.point_on_walkmesh(tgt[0], tgt[1]) is None:
-                warnings.append(f"[cutscene] step {k}: walk target {tgt} is off the walkmesh -- the actor "
-                                f"can't reach it and the scene will stall. Aim at a floor point / marker.")
-            else:
-                hits = _object_collisions(project, tgt, cs["actor"])
-                blocker = _segment_hits_object(project, pos, tgt, cs["actor"])
-                if hits:
-                    warnings.append(f"[cutscene] step {k}: walk target {tgt} is inside {hits[0]}'s "
-                                    f"collision box -- the actor presses into it and the scene stalls. "
-                                    f"Walk to @<that object> (auto-stops adjacent), or aim beside it.")
-                elif blocker:
-                    warnings.append(f"[cutscene] step {k}: the walk from {pos} to {tgt} passes through "
-                                    f"{blocker}'s collision box -- the actor is blocked mid-path and the "
-                                    f"scene stalls. Route around it via an intermediate marker.")
-                elif _segment_leaves_floor(wmesh, pos, tgt):
-                    warnings.append(f"[cutscene] step {k}: the walk from {pos} to {tgt} crosses off the "
-                                    f"walkmesh -- the actor presses into the wall and the scene hangs. "
-                                    f"Add an intermediate marker to route around it.")
+            _check_walk_leg(project, wmesh, k, pos, tgt, cs["actor"], warnings)
             pos = tgt
+        elif "path" in s:
+            for wp in s["path"]:
+                tgt = (int(wp[0]), int(wp[1]))
+                _check_walk_leg(project, wmesh, k, pos, tgt, cs["actor"], warnings)
+                pos = tgt
 
 
 def _wrap_width(project: FieldProject):
