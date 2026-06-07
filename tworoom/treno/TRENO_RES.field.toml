@@ -38,13 +38,13 @@ to = 4004
 entrance = 0
 zone = [[7299, -14373], [6931, -14275], [7440, -15180], [7679, -15169]]
 
-# LADDER (FF9's real mechanism): walk to the base -> "!" prompt -> press action -> climb up to floor 1.
-# zone = the real Treno entry-15 ladder triangle (contains base x9607,z-17570); to = floor-1 landing.
+# LADDER (FAITHFUL -- the real Treno ladder, as `ff9mapkit import` now extracts it):
+# climb = the game's EXACT climb function (verbatim jump arcs, perspective-correct), grafted by build.
+# zone = the real entry-15 quad -- it already covers BOTH the base and the top landing, so the climb's
+# height-branch handles up vs down with no widening. (Replaces the old manual ladder_faithful.py graft.)
 [[ladder]]
-# zone covers the WHOLE ladder (base ~9607,-17570 AND the top landing ~9301,-16621) so you can
-# trigger the climb from either end; the real climb's height-branch decides up vs down.
-zone = [[9100, -16450], [9850, -16450], [9850, -17750], [9100, -17750]]
-to = [7053, -14226, -6003]
+zone = [[9419, -16496], [9016, -16722], [9574, -17758], [9791, -17674]]
+climb = "TRENO_RES.ladder0.climb.bin"
 
 # field BGM imported from the real field (Treno theme)
 [music]
