@@ -12,6 +12,7 @@ Subcommands are wired up incrementally as the library lands:
     pack      - package a built mod for distribution                        (Phase 5)
     import    - fork a real FF9 field (BG-borrow, or --editable custom scene) (Tier 3)
     list-fields - list the real FF9 fields available to import              (Tier 3)
+    extract-templates - regenerate base assets from the user's own FF9 install (no game data shipped)
 
 Anything not yet implemented prints a clear "coming in Phase N" message rather than failing
 with an import error, so the installed console script is always runnable.
@@ -57,6 +58,31 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"  FieldMaps  : {layout.fieldmaps_dir}")
     print(f"  eb/field   : {layout.eventbinary_field_dir}")
     print(f"  dict patch : {layout.dictionary_patch} ({'present' if layout.dictionary_patch.is_file() else 'absent'})")
+    from . import provision
+    print(f"templates    : {'extracted' if provision.templates_present() else 'NOT extracted -- run: ff9mapkit extract-templates'}")
+    return 0
+
+
+def _cmd_extract_templates(args: argparse.Namespace) -> int:
+    """Regenerate the kit's base assets (blank field, exit-region template, test fixtures) from the
+    user's own FF9 install -- the bring-your-own-install step that lets the repo ship no game data."""
+    from . import provision
+    if not _has_unitypy():
+        print("extract-templates needs UnityPy (reads FF9's p0data assetbundles). Install it:\n"
+              "    py -m pip install UnityPy", file=sys.stderr)
+        return 2
+    try:
+        find_game_path(args.game)            # clear error if the install can't be resolved
+    except ConfigError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print("Regenerating base assets from your FF9 install (no game data is shipped with ff9mapkit):")
+    try:
+        rep = provision.extract_templates(game=args.game, fixtures=not args.no_fixtures, verbose=True)
+    except Exception as e:
+        print(f"\nextract-templates failed: {e}", file=sys.stderr)
+        return 1
+    print(f"\nOK -- {len(rep['verified'])} assets regenerated + verified against the manifest.")
     return 0
 
 
@@ -424,6 +450,11 @@ def build_parser() -> argparse.ArgumentParser:
     ed = sub.add_parser("edit", help="open the form-based field-logic editor (no TOML hand-editing)")
     ed.add_argument("field", nargs="?", default=None, help="a .field.toml to open (optional)")
     ed.set_defaults(func=_cmd_edit)
+
+    xt = sub.add_parser("extract-templates",
+                        help="regenerate the kit's base assets from YOUR FF9 install (ships no game data)")
+    xt.add_argument("--no-fixtures", action="store_true", help="skip the test fixtures (templates only)")
+    xt.set_defaults(func=_cmd_extract_templates)
 
     return p
 

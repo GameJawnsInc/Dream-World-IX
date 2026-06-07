@@ -1,0 +1,30 @@
+# ff9mapkit ships NO Final Fantasy IX game data. Everything DERIVED from the game is regenerated
+# locally from the user's own install by `ff9mapkit extract-templates` (see docs/PROVENANCE.md) and
+# must NEVER be committed. These rules make that the default so game bytes can't slip in.
+
+# --- regenerated base assets (the blank field + exit-region template the kit builds from) ---
+ff9mapkit/data/blank_field/
+ff9mapkit/data/region_template.bin
+
+# --- regenerated test fixtures (real field scripts / cameras / walkmeshes) ---
+# Ignore game-derived fixture formats by default; re-include only OUR own authored fixture.
+tests/fixtures/*.eb.bytes
+tests/fixtures/*.bgx
+tests/fixtures/*.bgi.bytes
+!tests/fixtures/hut_ext.bgi.bytes        # OUR authored hut walkmesh (a simple quad we made, not game data)
+
+# --- local cache override target, if a user points $FF9MAPKIT_DATA at a repo subdir ---
+.ff9mapkit-cache/
+
+# --- local scratch / dev artifacts (not part of the kit) ---
+blender/human_testing/
+blender/debug_proj/
+
+# --- python / build cruft ---
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+ff9mapkit/blender/dist/

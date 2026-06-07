@@ -5,9 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-Toward the first public **1.0**. Remaining before tagging it:
-- Source FF9-derived blobs (blank field, region template, fixtures) from the user's own install
-  instead of bundling them (see `docs/ENGINE.md`).
+### Changed — provenance: the repo ships no Square Enix game data
+- The blank field, exit-region template, and binary test fixtures are no longer committed. They are
+  regenerated from the user's **own** FF9 install by the new **`ff9mapkit extract-templates`**
+  command, into a local (gitignored) cache. The repo/wheel ship only our copy/insert **patches**
+  (our edits + copy offsets) and a SHA-256 manifest — never game bytes. Verified airtight: no patch
+  insert run ever duplicates a run in the source field; a built wheel contains zero game bytes.
+- `doctor` now reports whether templates are extracted; the byte-level test suite skips cleanly (with
+  a pointer to `extract-templates`) when they aren't, so a fresh clone still runs the pure-logic
+  tests offline. See [`docs/PROVENANCE.md`](docs/PROVENANCE.md).
+
+Toward the first public **1.0**, remaining:
 - Gallery screenshots (`docs/gallery/`).
 
 ## [0.9.3] — feature-complete, in-game-verified

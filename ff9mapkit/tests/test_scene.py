@@ -1,8 +1,9 @@
 """Phase-2 validation: .bgx scene + .bgi walkmesh + camera-driven paint guide.
 
-Golden masters: the GRGR reference scene, our HUT exterior scene/walkmesh, and the editor's
-multi-floor walkmesh (anms + normals + 3 floors) — the latter proving the .bgi serializer
-handles the full format, not just the flat case.
+Golden masters: the GRGR reference camera, our HUT exterior walkmesh, and a real multi-floor
+walkmesh (anms + normals + 3 floors) — the latter proving the .bgi serializer handles the full
+format, not just the flat case. (All FF9-derived inputs are regenerated from the user's install by
+``ff9mapkit extract-templates``; the scene-codec tests build kit-authored synthetic scenes.)
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ FIX = Path(__file__).parent / "fixtures"
 # ----------------------------------------------------------------- .bgi walkmesh
 
 def test_bgi_roundtrip_minimal_and_multifloor():
-    for name in ("hut_ext.bgi.bytes", "editor_multifloor.bgi.bytes"):
+    for name in ("hut_ext.bgi.bytes", "multifloor.bgi.bytes"):
         raw = (FIX / name).read_bytes()
         assert bgi.BgiWalkmesh.from_bytes(raw).to_bytes() == raw, name
 
@@ -49,26 +50,39 @@ def _semantic(scene: bgx.BgxScene):
     return ov, cams
 
 
-def test_bgx_parse_grgr():
+def _synthetic_scene():
+    """A kit-authored scene: a real camera (regenerated from the user's install, never shipped) plus
+    OUR overlays. Exercises the overlay codec without redistributing a ripped game scene."""
+    camera = bgx.BgxScene.from_file(FIX / "grgr.bgx").cameras[0]
+    overlays = [
+        bgx.Overlay(image="back.png", position=(0, 0, 4000), size=(384, 314)),
+        bgx.Overlay(image="floor.png", position=(0, 165, 3000), size=(384, 283)),
+        bgx.Overlay(image="front.png", position=(0, 385, 8), size=(384, 63),
+                    shader="PSX/FieldMap_Abr_1"),
+    ]
+    return camera, overlays
+
+
+def test_bgx_parse_camera():
     s = bgx.BgxScene.from_file(FIX / "grgr.bgx")
-    assert len(s.overlays) == 7
     assert len(s.cameras) == 1
-    assert s.overlays[0].image == "FBG_N21_GRGR_MAP420_GR_CEN_0_0.png"
     assert s.cameras[0].proj == 497
     assert s.cameras[0].t == [0, -248, 5018]
 
 
-def test_bgx_semantic_roundtrip():
-    for name in ("grgr.bgx", "hut_ext.bgx"):
-        orig = (FIX / name).read_text(encoding="utf-8", errors="replace")
-        s = bgx.BgxScene.parse(orig)
-        rt = bgx.BgxScene.parse(s.to_text())
-        assert _semantic(s) == _semantic(rt), name
+def test_bgx_overlay_codec_roundtrip():
+    camera, overlays = _synthetic_scene()
+    s = bgx.BgxScene.parse(bgx.build(camera, overlays, header_comment="synthetic"))
+    assert len(s.overlays) == 3 and len(s.cameras) == 1
+    assert s.overlays[0].image == "back.png" and s.overlays[0].position == (0, 0, 4000)
+    assert s.overlays[2].shader == "PSX/FieldMap_Abr_1"          # blend overlay preserved
+    assert _semantic(s) == _semantic(bgx.BgxScene.parse(s.to_text()))   # semantic round-trip
 
 
-def test_bgx_build_reproduces_hut_scene():
-    s = bgx.BgxScene.from_file(FIX / "hut_ext.bgx")
-    built = bgx.build(s.cameras[0], s.overlays, header_comment="Vivi's Return (exterior)")
+def test_bgx_build_reproduces_scene():
+    camera, overlays = _synthetic_scene()
+    s = bgx.BgxScene.parse(bgx.build(camera, overlays))
+    built = bgx.build(s.cameras[0], s.overlays, header_comment="rebuild")
     assert _semantic(bgx.BgxScene.parse(built)) == _semantic(s)
 
 

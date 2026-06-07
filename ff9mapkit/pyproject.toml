@@ -32,5 +32,9 @@ where = ["."]
 include = ["ff9mapkit*"]
 
 [tool.setuptools.package-data]
-# Ship the canonical blank field script + the field-109 region template with the wheel.
-ff9mapkit = ["data/*.bin", "data/blank_field/*.bytes"]
+# Ship ONLY our provenance artifacts: the copy/insert patches + manifest (our edits + hashes, never
+# game bytes). The blank field + exit-region template + test fixtures are NOT packaged -- they are
+# regenerated from the user's own FF9 install by `ff9mapkit extract-templates` (docs/PROVENANCE.md).
+# (Deliberately NOT globbing data/*.bin or data/blank_field/ so a wheel can never bundle FF9 bytes,
+#  even if a developer has run extract-templates locally.)
+ff9mapkit = ["data/provenance/manifest.json", "data/provenance/*.patch"]

@@ -1,0 +1,65 @@
+{
+  "_note": "ff9mapkit ships NO Final Fantasy IX game data. These entries describe how to regenerate the small set of base assets the kit needs from YOUR OWN install via `ff9mapkit extract-templates`. The .patch files contain only our edits + copy offsets (never game bytes). See docs/PROVENANCE.md.",
+  "blank": {
+    "source_fbg": "fbg_n11_ldbm_map203_lb_hng_0",
+    "patch": "blank.{lang}.patch",
+    "sha256": {
+      "us": "2289085a5dc1030d8cd1541619e34a0bd722a0957d0849bfaf077c7e30e90452",
+      "uk": "2289085a5dc1030d8cd1541619e34a0bd722a0957d0849bfaf077c7e30e90452",
+      "fr": "b06d7768c8485ee4c48443e2384730a0d447d2af8e84d87a20a3ee2a23c45f6b",
+      "gr": "5676ef381393767a4fef715cdfe1eca947fef10b1d0ec80dd247a0301fa66a34",
+      "it": "d968b0d1bafe3b2c60ee02c91a435986f71c23b4afb1e78fa65a67294c5b290b",
+      "es": "eb6ac7333a273333b9d7e296408a2cfad41b059acd06679c3fb2a50b815234ac",
+      "jp": "e5595df0fcd0685bf8702b2286ac28bc0f8c54169e4c881e61ff5c0ec09c1219"
+    }
+  },
+  "region_template": {
+    "source_fbg": "fbg_n01_alxt_map031_at_wpn_0",
+    "lang": "us",
+    "patch": "region_template.patch",
+    "sha256": "c170b2664771d697c0dbfd728c306e3c2059695ce4eb68e8f1dcf0f0c1e3e914"
+  },
+  "fixtures": {
+    "alex100-us.eb.bytes": {
+      "source_fbg": "fbg_n01_alxt_map016_at_msa_0",
+      "kind": "event_with_gateway",
+      "lang": "us",
+      "gateway": {
+        "target": 4000,
+        "entrance": 0,
+        "zone": [
+          [
+            -700,
+            2200
+          ],
+          [
+            200,
+            2200
+          ],
+          [
+            200,
+            3400
+          ],
+          [
+            -700,
+            3400
+          ]
+        ]
+      },
+      "sha256": "015258162cc8d28afc3b025d7b06037d1cead63778c611acc2cb834e26b70076"
+    },
+    "grgr.bgx": {
+      "source_fbg": "fbg_n21_grgr_map420_gr_cen_0",
+      "kind": "camera_bgx",
+      "sha256": "2d6acbd6963514b41eb0103fc885a113a59af7b9d2fc57eb43324c9d955d48ab"
+    },
+    "multifloor.bgi.bytes": {
+      "source_fbg": "fbg_n00_tshp_map008_th_upr_0",
+      "kind": "walkmesh_verbatim",
+      "sha256": "ec6bc267950284ccf68adfd531ff923b42eb2aef90e603e53e463afd8a99fd18"
+    }
+  },
+  "goldens": {
+    "EVT_HUT_INT.eb.bytes/us": "230898c812477507d1911a5852816bd7ee8d61262bd10599d5543920fdba0ff5"
+  }
+}

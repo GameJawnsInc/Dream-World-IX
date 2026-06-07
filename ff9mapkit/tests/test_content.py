@@ -1,8 +1,9 @@
 """Phase-3 validation: generalized content injectors.
 
-The headline oracle is byte-exact: rebuilding the in-game-verified Vivi-hut interior
-(``hut_int-us.eb.bytes``) from the blank field via npc + set_player + gateway must reproduce
-it exactly. The other transforms (encounter / reinit / music) are validated structurally —
+The headline oracle is byte-exact: rebuilding the in-game-verified Vivi-hut interior from the
+blank field via npc + set_player + gateway must reproduce it exactly (checked against the
+manifest SHA-256, since the result embeds the game-derived blank). The other transforms
+(encounter / reinit / music) are validated structurally —
 applied to the blank field, the result must re-parse cleanly and contain the expected opcodes
 with the rest of the script intact.
 """
@@ -27,11 +28,14 @@ def _ops(eb: EbScript, entry_index: int, func_tag: int) -> list:
 
 
 def test_hut_interior_reproduced_byte_exact():
+    # Reproduces the in-game-verified hut interior from the blank via npc+spawn+gateway. The result
+    # embeds the (game-derived) blank, so the golden is the manifest SHA-256, not shipped bytes.
+    from ff9mapkit import provision
     EXIT_ZONE = [(-1100, -2400), (1100, -2400), (1100, -1750), (-1100, -1750), (-1100, -1750)]
     out = npc.inject_npc(CLEAN, 0, -700, preset="vivi", talk_text_id=500)
     out = npc.set_player_spawn(out, 0, -1350)
     out = gateway.inject_gateway(out, 4000, entrance=0, slot=3, zone=EXIT_ZONE)
-    assert out == (FIX / "hut_int-us.eb.bytes").read_bytes()
+    assert provision.sha256(out) == provision.load_manifest()["goldens"]["EVT_HUT_INT.eb.bytes/us"]
 
 
 def test_npc_is_appended_and_spawned():

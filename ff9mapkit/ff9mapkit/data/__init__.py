@@ -15,28 +15,34 @@ region_template.bin
 
 Provenance / distribution note
 ------------------------------
-These blobs are derived from Final Fantasy IX field data (the blank field originated as a
-cleaned clone of a base field). They are bundled here so the kit is functional out of the
-box for *development*. For a clean public release, prefer extracting the blank from the
-user's own game install (a documented step) rather than redistributing game-derived bytes.
+These blobs are DERIVED from Final Fantasy IX field data (the blank field is a cleaned clone of a
+base field; the region template is a base field's exit region). To avoid redistributing Square Enix
+game bytes, the public repo ships **none** of them -- they are regenerated from the user's own,
+legally-owned FF9 install by ``ff9mapkit extract-templates`` (see :mod:`ff9mapkit.provision` and
+docs/PROVENANCE.md) into a local, gitignored cache. The accessors below read that cache and raise a
+clear "run extract-templates" message if it isn't present yet.
 """
 
 from __future__ import annotations
 
-from importlib import resources
-
 from ..config import LANGS
-
-_PKG = "ff9mapkit.data"
+from .. import provision
 
 
 def blank_field_bytes(lang: str = "us") -> bytes:
-    """Bytes of the blank field event script for *lang* (defaults to 'us')."""
+    """Bytes of the blank field event script for *lang* (defaults to 'us'). Regenerated from the
+    user's FF9 install by ``ff9mapkit extract-templates``; raises if that hasn't been run."""
     if lang not in LANGS:
         raise ValueError(f"unknown language {lang!r}; expected one of {LANGS}")
-    return (resources.files(_PKG) / "blank_field" / f"{lang}.eb.bytes").read_bytes()
+    p = provision.blank_dir() / f"{lang}.eb.bytes"
+    if not p.is_file():
+        raise FileNotFoundError(provision.MISSING_MSG)
+    return p.read_bytes()
 
 
 def region_template() -> bytes:
-    """The 272-byte field-exit region template."""
-    return (resources.files(_PKG) / "region_template.bin").read_bytes()
+    """The 272-byte field-exit region template (regenerated from the user's install)."""
+    p = provision.region_template_path()
+    if not p.is_file():
+        raise FileNotFoundError(provision.MISSING_MSG)
+    return p.read_bytes()

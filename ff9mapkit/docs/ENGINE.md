@@ -38,8 +38,10 @@ flat-floor camera-anchor solver.
 
 ## Data provenance / redistribution
 
-The kit bundles two small binary templates derived from FF9 field data (a cleaned "blank"
-field script and an exit-region template) so it works out of the box. For a clean public
-release, prefer extracting the blank field from the user's own game install (a documented
-step) rather than redistributing game-derived bytes. **Background art and walkmeshes you
-author are yours;** the kit never ships copyrighted art.
+**The kit ships no Final Fantasy IX game data.** The base assets it needs (a cleaned "blank"
+field script + an exit-region template + the test fixtures) are *derived* from FF9 field data,
+so instead of bundling them the repo ships only our copy/insert **patches** (our edits + copy
+offsets, never game bytes) and a SHA-256 manifest; `ff9mapkit extract-templates` regenerates the
+assets from the user's **own** install into a local cache. See [`PROVENANCE.md`](PROVENANCE.md)
+for the full rationale + the airtight guarantee (no insert run ever duplicates a source-file run).
+**Background art and walkmeshes you author are yours;** the kit never ships copyrighted content.

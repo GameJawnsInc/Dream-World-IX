@@ -32,9 +32,13 @@ def test_example_validates_clean():
 
 
 def test_build_reproduces_hut_int_eb_byte_exact(built):
+    # The hut script EMBEDS the blank field (game-derived), so we can't ship its bytes as a golden.
+    # Instead we compare the fresh build's SHA-256 to the manifest (a hash isn't a redistribution of
+    # the bytes) -- still a byte-exact regression guard. See ff9mapkit/provision.py.
+    from ff9mapkit import provision
     out, _ = built
     eb = ModLayout(out).eb_path("us", "EVT_HUT_INT.eb.bytes").read_bytes()
-    assert eb == (FIX / "hut_int-us.eb.bytes").read_bytes()
+    assert provision.sha256(eb) == provision.load_manifest()["goldens"]["EVT_HUT_INT.eb.bytes/us"]
 
 
 def test_build_writes_all_languages(built):

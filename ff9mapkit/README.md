@@ -41,7 +41,9 @@ camera angle and converts your hand-modeled `.obj` walkmesh to the engine's `.bg
 pip install -e .
 export FF9_GAME_PATH="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
 
-ff9mapkit doctor                              # verify it found your install
+pip install UnityPy                           # reads FF9's assetbundles (for the one-time step below)
+ff9mapkit extract-templates                   # one-time: regenerate base assets from YOUR install
+ff9mapkit doctor                              # verify it found your install + templates extracted
 ff9mapkit new MY_ROOM --area 11               # scaffold a project
 ff9mapkit guide --pitch 48 --png guide.png    # paint guide for your camera
 # ... (human) paint art into MY_ROOM/art, fill in MY_ROOM/my_room.field.toml ...
@@ -77,6 +79,7 @@ and `build` compiles both.
 | `build <field.toml>...` | compile project(s) into a Memoria mod |
 | `import <field>` | fork a **real** FF9 field into an editable `field.toml` (BG-borrow, or `--editable` custom scene) — also extracts its exits/encounters/BGM/movement |
 | `list-fields [pat]` | list the real FF9 fields available to `import` |
+| `extract-templates` | one-time: regenerate the kit's base assets from **your own** FF9 install (the kit ships no game data — see [Provenance](docs/PROVENANCE.md)) |
 | `edit [field.toml]` | open the **form-based logic editor** (no TOML hand-editing) |
 | `lint <field.toml>` | check story-flag/placement logic without building |
 | `pack <mod>` | zip a built mod for distribution |
@@ -89,6 +92,8 @@ and `build` compiles both.
 - [`docs/FORMAT.md`](docs/FORMAT.md) — the `field.toml` schema.
 - [`docs/PIPELINE.md`](docs/PIPELINE.md) — the full authoring workflow.
 - [`docs/ENGINE.md`](docs/ENGINE.md) — engine requirements (stock Memoria) + provenance notes.
+- [`docs/PROVENANCE.md`](docs/PROVENANCE.md) — **the kit ships no game data**: how the base assets are
+  regenerated from your own FF9 install (`extract-templates`), and why that's legally clean.
 - [`docs/TECHNICAL.md`](docs/TECHNICAL.md) — the hard problems solved (camera math, `.eb` format, import).
 - [`examples/vivi-hut/`](examples/vivi-hut) — a complete worked example.
 - [`blender/`](blender/README.md) — the **Blender add-on**: visually author the camera + walkmesh,

@@ -3,7 +3,7 @@
 The exporter (`bgi.build`) is the inverse of the importer (`BgiWalkmesh.world_verts`): emit verts in
 world coords with orgPos=0 and every floor.org=0, so the engine renders `world = vert + 0 + 0`
 (WalkMesh.cs:53,141,227). These tests prove the round trip preserves world positions, triangle
-topology, and the floor partition — across single-floor (hut) and multi-floor (the editor's 3-floor
+topology, and the floor partition — across single-floor (hut) and multi-floor (a real 3-floor
 walkmesh, which stores nonzero per-floor org tiling disjoint corner-origin vertex sets).
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ def test_build_flat_delegates_byte_identical_to_legacy():
 def test_export_roundtrips_world_positions_and_floors():
     """import (corner-origin + floor.org -> world) -> export (world, org=0) -> re-import: identical
     world vertex positions, identical triangle topology, identical floor partition. 1 and 3 floors."""
-    for name in ("hut_ext.bgi.bytes", "editor_multifloor.bgi.bytes"):
+    for name in ("hut_ext.bgi.bytes", "multifloor.bgi.bytes"):
         src = bgi.BgiWalkmesh.from_bytes((FIX / name).read_bytes())
         wv = src.world_verts()                                   # importer
         faces = [tuple(t.vtx) for t in src.tris]
@@ -124,7 +124,7 @@ def test_obj_reexport_loses_cross_floor_connectivity(tmp_path):
     floor) loses cross-floor links and floors strand. Forks must ship the original via [walkmesh] bgi;
     authoring/reshaping multi-floor geometry needs the seam sidecar (docs/WALKMESH_EDITING.md)."""
     from ff9mapkit import extract
-    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "multifloor.bgi.bytes").read_bytes())
     assert src.reachable_floors() == src.all_floors()              # codec lossless: every floor connected
     obj = tmp_path / "wm.obj"
     obj.write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
@@ -136,7 +136,7 @@ def test_obj_reexport_loses_cross_floor_connectivity(tmp_path):
 
 def _multifloor_scene_toml(tmp_path, walkmesh_block):
     from ff9mapkit import extract
-    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "multifloor.bgi.bytes").read_bytes())
     (tmp_path / "wm.obj").write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
     v, f, fid = bgi.load_obj_floors(str(tmp_path / "wm.obj"))
     (tmp_path / "wm.bgi").write_bytes(bgi.build(v, f, floor_ids=fid).to_bytes())   # stranded re-export
@@ -167,7 +167,7 @@ def test_build_skips_reachability_for_verbatim_bgi(tmp_path):
 def test_seam_extract_apply_reconciles_multifloor():
     """v2 reconcile: extract_seams (from the original) + apply_seams (onto a geometry-only obj round-
     trip) reproduces the original cross-floor link set + full reachability. The smoke test, as a unit."""
-    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "multifloor.bgi.bytes").read_bytes())
     seams = src.extract_seams()
     assert seams                                                   # multi-floor has cross-floor seams
     wv = src.world_verts()
@@ -185,7 +185,7 @@ def test_build_obj_with_links_reconciles(tmp_path):
     from ff9mapkit import extract
     from ff9mapkit.build import FieldProject, build_mod
     from ff9mapkit.config import ModLayout
-    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "multifloor.bgi.bytes").read_bytes())
     (tmp_path / "wm.obj").write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
     extract._write_links_toml(src, tmp_path / "wm.links.toml")
     (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
@@ -203,7 +203,7 @@ def test_build_obj_links_warns_on_broken_seam(tmp_path):
     """A seam whose connecting edge was moved/deleted warns (no silent mis-link)."""
     from ff9mapkit import extract
     from ff9mapkit.build import FieldProject, build_mod
-    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "multifloor.bgi.bytes").read_bytes())
     (tmp_path / "wm.obj").write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
     extract._write_links_toml(src, tmp_path / "wm.links.toml")
     with open(tmp_path / "wm.links.toml", "a", encoding="utf-8") as fh:   # an unmatchable seam
@@ -221,26 +221,26 @@ def test_walkmesh_bgi_mode_ships_verbatim(tmp_path):
     """[walkmesh] bgi = "<file>" ships the .bgi byte-for-byte (preserves real-field connectivity),
     unlike obj->build which rebuilds neighbor links."""
     from ff9mapkit.build import FieldProject, resolve_camera, resolve_walkmesh
-    raw = (FIX / "editor_multifloor.bgi.bytes").read_bytes()
+    raw = (FIX / "multifloor.bgi.bytes").read_bytes()
     (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
     (tmp_path / "walkmesh.bgi").write_bytes(raw)
     (tmp_path / "f.field.toml").write_text(
         '[field]\nid = 4003\nname = "X"\narea = 21\n\n[camera]\nborrow = "camera.bgx"\n\n'
         '[walkmesh]\nbgi = "walkmesh.bgi"\n', encoding="utf-8")
     proj = FieldProject.load(tmp_path / "f.field.toml")
-    assert resolve_walkmesh(proj, resolve_camera(proj)) == raw    # verbatim, 3 floors + links intact
+    assert resolve_walkmesh(proj, resolve_camera(proj)) == raw    # verbatim, multi-floor + links intact
 
 
 def test_editable_world_obj_roundtrips_multifloor(tmp_path):
     """write_editable_project's walkmesh re-export (.bgi -> world .obj -> build) preserves world
     positions + floor partition. Covers the offline core of `import --editable` (no game data)."""
     from ff9mapkit import extract
-    src = bgi.BgiWalkmesh.from_bytes((FIX / "editor_multifloor.bgi.bytes").read_bytes())
+    src = bgi.BgiWalkmesh.from_bytes((FIX / "multifloor.bgi.bytes").read_bytes())
     obj = tmp_path / "wm.obj"
     obj.write_text(extract._world_walkmesh_obj_text(src), encoding="utf-8")
     verts, faces, floor_ids = bgi.load_obj_floors(str(obj))
     out = bgi.build(verts, faces, floor_ids=floor_ids)
-    assert len(out.floors) == len(src.floors)                 # 3 floors preserved
+    assert len(out.floors) == len(src.floors)                 # floors preserved
     assert (out.orgPos.x, out.orgPos.y, out.orgPos.z) == (0, 0, 0)
     rt = bgi.BgiWalkmesh.from_bytes(out.to_bytes())
     assert all(tuple(a) == tuple(b) for a, b in zip(rt.world_verts(), src.world_verts()))

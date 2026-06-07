@@ -184,11 +184,12 @@ def event_name_for(field: str, game=None):
     return rec[1] if rec else None
 
 
-def extract_event_script(field: str, *, game=None):
-    """The compiled ``.eb`` bytes of a real field's event script (us), or None if it can't be located
-    (no FBG->event mapping, or the binary isn't present). Used by ``import`` to extract gateways /
-    music / encounters / movement from the real field -- it never raises, so a missing script just
-    means the fork imports without that content (camera/walkmesh/art are unaffected)."""
+def extract_event_script(field: str, *, game=None, lang: str = EVT_LANG):
+    """The compiled ``.eb`` bytes of a real field's event script (``lang``, default us), or None if it
+    can't be located (no FBG->event mapping, or the binary isn't present). Used by ``import`` to
+    extract gateways / music / encounters / movement from the real field -- it never raises, so a
+    missing script just means the fork imports without that content (camera/walkmesh/art are
+    unaffected). ``lang`` is also used by provisioning to extract the per-language blank base."""
     try:
         evt = event_name_for(field, game)
         if not evt:
@@ -198,7 +199,7 @@ def extract_event_script(field: str, *, game=None):
             return None
         UnityPy = _unitypy()
         env = UnityPy.load(str(_streaming_assets(game) / bundle))
-        want = f"eventbinary/field/{EVT_LANG}/{evt}.eb".lower()
+        want = f"eventbinary/field/{lang}/{evt}.eb".lower()
         for k, obj in env.container.items():
             kl = k.lower()
             if want in kl and kl.endswith(".eb.bytes"):
