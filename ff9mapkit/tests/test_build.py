@@ -489,6 +489,24 @@ def test_lint_duplicate_names(tmp_path):
     assert any("duplicate" in m and "'g'" in m for m in lints)
 
 
+def test_lint_choice_default_past_disabled_row_warns(tmp_path):
+    # default=2 with option 1 disabled: the engine converts abs->avail then reads as abs -> can't honor
+    lints = _lint(tmp_path,
+                  '[[choice]]\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\nprompt="P"\ndefault=2\n'
+                  '[[choice.options]]\ntext="A"\n'
+                  '[[choice.options]]\ntext="B"\ndisabled=true\n'
+                  '[[choice.options]]\ntext="C"\n')
+    assert any("can't be honored" in m for m in lints)
+
+
+def test_lint_choice_default_without_disable_is_clean(tmp_path):
+    # default works fine when no rows before it are greyed
+    lints = _lint(tmp_path,
+                  '[[choice]]\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\nprompt="P"\ndefault=2\ncancel=0\n'
+                  '[[choice.options]]\ntext="A"\n[[choice.options]]\ntext="B"\n[[choice.options]]\ntext="C"\n')
+    assert not any("can't be honored" in m for m in lints)
+
+
 def test_validate_npc_needs_position(tmp_path):
     from ff9mapkit.build import FieldProject, validate
     p = tmp_path / "x.field.toml"

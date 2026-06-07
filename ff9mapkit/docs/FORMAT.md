@@ -402,14 +402,21 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `options[].reply` | optional line shown after the player picks it. |
 | `options[].give_item` / `gil` / `set_flag` | optional actions, same as `[[event]]` — `give_item = ["Potion", 1]` (id or name), `gil` negative charges, `set_flag` raises a story flag. |
 
-**Pre-choose config (default / cancel / grey-out).** `default` sets the initially-highlighted row and
-`cancel` sets which row B/Cancel picks; `options[].disabled = true` greys a row out and makes it
-unselectable. Disabling does **not** renumber the others — a disabled row keeps its index, the cursor
-just skips it, so `GetChoose()` (and your per-option branch) still uses the **absolute** index. The kit
-emits the `EnableDialogChoices` opcode + a `[PCHC]`/`[PCHM]` text tag (Memoria `Dialog.SetupChoose`);
-a plain choice with none of these set is byte-identical to before. *(v1 is static — a `disabled` row
-is always greyed. Flag-gated dynamic disabling, e.g. "available only once you have the key", is a
-planned follow-up.)* Grounded in the field-100 ATE menu (`EnableDialogChoices( …mask…, 0 )`).
+**Pre-choose config (default / cancel / disable).** `default` sets the initially-highlighted row,
+`cancel` sets which row B/Cancel picks, and `options[].disabled = true` **removes** a row from the menu
+(FF9 builds no widget for a masked row — it disappears, it isn't greyed-and-visible). Disabling does
+**not** renumber the others — a hidden row keeps its index and `GetChoose()` (and your per-option
+branch) still uses the **absolute** index. The kit emits the `EnableDialogChoices` opcode + a
+`[PCHC]`/`[PCHM]` text tag (Memoria `Dialog.SetupChoose`); a plain choice with none of these set is
+byte-identical to before. Grounded + in-engine-probe-verified against the field-100 ATE menu.
+
+> **Engine limitation (default + disable don't combine):** `default` and `cancel` work on their own,
+> and `disabled` works on its own. But a `default` that sits **at or after** a `disabled` row is **not
+> honored** — FF9's `SetChooseParam` converts the default to an available-row index while `Dialog`
+> reads it as absolute, so it falls back to the first available row. The build **warns** when you hit
+> this. Use `default = 0`, or don't hide rows before your default. *(A `disabled` row that's always
+> hidden is mostly a building block; the useful case — hiding a row **until a story flag is set** — is
+> the planned flag-gated follow-up.)*
 
 **How the pick is read (engine fact):** the choice window is synchronous, so the picked row index
 (0-based) is finalized before the script continues; the kit branches on it with `GetChoose()` (the

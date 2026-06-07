@@ -402,6 +402,19 @@ def lint_logic(project: FieldProject) -> list[str]:
                 out.append(f"duplicate {label} name {nm!r} ({c}x) -- the scene<->field merge by name "
                            f"will be ambiguous; give each a unique name.")
 
+    # pre-choose: a choice's `default` can't sit at/after a greyed (`disabled`) row. The engine
+    # (SetChooseParam) converts the absolute default into the AVAILABLE-row index, but Dialog then reads
+    # it as ABSOLUTE -- so a default past a disabled row falls back to the first available row instead of
+    # the one you meant. (Confirmed by an in-engine probe.) Warn rather than silently mis-highlight.
+    for c, ch in enumerate(raw.get("choice", [])):
+        d = ch.get("default")
+        if isinstance(d, int) and d > 0:
+            bad = [i for i, o in enumerate(ch.get("options", [])) if o.get("disabled") and i <= d]
+            if bad:
+                out.append(f"[[choice]] #{c} default = {d} can't be honored: option(s) {bad} at/before it "
+                           f"are disabled, so FF9 highlights the first available row instead. Use default = 0 "
+                           f"or don't grey out rows before the default (engine limitation).")
+
     # dialogue that won't fit on screen. With wrapping ON, only an unbreakable over-wide word can
     # still overflow; with wrapping OFF, any hand-written line over the budget will run off-screen.
     wrap = _wrap_width(project)
