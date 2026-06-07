@@ -228,22 +228,28 @@ tail = "UPL"                          # pointer from the upper-left
 
 ### Line breaks & pages
 
-FF9 dialogue windows are **not** one screen — they take multiple lines (the window auto-sizes) and
-multiple pages. In any `dialogue` / `message` / `say` string:
+FF9 dialogue windows are **not** one screen — they take multiple lines and multiple pages. In any
+`dialogue` / `message` / `say` string:
 
-- **line break** = a `\n` (the engine splits the rendered text on newlines). Use a TOML escape or a
-  multi-line string:
+- **line break** = a `\n`. The engine lays out lines from your explicit `\n` (it *can* word-wrap very
+  long text to the window width, but don't rely on that — put the breaks where you want them):
   ```toml
   dialogue = "First line.\nSecond line."
-  # or:
+  # or a multi-line string:
   dialogue = """First line.
   Second line."""
   ```
 - **new page** = the `[PAGE]` tag — the window shows a ▼ and advances on confirm:
   `dialogue = "Page one.[PAGE]Page two."`
 
+> **Multi-page sizing gotcha.** FF9 sizes the window **once** to fit the *biggest* page (widest page's
+> width, tallest page's line count) and reuses that size for every page (`Dialog.cs`) — so a short
+> page shows blank space below its text. For clean results, **keep pages balanced** (same number of
+> `\n` lines each), or just use a single page with `\n` breaks (the most predictable). Most FF9 field
+> dialogue is single-page.
+
 (These pass straight through to FF9's text engine; entries are delimited by the `[TXID=]`/`[STRT=]`
-markers, so a newline inside a line is safe.)
+markers, so a newline inside a line is safe, and the `.mes` is written with LF.)
 
 ---
 
