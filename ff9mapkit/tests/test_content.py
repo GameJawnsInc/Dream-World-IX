@@ -73,7 +73,9 @@ def test_zone_choice_action_one_shot_terminates_and_gates_init(tmp_path):
     s, eb = _build_zone_choice(tmp_path, build, extra="requires_flag_clear = 8001\n")
     reg = next(e for e in s.entries if not e.empty and e.type == 1 and e.func_by_tag(3)
                and bytes([0x7A, 0x09]) in eb[e.func_by_tag(3).abs_start:e.func_by_tag(3).abs_end])
-    assert 0x1C in _ops(s, reg.index, 3)                   # TerminateEntry on the consuming option
+    ops3 = _ops(s, reg.index, 3)
+    assert 0x1C in ops3                                    # TerminateEntry when the flag is set (consumed)
+    assert ops3.index(0x2E) < ops3.index(0x1C)            # EnableMove BEFORE terminate -> control restored
     t0 = _ops(s, reg.index, 0)
     assert t0[0] == 0x05 and 0x29 in t0                    # Init: gate (0x05) before SetRegion (0x29)
 
