@@ -226,6 +226,25 @@ speaker = "[VIVI]"                    # renameable name; or just "Vivi"
 tail = "UPL"                          # pointer from the upper-left
 ```
 
+### Line breaks & pages
+
+FF9 dialogue windows are **not** one screen — they take multiple lines (the window auto-sizes) and
+multiple pages. In any `dialogue` / `message` / `say` string:
+
+- **line break** = a `\n` (the engine splits the rendered text on newlines). Use a TOML escape or a
+  multi-line string:
+  ```toml
+  dialogue = "First line.\nSecond line."
+  # or:
+  dialogue = """First line.
+  Second line."""
+  ```
+- **new page** = the `[PAGE]` tag — the window shows a ▼ and advances on confirm:
+  `dialogue = "Page one.[PAGE]Page two."`
+
+(These pass straight through to FF9's text engine; entries are delimited by the `[TXID=]`/`[STRT=]`
+markers, so a newline inside a line is safe.)
+
 ---
 
 ## `[[gateway]]` (optional, repeatable)
