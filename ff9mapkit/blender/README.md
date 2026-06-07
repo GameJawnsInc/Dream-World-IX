@@ -84,6 +84,10 @@ Background Art → Content → Export**. A typical pass:
      cutscene by name (`walk = "<name>"` / `path = ["a", "b"]`) instead of typing coordinates. (A
      plain `walk` auto-routes around obstacles; waypoints are for forcing an exact route.)
    Markers are read on export; their floor positions are taken from where you place them.
+   - *Dialogue choices* (talk → a menu → branch) are **logic**, so you author them in the
+     `<name>.field.toml` (or `ff9mapkit edit`), attached to an NPC by name. Place the NPC here in
+     Blender; the scaffolded field.toml includes a commented `[[choice]]` example. Choices live only in
+     the field.toml — re-exporting from Blender (which rewrites only the scene.toml) keeps them.
 8b. **Multi-camera (optional)** — for a field that cuts between camera angles as you walk (FF9
    streets/plazas). In the **Camera** box, **Add Camera** drops another FF9 camera (set its own
    *Yaw/Pitch/FOV* + *Pose*; select a camera to edit it). Give each camera its own painted
@@ -96,9 +100,10 @@ Background Art → Content → Export**. A typical pass:
    **two TOMLs** (Godot-style — placement vs. script):
    - `<name>.scene.toml` — the **spatial** layer (camera, walkmesh, layers, spawn, and each marker's
      position/zone by name). **Overwritten every export**, so re-export freely.
-   - `<name>.field.toml` — the **logic** layer (`[field]` + per-entity dialogue/conditions + events).
-     Written **only the first time** (a scaffold from your markers); after that it's *yours* and
-     Export never touches it. Edit dialogue, story flags, and events here in a text editor.
+   - `<name>.field.toml` — the **logic** layer (`[field]` + per-entity dialogue/conditions + events
+     + dialogue choices). Written **only the first time** (a scaffold from your markers); after that
+     it's *yours* and Export never touches it. Edit dialogue, story flags, events, and choices here
+     (a text editor or `ff9mapkit edit`).
 9. **Build** — `ff9mapkit build <name>.field.toml --out <game>/FF9CustomMap` — it auto-merges the
    sibling `<name>.scene.toml` by entity name (scene = where, field = what). Then play.
 

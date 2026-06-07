@@ -699,13 +699,20 @@ def field_logic_stub(meta, npcs=(), gateways=(), events=()):
             L.append(f"message = {_toml_str(e.get('message') or '...')}")
             if e.get("once") is not None and not e["once"]:
                 L.append("once = false")
-            L.append("# give_item = [232, 1]   # optional: item id + count")
-            L.append("# gil = 1000             # optional: gil reward")
+            L.append('# give_item = ["Potion", 1]  # optional: item (name or id) + count')
+            L.append("# gil = 1000             # optional: gil reward (negative charges)")
             L.append("# requires_flag = 200    # only fire when a story flag is set")
             L.append("")
     else:
         L += ["# --- events / story (text-authored; zone set in the scene, logic here) ---",
               '# [[event]]', '# name = "lever"', '# set_flag = [200, 1]', '# message = "click"']
+    # dialogue choice (talk to an NPC -> a menu -> branch); attaches to an [[npc]] by name. Author it
+    # here or in `ff9mapkit edit`. Cancel/B picks the LAST option; give_item takes a name or id.
+    L += ["", "# --- dialogue choice (talk -> menu -> branch); attach to an [[npc]] by name ---",
+          '# [[choice]]', '# npc = "Vivi"', "# prompt = \"What'll it be?\"",
+          '# [[choice.options]]', '# text = "A Potion (-100 gil)"', '# reply = "Here you go!"',
+          '# give_item = ["Potion", 1]', '# gil = -100',
+          '# [[choice.options]]', '# text = "Nothing."   # Cancel/B picks the last option']
     return "\n".join(L) + "\n"
 
 
