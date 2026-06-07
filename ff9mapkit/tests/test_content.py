@@ -321,6 +321,8 @@ def test_event_give_item_once_structure():
     assert opcodes.window_sync(1, 128, 500) in rng              # got-item message
     assert region.cond_not(region.GLOB_BOOL, 200) in rng        # if (!flag)
     assert region.set_var(region.GLOB_BOOL, 200, 1) in rng      # flag = 1 (fires once)
+    # the once-flag is set BEFORE the body (FF9 chest convention: if(!opened){ opened=1; reward; msg })
+    assert rng.index(region.set_var(region.GLOB_BOOL, 200, 1)) < rng.index(opcodes.add_item(232, 1))
     # armed via a shared init code entry (InitCode in Main_Init)
     assert 0x07 in _ops(eb, 0, 0)
 

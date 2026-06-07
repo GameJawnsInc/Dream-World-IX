@@ -62,13 +62,16 @@ def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_C
                      requires_flag: int | None = None, requires_set: bool = True) -> bytes:
     """The region ``_Range`` body for an event: a movement gate, an optional ``requires_flag`` story
     gate (the event only fires when that flag is in-state), then ``body`` -- gated
-    ``if (!flag) { body; flag = 1 }`` when ``once_flag`` is set, so it fires once."""
+    ``if (!flag) { flag = 1; body }`` when ``once_flag`` is set, so it fires once. The once-flag is set
+    BEFORE the body, matching FF9's treasure-chest convention (``if(!opened){ opened=1; reward; msg }``):
+    the dedup flag lands the instant the event fires, before any (movement-unblocking) reward message --
+    so it can't double-fire even if the reward window is left open."""
     parts = [_region.MOVEMENT_GATE]
     if requires_flag is not None:
         parts.append(_region.flag_gate(flag_class, requires_flag, require_set=requires_set))
     if once_flag is not None:
         parts.append(_region.if_block(_region.cond_not(flag_class, once_flag),
-                                      body + _region.set_var(flag_class, once_flag, 1)))
+                                      _region.set_var(flag_class, once_flag, 1) + body))
     else:
         # No once flag = the raw region trigger: tag 2 is LEVEL-triggered (the engine fires it every
         # frame the player treads the quad -- TreadQuad is a pure position test, no edge detection), so
