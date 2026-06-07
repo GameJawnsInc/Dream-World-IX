@@ -41,7 +41,9 @@ zone = [[7299, -14373], [6931, -14275], [7440, -15180], [7679, -15169]]
 # LADDER (FF9's real mechanism): walk to the base -> "!" prompt -> press action -> climb up to floor 1.
 # zone = the real Treno entry-15 ladder triangle (contains base x9607,z-17570); to = floor-1 landing.
 [[ladder]]
-zone = [[9016, -16722], [9574, -17758], [9791, -17674]]
+# zone covers the WHOLE ladder (base ~9607,-17570 AND the top landing ~9301,-16621) so you can
+# trigger the climb from either end; the real climb's height-branch decides up vs down.
+zone = [[9100, -16450], [9850, -16450], [9850, -17750], [9100, -17750]]
 to = [7053, -14226, -6003]
 
 # field BGM imported from the real field (Treno theme)
