@@ -94,8 +94,9 @@ MARKER_SPEC = [
 ]
 CHOICE_SPEC = [
     Field("npc", "NPC", STR, "talk-triggered: the [[npc]] name (set npc OR zone, not both)"),
-    Field("zone", "Zone (x z; x z; ...)", ZONE, "walk-in trigger: 4 corners (a lever); or place in Blender"),
-    Field("once", "Fires once ever", BOOL, "zone only: on = once ever; off = once per visit", default=True),
+    Field("zone", "Zone (x z; x z; ...)", ZONE, "zone trigger: 4 corners (a lever); or place in Blender"),
+    Field("trigger", "Trigger (zone)", STR, "blank = action (press to use, re-usable); 'walk' = auto-pop"),
+    Field("once", "Fires once ever", BOOL, "walk-trigger only: on = once ever; off = once per visit", default=True),
     Field("prompt", "Prompt", STR, "the question shown above the options"),
     Field("speaker", "Speaker name", STR, "optional name before the prompt"),
     Field("tail", "Window tail", STR, "UPR/UPL/LOR/LOL/UPC/LOC (default UPR)"),

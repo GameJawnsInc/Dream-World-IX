@@ -59,7 +59,8 @@ JMP_FALSE = 0x02      # jump-if-false  02 <skip:i16>
 JMP_TRUE = 0x03       # jump-if-true   03 <skip:i16>
 SETREGION_OP = 0x29
 REGION_ENTRY_TYPE = 1
-RANGE_TAG = 2         # the player-in-region trigger func
+RANGE_TAG = 2         # the player-in-region (tread) trigger func -- runs EVERY frame in the quad
+INTERACT_TAG = 3      # the press-action-while-in-quad func -- fires on the action button (a lever/sign)
 
 
 def _cls(var_class) -> int:
@@ -158,12 +159,14 @@ def set_region(points) -> bytes:
     return out
 
 
-def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"") -> bytes:
-    """Assemble a type-1 region entry: Init (tag 0 = SetRegion(zone) + ``init_extra``; return) + Range
-    (tag 2 = body). ``init_extra`` runs once on field load (when InitRegion arms the region) -- e.g. a
-    ``set flag = 0`` to re-arm a once-per-visit trigger each visit."""
+def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"", tag: int = RANGE_TAG) -> bytes:
+    """Assemble a type-1 region entry: Init (tag 0 = SetRegion(zone) + ``init_extra``; return) + a
+    trigger func at ``tag`` (default :data:`RANGE_TAG` 2 = tread, every frame in the quad;
+    :data:`INTERACT_TAG` 3 = press-action-in-quad, a lever/sign). ``init_extra`` runs once on field
+    load (when InitRegion arms the region) -- e.g. a ``set flag = 0`` to re-arm a once-per-visit
+    tread trigger each visit."""
     init_body = set_region(zone) + init_extra + opcodes.RETURN
-    funcs = [(0, init_body), (RANGE_TAG, range_body)]
+    funcs = [(0, init_body), (tag, range_body)]
     table_len = len(funcs) * 4
     table = bytearray()
     pos = table_len
@@ -187,7 +190,8 @@ def prepend_range_gate(data, slot: int, gate_bytes: bytes) -> bytes:
 
 
 def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, activate: bool = True,
-                  spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0, init_extra: bytes = b""):
+                  spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0, init_extra: bytes = b"",
+                  tag: int = RANGE_TAG):
     """Append a conditional region (Init=SetRegion(zone) + ``init_extra``, Range=range_body) into a
     free slot.
 
@@ -198,7 +202,7 @@ def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, act
     eb = EbScript.from_bytes(data)
     if slot is None:
         slot = eb.first_free_slot()
-    entry = build_region_entry(zone, range_body, init_extra=init_extra)
+    entry = build_region_entry(zone, range_body, init_extra=init_extra, tag=tag)
     out = edit.append_entry(data, slot, entry)
     if activate:
         out = edit.activate(out, opcodes.init_region(slot, 0), spawn_wait_n=spawn_wait_n,

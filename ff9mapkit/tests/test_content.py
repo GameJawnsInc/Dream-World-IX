@@ -38,33 +38,46 @@ def test_hut_interior_reproduced_byte_exact():
     assert provision.sha256(out) == provision.load_manifest()["goldens"]["EVT_HUT_INT.eb.bytes/us"]
 
 
-def test_zone_choice_injects_a_loop_safe_region(tmp_path):
-    # a [[choice]] with a zone -> a walk-in region whose Range = MOVEMENT_GATE + if(!flag){ DisableMove
-    # + WindowSync + GetChoose branch + EnableMove + flag=1 } (loop-safe: the flag stops re-pop).
-    from ff9mapkit import build
+def _build_zone_choice(tmp_path, build, extra=""):
     p = tmp_path / "z.field.toml"
     p.write_text(
         '[field]\nid = 4003\nname = "Z"\narea = 11\ntext_block = 1073\n\n'
         '[camera]\npitch = 45\nfov = 42.2\n\n'
         '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
-        '[[choice]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nprompt = "Pull?"\nonce = false\n'
+        '[[choice]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nprompt = "Pull?"\n' + extra +
         '[[choice.options]]\ntext = "Yes"\nset_flag = [8001, 1]\n'
         '[[choice.options]]\ntext = "No"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
     _, _, _, _, ctx = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
-    s = EbScript.from_bytes(eb)
-    assert s.to_bytes() == eb                                   # structurally valid
+    return EbScript.from_bytes(eb), eb
+
+
+def test_zone_choice_action_is_a_press_interact_region(tmp_path):
+    # default trigger="action": a tag-3 (press-action) region with NO tread (tag 2) and NO gate flag
+    # -> edge-triggered by the button, can't loop, re-usable, "decline" non-destructive.
+    from ff9mapkit import build
+    s, eb = _build_zone_choice(tmp_path, build)             # no trigger -> action
+    reg = next(e for e in s.entries if not e.empty and e.type == 1 and e.func_by_tag(3)
+               and bytes([0x7A, 0x09]) in eb[e.func_by_tag(3).abs_start:e.func_by_tag(3).abs_end])
+    assert reg.func_by_tag(2) is None                       # no tread trigger -> no level-trigger loop
+    ops = _ops(s, reg.index, 3)
+    assert ops[0] == 0x2D and 0x1F in ops and 0x2E in ops   # body starts at DisableMove (no gate prologue)
+
+
+def test_zone_choice_walk_is_loop_safe_gated(tmp_path):
+    # trigger="walk": a tag-2 tread region, GLOB flag-gated (loop-safe), once=false resets in Init.
+    from ff9mapkit import build
+    s, eb = _build_zone_choice(tmp_path, build, extra='trigger = "walk"\nonce = false\n')
     reg = next(e for e in s.entries if not e.empty and e.type == 1 and e.func_by_tag(2)
                and bytes([0x7A, 0x09]) in eb[e.func_by_tag(2).abs_start:e.func_by_tag(2).abs_end])
     ops = _ops(s, reg.index, 2)
-    assert 0x2D in ops and 0x2E in ops                          # DisableMove + EnableMove around the menu
-    assert 0x1F in ops                                          # WindowSync (prompt)
+    assert 0x2D in ops and 0x2E in ops and 0x1F in ops
     # the gate flag must be GLOB, not MAP: the 80-byte MAP array can't hold flag 8200 (out-of-bounds
     # crash). 8200 > 0xFF -> long index: GLOB_BOOL token 0xE4, MAP_BOOL token 0xE5.
     t2 = eb[reg.func_by_tag(2).abs_start:reg.func_by_tag(2).abs_end]
-    assert bytes([0xE4]) in t2 and bytes([0xE5]) not in t2      # GLOB gate flag, never MAP
-    assert 0x05 in _ops(s, reg.index, 0)                        # once=false -> Init resets the flag each visit
+    assert bytes([0xE4]) in t2 and bytes([0xE5]) not in t2  # GLOB gate flag, never MAP
+    assert 0x05 in _ops(s, reg.index, 0)                   # once=false -> Init resets the flag each visit
 
 
 def test_npc_speak_body_choice_branch():

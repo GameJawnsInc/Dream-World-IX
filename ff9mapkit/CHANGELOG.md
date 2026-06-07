@@ -19,8 +19,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - The form editor (`ff9mapkit edit`) has a **Choices** section: edit the prompt/NPC and a list of
   options (text / reply / give item / gil / set flag), reorderable, with `give_item` by name.
 - A choice can be **zone-triggered** (a lever / sign): `[[choice]] zone = [...]` instead of `npc`.
-  It's loop-safe via a flag gate — `once = true` (default) fires once ever, `once = false` once per
-  visit — and locks movement while the menu is open (the d-pad navigates, doesn't walk).
+  Default `trigger = "action"` (stand on the zone and press) — re-usable, "decline" is non-destructive,
+  and it can't loop (edge-triggered by the button), like a real FF9 lever. `trigger = "walk"` auto-pops
+  on tread (flag-gated for loop-safety; `once` true/false). Movement locks while the menu is open.
 
 ### Added — modern Field Editor look
 - The form-based editor (`ff9mapkit edit`) now ships a cohesive theme: a flat `clam`-based palette

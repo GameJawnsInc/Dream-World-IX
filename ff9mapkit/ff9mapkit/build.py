@@ -232,6 +232,9 @@ def validate(project: FieldProject) -> list[str]:
         if has_zone and len(ch.get("zone") or []) not in (4, 5):
             problems.append(f"[[choice]] #{c} zone must have 4 or 5 points "
                             f"(got {len(ch.get('zone') or [])})")
+        if has_zone and ch.get("trigger", "action") not in ("action", "walk"):
+            problems.append(f"[[choice]] #{c} trigger must be \"action\" (press) or \"walk\" "
+                            f"(auto-pop), got {ch.get('trigger')!r}")
         if not str(ch.get("prompt", "")).strip():
             problems.append(f"[[choice]] #{c} needs a 'prompt' (the question text)")
         opts = ch.get("options", [])
@@ -349,7 +352,7 @@ def lint_logic(project: FieldProject) -> list[str]:
         for o in ch.get("options", []):
             if "set_flag" in o:
                 settable.add(int(o["set_flag"][0])); explicit.add(int(o["set_flag"][0]))
-        if "zone" in ch:                        # a zone-choice's GLOB gate flag (mirror build's counter)
+        if "zone" in ch and (ch.get("trigger") or "action") == "walk":   # only walk-trigger uses a gate flag
             if "flag" in ch:
                 settable.add(int(ch["flag"])); explicit.add(int(ch["flag"]))
             else:
@@ -878,12 +881,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                           "requires_flag": gf, "requires_set": gs})
         eb = _event.inject_events(eb, specs)
 
-    # zone-triggered choices: walk into a region -> a choice menu (a lever / sign with a decision).
-    # A region trigger is LEVEL-triggered, so a synchronous menu would re-pop every frame in the zone;
-    # the flag gate (reusing event_range_body: MOVEMENT_GATE + if(!flag){body; flag=1} + RETURN) makes
-    # it loop-safe. The gate flag is GLOB (the per-field MAP array is only 80 bytes -- a high index
-    # there is out of bounds and CRASHES). once=true -> persistent (once ever); once=false -> reset the
-    # flag to 0 in the region's Init (runs each field load via InitRegion) -> re-arms once per visit.
+    # zone-triggered choices: a region the player triggers for a choice menu (a lever / sign).
+    #   trigger="action" (default): press-action-in-quad (tag 3). Edge-triggered by the button, so it
+    #     NEVER loops, needs no gate flag, and is re-usable -- "decline" is non-destructive. The body
+    #     is the full choice func (speak_body). Optional requires_flag gates it (e.g. a one-shot lever
+    #     whose "pull" option sets a flag the choice is gated CLEAR on).
+    #   trigger="walk": auto-pops on tread (tag 2) -- LEVEL-triggered, so it needs the event-style flag
+    #     gate to be loop-safe (a synchronous menu would re-pop every frame). once=true persists (once
+    #     ever); once=false resets in Init (once per visit). GLOB flag only (the 80-byte MAP array
+    #     can't hold a high index -> crash). NOTE: a "walk" decline still consumes it for that arming.
     choice_flag_counter = 0
     for c, ch in enumerate(project.raw.get("choice", [])):
         if "zone" not in ch:
@@ -892,13 +898,21 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         replies = ct.get("replies", {})
         opt_bodies = [_choice.option_body(o, replies.get(oi))
                       for oi, o in enumerate(ch.get("options", []))]
-        fidx = int(ch["flag"]) if "flag" in ch else (_choice.CHOICE_FLAG_BASE + choice_flag_counter)
-        if "flag" not in ch:
-            choice_flag_counter += 1
-        rb = _event.event_range_body(_choice.region_body(ct["prompt"], opt_bodies), fidx,
-                                     flag_class=_region.GLOB_BOOL)
-        reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
-        eb, _slot = _region.inject_region(eb, [tuple(p) for p in ch["zone"][:4]], rb, init_extra=reset)
+        zone = [tuple(p) for p in ch["zone"][:4]]
+        gf, gs = _gate_of(ch)
+        if (ch.get("trigger") or "action") == "action":
+            body = _choice.speak_body(ct["prompt"], opt_bodies)
+            if gf is not None:
+                body = _region.flag_gate(_region.GLOB_BOOL, gf, require_set=gs) + body
+            eb, _slot = _region.inject_region(eb, zone, body, tag=_region.INTERACT_TAG)
+        else:
+            fidx = int(ch["flag"]) if "flag" in ch else (_choice.CHOICE_FLAG_BASE + choice_flag_counter)
+            if "flag" not in ch:
+                choice_flag_counter += 1
+            rb = _event.event_range_body(_choice.region_body(ct["prompt"], opt_bodies), fidx,
+                                         flag_class=_region.GLOB_BOOL, requires_flag=gf, requires_set=gs)
+            reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
+            eb, _slot = _region.inject_region(eb, zone, rb, init_extra=reset)
 
     # cutscene (narration, no actor): an ordered, control-locked sequence on entry (once), run as a
     # standalone director code entry. Steps = say / wait / set_flag. An ACTOR cutscene was already

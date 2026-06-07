@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Build a ZONE-TRIGGERED choice test field (4003): walk into a "lever" zone -> a choice menu.
+"""Build a ZONE-TRIGGERED choice test field (4003): a "lever" you press to use.
 
-A flat floor (calibration grid) with a cyan LEVER zone. Walk into it -> a menu pops (movement
-locked):
-  "Pull it."   -> reply + sets a story flag (8200)
-  "Leave it."  -> nothing  (Cancel/B picks this, the last row)
-once = false, so it fires once PER VISIT (re-arm with F6, which reloads the field). Verify: the menu
-pops on entry, does NOT re-pop while you stand in the zone (loop-safe), and re-arms after F6.
+A flat floor (calibration grid) with a cyan LEVER zone. Stand on it and PRESS THE ACTION BUTTON ->
+a menu pops (movement locked):
+  "Pull it."   -> reply + sets a story flag (8001)
+  "Leave it."  -> just closes  (Cancel/B picks this, the last row)
+Default trigger = "action" (press-to-use): it's RE-USABLE and "Leave it" is non-destructive -- press
+again to retry. Verify: press on the zone -> menu; pick "Leave it" -> closes; press again -> menu
+again (NOT consumed); pick "Pull it" -> reply. No loop, no crash.
 
 Run:  python tools/build_choice_zone_test.py
 then: python tools/deploy_field.py tools/choice_zone_out/choice_zone.field.toml
@@ -75,13 +76,13 @@ z = 4000
 [[choice]]
 zone = {quad(LEVER)}
 prompt = "Pull the lever?"
-once = false                  # once per visit (re-arm with F6); default true = once ever
+# default trigger = "action": stand on the zone + press the action button (re-usable; decline-safe)
 [[choice.options]]
 text = "Pull it."
 reply = "*kachunk!*  Something opened."
-set_flag = [8200, 1]
+set_flag = [8001, 1]
 [[choice.options]]
-text = "Leave it."            # Cancel/B picks this (the last row)
+text = "Leave it."            # Cancel/B picks this (the last row); does NOT consume the lever
 
 [walkmesh]
 quad = {quad(FLOOR)}
