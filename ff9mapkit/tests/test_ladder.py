@@ -156,6 +156,74 @@ def test_build_faithful_ladder_missing_sidecar_flagged(tmp_path):
     assert any("ladder" in x.lower() and "not found" in x.lower() for x in build.validate(proj))
 
 
+# --- STARTSEQ helper sequences (the concurrent per-frame helpers, e.g. the SetPitchAngle lean) ----
+def _mini_entry(body):
+    """A minimal type-1 entry with one func (tag 0) running ``body`` -- stands in for a pitch sequence."""
+    import struct
+    table = struct.pack("<HH", 0, 4)            # one func: tag 0 at offset 4 (after the 4-byte table)
+    return bytes([1, 1]) + table + body
+
+
+# a climb that launches a STARTSEQ helper (entry 9) -- the shape of a real lean climb (which ramps a
+# SetPitchAngle helper in/out). AddCharacterAttribute(4) keeps the ladder signature scan_ladders needs.
+SEQ_CLIMB = bytes([0xCC, 0x00, 0x04, 0x00, ladder.STARTSEQ, 0x00, 9]) + opcodes.RETURN
+SEQ_ENTRY = _mini_entry(bytes([0x37, 0x01, 0xD1, 0x19, 0x00]) + opcodes.RETURN)  # a SetPitchAngle-ish body
+
+
+def test_inject_ladder_grafts_startseq_helper_and_remaps():
+    out, _ = ladder.inject_ladder(CLEAN, [(10, -10), (50, -10), (50, -50), (10, -50)],
+                                  climb_bytes=SEQ_CLIMB, sequences={9: SEQ_ENTRY})
+    eb = EbScript.from_bytes(out)
+    cf = eb.entry(ladder.find_player_entry(eb)).func_by_tag(ladder.FIRST_CLIMB_TAG)
+    startseq = [i.args[0] for i in iter_code(eb.data, cf.abs_start, cf.abs_end) if i.op == ladder.STARTSEQ]
+    assert len(startseq) == 1 and startseq[0] != 9          # remapped off the original entry index
+    assert eb.entry(startseq[0]).funcs                       # ...to a real grafted entry (byte-check in scan test)
+
+
+def test_scan_ladders_extracts_startseq_sequences():
+    # round-trip: inject a climb that launches a helper -> scan recovers BOTH the climb and the helper.
+    out, _ = ladder.inject_ladder(CLEAN, [(10, -10), (50, -10), (50, -50), (10, -50)],
+                                  climb_bytes=SEQ_CLIMB, sequences={9: SEQ_ENTRY})
+    L = eventscan.scan_ladders(out)[0]
+    assert ladder.STARTSEQ in L["climb"]                    # climb kept verbatim (STARTSEQ intact)
+    assert len(L["sequences"]) == 1
+    assert list(L["sequences"].values())[0] == SEQ_ENTRY    # the helper entry recovered byte-exact
+
+
+def test_build_ladder_with_startseq_sequence(tmp_path):
+    (tmp_path / "L.ladder0.climb.bin").write_bytes(SEQ_CLIMB)
+    (tmp_path / "L.ladder0.seq9.bin").write_bytes(SEQ_ENTRY)
+    p = tmp_path / "l.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "L"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-200,-200],[200,-200],[200,200],[-200,200]]\n\n'
+        '[player]\nspawn = [0, 0]\n\n'
+        '[[ladder]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nclimb = "L.ladder0.climb.bin"\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert not [x for x in build.validate(proj) if "ladder" in x.lower()]
+    eb = build.build_script(proj, "us", {})
+    L = eventscan.scan_ladders(eb)[0]
+    assert len(L["sequences"]) == 1                          # the helper got grafted + is launched
+
+
+def test_build_ladder_missing_seq_sidecar_errors(tmp_path):
+    import pytest
+    (tmp_path / "L.ladder0.climb.bin").write_bytes(SEQ_CLIMB)     # no .seq9.bin alongside
+    p = tmp_path / "l.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "L"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-200,-200],[200,-200],[200,200],[-200,200]]\n\n'
+        '[player]\nspawn = [0, 0]\n\n'
+        '[[ladder]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nclimb = "L.ladder0.climb.bin"\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    with pytest.raises(FileNotFoundError):
+        build.build_script(proj, "us", {})
+
+
 def test_import_emits_ladder_block_and_sidecar(tmp_path):
     # the import emitter on a field that HAS a ladder -> a [[ladder]] block + a verbatim climb sidecar.
     # Build a synthetic "real field" by injecting a faithful ladder into the blank (no game bytes).

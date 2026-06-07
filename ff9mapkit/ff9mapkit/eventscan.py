@@ -19,6 +19,7 @@ arbitrary event triggers, cutscenes) is deliberately NOT scanned -- you author t
 
 from __future__ import annotations
 
+from .binutils import u16
 from .eb import EbScript
 
 FIELD_OP = 0x2B            # Field(target)            -- a field transition (the exit)
@@ -181,27 +182,39 @@ def _is_climb_func(eb, player_index, tag) -> bool:
     return False
 
 
-def _nop_shared_scripts(eb, func) -> bytes:
-    """The climb function's raw bytecode with ``RunSharedScript`` (camera/sound polish) NOPed -- those
-    depend on shared scripts a minted fork doesn't have (proven by the faithful-graft experiment)."""
-    body = bytearray(eb.data[func.abs_start:func.abs_end])
+def _entry_bytes(data, idx) -> bytes:
+    """Raw bytes of entry ``idx`` (its type+func-table+bodies) via the entry table at offset 128."""
+    slot = 128 + idx * 8
+    off, sz = u16(data, slot), u16(data, slot + 2)
+    return data[128 + off:128 + off + sz]
+
+
+def _climb_sequences(eb, func) -> dict:
+    """The field entries a climb launches via ``STARTSEQ`` (RunSharedScript, 0x43) -- run as concurrent
+    per-frame Seqs on the climber (e.g. the SetPitchAngle forward-lean: the climb ramps a pitch helper
+    entry in, then out). STARTSEQ arg0 is an ENTRY index in THIS field, so a faithful fork must carry
+    those entries too (not NOP the calls). Returns ``{entry_index: entry_bytes}`` (deduped)."""
+    seqs = {}
     for ins in eb.instrs(func):
-        if ins.op == RUN_SHARED_SCRIPT:
-            rel = ins.off - func.abs_start
-            body[rel:rel + ins.length] = b"\x00" * ins.length
-    return bytes(body)
+        if ins.op == RUN_SHARED_SCRIPT and ins.args:
+            ei = int(ins.args[0])
+            if ei not in seqs:
+                seqs[ei] = _entry_bytes(eb.data, ei)
+    return seqs
 
 
 def scan_ladders(eb_bytes) -> list:
     """FF9 ladders, the truthful way: a region whose trigger ``RunScriptSync``s the player's CLIMB
     function -- where 'climb' is defined by the ladder flag / jump arcs, not just any RunScriptSync.
 
-    Returns ``[{zone, climb_tag, trigger, bubble, climb}]``:
+    Returns ``[{zone, climb_tag, trigger, bubble, climb, sequences}]``:
       * ``zone``     -- the trigger polygon (up to 4 [x, z] corners), or None if computed.
       * ``climb_tag``-- the player function tag the trigger runs (the climb).
       * ``trigger``  -- the region function tag that fires it (2 = tread/auto, 3 = action/press).
       * ``bubble``   -- whether the trigger shows the "!" interact prompt.
-      * ``climb``    -- the climb function's raw bytecode (RunSharedScript NOPed) for a faithful graft.
+      * ``climb``    -- the climb function's raw bytecode, VERBATIM (STARTSEQ calls intact).
+      * ``sequences``-- ``{entry_index: bytes}`` for each entry the climb launches via STARTSEQ (the
+        concurrent per-frame helpers, e.g. the SetPitchAngle forward-lean); empty for simple ladders.
 
     The climb is verbatim because its jump coordinates are hand-tuned to the ladder's geometry +
     the fixed camera -- that perspective tuning can't be regenerated, only copied."""
@@ -231,9 +244,10 @@ def scan_ladders(eb_bytes) -> list:
                 if tag is None or (e.index, tag) in seen or not _is_climb_func(eb, pe, tag):
                     continue
                 seen.add((e.index, tag))
-                climb = _nop_shared_scripts(eb, eb.entry(pe).func_by_tag(tag))
+                cf = eb.entry(pe).func_by_tag(tag)
                 out.append({"zone": zone, "climb_tag": int(tag), "trigger": int(f.tag),
-                            "bubble": bool(bubble), "climb": climb})
+                            "bubble": bool(bubble), "climb": eb.data[cf.abs_start:cf.abs_end],
+                            "sequences": _climb_sequences(eb, cf)})
     return out
 
 

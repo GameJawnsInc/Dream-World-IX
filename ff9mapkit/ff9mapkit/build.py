@@ -41,6 +41,7 @@ from . import animations as _animations
 from . import items as _items
 from . import data as _data
 from .eb import EbScript, opcodes
+from .eb.disasm import iter_code
 from .scene import bgi, bgx, cam, guide
 
 
@@ -609,6 +610,30 @@ def _borrow_walkmesh(project: FieldProject):
     return bgi.BgiWalkmesh.from_bytes(p.read_bytes()) if p.is_file() else None
 
 
+def _ladder_sequences(project: FieldProject, climb_ref, climb_bytes):
+    """Load the STARTSEQ-referenced sequence sidecars for a FAITHFUL ladder climb (the concurrent
+    helper entries the climb launches, e.g. the SetPitchAngle forward-lean). The climb references them
+    by entry index via STARTSEQ (0x43); `ff9mapkit import` wrote each as '<climb-stem>.seq<index>.bin'
+    next to the climb sidecar. Returns {index: bytes}, or None for a simple (no-STARTSEQ) climb."""
+    idxs = sorted({i.args[0] for i in iter_code(climb_bytes, 0, len(climb_bytes))
+                   if i.op == _ladder.STARTSEQ and i.args})
+    if not idxs:
+        return None
+    if not climb_ref.endswith(".climb.bin"):
+        raise ValueError(f"[[ladder]] climb {climb_ref!r} launches STARTSEQ sequences; name its sidecar "
+                         f"'<name>.climb.bin' so the '.seq<N>.bin' helpers can be located")
+    stem = climb_ref[:-len(".climb.bin")]
+    seqs = {}
+    for ei in idxs:
+        p = project.path(f"{stem}.seq{ei}.bin")
+        if not p.is_file():
+            raise FileNotFoundError(
+                f"[[ladder]] climb launches STARTSEQ entry {ei} but its sidecar {stem}.seq{ei}.bin is "
+                f"missing -- regenerate the fork with `ff9mapkit import`")
+        seqs[ei] = p.read_bytes()
+    return seqs
+
+
 def _validate_content_placement(project: FieldProject, wmesh, warnings: list) -> None:
     """Warn when authored content sits OFF the walkable area -- the recurring in-game mistake (an NPC
     floats / the player can't reach a trigger / spawns off the floor). Top-down XZ point-in-walkmesh
@@ -1010,10 +1035,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         zone = lad["zone"]
         if len(zone) == 4:
             zone = _gw.quad_zone(zone)
-        climb_bytes = project.path(lad["climb"]).read_bytes() if lad.get("climb") else None
+        climb_ref = lad.get("climb")
+        climb_bytes = project.path(climb_ref).read_bytes() if climb_ref else None
+        sequences = _ladder_sequences(project, climb_ref, climb_bytes) if climb_bytes else None
         eb, _ = _ladder.inject_ladder(eb, [tuple(p) for p in zone],
                                       None if climb_bytes is not None else lad["to"],
-                                      climb_bytes=climb_bytes,
+                                      climb_bytes=climb_bytes, sequences=sequences,
                                       climb_tag=_ladder.FIRST_CLIMB_TAG + li,
                                       animation=lad.get("animation"))
 

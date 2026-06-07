@@ -306,17 +306,27 @@ to   = [7053, -14226, -6003]                              # where the climb land
 
 | key | meaning |
 |---|---|
-| `zone` | 3–5 corners of the ladder **base** trigger (4 are auto-made IsInQuad-safe). |
-| `to` | `[x, z]` (or `[x, z, y]`) the climb moves you to — typically the top, on the floor you emerge onto. |
-| `animation` | optional climb gesture (a **one-shot** anim id for the player model) played before the move. |
+| `zone` | 3–5 corners of the ladder trigger (4 are auto-made IsInQuad-safe). |
+| `to` | **EMULATED** climb: `[x, z]` (or `[x, z, y]`) the climb teleports you to — typically the top. |
+| `climb` | **FAITHFUL** climb: a `"<name>.ladderN.climb.bin"` sidecar (the real ladder's exact climb), written by `ff9mapkit import`. Use this **or** `to`. |
+| `animation` | (emulated only) optional climb gesture — a **one-shot** anim id — played before the move. |
 
 How it works: the kit adds a climb function to the **player** entry and a region whose tread shows
 `Bubble(1)` and whose action func runs `DisableMove ; RunScriptSync(2, 250, <tag>) ; EnableMove`.
 `RunScriptSync` runs the climb **in the player's own context** (so the move moves the player) and
 waits for it — sidestepping the fact that the controlled player's script loop is suspended while you
-have control. The real game uses bespoke per-ladder jump arcs; the kit's climb is a clean teleport to
-`to` (the trigger is faithful). A ladder is **one-way**; for up-and-down, add a second `[[ladder]]`
-with the zone/`to` reversed.
+have control.
+
+Two climb modes:
+- **Emulated (`to`)** — a clean teleport to the destination. Generic; works for any ladder you author
+  from scratch. **One-way**; for up-and-down add a second `[[ladder]]` with the zone/`to` reversed.
+- **Faithful (`climb`)** — what `ff9mapkit import` emits when you fork a real field: the game's exact
+  climb, grafted **verbatim** (perspective-correct jump arcs, the per-rung jump animations, and the
+  `SetPitchAngle` forward-lean). It reads your height to climb **up or down** from one zone, so it's
+  inherently bidirectional. The climb launches its lean via `STARTSEQ` helper entries; `import` writes
+  those as companion `<name>.ladderN.seqN.bin` sidecars and the build grafts them at free entry slots,
+  remapping the climb's `STARTSEQ` args automatically — you don't touch them. (A `climb` sidecar with a
+  missing `.seqN.bin` companion is a hard build error.)
 
 ---
 

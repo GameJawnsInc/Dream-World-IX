@@ -244,6 +244,11 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field"):
         for i, lad in enumerate(lads):
             fn = f"{name}.ladder{i}.climb.bin"
             (out_path / fn).write_bytes(lad["climb"])
+            # the concurrent helper entries the climb launches via STARTSEQ (e.g. the SetPitchAngle
+            # forward-lean) -- one sidecar per referenced entry; build auto-loads them by the climb's
+            # STARTSEQ refs + this naming, grafts them at free slots, and remaps the climb's args.
+            for ei, sbytes in lad.get("sequences", {}).items():
+                (out_path / f"{name}.ladder{i}.seq{ei}.bin").write_bytes(sbytes)
             zone = ", ".join(f"[{x}, {z}]" for x, z in (lad["zone"] or []))
             blocks.append(f'[[ladder]]\nzone = [{zone}]\nclimb = "{fn}"')
         parts.append("\n\n".join(blocks))

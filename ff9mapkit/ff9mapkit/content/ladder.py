@@ -21,12 +21,14 @@ from __future__ import annotations
 import struct
 
 from ..eb import EbScript, edit, opcodes
+from ..eb.disasm import iter_code
 from . import region as _region
 
 PLAYER_UID = 250          # the controlled player's object UID (standard across FF9 fields)
 FIRST_CLIMB_TAG = 17      # the real Treno player ladder funcs start at tag 17; one tag per ladder
 RUNSCRIPT_LEVEL = 2       # the script level arg the real ladder uses for RunScriptSync
 WAIT = 0x22
+STARTSEQ = 0x43           # RunSharedScript -- launches "entry arg0 of this field" as a concurrent Seq
 
 
 def find_player_entry(eb: EbScript) -> int:
@@ -72,8 +74,8 @@ def ladder_region(zone, climb_tag: int, *, player_uid: int = PLAYER_UID) -> byte
 
 
 def inject_ladder(data, zone, dest=None, *, climb_bytes: bytes | None = None,
-                  climb_tag: int = FIRST_CLIMB_TAG, player_uid: int = PLAYER_UID,
-                  animation: int | None = None, activate: bool = True):
+                  sequences: dict | None = None, climb_tag: int = FIRST_CLIMB_TAG,
+                  player_uid: int = PLAYER_UID, animation: int | None = None, activate: bool = True):
     """Inject a ladder: add a climb function (``climb_tag``) to the player entry + a ladder region
     (tread "!" prompt + action -> RunScriptSync the climb), and arm the region. Returns
     ``(new_bytes, region_slot)``. For multiple ladders pass a distinct ``climb_tag`` each.
@@ -83,10 +85,25 @@ def inject_ladder(data, zone, dest=None, *, climb_bytes: bytes | None = None,
         ``eventscan.scan_ladders`` (exact jump arcs, perspective-correct). Grafted as-is; its internal
         jumps are function-relative so they survive the move. This is what ``import`` emits for a fork.
       * ``dest`` -- ``(x, z[, y])``; ``climb_body`` builds a teleport (+ optional gesture). The simple
-        generic climb when you have no real ladder to copy."""
+        generic climb when you have no real ladder to copy.
+
+    ``sequences`` (``{original_entry_index: entry_bytes}``, from ``scan_ladders``) are the concurrent
+    helper entries the climb launches via STARTSEQ (e.g. the SetPitchAngle forward-lean). Each is
+    appended at a free slot and the climb's STARTSEQ entry-args are remapped to those slots (a
+    same-length 1-byte patch -- the climb stays byte-for-byte otherwise). Empty for simple ladders."""
     if climb_bytes is None and dest is None:
         raise ValueError("inject_ladder needs either climb_bytes (faithful) or dest (emulated)")
-    body = climb_bytes if climb_bytes is not None else climb_body(dest, animation=animation)
+    body = bytearray(climb_bytes if climb_bytes is not None else climb_body(dest, animation=animation))
+    if sequences:                                            # graft the STARTSEQ helper entries + remap
+        ei2slot = {}
+        for ei in sorted(sequences):
+            slot = EbScript.from_bytes(data).first_free_slot()
+            data = edit.append_entry(data, slot, sequences[ei])
+            ei2slot[ei] = slot
+        for ins in iter_code(bytes(body), 0, len(body)):
+            if ins.op == STARTSEQ and ins.args and ins.args[0] in ei2slot:
+                body[ins.off + 2] = ei2slot[ins.args[0]]     # STARTSEQ = 0x43, argflag, entry-arg
+    body = bytes(body)
     eb = EbScript.from_bytes(data)
     pe = find_player_entry(eb)
     data = edit.add_function(data, pe, climb_tag, body)
