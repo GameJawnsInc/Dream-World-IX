@@ -45,3 +45,11 @@ def test_option_body_action_order_reply_item_gil_flag():
 
 def test_option_body_empty_when_no_actions():
     assert choice.option_body({"text": "No"}, reply_txid=None) == b""
+
+
+def test_gil_is_signed_add_or_remove():
+    # gil >= 0 -> AddGil (0xCE); gil < 0 -> RemoveGil (0xCF). A negative must NOT wrap to a huge add.
+    assert event.give_gil(100) == opcodes.add_gil(100)
+    assert event.give_gil(-100) == opcodes.remove_gil(100)
+    assert opcodes.remove_gil(100) in choice.option_body({"gil": -100}, None)
+    assert opcodes.add_gil(100) in choice.option_body({"gil": 100}, None)

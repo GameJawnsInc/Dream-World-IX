@@ -250,6 +250,14 @@ def add_item(item_id: int, count: int = 1) -> bytes:   # 0x48 (ITEM) argsize [2,
     return encode(0x48, item_id, count)
 
 
-def add_gil(amount: int) -> bytes:                     # 0xCE (GETGIL) argsize [3]
-    """AddGil(amount): add gil to the party purse."""
+def add_gil(amount: int) -> bytes:                     # 0xCE (GILADD) argsize [3]
+    """AddGil(amount): add gil to the party purse. ``amount`` is an UNSIGNED 24-bit value -- the engine
+    does ``party.gil += amount`` (caps at 9999999), so a negative here wraps to a huge add. To SUBTRACT
+    gil use :func:`remove_gil`."""
     return encode(0xCE, amount)
+
+
+def remove_gil(amount: int) -> bytes:                  # 0xCF (GILDELETE) argsize [3]
+    """RemoveGil(amount): subtract gil from the party purse (engine ``party.gil -= amount``, floored at
+    0). ``amount`` is a POSITIVE 24-bit value."""
+    return encode(0xCF, amount)

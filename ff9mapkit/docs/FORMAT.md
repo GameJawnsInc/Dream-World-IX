@@ -316,7 +316,7 @@ once = false
 | `message` | text shown in a dialogue window when triggered (added to the field's `.mes`). |
 | `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + the window pointer); see *Speaker names & the tail*. Usually omit `speaker` for an unsigned popup. |
 | `give_item` | `[item_id, count]` — `AddItem`. |
-| `gil` | gil to add — `AddGil`. |
+| `gil` | gil to give; **negative subtracts** (e.g. `gil = -100` charges 100). `AddGil` / `RemoveGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
 | `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
 | `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `8000`, a high band clear of base-game flags; override for a shipped mod to avoid clashes). |

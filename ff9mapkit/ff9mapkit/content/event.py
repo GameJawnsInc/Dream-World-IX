@@ -37,8 +37,10 @@ def give_item(item_id: int, count: int = 1) -> bytes:
 
 
 def give_gil(amount: int) -> bytes:
-    """Body part: AddGil(amount)."""
-    return opcodes.add_gil(amount)
+    """Body part: change the party's gil by ``amount`` -- positive ADDS (AddGil), negative SUBTRACTS
+    (RemoveGil). The two opcodes both take an unsigned amount, so we pick by sign here (a negative
+    ``amount`` would otherwise wrap to a huge ADD and max out gil)."""
+    return opcodes.add_gil(amount) if amount >= 0 else opcodes.remove_gil(-amount)
 
 
 def set_flag(flag_idx: int, value: int = 1, *, flag_class=EVENT_FLAG_CLASS) -> bytes:
