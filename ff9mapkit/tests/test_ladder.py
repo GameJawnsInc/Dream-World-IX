@@ -3,12 +3,21 @@ player's climb). Grounded in Treno/Residence; verified in-game. These check the 
 structure on the blank field, and a full build."""
 from __future__ import annotations
 
-from ff9mapkit import build, data
+import tomllib
+
+import pytest
+
+from ff9mapkit import build, data, eventscan, extract
 from ff9mapkit.content import ladder
 from ff9mapkit.eb import EbScript, opcodes
 from ff9mapkit.eb.disasm import iter_code
 
 CLEAN = data.blank_field_bytes("us")
+
+# a minimal FAITHFUL climb: the ladder-flag signature scan_ladders keys on -- AddCharacterAttribute(4)
+# (0xCC, 2-byte arg) then RETURN. A real climb is this + the jump arcs; the flag alone is enough to
+# identify a ladder and round-trip the inject<->scan symmetry without shipping any game bytes.
+FAITHFUL_CLIMB = bytes([0xCC, 0x00, 0x04, 0x00]) + opcodes.RETURN
 
 
 def _ops(eb, entry_index, tag):
@@ -80,3 +89,84 @@ def test_validate_flags_bad_ladder(tmp_path):
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert any("ladder" in x.lower() and "to" in x.lower() for x in build.validate(proj))
+
+
+# --- FAITHFUL mode: grafting / importing a real ladder's verbatim climb -----------------------
+def test_inject_ladder_grafts_faithful_climb_verbatim():
+    out, _ = ladder.inject_ladder(CLEAN, [(10, -10), (50, -10), (50, -50), (10, -50)],
+                                  climb_bytes=FAITHFUL_CLIMB)
+    eb = EbScript.from_bytes(out)
+    f = eb.entry(ladder.find_player_entry(eb)).func_by_tag(ladder.FIRST_CLIMB_TAG)
+    assert eb.data[f.abs_start:f.abs_end] == FAITHFUL_CLIMB     # grafted exactly -- no shift/relocate
+
+
+def test_inject_ladder_requires_climb_or_dest():
+    with pytest.raises(ValueError):
+        ladder.inject_ladder(CLEAN, [(10, -10), (50, -10), (50, -50), (10, -50)])
+
+
+def test_scan_ladders_roundtrips_through_injector():
+    # scan_ladders is the inverse of the faithful inject: inject -> scan -> same zone/tag/climb.
+    out, _ = ladder.inject_ladder(CLEAN, [(10, -10), (50, -10), (50, -50), (10, -50)],
+                                  climb_bytes=FAITHFUL_CLIMB)
+    lads = eventscan.scan_ladders(out)
+    assert len(lads) == 1
+    L = lads[0]
+    assert L["climb_tag"] == ladder.FIRST_CLIMB_TAG
+    assert L["zone"] == [[10, -10], [50, -10], [50, -50], [10, -50]]
+    assert L["bubble"] is True                                  # ladder_region's tread Bubble
+    assert L["climb"] == FAITHFUL_CLIMB                         # extracted verbatim
+
+
+def test_scan_ladders_ignores_non_ladder_runscriptsync():
+    # a region that RunScriptSyncs a player func WITHOUT the ladder signature is NOT a ladder
+    # (e.g. Treno's facing / stand-anim tweaks). A climb that's just RETURN must not be detected.
+    out, _ = ladder.inject_ladder(CLEAN, [(10, -10), (50, -10), (50, -50), (10, -50)],
+                                  climb_bytes=opcodes.RETURN)
+    assert eventscan.scan_ladders(out) == []
+
+
+def test_build_faithful_ladder_from_sidecar(tmp_path):
+    (tmp_path / "climb.bin").write_bytes(FAITHFUL_CLIMB)
+    p = tmp_path / "l.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "L"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-200,-200],[200,-200],[200,200],[-200,200]]\n\n'
+        '[player]\nspawn = [0, 0]\n\n'
+        '[[ladder]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nclimb = "climb.bin"\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert not [x for x in build.validate(proj) if "ladder" in x.lower()]
+    eb = build.build_script(proj, "us", {})
+    lads = eventscan.scan_ladders(eb)
+    assert len(lads) == 1 and lads[0]["climb"] == FAITHFUL_CLIMB    # grafted verbatim through the build
+
+
+def test_build_faithful_ladder_missing_sidecar_flagged(tmp_path):
+    p = tmp_path / "bad.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "B"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[player]\nspawn = [0, 0]\n\n'
+        '[[ladder]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nclimb = "nope.bin"\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert any("ladder" in x.lower() and "not found" in x.lower() for x in build.validate(proj))
+
+
+def test_import_emits_ladder_block_and_sidecar(tmp_path):
+    # the import emitter on a field that HAS a ladder -> a [[ladder]] block + a verbatim climb sidecar.
+    # Build a synthetic "real field" by injecting a faithful ladder into the blank (no game bytes).
+    eb, _ = ladder.inject_ladder(CLEAN, [(10, -10), (50, -10), (50, -50), (10, -50)],
+                                 climb_bytes=FAITHFUL_CLIMB)
+    blocks, _cd, summary = extract._imported_content_toml(eb, out_dir=tmp_path, name="T")
+    assert summary["ladders"] == 1
+    assert (tmp_path / "T.ladder0.climb.bin").read_bytes() == FAITHFUL_CLIMB
+    toml = ('[field]\nid=4003\nname="T"\narea=11\ntext_block=1073\n'
+            '[camera]\npitch=45\nfov=42.2\n[walkmesh]\nquad=[[-9,-9],[9,-9],[9,9],[-9,9]]\n'
+            '[player]\nspawn=[0,0]\n\n' + blocks)
+    d = tomllib.loads(toml)
+    assert d["ladder"][0]["climb"] == "T.ladder0.climb.bin"
+    assert len(d["ladder"][0]["zone"]) == 4

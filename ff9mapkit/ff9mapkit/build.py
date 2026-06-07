@@ -225,9 +225,15 @@ def validate(project: FieldProject) -> list[str]:
         z = la.get("zone", [])
         if len(z) not in (3, 4, 5):
             problems.append(f"[[ladder]] zone must have 3-5 points (the base trigger), got {len(z)}")
-        t = la.get("to", [])
-        if not (isinstance(t, (list, tuple)) and len(t) in (2, 3)):
-            problems.append("[[ladder]] needs to = [x, z] (or [x, z, y]) -- where the climb lands")
+        climb = la.get("climb")
+        if climb:                                   # FAITHFUL: a real ladder's climb (from import)
+            if not project.path(climb).is_file():
+                problems.append(f"[[ladder]] climb function file not found: {climb}")
+        else:                                       # EMULATED: teleport/hop to a destination
+            t = la.get("to", [])
+            if not (isinstance(t, (list, tuple)) and len(t) in (2, 3)):
+                problems.append('[[ladder]] needs to = [x, z] (or [x, z, y]) -- where the climb lands '
+                                '-- or climb = "<file>" (a real ladder\'s climb, from import)')
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
@@ -998,11 +1004,16 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # ladders: FF9's real ladder mechanism -- walk to the base ("!" prompt via tread Bubble) + press
     # action to climb (the region's action func RunScriptSyncs the player's climb function, which runs
     # in the player's own context so it moves the player). Each ladder gets a distinct climb tag.
+    # FAITHFUL (climb = "<file>", what import emits): graft the real ladder's exact climb (perspective-
+    # correct jump arcs). EMULATED (to = [x, z, y]): a generic teleport to the destination.
     for li, lad in enumerate(project.raw.get("ladder", [])):
         zone = lad["zone"]
         if len(zone) == 4:
             zone = _gw.quad_zone(zone)
-        eb, _ = _ladder.inject_ladder(eb, [tuple(p) for p in zone], lad["to"],
+        climb_bytes = project.path(lad["climb"]).read_bytes() if lad.get("climb") else None
+        eb, _ = _ladder.inject_ladder(eb, [tuple(p) for p in zone],
+                                      None if climb_bytes is not None else lad["to"],
+                                      climb_bytes=climb_bytes,
                                       climb_tag=_ladder.FIRST_CLIMB_TAG + li,
                                       animation=lad.get("animation"))
 

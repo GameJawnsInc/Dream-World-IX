@@ -324,6 +324,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
             bits.append(f"BGM song {ic['music']}")
         if ic["control_direction"] is not None:
             bits.append(f"movement dir {ic['control_direction']}")
+        if ic.get("ladders"):
+            bits.append(f"{ic['ladders']} ladder(s)")
         print(f"  content: {', '.join(bits) if bits else 'none found in the source script'}"
               + ("   (gateways point at REAL fields -- retarget them)" if ic["gateways"] else ""))
     print(f"  wrote  : {toml}")

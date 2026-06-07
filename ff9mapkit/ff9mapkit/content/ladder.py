@@ -71,14 +71,25 @@ def ladder_region(zone, climb_tag: int, *, player_uid: int = PLAYER_UID) -> byte
     return bytes([_region.REGION_ENTRY_TYPE, len(funcs)]) + table + b"".join(b for _, b in funcs)
 
 
-def inject_ladder(data, zone, dest, *, climb_tag: int = FIRST_CLIMB_TAG, player_uid: int = PLAYER_UID,
+def inject_ladder(data, zone, dest=None, *, climb_bytes: bytes | None = None,
+                  climb_tag: int = FIRST_CLIMB_TAG, player_uid: int = PLAYER_UID,
                   animation: int | None = None, activate: bool = True):
     """Inject a ladder: add a climb function (``climb_tag``) to the player entry + a ladder region
     (tread "!" prompt + action -> RunScriptSync the climb), and arm the region. Returns
-    ``(new_bytes, region_slot)``. For multiple ladders pass a distinct ``climb_tag`` each."""
+    ``(new_bytes, region_slot)``. For multiple ladders pass a distinct ``climb_tag`` each.
+
+    The climb is either FAITHFUL or EMULATED:
+      * ``climb_bytes`` -- a real ladder's climb function extracted verbatim by
+        ``eventscan.scan_ladders`` (exact jump arcs, perspective-correct). Grafted as-is; its internal
+        jumps are function-relative so they survive the move. This is what ``import`` emits for a fork.
+      * ``dest`` -- ``(x, z[, y])``; ``climb_body`` builds a teleport (+ optional gesture). The simple
+        generic climb when you have no real ladder to copy."""
+    if climb_bytes is None and dest is None:
+        raise ValueError("inject_ladder needs either climb_bytes (faithful) or dest (emulated)")
+    body = climb_bytes if climb_bytes is not None else climb_body(dest, animation=animation)
     eb = EbScript.from_bytes(data)
     pe = find_player_entry(eb)
-    data = edit.add_function(data, pe, climb_tag, climb_body(dest, animation=animation))
+    data = edit.add_function(data, pe, climb_tag, body)
     eb = EbScript.from_bytes(data)
     slot = eb.first_free_slot()
     data = edit.append_entry(data, slot, ladder_region([tuple(p) for p in zone], climb_tag,

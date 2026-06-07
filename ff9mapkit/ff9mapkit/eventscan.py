@@ -27,6 +27,14 @@ SET_RANDOM_BATTLES = 0x3C  # SetRandomBattles(slot, s1..s4)
 SET_BATTLE_FREQ = 0x57     # SetRandomBattleFrequency(freq)
 RUN_SOUND_CODE = 0xC5      # RunSoundCode(code, id); code 0 = song_play (field BGM)
 TWIST_OP = 0x67            # SetControlDirection(x, y)
+RUN_SCRIPT_SYNC = 0x14     # RunScriptSync(level, uid, tag) -- REQEW: run obj `uid`'s func `tag`, wait
+SETUP_JUMP = 0xE2          # SetupJump(x, y, z, arc) -- a climb's jump arc
+ADD_CHAR_ATTR = 0xCC       # AddCharacterAttribute(flag); flag 4 (LADDER_FLAG) = "on a ladder"
+DEFINE_PC = 0x2C           # DefinePlayerCharacter -- marks the controlled player's entry
+BUBBLE_OP = 0x68           # Bubble(state) -- the "!" interact prompt (ladder tread func)
+RUN_SHARED_SCRIPT = 0x43   # RunSharedScript(n) -- camera/sound polish a fork doesn't have
+PLAYER_UID = 250           # the controlled player's runtime UID
+LADDER_FLAG = 4            # GetLadderFlag() == (attr & 4)
 
 # the field-entrance variable token: an expression statement `set D8:02 = <i16>` right before Field.
 # 05=expr, D8 02=var(class 0xD8, idx 2), 7D=push-const, <i16>, 2C=assign, 7F=end  (8 bytes).
@@ -146,12 +154,96 @@ def scan_control_direction(eb_bytes):
     return None if ins is None else (None if ins.imm(0) is None else int(ins.imm(0)))
 
 
+def _player_entry_index(eb):
+    """Index of the controlled player's entry (the one defining the player character), or None."""
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op == DEFINE_PC:
+                    return e.index
+    return None
+
+
+def _is_climb_func(eb, player_index, tag) -> bool:
+    """True if player function ``tag`` is a LADDER climb -- the definitive signature is the ladder
+    flag (``AddCharacterAttribute(4)``) or a jump arc (``SetupJump``). This isolates real ladders from
+    cosmetic region->player triggers (e.g. Treno's facing/stand-anim tweaks, which have neither)."""
+    f = eb.entry(player_index).func_by_tag(tag)
+    if f is None:
+        return False
+    for ins in eb.instrs(f):
+        if ins.op == SETUP_JUMP:
+            return True
+        if ins.op == ADD_CHAR_ATTR and ins.imm(0) == LADDER_FLAG:
+            return True
+    return False
+
+
+def _nop_shared_scripts(eb, func) -> bytes:
+    """The climb function's raw bytecode with ``RunSharedScript`` (camera/sound polish) NOPed -- those
+    depend on shared scripts a minted fork doesn't have (proven by the faithful-graft experiment)."""
+    body = bytearray(eb.data[func.abs_start:func.abs_end])
+    for ins in eb.instrs(func):
+        if ins.op == RUN_SHARED_SCRIPT:
+            rel = ins.off - func.abs_start
+            body[rel:rel + ins.length] = b"\x00" * ins.length
+    return bytes(body)
+
+
+def scan_ladders(eb_bytes) -> list:
+    """FF9 ladders, the truthful way: a region whose trigger ``RunScriptSync``s the player's CLIMB
+    function -- where 'climb' is defined by the ladder flag / jump arcs, not just any RunScriptSync.
+
+    Returns ``[{zone, climb_tag, trigger, bubble, climb}]``:
+      * ``zone``     -- the trigger polygon (up to 4 [x, z] corners), or None if computed.
+      * ``climb_tag``-- the player function tag the trigger runs (the climb).
+      * ``trigger``  -- the region function tag that fires it (2 = tread/auto, 3 = action/press).
+      * ``bubble``   -- whether the trigger shows the "!" interact prompt.
+      * ``climb``    -- the climb function's raw bytecode (RunSharedScript NOPed) for a faithful graft.
+
+    The climb is verbatim because its jump coordinates are hand-tuned to the ladder's geometry +
+    the fixed camera -- that perspective tuning can't be regenerated, only copied."""
+    eb = EbScript.from_bytes(eb_bytes)
+    pe = _player_entry_index(eb)
+    if pe is None:
+        return []
+    out, seen = [], set()
+    for e in eb.entries:
+        if e.empty:
+            continue
+        zone = None
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op == SETREGION_OP and zone is None:
+                    pts = _region_points(ins)
+                    if len(pts) >= 3:
+                        zone = _zone_quad(pts)
+        # the "!" prompt belongs to the region, not a single func -- the Bubble is usually in the tread
+        # (tag 2) while the climb's RunScriptSync is in the action (tag 3); check the whole entry.
+        bubble = any(ins.op == BUBBLE_OP for f in e.funcs for ins in eb.instrs(f))
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op != RUN_SCRIPT_SYNC or ins.imm(1) != PLAYER_UID:
+                    continue
+                tag = ins.imm(2)
+                if tag is None or (e.index, tag) in seen or not _is_climb_func(eb, pe, tag):
+                    continue
+                seen.add((e.index, tag))
+                climb = _nop_shared_scripts(eb, eb.entry(pe).func_by_tag(tag))
+                out.append({"zone": zone, "climb_tag": int(tag), "trigger": int(f.tag),
+                            "bubble": bool(bubble), "climb": climb})
+    return out
+
+
 def scan_content(eb_bytes) -> dict:
     """All importable content from a field's ``.eb`` in one pass:
-    ``{gateways, music, encounter, control_direction}`` (the inverse of the content injectors)."""
+    ``{gateways, music, encounter, control_direction, ladders}`` (inverse of the content injectors)."""
     return {
         "gateways": scan_gateways(eb_bytes),
         "music": scan_music(eb_bytes),
         "encounter": scan_encounter(eb_bytes),
         "control_direction": scan_control_direction(eb_bytes),
+        "ladders": scan_ladders(eb_bytes),
     }

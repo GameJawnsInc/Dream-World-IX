@@ -88,7 +88,8 @@ def test_imported_content_toml_is_valid_and_complete():
     from ff9mapkit import extract
     blocks, cd, summary = extract._imported_content_toml(ALEX100)
     assert cd == 0
-    assert summary == {"gateways": 4, "encounter": False, "music": 9, "control_direction": 0}
+    assert summary == {"gateways": 4, "encounter": False, "music": 9, "control_direction": 0,
+                       "ladders": 0}    # field 100 (a town) has no ladders
     # embed in a complete borrow field.toml -> it must be valid TOML with the right structures
     toml = ('[field]\nid=4003\nname="T"\narea=2\nborrow_bg="X"\n\n'
             f'[camera]\nborrow="c.bgx"\ncontrol_direction={cd}\n\n[player]\nspawn=[0,0]\n\n{blocks}')

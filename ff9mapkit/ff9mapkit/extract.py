@@ -209,10 +209,12 @@ def extract_event_script(field: str, *, game=None, lang: str = EVT_LANG):
     return None
 
 
-def _imported_content_toml(eb_bytes):
-    """field.toml blocks (gateways / encounter / music) + the control-direction value, extracted LIVE
-    from a real field's ``.eb``. Returns (blocks_text, control_dir, summary). blocks_text is appended
-    at the end of the toml; control_dir (or None) goes in the [camera] block; summary feeds the CLI."""
+def _imported_content_toml(eb_bytes, *, out_dir=None, name="field"):
+    """field.toml blocks (gateways / encounter / music / ladders) + the control-direction value,
+    extracted LIVE from a real field's ``.eb``. Returns (blocks_text, control_dir, summary). blocks_text
+    is appended at the end of the toml; control_dir (or None) goes in the [camera] block; summary feeds
+    the CLI. Ladders carry a binary climb, so they're emitted only when ``out_dir`` is given (each climb
+    written verbatim to a ``<name>.ladder<i>.climb.bin`` sidecar that ``build`` grafts faithfully)."""
     content = eventscan.scan_content(eb_bytes)
     parts = []
     gws = content["gateways"]
@@ -232,18 +234,33 @@ def _imported_content_toml(eb_bytes):
                      "reinit)\n" + block)
     if content["music"] is not None:
         parts.append(f"# field BGM imported from the real field\n[music]\nsong = {content['music']}")
-    summary = {"gateways": len(gws), "encounter": enc is not None,
-               "music": content["music"], "control_direction": content["control_direction"]}
+    lads = content["ladders"]
+    n_ladders = 0
+    if lads and out_dir is not None:                    # ladders carry a binary climb -> need out_dir
+        out_path = Path(out_dir)
+        blocks = ["# --- LADDER(s) imported from the real field (LIVE) -- the EXACT climb (the real,\n"
+                  "# perspective-correct jump arcs), verbatim. Walk into the zone -> '!' -> press action\n"
+                  "# to climb; the climb reads your height to go up or down. The zone is the real one. ---"]
+        for i, lad in enumerate(lads):
+            fn = f"{name}.ladder{i}.climb.bin"
+            (out_path / fn).write_bytes(lad["climb"])
+            zone = ", ".join(f"[{x}, {z}]" for x, z in (lad["zone"] or []))
+            blocks.append(f'[[ladder]]\nzone = [{zone}]\nclimb = "{fn}"')
+        parts.append("\n\n".join(blocks))
+        n_ladders = len(lads)
+    summary = {"gateways": len(gws), "encounter": enc is not None, "music": content["music"],
+               "control_direction": content["control_direction"], "ladders": n_ladders}
     return "\n\n".join(parts), content["control_direction"], summary
 
 
-def _content_for_import(field: str, game):
+def _content_for_import(field: str, game, *, out_dir=None, name="field"):
     """(content_blocks, control_dir, summary) for a field's import. Locates + scans the real .eb;
-    returns ("", None, None) if it can't (no mapping / no game / UnityPy absent) so import still works."""
+    returns ("", None, None) if it can't (no mapping / no game / UnityPy absent) so import still works.
+    ``out_dir``/``name`` let ladder climbs be written as sidecars next to the field.toml."""
     eb_bytes = extract_event_script(field, game=game)
     if not eb_bytes:
         return "", None, None
-    return _imported_content_toml(eb_bytes)
+    return _imported_content_toml(eb_bytes, out_dir=out_dir, name=name)
 
 
 def _content_section(content_blocks: str, x: int, z: int) -> str:
@@ -605,7 +622,7 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     meta["blend_layers"] = layers_info["blend_layers"]
     meta["editable_name"] = name
 
-    content_blocks, control_dir, content_summary = _content_for_import(field, game)
+    content_blocks, control_dir, content_summary = _content_for_import(field, game, out_dir=out, name=name)
     meta["imported_content"] = content_summary
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
@@ -690,7 +707,8 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
     except Exception:
         pass
     # extract the real field's LIVE content (gateways / encounter / music / movement) from its .eb
-    content_blocks, control_dir, content_summary = _content_for_import(field, game)
+    content_blocks, control_dir, content_summary = _content_for_import(
+        field, game, out_dir=Path(out_dir), name=name)
     meta["imported_content"] = content_summary
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
