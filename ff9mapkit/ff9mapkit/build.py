@@ -895,8 +895,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 parts.append(_event.give_item(gi[0], int(gi[1]) if len(gi) > 1 else 1))   # id or name
             if "gil" in ev:
                 parts.append(_event.give_gil(int(ev["gil"])))
-            if j in event_txids:
-                parts.append(_event.message(event_txids[j]))
+            # Apply the EFFECTS (item/gil already above, now the flag) BEFORE the acknowledgement
+            # message. An event does NOT lock movement, so the effect must land the instant you trigger
+            # it -- not only when you close the window (you could walk off first). "You found X" then
+            # reads as an acknowledgement of what already happened (the chest/found-item convention).
             if "set_flag" in ev:
                 sf = ev["set_flag"]
                 fidx = int(sf[0])
@@ -905,6 +907,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 # (its Init re-checks the gate with the flag's new value), not just on field re-entry.
                 for npc_slot in gated_npc_slots.get(fidx, []):
                     parts.append(_event.reveal_object(npc_slot))
+            if j in event_txids:
+                parts.append(_event.message(event_txids[j]))
             once_flag = None
             if ev.get("once", True):
                 once_flag = int(ev["flag"]) if "flag" in ev else (_event.EVENT_FLAG_BASE + flag_counter)

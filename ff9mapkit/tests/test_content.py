@@ -325,6 +325,26 @@ def test_event_give_item_once_structure():
     assert 0x07 in _ops(eb, 0, 0)
 
 
+def test_event_sets_flag_before_message(tmp_path):
+    # an event doesn't lock movement, so its flag must land on TRIGGER -- before the acknowledgement
+    # message (not only when the player closes the window). Verify set_flag precedes the WindowSync.
+    from ff9mapkit import build
+    p = tmp_path / "z.field.toml"
+    p.write_text(
+        '[field]\nid=4003\nname="Z"\narea=11\ntext_block=1073\n\n'
+        '[camera]\npitch=45\nfov=42.2\n\n'
+        '[walkmesh]\nquad=[[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[event]]\nname="key"\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\n'
+        'message="Found it!"\nset_flag=[8001,1]\n', encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    _, _, et, _, _ = build.collect_text(proj)
+    eb = build.build_script(proj, "us", {}, event_txids=et)
+    setflag = region.set_var(region.GLOB_BOOL, 8001, 1)
+    msg = opcodes.window_sync(1, 128, et[0])
+    assert setflag in eb and msg in eb
+    assert eb.index(setflag) < eb.index(msg)        # flag set BEFORE the acknowledgement message
+
+
 def test_event_repeatable_has_no_flag():
     ZONE = [(0, 0), (100, 0), (100, 100), (0, 100)]
     out = event.inject_events(CLEAN, [{"zone": ZONE, "body": event.give_gil(500), "once_flag": None}])
