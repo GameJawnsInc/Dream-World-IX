@@ -76,12 +76,12 @@ def pre_choose(ch: dict) -> tuple[bytes, str]:
     has_disable = any(disabled)
     if not (has_disable or "default" in ch or "cancel" in ch):
         return b"", ""                                          # nothing configured -> byte-identical
-    if has_disable:
-        mask = sum(1 << i for i in range(n) if not disabled[i])
-        tag = f"[PCHM={n},{cancel}]"
-    else:
-        mask = 0xFFFF                                           # all on; [PCHC] ignores mask, sets default
-        tag = f"[PCHC={n},{cancel}]"
+    # Availability mask = the EXACT bits for the (enabled) rows -- e.g. 3 rows all on -> 0b111 = 7.
+    # NOT 0xFFFF: getv2 sign-extends 0xFFFF to -1, and ETb.SetChooseParam's loop is `while availMask>0`,
+    # so a negative mask never runs and the default collapses to 0 (verified in-game). (1<<n)-1 stays
+    # positive for any realistic row count.
+    mask = sum(1 << i for i in range(n) if not disabled[i])
+    tag = f"[PCHM={n},{cancel}]" if has_disable else f"[PCHC={n},{cancel}]"
     return opcodes.enable_dialog_choices(mask, default), tag
 
 

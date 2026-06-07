@@ -83,7 +83,8 @@ def test_pre_choose_default_cancel_uses_pchc():
     ch = {"options": [{"text": "A"}, {"text": "B"}, {"text": "C"}], "default": 2, "cancel": 0}
     setup, tag = choice.pre_choose(ch)
     assert tag == "[PCHC=3,0]"                                   # count=3, cancel row 0
-    assert setup == opcodes.enable_dialog_choices(0xFFFF, 2)     # mask all-on ([PCHC] ignores it), default 2
+    # all-on mask = (1<<3)-1 = 0b111, NOT 0xFFFF (which sign-extends to -1 and breaks SetChooseParam)
+    assert setup == opcodes.enable_dialog_choices(0b111, 2)
 
 
 def test_pre_choose_cancel_defaults_to_last_row():
@@ -96,6 +97,16 @@ def test_pre_choose_disabled_uses_pchm_and_clears_bit():
     setup, tag = choice.pre_choose(ch)
     assert tag == "[PCHM=3,2]"                                   # PCHM applies the mask; cancel = last
     assert setup == opcodes.enable_dialog_choices(0b101, 0)      # row 1 disabled -> bit 1 clear
+
+
+def test_pre_choose_all_on_mask_is_positive():
+    # regression: a -1/0xFFFF availability mask makes ETb.SetChooseParam's `while availMask>0` loop
+    # never run, so the default collapses to 0. The all-on mask must be (1<<n)-1 (positive as i16).
+    for n in (2, 3, 5, 8):
+        setup, _ = choice.pre_choose({"options": [{"text": str(i)} for i in range(n)], "default": n - 1})
+        assert setup == opcodes.enable_dialog_choices((1 << n) - 1, n - 1)
+        mask_le = setup[2] | (setup[3] << 8)                     # [op][flag][mask_lo][mask_hi][default]
+        assert 0 < mask_le < 0x8000                              # positive as a signed 16-bit value
 
 
 def test_pre_choose_setup_runs_after_lock_before_window():
