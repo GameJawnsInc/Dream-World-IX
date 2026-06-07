@@ -39,7 +39,7 @@ def option_body(opt: dict, reply_txid: int | None = None) -> bytes:
         parts.append(_event.message(reply_txid))
     if "give_item" in opt:
         gi = opt["give_item"]
-        parts.append(_event.give_item(int(gi[0]), int(gi[1]) if len(gi) > 1 else 1))
+        parts.append(_event.give_item(gi[0], int(gi[1]) if len(gi) > 1 else 1))   # gi[0] = id or name
     if "gil" in opt:
         parts.append(_event.give_gil(int(opt["gil"])))
     if "set_flag" in opt:

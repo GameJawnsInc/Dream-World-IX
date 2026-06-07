@@ -84,7 +84,7 @@ prompt = "What'll it be?"
 [[choice.options]]
 text = "A Potion, please. (-100 gil)"
 reply = "Here you go!"
-give_item = [232, 1]
+give_item = ["Potion", 1]
 gil = -100
 [[choice.options]]
 text = "Tell me a secret."

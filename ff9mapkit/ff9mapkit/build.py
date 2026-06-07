@@ -36,6 +36,7 @@ from .content import pathfind as _pathfind
 from .content import reinit as _reinit
 from .content import text as _text
 from . import animations as _animations
+from . import items as _items
 from . import data as _data
 from .eb import EbScript
 from .scene import bgi, bgx, cam, guide
@@ -210,6 +211,11 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[event]] zone must have 4 or 5 points (got {len(z)})")
         if not any(k in ev for k in ("message", "give_item", "gil", "set_flag")):
             problems.append("[[event]] needs at least one action (message / give_item / gil / set_flag)")
+        if "give_item" in ev:
+            try:
+                _items.resolve(ev["give_item"][0])
+            except (ValueError, IndexError, TypeError) as e:
+                problems.append(f"[[event]] give_item: {e}")
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
@@ -232,7 +238,13 @@ def validate(project: FieldProject) -> list[str]:
                     problems.append(f"[[choice]] #{c} option {oi} needs 'text' (the menu row)")
                 for key in ("give_item", "set_flag"):
                     if key in o and (not isinstance(o[key], list) or len(o[key]) < 1):
-                        problems.append(f"[[choice]] #{c} option {oi} {key} must be a list, e.g. [232, 1]")
+                        problems.append(f"[[choice]] #{c} option {oi} {key} must be a list, "
+                                        f"e.g. [\"Potion\", 1]")
+                if isinstance(o.get("give_item"), list) and o["give_item"]:
+                    try:
+                        _items.resolve(o["give_item"][0])
+                    except (ValueError, TypeError) as e:
+                        problems.append(f"[[choice]] #{c} option {oi} give_item: {e}")
         t = ch.get("tail")
         if t is not None and t not in _text.TAIL_CODES:
             problems.append(f"[[choice]] #{c} tail {t!r} is not a valid TAIL code")
@@ -831,7 +843,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             parts = []
             if "give_item" in ev:
                 gi = ev["give_item"]
-                parts.append(_event.give_item(int(gi[0]), int(gi[1]) if len(gi) > 1 else 1))
+                parts.append(_event.give_item(gi[0], int(gi[1]) if len(gi) > 1 else 1))   # id or name
             if "gil" in ev:
                 parts.append(_event.give_gil(int(ev["gil"])))
             if j in event_txids:

@@ -377,6 +377,20 @@ def _cmd_animations(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_items(args: argparse.Namespace) -> int:
+    """List FF9 item names + ids (use a name for `give_item = ["<name>", count]`)."""
+    from . import items as I
+    rows = [(i, n) for i, n in I.all_items() if n != "NoItem"]
+    if args.filter:
+        f = args.filter.lower()
+        rows = [(i, n) for i, n in rows if f in n.lower()]
+    print(f'{len(rows)} item(s). In an [[event]]/[[choice]] write  give_item = ["<name>", count]  '
+          f"(or a numeric id).\n")
+    for i, n in rows:
+        print(f"  {i:>3}  {n}")
+    return 0
+
+
 def _cmd_edit(args: argparse.Namespace) -> int:
     """Launch the form-based field-logic editor (Tkinter)."""
     try:
@@ -482,6 +496,10 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("-f", "--filter", help="only show gestures whose name contains this")
     an.add_argument("--ids", action="store_true", help="also print each gesture's numeric anim id")
     an.set_defaults(func=_cmd_animations)
+
+    it = sub.add_parser("items", help="list FF9 item names + ids (give_item by name)")
+    it.add_argument("-f", "--filter", help="only show items whose name contains this")
+    it.set_defaults(func=_cmd_items)
 
     ed = sub.add_parser("edit", help="open the form-based field-logic editor (no TOML hand-editing)")
     ed.add_argument("field", nargs="?", default=None, help="a .field.toml to open (optional)")

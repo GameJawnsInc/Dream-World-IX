@@ -315,7 +315,7 @@ once = false
 | `zone` | 4 convex `(x,z)` corners of the trigger region (place where the player walks). |
 | `message` | text shown in a dialogue window when triggered (added to the field's `.mes`). |
 | `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + the window pointer); see *Speaker names & the tail*. Usually omit `speaker` for an unsigned popup. |
-| `give_item` | `[item_id, count]` — `AddItem`. |
+| `give_item` | `[item, count]` — `item` is an **id or a name** (`"Potion"`); `AddItem`. List names with `ff9mapkit items`. |
 | `gil` | gil to give; **negative subtracts** (e.g. `gil = -100` charges 100). `AddGil` / `RemoveGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
 | `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
@@ -364,7 +364,7 @@ prompt = "Buy a Potion for 100 gil?"   # the question
 [[choice.options]]
 text = "Yes, please."                  # the menu row the player selects
 reply = "Here you go!"                 # (optional) a line shown after picking it
-give_item = [232, 1]                   # (optional) [item_id, count]
+give_item = ["Potion", 1]              # (optional) [item, count] — id or name
 gil = -100                             # (optional) charge 100 gil
 set_flag = [8001, 1]                   # (optional) raise a story flag
 [[choice.options]]
@@ -380,7 +380,7 @@ reply = "Come again!"
 | `options` | a list (`[[choice.options]]`) of **≥ 2** rows the player picks from. |
 | `options[].text` | the menu row shown for that option (kept short — it's one line). |
 | `options[].reply` | optional line shown after the player picks it. |
-| `options[].give_item` / `gil` / `set_flag` | optional actions, same as `[[event]]` (item / gil / story flag). |
+| `options[].give_item` / `gil` / `set_flag` | optional actions, same as `[[event]]` — `give_item = ["Potion", 1]` (id or name), `gil` negative charges, `set_flag` raises a story flag. |
 
 **How the pick is read (engine fact):** the choice window is synchronous, so the picked row index
 (0-based) is finalized before the script continues; the kit branches on it with `GetChoose()` (the

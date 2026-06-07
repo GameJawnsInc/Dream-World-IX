@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import struct
 
+from .. import items as _items
 from ..eb import EbScript, edit, opcodes
 from . import region as _region
 
@@ -31,9 +32,10 @@ def message(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:
     return opcodes.window_sync(window, flags, text_id)
 
 
-def give_item(item_id: int, count: int = 1) -> bytes:
-    """Body part: AddItem(item_id, count)."""
-    return opcodes.add_item(item_id, count)
+def give_item(item_id, count: int = 1) -> bytes:
+    """Body part: AddItem(item, count). ``item_id`` may be a numeric id OR a name ("Potion") --
+    resolved via :mod:`ff9mapkit.items` so authors don't have to memorize ids."""
+    return opcodes.add_item(_items.resolve(item_id), count)
 
 
 def give_gil(amount: int) -> bytes:

@@ -5,6 +5,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `give_item` by name; gil can subtract
+- `give_item = ["Potion", 1]` — items resolve by name (case/space/hyphen-insensitive) or numeric id,
+  baked from Memoria's `RegularItem` enum (`ff9mapkit items` lists them). No more memorizing ids
+  (236 = Potion; 232 was Sapphire). Negative `gil` now correctly **subtracts** (`RemoveGil`).
+
 ### Added — dialogue choices (`[[choice]]`)
 - Talk to an NPC, pick from a menu, and **branch** on the answer — the interaction / puzzle primitive
   (merchant, Yes/No lever, quest-giver). Each option can show a reply, give an item / gil, and set a
