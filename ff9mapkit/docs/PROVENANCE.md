@@ -43,13 +43,15 @@ install). Point `$FF9MAPKIT_DATA` at a writable directory for a read‑only whee
 cache. Until it's run, the loaders raise a clear "run extract-templates" message and the byte‑level
 test suite is skipped (the pure‑logic suite — camera math, the editor, packaging — still runs).
 
-## What about the field‑name table?
+## What about the field‑name and animation tables?
 
 `ff9mapkit/_fieldtable.py` maps each field's background folder to its event‑script name (used by
-`import` / `list-fields`). These are short **functional identifiers**, and they are derived from the
-**open‑source Memoria** project's public tables (`EventEngineUtils` / `FF9DBAll`), not extracted from
-the game — i.e. the same data Memoria already publishes. They are kept in the repo for the import
-feature; regenerate with `python -m ff9mapkit._regen_fieldtable`.
+`import` / `list-fields`). `ff9mapkit/_animdb.py` maps the playable characters' animation ids to
+their names (used by the `animations` catalog / cutscene gesture names). Both are short **functional
+identifiers** derived from the **open‑source Memoria** project's public tables (`EventEngineUtils` /
+`FF9DBAll`), not extracted from the game — i.e. the same data Memoria already publishes. They are kept
+in the repo for those features; regenerate with `python -m ff9mapkit._regen_fieldtable` and
+`python -m ff9mapkit._regen_animdb`.
 
 ## For maintainers
 

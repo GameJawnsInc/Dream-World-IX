@@ -347,6 +347,36 @@ def _cmd_list_fields(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_animations(args: argparse.Namespace) -> int:
+    """List a character's cutscene gestures (pick one by name for `animation = "<name>"`)."""
+    from . import animations as A
+    if not args.character:
+        print("Characters with an animation catalog (use the name as the cutscene actor's preset):")
+        for c in sorted(set(A.TOKENS.values())):
+            friendly = next(k for k, v in A.TOKENS.items() if v == c)
+            print(f"  {friendly:<10} ({c})  {len(A.catalog(c)):>3} gestures")
+        print("\nThen: ff9mapkit animations <character>   (e.g. ff9mapkit animations vivi)")
+        return 0
+    try:
+        acts = A.actions(args.character)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if args.filter:
+        f = args.filter.lower()
+        acts = [(a, i) for a, i in acts if f in a]
+    print(f"{args.character}: {len(acts)} gesture(s). In a [cutscene] step write  animation = \"<name>\".")
+    print(f"  core aliases (every character): {'  '.join(sorted(set(A.CORE)))}\n")
+    if args.ids:
+        for a, i in acts:
+            print(f"  {a:<26} {i}")
+    else:
+        names = [a for a, _ in acts]
+        for r in range(0, len(names), 3):
+            print("  " + "".join(f"{n:<26}" for n in names[r:r + 3]).rstrip())
+    return 0
+
+
 def _cmd_edit(args: argparse.Namespace) -> int:
     """Launch the form-based field-logic editor (Tkinter)."""
     try:
@@ -446,6 +476,12 @@ def build_parser() -> argparse.ArgumentParser:
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")
     lf.add_argument("pattern", nargs="?", default=None, help="substring filter (e.g. alex, treno, grgr)")
     lf.set_defaults(func=_cmd_list_fields)
+
+    an = sub.add_parser("animations", help="list a character's cutscene gestures (pick by name)")
+    an.add_argument("character", nargs="?", help="vivi / zidane / garnet / steiner / freya / quina / eiko / amarant")
+    an.add_argument("-f", "--filter", help="only show gestures whose name contains this")
+    an.add_argument("--ids", action="store_true", help="also print each gesture's numeric anim id")
+    an.set_defaults(func=_cmd_animations)
 
     ed = sub.add_parser("edit", help="open the form-based field-logic editor (no TOML hand-editing)")
     ed.add_argument("field", nargs="?", default=None, help="a .field.toml to open (optional)")

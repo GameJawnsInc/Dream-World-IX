@@ -33,6 +33,7 @@ from .content import music as _music
 from .content import npc as _npc
 from .content import reinit as _reinit
 from .content import text as _text
+from . import animations as _animations
 from . import data as _data
 from .eb import EbScript
 from .scene import bgi, bgx, cam, guide
@@ -222,6 +223,8 @@ def validate(project: FieldProject) -> list[str]:
         global_keys = ("say", "wait", "set_flag")
         actor_keys = ("walk", "teleport", "animation", "turn", "face_player")
         allowed = global_keys + (actor_keys if actor else ())
+        actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == actor), None)
+        anim_token = actor_npc.get("preset") if actor_npc else None
         if not isinstance(steps, list) or not steps:
             problems.append("[cutscene] needs a non-empty steps = [ {say=...}, {wait=...}, ... ] list")
         else:
@@ -236,6 +239,16 @@ def validate(project: FieldProject) -> list[str]:
                 t = s.get("tail")
                 if t is not None and t not in _text.TAIL_CODES:
                     problems.append(f"[cutscene] step {k} tail {t!r} is not a valid TAIL code")
+                a = s.get("animation")                    # a named gesture must resolve on the actor's model
+                if isinstance(a, str) and not a.strip().isdigit():
+                    if anim_token not in _animations.TOKENS:
+                        problems.append(f"[cutscene] step {k} animation {a!r} is a name, but the actor has no "
+                                        f"known preset -- use a numeric id or give the NPC a preset.")
+                    else:
+                        try:
+                            _animations.resolve(anim_token, a)
+                        except ValueError as e:
+                            problems.append(f"[cutscene] step {k}: {e}")
         if actor is not None and actor not in {n.get("name") for n in project.raw.get("npc", [])}:
             problems.append(f"[cutscene] actor {actor!r} is not a defined [[npc]] name")
     return problems
@@ -697,9 +710,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         cs_once_flag = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
     actor_choreo = None
     if cs_actor:
+        actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs_actor), None)
+        steps = _resolve_anim_steps(cs["steps"], actor_npc)   # animation = "glad" -> the numeric id
         cs_fclass, cs_fidx = _cutscene.once_flag_for(cs)   # GLOB (once ever) or MAP (replay per visit)
         actor_choreo = _cutscene.build_choreography(
-            cs["steps"], cutscene_txids, cs_fidx, flag_class=cs_fclass,
+            steps, cutscene_txids, cs_fidx, flag_class=cs_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)))
 
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
@@ -812,6 +827,30 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         eb = _camera.add_camera_restore(eb, used_cams, cvs)
 
     return eb
+
+
+def _actor_token(actor_npc):
+    """The animation-catalog model token for a cutscene actor NPC (its ``preset``), or ``None`` if it
+    can't be inferred (a custom model => animation steps must use numeric ids)."""
+    preset = actor_npc.get("preset") if actor_npc else None
+    return preset if preset in _animations.TOKENS else None
+
+
+def _resolve_anim_steps(steps, actor_npc):
+    """Return ``steps`` with each *named* ``animation`` resolved to a numeric id via the actor's
+    catalog (``animation = "glad"`` -> the id). Numeric ids pass through untouched. Raises ValueError
+    for a name when the actor's model isn't a known preset."""
+    token = _actor_token(actor_npc)
+    out = []
+    for s in steps:
+        a = s.get("animation")
+        if a is not None and not isinstance(a, bool) and not isinstance(a, int) and not str(a).strip().isdigit():
+            if token is None:
+                raise ValueError(f"cutscene animation {a!r} is a name, but the actor's model isn't a known "
+                                 f"preset -- use a numeric anim id, or give the NPC a preset (vivi/zidane/...).")
+            s = {**s, "animation": _animations.resolve(token, a)}
+        out.append(s)
+    return out
 
 
 def _wrap_width(project: FieldProject):

@@ -394,7 +394,7 @@ steps = [
   { teleport = [-2000, -300] },   # snap off-screen (instant) so he can walk IN
   { walk = [0, -300] },           # walk to his resting spot (= his pos)
   { face_player = true },          # turn to face the player
-  { animation = 921 },             # play an animation (e.g. a wave), waits for it to finish
+  { animation = "glad" },          # a gesture BY NAME (run: ff9mapkit animations vivi)
   { say = "...hi." },              # a dialogue window
 ]
 ```
@@ -405,13 +405,29 @@ Actor steps (only valid when `actor` is set — they need the NPC's context):
 |---|---|
 | `walk` | `[x, z]` — walk to a world position (uses the NPC's walk animation; blocks until it arrives). Optional `speed = N` (with `walk`) sets the walk speed. Works to any point incl. directly behind the actor (it turns tight, no orbit). |
 | `teleport` | `[x, z]` — instantly move (no walk). Put it **first** to start a walk-in from off-screen — a leading teleport runs before the warm-up so the actor settles there, then walks in. |
-| `animation` | animation id — play it and wait for it to finish. Must be a **one-shot** (non-looping) animation **valid for the NPC's model** (a looping/invalid id makes it wait forever). E.g. for the `vivi` preset: `7302` (Talk gesture), `6693` (Look Down). |
+| `animation` | a gesture **by name** (`"glad"`, `"angry"`, `"yawn"`, …) resolved against the actor's preset model, **or** a raw numeric id. Played, then held ~40 frames (no hang on a looping clip). See *Character gestures* below. |
 | `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — turn to face it, animated. |
 | `face_player` | `true` — turn to face the player. |
 
 `say` / `wait` / `set_flag` also work in an actor cutscene (interleaved in order). The NPC ends where
 its last `walk`/`teleport` leaves it on the first visit; on a replay visit it's at its `pos`, so end
 the last `walk` at `pos` (or just `teleport` in and `walk` back to `pos`) to stay consistent.
+
+#### Character gestures (`animation` by name)
+
+Every playable character has a catalog of field gestures. Pick one by name instead of a numeric id:
+
+```
+ff9mapkit animations              # list characters (vivi, zidane, garnet, steiner, freya, quina, eiko, amarant)
+ff9mapkit animations vivi         # Vivi's gestures (angry, glad, jump_1, yawn, talk_3_1, ...)
+ff9mapkit animations vivi -f talk # filter; add --ids to see the numeric id of each
+```
+
+Then `{ animation = "glad" }`. The name is matched against the actor NPC's `preset` (so a `vivi` actor
+draws from Vivi's set). Five **core** aliases work for every character: `idle` `walk` `run`
+`turn_left` `turn_right`. A name that doesn't exist for that character is a build error (with
+suggestions). A raw id still works, and an actor with a *custom model* (no preset) must use ids.
+The catalog comes from Memoria's open-source `AnimationDB` (the same source as the field registry).
 
 ---
 
