@@ -723,7 +723,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if cs_actor:
         actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs_actor), None)
         steps = _resolve_anim_steps(cs["steps"], actor_npc)   # animation = "glad" -> the numeric id
-        steps = _resolve_move_steps(steps, project)           # walk = "fountain" / "@player" -> [x, z]
+        steps = _resolve_move_steps(steps, project, actor_npc)  # names -> [x,z]; @object walks stop short
         cs_fclass, cs_fidx = _cutscene.once_flag_for(cs)   # GLOB (once ever) or MAP (replay per visit)
         actor_choreo = _cutscene.build_choreography(
             steps, cutscene_txids, cs_fidx, flag_class=cs_fclass,
@@ -895,18 +895,56 @@ def _resolve_point(value, reg: dict):
                      f"Known: {', '.join(sorted(reg)) or '(none)'} (define a [[marker]] or use [x, z]).")
 
 
-def _resolve_move_steps(steps, project: FieldProject):
+def _object_names(project: FieldProject) -> set:
+    """Names that refer to a LIVE in-game object with a collision box (the player + each NPC) -- as
+    opposed to a phantom ``[[marker]]`` point. A walk TO one of these must stop short of its box."""
+    names = {"player", "spawn"}
+    names.update(n["name"] for n in project.raw.get("npc", []) if n.get("name"))
+    return names
+
+
+# stop a walk-to-an-object this far out, so the actor halts just OUTSIDE the collision box (2 default
+# characters collide at ~2*OBJECT_COLLISION_W; + a margin so the walk arrives cleanly, no press-in).
+_APPROACH_MARGIN = 24.0
+
+
+def _approach_offset(start, target):
+    """Pull ``target`` toward ``start`` so the actor stops just outside the target object's collision
+    box (walking onto a live object stalls the synchronous walk). Returns ``start`` if already inside."""
+    dx, dz = target[0] - start[0], target[1] - start[1]
+    d = (dx * dx + dz * dz) ** 0.5
+    stop = 2 * cam.OBJECT_COLLISION_W + _APPROACH_MARGIN
+    if d <= stop:
+        return (int(start[0]), int(start[1]))
+    f = (d - stop) / d
+    return (int(round(start[0] + dx * f)), int(round(start[1] + dz * f)))
+
+
+def _resolve_move_steps(steps, project: FieldProject, actor_npc=None):
     """Resolve named ``walk`` / ``teleport`` targets (markers / ``@player`` / NPC names) to ``[x, z]``.
-    Coord lists pass through untouched. Raises ValueError on an unknown name."""
+    Coord lists pass through. A ``walk`` to a live OBJECT (player/NPC) auto-stops SHORT of its collision
+    box (walk *up to* it), tracking the actor's position through the steps. Raises on an unknown name."""
     reg = _position_registry(project)
+    objs = _object_names(project)
+    pos = (int(actor_npc["pos"][0]), int(actor_npc["pos"][1])) if (actor_npc and actor_npc.get("pos")) else None
     out = []
     for s in steps:
         s2 = s
         for mk in ("walk", "teleport"):
-            if mk in s and isinstance(s[mk], str):
+            if mk not in s:
+                continue
+            v = s[mk]
+            if isinstance(v, str):
+                name = v[1:] if v.startswith("@") else v
+                tgt = _resolve_point(v, reg)
+                if mk == "walk" and name in objs and pos is not None:
+                    tgt = _approach_offset(pos, tgt)     # stop adjacent, not inside the object's box
                 if s2 is s:
                     s2 = dict(s)
-                s2[mk] = list(_resolve_point(s[mk], reg))
+                s2[mk] = [int(tgt[0]), int(tgt[1])]
+            else:
+                tgt = (int(v[0]), int(v[1]))
+            pos = (int(tgt[0]), int(tgt[1]))
         out.append(s2)
     return out
 
@@ -930,36 +968,56 @@ def _segment_leaves_floor(wmesh, a, b) -> bool:
     return False
 
 
+def _object_collisions(project: FieldProject, point, exclude_actor):
+    """Labels of OTHER live objects (the player + NPCs) whose collision box ``point`` lands inside -- a
+    walk there presses into the box and stalls. Threshold ~ two default characters (2*OBJECT_COLLISION_W)."""
+    thresh = 2 * cam.OBJECT_COLLISION_W
+    objs = []
+    sp = project.raw.get("player", {}).get("spawn")
+    if sp:
+        objs.append(("the player's spawn", sp))
+    for n in project.raw.get("npc", []):
+        if n.get("name") != exclude_actor and n.get("pos"):
+            objs.append((f"NPC {n['name']!r}", n["pos"]))
+    return [label for label, p in objs
+            if ((point[0] - p[0]) ** 2 + (point[1] - p[1]) ** 2) ** 0.5 < thresh]
+
+
 def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) -> None:
-    """Warn when an ACTOR cutscene's walk would STALL in-game (the field walk is synchronous + straight-
-    line, so a blocked path softlocks the scene). Tracks the actor's position through the steps and flags
-    a walk whose target is off the floor, or whose straight path crosses a wall -- turning a runtime hang
-    into a build warning. Names (markers / @player / NPCs) are resolved via the position registry."""
+    """Warn when an ACTOR cutscene's walk would STALL in-game (a field walk is synchronous + straight-
+    line, so a blocked path softlocks the scene). Validates the FINAL resolved targets (with @object
+    auto-approach applied) for: a target off the walkmesh, a target inside another object's collision
+    box, or a path that crosses a wall. Turns a runtime hang into a build warning."""
     cs = project.raw.get("cutscene")
     if not cs or not cs.get("actor"):
         return
     actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs["actor"]), None)
     if not actor_npc or not actor_npc.get("pos"):
         return
-    reg = _position_registry(project)
+    try:
+        steps = _resolve_move_steps(cs.get("steps", []), project, actor_npc)   # final targets (offset applied)
+    except ValueError:
+        return       # an unresolved name -- validate() already reports it
     pos = (int(actor_npc["pos"][0]), int(actor_npc["pos"][1]))
-    for k, s in enumerate(cs.get("steps", [])):
-        try:
-            if "teleport" in s:
-                pos = _resolve_point(s["teleport"], reg)
-            elif "walk" in s:
-                tgt = _resolve_point(s["walk"], reg)
-                if wmesh.point_on_walkmesh(tgt[0], tgt[1]) is None:
-                    warnings.append(f"[cutscene] step {k}: walk target {tuple(tgt)} is off the walkmesh -- "
-                                    f"the actor can't reach it and the scene will stall. Aim at a floor "
-                                    f"point / marker.")
+    for k, s in enumerate(steps):
+        if "teleport" in s:
+            pos = (int(s["teleport"][0]), int(s["teleport"][1]))
+        elif "walk" in s:
+            tgt = (int(s["walk"][0]), int(s["walk"][1]))
+            if wmesh.point_on_walkmesh(tgt[0], tgt[1]) is None:
+                warnings.append(f"[cutscene] step {k}: walk target {tgt} is off the walkmesh -- the actor "
+                                f"can't reach it and the scene will stall. Aim at a floor point / marker.")
+            else:
+                hits = _object_collisions(project, tgt, cs["actor"])
+                if hits:
+                    warnings.append(f"[cutscene] step {k}: walk target {tgt} is inside {hits[0]}'s "
+                                    f"collision box -- the actor presses into it and the scene stalls. "
+                                    f"Walk to @<that object> (auto-stops adjacent), or aim beside it.")
                 elif _segment_leaves_floor(wmesh, pos, tgt):
-                    warnings.append(f"[cutscene] step {k}: the walk from {tuple(pos)} to {tuple(tgt)} "
-                                    f"crosses off the walkmesh -- the actor presses into the wall and the "
-                                    f"scene hangs. Add an intermediate marker to route around it.")
-                pos = tgt
-        except ValueError:
-            return       # an unresolved name -- validate() already reports it; skip the geometry check
+                    warnings.append(f"[cutscene] step {k}: the walk from {pos} to {tgt} crosses off the "
+                                    f"walkmesh -- the actor presses into the wall and the scene hangs. "
+                                    f"Add an intermediate marker to route around it.")
+            pos = tgt
 
 
 def _wrap_width(project: FieldProject):

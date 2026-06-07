@@ -63,6 +63,14 @@ S_CANVAS = 1.0
 # past the painted floor by ~this much if the player should be able to stand at the visual edge.
 COLLISION_RADIUS_W = 48.0
 
+# Object<->object collision radius, world units (DISTINCT from the controller radius above).
+# WalkMesh.Collision blocks one actor against another when their centres are within
+# 4*collRadA + 4*collRadB; the default field character collRad is 16 (WalkMesh.cs:2363) -> 4*16 = 64
+# per character. So two default characters collide at ~2*64 = 128u apart. A cutscene walk TO another
+# object (e.g. @player) must therefore stop SHORT of this, or the actor presses into the box and the
+# synchronous walk stalls. Used to auto-approach @object targets and to warn on too-close targets.
+OBJECT_COLLISION_W = 64.0
+
 # Character GROUND offset, world units. MEASURED IN-GAME = ~0 (Session 18 engine probe + grid, 3
 # spots x 2 pitches): the character MODEL is projected by its vertex shader's GTE (FieldMapActor.txt:
 # _MatrixRT/_ViewDistance/_OffsetX/Y) EXACTLY like the floor/walkmesh, so the feet render at the

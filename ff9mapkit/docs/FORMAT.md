@@ -423,6 +423,11 @@ or the toml) and reference it everywhere:
 - **`@player`** / **`@spawn`** — the player's spawn point.
 - **`@<npc name>`** (or just the name) — that NPC's position, or another marker.
 
+> **Walking *up to* a character.** A `walk` to a live object (`@player` / `@<npc>`) automatically stops
+> **just short** of its collision box — you walk up to the character, you don't overlap it. (Walking
+> *onto* an object stalls: two characters can't occupy the same ~128‑unit space, so the actor would
+> press into the box forever.) A plain `[[marker]]` / `[x, z]` is an exact point and is **not** offset.
+
 ```toml
 [[marker]]
 name = "altar"
@@ -437,11 +442,12 @@ steps = [
 ```
 
 **Reliability — the build checks your walks.** A FF9 walk is straight‑line and *synchronous* (the scene
-blocks until the actor arrives), so a walk whose **target is off the floor**, or whose **straight path
-crosses a wall**, makes the actor press into the wall forever and **hangs the scene**. The build now
-**warns** on both (it tracks the actor's position through the steps and tests each segment against the
-walkmesh) — a runtime softlock turned into a build message. If a leg is flagged, drop an intermediate
-`[[marker]]` and walk via it. (Multi‑waypoint `path` and automatic routing are coming next.)
+blocks until the actor arrives), so a walk that can't reach its target makes the actor press into the
+obstacle forever and **hangs the scene**. The build tracks the actor through the steps and **warns** when
+a walk's **target is off the floor**, its **target sits inside another character's collision box**, or its
+**straight path crosses a wall** — a runtime softlock turned into a build message. If a leg is flagged,
+drop an intermediate `[[marker]]` and walk via it. (Multi‑waypoint `path` and automatic routing are coming
+next.)
 
 #### Character gestures (`animation` by name)
 

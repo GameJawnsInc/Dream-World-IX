@@ -58,6 +58,38 @@ def test_segment_leaves_floor_detects_exit_but_allows_walk_in():
     assert build._segment_leaves_floor(wm, (0, 900), (0, -300)) is False    # walk-IN from off-screen is ok
 
 
+def test_walk_to_object_stops_short(tmp_path):
+    # walking TO @player must stop just outside the player's collision box (walking onto it stalls)
+    from ff9mapkit.scene import cam
+    proj = _load('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-520]\n'
+                 '[[npc]]\nname="V"\npreset="vivi"\npos=[800,-520]\n'
+                 '[cutscene]\nactor="V"\nsteps=[ { walk = "@player" } ]\n', tmp_path)
+    out = build._resolve_move_steps(proj.raw["cutscene"]["steps"], proj, proj.raw["npc"][0])
+    tx, tz = out[0]["walk"]
+    assert 0 < tx < 800                                          # stopped between the actor and the player
+    d = ((tx - 0) ** 2 + (tz + 520) ** 2) ** 0.5
+    assert abs(d - (2 * cam.OBJECT_COLLISION_W + build._APPROACH_MARGIN)) < 2   # just outside the box
+    # a plain marker (not an object) is NOT offset -- it's an exact point the author chose
+    proj2 = _load('[field]\nid=4003\nname="X"\narea=11\n[[npc]]\nname="V"\npos=[800,-520]\n'
+                  '[[marker]]\nname="x"\npos=[0,-520]\n[cutscene]\nactor="V"\nsteps=[ { walk = "x" } ]\n', tmp_path)
+    out2 = build._resolve_move_steps(proj2.raw["cutscene"]["steps"], proj2, proj2.raw["npc"][0])
+    assert out2[0]["walk"] == [0, -520]
+
+
+def test_validate_warns_walk_into_object_box(tmp_path):
+    wm = _quad_wmesh()
+    body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-300]\n'
+            '[[npc]]\nname="V"\npreset="vivi"\npos=[0,-700]\n[[marker]]\nname="onplayer"\npos=[0,-300]\n')
+    bad = _load(body + '[cutscene]\nactor="V"\nsteps=[ { walk = "onplayer" } ]\n', tmp_path)
+    w = []
+    build._validate_cutscene_movement(bad, wm, w)
+    assert any("collision box" in m for m in w)
+    good = _load(body + '[cutscene]\nactor="V"\nsteps=[ { walk = "@player" } ]\n', tmp_path)
+    w2 = []
+    build._validate_cutscene_movement(good, wm, w2)
+    assert not any("collision box" in m for m in w2)            # @player auto-approaches -> no stall
+
+
 def test_validate_cutscene_movement_warns_offmesh_and_clean(tmp_path):
     wm = _quad_wmesh()
     base = ('[field]\nid=4003\nname="X"\narea=11\n'
