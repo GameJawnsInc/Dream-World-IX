@@ -159,14 +159,23 @@ def set_region(points) -> bytes:
     return out
 
 
-def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"", tag: int = RANGE_TAG) -> bytes:
+def gated_set_region(zone, var_class, idx: int) -> bytes:
+    """An Init body that defines the region quad ONLY while flag ``idx`` is CLEAR (else nothing) + a
+    return. So a spent one-shot trigger sets up no quad on a later visit -> no leftover interaction
+    prompt / tread. ``if (flag) skip SetRegion`` == :func:`if_not_block` over :func:`cond_truthy`."""
+    return if_not_block(cond_truthy(var_class, idx), set_region(zone)) + opcodes.RETURN
+
+
+def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"", tag: int = RANGE_TAG,
+                       init_body: bytes | None = None) -> bytes:
     """Assemble a type-1 region entry: Init (tag 0 = SetRegion(zone) + ``init_extra``; return) + a
     trigger func at ``tag`` (default :data:`RANGE_TAG` 2 = tread, every frame in the quad;
     :data:`INTERACT_TAG` 3 = press-action-in-quad, a lever/sign). ``init_extra`` runs once on field
     load (when InitRegion arms the region) -- e.g. a ``set flag = 0`` to re-arm a once-per-visit
-    tread trigger each visit."""
-    init_body = set_region(zone) + init_extra + opcodes.RETURN
-    funcs = [(0, init_body), (tag, range_body)]
+    tread trigger each visit. ``init_body`` overrides the Init body entirely (e.g.
+    :func:`gated_set_region` for a one-shot trigger that vanishes once spent)."""
+    ib = init_body if init_body is not None else (set_region(zone) + init_extra + opcodes.RETURN)
+    funcs = [(0, ib), (tag, range_body)]
     table_len = len(funcs) * 4
     table = bytearray()
     pos = table_len
@@ -191,7 +200,7 @@ def prepend_range_gate(data, slot: int, gate_bytes: bytes) -> bytes:
 
 def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, activate: bool = True,
                   spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0, init_extra: bytes = b"",
-                  tag: int = RANGE_TAG):
+                  tag: int = RANGE_TAG, init_body: bytes | None = None):
     """Append a conditional region (Init=SetRegion(zone) + ``init_extra``, Range=range_body) into a
     free slot.
 
@@ -202,7 +211,7 @@ def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, act
     eb = EbScript.from_bytes(data)
     if slot is None:
         slot = eb.first_free_slot()
-    entry = build_region_entry(zone, range_body, init_extra=init_extra, tag=tag)
+    entry = build_region_entry(zone, range_body, init_extra=init_extra, tag=tag, init_body=init_body)
     out = edit.append_entry(data, slot, entry)
     if activate:
         out = edit.activate(out, opcodes.init_region(slot, 0), spawn_wait_n=spawn_wait_n,

@@ -39,7 +39,7 @@ from .content import text as _text
 from . import animations as _animations
 from . import items as _items
 from . import data as _data
-from .eb import EbScript
+from .eb import EbScript, opcodes
 from .scene import bgi, bgx, cam, guide
 
 
@@ -901,10 +901,20 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         zone = [tuple(p) for p in ch["zone"][:4]]
         gf, gs = _gate_of(ch)
         if (ch.get("trigger") or "action") == "action":
+            # one-shot lever = requires_flag_clear + a "consume" option that sets that flag. The
+            # consuming option also TerminateEntry's the region (so the spent lever's interaction
+            # prompt vanishes this visit), and the Init only sets the quad while the flag is clear
+            # (so a spent lever shows no prompt on later visits either).
+            one_shot = gf is not None and not gs
+            if one_shot:
+                for oi, o in enumerate(ch.get("options", [])):
+                    if "set_flag" in o and int(o["set_flag"][0]) == gf:
+                        opt_bodies[oi] += opcodes.terminate_entry(255)
             body = _choice.speak_body(ct["prompt"], opt_bodies)
             if gf is not None:
                 body = _region.flag_gate(_region.GLOB_BOOL, gf, require_set=gs) + body
-            eb, _slot = _region.inject_region(eb, zone, body, tag=_region.INTERACT_TAG)
+            init_body = _region.gated_set_region(zone, _region.GLOB_BOOL, gf) if one_shot else None
+            eb, _slot = _region.inject_region(eb, zone, body, tag=_region.INTERACT_TAG, init_body=init_body)
         else:
             fidx = int(ch["flag"]) if "flag" in ch else (_choice.CHOICE_FLAG_BASE + choice_flag_counter)
             if "flag" not in ch:

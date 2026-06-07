@@ -65,6 +65,19 @@ def test_zone_choice_action_is_a_press_interact_region(tmp_path):
     assert ops[0] == 0x2D and 0x1F in ops and 0x2E in ops   # body starts at DisableMove (no gate prologue)
 
 
+def test_zone_choice_action_one_shot_terminates_and_gates_init(tmp_path):
+    # a one-shot lever (requires_flag_clear + a consuming option that sets that flag): the consuming
+    # option TerminateEntry's the region (no leftover prompt this visit) and the Init gates SetRegion
+    # on the flag (no prompt on later visits when spent).
+    from ff9mapkit import build
+    s, eb = _build_zone_choice(tmp_path, build, extra="requires_flag_clear = 8001\n")
+    reg = next(e for e in s.entries if not e.empty and e.type == 1 and e.func_by_tag(3)
+               and bytes([0x7A, 0x09]) in eb[e.func_by_tag(3).abs_start:e.func_by_tag(3).abs_end])
+    assert 0x1C in _ops(s, reg.index, 3)                   # TerminateEntry on the consuming option
+    t0 = _ops(s, reg.index, 0)
+    assert t0[0] == 0x05 and 0x29 in t0                    # Init: gate (0x05) before SetRegion (0x29)
+
+
 def test_zone_choice_walk_is_loop_safe_gated(tmp_path):
     # trigger="walk": a tag-2 tread region, GLOB flag-gated (loop-safe), once=false resets in Init.
     from ff9mapkit import build

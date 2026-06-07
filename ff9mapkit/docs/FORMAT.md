@@ -424,8 +424,10 @@ set_flag = [8001, 1]                # marks it pulled -> the lever stops respond
 text = "Leave it."                  # sets nothing -> still pullable
 ```
 
-The door it opens would then use `[[gateway]] requires_flag = 8001`. (After it's spent the lever is
-silent; an "it won't budge" message would be a second, flag-gated interactable.)
+The door it opens would then use `[[gateway]] requires_flag = 8001`. Once spent, the lever **fully
+disappears** — the consuming option removes the region (no leftover interaction prompt), and the Init
+won't re-create it on later visits while the flag is set. (Want an "it won't budge" message instead?
+Add a second interactable on the same spot gated `requires_flag = 8001`.)
 
 ---
 
