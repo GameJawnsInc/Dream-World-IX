@@ -1,0 +1,90 @@
+# SHOWCASE — one field that exercises most of the ff9mapkit content stack, so you can see how the
+# pieces fit together. It BUILDS offline with the placeholder art shipped here (repaint art/*.png to
+# make it pretty). Reachability (getting INTO it in-game) is yours — see docs/TUTORIAL.md step 6.
+#
+#   ff9mapkit lint  examples/SHOWCASE/showcase.field.toml
+#   ff9mapkit build examples/SHOWCASE/showcase.field.toml --out dist --mod-name Showcase
+#
+# Demonstrated: camera + walkmesh + layers, an NPC with custom dialogue, a flag-gated NPC reveal,
+# a chest event (item + gil + story flag), a random encounter + field music, and a narration cutscene.
+
+[field]
+id = 4800
+name = "SHOWCASE"          # -> FBG_N11_SHOWCASE + EVT_SHOWCASE.eb
+area = 11
+text_block = 1073
+title = "ff9mapkit showcase"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# --- a random encounter + field BGM (the build also adds the after-battle reinit automatically) ---
+[encounter]
+scene = 67                 # Evil Forest / Trail (the game's first, weakest battles)
+freq = 48
+battle_music = 0           # 0 = Battle Theme
+
+[music]
+song = 9                   # Vivi's Theme (Disc 1)
+
+# --- a control-locked narration cutscene on first entry (once) ---
+[cutscene]
+once = true
+flag = 8100
+steps = [
+    { say = "This whole room — NPCs, dialogue, the chest, the battles — was authored in a text file." },
+    { wait = 15 },
+    { say = "Talk to the sage and open the chest. A guardian will appear." },
+]
+
+# --- an NPC with a line of your own dialogue ---
+[[npc]]
+name = "Sage"
+preset = "vivi"
+pos = [-340, -520]
+dialogue = "Every line you read here lives in a .mes file the kit wrote for you."
+
+# --- a flag-gated NPC: absent until the chest sets flag 8000, then revealed live ---
+[[npc]]
+name = "Guardian"
+preset = "zidane"
+pos = [380, -520]
+dialogue = "You opened the chest, so here I am — story flags, in one line of TOML."
+requires_flag = 8000
+
+# --- a chest: gives an item + gil, shows a message, raises the story flag (fires once) ---
+[[event]]
+name = "Chest"
+message = "Opened the chest: 1000 gil and an item!"
+give_item = [232, 1]
+gil = 1000
+set_flag = [8000, 1]
+once = true
+flag = 8001
+zone = [[300, -900], [760, -900], [760, -1320], [300, -1320]]
+
+# --- an exit back to the world (retarget `to` to your own room or a real field) ---
+[[gateway]]
+name = "Exit"
+to = 100
+entrance = 0
+zone = [[-320, -1600], [320, -1600], [320, -1900], [-320, -1900]]
