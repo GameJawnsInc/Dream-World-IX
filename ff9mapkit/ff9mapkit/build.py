@@ -24,6 +24,7 @@ from pathlib import Path
 
 from .config import LANGS, ModLayout, fbg_name
 from .content import camera as _camera
+from .content import choice as _choice
 from .content import cutscene as _cutscene
 from .content import encounter as _enc
 from .content import event as _event
@@ -212,6 +213,29 @@ def validate(project: FieldProject) -> list[str]:
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
+    # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
+    npc_names = {n.get("name") for n in project.raw.get("npc", [])}
+    for c, ch in enumerate(project.raw.get("choice", [])):
+        who = ch.get("npc")
+        if who is None:
+            problems.append(f"[[choice]] #{c} needs npc = \"<npc name>\" (the NPC you talk to)")
+        elif who not in npc_names:
+            problems.append(f"[[choice]] #{c} npc {who!r} is not a defined [[npc]] name")
+        if not str(ch.get("prompt", "")).strip():
+            problems.append(f"[[choice]] #{c} needs a 'prompt' (the question text)")
+        opts = ch.get("options", [])
+        if not isinstance(opts, list) or len(opts) < 2:
+            problems.append(f"[[choice]] #{c} needs at least 2 options")
+        else:
+            for oi, o in enumerate(opts):
+                if not str(o.get("text", "")).strip():
+                    problems.append(f"[[choice]] #{c} option {oi} needs 'text' (the menu row)")
+                for key in ("give_item", "set_flag"):
+                    if key in o and (not isinstance(o[key], list) or len(o[key]) < 1):
+                        problems.append(f"[[choice]] #{c} option {oi} {key} must be a list, e.g. [232, 1]")
+        t = ch.get("tail")
+        if t is not None and t not in _text.TAIL_CODES:
+            problems.append(f"[[choice]] #{c} tail {t!r} is not a valid TAIL code")
     # speaker (a name prefix) + tail (the dialogue-window pointer) are optional dialogue modifiers
     for label, items in (("[[npc]]", project.raw.get("npc", [])),
                          ("[[event]]", project.raw.get("event", []))):
@@ -303,6 +327,10 @@ def lint_logic(project: FieldProject) -> list[str]:
         if cs.get("once", True):
             f = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
             settable.add(f); explicit.add(f)
+    for ch in raw.get("choice", []):           # a choice option can set a story flag too
+        for o in ch.get("options", []):
+            if "set_flag" in o:
+                settable.add(int(o["set_flag"][0])); explicit.add(int(o["set_flag"][0]))
     settable |= auto_once
 
     # everything that READS a flag (require SET needs a setter; require CLEAR is fine by default).
@@ -702,10 +730,15 @@ def _gate_of(d: dict):
 
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None,
-                 cutscene_txids: list | None = None, walkmesh=None) -> bytes:
+                 cutscene_txids: list | None = None, walkmesh=None,
+                 choice_txids: dict | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
+    choice_txids = choice_txids or {}
+    # a choice attached to an NPC (choice.npc == npc.name) replaces that NPC's talk with a branch.
+    choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []))
+                     if "npc" in ch}
     eb = _data.blank_field_bytes(lang)
     # movement control-direction first (shift-free, before any appends that move bytecode)
     if control_value != -1:
@@ -753,8 +786,17 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         gf, gs = _gate_of(n)
         slot = EbScript.from_bytes(eb).first_free_slot()
         intro = actor_choreo if (cs_actor and n.get("name") == cs_actor) else None
+        # a dialogue choice on this NPC: talk -> menu -> branch (replaces the plain WindowSync)
+        sb = None
+        if n.get("name") in choice_by_npc:
+            c, ch = choice_by_npc[n["name"]]
+            ct = choice_txids.get(c, {})
+            replies = ct.get("replies", {})
+            opt_bodies = [_choice.option_body(o, replies.get(oi))
+                          for oi, o in enumerate(ch.get("options", []))]
+            sb = _choice.speak_body(ct["prompt"], opt_bodies)
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
-                             gate_flag=gf, gate_require_set=gs, intro=intro, **kwargs)
+                             gate_flag=gf, gate_require_set=gs, intro=intro, speak_body=sb, **kwargs)
         if gf is not None:
             gated_npc_slots.setdefault(gf, []).append(slot)
 
@@ -1138,14 +1180,17 @@ def _wrap_width(project: FieldProject):
 
 
 def collect_text(project: FieldProject):
-    """Return (mes_body, npc_txids, event_txids, cutscene_txids). All field text (NPC dialogue, event
-    messages, cutscene 'say' lines) shares one .mes block, NPCs first (so a field with no events/
-    cutscene is byte-identical to the old layout); cutscene_txids is a list (one per 'say' step).
+    """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids). All field text (NPC
+    dialogue, event messages, cutscene 'say' lines, choice prompts + replies) shares one .mes block,
+    in that order (so a field with no events/cutscene/choices is byte-identical to the old layout).
+    ``cutscene_txids`` is a list (one per 'say' step); ``choice_txids[c]`` = ``{"prompt": id,
+    "replies": {opt_index: id}}``.
 
     Lines are auto-wrapped to fit the screen (FF9 doesn't wrap; see content.text) unless
     ``[dialogue] wrap = false``; a line that already fits is left byte-identical."""
     lines, tails = [], []
     npc_pos, ev_pos, cs_pos = {}, {}, []
+    ch_prompt_pos, ch_reply_pos = {}, {}      # choice idx -> prompt line; (choice, opt) -> reply line
     wrap = _wrap_width(project)
 
     def _add(src, text):
@@ -1157,6 +1202,11 @@ def collect_text(project: FieldProject):
         tails.append(src.get("tail"))
         return len(lines) - 1
 
+    def _add_raw(line, tail):
+        lines.append(line)                    # pre-assembled (e.g. a choice prompt) -- added verbatim
+        tails.append(tail)
+        return len(lines) - 1
+
     for i, n in enumerate(project.raw.get("npc", [])):
         if "dialogue" in n:
             npc_pos[i] = _add(n, n["dialogue"])
@@ -1166,13 +1216,30 @@ def collect_text(project: FieldProject):
     for step in project.raw.get("cutscene", {}).get("steps", []):
         if "say" in step:
             cs_pos.append(_add(step, step["say"]))
+    # choices: the prompt + option rows are ONE entry (prompt[CHOO][MOVE]opt0\n[MOVE]opt1...); each
+    # option's optional `reply` is its own entry. The question is wrapped; the menu rows are not (a row
+    # is short by design -- an over-wide one is caught by lint, not silently re-flowed).
+    for c, ch in enumerate(project.raw.get("choice", [])):
+        q = _text.with_speaker(ch.get("speaker"), ch.get("prompt", ""))
+        if wrap is not None:
+            q = _text.wrap_text(q, wrap)[0]
+        opts = [str(o.get("text", "")) for o in ch.get("options", [])]
+        prompt_line = q + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(opts)
+        ch_prompt_pos[c] = _add_raw(prompt_line, ch.get("tail"))
+        for oi, o in enumerate(ch.get("options", [])):
+            if o.get("reply"):
+                ch_reply_pos[(c, oi)] = _add(o, o["reply"])
     if not lines:
-        return "", {}, {}, []
+        return "", {}, {}, [], {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
     cutscene_txids = [mapping[p] for p in cs_pos]
-    return body, npc_txids, event_txids, cutscene_txids
+    choice_txids = {c: {"prompt": mapping[p],
+                        "replies": {oi: mapping[ch_reply_pos[(cc, oi)]]
+                                    for (cc, oi) in ch_reply_pos if cc == c}}
+                    for c, p in ch_prompt_pos.items()}
+    return body, npc_txids, event_txids, cutscene_txids, choice_txids
 
 
 # --------------------------------------------------------------------------- the build
@@ -1240,11 +1307,12 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             _validate_content_placement(project, ref, warnings)
 
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids, cutscene_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids, choice_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     for lang in langs:
         eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
-                          cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh)
+                          cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
+                          choice_txids=choice_txids)
         layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
         if mes_body:
             layout.mes_path(lang, project.text_block).write_text(mes_body, encoding="utf-8", newline="\n")

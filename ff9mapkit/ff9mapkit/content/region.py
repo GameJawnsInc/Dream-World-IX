@@ -48,7 +48,13 @@ T_CONST = 0x7D        # 0x7D <i16>
 T_NOT = 0x0E
 T_EQ = 0x20
 T_ASSIGN = 0x2C
+T_SYSVAR = 0x7A       # push GetSysvar(<code>) -- EBin.B_SYSVAR (122); reads the next byte as the code
 T_END = 0x7F
+
+# A couple of useful system-variable codes (EventEngine.GetSysvar switch): 2 = usercontrol
+# (IsMovementEnabled), 9 = ETb.GetChoose() = the index the player picked in the last choice window.
+SYSVAR_USERCONTROL = 2
+SYSVAR_CHOICE = 9
 JMP_FALSE = 0x02      # jump-if-false  02 <skip:i16>
 JMP_TRUE = 0x03       # jump-if-true   03 <skip:i16>
 SETREGION_OP = 0x29
@@ -96,6 +102,20 @@ def cond_not(var_class, idx: int) -> bytes:
 def cond_eq(var_class, idx: int, value: int) -> bytes:
     """``if (VAR == value)`` condition expr -> ``05 <var> 7D <value:i16> 20 7F``."""
     return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([T_EQ, T_END])
+
+
+def push_sysvar(code: int) -> bytes:
+    """A system-variable read token: ``7A <code>`` -> push ``GetSysvar(code)`` (EBin.B_SYSVAR). The
+    movement gate is exactly this for code 2 (``05 7A 02 7F`` = IsMovementEnabled), so it's proven."""
+    return bytes([T_SYSVAR, code & 0xFF])
+
+
+def cond_sysvar_eq(code: int, value: int) -> bytes:
+    """``if (GetSysvar(code) == value)`` condition expr -> ``05 7A <code> 7D <value:i16> 20 7F``.
+
+    With ``code`` = :data:`SYSVAR_CHOICE` (9) this is the dialogue-choice test: branch on which row the
+    player picked in the preceding choice window (``ETb.GetChoose()``)."""
+    return bytes([EXPR_OP]) + push_sysvar(code) + bytes([T_CONST]) + _i16(value) + bytes([T_EQ, T_END])
 
 
 # --- control flow ---

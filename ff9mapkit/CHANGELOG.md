@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — dialogue choices (`[[choice]]`)
+- Talk to an NPC, pick from a menu, and **branch** on the answer — the interaction / puzzle primitive
+  (merchant, Yes/No lever, quest-giver). Each option can show a reply, give an item / gil, and set a
+  story flag (feeding the same `requires_flag` system). Grounded byte-for-byte in a real FF9 shop
+  choice: a synchronous `WindowSync` prompt (rows after `[CHOO]`) + a `GetChoose()` branch. See
+  `docs/FORMAT.md` → `[[choice]]`. (In-game proof pending.)
+
 ### Added — modern Field Editor look
 - The form-based editor (`ff9mapkit edit`) now ships a cohesive theme: a flat `clam`-based palette
   that **matches your Windows light/dark setting** (with a safe light fallback), Segoe UI typography,

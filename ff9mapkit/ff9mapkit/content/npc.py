@@ -76,7 +76,7 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                anims=None, talk_text_id: int = 62, slot: int | None = None,
                spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                gate_flag: int | None = None, gate_require_set: bool = True,
-               intro: bytes | None = None) -> bytes:
+               intro: bytes | None = None, speak_body: bytes | None = None) -> bytes:
     """Inject an NPC at world (x, z). Returns new .eb bytes.
 
     ``gate_flag`` (a GlobBool index) makes the NPC conditional: its Init returns early -- so it never
@@ -86,7 +86,10 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
 
     ``intro`` (bytes) is an ACTOR cutscene's gated choreography block (from
     :func:`ff9mapkit.content.cutscene.build_choreography`), spliced into this NPC's Init just before
-    its RETURN so it runs in the NPC's own object context (``gExec`` == this NPC) after CreateObject."""
+    its RETURN so it runs in the NPC's own object context (``gExec`` == this NPC) after CreateObject.
+
+    ``speak_body`` (bytes) replaces the default ``_SpeakBTN`` (tag 3) -- pass a dialogue-choice body
+    (:func:`ff9mapkit.content.choice.speak_body`) for a talk-to-branch NPC. Must end with a RETURN."""
     if preset is not None:
         model, animset, anims = PRESETS[preset]
 
@@ -135,8 +138,8 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
     if intro:
         body1 = bytes(intro) + body1
 
-    # 5) _SpeakBTN (func tag 3): WindowSync(1, 128, text) ; return
-    f2 = opcodes.window_sync(1, 128, talk_text_id) + opcodes.RETURN
+    # 5) _SpeakBTN (func tag 3): a custom choice body if given, else WindowSync(1, 128, text) ; return
+    f2 = speak_body if speak_body is not None else (opcodes.window_sync(1, 128, talk_text_id) + opcodes.RETURN)
 
     # 6) assemble the new 3-function entry (type cloned from the player entry)
     table_len = 3 * 4

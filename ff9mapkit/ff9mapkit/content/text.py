@@ -35,6 +35,13 @@ DEFAULT_TAIL = "UPR"
 # party member, e.g. speaker = "[VIVI]" -> renders the player's chosen name for Vivi.
 SPEAKER_SEP = ": "
 
+# Dialogue CHOICE text (one entry holds the prompt + the selectable rows). After the prompt, [CHOO]
+# starts the option list and each subsequent newline is one selectable row; [MOVE=18,0] indents each
+# row so the selection cursor has room (FF9's exact convention -- see Memoria FFIXTextTagCode). So a
+# choice entry's text is:  prompt + CHOICE_OPEN + ("\n" + CHOICE_INDENT).join(options).
+CHOICE_INDENT = "[MOVE=18,0]"
+CHOICE_OPEN = "\n[CHOO]" + CHOICE_INDENT
+
 
 def with_speaker(speaker, text: str) -> str:
     """Prefix ``speaker`` onto a dialogue line (``"Vivi: ...">``), or return ``text`` unchanged when no

@@ -13,8 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from ff9mapkit import data
-from ff9mapkit.content import (camera, cutscene, encounter, event, gateway, music, npc, region,
-                               reinit, text)
+from ff9mapkit.content import (camera, choice, cutscene, encounter, event, gateway, music, npc,
+                               region, reinit, text)
 from ff9mapkit.eb import EbScript, opcodes
 from ff9mapkit.eb.disasm import iter_code
 
@@ -36,6 +36,21 @@ def test_hut_interior_reproduced_byte_exact():
     out = npc.set_player_spawn(out, 0, -1350)
     out = gateway.inject_gateway(out, 4000, entrance=0, slot=3, zone=EXIT_ZONE)
     assert provision.sha256(out) == provision.load_manifest()["goldens"]["EVT_HUT_INT.eb.bytes/us"]
+
+
+def test_npc_speak_body_choice_branch():
+    # a dialogue choice replaces the plain talk: WindowSync(prompt) + a GetChoose() branch per option
+    opt_bodies = [choice.option_body({"set_flag": [8000, 1]}, reply_txid=501),
+                  choice.option_body({}, reply_txid=502)]
+    sb = choice.speak_body(500, opt_bodies)
+    out = npc.inject_npc(CLEAN, 100, -500, preset="vivi", speak_body=sb)
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out                        # structurally valid round-trip
+    e = next(x for x in eb.entries if not x.empty and x.func_by_tag(3) and x.index != 0)
+    speak = _ops(eb, e.index, 3)
+    assert 0x1F in speak and 0x05 in speak             # WindowSync + an expression (the branch)
+    f = e.func_by_tag(3)
+    assert bytes([0x7A, 0x09]) in eb.data[f.abs_start:f.abs_end]   # the GetChoose() sysvar token
 
 
 def test_npc_is_appended_and_spawned():

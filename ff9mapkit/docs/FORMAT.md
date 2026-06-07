@@ -346,6 +346,51 @@ entity names. `build` runs the same lints and shows them as warnings.
 
 ---
 
+## `[[choice]]` (optional, repeatable)
+
+A **dialogue choice** — talk to an NPC, pick from a menu, and **branch** on the answer. This is the
+interaction / puzzle primitive: a merchant, a "Yes/No" lever, a quest-giver. v1 attaches a choice to
+an NPC by name; talking to that NPC shows the prompt + options instead of its plain `dialogue`.
+
+```toml
+[[npc]]
+name = "Merchant"
+preset = "vivi"
+pos = [0, -700]
+
+[[choice]]
+npc = "Merchant"                       # the NPC you talk to (must match an [[npc]] name)
+prompt = "Buy a Potion for 100 gil?"   # the question
+[[choice.options]]
+text = "Yes, please."                  # the menu row the player selects
+reply = "Here you go!"                 # (optional) a line shown after picking it
+give_item = [232, 1]                   # (optional) [item_id, count]
+gil = -100                             # (optional) charge 100 gil
+set_flag = [8001, 1]                   # (optional) raise a story flag
+[[choice.options]]
+text = "No, thanks."                   # put the "decline" option LAST (cancel/B picks the last row)
+reply = "Come again!"
+```
+
+| key | meaning |
+|---|---|
+| `npc` | the `[[npc]]` name this choice is attached to (talking to it triggers the menu). |
+| `prompt` | the question text (added to the field's `.mes`, above the option rows). |
+| `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + window pointer). |
+| `options` | a list (`[[choice.options]]`) of **≥ 2** rows the player picks from. |
+| `options[].text` | the menu row shown for that option (kept short — it's one line). |
+| `options[].reply` | optional line shown after the player picks it. |
+| `options[].give_item` / `gil` / `set_flag` | optional actions, same as `[[event]]` (item / gil / story flag). |
+
+**How the pick is read (engine fact):** the choice window is synchronous, so the picked row index
+(0-based) is finalized before the script continues; the kit branches on it with `GetChoose()` (the
+engine's `ETb.sChoose`). **Cancel (B) selects the LAST row** by default — so make the last option the
+"decline" / safe choice. An option's `set_flag` feeds the same story-flag system above
+(`requires_flag` on NPCs/gateways/events), so a choice can unlock a door, reveal an NPC, or gate a
+later event. (Grounded byte-for-byte in a real FF9 shop choice; in-game proof pending.)
+
+---
+
 ## `[cutscene]` (optional)
 
 An ordered, **control-locked** scripted sequence that plays on field entry — the one thing the
