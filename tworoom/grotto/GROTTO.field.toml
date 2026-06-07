@@ -1,0 +1,43 @@
+# Imported from fbg_n36_glgv_map792_gv_rm1_0 (area 36) by ff9mapkit -- BG-borrow.
+# Renders the REAL field's art + walkmesh + camera while running your script.
+# Camera: pitch 0.99 deg, FOV 57.97 deg, range 400x240 (SCROLLING).
+# Walkmesh bounds: x [-1036, 4191]  z [-891, 460]  -- place NPCs/gateways within these.
+# Edit the content below, then:  ff9mapkit build GROTTO.field.toml
+
+[field]
+id = 4004
+name = "GROTTO"
+area = 36
+borrow_bg = "GLGV_MAP792_GV_RM1_0"
+text_block = 1073
+
+[camera]
+borrow = "camera.bgx"
+control_direction = 0   # imported WASD-vs-camera tuning
+[camera.scroll]
+enabled = true
+
+[walkmesh]
+reference = "walkmesh.bgi"   # validation only -- NOT shipped (the engine uses the borrowed
+# field's real walkmesh). The build WARNS if the content below sits off this walkable area.
+
+[player]
+spawn = [756, -539]   # left side, well inside; walk RIGHT (scrolling) to the door
+
+# --- add NPCs/dialogue (uncomment + edit); keep positions within the walkmesh bounds above ---
+# [[npc]]
+# name = "Vivi"
+# preset = "vivi"
+# pos = [1430, -205]
+# dialogue = "Hello, traveler."
+
+# --- DOOR to the Treno room (4005). Reuses the real field's right-hand exit zone
+#     (already on the walkmesh). Spawn is mid-room, so you walk RIGHT to this door. ---
+[[gateway]]
+to = 4005
+entrance = 0
+zone = [[3709, 252], [3709, -18], [2871, -22], [2833, 297]]
+
+# field BGM imported from the real field (Gizamaluke's Grotto theme)
+[music]
+song = 110
