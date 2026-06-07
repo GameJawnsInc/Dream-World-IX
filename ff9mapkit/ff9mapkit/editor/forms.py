@@ -100,9 +100,13 @@ CHOICE_SPEC = [
     Field("prompt", "Prompt", STR, "the question shown above the options"),
     Field("speaker", "Speaker name", STR, "optional name before the prompt"),
     Field("tail", "Window tail", STR, "UPR/UPL/LOR/LOL/UPC/LOC (default UPR)"),
+    Field("default", "Default row", OPTINT, "option index highlighted first (0 = top; default 0)"),
+    Field("cancel", "Cancel row", OPTINT, "option index B/Cancel picks (-1 or blank = last row)"),
 ]
 CHOICE_OPTION_SPEC = [
     Field("text", "Option text", STR, "the menu row the player selects (keep it short)"),
+    Field("disabled", "Greyed out", BOOL, "on = shown greyed / unselectable (skipped by the cursor)",
+          default=False),
     Field("reply", "Reply", STR, "optional line shown after choosing this option"),
     Field("give_item", "Give item", ITEMCOUNT, 'item + count, e.g. "Potion, 1" (name or id)'),
     Field("gil", "Gil", OPTINT, "gil; NEGATIVE charges the player (e.g. -100)"),

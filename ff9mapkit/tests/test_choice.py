@@ -60,3 +60,46 @@ def test_gil_is_signed_add_or_remove():
     assert event.give_gil(-100) == opcodes.remove_gil(100)
     assert opcodes.remove_gil(100) in choice.option_body({"gil": -100}, None)
     assert opcodes.add_gil(100) in choice.option_body({"gil": 100}, None)
+
+
+# --------------------------------------------------------------------- pre-choose (default/cancel/disable)
+
+def test_enable_dialog_choices_literal_bytes_and_roundtrip():
+    from ff9mapkit.eb import disasm
+    # [op 7C][argFlag 00 = all literal][avail mask : 2 LE][default : 1].  mask 0b101 = rows 0,2 on / 1 off
+    b = opcodes.enable_dialog_choices(0b101, 1)
+    assert b == bytes([0x7C, 0x00, 0x05, 0x00, 0x01])
+    ins = list(disasm.iter_code(b, 0, len(b)))
+    assert len(ins) == 1 and ins[0].op == 0x7C and ins[0].length == 5 and list(ins[0].args) == [5, 1]
+    assert opcodes.enable_dialog_choices(0xFFFF, 0) == bytes([0x7C, 0x00, 0xFF, 0xFF, 0x00])  # all on
+
+
+def test_pre_choose_empty_when_unconfigured():
+    # a plain choice (no default/cancel/disabled) emits nothing -> byte-identical to the old layout
+    assert choice.pre_choose({"options": [{"text": "A"}, {"text": "B"}]}) == (b"", "")
+
+
+def test_pre_choose_default_cancel_uses_pchc():
+    ch = {"options": [{"text": "A"}, {"text": "B"}, {"text": "C"}], "default": 2, "cancel": 0}
+    setup, tag = choice.pre_choose(ch)
+    assert tag == "[PCHC=3,0]"                                   # count=3, cancel row 0
+    assert setup == opcodes.enable_dialog_choices(0xFFFF, 2)     # mask all-on ([PCHC] ignores it), default 2
+
+
+def test_pre_choose_cancel_defaults_to_last_row():
+    _, tag = choice.pre_choose({"options": [{"text": "A"}, {"text": "B"}], "default": 1})
+    assert tag == "[PCHC=2,1]"                                   # cancel omitted -> last row (index 1)
+
+
+def test_pre_choose_disabled_uses_pchm_and_clears_bit():
+    ch = {"options": [{"text": "A"}, {"text": "B", "disabled": True}, {"text": "C"}]}
+    setup, tag = choice.pre_choose(ch)
+    assert tag == "[PCHM=3,2]"                                   # PCHM applies the mask; cancel = last
+    assert setup == opcodes.enable_dialog_choices(0b101, 0)      # row 1 disabled -> bit 1 clear
+
+
+def test_pre_choose_setup_runs_after_lock_before_window():
+    setup, _ = choice.pre_choose({"options": [{"text": "A"}, {"text": "B"}], "default": 1})
+    body = choice.speak_body(500, [b"\xAA", b""], setup=setup)
+    assert setup and setup in body
+    assert body.index(opcodes.DISABLE_MOVE) < body.index(setup) < body.index(opcodes.window_sync(1, 128, 500))

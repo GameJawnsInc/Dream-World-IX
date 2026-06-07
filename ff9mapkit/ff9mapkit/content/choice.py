@@ -54,6 +54,37 @@ def option_body(opt: dict, reply_txid: int | None = None) -> bytes:
     return b"".join(parts)
 
 
+def pre_choose(ch: dict) -> tuple[bytes, str]:
+    """Pre-choose config for a choice: which row is highlighted by DEFAULT, which row CANCEL (B) picks,
+    and statically GREYED/disabled options. Returns ``(setup_bytes, text_tag)`` -- the setup is an
+    ``EnableDialogChoices`` opcode emitted before the window (see :func:`region_body`), the tag is
+    prepended to the choice text. Returns ``(b"", "")`` when nothing is configured, so a plain choice
+    stays byte-identical.
+
+    Mechanism (Memoria ``Dialog.SetupChoose`` + ``ETb.SetChooseParam``): the opcode sets the
+    availability mask (bit i = row i on, LSB-first) + the default row; the text tag tells the dialog to
+    apply them. ``[PCHM=count,cancel]`` applies the MASK (grey out + skip disabled rows);
+    ``[PCHC=count,cancel]`` sets count/cancel/default WITHOUT disabling. A disabled row keeps its text
+    line and the engine just skips the cursor over it, so ``GetChoose()`` still returns ABSOLUTE indices
+    -- the per-option :func:`branch` is unaffected. A disabled default/cancel auto-remaps to the nearest
+    active row (engine-side)."""
+    options = ch.get("options", [])
+    n = len(options)
+    disabled = [bool(o.get("disabled")) for o in options]
+    default = int(ch.get("default", 0))
+    cancel = int(ch["cancel"]) if "cancel" in ch else (n - 1)   # engine default cancel = last row
+    has_disable = any(disabled)
+    if not (has_disable or "default" in ch or "cancel" in ch):
+        return b"", ""                                          # nothing configured -> byte-identical
+    if has_disable:
+        mask = sum(1 << i for i in range(n) if not disabled[i])
+        tag = f"[PCHM={n},{cancel}]"
+    else:
+        mask = 0xFFFF                                           # all on; [PCHC] ignores mask, sets default
+        tag = f"[PCHC={n},{cancel}]"
+    return opcodes.enable_dialog_choices(mask, default), tag
+
+
 def branch(option_bodies) -> bytes:
     """``if (GetChoose()==0){b0} if (GetChoose()==1){b1} ...`` -- one independent if-block per option
     (exactly how FF9 lays out choice handlers). Options with an empty body emit nothing."""
@@ -64,20 +95,25 @@ def branch(option_bodies) -> bytes:
     return out
 
 
-def region_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int = 128) -> bytes:
+def region_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int = 128,
+                setup: bytes = b"") -> bytes:
     """The choice block usable in ANY trigger context (an NPC talk OR a walk-in region): lock the
-    player, open the prompt+options window, branch on the pick, restore control. **No RETURN** -- the
-    caller adds it (NPC) or wraps it in a flag-gated region body (zone).
+    player, (optional pre-choose ``setup``), open the prompt+options window, branch on the pick, restore
+    control. **No RETURN** -- the caller adds it (NPC) or wraps it in a flag-gated region body (zone).
 
-    Why DisableMove/EnableMove: the engine does NOT block field movement while a dialog is open, so
-    without this the d-pad would move BOTH the menu cursor AND the character. Real FF9 wraps a choice
-    in DisableMove...EnableMove (e.g. the Black Mage shop), and the menu still navigates because choice
-    input comes from the dialog system, not field control."""
-    return (opcodes.DISABLE_MOVE + opcodes.window_sync(window, flags, prompt_txid)
+    ``setup`` is the optional ``EnableDialogChoices`` opcode from :func:`pre_choose` (default/cancel/
+    disabled config); it MUST run before the window opens. Why DisableMove/EnableMove: the engine does
+    NOT block field movement while a dialog is open, so without this the d-pad would move BOTH the menu
+    cursor AND the character. Real FF9 wraps a choice in DisableMove...EnableMove (e.g. the Black Mage
+    shop), and the menu still navigates because choice input comes from the dialog system, not field
+    control."""
+    return (opcodes.DISABLE_MOVE + setup + opcodes.window_sync(window, flags, prompt_txid)
             + branch(option_bodies) + opcodes.ENABLE_MOVE)
 
 
-def speak_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int = 128) -> bytes:
+def speak_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int = 128,
+               setup: bytes = b"") -> bytes:
     """A complete ``_SpeakBTN`` (NPC talk) body for a choice: the choice block + RETURN. ``flags`` 128
-    is the standard field dialogue flag (same as plain NPC dialogue)."""
-    return region_body(prompt_txid, option_bodies, window=window, flags=flags) + opcodes.RETURN
+    is the standard field dialogue flag (same as plain NPC dialogue). ``setup`` = optional pre-choose
+    opcode (see :func:`pre_choose`)."""
+    return region_body(prompt_txid, option_bodies, window=window, flags=flags, setup=setup) + opcodes.RETURN

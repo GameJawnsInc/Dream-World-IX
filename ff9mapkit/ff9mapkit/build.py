@@ -253,6 +253,17 @@ def validate(project: FieldProject) -> list[str]:
                         _items.resolve(o["give_item"][0])
                     except (ValueError, TypeError) as e:
                         problems.append(f"[[choice]] #{c} option {oi} give_item: {e}")
+        if isinstance(opts, list) and opts:
+            n = len(opts)
+            d = ch.get("default")
+            if d is not None and not (isinstance(d, int) and 0 <= d < n):
+                problems.append(f"[[choice]] #{c} default {d!r} must be an option index 0..{n-1}")
+            cv = ch.get("cancel")
+            if cv is not None and not (isinstance(cv, int) and -1 <= cv < n):
+                problems.append(f"[[choice]] #{c} cancel {cv!r} must be an option index -1..{n-1} "
+                                f"(-1 = last row)")
+            if all(o.get("disabled") for o in opts):
+                problems.append(f"[[choice]] #{c} has every option disabled (nothing selectable)")
         t = ch.get("tail")
         if t is not None and t not in _text.TAIL_CODES:
             problems.append(f"[[choice]] #{c} tail {t!r} is not a valid TAIL code")
@@ -821,7 +832,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             replies = ct.get("replies", {})
             opt_bodies = [_choice.option_body(o, replies.get(oi))
                           for oi, o in enumerate(ch.get("options", []))]
-            sb = _choice.speak_body(ct["prompt"], opt_bodies)
+            setup, _ = _choice.pre_choose(ch)
+            sb = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup)
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
                              gate_flag=gf, gate_require_set=gs, intro=intro, speak_body=sb, **kwargs)
         if gf is not None:
@@ -898,6 +910,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         replies = ct.get("replies", {})
         opt_bodies = [_choice.option_body(o, replies.get(oi))
                       for oi, o in enumerate(ch.get("options", []))]
+        setup, _ = _choice.pre_choose(ch)
         zone = [tuple(p) for p in ch["zone"][:4]]
         gf, gs = _gate_of(ch)
         if (ch.get("trigger") or "action") == "action":
@@ -909,13 +922,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             # lever shows no prompt on later visits either.
             one_shot = gf is not None and not gs
             if one_shot:
-                body = (_choice.region_body(ct["prompt"], opt_bodies)
+                body = (_choice.region_body(ct["prompt"], opt_bodies, setup=setup)
                         + _region.if_block(_region.cond_truthy(_region.GLOB_BOOL, gf),
                                            opcodes.terminate_entry(255)) + opcodes.RETURN)
                 body = _region.flag_gate(_region.GLOB_BOOL, gf, require_set=gs) + body
                 init_body = _region.gated_set_region(zone, _region.GLOB_BOOL, gf)
             else:
-                body = _choice.speak_body(ct["prompt"], opt_bodies)
+                body = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup)
                 if gf is not None:
                     body = _region.flag_gate(_region.GLOB_BOOL, gf, require_set=gs) + body
                 init_body = None
@@ -924,7 +937,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             fidx = int(ch["flag"]) if "flag" in ch else (_choice.CHOICE_FLAG_BASE + choice_flag_counter)
             if "flag" not in ch:
                 choice_flag_counter += 1
-            rb = _event.event_range_body(_choice.region_body(ct["prompt"], opt_bodies), fidx,
+            rb = _event.event_range_body(_choice.region_body(ct["prompt"], opt_bodies, setup=setup), fidx,
                                          flag_class=_region.GLOB_BOOL, requires_flag=gf, requires_set=gs)
             reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
             eb, _slot = _region.inject_region(eb, zone, rb, init_extra=reset)
@@ -1299,7 +1312,8 @@ def collect_text(project: FieldProject):
         if wrap is not None:
             q = _text.wrap_text(q, wrap)[0]
         opts = [str(o.get("text", "")) for o in ch.get("options", [])]
-        prompt_line = q + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(opts)
+        pre_tag = _choice.pre_choose(ch)[1]   # [PCHC]/[PCHM] config tag (default/cancel/disabled); "" if none
+        prompt_line = pre_tag + q + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(opts)
         ch_prompt_pos[c] = _add_raw(prompt_line, ch.get("tail"))
         for oi, o in enumerate(ch.get("options", [])):
             if o.get("reply"):

@@ -95,6 +95,39 @@ def test_zone_choice_walk_is_loop_safe_gated(tmp_path):
     assert 0x05 in _ops(s, reg.index, 0)                   # once=false -> Init resets the flag each visit
 
 
+def test_zone_choice_pre_choose_default_cancel_emits_pchc(tmp_path):
+    # default/cancel only (no disable): the .mes choice text carries [PCHC=count,cancel] and the body
+    # runs EnableDialogChoices (0x7C) before the WindowSync (0x1F) to set the default highlighted row.
+    from ff9mapkit import build
+    s, eb = _build_zone_choice(tmp_path, build, extra="default = 1\ncancel = 0\n")
+    mes = build.collect_text(build.FieldProject.load(tmp_path / "z.field.toml"))[0]
+    assert "[PCHC=2,0]" in mes                                   # 2 rows, cancel row 0
+    reg = next(e for e in s.entries if not e.empty and e.type == 1 and e.func_by_tag(3)
+               and bytes([0x7A, 0x09]) in eb[e.func_by_tag(3).abs_start:e.func_by_tag(3).abs_end])
+    ops3 = _ops(s, reg.index, 3)
+    assert 0x7C in ops3 and ops3.index(0x7C) < ops3.index(0x1F)  # set choice params before the window
+
+
+def test_zone_choice_pre_choose_disabled_emits_pchm_and_mask(tmp_path):
+    # a statically-disabled option: [PCHM=count,cancel] in the text + EnableDialogChoices with the bit
+    # cleared. 3 options, option 1 disabled -> mask 0b101 = 5; cancel defaults to last row (2).
+    from ff9mapkit import build
+    p = tmp_path / "z.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "Z"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[choice]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nprompt = "Pick"\n'
+        '[[choice.options]]\ntext = "A"\n'
+        '[[choice.options]]\ntext = "B"\ndisabled = true\n'
+        '[[choice.options]]\ntext = "C"\n', encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    mes, _, _, _, ctx = build.collect_text(proj)
+    assert "[PCHM=3,2]" in mes
+    eb = build.build_script(proj, "us", {}, choice_txids=ctx)
+    assert opcodes.enable_dialog_choices(0b101, 0) in eb        # row 1 masked off, default 0
+
+
 def test_npc_speak_body_choice_branch():
     # a dialogue choice replaces the plain talk: WindowSync(prompt) + a GetChoose() branch per option
     opt_bodies = [choice.option_body({"set_flag": [8000, 1]}, reply_txid=501),

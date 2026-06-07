@@ -239,6 +239,15 @@ def set_field_camera(cam_id: int) -> bytes:            # 0x7E (SETCAM) [1]
     return encode(0x7E, cam_id)
 
 
+def enable_dialog_choices(avail_mask: int, default: int = 0) -> bytes:   # 0x7C (CHOOSEPARAM) [2,1]
+    """EnableDialogChoices(avail_mask, default): configure the NEXT choice window. ``avail_mask`` is the
+    availability bitmask (bit i = row i selectable, LSB-first; -1/0xFFFF = all on) -> ETb.sChooseMask;
+    ``default`` is the initially-highlighted row. The engine only APPLIES the mask if the choice text
+    carries a ``[PCHM]`` tag (``[PCHC]`` passes default/cancel but ignores the mask). Grounded in the
+    field-100 ATE menu: ``EnableDialogChoices( VAR_GenInt16_241 | 32768, 0 )``. See content.choice."""
+    return encode(0x7C, avail_mask & 0xFFFF, default)
+
+
 def terminate_entry(entry: int = 255) -> bytes:        # 0x1C (KILL) [1]
     """TerminateEntry(entry): stop an entry's code (255 = This). Used to deactivate a switch zone."""
     return encode(0x1C, entry)

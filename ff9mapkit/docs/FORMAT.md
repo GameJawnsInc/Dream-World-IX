@@ -395,9 +395,21 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `prompt` | the question text (added to the field's `.mes`, above the option rows). |
 | `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + window pointer). |
 | `options` | a list (`[[choice.options]]`) of **≥ 2** rows the player picks from. |
+| `default` | *(optional)* option index highlighted when the menu opens (0 = top row; default 0). |
+| `cancel` | *(optional)* option index B/Cancel picks (`-1` or omit = last row, the FF9 default). |
 | `options[].text` | the menu row shown for that option (kept short — it's one line). |
+| `options[].disabled` | *(optional)* `true` = the row is **greyed out / unselectable** (the cursor skips it). |
 | `options[].reply` | optional line shown after the player picks it. |
 | `options[].give_item` / `gil` / `set_flag` | optional actions, same as `[[event]]` — `give_item = ["Potion", 1]` (id or name), `gil` negative charges, `set_flag` raises a story flag. |
+
+**Pre-choose config (default / cancel / grey-out).** `default` sets the initially-highlighted row and
+`cancel` sets which row B/Cancel picks; `options[].disabled = true` greys a row out and makes it
+unselectable. Disabling does **not** renumber the others — a disabled row keeps its index, the cursor
+just skips it, so `GetChoose()` (and your per-option branch) still uses the **absolute** index. The kit
+emits the `EnableDialogChoices` opcode + a `[PCHC]`/`[PCHM]` text tag (Memoria `Dialog.SetupChoose`);
+a plain choice with none of these set is byte-identical to before. *(v1 is static — a `disabled` row
+is always greyed. Flag-gated dynamic disabling, e.g. "available only once you have the key", is a
+planned follow-up.)* Grounded in the field-100 ATE menu (`EnableDialogChoices( …mask…, 0 )`).
 
 **How the pick is read (engine fact):** the choice window is synchronous, so the picked row index
 (0-based) is finalized before the script continues; the kit branches on it with `GetChoose()` (the
