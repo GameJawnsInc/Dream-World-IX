@@ -59,25 +59,33 @@ def reveal_object(slot: int) -> bytes:
 
 
 def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_CLASS,
-                     requires_flag: int | None = None, requires_set: bool = True) -> bytes:
+                     requires_flag: int | None = None, requires_set: bool = True,
+                     space_item: int | None = None) -> bytes:
     """The region ``_Range`` body for an event: a movement gate, an optional ``requires_flag`` story
     gate (the event only fires when that flag is in-state), then ``body`` -- gated
     ``if (!flag) { flag = 1; body }`` when ``once_flag`` is set, so it fires once. The once-flag is set
     BEFORE the body, matching FF9's treasure-chest convention (``if(!opened){ opened=1; reward; msg }``):
     the dedup flag lands the instant the event fires, before any (movement-unblocking) reward message --
-    so it can't double-fire even if the reward window is left open."""
+    so it can't double-fire even if the reward window is left open.
+
+    ``space_item`` (a chest nicety) wraps everything in ``if (GetItemCount(item) < 99) { ... }`` so the
+    reward is skipped (and the once-flag NOT set -> retryable) when the bag is full -- exactly FF9's
+    item-chest guard, with the space check OUTERMOST."""
     parts = [_region.MOVEMENT_GATE]
     if requires_flag is not None:
         parts.append(_region.flag_gate(flag_class, requires_flag, require_set=requires_set))
     if once_flag is not None:
-        parts.append(_region.if_block(_region.cond_not(flag_class, once_flag),
-                                      _region.set_var(flag_class, once_flag, 1) + body))
+        core = _region.if_block(_region.cond_not(flag_class, once_flag),
+                                _region.set_var(flag_class, once_flag, 1) + body)
     else:
         # No once flag = the raw region trigger: tag 2 is LEVEL-triggered (the engine fires it every
         # frame the player treads the quad -- TreadQuad is a pure position test, no edge detection), so
         # a `once=false` message re-fires as soon as it closes while still inside. Correct for a
         # continuous effect; edge-triggered "once per visit" would need a leave-detecting re-arm zone.
-        parts.append(body)
+        core = body
+    if space_item is not None:                       # FF9 chest: only give if there's room (space outermost)
+        core = _region.if_block(_region.cond_item_count_lt(space_item), core)
+    parts.append(core)
     parts.append(opcodes.RETURN)
     return b"".join(parts)
 
@@ -108,7 +116,8 @@ def inject_events(data, events, *, flag_class=EVENT_FLAG_CLASS, spawn_wait_n: in
     region_slots = []
     for ev in events:
         rb = event_range_body(ev["body"], ev.get("once_flag"), flag_class,
-                              ev.get("requires_flag"), ev.get("requires_set", True))
+                              ev.get("requires_flag"), ev.get("requires_set", True),
+                              space_item=ev.get("space_item"))
         out, slot = _region.inject_region(out, ev["zone"], rb, activate=False)
         region_slots.append(slot)
 

@@ -267,6 +267,14 @@ def add_item(item_id: int, count: int = 1) -> bytes:   # 0x48 (ITEM) argsize [2,
     return encode(0x48, item_id, count)
 
 
+def set_text_variable(slot: int, value: int) -> bytes:   # 0x66 (MESVALUE) argsize [1, 2]
+    """SetTextVariable(slot, value): set dialogue text-variable ``slot`` -> ``value`` (ETb.gMesValue).
+    A ``[ITEM=slot]`` tag in the next window renders that value's item name, ``[VAR=slot]`` its number.
+    The chest "Received [ITEM=0]!" pattern uses SetTextVariable(0, item) (real-field verified, field 407:
+    ``66 00 00 ec 00`` = SetTextVariable(0, 236))."""
+    return encode(0x66, slot, value)
+
+
 def add_gil(amount: int) -> bytes:                     # 0xCE (GILADD) argsize [3]
     """AddGil(amount): add gil to the party purse. ``amount`` is an UNSIGNED 24-bit value -- the engine
     does ``party.gil += amount`` (caps at 9999999), so a negative here wraps to a huge add. To SUBTRACT

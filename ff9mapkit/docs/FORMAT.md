@@ -316,6 +316,8 @@ once = false
 | `message` | text shown in a dialogue window when triggered (added to the field's `.mes`). |
 | `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + the window pointer); see *Speaker names & the tail*. Usually omit `speaker` for an unsigned popup. |
 | `give_item` | `[item, count]` — `item` is an **id or a name** (`"Potion"`); `AddItem`. List names with `ff9mapkit items`. |
+| `received` | *(give_item only)* `true` = show the canonical FF9 **item-get window** ("Received \<item\>!", window type 7) instead of a plain message — `SetTextVariable(0, item)` + `[ITEM=0]`. |
+| `require_space` | *(give_item only)* `true` = **chest behavior**: skip the whole event (and don't set the `once` flag, so it's retryable) if the bag is full — `if (GetItemCount(item) < 99) { … }`. |
 | `gil` | gil to give; **negative subtracts** (e.g. `gil = -100` charges 100). `AddGil` / `RemoveGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
 | `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
@@ -323,8 +325,10 @@ once = false
 | `requires_flag` / `requires_flag_clear` | GlobBool index — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
 
 > An event needs at least one action. The same conditional-region primitive underlies chests, story
-> flags, and one-time triggers. (Engine-validated bytecode + a real-chest `AddItem`/message
-> convention; in-game proof pending.)
+> flags, and one-time triggers. A faithful treasure chest is `give_item` + `received = true` +
+> `require_space = true` + `once = true` — which compiles to FF9's exact chest shape
+> `if (GetItemCount < 99) { if (!opened) { opened = 1; AddItem; SetTextVariable; window-7 "Received …!" } }`
+> (effects before the acknowledgement; dedup flag first; verified byte-for-byte against real fields).
 
 ### Story flags & branching
 

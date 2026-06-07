@@ -58,6 +58,9 @@ T_NOT = 0x0E
 T_EQ = 0x20
 T_ASSIGN = 0x2C       # B_LET ('=')
 T_OR_ASSIGN = 0x3F    # B_OR_LET ('|='); real-field verified (Dali/Storage 407: `VAR |= 2` = 05 .. 3F 7F)
+T_LT = 0x18           # B_LT ('<')
+T_ITEMCOUNT = 0x64    # GetItemCount: unary fn token -- pops an item-id const, pushes the held count
+                      # (real-field verified, Dali/Storage 407 chest guard `GetItemCount(236) < 99`)
 T_SYSVAR = 0x7A       # push GetSysvar(<code>) -- EBin.B_SYSVAR (122); reads the next byte as the code
 T_END = 0x7F
 
@@ -126,6 +129,14 @@ def cond_not(var_class, idx: int) -> bytes:
 def cond_eq(var_class, idx: int, value: int) -> bytes:
     """``if (VAR == value)`` condition expr -> ``05 <var> 7D <value:i16> 20 7F``."""
     return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([T_EQ, T_END])
+
+
+def cond_item_count_lt(item_id: int, limit: int = 99) -> bytes:
+    """``if (GetItemCount(item) < limit)`` condition expr -> ``05 7D <item:i16> 64 7D <limit:i16> 18 7F``.
+    The FF9 treasure-chest space guard: don't open/give if the player can't carry it (default cap 99).
+    Real-field verified (Dali/Storage 407: ``05 7d ec 00 64 7d 63 00 18 7f`` = ``GetItemCount(236) < 99``)."""
+    return (bytes([EXPR_OP, T_CONST]) + _i16(item_id) + bytes([T_ITEMCOUNT, T_CONST])
+            + _i16(limit) + bytes([T_LT, T_END]))
 
 
 def push_sysvar(code: int) -> bytes:

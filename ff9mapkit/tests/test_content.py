@@ -347,6 +347,32 @@ def test_event_sets_flag_before_message(tmp_path):
     assert eb.index(setflag) < eb.index(msg)        # flag set BEFORE the acknowledgement message
 
 
+def test_chest_niceties_match_real_field_bytes():
+    # GetItemCount(236)<99 guard + SetTextVariable(0,236) -- byte-exact vs Dali/Storage field 407
+    assert region.cond_item_count_lt(236, 99) == bytes.fromhex("057dec00647d6300187f")
+    assert opcodes.set_text_variable(0, 236) == bytes.fromhex("66000 0ec00".replace(" ", ""))
+
+
+def test_event_received_window_and_space_check(tmp_path):
+    # received -> SetTextVariable(0,item) + window-7 item-get box w/ "Received [ITEM=0]!" text;
+    # require_space -> the whole reward wrapped in if(GetItemCount(item) < 99) (chest space guard).
+    from ff9mapkit import build
+    p = tmp_path / "z.field.toml"
+    p.write_text(
+        '[field]\nid=4003\nname="Z"\narea=11\ntext_block=1073\n\n'
+        '[camera]\npitch=45\nfov=42.2\n\n'
+        '[walkmesh]\nquad=[[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[event]]\nname="chest"\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\n'
+        'give_item=[236,1]\nreceived=true\nrequire_space=true\n', encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    mes, _, et, _, _ = build.collect_text(proj)
+    assert "Received [ITEM=0]!" in mes                              # canonical item-get text
+    eb = build.build_script(proj, "us", {}, event_txids=et)
+    assert opcodes.set_text_variable(0, 236) in eb                 # SetTextVariable(0, item)
+    assert opcodes.window_sync(7, 0, et[0]) in eb                  # window-7 item-get box
+    assert region.cond_item_count_lt(236, 99) in eb                # space guard present
+
+
 def test_event_repeatable_has_no_flag():
     ZONE = [(0, 0), (100, 0), (100, 100), (0, 100)]
     out = event.inject_events(CLEAN, [{"zone": ZONE, "body": event.give_gil(500), "once_flag": None}])

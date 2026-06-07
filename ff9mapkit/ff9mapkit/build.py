@@ -217,6 +217,9 @@ def validate(project: FieldProject) -> list[str]:
                 _items.resolve(ev["give_item"][0])
             except (ValueError, IndexError, TypeError) as e:
                 problems.append(f"[[event]] give_item: {e}")
+        for k in ("received", "require_space"):
+            if ev.get(k) and "give_item" not in ev:
+                problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
@@ -890,9 +893,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         specs, flag_counter = [], 0
         for j, ev in enumerate(events):
             parts = []
+            item_id = _items.resolve(ev["give_item"][0]) if "give_item" in ev else None
             if "give_item" in ev:
                 gi = ev["give_item"]
-                parts.append(_event.give_item(gi[0], int(gi[1]) if len(gi) > 1 else 1))   # id or name
+                parts.append(_event.give_item(item_id, int(gi[1]) if len(gi) > 1 else 1))
             if "gil" in ev:
                 parts.append(_event.give_gil(int(ev["gil"])))
             # Apply the EFFECTS (item/gil already above, now the flag) BEFORE the acknowledgement
@@ -908,15 +912,23 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 for npc_slot in gated_npc_slots.get(fidx, []):
                     parts.append(_event.reveal_object(npc_slot))
             if j in event_txids:
-                parts.append(_event.message(event_txids[j]))
+                if ev.get("received") and item_id is not None:
+                    # the canonical FF9 item-get window (type 7) showing "Received <item>!": set text
+                    # slot 0 to the item so the [ITEM=0] tag renders its name, then the window-7 message.
+                    parts.append(opcodes.set_text_variable(0, item_id))
+                    parts.append(_event.message(event_txids[j], window=7, flags=0))
+                else:
+                    parts.append(_event.message(event_txids[j]))
             once_flag = None
             if ev.get("once", True):
                 once_flag = int(ev["flag"]) if "flag" in ev else (_event.EVENT_FLAG_BASE + flag_counter)
                 flag_counter += 1
             gf, gs = _gate_of(ev)
+            # chest space-check: skip the reward (and don't set the once-flag) if the bag is full
+            space_item = item_id if ev.get("require_space") and item_id is not None else None
             specs.append({"zone": [tuple(p) for p in ev["zone"][:4]],
                           "body": b"".join(parts), "once_flag": once_flag,
-                          "requires_flag": gf, "requires_set": gs})
+                          "requires_flag": gf, "requires_set": gs, "space_item": space_item})
         eb = _event.inject_events(eb, specs)
 
     # zone-triggered choices: a region the player triggers for a choice menu (a lever / sign).
@@ -1327,6 +1339,11 @@ def collect_text(project: FieldProject):
     for j, ev in enumerate(project.raw.get("event", [])):
         if "message" in ev:
             ev_pos[j] = _add(ev, ev["message"])
+        elif ev.get("received") and "give_item" in ev:
+            # canonical item-get text: [ITEM=0] renders the item name from text-var slot 0 (set at
+            # runtime by SetTextVariable(0, item)); shown in the window-7 item-get box. Added verbatim
+            # (the [ITEM=0] tag must survive wrapping).
+            ev_pos[j] = _add_raw("Received [ITEM=0]!", ev.get("tail"))
     for step in project.raw.get("cutscene", {}).get("steps", []):
         if "say" in step:
             cs_pos.append(_add(step, step["say"]))
