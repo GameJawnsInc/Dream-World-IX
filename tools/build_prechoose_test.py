@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Build a PRE-CHOOSE config test field (4003): a "console" you press to open a configured menu.
+"""Build a PRE-CHOOSE default/cancel test field (4003): a "console" you press to open a configured menu.
 
 A flat floor (calibration grid) with a cyan CONSOLE zone. Stand on it and PRESS ACTION -> a menu:
-  0: "First."        <- CANCEL (B) picks THIS (cancel = 0)
-  1: "-- LOCKED --"  <- DISABLED: greyed / skipped by the cursor
-  2: "Third."        <- DEFAULT highlighted row (default = 2)
-Each enabled option shows a distinct reply, so you can confirm which row was picked.
+  0: "First."     <- CANCEL (B) picks THIS (cancel = 0)
+  1: "Second."
+  2: "Third."     <- DEFAULT highlighted row (default = 2)
+Each option shows a distinct reply, so you can confirm which row was picked.
 
 VERIFY in-game:
-  * the menu opens with the THIRD row highlighted (default=2),
-  * the middle row is greyed and the cursor SKIPS over it (can't select "LOCKED"),
+  * the menu opens with the THIRD row highlighted (default=2) -- every time,
   * pressing B/Cancel picks the FIRST row -> "You chose FIRST." (cancel=0),
-  * picking row 0 or 2 gives the matching reply; the LOCKED row is never selectable.
+  * picking any row gives its matching reply.
+
+(NOTE: `disabled`/grey-out works too but HIDES the row, and FF9 can't honor a `default` that sits
+at/after a hidden row -- so this demo keeps all rows enabled to show default+cancel cleanly. The
+build warns if you combine them.)
 
 Run:  python tools/build_prechoose_test.py
 then: python tools/deploy_field.py tools/prechoose_out/prechoose.field.toml
@@ -85,11 +88,10 @@ default = 2          # THIRD row highlighted when the menu opens
 cancel = 0           # B / Cancel picks the FIRST row
 [[choice.options]]
 text = "First."
-reply = "You chose FIRST. (Cancel picks this.)"
+reply = "You chose FIRST. (Cancel/B picks this.)"
 [[choice.options]]
-text = "-- LOCKED --"
-disabled = true      # greyed out, cursor skips it -- never selectable
-reply = "you should never see this"
+text = "Second."
+reply = "You chose SECOND."
 [[choice.options]]
 text = "Third."
 reply = "You chose THIRD. (Default highlight.)"
