@@ -29,10 +29,11 @@ def test_branch_skips_options_with_no_actions():
     assert choice.branch([b"", b"\xCC"]) == region.if_block(region.cond_sysvar_eq(9, 1), b"\xCC")
 
 
-def test_speak_body_is_window_then_branch_then_return():
+def test_speak_body_locks_movement_window_branch_unlock_return():
     out = choice.speak_body(500, [b"\xAA", b""])
-    assert out.startswith(opcodes.window_sync(1, 128, 500))     # the prompt window opens first
-    assert out.endswith(opcodes.RETURN)                          # and the speak func returns
+    assert out.startswith(opcodes.DISABLE_MOVE)                  # lock the player first (no walking)
+    assert opcodes.window_sync(1, 128, 500) in out              # the prompt window
+    assert out.endswith(opcodes.ENABLE_MOVE + opcodes.RETURN)   # restore control, then return
     assert region.cond_sysvar_eq(9, 0) in out                    # branching on the pick
 
 

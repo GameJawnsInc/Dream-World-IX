@@ -384,10 +384,12 @@ reply = "Come again!"
 
 **How the pick is read (engine fact):** the choice window is synchronous, so the picked row index
 (0-based) is finalized before the script continues; the kit branches on it with `GetChoose()` (the
-engine's `ETb.sChoose`). **Cancel (B) selects the LAST row** by default — so make the last option the
-"decline" / safe choice. An option's `set_flag` feeds the same story-flag system above
-(`requires_flag` on NPCs/gateways/events), so a choice can unlock a door, reveal an NPC, or gate a
-later event. (Grounded byte-for-byte in a real FF9 shop choice; in-game proof pending.)
+engine's `ETb.sChoose`). Player movement is **locked while the menu is open** (`DisableMove` →
+`EnableMove`, as a real FF9 shop does) so the d-pad navigates the menu without also walking the
+character. **Cancel (B) selects the LAST row** by default — so make the last option the "decline" /
+safe choice. An option's `set_flag` feeds the same story-flag system above (`requires_flag` on
+NPCs/gateways/events), so a choice can unlock a door, reveal an NPC, or gate a later event. (Grounded
+byte-for-byte in a real FF9 shop choice; in-game verified.)
 
 ---
 

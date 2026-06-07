@@ -59,6 +59,13 @@ def branch(option_bodies) -> bytes:
 
 
 def speak_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int = 128) -> bytes:
-    """A complete ``_SpeakBTN`` (NPC talk) body for a choice: open the prompt+options window, branch on
-    the pick, return. ``flags`` 128 is the standard field dialogue flag (same as plain NPC dialogue)."""
-    return opcodes.window_sync(window, flags, prompt_txid) + branch(option_bodies) + opcodes.RETURN
+    """A complete ``_SpeakBTN`` (NPC talk) body for a choice: lock the player, open the prompt+options
+    window, branch on the pick, then restore control and return. ``flags`` 128 is the standard field
+    dialogue flag (same as plain NPC dialogue).
+
+    Why DisableMove/EnableMove: the engine does NOT block field movement while a dialog is open, so
+    without this the d-pad would move BOTH the menu cursor AND the character. Real FF9 wraps a choice
+    in DisableMove...EnableMove (e.g. the Black Mage shop), and the menu still navigates because choice
+    input comes from the dialog system, not field control."""
+    return (opcodes.DISABLE_MOVE + opcodes.window_sync(window, flags, prompt_txid)
+            + branch(option_bodies) + opcodes.ENABLE_MOVE + opcodes.RETURN)
