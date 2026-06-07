@@ -444,10 +444,10 @@ steps = [
 **Reliability — the build checks your walks.** A FF9 walk is straight‑line and *synchronous* (the scene
 blocks until the actor arrives), so a walk that can't reach its target makes the actor press into the
 obstacle forever and **hangs the scene**. The build tracks the actor through the steps and **warns** when
-a walk's **target is off the floor**, its **target sits inside another character's collision box**, or its
-**straight path crosses a wall** — a runtime softlock turned into a build message. If a leg is flagged,
-drop an intermediate `[[marker]]` and walk via it. (Multi‑waypoint `path` and automatic routing are coming
-next.)
+a walk's **target is off the floor**, its **target sits inside another character's collision box**, its
+**straight path crosses a wall**, or its **path passes through another character** (you can't walk through
+a standing NPC/the player) — a runtime softlock turned into a build message. If a leg is flagged, drop an
+intermediate `[[marker]]` and walk via it. (Multi‑waypoint `path` and automatic routing are coming next.)
 
 #### Character gestures (`animation` by name)
 

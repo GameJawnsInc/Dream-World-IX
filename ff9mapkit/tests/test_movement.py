@@ -90,6 +90,29 @@ def test_validate_warns_walk_into_object_box(tmp_path):
     assert not any("collision box" in m for m in w2)            # @player auto-approaches -> no stall
 
 
+def test_validate_warns_path_through_object(tmp_path):
+    # endpoints clear, but the straight path grazes a standing character's box -> stalls mid-walk
+    wm = _quad_wmesh()
+    body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-150]\n'
+            '[[npc]]\nname="V"\npreset="vivi"\npos=[-400,0]\n[[marker]]\nname="far"\npos=[400,0]\n'
+            '[cutscene]\nactor="V"\nsteps=[ { walk = "far" } ]\n')
+    proj = _load(body, tmp_path)
+    w = []
+    build._validate_cutscene_movement(proj, wm, w)
+    assert any("passes through" in m for m in w)
+
+
+def test_walk_up_to_object_does_not_falseflag_its_own_approach(tmp_path):
+    # a walk TO @player (auto-stopped at ~232) must NOT itself be flagged as passing through the box
+    wm = _quad_wmesh()
+    proj = _load('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-700]\n'
+                 '[[npc]]\nname="V"\npreset="vivi"\npos=[0,0]\n'
+                 '[cutscene]\nactor="V"\nsteps=[ { walk = "@player" } ]\n', tmp_path)
+    w = []
+    build._validate_cutscene_movement(proj, wm, w)
+    assert not any("collision box" in m or "passes through" in m for m in w)
+
+
 def test_validate_cutscene_movement_warns_offmesh_and_clean(tmp_path):
     wm = _quad_wmesh()
     base = ('[field]\nid=4003\nname="X"\narea=11\n'

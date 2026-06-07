@@ -983,6 +983,33 @@ def _object_collisions(project: FieldProject, point, exclude_actor):
             if ((point[0] - p[0]) ** 2 + (point[1] - p[1]) ** 2) ** 0.5 < thresh]
 
 
+def _point_segment_dist(p, a, b) -> float:
+    """Exact min distance from point ``p`` to segment ``a``->``b`` (clamped to the segment)."""
+    dx, dz = b[0] - a[0], b[1] - a[1]
+    l2 = dx * dx + dz * dz
+    t = 0.0 if l2 == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / l2))
+    cx, cz = a[0] + dx * t, a[1] + dz * t
+    return ((p[0] - cx) ** 2 + (p[1] - cz) ** 2) ** 0.5
+
+
+def _segment_hits_object(project: FieldProject, a, b, exclude_actor):
+    """The first OTHER object whose collision box the straight path ``a``->``b`` passes THROUGH (exact
+    point-to-segment distance < the collision box). A walk that grazes a standing character is blocked
+    there and stalls -- even if both endpoints are clear. Returns the object label or None."""
+    thresh = 2 * cam.OBJECT_COLLISION_W
+    objs = []
+    sp = project.raw.get("player", {}).get("spawn")
+    if sp:
+        objs.append(("the player's spawn", sp))
+    for n in project.raw.get("npc", []):
+        if n.get("name") != exclude_actor and n.get("pos"):
+            objs.append((f"NPC {n['name']!r}", n["pos"]))
+    for label, p in objs:
+        if _point_segment_dist(p, a, b) < thresh:
+            return label
+    return None
+
+
 def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) -> None:
     """Warn when an ACTOR cutscene's walk would STALL in-game (a field walk is synchronous + straight-
     line, so a blocked path softlocks the scene). Validates the FINAL resolved targets (with @object
@@ -1009,10 +1036,15 @@ def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) ->
                                 f"can't reach it and the scene will stall. Aim at a floor point / marker.")
             else:
                 hits = _object_collisions(project, tgt, cs["actor"])
+                blocker = _segment_hits_object(project, pos, tgt, cs["actor"])
                 if hits:
                     warnings.append(f"[cutscene] step {k}: walk target {tgt} is inside {hits[0]}'s "
                                     f"collision box -- the actor presses into it and the scene stalls. "
                                     f"Walk to @<that object> (auto-stops adjacent), or aim beside it.")
+                elif blocker:
+                    warnings.append(f"[cutscene] step {k}: the walk from {pos} to {tgt} passes through "
+                                    f"{blocker}'s collision box -- the actor is blocked mid-path and the "
+                                    f"scene stalls. Route around it via an intermediate marker.")
                 elif _segment_leaves_floor(wmesh, pos, tgt):
                     warnings.append(f"[cutscene] step {k}: the walk from {pos} to {tgt} crosses off the "
                                     f"walkmesh -- the actor presses into the wall and the scene hangs. "
