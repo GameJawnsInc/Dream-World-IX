@@ -52,7 +52,7 @@ class BuildError(RuntimeError):
 # clobbers your script. Single-file field.tomls (no scene sibling) build exactly as before.
 
 _SCENE_SCALAR = ("camera", "walkmesh", "layers", "camera_zone")   # spatial sections the scene owns
-_ENTITY_LISTS = ("npc", "gateway", "event")                        # split by name (logic + spatial)
+_ENTITY_LISTS = ("npc", "gateway", "event", "marker")              # split by name (logic + spatial)
 
 
 def _merge_entities(base_list, scene_list):
@@ -208,6 +208,9 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[event]] zone must have 4 or 5 points (got {len(z)})")
         if not any(k in ev for k in ("message", "give_item", "gil", "set_flag")):
             problems.append("[[event]] needs at least one action (message / give_item / gil / set_flag)")
+    for m in project.raw.get("marker", []):
+        if "name" not in m or "pos" not in m:
+            problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
     # speaker (a name prefix) + tail (the dialogue-window pointer) are optional dialogue modifiers
     for label, items in (("[[npc]]", project.raw.get("npc", [])),
                          ("[[event]]", project.raw.get("event", []))):
@@ -225,6 +228,7 @@ def validate(project: FieldProject) -> list[str]:
         allowed = global_keys + (actor_keys if actor else ())
         actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == actor), None)
         anim_token = actor_npc.get("preset") if actor_npc else None
+        move_reg = _position_registry(project)
         if not isinstance(steps, list) or not steps:
             problems.append("[cutscene] needs a non-empty steps = [ {say=...}, {wait=...}, ... ] list")
         else:
@@ -247,6 +251,12 @@ def validate(project: FieldProject) -> list[str]:
                     else:
                         try:
                             _animations.resolve(anim_token, a)
+                        except ValueError as e:
+                            problems.append(f"[cutscene] step {k}: {e}")
+                for mk in ("walk", "teleport"):           # a named move target must resolve to a point
+                    if isinstance(s.get(mk), str):
+                        try:
+                            _resolve_point(s[mk], move_reg)
                         except ValueError as e:
                             problems.append(f"[cutscene] step {k}: {e}")
         if actor is not None and actor not in {n.get("name") for n in project.raw.get("npc", [])}:
@@ -543,6 +553,7 @@ def _validate_content_placement(project: FieldProject, wmesh, warnings: list) ->
                 warnings.append(
                     f"event #{k}: zone centre ({int(cx)}, {int(cz)}) is off the walkmesh -- "
                     f"the player may not be able to walk into it.")
+    _validate_cutscene_movement(project, wmesh, warnings)    # an actor cutscene's walks must not stall
 
 
 def _validate_walkmesh_geometry(project: FieldProject, wmesh, warnings: list) -> None:
@@ -712,6 +723,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if cs_actor:
         actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs_actor), None)
         steps = _resolve_anim_steps(cs["steps"], actor_npc)   # animation = "glad" -> the numeric id
+        steps = _resolve_move_steps(steps, project)           # walk = "fountain" / "@player" -> [x, z]
         cs_fclass, cs_fidx = _cutscene.once_flag_for(cs)   # GLOB (once ever) or MAP (replay per visit)
         actor_choreo = _cutscene.build_choreography(
             steps, cutscene_txids, cs_fidx, flag_class=cs_fclass,
@@ -851,6 +863,103 @@ def _resolve_anim_steps(steps, actor_npc):
             s = {**s, "animation": _animations.resolve(token, a)}
         out.append(s)
     return out
+
+
+def _position_registry(project: FieldProject) -> dict:
+    """name -> (x, z) for movement references in cutscenes: ``player`` / ``spawn`` (the player spawn),
+    each ``[[npc]]`` by name, and each ``[[marker]]`` by name. Markers are build-time-only named points
+    (placed in Blender / typed in the toml) so a cutscene can ``walk = "fountain"`` instead of raw coords."""
+    reg = {}
+    sp = project.raw.get("player", {}).get("spawn")
+    if sp:
+        reg["player"] = reg["spawn"] = (int(sp[0]), int(sp[1]))
+    for n in project.raw.get("npc", []):
+        if n.get("name") and n.get("pos"):
+            reg[n["name"]] = (int(n["pos"][0]), int(n["pos"][1]))
+    for m in project.raw.get("marker", []):
+        if m.get("name") and m.get("pos"):
+            reg[m["name"]] = (int(m["pos"][0]), int(m["pos"][1]))
+    return reg
+
+
+def _resolve_point(value, reg: dict):
+    """A walk/teleport target -> (x, z). A ``[x, z]`` list passes through; a string is a marker / NPC /
+    player name (a leading ``@`` is optional). Raises ValueError (listing names) on an unknown name."""
+    if isinstance(value, (list, tuple)):
+        return (int(value[0]), int(value[1]))
+    key = str(value).strip()
+    key = key[1:] if key.startswith("@") else key
+    if key in reg:
+        return reg[key]
+    raise ValueError(f"movement target {value!r} isn't a [x, z] or a known marker/NPC name. "
+                     f"Known: {', '.join(sorted(reg)) or '(none)'} (define a [[marker]] or use [x, z]).")
+
+
+def _resolve_move_steps(steps, project: FieldProject):
+    """Resolve named ``walk`` / ``teleport`` targets (markers / ``@player`` / NPC names) to ``[x, z]``.
+    Coord lists pass through untouched. Raises ValueError on an unknown name."""
+    reg = _position_registry(project)
+    out = []
+    for s in steps:
+        s2 = s
+        for mk in ("walk", "teleport"):
+            if mk in s and isinstance(s[mk], str):
+                if s2 is s:
+                    s2 = dict(s)
+                s2[mk] = list(_resolve_point(s[mk], reg))
+        out.append(s2)
+    return out
+
+
+def _segment_leaves_floor(wmesh, a, b) -> bool:
+    """True if the straight segment a->b, ONCE on the walkmesh, later leaves it (a wall/gap crossing).
+    Samples ~every collision radius. Tolerant of an off-mesh START (a walk-in from off-screen) -- the
+    path just has to stay on the floor once it's entered. A field walk is straight-line + synchronous,
+    so a path that leaves the floor presses into the wall forever and hangs the scene."""
+    dx, dz = b[0] - a[0], b[1] - a[1]
+    dist = (dx * dx + dz * dz) ** 0.5
+    n = max(2, int(dist / max(1.0, cam.COLLISION_RADIUS_W)) + 1)
+    on = False
+    for i in range(n + 1):
+        t = i / n
+        here = wmesh.point_on_walkmesh(int(round(a[0] + dx * t)), int(round(a[1] + dz * t))) is not None
+        if here:
+            on = True
+        elif on:
+            return True
+    return False
+
+
+def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) -> None:
+    """Warn when an ACTOR cutscene's walk would STALL in-game (the field walk is synchronous + straight-
+    line, so a blocked path softlocks the scene). Tracks the actor's position through the steps and flags
+    a walk whose target is off the floor, or whose straight path crosses a wall -- turning a runtime hang
+    into a build warning. Names (markers / @player / NPCs) are resolved via the position registry."""
+    cs = project.raw.get("cutscene")
+    if not cs or not cs.get("actor"):
+        return
+    actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs["actor"]), None)
+    if not actor_npc or not actor_npc.get("pos"):
+        return
+    reg = _position_registry(project)
+    pos = (int(actor_npc["pos"][0]), int(actor_npc["pos"][1]))
+    for k, s in enumerate(cs.get("steps", [])):
+        try:
+            if "teleport" in s:
+                pos = _resolve_point(s["teleport"], reg)
+            elif "walk" in s:
+                tgt = _resolve_point(s["walk"], reg)
+                if wmesh.point_on_walkmesh(tgt[0], tgt[1]) is None:
+                    warnings.append(f"[cutscene] step {k}: walk target {tuple(tgt)} is off the walkmesh -- "
+                                    f"the actor can't reach it and the scene will stall. Aim at a floor "
+                                    f"point / marker.")
+                elif _segment_leaves_floor(wmesh, pos, tgt):
+                    warnings.append(f"[cutscene] step {k}: the walk from {tuple(pos)} to {tuple(tgt)} "
+                                    f"crosses off the walkmesh -- the actor presses into the wall and the "
+                                    f"scene hangs. Add an intermediate marker to route around it.")
+                pos = tgt
+        except ValueError:
+            return       # an unresolved name -- validate() already reports it; skip the geometry check
 
 
 def _wrap_width(project: FieldProject):

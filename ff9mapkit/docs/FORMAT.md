@@ -403,8 +403,8 @@ Actor steps (only valid when `actor` is set — they need the NPC's context):
 
 | step (one key each) | meaning |
 |---|---|
-| `walk` | `[x, z]` — walk to a world position (uses the NPC's walk animation; blocks until it arrives). Optional `speed = N` (with `walk`) sets the walk speed. Works to any point incl. directly behind the actor (it turns tight, no orbit). |
-| `teleport` | `[x, z]` — instantly move (no walk). Put it **first** to start a walk-in from off-screen — a leading teleport runs before the warm-up so the actor settles there, then walks in. |
+| `walk` | a **target** to walk to — a marker/entity **name** (`"fountain"`, `"@player"`, `"@Steiner"`) or raw `[x, z]`. Uses the NPC's walk animation; blocks until it arrives; turns tight (no orbit). Optional `speed = N`. See *Movement targets* below. |
+| `teleport` | a target to **instantly** move to (name or `[x, z]`). Put it **first** to start a walk-in from off-screen — a leading teleport runs before the warm-up so the actor settles there, then walks in. |
 | `animation` | a gesture **by name** (`"glad"`, `"angry"`, `"yawn"`, …) resolved against the actor's preset model, **or** a raw numeric id. Played, then held ~40 frames (no hang on a looping clip). See *Character gestures* below. |
 | `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — turn to face it, animated. |
 | `face_player` | `true` — turn to face the player. |
@@ -412,6 +412,36 @@ Actor steps (only valid when `actor` is set — they need the NPC's context):
 `say` / `wait` / `set_flag` also work in an actor cutscene (interleaved in order). The NPC ends where
 its last `walk`/`teleport` leaves it on the first visit; on a replay visit it's at its `pos`, so end
 the last `walk` at `pos` (or just `teleport` in and `walk` back to `pos`) to stay consistent.
+
+#### Movement targets (`walk` / `teleport` by name)
+
+Instead of typing coordinates, give a walk/teleport a **name** so you place the point once (in Blender
+or the toml) and reference it everywhere:
+
+- **`[[marker]]`** — a named point: `name = "fountain"`, `pos = [x, z]`. Pure authoring reference (no
+  in-game object). Place these visually in Blender, or list them in the toml.
+- **`@player`** / **`@spawn`** — the player's spawn point.
+- **`@<npc name>`** (or just the name) — that NPC's position, or another marker.
+
+```toml
+[[marker]]
+name = "altar"
+pos = [0, -600]
+
+[cutscene]
+actor = "vivi"
+steps = [
+  { walk = "altar" },     # walk to the named point
+  { walk = "@player" },   # walk to the player's spot
+]
+```
+
+**Reliability — the build checks your walks.** A FF9 walk is straight‑line and *synchronous* (the scene
+blocks until the actor arrives), so a walk whose **target is off the floor**, or whose **straight path
+crosses a wall**, makes the actor press into the wall forever and **hangs the scene**. The build now
+**warns** on both (it tracks the actor's position through the steps and tests each segment against the
+walkmesh) — a runtime softlock turned into a build message. If a leg is flagged, drop an intermediate
+`[[marker]]` and walk via it. (Multi‑waypoint `path` and automatic routing are coming next.)
 
 #### Character gestures (`animation` by name)
 
