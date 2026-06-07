@@ -162,6 +162,74 @@ def _spawn_at_ff9(context, xz):
     e.location = loc
 
 
+def _import_content(context, field_cfg, scene_cfg):
+    """Re-create placed content as Blender markers on import (round-trip): NPC / waypoint / gateway /
+    event from the merged field.toml (logic) + scene.toml (positions). Positions are FF9 floor coords
+    mapped back to Blender. Skips a named entity already present (same kind+name) so a re-import doesn't
+    duplicate. Returns a {kind: count} tally."""
+    def loc(x, z):
+        return bridge.ff9_verts_to_blender([(float(x), 0.0, float(z))])[0]
+    existing = {(o.get(MARKER_KEY), o.get("ff9_name")) for o in context.scene.objects if o.get(MARKER_KEY)}
+    made = {}
+
+    def add_empty(kind, name, x, z, props):
+        e = bpy.data.objects.new("FF9_NPC" if kind == "npc" else "FF9_Waypoint", None)
+        e.empty_display_type = "ARROWS" if kind == "npc" else "SPHERE"
+        e.empty_display_size = 200.0 if kind == "npc" else 120.0
+        e.location = loc(x, z)
+        e[MARKER_KEY] = kind
+        e["ff9_name"] = name
+        for k, v in props.items():
+            if v is not None:
+                e[k] = v
+        _link_active(context, e)
+
+    def add_zone(kind, name, zone, props, color=None):
+        mesh = bpy.data.meshes.new("FF9_Gateway" if kind == "gateway" else "FF9_Event")
+        mesh.from_pydata([list(loc(x, z)) for (x, z) in zone[:4]], [], [(0, 1, 2, 3)])
+        mesh.update()
+        obj = bpy.data.objects.new(mesh.name, mesh)
+        obj.display_type = "WIRE"
+        obj.show_in_front = True
+        if color:
+            obj.color = color
+        obj[MARKER_KEY] = kind
+        if name is not None:
+            obj["ff9_name"] = name
+        for k, v in props.items():
+            if v is not None:
+                obj[k] = v
+        _link_active(context, obj)
+
+    for n in bridge.merge_import_entities(field_cfg, scene_cfg, "npc"):
+        nm = n.get("name") or "NPC"
+        if n.get("pos") and ("npc", nm) not in existing:
+            add_empty("npc", nm, n["pos"][0], n["pos"][1],
+                      {"ff9_preset": n.get("preset"), "ff9_dialogue": n.get("dialogue")})
+            made["npc"] = made.get("npc", 0) + 1
+    for m in bridge.merge_import_entities(field_cfg, scene_cfg, "marker"):
+        nm = m.get("name") or "waypoint"
+        if m.get("pos") and ("waypoint", nm) not in existing:
+            add_empty("waypoint", nm, m["pos"][0], m["pos"][1], {})
+            made["marker"] = made.get("marker", 0) + 1
+    for g in bridge.merge_import_entities(field_cfg, scene_cfg, "gateway"):
+        nm = g.get("name")
+        if g.get("zone") and not (nm and ("gateway", nm) in existing):
+            add_zone("gateway", nm, g["zone"],
+                     {"ff9_to": int(g.get("to", 100)), "ff9_entrance": int(g.get("entrance", 0))})
+            made["gateway"] = made.get("gateway", 0) + 1
+    for ev in bridge.merge_import_entities(field_cfg, scene_cfg, "event"):
+        nm = ev.get("name") or "event"
+        if ev.get("zone") and ("event", nm) not in existing:
+            sf = ev.get("set_flag")
+            sf_idx = int(sf[0]) if isinstance(sf, (list, tuple)) else (int(sf) if sf is not None else -1)
+            add_zone("event", nm, ev["zone"],
+                     {"ff9_message": ev.get("message"), "ff9_set_flag": sf_idx,
+                      "ff9_once": 1 if ev.get("once", True) else 0}, color=(1.0, 0.85, 0.1, 1.0))
+            made["event"] = made.get("event", 0) + 1
+    return made
+
+
 def _apply_canvas_resolution(context, rw, rh):
     """Match the render resolution to the FF9 canvas so the camera frames the field at the right
     aspect. FF9 fields are 384x448 portrait (wider when scrolling); Blender defaults to 1920x1080
@@ -1000,6 +1068,14 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             return {"CANCELLED"}
         with open(tomls[0], "rb") as fh:
             cfg = tomllib.load(fh)
+        # a sibling <name>.scene.toml (a Blender-authored project) holds the entity POSITIONS; merge it
+        # so a re-imported project round-trips. A CLI `ff9mapkit import` has none (positions are inline).
+        scene_cfg = {}
+        scene_path = (tomls[0][:-len(".field.toml")] + ".scene.toml" if tomls[0].endswith(".field.toml")
+                      else os.path.splitext(tomls[0])[0] + ".scene.toml")
+        if os.path.isfile(scene_path):
+            with open(scene_path, "rb") as fh:
+                scene_cfg = tomllib.load(fh)
         field = cfg.get("field", {})
         cams = cam.parse_bgx_cameras(bgx_path)
         if not cams:
@@ -1118,9 +1194,12 @@ class FF9MK_OT_import_field(bpy.types.Operator):
                 cam_obj.location.x += cx - aim_x
                 cam_obj.location.y += cy - aim_y
 
-        spawn = cfg.get("player", {}).get("spawn")
+        spawn = (scene_cfg.get("player") or cfg.get("player") or {}).get("spawn")
         if spawn and len(spawn) == 2:
             _spawn_at_ff9(context, spawn)
+        # round-trip the placed content: NPCs / waypoints / gateways / events as markers (positions from
+        # the scene.toml if present, else the field.toml's inline pos/zone -- e.g. a forked field's exits).
+        content = _import_content(context, cfg, scene_cfg)
         p.export_dir = d                       # re-export here, preserving the exact camera.bgx
 
         # real-art backdrop, if `ff9mapkit import` composited a single flattened one (older path).
@@ -1138,8 +1217,9 @@ class FF9MK_OT_import_field(bpy.types.Operator):
 
         seam_note = (f" {n_seams} cross-floor seam(s) highlighted (FF9_Seams) -- don't move those edges."
                      if n_seams else "")
-        self.report({"INFO"}, f"imported {p.borrow_bg or p.field_name}: real camera + walkmesh loaded."
-                              f"{seam_note} Add NPC/gateway/spawn markers, then Export Field.")
+        loaded = ("  " + ", ".join(f"{v} {k}" for k, v in content.items()) + " loaded.") if content else ""
+        self.report({"INFO"}, f"imported {p.borrow_bg or p.field_name}: camera + walkmesh loaded."
+                              f"{seam_note}{loaded} Add/edit markers, then Export Field.")
         return {"FINISHED"}
 
 

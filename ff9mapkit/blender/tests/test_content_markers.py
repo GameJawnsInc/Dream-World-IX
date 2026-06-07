@@ -223,3 +223,17 @@ def test_multicam_field_builds_with_two_cameras_and_a_switch_zone(tmp_path):
     s = EbScript.from_bytes(eb)
     ops = {i.op for ent in s.entries for fn in ent.funcs for i in disasm.iter_code(eb, fn.abs_start, fn.abs_end)}
     assert 0x7E in ops          # SetFieldCamera injected by the switch zone
+
+
+# --- round-trip: import re-creates placed content as markers ------------------------------
+def test_merge_import_entities_round_trips_positions_and_logic():
+    field = {"npc": [{"name": "Vivi", "preset": "vivi", "dialogue": "hi"}],
+             "gateway": [{"to": 100, "entrance": 204, "zone": [[0, 0], [10, 0], [10, 10], [0, 10]]}]}
+    scene = {"npc": [{"name": "Vivi", "pos": [10, -20]}],
+             "marker": [{"name": "spot", "pos": [5, 5]}]}
+    npcs = bridge.merge_import_entities(field, scene, "npc")          # logic from field, pos from scene
+    assert npcs[0]["pos"] == [10, -20] and npcs[0]["preset"] == "vivi" and npcs[0]["dialogue"] == "hi"
+    gws = bridge.merge_import_entities(field, {}, "gateway")          # CLI import: inline zone, no scene
+    assert gws[0]["zone"] and gws[0]["to"] == 100 and gws[0]["entrance"] == 204
+    mks = bridge.merge_import_entities(field, scene, "marker")        # scene-only entity kept
+    assert mks[0]["name"] == "spot" and mks[0]["pos"] == [5, 5]

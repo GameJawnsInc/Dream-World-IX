@@ -583,6 +583,28 @@ def markers_to_toml(markers):
     return "\n\n".join(blocks)
 
 
+def merge_import_entities(field_cfg, scene_cfg, kind):
+    """Merge a field.toml entity list (logic) with a scene.toml one (positions) by name, for RE-CREATING
+    Blender markers on import (the inverse of the export split). The scene supplies ``pos``/``zone``;
+    the field supplies the logic; scene-only entities are kept. A CLI import (no scene.toml) keeps the
+    field.toml's own inline ``pos``/``zone``. Returns a list of merged dicts."""
+    field_list = list(field_cfg.get(kind, []) or [])
+    scene_list = list((scene_cfg or {}).get(kind, []) or [])
+    scene_by_name = {e["name"]: e for e in scene_list if e.get("name")}
+    out = []
+    for e in field_list:
+        m = dict(e)
+        sc = scene_by_name.get(e.get("name"))
+        if sc:
+            for k in ("pos", "zone"):
+                if k in sc:
+                    m[k] = sc[k]
+        out.append(m)
+    names = {e.get("name") for e in field_list}
+    out += [dict(e) for e in scene_list if e.get("name") not in names]
+    return out
+
+
 # --- Two-file split (Godot-style): scene.toml (spatial, Blender-owned) + field.toml (logic, yours) -
 def _entity_scene_blocks(npcs=(), gateways=(), events=(), markers=()):
     """Spatial-only entity blocks for scene.toml: just ``name`` + ``pos`` / ``zone`` (the logic --
