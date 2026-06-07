@@ -408,6 +408,25 @@ safe choice. An option's `set_flag` feeds the same story-flag system above (`req
 NPCs/gateways/events), so a choice can unlock a door, reveal an NPC, or gate a later event. (Grounded
 byte-for-byte in a real FF9 shop choice; in-game verified.)
 
+**One-shot vs re-usable.** An `action` zone-choice is re-usable by default (correct for a merchant
+you buy from repeatedly). To make a **one-time lever**, gate the choice on a flag the consuming option
+sets — the SAME flag that drives whatever it triggers:
+
+```toml
+[[choice]]
+zone = [[300,-400],[700,-400],[700,-800],[300,-800]]
+prompt = "Pull the lever?"
+requires_flag_clear = 8001          # only offered while not yet pulled
+[[choice.options]]
+text = "Pull it."
+set_flag = [8001, 1]                # marks it pulled -> the lever stops responding (and opens the door)
+[[choice.options]]
+text = "Leave it."                  # sets nothing -> still pullable
+```
+
+The door it opens would then use `[[gateway]] requires_flag = 8001`. (After it's spent the lever is
+silent; an "it won't budge" message would be a second, flag-gated interactable.)
+
 ---
 
 ## `[cutscene]` (optional)

@@ -76,13 +76,16 @@ z = 4000
 [[choice]]
 zone = {quad(LEVER)}
 prompt = "Pull the lever?"
-# default trigger = "action": stand on the zone + press the action button (re-usable; decline-safe)
+# default trigger = "action" (press to use). ONE-SHOT: only offered while flag 8001 is clear; the
+# "Pull it" option sets 8001 -> after pulling, pressing the lever does nothing. "Leave it" sets
+# nothing, so you can still pull it. (Drop requires_flag_clear for a re-usable lever.)
+requires_flag_clear = 8001
 [[choice.options]]
 text = "Pull it."
 reply = "*kachunk!*  Something opened."
-set_flag = [8001, 1]
+set_flag = [8001, 1]          # mark the lever pulled -> it won't respond again (and could open a door)
 [[choice.options]]
-text = "Leave it."            # Cancel/B picks this (the last row); does NOT consume the lever
+text = "Leave it."            # Cancel/B picks this; sets no flag, so the lever is still pullable
 
 [walkmesh]
 quad = {quad(FLOOR)}
