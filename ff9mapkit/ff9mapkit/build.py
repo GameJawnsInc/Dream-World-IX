@@ -903,9 +903,9 @@ def _object_names(project: FieldProject) -> set:
     return names
 
 
-# stop a walk-to-an-object this far out, so the actor halts just OUTSIDE the collision box (2 default
-# characters collide at ~2*OBJECT_COLLISION_W; + a margin so the walk arrives cleanly, no press-in).
-_APPROACH_MARGIN = 24.0
+# stop a walk-to-an-object this far OUTSIDE the collision box (2 characters collide within
+# 2*OBJECT_COLLISION_W = 192u; + this margin so the walk's closest approach stays clear, no press-in).
+_APPROACH_MARGIN = 40.0
 
 
 def _approach_offset(start, target):

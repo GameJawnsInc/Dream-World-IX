@@ -64,12 +64,15 @@ S_CANVAS = 1.0
 COLLISION_RADIUS_W = 48.0
 
 # Object<->object collision radius, world units (DISTINCT from the controller radius above).
-# WalkMesh.Collision blocks one actor against another when their centres are within
-# 4*collRadA + 4*collRadB; the default field character collRad is 16 (WalkMesh.cs:2363) -> 4*16 = 64
-# per character. So two default characters collide at ~2*64 = 128u apart. A cutscene walk TO another
-# object (e.g. @player) must therefore stop SHORT of this, or the actor presses into the box and the
-# synchronous walk stalls. Used to auto-approach @object targets and to warn on too-close targets.
-OBJECT_COLLISION_W = 64.0
+# WalkMesh.Collision blocks one actor against another when their centre distance < 4*collRadA +
+# 4*collRadB (disdif = dx^2+dz^2 - r^2 < 0, r = 4*collRadA + 4*collRadB). The ENGINE default collRad
+# is 16, but the kit's fields are cloned from field 1357, whose player-init sets collRad = 24 via
+# SetObjectLogicalSize (RADIUS, 0x4B) -- and an injected NPC clones the player, so BOTH are 24
+# (verified by disassembling a built script). So 4*24 = 96 per character, and two kit characters
+# collide at ~2*96 = 192u apart. A cutscene walk TO another object (e.g. @player) must stop SHORT of
+# this or the synchronous walk presses into the box forever and stalls. (A custom oversized model with
+# its own RADIUS would need a larger value.)
+OBJECT_COLLISION_W = 96.0
 
 # Character GROUND offset, world units. MEASURED IN-GAME = ~0 (Session 18 engine probe + grid, 3
 # spots x 2 pitches): the character MODEL is projected by its vertex shader's GTE (FieldMapActor.txt:
