@@ -15,7 +15,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (merchant, Yes/No lever, quest-giver). Each option can show a reply, give an item / gil, and set a
   story flag (feeding the same `requires_flag` system). Grounded byte-for-byte in a real FF9 shop
   choice: a synchronous `WindowSync` prompt (rows after `[CHOO]`) + a `GetChoose()` branch. See
-  `docs/FORMAT.md` → `[[choice]]`. (In-game proof pending.)
+  `docs/FORMAT.md` → `[[choice]]`. **In-game verified.**
+- The form editor (`ff9mapkit edit`) has a **Choices** section: edit the prompt/NPC and a list of
+  options (text / reply / give item / gil / set flag), reorderable, with `give_item` by name.
 
 ### Added — modern Field Editor look
 - The form-based editor (`ff9mapkit edit`) now ships a cohesive theme: a flat `clam`-based palette

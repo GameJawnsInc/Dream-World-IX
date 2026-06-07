@@ -16,8 +16,8 @@ import re
 from dataclasses import dataclass
 
 # field kinds
-STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE = (
-    "str", "int", "optint", "bool", "preset", "coord", "pair", "zone")
+STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE, ITEMCOUNT = (
+    "str", "int", "optint", "bool", "preset", "coord", "pair", "zone", "itemcount")
 # cutscene-step kinds: a movement target (a name OR "x, z"), a route (list of those), a gesture (name OR id)
 POINT, PATH, ANIM = "point", "path", "anim"
 
@@ -92,6 +92,19 @@ MARKER_SPEC = [
     Field("name", "Name", STR, "a label; reference it in a cutscene as walk = \"<name>\""),
     Field("pos", "Position (x, z)", COORD, "where it sits on the floor; or place it in Blender"),
 ]
+CHOICE_SPEC = [
+    Field("npc", "NPC", STR, "the [[npc]] name the player talks to (must match an NPC)"),
+    Field("prompt", "Prompt", STR, "the question shown above the options"),
+    Field("speaker", "Speaker name", STR, "optional name before the prompt"),
+    Field("tail", "Window tail", STR, "UPR/UPL/LOR/LOL/UPC/LOC (default UPR)"),
+]
+CHOICE_OPTION_SPEC = [
+    Field("text", "Option text", STR, "the menu row the player selects (keep it short)"),
+    Field("reply", "Reply", STR, "optional line shown after choosing this option"),
+    Field("give_item", "Give item", ITEMCOUNT, 'item + count, e.g. "Potion, 1" (name or id)'),
+    Field("gil", "Gil", OPTINT, "gil; NEGATIVE charges the player (e.g. -100)"),
+    Field("set_flag", "Set flag (idx, val)", PAIR, "raise a story flag, e.g. 8001, 1"),
+]
 DIALOGUE_SPEC = [
     Field("wrap", "Auto-wrap width", OPTINT, "max chars per line (default 28); set 0 to turn wrapping off"),
 ]
@@ -108,6 +121,7 @@ SECTION_HELP = {
     "gateway": "An exit zone -> another field (the door the player walks into).",
     "event": "A walk-in trigger: show a message, give an item/gil, or set a story flag.",
     "marker": "Named points on the floor. A cutscene walk/path can reach them by name (no coords).",
+    "choice": "Talk to an NPC -> a menu -> branch. Each option can reply, give item/gil, set a flag.",
 }
 
 # cutscene steps: each is a dict with exactly one action key.
@@ -189,6 +203,30 @@ def format_zone(v):
     return "; ".join(f"{int(x)} {int(z)}" for (x, z) in v)
 
 
+def parse_itemcount(s):
+    """give_item: ``"item, count"`` -> ``[item, count]``. ``item`` is an int when numeric, else a name
+    string ("Potion", "236", "Phoenix Down, 3" all work -- split on the FIRST comma so item names may
+    contain spaces). ``count`` defaults to 1. Empty -> None."""
+    s = _str(s).strip()
+    if s == "":
+        return None
+    item, _, cnt = s.partition(",")
+    item = item.strip()
+    if item == "":
+        raise ValueError("give item: needs an item name or id")
+    item_v = int(item) if item.lstrip("-").isdigit() else item
+    cnt = cnt.strip()
+    try:
+        count = int(cnt) if cnt else 1
+    except ValueError:
+        raise ValueError(f"give item: count must be a whole number, got {cnt!r}")
+    return [item_v, count]
+
+
+def format_itemcount(v):
+    return "" if not v else f"{v[0]}, {int(v[1]) if len(v) > 1 else 1}"
+
+
 def _is_int(s):
     return bool(re.fullmatch(r"-?\d+", str(s).strip()))
 
@@ -246,6 +284,8 @@ def _parse_field(kind, raw):
         return parse_pair(raw)
     if kind == ZONE:
         return parse_zone(raw)
+    if kind == ITEMCOUNT:
+        return parse_itemcount(raw)
     raise ValueError(f"unknown field kind {kind!r}")
 
 
@@ -280,6 +320,8 @@ def entity_to_values(spec, entity: dict) -> dict:
             vals[f.key] = format_pair(v)
         elif f.kind == ZONE:
             vals[f.key] = format_zone(v)
+        elif f.kind == ITEMCOUNT:
+            vals[f.key] = format_itemcount(v)
         else:
             vals[f.key] = str(v)
     return vals
@@ -339,3 +381,27 @@ def step_summary(step: dict) -> str:
     if k == "face_player":
         return "face_player"
     return f"{k}: {step_value_text(step)}"
+
+
+# --- choices (npc + prompt + a list of options) ------------------------------------------
+def choice_summary(ch: dict) -> str:
+    """One-line label for the choice tree, e.g. ``Vivi: What'll it be? (3)``."""
+    who = ch.get("npc") or "?"
+    q = (ch.get("prompt") or "").strip()
+    n = len(ch.get("options", []))
+    return f"{who}: {q[:28]}{'...' if len(q) > 28 else ''} ({n})"
+
+
+def option_summary(o: dict) -> str:
+    """One-line label for an option row, e.g. ``Yes  [reply, item, -100g, flag 8001]``."""
+    txt = o.get("text") or "(no text)"
+    tags = []
+    if o.get("reply"):
+        tags.append("reply")
+    if o.get("give_item"):
+        tags.append("item")
+    if o.get("gil") is not None:
+        tags.append(f"{int(o['gil']):+}g")
+    if o.get("set_flag"):
+        tags.append(f"flag {o['set_flag'][0]}")
+    return txt + (f"  [{', '.join(tags)}]" if tags else "")

@@ -53,6 +53,8 @@ class EditorApp:
         self.active = None                 # {"type":..., "index":...} currently-edited node
         self.getters = {}                  # key -> widget reader for the active form
         self.step_widgets = None           # cutscene step editor state
+        self.opt_widgets = None            # choice-options sub-editor state
+        self.active_choice = None          # index of the choice whose options are being edited
         self.busy = False
         self.deploy = _find_tool("deploy_field.py")
         self.revert = _find_tool("revert_deploy.py")
@@ -128,6 +130,7 @@ class EditorApp:
             "SECTIONS\n"
             "  - NPCs / Gateways / Events: people, exits, and walk-in triggers.\n"
             "  - Markers: named floor points a cutscene can walk to by name.\n"
+            "  - Choices: talk to an NPC -> a menu -> branch (each option: reply / item / gil / flag).\n"
             "  - Cutscene: ordered steps (control locks). An 'actor' NPC can walk / emote.\n"
             "  - Dialogue: auto-wrap width for long lines. Encounter / Music: battles + BGM.\n\n"
             "CUTSCENE STEPS\n"
@@ -268,6 +271,9 @@ class EditorApp:
             for i, e in enumerate(self.doc.data.get(key, [])):
                 nm = e.get("name") or f"#{i}"
                 self.tree.insert(parent, "end", iid=f"{key}:{i}", text=nm)
+        cparent = self.tree.insert("", "end", iid="choice", text="Choices  (+)", open=True)
+        for i, ch in enumerate(self.doc.data.get("choice", [])):
+            self.tree.insert(cparent, "end", iid=f"choice:{i}", text=forms.choice_summary(ch))
         if reselect and self.tree.exists(reselect):
             self.tree.selection_set(reselect)
             self.tree.see(reselect)
@@ -287,6 +293,7 @@ class EditorApp:
             w.destroy()
         self.getters = {}
         self.step_widgets = None
+        self.opt_widgets = None
         self.active = None
 
     def _show_welcome(self):
@@ -317,6 +324,10 @@ class EditorApp:
             self._show_optional_single(iid, SINGLE_SPECS[iid], iid.capitalize())
         elif iid == "cutscene":
             self._show_cutscene()
+        elif iid == "choice":
+            self._show_choice_list()
+        elif iid.startswith("choice:"):
+            self._show_choice(int(iid.split(":", 1)[1]))
         elif iid in LIST_SPECS:
             self._show_list_parent(iid)
         elif ":" in iid:
@@ -335,7 +346,7 @@ class EditorApp:
         g.pack(fill="x", padx=8, pady=4)
         return g
 
-    def _render_spec(self, parent, spec, values):
+    def _render_spec(self, parent, spec, values, vars_out=None):
         getters = {}
         for r, f in enumerate(spec):
             ttk.Label(parent, text=f.label + ":").grid(row=r, column=0, sticky="ne", padx=4, pady=2)
@@ -350,6 +361,8 @@ class EditorApp:
                 var = tk.StringVar(value=str(values.get(f.key, "") or ""))
                 ttk.Entry(parent, textvariable=var).grid(row=r, column=1, sticky="we")
             getters[f.key] = var.get
+            if vars_out is not None:          # expose the vars so a caller can re-populate (option editor)
+                vars_out[f.key] = var
             if f.help:
                 ttk.Label(parent, text=f.help, foreground=self.palette["muted"]).grid(
                     row=r, column=2, sticky="w", padx=6)
@@ -548,14 +561,134 @@ class EditorApp:
         if select is not None and 0 <= select < lb.size():
             lb.selection_set(select)
 
+    # --------------------------------------------------------------- choices (npc + options)
+    def _show_choice_list(self):
+        self._header("Choices", "choice")
+        ttk.Button(self.form, text="Add choice", command=self._add_choice).pack(anchor="w", padx=10, pady=6)
+        n = len(self.doc.data.get("choice", []))
+        ttk.Label(self.form, text=f"{n} choice(s). Select one on the left to edit, or Add. A choice "
+                  "attaches to an NPC by name; talking to it shows the menu.").pack(anchor="w", padx=10)
+        self.active = None
+
+    def _add_choice(self):
+        lst = self.doc.data.setdefault("choice", [])
+        lst.append({"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]})
+        self._refresh_tree(reselect=f"choice:{len(lst) - 1}")
+        self._show_choice(len(lst) - 1)
+
+    def _show_choice(self, idx):
+        lst = self.doc.data.get("choice", [])
+        if idx >= len(lst):
+            return
+        ch = lst[idx]
+        pal = self.palette
+        self.active_choice = idx
+        self._header(f"Choice: {ch.get('npc') or '#' + str(idx)}", "choice")
+        self.getters = self._render_spec(self._form_grid(), forms.CHOICE_SPEC,
+                                         forms.entity_to_values(forms.CHOICE_SPEC, ch))
+        self.active = {"type": "choice", "section": "choice", "index": idx}
+        # --- the options list + a per-option form ---
+        ttk.Label(self.form, text="Options (top-to-bottom; Cancel/B picks the LAST):",
+                  font=("", 10, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
+        row = ttk.Frame(self.form)
+        row.pack(fill="x", padx=10)
+        lb = tk.Listbox(row, height=5, exportselection=False, relief="flat", borderwidth=0,
+                        background=pal["field"], foreground=pal["text"], activestyle="none",
+                        selectbackground=pal["accent"], selectforeground=pal["accent_fg"],
+                        highlightthickness=1, highlightbackground=pal["border"], highlightcolor=pal["accent"])
+        lb.pack(side="left", fill="both", expand=True)
+        for o in ch.get("options", []):
+            lb.insert("end", forms.option_summary(o))
+        side = ttk.Frame(row)
+        side.pack(side="left", fill="y", padx=(8, 0))
+        ttk.Button(side, text="Add new", command=lambda: self._opt_apply(True)).pack(fill="x")
+        ttk.Button(side, text="Update sel.", command=lambda: self._opt_apply(False)).pack(fill="x", pady=2)
+        ttk.Button(side, text="Remove", command=self._opt_remove).pack(fill="x", pady=2)
+        ttk.Button(side, text="Up", command=lambda: self._opt_move(-1)).pack(fill="x", pady=2)
+        ttk.Button(side, text="Down", command=lambda: self._opt_move(1)).pack(fill="x", pady=2)
+        ttk.Label(self.form, text="Edit the selected option below, then Update (or Add new):",
+                  foreground=pal["muted"]).pack(anchor="w", padx=10, pady=(6, 0))
+        ovars = {}
+        og = self._render_spec(self._form_grid(), forms.CHOICE_OPTION_SPEC,
+                               forms.entity_to_values(forms.CHOICE_OPTION_SPEC, {}), vars_out=ovars)
+        self.opt_widgets = {"listbox": lb, "getters": og, "vars": ovars}
+        lb.bind("<<ListboxSelect>>", self._opt_load)
+        ttk.Button(self.form, text="Delete this choice",
+                   command=lambda: self._delete_choice(idx)).pack(anchor="w", padx=10, pady=8)
+
+    def _opt_options(self):
+        return self.doc.data["choice"][self.active_choice].setdefault("options", [])
+
+    def _opt_load(self, _evt):
+        w = self.opt_widgets
+        sel = w["listbox"].curselection()
+        if not sel:
+            return
+        vals = forms.entity_to_values(forms.CHOICE_OPTION_SPEC, self._opt_options()[sel[0]])
+        for k, var in w["vars"].items():
+            var.set(vals.get(k, ""))
+
+    def _opt_apply(self, append):
+        w = self.opt_widgets
+        try:
+            opt = forms.build_entity(forms.CHOICE_OPTION_SPEC, {k: g() for k, g in w["getters"].items()})
+        except ValueError as e:
+            messagebox.showerror("Bad option", str(e))
+            return
+        if not opt.get("text"):
+            messagebox.showerror("Bad option", "An option needs 'text' (the menu row shown to the player).")
+            return
+        opts = self._opt_options()
+        sel = w["listbox"].curselection()
+        if append or not sel:
+            opts.append(opt)
+            self._reload_opts(select=len(opts) - 1)
+        else:
+            opts[sel[0]] = opt
+            self._reload_opts(select=sel[0])
+
+    def _opt_remove(self):
+        sel = self.opt_widgets["listbox"].curselection()
+        if sel:
+            self._opt_options().pop(sel[0])
+            self._reload_opts()
+
+    def _opt_move(self, d):
+        sel = self.opt_widgets["listbox"].curselection()
+        if not sel:
+            return
+        i = sel[0]
+        opts = self._opt_options()
+        j = i + d
+        if 0 <= j < len(opts):
+            opts[i], opts[j] = opts[j], opts[i]
+            self._reload_opts(select=j)
+
+    def _reload_opts(self, select=None):
+        lb = self.opt_widgets["listbox"]
+        lb.delete(0, "end")
+        for o in self._opt_options():
+            lb.insert("end", forms.option_summary(o))
+        if select is not None and 0 <= select < lb.size():
+            lb.selection_set(select)
+
+    def _delete_choice(self, idx):
+        self.active = None
+        lst = self.doc.data.get("choice", [])
+        if idx < len(lst):
+            lst.pop(idx)
+        self._refresh_tree(reselect="choice")
+        self._show("choice")
+
     # --------------------------------------------------------------- commit
     def _commit_active(self) -> bool:
         """Write the active form back into the doc. Returns False (and reports) on a parse error."""
         if not self.active or not self.getters:
             return True
         a = self.active
-        spec = SINGLE_SPECS.get(a["type"]) or LIST_SPECS.get(a["type"]) or (
-            forms.FIELD_SPEC if a["type"] == "field" else forms.CUTSCENE_SPEC)
+        spec = (SINGLE_SPECS.get(a["type"]) or LIST_SPECS.get(a["type"])
+                or {"field": forms.FIELD_SPEC, "cutscene": forms.CUTSCENE_SPEC,
+                    "choice": forms.CHOICE_SPEC}.get(a["type"], forms.CUTSCENE_SPEC))
         values = {k: g() for k, g in self.getters.items()}
         try:
             entity = forms.build_entity(spec, values)

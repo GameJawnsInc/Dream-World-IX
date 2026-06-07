@@ -44,6 +44,9 @@ def test_parse_zone_requires_4_or_5_points():
     (forms.ENCOUNTER_SPEC, {"scene": 67, "freq": 200, "battle_music": 0}),
     (forms.MUSIC_SPEC, {"song": 9}),
     (forms.FIELD_SPEC, {"id": 4003, "name": "ROOM", "area": 11, "text_block": 1073}),
+    (forms.CHOICE_SPEC, {"npc": "Vivi", "prompt": "What'll it be?", "tail": "UPR"}),
+    (forms.CHOICE_OPTION_SPEC, {"text": "Yes", "reply": "ok", "give_item": ["Potion", 1],
+                                "gil": -100, "set_flag": [8001, 1]}),
 ])
 def test_entity_form_roundtrip(spec, entity):
     assert forms.build_entity(spec, forms.entity_to_values(spec, entity)) == entity
@@ -126,6 +129,26 @@ def test_step_value_text_round_trips_new_kinds():
 
 def test_step_help_covers_every_step_type():
     assert set(forms.STEP_HELP) == set(forms.STEP_KIND)
+
+
+# --- choices (give_item by name/id, option summaries) ------------------------------------
+def test_parse_itemcount_name_or_id():
+    assert forms.parse_itemcount("Potion, 1") == ["Potion", 1]
+    assert forms.parse_itemcount("236") == [236, 1]
+    assert forms.parse_itemcount("236, 2") == [236, 2]
+    assert forms.parse_itemcount("Phoenix Down, 3") == ["Phoenix Down", 3]   # name may contain spaces
+    assert forms.parse_itemcount("") is None
+    with pytest.raises(ValueError):
+        forms.parse_itemcount(", 2")                  # no item
+
+
+def test_choice_and_option_summaries():
+    ch = {"npc": "Vivi", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]}
+    s = forms.choice_summary(ch)
+    assert "Vivi" in s and "(2)" in s
+    o = {"text": "Buy", "reply": "ok", "give_item": ["Potion", 1], "gil": -100, "set_flag": [8001, 1]}
+    summ = forms.option_summary(o)
+    assert all(t in summ for t in ("Buy", "reply", "item", "-100g", "8001"))
 
 
 def test_marker_and_dialogue_specs_round_trip():
