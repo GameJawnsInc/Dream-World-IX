@@ -1563,3 +1563,22 @@ User (post version-bump): polish the **script editor** for clarity/noob-friendli
 **Human verified (in-game):** New Game on the stock+F6 engine → ~200ms opening + ~200ms Alexandria (the two field loads/fades of the double-hop) → **4003**. User: insignificant wait, accepted as-is (removing the Alexandria flash = skipping field 100 = losing the party). Tagged `KNOWN_GOOD-s19-stock-f6-warp`.
 
 **State:** dev engine = stock + F6 (mod is engine-independent / stock-releasable). Warp deployed `--stock` (field 70→100→4003). Boosters now manual (ini cheats + F1/F3; auto-on dropped). `s12-engine-edits.patch` no longer deployed (kept as record + the 4-edit DLL backup); only `s18-field-reload-hotkey.patch` (F6) is live. PR #1433 left as-is (not needed).
+
+### 2026-06-06 — Session 19 (cont) — Release-readiness pass: capture the breadth (docs/examples, offline)
+
+User's goal: make `ff9mapkit` a **stellar release** and **capture the breadth** of the (large) feature set. All offline/docs, no game change. Done + committed:
+- **`docs/FEATURES.md`** — the canonical capability matrix (every feature, ✓ in-game-verified markers, a **before/now** comparison table, honest "not in scope"). Linked top of README.
+- **`docs/gallery/`** — captioned scaffold + a 13-shot checklist (user drops in screenshots/GIFs by filename).
+- **`docs/TECHNICAL.md`** — the depth/credibility write-up of the hard problems (the projection invariant `k=14/15`, exact scale-1 canvas map, measured-zero character offset, byte-exact `.eb` authoring, the `vert+orgPos+floor.org` walkmesh frame, import via the source-baked FBG→event table, the engine gotchas).
+- **`docs/TUTORIAL.md`** — "your first field in ~10 minutes" (fork → NPC → lint → build → reach via a gateway).
+- **`LICENSE`** (MIT, author `GameJawnsInc`) — code-only, with an explicit note that FF9 game data isn't covered/redistributed. `CHANGELOG.md` (Keep-a-Changelog; 0.9.3 state + toward-1.0 gate).
+- **`examples/SHOWCASE/`** — one buildable field exercising most of the content stack (NPC+dialogue, flag-gated NPC reveal, chest event w/ item+gil+flag, encounter+BGM, narration cutscene) + `examples/README.md` index + a build **regression test** (`tests/test_showcase.py`). 257 tests pass.
+
+**User recalibration (noted):** dropped the "owe Memoria nothing" framing — be a good community citizen (credit Albeoris/Memoria generously; a clean showcase + scoped contributions are how an unknown account becomes a known quantity). The user is a pro dev using Claude Code to move fast; the release doubles as a credibility/portfolio piece.
+
+**Remaining before a public 1.0 (NOT done):**
+1. **PROVENANCE GATE** (the real blocker): stop bundling FF9-derived bytes (`data/blank_field/*.eb`, `region_template.bin`, `tests/fixtures/*`) — build a "bring your own install" extractor that pulls them from the user's game; needs the user's go (bigger task). Until then, **do not publish the repo as-is** (it contains Square Enix data).
+2. Gallery **screenshots** (user-owned) + the **YouTube video** (outline earmarked in chat; not started).
+3. `0.9.3 → 1.0.0` bump when shipped. The 2 Memoria upstream items: PR #1433 (FieldCreatorScene) left open/irrelevant; nothing else to submit.
+
+**`KNOWN_GOOD-s19-stock-f6-warp`** remains the current tag (no in-game change this pass).
