@@ -128,6 +128,30 @@ def test_zone_choice_pre_choose_disabled_emits_pchm_and_mask(tmp_path):
     assert opcodes.enable_dialog_choices(0b101, 0) in eb        # row 1 masked off, default 0
 
 
+def test_zone_choice_flag_gated_builds_dynamic_mask_expression(tmp_path):
+    # an option hidden until a flag is set -> the body builds a scratch mask (set_var base + if(flag)
+    # or_var) and passes it to EnableDialogChoices as an EXPRESSION arg (real-field pattern, Dali 407).
+    from ff9mapkit import build
+    from ff9mapkit.content import region
+    p = tmp_path / "z.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "Z"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[choice]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nprompt = "P"\n'
+        '[[choice.options]]\ntext = "Buy"\n'
+        '[[choice.options]]\ntext = "Use key"\nrequires_flag = 8001\n'
+        '[[choice.options]]\ntext = "Leave"\n', encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    mes, _, _, _, ctx = build.collect_text(proj)
+    assert "[PCHM=3,2]" in mes
+    eb = build.build_script(proj, "us", {}, choice_txids=ctx)
+    sc = region.MASK_SCRATCH_IDX
+    assert region.set_var(region.GLOB_UINT16, sc, 0b101) in eb                          # base rows 0,2
+    assert region.or_var(region.GLOB_UINT16, sc, 0b010) in eb                           # row 1's bit
+    assert opcodes.enable_dialog_choices_var(region.var_expr(region.GLOB_UINT16, sc), 0) in eb
+
+
 def test_npc_speak_body_choice_branch():
     # a dialogue choice replaces the plain talk: WindowSync(prompt) + a GetChoose() branch per option
     opt_bodies = [choice.option_body({"set_flag": [8000, 1]}, reply_txid=501),

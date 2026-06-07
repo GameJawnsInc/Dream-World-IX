@@ -40,14 +40,24 @@ from ..eb import EbScript, edit, opcodes
 GLOB_BOOL = 0xC4      # Global + Bit  -> SAVE-PERSISTENT bool (story flags, chest "once", etc.)
 MAP_BOOL = 0xC5       # Map + Bit     -> transient per-field bool (resets on reload; rarely what you want)
 GLOB_UINT8 = 0xD5     # Map + Byte    -> transient byte (the camera-switch flag; reset per load by design)
+GLOB_UINT16 = 0xDC    # Global + UInt16 -> save-backed 16-bit word. Read via the EXPRESSION path it is
+                      # UNSIGNED (0..65535, no sign-extension -- EBin.GetVariableValueInternal), so it
+                      # holds a choice availability mask without the 0xFFFF->-1 sign trap of a literal.
 VAR_CLASSES = {"glob_bool": GLOB_BOOL, "map_bool": MAP_BOOL, "glob_uint8": GLOB_UINT8}
+
+# A scratch word high in gEventGlobal (byte offset; vars index BYTES, bits index BITS -- so byte 2040
+# is bits 16320+, clear of base-game vars [low offsets] AND the kit's 8000+ bit-flags [bytes ~1000]).
+# Rebuilt every time a choice opens (set_var -> or_var), so its transient value never matters across
+# opens; F10's gEventGlobal reset is harmless to it.
+MASK_SCRATCH_IDX = 2040
 
 # --- expression opcodes / tokens ---
 EXPR_OP = 0x05        # expression statement (its single operand is a token stream)
 T_CONST = 0x7D        # 0x7D <i16>
 T_NOT = 0x0E
 T_EQ = 0x20
-T_ASSIGN = 0x2C
+T_ASSIGN = 0x2C       # B_LET ('=')
+T_OR_ASSIGN = 0x3F    # B_OR_LET ('|='); real-field verified (Dali/Storage 407: `VAR |= 2` = 05 .. 3F 7F)
 T_SYSVAR = 0x7A       # push GetSysvar(<code>) -- EBin.B_SYSVAR (122); reads the next byte as the code
 T_END = 0x7F
 
@@ -88,6 +98,19 @@ def _push_var(var_class, idx: int) -> bytes:
 def set_var(var_class, idx: int, value: int) -> bytes:
     """``set VAR = value`` -> ``05 <var> 7D <value:i16> 2C 7F``."""
     return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([T_ASSIGN, T_END])
+
+
+def or_var(var_class, idx: int, value: int) -> bytes:
+    """``VAR |= value`` -> ``05 <var> 7D <value:i16> 3F 7F`` (B_OR_LET). Used to OR a bit into a mask
+    scratch (real-field verified: Dali/Storage builds its moogle-mail availability mask this way)."""
+    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([T_OR_ASSIGN, T_END])
+
+
+def var_expr(var_class, idx: int) -> bytes:
+    """A BARE variable read for use as an opcode EXPRESSION-arg (no leading ``0x05`` statement byte):
+    ``<var-token> 7F``. Pass with ``arg_flags`` bit set so the engine evaluates it (``getv`` -> CalcExpr).
+    Real-field verified (Dali/Storage 407: a CHOOSEPARAM arg is ``d6 09 7f`` = bare var + END)."""
+    return _push_var(var_class, idx) + bytes([T_END])
 
 
 def cond_truthy(var_class, idx: int) -> bytes:

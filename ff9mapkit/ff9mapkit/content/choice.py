@@ -54,35 +54,66 @@ def option_body(opt: dict, reply_txid: int | None = None) -> bytes:
     return b"".join(parts)
 
 
+def _gated(o: dict) -> bool:
+    """An option whose visibility depends on a story flag at runtime (flag-gated hide)."""
+    return "requires_flag" in o or "requires_flag_clear" in o
+
+
+def dynamic_mask_setup(options, default: int) -> bytes:
+    """Build the availability mask AT RUNTIME from per-option story flags, then point
+    ``EnableDialogChoices`` at it -- the real-field pattern (Dali/Storage's moogle-mail menu:
+    ``set_var`` the base, ``if(flag) or_var`` each conditional bit, then ``EnableDialogChoices(VAR | .., 0)``).
+
+    Always-visible rows form the base word; each flag-gated row ORs its bit in only when its condition
+    holds (``requires_flag`` -> visible when SET, ``requires_flag_clear`` -> visible when CLEAR). The
+    mask lives in a high scratch word (``region.MASK_SCRATCH_IDX``) and is read back as an UNSIGNED
+    UInt16 expression-arg (no sign trap). Statically ``disabled`` rows are simply never ORed in."""
+    base = sum(1 << i for i, o in enumerate(options) if not o.get("disabled") and not _gated(o))
+    parts = [_region.set_var(_region.GLOB_UINT16, _region.MASK_SCRATCH_IDX, base)]
+    for i, o in enumerate(options):
+        if o.get("disabled") or not _gated(o):
+            continue
+        if "requires_flag" in o:
+            cond = _region.cond_truthy(_region.GLOB_BOOL, int(o["requires_flag"]))
+        else:
+            cond = _region.cond_not(_region.GLOB_BOOL, int(o["requires_flag_clear"]))
+        parts.append(_region.if_block(cond, _region.or_var(_region.GLOB_UINT16, _region.MASK_SCRATCH_IDX, 1 << i)))
+    mask_expr = _region.var_expr(_region.GLOB_UINT16, _region.MASK_SCRATCH_IDX)
+    parts.append(opcodes.enable_dialog_choices_var(mask_expr, default))
+    return b"".join(parts)
+
+
 def pre_choose(ch: dict) -> tuple[bytes, str]:
     """Pre-choose config for a choice: which row is highlighted by DEFAULT, which row CANCEL (B) picks,
-    and statically GREYED/disabled options. Returns ``(setup_bytes, text_tag)`` -- the setup is an
-    ``EnableDialogChoices`` opcode emitted before the window (see :func:`region_body`), the tag is
-    prepended to the choice text. Returns ``(b"", "")`` when nothing is configured, so a plain choice
-    stays byte-identical.
+    and which options are HIDDEN (statically via ``disabled``, or flag-gated via ``requires_flag`` /
+    ``requires_flag_clear``). Returns ``(setup_bytes, text_tag)`` -- ``setup`` runs before the window
+    (see :func:`region_body`), ``tag`` is prepended to the choice text. ``(b"", "")`` when nothing is
+    configured, so a plain choice stays byte-identical.
 
-    Mechanism (Memoria ``Dialog.SetupChoose`` + ``ETb.SetChooseParam``): the opcode sets the
-    availability mask (bit i = row i on, LSB-first) + the default row; the text tag tells the dialog to
-    apply them. ``[PCHM=count,cancel]`` applies the MASK (grey out + skip disabled rows);
-    ``[PCHC=count,cancel]`` sets count/cancel/default WITHOUT disabling. A disabled row keeps its text
-    line and the engine just skips the cursor over it, so ``GetChoose()`` still returns ABSOLUTE indices
-    -- the per-option :func:`branch` is unaffected. A disabled default/cancel auto-remaps to the nearest
-    active row (engine-side)."""
+    Mechanism (Memoria ``Dialog.SetupChoose`` + ``ETb.SetChooseParam``): an ``EnableDialogChoices``
+    opcode sets the availability mask (bit i = row i shown, LSB-first) + the default row; the
+    ``[PCHM=count,cancel]`` text tag tells the dialog to APPLY the mask (hidden rows get no widget),
+    ``[PCHC=count,cancel]`` sets count/cancel/default WITHOUT hiding. ``GetChoose()`` returns the
+    ABSOLUTE row index regardless of hides, so the per-option :func:`branch` is unaffected.
+
+    Three modes: flag-gated (any ``requires_flag``) -> a runtime mask (:func:`dynamic_mask_setup`);
+    static-hide (any ``disabled``) -> a literal partial mask; default/cancel only -> a literal all-on
+    mask ``(1<<n)-1`` (NOT 0xFFFF, which sign-extends to -1 and breaks ``SetChooseParam``'s
+    ``while availMask>0`` loop -> default collapses to 0)."""
     options = ch.get("options", [])
     n = len(options)
-    disabled = [bool(o.get("disabled")) for o in options]
     default = int(ch.get("default", 0))
     cancel = int(ch["cancel"]) if "cancel" in ch else (n - 1)   # engine default cancel = last row
-    has_disable = any(disabled)
-    if not (has_disable or "default" in ch or "cancel" in ch):
+    has_static = any(o.get("disabled") for o in options)
+    has_dynamic = any(_gated(o) for o in options)
+    if not (has_static or has_dynamic or "default" in ch or "cancel" in ch):
         return b"", ""                                          # nothing configured -> byte-identical
-    # Availability mask = the EXACT bits for the (enabled) rows -- e.g. 3 rows all on -> 0b111 = 7.
-    # NOT 0xFFFF: getv2 sign-extends 0xFFFF to -1, and ETb.SetChooseParam's loop is `while availMask>0`,
-    # so a negative mask never runs and the default collapses to 0 (verified in-game). (1<<n)-1 stays
-    # positive for any realistic row count.
-    mask = sum(1 << i for i in range(n) if not disabled[i])
-    tag = f"[PCHM={n},{cancel}]" if has_disable else f"[PCHC={n},{cancel}]"
-    return opcodes.enable_dialog_choices(mask, default), tag
+    if has_dynamic:
+        return dynamic_mask_setup(options, default), f"[PCHM={n},{cancel}]"
+    if has_static:
+        mask = sum(1 << i for i in range(n) if not options[i].get("disabled"))
+        return opcodes.enable_dialog_choices(mask, default), f"[PCHM={n},{cancel}]"
+    return opcodes.enable_dialog_choices((1 << n) - 1, default), f"[PCHC={n},{cancel}]"
 
 
 def branch(option_bodies) -> bytes:

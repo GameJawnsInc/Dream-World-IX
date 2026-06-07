@@ -114,3 +114,41 @@ def test_pre_choose_setup_runs_after_lock_before_window():
     body = choice.speak_body(500, [b"\xAA", b""], setup=setup)
     assert setup and setup in body
     assert body.index(opcodes.DISABLE_MOVE) < body.index(setup) < body.index(opcodes.window_sync(1, 128, 500))
+
+
+# --------------------------------------------------------- v2: flag-gated (dynamic) hide
+
+def test_region_or_var_and_var_expr_bytes():
+    # VAR |= value  ->  05 <var> 7D <i16> 3F 7F  (B_OR_LET = 0x3F; real-field verified, Dali/Storage 407)
+    assert region.or_var(region.GLOB_BOOL, 5, 2) == (bytes([0x05]) + region._push_var(region.GLOB_BOOL, 5)
+                                                     + bytes([0x7D, 0x02, 0x00, 0x3F, 0x7F]))
+    # bare var expression-arg: <var> 7F  (no leading 0x05 statement byte)
+    assert region.var_expr(region.GLOB_BOOL, 5) == region._push_var(region.GLOB_BOOL, 5) + bytes([0x7F])
+    assert region.GLOB_UINT16 == 0xDC                            # Global + UInt16
+
+
+def test_dynamic_mask_setup_builds_then_passes_expression():
+    from ff9mapkit.eb import disasm
+    opts = [{"text": "Buy"}, {"text": "Use key", "requires_flag": 8001}, {"text": "Leave"}]
+    setup = choice.dynamic_mask_setup(opts, default=0)
+    sc = region.MASK_SCRATCH_IDX
+    assert region.set_var(region.GLOB_UINT16, sc, 0b101) in setup     # base = rows 0,2 always on
+    assert region.if_block(region.cond_truthy(region.GLOB_BOOL, 8001),
+                           region.or_var(region.GLOB_UINT16, sc, 1 << 1)) in setup   # row 1 ORs bit on flag set
+    ins = [i for i in disasm.iter_code(setup, 0, len(setup)) if i.op == 0x7C]
+    assert ins and ins[-1].arg_is_expr[0] is True                    # mask passed as an EXPRESSION, not literal
+
+
+def test_pre_choose_flag_gated_uses_dynamic_mask_and_pchm():
+    ch = {"options": [{"text": "Buy"}, {"text": "Use key", "requires_flag": 8001}, {"text": "Leave"}]}
+    setup, tag = choice.pre_choose(ch)
+    assert tag == "[PCHM=3,2]"                                       # masked menu, cancel = last
+    assert setup == choice.dynamic_mask_setup(ch["options"], 0)
+
+
+def test_pre_choose_requires_flag_clear_uses_not_condition():
+    ch = {"options": [{"text": "A"}, {"text": "Secret", "requires_flag_clear": 8005}]}
+    setup, _ = choice.pre_choose(ch)
+    # row 1 shows only while flag 8005 is CLEAR -> cond_not gate around its or_var
+    assert region.if_block(region.cond_not(region.GLOB_BOOL, 8005),
+                           region.or_var(region.GLOB_UINT16, region.MASK_SCRATCH_IDX, 1 << 1)) in setup

@@ -248,6 +248,14 @@ def enable_dialog_choices(avail_mask: int, default: int = 0) -> bytes:   # 0x7C 
     return encode(0x7C, avail_mask & 0xFFFF, default)
 
 
+def enable_dialog_choices_var(mask_expr: bytes, default: int = 0) -> bytes:   # 0x7C, arg0 = expression
+    """EnableDialogChoices where the mask is a RUNTIME EXPRESSION (e.g. a scratch var built from story
+    flags) rather than a literal. ``mask_expr`` is a bare RPN token blob terminated by ``0x7F`` (see
+    ``region.var_expr``); the gArgFlag bit for arg0 is set so the engine evaluates it (getv->CalcExpr).
+    Real-field verified (Dali/Storage 407: ``7c 01 d9 21 7d 04 00 26 7f 00`` = ``EnableDialogChoices(VAR | 4, 0)``)."""
+    return encode(0x7C, mask_expr, default, arg_flags=0b01)
+
+
 def terminate_entry(entry: int = 255) -> bytes:        # 0x1C (KILL) [1]
     """TerminateEntry(entry): stop an entry's code (255 = This). Used to deactivate a switch zone."""
     return encode(0x1C, entry)

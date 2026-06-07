@@ -105,8 +105,10 @@ CHOICE_SPEC = [
 ]
 CHOICE_OPTION_SPEC = [
     Field("text", "Option text", STR, "the menu row the player selects (keep it short)"),
-    Field("disabled", "Greyed out", BOOL, "on = shown greyed / unselectable (skipped by the cursor)",
+    Field("disabled", "Hidden", BOOL, "on = always removed from the menu (cursor can't reach it)",
           default=False),
+    Field("requires_flag", "Show if flag set", OPTINT, "hide this row UNTIL this story flag is set"),
+    Field("requires_flag_clear", "Show if flag clear", OPTINT, "hide this row ONCE this story flag is set"),
     Field("reply", "Reply", STR, "optional line shown after choosing this option"),
     Field("give_item", "Give item", ITEMCOUNT, 'item + count, e.g. "Potion, 1" (name or id)'),
     Field("gil", "Gil", OPTINT, "gil; NEGATIVE charges the player (e.g. -100)"),

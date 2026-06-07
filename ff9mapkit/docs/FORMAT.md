@@ -398,7 +398,9 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `default` | *(optional)* option index highlighted when the menu opens (0 = top row; default 0). |
 | `cancel` | *(optional)* option index B/Cancel picks (`-1` or omit = last row, the FF9 default). |
 | `options[].text` | the menu row shown for that option (kept short — it's one line). |
-| `options[].disabled` | *(optional)* `true` = the row is **greyed out / unselectable** (the cursor skips it). |
+| `options[].disabled` | *(optional)* `true` = the row is always **removed** from the menu (no widget). |
+| `options[].requires_flag` | *(optional)* hide this row **until** story flag N is set (flag-gated). |
+| `options[].requires_flag_clear` | *(optional)* hide this row **once** story flag N is set. |
 | `options[].reply` | optional line shown after the player picks it. |
 | `options[].give_item` / `gil` / `set_flag` | optional actions, same as `[[event]]` — `give_item = ["Potion", 1]` (id or name), `gil` negative charges, `set_flag` raises a story flag. |
 
@@ -414,9 +416,16 @@ byte-identical to before. Grounded + in-engine-probe-verified against the field-
 > and `disabled` works on its own. But a `default` that sits **at or after** a `disabled` row is **not
 > honored** — FF9's `SetChooseParam` converts the default to an available-row index while `Dialog`
 > reads it as absolute, so it falls back to the first available row. The build **warns** when you hit
-> this. Use `default = 0`, or don't hide rows before your default. *(A `disabled` row that's always
-> hidden is mostly a building block; the useful case — hiding a row **until a story flag is set** — is
-> the planned flag-gated follow-up.)*
+> this. Use `default = 0`, or don't hide rows before your default.
+
+**Flag-gated options (hide until a story flag).** An option can carry `requires_flag = N` (shown only
+once flag N is **set**) or `requires_flag_clear = N` (shown only while flag N is **clear**) — e.g. a
+shopkeeper's *"Use the Gate Key"* row that appears once you've picked the key up, or a *"(ask again
+later)"* row that disappears after a quest flag flips. The kit builds the availability mask at runtime
+in a scratch word (`set_var` the always-on rows, `if(flag) or_var` each gated bit) and passes it to
+`EnableDialogChoices` as an expression — the exact pattern FF9 itself uses for the moogle-mail menu
+(Dali/Storage), verified byte-for-byte. As above, keep `default = 0` (or before any gateable row) so
+the default highlight is honored; the build warns otherwise.
 
 **How the pick is read (engine fact):** the choice window is synchronous, so the picked row index
 (0-based) is finalized before the script continues; the kit branches on it with `GetChoose()` (the

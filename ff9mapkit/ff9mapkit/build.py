@@ -253,6 +253,9 @@ def validate(project: FieldProject) -> list[str]:
                         _items.resolve(o["give_item"][0])
                     except (ValueError, TypeError) as e:
                         problems.append(f"[[choice]] #{c} option {oi} give_item: {e}")
+                if "requires_flag" in o and "requires_flag_clear" in o:
+                    problems.append(f"[[choice]] #{c} option {oi} can't have BOTH requires_flag and "
+                                    f"requires_flag_clear -- pick one (shown when SET vs when CLEAR).")
         if isinstance(opts, list) and opts:
             n = len(opts)
             d = ch.get("default")
@@ -382,6 +385,11 @@ def lint_logic(project: FieldProject) -> list[str]:
             who = e.get("name") or e.get("to") or f"#{i}"
             if gs:
                 need_set.append((gf, f"{label} {who!r}"))
+    for c, ch in enumerate(raw.get("choice", [])):     # a choice option hidden until its flag is SET
+        for oi, o in enumerate(ch.get("options", [])):
+            if "requires_flag" in o:
+                explicit.add(int(o["requires_flag"]))
+                need_set.append((int(o["requires_flag"]), f"choice #{c} option {oi}"))
 
     for flag, who in need_set:
         if flag not in settable:
@@ -409,11 +417,12 @@ def lint_logic(project: FieldProject) -> list[str]:
     for c, ch in enumerate(raw.get("choice", [])):
         d = ch.get("default")
         if isinstance(d, int) and d > 0:
-            bad = [i for i, o in enumerate(ch.get("options", [])) if o.get("disabled") and i <= d]
+            bad = [i for i, o in enumerate(ch.get("options", []))
+                   if (o.get("disabled") or "requires_flag" in o or "requires_flag_clear" in o) and i <= d]
             if bad:
                 out.append(f"[[choice]] #{c} default = {d} can't be honored: option(s) {bad} at/before it "
-                           f"are disabled, so FF9 highlights the first available row instead. Use default = 0 "
-                           f"or don't grey out rows before the default (engine limitation).")
+                           f"can be hidden, so FF9 highlights the first available row instead. Use default = 0 "
+                           f"or don't hide rows before the default (engine limitation).")
 
     # dialogue that won't fit on screen. With wrapping ON, only an unbreakable over-wide word can
     # still overflow; with wrapping OFF, any hand-written line over the budget will run off-screen.
