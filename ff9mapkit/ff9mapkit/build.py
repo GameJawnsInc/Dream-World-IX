@@ -29,6 +29,7 @@ from .content import cutscene as _cutscene
 from .content import encounter as _enc
 from .content import event as _event
 from .content import gateway as _gw
+from .content import ladder as _ladder
 from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
@@ -220,6 +221,13 @@ def validate(project: FieldProject) -> list[str]:
         for k in ("received", "require_space"):
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
+    for la in project.raw.get("ladder", []):
+        z = la.get("zone", [])
+        if len(z) not in (3, 4, 5):
+            problems.append(f"[[ladder]] zone must have 3-5 points (the base trigger), got {len(z)}")
+        t = la.get("to", [])
+        if not (isinstance(t, (list, tuple)) and len(t) in (2, 3)):
+            problems.append("[[ladder]] needs to = [x, z] (or [x, z, y]) -- where the climb lands")
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
@@ -986,6 +994,17 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if cs and not cs_actor:
         steps = [_cutscene.compile_steps(cs["steps"], cutscene_txids)]
         eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag)
+
+    # ladders: FF9's real ladder mechanism -- walk to the base ("!" prompt via tread Bubble) + press
+    # action to climb (the region's action func RunScriptSyncs the player's climb function, which runs
+    # in the player's own context so it moves the player). Each ladder gets a distinct climb tag.
+    for li, lad in enumerate(project.raw.get("ladder", [])):
+        zone = lad["zone"]
+        if len(zone) == 4:
+            zone = _gw.quad_zone(zone)
+        eb, _ = _ladder.inject_ladder(eb, [tuple(p) for p in zone], lad["to"],
+                                      climb_tag=_ladder.FIRST_CLIMB_TAG + li,
+                                      animation=lad.get("animation"))
 
     # player spawn (order-independent w.r.t. the appends above)
     if "player" in project.raw and "spawn" in project.raw["player"]:

@@ -38,6 +38,12 @@ to = 4004
 entrance = 0
 zone = [[7299, -14373], [6931, -14275], [7440, -15180], [7679, -15169]]
 
+# LADDER (FF9's real mechanism): walk to the base -> "!" prompt -> press action -> climb up to floor 1.
+# zone = the real Treno entry-15 ladder triangle (contains base x9607,z-17570); to = floor-1 landing.
+[[ladder]]
+zone = [[9016, -16722], [9574, -17758], [9791, -17674]]
+to = [7053, -14226, -6003]
+
 # field BGM imported from the real field (Treno theme)
 [music]
 song = 85

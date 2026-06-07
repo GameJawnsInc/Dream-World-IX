@@ -21,6 +21,8 @@ return raw ``bytes``.
 
 from __future__ import annotations
 
+import struct
+
 from ..binutils import set_u16, u16
 from .model import ENTRY_SLOT_SIZE, ENTRY_TABLE_OFF, EbScript
 
@@ -79,6 +81,43 @@ def append_entry(data, slot: int, entry_bytes: bytes) -> bytes:
     b[so + 6] = 0  # pad
     b[so + 7] = 0
     return bytes(b)
+
+
+def add_function(data, entry_index: int, tag: int, body: bytes) -> bytes:
+    """Add a function ``(tag, body)`` to an EXISTING entry.
+
+    Grows the entry's function table by one 4-byte slot (existing funcs' ``fpos += 4``), appends the
+    body after the entry's code, and relocates every later entry's table offset by the growth. (The
+    re-layout :mod:`ff9mapkit.content.reinit` does for the after-battle handler, generalized -- used by
+    the ladder primitive to add the player's climb function.) Raises if ``tag`` already exists.
+    """
+    b = bytearray(_as_bytes(data))
+    slot = ENTRY_TABLE_OFF + entry_index * ENTRY_SLOT_SIZE
+    off, sz = u16(b, slot), u16(b, slot + 2)
+    if sz == 0:
+        raise ValueError(f"entry {entry_index} is empty")
+    es = ENTRY_TABLE_OFF + off
+    etype, fc = b[es], b[es + 1]
+    fbase = es + 2
+    funcs = [(u16(b, fbase + i * 4), u16(b, fbase + i * 4 + 2)) for i in range(fc)]
+    if any(t == tag for t, _ in funcs):
+        raise ValueError(f"entry {entry_index} already has a function with tag {tag}")
+    code = bytes(b[fbase + fc * 4: es + sz])
+    new_funcs = [(t, fp + 4) for t, fp in funcs] + [(tag, (fc + 1) * 4 + len(code))]
+    new_entry = bytearray([etype, fc + 1])
+    for t, fp in new_funcs:
+        new_entry += struct.pack("<HH", t, fp)
+    new_entry += code + body
+    growth = len(new_entry) - sz
+    out = bytearray(bytes(b[:es]) + bytes(new_entry) + bytes(b[es + sz:]))
+    set_u16(out, slot + 2, len(new_entry))
+    for i in range(b[3]):
+        if i == entry_index:
+            continue
+        s2 = ENTRY_TABLE_OFF + i * ENTRY_SLOT_SIZE
+        if u16(out, s2 + 2) > 0 and u16(out, s2) > off:
+            set_u16(out, s2, u16(out, s2) + growth)
+    return bytes(out)
 
 
 def nop_range(data, abs_off: int, length: int) -> bytes:

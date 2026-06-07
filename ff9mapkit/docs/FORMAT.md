@@ -291,6 +291,35 @@ A region the player walks into to warp to another field.
 
 ---
 
+## `[[ladder]]` (optional, repeatable)
+
+A ladder the player **climbs** — FF9's real ladder mechanism (decoded from Treno/Residence and
+in-game-verified): walk to the base and a floating **"!" prompt** appears; press the **action button**
+to climb to the destination.
+
+```toml
+[[ladder]]
+zone = [[9016, -16722], [9574, -17758], [9791, -17674]]   # the base (3–5 points)
+to   = [7053, -14226, -6003]                              # where the climb lands: [x, z] or [x, z, y]
+# animation = 7302                                        # optional climb gesture (a one-shot anim id)
+```
+
+| key | meaning |
+|---|---|
+| `zone` | 3–5 corners of the ladder **base** trigger (4 are auto-made IsInQuad-safe). |
+| `to` | `[x, z]` (or `[x, z, y]`) the climb moves you to — typically the top, on the floor you emerge onto. |
+| `animation` | optional climb gesture (a **one-shot** anim id for the player model) played before the move. |
+
+How it works: the kit adds a climb function to the **player** entry and a region whose tread shows
+`Bubble(1)` and whose action func runs `DisableMove ; RunScriptSync(2, 250, <tag>) ; EnableMove`.
+`RunScriptSync` runs the climb **in the player's own context** (so the move moves the player) and
+waits for it — sidestepping the fact that the controlled player's script loop is suspended while you
+have control. The real game uses bespoke per-ladder jump arcs; the kit's climb is a clean teleport to
+`to` (the trigger is faithful). A ladder is **one-way**; for up-and-down, add a second `[[ladder]]`
+with the zone/`to` reversed.
+
+---
+
 ## `[[event]]` (optional, repeatable)
 
 A region the player **walks into** that fires authored logic — show a message, give an item / gil,

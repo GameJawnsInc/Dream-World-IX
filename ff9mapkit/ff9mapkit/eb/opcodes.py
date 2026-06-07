@@ -63,6 +63,20 @@ def init_region(slot: int, arg: int = 0) -> bytes:  # 0x08
     return encode(0x08, slot, arg)
 
 
+def run_script_sync(level: int, uid: int, tag: int) -> bytes:   # 0x14 (REQEW) argsize [1,1,1]
+    """RunScriptSync(level, uid, tag): run function ``tag`` on the object with this UID and WAIT for it
+    to return. The FF9 ladder idiom: a region calls ``RunScriptSync(2, 250, <climb_tag>)`` to run the
+    PLAYER's (UID 250) climb function in the player's own context (so its moves move the player),
+    synchronously. Decoded from Treno/Residence's real ladder."""
+    return encode(0x14, level, uid, tag)
+
+
+def bubble(state: int) -> bytes:                               # 0x68 (BUBBLE) argsize [1]
+    """Bubble(state): show(1)/hide(0) the floating "!" action-available prompt over the player. A
+    ladder/sign region shows it on tread so the player knows to press the action button."""
+    return encode(0x68, state)
+
+
 def init_object(slot: int, arg: int = 0) -> bytes:  # 0x09
     return encode(0x09, slot, arg)
 
