@@ -93,7 +93,9 @@ MARKER_SPEC = [
     Field("pos", "Position (x, z)", COORD, "where it sits on the floor; or place it in Blender"),
 ]
 CHOICE_SPEC = [
-    Field("npc", "NPC", STR, "the [[npc]] name the player talks to (must match an NPC)"),
+    Field("npc", "NPC", STR, "talk-triggered: the [[npc]] name (set npc OR zone, not both)"),
+    Field("zone", "Zone (x z; x z; ...)", ZONE, "walk-in trigger: 4 corners (a lever); or place in Blender"),
+    Field("once", "Fires once ever", BOOL, "zone only: on = once ever; off = once per visit", default=True),
     Field("prompt", "Prompt", STR, "the question shown above the options"),
     Field("speaker", "Speaker name", STR, "optional name before the prompt"),
     Field("tail", "Window tail", STR, "UPR/UPL/LOR/LOL/UPC/LOC (default UPR)"),
@@ -385,8 +387,8 @@ def step_summary(step: dict) -> str:
 
 # --- choices (npc + prompt + a list of options) ------------------------------------------
 def choice_summary(ch: dict) -> str:
-    """One-line label for the choice tree, e.g. ``Vivi: What'll it be? (3)``."""
-    who = ch.get("npc") or "?"
+    """One-line label for the choice tree, e.g. ``Vivi: What'll it be? (3)`` or ``zone: Pull? (2)``."""
+    who = ch.get("npc") or ("zone" if "zone" in ch else "?")
     q = (ch.get("prompt") or "").strip()
     n = len(ch.get("options", []))
     return f"{who}: {q[:28]}{'...' if len(q) > 28 else ''} ({n})"

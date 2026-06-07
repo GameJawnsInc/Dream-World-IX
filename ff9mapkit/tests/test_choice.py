@@ -37,6 +37,12 @@ def test_speak_body_locks_movement_window_branch_unlock_return():
     assert region.cond_sysvar_eq(9, 0) in out                    # branching on the pick
 
 
+def test_region_body_is_speak_body_without_return():
+    rb = choice.region_body(500, [b"\xAA"])
+    assert rb.startswith(opcodes.DISABLE_MOVE) and rb.endswith(opcodes.ENABLE_MOVE)   # no RETURN
+    assert choice.speak_body(500, [b"\xAA"]) == rb + opcodes.RETURN                    # speak = body + RETURN
+
+
 def test_option_body_action_order_reply_item_gil_flag():
     opt = {"give_item": [232, 1], "gil": 50, "set_flag": [8000, 1]}
     out = choice.option_body(opt, reply_txid=501)

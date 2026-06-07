@@ -348,11 +348,13 @@ entity names. `build` runs the same lints and shows them as warnings.
 
 ## `[[choice]]` (optional, repeatable)
 
-A **dialogue choice** — talk to an NPC, pick from a menu, and **branch** on the answer. This is the
-interaction / puzzle primitive: a merchant, a "Yes/No" lever, a quest-giver. v1 attaches a choice to
-an NPC by name; talking to that NPC shows the prompt + options instead of its plain `dialogue`.
+A **dialogue choice** — pick from a menu and **branch** on the answer. This is the interaction /
+puzzle primitive: a merchant, a "Yes/No" lever, a quest-giver. A choice is triggered **either** by
+talking to an NPC (`npc = "<name>"`) **or** by walking into a zone (`zone = [...]`, a lever / sign) —
+set exactly one.
 
 ```toml
+# (A) talk to an NPC:
 [[npc]]
 name = "Merchant"
 preset = "vivi"
@@ -370,11 +372,26 @@ set_flag = [8001, 1]                   # (optional) raise a story flag
 [[choice.options]]
 text = "No, thanks."                   # put the "decline" option LAST (cancel/B picks the last row)
 reply = "Come again!"
+
+# (B) walk into a zone (a lever):
+[[choice]]
+zone = [[300,-400],[700,-400],[700,-800],[300,-800]]   # 4 convex (x,z) corners
+prompt = "Pull the lever?"
+once = false                           # fires once per visit (default true = once ever)
+[[choice.options]]
+text = "Pull it."
+reply = "*kachunk*"
+set_flag = [8001, 1]
+[[choice.options]]
+text = "Leave it."
 ```
 
 | key | meaning |
 |---|---|
-| `npc` | the `[[npc]]` name this choice is attached to (talking to it triggers the menu). |
+| `npc` | the `[[npc]]` name to talk to (talk-triggered). **Exactly one of `npc` / `zone`.** |
+| `zone` | 4 convex `(x,z)` corners — a walk-in trigger (lever/sign). **Exactly one of `npc` / `zone`.** |
+| `once` | *(zone only)* `true` (default) = fires once ever (a persistent flag); `false` = once per field visit. (A zone menu can't loop — it's flag-gated either way; re-arm on leaving the zone without leaving the field is a future feature.) |
+| `flag` | *(zone only)* explicit gate-flag index (default auto from `8200`). |
 | `prompt` | the question text (added to the field's `.mes`, above the option rows). |
 | `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + window pointer). |
 | `options` | a list (`[[choice.options]]`) of **≥ 2** rows the player picks from. |

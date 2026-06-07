@@ -38,6 +38,30 @@ def test_hut_interior_reproduced_byte_exact():
     assert provision.sha256(out) == provision.load_manifest()["goldens"]["EVT_HUT_INT.eb.bytes/us"]
 
 
+def test_zone_choice_injects_a_loop_safe_region(tmp_path):
+    # a [[choice]] with a zone -> a walk-in region whose Range = MOVEMENT_GATE + if(!flag){ DisableMove
+    # + WindowSync + GetChoose branch + EnableMove + flag=1 } (loop-safe: the flag stops re-pop).
+    from ff9mapkit import build
+    p = tmp_path / "z.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "Z"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[choice]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\nprompt = "Pull?"\nonce = false\n'
+        '[[choice.options]]\ntext = "Yes"\nset_flag = [8001, 1]\n'
+        '[[choice.options]]\ntext = "No"\n', encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    _, _, _, _, ctx = build.collect_text(proj)
+    eb = build.build_script(proj, "us", {}, choice_txids=ctx)
+    s = EbScript.from_bytes(eb)
+    assert s.to_bytes() == eb                                   # structurally valid
+    reg = next(e for e in s.entries if not e.empty and e.type == 1 and e.func_by_tag(2)
+               and bytes([0x7A, 0x09]) in eb[e.func_by_tag(2).abs_start:e.func_by_tag(2).abs_end])
+    ops = _ops(s, reg.index, 2)
+    assert 0x2D in ops and 0x2E in ops                          # DisableMove + EnableMove around the menu
+    assert 0x1F in ops                                          # WindowSync (prompt)
+
+
 def test_npc_speak_body_choice_branch():
     # a dialogue choice replaces the plain talk: WindowSync(prompt) + a GetChoose() branch per option
     opt_bodies = [choice.option_body({"set_flag": [8000, 1]}, reply_txid=501),

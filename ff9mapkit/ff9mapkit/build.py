@@ -33,6 +33,7 @@ from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
 from .content import pathfind as _pathfind
+from .content import region as _region
 from .content import reinit as _reinit
 from .content import text as _text
 from . import animations as _animations
@@ -222,11 +223,15 @@ def validate(project: FieldProject) -> list[str]:
     # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
     npc_names = {n.get("name") for n in project.raw.get("npc", [])}
     for c, ch in enumerate(project.raw.get("choice", [])):
-        who = ch.get("npc")
-        if who is None:
-            problems.append(f"[[choice]] #{c} needs npc = \"<npc name>\" (the NPC you talk to)")
-        elif who not in npc_names:
-            problems.append(f"[[choice]] #{c} npc {who!r} is not a defined [[npc]] name")
+        has_npc, has_zone = "npc" in ch, "zone" in ch
+        if has_npc == has_zone:                  # need exactly one trigger
+            problems.append(f"[[choice]] #{c} needs exactly one of npc = \"<name>\" (talk) "
+                            f"or zone = [...4 corners] (walk-in)")
+        if has_npc and ch["npc"] not in npc_names:
+            problems.append(f"[[choice]] #{c} npc {ch['npc']!r} is not a defined [[npc]] name")
+        if has_zone and len(ch.get("zone") or []) not in (4, 5):
+            problems.append(f"[[choice]] #{c} zone must have 4 or 5 points "
+                            f"(got {len(ch.get('zone') or [])})")
         if not str(ch.get("prompt", "")).strip():
             problems.append(f"[[choice]] #{c} needs a 'prompt' (the question text)")
         opts = ch.get("options", [])
@@ -339,10 +344,20 @@ def lint_logic(project: FieldProject) -> list[str]:
         if cs.get("once", True):
             f = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
             settable.add(f); explicit.add(f)
+    choice_counter = 0
     for ch in raw.get("choice", []):           # a choice option can set a story flag too
         for o in ch.get("options", []):
             if "set_flag" in o:
                 settable.add(int(o["set_flag"][0])); explicit.add(int(o["set_flag"][0]))
+        if "zone" in ch:                        # a zone-choice's loop-safe gate flag (mirror build)
+            glob = ch.get("once", True)         # once=true -> persistent GLOB; once=false -> transient
+            if "flag" in ch:
+                if glob:
+                    settable.add(int(ch["flag"])); explicit.add(int(ch["flag"]))
+            else:
+                if glob:
+                    auto_once.add(_choice.CHOICE_FLAG_BASE + choice_counter)
+                choice_counter += 1
     settable |= auto_once
 
     # everything that READS a flag (require SET needs a setter; require CLEAR is fine by default).
@@ -865,6 +880,25 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                           "body": b"".join(parts), "once_flag": once_flag,
                           "requires_flag": gf, "requires_set": gs})
         eb = _event.inject_events(eb, specs)
+
+    # zone-triggered choices: walk into a region -> a choice menu (a lever / sign with a decision).
+    # A region trigger is LEVEL-triggered, so a synchronous menu would re-pop every frame in the zone;
+    # the flag gate (reusing event_range_body: MOVEMENT_GATE + if(!flag){body; flag=1} + RETURN) makes
+    # it loop-safe -- once=true -> persistent (once ever), once=false -> transient MAP (once per visit).
+    choice_flag_counter = 0
+    for c, ch in enumerate(project.raw.get("choice", [])):
+        if "zone" not in ch:
+            continue
+        ct = choice_txids.get(c, {})
+        replies = ct.get("replies", {})
+        opt_bodies = [_choice.option_body(o, replies.get(oi))
+                      for oi, o in enumerate(ch.get("options", []))]
+        fclass = _region.GLOB_BOOL if ch.get("once", True) else _region.MAP_BOOL
+        fidx = int(ch["flag"]) if "flag" in ch else (_choice.CHOICE_FLAG_BASE + choice_flag_counter)
+        if "flag" not in ch:
+            choice_flag_counter += 1
+        rb = _event.event_range_body(_choice.region_body(ct["prompt"], opt_bodies), fidx, flag_class=fclass)
+        eb, _slot = _region.inject_region(eb, [tuple(p) for p in ch["zone"][:4]], rb)
 
     # cutscene (narration, no actor): an ordered, control-locked sequence on entry (once), run as a
     # standalone director code entry. Steps = say / wait / set_flag. An ACTOR cutscene was already

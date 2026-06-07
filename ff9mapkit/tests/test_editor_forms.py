@@ -45,6 +45,8 @@ def test_parse_zone_requires_4_or_5_points():
     (forms.MUSIC_SPEC, {"song": 9}),
     (forms.FIELD_SPEC, {"id": 4003, "name": "ROOM", "area": 11, "text_block": 1073}),
     (forms.CHOICE_SPEC, {"npc": "Vivi", "prompt": "What'll it be?", "tail": "UPR"}),
+    (forms.CHOICE_SPEC, {"zone": [[300, -400], [700, -400], [700, -800], [300, -800]],
+                         "prompt": "Pull the lever?", "once": False}),
     (forms.CHOICE_OPTION_SPEC, {"text": "Yes", "reply": "ok", "give_item": ["Potion", 1],
                                 "gil": -100, "set_flag": [8001, 1]}),
 ])
