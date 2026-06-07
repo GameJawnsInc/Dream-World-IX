@@ -4,6 +4,11 @@ This walks the full workflow. Two steps are **human** (Hard Constraint): paintin
 background art, and (optionally) modeling the walkmesh in a 3D tool. The kit owns everything
 else — the camera math, the paint guide, the `.obj`→`.bgi` conversion, the script, and packaging.
 
+It mirrors how FF9's pre-rendered backgrounds were actually made — a 3D scene shot through a fixed
+camera, painted to a 2D plate, with characters projected back through that same camera. The paint
+guide below is the modern stand-in for the layout render the original artists drew over, so the two
+"human steps" here are the same two they owned: paint the plate, place the geometry.
+
 ```
                  ┌─────────────┐
   choose camera →│ ff9mapkit   │→ paint guide PNG ──▶ (human) paint layers

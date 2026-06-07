@@ -29,11 +29,17 @@ field needs:
 - dialogue text (`.mes`),
 - and the `DictionaryPatch` / `BattlePatch` registration + `ModDescription.xml`.
 
-## What stays a human task
+## What stays a human task — the way the originals were made
 
-By design the kit does **not** paint background art or model walkmesh geometry — those are
-creative/3D tasks. Instead it gives you a **pixel-accurate paint guide** for your chosen
-camera angle and converts your hand-modeled `.obj` walkmesh to the engine's `.bgi` format.
+FF9's backgrounds are **pre-rendered**: the original artists built each room as a 3D scene, shot it
+through a fixed camera to bake a 2D plate, and the game projects the live 3D characters back onto that
+plate through the *same* camera. `ff9mapkit` deliberately follows that pipeline instead of hiding it.
+You place the camera; the kit hands you a **pixel-accurate paint guide** — the floor and walls
+projected onto the canvas, the modern stand-in for the layout render the original artists painted over
+— and you paint the background to match. Your hand-modeled `.obj` walkmesh is converted to the
+engine's `.bgi` and projected through that identical camera, so characters stand exactly where the art
+says they should. Painting the art and (optionally) modeling the geometry stay yours; everything in
+between is the kit.
 
 ## Quickstart
 
@@ -104,9 +110,22 @@ and `build` compiles both.
 The library is split into `eb` (the event-script codec + content injectors), `scene`
 (camera math, `.bgx`, `.bgi` walkmesh, paint guides), `build` (the `field.toml` compiler),
 and `pack`. Correctness is proven by an **offline golden-master test suite**: every codec
-round-trips real game assets byte-for-byte, and compiling the example reproduces an
-in-game-verified field's script exactly.
+round-trips your install's field assets byte-for-byte (regenerated locally via `extract-templates`
+— the kit ships none), and compiling the example reproduces an in-game-verified field's script exactly.
 
 ```bash
 pip install -e ".[dev]" && pytest      # the full suite
 ```
+
+## About
+
+I make games — including an FFIX-inspired RPG of my own — so this started as the tool I wanted while
+learning how FF9's fields actually work, not a drive-by experiment. The aim was to build a new room
+the way the game's creators did: paint a background against a 3D-derived guide, then walk on geometry
+projected through the same camera — so authoring a field feels like level design rather than blind
+byte-hacking. Months of reverse-engineering the field format, the projection math, and the event
+bytecode went into making that the easy path. If you're poking at FF9's internals too, I hope it
+saves you the same dig.
+
+Built on (and grateful for) the [Memoria engine](https://github.com/Albeoris/Memoria) — none of this
+is possible without it.
