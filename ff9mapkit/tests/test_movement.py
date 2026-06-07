@@ -7,12 +7,19 @@ import pytest
 
 from ff9mapkit import build
 from ff9mapkit.scene import bgi
+from ff9mapkit.content import pathfind
 
 
 def _quad_wmesh():
     # a flat floor covering x[-500,500] z[-800,200] (world coords, org 0 -> world == verts)
     corners = [(-500, 0, 200), (500, 0, 200), (500, 0, -800), (-500, 0, -800)]
     return bgi.BgiWalkmesh.from_bytes(bgi.build(corners, [(0, 1, 2), (0, 2, 3)]).to_bytes())
+
+
+def _big_wmesh():
+    # a roomy floor (the _spk demo room) -- space to route around an obstacle
+    c = [(-1220, 0, 257), (1220, 0, 257), (1220, 0, -1931), (-1220, 0, -1931)]
+    return bgi.BgiWalkmesh.from_bytes(bgi.build(c, [(0, 1, 2), (0, 2, 3)]).to_bytes())
 
 
 def _load(body, tmp_path):
@@ -90,8 +97,9 @@ def test_validate_warns_walk_into_object_box(tmp_path):
     assert not any("collision box" in m for m in w2)            # @player auto-approaches -> no stall
 
 
-def test_validate_warns_path_through_object(tmp_path):
-    # endpoints clear, but the straight path grazes a standing character's box -> stalls mid-walk
+def test_walk_blocked_by_character_is_autorouted(tmp_path):
+    # a WALK whose straight path grazes a character is now AUTO-ROUTED around it (not warned) -- the
+    # increment-3 behavior (an explicit `path` is still checked per-leg; see the path test below).
     wm = _quad_wmesh()
     body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-150]\n'
             '[[npc]]\nname="V"\npreset="vivi"\npos=[-400,0]\n[[marker]]\nname="far"\npos=[400,0]\n'
@@ -99,7 +107,20 @@ def test_validate_warns_path_through_object(tmp_path):
     proj = _load(body, tmp_path)
     w = []
     build._validate_cutscene_movement(proj, wm, w)
-    assert any("passes through" in m for m in w)
+    assert w == []                                             # routed around the player -> no warning
+
+
+def test_validate_warns_when_no_route(tmp_path):
+    # a thin corridor fully plugged by a character -> no route exists -> the walk stays -> still warns
+    c = [(-500, 0, 40), (500, 0, 40), (500, 0, -40), (-500, 0, -40)]
+    wm = bgi.BgiWalkmesh.from_bytes(bgi.build(c, [(0, 1, 2), (0, 2, 3)]).to_bytes())
+    body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,0]\n'
+            '[[npc]]\nname="V"\npreset="vivi"\npos=[-400,0]\n[[marker]]\nname="far"\npos=[400,0]\n'
+            '[cutscene]\nactor="V"\nsteps=[ { walk = "far" } ]\n')
+    proj = _load(body, tmp_path)
+    w = []
+    build._validate_cutscene_movement(proj, wm, w)
+    assert any("passes through" in m or "off the walkmesh" in m for m in w)
 
 
 def test_walk_up_to_object_does_not_falseflag_its_own_approach(tmp_path):
@@ -151,6 +172,45 @@ def test_validate_path_legs_checked_for_stall(tmp_path):
     w = []
     build._validate_cutscene_movement(proj, wm, w)
     assert any("passes through" in m for m in w)
+
+
+# --- auto-pathing -------------------------------------------------------------------------
+def test_pathfind_routes_around_obstacle():
+    wm = _big_wmesh()
+    straight_clear = pathfind._clear(wm, (-900, -700), (900, -700), [(0, -700)], 48, 192)
+    assert not straight_clear                                   # a straight line hits the player
+    r = pathfind.route(wm, (-900, -700), (900, -700), obstacles=[(0, -700)])
+    assert r and len(r) > 1                                     # a multi-leg detour
+    pts = [(-900, -700)] + r
+    assert all(pathfind._clear(wm, pts[i], pts[i + 1], [(0, -700)], 48, 192) for i in range(len(pts) - 1))
+    assert r[-1] == (900, -700)                                 # ends at the exact goal
+
+
+def test_autoroute_converts_blocked_walk_to_path(tmp_path):
+    wm = _big_wmesh()
+    proj = _load('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-700]\n'
+                 '[[npc]]\nname="V"\npreset="vivi"\npos=[-900,-700]\n'
+                 '[[marker]]\nname="goal"\npos=[900,-700]\n'
+                 '[cutscene]\nactor="V"\nsteps=[ { walk = "goal" } ]\n', tmp_path)
+    actor = proj.raw["npc"][0]
+    steps = build._resolve_move_steps(proj.raw["cutscene"]["steps"], proj, actor)
+    routed = build._autoroute_steps(steps, proj, wm, actor)
+    assert "path" in routed[0] and "walk" not in routed[0]      # a blocked walk became a route
+    assert len(routed[0]["path"]) > 1
+    w = []
+    build._validate_cutscene_movement(proj, wm, w)              # the routed result validates clean
+    assert w == []
+
+
+def test_autoroute_leaves_clear_walk_untouched(tmp_path):
+    wm = _big_wmesh()
+    proj = _load('[field]\nid=4003\nname="X"\narea=11\n'
+                 '[[npc]]\nname="V"\npreset="vivi"\npos=[-900,-700]\n'
+                 '[[marker]]\nname="g"\npos=[-900,-200]\n'      # a clear straight line, no obstacles
+                 '[cutscene]\nactor="V"\nsteps=[ { walk = "g" } ]\n', tmp_path)
+    actor = proj.raw["npc"][0]
+    steps = build._resolve_move_steps(proj.raw["cutscene"]["steps"], proj, actor)
+    assert build._autoroute_steps(steps, proj, wm, actor) == [{"walk": [-900, -200]}]   # unchanged
 
 
 def test_validate_cutscene_movement_warns_offmesh_and_clean(tmp_path):

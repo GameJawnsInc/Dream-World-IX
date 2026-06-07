@@ -31,6 +31,7 @@ from .content import gateway as _gw
 from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
+from .content import pathfind as _pathfind
 from .content import reinit as _reinit
 from .content import text as _text
 from . import animations as _animations
@@ -701,7 +702,7 @@ def _gate_of(d: dict):
 
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None,
-                 cutscene_txids: list | None = None) -> bytes:
+                 cutscene_txids: list | None = None, walkmesh=None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
@@ -733,6 +734,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs_actor), None)
         steps = _resolve_anim_steps(cs["steps"], actor_npc)   # animation = "glad" -> the numeric id
         steps = _resolve_move_steps(steps, project, actor_npc)  # names -> [x,z]; @object walks stop short
+        steps = _autoroute_steps(steps, project, walkmesh, actor_npc)  # route blocked walks around obstacles
         cs_fclass, cs_fidx = _cutscene.once_flag_for(cs)   # GLOB (once ever) or MAP (replay per visit)
         actor_choreo = _cutscene.build_choreography(
             steps, cutscene_txids, cs_fidx, flag_class=cs_fclass,
@@ -1027,6 +1029,50 @@ def _segment_hits_object(project: FieldProject, a, b, exclude_actor):
     return None
 
 
+def _obstacle_points(project: FieldProject, exclude_actor):
+    """(x, z) centres of the live characters a walk must avoid: the player spawn + every other NPC."""
+    pts = []
+    sp = project.raw.get("player", {}).get("spawn")
+    if sp:
+        pts.append((int(sp[0]), int(sp[1])))
+    for n in project.raw.get("npc", []):
+        if n.get("name") != exclude_actor and n.get("pos"):
+            pts.append((int(n["pos"][0]), int(n["pos"][1])))
+    return pts
+
+
+def _autoroute_steps(steps, project: FieldProject, wmesh, actor_npc):
+    """Auto-pathing: replace a blocked straight ``walk`` (path crosses a wall or a character) with a
+    computed route (a ``path``) around the obstacles. A clear walk is left UNTOUCHED (byte-identical);
+    ``path`` / ``teleport`` steps are left as authored. No-op without a walkmesh. Used by both the
+    builder and the validator so what's checked == what's compiled."""
+    if wmesh is None or actor_npc is None or not actor_npc.get("pos"):
+        return steps
+    actor = actor_npc.get("name")
+    obstacles = _obstacle_points(project, actor)
+    pos = (int(actor_npc["pos"][0]), int(actor_npc["pos"][1]))
+    out = []
+    for s in steps:
+        if "walk" in s:
+            tgt = (int(s["walk"][0]), int(s["walk"][1]))
+            target_ok = (wmesh.point_on_walkmesh(tgt[0], tgt[1]) is not None
+                         and not _object_collisions(project, tgt, actor))
+            blocked = _segment_leaves_floor(wmesh, pos, tgt) or _segment_hits_object(project, pos, tgt, actor)
+            if target_ok and blocked:
+                wps = _pathfind.route(wmesh, pos, tgt, obstacles)
+                if wps and len(wps) > 1:                 # an actual detour, not just the target
+                    s = {k: v for k, v in s.items() if k != "walk"}
+                    s["path"] = [[int(x), int(z)] for (x, z) in wps]
+            pos = tgt
+        elif "path" in s:
+            if s.get("path"):
+                pos = (int(s["path"][-1][0]), int(s["path"][-1][1]))
+        elif "teleport" in s:
+            pos = (int(s["teleport"][0]), int(s["teleport"][1]))
+        out.append(s)
+    return out
+
+
 def _check_walk_leg(project, wmesh, k, frm, tgt, actor, warnings) -> None:
     """One straight walk leg ``frm``->``tgt``: warn if it would stall (target off the floor / inside a
     character's box, or the path crosses a wall / through a character). Shared by ``walk`` + ``path``."""
@@ -1064,6 +1110,7 @@ def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) ->
         steps = _resolve_move_steps(cs.get("steps", []), project, actor_npc)   # final targets (offset applied)
     except ValueError:
         return       # an unresolved name -- validate() already reports it
+    steps = _autoroute_steps(steps, project, wmesh, actor_npc)   # route blocked walks, then check the result
     pos = (int(actor_npc["pos"][0]), int(actor_npc["pos"][1]))
     for k, s in enumerate(steps):
         if "teleport" in s:
@@ -1159,9 +1206,11 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # drives movement/scroll derivation + content guidance. Proven path (Session 4). Otherwise build
     # a full custom scene (camera + walkmesh + overlays -> .bgx / .bgi / PNGs).
     borrow_bg = project.field.get("borrow_bg")
+    cutscene_wmesh = None                       # walkmesh used to auto-route cutscene walks (custom or borrow)
     if not borrow_bg:
         bgi_bytes = resolve_walkmesh(project, camera, warnings)
         wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
+        cutscene_wmesh = wmesh
         # content placement: warn when an NPC / spawn / gateway sits OFF the walkable area -- the
         # recurring in-game mistake (an NPC floats, the player can't reach a trigger). Always checked.
         _validate_content_placement(project, wmesh, warnings)
@@ -1186,6 +1235,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         # validate content placement against it: [walkmesh] reference (or the sibling walkmesh.bgi the
         # importer wrote). Makes the off-walkmesh guard universal -- borrow forks are the common case.
         ref = _borrow_walkmesh(project)
+        cutscene_wmesh = ref
         if ref is not None:
             _validate_content_placement(project, ref, warnings)
 
@@ -1194,7 +1244,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     control_value = resolve_control_value(project, camera)
     for lang in langs:
         eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
-                          cutscene_txids=cutscene_txids)
+                          cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh)
         layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
         if mes_body:
             layout.mes_path(lang, project.text_block).write_text(mes_body, encoding="utf-8", newline="\n")

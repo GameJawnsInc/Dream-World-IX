@@ -403,8 +403,8 @@ Actor steps (only valid when `actor` is set — they need the NPC's context):
 
 | step (one key each) | meaning |
 |---|---|
-| `walk` | a **target** to walk to — a marker/entity **name** (`"fountain"`, `"@player"`, `"@Steiner"`) or raw `[x, z]`. Uses the NPC's walk animation; blocks until it arrives; turns tight (no orbit). Optional `speed = N`. See *Movement targets* below. |
-| `path` | a **list** of targets to walk through in order — `path = ["door", "fountain", "altar"]` (names or `[x,z]`). Each leg is a straight walk and is stall‑checked. Use it to route an actor **around** an obstacle (a wall or a standing character) that a single straight `walk` can't cross. |
+| `walk` | a **target** to walk to — a marker/entity **name** (`"fountain"`, `"@player"`, `"@Steiner"`) or raw `[x, z]`. Uses the NPC's walk animation; blocks until it arrives; turns tight (no orbit). **Auto‑routes** around walls/characters if the straight line is blocked (see *Reliability*). Optional `speed = N`. See *Movement targets* below. |
+| `path` | a **list** of targets to walk through in order — `path = ["door", "fountain", "altar"]` (names or `[x,z]`). Each leg is a straight walk, stall‑checked but **not** auto‑routed — use it to force an exact route (a plain `walk` already routes itself). |
 | `teleport` | a target to **instantly** move to (name or `[x, z]`). Put it **first** to start a walk-in from off-screen — a leading teleport runs before the warm-up so the actor settles there, then walks in. |
 | `animation` | a gesture **by name** (`"glad"`, `"angry"`, `"yawn"`, …) resolved against the actor's preset model, **or** a raw numeric id. Played, then held ~40 frames (no hang on a looping clip). See *Character gestures* below. |
 | `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — turn to face it, animated. |
@@ -442,13 +442,15 @@ steps = [
 ]
 ```
 
-**Reliability — the build checks your walks.** A FF9 walk is straight‑line and *synchronous* (the scene
-blocks until the actor arrives), so a walk that can't reach its target makes the actor press into the
-obstacle forever and **hangs the scene**. The build tracks the actor through the steps and **warns** when
-a walk's **target is off the floor**, its **target sits inside another character's collision box**, its
-**straight path crosses a wall**, or its **path passes through another character** (you can't walk through
-a standing NPC/the player) — a runtime softlock turned into a build message. If a leg is flagged, drop an
-intermediate `[[marker]]` and walk via it. (Multi‑waypoint `path` and automatic routing are coming next.)
+**Reliability — walks auto‑route; the build checks the rest.** A FF9 walk is straight‑line and
+*synchronous* (the scene blocks until the actor arrives), so a blocked walk would press into the
+obstacle forever and **hang the scene**. So the kit **auto‑routes**: when a `walk`'s straight line is
+blocked (it crosses a wall or passes through a standing character), the kit finds a route *around* the
+obstacle over the walkmesh (A\* + string‑pulling, staying clear of walls and every character's box) and
+walks it as a series of legs — `walk = "goal"` just works. It only **warns** when the *target itself* is
+bad (off the floor, or inside a character's box) or when **no route exists at all** (e.g. a character
+fully plugs a corridor). Use an explicit `path` when you want to force a specific route. (An explicit
+`path`'s legs are checked but not auto‑routed.)
 
 #### Character gestures (`animation` by name)
 
