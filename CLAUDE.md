@@ -1703,3 +1703,25 @@ So confirmed: opcode arg N is an expression iff gArgFlag bit N set (the `[op][gA
 **Human verified (in-game):** CONSOLE first shows only Buy/Leave; walking the SWITCH (an event set_flag=8001) reveals "Use the Gate Key"; **F10 reset re-hides it.** Tagged `KNOWN_GOOD-s21-prechoose-v2`. Commits `aafdaab` (v2) + test builder. (Benign UX note: the switch's message is a synchronous window, so its set_flag lands after you close it — standard "you got X → then it's yours"; not a choice issue.)
 
 **The choice system is now COMPLETE end-to-end:** NPC/zone triggers → branch → reply/item/gil/flag → default/cancel row → static hide → **flag-gated hide**. Field 4003 = the flaggate test (revert `py tools/scroll_out/revert_deploy.py`).
+
+### 2026-06-07 — Session 21 (cont) — Reward-event conventions matched to real FF9 + chest niceties + F10 control-fix
+
+**Made our reward events byte-faithful to FF9's own treasure-chest convention (user's "import/export truthiness" goal), all grounded against real fields + in-game-verified.**
+
+**Convention pass (grounded in Dali/Storage field 407, Cleyra/Sandpit 1102, …):** a real chest is `if (GetItemCount<99) { if (!opened) { opened=1; AddItem; SetTextVariable; window-7 "Received <item>!" } }` — i.e. **dedup-flag set FIRST, effects before the acknowledgement message**. Two kit fixes to match:
+1. **set_flag before the message** (`build.py` event body): an event doesn't lock movement, so a set_flag AFTER the message only landed when the player closed the window (they could walk off first). Moved set_flag (+ live-reveal) ahead of the message. User: "good reorder."
+2. **once-flag first** (`event_range_body`): was `if(!once){ body; once=1 }`; flipped to `if(!once){ once=1; body }` to match the chest (dedup lands the instant the event fires).
+
+**Chest niceties (both real-field-verified byte-for-byte, in-game-confirmed — a Potion chest gives via the item-get window, once, F10 re-arms):**
+- **`[[event]] received = true`** (give_item) → the canonical FF9 item-get window: `SetTextVariable(0, item)` (0x66) + `WindowSync(7, 0, txid)` with text `"Received [ITEM=0]!"`. Window type 7 = the special acquisition box; `[ITEM=0]` renders `GetItemName(textvar[0])`.
+- **`[[event]] require_space = true`** (give_item) → `if (GetItemCount(item) < 99) { … }` wrapping the whole reward (space-check OUTERMOST), so a full bag skips it AND leaves the once-flag unset (retryable).
+
+**Engine facts cracked (fold into memory `project-ff9-eb-script-tooling`):** base **`GetItemCount` = expression fn token `0x64`** (pops an item-id const, pushes the held count; NOT Memoria's custom `flexible_varfunc`/`ITEM_FULL_COUNT`); **`B_LT = 0x18`**; **`SetTextVariable` = 0x66** argsize [1,2]; **`[ITEM=n]` text tag** = `ETb.GetItemName(gMesValue[n])` (variable-slot, fed by SetTextVariable); **WindowSync window-type 7** = the item-get box. All match real field 407 bytes exactly (`05 7d ec 00 64 7d 63 00 18 7f` = `GetItemCount(236)<99`; `66 00 00 ec 00` = `SetTextVariable(0,236)`).
+
+**F10 control-fix (dev hotkey):** pressing F10 while STANDING IN a tread zone (chest) fired that zone once on reload — F10/F6 soft-reload (`SetNextMap`+`nextMode=1`) keeps the player at the carried position, and the tread check (gated only on `usercontrol`) won the race before Main_Init repositioned to spawn. Fix: `EventEngine.SetUserControl(false)` before the reload; Main_Init re-enables control after positioning. User: "clean — no extra potion, F10 resets the state, F6 blocks it from further uses." Engine: F6 reload + F10 reset + this fix, all in `UIKeyTrigger` (Release, 5,502,464 B); patch `memoria-patches/s21-dev-hotkeys-f6-f10.patch`.
+
+**Kit surface:** `region.cond_item_count_lt`/`or_var`/`var_expr`/`GLOB_UINT16`/`MASK_SCRATCH_IDX` + tokens (T_LT 0x18, T_ITEMCOUNT 0x64, T_OR_ASSIGN 0x3F); `opcodes.set_text_variable`/`enable_dialog_choices`/`enable_dialog_choices_var`; `content.choice.pre_choose`/`dynamic_mask_setup`; `event_range_body(space_item=)` + once-first; build wiring + validate + lint; editor fields; FORMAT.md. **356 tests.** Commits `5fcaa12`(once-first) `c15dc74`(chest niceties) + F10 control-fix. Tagged `KNOWN_GOOD-s21-chest-niceties`.
+
+**Game state:** dev engine (F6 reload + F10 reset + control-fix). Field 4003 = the chest test (revert `py tools/scroll_out/revert_deploy.py`). Debug New-Game→Alexandria warp active. The kit's content stack (rooms → cameras → walkmesh → NPCs/dialogue → gateways → encounters → events[chest-faithful] → choices[+flag-gated hide] → branching → cutscenes) is COMPLETE, real-field-grounded, and in-game-proven.
+
+**Next options:** author a real populated demo area with the full stack; a second connected room; or the release-cleanup pass. Standing constraint: nothing public.
