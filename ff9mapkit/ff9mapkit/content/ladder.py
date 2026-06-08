@@ -226,6 +226,7 @@ def _dismount(anim: int, x: int, z: int, y: int = 0, steps: int = 6, frames=(2, 
 
 def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, step: int = 20,
                          up_mask: int = 0x10, down_mask: int = 0x40, right_alias: bool = False,
+                         dirs=None,
                          climb_anim: int = CLIMB_ANIM, climb_frames: int = 12,
                          mount_anim: int = MOUNT_ANIM, dismount_anim: int = DISMOUNT_ANIM,
                          mount_steps: int = 4, dismount_steps: int = 6,
@@ -312,10 +313,16 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     # the climb anim one frame, sets the target +/- step, and JUMPS to the snap (skipping the rest) --
     # so an up-diagonal climbs UP even though the down mask (Down|Left) can overlap it. No input -> HOLD
     # (target = selfY; the anim window is NOT advanced, so it freezes on a grip pose rather than looping).
-    dirs = [(up_mask, _region.T_MINUS), (down_mask, _region.T_PLUS)]
-    if right_alias:
-        dirs.append((0x20, _region.T_MINUS))                            # Right = a second 'up' binding
-    for i, (mask, sign) in enumerate(dirs):
+    # input bindings: an explicit `dirs` list of (mask, "up"|"down") -- first-match-wins -- subsumes the
+    # up_mask/down_mask/right_alias shorthand and expresses real multi-key fields (TRNO/UDFT bind both
+    # Up AND Left to climb up: dirs=[[0x10,"up"],[0x80,"up"],[0x60,"down"]]). Default = up=0x10/down=0x40.
+    if dirs is not None:
+        dir_list = [(int(m), _region.T_MINUS if str(d).lower() == "up" else _region.T_PLUS) for m, d in dirs]
+    else:
+        dir_list = [(up_mask, _region.T_MINUS), (down_mask, _region.T_PLUS)]
+        if right_alias:
+            dir_list.append((0x20, _region.T_MINUS))                    # Right = a second 'up' binding
+    for i, (mask, sign) in enumerate(dir_list):
         adv = 1 if sign == _region.T_MINUS else climb_frames - 1       # up = forward, down = backward
         a.raw(_stmt(_const(mask), bytes([_region.T_KEY])))             # if (mask held)
         a.jmp(_region.JMP_FALSE, f"DIR{i}")

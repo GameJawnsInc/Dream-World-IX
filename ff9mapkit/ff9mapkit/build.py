@@ -1104,6 +1104,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     kw[k] = int(lad[k])
             if lad.get("right_alias"):
                 kw["right_alias"] = True
+            if "dirs" in lad:                            # explicit input bindings: [[mask,"up"|"down"], ...]
+                kw["dirs"] = [(int(m), str(d)) for m, d in lad["dirs"]]
             if "top_action" in lad:
                 kw["top_action"] = str(lad["top_action"])
             eb, _ = _ladder.inject_navigable_ladder(

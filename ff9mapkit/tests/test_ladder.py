@@ -400,6 +400,14 @@ def test_navigable_climb_input_masks_are_parameterized():
     diag = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800), down_mask=0xC0, right_alias=True)
     assert bytes([0x05, 0x7D, 0xC0, 0x00, 0x59]) in diag                    # Down|Left
     assert bytes([0x05, 0x7D, 0x20, 0x00, 0x59]) in diag                    # Right alias
+    # explicit `dirs` list -> arbitrary multi-key bindings (TRNO/UDFT bind Up AND Left to climb up)
+    multi = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800),
+                                        dirs=[[0x10, "up"], [0x80, "up"], [0x60, "down"]])
+    for m in (0x10, 0x80, 0x60):
+        assert bytes([0x05, 0x7D, m, 0x00, 0x59]) in multi                  # one B_KEY read per binding
+    base = lambda **kw: ladder.navigable_climb_body((0, 0, 0), (0, 0, 800), **kw)
+    assert base() == base(dirs=[[0x10, "up"], [0x40, "down"]])              # default == shorthand (byte-exact)
+    assert base(right_alias=True) == base(dirs=[[0x10, "up"], [0x40, "down"], [0x20, "up"]])  # right_alias
 
 
 def test_inject_navigable_ladder_attaches_climb_and_region():
