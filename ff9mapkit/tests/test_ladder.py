@@ -465,26 +465,52 @@ def test_navigable_mount_gate_present():
     assert body[0] == 0x05 and body[1] == 0x78   # opens with the selfY-vs-threshold mount gate expr
 
 
-def test_inject_reentry_spawn_adds_player_func_and_code_entry():
-    """inject_reentry_spawn adds a player on-vine placement func + a D8:2-gated code entry."""
+def test_inject_reentry_spawn_places_in_init_and_runs_climb():
+    """inject_reentry_spawn SPLICES the on-vine placement into the player Init (no base flash, like 706)
+    + arms a code entry that runs the climb, so you spawn already climbing."""
     out, _ = ladder.inject_navigable_ladder(CLEAN, bottom=(0, 0, 0), top=(0, 0, 800),
                                             top_action="field", top_field=4002, top_entrance=10, climb_tag=17)
     out, cslot = ladder.inject_reentry_spawn(out, entrance=11, x=0, z=0, y=680, face=110)
     eb = EbScript.from_bytes(out)
     pe = ladder.find_player_entry(eb)
-    rf = eb.entry(pe).func_by_tag(ladder.REENTRY_TAG)
-    assert rf is not None
-    rops = [i.op for i in iter_code(eb.data, rf.abs_start, rf.abs_end)]
-    assert 0xCC in rops and 0xA1 in rops and 0xA8 in rops   # AddCharAttr(ladder) + MoveInstantXZY + SetPathing
+    init = eb.entry(pe).func_by_tag(0)
+    ibody = eb.data[init.abs_start:init.abs_end]
+    iops = [i.op for i in iter_code(eb.data, init.abs_start, init.abs_end)]
+    assert 0xCC in iops and 0xA1 in iops and 0xA8 in iops   # placement (AddCharAttr+MoveInstantXZY+SetPathing) IN the Init
+    assert bytes.fromhex("05d8027d0b00207f") in ibody       # gated by `D8:2 == 11` (the re-entry entrance)
     cf = eb.entry(cslot).func_by_tag(0)
     rs = [list(i.args) for i in iter_code(eb.data, cf.abs_start, cf.abs_end) if i.op == 0x14]
-    tags = {a[2] for a in rs}
-    assert ladder.REENTRY_TAG in tags and 17 in tags        # RunScriptSync BOTH the placement AND the climb
+    assert any(a[2] == 17 for a in rs)                      # the code entry RunScriptSyncs the CLIMB (tag 17)
     cops = [i.op for i in iter_code(eb.data, cf.abs_start, cf.abs_end)]
-    assert 0x2D in cops and 0x2E in cops                     # DisableMove/EnableMove around the climb (706's pattern)
-    init = eb.entry(0).func_by_tag(0)
+    assert 0x2D in cops and 0x2E in cops                    # DisableMove/EnableMove around the climb (706's pattern)
+    init0 = eb.entry(0).func_by_tag(0)
     assert any(i.op == 0x07 and i.args[0] == cslot                               # armed via InitCode
-               for i in iter_code(eb.data, init.abs_start, init.abs_end))
+               for i in iter_code(eb.data, init0.abs_start, init0.abs_end))
+
+
+def test_insert_in_function_fixes_later_func_fpos():
+    """insert_in_function inserts into a non-last function and keeps LATER funcs readable (fixes their
+    intra-entry fpos -- the gap insert_bytes alone leaves)."""
+    from ff9mapkit.eb import edit
+    out, _ = ladder.inject_navigable_ladder(CLEAN, bottom=(0, 0, 0), top=(0, 0, 800),
+                                            top_action="floor", climb_tag=17)
+    eb = EbScript.from_bytes(out); pe = ladder.find_player_entry(eb)
+    init = eb.entry(pe).func_by_tag(0)
+    dpc = next(i for i in eb.instrs(init) if i.op == 0x2C)        # DefinePlayerCharacter
+    marker = bytes.fromhex("22007b")                              # Wait(123) -- a recognizable filler
+    out2 = edit.insert_in_function(out, pe, 0, dpc.end - init.abs_start, marker)
+    eb2 = EbScript.from_bytes(out2); pe2 = ladder.find_player_entry(eb2)
+    assert marker in eb2.data[eb2.entry(pe2).func_by_tag(0).abs_start:eb2.entry(pe2).func_by_tag(0).abs_end]
+    # the climb (tag 17, a LATER func) keeps its content -> fpos was fixed
+    c2 = eb2.entry(pe2).func_by_tag(17)
+    assert len(list(iter_code(eb2.data, c2.abs_start, c2.abs_end))) > 0
+    # whole field still disassembles cleanly
+    for e in eb2.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            if f.abs_end > f.abs_start:
+                list(iter_code(eb2.data, f.abs_start, f.abs_end))
 
 
 def test_build_navigable_gateway_ladder(tmp_path):
@@ -504,7 +530,8 @@ def test_build_navigable_gateway_ladder(tmp_path):
     pe = ladder.find_player_entry(s)
     cf = s.entry(pe).func_by_tag(ladder.FIRST_CLIMB_TAG)
     assert bytes.fromhex("2b00a20f") in s.data[cf.abs_start:cf.abs_end]   # Field(4002) top
-    assert s.entry(pe).func_by_tag(ladder.REENTRY_TAG) is not None        # re-entry placement func
+    init = s.entry(pe).func_by_tag(0)                                     # re-entry placement spliced into the Init
+    assert bytes.fromhex("05d8027d0b00207f") in s.data[init.abs_start:init.abs_end]   # gated by D8:2 == 11
 
 
 def test_validate_flags_navigable_self_loop_gateway(tmp_path):

@@ -120,6 +120,46 @@ def add_function(data, entry_index: int, tag: int, body: bytes) -> bytes:
     return bytes(out)
 
 
+def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins: bytes) -> bytes:
+    """Insert ``ins`` into function ``func_tag``'s body at body offset ``rel_off`` (0 = prepend).
+
+    Unlike :func:`insert_bytes` (which only fixes the entry table), this ALSO fixes the intra-entry
+    function-table ``fpos`` of every *other* function whose body starts at/after the insert point --
+    the gap that makes a raw insert into a non-last function corrupt the later funcs. So that the
+    function's own relative jumps stay valid, the insert point must not be straddled by any of
+    ``func_tag``'s jumps (raised otherwise). Inserting right after a setup opcode and before the
+    function's tail (e.g. after the player's ``DefinePlayerCharacter``, before its ``EnableMove``
+    block) is safe: every tail jump and its target shift together. Used to place the ladder re-entry
+    spawn inside the player Init, exactly as field 706 does (no warm-up, no base-position flash)."""
+    eb = EbScript.from_bytes(data)
+    f = eb.entry(entry_index).func_by_tag(func_tag)
+    if f is None:
+        raise ValueError(f"entry {entry_index} has no function tag {func_tag}")
+    abs_ins = f.abs_start + rel_off
+    if not (f.abs_start <= abs_ins < f.abs_end):
+        raise ValueError(f"insert offset {rel_off} is outside func {func_tag} body")
+    for j in eb.instrs(f):                                  # the function's own relative jumps
+        if j.op in (0x01, 0x02, 0x03) and not j.arg_is_expr[0]:
+            raw = j.imm(0)
+            tgt = j.end + (raw - 0x10000 if raw >= 0x8000 else raw)
+            lo, hi = sorted((j.end, tgt))
+            if lo < abs_ins < hi:
+                raise ValueError(f"insert at {abs_ins} straddles jump {j.off}->{tgt} in func {func_tag}")
+        elif j.op == 0x06:
+            raise ValueError(f"func {func_tag} has a jump table (0x06); insert unsupported")
+    out = bytearray(insert_bytes(data, abs_ins, bytes(ins)))   # grows entry + later entries; fpos NOT fixed
+    so = ENTRY_TABLE_OFF + entry_index * ENTRY_SLOT_SIZE
+    es = ENTRY_TABLE_OFF + u16(out, so)
+    fc = out[es + 1]
+    fbase = es + 2
+    for i in range(fc):
+        t = u16(out, fbase + i * 4)
+        fp = u16(out, fbase + i * 4 + 2)
+        if t != func_tag and fbase + fp >= abs_ins:        # other funcs whose body shifted
+            set_u16(out, fbase + i * 4 + 2, fp + len(ins))
+    return bytes(out)
+
+
 def nop_range(data, abs_off: int, length: int) -> bytes:
     """Overwrite ``length`` bytes at ``abs_off`` with NOP (0x00). Length-preserving."""
     b = bytearray(_as_bytes(data))

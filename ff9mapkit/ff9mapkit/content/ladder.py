@@ -503,47 +503,58 @@ def reentry_spawn_block(x: int, z: int, y: int, *, face: int = 0,
             + opcodes.run_animation(int(climb_anim)))
 
 
-REENTRY_TAG = 90     # the player's re-entry placement function tag (distinct from climb tags 17+)
-REENTRY_WARMUP = 2   # frames to let the player object + Main_Init finish before placing/climbing
+REENTRY_WARMUP = 2   # frames the CLIMB-RUN code entry waits so it runs after the Init has placed you
+                     # (the PLACEMENT itself is in the Init -> frame 0, pre-render, NO base flash)
 
 
 def inject_reentry_spawn(data, entrance: int, x: int, z: int, y: int, *, climb_tag: int = FIRST_CLIMB_TAG,
-                         face: int = 0, climb_anim: int = CLIMB_ANIM, reentry_tag: int = REENTRY_TAG,
+                         face: int = 0, climb_anim: int = CLIMB_ANIM,
                          player_uid: int = PLAYER_UID, activate: bool = True):
-    """Make the field spawn the player ON THE VINE *already climbing* when entered via ``entrance`` -- the
-    return from a ladder-top ``Field()`` gateway, so you hold Down to climb off (706's re-entry).
+    """Make the field spawn the player ON THE VINE *already climbing* when entered via ``entrance`` --
+    the return from a ladder-top ``Field()`` gateway, so you hold Down to climb off (706's re-entry).
 
-    Faithful to field 706 (``EVT_GIZ_TO_WORLD``): its player-init PLACES you on the vine for the re-entry
-    entrance (the ``if (entrance==9999)`` block: AddCharacterAttribute + MoveInstantXZY + SetPathing(0) +
-    climb anim), and its **Main_Loop** runs ``RunScriptSync(player, climb)`` so you are in the climb loop
-    from spawn, then re-enables control once you dismount at the base. We replicate that as ONE field-load
-    code entry::
+    Faithful to field 706 (``EVT_GIZ_TO_WORLD``), which uses NO warm-up timer -- it does two things:
+      - its **player Init** places you on the vine for the re-entry entrance (``if (entrance==9999)``:
+        AddCharacterAttribute + MoveInstantXZY + SetPathing(0) + climb anim) -- so you are positioned
+        as the player object is created, *before the first render*, and never flash the base spawn;
+      - its **Main_Loop** runs ``RunScriptSync(player, climb)`` so you are in the climb loop from spawn
+        (then re-enables control once you dismount).
 
-        if (D8:2 == entrance) {
-            Wait(warmup)                        # let the player object + Main_Init finish
-            RunScriptSync(player, reentry_tag)  # place on the vine (gripping, high)
-            DisableMove
-            RunScriptSync(player, climb_tag)    # run the climb loop -> you are climbing immediately
-            EnableMove                          # restore control after you dismount at the base
-        }
+    We replicate BOTH halves. The placement is SPLICED INTO the player Init right after
+    ``DefinePlayerCharacter`` (jump-safe -- matches 706's position; the Init's tail jumps + their RETURN
+    target shift together), and the climb is run from a code entry armed at field load (706 uses
+    Main_Loop)::
 
-    The climb's mount-gate sees you already high on the vine (selfY past the mid-band) and SKIPS the
-    jump-on mount, dropping straight into the loop -- so the directional keys climb you down. (Just
-    *placing* you, without running the climb, leaves you stuck gripping the top, out of reach of the base
-    region that normally starts the climb -- the bug this fixes.) Uses only the proven
-    add_function/append_entry/RunScriptSync mechanisms (no fragile mid-func insert). One-shot per field
-    load. Returns ``(new_bytes, code_slot)``. ``entrance`` must match what the return gateway sets (D8:2);
+        # spliced into the player Init, after DefinePlayerCharacter:
+        if (D8:2 == entrance) { <on-vine placement> }
+        # code entry:
+        if (D8:2 == entrance) { Wait; DisableMove; RunScriptSync(player, climb); EnableMove }
+
+    The earlier base-flash bug was placing you from a *post-Init* code entry (the Init had already
+    spawned you at the base, so any wait showed it). Placing in the Init kills the flash with no timer;
+    the small climb-run Wait is invisible (you are already on the vine). The climb's mount-gate sees you
+    high on the vine and skips the jump-on mount, dropping into the loop -> hold Down to climb off.
+    Returns ``(new_bytes, code_slot)``. ``entrance`` must match what the return gateway sets (D8:2);
     ``climb_tag`` is the player's climb function for this ladder."""
     eb = EbScript.from_bytes(data)
     pe = find_player_entry(eb)
-    data = edit.add_function(data, pe, reentry_tag,
-                             reentry_spawn_block(x, z, y, face=face, climb_anim=climb_anim) + opcodes.RETURN)
+    init = eb.entry(pe).func_by_tag(0)
+    if init is None:
+        raise ValueError("player entry has no Init (tag 0)")
+    dpc = next((i for i in eb.instrs(init) if i.op == 0x2C), None)   # DefinePlayerCharacter
+    if dpc is None:
+        raise ValueError("player Init has no DefinePlayerCharacter (0x2C); cannot place re-entry spawn")
+    rel = dpc.end - init.abs_start                                   # right after DefinePlayerCharacter
+    placement = _region.if_block(
+        _region.cond_eq(_region.GLOB_INT16, _region.FIELD_ENTRANCE_IDX, int(entrance)),
+        reentry_spawn_block(int(x), int(z), int(y), face=face, climb_anim=climb_anim))   # no RETURN
+    data = edit.insert_in_function(data, pe, 0, rel, placement)
+    # run the climb from a code entry (706 runs it from Main_Loop): post-Init -> you are already placed
     body = (_region.if_block(
                 _region.cond_eq(_region.GLOB_INT16, _region.FIELD_ENTRANCE_IDX, int(entrance)),
                 opcodes.wait(REENTRY_WARMUP)
-                + opcodes.run_script_sync(RUNSCRIPT_LEVEL, player_uid, reentry_tag)   # place on the vine
                 + opcodes.disable_move()
-                + opcodes.run_script_sync(RUNSCRIPT_LEVEL, player_uid, climb_tag)     # run the climb loop
+                + opcodes.run_script_sync(RUNSCRIPT_LEVEL, player_uid, int(climb_tag))   # run the climb loop
                 + opcodes.enable_move())
             + opcodes.RETURN)
     code_entry = bytes([0, 1]) + struct.pack("<HH", 0, 4) + body     # type-0 entry, 1 func (tag 0)
