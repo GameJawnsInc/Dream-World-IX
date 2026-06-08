@@ -12,6 +12,9 @@ Subcommands are wired up incrementally as the library lands:
     pack      - package a built mod for distribution                        (Phase 5)
     import    - fork a real FF9 field (BG-borrow, or --editable custom scene) (Tier 3)
     list-fields - list the real FF9 fields available to import              (Tier 3)
+    animations/items - browse the cutscene-gesture / item catalogs by name
+    models/scenes/catalog - the Info Hub: browse models (+ their animations), battle scenes, or
+                            search every reference catalog by name
     extract-templates - regenerate base assets from the user's own FF9 install (no game data shipped)
 
 Anything not yet implemented prints a clear "coming in Phase N" message rather than failing
@@ -393,6 +396,97 @@ def _cmd_items(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_model_detail(m) -> int:
+    """One model + its animation gestures (the (group, token) join)."""
+    from . import catalog as C
+    formk = C.FORM_KIND.get(m.form[:1], "?")
+    print(f"model {m.id}: {m.name}")
+    print(f"  group {m.group} ({m.kind})  |  form {m.form} ({formk})  |  token {m.token}")
+    acts = C.animation_actions(m.id)
+    if not acts:
+        print("  no animations found for this model's (group, token) "
+              "-- often a numbered battle-only model.")
+        return 0
+    core = ("idle", "walk", "run", "turn_l", "turn_r")          # movement gestures first
+    ordered = [(a, i) for a in core for (aa, i) in acts if aa == a]
+    ordered += [(a, i) for a, i in acts if a not in core]
+    print(f"  {len(acts)} animation(s). Use an id for an NPC anim slot or a cutscene `animation`:\n")
+    for r in range(0, len(ordered), 2):
+        print("  " + "".join(f"{a:<22}{i:<8}" for a, i in ordered[r:r + 2]).rstrip())
+    return 0
+
+
+def _cmd_models(args: argparse.Namespace) -> int:
+    """Browse actor/field models; naming one exactly shows its animation gestures."""
+    from . import catalog as C
+    if args.pattern is not None:                                # exact id/name -> detail view
+        m = C.model(args.pattern)
+        if m is not None:
+            return _print_model_detail(m)
+    rows = C.models(args.pattern, group=args.group, field_only=args.field)
+    if not rows:
+        where = f" in group {args.group}" if args.group else ""
+        print(f"no models match {args.pattern!r}{where}.", file=sys.stderr)
+        return 0
+    if len(rows) == 1:                                          # a unique match -> jump to detail
+        return _print_model_detail(rows[0])
+    print(f"{len(rows)} model(s). The id is what SetModel() / an [[npc]] `model` takes.\n")
+    for m in rows:
+        tag = f"{m.kind}/{m.form}"
+        extra = f"   {len(C.animations_for_model(m.id))} anims" if args.anims else ""
+        print(f"  {m.id:>4}  {m.name:<22} {tag:<16}{extra}".rstrip())
+    print(f"\nName one to see its gestures:  ff9mapkit models {rows[0].name}")
+    return 0
+
+
+def _cmd_scenes(args: argparse.Namespace) -> int:
+    """List FF9 battle-scene (encounter) ids -- what an [encounter] points SetRandomBattles at."""
+    from . import catalog as C
+    rows = C.battle_scenes(args.pattern)
+    if not rows:
+        print(f"no battle scenes match {args.pattern!r}.", file=sys.stderr)
+        return 0
+    print(f"{len(rows)} battle scene(s). The id goes in an [encounter] (e.g. scenes = [<id>, ...]).\n")
+    for nm, sid in rows:
+        print(f"  {sid:>4}  {nm}")
+    return 0
+
+
+def _cmd_catalog(args: argparse.Namespace) -> int:
+    """Search every reference catalog by name -- the Info Hub 'grab anything'."""
+    from . import catalog as C
+    res = C.search(args.query)
+    if not any(res.values()):
+        print(f"nothing matches {args.query!r} in models / items / scenes / fields.")
+        return 0
+    lim = args.limit
+    if res["models"]:
+        print(f"models ({len(res['models'])}):")
+        for m in res["models"][:lim]:
+            print(f"  {m.id:>4}  {m.name:<22} {m.kind}")
+        if len(res["models"]) > lim:
+            print(f"  ... +{len(res['models']) - lim} more (ff9mapkit models {args.query})")
+    if res["items"]:
+        print(f"items ({len(res['items'])}):")
+        for i, n in res["items"][:lim]:
+            print(f"  {i:>4}  {n}")
+        if len(res["items"]) > lim:
+            print(f"  ... +{len(res['items']) - lim} more (ff9mapkit items -f {args.query})")
+    if res["scenes"]:
+        print(f"battle scenes ({len(res['scenes'])}):")
+        for nm, sid in res["scenes"][:lim]:
+            print(f"  {sid:>4}  {nm}")
+        if len(res["scenes"]) > lim:
+            print(f"  ... +{len(res['scenes']) - lim} more (ff9mapkit scenes {args.query})")
+    if res["fields"]:
+        print(f"fields ({len(res['fields'])}):")
+        for fbg, fid, evt in res["fields"][:lim]:
+            print(f"  {fid:>4}  {evt:<26} ({fbg})")
+        if len(res["fields"]) > lim:
+            print(f"  ... +{len(res['fields']) - lim} more (ff9mapkit list-fields {args.query})")
+    return 0
+
+
 def _cmd_edit(args: argparse.Namespace) -> int:
     """Launch the form-based field-logic editor (Tkinter)."""
     try:
@@ -502,6 +596,23 @@ def build_parser() -> argparse.ArgumentParser:
     it = sub.add_parser("items", help="list FF9 item names + ids (give_item by name)")
     it.add_argument("-f", "--filter", help="only show items whose name contains this")
     it.set_defaults(func=_cmd_items)
+
+    md = sub.add_parser("models", help="browse actor/field models; name one to see its animations")
+    md.add_argument("pattern", nargs="?", default=None,
+                    help="name/token substring to filter, or an exact model name/id for detail")
+    md.add_argument("-g", "--group", help="filter by group (MAIN/NPC/MON/ACC/SUB/WEP) or kind (npc/playable/...)")
+    md.add_argument("--field", action="store_true", help="only field-form models (the ones you place as NPCs)")
+    md.add_argument("--anims", action="store_true", help="also show each model's gesture count")
+    md.set_defaults(func=_cmd_models)
+
+    sc = sub.add_parser("scenes", help="list FF9 battle-scene (encounter) ids by name")
+    sc.add_argument("pattern", nargs="?", default=None, help="name substring (e.g. alex, evil, b3)")
+    sc.set_defaults(func=_cmd_scenes)
+
+    ct = sub.add_parser("catalog", help="search every reference catalog (models/items/scenes/fields) by name")
+    ct.add_argument("query", help="substring to search across all catalogs")
+    ct.add_argument("--limit", type=int, default=15, help="max rows per kind (default 15)")
+    ct.set_defaults(func=_cmd_catalog)
 
     ed = sub.add_parser("edit", help="open the form-based field-logic editor (no TOML hand-editing)")
     ed.add_argument("field", nargs="?", default=None, help="a .field.toml to open (optional)")
