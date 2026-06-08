@@ -98,6 +98,36 @@ def test_animations_for_model_unknown_is_empty():
     assert C.animations_for_model(999999) == {}
 
 
+# --- npc_anims: model -> the five field-NPC slots (the archetype payoff) ------
+def test_npc_anims_vivi_matches_builtin_preset_by_name():
+    from ff9mapkit.content.npc import PRESETS
+    _model, _animset, preset = PRESETS["vivi"]
+    got = C.npc_anims(8)
+    assert set(got) == {"stand", "walk", "run", "left", "right"}
+    for slot, pid in preset.items():               # same clip NAME as the proven preset (dup-id safe)
+        assert C.animation_name(got[slot]) == C.animation_name(pid), slot
+
+
+def test_npc_anims_complete_model_uses_its_own_clips():
+    got = C.npc_anims("GEO_NPC_F0_BAR")
+    assert set(got) == {"stand", "walk", "run", "left", "right"}
+    assert all(isinstance(v, int) for v in got.values())
+    assert all("_BAR_" in C.animation_name(v) for v in got.values())   # BAR token, never a foreign clip
+
+
+def test_npc_anims_partial_model_falls_back_to_own_clips():
+    got = C.npc_anims("GEO_NPC_F0_BRI")            # has only idle + walk
+    assert set(got) == {"stand", "walk", "run", "left", "right"}
+    assert got["run"] == got["walk"]              # missing run -> walk
+    assert got["left"] == got["right"] == got["stand"]   # missing turns -> idle
+
+
+def test_npc_anims_empty_for_non_field_model():
+    assert C.npc_anims(999999) == {}
+    mon = next(m for m in C.all_models() if not m.field and not C.animations_for_model(m.id))
+    assert C.npc_anims(mon.id) == {}              # a battle-only monster has no field gestures
+
+
 # --- battle scenes -----------------------------------------------------------
 def test_battle_scenes_and_resolve():
     rows = C.battle_scenes()

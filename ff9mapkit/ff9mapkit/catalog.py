@@ -182,6 +182,43 @@ def animation_actions(name_or_id) -> list:
     return sorted(animations_for_model(name_or_id).items())
 
 
+# the five field-NPC animation slots the injector drives (``content.npc.ANIM_ORDER``) and the join
+# action each is resolved from. The engine plays a clip by NAME, so any id naming the right clip works.
+NPC_SLOT_ACTION = {"stand": "idle", "walk": "walk", "run": "run", "left": "turn_l", "right": "turn_r"}
+
+
+def npc_anims(name_or_id) -> dict:
+    """``{stand, walk, run, left, right}`` animation ids to place a model as a field NPC -- the Info
+    Hub's payoff: ANY model becomes ready to drop in.
+
+    Each movement slot the field engine drives is resolved from the model's OWN gestures
+    (:func:`animations_for_model`) with graceful fallbacks (missing run -> walk, missing turn -> idle),
+    so a slot never holds a foreign clip. For ``GEO_MAIN_F0_VIV`` this reproduces the built-in ``vivi``
+    preset (by clip name). Returns ``{}`` for a model with no field gestures (a battle-only / effect
+    model) -- give explicit ``anims`` for those.
+    """
+    a = animations_for_model(name_or_id)
+    if not a:
+        return {}
+
+    def pick(*actions):
+        for act in actions:
+            if act in a:
+                return a[act]
+        return None
+
+    stand = pick("idle", "walk", "run")
+    if stand is None:                            # nothing standable -> not a usable field-NPC model
+        return {}
+    return {
+        "stand": stand,
+        "walk": pick("walk", "run", "idle") or stand,
+        "run": pick("run", "walk", "idle") or stand,
+        "left": pick("turn_l", "turn_r", "idle") or stand,
+        "right": pick("turn_r", "turn_l", "idle") or stand,
+    }
+
+
 # ----------------------------------------------------------- battle scenes ---
 def battle_scenes(query=None) -> list:
     """``[(name, id), ...]`` sorted by name; ``query`` filters by name substring (case-insensitive)."""

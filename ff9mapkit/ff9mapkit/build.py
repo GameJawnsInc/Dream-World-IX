@@ -1005,8 +1005,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         if "preset" in n:
             kwargs["preset"] = n["preset"]
         else:
-            kwargs.update(model=resolve_npc_model(n.get("model")), animset=n.get("animset"),
-                          anims=n.get("anims"))
+            mid = resolve_npc_model(n.get("model"))
+            anims = n.get("anims")
+            if mid is not None and not anims:
+                anims = _catalog.npc_anims(mid) or None   # any model by name -> its own gestures (Info Hub)
+            kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
         gf, gs = _gate_of(n)
         slot = EbScript.from_bytes(eb).first_free_slot()
         intro = actor_choreo if (cs_actor and n.get("name") == cs_actor) else None
