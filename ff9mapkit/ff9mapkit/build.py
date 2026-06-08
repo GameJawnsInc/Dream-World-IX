@@ -224,14 +224,22 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
     for la in project.raw.get("ladder", []):
         if la.get("navigable"):                      # NAVIGABLE (FF9's real ladder mechanism, recreated)
-            for k in ("bottom", "top"):
-                v = la.get(k)
-                if not (isinstance(v, (list, tuple)) and len(v) == 3):
-                    problems.append(f"[[ladder]] navigable: {k} must be [x, z, y] (a world point WITH height)")
-            b, t = la.get("bottom"), la.get("top")
-            if (isinstance(b, (list, tuple)) and len(b) == 3
-                    and isinstance(t, (list, tuple)) and len(t) == 3 and b[2] == t[2]):
-                problems.append("[[ladder]] navigable: top and bottom must differ in height (y)")
+            rungs = la.get("rungs")
+            if rungs is not None:                    # MULTI-RUNG (bent vine): rungs replace bottom/top
+                if not (isinstance(rungs, (list, tuple)) and len(rungs) >= 2
+                        and all(isinstance(p, (list, tuple)) and len(p) == 3 for p in rungs)):
+                    problems.append("[[ladder]] navigable: rungs must be >=2 world points [x, z, y] (bottom..top)")
+                elif rungs[0][2] == rungs[-1][2]:
+                    problems.append("[[ladder]] navigable: rungs top and bottom must differ in height (y)")
+            else:
+                for k in ("bottom", "top"):
+                    v = la.get(k)
+                    if not (isinstance(v, (list, tuple)) and len(v) == 3):
+                        problems.append(f"[[ladder]] navigable: {k} must be [x, z, y] (a world point WITH height)")
+                b, t = la.get("bottom"), la.get("top")
+                if (isinstance(b, (list, tuple)) and len(b) == 3
+                        and isinstance(t, (list, tuple)) and len(t) == 3 and b[2] == t[2]):
+                    problems.append("[[ladder]] navigable: top and bottom must differ in height (y)")
             z = la.get("zone")
             if z is not None and len(z) not in (3, 4, 5):
                 problems.append(f"[[ladder]] navigable: zone (optional) must have 3-5 points, got {len(z)}")
@@ -672,6 +680,20 @@ def _ladder_sequences(project: FieldProject, climb_ref, climb_bytes):
     return seqs
 
 
+def _point_on_rungs(rungs, frac):
+    """The world point at ``frac`` of the total HEIGHT along a multi-rung (bent) vine -- for the re-entry
+    spawn, which must sit ON the bent path, not the straight bottom->top chord."""
+    pts = [[int(c) for c in p] for p in rungs]
+    by, ty = pts[0][2], pts[-1][2]
+    wy = by + frac * (ty - by)
+    for (px, pz, py), (qx, qz, qy) in zip(pts, pts[1:]):
+        lo, hi = (py, qy) if py <= qy else (qy, py)
+        if qy != py and lo <= wy <= hi:
+            t = (wy - py) / (qy - py)
+            return round(px + t * (qx - px)), round(pz + t * (qz - pz)), round(wy)
+    return pts[-1][0], pts[-1][1], round(wy)
+
+
 def _validate_content_placement(project: FieldProject, wmesh, warnings: list) -> None:
     """Warn when authored content sits OFF the walkable area -- the recurring in-game mistake (an NPC
     floats / the player can't reach a trigger / spawns off the floor). Top-down XZ point-in-walkmesh
@@ -1108,16 +1130,25 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 kw["dirs"] = [(int(m), str(d)) for m, d in lad["dirs"]]
             if "top_action" in lad:
                 kw["top_action"] = str(lad["top_action"])
+            rungs_pts = lad.get("rungs")
+            if rungs_pts:                                # MULTI-RUNG (bent vine): rungs override bottom/top
+                kw["rungs"] = [[int(c) for c in p] for p in rungs_pts]
+                bot, topp = list(rungs_pts[0]), list(rungs_pts[-1])
+            else:
+                bot, topp = lad["bottom"], lad["top"]
             eb, _ = _ladder.inject_navigable_ladder(
-                eb, bottom=lad["bottom"], top=lad["top"],
+                eb, bottom=bot, top=topp,
                 floor_landing=lad.get("floor_landing"), top_landing=lad.get("top_landing"),
                 zone=zone, radius=int(lad.get("zone_radius", 200)), climb_tag=tag, **kw)
             # re-entry on-vine spawn: returning via reentry_entrance puts you HIGH on the vine (climb down)
             if "reentry_entrance" in lad:
-                bx, bz, by = [int(v) for v in lad["bottom"]]
-                tx, tz, ty = [int(v) for v in lad["top"]]
                 frac = float(lad.get("reentry_frac", 0.85))      # how far up the vine you return (0..1)
-                rx, rz, ry = round(bx + frac * (tx - bx)), round(bz + frac * (tz - bz)), round(by + frac * (ty - by))
+                if rungs_pts:
+                    rx, rz, ry = _point_on_rungs(kw["rungs"], frac)   # ON the bent path, not the chord
+                else:
+                    bx, bz, by = [int(v) for v in bot]
+                    tx, tz, ty = [int(v) for v in topp]
+                    rx, rz, ry = round(bx + frac * (tx - bx)), round(bz + frac * (tz - bz)), round(by + frac * (ty - by))
                 eb, _ = _ladder.inject_reentry_spawn(
                     eb, int(lad["reentry_entrance"]), rx, rz, ry, climb_tag=tag,
                     face=int(lad.get("face_angle", 0)), climb_anim=int(lad.get("climb_anim", _ladder.CLIMB_ANIM)))

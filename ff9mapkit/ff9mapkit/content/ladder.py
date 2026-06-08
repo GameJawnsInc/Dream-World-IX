@@ -226,7 +226,7 @@ def _dismount(anim: int, x: int, z: int, y: int = 0, steps: int = 6, frames=(2, 
 
 def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, step: int = 20,
                          up_mask: int = 0x10, down_mask: int = 0x40, right_alias: bool = False,
-                         dirs=None,
+                         dirs=None, rungs=None,
                          climb_anim: int = CLIMB_ANIM, climb_frames: int = 12,
                          mount_anim: int = MOUNT_ANIM, dismount_anim: int = DISMOUNT_ANIM,
                          mount_steps: int = 4, dismount_steps: int = 6,
@@ -248,7 +248,17 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     reproduces 706's loop byte-for-byte, while any new painted vine just supplies its own two points
     (read off the paint guide, same as walkmesh placement). ``up_mask`` / ``down_mask`` are the
     ``B_KEY`` button bits (vertical ladder default Up=0x10 / Down=0x40; pass ``right_alias`` for a
-    diagonal screen vine that also climbs on Right). Returns the climb function body."""
+    diagonal screen vine that also climbs on Right). Returns the climb function body.
+
+    ``rungs`` = an optional list of >=2 world points (bottom..top) for a MULTI-RUNG (bent) vine -- a
+    piecewise-linear climb (the real Cleyra ladder shape): consecutive points form segments, each with
+    its own slope, and the snap picks the segment whose selfY band holds the target. When given it
+    overrides ``bottom``/``top`` (= rungs[0]/rungs[-1]); the band/mount/dismount use those endpoints."""
+    if rungs is not None:
+        rungs = [(int(p[0]), int(p[1]), int(p[2]) if len(p) > 2 else 0) for p in rungs]
+        if len(rungs) < 2:
+            raise ValueError("navigable ladder rungs need >= 2 points (bottom..top)")
+        bottom, top = rungs[0], rungs[-1]
     bx, bz = int(bottom[0]), int(bottom[1])
     by = int(bottom[2]) if len(bottom) > 2 else 0
     tx, tz = int(top[0]), int(top[1])
@@ -261,6 +271,11 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     exit_threshold = (lo + hi) // 2
     anchor, slope_den = sy_bottom, sy_top - sy_bottom
     x_slope, z_slope = tx - bx, tz - bz
+    # MULTI-RUNG: one (bx, bz, x_slope, z_slope, anchor, slope_den, top_sy) per segment (bottom->top).
+    segments = None
+    if rungs is not None:
+        segments = [(px, pz, qx - px, qz - pz, -py, (-qy) - (-py), -qy)
+                    for (px, pz, py), (qx, qz, qy) in zip(rungs, rungs[1:])]
     fl = floor_landing if floor_landing else (bx, bz)
     flx, flz = int(fl[0]), int(fl[1]); fly = int(fl[2]) if len(fl) > 2 else 0
     tl = top_landing if top_landing else (tx, tz)
@@ -270,10 +285,12 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     if top_action == "worldmap" and top_worldmap is None:
         raise ValueError('navigable ladder top_action="worldmap" needs top_worldmap')
 
-    def line(base, slope):   # base + (target - anchor) * slope / slope_den (reproduces 706 verbatim)
-        return _arg(_const(base), _const(slope), _scratch(), _const(anchor),
+    def line(base, slope, anc=None, den=None):   # base + (target - anc) * slope / den (706 verbatim)
+        anc = anchor if anc is None else anc
+        den = slope_den if den is None else den
+        return _arg(_const(base), _const(slope), _scratch(), _const(anc),
                     bytes([_region.T_MINUS]), bytes([_region.T_MULT]),
-                    _const(slope_den), bytes([_region.T_DIV]), bytes([_region.T_PLUS]))
+                    _const(den), bytes([_region.T_DIV]), bytes([_region.T_PLUS]))
 
     def band():   # (selfY <= hi) && (selfY >= lo) -- still on the vine
         return _stmt(_selfv(F_Y), _const(hi), bytes([_region.T_LE]),
@@ -332,8 +349,23 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     a.raw(set_target(None))                                            # HOLD: no direction held
     a.label("SNAP")
     # snap the player onto the vine line for the new height (X/Z exprs; middle arg = bare target)
-    a.raw(opcodes.encode(0xA1, line(bx, x_slope), _arg(_scratch()), line(bz, z_slope),
-                         arg_flags=0b111))
+    if segments:
+        # MULTI-RUNG (bent vine): pick the segment whose selfY band holds the target, snap to ITS line.
+        # Checked bottom->top by each segment's top-of-band (selfY GE); the last segment is the fallback.
+        for i, (sbx, sbz, sxs, szs, sanc, sden, stop) in enumerate(segments[:-1]):
+            a.raw(_stmt(_scratch(), _const(stop), bytes([_region.T_GE])))   # target at/below seg i's top?
+            a.jmp(_region.JMP_FALSE, f"SEG{i + 1}")
+            a.raw(opcodes.encode(0xA1, line(sbx, sxs, sanc, sden), _arg(_scratch()),
+                                 line(sbz, szs, sanc, sden), arg_flags=0b111))
+            a.jmp(0x01, "SNAP_DONE")
+            a.label(f"SEG{i + 1}")
+        lbx, lbz, lxs, lzs, lanc, lden, _stop = segments[-1]
+        a.raw(opcodes.encode(0xA1, line(lbx, lxs, lanc, lden), _arg(_scratch()),
+                             line(lbz, lzs, lanc, lden), arg_flags=0b111))
+        a.label("SNAP_DONE")
+    else:
+        a.raw(opcodes.encode(0xA1, line(bx, x_slope), _arg(_scratch()), line(bz, z_slope),
+                             arg_flags=0b111))
     # climb-cycle anim while on the vine, else a 1-frame wait
     a.raw(band())
     a.jmp(_region.JMP_FALSE, "OFFVINE")

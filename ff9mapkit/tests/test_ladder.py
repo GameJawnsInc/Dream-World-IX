@@ -452,6 +452,39 @@ def test_build_field_with_navigable_ladder(tmp_path):
                for f in e.funcs for i in s.instrs(f))
 
 
+def test_navigable_multi_rung_bent_vine():
+    """rungs=[p0,p1,p2] -> a piecewise (bent) climb: one snap MoveInstantXZY per segment. A single
+    segment is byte-identical to the bottom/top form; >=2 points required."""
+    straight = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800))
+    one_seg = ladder.navigable_climb_body((9, 9, 9), (9, 9, 9), rungs=[[0, 0, 0], [0, 0, 800]])
+    assert one_seg == straight                                       # rungs overrides bottom/top; byte-exact
+    bent = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800),
+                                       rungs=[[0, 0, 0], [400, 0, 500], [400, 0, 1000]])
+    assert sum(1 for i in iter_code(bent, 0, len(bent)) if i.op == 0xA1) == 2   # 2 segments -> 2 snaps
+    list(iter_code(bent, 0, len(bent)))                              # disassembles cleanly (jumps land)
+    with pytest.raises(ValueError):
+        ladder.navigable_climb_body((0, 0, 0), (0, 0, 800), rungs=[[0, 0, 0]])   # need >= 2 points
+
+
+def test_build_multi_rung_ladder(tmp_path):
+    """A [[ladder]] with `rungs` builds a bent climb (gateway top, so no off-floor dismount)."""
+    p = tmp_path / "m.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "M"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-600,-600],[600,-600],[600,600],[-600,600]]\n\n'
+        '[player]\nspawn = [0, 0]\n\n'
+        '[[ladder]]\nnavigable = true\nzone = [[-100,-100],[100,-100],[100,100],[-100,100]]\n'
+        'rungs = [[0,0,0],[400,0,500],[400,0,1000]]\nfloor_landing = [0,0]\n'
+        'top_action = "field"\ntop_field = 706\ntop_entrance = 0\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert not [x for x in build.validate(proj) if "ladder" in x.lower()]
+    s = EbScript.from_bytes(build.build_script(proj, "us", {}))
+    cf = s.entry(ladder.find_player_entry(s)).func_by_tag(ladder.FIRST_CLIMB_TAG)
+    assert sum(1 for i in iter_code(s.data, cf.abs_start, cf.abs_end) if i.op == 0xA1) == 2
+
+
 def test_navigable_top_action_field_and_worldmap():
     """top_action field/worldmap emit the transition at the vine top instead of a floor dismount."""
     g = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800), top_action="field",
