@@ -71,6 +71,7 @@ T_END = 0x7F
 # byte-for-byte against field 706's navigable vine climb (see content.ladder.navigable_climb_body).
 T_MULT = 0x11         # B_MULT '*'
 T_DIV = 0x12          # B_DIV  '/'
+T_MOD = 0x13          # B_MOD  '%'  (the ladder anim window: (animFrame+1) % frames)
 T_PLUS = 0x14         # B_PLUS '+'
 T_MINUS = 0x15        # B_MINUS '-'
 T_GT = 0x19           # B_GT '>'

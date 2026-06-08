@@ -225,9 +225,10 @@ def _dismount(anim: int, x: int, z: int, steps: int) -> bytes:
 
 def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, step: int = 20,
                          up_mask: int = 0x10, down_mask: int = 0x40, right_alias: bool = False,
-                         climb_anim: int = CLIMB_ANIM, mount_anim: int = MOUNT_ANIM,
-                         dismount_anim: int = DISMOUNT_ANIM, mount_steps: int = 4,
-                         dismount_steps: int = 6, face_angle: int | None = None) -> bytes:
+                         climb_anim: int = CLIMB_ANIM, climb_frames: int = 12,
+                         mount_anim: int = MOUNT_ANIM, dismount_anim: int = DISMOUNT_ANIM,
+                         mount_steps: int = 4, dismount_steps: int = 6,
+                         face_angle: int | None = None) -> bytes:
     """Recreate FF9's NAVIGABLE ladder climb for a vine between two world endpoints.
 
     ``bottom`` / ``top`` = ``(x, z, y)`` world points (``y`` = up-positive height; they MUST differ in
@@ -268,10 +269,15 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
         return _stmt(_selfv(F_Y), _const(hi), bytes([_region.T_LE]),
                      _selfv(F_Y), _const(lo), bytes([_region.T_GE]), bytes([_region.T_ANDAND]))
 
-    def dir_set(mask, sign):   # if (mask held) { target = selfY (+/-) step }
-        return _region.if_block(
-            _stmt(_const(mask), bytes([_region.T_KEY])),
-            _stmt(_scratch(), _selfv(F_Y), _const(step), bytes([sign]), bytes([_region.T_ASSIGN])))
+    def anim_window():   # SetAnimationInOut((animFrame+1)%N, (animFrame+1)%N): advance the climb anim
+        w = _arg(_selfv(F_ANIMFRAME), _const(1), bytes([_region.T_PLUS]),
+                 _const(climb_frames), bytes([_region.T_MOD]))   # a ONE-frame window = the climb's clock
+        return opcodes.encode(0x3D, w, w, arg_flags=0b11)
+
+    def set_target(sign):   # MAP.I16[2] = selfY (+/- step); sign=None just holds (= selfY, no move)
+        if sign is None:
+            return _stmt(_scratch(), _selfv(F_Y), bytes([_region.T_ASSIGN]))
+        return _stmt(_scratch(), _selfv(F_Y), _const(step), bytes([sign]), bytes([_region.T_ASSIGN]))
 
     a = _Asm()
     # MOUNT: face the vine (optional) -> jump-anim arc onto the vine bottom -> ladder flag -> detach
@@ -282,14 +288,25 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     a.raw(opcodes.add_character_attribute(LADDER_FLAG))
     a.raw(opcodes.setup_jump(bx, bz, by, mount_steps) + opcodes.jump())
     a.raw(opcodes.run_land_animation() + opcodes.wait_animation()
-          + opcodes.set_pathing(0) + opcodes.set_animation_flags(1, 0))
+          + opcodes.set_pathing(0) + opcodes.set_animation_flags(1, 0)
+          + opcodes.set_animation_in_out(0, 0))
     # NAVIGATE LOOP
     a.label("LOOP")
-    a.raw(_stmt(_scratch(), _selfv(F_Y), bytes([_region.T_ASSIGN])))   # default: hold (target = selfY)
-    a.raw(dir_set(up_mask, _region.T_MINUS))                            # UP -> toward the top
-    a.raw(dir_set(down_mask, _region.T_PLUS))                           # DOWN -> toward the bottom
+    # input: a FIRST-MATCH-WINS else-if chain (like the real GZML loop). Each held direction advances
+    # the climb anim one frame, sets the target +/- step, and JUMPS to the snap (skipping the rest) --
+    # so an up-diagonal climbs UP even though the down mask (Down|Left) can overlap it. No input -> HOLD
+    # (target = selfY; the anim window is NOT advanced, so it freezes on a grip pose rather than looping).
+    dirs = [(up_mask, _region.T_MINUS), (down_mask, _region.T_PLUS)]
     if right_alias:
-        a.raw(dir_set(0x20, _region.T_MINUS))                           # RIGHT = a second 'up' binding
+        dirs.append((0x20, _region.T_MINUS))                            # Right = a second 'up' binding
+    for i, (mask, sign) in enumerate(dirs):
+        a.raw(_stmt(_const(mask), bytes([_region.T_KEY])))             # if (mask held)
+        a.jmp(_region.JMP_FALSE, f"DIR{i}")
+        a.raw(anim_window() + set_target(sign))
+        a.jmp(0x01, "SNAP")
+        a.label(f"DIR{i}")
+    a.raw(set_target(None))                                            # HOLD: no direction held
+    a.label("SNAP")
     # snap the player onto the vine line for the new height (X/Z exprs; middle arg = bare target)
     a.raw(opcodes.encode(0xA1, line(bx, x_slope), _arg(_scratch()), line(bz, z_slope),
                          arg_flags=0b111))

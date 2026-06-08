@@ -1071,7 +1071,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 zone = [tuple(p) for p in (_gw.quad_zone(z) if len(z) == 4 else z)]
             kw = {}
             for k in ("step", "up_mask", "down_mask", "mount_steps", "dismount_steps",
-                      "climb_anim", "mount_anim", "dismount_anim", "face_angle"):
+                      "climb_anim", "climb_frames", "mount_anim", "dismount_anim", "face_angle"):
                 if k in lad:
                     kw[k] = int(lad[k])
             if lad.get("right_alias"):

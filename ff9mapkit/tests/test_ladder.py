@@ -375,6 +375,8 @@ def test_navigable_climb_reproduces_gzml_invariant_skeleton():
     assert bytes.fromhex("05d90278ff017d1400152c7f") in body
     # the on-vine band test: (selfY <= -170) && (selfY >= -870)
     assert bytes.fromhex("0578ff017d56ff1a78ff017d9afc1b277f") in body
+    # the per-frame climb-anim window SetAnimationInOut((animFrame+1)%12, ...) -- the climb's clock
+    assert bytes.fromhex("3d0378ff077d0100147d0c00137f78ff077d0100147d0c00137f") in body
     # the bracket: ladder flag on, detach from walkmesh; flag off, re-attach on dismount
     assert bytes.fromhex("cc000400") in body and bytes.fromhex("a80000") in body   # AddAttr(4), Pathing(0)
     assert bytes.fromhex("cd000400") in body and bytes.fromhex("a80001") in body   # RemAttr(4), Pathing(1)
