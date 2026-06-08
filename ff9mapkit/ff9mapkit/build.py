@@ -1100,7 +1100,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 frac = float(lad.get("reentry_frac", 0.85))      # how far up the vine you return (0..1)
                 rx, rz, ry = round(bx + frac * (tx - bx)), round(bz + frac * (tz - bz)), round(by + frac * (ty - by))
                 eb, _ = _ladder.inject_reentry_spawn(
-                    eb, int(lad["reentry_entrance"]), rx, rz, ry,
+                    eb, int(lad["reentry_entrance"]), rx, rz, ry, climb_tag=tag,
                     face=int(lad.get("face_angle", 0)), climb_anim=int(lad.get("climb_anim", _ladder.CLIMB_ANIM)))
             tag += 1
             continue

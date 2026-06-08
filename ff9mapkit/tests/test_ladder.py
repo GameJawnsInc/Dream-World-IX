@@ -477,7 +477,11 @@ def test_inject_reentry_spawn_adds_player_func_and_code_entry():
     rops = [i.op for i in iter_code(eb.data, rf.abs_start, rf.abs_end)]
     assert 0xCC in rops and 0xA1 in rops and 0xA8 in rops   # AddCharAttr(ladder) + MoveInstantXZY + SetPathing
     cf = eb.entry(cslot).func_by_tag(0)
-    assert 0x14 in [i.op for i in iter_code(eb.data, cf.abs_start, cf.abs_end)]   # RunScriptSync the placement
+    rs = [list(i.args) for i in iter_code(eb.data, cf.abs_start, cf.abs_end) if i.op == 0x14]
+    tags = {a[2] for a in rs}
+    assert ladder.REENTRY_TAG in tags and 17 in tags        # RunScriptSync BOTH the placement AND the climb
+    cops = [i.op for i in iter_code(eb.data, cf.abs_start, cf.abs_end)]
+    assert 0x2D in cops and 0x2E in cops                     # DisableMove/EnableMove around the climb (706's pattern)
     init = eb.entry(0).func_by_tag(0)
     assert any(i.op == 0x07 and i.args[0] == cslot                               # armed via InitCode
                for i in iter_code(eb.data, init.abs_start, init.abs_end))
