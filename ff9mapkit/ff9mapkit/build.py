@@ -223,6 +223,19 @@ def validate(project: FieldProject) -> list[str]:
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
     for la in project.raw.get("ladder", []):
+        if la.get("navigable"):                      # NAVIGABLE (FF9's real ladder mechanism, recreated)
+            for k in ("bottom", "top"):
+                v = la.get(k)
+                if not (isinstance(v, (list, tuple)) and len(v) == 3):
+                    problems.append(f"[[ladder]] navigable: {k} must be [x, z, y] (a world point WITH height)")
+            b, t = la.get("bottom"), la.get("top")
+            if (isinstance(b, (list, tuple)) and len(b) == 3
+                    and isinstance(t, (list, tuple)) and len(t) == 3 and b[2] == t[2]):
+                problems.append("[[ladder]] navigable: top and bottom must differ in height (y)")
+            z = la.get("zone")
+            if z is not None and len(z) not in (3, 4, 5):
+                problems.append(f"[[ladder]] navigable: zone (optional) must have 3-5 points, got {len(z)}")
+            continue
         if "top" in la or "bottom" in la:           # EMULATED BIDIRECTIONAL (from-scratch, no real climb)
             for k in ("top", "bottom"):
                 v = la.get(k)
@@ -1051,6 +1064,24 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # ladders (and the two-tag bidirectional ones) from colliding.
     tag = _ladder.FIRST_CLIMB_TAG
     for lad in project.raw.get("ladder", []):
+        if lad.get("navigable"):                     # NAVIGABLE: the real FF9 ladder, recreated from 2 endpoints
+            zone = None
+            if lad.get("zone"):
+                z = lad["zone"]
+                zone = [tuple(p) for p in (_gw.quad_zone(z) if len(z) == 4 else z)]
+            kw = {}
+            for k in ("step", "up_mask", "down_mask", "mount_steps", "dismount_steps",
+                      "climb_anim", "mount_anim", "dismount_anim", "face_angle"):
+                if k in lad:
+                    kw[k] = int(lad[k])
+            if lad.get("right_alias"):
+                kw["right_alias"] = True
+            eb, _ = _ladder.inject_navigable_ladder(
+                eb, bottom=lad["bottom"], top=lad["top"],
+                floor_landing=lad.get("floor_landing"), top_landing=lad.get("top_landing"),
+                zone=zone, radius=int(lad.get("zone_radius", 200)), climb_tag=tag, **kw)
+            tag += 1
+            continue
         if "top" in lad and "bottom" in lad:
             eb, tag = _ladder.inject_bidirectional_ladder(
                 eb, lad["top"], lad["bottom"], radius=int(lad.get("zone_radius", 150)),

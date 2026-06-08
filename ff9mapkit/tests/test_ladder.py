@@ -325,3 +325,127 @@ def test_climb_arc_body_descends():
     assert _arc_heights(body) == [200, 0]                    # lerp(400, 0): rung1=200, rung2=0
     # ending ON the floor: RemoveCharacterAttribute(4) + SetPathing(1) + RETURN
     assert body.endswith(bytes([0xCD, 0x00, 0x04, 0x00, 0xA8, 0x00, 0x01, 0x04]))
+
+
+# --- NAVIGABLE climb (FF9's real ladder mechanism, recreated from two endpoints) ----------------
+import struct  # noqa: E402
+
+from ff9mapkit.eb.disasm import read_code  # noqa: E402
+
+
+def _walk(body):
+    """Walk a code body; return (offsets, instr list). Raises if it doesn't parse cleanly to the end."""
+    offs, insns, pos = set(), [], 0
+    while pos < len(body):
+        ins, nxt = read_code(body, pos)
+        offs.add(pos); insns.append((pos, ins, body[pos:nxt])); pos = nxt
+    assert pos == len(body), f"overran the body: {pos} != {len(body)}"
+    return offs, insns
+
+
+def test_navigable_climb_body_roundtrip_and_jumps_land():
+    """The emitted navigable climb parses cleanly and every jump lands on an instruction boundary
+    (mixed forward if-skips + the loop back-edge), with exactly one back-edge to the loop top."""
+    body = ladder.navigable_climb_body((-240, 578, 170), (-240, 578, 870),
+                                       floor_landing=(-205, 511), top_landing=(-205, 511))
+    offs, insns = _walk(body)
+    valid = offs | {len(body)}                                  # fall-through to RETURN allowed
+    backedges = []
+    for off, ins, raw in insns:
+        if ins.op in (0x01, 0x02, 0x03):                        # JMP / JMP_FALSE / JMP_TRUE
+            rel = struct.unpack("<h", raw[1:3])[0]
+            assert off + 3 + rel in valid, f"jump @{off} op{ins.op:#x} -> off-boundary"
+            if ins.op == 0x03 and rel < 0:
+                backedges.append(off + 3 + rel)
+    assert len(backedges) == 1, f"expected exactly one loop back-edge, got {backedges}"
+    # the back-edge target is a band-test (the loop re-entry) -- a 0x05 expression statement
+    bt = backedges[0]
+    assert body[bt] == 0x05
+
+
+def test_navigable_climb_reproduces_gzml_invariant_skeleton():
+    """Given field 706's own endpoints, the generator emits 706's loop skeleton BYTE-FOR-BYTE -- the
+    line equation, the input set-target, the on-vine band test, the ladder flag + pathing bracket are
+    DERIVED from the endpoints yet match the real vine exactly (the truthfulness check)."""
+    body = ladder.navigable_climb_body((-240, 578, 170), (-240, 578, 870),
+                                       floor_landing=(-205, 511), top_landing=(-205, 511))
+    # MoveInstantXZY X/Z line equation: base + (target - anchor)*slope/slope_den (706's exact bytes)
+    assert bytes.fromhex("7d10ff7d0000d9027d56ff15117d44fd12147f") in body   # X expr
+    # the per-frame UP set-target: MAP.I16[2] = selfY - step
+    assert bytes.fromhex("05d90278ff017d1400152c7f") in body
+    # the on-vine band test: (selfY <= -170) && (selfY >= -870)
+    assert bytes.fromhex("0578ff017d56ff1a78ff017d9afc1b277f") in body
+    # the bracket: ladder flag on, detach from walkmesh; flag off, re-attach on dismount
+    assert bytes.fromhex("cc000400") in body and bytes.fromhex("a80000") in body   # AddAttr(4), Pathing(0)
+    assert bytes.fromhex("cd000400") in body and bytes.fromhex("a80001") in body   # RemAttr(4), Pathing(1)
+    assert bytes.fromhex("a107") in body                          # MoveInstantXZY w/ 3 expression args
+
+
+def test_navigable_climb_requires_height_difference():
+    with pytest.raises(ValueError):
+        ladder.navigable_climb_body((0, 0, 100), (50, 50, 100))   # same height -> no climb
+
+
+def test_navigable_climb_input_masks_are_parameterized():
+    """up_mask/down_mask + right_alias are emitted as B_KEY constants (vertical vs diagonal vine)."""
+    vertical = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800))          # Up=0x10 / Down=0x40
+    assert bytes([0x05, 0x7D, 0x10, 0x00, 0x59]) in vertical                # B_KEY(0x10) = UP
+    assert bytes([0x05, 0x7D, 0x40, 0x00, 0x59]) in vertical                # B_KEY(0x40) = DOWN
+    assert bytes([0x05, 0x7D, 0x20, 0x00, 0x59]) not in vertical            # no RIGHT alias by default
+    diag = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800), down_mask=0xC0, right_alias=True)
+    assert bytes([0x05, 0x7D, 0xC0, 0x00, 0x59]) in diag                    # Down|Left
+    assert bytes([0x05, 0x7D, 0x20, 0x00, 0x59]) in diag                    # Right alias
+
+
+def test_inject_navigable_ladder_attaches_climb_and_region():
+    """inject_navigable_ladder grafts the navigable climb onto the player + a one-zone trigger."""
+    out, slot = ladder.inject_navigable_ladder(CLEAN, bottom=(-240, 578, 170), top=(-240, 578, 870),
+                                               floor_landing=(-205, 511))
+    eb = EbScript.from_bytes(out)
+    pe = ladder.find_player_entry(eb)
+    cf = eb.entry(pe).func_by_tag(ladder.FIRST_CLIMB_TAG)
+    assert cf is not None
+    raw = eb.data[cf.abs_start:cf.abs_end]
+    assert 0x59 in raw and bytes.fromhex("a107") in raw          # B_KEY input + MoveInstantXZY snap
+    assert 0x68 in _ops(eb, slot, 2)                             # tread Bubble "!"
+    assert 0x14 in _ops(eb, slot, 3)                             # action RunScriptSync(player climb)
+    init = eb.entry(0).func_by_tag(0)
+    assert any(i.op == 0x08 and i.args[0] == slot
+               for i in iter_code(eb.data, init.abs_start, init.abs_end))   # armed by InitRegion
+
+
+def test_build_field_with_navigable_ladder(tmp_path):
+    """A [[ladder]] navigable = true field builds: the player gets a navigable climb + a trigger."""
+    p = tmp_path / "n.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "N"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
+        '[player]\nspawn = [0, 0]\n\n'
+        '[[ladder]]\nnavigable = true\nbottom = [-240, 578, 170]\ntop = [-240, 578, 870]\n'
+        'floor_landing = [-205, 511]\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert not [x for x in build.validate(proj) if "ladder" in x.lower()]
+    eb = build.build_script(proj, "us", {})
+    s = EbScript.from_bytes(eb)
+    pe = ladder.find_player_entry(s)
+    cf = s.entry(pe).func_by_tag(ladder.FIRST_CLIMB_TAG)
+    assert cf is not None
+    raw = s.data[cf.abs_start:cf.abs_end]
+    assert 0x59 in raw                                          # B_KEY held-input read -> navigable
+    assert bytes.fromhex("7d10ff7d0000d9027d56ff15117d44fd12147f") in raw   # the derived line equation
+    assert any(i.op == 0x14 for e in s.entries if not e.empty   # a RunScriptSync trigger exists
+               for f in e.funcs for i in s.instrs(f))
+
+
+def test_validate_flags_navigable_same_height(tmp_path):
+    p = tmp_path / "bad.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "B"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[ladder]]\nnavigable = true\nbottom = [0, 0, 100]\ntop = [50, 50, 100]\n',  # same y
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert any("navigable" in x.lower() and "height" in x.lower() for x in build.validate(proj))

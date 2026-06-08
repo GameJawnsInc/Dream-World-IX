@@ -43,6 +43,9 @@ GLOB_UINT8 = 0xD5     # Map + Byte    -> transient byte (the camera-switch flag;
 GLOB_UINT16 = 0xDC    # Global + UInt16 -> save-backed 16-bit word. Read via the EXPRESSION path it is
                       # UNSIGNED (0..65535, no sign-extension -- EBin.GetVariableValueInternal), so it
                       # holds a choice availability mask without the 0xFFFF->-1 sign trap of a literal.
+MAP_INT16 = 0xD9      # Map + Int16 -> transient SIGNED 16-bit (wiped per field load). The navigable
+                      # ladder's per-frame climb-target scratch (field 706 uses MAP.I16[2]); re-derived
+                      # from the player's height every frame so its transient value never matters.
 VAR_CLASSES = {"glob_bool": GLOB_BOOL, "map_bool": MAP_BOOL, "glob_uint8": GLOB_UINT8}
 
 # A scratch word high in gEventGlobal (byte offset; vars index BYTES, bits index BITS -- so byte 2040
@@ -63,6 +66,20 @@ T_ITEMCOUNT = 0x64    # GetItemCount: unary fn token -- pops an item-id const, p
                       # (real-field verified, Dali/Storage 407 chest guard `GetItemCount(236) < 99`)
 T_SYSVAR = 0x7A       # push GetSysvar(<code>) -- EBin.B_SYSVAR (122); reads the next byte as the code
 T_END = 0x7F
+
+# Arithmetic / comparison / input operator tokens -- the engine's binary-op opcodes, verified
+# byte-for-byte against field 706's navigable vine climb (see content.ladder.navigable_climb_body).
+T_MULT = 0x11         # B_MULT '*'
+T_DIV = 0x12          # B_DIV  '/'
+T_PLUS = 0x14         # B_PLUS '+'
+T_MINUS = 0x15        # B_MINUS '-'
+T_GT = 0x19           # B_GT '>'
+T_LE = 0x1A           # B_LE '<='
+T_GE = 0x1B           # B_GE '>='
+T_ANDAND = 0x27       # B_ANDAND '&&'
+T_OROR = 0x28         # B_OROR '||'
+T_KEY = 0x59          # B_KEY: pop a button-mask const, push (mask & held-inputs ? 1 : 0) -- HELD input
+T_OBJVAR = 0x78       # B_OBJSPECA: read an object var -> 78 <uid> <field> (uid 255 = self)
 
 # A couple of useful system-variable codes (EventEngine.GetSysvar switch): 2 = usercontrol
 # (IsMovementEnabled), 9 = ETb.GetChoose() = the index the player picked in the last choice window.
@@ -143,6 +160,14 @@ def push_sysvar(code: int) -> bytes:
     """A system-variable read token: ``7A <code>`` -> push ``GetSysvar(code)`` (EBin.B_SYSVAR). The
     movement gate is exactly this for code 2 (``05 7A 02 7F`` = IsMovementEnabled), so it's proven."""
     return bytes([T_SYSVAR, code & 0xFF])
+
+
+def obj_var(uid: int, field: int) -> bytes:
+    """An object-variable read token: ``78 <uid> <field>`` (uid 255 = self / the current object).
+    getvobj field codes: 0=X, 1=world-Y-up (=-pos.y), 2=Z, 3=angle, 4=flags, 5=uid, 6=level,
+    7=animFrame. Verified vs field 706's vine climb (``78 FF 01`` = self world-Y, ``78 FF 07`` =
+    self animFrame)."""
+    return bytes([T_OBJVAR, uid & 0xFF, field & 0xFF])
 
 
 def cond_sysvar_eq(code: int, value: int) -> bytes:

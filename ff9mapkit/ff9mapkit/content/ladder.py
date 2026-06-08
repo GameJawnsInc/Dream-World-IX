@@ -97,7 +97,11 @@ def climb_body(dest, *, animation: int | None = None, anim_hold: int = 40) -> by
 
 
 def climb_arc_body(arc_from, arc_to, *, rungs: int = 4, steps: int = 6) -> bytes:
-    """An ANIMATED generic climb: interpolated `SetupJump`/`Jump` rung-hops from ``arc_from`` to
+    """DEPRECATED -- superseded by :func:`navigable_climb_body`. This auto-plays a fixed rung-hop
+    sequence end-to-end, which is NOT how FF9 ladders work (real ladders are navigable: you hold the
+    d-pad to climb up/down rung-by-rung). Kept only for back-compat; use the navigable climb instead.
+
+    An ANIMATED generic climb: interpolated `SetupJump`/`Jump` rung-hops from ``arc_from`` to
     ``arc_to``, each ``(x, z)`` or ``(x, z, height)`` (height defaults 0 = on the floor). Runs in the
     player's context (RunScriptSync), so each rung moves the PLAYER; the engine projects every world
     rung through the camera, so the climb traces the painted/borrowed ladder for free -- the faithful
@@ -122,6 +126,194 @@ def climb_arc_body(arc_from, arc_to, *, rungs: int = 4, steps: int = 6) -> bytes
         body += opcodes.remove_character_attribute(LADDER_FLAG) + opcodes.set_pathing(1)
     body += opcodes.RETURN
     return body
+
+
+# ---------------------------------------------------------------------------
+# The NAVIGABLE climb -- FF9's real ladder mechanism, recreated from two endpoints.
+#
+# Decoded byte-for-byte from field 706 (EVT_GIZ_TO_WORLD, the Gizamaluke vine; entry 14 = player,
+# func tag 11). The real ladder is a per-frame state machine, NOT an auto-played sequence: mount onto
+# the vine, then a loop that reads the HELD d-pad + the player's world-Y each frame, advances a scratch
+# target +/-step, and snaps the player onto the 3D line between the two endpoints (MoveInstantXZY with
+# X/Z linear in height); leaving the height band ends the loop and a height-keyed selector dismounts at
+# whichever end you left from. The per-vine constants (the line equation, the band) are DERIVED here
+# from the two world endpoints, so it reproduces 706's loop verbatim for 706's endpoints yet works for
+# any new painted vine -- the truthful from-scratch ladder. See project memory + the Session 22 decode.
+# ---------------------------------------------------------------------------
+SELF = 255
+F_Y = 1                  # op78 field 1 = world-Y-up (= -pos.y); the climb tracks this
+F_ANIMFRAME = 7
+CLIMB_SCRATCH = 2        # MAP.I16[2]: the per-frame climb target (matches 706; transient per-field)
+CLIMB_ANIM = 10539       # the per-frame climb-cycle animation (model-specific; Zidane in 706)
+MOUNT_ANIM = 10687       # SetJumpAnimation for the mount arc
+DISMOUNT_ANIM = 11453    # SetJumpAnimation for the dismount arc
+
+
+def _const(v: int) -> bytes:
+    return bytes([_region.T_CONST]) + struct.pack("<h", int(v))
+
+
+def _selfv(field: int) -> bytes:
+    return _region.obj_var(SELF, field)
+
+
+def _scratch() -> bytes:
+    return _region._push_var(_region.MAP_INT16, CLIMB_SCRATCH)
+
+
+def _stmt(*toks: bytes) -> bytes:
+    """A complete expression statement: ``05 <tokens> 7F``."""
+    return bytes([_region.EXPR_OP]) + b"".join(toks) + bytes([_region.T_END])
+
+
+def _arg(*toks: bytes) -> bytes:
+    """A bare expression operand (for an opcode arg with its arg_flags bit set): ``<tokens> 7F``."""
+    return b"".join(toks) + bytes([_region.T_END])
+
+
+class _Asm:
+    """A tiny label assembler for the climb's mixed forward+backward jumps. Every jump's operand is
+    ``target_off - (jmp_off + 3)`` as a signed i16 (verified: the engine does ``ip = A + 3 + offset``),
+    so one rule covers the forward if-skips AND the loop back-edge -- computed after layout."""
+
+    def __init__(self):
+        self._items = []     # ('raw', bytes) | ('lbl', name) | ('jmp', op, target)
+
+    def raw(self, b: bytes):
+        if b:
+            self._items.append(("raw", bytes(b)))
+        return self
+
+    def label(self, name: str):
+        self._items.append(("lbl", name))
+        return self
+
+    def jmp(self, op: int, target: str):
+        self._items.append(("jmp", op, target))
+        return self
+
+    def assemble(self) -> bytes:
+        labels, off = {}, 0
+        for it in self._items:
+            if it[0] == "lbl":
+                labels[it[1]] = off
+            elif it[0] == "raw":
+                off += len(it[1])
+            else:
+                off += 3
+        out, off = bytearray(), 0
+        for it in self._items:
+            if it[0] == "raw":
+                out += it[1]
+                off += len(it[1])
+            elif it[0] == "jmp":
+                _, op, tgt = it
+                out += bytes([op]) + struct.pack("<h", labels[tgt] - (off + 3))
+                off += 3
+        return bytes(out)
+
+
+def _dismount(anim: int, x: int, z: int, steps: int) -> bytes:
+    """Jump off the vine onto the floor (height 0), re-enable walkmesh collision + clear the ladder
+    flag + restore the animation flags -- the clean dismount (706's floor walk-off, leaned out)."""
+    return (opcodes.set_jump_animation(anim, 2, 8) + opcodes.run_jump_animation()
+            + opcodes.wait_animation() + opcodes.setup_jump(x, z, 0, steps) + opcodes.jump()
+            + opcodes.run_land_animation() + opcodes.wait_animation()
+            + opcodes.set_pathing(1) + opcodes.remove_character_attribute(LADDER_FLAG)
+            + opcodes.set_animation_flags(0, 0))
+
+
+def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, step: int = 20,
+                         up_mask: int = 0x10, down_mask: int = 0x40, right_alias: bool = False,
+                         climb_anim: int = CLIMB_ANIM, mount_anim: int = MOUNT_ANIM,
+                         dismount_anim: int = DISMOUNT_ANIM, mount_steps: int = 4,
+                         dismount_steps: int = 6, face_angle: int | None = None) -> bytes:
+    """Recreate FF9's NAVIGABLE ladder climb for a vine between two world endpoints.
+
+    ``bottom`` / ``top`` = ``(x, z, y)`` world points (``y`` = up-positive height; they MUST differ in
+    ``y``). The player mounts at ``bottom`` and climbs by holding the d-pad: each frame the loop reads
+    the held direction (``B_KEY``) + the player's world-Y, advances the scratch target +/- ``step``,
+    and snaps the player onto the 3D line between the endpoints (``MoveInstantXZY``, X/Z linear in
+    height). Leaving the band ends the loop; a height-keyed selector dismounts to the floor at the end
+    you left from (``floor_landing`` for the bottom end, ``top_landing`` for the top -- both default to
+    the vine's own x/z at floor level). Runs in the player's own context (the region RunScriptSync's
+    it), so its moves move the PLAYER.
+
+    The line equation + height band are DERIVED from the two endpoints, so passing 706's endpoints
+    reproduces 706's loop byte-for-byte, while any new painted vine just supplies its own two points
+    (read off the paint guide, same as walkmesh placement). ``up_mask`` / ``down_mask`` are the
+    ``B_KEY`` button bits (vertical ladder default Up=0x10 / Down=0x40; pass ``right_alias`` for a
+    diagonal screen vine that also climbs on Right). Returns the climb function body."""
+    bx, bz = int(bottom[0]), int(bottom[1])
+    by = int(bottom[2]) if len(bottom) > 2 else 0
+    tx, tz = int(top[0]), int(top[1])
+    ty = int(top[2]) if len(top) > 2 else 0
+    if ty == by:
+        raise ValueError("navigable ladder: top and bottom must differ in height (y)")
+    # selfY = -worldY (op78 field 1). Band = [lo, hi] in selfY space; the line is anchored at bottom.
+    sy_bottom, sy_top = -by, -ty
+    lo, hi = min(sy_bottom, sy_top), max(sy_bottom, sy_top)
+    exit_threshold = (lo + hi) // 2
+    anchor, slope_den = sy_bottom, sy_top - sy_bottom
+    x_slope, z_slope = tx - bx, tz - bz
+    flx, flz = (int(floor_landing[0]), int(floor_landing[1])) if floor_landing else (bx, bz)
+    tlx, tlz = (int(top_landing[0]), int(top_landing[1])) if top_landing else (tx, tz)
+
+    def line(base, slope):   # base + (target - anchor) * slope / slope_den (reproduces 706 verbatim)
+        return _arg(_const(base), _const(slope), _scratch(), _const(anchor),
+                    bytes([_region.T_MINUS]), bytes([_region.T_MULT]),
+                    _const(slope_den), bytes([_region.T_DIV]), bytes([_region.T_PLUS]))
+
+    def band():   # (selfY <= hi) && (selfY >= lo) -- still on the vine
+        return _stmt(_selfv(F_Y), _const(hi), bytes([_region.T_LE]),
+                     _selfv(F_Y), _const(lo), bytes([_region.T_GE]), bytes([_region.T_ANDAND]))
+
+    def dir_set(mask, sign):   # if (mask held) { target = selfY (+/-) step }
+        return _region.if_block(
+            _stmt(_const(mask), bytes([_region.T_KEY])),
+            _stmt(_scratch(), _selfv(F_Y), _const(step), bytes([sign]), bytes([_region.T_ASSIGN])))
+
+    a = _Asm()
+    # MOUNT: face the vine (optional) -> jump-anim arc onto the vine bottom -> ladder flag -> detach
+    if face_angle is not None:
+        a.raw(opcodes.turn_instant(int(face_angle)))
+    a.raw(opcodes.set_jump_animation(mount_anim, 2, 6) + opcodes.run_jump_animation()
+          + opcodes.wait_animation())
+    a.raw(opcodes.add_character_attribute(LADDER_FLAG))
+    a.raw(opcodes.setup_jump(bx, bz, by, mount_steps) + opcodes.jump())
+    a.raw(opcodes.run_land_animation() + opcodes.wait_animation()
+          + opcodes.set_pathing(0) + opcodes.set_animation_flags(1, 0))
+    # NAVIGATE LOOP
+    a.label("LOOP")
+    a.raw(_stmt(_scratch(), _selfv(F_Y), bytes([_region.T_ASSIGN])))   # default: hold (target = selfY)
+    a.raw(dir_set(up_mask, _region.T_MINUS))                            # UP -> toward the top
+    a.raw(dir_set(down_mask, _region.T_PLUS))                           # DOWN -> toward the bottom
+    if right_alias:
+        a.raw(dir_set(0x20, _region.T_MINUS))                           # RIGHT = a second 'up' binding
+    # snap the player onto the vine line for the new height (X/Z exprs; middle arg = bare target)
+    a.raw(opcodes.encode(0xA1, line(bx, x_slope), _arg(_scratch()), line(bz, z_slope),
+                         arg_flags=0b111))
+    # climb-cycle anim while on the vine, else a 1-frame wait
+    a.raw(band())
+    a.jmp(_region.JMP_FALSE, "OFFVINE")
+    a.raw(opcodes.run_animation(climb_anim) + opcodes.wait_animation())
+    a.jmp(0x01, "ANIMDONE")
+    a.label("OFFVINE")
+    a.raw(opcodes.wait(1))
+    a.label("ANIMDONE")
+    # loop while still on the vine
+    a.raw(band())
+    a.jmp(_region.JMP_TRUE, "LOOP")
+    # EXIT: selfY > midpoint -> bottom (floor) end, else top end (both dismount to the floor)
+    a.raw(_stmt(_selfv(F_Y), _const(exit_threshold), bytes([_region.T_GT])))
+    a.jmp(_region.JMP_FALSE, "TOP_END")
+    a.raw(_dismount(dismount_anim, flx, flz, dismount_steps))
+    a.jmp(0x01, "END")
+    a.label("TOP_END")
+    a.raw(_dismount(dismount_anim, tlx, tlz, dismount_steps))
+    a.label("END")
+    a.raw(opcodes.RETURN)
+    return a.assemble()
 
 
 def ladder_region(zone, climb_tag: int, *, player_uid: int = PLAYER_UID) -> bytes:
@@ -223,3 +415,26 @@ def inject_bidirectional_ladder(data, top, bottom, *, radius: int = 150, rungs: 
         data, _ = inject_ladder(data, square_zone(bottom, radius), dest=top,
                                 climb_tag=first_tag + 1, animation=animation)
     return data, first_tag + 2
+
+
+def inject_navigable_ladder(data, bottom, top, *, floor_landing=None, top_landing=None, zone=None,
+                            radius: int = 200, climb_tag: int = FIRST_CLIMB_TAG,
+                            player_uid: int = PLAYER_UID, activate: bool = True, **climb_kw):
+    """A from-scratch NAVIGABLE ladder between two world endpoints -- FF9's REAL ladder mechanism,
+    recreated (NOT the deprecated auto-hop): ONE trigger zone at the vine base -> press action -> hold
+    the d-pad to climb up/down, snapped onto the painted vine, dismount at either end.
+
+    ``bottom`` / ``top`` = ``(x, z, y)`` world points (``y`` = up-positive height). The trigger ``zone``
+    defaults to a square at the floor step-off point (``floor_landing`` or the bottom's x/z) -- where
+    the player stands to mount. Extra climb params (``step``, ``up_mask`` / ``down_mask``,
+    ``right_alias``, ``climb_anim`` / ``mount_anim`` / ``dismount_anim``, ``face_angle`` ...) pass
+    through to :func:`navigable_climb_body`. The generated body is grafted exactly like a faithful
+    climb (it IS a climb body), so it reuses the proven trigger/region machinery. Returns
+    ``(new_bytes, region_slot)``. One climb function => one ladder; pass a distinct ``climb_tag`` each."""
+    body = navigable_climb_body(bottom, top, floor_landing=floor_landing, top_landing=top_landing,
+                                **climb_kw)
+    if zone is None:
+        base = floor_landing if floor_landing is not None else (int(bottom[0]), int(bottom[1]))
+        zone = square_zone(base, radius)
+    return inject_ladder(data, zone, climb_bytes=body, climb_tag=climb_tag,
+                         player_uid=player_uid, activate=activate)

@@ -215,6 +215,34 @@ def jump() -> bytes:                                 # 0xDC (JUMP3) 0 args
     return encode(0xDC)
 
 
+def set_jump_animation(anim: int, a: int = 2, b: int = 6) -> bytes:   # 0x94 (SETJUMP) argsize [2,1,1]
+    """SetJumpAnimation(anim, a, b): set the animation played during the next Jump arc (e.g. a ladder
+    mount/dismount climb-grab). Verified vs field 706's vine: ``94 00 BF29 02 06`` = (10687, 2, 6)."""
+    return encode(0x94, anim, a, b)
+
+
+def run_jump_animation() -> bytes:                   # 0x9C (RUNJUMP) 0 args
+    """RunJumpAnimation(): play the animation set by SetJumpAnimation (paired with a Jump)."""
+    return encode(0x9C)
+
+
+def run_land_animation() -> bytes:                   # 0x9D (RUNLAND) 0 args
+    """RunLandAnimation(): play the landing animation after a Jump arc."""
+    return encode(0x9D)
+
+
+def set_animation_flags(a: int, b: int) -> bytes:    # 0x3F (ANIMFLAG) argsize [1,1]
+    """SetAnimationFlags(a, b): configure the actor's animation blending. A ladder climb sets (1,0) at
+    mount and restores (0,0) on dismount (field 706). Verified: ``3F 00 01 00`` = (1, 0)."""
+    return encode(0x3F, a, b)
+
+
+def set_animation_in_out(a: int, b: int) -> bytes:   # 0x3D (ANIMINOUT) argsize [1,1]
+    """SetAnimationInOut(a, b): set the in/out frame window of the current animation. Verified vs
+    field 706: ``3D 00 00 00`` = (0, 0)."""
+    return encode(0x3D, a, b)
+
+
 def add_character_attribute(flag: int) -> bytes:     # 0xCC (ADDATTR) argsize [2]
     """AddCharacterAttribute(flag): set a character attribute bit. Flag 4 = the LADDER flag -- tells
     the engine the actor is on a ladder so it isn't snapped to the floor during a height climb."""
