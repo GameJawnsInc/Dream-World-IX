@@ -12,37 +12,66 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..0591c963
+index 00000000..e907391e
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,348 @@
 +using System;
++using System.Collections.Generic;
 +using UnityEngine;
 +
-+// [ff9mapkit dev] A single in-game debug menu (toggled by F6 from UIKeyTrigger), so dev actions live on
-+// ONE key + a popup instead of one-hotkey-per-function. IMGUI/OnGUI overlay -- the same proven in-engine
-+// pattern as OnScreenLog / the FieldCreator editor. Self-bootstrapping persistent MonoBehaviour, so it is
-+// always alive to receive OnGUI. Dev engine only; never part of the shipped mod.
++// [ff9mapkit dev] One in-game debug menu (toggled by F6 from UIKeyTrigger) -- dev actions on ONE key +
++// a popup instead of one-hotkey-per-function. IMGUI/OnGUI overlay (the proven in-engine pattern, cf.
++// OnScreenLog / the FieldCreator editor), self-bootstrapping persistent MonoBehaviour so it is always
++// alive to receive OnGUI. Dev engine only; never part of the shipped mod.
 +//
-+// Actions all reuse the engine's field-transition primitive (SetNextMap + nextMode=1 + attr|=8, with
-+// SetUserControl(false) first so a tread zone you're standing in doesn't fire before Main_Init repositions
-+// you). "Warp to field" works from anywhere -> hop between any registered custom field id (e.g. per-branch
-+// 4003 / 5000 / 5001) live, no New-Game-warp flipping. Adding a future debug action = one more button.
++//   * Header   -- current field id + name + the player's (x, z), live.
++//   * Reload   -- re-run the current field (SetNextMap + nextMode=1 + attr|=8; SetUserControl(false)
++//                 first so a tread zone you stand in doesn't fire before Main_Init repositions you).
++//   * Warp     -- a button per REGISTERED custom field (eventIDToFBGID, id >= 4000) + a free id box, so
++//                 you hop between per-branch slots (4003 / 5000 / 5001 ...) live, no New-Game flipping.
++//   * Teleport -- read the player's pos / jump to a typed (x, z) on the current field.
++//   * Flags    -- read/set/clear a gEventGlobal story flag by index (matches the kit's `set_flag`:
++//                 VariableType.Bit -> gEventGlobal[N>>3] bit N&7) + reset-all.
++// Adding a future action = one more button.
 +public class Ff9mkDebugMenu : MonoBehaviour
 +{
 +    private static Ff9mkDebugMenu _instance;
 +    private Boolean _open;
 +    private Boolean _priorControl;          // field user-control state to restore when the menu closes
++
++    private Rect _win = new Rect(24f, 24f, 360f, 500f);
++    private Vector2 _scroll;
 +    private String _warpText = "5000";
++    private String _txText = "0";
++    private String _tzText = "0";
++    private String _flagText = "8000";
++    private String _status = "";
 +
-+    // Quick-warp buttons: the known custom-field slots (edit freely; the text box handles any id).
-+    private static readonly Int32[] Quick = { 4000, 4002, 4003, 5000, 5001 };
++    private const Int32 WinId = 0x4F9DEB;
 +
-+    // Toggle from UIKeyTrigger's reliable per-render-frame F6 read (also creates the instance on first use).
++    // lazily-built styling
++    private GUIStyle _box, _title, _header, _label, _button, _field;
++    private Texture2D _bgTex;
++
 +    public static void Toggle()
 +    {
 +        Ensure();
 +        _instance.SetOpen(!_instance._open);
++    }
++
++    public static Boolean IsOpen
++    {
++        get { return _instance != null && _instance._open; }
++    }
++
++    private static void Ensure()
++    {
++        if (_instance != null)
++            return;
++        GameObject go = new GameObject("Ff9mkDebugMenu");
++        UnityEngine.Object.DontDestroyOnLoad(go);
++        _instance = go.AddComponent<Ff9mkDebugMenu>();
 +    }
 +
 +    // Open/close the menu, PAUSING field input while open (save the current user-control state, disable
@@ -72,71 +101,94 @@ index 00000000..0591c963
 +        _open = open;
 +    }
 +
-+    public static Boolean IsOpen
-+    {
-+        get { return _instance != null && _instance._open; }
-+    }
-+
-+    private static void Ensure()
-+    {
-+        if (_instance != null)
-+            return;
-+        GameObject go = new GameObject("Ff9mkDebugMenu");
-+        UnityEngine.Object.DontDestroyOnLoad(go);
-+        _instance = go.AddComponent<Ff9mkDebugMenu>();
-+    }
-+
 +    private void OnGUI()
 +    {
 +        if (!_open)
 +            return;
-+        GUILayout.BeginArea(new Rect(20f, 20f, 300f, 320f), GUI.skin.box);
-+        GUILayout.Label("ff9mapkit debug   (F6 to close)");
-+        GUILayout.Space(6f);
-+        if (GUILayout.Button("Reload field"))
-+            Reload(false);
-+        if (GUILayout.Button("Reset flags + reload"))
-+            Reload(true);
-+        GUILayout.Space(10f);
-+        GUILayout.Label("Warp to field id:");
-+        GUILayout.BeginHorizontal();
-+        _warpText = GUILayout.TextField(_warpText, 6, GUILayout.Width(110f));
-+        if (GUILayout.Button("Go", GUILayout.Width(60f)))
-+            WarpTo(_warpText);
-+        GUILayout.EndHorizontal();
-+        GUILayout.BeginHorizontal();
-+        foreach (Int32 id in Quick)
-+        {
-+            if (GUILayout.Button(id.ToString()))
-+            {
-+                _warpText = id.ToString();
-+                WarpTo(_warpText);
-+            }
-+        }
-+        GUILayout.EndHorizontal();
-+        GUILayout.Space(10f);
-+        if (GUILayout.Button("Close"))
-+            SetOpen(false);
-+        GUILayout.EndArea();
++        EnsureStyles();
++        Single scale = Mathf.Max(1f, Screen.height / 800f);     // legible at 1080p / 1440p / 4K
++        Matrix4x4 prev = GUI.matrix;
++        GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
++        _win.height = Mathf.Min(500f, Screen.height / scale - 32f);
++        _win = GUI.Window(WinId, _win, DrawWindow, GUIContent.none, _box);
++        GUI.matrix = prev;
 +    }
 +
-+    private void Reload(Boolean reset)
++    private void DrawWindow(Int32 id)
 +    {
-+        if (Warp(FF9StateSystem.Common.FF9.fldMapNo, reset))
++        GUILayout.Label("ff9mapkit debug   (F6 closes)", _title);
++        GUILayout.Label(CurrentInfo(), _label);
++        GUILayout.Space(4f);
++
++        _scroll = GUILayout.BeginScrollView(_scroll);
++
++        if (GUILayout.Button("Reload field", _button))
++            Reload(false);
++
++        Section("Warp to field");
++        GUILayout.BeginHorizontal();
++        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(120f));
++        if (GUILayout.Button("Go", _button, GUILayout.Width(64f)))
++            WarpTo(_warpText);
++        GUILayout.EndHorizontal();
++        foreach (KeyValuePair<Int32, String> kv in RegisteredFields())
++            if (GUILayout.Button(kv.Key + "   " + kv.Value, _button))
++                Warp(kv.Key, false);
++
++        Section("Teleport (x, z) on this field");
++        GUILayout.BeginHorizontal();
++        _txText = GUILayout.TextField(_txText, 7, _field, GUILayout.Width(78f));
++        _tzText = GUILayout.TextField(_tzText, 7, _field, GUILayout.Width(78f));
++        if (GUILayout.Button("Go", _button, GUILayout.Width(48f)))
++            Teleport();
++        if (GUILayout.Button("Here", _button, GUILayout.Width(56f)))
++            UseCurrent();
++        GUILayout.EndHorizontal();
++
++        Section("Story flag (gEventGlobal)");
++        GUILayout.BeginHorizontal();
++        GUILayout.Label("idx", _label, GUILayout.Width(28f));
++        _flagText = GUILayout.TextField(_flagText, 6, _field, GUILayout.Width(78f));
++        if (GUILayout.Button("Get", _button, GUILayout.Width(48f)))
++            FlagGet();
++        if (GUILayout.Button("Set 1", _button, GUILayout.Width(56f)))
++            FlagWrite(true);
++        if (GUILayout.Button("Set 0", _button, GUILayout.Width(56f)))
++            FlagWrite(false);
++        GUILayout.EndHorizontal();
++
++        Section("Reset");
++        if (GUILayout.Button("Reset all flags", _button))
++            ResetFlags();
++        if (GUILayout.Button("Reset all flags + reload", _button))
++            Reload(true);
++
++        GUILayout.EndScrollView();
++
++        if (_status.Length > 0)
++            GUILayout.Label(_status, _label);
++        if (GUILayout.Button("Close", _button))
++            SetOpen(false);
++
++        GUI.DragWindow(new Rect(0f, 0f, 10000f, 22f));          // drag by the title strip
++    }
++
++    // ----------------------------------------------------------------- actions
++    private void Reload(Boolean resetFlags)
++    {
++        if (Warp(FF9StateSystem.Common.FF9.fldMapNo, resetFlags))
 +            _open = false;
 +    }
 +
 +    private void WarpTo(String text)
 +    {
 +        Int32 id;
-+        if (!Int32.TryParse(text, out id))
-+            return;
-+        if (Warp(id, false))
-+            _open = false;
++        if (Int32.TryParse(text, out id))
++            Warp(id, false);
 +    }
 +
-+    // Issue a field transition to mapNo (optionally clearing save-backed flag state first). Only valid from
-+    // the field HUD. Returns true if the warp was issued.
++    // Issue a field transition to mapNo (optionally clearing save-backed flag state first). Closes the
++    // menu on success (the field transition re-establishes control). Returns true if issued.
 +    private Boolean Warp(Int32 mapNo, Boolean resetFlags)
 +    {
 +        try
@@ -144,22 +196,172 @@ index 00000000..0591c963
 +            if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.FieldHUD)
 +                return false;
 +            if (resetFlags)
-+            {
-+                System.Array.Clear(FF9StateSystem.EventState.gEventGlobal, 0, FF9StateSystem.EventState.gEventGlobal.Length);
-+                FF9StateSystem.EventState.gScriptVector.Clear();
-+                FF9StateSystem.EventState.gScriptDictionary.Clear();
-+            }
++                ClearFlagState();
 +            PersistenSingleton<EventEngine>.Instance.SetUserControl(false);
 +            PersistenSingleton<EventEngine>.Instance.SetNextMap(mapNo);
 +            FF9StateSystem.Field.FF9Field.loc.map.nextMode = 1;
 +            PersistenSingleton<FF9StateSystem>.Instance.attr |= 8u;
++            _open = false;
 +            return true;
 +        }
 +        catch (Exception err)
 +        {
-+            OnScreenLog.Add("ff9mapkit debug: warp failed -- " + err.Message);
++            _status = "warp failed: " + err.Message;
 +            return false;
 +        }
++    }
++
++    private void Teleport()
++    {
++        Int32 x, z;
++        if (!Int32.TryParse(_txText, out x) || !Int32.TryParse(_tzText, out z))
++            return;
++        try
++        {
++            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++            PosObj p = ee.GetControlChar();
++            if (p == null || p.pos == null || p.pos.Length < 3)
++            {
++                _status = "no player to teleport";
++                return;
++            }
++            ee.SetActorPosition(p, x, p.pos[1], z);
++            _status = "teleported to (" + x + ", " + z + ")";
++        }
++        catch (Exception err)
++        {
++            _status = "teleport failed: " + err.Message;
++        }
++    }
++
++    private void UseCurrent()
++    {
++        PosObj p = Player();
++        if (p != null && p.pos != null && p.pos.Length >= 3)
++        {
++            _txText = ((Int32)p.pos[0]).ToString();
++            _tzText = ((Int32)p.pos[2]).ToString();
++        }
++    }
++
++    private void FlagGet()
++    {
++        Int32 n;
++        if (!Int32.TryParse(_flagText, out n))
++            return;
++        Int32 v = FlagValue(n);
++        _status = "flag " + n + " = " + (v < 0 ? "out of range" : v.ToString());
++    }
++
++    private void FlagWrite(Boolean on)
++    {
++        Int32 n;
++        if (!Int32.TryParse(_flagText, out n))
++            return;
++        Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++        Int32 b = n >> 3;
++        if (b < 0 || b >= g.Length)
++        {
++            _status = "flag " + n + " out of range";
++            return;
++        }
++        Int32 mask = 1 << (n & 7);
++        g[b] = (Byte)(on ? (g[b] | mask) : (g[b] & ~mask));
++        _status = "flag " + n + " = " + (on ? 1 : 0);
++    }
++
++    private void ResetFlags()
++    {
++        ClearFlagState();
++        _status = "all flags cleared (F6 reload to re-arm)";
++    }
++
++    private static void ClearFlagState()
++    {
++        System.Array.Clear(FF9StateSystem.EventState.gEventGlobal, 0, FF9StateSystem.EventState.gEventGlobal.Length);
++        FF9StateSystem.EventState.gScriptVector.Clear();
++        FF9StateSystem.EventState.gScriptDictionary.Clear();
++    }
++
++    // ----------------------------------------------------------------- helpers
++    // The bit at story-flag index N, matching the kit's GlobBool (EBin VariableType.Bit): the index is a
++    // BIT number into gEventGlobal -> byte N>>3, bit N&7. Returns 0/1, or -1 if out of range.
++    private static Int32 FlagValue(Int32 n)
++    {
++        Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++        Int32 b = n >> 3;
++        if (b < 0 || b >= g.Length)
++            return -1;
++        return (g[b] >> (n & 7)) & 1;
++    }
++
++    private static PosObj Player()
++    {
++        try
++        {
++            return PersistenSingleton<EventEngine>.Instance.GetControlChar();
++        }
++        catch (Exception)
++        {
++            return null;
++        }
++    }
++
++    private String CurrentInfo()
++    {
++        Int32 id = FF9StateSystem.Common.FF9.fldMapNo;
++        String name;
++        if (!EventEngineUtils.eventIDToFBGID.TryGetValue(id, out name))
++            name = "?";
++        PosObj p = Player();
++        String at = (p != null && p.pos != null && p.pos.Length >= 3)
++            ? String.Format("   @ ({0}, {1})", (Int32)p.pos[0], (Int32)p.pos[2])
++            : "";
++        return String.Format("field {0}  [{1}]{2}", id, name, at);
++    }
++
++    private static List<KeyValuePair<Int32, String>> RegisteredFields()
++    {
++        List<KeyValuePair<Int32, String>> list = new List<KeyValuePair<Int32, String>>();
++        foreach (KeyValuePair<Int32, String> kv in EventEngineUtils.eventIDToFBGID)
++            if (kv.Key >= 4000)
++                list.Add(kv);
++        list.Sort((a, b) => a.Key.CompareTo(b.Key));
++        return list;
++    }
++
++    private void Section(String name)
++    {
++        GUILayout.Space(8f);
++        GUILayout.Label(name, _header);
++    }
++
++    private void EnsureStyles()
++    {
++        if (_box != null)
++            return;
++        _bgTex = new Texture2D(1, 1);
++        _bgTex.SetPixel(0, 0, new Color(0.06f, 0.06f, 0.10f, 0.93f));
++        _bgTex.Apply();
++        _box = new GUIStyle(GUI.skin.box);
++        _box.normal.background = _bgTex;
++        _box.padding = new RectOffset(10, 10, 8, 10);
++        _title = new GUIStyle(GUI.skin.label);
++        _title.fontSize = 15;
++        _title.fontStyle = FontStyle.Bold;
++        _title.normal.textColor = new Color(0.60f, 0.85f, 1f);
++        _header = new GUIStyle(GUI.skin.label);
++        _header.fontSize = 12;
++        _header.fontStyle = FontStyle.Bold;
++        _header.normal.textColor = new Color(0.72f, 0.72f, 0.78f);
++        _label = new GUIStyle(GUI.skin.label);
++        _label.fontSize = 12;
++        _label.normal.textColor = Color.white;
++        _label.wordWrap = true;
++        _button = new GUIStyle(GUI.skin.button);
++        _button.fontSize = 12;
++        _field = new GUIStyle(GUI.skin.textField);
++        _field.fontSize = 12;
 +    }
 +}
 diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
