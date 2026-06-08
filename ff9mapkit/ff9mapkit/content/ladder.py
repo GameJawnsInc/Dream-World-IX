@@ -269,9 +269,11 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
         return _stmt(_selfv(F_Y), _const(hi), bytes([_region.T_LE]),
                      _selfv(F_Y), _const(lo), bytes([_region.T_GE]), bytes([_region.T_ANDAND]))
 
-    def anim_window():   # SetAnimationInOut((animFrame+1)%N, (animFrame+1)%N): advance the climb anim
-        w = _arg(_selfv(F_ANIMFRAME), _const(1), bytes([_region.T_PLUS]),
-                 _const(climb_frames), bytes([_region.T_MOD]))   # a ONE-frame window = the climb's clock
+    def anim_window(advance):   # SetAnimationInOut((animFrame+advance)%N, ...): step the climb anim
+        # a ONE-frame window = the climb's clock. advance=1 plays it FORWARD (ascending), advance=N-1
+        # (= -1 mod N) plays it BACKWARD (descending) so the hands match the down motion (real GZML).
+        w = _arg(_selfv(F_ANIMFRAME), _const(advance), bytes([_region.T_PLUS]),
+                 _const(climb_frames), bytes([_region.T_MOD]))
         return opcodes.encode(0x3D, w, w, arg_flags=0b11)
 
     def set_target(sign):   # MAP.I16[2] = selfY (+/- step); sign=None just holds (= selfY, no move)
@@ -300,9 +302,10 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     if right_alias:
         dirs.append((0x20, _region.T_MINUS))                            # Right = a second 'up' binding
     for i, (mask, sign) in enumerate(dirs):
+        adv = 1 if sign == _region.T_MINUS else climb_frames - 1       # up = forward, down = backward
         a.raw(_stmt(_const(mask), bytes([_region.T_KEY])))             # if (mask held)
         a.jmp(_region.JMP_FALSE, f"DIR{i}")
-        a.raw(anim_window() + set_target(sign))
+        a.raw(anim_window(adv) + set_target(sign))
         a.jmp(0x01, "SNAP")
         a.label(f"DIR{i}")
     a.raw(set_target(None))                                            # HOLD: no direction held
