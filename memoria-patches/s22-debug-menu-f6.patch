@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..e907391e
+index 00000000..40ce11e5
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,348 @@
+@@ -0,0 +1,412 @@
 +using System;
 +using System.Collections.Generic;
 +using UnityEngine;
@@ -101,6 +101,14 @@ index 00000000..e907391e
 +        _open = open;
 +    }
 +
++    private void Update()
++    {
++        // While the menu is open, RIGHT-CLICK the field to copy the world (x, z) under the cursor (to
++        // the clipboard + the teleport boxes) -- handy for placing NPCs/zones/spawns in a field.toml.
++        if (_open && Input.GetMouseButtonDown(1))
++            PickPoint();
++    }
++
 +    private void OnGUI()
 +    {
 +        if (!_open)
@@ -141,9 +149,10 @@ index 00000000..e907391e
 +        _tzText = GUILayout.TextField(_tzText, 7, _field, GUILayout.Width(78f));
 +        if (GUILayout.Button("Go", _button, GUILayout.Width(48f)))
 +            Teleport();
-+        if (GUILayout.Button("Here", _button, GUILayout.Width(56f)))
++        if (GUILayout.Button("Copy", _button, GUILayout.Width(56f)))
 +            UseCurrent();
 +        GUILayout.EndHorizontal();
++        GUILayout.Label("right-click the field -> copy that point's (x, z) to clipboard", _label);
 +
 +        Section("Story flag (gEventGlobal)");
 +        GUILayout.BeginHorizontal();
@@ -241,6 +250,61 @@ index 00000000..e907391e
 +        {
 +            _txText = ((Int32)p.pos[0]).ToString();
 +            _tzText = ((Int32)p.pos[2]).ToString();
++        }
++    }
++
++    // Right-click world pick: the floor (x, z) under the cursor. Replicates FF9's own click-to-move
++    // computation (FieldMapActorController.CheckPosInProjectedWalkMesh): the engine pre-projects each
++    // walkmesh triangle to screen (transformedVertices), so we find the projected tri under the mouse
++    // (GetTriangleIndexAtScreenPos) and perspective-correctly interpolate its WORLD vertices. Copies
++    // to the system clipboard (paste into a field.toml) and the teleport boxes.
++    private void PickPoint()
++    {
++        try
++        {
++            FieldMap fm = PersistenSingleton<EventEngine>.Instance.fieldmap;
++            if (fm == null || fm.walkMesh == null)
++            {
++                _status = "no field walkmesh";
++                return;
++            }
++            PSXCameraAspect aspect = UnityEngine.Object.FindObjectOfType<PSXCameraAspect>();
++            if (aspect == null)
++            {
++                _status = "no field camera";
++                return;
++            }
++            Vector3 lm = aspect.GetLocalMousePosRelative();
++            Int32 ti = fm.walkMesh.GetTriangleIndexAtScreenPos(lm);
++            if (ti < 0 || ti >= fm.walkMesh.tris.Count)
++            {
++                _status = "no floor under the cursor";
++                return;
++            }
++            WalkMeshTriangle t = fm.walkMesh.tris[ti];
++            BGCAM_DEF cam = fm.GetCurrentBgCamera();
++            Vector2 off = fm.GetProjectionOffset();
++            Vector3 mb = Math3D.CalculateBarycentricRatio(lm, t.transformedVertices[0], t.transformedVertices[1], t.transformedVertices[2]);
++            Vector3 cb = Math3D.CalculateBarycentric(t.originalCenter, t.originalVertices[0], t.originalVertices[1], t.originalVertices[2]);
++            Vector3 csb = Math3D.CalculateBarycentric(
++                PSX.CalculateGTE_RTPT(t.originalCenter, Matrix4x4.identity, cam.GetMatrixRT(), cam.GetViewDistance(), off),
++                t.transformedVertices[0], t.transformedVertices[1], t.transformedVertices[2]);
++            Single num = cb.x / csb.x + cb.y / csb.y + cb.z / csb.z;
++            Vector3 v5 = new Vector3(cb.x / csb.x / num, cb.y / csb.y / num, cb.z / csb.z / num);
++            Single num2 = mb.x * v5.x + mb.y * v5.y + mb.z * v5.z;
++            Vector3 w = t.originalVertices[0] * (mb.x * v5.x / num2)
++                      + t.originalVertices[1] * (mb.y * v5.y / num2)
++                      + t.originalVertices[2] * (mb.z * v5.z / num2);
++            Int32 wx = Mathf.RoundToInt(w.x);
++            Int32 wz = Mathf.RoundToInt(w.z);
++            _txText = wx.ToString();
++            _tzText = wz.ToString();
++            GUIUtility.systemCopyBuffer = wx + ", " + wz;
++            _status = "copied (" + wx + ", " + wz + ") -> clipboard + teleport";
++        }
++        catch (Exception err)
++        {
++            _status = "pick failed: " + err.Message;
 +        }
 +    }
 +
