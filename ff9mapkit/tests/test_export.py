@@ -335,6 +335,41 @@ def test_build_no_content_warning_when_on_walkmesh(tmp_path):
     assert not any("off the walkmesh" in w for w in info["warnings"])
 
 
+def _ladder_quad_toml(*, top_landing, top_action="floor"):
+    extra = ('[[ladder]]\nnavigable = true\n'
+             'zone = [[-100,-100],[100,-100],[100,100],[-100,100]]\n'
+             'bottom = [0, 0, 0]\ntop = [100, 0, 800]\nfloor_landing = [0, 0]\n'
+             f'top_landing = [{top_landing[0]}, {top_landing[1]}, 0]\n'
+             + (f'top_action = "{top_action}"\ntop_field = 706\ntop_entrance = 0\n'
+                if top_action != "floor" else ""))
+    return _quad_scene_toml(spawn=(0, 0), extra=extra)
+
+
+def test_build_warns_ladder_landing_off_walkmesh(tmp_path):
+    """A navigable ladder whose floor-dismount landing is off the walkmesh is flagged offline -- the exact
+    off-walkmesh top_landing that dropped the player into a non-navigable area in-game (Session 22)."""
+    from ff9mapkit.build import FieldProject, build_mod
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(_ladder_quad_toml(top_landing=(9000, 9000)), encoding="utf-8")
+    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+    assert any("top_landing" in w and "off the walkmesh" in w for w in info["warnings"])
+    assert not any("floor_landing" in w for w in info["warnings"])      # bottom (0,0) is ON the mesh
+
+
+def test_build_no_ladder_landing_warning_when_on_mesh_or_gateway(tmp_path):
+    """No warning when the top floor is on the mesh; and a gateway top (no floor up there) is exempt."""
+    from ff9mapkit.build import FieldProject, build_mod
+    (tmp_path / "camera.bgx").write_bytes((FIX / "grgr.bgx").read_bytes())
+    (tmp_path / "f.field.toml").write_text(_ladder_quad_toml(top_landing=(100, 0)), encoding="utf-8")
+    info = build_mod([FieldProject.load(tmp_path / "f.field.toml")], tmp_path / "mod")
+    assert not any("landing" in w and "off the walkmesh" in w for w in info["warnings"])
+    # gateway top: the off-mesh top_landing must NOT warn (the top isn't a floor)
+    (tmp_path / "g.field.toml").write_text(
+        _ladder_quad_toml(top_landing=(9000, 9000), top_action="field"), encoding="utf-8")
+    info2 = build_mod([FieldProject.load(tmp_path / "g.field.toml")], tmp_path / "mod2")
+    assert not any("top_landing" in w for w in info2["warnings"])
+
+
 # ---- borrow-fork content validation (the off-walkmesh guard, now universal) ----
 
 def _borrow_toml(tmp_path, npc_pos, *, ref_line='[walkmesh]\nreference = "wm.bgi"\n\n', wm_name="wm.bgi"):

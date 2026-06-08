@@ -731,6 +731,23 @@ def _validate_content_placement(project: FieldProject, wmesh, warnings: list) ->
                 warnings.append(
                     f"event #{k}: zone centre ({int(cx)}, {int(cz)}) is off the walkmesh -- "
                     f"the player may not be able to walk into it.")
+    for j, lad in enumerate(project.raw.get("ladder", [])):
+        if not lad.get("navigable"):
+            continue                                         # the 2-tag bidirectional path lands on its own zones
+        bottom = lad.get("bottom") or []
+        top = lad.get("top") or []
+        fl = lad.get("floor_landing") or (bottom[:2] if len(bottom) >= 2 else None)
+        if fl and off(fl[0], fl[1]):                         # the bottom always dismounts onto a floor
+            warnings.append(
+                f"ladder #{j}: floor_landing ({int(fl[0])}, {int(fl[1])}) is off the walkmesh -- "
+                f"you'll dismount off the floor at the bottom.")
+        if lad.get("top_action", "floor") == "floor":        # a gateway/worldmap top has no floor to land on
+            tl = lad.get("top_landing") or (top[:2] if len(top) >= 2 else None)
+            if tl and off(tl[0], tl[1]):
+                warnings.append(
+                    f"ladder #{j}: top_landing ({int(tl[0])}, {int(tl[1])}) is off the walkmesh -- "
+                    f"you'll dismount into a non-navigable area at the top. Put it on the walkable "
+                    f"floor, or use a gateway/worldmap top_action if there's no floor up there.")
     _validate_cutscene_movement(project, wmesh, warnings)    # an actor cutscene's walks must not stall
 
 
