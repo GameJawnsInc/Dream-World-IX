@@ -223,6 +223,13 @@ def validate(project: FieldProject) -> list[str]:
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
     for la in project.raw.get("ladder", []):
+        if "top" in la or "bottom" in la:           # EMULATED BIDIRECTIONAL (from-scratch, no real climb)
+            for k in ("top", "bottom"):
+                v = la.get(k)
+                if not (isinstance(v, (list, tuple)) and len(v) in (2, 3)):
+                    problems.append(f"[[ladder]] {k} must be [x, z] (or [x, z, y]) for a bidirectional "
+                                    "ladder (a trigger zone + landing point at each end)")
+            continue
         z = la.get("zone", [])
         if len(z) not in (3, 4, 5):
             problems.append(f"[[ladder]] zone must have 3-5 points (the base trigger), got {len(z)}")
@@ -230,11 +237,11 @@ def validate(project: FieldProject) -> list[str]:
         if climb:                                   # FAITHFUL: a real ladder's climb (from import)
             if not project.path(climb).is_file():
                 problems.append(f"[[ladder]] climb function file not found: {climb}")
-        else:                                       # EMULATED: teleport/hop to a destination
+        else:                                       # EMULATED one-way: teleport/hop to a destination
             t = la.get("to", [])
             if not (isinstance(t, (list, tuple)) and len(t) in (2, 3)):
-                problems.append('[[ladder]] needs to = [x, z] (or [x, z, y]) -- where the climb lands '
-                                '-- or climb = "<file>" (a real ladder\'s climb, from import)')
+                problems.append('[[ladder]] needs to = [x, z] (one-way), or top=+bottom= (bidirectional), '
+                                'or climb = "<file>" (a real ladder\'s climb, from import)')
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
@@ -1031,7 +1038,16 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # in the player's own context so it moves the player). Each ladder gets a distinct climb tag.
     # FAITHFUL (climb = "<file>", what import emits): graft the real ladder's exact climb (perspective-
     # correct jump arcs). EMULATED (to = [x, z, y]): a generic teleport to the destination.
-    for li, lad in enumerate(project.raw.get("ladder", [])):
+    # BIDIRECTIONAL (top=+bottom=): a from-scratch ladder with no real climb -- a zone at each end,
+    # each teleporting to the other (consumes two climb tags). A running tag counter keeps multiple
+    # ladders (and the two-tag bidirectional ones) from colliding.
+    tag = _ladder.FIRST_CLIMB_TAG
+    for lad in project.raw.get("ladder", []):
+        if "top" in lad and "bottom" in lad:
+            eb, tag = _ladder.inject_bidirectional_ladder(
+                eb, lad["top"], lad["bottom"], radius=int(lad.get("zone_radius", 150)),
+                animation=lad.get("animation"), first_tag=tag)
+            continue
         zone = lad["zone"]
         if len(zone) == 4:
             zone = _gw.quad_zone(zone)
@@ -1041,8 +1057,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         eb, _ = _ladder.inject_ladder(eb, [tuple(p) for p in zone],
                                       None if climb_bytes is not None else lad["to"],
                                       climb_bytes=climb_bytes, sequences=sequences,
-                                      climb_tag=_ladder.FIRST_CLIMB_TAG + li,
-                                      animation=lad.get("animation"))
+                                      climb_tag=tag, animation=lad.get("animation"))
+        tag += 1
 
     # player spawn (order-independent w.r.t. the appends above)
     if "player" in project.raw and "spawn" in project.raw["player"]:

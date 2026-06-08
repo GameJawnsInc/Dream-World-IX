@@ -153,3 +153,26 @@ def inject_ladder(data, zone, dest=None, *, climb_bytes: bytes | None = None,
     if activate:
         data = edit.activate(data, opcodes.init_region(slot, 0))
     return data, slot
+
+
+def square_zone(center, radius: int = 150) -> list:
+    """A 5-point IsInQuad-safe square trigger zone (side 2*radius) centred on ``(x, z)``."""
+    cx, cz = int(center[0]), int(center[1])
+    r = int(radius)
+    c = [[cx - r, cz + r], [cx + r, cz + r], [cx + r, cz - r], [cx - r, cz - r]]
+    return c + [c[-1]]                                    # double last vertex (IsInQuad fan safety)
+
+
+def inject_bidirectional_ladder(data, top, bottom, *, radius: int = 150,
+                                animation: int | None = None, first_tag: int = FIRST_CLIMB_TAG):
+    """A from-scratch BIDIRECTIONAL ladder with no real climb to copy: a trigger zone at EACH end,
+    each a simple teleport to the OTHER end (top zone -> ``bottom``, bottom zone -> ``top``). The
+    player's location picks the direction, so it climbs both ways WITHOUT reading runtime position
+    (the robust generic answer when there's no real ladder to import). ``top``/``bottom`` are
+    ``(x, z)`` or ``(x, z, y)`` -- both the trigger-zone centre and the landing point for that end.
+    Returns ``(new_bytes, next_tag)`` (consumes two climb tags)."""
+    data, _ = inject_ladder(data, square_zone(top, radius), dest=bottom,
+                            climb_tag=first_tag, animation=animation)
+    data, _ = inject_ladder(data, square_zone(bottom, radius), dest=top,
+                            climb_tag=first_tag + 1, animation=animation)
+    return data, first_tag + 2

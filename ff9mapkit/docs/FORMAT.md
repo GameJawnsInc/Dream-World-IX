@@ -298,18 +298,32 @@ in-game-verified): walk to the base and a floating **"!" prompt** appears; press
 to climb to the destination.
 
 ```toml
+# BIDIRECTIONAL (from-scratch, no real ladder to copy) -- a zone + landing at EACH end:
+[[ladder]]
+top    = [-50, 450]      # top end: trigger zone centre + where "climb up" lands
+bottom = [64, -348]      # bottom end: trigger zone centre + where "climb down" lands
+# zone_radius = 150      # optional, half-size of each auto-made square zone (default 150)
+# animation  = 7302      # optional climb gesture (a one-shot anim id)
+
+# FAITHFUL (a real ladder, from `ff9mapkit import`) -- exact perspective-correct jump arcs:
+[[ladder]]
+zone  = [[9016, -16722], [9574, -17758], [9791, -17674]]  # auto-widened by import to span both ends
+climb = "MYFIELD.ladder0.climb.bin"
+
+# EMULATED ONE-WAY -- a single zone that teleports you to one destination:
 [[ladder]]
 zone = [[9016, -16722], [9574, -17758], [9791, -17674]]   # the base (3–5 points)
 to   = [7053, -14226, -6003]                              # where the climb lands: [x, z] or [x, z, y]
-# animation = 7302                                        # optional climb gesture (a one-shot anim id)
 ```
 
-| key | meaning |
+Three modes (pick one per ladder):
+
+| keys | mode |
 |---|---|
-| `zone` | 3–5 corners of the ladder trigger (4 are auto-made IsInQuad-safe). |
-| `to` | **EMULATED** climb: `[x, z]` (or `[x, z, y]`) the climb teleports you to — typically the top. |
-| `climb` | **FAITHFUL** climb: a `"<name>.ladderN.climb.bin"` sidecar (the real ladder's exact climb), written by `ff9mapkit import`. Use this **or** `to`. |
-| `animation` | (emulated only) optional climb gesture — a **one-shot** anim id — played before the move. |
+| `top` + `bottom` | **BIDIRECTIONAL** (generic, no real ladder needed): a square trigger zone at each end (centred on `top`/`bottom`, half-size `zone_radius`, default 150); the top zone teleports you down, the bottom zone teleports you up — your location picks the direction, so it climbs both ways. Each end is `[x, z]` or `[x, z, y]`. |
+| `zone` + `climb` | **FAITHFUL**: a `"<name>.ladderN.climb.bin"` sidecar (the real ladder's exact climb), written by `ff9mapkit import` (which also auto-widens `zone` to span both climb ends). |
+| `zone` + `to` | **EMULATED ONE-WAY**: 3–5-corner trigger (4 are auto-made IsInQuad-safe) that teleports to a single `[x, z]`/`[x, z, y]`. |
+| `animation` | (emulated modes) optional climb gesture — a **one-shot** anim id — played before the move. |
 
 How it works: the kit adds a climb function to the **player** entry and a region whose tread shows
 `Bubble(1)` and whose action func runs `DisableMove ; RunScriptSync(2, 250, <tag>) ; EnableMove`.

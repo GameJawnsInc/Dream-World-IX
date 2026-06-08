@@ -257,3 +257,29 @@ def test_climb_landings_and_zone_widening():
     assert min(zs) <= -2000 and max(zs) >= 500      # covers both landings in Z
     for lx, lz in lands:                            # every landing strictly inside the widened quad
         assert min(xs) <= lx <= max(xs) and min(zs) <= lz <= max(zs)
+
+
+def test_bidirectional_ladder_two_zones_two_climbs():
+    """A from-scratch top+bottom ladder injects a zone at each end + a teleport to the OTHER end."""
+    from ff9mapkit import data as _data
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import ladder
+    eb0 = _data.blank_field_bytes("us")
+    n0 = sum(1 for e in EbScript.from_bytes(eb0).entries if not e.empty)
+    data, nxt = ladder.inject_bidirectional_ladder(eb0, top=[100, 800], bottom=[100, -800], radius=120)
+    assert nxt == ladder.FIRST_CLIMB_TAG + 2                       # consumed two climb tags
+    eb = EbScript.from_bytes(data)
+    assert sum(1 for e in eb.entries if not e.empty) == n0 + 2     # one region per end
+    pe = ladder.find_player_entry(eb)
+    tags = {f.tag for f in eb.entries[pe].funcs}
+    assert {ladder.FIRST_CLIMB_TAG, ladder.FIRST_CLIMB_TAG + 1} <= tags
+    # the two climbs teleport to OPPOSITE ends (MoveInstantXZY 0xA1: args = x, -y, z)
+    def s16(v): return v - 65536 if v >= 32768 else v
+    dests = {}
+    for f in eb.entries[pe].funcs:
+        if f.tag in (ladder.FIRST_CLIMB_TAG, ladder.FIRST_CLIMB_TAG + 1):
+            for ins in eb.instrs(f):
+                if ins.op == 0xA1 and len(ins.args) >= 3:
+                    dests[f.tag] = (s16(ins.args[0]), s16(ins.args[2]))
+    assert dests[ladder.FIRST_CLIMB_TAG] == (100, -800)           # top zone -> bottom
+    assert dests[ladder.FIRST_CLIMB_TAG + 1] == (100, 800)        # bottom zone -> top
