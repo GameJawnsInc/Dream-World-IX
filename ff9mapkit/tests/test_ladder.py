@@ -431,6 +431,22 @@ def test_navigable_two_way_mount_and_per_end_anims():
     assert len(invokers) == 2
 
 
+def test_height_at_and_autofill_landing_y():
+    """height_at interpolates the floor Y; the build auto-fills an OMITTED ladder landing Y from it, so a
+    dismount onto an ELEVATED floor lands right instead of arcing to 0 then snapping (the CPMP slingshot)."""
+    from types import SimpleNamespace
+    from ff9mapkit.scene import bgi
+    wm = bgi.build([(-100, 500, -100), (100, 500, -100), (100, 500, 100), (-100, 500, 100)],
+                   [(0, 1, 2), (0, 2, 3)])              # a flat floor at world Y = 500
+    assert wm.height_at(0, 0) == 500
+    assert wm.height_at(9999, 9999) is None             # off-mesh
+    proj = SimpleNamespace(raw={"ladder": [{"navigable": True,
+                                            "floor_landing": [0, 0], "top_landing": [10, 10, 77]}]})
+    build._autofill_ladder_landing_y(proj, wm)
+    assert proj.raw["ladder"][0]["floor_landing"] == [0, 0, -500]   # filled = -height (SetupJump uses -worldY)
+    assert proj.raw["ladder"][0]["top_landing"] == [10, 10, 77]     # an explicit Y is respected
+
+
 def test_inject_navigable_ladder_attaches_climb_and_region():
     """inject_navigable_ladder grafts the navigable climb onto the player + a one-zone trigger."""
     out, slot = ladder.inject_navigable_ladder(CLEAN, bottom=(-240, 578, 170), top=(-240, 578, 870),

@@ -1632,6 +1632,25 @@ class FieldResult:
     warnings: list = _dc_field(default_factory=list)
 
 
+def _autofill_ladder_landing_y(project: FieldProject, wmesh) -> None:
+    """Fill an OMITTED navigable-ladder dismount-floor Y from the walkmesh height, so the dismount lands
+    at the floor's real height instead of arcing to Y=0 then snapping up (the fall+slingshot on elevated
+    floors -- e.g. CPMP). The SetupJump dest's height is -worldY, so the landing Y = -height_at(x,z). A
+    flat floor (height 0) is left unchanged, so flat rooms stay byte-identical. Only fills [x, z] landings
+    (no explicit Y); an author-supplied Y is respected."""
+    if wmesh is None:
+        return
+    for lad in project.raw.get("ladder", []):
+        if not lad.get("navigable"):
+            continue
+        for key in ("floor_landing", "top_landing"):
+            p = lad.get(key)
+            if p and len(p) == 2:                      # (x, z) with no Y -> look up the floor height
+                h = wmesh.height_at(int(p[0]), int(p[1]))
+                if h:                                  # elevated floor (non-zero / on-mesh)
+                    lad[key] = [int(p[0]), int(p[1]), -int(h)]
+
+
 def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> FieldResult:
     """Write one field's assets into the mod ``layout``. Returns its registration info."""
     problems = validate(project)
@@ -1686,6 +1705,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if ref is not None:
             _validate_content_placement(project, ref, warnings)
 
+    _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---
     mes_body, txids, event_txids, cutscene_txids, choice_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)

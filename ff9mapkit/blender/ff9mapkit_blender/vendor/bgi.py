@@ -324,6 +324,23 @@ class BgiWalkmesh:
                 return fo.get(ti, t.floor_ndx)
         return None
 
+    def height_at(self, x, z):
+        """The floor Y (world height) at (x, z): the triangle whose XZ-projection contains (x, z),
+        barycentric-interpolated from its 3 verts. None if off-mesh. A navigable ladder's dismount must
+        land at the floor's REAL height -- otherwise the jump arcs to Y=0 and SetPathing snaps you up
+        (the fall+slingshot). Lets the builder auto-fill an omitted floor_landing/top_landing Y."""
+        wv = self.world_verts()
+        for t in self.tris:
+            a, b, c = wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]]   # each vert = (x, y, z)
+            if _pt_in_tri_xz(x, z, a, b, c):
+                den = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+                if den == 0:
+                    return int(round(a[1]))
+                wa = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / den
+                wb = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / den
+                return int(round(wa * a[1] + wb * b[1] + (1 - wa - wb) * c[1]))
+        return None
+
     def distance_to_boundary(self, x, z):
         """Min XZ distance from (x,z) to the nearest collision WALL of the floor it sits on -- a
         walkmesh-boundary edge (one with no neighbor across it). A cross-floor SEAM is NOT a wall
