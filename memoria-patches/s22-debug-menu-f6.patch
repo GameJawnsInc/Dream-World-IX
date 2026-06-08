@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..d7127c0d
+index 00000000..0591c963
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,146 @@
 +using System;
 +using UnityEngine;
 +
@@ -32,6 +32,7 @@ index 00000000..d7127c0d
 +{
 +    private static Ff9mkDebugMenu _instance;
 +    private Boolean _open;
++    private Boolean _priorControl;          // field user-control state to restore when the menu closes
 +    private String _warpText = "5000";
 +
 +    // Quick-warp buttons: the known custom-field slots (edit freely; the text box handles any id).
@@ -41,7 +42,34 @@ index 00000000..d7127c0d
 +    public static void Toggle()
 +    {
 +        Ensure();
-+        _instance._open = !_instance._open;
++        _instance.SetOpen(!_instance._open);
++    }
++
++    // Open/close the menu, PAUSING field input while open (save the current user-control state, disable
++    // it, restore on a plain close) so the d-pad + the Use(!)/action button don't drive the field behind
++    // the popup. A warp/reload action instead closes the menu directly -- the field transition itself
++    // re-establishes control -- so it does not restore here.
++    private void SetOpen(Boolean open)
++    {
++        if (open == _open)
++            return;
++        try
++        {
++            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++            if (open)
++            {
++                _priorControl = ee.GetUserControl();
++                ee.SetUserControl(false);
++            }
++            else
++            {
++                ee.SetUserControl(_priorControl);
++            }
++        }
++        catch (Exception)
++        {
++        }
++        _open = open;
 +    }
 +
 +    public static Boolean IsOpen
@@ -88,7 +116,7 @@ index 00000000..d7127c0d
 +        GUILayout.EndHorizontal();
 +        GUILayout.Space(10f);
 +        if (GUILayout.Button("Close"))
-+            _open = false;
++            SetOpen(false);
 +        GUILayout.EndArea();
 +    }
 +
