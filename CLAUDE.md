@@ -1725,3 +1725,31 @@ So confirmed: opcode arg N is an expression iff gArgFlag bit N set (the `[op][gA
 **Game state:** dev engine (F6 reload + F10 reset + control-fix). Field 4003 = the chest test (revert `py tools/scroll_out/revert_deploy.py`). Debug New-Game→Alexandria warp active. The kit's content stack (rooms → cameras → walkmesh → NPCs/dialogue → gateways → encounters → events[chest-faithful] → choices[+flag-gated hide] → branching → cutscenes) is COMPLETE, real-field-grounded, and in-game-proven.
 
 **Next options:** author a real populated demo area with the full stack; a second connected room; or the release-cleanup pass. Standing constraint: nothing public.
+
+### 2026-06-07 — Session 22 — Ladder import: 3 shapes validated in-game + the warp-plumbing saga
+
+**The faithful-ladder import is fully proven end-to-end — all 3 real-ladder shapes climb in real gameplay.** And the entire multi-hour "black screen" ordeal turned out to be the New-Game DEBUG WARP, never the ladder/kit/4003.
+
+**Ladder import — productized + validated (all 3 shapes):** `eventscan.scan_ladders` extracts a ladder's zone + the VERBATIM climb function + the concurrent `STARTSEQ` helper-sequences it launches; `import` emits `[[ladder]] zone + climb=<sidecar>` (+ `.seqN.bin` sidecars); `build`/`content.ladder.inject_ladder` grafts the climb onto the player entry + a tread/action region + grafts the seqs at free slots and remaps the climb's `STARTSEQ` args. Validated in real gameplay:
+- **no-`STARTSEQ`** (CPMP / Conde Petie Mtn Path) — bidirectional ✓
+- **`STARTSEQ`+pitch** (Treno residence, the forward-lean) — earlier ✓
+- **`STARTSEQ`-non-pitch** (GZML / Gizamaluke exit) — bidirectional ✓, and climbing up walks out the **imported gateway** into real field 704 (gateway import also proven).
+
+**Kit fix — imported ladder zones must span BOTH ends (commit `34fa037`, 373 tests):** a faithfully-imported real `SetRegion` zone only covers the side the player normally approaches from; in a FORK the player can end up at either end → no "!" at the far end → can't climb back. Hit exactly on CPMP: climb DOWN worked, UP didn't — the bottom landing (z=-363) sat below the imported zone (z[-210,1369]). Fix: `extract` now auto-unions the real zone with the climb's `SetupJump` landing points (+150u margin) → bidirectional out of the box. New `content.ladder.climb_landings` / `widen_zone_for_climb` (+ test). `SetupJump`(0xE2) dests are ABSOLUTE world (X, −Y, Z) per the engine. GZML's zone already covered both ends (short near-vertical ladder), so it tested the seq-graft, not the zone.
+
+**THE WARP-PLUMBING SAGA (the real lesson — every black screen this session):** New Game → black, repeatedly, on CPMP/CPMP_LAD/etc. Engine-probed it: a try/catch around `EBin.commandDefault2`'s `DoEventCode()` call logging `gExec.sid` + `_lastIP` + `fldMapNo` (+ a `MAPJUMP`/Field-warp logger in `DoEventCode`), swallowing to avoid the hard crash. Result: `map=100` — an `InvalidCastException` in **field 100 (Alexandria)**, NOT field 4003. The ladder/CPMP/4003 were correct the whole time; **4003 had never once been reached** — the warp died in field 100 every launch. Two root causes, both stale debug hacks:
+1. **Field 100 (Alexandria) is a debug-hack pileup:** a dead `Field(4004)` to an UNREGISTERED field + an entrance-spawn sitting INSIDE a gateway zone that fires on spawn → `(PosObj)`/cast crash. (Confirmed: DictionaryPatch only had 4000/4002/4003; `MAPJUMP from=100 to=4004`.)
+2. **Field 70 had TWO warp instructions** — an inline `Field(4000)` (entrance 0) AND an entry-3 `InitCode` `Field(100,231)`. The LIVE one was entry-3 (→ broken field 100); my first byte-patches hit the DEAD inline one, so the warp kept dragging back into Alexandria. Fix: byte-patched BOTH field-70 warps → `Field(4003)` directly, bypassing Alexandria entirely. **4003 loaded first try.**
+
+**Reusable lessons (fold into memory):**
+- When a custom field "black-screens after the warp," **probe the ACTUAL crashing field** — it may be the warp SOURCE/intermediate, not the destination. `Memoria.log` `invalidFieldMapID` is benign transition noise; an `InvalidCastException` in `DoEventCode`/`ProcessEvents` is a SCRIPT crash.
+- **Engine probe pattern:** try/catch in `commandDefault2` around `DoEventCode()` logging `gExec.sid`/`_lastIP`/`fldMapNo` + swallow → pinpoints the exact crashing object/opcode without a hard crash; add a `MAPJUMP` log in `DoEventCode` to dump the field→field warp chain.
+- A field can have **multiple `Field()` warp instructions** in different entries/branches — patch the LIVE one (verify via the MAPJUMP chain, not by reading the disasm alone).
+- An unregistered `Field(N)` (no DictionaryPatch line) or a player **spawn placed inside a gateway zone** (fires on spawn before the player object is ready) cast-crashes the field.
+- `.eb` byte-patches to the lang-identical CODE region (offset ≥ ~128, after the 84-byte name) apply at the SAME offset in all 7 languages.
+
+**Engine state:** clean **pre-probe** DLLs restored (x64+x86; probes removed via `git checkout` of EBin.cs/EventEngine.cs/DoEventCode.cs + restoring `backups/Assembly-CSharp.dll.*.preProbe.20260607-184356`); **F6/F10 dev hotkeys kept** (UIKeyTrigger.cs). Memoria clone is probe-free.
+
+**Carry-over / state:** debug New-Game warp = field 70 → `Field(4003)` direct (BOTH warps repointed; backups `backups/*-evt_alex1_ts_opening.eb.bytes.{preWarpFix,direct4003,entry3-4003}.*`). Field 4003 = GZML ladder test (revert `tools/scroll_out/revert_deploy.py`). **Field 100 (Alexandria) is still broken** (dead `Field(4004)` + spawn-in-gateway) — irrelevant while the warp bypasses it, but a real-playthrough wiring would need it rebuilt. Title-fade on borrowed fields (cosmetic) deferred. Standing constraint still in force: **nothing public**.
+
+**Next options:** (a) emulate-generic position-aware bidirectional climb (#71) for forks with no real climb to copy; (b) title-fade suppression on borrowed fields; (c) rebuild the debug warp plumbing cleanly (or a real story entrance) — the field 70/100 hacks are fragile; (d) back to broader kit/content.
