@@ -345,11 +345,15 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     a.jmp(0x01, "END")
     a.label("TOP_END")
     if top_action == "field":                                          # top -> a Field() gateway
-        a.raw(opcodes.disable_move() + opcodes.fade_filter(6, 24, 0, 0, 0, 0)
+        # Match the engine's proven warp (field 70): fade out, WAIT for the fade to finish, THEN warp.
+        # Omitting the Wait fires Field() mid-fade -> the destination loads black. Move/menu are already
+        # disabled by the region that RunScriptSync'd this climb, so we don't re-disable them.
+        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
               + opcodes.preload_field(int(top_field)) + _region.set_field_entrance(int(top_entrance))
               + opcodes.field(int(top_field)) + opcodes.terminate_entry(255))
     elif top_action == "worldmap":                                     # top -> the world map
-        a.raw(opcodes.fade_filter(6, 24, 0, 0, 0, 0) + _region.set_field_entrance(int(top_entrance))
+        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
+              + _region.set_field_entrance(int(top_entrance))
               + opcodes.world_map(int(top_worldmap)) + opcodes.terminate_entry(255))
     else:                                                              # "floor": dismount onto a top floor
         a.raw(_dismount(dismount_anim, tlx, tlz, tly, dismount_steps))
