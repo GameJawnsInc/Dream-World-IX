@@ -38,6 +38,7 @@ from .content import region as _region
 from .content import reinit as _reinit
 from .content import text as _text
 from . import animations as _animations
+from . import catalog as _catalog
 from . import items as _items
 from . import data as _data
 from .eb import EbScript, opcodes
@@ -202,6 +203,11 @@ def validate(project: FieldProject) -> list[str]:
         if "pos" not in n:
             problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} has no position -- set "
                             f"pos = [x, z] in the field.toml, or place its marker in the Blender scene.")
+        if "model" in n and n["model"] is not None:
+            try:
+                resolve_npc_model(n["model"])             # a GEO name must resolve (a raw id passes through)
+            except ValueError as e:
+                problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} model: {e}")
     for gw in project.raw.get("gateway", []):
         if "to" not in gw:
             problems.append("[[gateway]] needs a 'to' (destination field id).")
@@ -511,7 +517,45 @@ def lint_logic(project: FieldProject) -> list[str]:
             for ln in _text.overflow_lines(t, wrap):
                 out.append(f"{who} has a word too wide to fit one line ({ln!r}) -- it will overflow; "
                            f"shorten it or raise [dialogue] wrap.")
+
+    # reference-data sanity (Info Hub): an [[npc]] model id / animation id the engine won't recognise.
+    # A model NAME is handled by validate() (fatal); here we WARN on a raw id outside the known tables
+    # (it may be valid -- the tables aren't a hard whitelist -- but a typo usually isn't).
+    def _is_raw_int(v):
+        return (isinstance(v, int) and not isinstance(v, bool)) or (isinstance(v, str) and v.strip().lstrip("-").isdigit())
+    for i, n in enumerate(raw.get("npc", [])):
+        mv = n.get("model")
+        if mv is not None and _is_raw_int(mv) and _catalog.model(int(mv)) is None:
+            out.append(f"[[npc]] {n.get('name', '#' + str(i))!r} model id {int(mv)} isn't in the model table "
+                       f"-- it may not render. Run `ff9mapkit models` to find a valid id/name.")
+        for slot, aid in (n.get("anims") or {}).items():
+            if _catalog.animation_name(aid) is None:
+                out.append(f"[[npc]] {n.get('name', '#' + str(i))!r} anims[{slot!r}] = {aid!r} isn't a known "
+                           f"animation id. Run `ff9mapkit models <name>` to list a model's gestures.")
+    for k, s in enumerate(raw.get("cutscene", {}).get("steps", [])):
+        a = s.get("animation")
+        if _is_raw_int(a) and _catalog.animation_name(int(a)) is None:
+            out.append(f"[cutscene] step {k} animation id {a} isn't a known animation id "
+                       f"(run `ff9mapkit models <character>` to list gestures).")
     return out
+
+
+def resolve_npc_model(value):
+    """Resolve an ``[[npc]] model`` value to the numeric model id ``SetModel`` takes.
+
+    Accepts a raw id (int / digit string -> passed through unchanged, so existing fields and the golden
+    builds stay byte-identical) OR an exact GEO model name ('GEO_NPC_F0_BAR', from `ff9mapkit models`)
+    resolved via :mod:`ff9mapkit.catalog`. ``None`` -> ``None`` (keep the cloned player's model). Raises
+    ValueError with near-miss suggestions on an unknown name (``validate`` surfaces this cleanly before
+    the build runs). A raw id outside the model table passes through here and is flagged as a lint
+    warning. (For a playable character by friendly name use ``preset = "vivi"`` instead.)"""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("[[npc]] model cannot be a boolean")
+    if isinstance(value, int) or str(value).strip().isdigit():
+        return int(value)
+    return _catalog.resolve_model(value)
 
 
 # --------------------------------------------------------------------------- scene assembly
@@ -961,7 +1005,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         if "preset" in n:
             kwargs["preset"] = n["preset"]
         else:
-            kwargs.update(model=n.get("model"), animset=n.get("animset"), anims=n.get("anims"))
+            kwargs.update(model=resolve_npc_model(n.get("model")), animset=n.get("animset"),
+                          anims=n.get("anims"))
         gf, gs = _gate_of(n)
         slot = EbScript.from_bytes(eb).first_free_slot()
         intro = actor_choreo if (cs_actor and n.get("name") == cs_actor) else None

@@ -194,7 +194,9 @@ walkmesh exports as one floor. Multi-floor meshes use the world frame directly (
 |---|---|
 | `name` | label only. |
 | `preset` | character preset (`vivi`, `zidane`, ...) → model + animations. |
-| `model`, `animset`, `anims` | explicit alternative to `preset`. |
+| `model` | explicit alternative to `preset`: a model **id**, *or* an exact **GEO name** (`"GEO_NPC_F0_BAR"` — browse with `ff9mapkit models`) resolved to the id via the Info Hub catalog. A bad name fails the build with a clear error; a raw id outside the model table is a lint warning. |
+| `animset` | the model's **head height** (positions the dialogue box; cosmetic). |
+| `anims` | `{ stand, walk, run, left, right }` gesture ids for the model — list them with `ff9mapkit models <name>`. Set this whenever you set `model` so the NPC animates (the build warns on an unknown anim id). |
 | `pos` | `[x, z]`. |
 | `dialogue` | a line shown when talked to (assigned a non-colliding high text id automatically). |
 | `text_id` | use an explicit text id instead of `dialogue`. |

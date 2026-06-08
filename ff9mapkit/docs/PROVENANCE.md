@@ -43,15 +43,25 @@ install). Point `$FF9MAPKIT_DATA` at a writable directory for a read‑only whee
 cache. Until it's run, the loaders raise a clear "run extract-templates" message and the byte‑level
 test suite is skipped (the pure‑logic suite — camera math, the editor, packaging — still runs).
 
-## What about the field‑name and animation tables?
+## What about the field‑name, model, animation, item, and battle‑scene tables?
 
-`ff9mapkit/_fieldtable.py` maps each field's background folder to its event‑script name (used by
-`import` / `list-fields`). `ff9mapkit/_animdb.py` maps the playable characters' animation ids to
-their names (used by the `animations` catalog / cutscene gesture names). Both are short **functional
-identifiers** derived from the **open‑source Memoria** project's public tables (`EventEngineUtils` /
-`FF9DBAll`), not extracted from the game — i.e. the same data Memoria already publishes. They are kept
-in the repo for those features; regenerate with `python -m ff9mapkit._regen_fieldtable` and
-`python -m ff9mapkit._regen_animdb`.
+Several small `ff9mapkit/_*.py` modules hold **id ↔ name** lookup tables. Each is a short list of
+**functional identifiers** — never game bytes — transcribed from the **open‑source Memoria** project's
+public tables, i.e. the same data Memoria already publishes, *not* extracted from the game:
+
+| module | maps | Memoria source table | regenerate |
+|---|---|---|---|
+| `_fieldtable.py` | field background folder → event‑script name (`import` / `list-fields`) | `EventEngineUtils` | `python -m ff9mapkit._regen_fieldtable` |
+| `_animdb.py` | the 8 playable characters' anim id → name (cutscene gestures) | `FF9DBAll.AnimationDB` | `python -m ff9mapkit._regen_animdb` |
+| `_animdb_all.py` | **all** anim ids → names (Info Hub model→animation join) | `FF9DBAll.AnimationDB` | `python -m ff9mapkit._regen_animdb_all` |
+| `_modeldb.py` | actor/field model id → `GEO_…` name (Info Hub `models`) | `FF9BattleDB.GEO` | `python -m ff9mapkit._regen_modeldb` |
+| `_scenedb.py` | battle‑scene name → encounter id (Info Hub `scenes`) | `FF9BattleDB.SceneData` | `python -m ff9mapkit._regen_scenedb` |
+| `_itemdb.py` | item id → name | `RegularItem` (Memoria enum) | — |
+
+These hold only labels (`GEO_MAIN_F0_VIV`, `ANH_MAIN_F0_VIV_WALK`, `BSC_AC_E031`, …) and numeric ids —
+no model geometry, animation binary, enemy roster, or stats (those live in your install's `p0data`).
+They're committed so the `import` / `animations` / Info Hub (`models` / `scenes` / `catalog`) features
+work without a game install.
 
 ## For maintainers
 
