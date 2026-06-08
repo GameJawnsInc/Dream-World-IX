@@ -230,6 +230,7 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
                          climb_anim: int = CLIMB_ANIM, climb_frames: int = 12,
                          mount_anim: int = MOUNT_ANIM, dismount_anim: int = DISMOUNT_ANIM,
                          mount_steps: int = 4, dismount_steps: int = 6,
+                         two_way_mount: bool = False, top_mount_anim=None, top_mount_steps=None,
                          face_angle: int | None = None, top_action: str = "floor",
                          top_field: int | None = None, top_entrance: int = 0,
                          top_worldmap: int | None = None) -> bytes:
@@ -309,21 +310,38 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
         return _stmt(_scratch(), _selfv(F_Y), _const(step), bytes([sign]), bytes([_region.T_ASSIGN]))
 
     a = _Asm()
-    # MOUNT (gated like 706): only jump onto the vine when arriving near the BASE (selfY past the
-    # mid-band threshold). On RE-ENTRY the player-init spawns you already high on the vine (with the
-    # ladder flag + SetPathing(0) set), so selfY is below the threshold -> skip the mount -> drop
-    # straight into the loop and climb DOWN. Faithful to 706's `if (selfY > -500) { mount }` gate.
+
+    def _pair(v):   # a per-END value: scalar -> (v, v); a [bottom, top] list/tuple -> as given
+        return (int(v[0]), int(v[1])) if isinstance(v, (list, tuple)) else (int(v), int(v))
+    da_b, da_t = _pair(dismount_anim)      # per-end dismount ANIM (bottom, top) -- e.g. CPMP 11453 / 10685
+    ds_b, ds_t = _pair(dismount_steps)     # per-end dismount STEPS              -- e.g. CPMP 6 / 8
+    tm_anim = mount_anim if top_mount_anim is None else int(top_mount_anim)
+    tm_steps = mount_steps if top_mount_steps is None else int(top_mount_steps)
+
+    def mount_arc(m_anim, dx, dz, dy, m_steps):   # face + jump-on anim + jump ONTO a vine end + grip
+        return ((opcodes.turn_instant(int(face_angle)) if face_angle is not None else b"")
+                + opcodes.set_jump_animation(int(m_anim), 2, 6) + opcodes.run_jump_animation()
+                + opcodes.wait_animation() + opcodes.add_character_attribute(LADDER_FLAG)
+                + opcodes.setup_jump(int(dx), int(dz), int(dy), int(m_steps)) + opcodes.jump()
+                + opcodes.run_land_animation() + opcodes.wait_animation()
+                + opcodes.set_pathing(0) + opcodes.set_animation_flags(1, 0)
+                + opcodes.set_animation_in_out(0, 0))
+    # MOUNT. selfY > the mid-band threshold => arriving near the BOTTOM end.
     a.raw(_stmt(_selfv(F_Y), _const(exit_threshold), bytes([_region.T_GT])))
-    a.jmp(_region.JMP_FALSE, "LOOP")           # high on the vine (re-entry) -> skip the mount
-    if face_angle is not None:
-        a.raw(opcodes.turn_instant(int(face_angle)))
-    a.raw(opcodes.set_jump_animation(mount_anim, 2, 6) + opcodes.run_jump_animation()
-          + opcodes.wait_animation())
-    a.raw(opcodes.add_character_attribute(LADDER_FLAG))
-    a.raw(opcodes.setup_jump(bx, bz, by, mount_steps) + opcodes.jump())
-    a.raw(opcodes.run_land_animation() + opcodes.wait_animation()
-          + opcodes.set_pathing(0) + opcodes.set_animation_flags(1, 0)
-          + opcodes.set_animation_in_out(0, 0))
+    if two_way_mount:
+        # TWO-WAY (CPMP/TRNO): mount the END you approached -- bottom-arc if low, top-arc if high. Each end
+        # has its own jump anim + dest + steps. Needs a region at BOTH floors (inject_navigable_ladder
+        # top_zone) so you can stand at either end to press action.
+        a.jmp(_region.JMP_FALSE, "TOPMOUNT")
+        a.raw(mount_arc(mount_anim, bx, bz, by, mount_steps))
+        a.jmp(0x01, "LOOP")
+        a.label("TOPMOUNT")
+        a.raw(mount_arc(tm_anim, tx, tz, ty, tm_steps))
+    else:
+        # single bottom-mount; high on the vine (RE-ENTRY) -> skip the mount (the player-init already
+        # placed you with the ladder flag + SetPathing(0)) -> drop into the loop. Faithful to 706.
+        a.jmp(_region.JMP_FALSE, "LOOP")
+        a.raw(mount_arc(mount_anim, bx, bz, by, mount_steps))
     # NAVIGATE LOOP
     a.label("LOOP")
     # input: a FIRST-MATCH-WINS else-if chain (like the real GZML loop). Each held direction advances
@@ -380,7 +398,7 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     # EXIT: selfY > midpoint -> BOTTOM (floor) dismount; else -> the TOP end (per top_action)
     a.raw(_stmt(_selfv(F_Y), _const(exit_threshold), bytes([_region.T_GT])))
     a.jmp(_region.JMP_FALSE, "TOP_END")
-    a.raw(_dismount(dismount_anim, flx, flz, fly, dismount_steps))      # bottom -> floor dismount
+    a.raw(_dismount(da_b, flx, flz, fly, ds_b))                         # bottom -> floor dismount (per-end anim)
     a.jmp(0x01, "END")
     a.label("TOP_END")
     if top_action == "field":                                          # top -> a Field() gateway
@@ -397,7 +415,7 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
               + _region.set_field_entrance(int(top_entrance))
               + opcodes.world_map(int(top_worldmap)) + opcodes.terminate_entry(255))
     else:                                                              # "floor": dismount onto a top floor
-        a.raw(_dismount(dismount_anim, tlx, tlz, tly, dismount_steps))
+        a.raw(_dismount(da_t, tlx, tlz, tly, ds_t))                     # top -> floor dismount (per-end anim)
     a.label("END")
     a.raw(opcodes.RETURN)
     return a.assemble()
@@ -505,7 +523,7 @@ def inject_bidirectional_ladder(data, top, bottom, *, radius: int = 150, rungs: 
 
 
 def inject_navigable_ladder(data, bottom, top, *, floor_landing=None, top_landing=None, zone=None,
-                            radius: int = 200, climb_tag: int = FIRST_CLIMB_TAG,
+                            top_zone=None, radius: int = 200, climb_tag: int = FIRST_CLIMB_TAG,
                             player_uid: int = PLAYER_UID, activate: bool = True, **climb_kw):
     """A from-scratch NAVIGABLE ladder between two world endpoints -- FF9's REAL ladder mechanism,
     recreated (NOT the deprecated auto-hop): ONE trigger zone at the vine base -> press action -> hold
@@ -523,8 +541,18 @@ def inject_navigable_ladder(data, bottom, top, *, floor_landing=None, top_landin
     if zone is None:
         base = floor_landing if floor_landing is not None else (int(bottom[0]), int(bottom[1]))
         zone = square_zone(base, radius)
-    return inject_ladder(data, zone, climb_bytes=body, climb_tag=climb_tag,
-                         player_uid=player_uid, activate=activate)
+    data, slot = inject_ladder(data, zone, climb_bytes=body, climb_tag=climb_tag,
+                               player_uid=player_uid, activate=activate)
+    if top_zone is not None:        # TWO-WAY mount: a SECOND trigger at the TOP floor invoking the SAME
+        tz = (square_zone(top_zone, radius)                             # climb (its height selector picks
+              if isinstance(top_zone[0], (int, float))                  # the top arc); accept a centre or a
+              else [tuple(p) for p in top_zone])                        # full quad, like `zone`.
+        eb = EbScript.from_bytes(data)
+        slot2 = eb.first_free_slot()
+        data = edit.append_entry(data, slot2, ladder_region(tz, climb_tag, player_uid=player_uid))
+        if activate:
+            data = edit.activate(data, opcodes.init_region(slot2, 0))
+    return data, slot
 
 
 def reentry_spawn_block(x: int, z: int, y: int, *, face: int = 0,

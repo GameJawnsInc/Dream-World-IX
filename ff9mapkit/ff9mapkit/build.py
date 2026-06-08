@@ -1164,11 +1164,18 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 z = lad["zone"]
                 zone = [tuple(p) for p in (_gw.quad_zone(z) if len(z) == 4 else z)]
             kw = {}
-            for k in ("step", "up_mask", "down_mask", "mount_steps", "dismount_steps",
-                      "climb_anim", "climb_frames", "mount_anim", "dismount_anim", "face_angle",
+            for k in ("step", "up_mask", "down_mask", "mount_steps", "mount_anim",
+                      "top_mount_anim", "top_mount_steps",                # two-way mount: the TOP arc
+                      "climb_anim", "climb_frames", "face_angle",
                       "top_field", "top_entrance", "top_worldmap"):
                 if k in lad:
                     kw[k] = int(lad[k])
+            for k in ("dismount_anim", "dismount_steps"):   # scalar OR [bottom, top] per-end (e.g. CPMP)
+                if k in lad:
+                    v = lad[k]
+                    kw[k] = [int(v[0]), int(v[1])] if isinstance(v, (list, tuple)) else int(v)
+            if lad.get("two_way_mount"):                    # mount from EITHER floor (needs top_zone)
+                kw["two_way_mount"] = True
             if lad.get("right_alias"):
                 kw["right_alias"] = True
             if "dirs" in lad:                            # explicit input bindings: [[mask,"up"|"down"], ...]
@@ -1184,7 +1191,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             eb, _ = _ladder.inject_navigable_ladder(
                 eb, bottom=bot, top=topp,
                 floor_landing=lad.get("floor_landing"), top_landing=lad.get("top_landing"),
-                zone=zone, radius=int(lad.get("zone_radius", 200)), climb_tag=tag, **kw)
+                zone=zone, top_zone=lad.get("top_zone"),               # two-way: 2nd trigger at the top floor
+                radius=int(lad.get("zone_radius", 200)), climb_tag=tag, **kw)
             # re-entry on-vine spawn: returning via reentry_entrance puts you HIGH on the vine (climb down)
             if "reentry_entrance" in lad:
                 frac = float(lad.get("reentry_frac", 0.85))      # how far up the vine you return (0..1)

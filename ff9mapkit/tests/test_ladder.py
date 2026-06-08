@@ -410,6 +410,27 @@ def test_navigable_climb_input_masks_are_parameterized():
     assert base(right_alias=True) == base(dirs=[[0x10, "up"], [0x40, "down"], [0x20, "up"]])  # right_alias
 
 
+def test_navigable_two_way_mount_and_per_end_anims():
+    """two_way_mount = mount from EITHER floor (a 2nd region at the top) with per-end mount AND dismount
+    animations -- the real CPMP two-floor vine (mount 10687/11455, dismount 11453/10685)."""
+    out, _ = ladder.inject_navigable_ladder(
+        CLEAN, bottom=(-162, 223, 999), top=(-169, 614, 1255), two_way_mount=True,
+        top_zone=(-177, 1272), mount_anim=10687, mount_steps=4, top_mount_anim=11455, top_mount_steps=6,
+        dismount_anim=[11453, 10685], dismount_steps=[6, 8],
+        floor_landing=(-216, -363), top_landing=(-177, 1272))
+    eb = EbScript.from_bytes(out)
+    pe = ladder.find_player_entry(eb)
+    cf = eb.entry(pe).func_by_tag(ladder.FIRST_CLIMB_TAG)
+    sj = {i.args[0] for i in iter_code(eb.data, cf.abs_start, cf.abs_end) if i.op == 0x94}  # SetJumpAnimation
+    assert {10687, 11455, 11453, 10685}.issubset(sj)        # bottom+top MOUNT + bottom+top DISMOUNT anims
+    # the climb is invoked from TWO regions (bottom floor + top floor) -> mount from either end
+    invokers = {e.index for e in eb.entries if not e.empty
+                for f in e.funcs if f.abs_end > f.abs_start
+                for i in iter_code(eb.data, f.abs_start, f.abs_end)
+                if i.op == 0x14 and list(i.args)[2] == ladder.FIRST_CLIMB_TAG}
+    assert len(invokers) == 2
+
+
 def test_inject_navigable_ladder_attaches_climb_and_region():
     """inject_navigable_ladder grafts the navigable climb onto the player + a one-zone trigger."""
     out, slot = ladder.inject_navigable_ladder(CLEAN, bottom=(-240, 578, 170), top=(-240, 578, 870),
