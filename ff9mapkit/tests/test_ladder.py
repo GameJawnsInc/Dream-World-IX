@@ -491,15 +491,29 @@ def test_build_navigable_gateway_ladder(tmp_path):
         '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
         '[player]\nspawn = [0, 0]\n\n'
         '[[ladder]]\nnavigable = true\nbottom = [0, 0, 0]\ntop = [0, 0, 800]\n'
-        'top_action = "field"\ntop_field = 4003\ntop_entrance = 11\nreentry_entrance = 11\n',
+        'top_action = "field"\ntop_field = 4002\ntop_entrance = 11\nreentry_entrance = 11\n',  # 4002 != this field (4003)
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert not [x for x in build.validate(proj) if "ladder" in x.lower()]
     s = EbScript.from_bytes(build.build_script(proj, "us", {}))
     pe = ladder.find_player_entry(s)
     cf = s.entry(pe).func_by_tag(ladder.FIRST_CLIMB_TAG)
-    assert bytes.fromhex("2b00a30f") in s.data[cf.abs_start:cf.abs_end]   # Field(4003) top
+    assert bytes.fromhex("2b00a20f") in s.data[cf.abs_start:cf.abs_end]   # Field(4002) top
     assert s.entry(pe).func_by_tag(ladder.REENTRY_TAG) is not None        # re-entry placement func
+
+
+def test_validate_flags_navigable_self_loop_gateway(tmp_path):
+    """top_field == the field's own id is a no-op self-loop -> validate must reject it."""
+    p = tmp_path / "self.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "S"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[ladder]]\nnavigable = true\nbottom = [0,0,0]\ntop = [0,0,800]\n'
+        'top_action = "field"\ntop_field = 4003\ntop_entrance = 11\n',   # 4003 == this field -> self-loop
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert any("own id" in x.lower() or "self-loop" in x.lower() for x in build.validate(proj))
 
 
 def test_validate_flags_navigable_same_height(tmp_path):

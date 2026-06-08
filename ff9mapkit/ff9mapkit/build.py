@@ -240,6 +240,9 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"[[ladder]] navigable: top_action must be floor/field/worldmap, got {ta!r}")
             if ta == "field" and "top_field" not in la:
                 problems.append('[[ladder]] navigable: top_action="field" needs top_field (the destination field id)')
+            if ta == "field" and la.get("top_field") == project.raw.get("field", {}).get("id"):
+                problems.append('[[ladder]] navigable: top_field cannot be this field\'s own id -- a self-loop '
+                                'Field() is a no-op (it falls through to TerminateEntry and crashes). Warp to a DIFFERENT field.')
             if ta == "worldmap" and "top_worldmap" not in la:
                 problems.append('[[ladder]] navigable: top_action="worldmap" needs top_worldmap (the world-map entry)')
             continue
