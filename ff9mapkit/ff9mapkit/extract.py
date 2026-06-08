@@ -238,9 +238,12 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field"):
     n_ladders = 0
     if lads and out_dir is not None:                    # ladders carry a binary climb -> need out_dir
         out_path = Path(out_dir)
+        from .content import ladder as _ladder
         blocks = ["# --- LADDER(s) imported from the real field (LIVE) -- the EXACT climb (the real,\n"
                   "# perspective-correct jump arcs), verbatim. Walk into the zone -> '!' -> press action\n"
-                  "# to climb; the climb reads your height to go up or down. The zone is the real one. ---"]
+                  "# to climb; the climb reads your height to go up or down. The zone is auto-widened to\n"
+                  "# span BOTH climb ends (the real zone only covers the entry side -> a fork couldn't\n"
+                  "# climb back); tighten it if you don't want the '!' along the whole column. ---"]
         for i, lad in enumerate(lads):
             fn = f"{name}.ladder{i}.climb.bin"
             (out_path / fn).write_bytes(lad["climb"])
@@ -249,7 +252,8 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field"):
             # STARTSEQ refs + this naming, grafts them at free slots, and remaps the climb's args.
             for ei, sbytes in lad.get("sequences", {}).items():
                 (out_path / f"{name}.ladder{i}.seq{ei}.bin").write_bytes(sbytes)
-            zone = ", ".join(f"[{x}, {z}]" for x, z in (lad["zone"] or []))
+            zone_pts = _ladder.widen_zone_for_climb(lad["zone"], lad["climb"])
+            zone = ", ".join(f"[{x}, {z}]" for x, z in (zone_pts or []))
             blocks.append(f'[[ladder]]\nzone = [{zone}]\nclimb = "{fn}"')
         parts.append("\n\n".join(blocks))
         n_ladders = len(lads)

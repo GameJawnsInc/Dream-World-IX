@@ -238,3 +238,22 @@ def test_import_emits_ladder_block_and_sidecar(tmp_path):
     d = tomllib.loads(toml)
     assert d["ladder"][0]["climb"] == "T.ladder0.climb.bin"
     assert len(d["ladder"][0]["zone"]) == 4
+
+
+def test_climb_landings_and_zone_widening():
+    """widen_zone_for_climb must span every SetupJump landing so a fork is bidirectional."""
+    from ff9mapkit.content import ladder
+    # synthetic climb: two SetupJump arcs (x,y,z,steps) + return; landings = (x,z)
+    climb = bytes([
+        0xE2, 0x00, 100, 0, 0, 0, 0x30, 0xF8, 8,   # SetupJump(100, 0, -2000) -> (100,-2000) bottom
+        0xE2, 0x00, 200, 0, 0, 0, 0xF4, 0x01, 8,   # SetupJump(200, 0, 500)   -> (200, 500)  top
+        0x04,                                       # return
+    ])
+    lands = ladder.climb_landings(climb)
+    assert lands == [(100, -2000), (200, 500)], lands
+    z = ladder.widen_zone_for_climb([[0, 0]], climb, margin=50)
+    xs = [p[0] for p in z]; zs = [p[1] for p in z]
+    assert min(xs) <= 0 and max(xs) >= 200          # covers entry zone + both landings in X
+    assert min(zs) <= -2000 and max(zs) >= 500      # covers both landings in Z
+    for lx, lz in lands:                            # every landing strictly inside the widened quad
+        assert min(xs) <= lx <= max(xs) and min(zs) <= lz <= max(zs)

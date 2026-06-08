@@ -29,6 +29,45 @@ FIRST_CLIMB_TAG = 17      # the real Treno player ladder funcs start at tag 17; 
 RUNSCRIPT_LEVEL = 2       # the script level arg the real ladder uses for RunScriptSync
 WAIT = 0x22
 STARTSEQ = 0x43           # RunSharedScript -- launches "entry arg0 of this field" as a concurrent Seq
+SETUP_JUMP = 0xE2         # SetupJump(x, y, z, arc): the climb's per-rung jump arcs (absolute dest)
+ZONE_MARGIN = 150         # padding (world units) around the climb's span when auto-sizing a zone
+
+
+def _s16(v: int) -> int:
+    return v - 65536 if v >= 32768 else v
+
+
+def climb_landings(climb_bytes: bytes) -> list:
+    """Every ``SetupJump`` (X, Z) destination in a climb -- the absolute world points the player
+    lands on while climbing (top, bottom, and any intermediate rungs)."""
+    from ..eb.disasm import read_code
+    out, pos = [], 0
+    while pos < len(climb_bytes):
+        try:
+            ins, nxt = read_code(climb_bytes, pos)
+        except Exception:
+            break
+        if ins.op == SETUP_JUMP and len(ins.args) >= 3:
+            out.append((_s16(ins.args[0]), _s16(ins.args[2])))   # args = (jumpX, jumpY, jumpZ, steps)
+        pos = nxt
+    return out
+
+
+def widen_zone_for_climb(zone, climb_bytes: bytes, margin: int = ZONE_MARGIN) -> list:
+    """Return a 4-corner bbox quad covering BOTH the real entry zone AND every climb landing point.
+
+    An imported real ladder's ``SetRegion`` zone only covers the side the player normally approaches
+    from, so a FORK (where the player can end up at either end) gets no '!' prompt at the far end and
+    can't climb back. Unioning the zone with the climb's ``SetupJump`` destinations (+ margin) makes
+    the trigger span the whole ladder, so it's bidirectional. (Proven in-game: CPMP simple ladder.)"""
+    pts = [tuple(p) for p in (zone or [])] + climb_landings(climb_bytes)
+    if not pts:
+        return zone
+    xs = [p[0] for p in pts]
+    zs = [p[1] for p in pts]
+    x0, x1 = min(xs) - margin, max(xs) + margin
+    z0, z1 = min(zs) - margin, max(zs) + margin
+    return [[x0, z1], [x1, z1], [x1, z0], [x0, z0]]
 
 
 def find_player_entry(eb: EbScript) -> int:
