@@ -1,0 +1,159 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index c0c537ca..f297b53f 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1071,6 +1071,7 @@
+     <Compile Include="Global\UI\UIKey\UIKeyBinding.cs" />
+     <Compile Include="Global\UI\UIKey\UIKeyNavigation.cs" />
+     <Compile Include="Global\UI\UIKey\UIKeyTrigger.cs" />
++    <Compile Include="Global\UI\UIKey\Ff9mkDebugMenu.cs" />
+     <Compile Include="Global\UI\UILabel.cs" />
+     <Compile Include="Global\UI\UILocalize.cs" />
+     <Compile Include="Global\UI\UIManager.cs" />
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+new file mode 100644
+index 00000000..d7127c0d
+--- /dev/null
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -0,0 +1,118 @@
++using System;
++using UnityEngine;
++
++// [ff9mapkit dev] A single in-game debug menu (toggled by F6 from UIKeyTrigger), so dev actions live on
++// ONE key + a popup instead of one-hotkey-per-function. IMGUI/OnGUI overlay -- the same proven in-engine
++// pattern as OnScreenLog / the FieldCreator editor. Self-bootstrapping persistent MonoBehaviour, so it is
++// always alive to receive OnGUI. Dev engine only; never part of the shipped mod.
++//
++// Actions all reuse the engine's field-transition primitive (SetNextMap + nextMode=1 + attr|=8, with
++// SetUserControl(false) first so a tread zone you're standing in doesn't fire before Main_Init repositions
++// you). "Warp to field" works from anywhere -> hop between any registered custom field id (e.g. per-branch
++// 4003 / 5000 / 5001) live, no New-Game-warp flipping. Adding a future debug action = one more button.
++public class Ff9mkDebugMenu : MonoBehaviour
++{
++    private static Ff9mkDebugMenu _instance;
++    private Boolean _open;
++    private String _warpText = "5000";
++
++    // Quick-warp buttons: the known custom-field slots (edit freely; the text box handles any id).
++    private static readonly Int32[] Quick = { 4000, 4002, 4003, 5000, 5001 };
++
++    // Toggle from UIKeyTrigger's reliable per-render-frame F6 read (also creates the instance on first use).
++    public static void Toggle()
++    {
++        Ensure();
++        _instance._open = !_instance._open;
++    }
++
++    public static Boolean IsOpen
++    {
++        get { return _instance != null && _instance._open; }
++    }
++
++    private static void Ensure()
++    {
++        if (_instance != null)
++            return;
++        GameObject go = new GameObject("Ff9mkDebugMenu");
++        UnityEngine.Object.DontDestroyOnLoad(go);
++        _instance = go.AddComponent<Ff9mkDebugMenu>();
++    }
++
++    private void OnGUI()
++    {
++        if (!_open)
++            return;
++        GUILayout.BeginArea(new Rect(20f, 20f, 300f, 320f), GUI.skin.box);
++        GUILayout.Label("ff9mapkit debug   (F6 to close)");
++        GUILayout.Space(6f);
++        if (GUILayout.Button("Reload field"))
++            Reload(false);
++        if (GUILayout.Button("Reset flags + reload"))
++            Reload(true);
++        GUILayout.Space(10f);
++        GUILayout.Label("Warp to field id:");
++        GUILayout.BeginHorizontal();
++        _warpText = GUILayout.TextField(_warpText, 6, GUILayout.Width(110f));
++        if (GUILayout.Button("Go", GUILayout.Width(60f)))
++            WarpTo(_warpText);
++        GUILayout.EndHorizontal();
++        GUILayout.BeginHorizontal();
++        foreach (Int32 id in Quick)
++        {
++            if (GUILayout.Button(id.ToString()))
++            {
++                _warpText = id.ToString();
++                WarpTo(_warpText);
++            }
++        }
++        GUILayout.EndHorizontal();
++        GUILayout.Space(10f);
++        if (GUILayout.Button("Close"))
++            _open = false;
++        GUILayout.EndArea();
++    }
++
++    private void Reload(Boolean reset)
++    {
++        if (Warp(FF9StateSystem.Common.FF9.fldMapNo, reset))
++            _open = false;
++    }
++
++    private void WarpTo(String text)
++    {
++        Int32 id;
++        if (!Int32.TryParse(text, out id))
++            return;
++        if (Warp(id, false))
++            _open = false;
++    }
++
++    // Issue a field transition to mapNo (optionally clearing save-backed flag state first). Only valid from
++    // the field HUD. Returns true if the warp was issued.
++    private Boolean Warp(Int32 mapNo, Boolean resetFlags)
++    {
++        try
++        {
++            if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.FieldHUD)
++                return false;
++            if (resetFlags)
++            {
++                System.Array.Clear(FF9StateSystem.EventState.gEventGlobal, 0, FF9StateSystem.EventState.gEventGlobal.Length);
++                FF9StateSystem.EventState.gScriptVector.Clear();
++                FF9StateSystem.EventState.gScriptDictionary.Clear();
++            }
++            PersistenSingleton<EventEngine>.Instance.SetUserControl(false);
++            PersistenSingleton<EventEngine>.Instance.SetNextMap(mapNo);
++            FF9StateSystem.Field.FF9Field.loc.map.nextMode = 1;
++            PersistenSingleton<FF9StateSystem>.Instance.attr |= 8u;
++            return true;
++        }
++        catch (Exception err)
++        {
++            OnScreenLog.Add("ff9mapkit debug: warp failed -- " + err.Message);
++            return false;
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+index b8091950..6cd844cd 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+@@ -155,6 +155,18 @@ public class UIKeyTrigger : MonoBehaviour
+             AccelerateKeyNavigation();
+             if (HandleMenuControlKeyPressCustomInput())
+                 return;
++            // [ff9mapkit dev] F6 toggles the in-game debug menu (Ff9mkDebugMenu: reload field / reset
++            // flags+reload / warp to any field id). Consolidates all dev actions onto ONE key + a popup
++            // instead of one-hotkey-per-function. Read here (UIKeyTrigger.Update runs every render frame =
++            // reliable GetKeyDown, unlike FieldMap.HonoLateUpdate's ~30fps tick which dropped presses) and
++            // intercepted before HandleBoosterButton so F6 doesn't also fire the LvMax-disabled SFX. Dev
++            // engine only; not part of the shipped mod.
++            if (PersistenSingleton<UIManager>.Instance.State == UIManager.UIState.FieldHUD
++                && UnityXInput.Input.GetKeyDown(KeyCode.F6))
++            {
++                Ff9mkDebugMenu.Toggle();
++                return;
++            }
+             HandleBoosterButton();
+             HandleDialogControlKeyPressCustomInput();
+         }
