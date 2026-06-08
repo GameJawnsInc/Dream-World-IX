@@ -328,6 +328,26 @@ def terminate_entry(entry: int = 255) -> bytes:        # 0x1C (KILL) [1]
     return encode(0x1C, entry)
 
 
+# --- field transitions (a ladder top that exits to another field / the world map) ---
+def preload_field(target: int, mode: int = 5) -> bytes:   # 0x2A (PRELOAD) argsize [1,2]
+    """PreloadField(mode, target): start streaming the next field's assets before Field(). The warp
+    idiom is PreloadField(5, target) then Field(target). Verified vs field 70's warp: ``2A 00 05 <id>``."""
+    return encode(0x2A, mode, target)
+
+
+def field(target: int) -> bytes:                          # 0x2B (MAPJUMP) argsize [2]
+    """Field(target): transition to field ``target`` (arriving via the entrance var D8:2, set just
+    before). Verified vs field 70's warp: ``2B 00 <id>``."""
+    return encode(0x2B, target)
+
+
+def world_map(entry: int) -> bytes:                       # 0xB6 (WMAPJUMP) argsize [2]
+    """WorldMap(entry): transition to the world map at ``entry`` -- a world-exit vine's top boundary
+    (e.g. Gizamaluke's vine to the world map). Real fields branch the entry by story-progress; this
+    emits the simple single-target form."""
+    return encode(0xB6, entry)
+
+
 # --- inventory (events / treasure) ---
 def add_item(item_id: int, count: int = 1) -> bytes:   # 0x48 (ITEM) argsize [2, 1]
     """AddItem(item_id, count): add an item to the party inventory (real-chest opcode)."""

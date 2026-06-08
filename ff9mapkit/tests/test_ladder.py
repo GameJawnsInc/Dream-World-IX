@@ -444,6 +444,64 @@ def test_build_field_with_navigable_ladder(tmp_path):
                for f in e.funcs for i in s.instrs(f))
 
 
+def test_navigable_top_action_field_and_worldmap():
+    """top_action field/worldmap emit the transition at the vine top instead of a floor dismount."""
+    g = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800), top_action="field",
+                                    top_field=4002, top_entrance=10)
+    assert bytes.fromhex("2a0005a20f") in g and bytes.fromhex("2b00a20f") in g   # PreloadField + Field(4002)
+    assert bytes.fromhex("05d8027d0a002c7f") in g                                # set D8:2 = 10 (entrance)
+    assert bytes.fromhex("1c00ff") in g                                          # TerminateEntry(255)
+    w = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800), top_action="worldmap",
+                                    top_worldmap=9000, top_entrance=29)
+    assert bytes.fromhex("b6002823") in w                                        # WorldMap(9000)
+    with pytest.raises(ValueError):
+        ladder.navigable_climb_body((0, 0, 0), (0, 0, 800), top_action="field")  # missing top_field
+
+
+def test_navigable_mount_gate_present():
+    """The climb gates the mount on selfY (so re-entry HIGH on the vine skips the mount, climbs down)."""
+    body = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800))
+    assert body[0] == 0x05 and body[1] == 0x78   # opens with the selfY-vs-threshold mount gate expr
+
+
+def test_inject_reentry_spawn_adds_player_func_and_code_entry():
+    """inject_reentry_spawn adds a player on-vine placement func + a D8:2-gated code entry."""
+    out, _ = ladder.inject_navigable_ladder(CLEAN, bottom=(0, 0, 0), top=(0, 0, 800),
+                                            top_action="field", top_field=4002, top_entrance=10, climb_tag=17)
+    out, cslot = ladder.inject_reentry_spawn(out, entrance=11, x=0, z=0, y=680, face=110)
+    eb = EbScript.from_bytes(out)
+    pe = ladder.find_player_entry(eb)
+    rf = eb.entry(pe).func_by_tag(ladder.REENTRY_TAG)
+    assert rf is not None
+    rops = [i.op for i in iter_code(eb.data, rf.abs_start, rf.abs_end)]
+    assert 0xCC in rops and 0xA1 in rops and 0xA8 in rops   # AddCharAttr(ladder) + MoveInstantXZY + SetPathing
+    cf = eb.entry(cslot).func_by_tag(0)
+    assert 0x14 in [i.op for i in iter_code(eb.data, cf.abs_start, cf.abs_end)]   # RunScriptSync the placement
+    init = eb.entry(0).func_by_tag(0)
+    assert any(i.op == 0x07 and i.args[0] == cslot                               # armed via InitCode
+               for i in iter_code(eb.data, init.abs_start, init.abs_end))
+
+
+def test_build_navigable_gateway_ladder(tmp_path):
+    """A [[ladder]] navigable top_action="field" + reentry_entrance builds: Field() top + re-entry func."""
+    p = tmp_path / "g.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "G"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
+        '[player]\nspawn = [0, 0]\n\n'
+        '[[ladder]]\nnavigable = true\nbottom = [0, 0, 0]\ntop = [0, 0, 800]\n'
+        'top_action = "field"\ntop_field = 4003\ntop_entrance = 11\nreentry_entrance = 11\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert not [x for x in build.validate(proj) if "ladder" in x.lower()]
+    s = EbScript.from_bytes(build.build_script(proj, "us", {}))
+    pe = ladder.find_player_entry(s)
+    cf = s.entry(pe).func_by_tag(ladder.FIRST_CLIMB_TAG)
+    assert bytes.fromhex("2b00a30f") in s.data[cf.abs_start:cf.abs_end]   # Field(4003) top
+    assert s.entry(pe).func_by_tag(ladder.REENTRY_TAG) is not None        # re-entry placement func
+
+
 def test_validate_flags_navigable_same_height(tmp_path):
     p = tmp_path / "bad.field.toml"
     p.write_text(

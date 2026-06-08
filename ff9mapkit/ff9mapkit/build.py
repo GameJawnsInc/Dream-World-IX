@@ -235,6 +235,13 @@ def validate(project: FieldProject) -> list[str]:
             z = la.get("zone")
             if z is not None and len(z) not in (3, 4, 5):
                 problems.append(f"[[ladder]] navigable: zone (optional) must have 3-5 points, got {len(z)}")
+            ta = la.get("top_action", "floor")
+            if ta not in ("floor", "field", "worldmap"):
+                problems.append(f"[[ladder]] navigable: top_action must be floor/field/worldmap, got {ta!r}")
+            if ta == "field" and "top_field" not in la:
+                problems.append('[[ladder]] navigable: top_action="field" needs top_field (the destination field id)')
+            if ta == "worldmap" and "top_worldmap" not in la:
+                problems.append('[[ladder]] navigable: top_action="worldmap" needs top_worldmap (the world-map entry)')
             continue
         if "top" in la or "bottom" in la:           # EMULATED BIDIRECTIONAL (from-scratch, no real climb)
             for k in ("top", "bottom"):
@@ -1071,15 +1078,27 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 zone = [tuple(p) for p in (_gw.quad_zone(z) if len(z) == 4 else z)]
             kw = {}
             for k in ("step", "up_mask", "down_mask", "mount_steps", "dismount_steps",
-                      "climb_anim", "climb_frames", "mount_anim", "dismount_anim", "face_angle"):
+                      "climb_anim", "climb_frames", "mount_anim", "dismount_anim", "face_angle",
+                      "top_field", "top_entrance", "top_worldmap"):
                 if k in lad:
                     kw[k] = int(lad[k])
             if lad.get("right_alias"):
                 kw["right_alias"] = True
+            if "top_action" in lad:
+                kw["top_action"] = str(lad["top_action"])
             eb, _ = _ladder.inject_navigable_ladder(
                 eb, bottom=lad["bottom"], top=lad["top"],
                 floor_landing=lad.get("floor_landing"), top_landing=lad.get("top_landing"),
                 zone=zone, radius=int(lad.get("zone_radius", 200)), climb_tag=tag, **kw)
+            # re-entry on-vine spawn: returning via reentry_entrance puts you HIGH on the vine (climb down)
+            if "reentry_entrance" in lad:
+                bx, bz, by = [int(v) for v in lad["bottom"]]
+                tx, tz, ty = [int(v) for v in lad["top"]]
+                frac = float(lad.get("reentry_frac", 0.85))      # how far up the vine you return (0..1)
+                rx, rz, ry = round(bx + frac * (tx - bx)), round(bz + frac * (tz - bz)), round(by + frac * (ty - by))
+                eb, _ = _ladder.inject_reentry_spawn(
+                    eb, int(lad["reentry_entrance"]), rx, rz, ry,
+                    face=int(lad.get("face_angle", 0)), climb_anim=int(lad.get("climb_anim", _ladder.CLIMB_ANIM)))
             tag += 1
             continue
         if "top" in lad and "bottom" in lad:

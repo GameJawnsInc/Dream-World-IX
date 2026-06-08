@@ -46,6 +46,8 @@ GLOB_UINT16 = 0xDC    # Global + UInt16 -> save-backed 16-bit word. Read via the
 MAP_INT16 = 0xD9      # Map + Int16 -> transient SIGNED 16-bit (wiped per field load). The navigable
                       # ladder's per-frame climb-target scratch (field 706 uses MAP.I16[2]); re-derived
                       # from the player's height every frame so its transient value never matters.
+GLOB_INT16 = 0xD8     # Global + Int16. Idx 2 (D8:2) is the engine's ARRIVAL-ENTRANCE var: set it right
+                      # before Field()/WorldMap() and the destination field's player-init switches on it.
 VAR_CLASSES = {"glob_bool": GLOB_BOOL, "map_bool": MAP_BOOL, "glob_uint8": GLOB_UINT8}
 
 # A scratch word high in gEventGlobal (byte offset; vars index BYTES, bits index BITS -- so byte 2040
@@ -119,6 +121,16 @@ def _push_var(var_class, idx: int) -> bytes:
 def set_var(var_class, idx: int, value: int) -> bytes:
     """``set VAR = value`` -> ``05 <var> 7D <value:i16> 2C 7F``."""
     return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([T_ASSIGN, T_END])
+
+
+FIELD_ENTRANCE_IDX = 2     # D8:2 = the arrival-entrance var the next Field()/WorldMap() arrives through
+
+
+def set_field_entrance(ent: int) -> bytes:
+    """``D8:2 = ent`` -- set the entrance the next ``Field()``/``WorldMap()`` arrives through (the
+    destination field's player-init switches on it to place the player). ``05 D8 02 7D <ent:i16> 2C 7F``
+    (verified vs field 70's warp + field 380/404/706 ladder tops)."""
+    return set_var(GLOB_INT16, FIELD_ENTRANCE_IDX, ent)
 
 
 def or_var(var_class, idx: int, value: int) -> bytes:

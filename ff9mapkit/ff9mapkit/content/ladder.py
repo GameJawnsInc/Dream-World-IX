@@ -213,11 +213,12 @@ class _Asm:
         return bytes(out)
 
 
-def _dismount(anim: int, x: int, z: int, steps: int) -> bytes:
-    """Jump off the vine onto the floor (height 0), re-enable walkmesh collision + clear the ladder
-    flag + restore the animation flags -- the clean dismount (706's floor walk-off, leaned out)."""
-    return (opcodes.set_jump_animation(anim, 2, 8) + opcodes.run_jump_animation()
-            + opcodes.wait_animation() + opcodes.setup_jump(x, z, 0, steps) + opcodes.jump()
+def _dismount(anim: int, x: int, z: int, y: int = 0, steps: int = 6, frames=(2, 8)) -> bytes:
+    """Jump off the vine onto the floor at height ``y``, re-enable walkmesh collision + clear the
+    ladder flag + restore the animation flags -- the clean dismount (706's floor walk-off, leaned out).
+    Real floors are often elevated (non-zero ``y``); ``frames`` = the jump anim's in/out window."""
+    return (opcodes.set_jump_animation(anim, frames[0], frames[1]) + opcodes.run_jump_animation()
+            + opcodes.wait_animation() + opcodes.setup_jump(x, z, y, steps) + opcodes.jump()
             + opcodes.run_land_animation() + opcodes.wait_animation()
             + opcodes.set_pathing(1) + opcodes.remove_character_attribute(LADDER_FLAG)
             + opcodes.set_animation_flags(0, 0))
@@ -228,7 +229,9 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
                          climb_anim: int = CLIMB_ANIM, climb_frames: int = 12,
                          mount_anim: int = MOUNT_ANIM, dismount_anim: int = DISMOUNT_ANIM,
                          mount_steps: int = 4, dismount_steps: int = 6,
-                         face_angle: int | None = None) -> bytes:
+                         face_angle: int | None = None, top_action: str = "floor",
+                         top_field: int | None = None, top_entrance: int = 0,
+                         top_worldmap: int | None = None) -> bytes:
     """Recreate FF9's NAVIGABLE ladder climb for a vine between two world endpoints.
 
     ``bottom`` / ``top`` = ``(x, z, y)`` world points (``y`` = up-positive height; they MUST differ in
@@ -257,8 +260,14 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     exit_threshold = (lo + hi) // 2
     anchor, slope_den = sy_bottom, sy_top - sy_bottom
     x_slope, z_slope = tx - bx, tz - bz
-    flx, flz = (int(floor_landing[0]), int(floor_landing[1])) if floor_landing else (bx, bz)
-    tlx, tlz = (int(top_landing[0]), int(top_landing[1])) if top_landing else (tx, tz)
+    fl = floor_landing if floor_landing else (bx, bz)
+    flx, flz = int(fl[0]), int(fl[1]); fly = int(fl[2]) if len(fl) > 2 else 0
+    tl = top_landing if top_landing else (tx, tz)
+    tlx, tlz = int(tl[0]), int(tl[1]); tly = int(tl[2]) if len(tl) > 2 else 0
+    if top_action == "field" and top_field is None:
+        raise ValueError('navigable ladder top_action="field" needs top_field')
+    if top_action == "worldmap" and top_worldmap is None:
+        raise ValueError('navigable ladder top_action="worldmap" needs top_worldmap')
 
     def line(base, slope):   # base + (target - anchor) * slope / slope_den (reproduces 706 verbatim)
         return _arg(_const(base), _const(slope), _scratch(), _const(anchor),
@@ -282,7 +291,12 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
         return _stmt(_scratch(), _selfv(F_Y), _const(step), bytes([sign]), bytes([_region.T_ASSIGN]))
 
     a = _Asm()
-    # MOUNT: face the vine (optional) -> jump-anim arc onto the vine bottom -> ladder flag -> detach
+    # MOUNT (gated like 706): only jump onto the vine when arriving near the BASE (selfY past the
+    # mid-band threshold). On RE-ENTRY the player-init spawns you already high on the vine (with the
+    # ladder flag + SetPathing(0) set), so selfY is below the threshold -> skip the mount -> drop
+    # straight into the loop and climb DOWN. Faithful to 706's `if (selfY > -500) { mount }` gate.
+    a.raw(_stmt(_selfv(F_Y), _const(exit_threshold), bytes([_region.T_GT])))
+    a.jmp(_region.JMP_FALSE, "LOOP")           # high on the vine (re-entry) -> skip the mount
     if face_angle is not None:
         a.raw(opcodes.turn_instant(int(face_angle)))
     a.raw(opcodes.set_jump_animation(mount_anim, 2, 6) + opcodes.run_jump_animation()
@@ -324,13 +338,21 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     # loop while still on the vine
     a.raw(band())
     a.jmp(_region.JMP_TRUE, "LOOP")
-    # EXIT: selfY > midpoint -> bottom (floor) end, else top end (both dismount to the floor)
+    # EXIT: selfY > midpoint -> BOTTOM (floor) dismount; else -> the TOP end (per top_action)
     a.raw(_stmt(_selfv(F_Y), _const(exit_threshold), bytes([_region.T_GT])))
     a.jmp(_region.JMP_FALSE, "TOP_END")
-    a.raw(_dismount(dismount_anim, flx, flz, dismount_steps))
+    a.raw(_dismount(dismount_anim, flx, flz, fly, dismount_steps))      # bottom -> floor dismount
     a.jmp(0x01, "END")
     a.label("TOP_END")
-    a.raw(_dismount(dismount_anim, tlx, tlz, dismount_steps))
+    if top_action == "field":                                          # top -> a Field() gateway
+        a.raw(opcodes.disable_move() + opcodes.fade_filter(6, 24, 0, 0, 0, 0)
+              + opcodes.preload_field(int(top_field)) + _region.set_field_entrance(int(top_entrance))
+              + opcodes.field(int(top_field)) + opcodes.terminate_entry(255))
+    elif top_action == "worldmap":                                     # top -> the world map
+        a.raw(opcodes.fade_filter(6, 24, 0, 0, 0, 0) + _region.set_field_entrance(int(top_entrance))
+              + opcodes.world_map(int(top_worldmap)) + opcodes.terminate_entry(255))
+    else:                                                              # "floor": dismount onto a top floor
+        a.raw(_dismount(dismount_anim, tlx, tlz, tly, dismount_steps))
     a.label("END")
     a.raw(opcodes.RETURN)
     return a.assemble()
@@ -458,3 +480,50 @@ def inject_navigable_ladder(data, bottom, top, *, floor_landing=None, top_landin
         zone = square_zone(base, radius)
     return inject_ladder(data, zone, climb_bytes=body, climb_tag=climb_tag,
                          player_uid=player_uid, activate=activate)
+
+
+def reentry_spawn_block(x: int, z: int, y: int, *, face: int = 0,
+                        climb_anim: int = CLIMB_ANIM) -> bytes:
+    """The on-vine RE-ENTRY placement (no RETURN -- meant to be inlined as an ``if`` body in the
+    player-init): place the player ON THE VINE at world ``(x, z)`` height ``y``, gripping (ladder flag
+    + detached from the walkmesh + the climb idle pose) and facing ``face``. So when you return to the
+    field from the ladder's top gateway you appear high on the vine and climb DOWN to get off (706's
+    re-entry pattern). ``y`` is the up-positive height; the encoder negates it like the climb does."""
+    return (opcodes.add_character_attribute(LADDER_FLAG)
+            + opcodes.move_instant_xzy(int(x), int(z), int(y))
+            + opcodes.turn_instant(int(face) & 0xFF)
+            + opcodes.set_pathing(0)
+            + opcodes.set_animation_flags(1, 0) + opcodes.set_animation_in_out(0, 0)
+            + opcodes.run_animation(int(climb_anim)))
+
+
+REENTRY_TAG = 90    # the player's re-entry placement function tag (distinct from climb tags 17+)
+
+
+def inject_reentry_spawn(data, entrance: int, x: int, z: int, y: int, *, face: int = 0,
+                         climb_anim: int = CLIMB_ANIM, reentry_tag: int = REENTRY_TAG,
+                         player_uid: int = PLAYER_UID, activate: bool = True):
+    """Make the field spawn the player ON THE VINE (high, gripping) when entered via ``entrance`` -- the
+    return from a ladder-top ``Field()`` gateway, so you climb DOWN to get off (706's re-entry).
+
+    Adds a player function (``reentry_tag``) that does the on-vine placement (runs in the player's
+    context), + a code entry ``if (D8:2 == entrance) { RunScriptSync(player, reentry_tag) }`` armed at
+    field load. This runs AFTER the player-init's normal spawn (so it overrides the position) and uses
+    only the proven add_function/append_entry/RunScriptSync mechanisms (no fragile mid-func insert).
+    A one-shot field-load check, so it can't re-fire mid-visit. Returns ``(new_bytes, code_slot)``.
+    ``entrance`` must match what the destination field's return gateway sets (D8:2)."""
+    eb = EbScript.from_bytes(data)
+    pe = find_player_entry(eb)
+    data = edit.add_function(data, pe, reentry_tag,
+                             reentry_spawn_block(x, z, y, face=face, climb_anim=climb_anim) + opcodes.RETURN)
+    body = (_region.if_block(
+                _region.cond_eq(_region.GLOB_INT16, _region.FIELD_ENTRANCE_IDX, int(entrance)),
+                opcodes.run_script_sync(RUNSCRIPT_LEVEL, player_uid, reentry_tag))
+            + opcodes.RETURN)
+    code_entry = bytes([0, 1]) + struct.pack("<HH", 0, 4) + body     # type-0 entry, 1 func (tag 0)
+    eb = EbScript.from_bytes(data)
+    slot = eb.first_free_slot()
+    data = edit.append_entry(data, slot, code_entry)
+    if activate:
+        data = edit.activate(data, opcodes.init_code(slot, 0))
+    return data, slot
