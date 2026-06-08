@@ -38,6 +38,7 @@ from .content import region as _region
 from .content import reinit as _reinit
 from .content import text as _text
 from . import animations as _animations
+from . import archetypes as _archetypes
 from . import catalog as _catalog
 from . import items as _items
 from . import data as _data
@@ -208,6 +209,12 @@ def validate(project: FieldProject) -> list[str]:
                 resolve_npc_model(n["model"])             # a GEO name must resolve (a raw id passes through)
             except ValueError as e:
                 problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} model: {e}")
+        arch = n.get("archetype") or n.get("preset")
+        if arch is not None:
+            try:
+                _archetypes.resolve(arch)                 # a named archetype (or vivi/zidane) must be known
+            except ValueError as e:
+                problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} archetype: {e}")
     for gw in project.raw.get("gateway", []):
         if "to" not in gw:
             problems.append("[[gateway]] needs a 'to' (destination field id).")
@@ -356,7 +363,7 @@ def validate(project: FieldProject) -> list[str]:
         actor_keys = ("walk", "path", "teleport", "animation", "turn", "face_player")
         allowed = global_keys + (actor_keys if actor else ())
         actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == actor), None)
-        anim_token = actor_npc.get("preset") if actor_npc else None
+        anim_token = (actor_npc.get("preset") or actor_npc.get("archetype")) if actor_npc else None
         move_reg = _position_registry(project)
         if not isinstance(steps, list) or not steps:
             problems.append("[cutscene] needs a non-empty steps = [ {say=...}, {wait=...}, ... ] list")
@@ -1002,13 +1009,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         pos = n["pos"]
         txid = dialogue_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
         kwargs = {}
-        if "preset" in n:
-            kwargs["preset"] = n["preset"]
+        arch = n.get("archetype") or n.get("preset")      # a named archetype (playable cast or NPC type)
+        if arch is not None:
+            model, animset, anims, _dlg = _archetypes.resolve(arch)
+            kwargs.update(model=model, animset=animset, anims=anims)
         else:
             mid = resolve_npc_model(n.get("model"))
             anims = n.get("anims")
             if mid is not None and not anims:
-                anims = _catalog.npc_anims(mid) or None   # any model by name -> its own gestures (Info Hub)
+                anims = _catalog.npc_anims(mid) or None    # any model by name -> its own gestures (Info Hub)
             kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
         gf, gs = _gate_of(n)
         slot = EbScript.from_bytes(eb).first_free_slot()
@@ -1274,7 +1283,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 def _actor_token(actor_npc):
     """The animation-catalog model token for a cutscene actor NPC (its ``preset``), or ``None`` if it
     can't be inferred (a custom model => animation steps must use numeric ids)."""
-    preset = actor_npc.get("preset") if actor_npc else None
+    preset = (actor_npc.get("preset") or actor_npc.get("archetype")) if actor_npc else None
     return preset if preset in _animations.TOKENS else None
 
 

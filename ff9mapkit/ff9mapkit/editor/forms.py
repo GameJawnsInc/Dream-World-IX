@@ -15,13 +15,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .. import archetypes as _archetypes
+
 # field kinds
 STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE, ITEMCOUNT = (
     "str", "int", "optint", "bool", "preset", "coord", "pair", "zone", "itemcount")
 # cutscene-step kinds: a movement target (a name OR "x, z"), a route (list of those), a gesture (name OR id)
 POINT, PATH, ANIM = "point", "path", "anim"
 
-PRESETS = ["vivi", "zidane"]          # known NPC presets (combo also accepts a custom string)
+PRESETS = _archetypes.names()         # built-in archetype names for the combo (also accepts a custom string)
 
 
 @dataclass

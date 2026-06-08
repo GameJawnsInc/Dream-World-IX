@@ -193,7 +193,7 @@ walkmesh exports as one floor. Multi-floor meshes use the world frame directly (
 | key | meaning |
 |---|---|
 | `name` | label only. |
-| `preset` | character preset (`vivi`, `zidane`, ...) → model + animations. |
+| `preset` / `archetype` | a built-in **archetype** name → model + auto-resolved animations. Playable cast (`vivi`, `zidane`, `garnet`, `steiner`, `freya`, `quina`, `eiko`, `amarant`) + NPC types (`black_mage`, `moogle`); list with `ff9mapkit archetypes`. For any other model use `model`. |
 | `model` | explicit alternative to `preset`: a model **id**, *or* an exact **GEO name** (`"GEO_NPC_F0_BAR"` — browse with `ff9mapkit models`) resolved to the id via the Info Hub catalog. **Its animations auto-resolve** from the catalog's model→animation join (idle/walk/run/turn), so a model name *alone* gives a fully-animated NPC — no `anims` needed. A bad name fails the build with a clear error; a raw id outside the model table is a lint warning. |
 | `animset` | the model's **head height** (positions the dialogue box; cosmetic). |
 | `anims` | OPTIONAL `{ stand, walk, run, left, right }` gesture-id **override** — only to hand-pick gestures; if omitted, a `model` auto-resolves its own (see them with `ff9mapkit models <name>`; the build warns on an unknown anim id). |

@@ -457,6 +457,22 @@ def _cmd_scenes(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_archetypes(args: argparse.Namespace) -> int:
+    """List built-in NPC archetypes -- place a common NPC by one name."""
+    from . import archetypes as A
+    from . import catalog as C
+    print('Built-in NPC archetypes -- use as  [[npc]] archetype = "<name>"  (animations auto-resolve):\n')
+    for name in A.names():
+        model = A.resolve(name)[0]
+        if model is None:
+            print(f"  {name:<12} (keeps the cloned player)")
+        else:
+            m = C.model(model)
+            print(f"  {name:<12} {m.name if m else model}")
+    print('\nAny other model:  [[npc]] model = "GEO_..."   (browse: ff9mapkit models)')
+    return 0
+
+
 def _cmd_catalog(args: argparse.Namespace) -> int:
     """Search every reference catalog by name -- the Info Hub 'grab anything'."""
     from . import catalog as C
@@ -601,6 +617,9 @@ def build_parser() -> argparse.ArgumentParser:
     it = sub.add_parser("items", help="list FF9 item names + ids (give_item by name)")
     it.add_argument("-f", "--filter", help="only show items whose name contains this")
     it.set_defaults(func=_cmd_items)
+
+    ar = sub.add_parser("archetypes", help="list built-in NPC archetypes (place a common NPC by name)")
+    ar.set_defaults(func=_cmd_archetypes)
 
     md = sub.add_parser("models", help="browse actor/field models; name one to see its animations")
     md.add_argument("pattern", nargs="?", default=None,
