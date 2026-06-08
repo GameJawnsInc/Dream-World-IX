@@ -448,9 +448,10 @@ def test_navigable_top_action_field_and_worldmap():
     """top_action field/worldmap emit the transition at the vine top instead of a floor dismount."""
     g = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800), top_action="field",
                                     top_field=4002, top_entrance=10)
-    assert bytes.fromhex("2a0005a20f") in g and bytes.fromhex("2b00a20f") in g   # PreloadField + Field(4002)
+    assert bytes.fromhex("2b00a20f") in g                                        # Field(4002)
     assert bytes.fromhex("05d8027d0a002c7f") in g                                # set D8:2 = 10 (entrance)
     assert bytes.fromhex("1c00ff") in g                                          # TerminateEntry(255)
+    assert all(i.op != 0x2A for i in iter_code(g, 0, len(g)))                    # NO Battle (0x2A) opcode -- the bug
     w = ladder.navigable_climb_body((0, 0, 0), (0, 0, 800), top_action="worldmap",
                                     top_worldmap=9000, top_entrance=29)
     assert bytes.fromhex("b6002823") in w                                        # WorldMap(9000)

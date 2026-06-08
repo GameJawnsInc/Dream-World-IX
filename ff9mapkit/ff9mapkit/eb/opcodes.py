@@ -329,12 +329,11 @@ def terminate_entry(entry: int = 255) -> bytes:        # 0x1C (KILL) [1]
 
 
 # --- field transitions (a ladder top that exits to another field / the world map) ---
-def preload_field(target: int, mode: int = 5) -> bytes:   # 0x2A (PRELOAD) argsize [1,2]
-    """PreloadField(mode, target): start streaming the next field's assets before Field(). The warp
-    idiom is PreloadField(5, target) then Field(target). Verified vs field 70's warp: ``2A 00 05 <id>``."""
-    return encode(0x2A, mode, target)
-
-
+# NOTE: there is deliberately NO preload_field() helper. FF9's PreloadField is opcode 0xFD (HINT),
+# "ignored in the non-PSX versions" -- a no-op on Steam, so a Field() alone warps. Do NOT encode it as
+# 0x2A: that opcode is **Battle**, and emitting it before a Field warp literally starts a battle using
+# the field id as the battle-scene id (invalid id -> InitBattleScene null-ref crash; valid id -> a real
+# battle). This bit us once; keep the warp to just Field().
 def field(target: int) -> bytes:                          # 0x2B (MAPJUMP) argsize [2]
     """Field(target): transition to field ``target`` (arriving via the entrance var D8:2, set just
     before). Verified vs field 70's warp: ``2B 00 <id>``."""

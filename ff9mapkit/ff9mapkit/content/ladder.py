@@ -345,11 +345,13 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
     a.jmp(0x01, "END")
     a.label("TOP_END")
     if top_action == "field":                                          # top -> a Field() gateway
-        # Match the engine's proven warp (field 70): fade out, WAIT for the fade to finish, THEN warp.
-        # Omitting the Wait fires Field() mid-fade -> the destination loads black. Move/menu are already
-        # disabled by the region that RunScriptSync'd this climb, so we don't re-disable them.
+        # The engine's field transition: fade out, WAIT for the fade to finish, set the arrival
+        # entrance, then Field(). We do NOT emit PreloadField -- it is opcode 0xFD (HINT), "ignored in
+        # the non-PSX versions" (a no-op on Steam); and crucially it must NOT be confused with 0x2A =
+        # Battle (emitting 0x2A here literally fired a battle using the field id as the scene). Move/menu
+        # are already disabled by the region that RunScriptSync'd this climb.
         a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
-              + opcodes.preload_field(int(top_field)) + _region.set_field_entrance(int(top_entrance))
+              + _region.set_field_entrance(int(top_entrance))
               + opcodes.field(int(top_field)) + opcodes.terminate_entry(255))
     elif top_action == "worldmap":                                     # top -> the world map
         a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
