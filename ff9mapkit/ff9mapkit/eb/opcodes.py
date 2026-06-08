@@ -201,6 +201,31 @@ def set_pathing(active: int) -> bytes:               # 0xA8 (BGI) argsize [1]
     return encode(0xA8, active)
 
 
+def setup_jump(x: int, z: int, y: int, steps: int = 6) -> bytes:   # 0xE2 (SETVY3) argsize [2,2,2,1]
+    """SetupJump(x, z, y, steps): set the destination + duration for a following Jump. Same arg
+    convention as MoveInstantXZY -- (worldX, -worldY, worldZ) -- so encode (x, -y, z). `steps` is the
+    jump duration in frames (0 -> 8). `y` is the world HEIGHT (up = positive; a ladder top is y>0).
+    Pair with Jump(); the engine interpolates a parabolic arc from the actor's current pos to here."""
+    return encode(0xE2, x, -y, z, steps)
+
+
+def jump() -> bytes:                                 # 0xDC (JUMP3) 0 args
+    """Jump(): perform the jump set up by SetupJump -- synchronous (blocks `steps` frames) and moves
+    the actor along a parabolic arc to the SetupJump destination (incl. the height y)."""
+    return encode(0xDC)
+
+
+def add_character_attribute(flag: int) -> bytes:     # 0xCC (ADDATTR) argsize [2]
+    """AddCharacterAttribute(flag): set a character attribute bit. Flag 4 = the LADDER flag -- tells
+    the engine the actor is on a ladder so it isn't snapped to the floor during a height climb."""
+    return encode(0xCC, flag)
+
+
+def remove_character_attribute(flag: int) -> bytes:  # 0xCD (DELATTR) argsize [2]
+    """RemoveCharacterAttribute(flag): clear a character attribute bit (e.g. 4 = ladder, on dismount)."""
+    return encode(0xCD, flag)
+
+
 def disable_move() -> bytes:                         # 0x2D (UCOFF) 0 args
     """DisableMove(): lock the player's movement control (cutscene start)."""
     return DISABLE_MOVE

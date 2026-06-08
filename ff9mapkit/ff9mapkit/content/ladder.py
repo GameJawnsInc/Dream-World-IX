@@ -30,6 +30,7 @@ RUNSCRIPT_LEVEL = 2       # the script level arg the real ladder uses for RunScr
 WAIT = 0x22
 STARTSEQ = 0x43           # RunSharedScript -- launches "entry arg0 of this field" as a concurrent Seq
 SETUP_JUMP = 0xE2         # SetupJump(x, y, z, arc): the climb's per-rung jump arcs (absolute dest)
+LADDER_FLAG = 4           # AddCharacterAttribute(4) = "on a ladder": don't floor-snap during a climb
 ZONE_MARGIN = 150         # padding (world units) around the climb's span when auto-sizing a zone
 
 
@@ -95,6 +96,34 @@ def climb_body(dest, *, animation: int | None = None, anim_hold: int = 40) -> by
     return body
 
 
+def climb_arc_body(arc_from, arc_to, *, rungs: int = 4, steps: int = 6) -> bytes:
+    """An ANIMATED generic climb: interpolated `SetupJump`/`Jump` rung-hops from ``arc_from`` to
+    ``arc_to``, each ``(x, z)`` or ``(x, z, height)`` (height defaults 0 = on the floor). Runs in the
+    player's context (RunScriptSync), so each rung moves the PLAYER; the engine projects every world
+    rung through the camera, so the climb traces the painted/borrowed ladder for free -- the faithful
+    jump-arc behavior, auto-generated from two endpoints (no hand-authored coords). Direction-agnostic:
+    pass (bottom, top) to ascend or (top, bottom) to descend. `rungs` = hops, `steps` = frames/hop.
+    Ends with `SetPathing(1)` to re-enable walkmesh collision at the destination."""
+    fx, fz = int(arc_from[0]), int(arc_from[1])
+    fy = int(arc_from[2]) if len(arc_from) > 2 else 0
+    tx, tz = int(arc_to[0]), int(arc_to[1])
+    ty = int(arc_to[2]) if len(arc_to) > 2 else 0
+    rungs = max(1, int(rungs))
+    body = opcodes.add_character_attribute(LADDER_FLAG)   # ladder flag: don't snap to floor mid-climb
+    for i in range(1, rungs + 1):
+        f = i / rungs
+        x = round(fx + (tx - fx) * f)
+        z = round(fz + (tz - fz) * f)
+        y = round(fy + (ty - fy) * f)
+        body += opcodes.setup_jump(x, z, y, steps) + opcodes.jump()
+    if ty != 0:                                           # ending ABOVE the (flat) walkmesh: hold here,
+        body += opcodes.set_pathing(0)                    # keep collision off so it isn't snapped down
+    else:                                                 # ending ON the floor: dismount to normal walking
+        body += opcodes.remove_character_attribute(LADDER_FLAG) + opcodes.set_pathing(1)
+    body += opcodes.RETURN
+    return body
+
+
 def ladder_region(zone, climb_tag: int, *, player_uid: int = PLAYER_UID) -> bytes:
     """A type-1 region entry: Init ``SetRegion(zone)`` / tread ``Bubble(1)`` / action ``DisableMove;
     RunScriptSync(player climb); EnableMove`` -- the real FF9 ladder trigger."""
@@ -113,6 +142,7 @@ def ladder_region(zone, climb_tag: int, *, player_uid: int = PLAYER_UID) -> byte
 
 
 def inject_ladder(data, zone, dest=None, *, climb_bytes: bytes | None = None,
+                  arc_from=None, arc_to=None, rungs: int = 4, steps: int = 6,
                   sequences: dict | None = None, climb_tag: int = FIRST_CLIMB_TAG,
                   player_uid: int = PLAYER_UID, animation: int | None = None, activate: bool = True):
     """Inject a ladder: add a climb function (``climb_tag``) to the player entry + a ladder region
@@ -130,9 +160,15 @@ def inject_ladder(data, zone, dest=None, *, climb_bytes: bytes | None = None,
     helper entries the climb launches via STARTSEQ (e.g. the SetPitchAngle forward-lean). Each is
     appended at a free slot and the climb's STARTSEQ entry-args are remapped to those slots (a
     same-length 1-byte patch -- the climb stays byte-for-byte otherwise). Empty for simple ladders."""
-    if climb_bytes is None and dest is None:
-        raise ValueError("inject_ladder needs either climb_bytes (faithful) or dest (emulated)")
-    body = bytearray(climb_bytes if climb_bytes is not None else climb_body(dest, animation=animation))
+    animated = arc_from is not None and arc_to is not None
+    if climb_bytes is None and dest is None and not animated:
+        raise ValueError("inject_ladder needs climb_bytes (faithful), arc_from+arc_to (animated arc), or dest (teleport)")
+    if animated:
+        body = bytearray(climb_arc_body(arc_from, arc_to, rungs=rungs, steps=steps))
+    elif climb_bytes is not None:
+        body = bytearray(climb_bytes)
+    else:
+        body = bytearray(climb_body(dest, animation=animation))
     if sequences:                                            # graft the STARTSEQ helper entries + remap
         ei2slot = {}
         for ei in sorted(sequences):
@@ -163,16 +199,27 @@ def square_zone(center, radius: int = 150) -> list:
     return c + [c[-1]]                                    # double last vertex (IsInQuad fan safety)
 
 
-def inject_bidirectional_ladder(data, top, bottom, *, radius: int = 150,
-                                animation: int | None = None, first_tag: int = FIRST_CLIMB_TAG):
-    """A from-scratch BIDIRECTIONAL ladder with no real climb to copy: a trigger zone at EACH end,
-    each a simple teleport to the OTHER end (top zone -> ``bottom``, bottom zone -> ``top``). The
-    player's location picks the direction, so it climbs both ways WITHOUT reading runtime position
-    (the robust generic answer when there's no real ladder to import). ``top``/``bottom`` are
-    ``(x, z)`` or ``(x, z, y)`` -- both the trigger-zone centre and the landing point for that end.
-    Returns ``(new_bytes, next_tag)`` (consumes two climb tags)."""
-    data, _ = inject_ladder(data, square_zone(top, radius), dest=bottom,
-                            climb_tag=first_tag, animation=animation)
-    data, _ = inject_ladder(data, square_zone(bottom, radius), dest=top,
-                            climb_tag=first_tag + 1, animation=animation)
+def inject_bidirectional_ladder(data, top, bottom, *, radius: int = 150, rungs: int = 4,
+                                steps: int = 6, animation: int | None = None,
+                                first_tag: int = FIRST_CLIMB_TAG):
+    """A from-scratch BIDIRECTIONAL ladder with no real climb to copy: a trigger zone at EACH end, the
+    player's location picks the direction (top zone -> down to ``bottom``, bottom zone -> up to
+    ``top``), so it climbs both ways WITHOUT reading runtime position. ``top``/``bottom`` are the
+    trigger-zone centre + landing point for each end.
+
+    If EITHER endpoint carries a height (``(x, z, y)``, y>0) the climb is ANIMATED -- interpolated
+    `SetupJump`/`Jump` rung-hops that the engine projects so they trace the painted/borrowed ladder
+    (the faithful behavior, auto-generated). If both are flat ``(x, z)`` it falls back to an instant
+    teleport (the zero-info generic). Returns ``(new_bytes, next_tag)`` (consumes two climb tags)."""
+    animated = len(top) > 2 or len(bottom) > 2
+    if animated:                                        # arc DOWN from the top zone, arc UP from the bottom
+        data, _ = inject_ladder(data, square_zone(top, radius), arc_from=top, arc_to=bottom,
+                                rungs=rungs, steps=steps, climb_tag=first_tag)
+        data, _ = inject_ladder(data, square_zone(bottom, radius), arc_from=bottom, arc_to=top,
+                                rungs=rungs, steps=steps, climb_tag=first_tag + 1)
+    else:                                               # flat endpoints -> instant teleport fallback
+        data, _ = inject_ladder(data, square_zone(top, radius), dest=bottom,
+                                climb_tag=first_tag, animation=animation)
+        data, _ = inject_ladder(data, square_zone(bottom, radius), dest=top,
+                                climb_tag=first_tag + 1, animation=animation)
     return data, first_tag + 2

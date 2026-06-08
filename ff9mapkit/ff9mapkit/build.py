@@ -230,6 +230,14 @@ def validate(project: FieldProject) -> list[str]:
                     problems.append(f"[[ladder]] {k} must be [x, z] (or [x, z, y]) for a bidirectional "
                                     "ladder (a trigger zone + landing point at each end)")
             continue
+        if "arc_from" in la or "arc_to" in la:      # ANIMATED ONE-WAY climb (jump-arc, perspective-correct)
+            for k in ("arc_from", "arc_to"):
+                v = la.get(k)
+                if not (isinstance(v, (list, tuple)) and len(v) in (2, 3)):
+                    problems.append(f"[[ladder]] {k} must be [x, z] or [x, z, y] for an animated climb")
+            if len(la.get("zone", [])) not in (3, 4, 5):
+                problems.append(f"[[ladder]] zone must have 3-5 points (the trigger), got {len(la.get('zone', []))}")
+            continue
         z = la.get("zone", [])
         if len(z) not in (3, 4, 5):
             problems.append(f"[[ladder]] zone must have 3-5 points (the base trigger), got {len(z)}")
@@ -1046,7 +1054,18 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         if "top" in lad and "bottom" in lad:
             eb, tag = _ladder.inject_bidirectional_ladder(
                 eb, lad["top"], lad["bottom"], radius=int(lad.get("zone_radius", 150)),
+                rungs=int(lad.get("rungs", 4)), steps=int(lad.get("steps", 6)),
                 animation=lad.get("animation"), first_tag=tag)
+            continue
+        if "arc_from" in lad and "arc_to" in lad:    # ANIMATED ONE-WAY climb (jump-arc, perspective-correct)
+            azone = lad["zone"]
+            if len(azone) == 4:
+                azone = _gw.quad_zone(azone)
+            eb, _ = _ladder.inject_ladder(eb, [tuple(p) for p in azone],
+                                          arc_from=lad["arc_from"], arc_to=lad["arc_to"],
+                                          rungs=int(lad.get("rungs", 4)), steps=int(lad.get("steps", 6)),
+                                          climb_tag=tag)
+            tag += 1
             continue
         zone = lad["zone"]
         if len(zone) == 4:

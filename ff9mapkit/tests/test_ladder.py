@@ -283,3 +283,45 @@ def test_bidirectional_ladder_two_zones_two_climbs():
                     dests[f.tag] = (s16(ins.args[0]), s16(ins.args[2]))
     assert dests[ladder.FIRST_CLIMB_TAG] == (100, -800)           # top zone -> bottom
     assert dests[ladder.FIRST_CLIMB_TAG + 1] == (100, 800)        # bottom zone -> top
+
+
+def test_climb_arc_body_interpolates_world_rungs():
+    """climb_arc_body emits N SetupJump/Jump hops interpolating from->to (incl. height)."""
+    from ff9mapkit.content import ladder
+    from ff9mapkit.eb.disasm import read_code
+    def s16(v): return v - 65536 if v >= 32768 else v
+    body = ladder.climb_arc_body((0, 0), (100, 200, 400), rungs=4, steps=6)
+    dests, jumps, pos = [], 0, 0
+    while pos < len(body):
+        ins, nxt = read_code(body, pos)
+        if ins.op == 0xE2:                                  # SetupJump: args=[x, -y, z, steps]
+            dests.append((s16(ins.args[0]), -s16(ins.args[1]), s16(ins.args[2])))  # (x, height, z)
+        elif ins.op == 0xDC:
+            jumps += 1
+        pos = nxt
+    assert jumps == 4
+    assert dests == [(25, 100, 50), (50, 200, 100), (75, 300, 150), (100, 400, 200)], dests
+    assert body.startswith(bytes([0xCC, 0x00, 0x04, 0x00]))  # AddCharacterAttribute(4) -- ladder flag
+    assert body.endswith(bytes([0xA8, 0x00, 0x00, 0x04]))    # ending above floor: SetPathing(0) + RETURN
+
+
+def _arc_heights(body):
+    """All SetupJump (world-Y) heights in an arc body, in order."""
+    from ff9mapkit.eb.disasm import read_code
+    def s16(v): return v - 65536 if v >= 32768 else v
+    hs, pos = [], 0
+    while pos < len(body):
+        ins, nxt = read_code(body, pos)
+        if ins.op == 0xE2:
+            hs.append(-s16(ins.args[1]))
+        pos = nxt
+    return hs
+
+
+def test_climb_arc_body_descends():
+    """Direction-agnostic: (top, bottom) descends (height N -> 0) and dismounts to the floor."""
+    from ff9mapkit.content import ladder
+    body = ladder.climb_arc_body((100, 200, 400), (0, 0), rungs=2, steps=6)
+    assert _arc_heights(body) == [200, 0]                    # lerp(400, 0): rung1=200, rung2=0
+    # ending ON the floor: RemoveCharacterAttribute(4) + SetPathing(1) + RETURN
+    assert body.endswith(bytes([0xCD, 0x00, 0x04, 0x00, 0xA8, 0x00, 0x01, 0x04]))
