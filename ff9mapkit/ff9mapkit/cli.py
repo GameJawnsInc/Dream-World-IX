@@ -407,10 +407,15 @@ def _print_model_detail(m) -> int:
         print("  no animations found for this model's (group, token) "
               "-- often a numbered battle-only model.")
         return 0
+    npc = C.npc_anims(m.id)
+    if npc and m.field:                                          # the archetype payoff: ready to drop in
+        slots = "  ".join(f"{k}={v}" for k, v in npc.items())
+        print(f'  place as a field NPC:  [[npc]] model = "{m.name}"')
+        print(f"    auto-resolved anims: {slots}")
     core = ("idle", "walk", "run", "turn_l", "turn_r")          # movement gestures first
     ordered = [(a, i) for a in core for (aa, i) in acts if aa == a]
     ordered += [(a, i) for a, i in acts if a not in core]
-    print(f"  {len(acts)} animation(s). Use an id for an NPC anim slot or a cutscene `animation`:\n")
+    print(f"\n  {len(acts)} animation(s). Use an id for an NPC anim slot or a cutscene `animation`:\n")
     for r in range(0, len(ordered), 2):
         print("  " + "".join(f"{a:<22}{i:<8}" for a, i in ordered[r:r + 2]).rstrip())
     return 0

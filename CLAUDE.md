@@ -335,6 +335,10 @@ Read these on demand — they hold the full technical detail this file only summ
 - **S22** — **Ladder import** (shapes, top-actions, re-entry) + the warp-plumbing saga.
 - **S23** — The **F6 debug menu** (supersedes old hotkeys); the **Info Hub catalogs**
   (models/anims/scenes/items) + `[[npc]] model` by name; ladder catalogue 100%.
+- **InfoHub archetype pillar** (in-game verified) — `catalog.npc_anims`: place **any** of the 154
+  field models as a working NPC by name, animations auto-resolved via the model→animation join
+  (`[[npc]] model = "GEO_NPC_F0_BMG"`, no `anims` needed); `ff9mapkit models <name>` shows the
+  NPC-ready slots. Builds on the read-only catalogs to make the Info Hub a real authoring pillar.
 
 ---
 
