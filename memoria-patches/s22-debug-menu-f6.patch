@@ -12,46 +12,55 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..886c8f63
+index 00000000..71064cff
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,431 @@
+@@ -0,0 +1,583 @@
 +using System;
 +using System.Collections.Generic;
++using Memoria.Data;
 +using UnityEngine;
 +
 +// [ff9mapkit dev] One in-game debug menu (toggled by F6 from UIKeyTrigger) -- dev actions on ONE key +
-+// a popup instead of one-hotkey-per-function. IMGUI/OnGUI overlay (the proven in-engine pattern, cf.
-+// OnScreenLog / the FieldCreator editor), self-bootstrapping persistent MonoBehaviour so it is always
-+// alive to receive OnGUI. Dev engine only; never part of the shipped mod.
++// a tabbed popup instead of one-hotkey-per-function. IMGUI/OnGUI overlay (the proven in-engine pattern,
++// cf. OnScreenLog / the FieldCreator editor), self-bootstrapping persistent MonoBehaviour so it is
++// always alive to receive OnGUI. Dev engine only; never part of the shipped mod.
 +//
-+//   * Header   -- current field id + name + the player's (x, z), live.
-+//   * Reload   -- re-run the current field (SetNextMap + nextMode=1 + attr|=8; SetUserControl(false)
-+//                 first so a tread zone you stand in doesn't fire before Main_Init repositions you).
-+//   * Warp     -- a button per REGISTERED custom field (eventIDToFBGID, id >= 4000) + a free id box, so
-+//                 you hop between per-branch slots (4003 / 5000 / 5001 ...) live, no New-Game flipping.
-+//   * Teleport -- read the player's pos / jump to a typed (x, z) on the current field.
-+//   * Flags    -- read/set/clear a gEventGlobal story flag by index (matches the kit's `set_flag`:
-+//                 VariableType.Bit -> gEventGlobal[N>>3] bit N&7) + reset-all.
-+// Adding a future action = one more button.
++// Tabs:
++//   Warp   -- reload the current field; warp to any REGISTERED custom field (eventIDToFBGID id>=4000)
++//             or a typed id -> hop between per-branch slots (4003/5000/5001) live.
++//   Move   -- read the player pos / teleport to a typed (x,z); RIGHT-CLICK the field to copy the floor
++//             (x,z) under the cursor to the clipboard (reuses FF9's own click-to-move math).
++//   Cheats -- boosters (the F1-F4 toggles) + full-heal party + give item/gil.
++//   Flags  -- get/set/clear a gEventGlobal story flag (matches the kit's set_flag: VariableType.Bit ->
++//             gEventGlobal[N>>3] bit N&7); snapshot/restore the whole flag state; reset-all.
++//   Time   -- a time-scale control (slow-mo / fast) for inspecting cutscenes & movement.
++// Header shows the current field id + name + the player's (x,z), live. Adding an action = one button.
 +public class Ff9mkDebugMenu : MonoBehaviour
 +{
 +    private static Ff9mkDebugMenu _instance;
 +    private Boolean _open;
 +    private Boolean _priorControl;          // field user-control state to restore when the menu closes
 +
-+    private Rect _win = new Rect(24f, 24f, 360f, 500f);
++    private Rect _win = new Rect(24f, 24f, 380f, 520f);
 +    private Vector2 _scroll;
++    private Int32 _tab;
 +    private String _warpText = "5000";
 +    private String _txText = "0";
 +    private String _tzText = "0";
 +    private String _flagText = "8000";
++    private String _itemText = "236";       // a Potion, by default
++    private String _itemCountText = "1";
++    private String _gilText = "10000";
++    private Byte[] _snapshot;                // saved gEventGlobal (flag snapshot/restore)
 +    private String _status = "";
 +
 +    private const Int32 WinId = 0x4F9DEB;
++    private static readonly String[] Tabs = { "Warp", "Move", "Cheats", "Flags", "Time" };
++    private static readonly Single[] Speeds = { 0.25f, 0.5f, 1f, 2f, 4f };
 +
 +    // lazily-built styling
-+    private GUIStyle _box, _title, _header, _label, _button, _field;
++    private GUIStyle _box, _title, _header, _label, _button, _field, _tabOn;
 +    private Texture2D _bgTex;
 +
 +    public static void Toggle()
@@ -104,7 +113,7 @@ index 00000000..886c8f63
 +    private void Update()
 +    {
 +        // While the menu is open, RIGHT-CLICK the field to copy the world (x, z) under the cursor (to
-+        // the clipboard + the teleport boxes) -- handy for placing NPCs/zones/spawns in a field.toml.
++        // the clipboard + the Move tab boxes) -- handy for placing NPCs/zones/spawns in a field.toml.
 +        if (_open && Input.GetMouseButtonDown(1))
 +            PickPoint();
 +    }
@@ -117,7 +126,7 @@ index 00000000..886c8f63
 +        Single scale = Mathf.Max(1f, Screen.height / 800f);     // legible at 1080p / 1440p / 4K
 +        Matrix4x4 prev = GUI.matrix;
 +        GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
-+        _win.height = Mathf.Min(500f, Screen.height / scale - 32f);
++        _win.height = Mathf.Min(520f, Screen.height / scale - 32f);
 +        _win = GUI.Window(WinId, _win, DrawWindow, GUIContent.none, _box);
 +        GUI.matrix = prev;
 +    }
@@ -126,13 +135,37 @@ index 00000000..886c8f63
 +    {
 +        GUILayout.Label("ff9mapkit debug   (F6 closes)", _title);
 +        GUILayout.Label(CurrentInfo(), _label);
++
++        GUILayout.BeginHorizontal();                            // tab bar
++        for (Int32 i = 0; i < Tabs.Length; i++)
++            if (GUILayout.Button(Tabs[i], i == _tab ? _tabOn : _button))
++                _tab = i;
++        GUILayout.EndHorizontal();
 +        GUILayout.Space(4f);
 +
 +        _scroll = GUILayout.BeginScrollView(_scroll);
++        switch (_tab)
++        {
++            case 0: DrawWarp(); break;
++            case 1: DrawMove(); break;
++            case 2: DrawCheats(); break;
++            case 3: DrawFlags(); break;
++            default: DrawTime(); break;
++        }
++        GUILayout.EndScrollView();
 +
++        if (_status.Length > 0)
++            GUILayout.Label(_status, _label);
++        if (GUILayout.Button("Close", _button))
++            SetOpen(false);
++        GUI.DragWindow(new Rect(0f, 0f, 10000f, 22f));          // drag by the title strip
++    }
++
++    // ------------------------------------------------------------------- tabs
++    private void DrawWarp()
++    {
 +        if (GUILayout.Button("Reload field", _button))
 +            Reload(false);
-+
 +        Section("Warp to field");
 +        GUILayout.BeginHorizontal();
 +        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(120f));
@@ -142,7 +175,10 @@ index 00000000..886c8f63
 +        foreach (KeyValuePair<Int32, String> kv in RegisteredFields())
 +            if (GUILayout.Button(kv.Key + "   " + kv.Value, _button))
 +                Warp(kv.Key, false);
++    }
 +
++    private void DrawMove()
++    {
 +        Section("Teleport (x, z) on this field");
 +        GUILayout.BeginHorizontal();
 +        _txText = GUILayout.TextField(_txText, 7, _field, GUILayout.Width(78f));
@@ -153,13 +189,38 @@ index 00000000..886c8f63
 +            UseCurrent();
 +        GUILayout.EndHorizontal();
 +        GUILayout.Label("right-click the field -> copy that point's (x, z) to clipboard", _label);
++    }
 +
++    private void DrawCheats()
++    {
 +        Section("Boosters (also the F1-F4 keys)");
 +        BoosterToggle("Speed", 1);
 +        BoosterToggle("ATB full", 0);
 +        BoosterToggle("Attack 9999", 3);
 +        BoosterToggle("No encounters", 4);
 +
++        Section("Party");
++        if (GUILayout.Button("Full heal party", _button))
++            HealParty();
++        GUILayout.BeginHorizontal();
++        GUILayout.Label("item", _label, GUILayout.Width(36f));
++        _itemText = GUILayout.TextField(_itemText, 4, _field, GUILayout.Width(56f));
++        GUILayout.Label("x", _label, GUILayout.Width(12f));
++        _itemCountText = GUILayout.TextField(_itemCountText, 3, _field, GUILayout.Width(40f));
++        if (GUILayout.Button("Give", _button, GUILayout.Width(56f)))
++            GiveItem();
++        GUILayout.EndHorizontal();
++        GUILayout.BeginHorizontal();
++        GUILayout.Label("gil +", _label, GUILayout.Width(36f));
++        _gilText = GUILayout.TextField(_gilText, 8, _field, GUILayout.Width(96f));
++        if (GUILayout.Button("Add", _button, GUILayout.Width(56f)))
++            GiveGil();
++        GUILayout.EndHorizontal();
++        GUILayout.Label("(item ids: ff9mapkit items)", _label);
++    }
++
++    private void DrawFlags()
++    {
 +        Section("Story flag (gEventGlobal)");
 +        GUILayout.BeginHorizontal();
 +        GUILayout.Label("idx", _label, GUILayout.Width(28f));
@@ -172,23 +233,44 @@ index 00000000..886c8f63
 +            FlagWrite(false);
 +        GUILayout.EndHorizontal();
 +
++        Section("Snapshot the whole flag state");
++        GUILayout.BeginHorizontal();
++        if (GUILayout.Button("Save", _button, GUILayout.Width(90f)))
++            Snapshot();
++        if (GUILayout.Button(_snapshot == null ? "Restore (none)" : "Restore", _button, GUILayout.Width(120f)))
++            RestoreSnapshot();
++        GUILayout.EndHorizontal();
++
 +        Section("Reset");
 +        if (GUILayout.Button("Reset all flags", _button))
 +            ResetFlags();
 +        if (GUILayout.Button("Reset all flags + reload", _button))
 +            Reload(true);
-+
-+        GUILayout.EndScrollView();
-+
-+        if (_status.Length > 0)
-+            GUILayout.Label(_status, _label);
-+        if (GUILayout.Button("Close", _button))
-+            SetOpen(false);
-+
-+        GUI.DragWindow(new Rect(0f, 0f, 10000f, 22f));          // drag by the title strip
 +    }
 +
-+    // ----------------------------------------------------------------- actions
++    private void DrawTime()
++    {
++        Section("Time scale");
++        GUILayout.Label("current: " + Time.timeScale.ToString("0.00") + "x", _label);
++        GUILayout.BeginHorizontal();
++        foreach (Single s in Speeds)
++            if (GUILayout.Button(s + "x", s == Time.timeScale ? _tabOn : _button))
++                Time.timeScale = s;
++        GUILayout.EndHorizontal();
++        GUILayout.Label("slows/speeds animation + movement (close the menu to watch a cutscene). "
++                        + "Some logic runs on a fixed tick.", _label);
++    }
++
++    private void BoosterToggle(String label, Int32 idx)
++    {
++        Boolean[] b = FF9StateSystem.Settings.IsBoosterButtonActive;
++        if (b == null || idx < 0 || idx >= b.Length)
++            return;
++        if (GUILayout.Button((b[idx] ? "[x]  " : "[  ]  ") + label, _button))
++            b[idx] = !b[idx];
++    }
++
++    // ---------------------------------------------------------------- actions
 +    private void Reload(Boolean resetFlags)
 +    {
 +        if (Warp(FF9StateSystem.Common.FF9.fldMapNo, resetFlags))
@@ -202,8 +284,6 @@ index 00000000..886c8f63
 +            Warp(id, false);
 +    }
 +
-+    // Issue a field transition to mapNo (optionally clearing save-backed flag state first). Closes the
-+    // menu on success (the field transition re-establishes control). Returns true if issued.
 +    private Boolean Warp(Int32 mapNo, Boolean resetFlags)
 +    {
 +        try
@@ -262,8 +342,8 @@ index 00000000..886c8f63
 +    // Right-click world pick: the floor (x, z) under the cursor. Replicates FF9's own click-to-move
 +    // computation (FieldMapActorController.CheckPosInProjectedWalkMesh): the engine pre-projects each
 +    // walkmesh triangle to screen (transformedVertices), so we find the projected tri under the mouse
-+    // (GetTriangleIndexAtScreenPos) and perspective-correctly interpolate its WORLD vertices. Copies
-+    // to the system clipboard (paste into a field.toml) and the teleport boxes.
++    // (GetTriangleIndexAtScreenPos) and perspective-correctly interpolate its WORLD vertices. Copies to
++    // the system clipboard (paste into a field.toml) and the teleport boxes.
 +    private void PickPoint()
 +    {
 +        try
@@ -306,11 +386,72 @@ index 00000000..886c8f63
 +            _txText = wx.ToString();
 +            _tzText = wz.ToString();
 +            GUIUtility.systemCopyBuffer = wx + ", " + wz;
-+            _status = "copied (" + wx + ", " + wz + ") -> clipboard + teleport";
++            _status = "copied (" + wx + ", " + wz + ") -> clipboard + Move tab";
 +        }
 +        catch (Exception err)
 +        {
 +            _status = "pick failed: " + err.Message;
++        }
++    }
++
++    private void HealParty()
++    {
++        try
++        {
++            PARTY_DATA party = FF9StateSystem.Common.FF9.party;
++            Int32 n = 0;
++            foreach (PLAYER p in party.member)
++            {
++                if (p == null)
++                    continue;
++                p.cur.hp = p.max.hp;
++                p.cur.mp = p.max.mp;
++                p.status = (BattleStatus)0;              // clear ailments (revives a KO'd member)
++                n++;
++            }
++            _status = "full-healed " + n + " party member(s)";
++        }
++        catch (Exception err)
++        {
++            _status = "heal failed: " + err.Message;
++        }
++    }
++
++    private void GiveItem()
++    {
++        Int32 id, count;
++        if (!Int32.TryParse(_itemText, out id) || !Int32.TryParse(_itemCountText, out count))
++            return;
++        try
++        {
++            ff9item.FF9Item_Add_Generic(id, count);
++            _status = "gave item " + id + " x" + count;
++        }
++        catch (Exception err)
++        {
++            _status = "give item failed: " + err.Message;
++        }
++    }
++
++    private void GiveGil()
++    {
++        Int32 amount;
++        if (!Int32.TryParse(_gilText, out amount))
++            return;
++        try
++        {
++            PARTY_DATA party = FF9StateSystem.Common.FF9.party;
++            Int64 g = (Int64)party.gil + amount;
++            if (g < 0)
++                g = 0;
++            if (g > 99999999)
++                g = 99999999;
++            party.gil = (UInt32)g;
++            _status = "gil = " + party.gil;
++        }
++        catch (Exception err)
++        {
++            _status = "gil failed: " + err.Message;
 +        }
 +    }
 +
@@ -340,23 +481,30 @@ index 00000000..886c8f63
 +        _status = "flag " + n + " = " + (on ? 1 : 0);
 +    }
 +
++    private void Snapshot()
++    {
++        Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++        _snapshot = new Byte[g.Length];
++        System.Array.Copy(g, _snapshot, g.Length);
++        _status = "flag state saved (" + g.Length + " bytes)";
++    }
++
++    private void RestoreSnapshot()
++    {
++        if (_snapshot == null)
++        {
++            _status = "no snapshot saved";
++            return;
++        }
++        Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++        System.Array.Copy(_snapshot, g, System.Math.Min(_snapshot.Length, g.Length));
++        _status = "flag state restored (F6 reload to apply)";
++    }
++
 +    private void ResetFlags()
 +    {
 +        ClearFlagState();
 +        _status = "all flags cleared (F6 reload to re-arm)";
-+    }
-+
-+    // A booster cheat as a checkbox button. The booster EFFECT reads FF9StateSystem.Settings
-+    // .IsBoosterButtonActive[idx] (e.g. IsNoEncounter => [4], IsATBFull => [0]), so flipping the array
-+    // is the same enable the F1-F4 keys do -- and works even if the cheat's ini gate is off. Indices:
-+    // 1 Speed, 0 ATB-full, 3 Attack9999, 4 No-encounters.
-+    private void BoosterToggle(String label, Int32 idx)
-+    {
-+        Boolean[] b = FF9StateSystem.Settings.IsBoosterButtonActive;
-+        if (b == null || idx < 0 || idx >= b.Length)
-+            return;
-+        if (GUILayout.Button((b[idx] ? "[x]  " : "[  ]  ") + label, _button))
-+            b[idx] = !b[idx];
 +    }
 +
 +    private static void ClearFlagState()
@@ -366,7 +514,7 @@ index 00000000..886c8f63
 +        FF9StateSystem.EventState.gScriptDictionary.Clear();
 +    }
 +
-+    // ----------------------------------------------------------------- helpers
++    // ---------------------------------------------------------------- helpers
 +    // The bit at story-flag index N, matching the kit's GlobBool (EBin VariableType.Bit): the index is a
 +    // BIT number into gEventGlobal -> byte N>>3, bit N&7. Returns 0/1, or -1 if out of range.
 +    private static Int32 FlagValue(Int32 n)
@@ -445,6 +593,10 @@ index 00000000..886c8f63
 +        _button.fontSize = 12;
 +        _field = new GUIStyle(GUI.skin.textField);
 +        _field.fontSize = 12;
++        _tabOn = new GUIStyle(GUI.skin.button);
++        _tabOn.fontSize = 12;
++        _tabOn.fontStyle = FontStyle.Bold;
++        _tabOn.normal.textColor = new Color(0.60f, 0.85f, 1f);
 +    }
 +}
 diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
