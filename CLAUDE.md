@@ -1786,3 +1786,26 @@ Worked through the ladder research's remaining catalogued items, each studied-fr
 **Research status — ladder catalogue essentially complete:** SHAPE dimension (vertical/slant/bent) ✓, ALL top-actions (floor/gateway/worldmap) ✓, re-entry ✓, flexible input ✓, landing validation ✓ — all in-game on GZML. Only remainders need a floor-at-*both*-ends field (CPMP/TRNO), not GZML: **two-way mount** (#5, mount from either end by approach height) + **per-end dismount anims** (#3). Test fields: `tools/scroll_out/ladtest_gzml/GZML_{SLANT,INPUT,BENT,WORLDMAP}.field.toml`.
 
 **Carry-over / state:** on `master`, 393 tests. Field 4003 = GZML_WORLDMAP (revert `tools/scroll_out/revert_deploy.py`). Debug New-Game warp field 70 → `Field(4003, entrance 11)`. Standing constraint: **nothing public.**
+
+### 2026-06-08 — Session 23 — Info Hub catalog + `[[npc]]` model-by-name + the F6 DEBUG MENU (merged from the `infohub-catalog` worktree)
+
+Built on a separate `infohub-catalog` git worktree (so master's parallel ladder work was undisturbed), then **merged into `master`** (`5bc50bd`, clean auto-merge — only `build.py` overlapped and merged automatically). All offline-validated; the debug-menu engine changes are in-game-verified by the user.
+
+**⚠ DEV HOTKEYS CHANGED — the old single-purpose F6/F10 are REPLACED by ONE tabbed F6 DEBUG MENU. Do NOT reference "F6 = reload / F10 = reset" anymore.** Press **F6** in the field → an IMGUI popup (`Ff9mkDebugMenu.cs`, toggled from `UIKeyTrigger.Update`; patch `memoria-patches/s22-debug-menu-f6.patch`, supersedes `s18`/`s21`), resolution-scaled + draggable, pauses field input while open. Tabs:
+- **Warp** — *Reload field* (the old F6: re-reads the field's mod files from disk — `.eb`/`.mes`/scene) · warp to any **registered custom field** (auto-listed from `eventIDToFBGID`, id ≥ 4000) or a typed id → hop between per-branch 4003/5000/5001 slots live.
+- **Move** — teleport to a typed (x,z) · **RIGHT-CLICK the field** to copy the floor (x,z) under the cursor to the system clipboard + the teleport boxes (reuses FF9's own click-to-move walkmesh math — paste straight into a `field.toml`).
+- **Cheats** — booster toggles (the old F1–F4: Speed / ATB / Attack9999 / No-encounters) · full-heal party · give item (`ff9item.FF9Item_Add_Generic`) · add gil.
+- **Flags** — get/set/clear a `gEventGlobal` story flag by index (matches the kit's `set_flag`: VariableType.Bit → `gEventGlobal[N>>3]` bit `N&7`) · **snapshot/restore** the whole flag state · reset-all (the old F10).
+- **Time** — 0.25–4× time-scale (slow-mo/fast for inspecting cutscenes/movement).
+
+Force-encounter is the one deferred item (starting a battle from arbitrary field state is risky + untestable). **Dev loop unchanged:** edit → `tools/deploy_field.py <toml> [--id N]` → **F6 → Warp/Reload** (only the first deploy of a session needs a relaunch; an engine-DLL rebuild needs a relaunch).
+
+**`tools/deploy_field.py --id N`** — per-branch custom-field SLOTS (e.g. 5000s) so two worktrees keep separate live test fields in the one shared install (per-id revert; default 4003 stays the New-Game auto-warp target); reach any via the F6 menu's Warp.
+
+**Info Hub reference catalogs** (`ff9mapkit/catalog.py` + baked `_modeldb`/`_animdb_all`/`_scenedb`, identifier-only from Memoria source, provenance-clean): browse models / animations / battle scenes by name; the **model→animation join** (`animations_for_model`) via the (group, token) name share — engine-verified that the engine resolves an anim id → NAME → clip (`AnimationDB.GetValue` → `AddAnimWithAnimatioName`), so the catalog's min-id-per-name pick is SOUND. CLI `ff9mapkit models|scenes|catalog`. Hardened with offline lock-in tests (the hub join == the build's own resolver for all 8 playables; every field-form model has a non-empty join; min-id determinism) + a PROVENANCE.md table.
+
+**`[[npc]] model` accepts a GEO name** (`"GEO_NPC_F0_BAR"`, resolved via the catalog) as well as a raw id; `validate()` errors on an unresolvable model NAME (a clean message instead of a build crash), `lint_logic()` warns on an unknown raw model id / `[[npc]] anims` id / numeric cutscene `animation` id. Additive — raw-int + preset paths byte-identical, so golden builds unchanged. (FORMAT.md fixed: `animset` is the model's HEAD HEIGHT, not an animation set; `anims` = the gestures, list via `ff9mapkit models <name>`.)
+
+**Tests:** kit 148 offline + 20 catalog/npc green on the merged tree. Memory `project-ff9-eb-script-tooling` updated — its F6 section now documents the debug menu and supersedes the old hotkey note.
+
+**Carry-over / state:** on `master` (`5bc50bd`); `infohub-catalog` worktree synced to it. The F6 debug menu + Attack9999-auto-on are the DEV engine only (the shipped mod is engine-independent). Field 4003 = the shared test slot; New-Game warp unchanged from the ladder session. Standing constraint: **nothing public.**
