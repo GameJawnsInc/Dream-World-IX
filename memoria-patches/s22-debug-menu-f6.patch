@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..40ce11e5
+index 00000000..886c8f63
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,412 @@
+@@ -0,0 +1,431 @@
 +using System;
 +using System.Collections.Generic;
 +using UnityEngine;
@@ -153,6 +153,12 @@ index 00000000..40ce11e5
 +            UseCurrent();
 +        GUILayout.EndHorizontal();
 +        GUILayout.Label("right-click the field -> copy that point's (x, z) to clipboard", _label);
++
++        Section("Boosters (also the F1-F4 keys)");
++        BoosterToggle("Speed", 1);
++        BoosterToggle("ATB full", 0);
++        BoosterToggle("Attack 9999", 3);
++        BoosterToggle("No encounters", 4);
 +
 +        Section("Story flag (gEventGlobal)");
 +        GUILayout.BeginHorizontal();
@@ -338,6 +344,19 @@ index 00000000..40ce11e5
 +    {
 +        ClearFlagState();
 +        _status = "all flags cleared (F6 reload to re-arm)";
++    }
++
++    // A booster cheat as a checkbox button. The booster EFFECT reads FF9StateSystem.Settings
++    // .IsBoosterButtonActive[idx] (e.g. IsNoEncounter => [4], IsATBFull => [0]), so flipping the array
++    // is the same enable the F1-F4 keys do -- and works even if the cheat's ini gate is off. Indices:
++    // 1 Speed, 0 ATB-full, 3 Attack9999, 4 No-encounters.
++    private void BoosterToggle(String label, Int32 idx)
++    {
++        Boolean[] b = FF9StateSystem.Settings.IsBoosterButtonActive;
++        if (b == null || idx < 0 || idx >= b.Length)
++            return;
++        if (GUILayout.Button((b[idx] ? "[x]  " : "[  ]  ") + label, _button))
++            b[idx] = !b[idx];
 +    }
 +
 +    private static void ClearFlagState()
