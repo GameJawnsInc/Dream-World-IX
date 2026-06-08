@@ -132,9 +132,13 @@ def resolve_model(name_or_id) -> int:
 
 
 # ------------------------------------------------------------ animations -----
-def animation_name(anim_id: int) -> Optional[str]:
-    """The full anim name for an id (7302 -> 'ANH_MAIN_F0_VIV_TALK_3_1'), or None."""
-    return ANIMATIONS.get(int(anim_id))
+def animation_name(anim_id) -> Optional[str]:
+    """The full anim name for an id (7302 -> 'ANH_MAIN_F0_VIV_TALK_3_1'), or None for an unknown
+    or non-numeric id (honors the 'or None' contract instead of raising on e.g. a bad string)."""
+    try:
+        return ANIMATIONS.get(int(anim_id))
+    except (TypeError, ValueError):
+        return None
 
 
 def _split_anh(name: str):

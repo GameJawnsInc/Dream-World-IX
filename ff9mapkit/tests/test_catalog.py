@@ -129,3 +129,43 @@ def test_cross_kind_search():
     res = C.search("vivi")
     assert set(res) == {"models", "items", "scenes", "fields"}
     assert any(m.token == "VIV" for m in res["models"])  # GEO_MAIN_F0_VIV surfaces
+
+
+# --- regression lock-ins -----------------------------------------------------
+def test_join_matches_build_resolver_for_all_playables():
+    """The Info Hub join (backed by _animdb_all) must agree with the BUILD's own gesture resolver
+    (animations.catalog, backed by the _animdb MAIN subset) for EVERY playable -- so the two
+    independently-regenerated anim tables can't silently drift. Verified: identical {action: id} for
+    all 8 main characters."""
+    from ff9mapkit import animations as A
+    for token in sorted(set(A.TOKENS.values())):
+        m = C.model(f"GEO_MAIN_F0_{token}")
+        assert m is not None, token
+        assert A.catalog(token) == C.animations_for_model(m.id), token
+
+
+def test_every_field_form_model_has_animations():
+    """Every field-form model (the ones you place as a field NPC) resolves to a non-empty gesture set
+    via the (group, token) join; the only models with an empty join are battle-form monsters."""
+    empty = [m for m in C.all_models() if not C.animations_for_model(m.id)]
+    assert all(not m.field for m in empty)                      # no field-form model is empty
+    assert all(m.group == "MON" and m.form[:1] == "B" for m in empty)  # the empties are battle monsters
+
+
+def test_join_id_selection_is_deterministic_min_id():
+    """For an action whose clip name is shared by several ids (FF9 dup-id clips), the join returns the
+    SMALLEST id, deterministically -- so a future table regen/reorder can't silently change which id an
+    author is shown for a gesture."""
+    from ff9mapkit._animdb_all import ANIMATIONS
+    anims = C.animations_for_model(8)                            # GEO_MAIN_F0_VIV
+    for action in ("walk", "run"):
+        nm = C.animation_name(anims[action])
+        assert anims[action] == min(i for i, n in ANIMATIONS.items() if n == nm)
+    assert anims["walk"] == 147 and anims["run"] == 145          # pin the exact ids
+
+
+def test_animation_name_non_numeric_returns_none():
+    """animation_name() honors its 'or None' contract for a non-numeric / None id instead of raising."""
+    assert C.animation_name("abc") is None
+    assert C.animation_name(None) is None
+    assert C.animation_name(7302) == "ANH_MAIN_F0_VIV_TALK_3_1"  # a real id still resolves
