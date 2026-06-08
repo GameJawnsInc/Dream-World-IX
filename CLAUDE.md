@@ -1809,3 +1809,22 @@ Force-encounter is the one deferred item (starting a battle from arbitrary field
 **Tests:** kit 148 offline + 20 catalog/npc green on the merged tree. Memory `project-ff9-eb-script-tooling` updated — its F6 section now documents the debug menu and supersedes the old hotkey note.
 
 **Carry-over / state:** on `master` (`5bc50bd`); `infohub-catalog` worktree synced to it. The F6 debug menu + Attack9999-auto-on are the DEV engine only (the shipped mod is engine-independent). Field 4003 = the shared test slot; New-Game warp unchanged from the ladder session. Standing constraint: **nothing public.**
+
+### 2026-06-08 — Session 23 (cont) — Ladder catalogue 100%: two-way mount + per-end anims (CPMP) + floor-Y auto-fill
+
+The last two catalogued ladder items, decoded from the original (CPMP map510 / Conde Petie Mtn Path, the real two-floor vine) and verified in-game. **The entire ladder catalogue is now 100% in-game-proven.**
+
+**Decoded CPMP map510's climb (tag 47)** — a B_KEY navigable vine (the `0x59` is an expression token, missed by an op-scan) with BOTH gaps: a height-keyed **two-way mount** (`if selfY >= mid` → bottom-arc `SetJumpAnimation(10687,2,6)` + `SetupJump` onto the base; else → top-arc `11455,3,9` + `SetupJump` onto the top — different anim/dest/steps) and **per-end dismount anims** (bottom `11453,2,8` / top `10685,2,10`, distinct floor dests). Z-slanted, floors at worldY 934 (bottom) / 1581 (top), band 999–1255.
+
+**Implemented (committed `3ca3643`):**
+- `navigable_climb_body`: `two_way_mount` (the mount-gate mounts the bottom arc when low / the top arc when high, vs the single bottom-mount / re-entry-skip) + `top_mount_anim`/`top_mount_steps`; `dismount_anim`/`dismount_steps` accept `[bottom, top]` per-end lists.
+- `inject_navigable_ladder` `top_zone` + build `[[ladder]] top_zone` = a SECOND trigger at the top floor (so you can stand at either end). Build wires `two_way_mount` + the per-end lists.
+- Back-compat byte-identical (scalar + single-mount default). Matches CPMP's mount+dismount `SetupJump` dests byte-for-byte.
+
+**Floor-Y auto-fill (committed `45944bb`) — the bug the in-game test surfaced + its fix:** a navigable ladder's `floor_landing`/`top_landing` with only `[x, z]` arcs the dismount to **Y=0**, then `SetPathing(1)` snaps you up to the real floor → a visible **fall-then-slingshot** on ELEVATED floors (GZML's base was ~Y=0 so we never saw it; CPMP's floors are 934/1581). Fix: `bgi.BgiWalkmesh.height_at(x,z)` (barycentric floor-Y) + `build._autofill_ladder_landing_y` fills an omitted landing Y as **`-height_at`** (the `SetupJump` dest height is `-worldY`). Flat floors (0) + author-supplied Ys unchanged → existing fields byte-identical. (User's idea: the F6 right-click could likewise copy the floor Y, not just x/z.)
+
+**Human verified (real gameplay, CPMP borrow on 4003):** mount from BOTH floors (bottom-arc up / top-arc down), per-end mount+dismount anims, and after the floor-Y fix the dismounts are smooth (no slingshot). **"verified!"**
+
+**Ladder catalogue COMPLETE + in-game-proven:** shapes (vertical/slant/bent) · top-actions (floor/gateway/worldmap) · re-entry · flexible input (`dirs`) · two-way mount · per-end anims · landing validation + floor-Y auto-fill. New kit surface this arc: `insert_in_function`, `dirs`, `rungs`, `top_action`, `two_way_mount`/`top_mount_*`, per-end `dismount_*`, `top_zone`, `height_at`. 414 tests, back-compat byte-identical. Tagged `KNOWN_GOOD-s23-ladder-complete`.
+
+**Carry-over / state:** on `master`. Field 4003 = CPMP_TWOWAY (revert `tools/scroll_out/revert_deploy.py`). Debug New-Game warp → `Field(4003, entrance 11)`. CPMP geometry/import in `tools/scroll_out/cpmp/`. Standing constraint: **nothing public.**
