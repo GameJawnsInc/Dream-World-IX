@@ -62,10 +62,18 @@ engine build, the build/deploy loop, version control, and all docs/notes.
 | Reference field scripts | `reference/test2/` (gitignored, 817 HW field-script exports) + `reference/field-manifest.tsv` (HW-index→field-id→name; index ≠ field id) |
 | FF9 field assets | `<game>\StreamingAssets\p0data*.bin` (UnityRaw 5.2.3 bundles; UnityPy reads them — `py -m pip install UnityPy`) |
 
-> **Git layout:** two worktrees share one install — `C:\gd\FFIX` (`master`) and
-> `C:\gd\FFIX-infohub-catalog` (`infohub-catalog`). They keep separate live test fields via
-> `deploy_field.py --id` (e.g. master uses 4003, a branch uses a 5000-slot) so they don't
-> clobber each other in the shared `FF9CustomMap`. Reach any slot via the F6 menu's "Warp".
+> **Git layout:** worktrees share one install but each deploys into its OWN Memoria mod folder, so
+> they never share a `DictionaryPatch.txt` and can't clobber each other. (The old single-`FF9CustomMap`
+> + `--id` scheme broke: `deploy_field.py`'s revert/revert-prior does a WHOLESALE DictionaryPatch
+> restore from a pre-deploy snapshot, so a deploy on one worktree silently wiped a sibling's
+> `FieldScene` line → black-screen warp to an unregistered id.) Each worktree pins its target in a
+> gitignored **`.ff9deploy.toml`** (`mod_folder` + `id`; override via `--mod-folder`/`$FF9_MOD_FOLDER`);
+> `Memoria.ini [Mod] FolderNames` stacks the folders and each folder's own DictionaryPatch/BattlePatch
+> is read at launch (`DataPatchers.Initialize`). Assignments: `C:\gd\FFIX` master → `FF9CustomMap`/4003 ·
+> `C:\gd\FFIX-battle-backgrounds` → `FF9CustomMap-bb`/5000 · `C:\gd\FFIX-infohub-catalog` →
+> `FF9CustomMap-ih`/5001. **Distinct ids still required** (EventDB/SceneData are GLOBAL dicts merged from
+> every folder at launch → same id across folders collides). New worktree: drop a `.ff9deploy.toml`,
+> add its folder to `Memoria.ini FolderNames`, relaunch. Reach any slot via the F6 menu's "Warp".
 > **Merge discipline (keeps CLAUDE.md current, cheaply):** do all CLAUDE.md edits on the *feature*
 > branch and let `master` only ever **fast-forward** — it stays a clean receiver, so the FF is
 > conflict-free and master's CLAUDE.md never goes stale. FF from this worktree without checking out
@@ -389,6 +397,16 @@ Read these on demand — they hold the full technical detail this file only summ
   LATENT bug on every NPC since the first one (logged, non-fatal; found by watching `Memoria.log`). Fix:
   pad short talk funcs to ≥ 9 (dead bytes after RETURN); non-interactive **props are `bare`** (Init-only,
   no tag-3 at all — matches shipping set-dressing, dodges the poll). → `content/npc.py` `bare=`/padding.
+- **Battle-background pillar — feasibility + tier (a) proven** (2026-06-09) — battle maps are a SEPARATE
+  pillar from fields: real textured **3D Unity meshes** (FBX, child groups `Group_0/2/4/8` = additive/
+  ground/minus/sky) + a moving perspective camera computed in a closed native DLL. 177 of them
+  (`BBG_B001..177`) in `p0data2.bin`. **Tier (a) — texture reskin of an existing map — is in-game proven**
+  on stock Memoria (no DLL rebuild): drop PNGs named by the bundle `Texture2D.m_Name` at
+  `…/StreamingAssets/Assets/Resources/BattleMap/BattleModel/battleMap_all/BBG_B###/` in a mod folder; UVs
+  wrap the geometry correctly (verified with a per-texture UV checker). Scene wiring mirrors `FieldScene`
+  (a `BattleScene` DictionaryPatch line). Tooling: `tools/probe_bbg_textures.py` (extract by m_Name),
+  `tools/apply_bbg_override.py` (recolor + place). Tiers (b) FBX geometry swap / (c) new bbg + camera are
+  next, unproven. Full recipe: memory `project-ff9-battle-backgrounds`.
 
 ---
 

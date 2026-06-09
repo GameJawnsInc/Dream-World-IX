@@ -79,6 +79,10 @@ backups/pre-reclone-*/
 # pile up fast and only ever protect the throwaway test slot. On disk only.
 backups/*.preDEPLOY.*
 
+# Per-worktree deploy target (mod folder + slot id). Each worktree pins its own so they never share a
+# mod folder / DictionaryPatch and can't clobber each other's registrations. On disk only.
+.ff9deploy.toml
+
 # Blender working/test projects (user art + exports)
 ff9mapkit/blender/debug_proj/
 
