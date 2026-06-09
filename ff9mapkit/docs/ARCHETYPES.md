@@ -152,7 +152,7 @@ The named characters (the `SUB` models) -- place a specific story figure; same m
 
 ## Props (set dressing)
 
-Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0_..."` + `pose`). NOT characters -- no head-tracking; each holds its canonical pose (baked from shipping fields). 40 names.
+Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0_..."` + `pose`). NOT characters -- no head-tracking; each holds its canonical pose (baked from shipping fields). 117 names.
 
 | Prop | Aliases | Model | Appears in |
 |---|---|---|---|
@@ -167,7 +167,7 @@ Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0
 | `sword` | -- | `GEO_ACC_F0_SWD` | Prima Vista/Interior; A. Castle/Public Seats; Alexandria/Main Street -- 9 fields |
 | `cask` | `barrel` | `GEO_ACC_F0_CSK` | Dali/Storage Area; Lindblum/Theater; Brahnes Fleet/Event -- 6 fields |
 | `great_leaf` | -- | `GEO_ACC_F0_ELE` | Iifa Tree/Hollow Roots; Iifa Tree/Inner Roots; Iifa Tree/Leaves -- 6 fields |
-| `fish` | -- | `GEO_ACC_F0_FS1` | Mdn. Sari/Resting Room; Mdn. Sari/Kitchen; Memoria/Birth -- 5 fields |
+| `fish` | `orange_fish` | `GEO_ACC_F0_FS1` | Mdn. Sari/Resting Room; Mdn. Sari/Kitchen; Memoria/Birth -- 5 fields |
 | `hand_bell` | -- | `GEO_ACC_F0_HDB` | Gizamaluke/Cavern; Gizamaluke/Bell Room; Burmecia/Suburb -- 4 fields |
 | `lever` | `switch_lever` | `GEO_ACC_F0_KOM` | Fossil Roo/Cavern; Earth Shrine/Passage -- 4 fields |
 | `ladder` | -- | `GEO_ACC_F0_LDD` | Alexandria/Alley; Alexandria/By the Stee; Alexandria/Steeple -- 4 fields |
@@ -177,6 +177,57 @@ Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0
 | `aircab` | `aircab_car` | `GEO_ACC_F0_V10` | Lindblum/I.D. Station; Lindblum/B.D. Station; Lindblum/T.D. Station -- 4 fields |
 | `trap` | -- | `GEO_ACC_F0_ISB` | Pinnacle Rocks/Entry; I. Castle/Entrance; Earth Shrine/Passage -- 4 fields |
 | `scale` | `balance_scale` | `GEO_ACC_F0_TNB` | Palace/Rack; Palace/Odyssey -- 3 fields |
+| `blue_fish` | -- | `GEO_ACC_F0_FS2` | Mdn. Sari/Resting Room; Mdn. Sari/Kitchen; Memoria/Birth -- 5 fields |
+| `green_fish` | -- | `GEO_ACC_F0_FS3` | Mdn. Sari/Resting Room; Mdn. Sari/Kitchen; Chocobos Lagoon -- 4 fields |
+| `gargant` | -- | `GEO_ACC_F0_GRG` | Gargan Roo/Passage; Gargan Roo/Switch Pt.; Gargan Roo/Tunnel -- 5 fields |
+| `gondola` | -- | `GEO_ACC_F0_V11` | A. Castle/Courtyard; Alexandria/Dock -- 5 fields |
+| `extraction_ring` | -- | `GEO_ACC_F0_CER` | A. Castle/Chapel; A. Castle/Altar; Gulug/Path -- 4 fields |
+| `shelf` | -- | `GEO_ACC_F0_BBX` | Dali/Underground; Dali/Production Area; Dali/Storage Area -- 3 fields |
+| `stone_dial` | -- | `GEO_ACC_F0_FEL` | Pand./Control Room; Pand./Elevator -- 3 fields |
+| `fishing_rod` | -- | `GEO_ACC_F0_FIS` | Mdn. Sari/Kitchen; Quans/Fishing Area -- 3 fields |
+| `altar_stone` | -- | `GEO_ACC_F0_HSK` | Palace/Sanctum; Oeilvert/Tombstone; Esto Gaza/Path -- 3 fields |
+| `teleport_pad` | -- | `GEO_ACC_F0_IFE` | Iifa Tree/Roots; Iifa Tree/Inner Roots -- 3 fields |
+| `scroll` | `map` | `GEO_ACC_F0_MAP` | Prima Vista/Hallway; Evil Forest/Exit; Lindblum/Town Walls -- 3 fields |
+| `pot` | `soup_pot` | `GEO_ACC_F0_SUP` | Mdn. Sari/Resting Room; Mdn. Sari/Kitchen -- 3 fields |
+| `cab_carriage` | -- | `GEO_ACC_F0_TRK` | L. Castle/Dragons Gat; L. Castle/Base Level; L. Castle/Serpents Ga -- 3 fields |
+| `ship_model` | -- | `GEO_ACC_F0_TSM` | Mountain/Shack; Lindblum/Hideout; Ending/TH -- 3 fields |
+| `skiff` | `boat` | `GEO_ACC_F0_BOT` | Mdn. Sari/Cove -- 2 fields |
+| `gear_wall` | -- | `GEO_ACC_F0_CBH` | Dali/Underground; Dali/Field -- 2 fields |
+| `dagger` | -- | `GEO_ACC_F0_DAG` | Ice Cavern/Outside; A. Castle/Tomb -- 2 fields |
+| `wind_mirror` | `seal_medallion` | `GEO_ACC_F0_HKG` | I. Castle/Mural Room; Wind Shrine/Interior -- 2 fields |
+| `weight_lift` | -- | `GEO_ACC_F0_IRF` | I. Castle/Lift -- 2 fields |
+| `hatchery` | `incubator` | `GEO_ACC_F0_KGG` | Dali/Production Area -- 2 fields |
+| `trapdoor` | `pit` | `GEO_ACC_F0_KOR` | Fossil Roo/Cavern; Earth Shrine/Passage -- 2 fields |
+| `neptune_statue` | `neptune` | `GEO_ACC_F0_NEP` | A. Castle/Neptune -- 2 fields |
+| `ribbon` | -- | `GEO_ACC_F0_RBN` | Mdn. Sari/Secret Room; Gulug/Path -- 2 fields |
+| `rope` | -- | `GEO_ACC_F0_ROP` | Alexandria/Square; Alexandria/Steeple -- 2 fields |
+| `frog_cart` | -- | `GEO_ACC_F0_V02` | Lindblum/Theater Ave.; L. Castle/Event -- 2 fields |
+| `cargo_ship` | `cargo_airship` | `GEO_ACC_F0_BLK` | Bran Bal/Storage -- 1 field |
+| `wood_weight` | -- | `GEO_ACC_F0_WT0` | Palace/Rack; Palace/Odyssey -- 2 fields |
+| `clay_weight` | -- | `GEO_ACC_F0_WT1` | Palace/Rack; Palace/Odyssey -- 2 fields |
+| `stone_weight` | -- | `GEO_ACC_F0_WT2` | Palace/Rack; Palace/Odyssey -- 2 fields |
+| `iron_weight` | -- | `GEO_ACC_F0_WT3` | Palace/Rack; Palace/Odyssey -- 2 fields |
+| `bookcase` | -- | `GEO_ACC_F0_BTN` | Palace/Library -- 1 field |
+| `windmill_crank` | -- | `GEO_ACC_F0_CRS` | Dali/Windmill 2F -- 1 field |
+| `round_pillar` | -- | `GEO_ACC_F0_DLB` | Daguerreo/Right Hall -- 1 field |
+| `square_pillar` | -- | `GEO_ACC_F0_DLF` | Daguerreo/Left Hall -- 1 field |
+| `mage_egg` | `egg` | `GEO_ACC_F0_EGG` | Lindblum/Residence -- 1 field |
+| `elevator` | `cargo_lift` | `GEO_ACC_F0_ELV` | Prima Vista/Interior -- 1 field |
+| `surveillance_eye` | `eye` | `GEO_ACC_F0_EYE` | Pand./Exit -- 1 field |
+| `floor_tile` | `grid_tile` | `GEO_ACC_F0_FLR` | Palace/Dungeon -- 1 field |
+| `goddess_statue` | `giant_statue` | `GEO_ACC_F0_GNT` | A. Castle/Tomb -- 1 field |
+| `mage_robe` | `hood` | `GEO_ACC_F0_HOD` | Prima Vista/Interior -- 1 field |
+| `collapsing_floor` | `trap_anchor` | `GEO_ACC_F0_KOS` | Earth Shrine/Passage -- 1 field |
+| `pull_chain` | `track_switch` | `GEO_ACC_F0_LEV` | Gargan Roo/Switch Pt. -- 1 field |
+| `planks` | `roof_planks` | `GEO_ACC_F0_LG2` | Alexandria/Rooftop -- 1 field |
+| `hologram_projector` | `projector` | `GEO_ACC_F0_LIF` | Oeilvert/Narration -- 1 field |
+| `campfire` | `firewood` | `GEO_ACC_F0_MAK` | Evil Forest/Exit -- 1 field |
+| `tiki_torch` | `torch` | `GEO_ACC_F0_TKE` | Daguerreo/Left Hall -- 1 field |
+| `altar` | `pedestal` | `GEO_ACC_F0_ORD` | I. Castle/Sword Room -- 1 field |
+| `parade_float` | `float` | `GEO_ACC_F0_V01` | L. Castle/Event -- 1 field |
+| `luxury_cab` | `cid_shuttle` | `GEO_ACC_F0_V03` | L. Castle/Event -- 1 field |
+| `tunnel_beam` | `support_beam` | `GEO_ACC_F0_YIB` | Fossil Roo/Passage -- 1 field |
+| `spear` | `mythril_spear` | `GEO_ACC_F0_YRI` | Burmecia/Armory -- 1 field |
 | `cup` | -- | `GEO_ACC_F0_CUP` | Dali/Pub; Mountain/Shack; Lindblum/The Doom Pub -- 4 fields |
 | `glass` | -- | `GEO_ACC_F0_GRS` | Lindblum/The Doom Pub; Alexandria/Pub -- 2 fields |
 | `ticket` | -- | `GEO_ACC_F0_TKT` | Alexandria/Main Street; Alexandria/Shop; S. Gate/Bohden Gate -- 5 fields |

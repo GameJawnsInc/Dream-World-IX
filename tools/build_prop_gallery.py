@@ -23,6 +23,7 @@ from ff9mapkit.scene import bgi
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import extract_prop_poses as EP          # canonical pose per model (cached)
 import model_field_usage as MFU          # model -> field locations
+import build_debug_arena as _arena       # the big flat scrolling checkerboard stage (--arena; big props)
 
 IHTEST = Path(os.environ.get("IHTEST", r"C:\Users\skaki\AppData\Local\Temp\ihtest"))
 PER_BATCH = 6                              # props vary wildly in size; fewer + wider so big ones don't block
@@ -45,6 +46,8 @@ def unnamed_tokens():
 
 def main():
     args = sys.argv[1:]
+    arena = "--arena" in args
+    args = [a for a in args if a != "--arena"]
     allt = unnamed_tokens()
     if args and args[0] == "--batch":
         b = int(args[1])
@@ -61,21 +64,40 @@ def main():
         return 1
 
     n = len(toks)
-    xs = [round(ROW_X[0] + (ROW_X[1] - ROW_X[0]) * i / max(1, n - 1)) for i in range(n)]
-    lines = [
-        "# PROP-ID gallery -- each set piece is at its canonical pose. Tell me what each is (left->right)",
-        "# and I'll name + bake the good ones as prop archetypes. Non-interactive; warp to ID the cryptic.",
-        "[field]", "id = 4003", 'name = "GRGR_FORK"', "area = 21",
-        'borrow_bg = "GRGR_MAP420_GR_CEN_0"', "text_block = 1073", "",
-        "[camera]", 'borrow = "camera.bgx"', "control_direction = 0", "",
-        "[walkmesh]", 'reference = "walkmesh.bgi"', "",
-        "[player]", f"spawn = [{SPAWN[0]}, {SPAWN[1]}]", "",
-    ]
+    if arena:                                          # big flat scrolling checkerboard -- room for HUGE props
+        meta = _arena.build_arena(IHTEST / "art", screens=max(3, n))
+        half, margin = meta["quad"][1][0], 800
+        xs = [round(-(half - margin) + 2 * (half - margin) * i / max(1, n - 1)) for i in range(n)]
+        zs = [z for _, z in meta["quad"]]
+        z_lo, z_hi = min(zs), max(zs)
+        row_z, spawn_z = (z_lo + z_hi) // 2, z_hi - 150
+        lines = [
+            "# PROP-ID gallery on the big flat scrolling checkerboard -- tell me what each set piece is.",
+            "[field]", "id = 4003", 'name = "ARENA"', "area = 11", "text_block = 1073", "",
+            "[camera]", f"pitch = {_arena.PITCH}", f"distance = {int(_arena.DIST)}", f"fov = {_arena.FOV}",
+            f"range = [{meta['range_w']}, 448]", "window_width = 384", "[camera.scroll]", "enabled = true", "",
+            "[walkmesh]", f"quad = {meta['quad']}", 'frame = "world"', "",
+            "[[layers]]", 'image = "art/back.png"', "z = 4000",
+            "[[layers]]", 'image = "art/floor.png"', "z = 3000", "",
+            "[player]", f"spawn = [0, {spawn_z}]", "",
+        ]
+    else:                                              # GRGR borrowed BG (floor 0)
+        xs = [round(ROW_X[0] + (ROW_X[1] - ROW_X[0]) * i / max(1, n - 1)) for i in range(n)]
+        row_z = ROW_Z
+        lines = [
+            "# PROP-ID gallery -- each set piece is at its canonical pose. Tell me what each is (left->right)",
+            "# and I'll name + bake the good ones as prop archetypes. Non-interactive; warp to ID the cryptic.",
+            "[field]", "id = 4003", 'name = "GRGR_FORK"', "area = 21",
+            'borrow_bg = "GRGR_MAP420_GR_CEN_0"', "text_block = 1073", "",
+            "[camera]", 'borrow = "camera.bgx"', "control_direction = 0", "",
+            "[walkmesh]", 'reference = "walkmesh.bgi"', "",
+            "[player]", f"spawn = [{SPAWN[0]}, {SPAWN[1]}]", "",
+        ]
     rows = []
     for tok, x in zip(toks, xs):
         m = C.model(f"GEO_ACC_F0_{tok}")
         pose = EP.pose_of(m.id) if m else None
-        lines += ["[[prop]]", f'name = "{tok}"', f'model = "GEO_ACC_F0_{tok}"', f"pos = [{x}, {ROW_Z}]"]
+        lines += ["[[prop]]", f'name = "{tok}"', f'model = "GEO_ACC_F0_{tok}"', f"pos = [{x}, {row_z}]"]
         if pose:
             lines.append(f"pose = {pose}")
         lines.append("")

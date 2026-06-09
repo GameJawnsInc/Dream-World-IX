@@ -42,11 +42,97 @@ PROP_ARCHETYPES: dict = {
     "pickaxe": {"model": "GEO_ACC_F0_TUR", "pose": 10643},      # TUR -- a mining pickaxe (Fossil Roo mining site)
     "vat": {"model": "GEO_ACC_F0_BBT", "pose": 62},             # BBT -- "Big Barrel Tank": a huge storage vat (Dali underground production)
     "tank": {"model": "GEO_ACC_F0_BBT", "pose": 62},            # alias of vat
-    "aircab": {"model": "GEO_ACC_F0_V10", "pose": 1608},        # V10 -- "Vehicle 10": the Lindblum aircab car (flies, has doors)
+    "aircab": {"model": "GEO_ACC_F0_V10", "pose": 1608},        # V10 -- "Vehicle 10": the generic/station Lindblum aircab car (flies, has doors); cf. `cab_carriage` (TRK) = the high-res rideable carriage
     "aircab_car": {"model": "GEO_ACC_F0_V10", "pose": 1608},    # alias of aircab
-    "trap": {"model": "GEO_ACC_F0_ISB", "pose": 10689},         # ISB -- a static ancient-ruins trap mechanism (Ipsen's Castle / Pinnacle Rocks / Earth Shrine). TENTATIVE -- couldn't get a clear look
-    "scale": {"model": "GEO_ACC_F0_TNB", "pose": 12884},        # TNB -- the Desert Palace balance scale (JP "tenbin" 天秤); the Clay/Stone/Iron weights puzzle. (The weights WT1/2/3 are flag-gated puzzle objects -- not static.)
+    "trap": {"model": "GEO_ACC_F0_ISB", "pose": 10689},         # ISB -- likely the Gargan Roo TRACK/RAIL the Gargant (GRG) rides (in-game: GRG connects to ISB paths), not a trap; also Ipsen's/Pinnacle/Earth Shrine. TENTATIVE
+    "scale": {"model": "GEO_ACC_F0_TNB", "pose": 12884},        # TNB -- the Desert Palace balance scale (JP "tenbin" 天秤). The four weights are `wood_weight`/`clay_weight`/`stone_weight`/`iron_weight` (WT0-3); flag-gated in the puzzle, but render fine static.
     "balance_scale": {"model": "GEO_ACC_F0_TNB", "pose": 12884},  # alias of scale
+    # -- set dressing identified via the prop gallery (token -> what it is) --
+    "orange_fish": {"model": "GEO_ACC_F0_FS1", "pose": 10751},   # FS1 -- the orange fish (alias of `fish`); Madain Sari kitchen
+    "blue_fish": {"model": "GEO_ACC_F0_FS2", "pose": 10749},     # FS2 -- a blue fish (Madain Sari kitchen, Chocobo's Lagoon)
+    "green_fish": {"model": "GEO_ACC_F0_FS3", "pose": 10747},    # FS3 -- a green fish (Madain Sari kitchen)
+    "gargant": {"model": "GEO_ACC_F0_GRG", "pose": 1138},       # GRG -- the Gargant, the giant beetle ridden through Gargan Roo; it rides the ISB track, so placed ALONE it has collision/alignment quirks
+    "gondola": {"model": "GEO_ACC_F0_V11", "pose": 8004},       # V11 "Vehicle 11" -- the Alexandria lake boat / gondola
+    "extraction_ring": {"model": "GEO_ACC_F0_CER", "pose": 10727},  # CER "CERemony" -- the glowing eidolon-extraction ring (the Zorn/Thorn ritual; A. Castle altar, Gulug extraction site)
+    "shelf": {"model": "GEO_ACC_F0_BBX", "pose": 6962},         # BBX -- a Dali underground production shelf / box ("Black Mage Box"?); tentative
+    "stone_dial": {"model": "GEO_ACC_F0_FEL", "pose": 792},      # FEL -- a stone dial lever (Pandemonium control room / elevators)
+    "fishing_rod": {"model": "GEO_ACC_F0_FIS", "pose": 2226},   # FIS -- a fishing rod with a long line (Quan's Dwelling fishing area, Madain Sari kitchen)
+    "altar_stone": {"model": "GEO_ACC_F0_HSK", "pose": 13720},  # HSK -- the triangular "Hogo Seki" protective altar stone (保護石 = protective stone/seal; Palace Sanctum, Oeilvert tombstone, Esto Gaza)
+    "teleport_pad": {"model": "GEO_ACC_F0_IFE", "pose": 1896},  # IFE -- the Iifa field emblem / teleport pad (Iifa Tree roots)
+    "scroll": {"model": "GEO_ACC_F0_MAP", "pose": 1882},        # MAP -- a rolled map scroll (the Prima Vista map tables; Evil Forest exit, Lindblum walls)
+    "map": {"model": "GEO_ACC_F0_MAP", "pose": 1882},           # alias of scroll
+    "pot": {"model": "GEO_ACC_F0_SUP", "pose": 1896},           # SUP -- Eiko's soup pot (Madain Sari kitchen)
+    "soup_pot": {"model": "GEO_ACC_F0_SUP", "pose": 1896},      # alias of pot
+    # -- set dressing, batch 3 (some are HUGE structural assets) --
+    "cab_carriage": {"model": "GEO_ACC_F0_TRK", "pose": 7380},  # TRK -- the rideable Air Cab CARRIAGE itself (rides the Lindblum Castle transit tracks); cf. `aircab` (V10) = the generic/station car
+    "ship_model": {"model": "GEO_ACC_F0_TSM", "pose": 1105},    # TSM -- the Tantalus thieves' miniature toy model of the Cargo Ship (Mountain shack, Lindblum hideout, Ending)
+    "skiff": {"model": "GEO_ACC_F0_BOT", "pose": 1890},         # BOT "BOaT" -- the Madain Sari fishing skiff (the Cove)
+    "boat": {"model": "GEO_ACC_F0_BOT", "pose": 1890},          # alias of skiff (cf. `gondola` = the Alexandria V11)
+    "gear_wall": {"model": "GEO_ACC_F0_CBH", "pose": 3933},     # CBH "Cargo Belt Housing" -- the HUGE Dali subterranean gear/conveyor/lift wall engine (dwarfs the floor placed alone)
+    "dagger": {"model": "GEO_ACC_F0_DAG", "pose": 216},         # DAG -- Garnet's royal dagger (her namesake; Ice Cavern, A. Castle tomb)
+    "wind_mirror": {"model": "GEO_ACC_F0_HKG", "pose": 7378},   # HKG -- the Wind Shrine mirror / seal medallion slotted into the altar; the Ipsen's Castle mural object (保護鏡源 "protective mirror source")
+    "seal_medallion": {"model": "GEO_ACC_F0_HKG", "pose": 7378},  # alias of wind_mirror
+    # -- set dressing, batch 4 --
+    "weight_lift": {"model": "GEO_ACC_F0_IRF", "pose": 13156},  # IRF "Ipsen's Room Floor" -- the chandelier weight-lift puzzle platform (Zidane's weight hoists the treasure chandelier up)
+    "hatchery": {"model": "GEO_ACC_F0_KGG", "pose": 71},        # KGG -- the Dali Black Mage egg incubator / hatchery (孵化器; Production Area)
+    "incubator": {"model": "GEO_ACC_F0_KGG", "pose": 71},       # alias of hatchery
+    "trapdoor": {"model": "GEO_ACC_F0_KOR", "pose": 297},       # KOR -- a floor altar trapdoor / pit hole (Fossil Roo cavern, Earth Shrine passage)
+    "pit": {"model": "GEO_ACC_F0_KOR", "pose": 297},            # alias of trapdoor
+    "neptune_statue": {"model": "GEO_ACC_F0_NEP", "pose": 7146},  # NEP -- the Alexandria "Neptune" guardian statue (A. Castle/Neptune)
+    "neptune": {"model": "GEO_ACC_F0_NEP", "pose": 7146},       # alias of neptune_statue
+    "ribbon": {"model": "GEO_ACC_F0_RBN", "pose": 13725},       # RBN -- a ribbon, the Madain Sari eidolon-wall offering (Secret Room; also Gulug)
+    "rope": {"model": "GEO_ACC_F0_ROP", "pose": 964},           # ROP -- a rope: both the children's jump rope (Alexandria Square) and the steeple bell rope
+    # -- set dressing, batch 5 --
+    "frog_cart": {"model": "GEO_ACC_F0_V02", "pose": 1460},     # V02 "Vehicle 02" -- Regent Cid's motorized frog-cart (Lindblum Theater Ave.)
+    "cargo_ship": {"model": "GEO_ACC_F0_BLK", "pose": 7382},    # BLK -- the full-size Dali Black Mage cargo airship (the vessel hijacked through South Gate); cf. `ship_model` (TSM) = the toy model of it
+    "cargo_airship": {"model": "GEO_ACC_F0_BLK", "pose": 7382},  # alias of cargo_ship
+    # the four Desert Palace balance-scale WEIGHTS (the `scale`/TNB puzzle); render fine static; material mapping TENTATIVE (per user: Wood/Clay/Stone/Iron in WT0-3 order)
+    "wood_weight": {"model": "GEO_ACC_F0_WT0", "pose": 12888},  # WT0 -- scale weight (tentative: Wood)
+    "clay_weight": {"model": "GEO_ACC_F0_WT1", "pose": 13132},  # WT1 -- scale weight (tentative: Clay)
+    "stone_weight": {"model": "GEO_ACC_F0_WT2", "pose": 13128},  # WT2 -- scale weight (tentative: Stone)
+    "iron_weight": {"model": "GEO_ACC_F0_WT3", "pose": 13124},  # WT3 -- scale weight (tentative: Iron)
+    # -- set dressing, batch 6 (each in a single field -- rare/specific) --
+    "bookcase": {"model": "GEO_ACC_F0_BTN", "pose": 3962},      # BTN "Bookcase Trigger Node" -- the Desert Palace secret-library bookcase
+    "windmill_crank": {"model": "GEO_ACC_F0_CRS", "pose": 5959},  # CRS -- the Dali windmill brake crank + grain hopper mechanism (Windmill 2F)
+    "round_pillar": {"model": "GEO_ACC_F0_DLB", "pose": 13049},  # DLB -- the Daguerreo lift column B, a cylindrical pillar (Right Hall)
+    "square_pillar": {"model": "GEO_ACC_F0_DLF", "pose": 7144},  # DLF -- the Daguerreo lift column F, a square pillar (Left Hall)
+    "mage_egg": {"model": "GEO_ACC_F0_EGG", "pose": 71},        # EGG -- the unhatched Black Mage pod/egg (the one Vivi finds under Dali; the "Lindblum Residence" field is a warp overlap); cf. `hatchery` (KGG)
+    "egg": {"model": "GEO_ACC_F0_EGG", "pose": 71},             # alias of mage_egg
+    "elevator": {"model": "GEO_ACC_F0_ELV", "pose": 5346},      # ELV -- the Prima Vista cargo-hold lift platform (theater-ship internal; hauls props/actors between decks)
+    "cargo_lift": {"model": "GEO_ACC_F0_ELV", "pose": 5346},    # alias of elevator
+    # -- set dressing, batch 7 (GNT + KOS have offset origins -> render as a tiny dot in an empty viewport) --
+    "surveillance_eye": {"model": "GEO_ACC_F0_EYE", "pose": 13175},  # EYE -- the Pandemonium surveillance eye (security laser/camera tracking Zidane at the Exit)
+    "eye": {"model": "GEO_ACC_F0_EYE", "pose": 13175},          # alias of surveillance_eye
+    "floor_tile": {"model": "GEO_ACC_F0_FLR", "pose": 1386},    # FLR -- a Desert Palace dungeon puzzle floor grid tile (the path-lighting puzzle; glow toggles per step)
+    "grid_tile": {"model": "GEO_ACC_F0_FLR", "pose": 1386},     # alias of floor_tile
+    "goddess_statue": {"model": "GEO_ACC_F0_GNT", "pose": 4747},  # GNT "GiaNT" -- the colossal Summoner Goddess statue (A. Castle Tomb); origin anchored in its base -> renders as a tiny dot on a flat grid
+    "giant_statue": {"model": "GEO_ACC_F0_GNT", "pose": 4747},  # alias of goddess_statue
+    "mage_robe": {"model": "GEO_ACC_F0_HOD", "pose": 2477},     # HOD "HOoD" -- Garnet's white-mage robe disguise, discarded in the Prima Vista cabins after her escape
+    "hood": {"model": "GEO_ACC_F0_HOD", "pose": 2477},          # alias of mage_robe
+    "collapsing_floor": {"model": "GEO_ACC_F0_KOS", "pose": 1894},  # KOS "Koseki" -- the Earth Shrine collapsing-floor trap anchor; hidden until triggered -> default mesh collapses to (0,0,0), renders as a dot
+    "trap_anchor": {"model": "GEO_ACC_F0_KOS", "pose": 1894},   # alias of collapsing_floor
+    "pull_chain": {"model": "GEO_ACC_F0_LEV", "pose": 6962},    # LEV "LEVer" -- the Gargan Roo ceiling pull-chain track switch (redirects the Gargant); cf. `lever` (KOM) = the small Fossil Roo toggle
+    "track_switch": {"model": "GEO_ACC_F0_LEV", "pose": 6962},  # alias of pull_chain
+    # -- set dressing, batch 8 --
+    "planks": {"model": "GEO_ACC_F0_LG2", "pose": 12940},       # LG2 "Log 2" -- the Alexandria rooftop tied planks (manual-labor prop; cf. `log`/`timber` = LG1)
+    "roof_planks": {"model": "GEO_ACC_F0_LG2", "pose": 12940},  # alias of planks
+    "hologram_projector": {"model": "GEO_ACC_F0_LIF", "pose": 6960},  # LIF "Life" -- the Oeilvert Terran holographic-history projector (narrates Terra's history)
+    "projector": {"model": "GEO_ACC_F0_LIF", "pose": 6960},     # alias of hologram_projector
+    "campfire": {"model": "GEO_ACC_F0_MAK", "pose": 6963},      # MAK "Maki" 薪 -- the Evil Forest campfire / firewood bundle (the cozy rest before the forest petrifies)
+    "firewood": {"model": "GEO_ACC_F0_MAK", "pose": 6963},      # alias of campfire
+    "tiki_torch": {"model": "GEO_ACC_F0_TKE", "pose": 4684},    # TKE -- a torch (Daguerreo Left Hall); TENTATIVE ("Tee-Key" ~ tiki torch)
+    "torch": {"model": "GEO_ACC_F0_TKE", "pose": 4684},         # alias of tiki_torch
+    # -- set dressing, batch 9 (final GEO_ACC set-dressing) --
+    "altar": {"model": "GEO_ACC_F0_ORD", "pose": 8002},         # ORD "Ordeal" -- the central altar / Ordeal pedestal of Ipsen's Castle (Sword Room)
+    "pedestal": {"model": "GEO_ACC_F0_ORD", "pose": 8002},      # alias of altar
+    "parade_float": {"model": "GEO_ACC_F0_V01", "pose": 1888},  # V01 "Vehicle 01" -- a Lindblum theater parade float / street prop cart (holiday + summit set-dressing; L. Castle Event)
+    "float": {"model": "GEO_ACC_F0_V01", "pose": 1888},         # alias of parade_float
+    "luxury_cab": {"model": "GEO_ACC_F0_V03", "pose": 1507},    # V03 "Vehicle 03" -- Cid's private luxury air-cab (the Hilda Garde prototype shuttle); cf. `aircab` V10, `cab_carriage` TRK
+    "cid_shuttle": {"model": "GEO_ACC_F0_V03", "pose": 1507},   # alias of luxury_cab
+    "tunnel_beam": {"model": "GEO_ACC_F0_YIB", "pose": 8099},   # YIB "Y-Intersection Beam" -- a Fossil Roo tunnel support timber / Gargant track-switcher rail (aligns with the pull animations)
+    "support_beam": {"model": "GEO_ACC_F0_YIB", "pose": 8099},  # alias of tunnel_beam
+    "spear": {"model": "GEO_ACC_F0_YRI", "pose": 12739},        # YRI "Yari" 槍 -- the Burmecian Mythril Spear (Freya salvages it from the armory ruins)
+    "mythril_spear": {"model": "GEO_ACC_F0_YRI", "pose": 12739},  # alias of spear
     # -- common HELD items (place static via [[prop]], or via [[npc]] holds = "cup" -> auto held pose) --
     "cup": {"model": "GEO_ACC_F0_CUP", "pose": 1894},           # CUP -- a cup / tankard (held by drinkers)
     "glass": {"model": "GEO_ACC_F0_GRS", "pose": 8239},         # GRS -- a drinking glass (bartender / pub)

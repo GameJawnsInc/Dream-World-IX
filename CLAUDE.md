@@ -387,10 +387,16 @@ Read these on demand — they hold the full technical detail this file only summ
   `flags(14)` omits it → the model VANISHES, so we only disable head-focus (don't blanket-set flags);
   and a prop's true pose is a raw `SetStandAnimation` clip the model→anim name-join often lacks (the
   save book rests at 1872 = 'b'+1) → `tools/extract_prop_poses.py` harvests the canonical pose per
-  model. **~20 prop archetypes** (`prop_archetypes.py`, pose baked in) named via the prop gallery
-  (`tools/build_prop_gallery.py`, common-first): `chest`/`tent`/`save_book`/`feather`/`balloon`/`ladder`/
-  `book`/`cask`/`lever`/`vat`/`aircab`/… — `[[prop]] prop = "chest"` or `model` + `pose`. Deferred
-  (spawned task): a `[field] location_name` option to hide the borrowed-BG location-name banner.
+  model. **The GEO_ACC set-dressing catalogue is COMPLETE** — every field-placed ACC prop is a named
+  archetype (**117 names / 83 models**, `prop_archetypes.py`, pose baked in), each ID'd in-game via the
+  prop gallery (`tools/build_prop_gallery.py --arena`, common-first, 6/batch on the no-relaunch arena):
+  basics (`chest`/`tent`/`save_book`/`ladder`/`vat`/`aircab`) plus vehicles (`gargant`/`cab_carriage`/
+  `gondola`/`parade_float`/`luxury_cab`), statues + ritual (`neptune_statue`/`goddess_statue`/
+  `extraction_ring`/`altar`/`wind_mirror`), machinery (`gear_wall`/`hatchery`/`weight_lift`/`pull_chain`),
+  weapons (`dagger`/`spear`), and the Madain-Sari kitchen set (`fish`/`pot`/`fishing_rod`) —
+  `[[prop]] prop = "chest"` or `model` + `pose`. Aliases throughout; two props (`goddess_statue` GNT,
+  `collapsing_floor` KOS) have zeroed/offset origins → they render as a tiny dot alone (view them in-scene).
+  Deferred (spawned task): a `[field] location_name` option to hide the borrowed-BG location-name banner.
   **Composite set pieces:** `[[prop]] prop = "save_point"` places multi-part props co-located at one
   pos (`prop_archetypes.PROP_COMPOSITES`). Research (`tools/find_composite_props.py` finds co-located /
   `AttachObject`-bound object sets; `tools/dump_field_objects.py` inspects one field): co-located sets
