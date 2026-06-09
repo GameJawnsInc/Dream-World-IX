@@ -152,7 +152,7 @@ The named characters (the `SUB` models) -- place a specific story figure; same m
 
 ## Props (set dressing)
 
-Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0_..."` + `pose`). NOT characters -- no head-tracking; each holds its canonical pose (baked from shipping fields). 26 names.
+Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0_..."` + `pose`). NOT characters -- no head-tracking; each holds its canonical pose (baked from shipping fields). 28 names.
 
 | Prop | Aliases | Model | Appears in |
 |---|---|---|---|
@@ -176,6 +176,7 @@ Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0
 | `vat` | `tank` | `GEO_ACC_F0_BBT` | Dali/Underground; Dali/Field -- 3 fields |
 | `aircab` | `aircab_car` | `GEO_ACC_F0_V10` | Lindblum/I.D. Station; Lindblum/B.D. Station; Lindblum/T.D. Station -- 4 fields |
 | `trap` | -- | `GEO_ACC_F0_ISB` | Pinnacle Rocks/Entry; I. Castle/Entrance; Earth Shrine/Passage -- 4 fields |
+| `scale` | `balance_scale` | `GEO_ACC_F0_TNB` | Palace/Rack; Palace/Odyssey -- 3 fields |
 
 ## Named characters
 

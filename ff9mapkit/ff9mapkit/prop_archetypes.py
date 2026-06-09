@@ -45,6 +45,8 @@ PROP_ARCHETYPES: dict = {
     "aircab": {"model": "GEO_ACC_F0_V10", "pose": 1608},        # V10 -- "Vehicle 10": the Lindblum aircab car (flies, has doors)
     "aircab_car": {"model": "GEO_ACC_F0_V10", "pose": 1608},    # alias of aircab
     "trap": {"model": "GEO_ACC_F0_ISB", "pose": 10689},         # ISB -- a static ancient-ruins trap mechanism (Ipsen's Castle / Pinnacle Rocks / Earth Shrine). TENTATIVE -- couldn't get a clear look
+    "scale": {"model": "GEO_ACC_F0_TNB", "pose": 12884},        # TNB -- the Desert Palace balance scale (JP "tenbin" 天秤); the Clay/Stone/Iron weights puzzle. (The weights WT1/2/3 are flag-gated puzzle objects -- not static.)
+    "balance_scale": {"model": "GEO_ACC_F0_TNB", "pose": 12884},  # alias of scale
 }
 
 

@@ -76,6 +76,7 @@ def main():
     min_n = 2
     if "--min" in sys.argv:
         min_n = int(sys.argv[sys.argv.index("--min") + 1])
+    pure = "--pure" in sys.argv          # only sets where EVERY part is an ACC prop (no characters)
     names = MFU.field_names()
     field2evt = {rec[0]: rec[1] for rec in FBG_TO_EVT.values()}
     evt2field = {rec[1].upper(): rec[0] for rec in FBG_TO_EVT.values()}
@@ -116,7 +117,11 @@ def main():
         for pos, models in bypos.items():
             if len(models) < min_n:
                 continue
-            if not any(grp(m) == "ACC" for m in models):   # focus on PROP composites
+            groups = [grp(m) for m in models]
+            if pure:
+                if not all(g == "ACC" for g in groups):     # every part an ACC prop
+                    continue
+            elif "ACC" not in groups:                       # at least one ACC prop
                 continue
             toks = frozenset(tok(m) for m in models)
             if len(toks) < 2:
