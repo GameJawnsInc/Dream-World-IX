@@ -118,13 +118,19 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   `Ff9mkDebugMenu.cs`; patch `memoria-patches/s22-debug-menu-f6.patch`). Boosters are manual
   (ini cheats + F1–F4). The *shipped* mod needs none of this — it's engine-independent.
   Revert engine → no-edits rebuild: `tools/restore_memoria_dll.py baseline`; true stock = re-run the patcher.
-- **F6 debug menu** (dev build, in-field): a draggable tabbed IMGUI popup —
+- **F6 debug menu** (dev build, in **FIELD and BATTLE** — in-game proven 2026-06-09): a draggable tabbed
+  IMGUI popup —
   **Warp** (reload field · warp to any registered custom id ≥4000) ·
   **Move** (teleport to x,z · right-click the field to copy the floor (x,z) under the cursor) ·
   **Cheats** (booster toggles · full-heal · give item/gil) ·
   **Flags** (get/set/clear a `gEventGlobal` story flag · snapshot/restore · reset-all) ·
-  **Time** (0.25–4× time-scale). **This SUPERSEDES the old single-key F6-reload / F10-reset
-  hotkeys — do not refer to those as current.**
+  **Time** (0.25–4× time-scale). The menu is a `DontDestroyOnLoad` MonoBehaviour so its OnGUI already
+  draws in battle; the F6 toggle gate (`UIKeyTrigger.Update`) was widened from `FieldHUD` to
+  `FieldHUD || BattleHUD`. In battle the field-only **Warp/Move** tabs show a "field only" note and
+  no-op; **Cheats/Flags/Time** operate on the shared party/flag/time state (handy for testing battle
+  maps). Battle is NOT auto-paused while open (so Time-tab slow-mo persists on close) and NGUI input
+  under the popup isn't blocked — keep the window top-left, off the battle command UI. **This SUPERSEDES
+  the old single-key F6-reload / F10-reset hotkeys — do not refer to those as current.**
 - **Canonical demo content:** two painted "Vivi" hut rooms — **4000** exterior + **4002**
   interior — door round-trip, a talking Vivi NPC, an encounter, and an **Alexandria (field 100)
   door**. The clean packaged copy lives in **`release/FF9CustomMap/`** (the known-good source).

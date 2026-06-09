@@ -12,16 +12,16 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..71064cff
+index 00000000..11649d55
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,583 @@
+@@ -0,0 +1,602 @@
 +using System;
 +using System.Collections.Generic;
 +using Memoria.Data;
 +using UnityEngine;
 +
-+// [ff9mapkit dev] One in-game debug menu (toggled by F6 from UIKeyTrigger) -- dev actions on ONE key +
++// [ff9mapkit dev] One in-game debug menu (toggled by F6 from UIKeyTrigger, in FIELD or BATTLE) -- dev actions on ONE key +
 +// a tabbed popup instead of one-hotkey-per-function. IMGUI/OnGUI overlay (the proven in-engine pattern,
 +// cf. OnScreenLog / the FieldCreator editor), self-bootstrapping persistent MonoBehaviour so it is
 +// always alive to receive OnGUI. Dev engine only; never part of the shipped mod.
@@ -72,6 +72,13 @@ index 00000000..71064cff
 +    public static Boolean IsOpen
 +    {
 +        get { return _instance != null && _instance._open; }
++    }
++
++    // The menu is allowed in field AND battle (UIKeyTrigger's F6 gate). In battle the field-only tabs
++    // (Warp/Move) no-op, so they show a note; Cheats/Flags/Time operate on the shared party/flag/time state.
++    private static Boolean InBattle
++    {
++        get { return PersistenSingleton<UIManager>.Instance.State == UIManager.UIState.BattleHUD; }
 +    }
 +
 +    private static void Ensure()
@@ -164,6 +171,11 @@ index 00000000..71064cff
 +    // ------------------------------------------------------------------- tabs
 +    private void DrawWarp()
 +    {
++        if (InBattle)
++        {
++            GUILayout.Label("Field only — warp/reload run from a field, not in battle.", _label);
++            return;
++        }
 +        if (GUILayout.Button("Reload field", _button))
 +            Reload(false);
 +        Section("Warp to field");
@@ -179,6 +191,11 @@ index 00000000..71064cff
 +
 +    private void DrawMove()
 +    {
++        if (InBattle)
++        {
++            GUILayout.Label("Field only — teleport / point-pick run from a field, not in battle.", _label);
++            return;
++        }
 +        Section("Teleport (x, z) on this field");
 +        GUILayout.BeginHorizontal();
 +        _txText = GUILayout.TextField(_txText, 7, _field, GUILayout.Width(78f));
@@ -540,6 +557,8 @@ index 00000000..71064cff
 +
 +    private String CurrentInfo()
 +    {
++        if (InBattle)
++            return String.Format("battle {0}   (Cheats / Flags / Time work here)", FF9StateSystem.Battle.battleMapIndex);
 +        Int32 id = FF9StateSystem.Common.FF9.fldMapNo;
 +        String name;
 +        if (!EventEngineUtils.eventIDToFBGID.TryGetValue(id, out name))
@@ -600,10 +619,10 @@ index 00000000..71064cff
 +    }
 +}
 diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
-index b8091950..6cd844cd 100644
+index b8091950..cdaad5e2 100644
 --- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
 +++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
-@@ -155,6 +155,18 @@ public class UIKeyTrigger : MonoBehaviour
+@@ -155,6 +155,21 @@ public class UIKeyTrigger : MonoBehaviour
              AccelerateKeyNavigation();
              if (HandleMenuControlKeyPressCustomInput())
                  return;
@@ -612,8 +631,11 @@ index b8091950..6cd844cd 100644
 +            // instead of one-hotkey-per-function. Read here (UIKeyTrigger.Update runs every render frame =
 +            // reliable GetKeyDown, unlike FieldMap.HonoLateUpdate's ~30fps tick which dropped presses) and
 +            // intercepted before HandleBoosterButton so F6 doesn't also fire the LvMax-disabled SFX. Dev
-+            // engine only; not part of the shipped mod.
-+            if (PersistenSingleton<UIManager>.Instance.State == UIManager.UIState.FieldHUD
++            // engine only; not part of the shipped mod. Allowed in FIELD and BATTLE -- the menu is a
++            // DontDestroyOnLoad MonoBehaviour so its OnGUI already draws in either; in battle the
++            // field-only tabs (Warp/Move) no-op + show a note, while Cheats/Flags/Time work.
++            UIManager.UIState st = PersistenSingleton<UIManager>.Instance.State;
++            if ((st == UIManager.UIState.FieldHUD || st == UIManager.UIState.BattleHUD)
 +                && UnityXInput.Input.GetKeyDown(KeyCode.F6))
 +            {
 +                Ff9mkDebugMenu.Toggle();
