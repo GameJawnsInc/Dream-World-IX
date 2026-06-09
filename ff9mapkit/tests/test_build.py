@@ -248,6 +248,54 @@ def test_story_flag_branching_builds(tmp_path):
     assert region.set_var(region.GLOB_BOOL, 200, 1) in allbytes
 
 
+SAVEPOINT = """
+[field]
+id = 4003
+name = "SAVEROOM"
+area = 11
+text_block = 1073
+
+[camera]
+pitch = 45
+
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+
+[player]
+spawn = [0, -300]
+
+[[prop]]                        # the composite: moogle + book co-located at one (x, z)
+prop = "save_point"
+pos = [-100, -600]
+"""
+
+
+def test_save_point_composite_places_both_parts(tmp_path):
+    """`prop = "save_point"` expands to BOTH co-located parts (moogle 2904 + book 1872), not one object."""
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.eb.disasm import iter_code
+    from ff9mapkit import prop_archetypes as PA
+    p = tmp_path / "save.field.toml"
+    p.write_text(SAVEPOINT, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    eb = EbScript.from_bytes(ModLayout(out).eb_path("us", "EVT_SAVEROOM.eb.bytes").read_bytes())
+    SET_STAND = 0x33
+    stand_poses = set()
+    for e in eb.entries:
+        if e.empty:
+            continue
+        f0 = e.func_by_tag(0)
+        if not f0:
+            continue
+        for ins in iter_code(eb.data, f0.abs_start, f0.abs_end):
+            if ins.op == SET_STAND:
+                stand_poses.add(int.from_bytes(eb.data[ins.off + 2:ins.off + 4], "little"))
+    expected = {pose for _, pose, _, _ in PA.resolve_composite("save_point")}   # {2904 moogle, 1872 book}
+    assert expected <= stand_poses, (expected, stand_poses)
+
+
 THREECAM = """
 [field]
 id = 4003

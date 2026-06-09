@@ -45,7 +45,7 @@ PROP_ARCHETYPES: dict = {
     "aircab": {"model": "GEO_ACC_F0_V10", "pose": 1608},        # V10 -- "Vehicle 10": the generic/station Lindblum aircab car (flies, has doors); cf. `cab_carriage` (TRK) = the high-res rideable carriage
     "aircab_car": {"model": "GEO_ACC_F0_V10", "pose": 1608},    # alias of aircab
     "trap": {"model": "GEO_ACC_F0_ISB", "pose": 10689},         # ISB -- likely the Gargan Roo TRACK/RAIL the Gargant (GRG) rides (in-game: GRG connects to ISB paths), not a trap; also Ipsen's/Pinnacle/Earth Shrine. TENTATIVE
-    "scale": {"model": "GEO_ACC_F0_TNB", "pose": 12884},        # TNB -- the Desert Palace balance scale (JP "tenbin" 天秤). The four weights are `wood_weight`/`clay_weight`/`stone_weight`/`iron_weight` (WT0-3); flag-gated in the puzzle, but render fine static.
+    "scale": {"model": "GEO_ACC_F0_TNB", "pose": 12884},        # TNB -- the Desert Palace balance scale (JP "tenbin" 天秤). The four weights are `wood_weight`/`clay_weight`/`stone_weight`/`iron_weight` (WT0-3); flag-gated in the puzzle, but render fine static. The full at-rest set piece (scale + weights) is the `scale_set` composite.
     "balance_scale": {"model": "GEO_ACC_F0_TNB", "pose": 12884},  # alias of scale
     # -- set dressing identified via the prop gallery (token -> what it is) --
     "orange_fish": {"model": "GEO_ACC_F0_FS1", "pose": 10751},   # FS1 -- the orange fish (alias of `fish`); Madain Sari kitchen
@@ -150,14 +150,18 @@ PROP_ARCHETYPES: dict = {
 }
 
 
-# Composite props -- a multi-part set piece built from several objects placed at ONE (x, z). Found via
-# tools/find_composite_props.py (co-located object sets in shipping fields). Key fact from field 300:
-# every part sits at the SAME (x, z) with y=0 -- the floating feather/letter are baked into the MODELS,
-# not script Y-offsets -- so a composite is just "place these parts at the prop's pos." Each part is
-# (GEO model name, canonical pose id, optional group hint).
+# Composite props -- a multi-part set piece: several objects placed at the prop's (x, z), each with an
+# optional (dx, dz) offset. Found via tools/find_composite_props.py + dump_field_objects.py. Most parts
+# CO-LOCATE at one (x, z), y=0 (field 300's save point -- the floating feather/letter are baked into the
+# MODELS, not script offsets); a few sit BESIDE the anchor (field 2203's scale -- the wood weight is
+# offset from the scale body). Each part is (GEO model name, pose id) OR (GEO, pose, dx, dz).
 #
-# NOT WIRED YET -- the `prop = "save_point"` build step + an in-game check is the next task. The save
-# point set {MOG, MGR, MGP, LTT} co-locates in 47 shipping fields (by far the most common composite).
+# WIRED -- build.py expands `prop = "save_point"` to one inject_prop per part at the prop's (x, z). The
+# save set {MOG, MGR, MGP, LTT} co-locates in 47 shipping fields (the most common composite); only MOG
+# (moogle) + MGR (book) are placed STATIC -- MGP (feather)/LTT (letter) show ONLY during the save
+# animation (their tag-37 does SetObjectFlags(7) = show bit; at rest flags(14) hides them -- field 300 e5).
+# In-game: VERIFIED (2026-06-09) -- the moogle sits ON the book, co-located + facing down toward the
+# player (the default facing is correct, no `face` needed); renders clean next to a normal single prop.
 PROP_COMPOSITES: dict = {
     "save_point": [                       # the iconic moogle save point (Ice Cavern field 300, +46 more)
         ("GEO_NPC_F0_MOG", 2904),         # the moogle (an NPC model, placed static -- sits on the book)
@@ -167,6 +171,17 @@ PROP_COMPOSITES: dict = {
         # their resting pose is tucked away. They only animate into view during the SAVE interaction (the
         # feather's tag-37 func does RunAnimation(4652) + SetObjectFlags(7)=show -- the moogle writing). So
         # they add nothing to a STATIC set piece -- omitted here. (In-game-verified: only moogle+book show.)
+    ],
+    "scale_set": [                        # the Desert Palace balance scale LOADED at rest (static set piece; field 2203 "Rack")
+        ("GEO_ACC_F0_TNB", 2561),         # scale -- field 2203's loaded/tilted pose (the `scale` archetype's even 12884 is the EMPTY pose)
+        ("GEO_ACC_F0_WT1", 6263),         # clay weight  -- lifted onto a pan (field 2203's on-pan pose)
+        ("GEO_ACC_F0_WT2", 6267),         # stone weight -- on a pan
+        ("GEO_ACC_F0_WT3", 6271),         # iron weight  -- on a pan
+        ("GEO_ACC_F0_WT0", 12888, 188, -102),  # wood weight -- on the ground BESIDE the scale (offset from field 2203)
+        # These are field 2203's AT-REST poses, NOT the weights' canonical archetype poses (13132/13128/13124 =
+        # their off-scale state -- co-located with the scale BODY those sit low + hidden inside it; 6263/6267/6271
+        # lift them onto the pans). Field 2204 ("Odyssey") spreads the weights out = the live PUZZLE, not a set piece.
+        # In-game: VERIFIED (2026-06-09) -- 3 weights on the (loaded, tilted) scale + the wood weight beside it.
     ],
 }
 
@@ -198,10 +213,15 @@ def is_composite(name) -> bool:
 
 
 def resolve_composite(name):
-    """``[(model_id, pose_id), ...]`` -- the parts of a composite prop; each is placed at the prop's
-    ``pos`` (they co-locate at one (x, z), y=0, the way shipping fields build them). Raises ValueError on
-    an unknown composite (listing the known ones)."""
+    """``[(model_id, pose_id, dx, dz), ...]`` -- the parts of a composite prop, each placed at the prop's
+    ``pos`` plus its (dx, dz) offset. Most parts co-locate (dx=dz=0, the way a save point stacks); a few
+    sit beside the anchor (the scale's side weight). Raises ValueError on an unknown composite."""
     key = str(name).strip().lower()
     if key not in PROP_COMPOSITES:
         raise ValueError(f"unknown composite prop {name!r}. Known: {', '.join(sorted(PROP_COMPOSITES))}.")
-    return [(_catalog.resolve_model(geo), int(pose)) for geo, pose in PROP_COMPOSITES[key]]
+    parts = []
+    for part in PROP_COMPOSITES[key]:
+        geo, pose = part[0], part[1]
+        dx, dz = (int(part[2]), int(part[3])) if len(part) >= 4 else (0, 0)
+        parts.append((_catalog.resolve_model(geo), int(pose), dx, dz))
+    return parts

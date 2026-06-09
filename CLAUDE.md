@@ -397,12 +397,13 @@ Read these on demand — they hold the full technical detail this file only summ
   `[[prop]] prop = "chest"` or `model` + `pose`. Aliases throughout; two props (`goddess_statue` GNT,
   `collapsing_floor` KOS) have zeroed/offset origins → they render as a tiny dot alone (view them in-scene).
   Deferred (spawned task): a `[field] location_name` option to hide the borrowed-BG location-name banner.
-  **Composite set pieces:** `[[prop]] prop = "save_point"` places multi-part props co-located at one
-  pos (`prop_archetypes.PROP_COMPOSITES`). Research (`tools/find_composite_props.py` finds co-located /
-  `AttachObject`-bound object sets; `tools/dump_field_objects.py` inspects one field): co-located sets
-  are mostly a **visible anchor + dynamic/puzzle parts hidden at rest** — save point = moogle+book (the
-  feather/letter are save-animation, `SetObjectFlags(14)`+tucked pose); the "rack" is the Desert Palace
-  **`scale`** (TNB), its weights flag-gated. So `save_point` is the one clean STATIC composite.
+  **Composite set pieces (in-game verified):** `[[prop]] prop = "<name>"` expands (build.py) to several parts,
+  each at the prop's (x,z) plus an optional per-part `(dx,dz)` offset (`prop_archetypes.PROP_COMPOSITES`; tools:
+  `find_composite_props.py` / `dump_field_objects.py`). Two ship: **`save_point`** (moogle ON book, co-located;
+  the feather/letter are save-animation-only, omitted) and **`scale_set`** (the Desert Palace scale `TNB` LOADED
+  — clay/stone/iron on the pans + the wood weight offset beside it). **Pose gotcha:** a set piece often needs a
+  field-SPECIFIC pose, not the archetype's cross-field-canonical one — the weights canonically pose OFF-scale
+  (hidden inside the body when co-located); field 2203's on-pan poses (6263/6267/6271, scale 2561) render the rack.
   **Held items (`AttachObject` 0x4C):** **`[[npc]] holds = "save_the_queen"`** puts a prop in an NPC's
   hand — attaches at the right hand-bone AND poses BOTH the prop and the holder, **auto-resolved for
   this holder's model** from a catalog of every shipping `AttachObject` (`tools/extract_attach_poses.py`

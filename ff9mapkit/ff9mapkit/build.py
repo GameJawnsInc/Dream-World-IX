@@ -1109,18 +1109,18 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             mid, pose = _prop_archetypes.resolve(name)
             if p.get("pose") is not None:                   # explicit pose still overrides the baked one
                 pose = _resolve_prop_pose(mid, p["pose"])
-            parts = [(mid, pose)]
+            parts = [(mid, pose, 0, 0)]
         else:                                               # a raw model + optional pose
             mid = resolve_npc_model(p.get("model"))
-            parts = [(mid, _resolve_prop_pose(mid, p.get("pose")))]
+            parts = [(mid, _resolve_prop_pose(mid, p.get("pose")), 0, 0)]
         at = p.get("attach_to")                             # bind the prop to a named NPC's bone (held item)
         attach_slot = npc_slots.get(at) if at is not None else None
         if at is not None and attach_slot is None:
             raise ValueError(f"[[prop]] attach_to {at!r} is not a defined [[npc]] name")
         bone = int(p.get("bone", 11))
-        for mid, pose in parts:
+        for mid, pose, dx, dz in parts:                     # a composite may offset a part from the anchor
             slot = EbScript.from_bytes(eb).first_free_slot()
-            eb = _prop.inject_prop(eb, x, z, model=mid, pose=pose, face=face, slot=slot,
+            eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face, slot=slot,
                                    attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs)
 
     # gateways

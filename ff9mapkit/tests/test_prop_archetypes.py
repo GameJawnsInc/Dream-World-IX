@@ -35,7 +35,11 @@ def test_composites_resolve_to_real_multi_part_sets():
     for name in PA.PROP_COMPOSITES:
         parts = PA.resolve_composite(name)
         assert len(parts) >= 2, name                      # a composite is multi-part
-        for mid, pose in parts:
+        for mid, pose, dx, dz in parts:
             assert isinstance(mid, int) and mid > 0, (name, mid)
             assert isinstance(pose, int) and pose > 0, (name, pose)
+            assert isinstance(dx, int) and isinstance(dz, int), (name, dx, dz)
             assert C.model(mid) is not None, (name, mid)  # every part is a real model
+    # the scale set piece offsets its side weight from the anchor; the save point co-locates everything
+    assert any(dx or dz for _, _, dx, dz in PA.resolve_composite("scale_set"))
+    assert all(dx == 0 and dz == 0 for _, _, dx, dz in PA.resolve_composite("save_point"))
