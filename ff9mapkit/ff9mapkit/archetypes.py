@@ -100,6 +100,17 @@ ARCHETYPES: dict = {
     "ticketmaster": {"model": "GEO_NPC_F0_TCK"},     # alias of ticket_master
     "little_girl": {"model": "GEO_NPC_F0_TGR"},      # TGR ("Tag Girl" -- Alexandria kid, chases TBY)
     "girl": {"model": "GEO_NPC_F0_TGR"},             # alias of little_girl
+    "conductor": {"model": "GEO_NPC_F0_BND"},        # BND ("band" -- the Prima Vista's conductor)
+    "band_member": {"model": "GEO_NPC_F0_BND"},      # alias of conductor (a Tantalus musician)
+    "alexandria_woman": {"model": "GEO_NPC_F0_TMF"}, # TMF (an Alexandria townswoman -- e.g. Hippaul's mother)
+    "hippauls_mom": {"model": "GEO_NPC_F0_TMF"},     # alias (the named Alexandria mother)
+    "innkeeper": {"model": "GEO_NPC_F0_TMM"},        # TMM (Alexandria townsman / the inn keeper, "Fish Man")
+    "fish_man": {"model": "GEO_NPC_F0_TMM"},         # alias of innkeeper (the named Alexandria man)
+    "servant": {"model": "GEO_NPC_F0_TRF"},          # TRF (a noble's servant -- e.g. Queen Stella's, in Treno)
+    "stellas_servant": {"model": "GEO_NPC_F0_TRF"},  # alias of servant
+    "worker": {"model": "GEO_NPC_F0_WRK"},           # WRK ("worker" -- a laborer, e.g. Dante the Alexandria signmaker)
+    "signmaker": {"model": "GEO_NPC_F0_WRK"},        # alias of worker
+    "dante": {"model": "GEO_NPC_F0_WRK"},            # alias (the named Alexandria signmaker)
 }
 
 
