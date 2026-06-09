@@ -76,7 +76,8 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                anims=None, talk_text_id: int = 62, slot: int | None = None,
                spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                gate_flag: int | None = None, gate_require_set: bool = True,
-               intro: bytes | None = None, speak_body: bytes | None = None) -> bytes:
+               intro: bytes | None = None, speak_body: bytes | None = None,
+               init_tail: bytes | None = None) -> bytes:
     """Inject an NPC at world (x, z). Returns new .eb bytes.
 
     ``gate_flag`` (a GlobBool index) makes the NPC conditional: its Init returns early -- so it never
@@ -121,6 +122,15 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
             if name in anims:
                 o = loc["stand"] + 4 * k
                 body0[o:o + 2] = pu16(anims[name])
+
+    # 4a) optional init tail -- the PROP recipe runs here: bytes (EnableHeadFocus(0), SetObjectFlags, ...)
+    # appended to the END of Init, after CreateObject + model + anims and just before func0's RETURN, so
+    # they apply to the freshly created object (mirrors how real FF9 prop objects disable head-tracking).
+    # body0 grows; the func table is rebuilt from body lengths below, so fpos stays correct.
+    if init_tail:
+        if not body0 or body0[-1] != opcodes.RETURN[0]:
+            raise ValueError("func0 does not end with RETURN; cannot append init_tail")
+        body0 = body0[:-1] + bytearray(init_tail) + body0[-1:]
 
     # 4b) optional story-flag gate: prepend `ifnot (flag) return` to the Init so a gated-out NPC
     # returns before CreateObject -> no model, absent. (body0 grows; the func table is rebuilt from

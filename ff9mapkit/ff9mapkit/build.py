@@ -34,6 +34,7 @@ from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
 from .content import pathfind as _pathfind
+from .content import prop as _prop
 from .content import region as _region
 from .content import reinit as _reinit
 from .content import text as _text
@@ -565,6 +566,27 @@ def resolve_npc_model(value):
     return _catalog.resolve_model(value)
 
 
+def _resolve_prop_pose(mid, pose):
+    """A ``[[prop]] pose`` -> the animation id the prop is held at. ``pose`` may be an action NAME
+    ('close', 'save_open' -- resolved via the model->anim catalog), a raw id, or None. When omitted we
+    pick a sensible *resting* pose, preferring a real idle/closed state over the 'b'/'p' bind pose (the
+    bind pose reads as an OPEN chest / a bare moogle feather -- the in-game-verified gotcha)."""
+    actions = _catalog.animations_for_model(mid) if mid is not None else {}
+    if isinstance(pose, str):
+        if pose.strip().isdigit():
+            return int(pose)                       # a raw clip id as a string (e.g. a real SetStandAnimation id)
+        if pose in actions:
+            return actions[pose]
+        raise ValueError(f"[[prop]] pose {pose!r} isn't an action of this model "
+                         f"(have: {', '.join(sorted(actions)) or 'none'})")
+    if pose is not None:
+        return int(pose)
+    for cand in ("idle", "close", "stand", "save_open", "b", "p"):   # resting-state preference
+        if cand in actions:
+            return actions[cand]
+    return actions[sorted(actions)[0]] if actions else 0
+
+
 # --------------------------------------------------------------------------- scene assembly
 
 def camera_cfgs(project: FieldProject) -> list:
@@ -1036,6 +1058,17 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                              gate_flag=gf, gate_require_set=gs, intro=intro, speak_body=sb, **kwargs)
         if gf is not None:
             gated_npc_slots.setdefault(gf, []).append(slot)
+
+    # props (static set-dressing: SetModel + a fixed pose + EnableHeadFocus(0) -- a non-character object
+    # that does NOT turn to face the player, the real FF9 prop recipe). Same gating as an NPC.
+    for p in project.raw.get("prop", []):
+        pos = p["pos"]
+        mid = resolve_npc_model(p.get("model"))
+        pose = _resolve_prop_pose(mid, p.get("pose"))
+        gf, gs = _gate_of(p)
+        slot = EbScript.from_bytes(eb).first_free_slot()
+        eb = _prop.inject_prop(eb, int(pos[0]), int(pos[1]), model=mid, pose=pose,
+                               face=p.get("face"), slot=slot, gate_flag=gf, gate_require_set=gs)
 
     # gateways
     for gw in project.raw.get("gateway", []):
