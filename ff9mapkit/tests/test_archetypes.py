@@ -59,3 +59,18 @@ def test_curation_guard_every_archetype_is_fully_animated():
             continue
         assert model is not None, name
         assert anims and set(anims) == {"stand", "walk", "run", "left", "right"}, name
+
+
+def test_set_is_complete_every_field_npc_model_is_named():
+    """The gallery-ID loop is COMPLETE: every GEO_NPC field model that resolves to a full five-slot
+    anim set has a named archetype. If the catalog ever gains such a model that nobody named, this
+    fails -- so the "complete" claim can't silently rot. (Mirrors tools/build_archetype_gallery's
+    unnamed_tokens; lives here so it's guarded by the offline suite.)"""
+    slots = {"stand", "walk", "run", "left", "right"}
+    named = {C.model(AR.resolve(n)[0]).token for n in AR.names() if AR.resolve(n)[0] is not None}
+    unnamed = sorted(
+        m.token
+        for m in C.models(group="NPC", field_only=True)
+        if C.npc_anims(m.id) and set(C.npc_anims(m.id)) == slots and m.token not in named
+    )
+    assert unnamed == [], f"unnamed field-NPC tokens (name them in archetypes.py): {unnamed}"
