@@ -414,6 +414,17 @@ Read these on demand — they hold the full technical detail this file only summ
   earlier `tools/*bbg*` scripts were the proofs; the package supersedes them. Tier (c) (a brand-new
   bbg/scene + the moving CAMERA) remains the open frontier (camera computed in a closed DLL, data-driven
   via `{sceneId}.raw17`). Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
+- **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
+  name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
+  (`archetypes.py`, merged into `names()`/`resolve()`) holds only FIELD-PROVEN `GEO_MON` models (27 of 216
+  appear in shipping field scripts → they render + animate outside battle); named in-game via the gallery
+  loop (`tools/build_archetype_gallery.py --arena --group MON`, 4/batch — they're huge); 12 named so far
+  (lich/dahaka/zaghnol/red_dragon/antlion/griffin/…); battle-only models that DON'T render (e.g. `DDD`) go
+  in the gallery's `SKIP` set. The **arena** (`tools/build_debug_arena.py`) is a big flat **scrolling
+  checkerboard** debug stage for staging huge models without obstruction — pure-stdlib perspective
+  checkerboard (`scene/placeholder.write_placeholders`, auto-aligned via `cam.to_canvas`) + a flat walkmesh
+  + a scrolling camera, with **pitch-compensated** cells (world cells made ~1/sin(pitch) DEEPER so they read
+  square on the tilted floor); the gallery `--arena` flag stages a batch on it, ~1 screen per model.
 
 ---
 

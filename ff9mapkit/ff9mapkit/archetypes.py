@@ -154,15 +154,35 @@ ARCHETYPES: dict = {
 }
 
 
+# --- CREATURES (GEO_MON): place a battle monster as a field object by name. Only FIELD-PROVEN models
+# (they appear in shipping field scripts, so they render + animate outside battle). Identified in-game via
+# the arena gallery (`tools/build_archetype_gallery.py --arena --group MON`). Names are the canonical FF9
+# bestiary names; the token decode (where known) is in the comment.
+CREATURES: dict = {
+    "armodullahan": {"model": "GEO_MON_F0_AMD"},  # AMD -- the Fossil Roo boss (headless armored rider)
+    "amdusias": {"model": "GEO_MON_F0_AMS"},      # AMS -- Treno weapon-shop duel + Pandemonium enemy
+    "bandersnatch": {"model": "GEO_MON_F0_BAN"},  # BAN -- Queen Brahne's hunting hounds (Alexandria)
+    "zaghnol": {"model": "GEO_MON_F0_BFF"},       # BFF "Beast Festival Foe" -- the Festival of the Hunt boar
+    "red_dragon": {"model": "GEO_MON_F0_CDR"},    # CDR "Chocobo Dragon" -- Mount Gulug boss; reuses the chocobo quadruped rig (the dev trick for many large quadrupeds)
+    "antlion": {"model": "GEO_MON_F0_CLB"},       # CLB "CLeyra Boss" -- the Cleyra sandpit Antlion
+    "taharka": {"model": "GEO_MON_F0_DAH"},       # DAH -- Ipsen's Castle boss; JP ダハカ "Dahaka", localized to Taharka
+    "dahaka": {"model": "GEO_MON_F0_DAH"},        # alias of taharka (the JP name + the DAH token origin)
+    "lich": {"model": "GEO_MON_F0_EEE"},          # EEE -- Lich, the Earth Shrine boss (the Earth elemental fiend; "EEE" = Earth)
+    "prison_cage": {"model": "GEO_MON_F0_EFM"},   # EFM "Evil Forest Monster" -- the Evil Forest miniboss (cage-plant that captures Garnet)
+    "fang": {"model": "GEO_MON_F0_FFG"},          # FFG -- a Fang (dog-like monster), seen all over Lindblum
+    "griffin": {"model": "GEO_MON_F0_GRI"},       # GRI -- Griffin (the Treno Weapon Shop fight)
+}
+
+
 def names() -> list:
-    """Every archetype name (playable presets + curated NPC types), sorted."""
-    return sorted(set(_CHAR_PRESETS) | set(ARCHETYPES))
+    """Every archetype name (playable presets + curated NPC types + creatures), sorted."""
+    return sorted(set(_CHAR_PRESETS) | set(ARCHETYPES) | set(CREATURES))
 
 
 def is_archetype(name) -> bool:
     """True if ``name`` is a known archetype (case-insensitive)."""
     key = str(name).strip().lower()
-    return key in _CHAR_PRESETS or key in ARCHETYPES
+    return key in _CHAR_PRESETS or key in ARCHETYPES or key in CREATURES
 
 
 def resolve(name):
@@ -178,8 +198,8 @@ def resolve(name):
     if key in _CHAR_PRESETS:
         model, animset, anims = _CHAR_PRESETS[key]
         return model, animset, anims, None
-    if key in ARCHETYPES:
-        spec = ARCHETYPES[key]
+    spec = ARCHETYPES.get(key) or CREATURES.get(key)
+    if spec is not None:
         model = _catalog.resolve_model(spec["model"])
         anims = spec.get("anims") or _catalog.npc_anims(model) or None
         return model, spec.get("animset"), anims, spec.get("dialogue")
