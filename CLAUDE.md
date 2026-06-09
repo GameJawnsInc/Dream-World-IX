@@ -143,7 +143,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.6`, Blender add-on `0.9.6`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.8`, Blender add-on `0.9.6`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
