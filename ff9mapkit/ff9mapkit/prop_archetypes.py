@@ -48,6 +48,24 @@ PROP_ARCHETYPES: dict = {
 }
 
 
+# Composite props -- a multi-part set piece built from several objects placed at ONE (x, z). Found via
+# tools/find_composite_props.py (co-located object sets in shipping fields). Key fact from field 300:
+# every part sits at the SAME (x, z) with y=0 -- the floating feather/letter are baked into the MODELS,
+# not script Y-offsets -- so a composite is just "place these parts at the prop's pos." Each part is
+# (GEO model name, canonical pose id, optional group hint).
+#
+# NOT WIRED YET -- the `prop = "save_point"` build step + an in-game check is the next task. The save
+# point set {MOG, MGR, MGP, LTT} co-locates in 47 shipping fields (by far the most common composite).
+PROP_COMPOSITES: dict = {
+    "save_point": [                       # the iconic moogle save point (Ice Cavern field 300, +46 more)
+        ("GEO_NPC_F0_MOG", 2904),         # the moogle (an NPC model, placed static here)
+        ("GEO_ACC_F0_MGR", 1872),         # the save book
+        ("GEO_ACC_F0_MGP", 1874),         # the feather / quill (floats -- model-baked)
+        ("GEO_ACC_F0_LTT", 2479),         # the Mognet letter (floats -- model-baked)
+    ],
+}
+
+
 def names() -> list:
     """Every prop-archetype name, sorted."""
     return sorted(PROP_ARCHETYPES)
