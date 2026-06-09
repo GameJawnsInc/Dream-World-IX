@@ -40,6 +40,7 @@ from .content import reinit as _reinit
 from .content import text as _text
 from . import animations as _animations
 from . import archetypes as _archetypes
+from . import prop_archetypes as _prop_archetypes
 from . import catalog as _catalog
 from . import items as _items
 from . import data as _data
@@ -1063,8 +1064,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # that does NOT turn to face the player, the real FF9 prop recipe). Same gating as an NPC.
     for p in project.raw.get("prop", []):
         pos = p["pos"]
-        mid = resolve_npc_model(p.get("model"))
-        pose = _resolve_prop_pose(mid, p.get("pose"))
+        if p.get("prop") is not None:                       # a named prop archetype (model + baked pose)
+            mid, pose = _prop_archetypes.resolve(p["prop"])
+            if p.get("pose") is not None:                   # explicit pose still overrides the baked one
+                pose = _resolve_prop_pose(mid, p["pose"])
+        else:
+            mid = resolve_npc_model(p.get("model"))
+            pose = _resolve_prop_pose(mid, p.get("pose"))
         gf, gs = _gate_of(p)
         slot = EbScript.from_bytes(eb).first_free_slot()
         eb = _prop.inject_prop(eb, int(pos[0]), int(pos[1]), model=mid, pose=pose,

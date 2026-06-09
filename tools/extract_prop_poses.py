@@ -12,9 +12,11 @@ Usage:
   py tools/extract_prop_poses.py                 # every ACC prop + the no-walk NPC props
   py tools/extract_prop_poses.py TBX MGR MGP TNT # specific tokens (any group's GEO_*_F0_<tok>)
 """
+import json
 import os
 import sys
 from collections import Counter, defaultdict
+from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
@@ -24,6 +26,22 @@ from ff9mapkit.eb import EbScript
 from ff9mapkit.eb.disasm import iter_code
 
 SET_MODEL, SET_STAND_ANIM = 0x2F, 0x33
+CACHE = Path(__file__).parent / "prop_poses.json"     # model id -> canonical pose id (regenerable cache)
+
+
+def build_cache():
+    """(Re)build the model -> canonical pose cache from a full field scan. Returns {model_id: pose_id}."""
+    canon = {str(mid): c.most_common(1)[0][0] for mid, c in scan_poses().items()}
+    CACHE.write_text(json.dumps(canon), encoding="utf-8")
+    print(f"cached {len(canon)} model poses -> {CACHE.name}", file=sys.stderr)
+    return canon
+
+
+def pose_of(model_id, default=None):
+    """The canonical resting pose id for a model (builds the cache on first use)."""
+    if not CACHE.exists():
+        build_cache()
+    return json.loads(CACHE.read_text(encoding="utf-8")).get(str(int(model_id)), default)
 
 
 def scan_poses():
@@ -64,6 +82,9 @@ def scan_poses():
 
 
 def main():
+    if sys.argv[1:2] == ["--build"]:
+        build_cache()
+        return
     args = [a.upper() for a in sys.argv[1:]]
     poses = scan_poses()
     if args:
