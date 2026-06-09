@@ -87,6 +87,19 @@ ARCHETYPES: dict = {
     "auctioneer": {"model": "GEO_NPC_F0_ORC"},       # ORC (Treno Auction House)
     "scholar": {"model": "GEO_NPC_F0_OSC"},          # OSC (A. Castle Library)
     "burmecian_soldier": {"model": "GEO_NPC_F0_RAS"},  # RAS (Gizamaluke bell guards)
+    "red_mage_woman": {"model": "GEO_NPC_F0_RMF"},   # RMF (Red Mage, Female)
+    "red_mage_man": {"model": "GEO_NPC_F0_RMM"},     # RMM (Red Mage, Male)
+    "red_mage": {"model": "GEO_NPC_F0_RMM"},         # alias of red_mage_man
+    "puck": {"model": "GEO_NPC_F0_RTC"},             # RTC ("Rat Child" -- the Burmecian boy-thief Zidane befriends)
+    "lowell": {"model": "GEO_NPC_F0_STR"},           # STR ("star" -- the famous actor; HUF = his fan club)
+    "theater_star": {"model": "GEO_NPC_F0_STR"},     # alias of lowell
+    "tadpole": {"model": "GEO_NPC_F0_TAD"},          # TAD (Qu's Marsh)
+    "little_boy": {"model": "GEO_NPC_F0_TBY"},       # TBY ("Tag Boy" -- Alexandria kid, plays tag with TGR)
+    "boy": {"model": "GEO_NPC_F0_TBY"},              # alias of little_boy
+    "ticket_master": {"model": "GEO_NPC_F0_TCK"},    # TCK ("ticket" -- Alexandria play ticketmaster)
+    "ticketmaster": {"model": "GEO_NPC_F0_TCK"},     # alias of ticket_master
+    "little_girl": {"model": "GEO_NPC_F0_TGR"},      # TGR ("Tag Girl" -- Alexandria kid, chases TBY)
+    "girl": {"model": "GEO_NPC_F0_TGR"},             # alias of little_girl
 }
 
 
