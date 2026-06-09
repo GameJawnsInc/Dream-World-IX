@@ -47,6 +47,11 @@ PROP_ARCHETYPES: dict = {
     "trap": {"model": "GEO_ACC_F0_ISB", "pose": 10689},         # ISB -- a static ancient-ruins trap mechanism (Ipsen's Castle / Pinnacle Rocks / Earth Shrine). TENTATIVE -- couldn't get a clear look
     "scale": {"model": "GEO_ACC_F0_TNB", "pose": 12884},        # TNB -- the Desert Palace balance scale (JP "tenbin" 天秤); the Clay/Stone/Iron weights puzzle. (The weights WT1/2/3 are flag-gated puzzle objects -- not static.)
     "balance_scale": {"model": "GEO_ACC_F0_TNB", "pose": 12884},  # alias of scale
+    # -- common HELD items (place static via [[prop]], or via [[npc]] holds = "cup" -> auto held pose) --
+    "cup": {"model": "GEO_ACC_F0_CUP", "pose": 1894},           # CUP -- a cup / tankard (held by drinkers)
+    "glass": {"model": "GEO_ACC_F0_GRS", "pose": 8239},         # GRS -- a drinking glass (bartender / pub)
+    "ticket": {"model": "GEO_ACC_F0_TKT", "pose": 10359},       # TKT -- a play / theater ticket
+    "bottle": {"model": "GEO_ACC_F0_BON", "pose": 813},         # BON -- a bottle (the Doom Pub); tentative
 }
 
 

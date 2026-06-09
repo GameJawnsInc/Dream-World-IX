@@ -41,6 +41,7 @@ from .content import text as _text
 from . import animations as _animations
 from . import archetypes as _archetypes
 from . import prop_archetypes as _prop_archetypes
+from ._held_poses import HELD_POSES                  # (carrier_model, prop_model) -> (bone, held_pose)
 from . import catalog as _catalog
 from . import items as _items
 from . import data as _data
@@ -588,6 +589,14 @@ def _resolve_prop_pose(mid, pose):
     return actions[sorted(actions)[0]] if actions else 0
 
 
+def _resolve_held_model(value):
+    """A ``[[npc]] holds`` entry -> the held prop's model id. ``value`` is a prop-archetype name
+    ('cup', 'sword', 'glass') or a model id / GEO name ('GEO_ACC_F0_GRS')."""
+    if _prop_archetypes.is_prop_archetype(value):
+        return _prop_archetypes.resolve(value)[0]
+    return resolve_npc_model(value)
+
+
 # --------------------------------------------------------------------------- scene assembly
 
 def camera_cfgs(project: FieldProject) -> list:
@@ -1043,6 +1052,23 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             if mid is not None and not anims:
                 anims = _catalog.npc_anims(mid) or None    # any model by name -> its own gestures (Info Hub)
             kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
+        # held items resolved EARLY (before injecting the NPC): each held prop's (model, bone, held pose)
+        # AND the HOLDER's own holding pose, from HELD_POSES per (this holder's model, prop). We re-pose
+        # the holder to hold -- else it idles and the prop looks wrong (a sword held backwards). A pairing
+        # not in the catalog falls back to bone 11 + the prop's resting pose with no holder re-pose.
+        carrier_model = kwargs.get("model")
+        _holds = n.get("holds")
+        _holds = _holds if isinstance(_holds, list) else ([_holds] if _holds is not None else [])
+        holds_specs, holder_pose = [], None
+        for hv in _holds:
+            pmid = _resolve_held_model(hv)
+            bp = HELD_POSES.get((carrier_model, pmid))
+            hbone, hpose, hcpose = bp if bp else (11, _resolve_prop_pose(pmid, None), None)
+            holds_specs.append((pmid, hbone, hpose))
+            if holder_pose is None and hcpose:
+                holder_pose = hcpose
+        if holder_pose and not n.get("anims") and isinstance(kwargs.get("anims"), dict):
+            kwargs["anims"] = {**kwargs["anims"], "stand": holder_pose}   # pose the holder to hold
         gf, gs = _gate_of(n)
         slot = EbScript.from_bytes(eb).first_free_slot()
         intro = actor_choreo if (cs_actor and n.get("name") == cs_actor) else None
@@ -1062,6 +1088,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             gated_npc_slots.setdefault(gf, []).append(slot)
         if n.get("name") is not None:
             npc_slots[n["name"]] = slot
+        # attach the held prop(s) to this NPC's bone (resolved above, before the holder was injected)
+        for pmid, hbone, hpose in holds_specs:
+            hslot = EbScript.from_bytes(eb).first_free_slot()
+            eb = _prop.inject_prop(eb, int(pos[0]), int(pos[1]), model=pmid, pose=hpose,
+                                   slot=hslot, attach_to=slot, bone=hbone)
 
     # props (static set-dressing: SetModel + a fixed pose + EnableHeadFocus(0) -- a non-character object
     # that does NOT turn to face the player, the real FF9 prop recipe). Same gating as an NPC.

@@ -204,6 +204,7 @@ walkmesh exports as one floor. Multi-floor meshes use the world frame directly (
 | `tail` | the dialogue window's pointer corner (`UPR` default). See below. |
 | `requires_flag` | GlobBool index — the NPC only **appears** when that story flag is SET (its Init returns early otherwise: no model, not interactable). For story-gated characters. |
 | `requires_flag_clear` | …only appears when the flag is CLEAR (the inverse — e.g. an NPC that leaves once an event fires). |
+| `holds` | a **prop the NPC holds in hand** — a prop-archetype name (`"cup"`, `"sword"`, `"save_the_queen"`) or a model, or a **list** of them. The kit attaches each prop to the right hand-bone *and* poses the prop + the holder correctly, **auto-resolved for this holder's model** from the shipping `AttachObject` catalog (`tools/extract_attach_poses.py` → `_held_poses.py`). So `holds = "save_the_queen"` on a `beatrix` puts the sword in her hand at her real holding pose. A (holder, prop) pair not in the catalog falls back to bone 11 + the prop's resting pose (and leaves the holder's pose alone). |
 
 ### Speaker names & the dialogue tail
 

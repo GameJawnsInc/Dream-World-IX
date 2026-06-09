@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ff9mapkit import data
 from ff9mapkit.content import (camera, choice, cutscene, encounter, event, gateway, music, npc,
-                               region, reinit, text)
+                               prop, region, reinit, text)
 from ff9mapkit.eb import EbScript, opcodes
 from ff9mapkit.eb.disasm import iter_code
 
@@ -617,3 +617,44 @@ def test_text_mes_format_and_mapping():
     body, mapping = text.build_mes(["hello", "world"], start_txid=500)
     assert mapping == {0: 500, 1: 501}
     assert "[TXID=501]" in body and body.endswith("\n")
+
+
+# ----- prop attachment (held items) + the IsActuallyTalkable bounds fix -----
+
+def test_npc_talk_func_is_at_least_9_bytes():
+    """The engine's IsActuallyTalkable reads tag3[ip+7]/[ip+8]; the NPC talk func must be >= 9 bytes or
+    that indexes past the entry buffer -> a per-frame IndexOutOfRange near the NPC (the latent bug)."""
+    out = npc.inject_npc(CLEAN, 0, 0, preset="vivi", slot=EbScript.from_bytes(CLEAN).first_free_slot())
+    e = next(en for en in EbScript.from_bytes(out).entries if not en.empty and en.func_by_tag(3))
+    f3 = e.func_by_tag(3)
+    assert f3.abs_end - f3.abs_start >= 9
+
+
+def test_bare_prop_is_init_only():
+    """A non-interactive prop is Init-only (1 func, no tag-3) -> IsActuallyTalkable short-circuits."""
+    out = prop.inject_prop(CLEAN, 0, 0, model=75, pose=7339,
+                           slot=EbScript.from_bytes(CLEAN).first_free_slot())
+    chest = next(e for e in EbScript.from_bytes(out).entries if not e.empty and any(
+        ins.op == 0x2F and int.from_bytes(out[ins.off + 2:ins.off + 4], "little") == 75
+        for f in e.funcs for ins in iter_code(out, f.abs_start, f.abs_end)))
+    assert [f.tag for f in chest.funcs] == [0]
+
+
+def test_prop_attach_emits_attachobject():
+    """attach_to binds the prop to the carrier's bone: AttachObject(prop_slot, carrier_slot, bone)."""
+    cslot = EbScript.from_bytes(CLEAN).first_free_slot()
+    out = npc.inject_npc(CLEAN, 0, 0, preset="vivi", slot=cslot)
+    pslot = EbScript.from_bytes(out).first_free_slot()
+    out = prop.inject_prop(out, 0, 0, model=234, pose=8238, slot=pslot, attach_to=cslot, bone=11)
+    attaches = [(out[ins.off + 2], out[ins.off + 3], out[ins.off + 4])
+                for e in EbScript.from_bytes(out).entries if not e.empty
+                for f in e.funcs for ins in iter_code(out, f.abs_start, f.abs_end) if ins.op == 0x4C]
+    assert (pslot, cslot, 11) in attaches
+
+
+def test_held_poses_catalog_shape_and_beatrix():
+    """HELD_POSES maps (carrier, prop) -> (bone, prop_pose, holder_pose); spot-check Beatrix + sword."""
+    from ff9mapkit import archetypes as AR, prop_archetypes as PA
+    from ff9mapkit._held_poses import HELD_POSES
+    assert HELD_POSES[(AR.resolve("beatrix")[0], PA.resolve("save_the_queen")[0])] == (16, 1894, 2978)
+    assert all(len(v) == 3 and all(isinstance(x, int) for x in v) for v in HELD_POSES.values())
