@@ -29,6 +29,17 @@ ARCHETYPES: dict = {
     # -- common NPC types (grow this as models are confirmed in-game) --
     "black_mage": {"model": "GEO_NPC_F0_BMG"},     # verified in-game
     "moogle": {"model": "GEO_NPC_F0_MOG"},         # the FF moogle code
+    # -- identified via the in-game gallery (token -> what the model actually is) --
+    "townswoman": {"model": "GEO_NPC_F0_APF"},       # APF "Adult Person Female"
+    "woman": {"model": "GEO_NPC_F0_APF"},            # alias of townswoman
+    "townsman": {"model": "GEO_NPC_F0_APM"},         # APM "Adult Person Male"
+    "man": {"model": "GEO_NPC_F0_APM"},              # alias of townsman
+    "bartender": {"model": "GEO_NPC_F0_BAR"},        # BAR
+    "old_woman": {"model": "GEO_NPC_F0_BBA"},        # BBA (JP "baba" = granny)
+    "granny": {"model": "GEO_NPC_F0_BBA"},           # alias of old_woman
+    "oglop": {"model": "GEO_NPC_F0_BRI"},            # BRI (JP "burimushi" = the Oglop bug)
+    "burmecian_child": {"model": "GEO_NPC_F0_BUC"},  # BUC
+    "burmecian_woman": {"model": "GEO_NPC_F0_BUF"},  # BUF
 }
 
 

@@ -83,3 +83,6 @@ release/*.zip
 # pip editable-install metadata
 *.egg-info/
 build/
+
+# dev tooling cache (model->field-usage index; game-derived, regenerable via --build)
+tools/model_field_usage.json
