@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import LANGS, ModLayout
+from . import event_data as _event_data
 from . import fbx as _fbx
 from . import scene_data as _scene_data
 
@@ -170,10 +171,26 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
         (scene_out / "dbfile0000.raw16.bytes").write_bytes(raw16)
         shutil.copyfile(sd / "btlseq.raw17.bytes", scene_out / f"{sid}.raw17.bytes")
         written += [scene_out / "dbfile0000.raw16.bytes", scene_out / f"{sid}.raw17.bytes"]
+
+        # spawn composition re-authors the eb's Main_Init to bind one enemy-AI object per spawned slot, so
+        # the AI binding matches the (now-uniform) pattern -- this is what lets a mint EXCEED the donor's
+        # natural enemy count without the player-model twitch. slot types come from the patched raw16.
+        scene_cfg = project.raw.get("scene")
+        slot_types = None
+        if isinstance(scene_cfg, dict) and "monster_count" in scene_cfg:
+            mc = raw16[9]                                          # pattern 0 MonsterCount (now uniform)
+            slot_types = [raw16[8 + 8 + 12 * s] for s in range(mc)]
         for lang in LANGS:
             eb_dst = layout.battle_eb_path(lang, name)
             eb_dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(sd / "eb" / f"{lang}.eb.bytes", eb_dst)
+            eb = (sd / "eb" / f"{lang}.eb.bytes").read_bytes()
+            if slot_types is not None:
+                try:
+                    eb = _event_data.rewrite_main_init(eb, slot_types)
+                except ValueError as ex:
+                    raise BattleBuildError(f"spawn composition needs a Main_Init re-author this donor "
+                                           f"can't support: {ex}")
+            eb_dst.write_bytes(eb)
             mes_dst = layout.battle_text_dir(lang) / f"{sid}.mes"
             mes_dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(sd / "mes" / f"{lang}.mes", mes_dst)

@@ -462,15 +462,17 @@ Read these on demand — they hold the full technical detail this file only summ
   speed/strength/magic/spirit), **rewards** (`drop`/`steal`, items by name), and **camera** pose — the kit
   surgically patches the forked `raw16` (only edited bytes change) keeping enemy TYPES so raw17 stays valid
   (`battle/scene_data.py`; confirmed in-game: Goblin/Fang HP 33→1 one-shot + 9999 gil/999 exp/Phoenix Down).
-  Also **spawn composition** (`monster_count` + per-slot `type`, existing types only) — recompose the
-  encounter — but **`monster_count` is CAPPED at the donor's authored enemy count** (max original pattern
-  MonsterCount): the forked AI (eb) only creates that many enemy-AI Actor objects, so spawning more leaves
-  the extra enemy with no AI object and its death misroutes into the player's event object → the PLAYER
-  model twitches (`EventEngine.RequestAction` → null `_objPtrList[6/7]`; root-caused via an ultracode
-  workflow). Exceeding it errors (or warns under `allow_overspawn`); MORE enemies needs a custom battle eb.
-  **Open frontiers (both need authoring the battle eb/raw17, the kit ships them verbatim):** (1) spawn
-  beyond the donor's count, (2) a bespoke moving camera (closed native DLL). Full recipe + gotchas: memory
-  `project-ff9-battle-backgrounds`.
+  Also **spawn composition** (kit 0.9.8, in-game proven) — `monster_count` (1–4) + per-slot `type` (existing
+  types only) RECOMPOSE *and GROW* the encounter. The kit writes the composition to every pattern AND
+  **re-authors the battle eb's `Main_Init`** to bind one enemy-AI object per spawned slot
+  (`InitObject(1+type, 0x80+slot)`, reusing the donor's per-type AI entries — entry `1+T` = type T's AI;
+  `battle/event_data.py` + the new `eb/edit.replace_function_body`). This BROKE THE DONOR-COUNT LIMIT: a
+  mint can now spawn more enemies than the donor natively did (1-enemy EF_R007 → four Goblins, no
+  player-model twitch — every slot has a real AI object, so no death misroutes into the player via
+  `EventEngine.RequestAction`). Root-caused via an ultracode workflow; the old `monster_count` cap is gone
+  (errors only if a needed per-type AI entry is absent). **One open frontier left:** a bespoke moving
+  battle camera (closed native `FF9SpecialEffectPlugin.dll`; donor/static cameras already work). Full
+  recipe + gotchas: memory `project-ff9-battle-backgrounds`.
 - **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
   (`archetypes.py`, merged into `names()`/`resolve()`) holds field-RENDERABLE `GEO_MON` models (verified

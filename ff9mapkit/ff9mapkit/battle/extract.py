@@ -379,9 +379,9 @@ scene_name = "{name}"     # -> EVT_BATTLE_{name} + BSC_{name}{tint}
 # forked attack sequences stay valid) -- you reposition / restat / re-reward them and pick the camera.
 # [scene]
 # camera = 2                 # pattern camera: 0/1/2 = a fixed PSX pose, >=3 = random (default = donor's)
-# monster_count = 2          # how many of the 4 slots SPAWN. CAPPED at the donor's authored enemy count
-# #                            (its forked AI only creates that many enemy actors; more -> the extra
-# #                            enemy's death destabilizes the PLAYER). Give each active slot a 'type'.
+# monster_count = 4          # how many of the 4 slots SPAWN (1-4). The kit re-authors the eb's enemy-AI
+# #                            binding to match, so you CAN exceed the donor's natural count. Give each
+# #                            active slot a 'type' (an existing scene type).
 # [[scene.enemy]]
 # slot = 0                   # which placed enemy (0-3) in the pattern
 # type = 0                   # which enemy TYPE fills this slot (0..N-1; must be a type ALREADY in this

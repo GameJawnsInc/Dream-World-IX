@@ -120,6 +120,43 @@ def add_function(data, entry_index: int, tag: int, body: bytes) -> bytes:
     return bytes(out)
 
 
+def replace_function_body(data, entry_index: int, func_tag: int, new_body: bytes) -> bytes:
+    """Replace function ``func_tag``'s body in ``entry_index`` with ``new_body`` (any length).
+
+    Fixes the intra-entry ``fpos`` of every LATER function (shifted by the size delta), the entry's
+    declared size, and every later entry's table offset. A full-body replace needs no jump analysis
+    (the old body -- and any jumps inside it -- is discarded, and functions never jump into each other).
+    Used to re-author a battle eb's ``Main_Init`` (entry 0, tag 0) to ``InitObject`` one enemy-AI object
+    per spawned slot, so the eb's AI binding matches an edited spawn composition.
+    """
+    b = bytearray(_as_bytes(data))
+    slot = ENTRY_TABLE_OFF + entry_index * ENTRY_SLOT_SIZE
+    off, sz = u16(b, slot), u16(b, slot + 2)
+    if sz == 0:
+        raise ValueError(f"entry {entry_index} is empty")
+    es = ENTRY_TABLE_OFF + off
+    fc = b[es + 1]
+    fbase = es + 2
+    funcs = [(u16(b, fbase + i * 4), u16(b, fbase + i * 4 + 2)) for i in range(fc)]   # (tag, fpos)
+    idx = next((i for i, (t, _) in enumerate(funcs) if t == func_tag), None)
+    if idx is None:
+        raise ValueError(f"entry {entry_index} has no function tag {func_tag}")
+    body_start = fbase + funcs[idx][1]
+    body_end = (fbase + funcs[idx + 1][1]) if idx + 1 < fc else (es + sz)
+    delta = len(new_body) - (body_end - body_start)
+    out = bytearray(bytes(b[:body_start]) + bytes(new_body) + bytes(b[body_end:]))
+    for i in range(idx + 1, fc):                          # later funcs' bodies shifted by delta
+        set_u16(out, fbase + i * 4 + 2, funcs[i][1] + delta)
+    set_u16(out, slot + 2, sz + delta)                    # entry's declared size
+    for i in range(b[3]):                                 # later entries' table offsets
+        if i == entry_index:
+            continue
+        s2 = ENTRY_TABLE_OFF + i * ENTRY_SLOT_SIZE
+        if u16(out, s2 + 2) > 0 and u16(out, s2) > off:
+            set_u16(out, s2, u16(out, s2) + delta)
+    return bytes(out)
+
+
 def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins: bytes) -> bytes:
     """Insert ``ins`` into function ``func_tag``'s body at body offset ``rel_off`` (0 = prepend).
 

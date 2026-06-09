@@ -9,11 +9,13 @@ import textwrap
 
 import struct
 
-from ff9mapkit.battle import fbx
-from ff9mapkit.battle import scene_data
+import pytest
+
+from ff9mapkit.battle import event_data, fbx, scene_data
 from ff9mapkit.battle.build import (BattleProject, _author_inb, _bbg_number, build_battle_mod,
                                     validate_battle)
 from ff9mapkit.config import LANGS, ModLayout
+from ff9mapkit.eb.model import EbScript
 
 
 def _groups():
@@ -193,19 +195,47 @@ def test_build_mint_new_bbg_emits_full_scene_and_inb(tmp_path):
 
 # --------------------------------------------------------------------- scene_data (tune the fight)
 def _raw16(patcount=1, typcount=2, monster_count=2, put_flags=1):
-    """A synthetic BTL_SCENE raw16: 1 pattern (Camera=5, slots 0/2 -> type 0, slot 1 -> type 1) + N
-    monsters (MaxHP = 100+t). `put_flags` is each SB2_PUT.Flags (1 = FLG_TARGETABLE, like a real enemy)."""
+    """A synthetic BTL_SCENE raw16: ``patcount`` identical patterns (Camera=5, slots 0/2 -> type 0, slot 1
+    -> type 1) + N monsters (MaxHP = 100+t). `put_flags` is each SB2_PUT.Flags (1 = FLG_TARGETABLE)."""
     hdr = bytes([1, patcount, typcount, 0]) + struct.pack("<H", 0) + b"\x00\x00"
-    pat = bytes([10, monster_count, 5, 0]) + struct.pack("<I", 100)
-    for slot in range(4):
-        typeno = 1 if slot == 1 else 0
-        pat += bytes([typeno, put_flags, 0, 0]) + struct.pack("<hhhh", slot * 100, slot * 7, slot * -50, 0)
+    pats = b""
+    for _p in range(patcount):
+        pat = bytes([10, monster_count, 5, 0]) + struct.pack("<I", 100)
+        for slot in range(4):
+            typeno = 1 if slot == 1 else 0
+            pat += bytes([typeno, put_flags, 0, 0]) + struct.pack("<hhhh", slot * 100, slot * 7, slot * -50, 0)
+        pats += pat
     mons = b""
     for t in range(typcount):
         m = bytearray(116)                            # SB2_MON_PARM
         struct.pack_into("<H", m, 12, 100 + t)        # MaxHP
         mons += bytes(m)
-    return hdr + pat + mons
+    return hdr + pats + mons
+
+
+def _battle_eb(main_inits, n_ai=2):
+    """A minimal EbScript-parseable battle eb: entry 0 = Main_Init (the given InitObjects + RETURN),
+    entries 1..n_ai = per-type AI stubs (a single RETURN). ``main_inits`` = [(entry, uid), ...]."""
+    def entry_body(funcs):                            # funcs = [(tag, code_bytes)]
+        fc = len(funcs)
+        table, code, off = b"", b"", fc * 4           # fpos measured from fbase (es+2); code after the table
+        for tag, c in funcs:
+            table += struct.pack("<HH", tag, off)
+            off += len(c)
+            code += c
+        return bytes([2, fc]) + table + code          # type=2, funcCount, func-table, code
+    mi = b"".join(bytes([0x09, e, u]) for e, u in main_inits) + bytes([0x04])   # InitObject* + RETURN
+    bodies = [entry_body([(0, mi)])] + [entry_body([(0, bytes([0x04]))]) for _ in range(n_ai)]
+    table = bytearray(80)                             # 10 slots x 8 bytes (offset is relative to byte 128)
+    blob, off = b"", 80
+    for i, body in enumerate(bodies):
+        struct.pack_into("<HH", table, i * 8, off, len(body))
+        blob += body
+        off += len(body)
+    header = bytearray(128)
+    header[0:2] = b"EV"                               # .eb magic
+    header[3] = len(bodies)                           # entry count
+    return bytes(header) + bytes(table) + blob
 
 
 def test_scene_edits_camera_position_stats_drops():
@@ -257,13 +287,41 @@ def test_scene_spawn_count_and_type():
     assert struct.unpack_from("<h", out, put1 + 6)[0] == 0  # grounded to slot 0's height
 
 
-def test_scene_overspawn_capped_at_donor_max():
-    raw = _raw16(monster_count=2)                           # donor authored 2 enemy AI objects
-    assert any("exceeds the donor" in p for p in scene_data.validate_scene(raw, {"monster_count": 4}))
-    # explicit override is allowed but warns loudly
-    out, warns = scene_data.apply_scene_edits(raw, {"monster_count": 4, "allow_overspawn": True})
+def test_scene_spawn_applies_to_all_patterns():
+    # spawn composition (monster_count) re-composes a DETERMINISTIC fight across EVERY pattern
+    raw = _raw16(patcount=2, monster_count=1)
+    out, _ = scene_data.apply_scene_edits(raw, {
+        "monster_count": 3, "enemy": [{"slot": 2, "type": 0, "pos": [10, 20]}]})
+    for p in range(2):
+        po = 8 + 56 * p
+        assert out[po + 1] == 3                             # MonsterCount set on BOTH patterns
+        assert out[po + 8 + 12 * 2] == 0                    # slot 2 retyped on BOTH patterns
+
+
+def test_scene_spawn_no_donor_cap_only_engine_cap():
+    # the donor-count cap is gone (build re-authors Main_Init); 4 is allowed, the engine cap is 1-4
+    out, _ = scene_data.apply_scene_edits(_raw16(monster_count=1), {"monster_count": 4})
     assert out[8 + 1] == 4
-    assert any("OVERSPAWN" in w for w in warns)
+    assert any("1-4" in p for p in scene_data.validate_scene(_raw16(), {"monster_count": 5}))
+
+
+def test_rewrite_main_init_breaks_count():
+    eb = _battle_eb([(2, 0x80)], n_ai=2)                    # donor: 1 InitObject (entry 2 = type-1 AI)
+    assert event_data.main_init_initobject_count(eb) == 1
+    out = event_data.rewrite_main_init(eb, [0, 0, 0, 0])    # -> 4 Goblins (type 0 -> entry 1)
+    assert event_data.main_init_initobject_count(out) == 4
+    eb2 = EbScript.from_bytes(out)
+    assert not eb2.entry(1).empty and not eb2.entry(2).empty   # AI entries survive the relayout
+    # mixed types map InitObject(1+type, 0x80+slot)
+    ebm = EbScript.from_bytes(event_data.rewrite_main_init(eb, [1, 0]))
+    inits = [(i.imm(0), i.imm(1)) for i in ebm.instrs(ebm.entry(0).func_by_tag(0)) if i.op == 0x09]
+    assert inits == [(2, 0x80), (1, 0x81)]
+
+
+def test_rewrite_main_init_missing_ai_entry_raises():
+    eb = _battle_eb([(1, 0x80)], n_ai=1)                    # only entry 1 is an AI; type 1 would need entry 2
+    with pytest.raises(ValueError):
+        event_data.rewrite_main_init(eb, [1])
 
 
 def test_scene_spawn_type_grounds_to_slot0_height():

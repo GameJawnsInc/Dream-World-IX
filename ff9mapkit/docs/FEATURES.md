@@ -109,7 +109,7 @@ codec/golden tests) with the full in-game pass still pending.
 | **Mint a brand-new battle scene** (`--fork-scene`) — net-new `BattleScene` id with forked gameplay/camera/text | ✓ | [FORMAT](FORMAT.md) |
 | **Wholly original map** (`--ship-as BBG_B<N>`) — custom geometry under a new bbg number + authored static INB | ✓ | [FORMAT](FORMAT.md) |
 | **Tune the fight** (`[scene]`) — override enemy positions / stats / rewards / camera pose on a mint | ✓ | [FORMAT](FORMAT.md) |
-| **Spawn composition** (`[scene]` `monster_count` + per-slot `type`) — recompose the encounter, capped at the donor's authored enemy count | ✓ | [FORMAT](FORMAT.md) |
+| **Spawn composition** (`[scene]` `monster_count` + per-slot `type`) — recompose AND grow the encounter (1–4 enemies; re-authors the eb's enemy-AI binding so a mint can exceed the donor's count) | ✓ | [FORMAT](FORMAT.md) |
 | Deploy reversibly + repoint a field encounter to trigger it (`deploy_battle.py --trigger-field`) | ✓ | [FORMAT](FORMAT.md) |
 
 ---

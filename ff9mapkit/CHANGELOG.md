@@ -33,15 +33,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   change) and keeps enemy TYPES intact so the forked attack sequences stay valid; items resolve by name
   (`"Hi-Potion"`); shared-type edits warn. Validated against the real Evil Forest scene (Goblin HP 33 →
   1500, etc.).
-- **Spawn composition (`[scene]`).** `monster_count` sets how many slots spawn, and a per-slot `type`
-  chooses which enemy fills it — constrained to the scene's EXISTING types (so the forked raw17 sequences
-  + GEO cover them), made targetable, and auto-grounded. Lets you recompose the encounter (e.g. donor
-  "Goblin + Fang" → two Goblins). **`monster_count` is capped at the donor's authored enemy count** (the
-  max original pattern `MonsterCount`): the forked battle AI (eb) only creates that many enemy-AI actors,
-  so spawning MORE leaves the extra enemy with no AI object and its death misroutes into the player's
-  event object (an in-game-observed player-model "twitch" — `EventEngine.RequestAction` → null
-  `_objPtrList` slot). Exceeding the cap errors (or warns under `allow_overspawn = true`); truly supporting
-  more enemies needs a custom battle eb (not yet authored). raw16-only, no raw17 change.
+- **Spawn composition (`[scene]`) — recompose AND grow the encounter.** `monster_count` sets how many
+  slots spawn (1–4, the engine cap) and a per-slot `type` chooses which enemy fills it (the scene's
+  EXISTING types, so the forked raw17 sequences + GEO cover them; made targetable + auto-grounded). It
+  writes the composition to EVERY pattern (a deterministic fight) and **re-authors the battle eb's
+  `Main_Init` to bind one enemy-AI object per spawned slot** (`InitObject(1+type, 0x80+slot)`, reusing the
+  donor's per-type AI entries). That removes the earlier donor-count cap entirely: a mint can now spawn
+  MORE enemies than its donor natively did (e.g. a 1-enemy Evil Forest → four Goblins) with no player-model
+  twitch — every slot has a real AI object, so no death misroutes into the player
+  (`EventEngine.RequestAction`). In-game proven. Errors only if a needed per-type AI entry is absent
+  (a non-standard donor eb). raw16 + Main_Init only; raw17 untouched.
 
 ### Added — `give_item` by name; gil can subtract
 - `give_item = ["Potion", 1]` — items resolve by name (case/space/hyphen-insensitive) or numeric id,
