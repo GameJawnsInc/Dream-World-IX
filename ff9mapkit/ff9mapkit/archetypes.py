@@ -67,6 +67,16 @@ ARCHETYPES: dict = {
     "burmecian_king": {"model": "GEO_NPC_F0_FUK"},   # FUK (dev humor: FUkkatsu = "Revival/Ruined" King)
     "noble": {"model": "GEO_NPC_F0_G16"},            # G16 (G = Gentleman; Treno/Lindblum noble)
     "gentleman": {"model": "GEO_NPC_F0_G16"},        # alias of noble
+    "noblewoman": {"model": "GEO_NPC_F0_G17"},       # G17 (female noble)
+    "noble_man": {"model": "GEO_NPC_F0_G18"},        # G18 (another male-noble variant)
+    "queen_stella": {"model": "GEO_NPC_F0_G19"},     # G19 (the Treno noble Queen Stella)
+    "stella": {"model": "GEO_NPC_F0_G19"},           # alias of queen_stella
+    "aristocrat": {"model": "GEO_NPC_F0_G20"},       # G20 (another male-noble variant)
+    "tour_guide": {"model": "GEO_NPC_F0_GUD"},       # GUD (Alexandria tour guide)
+    "commoner": {"model": "GEO_NPC_F0_HEK"},         # HEK (JP "Heikin" = average/commoner)
+    "bandit": {"model": "GEO_NPC_F0_HTH"},           # HTH (JP "Heikin Thief")
+    "thief": {"model": "GEO_NPC_F0_HTH"},            # alias of bandit
+    "fan_club_member": {"model": "GEO_NPC_F0_HUF"},  # HUF (Lowell's fan club, a woman)
 }
 
 
