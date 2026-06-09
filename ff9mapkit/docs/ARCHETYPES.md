@@ -14,7 +14,7 @@ dialogue = "..."
 
 `archetype` (alias: `preset`) maps a friendly name to a GEO model whose five movement gestures (stand / walk / run / turn-left / turn-right) auto-resolve from the catalog -- no `anims` needed. Prefer a name here; for any model not curated, place it directly with `model = "GEO_NPC_F0_XXX"` (browse `ff9mapkit models`). The set below is **complete**: every field-NPC model with a full gesture set is named, plus the named **story cast** (the `SUB` models -- Beatrix, Kuja, the Tantalus crew, ...).
 
-**125 names** covering **99 models**. "Appears in" lists a few real fields that place the model (snapshot from this install).
+**147 names** covering **99 models**. "Appears in" lists a few real fields that place the model (snapshot from this install).
 
 ## Browse by theme
 
@@ -152,7 +152,7 @@ The named characters (the `SUB` models) -- place a specific story figure; same m
 
 ## Props (set dressing)
 
-Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0_..."` + `pose`). NOT characters -- no head-tracking; each holds its canonical pose (baked from shipping fields). 28 names.
+Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0_..."` + `pose`). NOT characters -- no head-tracking; each holds its canonical pose (baked from shipping fields). 32 names.
 
 | Prop | Aliases | Model | Appears in |
 |---|---|---|---|
@@ -177,6 +177,38 @@ Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0
 | `aircab` | `aircab_car` | `GEO_ACC_F0_V10` | Lindblum/I.D. Station; Lindblum/B.D. Station; Lindblum/T.D. Station -- 4 fields |
 | `trap` | -- | `GEO_ACC_F0_ISB` | Pinnacle Rocks/Entry; I. Castle/Entrance; Earth Shrine/Passage -- 4 fields |
 | `scale` | `balance_scale` | `GEO_ACC_F0_TNB` | Palace/Rack; Palace/Odyssey -- 3 fields |
+| `cup` | -- | `GEO_ACC_F0_CUP` | Dali/Pub; Mountain/Shack; Lindblum/The Doom Pub -- 4 fields |
+| `glass` | -- | `GEO_ACC_F0_GRS` | Lindblum/The Doom Pub; Alexandria/Pub -- 2 fields |
+| `ticket` | -- | `GEO_ACC_F0_TKT` | Alexandria/Main Street; Alexandria/Shop; S. Gate/Bohden Gate -- 5 fields |
+| `bottle` | -- | `GEO_ACC_F0_BON` | Lindblum/The Doom Pub -- 1 field |
+
+## Creatures (bestiary)
+
+Battle MONSTERS placed as field objects with `[[npc]] archetype = "zaghnol"`. 21 `GEO_MON` models verified IN-GAME to render + animate as field objects (the arena gallery). Most also appear in shipping field scripts (the **Appears in** column); a few are battle bosses the kit can still place. Token decodes + JP origins in the source.
+
+| Creature | Aliases | Model | Appears in |
+|---|---|---|---|
+| `armodullahan` | -- | `GEO_MON_F0_AMD` | Fossil Roo/Entrance; Fossil Roo/Passage -- 2 fields |
+| `amdusias` | -- | `GEO_MON_F0_AMS` | (not placed by any field script) |
+| `bandersnatch` | -- | `GEO_MON_F0_BAN` | A. Castle/Staircase; A. Castle/Underground -- 3 fields |
+| `zaghnol` | -- | `GEO_MON_F0_BFF` | Lindblum/Square; Lindblum/Festival -- 2 fields |
+| `red_dragon` | -- | `GEO_MON_F0_CDR` | Gulug/Interior; Gulug/Room; Gulug/Path -- 4 fields |
+| `antlion` | -- | `GEO_MON_F0_CLB` | (not placed by any field script) |
+| `taharka` | `dahaka` | `GEO_MON_F0_DAH` | I. Castle/Mural Room -- 1 field |
+| `lich` | -- | `GEO_MON_F0_EEE` | Earth Shrine/Interior; Wind Shrine/Interior -- 2 fields |
+| `prison_cage` | -- | `GEO_MON_F0_EFM` | Evil Forest/Trail -- 1 field |
+| `fang` | -- | `GEO_MON_F0_FFG` | Lindblum/Shopping Area; Lindblum/Church Street; Lindblum/Theater -- 5 fields |
+| `griffin` | -- | `GEO_MON_F0_GRI` | (not placed by any field script) |
+| `hedgehog_pie` | -- | `GEO_MON_F0_HHP` | Palace/Odyssey -- 1 field |
+| `catoblepas` | -- | `GEO_MON_F0_KAT` | (not placed by any field script) |
+| `mistodon` | -- | `GEO_MON_F0_MKM` | Iifa Tree/Tree Path; Brahnes Fleet/Event; Alexandria/Main Street -- 6 fields |
+| `behemoth` | -- | `GEO_MON_F0_MOS` | Treno/Knights House -- 1 field |
+| `mu` | -- | `GEO_MON_F0_MUU` | Lindblum/Main Street; Lindblum/Station Area; Lindblum/Square -- 5 fields |
+| `ramuh` | -- | `GEO_MON_F0_RAM` | Pinnacle Rocks/Hole; Pinnacle Rocks/Path; Mdn. Sari/Eidolon Wall -- 6 fields |
+| `silver_dragon` | -- | `GEO_MON_F0_SDR` | Iifa Tree/Tree Trunk; Iifa Tree/Silver Drago; Iifa Tree/Outer Seal -- 5 fields |
+| `trick_bird` | -- | `GEO_MON_F0_TBL` | Lindblum/Main Street; Lindblum/Church Street; Lindblum/Square -- 7 fields |
+| `ralvuimago` | -- | `GEO_MON_F0_TOM` | (not placed by any field script) |
+| `soulcage` | -- | `GEO_MON_F0_ZZZ` | Iifa Tree/Bottom -- 1 field |
 
 ## Named characters
 

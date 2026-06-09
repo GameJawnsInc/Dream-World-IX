@@ -302,6 +302,22 @@ def main():
                  f"| `{C.model(mid).name}` | {where(mid)} |")
     L.append("")
 
+    # creatures (bestiary)
+    L.append("## Creatures (bestiary)\n")
+    cgroups = OrderedDict()
+    for nm, spec in AR.CREATURES.items():
+        cgroups.setdefault(C.resolve_model(spec["model"]), []).append(nm)
+    L.append("Battle MONSTERS placed as field objects with `[[npc]] archetype = \"zaghnol\"`. "
+             f"{len(cgroups)} `GEO_MON` models verified IN-GAME to render + animate as field objects (the "
+             "arena gallery). Most also appear in shipping field scripts (the **Appears in** column); a few "
+             "are battle bosses the kit can still place. Token decodes + JP origins in the source.\n")
+    L.append("| Creature | Aliases | Model | Appears in |")
+    L.append("|---|---|---|---|")
+    for mid, cnames in cgroups.items():
+        L.append(f"| `{cnames[0]}` | {', '.join(f'`{a}`' for a in cnames[1:]) or '--'} "
+                 f"| `{C.model(mid).name}` | {where(mid)} |")
+    L.append("")
+
     # named-character index
     L.append("## Named characters\n")
     L.append("Several archetypes carry a specific character's name as an alias (the model is reused "

@@ -416,8 +416,9 @@ Read these on demand — they hold the full technical detail this file only summ
   via `{sceneId}.raw17`). Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
 - **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
-  (`archetypes.py`, merged into `names()`/`resolve()`) holds only FIELD-PROVEN `GEO_MON` models (27 of 216
-  appear in shipping field scripts → they render + animate outside battle); named in-game via the gallery
+  (`archetypes.py`, merged into `names()`/`resolve()`) holds field-RENDERABLE `GEO_MON` models (verified
+  in-game — they render + animate as field objects; most also appear in shipping field scripts, a few are
+  battle bosses the kit can still place); named in-game via the gallery
   loop (`tools/build_archetype_gallery.py --arena --group MON`, 4/batch — they're huge). **COMPLETE: all 21
   field-creature models named** (lich/ramuh/soulcage/ralvuimago/silver_dragon/zaghnol/red_dragon/antlion/
   griffin/catoblepas/mistodon/behemoth/mu/…), token decodes + JP origins in comments; battle-only models

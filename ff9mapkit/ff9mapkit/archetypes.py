@@ -154,10 +154,11 @@ ARCHETYPES: dict = {
 }
 
 
-# --- CREATURES (GEO_MON): place a battle monster as a field object by name. Only FIELD-PROVEN models
-# (they appear in shipping field scripts, so they render + animate outside battle). Identified in-game via
-# the arena gallery (`tools/build_archetype_gallery.py --arena --group MON`). Names are the canonical FF9
-# bestiary names; the token decode (where known) is in the comment.
+# --- CREATURES (GEO_MON): place a battle monster as a field object by name. The kit's field-RENDERABLE
+# GEO_MON set -- verified in-game via the arena gallery (they render + animate as field objects). Most also
+# appear in shipping field scripts; a few are battle bosses the kit can still place. Identified in-game via
+# the gallery (`tools/build_archetype_gallery.py --arena --group MON`). Names are the canonical FF9 bestiary
+# names; the token decode (where known) is in the comment.
 CREATURES: dict = {
     "armodullahan": {"model": "GEO_MON_F0_AMD"},  # AMD -- the Fossil Roo boss (headless armored rider)
     "amdusias": {"model": "GEO_MON_F0_AMS"},      # AMS -- Treno weapon-shop duel + Pandemonium enemy
