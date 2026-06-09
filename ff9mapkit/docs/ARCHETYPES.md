@@ -14,7 +14,7 @@ dialogue = "..."
 
 `archetype` (alias: `preset`) maps a friendly name to a GEO model whose five movement gestures (stand / walk / run / turn-left / turn-right) auto-resolve from the catalog -- no `anims` needed. Prefer a name here; for any model not curated, place it directly with `model = "GEO_NPC_F0_XXX"` (browse `ff9mapkit models`). The set below is **complete**: every field-NPC model with a full gesture set is named, plus the named **story cast** (the `SUB` models -- Beatrix, Kuja, the Tantalus crew, ...).
 
-**122 names** covering **96 models**. "Appears in" lists a few real fields that place the model (snapshot from this install).
+**125 names** covering **99 models**. "Appears in" lists a few real fields that place the model (snapshot from this install).
 
 ## Browse by theme
 
@@ -46,6 +46,9 @@ Place a party member as a field NPC. (`zidane` keeps the cloned player; the rest
 | `quina` | -- | `GEO_MAIN_F0_KUI` | Quina Quen |
 | `eiko` | -- | `GEO_MAIN_F0_EIK` | Eiko Carol |
 | `amarant` | -- | `GEO_MAIN_F0_SLM` | Amarant Coral |
+| `zidane_npc` | -- | `GEO_MAIN_F0_ZDN` | Zidane's own field model, placed as an NPC (vs the cloned-player `zidane`) |
+| `zidane_carrying_dagger` | -- | `GEO_MAIN_F0_ZDD` | Zidane carrying Princess Garnet |
+| `steiner_carrying_dagger` | -- | `GEO_MAIN_F0_STD` | Steiner carrying Princess Garnet (Evil Forest) |
 
 ## NPC types
 

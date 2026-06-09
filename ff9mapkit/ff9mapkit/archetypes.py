@@ -26,6 +26,10 @@ ARCHETYPES: dict = {
     "quina": {"model": "GEO_MAIN_F0_KUI"},
     "eiko": {"model": "GEO_MAIN_F0_EIK"},
     "amarant": {"model": "GEO_MAIN_F0_SLM"},
+    # -- main-character alt-forms (a specific scripted version of a hero) --
+    "zidane_npc": {"model": "GEO_MAIN_F0_ZDN"},          # ZDN -- Zidane's own field model placed as an NPC (vs "zidane" = the cloned player)
+    "steiner_carrying_dagger": {"model": "GEO_MAIN_F0_STD"},  # STD -- "STeiner + Dagger": Steiner carrying Princess Garnet (Evil Forest)
+    "zidane_carrying_dagger": {"model": "GEO_MAIN_F0_ZDD"},   # ZDD -- "ZiDane + Dagger": Zidane carrying Princess Garnet
     # -- common NPC types (grow this as models are confirmed in-game) --
     "black_mage": {"model": "GEO_NPC_F0_BMG"},     # verified in-game
     "moogle": {"model": "GEO_NPC_F0_MOG"},         # the FF moogle code

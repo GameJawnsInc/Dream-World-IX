@@ -36,6 +36,10 @@ ROLE = {
     "KUI": "Quina Quen",
     "EIK": "Eiko Carol",
     "SLM": "Amarant Coral",
+    # -- main-character alt-forms --
+    "ZDN": "Zidane's own field model, placed as an NPC (vs the cloned-player `zidane`)",
+    "STD": "Steiner carrying Princess Garnet (Evil Forest)",
+    "ZDD": "Zidane carrying Princess Garnet",
     # -- townsfolk & workers --
     "APF": "a generic adult townswoman",
     "APM": "a generic adult townsman",
@@ -209,7 +213,7 @@ def where(mid):
 def main():
     rows = group_archetypes()
     # split playable cast (GEO_MAIN) / story cast (GEO_SUB) / generic NPC types (GEO_NPC)
-    CAST = {"ZID", "VIV", "GRN", "STN", "FRJ", "KUI", "EIK", "SLM"}
+    CAST = {"ZID", "VIV", "GRN", "STN", "FRJ", "KUI", "EIK", "SLM", "ZDN", "STD", "ZDD"}
     is_sub = lambda r: bool(r[1]) and "_SUB_" in r[1]
     cast = [r for r in rows if r[0] in CAST]
     story = sorted((r for r in rows if is_sub(r)), key=lambda r: r[2][0])
@@ -250,7 +254,8 @@ def main():
              "their own model + auto-anims.)\n")
     L.append("| Archetype | Aliases | Model | Role |")
     L.append("|---|---|---|---|")
-    castorder = {t: i for i, t in enumerate(["ZID", "VIV", "GRN", "STN", "FRJ", "KUI", "EIK", "SLM"])}
+    castorder = {t: i for i, t in enumerate(["ZID", "VIV", "GRN", "STN", "FRJ", "KUI", "EIK", "SLM",
+                                             "ZDN", "ZDD", "STD"])}
     for token, geo, names, _mid in sorted(cast, key=lambda r: castorder.get(r[0], 99)):
         primary, aliases = names[0], names[1:]
         model = geo or "(cloned player)"
