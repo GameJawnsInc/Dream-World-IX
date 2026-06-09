@@ -34,6 +34,14 @@ PROP_ARCHETYPES: dict = {
     "barrel": {"model": "GEO_ACC_F0_CSK", "pose": 1904},        # alias of cask
     "great_leaf": {"model": "GEO_ACC_F0_ELE", "pose": 1894},    # ELE -- Cleyra's Great Leaf / the leaf elevator pad (Iifa roots, Cleyra climbs)
     "fish": {"model": "GEO_ACC_F0_FS1", "pose": 10751},         # FS1 -- "FiSh 1", the orange fish kitchen prop (Madain Sari, Memoria)
+    "hand_bell": {"model": "GEO_ACC_F0_HDB", "pose": 2471},     # HDB -- "HanD Bell": the small Burmecian hand bell (not Gizamaluke's giant one)
+    "lever": {"model": "GEO_ACC_F0_KOM", "pose": 301},          # KOM -- a small switch/toggle lever (JP Komon/Komadori; Fossil Roo track switches)
+    "switch_lever": {"model": "GEO_ACC_F0_KOM", "pose": 301},   # alias of lever
+    "ladder": {"model": "GEO_ACC_F0_LDD", "pose": 758},         # LDD -- a "LaDDer" (Vivi's, the Alexandria rooftops)
+    "book": {"model": "GEO_ACC_F0_OPB", "pose": 1892},          # OPB -- a library book (default closed; "OPen Book" -- opens via animation)
+    "pickaxe": {"model": "GEO_ACC_F0_TUR", "pose": 10643},      # TUR -- a mining pickaxe (Fossil Roo mining site)
+    "vat": {"model": "GEO_ACC_F0_BBT", "pose": 62},             # BBT -- "Big Barrel Tank": a huge storage vat (Dali underground production)
+    "tank": {"model": "GEO_ACC_F0_BBT", "pose": 62},            # alias of vat
 }
 
 
