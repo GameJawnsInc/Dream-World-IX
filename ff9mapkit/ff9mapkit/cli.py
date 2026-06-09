@@ -470,6 +470,7 @@ def _cmd_archetypes(args: argparse.Namespace) -> int:
             m = C.model(model)
             print(f"  {name:<12} {m.name if m else model}")
     print('\nAny other model:  [[npc]] model = "GEO_..."   (browse: ff9mapkit models)')
+    print('Full reference (roles + where each appears in FF9):  ff9mapkit/docs/ARCHETYPES.md')
     return 0
 
 
