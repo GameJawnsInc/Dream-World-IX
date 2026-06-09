@@ -13,11 +13,14 @@ tail appended to Init -- we add nothing the engine doesn't already do for its ow
 """
 from __future__ import annotations
 
-from ..eb import opcodes
+from ..eb import EbScript, opcodes
 from .npc import ANIM_ORDER, inject_npc
 
 ENABLE_HEAD_FOCUS = 0x47    # "Enable or disable the character turning his head toward an active object"
 TURN_INSTANT = 0x36
+ATTACH_OBJECT = 0x4C        # "Attach an object to another one" -- AttachObject(attachedUid, carryingUid, bone)
+SET_OBJECT_FLAGS = 0x93     # bits: 1 show model, 2 collide player, 4 collide NPC, 8 disable talk
+HELD_FLAGS = 7              # show + collide + collideNPC -- the flags the shipping held cup sets
 # NB: do NOT blanket-apply SetObjectFlags here. Per the engine (EventEngine.DoEventCode, CFLAG 0x93) the
 # flag bits are {1: show model, 2: collide player, 4: collide NPC, 8: disable talk, ...} and it REPLACES
 # the object's low 6 bits. The shipping props' SetObjectFlags(14) (= 2+4+8) omits bit 1 -> "show model"
@@ -37,19 +40,29 @@ def prop_init_tail(face: int | None = None) -> bytes:
 
 def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None = None,
                 dialogue_text_id: int | None = None, slot: int | None = None,
+                attach_to: int | None = None, bone: int = 11,
                 spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                 gate_flag: int | None = None, gate_require_set: bool = True) -> bytes:
     """Place a prop ``model`` at world (x, z), held at ``pose`` (an animation id), head-tracking OFF.
 
-    ``dialogue_text_id`` makes it readable (a sign, a chest message); omitted = non-interactive (its
-    action handler is a no-op RETURN). ``face`` = optional facing (0..255). ``gate_flag`` shows/hides it
-    by a story flag, exactly like an NPC. Returns new ``.eb`` bytes."""
-    anims = {k: pose for k in ANIM_ORDER}                       # all five gesture slots = the static pose
+    ``attach_to`` (a carrying object's uid = its entry slot) binds this prop to that object's ``bone``
+    so it follows it -- the real held-item recipe ``AttachObject(self_uid, carrier_uid, bone)`` (bone
+    defaults to 11, the right hand the shipping cup uses). The prop's own uid IS its entry slot, so the
+    slot is resolved up front. ``dialogue_text_id`` makes it readable; ``face``/``gate_flag`` as usual.
+    Returns new ``.eb`` bytes."""
+    anims = {k: pose for k in ANIM_ORDER}                       # all five gesture slots = the (held) pose
+    if attach_to is not None:                                   # ATTACHED: bind to the carrier's bone
+        if slot is None:
+            slot = EbScript.from_bytes(data).first_free_slot()  # the prop's uid == its slot (= attachedUid)
+        tail = opcodes.encode(ATTACH_OBJECT, slot, int(attach_to), int(bone))
+        tail += opcodes.encode(SET_OBJECT_FLAGS, HELD_FLAGS)    # show + collide (like the shipping cup)
+    else:                                                       # STATIC: just kill head-tracking
+        tail = prop_init_tail(face)
     if dialogue_text_id is not None:
         speak, ttid = None, dialogue_text_id                    # default WindowSync(text) -> readable
     else:
         speak, ttid = opcodes.RETURN, 62                        # no-op action handler -> not interactive
     return inject_npc(data, x, z, model=model, anims=anims, talk_text_id=ttid,
-                      speak_body=speak, init_tail=prop_init_tail(face), slot=slot,
+                      speak_body=speak, init_tail=tail, slot=slot,
                       spawn_wait_n=spawn_wait_n, spawn_wait_occurrence=spawn_wait_occurrence,
                       gate_flag=gate_flag, gate_require_set=gate_require_set)

@@ -1028,6 +1028,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
     gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)
+    npc_slots = {}           # npc name -> entry slot (so a [[prop]] can attach_to it)
     for i, n in enumerate(project.raw.get("npc", [])):
         pos = n["pos"]
         txid = dialogue_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
@@ -1059,6 +1060,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                              gate_flag=gf, gate_require_set=gs, intro=intro, speak_body=sb, **kwargs)
         if gf is not None:
             gated_npc_slots.setdefault(gf, []).append(slot)
+        if n.get("name") is not None:
+            npc_slots[n["name"]] = slot
 
     # props (static set-dressing: SetModel + a fixed pose + EnableHeadFocus(0) -- a non-character object
     # that does NOT turn to face the player, the real FF9 prop recipe). Same gating as an NPC.
@@ -1079,10 +1082,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         else:                                               # a raw model + optional pose
             mid = resolve_npc_model(p.get("model"))
             parts = [(mid, _resolve_prop_pose(mid, p.get("pose")))]
+        at = p.get("attach_to")                             # bind the prop to a named NPC's bone (held item)
+        attach_slot = npc_slots.get(at) if at is not None else None
+        if at is not None and attach_slot is None:
+            raise ValueError(f"[[prop]] attach_to {at!r} is not a defined [[npc]] name")
+        bone = int(p.get("bone", 11))
         for mid, pose in parts:
             slot = EbScript.from_bytes(eb).first_free_slot()
-            eb = _prop.inject_prop(eb, x, z, model=mid, pose=pose,
-                                   face=face, slot=slot, gate_flag=gf, gate_require_set=gs)
+            eb = _prop.inject_prop(eb, x, z, model=mid, pose=pose, face=face, slot=slot,
+                                   attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs)
 
     # gateways
     for gw in project.raw.get("gateway", []):

@@ -307,9 +307,13 @@ pose  = "close"           # optional pose (see below)
 | `pos` | `[x, z]` world position (on the walkmesh). |
 | `face` | OPTIONAL facing (0..255; 0=south, 64=west, 128=north, 192=east). |
 | `requires_flag` | OPTIONAL GlobBool index — the prop only appears when that story flag is set (same gating as `[[npc]]`). |
+| `attach_to` | OPTIONAL — the **`name` of an `[[npc]]`** to *attach* this prop to (a held item: a cup, a sword). The prop binds to that NPC's `bone` and follows it (the engine's `AttachObject`). Give it the **held** `pose` — props often have a per-holder held orientation (the cup has `dom`/`zdn`/`jjy` poses), so pick the one matching the carrier. |
+| `bone` | OPTIONAL attachment bone index (default **11**, the right hand the shipping cup uses; e.g. 13/19 for other models). |
 
 A prop is non-interactive by default. Composite set pieces (a full **save point** = `moogle` + `save_book`
-+ `feather` + `balloon`) are just several `[[prop]]` / `[[npc]]` at one position.
++ `feather` + `balloon`) are just several `[[prop]]` / `[[npc]]` at one position. An **attached** prop
+(`attach_to`) is the held-item path — `[[npc]] name = "barkeep"` + `[[prop]] model = "GEO_ACC_F0_CUP",
+attach_to = "barkeep", pose = <held>` puts the cup in the barkeep's hand.
 
 ---
 
