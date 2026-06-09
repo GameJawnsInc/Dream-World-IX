@@ -40,6 +40,14 @@ ARCHETYPES: dict = {
     "oglop": {"model": "GEO_NPC_F0_BRI"},            # BRI (JP "burimushi" = the Oglop bug)
     "burmecian_child": {"model": "GEO_NPC_F0_BUC"},  # BUC
     "burmecian_woman": {"model": "GEO_NPC_F0_BUF"},  # BUF
+    "cat": {"model": "GEO_NPC_F0_CAT"},              # CAT
+    "bird": {"model": "GEO_NPC_F0_CCB"},             # CCB (pigeon-ish)
+    "chocobo_child": {"model": "GEO_NPC_F0_CHC"},    # CHC (tentative -- a Black Mage Vil. chocobo)
+    "fat_chocobo": {"model": "GEO_NPC_F0_CHD"},      # CHD (JP "Choco Debu")
+    "chocobo": {"model": "GEO_NPC_F0_CHO"},          # CHO (the common field chocobo)
+    "high_priest": {"model": "GEO_NPC_F0_CLD"},      # CLD (Cleyra Cathedral, JP "Daikanshu")
+    "cleyran_woman": {"model": "GEO_NPC_F0_CLM"},    # CLM
+    "cook": {"model": "GEO_NPC_F0_COK"},             # COK
 }
 
 
