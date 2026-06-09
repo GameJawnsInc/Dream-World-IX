@@ -145,7 +145,9 @@ real gameplay and reproducible in Python (zero Hades Workshop):
   (chests / gil / story flags / triggers) · **story branching** (flag-gated NPCs / doors /
   events) · **dialogue choices** (NPC + zone, default/cancel rows, static + flag-gated hide) ·
   **cutscenes** (narration v1 + actor walk/path/turn/animation/teleport v2) · **ladders**
-  (navigable, vertical/slant/bent shapes, floor/gateway/worldmap tops, re-entry).
+  (navigable, vertical/slant/bent shapes, floor/gateway/worldmap tops, re-entry) · **props**
+  (static set-dressing — chests/tents/save-points/barrels/ladders/signs — via the real FF9 recipe:
+  `SetModel` + a static pose + `EnableHeadFocus(0)`; `[[prop]] prop = "chest"` or `model` + `pose`).
 - **Import/fork:** `ff9mapkit import <field>` (BG-borrow or `--editable` custom-scene) +
   `list-fields` — fork any of **674** real fields (camera + walkmesh + gateways/BGM/encounters
   extracted offline from p0data). Blender "Import FF9 Field" gives a visual fork→author loop.
@@ -357,6 +359,18 @@ Read these on demand — they hold the full technical detail this file only summ
   `tools/gen_archetype_reference.py`). Guards (pytest): completeness (no unnamed `GEO_NPC`), real-idle
   (no "moonwalk"), curation (every archetype fully animated). Held out: `black_waltz_2` + Trance Kuja
   (special boss models, no standard idle/walk — place by raw model id).
+- **Prop pillar** (in-game verified) — the **`[[prop]]`** section places static set-dressing (chests,
+  tents, save-points, barrels, ladders, signs) by the real FF9 recipe: `SetModel` + a fixed-pose
+  `SetStandAnimation` + **`EnableHeadFocus(0)`** (the engine switch that kills an NPC's turn-to-face),
+  grounded byte-for-byte in shipping fields (save-moogle field 300, chest field 115), NOT emulated.
+  Two engine-grounded gotchas: **`SetObjectFlags` bit 1 = "show model"** — the shipping props'
+  `flags(14)` omits it → the model VANISHES, so we only disable head-focus (don't blanket-set flags);
+  and a prop's true pose is a raw `SetStandAnimation` clip the model→anim name-join often lacks (the
+  save book rests at 1872 = 'b'+1) → `tools/extract_prop_poses.py` harvests the canonical pose per
+  model. **~20 prop archetypes** (`prop_archetypes.py`, pose baked in) named via the prop gallery
+  (`tools/build_prop_gallery.py`, common-first): `chest`/`tent`/`save_book`/`feather`/`balloon`/`ladder`/
+  `book`/`cask`/`lever`/`vat`/`aircab`/… — `[[prop]] prop = "chest"` or `model` + `pose`. Deferred
+  (spawned task): a `[field] location_name` option to hide the borrowed-BG location-name banner.
 
 ---
 

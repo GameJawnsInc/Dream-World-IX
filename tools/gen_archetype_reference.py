@@ -19,6 +19,7 @@ KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit")
 sys.path.insert(0, KIT)
 from ff9mapkit import archetypes as AR
 from ff9mapkit import catalog as C
+from ff9mapkit import prop_archetypes as PPA
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import model_field_usage as _mfu          # model id -> [field locations]
@@ -284,6 +285,21 @@ def main():
         primary, aliases = names[0], names[1:]
         L.append(f"| `{primary}` | {', '.join(f'`{a}`' for a in aliases) or '--'} | `{geo}` "
                  f"| {ROLE.get(token, '')} | {where(mid)} |")
+    L.append("")
+
+    # props (set dressing)
+    L.append("## Props (set dressing)\n")
+    L.append("Static set pieces placed with `[[prop]] prop = \"chest\"` (or `model = \"GEO_ACC_F0_...\"` "
+             "+ `pose`). NOT characters -- no head-tracking; each holds its canonical pose (baked from "
+             f"shipping fields). {len(PPA.names())} names.\n")
+    L.append("| Prop | Aliases | Model | Appears in |")
+    L.append("|---|---|---|---|")
+    pgroups = OrderedDict()
+    for nm, spec in PPA.PROP_ARCHETYPES.items():
+        pgroups.setdefault(C.resolve_model(spec["model"]), []).append(nm)
+    for mid, pnames in pgroups.items():
+        L.append(f"| `{pnames[0]}` | {', '.join(f'`{a}`' for a in pnames[1:]) or '--'} "
+                 f"| `{C.model(mid).name}` | {where(mid)} |")
     L.append("")
 
     # named-character index

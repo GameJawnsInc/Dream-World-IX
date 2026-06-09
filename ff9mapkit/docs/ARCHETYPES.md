@@ -150,6 +150,33 @@ The named characters (the `SUB` models) -- place a specific story figure; same m
 | `zenero` | -- | `GEO_SUB_F0_ZNR` | Zenero, a Tantalus Nero-family member (tentative) | Prima Vista/Interior; Prima Vista/Hallway; Prima Vista/Crash Site -- 10 fields |
 | `zorn` | -- | `GEO_SUB_F0_ZON` | Zorn, Brahne's jester (paired with Thorn) | Ice Cavern/Waterfall; Cargo Ship/Deck; Gizamaluke/Cavern -- 14 fields |
 
+## Props (set dressing)
+
+Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0_..."` + `pose`). NOT characters -- no head-tracking; each holds its canonical pose (baked from shipping fields). 26 names.
+
+| Prop | Aliases | Model | Appears in |
+|---|---|---|---|
+| `chest` | `treasure_chest` | `GEO_ACC_F0_TBX` | Prima Vista/Engine Roo; Alexandria/Steeple; Prima Vista/Hallway -- 97 fields |
+| `tent` | -- | `GEO_ACC_F0_TNT` | Alexandria/Steeple; Prima Vista/Crash Site; Evil Forest/Spring -- 56 fields |
+| `save_book` | -- | `GEO_ACC_F0_MGR` | Alexandria/Steeple; Prima Vista/Crash Site; Evil Forest/Spring -- 48 fields |
+| `feather` | -- | `GEO_ACC_F0_MGP` | Alexandria/Steeple; Prima Vista/Crash Site; Evil Forest/Spring -- 46 fields |
+| `balloon` | `save_marker` | `GEO_ACC_F0_BLL` | Alexandria/Main Street; Alexandria/Square -- 6 fields |
+| `letter` | -- | `GEO_ACC_F0_LTT` | Alexandria/Steeple; Prima Vista/Crash Site; Evil Forest/Spring -- 53 fields |
+| `cactus` | -- | `GEO_ACC_F0_GAS` | Fossil Roo/Nest -- 18 fields |
+| `save_the_queen` | -- | `GEO_ACC_F0_STQ` | Cleyra/Cathedral; A. Castle/Staircase; Alexandria/Main Street -- 9 fields |
+| `sword` | -- | `GEO_ACC_F0_SWD` | Prima Vista/Interior; A. Castle/Public Seats; Alexandria/Main Street -- 9 fields |
+| `cask` | `barrel` | `GEO_ACC_F0_CSK` | Dali/Storage Area; Lindblum/Theater; Brahnes Fleet/Event -- 6 fields |
+| `great_leaf` | -- | `GEO_ACC_F0_ELE` | Iifa Tree/Hollow Roots; Iifa Tree/Inner Roots; Iifa Tree/Leaves -- 6 fields |
+| `fish` | -- | `GEO_ACC_F0_FS1` | Mdn. Sari/Resting Room; Mdn. Sari/Kitchen; Memoria/Birth -- 5 fields |
+| `hand_bell` | -- | `GEO_ACC_F0_HDB` | Gizamaluke/Cavern; Gizamaluke/Bell Room; Burmecia/Suburb -- 4 fields |
+| `lever` | `switch_lever` | `GEO_ACC_F0_KOM` | Fossil Roo/Cavern; Earth Shrine/Passage -- 4 fields |
+| `ladder` | -- | `GEO_ACC_F0_LDD` | Alexandria/Alley; Alexandria/By the Stee; Alexandria/Steeple -- 4 fields |
+| `book` | -- | `GEO_ACC_F0_OPB` | Dali/Mayors House; A. Castle/Library; Daguerreo/Right Hall -- 4 fields |
+| `pickaxe` | -- | `GEO_ACC_F0_TUR` | Fossil Roo/Cavern; Fossil Roo/Mining Site; Lindblum/Main Street -- 4 fields |
+| `vat` | `tank` | `GEO_ACC_F0_BBT` | Dali/Underground; Dali/Field -- 3 fields |
+| `aircab` | `aircab_car` | `GEO_ACC_F0_V10` | Lindblum/I.D. Station; Lindblum/B.D. Station; Lindblum/T.D. Station -- 4 fields |
+| `trap` | -- | `GEO_ACC_F0_ISB` | Pinnacle Rocks/Entry; I. Castle/Entrance; Earth Shrine/Passage -- 4 fields |
+
 ## Named characters
 
 Several archetypes carry a specific character's name as an alias (the model is reused across many NPCs, so the role is the generic one):

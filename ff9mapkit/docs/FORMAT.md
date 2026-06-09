@@ -280,6 +280,39 @@ markers, so a newline inside a line is safe, and the `.mes` is written with LF.)
 
 ---
 
+## `[[prop]]` (optional, repeatable)
+
+A static **set-dressing object** — a chest, tent, save point, barrel, ladder, sign. Unlike an `[[npc]]`,
+a prop is **not a character**: it does NOT turn to face the player (no head-tracking) and just holds a
+fixed pose. Placed via the real FF9 prop recipe (`SetModel` + a static `SetStandAnimation` +
+`EnableHeadFocus(0)`), grounded byte-for-byte in shipping fields — not emulated.
+
+```toml
+[[prop]]
+prop = "chest"            # a built-in prop archetype: model + its canonical pose (see docs/ARCHETYPES.md)
+pos  = [120, 150]
+# face = 64               # optional facing (0=south, 64=west, 128=north, 192=east)
+
+[[prop]]                  # OR place any model directly:
+model = "GEO_ACC_F0_CSK"  # a prop model id or GEO name (browse `ff9mapkit models`)
+pos   = [-200, 150]
+pose  = "close"           # optional pose (see below)
+```
+
+| field | meaning |
+|---|---|
+| `prop` | a built-in **prop archetype** → model + its canonical resting pose (`chest`, `tent`, `save_book`, `feather`, `balloon`, `ladder`, `book`, `cask`/`barrel`, `lever`, `vat`, `pickaxe`, `aircab`, `letter`, `cactus`, `sword`, …). Full list with locations: [`docs/ARCHETYPES.md`](ARCHETYPES.md). For anything else use `model`. |
+| `model` | explicit alternative to `prop`: a prop model **id** or exact **GEO name** (`"GEO_ACC_F0_TBX"`). |
+| `pose` | OPTIONAL static pose — an **action name** (`"close"`, `"save_open"`) resolved via the model→anim catalog, **or a raw clip id**. Omitted → a sensible resting pose. A prop's *true* pose is often a raw clip the name-join doesn't list (the save book rests at `1872`); `tools/extract_prop_poses.py` harvests the canonical one from shipping fields (already baked into the archetypes). |
+| `pos` | `[x, z]` world position (on the walkmesh). |
+| `face` | OPTIONAL facing (0..255; 0=south, 64=west, 128=north, 192=east). |
+| `requires_flag` | OPTIONAL GlobBool index — the prop only appears when that story flag is set (same gating as `[[npc]]`). |
+
+A prop is non-interactive by default. Composite set pieces (a full **save point** = `moogle` + `save_book`
++ `feather` + `balloon`) are just several `[[prop]]` / `[[npc]]` at one position.
+
+---
+
 ## `[[gateway]]` (optional, repeatable)
 
 A region the player walks into to warp to another field.
