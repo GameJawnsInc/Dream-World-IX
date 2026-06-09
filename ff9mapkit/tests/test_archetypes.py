@@ -74,3 +74,16 @@ def test_set_is_complete_every_field_npc_model_is_named():
         if C.npc_anims(m.id) and set(C.npc_anims(m.id)) == slots and m.token not in named
     )
     assert unnamed == [], f"unnamed field-NPC tokens (name them in archetypes.py): {unnamed}"
+
+
+def test_every_archetype_resolves_stand_to_a_real_idle():
+    """A statically-placed NPC plays its ``stand`` slot while standing; npc_anims falls back
+    idle->walk->run, so a model with no real 'idle' would visibly animate (moonwalk) in place. The
+    in-game verification pass confirmed none do -- guard it so a future archetype whose model lacks
+    a real idle gets flagged for review (zidane exempt: it keeps the cloned player)."""
+    for name in AR.names():
+        if name == "zidane":
+            continue
+        model = AR.resolve(name)[0]
+        assert "idle" in C.animations_for_model(model), \
+            f"{name} ({C.model(model).name}) has no real idle -> would animate while standing"
