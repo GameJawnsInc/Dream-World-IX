@@ -23,6 +23,17 @@ PROP_ARCHETYPES: dict = {
     "tent": {"model": "GEO_ACC_F0_TNT", "pose": 7667},          # TNT -- a world-map camping tent ('camp_sleep')
     "save_book": {"model": "GEO_ACC_F0_MGR", "pose": 1872},     # MGR -- the moogle's save book (raw pose 1872)
     "feather": {"model": "GEO_ACC_F0_MGP", "pose": 1874},       # MGP -- the save-point feather / quill (raw 1874)
+    # -- identified via the in-game prop gallery (token -> what it is, JP/decode in the note) --
+    "balloon": {"model": "GEO_ACC_F0_BLL", "pose": 3349},       # BLL -- "BaLLoon": the moogle save-point marker
+    "save_marker": {"model": "GEO_ACC_F0_BLL", "pose": 3349},   # alias of balloon
+    "letter": {"model": "GEO_ACC_F0_LTT", "pose": 2479},        # LTT -- a Mognet "LeTTer"
+    "cactus": {"model": "GEO_ACC_F0_GAS", "pose": 8186},        # GAS -- a Gargan cactus (JP "GArgantua" + "Saboten" = cactus)
+    "save_the_queen": {"model": "GEO_ACC_F0_STQ", "pose": 1894},  # STQ -- "Save The Queen" (Beatrix's sword) as a prop
+    "sword": {"model": "GEO_ACC_F0_SWD", "pose": 4470},         # SWD -- a "SWorD" (the theatrical replica from "I Want to Be Your Canary")
+    "cask": {"model": "GEO_ACC_F0_CSK", "pose": 1904},          # CSK -- a "CaSK" / barrel (Dali storage, Lindblum alleys)
+    "barrel": {"model": "GEO_ACC_F0_CSK", "pose": 1904},        # alias of cask
+    "great_leaf": {"model": "GEO_ACC_F0_ELE", "pose": 1894},    # ELE -- Cleyra's Great Leaf / the leaf elevator pad (Iifa roots, Cleyra climbs)
+    "fish": {"model": "GEO_ACC_F0_FS1", "pose": 10751},         # FS1 -- "FiSh 1", the orange fish kitchen prop (Madain Sari, Memoria)
 }
 
 
