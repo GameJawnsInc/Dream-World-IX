@@ -26,6 +26,7 @@ from pathlib import Path
 
 from ..config import LANGS, ModLayout
 from . import fbx as _fbx
+from . import scene_data as _scene_data
 
 _BBG_RE = re.compile(r"^BBG_[A-Z]\d+$")
 # Real shipping battle maps are BBG_B001..177; a NEW number (>= this) = a wholly custom map that needs
@@ -112,6 +113,9 @@ def validate_battle(project: BattleProject) -> list[str]:
             problems.append("[battlemap] mint needs forked scene assets (run `battle-import --fork-scene "
                             "<donor>`); missing: " + ", ".join(missing[:4])
                             + (" …" if len(missing) > 4 else ""))
+        elif "scene" in project.raw:                 # tune-the-fight overrides -> validate vs the raw16
+            problems += _scene_data.validate_scene(
+                (sd / "dbfile0000.raw16.bytes").read_bytes(), project.raw["scene"])
     return problems
 
 
@@ -159,7 +163,11 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
         sd = project.scene_dir
         scene_out = layout.battle_scene_dir(name)
         scene_out.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(sd / "dbfile0000.raw16.bytes", scene_out / "dbfile0000.raw16.bytes")
+        raw16 = (sd / "dbfile0000.raw16.bytes").read_bytes()
+        if "scene" in project.raw:                   # tune the fight (positions/stats/rewards/camera)
+            raw16, scene_warns = _scene_data.apply_scene_edits(raw16, project.raw["scene"])
+            warnings += scene_warns
+        (scene_out / "dbfile0000.raw16.bytes").write_bytes(raw16)
         shutil.copyfile(sd / "btlseq.raw17.bytes", scene_out / f"{sid}.raw17.bytes")
         written += [scene_out / "dbfile0000.raw16.bytes", scene_out / f"{sid}.raw17.bytes"]
         for lang in LANGS:

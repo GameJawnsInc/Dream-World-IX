@@ -373,6 +373,19 @@ bbg = "{bbg}"          # ships AS this slot. A NEW number (BBG_B178+) = a wholly
 fbx = "{bbg}.fbx"
 scene_id = {scene_id}        # the net-new battle id this mint registers (must not collide with any field/scene id)
 scene_name = "{name}"     # -> EVT_BATTLE_{name} + BSC_{name}{tint}
+
+# --- tune the fight (optional) -----------------------------------------------------------------------
+# The donor's enemies/camera are forked verbatim; uncomment to OVERRIDE. Enemy TYPES are kept (so the
+# forked attack sequences stay valid) -- you reposition / restat / re-reward them and pick the camera.
+# [scene]
+# camera = 2                 # pattern camera: 0/1/2 = a fixed PSX pose, >=3 = random (default = donor's)
+# [[scene.enemy]]
+# slot = 0                   # which placed enemy (0-3) in the pattern
+# pos = [300, -400]          # [x, z] on the battle ground (or [x, y, z] to set height); rot = 0..4095
+# hp = 1500                  # this enemy TYPE's stats (hp/mp/gil/exp/level/speed/strength/magic/spirit)
+# gil = 999
+# drop  = ["Hi-Potion", "Ether", "none", "none"]   # WinItems[4] by name/id ("none" = empty)
+# steal = ["Phoenix Down", "none", "none", "none"] # StealItems[4]
 '''
 
 

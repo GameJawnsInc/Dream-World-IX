@@ -10,6 +10,7 @@ import textwrap
 import struct
 
 from ff9mapkit.battle import fbx
+from ff9mapkit.battle import scene_data
 from ff9mapkit.battle.build import (BattleProject, _author_inb, _bbg_number, build_battle_mod,
                                     validate_battle)
 from ff9mapkit.config import LANGS, ModLayout
@@ -188,6 +189,68 @@ def test_build_mint_new_bbg_emits_full_scene_and_inb(tmp_path):
     assert (layout.battle_text_dir("us") / "5502.mes").read_bytes() == b"MES_us"
     inb = (layout.battle_info_dir / "INB_B200.inb.bytes").read_bytes()      # new number -> static INB authored
     assert struct.unpack_from("<h", inb, 0)[0] == 200
+
+
+# --------------------------------------------------------------------- scene_data (tune the fight)
+def _raw16(patcount=1, typcount=2):
+    """A synthetic BTL_SCENE raw16: 1 pattern (Camera=5, slots 0/2 -> type 0, slot 1 -> type 1) + N
+    monsters (MaxHP = 100+t). Matches the layout scene_data patches."""
+    hdr = bytes([1, patcount, typcount, 0]) + struct.pack("<H", 0) + b"\x00\x00"
+    pat = bytes([10, 2, 5, 0]) + struct.pack("<I", 100)
+    for slot in range(4):
+        typeno = 1 if slot == 1 else 0
+        pat += bytes([typeno, 0, 0, 0]) + struct.pack("<hhhh", slot * 100, 0, slot * -50, 0)
+    mons = b""
+    for t in range(typcount):
+        m = bytearray(116)                            # SB2_MON_PARM
+        struct.pack_into("<H", m, 12, 100 + t)        # MaxHP
+        mons += bytes(m)
+    return hdr + pat + mons
+
+
+def test_scene_edits_camera_position_stats_drops():
+    raw = _raw16()
+    scene = {"camera": 2, "enemy": [
+        {"slot": 0, "pos": [500, -300], "rot": 64, "hp": 999, "level": 12,
+         "drop": ["Potion", "none", "none", "none"]},
+    ]}
+    out, warns = scene_data.apply_scene_edits(raw, scene)
+    assert not warns
+    assert len(out) == len(raw)
+    assert out[8 + 2] == 2                                      # pattern Camera byte
+    put0 = 8 + 8 + 0                                            # slot 0 SB2_PUT
+    assert struct.unpack_from("<h", out, put0 + 4)[0] == 500    # Xpos
+    assert struct.unpack_from("<h", out, put0 + 8)[0] == -300   # Zpos
+    assert struct.unpack_from("<h", out, put0 + 6)[0] == 0      # Ypos untouched (pos was [x,z])
+    assert struct.unpack_from("<h", out, put0 + 10)[0] == 64    # Rot
+    mon0 = 8 + 56 * 1                                           # type 0 monster block
+    assert struct.unpack_from("<H", out, mon0 + 12)[0] == 999   # MaxHP
+    assert out[mon0 + 64] == 12                                 # Level
+    assert out[mon0 + 20] == 236                                # WinItems[0] = Potion
+    assert out[mon0 + 21] == 255                                # "none" -> 255
+
+
+def test_scene_edits_shared_type_warns():
+    # slots 0 and 2 both map to type 0 -> editing both stats is the SAME monster data
+    out, warns = scene_data.apply_scene_edits(_raw16(), {"enemy": [
+        {"slot": 0, "hp": 200}, {"slot": 2, "hp": 300}]})
+    assert any("share enemy type" in w for w in warns)
+    assert struct.unpack_from("<H", out, 8 + 56 + 12)[0] == 300   # last write wins
+
+
+def test_scene_edits_only_touch_edited_bytes():
+    raw = _raw16()
+    out, _ = scene_data.apply_scene_edits(raw, {"enemy": [{"slot": 1, "hp": 4321}]})
+    diff = [i for i in range(len(raw)) if raw[i] != out[i]]
+    mon1 = 8 + 56 + 116                                         # type 1 block, MaxHP @ +12
+    assert diff == [mon1 + 12, mon1 + 13]                       # ONLY the 2 HP bytes changed
+
+
+def test_scene_validate_catches_bad_slot_pattern_item():
+    raw = _raw16()
+    assert any("slot" in p for p in scene_data.validate_scene(raw, {"enemy": [{"slot": 9, "hp": 1}]}))
+    assert any("pattern" in p for p in scene_data.validate_scene(raw, {"pattern": 5, "enemy": []}))
+    assert scene_data.validate_scene(raw, {"enemy": [{"slot": 0, "drop": ["Nope", "none", "none", "none"]}]})
 
 
 def test_build_mint_existing_slot_reuses_bundle_inb(tmp_path):

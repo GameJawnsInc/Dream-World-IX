@@ -451,8 +451,14 @@ Read these on demand — they hold the full technical detail this file only summ
   `deploy_battle.py --trigger-field N` installs reversibly + repoints a field encounter, `battle-list
   --scenes` lists donors. Kit-emitted raw16/raw17/eb/mes are byte-identical to the C2 probe (offline-verified);
   451 tests pass; the throwaway probes were removed (kit supersedes them). **ALL battle tiers done** (a/b/c
-  + productized); the only open frontier left is an OPTIONAL bespoke moving camera (closed native DLL).
-  Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
+  + productized). **TUNE THE FIGHT (kit 0.9.8, in-game proven):** a `[scene]` section in battle.toml
+  overrides a minted battle's enemy **positions** (`pos`/`y`/`rot`), **stats** (hp/mp/gil/exp/level/
+  speed/strength/magic/spirit), **rewards** (`drop`/`steal`, items by name), and **camera** pose — the kit
+  surgically patches the forked `raw16` (only edited bytes change) keeping enemy TYPES so raw17 stays valid
+  (`battle/scene_data.py`; confirmed in-game: Goblin/Fang HP 33→1 one-shot + 9999 gil/999 exp/Phoenix Down).
+  Scope note: tunes the EXISTING fight; the donor's spawn-pattern COUNT/composition is not edited (a
+  1-monster pattern still spawns 1). The only open frontier left is an OPTIONAL bespoke moving camera
+  (closed native DLL). Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
 - **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
   (`archetypes.py`, merged into `names()`/`resolve()`) holds field-RENDERABLE `GEO_MON` models (verified

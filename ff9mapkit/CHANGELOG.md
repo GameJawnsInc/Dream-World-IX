@@ -26,6 +26,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `BBG_B200` + scene on stock Memoria, fully fightable. The kit's emitted raw16/raw17/eb/mes are
   byte-identical to the hand-built probe verified in real gameplay. Provenance-clean: forked scene assets
   are SE-derived, written to a gitignored project dir, never committed.
+- **Tune the fight (`[scene]`).** A minted battle's forked gameplay is now AUTHORABLE, not just a clone:
+  a `[scene]` section in battle.toml overrides enemy **positions** (`pos`/`y`/`rot`), **stats**
+  (`hp`/`mp`/`gil`/`exp`/`level`/`speed`/`strength`/`magic`/`spirit`), **rewards** (`drop`/`steal`, items
+  by name), and the **camera** pose. The kit surgically patches the forked `raw16` (only edited bytes
+  change) and keeps enemy TYPES intact so the forked attack sequences stay valid; items resolve by name
+  (`"Hi-Potion"`); shared-type edits warn. Validated against the real Evil Forest scene (Goblin HP 33 →
+  1500, etc.).
 
 ### Added — `give_item` by name; gil can subtract
 - `give_item = ["Potion", 1]` — items resolve by name (case/space/hyphen-insensitive) or numeric id,
