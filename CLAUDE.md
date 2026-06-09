@@ -376,9 +376,19 @@ Read these on demand — they hold the full technical detail this file only summ
   `AttachObject`-bound object sets; `tools/dump_field_objects.py` inspects one field): co-located sets
   are mostly a **visible anchor + dynamic/puzzle parts hidden at rest** — save point = moogle+book (the
   feather/letter are save-animation, `SetObjectFlags(14)`+tucked pose); the "rack" is the Desert Palace
-  **`scale`** (TNB), its weights flag-gated. So `save_point` is the one clean STATIC composite; the
-  richer multi-part rigs (held swords/cups, jump-rope) live behind `AttachObject`/`PretendToBe` (0x4C/
-  0xB5/0xD4) — the engine's object-binding opcodes — NOT built yet.
+  **`scale`** (TNB), its weights flag-gated. So `save_point` is the one clean STATIC composite.
+  **Held items (`AttachObject` 0x4C):** **`[[npc]] holds = "save_the_queen"`** puts a prop in an NPC's
+  hand — attaches at the right hand-bone AND poses BOTH the prop and the holder, **auto-resolved for
+  this holder's model** from a catalog of every shipping `AttachObject` (`tools/extract_attach_poses.py`
+  → `_held_poses.py`: `(carrier, prop) → (bone, prop_pose, holder_pose)`). `[[prop]] attach_to = "<npc>"`
+  is the manual form (uids ARE entry slots, so the kit emits the exact shipping bytes). In-game-verified
+  (Beatrix + Save the Queen; a dwarf + cup).
+- **Engine gotcha — `IsActuallyTalkable` reads `tag3[ip+7]`/`[ip+8]`** (the per-frame talk-icon poll), so
+  an object's tag-3 (talk) func MUST be ≥ 9 bytes or it indexes past the entry buffer → an
+  `IndexOutOfRangeException` every frame the player is near it. The kit's `_SpeakBTN` was 7 bytes — a
+  LATENT bug on every NPC since the first one (logged, non-fatal; found by watching `Memoria.log`). Fix:
+  pad short talk funcs to ≥ 9 (dead bytes after RETURN); non-interactive **props are `bare`** (Init-only,
+  no tag-3 at all — matches shipping set-dressing, dodges the poll). → `content/npc.py` `bare=`/padding.
 
 ---
 
