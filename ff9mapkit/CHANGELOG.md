@@ -16,6 +16,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   round-trip). The first practical custom-battle-background pipeline for FF9. See `docs/FORMAT.md`
   → "Battle maps". Provenance-clean: geometry/textures are extracted from your own install at runtime,
   never committed.
+- **Tier-c MINT — a brand-new battle SCENE (in-game proven).** `battle-import --fork-scene <DONOR>`
+  also forks a real battle's gameplay/sequence/camera/text (raw16 + raw17 + per-lang `.eb` + `.mes`) into
+  the project; `battle-build` emits a net-new `BattleScene <id> <NAME> <BBG>` registration plus those
+  assets, and `--ship-as BBG_B<N>` ships the geometry under a **brand-new bbg number** (a wholly original
+  map — the kit authors a static `.inb` for it). `deploy_battle.py --trigger-field N` repoints a field's
+  encounter at the minted scene so you can fight it. No camera authoring needed (the donor's raw17 carries
+  a working camera; a static `.inb` dodges the per-id anim tables). **In-game proven**: a net-new
+  `BBG_B200` + scene on stock Memoria, fully fightable. The kit's emitted raw16/raw17/eb/mes are
+  byte-identical to the hand-built probe verified in real gameplay. Provenance-clean: forked scene assets
+  are SE-derived, written to a gitignored project dir, never committed.
 
 ### Added — `give_item` by name; gil can subtract
 - `give_item = ["Potion", 1]` — items resolve by name (case/space/hyphen-insensitive) or numeric id,

@@ -438,8 +438,15 @@ Read these on demand — they hold the full technical detail this file only summ
   blue-tinted textures + a static `INB_B200`) under minted scene 5501 — fought twice, rendered blue (= our
   files loaded, no fallback to real B013), no errors. A new bbg NUMBER is safe with a static `.inb`
   (`nf_BbgNumber` is only `== <id>` compared, never an array index; obj/uv-anim gated on `objanim>0`).
-  Probe `tools/probe_tierc_customgeo.py`. **All battle tiers now in-game-proven** — only REMAINING is C4
-  (wire the full mint into ff9mapkit). Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
+  **C4 — the full mint is WIRED INTO ff9mapkit (kit 0.9.7), in-game proven via the kit's OWN pipeline**
+  (a kit-deployed `BBG_B201`/scene 5502 was fightable, survived death→menu→new-game→re-warp→win): `battle-import
+  --fork-scene <DONOR> --ship-as BBG_B<N>` forks geometry + scene assets (raw16/raw17/eb/mes, gitignored
+  SE-derived), `battle-build` copies them + authors a static INB + emits the `BattleScene` line,
+  `deploy_battle.py --trigger-field N` installs reversibly + repoints a field encounter, `battle-list
+  --scenes` lists donors. Kit-emitted raw16/raw17/eb/mes are byte-identical to the C2 probe (offline-verified);
+  451 tests pass; the throwaway probes were removed (kit supersedes them). **ALL battle tiers done** (a/b/c
+  + productized); the only open frontier left is an OPTIONAL bespoke moving camera (closed native DLL).
+  Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
 - **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
   (`archetypes.py`, merged into `names()`/`resolve()`) holds field-RENDERABLE `GEO_MON` models (verified

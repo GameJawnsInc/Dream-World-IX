@@ -12,6 +12,7 @@ A few base assets the kit needs are *derived* from FF9's own field data:
 | exit‑region template (`data/region_template.bin`) | the standard field‑exit entry the gateway injector patches | a base field's exit region is read from **your** install + a small patch |
 | test fixtures (`tests/fixtures/*`) | a real field script / camera / walkmesh used by the offline test suite | regenerated from **your** install |
 | battle-map geometry/textures (`<BBG>.fbx`, `image#.png`) | a real battle background forked into an editable FBX + PNGs by `ff9mapkit battle-import` | read from **your** install at runtime into a user‑chosen dir; gitignored, never committed (no committed battle template — you fork from your own install) |
+| minted-scene assets (`scene/*.raw16/.raw17/.eb/.mes`) | a real battle's gameplay/sequence/camera/text, forked by `battle-import --fork-scene` for a tier-c mint | read from **your** install into a user‑chosen dir; gitignored (`*.raw16.bytes`/`*.raw17.bytes`/`scene/eb`/`scene/mes`), never committed. The mint's static `.inb` is *authored* by the kit (pure `struct.pack`), not extracted |
 
 None of those bytes are committed to this repository or packaged in the wheel. Instead the repo ships
 only **our** part:

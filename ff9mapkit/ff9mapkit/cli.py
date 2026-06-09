@@ -347,15 +347,23 @@ def _cmd_battle_import(args: argparse.Namespace) -> int:
     from .battle import extract as bextract
     try:
         meta, toml = bextract.write_battle_project(
-            args.bbg, Path(args.out), name=args.name, scene_id=args.id, game=args.game)
+            args.bbg, Path(args.out), name=args.name, scene_id=args.id, game=args.game,
+            fork_scene=args.fork_scene, ship_as=args.ship_as)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
     print(f"imported {meta['bbg']}  ({meta['groups']} groups, {meta['geometries']} meshes, "
           f"{len(meta['textures'])} textures)")
-    print(f"  wrote  : {toml}  (+ {meta['bbg']}.fbx + image#.png)")
-    print(f"Next: edit {meta['bbg']}.fbx in Blender (keep meshes named Group_0/2/4/8) / repaint the "
-          f"PNGs, then: ff9mapkit battle-build {toml}")
+    if meta.get("scene"):
+        s = meta["scene"]
+        print(f"  forked scene {s['donor']} (id {s['donor_id']}): raw16 {s['raw16']}B + raw17 {s['raw17']}B"
+              f" + eb/mes x{s['langs']}  -> MINT (scene_id {args.id})")
+    print(f"  wrote  : {toml}  (+ {meta['bbg']}.fbx + image#.png"
+          f"{' + scene/' if meta.get('scene') else ''})")
+    nxt = ("edit %s.fbx in Blender / repaint PNGs, then: ff9mapkit battle-build %s" % (meta['bbg'], toml))
+    if meta.get("scene"):
+        nxt += "  then  py tools/deploy_battle.py %s --trigger-field 5000  (relaunch + walk)" % toml
+    print(f"Next: {nxt}")
     return 0
 
 
@@ -389,13 +397,18 @@ def _cmd_battle_build(args: argparse.Namespace) -> int:
 def _cmd_battle_list(args: argparse.Namespace) -> int:
     from .battle import extract as bextract
     try:
-        rows = bextract.list_battle_maps(args.pattern, game=args.game)
+        if args.scenes:
+            rows = bextract.list_battle_scenes(args.pattern, game=args.game)
+            kind = "battle scene(s) [mint donors]"
+        else:
+            rows = bextract.list_battle_maps(args.pattern, game=args.game)
+            kind = "battle map(s)"
     except (RuntimeError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
     for n in rows:
         print(n)
-    print(f"{len(rows)} battle map(s)")
+    print(f"{len(rows)} {kind}")
     return 0
 
 
@@ -671,10 +684,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     bi = sub.add_parser("battle-import",
                         help="fork a REAL FF9 battle background (BBG) into an editable battle.toml (needs UnityPy)")
-    bi.add_argument("bbg", help="battle-bg name, e.g. BBG_B013 (see `battle-list`)")
+    bi.add_argument("bbg", help="battle-bg name to fork GEOMETRY from, e.g. BBG_B013 (see `battle-list`)")
     bi.add_argument("--out", default=".", help="dir to write into (default: .)")
     bi.add_argument("--name", default=None, help="scene name for a minted scene (default: <BBG>_FORK)")
     bi.add_argument("--id", type=int, default=5000, help="scene id for a minted scene (default 5000)")
+    bi.add_argument("--fork-scene", default=None, metavar="DONOR",
+                    help="ALSO fork a battle scene's gameplay/camera/text (a tier-c MINT), e.g. EF_R007 "
+                         "(see `battle-list --scenes`). Yields a brand-new, independently-triggerable battle.")
+    bi.add_argument("--ship-as", default=None, metavar="BBG_B###",
+                    help="ship the geometry under a NEW bbg number (e.g. BBG_B200) = a wholly original map "
+                         "(the kit authors a static INB for it), instead of overriding the forked slot.")
     bi.set_defaults(func=_cmd_battle_import)
 
     bb = sub.add_parser("battle-build", help="compile a battle.toml into a Memoria mod (custom battle map)")
@@ -688,6 +707,8 @@ def build_parser() -> argparse.ArgumentParser:
     bl = sub.add_parser("battle-list",
                         help="list real FF9 battle backgrounds available to fork (needs UnityPy)")
     bl.add_argument("pattern", nargs="?", default=None, help="substring filter (e.g. b013)")
+    bl.add_argument("--scenes", action="store_true",
+                    help="list battle SCENE names (mint donors, e.g. EF_R007) instead of map names")
     bl.set_defaults(func=_cmd_battle_list)
 
     an = sub.add_parser("animations", help="list a character's cutscene gestures (pick by name)")

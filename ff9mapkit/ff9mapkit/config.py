@@ -140,6 +140,31 @@ class ModLayout:
         """Folder holding ``<bbg>.fbx`` + its ``image#.png`` textures (the loose-FBX override slot)."""
         return self.battlemap_all_dir / bbg
 
+    # --- minted battle SCENE assets (tier c). Paths VERBATIM-proven in-game (C1/C2, 2026-06-09);
+    #     casing matches battlemap_all_dir above (capitalized BattleMap), not the lowercase field tree. ---
+    @property
+    def _battle_resources(self) -> Path:
+        return self.root / "StreamingAssets" / "Assets" / "Resources"
+
+    def battle_scene_dir(self, scene_name: str) -> Path:
+        """``…/BattleMap/BattleScene/EVT_BATTLE_<NAME>`` — holds ``dbfile0000.raw16.bytes`` (gameplay) +
+        ``<scene_id>.raw17.bytes`` (btlseq + camera)."""
+        return self._battle_resources / "BattleMap" / "BattleScene" / f"EVT_BATTLE_{scene_name}"
+
+    @property
+    def battle_info_dir(self) -> Path:
+        """``…/BattleMap/BattleInfo`` — holds ``INB_B<N>.inb.bytes`` (BBGINFO: bbgnumber + anim flags)."""
+        return self._battle_resources / "BattleMap" / "BattleInfo"
+
+    def battle_eb_path(self, lang: str, scene_name: str) -> Path:
+        """``…/CommonAsset/EventEngine/EventBinary/Battle/<lang>/EVT_BATTLE_<NAME>.eb.bytes`` (battle AI)."""
+        return (self._battle_resources / "CommonAsset" / "EventEngine" / "EventBinary"
+                / "Battle" / lang / f"EVT_BATTLE_{scene_name}.eb.bytes")
+
+    def battle_text_dir(self, lang: str) -> Path:
+        """``<root>/FF9_Data/embeddedasset/text/<lang>/battle`` — holds ``<scene_id>.mes`` (battle text)."""
+        return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "battle"
+
     # --- field event scripts (.eb), one folder per language ---
     @property
     def eventbinary_field_dir(self) -> Path:

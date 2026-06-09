@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Build a battle.toml and deploy the custom battle map reversibly into the per-worktree mod folder.
+"""Build a battle.toml and deploy the custom battle map / minted scene reversibly into the per-worktree
+mod folder.
 
-Mirrors tools/deploy_field.py for the battle pillar: reads the gitignored .ff9deploy.toml (mod_folder)
-at the repo root, builds the FBX + textures into a temp mod, copies the battleMap_all/<BBG>/ slot into
-the live mod folder (zipping any prior contents into backups/ first), splices any BattleScene /
-BattleBackground patch lines (filtering a prior same-BBG line), and writes a revert script.
+Mirrors tools/deploy_field.py for the battle pillar: reads the gitignored .ff9deploy.toml (mod_folder) at
+the repo root, builds into a temp mod, then copies EVERY emitted file (the FBX/textures slot AND -- for a
+tier-c MINT -- the raw16/raw17 scene assets, per-lang battle eb + .mes, and the static INB) into the live
+mod folder, backing up anything it overwrites. It splices any BattleScene / BattleBackground patch lines
+and writes a revert script.
 
-A pure FBX/texture override needs NO relaunch (the FBX is read at battle start). A BattleScene mint or a
-BattlePatch BattleBackground line needs ONE relaunch (DictionaryPatch/BattlePatch load at launch).
+--trigger-field N: also repoint field N's deployed encounter (SetRandomBattles) at the minted scene_id so
+you can immediately fight it (reversible). The field must already be deployed with an encounter.
 
-Usage:  py tools/deploy_battle.py <battle.toml> [--mod-folder NAME]
+A pure FBX/texture override needs NO relaunch. A MINT (new BattleScene id) or a BattlePatch line needs ONE
+relaunch (DictionaryPatch/BattlePatch load at launch).
+
+Usage:  py tools/deploy_battle.py <battle.toml> [--mod-folder NAME] [--trigger-field N]
 """
 import argparse
 import datetime
@@ -22,8 +27,9 @@ from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
-from ff9mapkit.config import find_game_path, ModLayout  # noqa: E402
+from ff9mapkit.config import find_game_path, ModLayout, LANGS  # noqa: E402
 from ff9mapkit.battle.build import BattleProject, build_battle_mod  # noqa: E402
+from ff9mapkit.eb import opcodes  # noqa: E402
 
 REPO = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -40,11 +46,24 @@ def _mod_folder_default():
     return os.environ.get("FF9_MOD_FOLDER") or "FF9CustomMap"
 
 
-_ap = argparse.ArgumentParser(description="Deploy a custom battle map reversibly into the per-worktree "
-                                          "mod folder (.ff9deploy.toml). Reach the battle via field 5000.")
+def _repoint_encounter(eb: bytes, new_id: int) -> bytes:
+    """Repoint a field eb's SetRandomBattles(1, X,X,X,X) -> (1, new,new,new,new). Detects the current X by
+    scanning for the ENCSCENE op with 4 equal scene words; returns the patched bytes (or raises)."""
+    for x in range(0, 65536):
+        old = opcodes.set_random_battles(1, x, x, x, x)
+        if eb.count(old) == 1:
+            return eb.replace(old, opcodes.set_random_battles(1, new_id, new_id, new_id, new_id))
+    raise SystemExit("could not find a unique SetRandomBattles(1, X,X,X,X) in the field eb to repoint "
+                     "(set your field.toml [encounter] scene manually instead)")
+
+
+_ap = argparse.ArgumentParser(description="Deploy a custom battle map / minted scene reversibly into the "
+                                          "per-worktree mod folder (.ff9deploy.toml).")
 _ap.add_argument("battle", help="path to a battle.toml")
 _ap.add_argument("--mod-folder", dest="mod_folder", default=_mod_folder_default(),
                  help="Memoria mod folder to deploy into (default from .ff9deploy.toml / FF9CustomMap)")
+_ap.add_argument("--trigger-field", type=int, default=None, metavar="N",
+                 help="repoint field N's deployed encounter at the minted scene_id (reversible)")
 _args = _ap.parse_args()
 
 proj = BattleProject.load(_args.battle)
@@ -58,29 +77,43 @@ STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 # build into a temp mod
 tmp = Path(tempfile.mkdtemp(prefix="deploybattle_"))
-info = build_battle_mod([proj], tmp / "mod", mod_name=MOD)
-src_slot = ModLayout(tmp / "mod").battlemap_dir(BBG)
+stage_root = tmp / "mod"
+info = build_battle_mod([proj], stage_root, mod_name=MOD)
 
-live = ModLayout(find_game_path() / MOD)
-live_slot = live.battlemap_dir(BBG)
+live_root = find_game_path() / MOD
+live_root.mkdir(parents=True, exist_ok=True)
+bk_dir = BK / f"battle_predeploy.{STAMP}"     # holds the pre-deploy copy of any file we overwrite
 
-# back up + replace the slot
-if live_slot.exists() and any(live_slot.iterdir()):
-    shutil.make_archive(str(BK / f"battlemap_{BBG}.{STAMP}"), "zip", str(live_slot))
-shutil.rmtree(live_slot, ignore_errors=True)
-shutil.copytree(src_slot, live_slot)
-print(f"deployed {BBG} -> {live_slot}  (mod folder {MOD})")
+# copy every emitted file into live, backing up overwrites; track created vs overwritten for the revert
+created, overwritten = [], []
+for abs_src in info["written"]:
+    rel = Path(abs_src).relative_to(stage_root)
+    dst = live_root / rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        bdst = bk_dir / rel
+        bdst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(dst, bdst)
+        overwritten.append(str(rel))
+    else:
+        created.append(str(rel))
+    shutil.copyfile(abs_src, dst)
+print(f"deployed {BBG}{' + minted scene ' + str(proj.scene_id) if proj.is_mint else ''} -> {MOD} "
+      f"({len(created)} new, {len(overwritten)} replaced)")
 
-# splice patch lines reversibly (filter a prior same-BBG line, then append)
+live = ModLayout(live_root)
+
+# splice patch lines reversibly (filter a prior same-BBG / same-scene line, then append)
 relaunch = False
 if info["dictionary"]:
-    live.dictionary_patch.parent.mkdir(parents=True, exist_ok=True)
     if live.dictionary_patch.exists():
         shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preBATTLE.{STAMP}")
         cur = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
     else:
         cur = []
-    cur = [ln for ln in cur if not (ln.startswith("BattleScene") and ln.split()[3:4] == [BBG])]
+    sid = str(proj.scene_id) if proj.is_mint else None
+    cur = [ln for ln in cur if not (ln.startswith("BattleScene")
+                                    and (ln.split()[3:4] == [BBG] or ln.split()[1:2] == [sid]))]
     cur += info["dictionary"]
     live.dictionary_patch.write_text("\n".join(cur) + "\n", encoding="utf-8", newline="\n")
     relaunch = True
@@ -94,16 +127,50 @@ if info["battle_patch"]:
     live.battle_patch.write_text("\n".join(cur) + "\n", encoding="utf-8", newline="\n")
     relaunch = True
 
-# revert: remove the slot (and note the patch backups, restored manually if a line was spliced)
+# optional: repoint a trigger field's encounter at the minted scene (back it up like any overwrite, so
+# the revert's restore loop handles it)
+if _args.trigger_field is not None and proj.is_mint:
+    field_name = None
+    for ln in (live.dictionary_patch.read_text(encoding="utf-8").splitlines()
+               if live.dictionary_patch.exists() else []):
+        p = ln.split()
+        if p[:1] == ["FieldScene"] and p[1:2] == [str(_args.trigger_field)]:
+            field_name = p[4] if len(p) > 4 else None
+    if not field_name:
+        print(f"warning: field {_args.trigger_field} not found in DictionaryPatch; skipping trigger wiring")
+    else:
+        n = 0
+        for lang in LANGS:
+            for ebp in [live.root / "StreamingAssets" / "Assets" / "Resources" / "CommonAsset"
+                        / "EventEngine" / "EventBinary" / "Field" / lang / f"EVT_{field_name}.eb.bytes",
+                        live.eb_path(lang, f"EVT_{field_name}.eb.bytes")]:
+                if not ebp.exists():
+                    continue
+                rel = ebp.relative_to(live_root)
+                bdst = bk_dir / rel
+                bdst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ebp, bdst)
+                overwritten.append(str(rel))
+                ebp.write_bytes(_repoint_encounter(ebp.read_bytes(), int(proj.scene_id)))
+                n += 1
+                break
+        print(f"repointed field {_args.trigger_field} ({field_name}) encounter -> scene {proj.scene_id} "
+              f"(x{n} langs)")
+        relaunch = True
+
+# revert script: delete created files, restore overwritten (incl. any trigger-field ebs) from the backup
 revert = OUT / f"revert_battle_{BBG}.py"
 revert.write_text(
-    "#!/usr/bin/env python3\nimport shutil, sys\nfrom pathlib import Path\n"
-    f"sys.path.insert(0, r\"{KIT}\")\n"
-    "from ff9mapkit.config import find_game_path, ModLayout\n"
-    f"live = ModLayout(find_game_path() / {MOD!r})\n"
-    f"shutil.rmtree(live.battlemap_dir({BBG!r}), ignore_errors=True)\n"
-    f"print('reverted: removed battle map {BBG} from {MOD}')\n"
-    f"print('NOTE: if this deploy spliced patch lines, restore backups/*.preBATTLE.{STAMP} manually.')\n",
+    "#!/usr/bin/env python3\nimport shutil\nfrom pathlib import Path\n"
+    f"LIVE = Path(r{str(live_root)!r})\nBK = Path(r{str(bk_dir)!r})\n"
+    f"CREATED = {created!r}\nOVERWRITTEN = {overwritten!r}\n"
+    "for rel in CREATED:\n"
+    "    (LIVE/rel).unlink(missing_ok=True)\n"
+    "for rel in OVERWRITTEN:\n"
+    "    b = BK/rel\n"
+    "    if b.exists(): shutil.copyfile(b, LIVE/rel)\n"
+    f"print('reverted battle deploy for {BBG}. If patch lines were spliced, restore "
+    f"backups/*.preBATTLE.{STAMP}; relaunch FF9.')\n",
     encoding="utf-8", newline="\n")
 shutil.rmtree(tmp, ignore_errors=True)
 
@@ -112,4 +179,5 @@ for w in info["warnings"]:
 print(f"revert: py {revert}")
 print("Relaunch the game (DictionaryPatch/BattlePatch load at launch)." if relaunch
       else "No relaunch needed (the FBX + textures are read at battle start).")
-print(f"Then trigger a battle that uses {BBG} (field 5000's encounter, if it maps there).")
+if proj.is_mint and _args.trigger_field is None:
+    print(f"Trigger: set a field's [encounter] scene = {proj.scene_id}, or re-run with --trigger-field N.")

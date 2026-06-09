@@ -187,21 +187,193 @@ def list_battle_maps(pattern=None, game=None) -> list[str]:
     return rows
 
 
-def write_battle_project(bbg, out_dir, *, name=None, scene_id=5000, game=None):
-    """Fork `bbg` into `out_dir`: <bbg>.fbx + image#.png + an editable battle.toml. Returns (meta, toml)."""
+def _p0data7(game=None) -> Path:
+    return config.find_game_path(game) / "StreamingAssets" / "p0data7.bin"
+
+
+def _grab(env, suffixes: dict) -> dict:
+    """{key: bytes} for the TextAsset whose container ENDS WITH suffixes[key] (case-insensitive)."""
+    want = {k: v.lower() for k, v in suffixes.items()}
+    out: dict = {}
+    for o in env.objects:
+        if o.type.name != "TextAsset":
+            continue
+        c = (getattr(o, "container", None) or "").lower()
+        for k, suf in want.items():
+            if k not in out and c.endswith(suf):
+                from ..extract import _raw_bytes
+                out[k] = _raw_bytes(o.read())
+    return out
+
+
+def _lang_of(text: str):
+    """Classify a battle-text variant by language signature. All langs share entry COUNT/order (indices
+    are language-independent), so this only picks WHICH localized strings to ship per language."""
+    if any("぀" <= c <= "ヿ" or "一" <= c <= "鿿" for c in text):
+        return "jp"
+    if "Coltellata" in text or "Niente" in text:
+        return "it"
+    if "Gobelin" in text or "Gobelipunch" in text:
+        return "fr"
+    if "Duende" in text:
+        return "es"
+    if "Isegrim" in text or "Nichts" in text:
+        return "gr"
+    if "Goblin" in text and "Fang" in text:
+        return "en"
+    return None
+
+
+def read_scene_assets(donor, game=None) -> dict:
+    """Fork a real battle SCENE's gameplay+sequence+text out of the install (for a tier-c mint).
+
+    `donor` is a battle-scene NAME (e.g. 'EF_R007', the part after 'EVT_BATTLE_'). Returns
+    ``{raw16, raw17, donor_id, eb:{lang:bytes}, mes:{lang:bytes}}`` -- everything a minted scene needs
+    EXCEPT the map (geometry) and the INB (authored at build time). The raw17/eb/mes carry the donor's
+    working camera + AI + text verbatim, so the minted clone is internally consistent. Provenance: these
+    are SE-derived; the caller writes them to a gitignored project dir, never the repo.
+    """
+    UnityPy = _unitypy()
+    donor = donor.upper()
+    needle = f"battlescene/evt_battle_{donor.lower()}/"
+    env2 = UnityPy.load(str(_p0data2(game)))
+    raw16 = raw17 = None
+    donor_id = None
+    for o in env2.objects:
+        if o.type.name != "TextAsset":
+            continue
+        c = (getattr(o, "container", None) or "").lower()
+        if needle not in c:
+            continue
+        from ..extract import _raw_bytes
+        if c.endswith("dbfile0000.raw16.bytes"):
+            raw16 = _raw_bytes(o.read())
+        elif c.endswith(".raw17.bytes"):
+            raw17 = _raw_bytes(o.read())
+            donor_id = int(c.rsplit("/", 1)[-1].split(".", 1)[0])    # '<id>.raw17.bytes' -> id
+    if raw16 is None or raw17 is None or donor_id is None:
+        raise ValueError(f"battle scene {donor!r} not found (looked for {needle!r}). "
+                         f"Try a name from `ff9mapkit battle-list --scenes`.")
+
+    env7 = UnityPy.load(str(_p0data7(game)))
+    eb = _grab(env7, {l: f"eventbinary/battle/{l}/evt_battle_{donor.lower()}.eb.bytes"
+                      for l in config.LANGS})
+    missing = [l for l in config.LANGS if l not in eb]
+    if missing:
+        raise ValueError(f"battle eb for {donor!r} missing langs: {missing}")
+
+    # battle text: <donor_id>.mes lives in resources.assets, one per language
+    ra = config.find_game_path(game) / "x64" / "FF9_Data" / "resources.assets"
+    if not ra.exists():
+        ra = config.find_game_path(game) / "FF9_Data" / "resources.assets"
+    env_ra = UnityPy.load(str(ra))
+    by, eng = {}, None
+    from ..extract import _raw_bytes
+    for o in env_ra.objects:
+        if o.type.name != "TextAsset":
+            continue
+        d = o.read()
+        if d.m_Name != f"{donor_id}.mes":
+            continue
+        raw = _raw_bytes(d)
+        lang = _lang_of(raw.decode("utf-8", "replace"))
+        if lang == "en":
+            eng = raw
+        elif lang:
+            by[lang] = raw
+    if eng is None and not by:
+        raise ValueError(f"battle text {donor_id}.mes not found in resources.assets")
+    pick = {"us": eng, "uk": eng, "fr": by.get("fr"), "gr": by.get("gr"),
+            "it": by.get("it"), "es": by.get("es"), "jp": by.get("jp")}
+    mes = {l: (pick.get(l) or eng or next(iter(by.values()))) for l in config.LANGS}
+    return {"raw16": raw16, "raw17": raw17, "donor_id": donor_id, "eb": eb, "mes": mes}
+
+
+def write_scene_assets(out_dir, donor, game=None) -> dict:
+    """Fork `donor` scene assets into ``<out_dir>/scene/`` (gitignored). Layout consumed by build.py:
+    ``scene/dbfile0000.raw16.bytes``, ``scene/btlseq.raw17.bytes``, ``scene/eb/<lang>.eb.bytes``,
+    ``scene/mes/<lang>.mes``. Returns a small manifest (donor, donor_id, byte sizes)."""
+    a = read_scene_assets(donor, game)
+    sdir = Path(out_dir) / "scene"
+    (sdir / "eb").mkdir(parents=True, exist_ok=True)
+    (sdir / "mes").mkdir(parents=True, exist_ok=True)
+    (sdir / "dbfile0000.raw16.bytes").write_bytes(a["raw16"])
+    (sdir / "btlseq.raw17.bytes").write_bytes(a["raw17"])
+    for lang in config.LANGS:
+        (sdir / "eb" / f"{lang}.eb.bytes").write_bytes(a["eb"][lang])
+        (sdir / "mes" / f"{lang}.mes").write_bytes(a["mes"][lang])
+    return {"donor": donor.upper(), "donor_id": a["donor_id"],
+            "raw16": len(a["raw16"]), "raw17": len(a["raw17"]), "langs": len(config.LANGS)}
+
+
+def list_battle_scenes(pattern=None, game=None) -> list[str]:
+    """List real battle-scene NAMES available to fork as a mint donor (e.g. EF_R007 = Evil Forest)."""
+    import re
+    UnityPy = _unitypy()
+    env = UnityPy.load(str(_p0data2(game)))
+    rx = re.compile(r"battlescene/evt_battle_([^/]+)/dbfile0000\.raw16", re.I)
+    names = set()
+    for o in env.objects:
+        m = rx.search((getattr(o, "container", None) or "").lower())
+        if m:
+            names.add(m.group(1).upper())
+    rows = sorted(names)
+    if pattern:
+        rows = [n for n in rows if pattern.lower() in n.lower()]
+    return rows
+
+
+def write_battle_project(bbg, out_dir, *, name=None, scene_id=5000, game=None,
+                         fork_scene=None, ship_as=None):
+    """Fork `bbg` into `out_dir`: <bbg>.fbx + image#.png + an editable battle.toml. Returns (meta, toml).
+
+    ``fork_scene`` (a donor battle-scene NAME, e.g. 'EF_R007') ALSO forks that scene's gameplay/sequence/
+    text into ``scene/`` and writes a tier-c MINT battle.toml -- a brand-new, independently-triggerable
+    battle. ``ship_as`` (e.g. 'BBG_B200') ships the geometry under a NEW bbg number instead of overriding
+    the forked slot (the kit authors a static INB for it at build time).
+    """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     groups, env, bbg = read_bbg(bbg, game)
     tex = _fbx.textures_used(groups)
     text, ngeo = _fbx.emit_fbx(groups)
-    (out / f"{bbg}.fbx").write_text(text, encoding="ascii", newline="\n")
+    ship_bbg = ship_as or bbg
+    (out / f"{ship_bbg}.fbx").write_text(text, encoding="ascii", newline="\n")
     saved = _save_textures(env, bbg, out, tex)
     name = name or f"{bbg}_FORK"
+    meta = {"bbg": ship_bbg, "src_bbg": bbg, "groups": len(groups), "geometries": ngeo, "textures": saved}
     toml_path = out / "battle.toml"
-    toml_path.write_text(_battle_toml(bbg, name, scene_id, ngeo, len(groups)),
-                         encoding="utf-8", newline="\n")
-    meta = {"bbg": bbg, "groups": len(groups), "geometries": ngeo, "textures": saved}
+    if fork_scene:
+        scene_meta = write_scene_assets(out, fork_scene, game)
+        meta["scene"] = scene_meta
+        toml_path.write_text(_mint_toml(ship_bbg, name, scene_id, ngeo, len(groups), scene_meta,
+                                        new_bbg=bool(ship_as)),
+                             encoding="utf-8", newline="\n")
+    else:
+        toml_path.write_text(_battle_toml(ship_bbg, name, scene_id, ngeo, len(groups)),
+                             encoding="utf-8", newline="\n")
     return meta, toml_path
+
+
+def _mint_toml(bbg, name, scene_id, ngeo, ngroups, scene_meta, *, new_bbg) -> str:
+    tint = "" if not new_bbg else (
+        '\n# char_tint = [128, 128, 128]   # optional RGB tint the engine lights party/enemies with on this'
+        '\n#                                # map (0-255); default neutral. shadow = 32 by default.')
+    return f'''# Tier-c MINT: a brand-new battle SCENE forked by `ff9mapkit battle-import --fork-scene`.
+# Geometry: {bbg}.fbx ({ngeo} meshes / {ngroups} groups) + image#.png.  Gameplay/camera/text forked from
+# donor scene {scene_meta["donor"]} (id {scene_meta["donor_id"]}) into scene/ (raw16 + raw17 + eb + mes).
+# Edit {bbg}.fbx in Blender / repaint the PNGs to make the map your own, then:
+#   ff9mapkit battle-build battle.toml --out dist
+#   py tools/deploy_battle.py battle.toml --trigger-field 5000   # reversible; repoints a field's encounter
+# Then RELAUNCH FF9 (a new BattleScene id loads at launch) and trigger the battle on the trigger field.
+
+[battlemap]
+bbg = "{bbg}"          # ships AS this slot. A NEW number (BBG_B178+) = a wholly original map (the kit
+#                        authors a static INB for it). An existing number would OVERRIDE that real map.
+fbx = "{bbg}.fbx"
+scene_id = {scene_id}        # the net-new battle id this mint registers (must not collide with any field/scene id)
+scene_name = "{name}"     # -> EVT_BATTLE_{name} + BSC_{name}{tint}
+'''
 
 
 def _battle_toml(bbg, name, scene_id, ngeo, ngroups) -> str:

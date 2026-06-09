@@ -100,12 +100,26 @@ codec/golden tests) with the full in-game pass still pending.
 
 ---
 
+## Battle maps (custom 3D battle backgrounds)
+
+| Capability | | Docs |
+|---|---|---|
+| Fork a real battle background (`battle-import`) — geometry + per-submesh textures → editable FBX | ✓ | [FORMAT](FORMAT.md) |
+| Reskin textures / swap custom FBX geometry onto a real slot (stock engine, no rebuild) | ✓ | [FORMAT](FORMAT.md) |
+| **Mint a brand-new battle scene** (`--fork-scene`) — net-new `BattleScene` id with forked gameplay/camera/text | ✓ | [FORMAT](FORMAT.md) |
+| **Wholly original map** (`--ship-as BBG_B<N>`) — custom geometry under a new bbg number + authored static INB | ✓ | [FORMAT](FORMAT.md) |
+| Deploy reversibly + repoint a field encounter to trigger it (`deploy_battle.py --trigger-field`) | ✓ | [FORMAT](FORMAT.md) |
+
+---
+
 ## Not in scope (by design)
 
 Honest limits — the kit deliberately does **not**:
 - **Paint your background art / battle-map textures** — it gives you a pixel-accurate guide and forks
   the real geometry; the painting is yours.
-- Generate **world-map** content (field maps + battle maps; no world-map pillar yet).
+- Author a **bespoke moving battle camera** — minted battles use the donor's (working) camera or a static
+  default pose; custom camera keyframes (the closed `FF9SpecialEffectPlugin.dll`) aren't authored yet.
+- Generate **world-map** content (the overworld + its terrain/encounters; no world-map pillar yet).
 - Run the game or judge final visual alignment — that's the human playtest step.
 - Ship Square Enix's game data — game-derived blobs are sourced from *your own* install.
 

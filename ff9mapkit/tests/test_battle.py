@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import textwrap
 
+import struct
+
 from ff9mapkit.battle import fbx
-from ff9mapkit.battle.build import BattleProject, build_battle_mod, validate_battle
-from ff9mapkit.config import ModLayout
+from ff9mapkit.battle.build import (BattleProject, _author_inb, _bbg_number, build_battle_mod,
+                                    validate_battle)
+from ff9mapkit.config import LANGS, ModLayout
 
 
 def _groups():
@@ -132,14 +135,72 @@ def test_build_repoint_writes_battlepatch(tmp_path):
     assert "BattleBackground BBG_B013" in info["battle_patch"]
 
 
-def test_build_mint_writes_dictionarypatch_with_warning(tmp_path):
+def _write_scene(tmp_path):
+    """Synthetic forked-scene dir (what `battle-import --fork-scene` produces): raw16/raw17 + eb/mes x7."""
+    sd = tmp_path / "scene"
+    (sd / "eb").mkdir(parents=True, exist_ok=True)
+    (sd / "mes").mkdir(parents=True, exist_ok=True)
+    (sd / "dbfile0000.raw16.bytes").write_bytes(b"RAW16")
+    (sd / "btlseq.raw17.bytes").write_bytes(b"RAW17")
+    for lang in LANGS:
+        (sd / "eb" / f"{lang}.eb.bytes").write_bytes(b"EB_" + lang.encode())
+        (sd / "mes" / f"{lang}.mes").write_bytes(b"MES_" + lang.encode())
+
+
+def test_author_inb_static_and_bbg_number():
+    assert _bbg_number("BBG_B200") == 200 and _bbg_number("BBG_B013") == 13
+    inb = _author_inb("BBG_B200", (10, 20, 30), 32)
+    f = struct.unpack("<6h4B", inb)
+    assert f[0] == 200                       # bbgnumber
+    assert f[1:6] == (0, 0, 0, 0, 0)         # texanim/skyrot/fog/objanim/uvcount -> static
+    assert f[6:] == (10, 20, 30, 32)         # char tint + shadow
+
+
+def test_validate_battle_mint_requires_scene_assets(tmp_path):
     proj = _write_project(tmp_path, '''
         [battlemap]
-        bbg = "BBG_T001"
+        bbg = "BBG_B200"
         fbx = "BBG_B013.fbx"
-        scene_id = 5001
-        scene_name = "CUSTOM_ARENA"
+        scene_id = 5502
+        scene_name = "KIT_ARENA"
     ''')
-    info = build_battle_mod([proj], tmp_path / "dist")
-    assert "BattleScene 5001 CUSTOM_ARENA BBG_T001" in info["dictionary"]
-    assert any("experimental" in w for w in info["warnings"])
+    assert any("forked scene assets" in p for p in validate_battle(proj))
+
+
+def test_build_mint_new_bbg_emits_full_scene_and_inb(tmp_path):
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B200"
+        fbx = "BBG_B013.fbx"
+        scene_id = 5502
+        scene_name = "KIT_ARENA"
+    ''')
+    _write_scene(tmp_path)
+    out = tmp_path / "dist"
+    info = build_battle_mod([proj], out)
+    layout = ModLayout(out)
+    assert "BattleScene 5502 KIT_ARENA BBG_B200" in info["dictionary"]
+    assert not info["warnings"]                              # mint is real now, no "experimental" warning
+    sd = layout.battle_scene_dir("KIT_ARENA")
+    assert (sd / "dbfile0000.raw16.bytes").read_bytes() == b"RAW16"
+    assert (sd / "5502.raw17.bytes").read_bytes() == b"RAW17"   # raw17 renamed to the scene id
+    assert layout.battle_eb_path("us", "KIT_ARENA").read_bytes() == b"EB_us"
+    assert (layout.battle_text_dir("us") / "5502.mes").read_bytes() == b"MES_us"
+    inb = (layout.battle_info_dir / "INB_B200.inb.bytes").read_bytes()      # new number -> static INB authored
+    assert struct.unpack_from("<h", inb, 0)[0] == 200
+
+
+def test_build_mint_existing_slot_reuses_bundle_inb(tmp_path):
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+        scene_id = 5503
+        scene_name = "ON_B013"
+    ''')
+    _write_scene(tmp_path)
+    out = tmp_path / "dist"
+    info = build_battle_mod([proj], out)
+    layout = ModLayout(out)
+    assert "BattleScene 5503 ON_B013 BBG_B013" in info["dictionary"]
+    # an existing real slot (<=177) keeps its bundled INB -> the kit does NOT shadow it with a static one
+    assert not (layout.battle_info_dir / "INB_B013.inb.bytes").exists()
