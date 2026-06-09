@@ -77,6 +77,16 @@ ARCHETYPES: dict = {
     "bandit": {"model": "GEO_NPC_F0_HTH"},           # HTH (JP "Heikin Thief")
     "thief": {"model": "GEO_NPC_F0_HTH"},            # alias of bandit
     "fan_club_member": {"model": "GEO_NPC_F0_HUF"},  # HUF (Lowell's fan club, a woman)
+    "human_male": {"model": "GEO_NPC_F0_HUM"},       # HUM (a generic adult man)
+    "old_man": {"model": "GEO_NPC_F0_JJY"},          # JJY (JP "jijii" = old man)
+    "grandpa": {"model": "GEO_NPC_F0_JJY"},          # alias of old_man
+    "alexandria_child": {"model": "GEO_NPC_F0_KAC"}, # KAC (Alexandria kid, e.g. Hippaul)
+    "hippaul": {"model": "GEO_NPC_F0_KAC"},          # alias (the named Alexandria boy)
+    "bishop": {"model": "GEO_NPC_F0_NAN"},           # NAN (Esto Gaza altar)
+    "alexandria_soldier": {"model": "GEO_NPC_F0_OFF"},  # OFF (Alexandria's female soldiers)
+    "auctioneer": {"model": "GEO_NPC_F0_ORC"},       # ORC (Treno Auction House)
+    "scholar": {"model": "GEO_NPC_F0_OSC"},          # OSC (A. Castle Library)
+    "burmecian_soldier": {"model": "GEO_NPC_F0_RAS"},  # RAS (Gizamaluke bell guards)
 }
 
 
