@@ -79,6 +79,12 @@ engine build, the build/deploy loop, version control, and all docs/notes.
 > conflict-free and master's CLAUDE.md never goes stale. FF from this worktree without checking out
 > master: `git -C C:\gd\FFIX merge --ff-only infohub-catalog` (keep the master worktree clean first —
 > an uncommitted file there blocks the FF; stash it, FF, pop).
+> **Two branches feeding master concurrently:** the FF-only model assumes ONE feeder at a time. If the
+> *other* branch FFs master while you have un-merged commits, your branch diverges and a plain FF becomes
+> impossible — that's expected, NOT an emergency (diverged branches sit fine until the next FF). Fix:
+> `git rebase master` (replays your commits onto it; resolve same-file doc conflicts **keep-both**), then
+> the `--ff-only` merge above. Deterministic — whoever merges **second** rebases; only files BOTH branches
+> edited (e.g. CLAUDE.md §10) conflict, so it's usually one paragraph + a clean replay.
 
 ---
 
