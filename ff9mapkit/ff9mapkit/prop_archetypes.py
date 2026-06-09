@@ -42,6 +42,8 @@ PROP_ARCHETYPES: dict = {
     "pickaxe": {"model": "GEO_ACC_F0_TUR", "pose": 10643},      # TUR -- a mining pickaxe (Fossil Roo mining site)
     "vat": {"model": "GEO_ACC_F0_BBT", "pose": 62},             # BBT -- "Big Barrel Tank": a huge storage vat (Dali underground production)
     "tank": {"model": "GEO_ACC_F0_BBT", "pose": 62},            # alias of vat
+    "aircab": {"model": "GEO_ACC_F0_V10", "pose": 1608},        # V10 -- "Vehicle 10": the Lindblum aircab car (flies, has doors)
+    "aircab_car": {"model": "GEO_ACC_F0_V10", "pose": 1608},    # alias of aircab
 }
 
 

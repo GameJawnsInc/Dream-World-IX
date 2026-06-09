@@ -25,8 +25,8 @@ import extract_prop_poses as EP          # canonical pose per model (cached)
 import model_field_usage as MFU          # model -> field locations
 
 IHTEST = Path(os.environ.get("IHTEST", r"C:\Users\skaki\AppData\Local\Temp\ihtest"))
-PER_BATCH = 8
-ROW_Z, ROW_X, SPAWN = 150, (-800, 800), [0, 500]
+PER_BATCH = 6                              # props vary wildly in size; fewer + wider so big ones don't block
+ROW_Z, ROW_X, SPAWN = 150, (-1000, 1000), [0, 500]
 
 
 def unnamed_tokens():
@@ -79,9 +79,9 @@ def main():
         if pose:
             lines.append(f"pose = {pose}")
         lines.append("")
-        locs, total = MFU.usage(m.id, limit=4) if m else ([], 0)
-        rows.append((tok, pose, total, "; ".join(nm.encode("ascii", "ignore").decode().strip()
-                                                 for _, nm in locs)))
+        locs, total = MFU.usage(m.id, limit=5) if m else ([], 0)
+        where = "; ".join(f"{fid}={nm.encode('ascii', 'ignore').decode().strip()}" for fid, nm in locs)
+        rows.append((tok, pose, total, where))         # field IDs included so the human can F6 -> Warp
 
     out = IHTEST / "gallery.field.toml"
     out.write_text("\n".join(lines), encoding="utf-8")
