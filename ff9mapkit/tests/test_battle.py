@@ -192,14 +192,14 @@ def test_build_mint_new_bbg_emits_full_scene_and_inb(tmp_path):
 
 
 # --------------------------------------------------------------------- scene_data (tune the fight)
-def _raw16(patcount=1, typcount=2):
+def _raw16(patcount=1, typcount=2, monster_count=2, put_flags=1):
     """A synthetic BTL_SCENE raw16: 1 pattern (Camera=5, slots 0/2 -> type 0, slot 1 -> type 1) + N
-    monsters (MaxHP = 100+t). Matches the layout scene_data patches."""
+    monsters (MaxHP = 100+t). `put_flags` is each SB2_PUT.Flags (1 = FLG_TARGETABLE, like a real enemy)."""
     hdr = bytes([1, patcount, typcount, 0]) + struct.pack("<H", 0) + b"\x00\x00"
-    pat = bytes([10, 2, 5, 0]) + struct.pack("<I", 100)
+    pat = bytes([10, monster_count, 5, 0]) + struct.pack("<I", 100)
     for slot in range(4):
         typeno = 1 if slot == 1 else 0
-        pat += bytes([typeno, 0, 0, 0]) + struct.pack("<hhhh", slot * 100, 0, slot * -50, 0)
+        pat += bytes([typeno, put_flags, 0, 0]) + struct.pack("<hhhh", slot * 100, slot * 7, slot * -50, 0)
     mons = b""
     for t in range(typcount):
         m = bytearray(116)                            # SB2_MON_PARM
@@ -244,6 +244,44 @@ def test_scene_edits_only_touch_edited_bytes():
     diff = [i for i in range(len(raw)) if raw[i] != out[i]]
     mon1 = 8 + 56 + 116                                         # type 1 block, MaxHP @ +12
     assert diff == [mon1 + 12, mon1 + 13]                       # ONLY the 2 HP bytes changed
+
+
+def test_scene_spawn_count_and_type():
+    # donor_max = 2 (synthetic). A SUPPORTED edit: keep count 2, retype slot 1 (Fang) -> type 0 (2 Goblins)
+    out, _ = scene_data.apply_scene_edits(_raw16(), {
+        "monster_count": 2, "enemy": [{"slot": 1, "type": 0, "pos": [10, 20]}]})
+    assert out[8 + 1] == 2                                  # pattern MonsterCount
+    put1 = 8 + 8 + 12 * 1
+    assert out[put1] == 0                                   # slot 1 TypeNo retyped to 0
+    assert out[put1 + 1] & 1                                # FLG_TARGETABLE set (normal attackable enemy)
+    assert struct.unpack_from("<h", out, put1 + 6)[0] == 0  # grounded to slot 0's height
+
+
+def test_scene_overspawn_capped_at_donor_max():
+    raw = _raw16(monster_count=2)                           # donor authored 2 enemy AI objects
+    assert any("exceeds the donor" in p for p in scene_data.validate_scene(raw, {"monster_count": 4}))
+    # explicit override is allowed but warns loudly
+    out, warns = scene_data.apply_scene_edits(raw, {"monster_count": 4, "allow_overspawn": True})
+    assert out[8 + 1] == 4
+    assert any("OVERSPAWN" in w for w in warns)
+
+
+def test_scene_spawn_type_grounds_to_slot0_height():
+    # slot 2's donor Ypos is 14 (slot*7); activating it via `type` should ground it to slot 0's Ypos (0)
+    out, _ = scene_data.apply_scene_edits(_raw16(), {"enemy": [{"slot": 2, "type": 0, "pos": [50, 60]}]})
+    put2 = 8 + 8 + 12 * 2
+    assert struct.unpack_from("<h", out, put2 + 6)[0] == 0          # grounded to slot 0's height
+    # an explicit y still wins
+    out2, _ = scene_data.apply_scene_edits(_raw16(), {"enemy": [{"slot": 2, "type": 0, "y": 99}]})
+    assert struct.unpack_from("<h", out2, put2 + 6)[0] == 99
+
+
+def test_scene_spawn_validation():
+    raw = _raw16()
+    assert any("monster_count" in p for p in scene_data.validate_scene(raw, {"monster_count": 9}))
+    assert any("type" in p for p in scene_data.validate_scene(raw, {"enemy": [{"slot": 0, "type": 5}]}))
+    # an active slot with no FLG_TARGETABLE is rejected (couldn't hit it -> the fight can't end)
+    assert any("targetable" in p for p in scene_data.validate_scene(_raw16(put_flags=0), {}))
 
 
 def test_scene_validate_catches_bad_slot_pattern_item():

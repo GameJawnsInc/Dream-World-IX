@@ -33,6 +33,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   change) and keeps enemy TYPES intact so the forked attack sequences stay valid; items resolve by name
   (`"Hi-Potion"`); shared-type edits warn. Validated against the real Evil Forest scene (Goblin HP 33 →
   1500, etc.).
+- **Spawn composition (`[scene]`).** `monster_count` sets how many slots spawn, and a per-slot `type`
+  chooses which enemy fills it — constrained to the scene's EXISTING types (so the forked raw17 sequences
+  + GEO cover them), made targetable, and auto-grounded. Lets you recompose the encounter (e.g. donor
+  "Goblin + Fang" → two Goblins). **`monster_count` is capped at the donor's authored enemy count** (the
+  max original pattern `MonsterCount`): the forked battle AI (eb) only creates that many enemy-AI actors,
+  so spawning MORE leaves the extra enemy with no AI object and its death misroutes into the player's
+  event object (an in-game-observed player-model "twitch" — `EventEngine.RequestAction` → null
+  `_objPtrList` slot). Exceeding the cap errors (or warns under `allow_overspawn = true`); truly supporting
+  more enemies needs a custom battle eb (not yet authored). raw16-only, no raw17 change.
 
 ### Added — `give_item` by name; gil can subtract
 - `give_item = ["Potion", 1]` — items resolve by name (case/space/hyphen-insensitive) or numeric id,

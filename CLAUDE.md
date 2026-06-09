@@ -462,9 +462,15 @@ Read these on demand — they hold the full technical detail this file only summ
   speed/strength/magic/spirit), **rewards** (`drop`/`steal`, items by name), and **camera** pose — the kit
   surgically patches the forked `raw16` (only edited bytes change) keeping enemy TYPES so raw17 stays valid
   (`battle/scene_data.py`; confirmed in-game: Goblin/Fang HP 33→1 one-shot + 9999 gil/999 exp/Phoenix Down).
-  Scope note: tunes the EXISTING fight; the donor's spawn-pattern COUNT/composition is not edited (a
-  1-monster pattern still spawns 1). The only open frontier left is an OPTIONAL bespoke moving camera
-  (closed native DLL). Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
+  Also **spawn composition** (`monster_count` + per-slot `type`, existing types only) — recompose the
+  encounter — but **`monster_count` is CAPPED at the donor's authored enemy count** (max original pattern
+  MonsterCount): the forked AI (eb) only creates that many enemy-AI Actor objects, so spawning more leaves
+  the extra enemy with no AI object and its death misroutes into the player's event object → the PLAYER
+  model twitches (`EventEngine.RequestAction` → null `_objPtrList[6/7]`; root-caused via an ultracode
+  workflow). Exceeding it errors (or warns under `allow_overspawn`); MORE enemies needs a custom battle eb.
+  **Open frontiers (both need authoring the battle eb/raw17, the kit ships them verbatim):** (1) spawn
+  beyond the donor's count, (2) a bespoke moving camera (closed native DLL). Full recipe + gotchas: memory
+  `project-ff9-battle-backgrounds`.
 - **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
   (`archetypes.py`, merged into `names()`/`resolve()`) holds field-RENDERABLE `GEO_MON` models (verified

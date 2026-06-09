@@ -26,6 +26,7 @@ _HDR = 8
 _PAT = 56
 _MON = 116
 _PUT = 12
+_FLG_TARGETABLE = 1     # SB2_PUT.FLG_TARGETABLE -- the enemy can be selected/attacked (FLG_MULTIPART=2)
 
 # SB2_MON_PARM field -> (offset, struct-fmt). Only the author-facing, raw17-safe fields.
 _MON_FIELDS = {
@@ -56,6 +57,12 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
     patcount, typcount, _atk = parse_counts(raw16)
     b = bytearray(raw16)
     warnings: list[str] = []
+    # The donor's forked battle AI (eb) only creates an enemy-AI Actor object per enemy it was authored for;
+    # spawning MORE leaves the extra slots with no AI object, and the (donor_max+1)th enemy's death misroutes
+    # into the player's event object -> the player model twitches/destabilizes (EventEngine.RequestAction ->
+    # null _objPtrList slot). The reliable data proxy for "how many the eb authors" is the max ORIGINAL
+    # pattern MonsterCount across all patterns. Cap monster_count there (overridable, unsafe).
+    donor_max = max(raw16[_HDR + _PAT * p + 1] for p in range(patcount))
     pat = int(scene.get("pattern", 0))
     if not 0 <= pat < patcount:
         raise SceneEditError(f"[scene] pattern {pat} out of range (this scene has {patcount} pattern(s))")
@@ -67,6 +74,22 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
             raise SceneEditError(f"[scene] camera {cam} out of range (0-2 = a fixed PSX pose, >=3 random)")
         b[pat_off + 2] = cam
 
+    if "monster_count" in scene:                       # how many of the 4 slots actually spawn
+        mc = int(scene["monster_count"])
+        if not 1 <= mc <= 4:
+            raise SceneEditError(f"[scene] monster_count {mc} out of range (1-4; engine hard cap)")
+        if mc > donor_max:
+            msg = (f"[scene] monster_count {mc} exceeds the donor battle's authored enemy count "
+                   f"({donor_max}). The forked AI (eb) only creates {donor_max} enemy AI actor(s), so the "
+                   f"{donor_max + 1}th enemy has NO AI object -- its death misroutes into the player's "
+                   f"event object and twitches/destabilizes the player model. Cap monster_count at "
+                   f"{donor_max}, or set `allow_overspawn = true` to override (UNSAFE; truly supporting "
+                   f"more needs a custom battle eb, which the kit does not yet author).")
+            if not scene.get("allow_overspawn"):
+                raise SceneEditError(msg)
+            warnings.append("OVERSPAWN (unsafe): " + msg)
+        b[pat_off + 1] = mc
+
     mon_base = _mon_base(patcount)
     tuned_types: dict[int, int] = {}     # type_no -> slot that first tuned it (for the dup warning)
     for e in scene.get("enemy", []):
@@ -76,7 +99,19 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
         if not 0 <= slot < 4:
             raise SceneEditError(f"[[scene.enemy]] slot {slot} out of range (0-3)")
         put_off = pat_off + 8 + _PUT * slot
-        type_no = b[put_off]                                   # SB2_PUT.TypeNo
+
+        # --- which enemy TYPE occupies this slot (spawn composition) ---
+        if "type" in e:
+            t = int(e["type"])
+            if not 0 <= t < typcount:
+                raise SceneEditError(f"slot {slot} type {t} out of range (0-{typcount - 1}); must be an "
+                                     f"enemy type ALREADY in this scene, so the forked raw17/GEO covers it")
+            b[put_off] = t
+            b[put_off + 1] = _FLG_TARGETABLE                   # normal, targetable, single-part enemy
+            # GROUND it: default an activated slot's height to slot 0's Ypos (a real on-ground enemy), so a
+            # slot the donor left at a leftover/non-ground height doesn't float. Explicit y/pos[y] overrides.
+            struct.pack_into("<h", b, put_off + 6, struct.unpack_from("<h", b, pat_off + 8 + 6)[0])
+        type_no = b[put_off]                                   # SB2_PUT.TypeNo (post-edit)
 
         # --- placement (per slot) ---
         if "pos" in e:
@@ -115,6 +150,18 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
                     ids = _resolve_items(e[k], slot, k)
                     for i, iid in enumerate(ids):
                         b[base + i] = iid
+
+    # every ACTIVE slot must be a valid, targetable type -- catches bumping monster_count past the donor's
+    # defined slots without giving the newly-active ones a 'type' (else: garbage type / unhittable enemy).
+    count = b[pat_off + 1]
+    for s in range(count):
+        po = pat_off + 8 + _PUT * s
+        if b[po] >= typcount:
+            raise SceneEditError(f"active slot {s} (monster_count {count}) has enemy type {b[po]} >= "
+                                 f"TypCount {typcount}; give it a 'type' of 0-{typcount - 1}")
+        if not (b[po + 1] & _FLG_TARGETABLE):
+            raise SceneEditError(f"active slot {s} (monster_count {count}) is not targetable -- set its "
+                                 f"'type' so it becomes a normal attackable enemy (else the fight can't end)")
     return bytes(b), warnings
 
 
