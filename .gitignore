@@ -91,3 +91,5 @@ build/
 
 # dev tooling cache (model->field-usage index; game-derived, regenerable via --build)
 tools/model_field_usage.json
+
+_private_memoria_archive/
