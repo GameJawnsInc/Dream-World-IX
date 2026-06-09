@@ -411,9 +411,19 @@ Read these on demand — they hold the full technical detail this file only summ
   typed "Mesh", per-group PSX shader set in-FBX). **Now a first-class ff9mapkit pillar** (kit 0.9.6):
   `ff9mapkit/ff9mapkit/battle/` + CLI `battle-import`/`battle-build`/`battle-list` + `tools/deploy_battle.py`
   + a `battle.toml` (override an existing slot / `repoint_scene` / experimental `scene_id` mint). The
-  earlier `tools/*bbg*` scripts were the proofs; the package supersedes them. Tier (c) (a brand-new
-  bbg/scene + the moving CAMERA) remains the open frontier (camera computed in a closed DLL, data-driven
-  via `{sceneId}.raw17`). Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
+  earlier `tools/*bbg*` scripts were the proofs; the package supersedes them.
+  **Tier (c) — NEW SCENE mint PROVEN in-game (2026-06-09):** a net-new `BattleScene <id>` (forked donor
+  EF_R007 / scene 67 → id 5500 on BBG_B013 — raw16 + raw17 + eb + **mes** verbatim) loads + is fightable on
+  stock Memoria (2 Goblins, correct rewards/random drops, no softlock). **The camera was NOT the blocker** —
+  the donor's raw17 + 3 hardcoded static default poses (`BattleMapCameraController`, picked by the raw16
+  pattern's `Camera` byte) render with zero camera authoring (the managed `SFXDataCamera` path is a TODO
+  no-op). **Real gotcha: the per-lang battle `.mes` is LOAD-BEARING** — a missing `<id>.mes` → `GetBattleText`
+  null → NRE in `DataPatchers.ApplyBattlePatch` → battle loads with map+camera but NO enemies/party (base
+  battle text is in `x64/FF9_Data/resources.assets` as `<sceneId>.mes` TextAssets, one per lang; numeric
+  `.mes` = battle, field text is named by script). Trigger = a field `SetRandomBattles(…, <id>)` encounter
+  (the scene arg IS the battle id). Probe `tools/probe_tierc_scene.py` (reversible `_tierc_revert.py`).
+  REMAINING: C2 (minted scene + CUSTOM geometry / a new `BBG_B<N>` number — the last unproven bit), C4
+  (wire the full mint into ff9mapkit). Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
 - **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
   (`archetypes.py`, merged into `names()`/`resolve()`) holds field-RENDERABLE `GEO_MON` models (verified
