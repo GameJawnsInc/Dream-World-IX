@@ -111,6 +111,16 @@ ARCHETYPES: dict = {
     "worker": {"model": "GEO_NPC_F0_WRK"},           # WRK ("worker" -- a laborer, e.g. Dante the Alexandria signmaker)
     "signmaker": {"model": "GEO_NPC_F0_WRK"},        # alias of worker
     "dante": {"model": "GEO_NPC_F0_WRK"},            # alias (the named Alexandria signmaker)
+    # -- SUB group: the named story cast (a unique character; same model->anim auto-resolve as an NPC) --
+    "hilda": {"model": "GEO_SUB_F0_CDW"},            # CDW -- Cid's Wife (Hilda); seen kidnapped, Lindblum Castle
+    "quale": {"model": "GEO_SUB_F0_KUT"},            # KUT -- Quina's master, in Qu's Marsh (KU = Qu Tribe romaji ク族 + T = Teacher/Top = Master)
+    "qu_master": {"model": "GEO_SUB_F0_KUT"},        # alias of quale
+    "quan": {"model": "GEO_SUB_F0_KUW"},             # KUW -- Vivi's grandfather, Quan's Dwelling (KU = Qu Tribe + W = elder/grandpa suffix, JP おじいさん)
+    "garnets_mother": {"model": "GEO_SUB_F0_MOM"},   # MOM ("mother") -- the woman in Garnet's Memoria recollection (likely her birth mother; user: "Jane"). TENTATIVE
+    "genome": {"model": "GEO_SUB_F0_NTC"},           # NTC -- a genome; the roaming Terra one (normal stand/walk, best as a general placeable)
+    "genome_2": {"model": "GEO_SUB_F0_NTA"},         # NTA -- a Bran Bal genome (distinct idle posture; some are seated)
+    "genome_3": {"model": "GEO_SUB_F0_NTB"},         # NTB -- a Bran Bal genome (distinct idle posture)
+    "genome_4": {"model": "GEO_SUB_F0_NTD"},         # NTD -- a Bran Bal genome (distinct idle posture)
 }
 
 

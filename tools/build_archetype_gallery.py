@@ -31,12 +31,13 @@ ROW_X = (-800, 800)          # on floor 0 (walkable x ~[-1050,1050] at this z)
 SPAWN = [0, 500]             # player behind the row, looking at it
 
 
-def unnamed_tokens():
-    """The NPC field tokens with a full 5-slot anim set that aren't archetypes yet (deduped, sorted)."""
+def unnamed_tokens(group="NPC"):
+    """Field tokens in `group` (NPC / SUB / ...) with a full 5-slot anim set not yet an archetype."""
     slots = ("stand", "walk", "run", "left", "right")
-    named = {C.model(AR.resolve(n)[0]).token for n in AR.names() if AR.resolve(n)[0] is not None}
+    named = {C.model(mid).token for n in AR.names()
+             if (mid := AR.resolve(n)[0]) is not None and C.model(mid).group == group}
     seen = {}
-    for m in C.models(group="NPC", field_only=True):
+    for m in C.models(group=group, field_only=True):
         na = C.npc_anims(m.id)
         if na and set(na) == set(slots) and m.token not in named:
             if m.token not in seen or m.id < seen[m.token]:
@@ -45,7 +46,11 @@ def unnamed_tokens():
 
 
 args = sys.argv[1:]
-allt = unnamed_tokens()
+GROUP = "NPC"
+if args and args[0] == "--group":
+    GROUP = args[1].upper()
+    args = args[2:]
+allt = unnamed_tokens(GROUP)
 if args and args[0] == "--batch":
     b = int(args[1])
     toks = allt[b * PER_BATCH:(b + 1) * PER_BATCH]
@@ -78,19 +83,19 @@ lines = [
     "[player]", f"spawn = [{SPAWN[0]}, {SPAWN[1]}]", "",
 ]
 for tok, x in zip(toks, xs):
-    m = C.model(f"GEO_NPC_F0_{tok}")
+    m = C.model(f"GEO_{GROUP}_F0_{tok}")
     rows, total = _mfu.usage(m.id, limit=3) if m else ([], 0)
     fids = " ".join(str(f) for f, _ in rows)
     loc = (rows[0][1] if rows else "?").encode("ascii", "ignore").decode().strip()
     dlg = f"{tok}: warp {fids}  ({loc})" if fids else tok      # talk -> F6 Warp to see it in-story
-    lines += ["[[npc]]", f'name = "{tok}"', f'model = "GEO_NPC_F0_{tok}"',
+    lines += ["[[npc]]", f'name = "{tok}"', f'model = "GEO_{GROUP}_F0_{tok}"',
               f"pos = [{x}, {ROW_Z}]", f'dialogue = "{dlg}"', ""]
 
 out = IHTEST / "gallery.field.toml"
 out.write_text("\n".join(lines), encoding="utf-8")
 print(f"GALLERY {label}\n")
 for i, (tok, x) in enumerate(zip(toks, xs), 1):
-    m = C.model(f"GEO_NPC_F0_{tok}")
+    m = C.model(f"GEO_{GROUP}_F0_{tok}")
     rows, total = _mfu.usage(m.id, limit=4) if m else ([], 0)
     where = "; ".join(nm for _, nm in rows) or "(not in field scripts)"
     print(f"  {i}. {tok:5} (talk->{tok!r})  in {total} field(s): {where}")
