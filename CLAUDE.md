@@ -339,8 +339,13 @@ Read these on demand — they hold the full technical detail this file only summ
   field models as a working NPC by name, animations auto-resolved via the model→animation join
   (`[[npc]] model = "GEO_NPC_F0_BMG"`, no `anims` needed); `ff9mapkit models <name>` shows the
   NPC-ready slots. **Named archetypes** layer friendly one-word NPC types on top
-  (`[[npc]] archetype = "garnet"` / `"black_mage"` / `"moogle"`; `ff9mapkit archetypes` lists them).
-  Builds on the read-only catalogs to make the Info Hub a real authoring pillar.
+  (`[[npc]] archetype = "garnet"` / `"black_mage"` / `"guard"` / `"innkeeper"`; `ff9mapkit archetypes`
+  lists them). Builds on the read-only catalogs to make the Info Hub a real authoring pillar.
+  **The archetype set is now COMPLETE** (92 names): every `GEO_NPC` field model that resolves to a
+  full 5-slot anim set was identified IN-GAME via the gallery loop (`tools/build_archetype_gallery.py`
+  + `tools/model_field_usage.py` — place unnamed models in field 4003, the human warps to each one's
+  real fields via F6 and reports the role) and named with role + named-character aliases (e.g.
+  `puck`/`lowell`/`dante`/`hippauls_mom`). A pytest curation guard keeps every archetype fully animated.
 
 ---
 
