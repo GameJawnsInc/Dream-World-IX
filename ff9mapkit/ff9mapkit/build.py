@@ -1064,17 +1064,25 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # that does NOT turn to face the player, the real FF9 prop recipe). Same gating as an NPC.
     for p in project.raw.get("prop", []):
         pos = p["pos"]
-        if p.get("prop") is not None:                       # a named prop archetype (model + baked pose)
-            mid, pose = _prop_archetypes.resolve(p["prop"])
+        x, z, face = int(pos[0]), int(pos[1]), p.get("face")
+        gf, gs = _gate_of(p)
+        name = p.get("prop")
+        # resolve to a list of (model, pose) PARTS -- a composite is several parts at the same (x, z)
+        # (the way shipping fields build e.g. a save point: moogle + book + feather + letter co-located).
+        if name is not None and _prop_archetypes.is_composite(name):
+            parts = _prop_archetypes.resolve_composite(name)
+        elif name is not None:                              # a single named prop archetype (model + pose)
+            mid, pose = _prop_archetypes.resolve(name)
             if p.get("pose") is not None:                   # explicit pose still overrides the baked one
                 pose = _resolve_prop_pose(mid, p["pose"])
-        else:
+            parts = [(mid, pose)]
+        else:                                               # a raw model + optional pose
             mid = resolve_npc_model(p.get("model"))
-            pose = _resolve_prop_pose(mid, p.get("pose"))
-        gf, gs = _gate_of(p)
-        slot = EbScript.from_bytes(eb).first_free_slot()
-        eb = _prop.inject_prop(eb, int(pos[0]), int(pos[1]), model=mid, pose=pose,
-                               face=p.get("face"), slot=slot, gate_flag=gf, gate_require_set=gs)
+            parts = [(mid, _resolve_prop_pose(mid, p.get("pose")))]
+        for mid, pose in parts:
+            slot = EbScript.from_bytes(eb).first_free_slot()
+            eb = _prop.inject_prop(eb, x, z, model=mid, pose=pose,
+                                   face=face, slot=slot, gate_flag=gf, gate_require_set=gs)
 
     # gateways
     for gw in project.raw.get("gateway", []):

@@ -58,10 +58,13 @@ PROP_ARCHETYPES: dict = {
 # point set {MOG, MGR, MGP, LTT} co-locates in 47 shipping fields (by far the most common composite).
 PROP_COMPOSITES: dict = {
     "save_point": [                       # the iconic moogle save point (Ice Cavern field 300, +46 more)
-        ("GEO_NPC_F0_MOG", 2904),         # the moogle (an NPC model, placed static here)
+        ("GEO_NPC_F0_MOG", 2904),         # the moogle (an NPC model, placed static -- sits on the book)
         ("GEO_ACC_F0_MGR", 1872),         # the save book
-        ("GEO_ACC_F0_MGP", 1874),         # the feather / quill (floats -- model-baked)
-        ("GEO_ACC_F0_LTT", 2479),         # the Mognet letter (floats -- model-baked)
+        # NB: the real save point ALSO co-locates the feather (MGP, pose 1874) + Mognet letter (LTT, 2479)
+        # here, but both are HIDDEN at rest -- their Init sets SetObjectFlags(14) (no "show model" bit) and
+        # their resting pose is tucked away. They only animate into view during the SAVE interaction (the
+        # feather's tag-37 func does RunAnimation(4652) + SetObjectFlags(7)=show -- the moogle writing). So
+        # they add nothing to a STATIC set piece -- omitted here. (In-game-verified: only moogle+book show.)
     ],
 }
 
@@ -85,3 +88,18 @@ def resolve(name):
                          f"Or place a model directly with model = \"GEO_ACC_F0_...\" (see `ff9mapkit models`).")
     spec = PROP_ARCHETYPES[key]
     return _catalog.resolve_model(spec["model"]), int(spec["pose"])
+
+
+def is_composite(name) -> bool:
+    """True if ``name`` is a known **composite** prop (a multi-part set piece, e.g. ``save_point``)."""
+    return str(name).strip().lower() in PROP_COMPOSITES
+
+
+def resolve_composite(name):
+    """``[(model_id, pose_id), ...]`` -- the parts of a composite prop; each is placed at the prop's
+    ``pos`` (they co-locate at one (x, z), y=0, the way shipping fields build them). Raises ValueError on
+    an unknown composite (listing the known ones)."""
+    key = str(name).strip().lower()
+    if key not in PROP_COMPOSITES:
+        raise ValueError(f"unknown composite prop {name!r}. Known: {', '.join(sorted(PROP_COMPOSITES))}.")
+    return [(_catalog.resolve_model(geo), int(pose)) for geo, pose in PROP_COMPOSITES[key]]
