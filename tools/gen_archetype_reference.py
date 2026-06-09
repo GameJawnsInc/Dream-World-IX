@@ -107,6 +107,33 @@ ROLE = {
     "CHC": "a chocobo chick",
     "CHD": "the Fat Chocobo (JP Choco Debu)",
     "MOG": "a moogle, the iconic messenger critter",
+    # -- SUB group: the named story cast --
+    "BAK": "Baku, Tantalus' boss",
+    "BLN": "Blank, Tantalus thief (Zidane's friend)",
+    "MRC": "Marcus, Tantalus thief",
+    "CNA": "Cinna, Tantalus thief",
+    "RBY": "Ruby, Tantalus' actress",
+    "ZNR": "Zenero, a Tantalus Nero-family member (tentative)",
+    "BRN": "Queen Brahne of Alexandria",
+    "BTX": "General Beatrix of Alexandria",
+    "KJA": "Kuja, the antagonist",
+    "ZON": "Zorn, Brahne's jester (paired with Thorn)",
+    "SBW": "Lani, the bounty hunter (JP \"Scarlet Bounty Woman\")",
+    "SSB": "a Knight of Pluto -- a male Alexandrian soldier (e.g. Haagen, Weimar)",
+    "GRL": "Garland of Terra",
+    "CID": "Regent Cid Fabool IX of Lindblum",
+    "FLT": "Sir Fratley, Burmecian Dragon Knight (JP Furattorei)",
+    "TOT": "Doctor Tot, the Treno scholar",
+    "BW1": "Black Waltz No. 1",
+    "BW3": "Black Waltz No. 3",
+    "CDW": "Hilda, Cid's wife",
+    "KUT": "Quale, Quina's master (Qu's Marsh)",
+    "KUW": "Quan, Vivi's grandfather",
+    "MOM": "the woman in Garnet's Memoria recollection (likely her birth mother)",
+    "NTC": "a genome -- the roaming Terra one (normal stand/walk)",
+    "NTA": "a Bran Bal genome (posed idle)",
+    "NTB": "a Bran Bal genome (posed idle)",
+    "NTD": "a Bran Bal genome (posed idle)",
 }
 
 # thematic quick-pick nav (primary names). Validated against the live archetype set below.
@@ -128,6 +155,9 @@ THEMES = OrderedDict([
     ("Dali", ["dali_boy", "dali_girl", "dali_man", "dali_woman"]),
     ("Animals & creatures", ["cat", "dog", "bird", "frog", "tadpole", "oglop",
                              "chocobo", "chocobo_child", "fat_chocobo", "moogle"]),
+    ("Story cast (named)", ["beatrix", "kuja", "garland", "brahne", "cid", "fratley", "doctor_tot",
+                            "zorn", "lani", "baku", "blank", "marcus", "cinna", "ruby", "genome",
+                            "quan", "quale", "hilda", "pluto_knight"]),
 ])
 
 # named characters -> archetype, for a quick index
@@ -178,10 +208,12 @@ def where(mid):
 
 def main():
     rows = group_archetypes()
-    # split playable cast (GEO_MAIN) from NPC types, for two tables
+    # split playable cast (GEO_MAIN) / story cast (GEO_SUB) / generic NPC types (GEO_NPC)
     CAST = {"ZID", "VIV", "GRN", "STN", "FRJ", "KUI", "EIK", "SLM"}
+    is_sub = lambda r: bool(r[1]) and "_SUB_" in r[1]
     cast = [r for r in rows if r[0] in CAST]
-    npcs = sorted((r for r in rows if r[0] not in CAST), key=lambda r: r[2][0])
+    story = sorted((r for r in rows if is_sub(r)), key=lambda r: r[2][0])
+    npcs = sorted((r for r in rows if r[0] not in CAST and not is_sub(r)), key=lambda r: r[2][0])
 
     # validate THEMES / NAMED reference only real archetypes
     allnames = set(AR.names())
@@ -201,7 +233,8 @@ def main():
              "gestures (stand / walk / run / turn-left / turn-right) auto-resolve from the catalog -- "
              "no `anims` needed. Prefer a name here; for any model not curated, place it directly with "
              "`model = \"GEO_NPC_F0_XXX\"` (browse `ff9mapkit models`). The set below is **complete**: "
-             "every field-NPC model with a full gesture set is named.\n")
+             "every field-NPC model with a full gesture set is named, plus the named **story cast** "
+             "(the `SUB` models -- Beatrix, Kuja, the Tantalus crew, ...).\n")
     L.append(f"**{len(AR.names())} names** covering **{len(rows)} models**. "
              "\"Appears in\" lists a few real fields that place the model (snapshot from this install).\n")
 
@@ -230,6 +263,19 @@ def main():
     L.append("| Archetype | Aliases | Model | Role | Appears in |")
     L.append("|---|---|---|---|---|")
     for token, geo, names, mid in npcs:
+        primary, aliases = names[0], names[1:]
+        L.append(f"| `{primary}` | {', '.join(f'`{a}`' for a in aliases) or '--'} | `{geo}` "
+                 f"| {ROLE.get(token, '')} | {where(mid)} |")
+    L.append("")
+
+    # story cast (SUB group)
+    L.append("## Story cast\n")
+    L.append("The named characters (the `SUB` models) -- place a specific story figure; same "
+             "model->anim auto-resolve as an NPC. (Black Waltz No. 2 and Trance Kuja are special boss "
+             "models with no standard idle/walk, so they're not archetypes -- place by raw model id.)\n")
+    L.append("| Archetype | Aliases | Model | Role | Appears in |")
+    L.append("|---|---|---|---|---|")
+    for token, geo, names, mid in story:
         primary, aliases = names[0], names[1:]
         L.append(f"| `{primary}` | {', '.join(f'`{a}`' for a in aliases) or '--'} | `{geo}` "
                  f"| {ROLE.get(token, '')} | {where(mid)} |")

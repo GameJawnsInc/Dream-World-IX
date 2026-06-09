@@ -12,9 +12,9 @@ pos = [120, 150]
 dialogue = "..."
 ```
 
-`archetype` (alias: `preset`) maps a friendly name to a GEO model whose five movement gestures (stand / walk / run / turn-left / turn-right) auto-resolve from the catalog -- no `anims` needed. Prefer a name here; for any model not curated, place it directly with `model = "GEO_NPC_F0_XXX"` (browse `ff9mapkit models`). The set below is **complete**: every field-NPC model with a full gesture set is named.
+`archetype` (alias: `preset`) maps a friendly name to a GEO model whose five movement gestures (stand / walk / run / turn-left / turn-right) auto-resolve from the catalog -- no `anims` needed. Prefer a name here; for any model not curated, place it directly with `model = "GEO_NPC_F0_XXX"` (browse `ff9mapkit models`). The set below is **complete**: every field-NPC model with a full gesture set is named, plus the named **story cast** (the `SUB` models -- Beatrix, Kuja, the Tantalus crew, ...).
 
-**92 names** covering **70 models**. "Appears in" lists a few real fields that place the model (snapshot from this install).
+**122 names** covering **96 models**. "Appears in" lists a few real fields that place the model (snapshot from this install).
 
 ## Browse by theme
 
@@ -30,6 +30,7 @@ dialogue = "..."
 - **Conde Petie (dwarves):** `dwarf`, `dwarf_woman`, `dwarf_man`, `dwarf_priest`
 - **Dali:** `dali_boy`, `dali_girl`, `dali_man`, `dali_woman`
 - **Animals & creatures:** `cat`, `dog`, `bird`, `frog`, `tadpole`, `oglop`, `chocobo`, `chocobo_child`, `fat_chocobo`, `moogle`
+- **Story cast (named):** `beatrix`, `kuja`, `garland`, `brahne`, `cid`, `fratley`, `doctor_tot`, `zorn`, `lani`, `baku`, `blank`, `marcus`, `cinna`, `ruby`, `genome`, `quan`, `quale`, `hilda`, `pluto_knight`
 
 ## Playable cast
 
@@ -112,6 +113,39 @@ Place a party member as a field NPC. (`zidane` keeps the cloned player; the rest
 | `townsman` | `man` | `GEO_NPC_F0_APM` | a generic adult townsman | Lindblum/Square; S. Gate/Bohden Sta.; Fossil Roo/Entrance -- 7 fields |
 | `townswoman` | `woman` | `GEO_NPC_F0_APF` | a generic adult townswoman | Lindblum/Hunters Gate; Lindblum/Square; Lindblum/Item Shop -- 9 fields |
 | `worker` | `signmaker`, `dante` | `GEO_NPC_F0_WRK` | a worker / laborer (e.g. Dante the Alexandria signmaker) | Alexandria/Alley; Alexandria/Pub; Alexandria/Main Street -- 3 fields |
+
+## Story cast
+
+The named characters (the `SUB` models) -- place a specific story figure; same model->anim auto-resolve as an NPC. (Black Waltz No. 2 and Trance Kuja are special boss models with no standard idle/walk, so they're not archetypes -- place by raw model id.)
+
+| Archetype | Aliases | Model | Role | Appears in |
+|---|---|---|---|---|
+| `baku` | -- | `GEO_SUB_F0_BAK` | Baku, Tantalus' boss | Prima Vista/Cargo Room; Prima Vista/Interior; Prima Vista/Bridge -- 20 fields |
+| `beatrix` | -- | `GEO_SUB_F0_BTX` | General Beatrix of Alexandria | Burmecia/Palace; Cleyra/Bridge; Cleyra/Cathedral -- 25 fields |
+| `black_waltz_1` | -- | `GEO_SUB_F0_BW1` | Black Waltz No. 1 | Ice Cavern/Waterfall -- 1 field |
+| `black_waltz_3` | -- | `GEO_SUB_F0_BW3` | Black Waltz No. 3 | Cargo Ship/Deck -- 3 fields |
+| `blank` | -- | `GEO_SUB_F0_BLN` | Blank, Tantalus thief (Zidane's friend) | Prima Vista/Cargo Room; Prima Vista/Storage; Prima Vista/Interior -- 29 fields |
+| `brahne` | `queen_brahne` | `GEO_SUB_F0_BRN` | Queen Brahne of Alexandria | A. Castle/Throne; Lindblum/Item Shop; Lindblum/Festival -- 10 fields |
+| `cid` | `regent_cid` | `GEO_SUB_F0_CID` | Regent Cid Fabool IX of Lindblum | Lindblum/Festival; L. Castle/Royal Cham.; L. Castle/Hangar -- 7 fields |
+| `cinna` | -- | `GEO_SUB_F0_CNA` | Cinna, Tantalus thief | Prima Vista/Cargo Room; Prima Vista/Meeting Rm; Prima Vista/Engine Roo -- 20 fields |
+| `doctor_tot` | `tot` | `GEO_SUB_F0_TOT` | Doctor Tot, the Treno scholar | Treno/Tot Residence; Treno/Event; Gargan Roo/Entrance -- 13 fields |
+| `fratley` | -- | `GEO_SUB_F0_FLT` | Sir Fratley, Burmecian Dragon Knight (JP Furattorei) | Burmecia/Palace; Cleyra/Cathedral; Ending/BU -- 4 fields |
+| `garland` | -- | `GEO_SUB_F0_GRL` | Garland of Terra | Invincible/Garland; Terra/Hilltop; Pand./Path -- 9 fields |
+| `garnets_mother` | -- | `GEO_SUB_F0_MOM` | the woman in Garnet's Memoria recollection (likely her birth mother) | Memoria/Recollection -- 1 field |
+| `genome` | -- | `GEO_SUB_F0_NTC` | a genome -- the roaming Terra one (normal stand/walk) | Terra/Downhill Path; Terra/Path by the Pond; Terra/Bridge -- 18 fields |
+| `genome_2` | -- | `GEO_SUB_F0_NTA` | a Bran Bal genome (posed idle) | Bran Bal/Pond; Bran Bal/Meeting Hall; Bran Bal/Laboratory -- 10 fields |
+| `genome_3` | -- | `GEO_SUB_F0_NTB` | a Bran Bal genome (posed idle) | Bran Bal/Gate; Bran Bal/Pond; Bran Bal/Storage -- 10 fields |
+| `genome_4` | -- | `GEO_SUB_F0_NTD` | a Bran Bal genome (posed idle) | Bran Bal/Gate; Bran Bal/Pond; Bran Bal/Storage -- 10 fields |
+| `hilda` | -- | `GEO_SUB_F0_CDW` | Hilda, Cid's wife | L. Castle/Royal Cham.; L. Castle/Hangar; L. Castle/Factory -- 6 fields |
+| `kuja` | -- | `GEO_SUB_F0_KJA` | Kuja, the antagonist | Burmecia/Palace; Iifa Tree/Tree Trunk; Iifa Tree/Silver Drago -- 10 fields |
+| `lani` | -- | `GEO_SUB_F0_SBW` | Lani, the bounty hunter (JP "Scarlet Bounty Woman") | A. Castle/Event; Fossil Roo/Passage; Mdn. Sari/Eidolon Wall -- 6 fields |
+| `marcus` | -- | `GEO_SUB_F0_MRC` | Marcus, Tantalus thief | Prima Vista/Cargo Room; Prima Vista/Interior; Evil Forest/Memory -- 27 fields |
+| `pluto_knight` | -- | `GEO_SUB_F0_SSB` | a Knight of Pluto -- a male Alexandrian soldier (e.g. Haagen, Weimar) | A. Castle/Public Seats; Prima Vista/Interior; A. Castle/Courtyard -- 16 fields |
+| `quale` | `qu_master` | `GEO_SUB_F0_KUT` | Quale, Quina's master (Qu's Marsh) | Marsh/Pond; Marsh/Masters House; Quans/Cave -- 7 fields |
+| `quan` | -- | `GEO_SUB_F0_KUW` | Quan, Vivi's grandfather | Quans/Cave; Quans/Fishing Area -- 2 fields |
+| `ruby` | -- | `GEO_SUB_F0_RBY` | Ruby, Tantalus' actress | Prima Vista/Hallway; Prima Vista/Storage; Alexandria/Main Street -- 8 fields |
+| `zenero` | -- | `GEO_SUB_F0_ZNR` | Zenero, a Tantalus Nero-family member (tentative) | Prima Vista/Interior; Prima Vista/Hallway; Prima Vista/Crash Site -- 10 fields |
+| `zorn` | -- | `GEO_SUB_F0_ZON` | Zorn, Brahne's jester (paired with Thorn) | Ice Cavern/Waterfall; Cargo Ship/Deck; Gizamaluke/Cavern -- 14 fields |
 
 ## Named characters
 

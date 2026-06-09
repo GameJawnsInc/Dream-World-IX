@@ -140,7 +140,7 @@ ARCHETYPES: dict = {
     "garland": {"model": "GEO_SUB_F0_GRL"},          # GRL -- Garland of Terra (its field is literally "Invincible/Garland")
     "cid": {"model": "GEO_SUB_F0_CID"},              # CID -- Regent Cid Fabool IX of Lindblum
     "regent_cid": {"model": "GEO_SUB_F0_CID"},       # alias of cid
-    "fratley": {"model": "GEO_SUB_F0_FLT"},          # FLT -- Sir Fratley, Burmecian Dragon Knight (Freya's lost love)
+    "fratley": {"model": "GEO_SUB_F0_FLT"},          # FLT -- Sir Fratley, Burmecian Dragon Knight (Freya's lost love); JP フラットレイ "Furattorei"
     "doctor_tot": {"model": "GEO_SUB_F0_TOT"},       # TOT -- Doctor Tot, the Treno scholar ("Tot Residence")
     "tot": {"model": "GEO_SUB_F0_TOT"},              # alias of doctor_tot
     # Black Waltzes -- Brahne's hunter-mages (No. 2 + Trance Kuja are special boss models with no
