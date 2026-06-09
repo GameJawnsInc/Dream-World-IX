@@ -66,6 +66,11 @@ engine build, the build/deploy loop, version control, and all docs/notes.
 > `C:\gd\FFIX-infohub-catalog` (`infohub-catalog`). They keep separate live test fields via
 > `deploy_field.py --id` (e.g. master uses 4003, a branch uses a 5000-slot) so they don't
 > clobber each other in the shared `FF9CustomMap`. Reach any slot via the F6 menu's "Warp".
+> **Merge discipline (keeps CLAUDE.md current, cheaply):** do all CLAUDE.md edits on the *feature*
+> branch and let `master` only ever **fast-forward** — it stays a clean receiver, so the FF is
+> conflict-free and master's CLAUDE.md never goes stale. FF from this worktree without checking out
+> master: `git -C C:\gd\FFIX merge --ff-only infohub-catalog` (keep the master worktree clean first —
+> an uncommitted file there blocks the FF; stash it, FF, pop).
 
 ---
 
@@ -341,11 +346,17 @@ Read these on demand — they hold the full technical detail this file only summ
   NPC-ready slots. **Named archetypes** layer friendly one-word NPC types on top
   (`[[npc]] archetype = "garnet"` / `"black_mage"` / `"guard"` / `"innkeeper"`; `ff9mapkit archetypes`
   lists them). Builds on the read-only catalogs to make the Info Hub a real authoring pillar.
-  **The archetype set is now COMPLETE** (92 names): every `GEO_NPC` field model that resolves to a
-  full 5-slot anim set was identified IN-GAME via the gallery loop (`tools/build_archetype_gallery.py`
-  + `tools/model_field_usage.py` — place unnamed models in field 4003, the human warps to each one's
-  real fields via F6 and reports the role) and named with role + named-character aliases (e.g.
-  `puck`/`lowell`/`dante`/`hippauls_mom`). A pytest curation guard keeps every archetype fully animated.
+  **The archetype set is COMPLETE** (122 names / 96 models): every `GEO_NPC` field model with a full
+  anim set **plus the named story cast** (`GEO_SUB` — Beatrix / Kuja / Garland / the Tantalus crew /
+  the genomes / Quan / Quale / Lani / …), all identified IN-GAME via the gallery loop
+  (`tools/build_archetype_gallery.py --group NPC|SUB` + `tools/model_field_usage.py`: place unknown
+  models in field 4003, the human warps to each one's real fields via F6 and reports the role).
+  **Animations verified in-game** via `tools/build_anim_check.py` (forces a model's idle slot to its
+  walk/run clip so a whole row animates in place — walk + run clean across every rig). Full reference
+  (roles, real-field locations, JP name origins): **`ff9mapkit/docs/ARCHETYPES.md`** (regenerate with
+  `tools/gen_archetype_reference.py`). Guards (pytest): completeness (no unnamed `GEO_NPC`), real-idle
+  (no "moonwalk"), curation (every archetype fully animated). Held out: `black_waltz_2` + Trance Kuja
+  (special boss models, no standard idle/walk — place by raw model id).
 
 ---
 
