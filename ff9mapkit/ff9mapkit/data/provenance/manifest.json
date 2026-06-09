@@ -60,6 +60,6 @@
     }
   },
   "goldens": {
-    "EVT_HUT_INT.eb.bytes/us": "230898c812477507d1911a5852816bd7ee8d61262bd10599d5543920fdba0ff5"
+    "EVT_HUT_INT.eb.bytes/us": "7ab6c5524fe066bcb1529baaae95513dec3b83fcd34735c97e8d5accfaa1d95e"
   }
 }

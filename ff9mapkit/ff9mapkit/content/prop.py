@@ -58,11 +58,11 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
         tail += opcodes.encode(SET_OBJECT_FLAGS, HELD_FLAGS)    # show + collide (like the shipping cup)
     else:                                                       # STATIC: just kill head-tracking
         tail = prop_init_tail(face)
-    if dialogue_text_id is not None:
-        speak, ttid = None, dialogue_text_id                    # default WindowSync(text) -> readable
-    else:
-        speak, ttid = opcodes.RETURN, 62                        # no-op action handler -> not interactive
-    return inject_npc(data, x, z, model=model, anims=anims, talk_text_id=ttid,
-                      speak_body=speak, init_tail=tail, slot=slot,
+    # a non-interactive prop is BARE (Init-only, no tag-3 talk func -> the engine's IsActuallyTalkable
+    # short-circuits instead of indexing past it = no per-frame IndexOutOfRange). A prop with dialogue
+    # keeps a real tag-3 WindowSync so it stays readable.
+    return inject_npc(data, x, z, model=model, anims=anims,
+                      talk_text_id=(dialogue_text_id if dialogue_text_id is not None else 62),
+                      init_tail=tail, slot=slot, bare=(dialogue_text_id is None),
                       spawn_wait_n=spawn_wait_n, spawn_wait_occurrence=spawn_wait_occurrence,
                       gate_flag=gate_flag, gate_require_set=gate_require_set)

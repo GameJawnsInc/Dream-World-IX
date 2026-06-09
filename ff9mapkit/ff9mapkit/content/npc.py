@@ -77,7 +77,7 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                gate_flag: int | None = None, gate_require_set: bool = True,
                intro: bytes | None = None, speak_body: bytes | None = None,
-               init_tail: bytes | None = None) -> bytes:
+               init_tail: bytes | None = None, bare: bool = False) -> bytes:
     """Inject an NPC at world (x, z). Returns new .eb bytes.
 
     ``gate_flag`` (a GlobBool index) makes the NPC conditional: its Init returns early -- so it never
@@ -148,14 +148,26 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
     if intro:
         body1 = bytes(intro) + body1
 
-    # 5) _SpeakBTN (func tag 3): a custom choice body if given, else WindowSync(1, 128, text) ; return
-    f2 = speak_body if speak_body is not None else (opcodes.window_sync(1, 128, talk_text_id) + opcodes.RETURN)
-
-    # 6) assemble the new 3-function entry (type cloned from the player entry)
-    table_len = 3 * 4
-    nf0, nf1, nf2 = table_len, table_len + len(body0), table_len + len(body0) + len(body1)
-    table = struct.pack("<HH", 0, nf0) + struct.pack("<HH", 1, nf1) + struct.pack("<HH", 3, nf2)
-    entry_bytes = bytes([entry.type, 3]) + table + bytes(body0) + body1 + f2
+    # 5+6) assemble the entry. A BARE object is Init-only (1 func, tag 0) -- the shipping set-dressing
+    # shape (e.g. the held cup, field 1508). It has NO tag-3 talk func, so the engine's IsActuallyTalkable
+    # (which blindly reads bytes at tag3_ip+7/+8) short-circuits on GetIP(...,3)==nil instead of indexing
+    # past a too-short func -> no per-frame IndexOutOfRange when the player stands near a prop. A normal
+    # NPC keeps Init + Loop + _SpeakBTN (tag 3) so it can be talked to.
+    if bare:
+        table = struct.pack("<HH", 0, 1 * 4)
+        entry_bytes = bytes([entry.type, 1]) + table + bytes(body0)
+    else:
+        f2 = speak_body if speak_body is not None else (opcodes.window_sync(1, 128, talk_text_id) + opcodes.RETURN)
+        # The engine's IsActuallyTalkable (the per-frame talk-icon poll) blindly reads tag3[ip+7] and
+        # tag3[ip+8]; a talk func shorter than 9 bytes indexes PAST the entry's byte buffer -> an
+        # IndexOutOfRange every frame the player stands near the NPC. Real NPC talk funcs are 100+ bytes;
+        # pad ours to >= 9 (dead bytes after the RETURN -> behaviour unchanged, NPC stays talkable).
+        if len(f2) < 9:
+            f2 = bytes(f2) + b"\x00" * (9 - len(f2))
+        table_len = 3 * 4
+        nf0, nf1, nf2 = table_len, table_len + len(body0), table_len + len(body0) + len(body1)
+        table = struct.pack("<HH", 0, nf0) + struct.pack("<HH", 1, nf1) + struct.pack("<HH", 3, nf2)
+        entry_bytes = bytes([entry.type, 3]) + table + bytes(body0) + body1 + f2
 
     # 7) append + spawn (shift-free): overwrite a Main_Init Wait(n) with InitObject(slot,0)
     if slot is None:
