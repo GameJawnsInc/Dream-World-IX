@@ -58,6 +58,15 @@ ARCHETYPES: dict = {
     "dali_man": {"model": "GEO_NPC_F0_DAL"},         # DAL (Dali male citizen)
     "dali_woman": {"model": "GEO_NPC_F0_DAW"},       # DAW (Dali female citizen/worker)
     "dwarf": {"model": "GEO_NPC_F0_DOC"},            # DOC (Conde Petie -- "Rally-ho!")
+    "dwarf_woman": {"model": "GEO_NPC_F0_DOF"},      # DOF
+    "dog": {"model": "GEO_NPC_F0_DOG"},              # DOG (a literal dog)
+    "dwarf_priest": {"model": "GEO_NPC_F0_DOK"},     # DOK (JP "Okashira" = chief/leader)
+    "dwarf_man": {"model": "GEO_NPC_F0_DOM"},        # DOM
+    "sand_oracle": {"model": "GEO_NPC_F0_FLS"},      # FLS (Cleyra's priestesses)
+    "frog": {"model": "GEO_NPC_F0_FRM"},             # FRM (the catchable marsh frog)
+    "burmecian_king": {"model": "GEO_NPC_F0_FUK"},   # FUK (dev humor: FUkkatsu = "Revival/Ruined" King)
+    "noble": {"model": "GEO_NPC_F0_G16"},            # G16 (G = Gentleman; Treno/Lindblum noble)
+    "gentleman": {"model": "GEO_NPC_F0_G16"},        # alias of noble
 }
 
 
