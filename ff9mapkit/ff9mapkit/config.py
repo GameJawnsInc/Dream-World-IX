@@ -128,6 +128,18 @@ class ModLayout:
         """Folder holding ``<fbg>.bgx``, ``<fbg>.bgi.bytes`` and the overlay PNGs."""
         return self.fieldmaps_dir / fbg_name
 
+    # --- battle background (BBG): a loose FBX + image#.png the engine loads instead of the bundle ---
+    @property
+    def battlemap_all_dir(self) -> Path:
+        # NOTE: the capitalized "Assets/Resources/BattleMap" segments are VERBATIM -- this exact casing
+        # round-tripped in-game (2026-06-09); do NOT lowercase it to match fieldmaps_dir above.
+        return (self.root / "StreamingAssets" / "Assets" / "Resources"
+                / "BattleMap" / "BattleModel" / "battleMap_all")
+
+    def battlemap_dir(self, bbg: str) -> Path:
+        """Folder holding ``<bbg>.fbx`` + its ``image#.png`` textures (the loose-FBX override slot)."""
+        return self.battlemap_all_dir / bbg
+
     # --- field event scripts (.eb), one folder per language ---
     @property
     def eventbinary_field_dir(self) -> Path:
@@ -148,11 +160,14 @@ class ModLayout:
     def mes_path(self, lang: str, mes_id: int) -> Path:
         return self.text_field_dir(lang) / f"{mes_id}.mes"
 
-    def ensure_dirs(self, fbg_name: str | None = None, *, langs: tuple[str, ...] = LANGS) -> None:
-        """Create the directory skeleton a field write needs."""
+    def ensure_dirs(self, fbg_name: str | None = None, *, bbg: str | None = None,
+                    langs: tuple[str, ...] = LANGS) -> None:
+        """Create the directory skeleton a field (and/or battle-map) write needs."""
         self.root.mkdir(parents=True, exist_ok=True)
         if fbg_name:
             self.fieldmap_dir(fbg_name).mkdir(parents=True, exist_ok=True)
+        if bbg:
+            self.battlemap_dir(bbg).mkdir(parents=True, exist_ok=True)
         for lang in langs:
             (self.eventbinary_field_dir / lang).mkdir(parents=True, exist_ok=True)
             self.text_field_dir(lang).mkdir(parents=True, exist_ok=True)

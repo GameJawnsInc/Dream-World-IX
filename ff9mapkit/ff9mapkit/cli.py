@@ -12,6 +12,9 @@ Subcommands are wired up incrementally as the library lands:
     pack      - package a built mod for distribution                        (Phase 5)
     import    - fork a real FF9 field (BG-borrow, or --editable custom scene) (Tier 3)
     list-fields - list the real FF9 fields available to import              (Tier 3)
+    battle-import - fork a real FF9 battle background (BBG) into an editable battle.toml (needs UnityPy)
+    battle-build  - compile a battle.toml into a Memoria mod (custom 3D battle map; stock engine)
+    battle-list   - list the real FF9 battle backgrounds available to fork
     animations/items - browse the cutscene-gesture / item catalogs by name
     models/scenes/catalog - the Info Hub: browse models (+ their animations), battle scenes, or
                             search every reference catalog by name
@@ -339,6 +342,63 @@ def _cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_battle_import(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from .battle import extract as bextract
+    try:
+        meta, toml = bextract.write_battle_project(
+            args.bbg, Path(args.out), name=args.name, scene_id=args.id, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"imported {meta['bbg']}  ({meta['groups']} groups, {meta['geometries']} meshes, "
+          f"{len(meta['textures'])} textures)")
+    print(f"  wrote  : {toml}  (+ {meta['bbg']}.fbx + image#.png)")
+    print(f"Next: edit {meta['bbg']}.fbx in Blender (keep meshes named Group_0/2/4/8) / repaint the "
+          f"PNGs, then: ff9mapkit battle-build {toml}")
+    return 0
+
+
+def _cmd_battle_build(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from .battle.build import BattleBuildError, BattleProject, build_battle_mod
+    try:
+        projects = [BattleProject.load(p) for p in args.battle]
+    except (OSError, ValueError) as e:
+        print(f"failed to load project: {e}", file=sys.stderr)
+        return 2
+    try:
+        info = build_battle_mod(projects, Path(args.out), mod_name=args.mod_name,
+                                author=args.author, description=args.description)
+    except (BattleBuildError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"built battle mod '{args.mod_name}' -> {info['root']}")
+    for m in info["maps"]:
+        print(f"  map: {m}")
+    for line in info["dictionary"]:
+        print(f"  DictionaryPatch: {line}")
+    for line in info["battle_patch"]:
+        print(f"  BattlePatch: {line}")
+    for w in info["warnings"]:
+        print(f"warning: {w}", file=sys.stderr)
+    print("To install reversibly into your mod folder: py tools/deploy_battle.py <battle.toml>")
+    return 0
+
+
+def _cmd_battle_list(args: argparse.Namespace) -> int:
+    from .battle import extract as bextract
+    try:
+        rows = bextract.list_battle_maps(args.pattern, game=args.game)
+    except (RuntimeError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    for n in rows:
+        print(n)
+    print(f"{len(rows)} battle map(s)")
+    return 0
+
+
 def _cmd_list_fields(args: argparse.Namespace) -> int:
     from . import extract
     try:
@@ -608,6 +668,27 @@ def build_parser() -> argparse.ArgumentParser:
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")
     lf.add_argument("pattern", nargs="?", default=None, help="substring filter (e.g. alex, treno, grgr)")
     lf.set_defaults(func=_cmd_list_fields)
+
+    bi = sub.add_parser("battle-import",
+                        help="fork a REAL FF9 battle background (BBG) into an editable battle.toml (needs UnityPy)")
+    bi.add_argument("bbg", help="battle-bg name, e.g. BBG_B013 (see `battle-list`)")
+    bi.add_argument("--out", default=".", help="dir to write into (default: .)")
+    bi.add_argument("--name", default=None, help="scene name for a minted scene (default: <BBG>_FORK)")
+    bi.add_argument("--id", type=int, default=5000, help="scene id for a minted scene (default 5000)")
+    bi.set_defaults(func=_cmd_battle_import)
+
+    bb = sub.add_parser("battle-build", help="compile a battle.toml into a Memoria mod (custom battle map)")
+    bb.add_argument("battle", nargs="+", help="one or more battle.toml files")
+    bb.add_argument("--out", default="dist", help="output mod folder (default: ./dist)")
+    bb.add_argument("--mod-name", default="FF9CustomMap", help="mod name / InstallationPath")
+    bb.add_argument("--author", default="", help="mod author")
+    bb.add_argument("--description", default="", help="mod description")
+    bb.set_defaults(func=_cmd_battle_build)
+
+    bl = sub.add_parser("battle-list",
+                        help="list real FF9 battle backgrounds available to fork (needs UnityPy)")
+    bl.add_argument("pattern", nargs="?", default=None, help="substring filter (e.g. b013)")
+    bl.set_defaults(func=_cmd_battle_list)
 
     an = sub.add_parser("animations", help="list a character's cutscene gestures (pick by name)")
     an.add_argument("character", nargs="?", help="vivi / zidane / garnet / steiner / freya / quina / eiko / amarant")

@@ -103,8 +103,9 @@ codec/golden tests) with the full in-game pass still pending.
 ## Not in scope (by design)
 
 Honest limits — the kit deliberately does **not**:
-- **Paint your background art** — it gives you a pixel-accurate guide; the painting is yours.
-- Generate **novel battle backgrounds** or world-map content (field maps only).
+- **Paint your background art / battle-map textures** — it gives you a pixel-accurate guide and forks
+  the real geometry; the painting is yours.
+- Generate **world-map** content (field maps + battle maps; no world-map pillar yet).
 - Run the game or judge final visual alignment — that's the human playtest step.
 - Ship Square Enix's game data — game-derived blobs are sourced from *your own* install.
 

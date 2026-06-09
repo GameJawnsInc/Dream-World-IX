@@ -131,7 +131,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.5`, Blender add-on `0.9.6`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.6`, Blender add-on `0.9.6`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -404,9 +404,16 @@ Read these on demand — they hold the full technical detail this file only summ
   on stock Memoria (no DLL rebuild): drop PNGs named by the bundle `Texture2D.m_Name` at
   `…/StreamingAssets/Assets/Resources/BattleMap/BattleModel/battleMap_all/BBG_B###/` in a mod folder; UVs
   wrap the geometry correctly (verified with a per-texture UV checker). Scene wiring mirrors `FieldScene`
-  (a `BattleScene` DictionaryPatch line). Tooling: `tools/probe_bbg_textures.py` (extract by m_Name),
-  `tools/apply_bbg_override.py` (recolor + place). Tiers (b) FBX geometry swap / (c) new bbg + camera are
-  next, unproven. Full recipe: memory `project-ff9-battle-backgrounds`.
+  (a `BattleScene` DictionaryPatch line). **Tier (b) — CUSTOM GEOMETRY — is also in-game proven**: Memoria
+  loads a loose **FBX** from the mod folder instead of the bundle (`ModelImporter`/`FbxIO`), so a custom 3D
+  battle map ships with no engine rebuild — verified with a synthetic quad AND a byte-faithful BBG_B013
+  round-trip (one FBX Geometry per submesh named `Geometry::Group_N`, verts/uvs/normals verbatim, Model
+  typed "Mesh", per-group PSX shader set in-FBX). **Now a first-class ff9mapkit pillar** (kit 0.9.6):
+  `ff9mapkit/ff9mapkit/battle/` + CLI `battle-import`/`battle-build`/`battle-list` + `tools/deploy_battle.py`
+  + a `battle.toml` (override an existing slot / `repoint_scene` / experimental `scene_id` mint). The
+  earlier `tools/*bbg*` scripts were the proofs; the package supersedes them. Tier (c) (a brand-new
+  bbg/scene + the moving CAMERA) remains the open frontier (camera computed in a closed DLL, data-driven
+  via `{sceneId}.raw17`). Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
 
 ---
 

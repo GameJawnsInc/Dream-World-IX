@@ -12,6 +12,7 @@ Public surface is organized as:
   ff9mapkit.scene     — camera math, .bgx scene, .bgi walkmesh, paint guides
   ff9mapkit.content   — generalized script-content injectors (npc/gateway/encounter/...)
   ff9mapkit.build     — the field.toml -> mod-folder builder
+  ff9mapkit.battle    — the battle.toml -> custom battle-background (BBG) builder (fork/edit/build a 3D battle map)
 """
 
-__version__ = "0.9.5"
+__version__ = "0.9.6"

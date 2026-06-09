@@ -318,6 +318,38 @@ attach_to = "barkeep", pose = <held>` puts the cup in the barkeep's hand.
 
 ---
 
+## Battle maps (`battle.toml`) — a SEPARATE project from `field.toml`
+
+A custom **battle background** ("BBG") is authored in its own `battle.toml`, *not* a `field.toml`. A
+battle map is a real textured **3D mesh** (the camera moves through it during combat), unlike a field's
+flat painted plane. Memoria loads a loose **FBX** from your mod folder instead of the bundle, so a custom
+map ships on **stock Memoria, no engine rebuild**. Loop (the battle analogue of the field import→build):
+
+    ff9mapkit battle-list                          # browse the real BBGs you can fork
+    ff9mapkit battle-import BBG_B013 --out my_map   # fork one -> battle.toml + BBG_B013.fbx + image#.png
+    # edit my_map/BBG_B013.fbx in Blender (KEEP the meshes named Group_0/2/4/8) and/or repaint the PNGs
+    ff9mapkit battle-build my_map/battle.toml --out dist
+    py tools/deploy_battle.py my_map/battle.toml    # reversible install into your (per-worktree) mod folder
+
+```toml
+[battlemap]
+bbg = "BBG_B013"        # the slot this map ships as; keep = the forked slot to OVERRIDE that real map
+fbx = "BBG_B013.fbx"    # the geometry file in this dir (edit in Blender, re-export over it)
+# repoint_scene = 67    # OPTIONAL: point an EXISTING battle scene's bg at `bbg` (via BattlePatch.txt)
+```
+
+| key | meaning |
+|---|---|
+| `bbg` | the battle-bg slot the map ships as (`BBG_<letter><digits>`). If it equals an existing real slot, the FBX **overrides** that map for every battle that uses it — proven in-game, no relaunch. |
+| `fbx` | the FBX geometry in the project dir. Its mesh objects MUST stay named `Group_0/2/4/8` (= additive / ground / minus / sky, per `battlebg.getBbgAttr`); `battle-import` names them for you, and the import recipe sets each group's PSX shader so the SkinnedMeshRenderer import renders correctly. |
+| `repoint_scene` | OPTIONAL existing battle-scene id whose background becomes `bbg` (emits a `BattlePatch.txt` `BattleBackground` line; needs one relaunch). |
+| `scene_id` + `scene_name` | OPTIONAL **experimental (tier c)** — mint a brand-new `BattleScene <id> <name> <bbg>`. A new scene id also needs its own scene assets + a camera the kit does **not** yet author, so a bare new id won't load; prefer overriding an existing slot or `repoint_scene`. |
+
+Textures are the `image#.png` files beside the FBX (forked from the real map — repaint them in place). The
+geometry/textures are extracted from **your** install at runtime and are gitignored — never committed.
+
+---
+
 ## `[[gateway]]` (optional, repeatable)
 
 A region the player walks into to warp to another field.

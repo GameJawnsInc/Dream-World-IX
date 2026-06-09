@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — battle-map pillar (custom 3D battle backgrounds)
+- `ff9mapkit battle-import <BBG>` forks a REAL FF9 battle background out of your install (geometry +
+  per-submesh textures) into an editable `battle.toml` + `<BBG>.fbx`; `ff9mapkit battle-build` compiles
+  it into a Memoria mod; `tools/deploy_battle.py` installs it reversibly into the per-worktree mod
+  folder. `battle-list` browses the real BBGs available to fork.
+- A battle map is a real textured **3D mesh** (child groups Group_0/2/4/8 = additive/ground/minus/sky)
+  shipped as a loose ASCII **FBX** that **stock Memoria** loads instead of the bundle — no engine
+  rebuild. **In-game verified** (texture reskin, a synthetic quad, and a byte-faithful BBG_B013
+  round-trip). The first practical custom-battle-background pipeline for FF9. See `docs/FORMAT.md`
+  → "Battle maps". Provenance-clean: geometry/textures are extracted from your own install at runtime,
+  never committed.
+
 ### Added — `give_item` by name; gil can subtract
 - `give_item = ["Potion", 1]` — items resolve by name (case/space/hyphen-insensitive) or numeric id,
   baked from Memoria's `RegularItem` enum (`ff9mapkit items` lists them). No more memorizing ids
