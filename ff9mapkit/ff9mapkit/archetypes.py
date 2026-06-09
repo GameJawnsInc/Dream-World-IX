@@ -48,6 +48,16 @@ ARCHETYPES: dict = {
     "high_priest": {"model": "GEO_NPC_F0_CLD"},      # CLD (Cleyra Cathedral, JP "Daikanshu")
     "cleyran_woman": {"model": "GEO_NPC_F0_CLM"},    # CLM
     "cook": {"model": "GEO_NPC_F0_COK"},             # COK
+    "engineer": {"model": "GEO_NPC_F0_CSA"},         # CSA (Lindblum engineer, e.g. Zebolt)
+    "zebolt": {"model": "GEO_NPC_F0_CSA"},           # alias (the named Lindblum engineer)
+    "lindblum_man": {"model": "GEO_NPC_F0_CSM"},     # CSM
+    "guard": {"model": "GEO_NPC_F0_CSO"},            # CSO (armed Lindblum guard/soldier)
+    "soldier": {"model": "GEO_NPC_F0_CSO"},          # alias of guard
+    "dali_boy": {"model": "GEO_NPC_F0_DAC"},         # DAC (Dali male child)
+    "dali_girl": {"model": "GEO_NPC_F0_DAF"},        # DAF (Dali female child)
+    "dali_man": {"model": "GEO_NPC_F0_DAL"},         # DAL (Dali male citizen)
+    "dali_woman": {"model": "GEO_NPC_F0_DAW"},       # DAW (Dali female citizen/worker)
+    "dwarf": {"model": "GEO_NPC_F0_DOC"},            # DOC (Conde Petie -- "Rally-ho!")
 }
 
 
