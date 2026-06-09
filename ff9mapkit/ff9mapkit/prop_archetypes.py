@@ -52,6 +52,15 @@ PROP_ARCHETYPES: dict = {
     "glass": {"model": "GEO_ACC_F0_GRS", "pose": 8239},         # GRS -- a drinking glass (bartender / pub)
     "ticket": {"model": "GEO_ACC_F0_TKT", "pose": 10359},       # TKT -- a play / theater ticket
     "bottle": {"model": "GEO_ACC_F0_BON", "pose": 813},         # BON -- a bottle (the Doom Pub); tentative
+    # -- held items identified via the held-item gallery (carrier holds it; pose auto-resolves) --
+    "log": {"model": "GEO_ACC_F0_LG1", "pose": 4346},           # LG1 "Log 1" -- a timber beam a worker hauls (maybe a ladder shaft)
+    "timber": {"model": "GEO_ACC_F0_LG1", "pose": 4346},        # alias of log
+    "axe": {"model": "GEO_ACC_F0_LNW", "pose": 1894},           # LNW "LaNi's Weapon" -- Lani's battle axe (rests on her back at idle)
+    "sack": {"model": "GEO_ACC_F0_ZBR", "pose": 13160},         # ZBR "ZuBoRa" (ずぼら = sloppy/lazy/casual) -- a loosely-modeled sack template, carried in the story
+    "wreath": {"model": "GEO_ACC_F0_WRE", "pose": 8006},        # WRE "WREath" -- a wreath (Doctor Tot holds one)
+    "dagger_doll": {"model": "GEO_ACC_F0_DGR", "pose": 1027},   # DGR "DaGgeR" -- a Dagger (Garnet) puppet; the Tantalus puppet show (Baku holds it)
+    "brahne_doll": {"model": "GEO_ACC_F0_DBR", "pose": 1038},   # DBR "Debu BRahne" (デブ = fat) -- a Fat Brahne puppet (Baku holds it)
+    "vial": {"model": "GEO_ACC_F0_BIN", "pose": 1880},          # BIN "Bin" (瓶 = bottle/vial) -- Blank's medicine vial, the Evil Forest spore antidote
 }
 
 

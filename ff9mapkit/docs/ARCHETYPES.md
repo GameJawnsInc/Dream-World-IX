@@ -152,7 +152,7 @@ The named characters (the `SUB` models) -- place a specific story figure; same m
 
 ## Props (set dressing)
 
-Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0_..."` + `pose`). NOT characters -- no head-tracking; each holds its canonical pose (baked from shipping fields). 32 names.
+Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0_..."` + `pose`). NOT characters -- no head-tracking; each holds its canonical pose (baked from shipping fields). 40 names.
 
 | Prop | Aliases | Model | Appears in |
 |---|---|---|---|
@@ -181,6 +181,13 @@ Static set pieces placed with `[[prop]] prop = "chest"` (or `model = "GEO_ACC_F0
 | `glass` | -- | `GEO_ACC_F0_GRS` | Lindblum/The Doom Pub; Alexandria/Pub -- 2 fields |
 | `ticket` | -- | `GEO_ACC_F0_TKT` | Alexandria/Main Street; Alexandria/Shop; S. Gate/Bohden Gate -- 5 fields |
 | `bottle` | -- | `GEO_ACC_F0_BON` | Lindblum/The Doom Pub -- 1 field |
+| `log` | `timber` | `GEO_ACC_F0_LG1` | Brahnes Fleet/Event; Alexandria/Square; Alexandria/Alley -- 3 fields |
+| `axe` | -- | `GEO_ACC_F0_LNW` | A. Castle/Event; Fossil Roo/Passage; Mdn. Sari/Eidolon Wall -- 3 fields |
+| `sack` | -- | `GEO_ACC_F0_ZBR` | S. Gate/Bohden Gate -- 2 fields |
+| `wreath` | -- | `GEO_ACC_F0_WRE` | A. Castle/Tomb -- 1 field |
+| `dagger_doll` | -- | `GEO_ACC_F0_DGR` | Prima Vista/Storage; Ending/TH -- 2 fields |
+| `brahne_doll` | -- | `GEO_ACC_F0_DBR` | Ending/TH -- 1 field |
+| `vial` | -- | `GEO_ACC_F0_BIN` | Prima Vista/Hallway; Prima Vista/Cabin; Prima Vista/Storage -- 4 fields |
 
 ## Creatures (bestiary)
 

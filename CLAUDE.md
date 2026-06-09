@@ -396,7 +396,13 @@ Read these on demand — they hold the full technical detail this file only summ
   this holder's model** from a catalog of every shipping `AttachObject` (`tools/extract_attach_poses.py`
   → `_held_poses.py`: `(carrier, prop) → (bone, prop_pose, holder_pose)`). `[[prop]] attach_to = "<npc>"`
   is the manual form (uids ARE entry slots, so the kit emits the exact shipping bytes). In-game-verified
-  (Beatrix + Save the Queen; a dwarf + cup).
+  (Beatrix + Save the Queen; a dwarf + cup). **The field-held-prop catalogue is COMPLETE** — every prop a
+  character holds in a shipping field is a named archetype (sword/cup/letter/glass/ticket/hand_bell/ +
+  axe/wreath/sack/log/vial/dagger_doll/brahne_doll/…), each ID'd in-game via `tools/build_held_gallery.py`
+  (places each carrier holding its prop; **`--spotlight <tok>`** = one carrier slowly turning, for an
+  unclear item — note: a multi-step turn cutscene only completes its FIRST turn on a player-cloned NPC).
+  **GEO_WEP battle weapons do NOT apply** — they're the `B1` battle variant (no `F0`), absent from field
+  scripts, so they don't render outside combat; field-held weapons are always `GEO_ACC` props.
 - **Engine gotcha — `IsActuallyTalkable` reads `tag3[ip+7]`/`[ip+8]`** (the per-frame talk-icon poll), so
   an object's tag-3 (talk) func MUST be ≥ 9 bytes or it indexes past the entry buffer → an
   `IndexOutOfRangeException` every frame the player is near it. The kit's `_SpeakBTN` was 7 bytes — a
