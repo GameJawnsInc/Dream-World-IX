@@ -422,7 +422,11 @@ Read these on demand — they hold the full technical detail this file only summ
   battle text is in `x64/FF9_Data/resources.assets` as `<sceneId>.mes` TextAssets, one per lang; numeric
   `.mes` = battle, field text is named by script). Trigger = a field `SetRandomBattles(…, <id>)` encounter
   (the scene arg IS the battle id). Probe `tools/probe_tierc_scene.py` (reversible `_tierc_revert.py`).
-  REMAINING: C2 (minted scene + CUSTOM geometry / a new `BBG_B<N>` number — the last unproven bit), C4
+  **C2 — WHOLLY ORIGINAL battle PROVEN in-game (2026-06-09):** a net-new `BBG_B200` (>177; our own FBX +
+  blue-tinted textures + a static `INB_B200`) under minted scene 5501 — fought twice, rendered blue (= our
+  files loaded, no fallback to real B013), no errors. A new bbg NUMBER is safe with a static `.inb`
+  (`nf_BbgNumber` is only `== <id>` compared, never an array index; obj/uv-anim gated on `objanim>0`).
+  Probe `tools/probe_tierc_customgeo.py`. **All battle tiers now in-game-proven** — only REMAINING is C4
   (wire the full mint into ff9mapkit). Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
 - **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
