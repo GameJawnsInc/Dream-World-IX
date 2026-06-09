@@ -371,6 +371,14 @@ Read these on demand — they hold the full technical detail this file only summ
   (`tools/build_prop_gallery.py`, common-first): `chest`/`tent`/`save_book`/`feather`/`balloon`/`ladder`/
   `book`/`cask`/`lever`/`vat`/`aircab`/… — `[[prop]] prop = "chest"` or `model` + `pose`. Deferred
   (spawned task): a `[field] location_name` option to hide the borrowed-BG location-name banner.
+  **Composite set pieces:** `[[prop]] prop = "save_point"` places multi-part props co-located at one
+  pos (`prop_archetypes.PROP_COMPOSITES`). Research (`tools/find_composite_props.py` finds co-located /
+  `AttachObject`-bound object sets; `tools/dump_field_objects.py` inspects one field): co-located sets
+  are mostly a **visible anchor + dynamic/puzzle parts hidden at rest** — save point = moogle+book (the
+  feather/letter are save-animation, `SetObjectFlags(14)`+tucked pose); the "rack" is the Desert Palace
+  **`scale`** (TNB), its weights flag-gated. So `save_point` is the one clean STATIC composite; the
+  richer multi-part rigs (held swords/cups, jump-rope) live behind `AttachObject`/`PretendToBe` (0x4C/
+  0xB5/0xD4) — the engine's object-binding opcodes — NOT built yet.
 
 ---
 
