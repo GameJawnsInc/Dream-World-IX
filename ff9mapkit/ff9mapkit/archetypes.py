@@ -121,6 +121,32 @@ ARCHETYPES: dict = {
     "genome_2": {"model": "GEO_SUB_F0_NTA"},         # NTA -- a Bran Bal genome (distinct idle posture; some are seated)
     "genome_3": {"model": "GEO_SUB_F0_NTB"},         # NTB -- a Bran Bal genome (distinct idle posture)
     "genome_4": {"model": "GEO_SUB_F0_NTD"},         # NTD -- a Bran Bal genome (distinct idle posture)
+    # Tantalus -- the theater-troupe thieves (all aboard the Prima Vista)
+    "baku": {"model": "GEO_SUB_F0_BAK"},             # BAK -- Tantalus' boss
+    "blank": {"model": "GEO_SUB_F0_BLN"},            # BLN -- Tantalus thief (Zidane's friend)
+    "marcus": {"model": "GEO_SUB_F0_MRC"},           # MRC -- Tantalus thief
+    "cinna": {"model": "GEO_SUB_F0_CNA"},            # CNA -- Tantalus thief (the hammer)
+    "ruby": {"model": "GEO_SUB_F0_RBY"},             # RBY -- Tantalus' actress
+    "zenero": {"model": "GEO_SUB_F0_ZNR"},           # ZNR -- a Tantalus "Nero family" member (ZNR ~ Zenero); tentative
+    # Alexandria royalty / antagonists
+    "brahne": {"model": "GEO_SUB_F0_BRN"},           # BRN -- Queen Brahne of Alexandria
+    "queen_brahne": {"model": "GEO_SUB_F0_BRN"},     # alias of brahne
+    "beatrix": {"model": "GEO_SUB_F0_BTX"},          # BTX -- General Beatrix of Alexandria
+    "kuja": {"model": "GEO_SUB_F0_KJA"},             # KJA -- the antagonist
+    "zorn": {"model": "GEO_SUB_F0_ZON"},             # ZON -- Brahne's jester (paired with Thorn)
+    "lani": {"model": "GEO_SUB_F0_SBW"},             # SBW -- "Scarlet Bounty Woman": Lani, the bounty hunter
+    "pluto_knight": {"model": "GEO_SUB_F0_SSB"},     # SSB -- "Soldier Steiner Base": a male Alexandrian soldier / Knight of Pluto (e.g. Haagen, Weimar)
+    # other named figures
+    "garland": {"model": "GEO_SUB_F0_GRL"},          # GRL -- Garland of Terra (its field is literally "Invincible/Garland")
+    "cid": {"model": "GEO_SUB_F0_CID"},              # CID -- Regent Cid Fabool IX of Lindblum
+    "regent_cid": {"model": "GEO_SUB_F0_CID"},       # alias of cid
+    "fratley": {"model": "GEO_SUB_F0_FLT"},          # FLT -- Sir Fratley, Burmecian Dragon Knight (Freya's lost love)
+    "doctor_tot": {"model": "GEO_SUB_F0_TOT"},       # TOT -- Doctor Tot, the Treno scholar ("Tot Residence")
+    "tot": {"model": "GEO_SUB_F0_TOT"},              # alias of doctor_tot
+    # Black Waltzes -- Brahne's hunter-mages (No. 2 + Trance Kuja are special boss models with no
+    # standard idle/walk anim, so they're intentionally not archetypes -- place by model id if needed)
+    "black_waltz_1": {"model": "GEO_SUB_F0_BW1"},    # BW1 -- Black Waltz No. 1 (Ice Cavern)
+    "black_waltz_3": {"model": "GEO_SUB_F0_BW3"},    # BW3 -- Black Waltz No. 3 (Cargo Ship)
 }
 
 
