@@ -171,6 +171,16 @@ CREATURES: dict = {
     "prison_cage": {"model": "GEO_MON_F0_EFM"},   # EFM "Evil Forest Monster" -- the Evil Forest miniboss (cage-plant that captures Garnet)
     "fang": {"model": "GEO_MON_F0_FFG"},          # FFG -- a Fang (dog-like monster), seen all over Lindblum
     "griffin": {"model": "GEO_MON_F0_GRI"},       # GRI -- Griffin (the Treno Weapon Shop fight)
+    "hedgehog_pie": {"model": "GEO_MON_F0_HHP"},  # HHP -- Hedgehog Pie (the palace hedgehog)
+    "catoblepas": {"model": "GEO_MON_F0_KAT"},    # KAT -- Catoblepas (phonetic: KAToblepas カトブレパス)
+    "mistodon": {"model": "GEO_MON_F0_MKM"},      # MKM "Mist Kaiju Monster" -- the disc-4 Mistodon (swarms Alexandria)
+    "behemoth": {"model": "GEO_MON_F0_MOS"},      # MOS "Monster of Shop" -- Behemoth (the Treno Weapon Shop fight)
+    "mu": {"model": "GEO_MON_F0_MUU"},            # MUU -- Mu (blue cat/fox; Festival of the Hunt); "Mu" padded to 3 letters
+    "ramuh": {"model": "GEO_MON_F0_RAM"},         # RAM -- Ramuh, the Thunder eidolon (Pinnacle Rocks cutscene)
+    "silver_dragon": {"model": "GEO_MON_F0_SDR"}, # SDR "Silver Dragon (Rideable)" -- Kuja's mountable dragon (Iifa Tree)
+    "trick_bird": {"model": "GEO_MON_F0_TBL"},    # TBL "Trick Bird, Lindblum" -- the Lindblum ambient bird
+    "ralvuimago": {"model": "GEO_MON_F0_TOM"},    # TOM "(Tail) Orochi Monster" (Orochi 大蛇 = giant legendary serpent) -- the Gargan Roo snake boss
+    "soulcage": {"model": "GEO_MON_F0_ZZZ"},      # ZZZ "Zonbi Zetsubou Zree" (ゾンビ絶望ツリー = Zombie Despair Tree) -- the Iifa Tree undead boss
 }
 
 

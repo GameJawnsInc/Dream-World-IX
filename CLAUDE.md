@@ -418,9 +418,10 @@ Read these on demand — they hold the full technical detail this file only summ
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
   (`archetypes.py`, merged into `names()`/`resolve()`) holds only FIELD-PROVEN `GEO_MON` models (27 of 216
   appear in shipping field scripts → they render + animate outside battle); named in-game via the gallery
-  loop (`tools/build_archetype_gallery.py --arena --group MON`, 4/batch — they're huge); 12 named so far
-  (lich/dahaka/zaghnol/red_dragon/antlion/griffin/…); battle-only models that DON'T render (e.g. `DDD`) go
-  in the gallery's `SKIP` set. The **arena** (`tools/build_debug_arena.py`) is a big flat **scrolling
+  loop (`tools/build_archetype_gallery.py --arena --group MON`, 4/batch — they're huge). **COMPLETE: all 21
+  field-creature models named** (lich/ramuh/soulcage/ralvuimago/silver_dragon/zaghnol/red_dragon/antlion/
+  griffin/catoblepas/mistodon/behemoth/mu/…), token decodes + JP origins in comments; battle-only models
+  that DON'T render (e.g. `DDD`) go in the gallery's `SKIP` set. The **arena** (`tools/build_debug_arena.py`) is a big flat **scrolling
   checkerboard** debug stage for staging huge models without obstruction — pure-stdlib perspective
   checkerboard (`scene/placeholder.write_placeholders`, auto-aligned via `cam.to_canvas`) + a flat walkmesh
   + a scrolling camera, with **pitch-compensated** cells (world cells made ~1/sin(pitch) DEEPER so they read
