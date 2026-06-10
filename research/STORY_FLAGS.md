@@ -384,8 +384,9 @@ label-accuracy / curation — + 2 research agents → synthesis). All landed in 
   IsEikoAbducted window); **9400** "Hilda Garde" → **Blue Narciss** (field 2855); **11610** "Crystal World" →
   **Memoria** (with Crystal World correctly split to 11765/12000). Restored lost beats: **Burmecia** (3800),
   **Oeilvert** (9605), a second elemental shrine (Water 10620), **Pandemonium** (10930), Memoria. The
-  in-game-validated **7200 → Alexandria Castle** anchor is preserved. Mirrored to the F6 menu C# (needs an
-  engine rebuild + playtest to show in-game).
+  in-game-validated **7200 → Alexandria Castle** anchor is preserved. Mirrored to the F6 menu C# + engine
+  rebuilt — **in-game proven 2026-06-10** (F6 reads 7200 → Alexandria Castle on a real save and 5900 → Fossil
+  Roo on an edited throwaway).
 - **18 named story-flag clusters** (`flags.STORY_REGIONS`, informational/non-reserved) annotate a decoded
   save's set bits by dominant writer area (e.g. `lindblum_events` 2592–2663, `mognet_central_state` 4046–4047).
   **Reconciled a §2 report error:** the "Lindblum festival @ bytes 304–335" claim is wrong — bits 2418–2495 are

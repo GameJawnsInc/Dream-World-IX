@@ -697,7 +697,8 @@ Read these on demand — they hold the full technical detail this file only summ
   room, fixing real mislabels (5900 "Iifa Tree"→**Fossil Roo**, 9990 "Outer Continent"→**Mount Gulug**, 9400
   "Hilda Garde"→**Blue Narciss**, 11610 "Crystal World"→**Memoria**) and restoring lost beats (Burmecia 3800,
   Oeilvert 9605, Water Shrine, Pandemonium 10930); 7200→Alexandria Castle preserved; mirrored to the F6 C#
-  (`MsVal`/`MsName`, **needs an engine rebuild + playtest to show in-game**, patch `s22` regenerated). (2)
+  (`MsVal`/`MsName`, patch `s22` regenerated + engine rebuilt — **in-game proven 2026-06-10:** F6 reads
+  7200→Alexandria Castle (real save) + 5900→Fossil Roo (throwaway, was "Iifa Tree")). (2)
   **`flags.STORY_REGIONS`** — 18 informational (non-reserved) named flag clusters annotate a decoded save's set
   bits by dominant writer area (`lindblum_events`, `mognet_central_state`, …); **reconciled a report error** (the
   "Lindblum festival @ 304-335" claim is wrong — those bits are the prologue; real Lindblum events are 2592-2663;
