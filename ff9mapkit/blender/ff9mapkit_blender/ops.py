@@ -98,9 +98,18 @@ class FF9MKProps(bpy.types.PropertyGroup):
                     "an absolute folder. If the .blend is unsaved it falls back to ~/<name>")
     layers: bpy.props.CollectionProperty(type=FF9MKLayer)
     layers_index: bpy.props.IntProperty(default=0)
+    # --- battle map (3D BBG geometry) ---
+    bbg_name: bpy.props.StringProperty(name="BBG", default="",
+                                       description="The battle-background slot (e.g. BBG_B209)")
+    bbg_dir: bpy.props.StringProperty(
+        name="Battle Map Dir", subtype="DIR_PATH", default="",
+        description="Folder the BBG fbx + image#.png textures live in / export to (set on import)")
 
 
 GUIDE_COLLECTION = "FF9 Guide"
+BATTLE_COLLECTION = "FF9 Battle Map"
+BBG_GROUP_KEY = "ff9_bbg_group"          # obj[...] = "Group_0/2/4/8" (tags an imported BBG group mesh)
+BBG_TEX_KEY = "ff9_bbg_tex"              # material[...] = its texture stem (image#), for re-export
 
 
 # --------------------------------------------------------------------------- helpers
@@ -1382,12 +1391,225 @@ def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=N
     return True
 
 
+# --------------------------------------------------------------------------- battle map (3D BBG)
+def _battle_collection(context):
+    """Get (or create) the 'FF9 Battle Map' collection that holds the imported Group_* meshes."""
+    coll = bpy.data.collections.get(BATTLE_COLLECTION)
+    if coll is None:
+        coll = bpy.data.collections.new(BATTLE_COLLECTION)
+        context.scene.collection.children.link(coll)
+    return coll
+
+
+def _load_bbg_image(d, stem):
+    """Load <stem>.png/.tga next to the fbx, for the material preview (None if absent)."""
+    if not stem:
+        return None
+    for ext in (".png", ".tga", ".jpg"):
+        p = os.path.join(d, stem + ext)
+        if os.path.isfile(p):
+            return bpy.data.images.load(p, check_existing=True)
+    return None
+
+
+def _bbg_material(name, tex, img):
+    """A node material previewing the texture; tags the texture stem for faithful re-export."""
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    mat[BBG_TEX_KEY] = tex or ""
+    if img is not None:
+        nt = mat.node_tree
+        node = nt.nodes.new("ShaderNodeTexImage")
+        node.image = img
+        bsdf = nt.nodes.get("Principled BSDF")
+        if bsdf:
+            nt.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
+    return mat
+
+
+def _bbg_object_to_group(obj):
+    """A tagged Blender BBG mesh object -> a battle/fbx `group` (Unity space). Reads world verts +
+    per-vertex UVs (from the active UV layer) + per-vertex world normals; submeshes = material slots,
+    each slot's texture from its BBG_TEX_KEY tag (set on import)."""
+    if obj.mode == "EDIT":
+        obj.update_from_editmode()
+    mesh = obj.data
+    mesh.calc_loop_triangles()
+    mw = obj.matrix_world
+    nm = mw.to_3x3()
+    bverts = [list(mw @ v.co) for v in mesh.vertices]
+    normals = [list((nm @ v.normal).normalized()) for v in mesh.vertices]
+    uvs = [[0.0, 0.0] for _ in mesh.vertices]
+    uvl = mesh.uv_layers.active
+    # guard: in Edit Mode the object-mode UV data can read as empty (size 0) while loops exist -> only
+    # read when the layer's data actually matches the loops (Export forces Object Mode first to flush).
+    if uvl and len(uvl.data) == len(mesh.loops):
+        d = uvl.data
+        for loop in mesh.loops:                       # per-vertex (consistent unless UVs were split)
+            uvs[loop.vertex_index] = [float(d[loop.index].uv[0]), float(d[loop.index].uv[1])]
+    faces = [tuple(lt.vertices) for lt in mesh.loop_triangles]
+    face_material = [int(lt.material_index) for lt in mesh.loop_triangles]
+    mats = [(m.get(BBG_TEX_KEY) or (m.name if m else None)) if m else None for m in mesh.materials]
+    name = obj.get(BBG_GROUP_KEY) or "Group_0"
+    return bridge.blender_meshdata_to_group(name, bverts, faces, face_material, mats or [None], uvs,
+                                            normals=normals)
+
+
+def _battle_toml_stub(bbg):
+    return (f"# {bbg} battle map (FF9 Map Kit Blender export).\n"
+            f"#   ff9mapkit battle-build battle.toml   then   py tools/deploy_battle.py battle.toml\n\n"
+            f"[battlemap]\n"
+            f'bbg = "{bbg}"\n'
+            f'fbx = "{bbg}.fbx"\n'
+            f"# bbg = an EXISTING real slot OVERRIDES that map (no relaunch). For a NEW scene, set\n"
+            f"# scene_id + scene_name and fork its gameplay with `battle-import --fork-scene <DONOR>`.\n")
+
+
+class FF9MK_OT_import_battle(bpy.types.Operator):
+    bl_idname = "ff9mk.import_battle"
+    bl_label = "Import Battle Map"
+    bl_description = ("Load a battle map's geometry (a BBG_B###.fbx from `ff9mapkit battle-import`, or "
+                      "its battle.toml) as editable Group_0/2/4/8 meshes with their textures. Reshape "
+                      "them, then Export Battle Map.")
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    filter_glob: bpy.props.StringProperty(default="*.fbx;*.toml", options={"HIDDEN"})
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        import tomllib
+        from .vendor import battle_fbx
+        path = self.filepath
+        if not path or not os.path.isfile(path):
+            self.report({"ERROR"}, "Pick a BBG_B###.fbx (or its battle.toml).")
+            return {"CANCELLED"}
+        d = os.path.dirname(path)
+        if path.lower().endswith(".toml"):
+            with open(path, "rb") as fh:
+                bm = (tomllib.load(fh).get("battlemap") or {})
+            bbg = bm.get("bbg")
+            fbx_path = os.path.join(d, bm.get("fbx") or (str(bbg) + ".fbx"))
+        else:
+            fbx_path = path
+            bbg = os.path.splitext(os.path.basename(path))[0]
+        if not os.path.isfile(fbx_path):
+            self.report({"ERROR"}, f"FBX not found: {fbx_path}")
+            return {"CANCELLED"}
+        with open(fbx_path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        try:
+            groups = battle_fbx.parse_fbx(text)
+        except Exception as e:          # noqa: BLE001 - report, don't crash Blender
+            self.report({"ERROR"}, f"couldn't parse the FBX (is it a kit-built BBG?): {e}")
+            return {"CANCELLED"}
+        if not groups:
+            self.report({"ERROR"}, "no Group_* geometry in the FBX.")
+            return {"CANCELLED"}
+
+        coll = _battle_collection(context)
+        for o in list(coll.objects):                 # clear a prior import
+            if o.get(BBG_GROUP_KEY) is not None:
+                bpy.data.objects.remove(o, do_unlink=True)
+        ntri = 0
+        for g in groups:
+            md = bridge.group_to_blender_meshdata(g)
+            mesh = bpy.data.meshes.new(md["name"])
+            mesh.from_pydata([list(v) for v in md["verts"]], [], [list(f) for f in md["faces"]])
+            mesh.update()
+            if md["uvs"] and mesh.loops:
+                uvl = mesh.uv_layers.new(name="UVMap")
+                for loop in mesh.loops:
+                    vi = loop.vertex_index
+                    if vi < len(md["uvs"]):
+                        uvl.data[loop.index].uv = (md["uvs"][vi][0], md["uvs"][vi][1])
+            for tex in md["materials"]:
+                mesh.materials.append(_bbg_material(f'{md["name"]}_{tex or "mat"}', tex,
+                                                    _load_bbg_image(d, tex)))
+            for fi, fm in enumerate(md["face_material"]):
+                if fi < len(mesh.polygons):
+                    mesh.polygons[fi].material_index = fm
+            mesh.update()
+            obj = bpy.data.objects.new(f'BBG_{md["name"]}', mesh)
+            obj[BBG_GROUP_KEY] = md["name"]
+            coll.objects.link(obj)
+            ntri += len(md["faces"])
+
+        p = context.scene.ff9mapkit
+        p.bbg_name = str(bbg or "")
+        p.bbg_dir = d
+        self.report({"INFO"}, f"imported {bbg}: {len(groups)} group(s), {ntri} tri(s) + textures. "
+                              f"Reshape (keep Group_0/2/4/8 separate), then Export Battle Map.")
+        return {"FINISHED"}
+
+
+class FF9MK_OT_export_battle(bpy.types.Operator):
+    bl_idname = "ff9mk.export_battle"
+    bl_label = "Export Battle Map"
+    bl_description = ("Write an engine-faithful BBG_B###.fbx (Group_0/2/4/8 + PSX shaders) from the "
+                      "imported/reshaped meshes, for `ff9mapkit battle-build`.")
+
+    def execute(self, context):
+        from .vendor import battle_fbx
+        p = context.scene.ff9mapkit
+        objs = [o for o in context.scene.objects if o.type == "MESH" and o.get(BBG_GROUP_KEY) is not None]
+        if not objs:
+            self.report({"ERROR"}, "No battle-map groups (run Import Battle Map first).")
+            return {"CANCELLED"}
+        if context.mode != "OBJECT":                  # flush any live Edit-Mode edits (verts AND uv data)
+            try:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            except RuntimeError:
+                pass
+        out = _resolve_out_dir(p.bbg_dir or p.export_dir)
+        try:
+            os.makedirs(out, exist_ok=True)
+        except OSError as e:
+            self.report({"ERROR"}, f"can't write to {out}: {e.strerror}.")
+            return {"CANCELLED"}
+        groups = [_bbg_object_to_group(o) for o in objs]
+        problems = battle_fbx.validate_groups(groups)
+        if problems:
+            self.report({"ERROR"}, "geometry problems: " + "; ".join(problems[:3]))
+            return {"CANCELLED"}
+        text, ngeo = battle_fbx.emit_fbx(groups)
+        bbg = p.bbg_name or "BBG_B200"
+        with open(os.path.join(out, f"{bbg}.fbx"), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        # ensure the referenced textures sit next to the fbx (copy from the import dir if exporting elsewhere)
+        textures = battle_fbx.textures_used(groups)
+        copied = 0
+        for tex in textures:
+            dst = os.path.join(out, tex + ".png")
+            if not os.path.isfile(dst) and p.bbg_dir:
+                cand = os.path.join(p.bbg_dir, tex + ".png")
+                if os.path.isfile(cand) and os.path.abspath(cand) != os.path.abspath(dst):
+                    shutil.copyfile(cand, dst)
+                    copied += 1
+        wrote = False
+        toml_path = os.path.join(out, "battle.toml")
+        if not os.path.isfile(toml_path):
+            with open(toml_path, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(_battle_toml_stub(bbg))
+            wrote = True
+        missing = [t for t in textures if not os.path.isfile(os.path.join(out, t + ".png"))]
+        warn = f" ({len(missing)} texture(s) missing — copy them next to the fbx)" if missing else ""
+        self.report({"INFO"}, f"exported {bbg}: {ngeo} geometry, {len(textures)} texture(s)"
+                              f"{', battle.toml stub' if wrote else ' (battle.toml kept)'}{warn}"
+                              f"; run: ff9mapkit battle-build battle.toml")
+        return {"FINISHED"}
+
+
 CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera, FF9MK_OT_read_camera,
            FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_paint_template,
            FF9MK_OT_add_layer, FF9MK_OT_clear_layers,
            FF9MK_OT_add_npc, FF9MK_OT_add_waypoint, FF9MK_OT_add_gateway, FF9MK_OT_add_event,
            FF9MK_OT_add_camera, FF9MK_OT_add_camzone, FF9MK_OT_set_spawn,
-           FF9MK_OT_import_field, FF9MK_OT_export_field)
+           FF9MK_OT_import_field, FF9MK_OT_export_field,
+           FF9MK_OT_import_battle, FF9MK_OT_export_battle)
 
 
 def register():

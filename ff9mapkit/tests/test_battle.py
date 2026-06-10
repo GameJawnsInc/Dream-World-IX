@@ -60,6 +60,30 @@ def test_textures_used():
     assert fbx.textures_used(_groups()) == ["image0", "image1", "image6"]
 
 
+def test_battle_toml_templates_render():
+    # guard: `battle.extract` is only imported by the (game-data-gated) CLI path, so a SyntaxError or a
+    # bad f-string in its toml TEMPLATES (e.g. a literal { in the camera_keyframes docs) would slip past
+    # the rest of the suite. Importing + rendering both templates here catches that in the pure tier.
+    from ff9mapkit.battle import extract
+    mint = extract._mint_toml("BBG_B209", "CAMKEYS", 30011, 8, 3,
+                              {"donor": "EF_R007", "donor_id": 67}, new_bbg=True)
+    assert "[[scene.camera_keyframes]]" in mint and "BBG_B209" in mint
+    assert "BBG_B013" in extract._battle_toml("BBG_B013", "FORK", 5000, 8, 3)
+
+
+def test_parse_fbx_roundtrips_emit():
+    # the Blender loop hinges on this: parse our own FBX back to `groups` and re-emit byte-identically
+    text, _ = fbx.emit_fbx(_groups())
+    parsed = fbx.parse_fbx(text)
+    assert fbx.emit_fbx(parsed)[0] == text                         # exact round-trip
+    assert [g["name"] for g in parsed] == ["Group_2", "Group_0"]   # group names + order preserved
+    assert [len(g["submeshes"]) for g in parsed] == [1, 2]         # multi-submesh merged by group name
+    assert [sm["texture"] for sm in parsed[1]["submeshes"]] == ["image0", "image1"]  # per-submesh texture
+    assert parsed[0]["normals"] is not None and parsed[1]["normals"] is None         # normals presence kept
+    assert parsed[0]["verts"] == [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]]    # verts verbatim
+    assert parsed[1]["submeshes"][1]["tris"] == [[2, 1, 0]]        # winding (PolygonVertexIndex) preserved
+
+
 def test_validate_groups_catches_bad_index_and_uv_mismatch():
     bad = [{"name": "Group_2", "verts": [[0, 0, 0], [1, 0, 0]], "normals": None,
             "uvs": [[0, 0]],  # uv count != vert count

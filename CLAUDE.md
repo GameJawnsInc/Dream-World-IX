@@ -150,7 +150,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.9`, Blender add-on `0.9.6`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.9`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -501,6 +501,24 @@ Read these on demand — they hold the full technical detail this file only summ
   normal camera (SAVE_FOR_FIXED snapshots where the sweep ends). **All battle frontiers cracked** (tier i
   in-place + tier ii sweep). Full recipe + the origin/scale gotchas: memory `project-ff9-battle-backgrounds`.
   Dev/test moved to the scratch id band (§3): battle-bg = field 30001, battle scenes 30010-30019.
+- **Battle-map Blender loop** (add-on `0.9.7`; **in-game verified 2026-06-10** — a reshaped BBG_B013 arena
+  rendered in a real Evil-Forest battle) — closes the one CLI-only gap in the battle pillar: visually reshape
+  a 3D battle map. Added `parse_fbx` (the inverse of `emit_fbx`) to `battle/fbx.py` — `emit_fbx(parse_fbx(
+  text)) == text` byte-for-byte on the real 8-geometry BBG_B209 (kit test). The add-on **Import Battle Map**
+  parses a `BBG_B###.fbx`/`battle.toml` into editable Group_0/2/4/8 meshes (textured for preview); **Export
+  Battle Map** re-emits the engine-faithful FBX (PSX group shaders + Mesh-typed nodes set in-FBX — NOT
+  Blender's native exporter, which loses them), keeps the textures, scaffolds a `battle.toml`. bpy-free core
+  (`bridge.group_to_blender_meshdata` / `blender_meshdata_to_group`, reusing the field's y↔z map) is fully
+  tested (verts/UVs/tris/textures round-trip on real geometry); normals are Blender-recomputed on export, UV
+  seams not preserved (geometry-first). The emitter `battle/fbx.py` is now vendored (`vendor/battle_fbx.py`)
+  with a drift guard. **Two gotchas found in testing:** (1) Export forces **Object Mode first** + guards the
+  UV read by `len(uvl.data)==len(mesh.loops)` — in Edit Mode the object-mode UV data reads size-0 while loops
+  exist, so reading it IndexErrors; (2) the `_mint_toml` template is an f-string, so literal `{}` in the
+  camera-keyframes prose was a SyntaxError that only the (game-data-gated) CLI path hit — now reworded +
+  guarded by a pure test. To VERIFY a BBG override you must fight a battle that uses **that bbg**: field 5000's
+  encounter pointed at scene 5510 (BBG_B209, an EF geometry-fork — looks like Evil Forest but isn't B013), so
+  the override only shows on a real scene-67 Evil-Forest battle (re-point via the bbgprobe field). 494 kit +
+  58 Blender tests pass.
 - **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
   (`archetypes.py`, merged into `names()`/`resolve()`) holds field-RENDERABLE `GEO_MON` models (verified

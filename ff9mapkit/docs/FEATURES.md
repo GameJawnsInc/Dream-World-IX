@@ -83,7 +83,7 @@ codec/golden tests) with the full in-game pass still pending.
 | Tool | What | Docs |
 |---|---|---|
 | **CLI** | `new / guide / camera / walkmesh / disasm / build / import / list-fields / lint / pack / edit / doctor` | [README](../README.md) |
-| **Blender add-on** | Visually pose the camera, model the walkmesh, place NPC/gateway/event/spawn/cam-zone markers, paint backdrop, import a real field | [blender/README](../blender/README.md) |
+| **Blender add-on** | Visually pose the camera, model the walkmesh, place NPC/gateway/event/spawn/cam-zone markers, paint backdrop, import a real field — **and reshape a 3D battle map** (Import/Export Battle Map) | [blender/README](../blender/README.md) |
 | **Form editor** (`ff9mapkit edit`) | Dialogue / events / encounters / flags / cutscenes in forms — no TOML | [README](../README.md) |
 | **Two-file split** | Blender owns *where* (`scene.toml`), you own *what* (`field.toml`); merged at build | [FORMAT](FORMAT.md) |
 
@@ -113,6 +113,7 @@ codec/golden tests) with the full in-game pass still pending.
 | **Opening-camera tweaks** (`[scene]` `camera_yaw` / `camera_pitch` / `camera_zoom`) — rotate/tilt/zoom a minted battle's opening shot (in-place raw17 edit; the native plugin renders it, no DLL rebuild) | ✓ | [FORMAT](FORMAT.md) |
 | **Author the opening sweep** (`[[scene.camera_keyframes]]`) — a from-scratch multi-segment crane/orbit in FF9's real opening-camera grammar; keyframes are offsets/zoom around the battle's proven framing, so it always stays framed and ends on the normal shot | ✓ | [FORMAT](FORMAT.md) |
 | Deploy reversibly + repoint a field encounter to trigger it (`deploy_battle.py --trigger-field`) | ✓ | [FORMAT](FORMAT.md) |
+| **Reshape a battle map in Blender** — import a BBG's Group_0/2/4/8 geometry + textures, edit, re-export an engine-faithful FBX (the add-on's Import/Export Battle Map) | ✓ | [blender/README](../blender/README.md) |
 
 ---
 

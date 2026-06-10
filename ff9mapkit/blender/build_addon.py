@@ -18,18 +18,23 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent              # .../ff9mapkit/blender
 PKG = HERE / "ff9mapkit_blender"
 VENDOR = PKG / "vendor"
-SCENE = HERE.parent / "ff9mapkit" / "scene"         # .../ff9mapkit/ff9mapkit/scene
+KIT = HERE.parent / "ff9mapkit"                     # .../ff9mapkit/ff9mapkit
+SCENE = KIT / "scene"
 VENDORED = ("cam.py", "bgi.py", "bgx.py", "guide.py")   # guide imports PIL only lazily (render only)
-VERSION = "0.9.6"
+# extra vendored modules from elsewhere in the kit, as (source_path, vendor_filename) pairs:
+VENDORED_EXTRA = ((KIT / "battle" / "fbx.py", "battle_fbx.py"),)   # battle-map FBX emit/parse (pure)
+VERSION = "0.9.7"
 EXCLUDE_DIRS = {"__pycache__"}
 
 
 def sync_vendor() -> None:
-    """Copy the canonical scene math into vendor/ (keeps the add-on self-contained + in sync)."""
+    """Copy the canonical scene + battle math into vendor/ (keeps the add-on self-contained + in sync)."""
     VENDOR.mkdir(parents=True, exist_ok=True)
     for name in VENDORED:
         shutil.copyfile(SCENE / name, VENDOR / name)
-    print(f"synced vendor/: {', '.join(VENDORED)}")
+    for src, dest in VENDORED_EXTRA:
+        shutil.copyfile(src, VENDOR / dest)
+    print(f"synced vendor/: {', '.join(VENDORED + tuple(d for _, d in VENDORED_EXTRA))}")
 
 
 def package(out_dir: Path | None = None) -> Path:

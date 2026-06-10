@@ -162,6 +162,18 @@ class FF9MK_PT_panel(bpy.types.Panel):
         box.prop(p, "export_dir")
         box.operator("ff9mk.export_field", icon="FILE_TICK")
 
+        # Battle maps are a SEPARATE pillar (3D Unity geometry, not a flat field) -- its own loop.
+        box = layout.box()
+        box.label(text="Battle Map (3D)", icon="MESH_ICOSPHERE")
+        row = box.row(align=True)
+        row.operator("ff9mk.import_battle", icon="IMPORT", text="Import Battle")
+        row.operator("ff9mk.export_battle", icon="EXPORT", text="Export Battle")
+        if p.bbg_name:
+            box.label(text=f"{p.bbg_name}: reshape Group_0/2/4/8 (keep them separate)", icon="INFO")
+            box.prop(p, "bbg_dir")
+        else:
+            box.label(text="Import a BBG_B###.fbx / battle.toml to reshape", icon="INFO")
+
 
 def register():
     bpy.utils.register_class(FF9MK_PT_panel)

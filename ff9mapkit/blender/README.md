@@ -131,6 +131,28 @@ Instead of starting from a blank plane, **Import Field** loads a project produce
   frame). `ff9mapkit build` it exactly as above. This matches the CLI `import --editable` output, so
   a Blender re-export and a CLI build produce the same field.
 
+## Reshape a battle map (3D)
+
+Battle backgrounds are a **separate pillar** from fields — real textured 3D geometry, not a flat
+painted plane — so they have their own loop in the *Battle Map (3D)* box.
+
+1. Fork a battle map with the CLI first: `ff9mapkit battle-import BBG_B013 --out <folder>`
+   (add `--fork-scene <DONOR> --ship-as BBG_B<N>` to also mint a new scene). This writes a
+   `BBG_B###.fbx` + its `image#.png` textures + a `battle.toml`.
+2. **Import Battle** → pick that `BBG_B###.fbx` (or its `battle.toml`). The add-on loads each
+   **Group_0/2/4/8** as its own editable mesh (with the textures applied for preview) into an
+   *FF9 Battle Map* collection.
+3. **Reshape** the meshes. The one rule: **keep the groups as separate objects named Group_0/2/4/8** —
+   the engine classifies them by name (`Group_0`=additive, `Group_2`=ground, `Group_4`=subtractive,
+   `Group_8`=sky). Don't merge or rename them.
+4. **Export Battle** → writes an engine-faithful `BBG_B###.fbx` (the PSX group shaders set in-FBX,
+   Mesh-typed nodes — *not* Blender's native FBX export, which would lose them), keeps the textures
+   next to it, and scaffolds a `battle.toml` if there isn't one. Then:
+   `ff9mapkit battle-build battle.toml` → `py tools/deploy_battle.py battle.toml [--trigger-field N]`.
+
+Geometry (verts/UVs/triangles/textures) round-trips exactly; normals are recomputed from your edited
+mesh on export. UV *seams* (per-corner UVs) aren't preserved — battle reshaping is geometry-first.
+
 ## Scrolling rooms (larger-than-screen)
 
 Tick **Scrolling room** in the *Camera* box and set **Canvas W/H** (e.g. `768 × 448` = 2× wide).

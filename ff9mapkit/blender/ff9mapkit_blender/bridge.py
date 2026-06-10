@@ -753,3 +753,53 @@ def mesh_to_bgi_bytes(world_verts, tri_faces, floor_ids=None):
     if floor_ids and len(set(floor_ids)) > 1:
         return bgi.build(fv, list(tri_faces), floor_ids=list(floor_ids)).to_bytes()
     return bgi.build_flat(fv, list(tri_faces)).to_bytes()
+
+
+# --- battle map (3D BBG geometry) <-> Blender mesh data (bpy-free) ------------------------
+# A battle background's geometry is Unity-space verts/normals/uvs grouped as Group_0/2/4/8 (see
+# battle/fbx.py). Unity is y-up like FF9 field world, so we REUSE the field's y<->z map (M_FB) to put
+# the ground flat in Blender's z-up viewport. import (groups->Blender) and export (Blender->groups) are
+# exact inverses for vertex positions/uvs/topology, so an UNCHANGED map round-trips; reshaped meshes get
+# Blender-recomputed normals on export (the kit-level parse_fbx<->emit_fbx is the byte-exact round-trip).
+
+def battle_unity_to_blender(verts):
+    """Unity battle-space verts/dirs -> Blender (same linear y<->z map as the field walkmesh)."""
+    return ff9_verts_to_blender(verts)
+
+
+def battle_blender_to_unity(verts):
+    """Blender verts/dirs -> Unity battle space (inverse of battle_unity_to_blender)."""
+    return blender_verts_to_ff9(verts)
+
+
+def group_to_blender_meshdata(group):
+    """One BBG `group` (battle/fbx.py shape) -> plain data for building a Blender mesh object:
+        {name, verts(Blender), faces:[(a,b,c)], face_material:[slot], materials:[tex stems], uvs:[per-vtx]}
+    All submeshes' triangles are concatenated into one mesh; each submesh becomes one material slot (its
+    texture), so the slot index per face records which submesh a triangle belongs to (for re-export)."""
+    bverts = [list(v) for v in battle_unity_to_blender(group["verts"])]
+    faces, face_material, materials = [], [], []
+    for si, sm in enumerate(group.get("submeshes", [])):
+        materials.append(sm.get("texture"))
+        for tri in sm["tris"]:
+            faces.append(tuple(tri))
+            face_material.append(si)
+    return {"name": group["name"], "verts": bverts, "faces": faces,
+            "face_material": face_material, "materials": materials,
+            "uvs": [list(uv) for uv in group.get("uvs", [])]}
+
+
+def blender_meshdata_to_group(name, bverts, faces, face_material, materials, uvs, normals=None):
+    """Inverse: Blender mesh data -> a BBG `group`. ``materials`` = texture stem per material slot;
+    ``face_material`` = slot index per face; ``uvs`` per-vertex; optional per-vertex ``normals`` (Blender
+    coords, mapped to Unity + emitted). Faces are regrouped into one submesh per material slot (slot order
+    kept; empty slots dropped). The name should already be a Group_0/2/4/8 string."""
+    uverts = [list(v) for v in battle_blender_to_unity(bverts)]
+    un = [list(n) for n in battle_blender_to_unity(normals)] if normals else None
+    submeshes = []
+    for si, tex in enumerate(materials):
+        tris = [list(faces[fi]) for fi, fm in enumerate(face_material) if fm == si]
+        if tris:
+            submeshes.append({"texture": tex, "tris": tris})
+    return {"name": name, "verts": uverts, "normals": un,
+            "uvs": [list(uv) for uv in uvs], "submeshes": submeshes}
