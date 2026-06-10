@@ -47,7 +47,7 @@ FIELD_SPEC = [
 ]
 NPC_SPEC = [
     Field("name", "Name", STR, "a label (also links this NPC to its Blender marker)"),
-    Field("preset", "Preset", PRESET, "who it looks like -- Browse the archetype/creature catalog",
+    Field("preset", "Preset", PRESET, "who it looks like (any archetype/creature)",
           catalog="archetype,creature"),
     Field("model", "Model id", OPTINT, "advanced: a custom model instead of a preset"),
     Field("animset", "Animset id", OPTINT, "advanced: with a custom model (also add anims in the .toml)"),

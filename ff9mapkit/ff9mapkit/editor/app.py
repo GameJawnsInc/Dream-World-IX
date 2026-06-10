@@ -63,6 +63,7 @@ class EditorApp:
         self.palette = apply_theme(root)             # modern look (auto light/dark) -> palette colours
         root.title("FF9 Map Kit - Field Editor")
         root.minsize(960, 600)
+        root.geometry("1180x720")                    # roomy default: tree + form + the help column + pickers
         self._build_toolbar()
         ttk.Separator(root, orient="horizontal").pack(fill="x")
         panes = ttk.PanedWindow(root, orient="horizontal")
@@ -360,7 +361,7 @@ class EditorApp:
                 if getattr(f, "catalog", None):           # a catalog-backed field gets a "Browse..." picker
                     host = ttk.Frame(parent)
                     host.grid(row=r, column=1, sticky="we")
-                    host.columnconfigure(0, weight=1)
+                    host.columnconfigure(0, weight=1, minsize=130)   # don't let the button squash the widget
                     mk(host).grid(row=0, column=0, sticky="we")
                     ttk.Button(host, text="Browse...", width=9,
                                command=lambda fk=f, v=var: self._pick_catalog(fk, v)).grid(
@@ -373,7 +374,7 @@ class EditorApp:
             if f.help:
                 ttk.Label(parent, text=f.help, foreground=self.palette["muted"]).grid(
                     row=r, column=2, sticky="w", padx=6)
-        parent.columnconfigure(1, weight=1)
+        parent.columnconfigure(1, weight=1, minsize=230)   # the widget column stays usable even with a Browse button
         return getters
 
     def _pick_catalog(self, field, var):
