@@ -120,6 +120,10 @@ build/
 # dev tooling cache (model->field-usage index; game-derived, regenerable via --build)
 tools/model_field_usage.json
 
+# story-flag research: the full census JSON is large (~1 MB) and regenerable from the install
+# (research/flag_census.py). Keep the human-readable digest/report/catalog + the tools tracked.
+research/flag_census.json
+
 _private_memoria_archive/
 tools/prop_poses.json
 tools/attach_poses.json
