@@ -38,13 +38,21 @@ DISPATCH_OPS = frozenset((RUN_SCRIPT_SYNC, RUN_SCRIPT_ASYNC, RUN_SCRIPT))   # re
 SETUP_JUMP = 0xE2          # SetupJump(x, y, z, arc) -- a climb's / a jump's arc destination
 JUMP_OP = 0xDC             # Jump() -- perform the SetupJump arc (the navigable-jump signature, with SetupJump)
 SET_JUMP_ANIM_OP = 0x94    # SetJumpAnimation(anim, a, b) -- the player Init's jump-clip setup
-# An arc with a message WINDOW or a mid-arc BATTLE is an INTERACTIVE sequence, NOT a clean navigable
-# hop: it's the Cleyra/Tree-Trunk SAND TRAP (fall in -> a "press X!" window + a button-mash struggle
-# counter + camera sink + sometimes a Battle -> escape arcs) or a scripted cutscene hop. These reuse
-# SetupJump/Jump for the fall/escape, so they look like jumps by opcode but aren't player navigation --
-# and they carry field-specific text/battle ids that don't port to a fork. Excluded from scan_jumps.
-WINDOW_OPS = frozenset((0x1F, 0x20, 0x95, 0x96))   # WindowSync / WindowAsync / WindowSyncEx / WindowAsyncEx
-BATTLE_OP = 0x2A           # Battle(type, scene) -- a forced encounter (sand traps can spawn one mid-struggle)
+# A navigable hop is a SELF-CONTAINED arc: face -> jump-anim -> SetupJump/Jump -> land. If a
+# SetupJump/Jump func ALSO does any of the following it's a scripted/cinematic sequence (a sand trap, a
+# cutscene, a warp-jump), NOT player navigation -- and it references field-specific state (text, battle
+# scenes, shared-script entries, destination fields) that doesn't port to a fork. Such arcs reuse
+# SetupJump/Jump so they look like jumps by opcode, so scan_jumps excludes any that touch these:
+NON_NAVIGABLE_OPS = frozenset((
+    0x1F, 0x20, 0x95, 0x96,    # WindowSync/Async[Ex] -- a "press X!" prompt / dialogue (sand trap, cutscene)
+    0x2A,                      # Battle -- a forced encounter mid-arc (sand traps spawn one)
+    0x6F, 0x70,                # MoveCamera / ReleaseCamera -- a cinematic camera follow (e.g. Alexandria pan)
+    0x2B, 0xB6, 0xFD,          # Field / WorldMap / PreloadField -- the "jump" warps to another field
+    0x23, 0x25, 0xE8,          # Walk / InitWalk / SideWalkXZY -- a scripted walk (a hop is a JUMP, not a walk)
+    0x10, 0x12, 0x14,          # RunScript / Sync / Async -- nested object scripts that won't port
+    0x43, 0x44, 0x45,          # Run/Wait/StopSharedScript -- per-field concurrent helpers a fork lacks
+    0xEC,                      # FadeFilter -- a screen fade (a transition, not a hop)
+))
 ADD_CHAR_ATTR = 0xCC       # AddCharacterAttribute(flag); flag 4 (LADDER_FLAG) = "on a ladder"
 DEFINE_PC = 0x2C           # DefinePlayerCharacter -- marks the controlled player's entry
 BUBBLE_OP = 0x68           # Bubble(state) -- the "!" interact prompt (ladder tread func)
@@ -226,14 +234,16 @@ def _is_ladder_func(eb, player_index, tag) -> bool:
 
 def _is_jump_func(eb, player_index, tag) -> bool:
     """True if player function ``tag`` is a navigable JUMP arc: a ``SetupJump``+``Jump`` parabola that
-    is NOT a ladder (no ladder flag) AND NOT an interactive sequence (no message Window / mid-arc
-    Battle). The window/battle exclusion is what separates an Ice-Cavern-style ledge HOP (a silent arc)
-    from a Cleyra/Tree-Trunk SAND TRAP or a scripted cutscene hop (both reuse SetupJump/Jump but wrap
-    them in a 'press X!' struggle + dialogue/battle the kit can't port)."""
+    is NOT a ladder (no ladder flag) AND is SELF-CONTAINED (none of :data:`NON_NAVIGABLE_OPS`). The
+    self-contained test is what separates an Ice-Cavern-style ledge HOP (face -> jump -> land) from the
+    look-alikes that also use SetupJump/Jump: a Cleyra/Tree-Trunk SAND TRAP (a 'press X!' Window +
+    struggle + Battle), a cinematic traversal (MoveCamera follow), a warp-jump (Field), or a scripted
+    walk/nested-script sequence -- none of which are free navigation, and all of which reference
+    field-specific state (text, scenes, shared-script entries, destinations) that a fork can't port."""
     ops, ladder = _func_ops(eb, player_index, tag)
     if ops is None or ladder or SETUP_JUMP not in ops or JUMP_OP not in ops:
         return False
-    if ops & WINDOW_OPS or BATTLE_OP in ops:        # an interactive trap/cutscene, not a clean hop
+    if ops & NON_NAVIGABLE_OPS:        # a scripted/cinematic sequence (trap, cutscene, warp), not a hop
         return False
     return True
 

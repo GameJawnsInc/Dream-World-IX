@@ -104,6 +104,16 @@ def test_trap_arc_with_a_window_is_not_a_navigable_jump():
     assert eventscan.scan_jumps(eb) == []                # the window marks it interactive, so excluded
 
 
+def test_scripted_or_cinematic_arc_is_not_a_navigable_jump():
+    # Beyond sand traps, a "jump" that runs a NESTED script (RunScriptSync) or WARPS (Field) is a
+    # scripted/cinematic sequence -- not free navigation, and it references field-specific state a fork
+    # can't port. A navigable hop must be self-contained, so scan_jumps excludes these too.
+    for extra in (opcodes.run_script_sync(2, _jump.PLAYER_UID, 9), opcodes.field(70)):
+        eb = _jump.ensure_jump_animation(CLEAN)
+        eb, _ = _jump.inject_jump(eb, ZONE, extra + _arc(), jump_tag=_jump.FIRST_JUMP_TAG)
+        assert eventscan.scan_jumps(eb) == []
+
+
 def test_jump_without_a_region_is_not_navigable():
     # A jump arc fired from a NON-region entry (Main_Loop / a cutscene sequence -- no SetRegion, so no
     # placeable zone) is a scripted hop, NOT player navigation -> scan_jumps must ignore it. (This was a
