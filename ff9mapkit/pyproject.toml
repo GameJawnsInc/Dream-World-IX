@@ -19,6 +19,9 @@ dependencies = ["Pillow>=9.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+# `ff9mapkit save-edit` (the RECREATE verb) reads/writes FF9's AES-encrypted save; pycryptodome is
+# imported lazily, so it's only needed for that command (and the save tests skip without it).
+save = ["pycryptodome>=3.10"]
 
 [project.urls]
 Homepage = "https://github.com/"          # filled in when published

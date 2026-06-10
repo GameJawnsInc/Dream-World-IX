@@ -38,7 +38,8 @@ once-flags, lints dangling/colliding flags (`build.py`, `campaign.py`), and expo
 snapshot/reset in the **F6 debug menu** (`Ff9mkDebugMenu.cs`). *Since this research:* a **named flag
 registry** (`flags.py`, recommendation 2), an **offline save-file reader** (`flags-inspect`,
 recommendation 3), and a **live in-game F6 "Story state" readout** (the in-game half of 3, proven 2026-06-10)
-have landed. Still missing: a **seed/recreate** mechanism (recommendation 4).
+have landed — **and a save-seed/recreate tool** (`save-edit`, recommendation 4, in-game proven). All five
+verbs are now implemented; the remaining frontiers are campaign `[initial_flags]` entry and seeding map/party.
 
 **Three headline findings:**
 
@@ -164,11 +165,13 @@ Palace / Eiko abduction 9250–9890** · Terra 10830–10890 · Pandemonium 1093
 
 ### RECREATE — *set a save to a given story point*
 
-- **Today:** **Not implemented.** `[initial_flags]` in `campaign.toml` is a TODO (`campaign.py` ~:197). The
-  kit builds `.eb` offline but cannot deserialize/seed a Memoria save. New-Game-into-a-campaign with a full
-  party remains unsolved (the 70→100→entry route crashes on field 100; reach chains via F6→Warp).
-- **Gaps:** A save-seeding tool — decode `gEventGlobal` from `FF9State.json`, set ScenarioCounter + named
-  flags to a target beat, re-encode. The save surface is fully open (Base64 in JSON), so this is buildable.
+- **Today:** ✅ **Implemented + in-game proven 2026-06-10** (recommendation 4). `ff9mapkit save-edit` reads a
+  real `SavedData_ww.dat`, sets ScenarioCounter (+ flags) in a chosen slot, and writes it back — verified by
+  loading an edited save and reading the new state off the F6 readout, no relaunch. See §5(4) for the codec
+  + the Memoria split-save finding.
+- **Remaining:** the edit sets story STATE only (not map position/party — scope choice); `[initial_flags]`
+  at campaign entry is still a TODO; New-Game-into-a-campaign with a full party remains unsolved (reach
+  chains via F6→Warp).
 
 ---
 
@@ -266,15 +269,21 @@ Sari"); now a **census-grounded 43-area progression** (`research/gen_scenario_ta
 `SCENARIO_MILESTONES`, mirrored to the C# menu) reads 7200 → "Alexandria Castle". *Caveat:* the on-disc
 `EncryptedSavedData` must be decrypted to JSON first; the open JSON/Base64 path is what `flags-inspect` reads.
 
-**(4) — A "recreate" / seed mechanism. [Delivers RECREATE.]**
-*What:* A tool that writes a target story state into a save: set `gEventGlobal[0..1]` to a chosen
-ScenarioCounter milestone and set named flags, then re-Base64/re-encrypt. Pair with `[initial_flags]`
-parsing in `campaign.toml` (currently a TODO at `campaign.py` ~:197) so a campaign declares its entry state.
-*Why:* "drop the player at story beat X with these flags set" — needed for testing gated content and for
-campaign New-Game entry without the field-100 crash route. *Builds on:* the registry (for names→indices), the
-open save format, and the existing campaign entry plumbing (`deploy_campaign.py --no-warp` + F6→Warp as the
-interim entry path). *Caveat:* encrypted-save round-trip needs the `EncryptedSavedData` codec
-(community-known; `ff9SaveLib` is a reference).
+**(4) — A "recreate" / save-seed mechanism. ✅ LANDED + in-game proven 2026-06-10.**
+*Done:* `ff9mapkit save-edit <SavedData_ww.dat>` (`ff9mapkit/save.py`) — `--list` enumerates the populated
+saves; `--slot S --save V --scenario <val|area> --set/--clear <flags>` sets the story state of a chosen
+slot. Dry-run by default; `--in-place` edits the real files (each backed up). Reserved-region guard refuses
+chest-band/etc. **The save codec, cracked here:** the on-disc `SavedData_ww.dat` is a container of fixed
+18432-byte blocks, each **AES-256-CBC** (PBKDF2-HMAC-SHA1, 1000 iters, salt `[3,3,1,4,7,0,9,7]`, password =
+the literal `"System.Security.SecureString"` — the decompiled `SecureString.ToString()` returns the type
+name, and that **is** the key). Each block decrypts to `"SAVE"` + a schema-ordered value stream; gEventGlobal
+is a String4K (2048 bytes → a 2732-char Base64). AES-CBC is a bijection, so an in-place Base64 swap is
+byte-exact (no checksum). **★ The load-bearing in-game finding:** Memoria *also* writes an **unencrypted**
+per-slot extra file (`SavedData_ww_Memoria_{slot}_{save}.dat`) holding the AUTHORITATIVE gEventGlobal, and
+**restores from it on load, overriding the vanilla block** — so `save-edit` patches *both*. Verified: an
+offline-edited save loaded to `ScenarioCounter 2500 → Ice Cavern` on the F6 readout, no relaunch. Needs
+`pycryptodome` (lazy import). *Still open:* `[initial_flags]` at campaign entry; seeding map/party (state-only
+for now).
 
 ---
 

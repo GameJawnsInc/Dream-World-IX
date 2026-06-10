@@ -678,8 +678,17 @@ Read these on demand — they hold the full technical detail this file only summ
   (`Ff9mkDebugMenu.cs`, patch `s22-debug-menu-f6.patch` regenerated). Real-save playtest at Alexandria Castle
   (SC 7200) **corrected the scenario→beat table** — the old ~11 anchors mislabelled mid-game; now a
   census-grounded **43-area progression** (`research/gen_scenario_table.py` → `flags.SCENARIO_MILESTONES`,
-  mirrored to the C# menu) reads 7200 → "Alexandria Castle". **Deferred:** a seed/recreate tool (rec #4).
-  580 kit tests pass; dev engine still stock `6b8bb2d5` + s22 (now with the story-state view).
+  mirrored to the C# menu) reads 7200 → "Alexandria Castle".
+  **RECREATE landed (rec #4, in-game proven 2026-06-10):** `ff9mapkit save-edit <SavedData_ww.dat>`
+  (`ff9mapkit/save.py`) sets a chosen slot's ScenarioCounter + flags. **Save codec cracked:** `SavedData_ww.dat`
+  = a container of 18432-byte **AES-256-CBC** blocks (PBKDF2-HMAC-SHA1 1000 iters, salt `[3,3,1,4,7,0,9,7]`,
+  password = literal `"System.Security.SecureString"` — the `SecureString.ToString()` quirk IS the key);
+  each block = `"SAVE"` + schema values; gEventGlobal is a String4K (2048B→2732-char base64), swapped in place
+  (AES-CBC bijection → byte-exact, no checksum). **★ Playtest finding:** Memoria ALSO writes an UNENCRYPTED
+  per-slot `SavedData_ww_Memoria_{slot}_{save}.dat` holding the AUTHORITATIVE gEventGlobal and restores from it
+  on load (overriding the vanilla block) → `save-edit` patches BOTH; an offline-edited save loaded to "SC 2500
+  → Ice Cavern" with no relaunch. Needs `pycryptodome` (lazy import). **All 5 verbs done**
+  (view/understand/name/create/recreate). Dev engine stock `6b8bb2d5` + s22 (story-state view).
 - **Campaign Editor — Phase D: authoring (create / mutate a campaign), on the story-flags safe-flag base
   (offline-verified; awaits a human GUI click-through + one in-game flag-isolation playtest)** — the from-scratch
   twin of import-chain (which forks a real region), landed AFTER + rebased onto the story-flags work above.

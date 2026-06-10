@@ -145,6 +145,19 @@ def nearest_milestone(scenario: int):
     return (v, SCENARIO_MILESTONES[v])
 
 
+def resolve_scenario(token) -> int:
+    """A ScenarioCounter VALUE from an int / digit-string, or an area name (the lowest value whose beat
+    matches, case/substring-insensitive -- so 'ice' -> 2500 'Ice Cavern'). Raises on an unknown name."""
+    s = str(token).strip()
+    if s.lstrip("-").isdigit():
+        return int(s)
+    hits = sorted(v for v, beat in SCENARIO_MILESTONES.items() if s.lower() in beat.lower())
+    if not hits:
+        opts = ", ".join(sorted(set(SCENARIO_MILESTONES.values())))
+        raise ValueError(f"unknown scenario area {token!r}. Known areas: {opts}")
+    return hits[0]
+
+
 # ============================ author-side name resolution ============================
 # field.toml content keys whose value is a single flag INDEX (a name or an int).
 _FLAG_INDEX_KEYS = ("requires_flag", "requires_flag_clear", "flag")

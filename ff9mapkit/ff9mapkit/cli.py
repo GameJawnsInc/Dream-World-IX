@@ -688,6 +688,111 @@ def _cmd_flags_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_save_edit(args: argparse.Namespace) -> int:
+    """Set a real FF9 save's story state (ScenarioCounter + flags) -- the RECREATE verb. Dry-run unless
+    --out or --in-place is given; --in-place backs the original up first. Never mutates other state."""
+    import os
+    import time
+    import tomllib
+    from . import flags as F
+    from . import save as S
+    try:
+        sv = S.FF9Save.load(args.save)
+    except Exception as e:                                              # noqa: BLE001
+        print(f"could not read save: {e}")
+        return 2
+
+    if args.list:
+        rows = sv.populated()
+        print(f"{len(rows)} populated save(s) in {args.save}:\n")
+        for s in rows:
+            who = "autosave" if s.block == 0 else f"slot {s.slot} save {s.save}"
+            print(f"  block {s.block:<3} [{who:14}]  ScenarioCounter {s.scenario:<6} {s.beat:<20} chests {s.chests}")
+        return 0
+
+    # pick the target block
+    if args.block is not None:
+        n = args.block
+    elif args.autosave:
+        n = 0
+    elif args.slot is not None and args.save_index is not None:
+        n = S.block_index(args.slot, args.save_index)
+    else:
+        print("pick a save: --list to see them, then --slot S --save V (or --autosave, or --block N).")
+        return 2
+
+    # resolve edits
+    name_map = {}
+    if args.names:
+        try:
+            with open(args.names, "rb") as fh:
+                name_map = F.collect_flag_defs(tomllib.load(fh))
+        except Exception as e:                                         # noqa: BLE001
+            print(f"--names: {e}")
+            return 2
+
+    def _bits(spec):
+        out = []
+        for tok in (spec or "").split(","):
+            tok = tok.strip()
+            if tok:
+                out.append(F.resolve(tok, name_map))
+        return out
+
+    extra = S.extra_file_path(args.save, n)
+    extra_exists = bool(extra and os.path.exists(extra))
+    try:
+        scenario = F.resolve_scenario(args.scenario) if args.scenario else None
+        set_bits, clear_bits = _bits(args.set_flags), _bits(args.clear_flags)
+        # Memoria's per-slot extra file holds the AUTHORITATIVE gEventGlobal (it overrides the vanilla main
+        # block on load), so read from it when present; fall back to the main block for a vanilla-only save.
+        src = S.read_extra_gEventGlobal(extra) if extra_exists else None
+        if src is None:
+            src = sv.gEventGlobal(n)
+        geg = bytearray(src)
+        notes = S.edit_story_state(geg, scenario=scenario, set_flags=set_bits, clear_flags=clear_bits)
+        sv.set_gEventGlobal(n, bytes(geg))                 # stage the vanilla main-block edit (in memory)
+    except (ValueError, IndexError) as e:
+        print(f"edit failed: {e}")
+        return 2
+
+    if not notes:
+        print("nothing to change (give --scenario / --set / --clear).")
+        return 0
+    who = "autosave" if n == 0 else f"slot {(n - 1) // 15} save {(n - 1) % 15}"
+    print(f"block {n} [{who}] changes:")
+    for note in notes:
+        print(f"  - {note}")
+    print("  Memoria extra file: " + ("present (governs the loaded state)" if extra_exists else "none (vanilla save)"))
+
+    def _backup(path):
+        bak = f"{path}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
+        with open(path, "rb") as s, open(bak, "wb") as d:
+            d.write(s.read())
+        return bak
+
+    if getattr(args, "in_place", False):
+        print(f"  backed up -> {_backup(args.save)}")
+        sv.write(args.save)
+        if extra_exists:
+            print(f"  backed up -> {_backup(extra)}")
+            S.patch_extra_gEventGlobal(extra, bytes(geg))
+            chk = S.read_extra_gEventGlobal(extra)
+            print(f"  patched main block + Memoria extra ({os.path.basename(extra)}); "
+                  f"verified extra ScenarioCounter now {chk[0] | chk[1] << 8}")
+        else:
+            print("  patched main block")
+    elif args.out:
+        sv.write(args.out)
+        print(f"wrote edited main container -> {args.out}")
+        if extra_exists:
+            print("  NOTE: --out writes only the main container; the Memoria extra file GOVERNS the loaded "
+                  "state and is NOT included -- use --in-place to edit a loadable save.")
+    else:
+        print("(dry run -- pass --in-place to edit the real save, or --out FILE for a main-container copy)")
+    return 0
+
+
 def _cmd_items(args: argparse.Namespace) -> int:
     """List FF9 item names + ids (use a name for `give_item = ["<name>", count]`)."""
     from . import items as I
@@ -1051,6 +1156,22 @@ def build_parser() -> argparse.ArgumentParser:
     fi.add_argument("save", help="a save JSON file / JSON text, or a bare Base64 gEventGlobal blob")
     fi.add_argument("--all", action="store_true", help="also list the unmapped set bits")
     fi.set_defaults(func=_cmd_flags_inspect)
+
+    se = sub.add_parser("save-edit",
+                        help="set a real FF9 save's story state (ScenarioCounter + flags) -- the 'recreate' verb")
+    se.add_argument("save", help="path to SavedData_ww.dat (or a copy of it)")
+    se.add_argument("--list", action="store_true", help="list the populated saves (slot/save, scenario, chests) and exit")
+    se.add_argument("--slot", type=int, help="save slot 0-9")
+    se.add_argument("--save", dest="save_index", type=int, help="save 0-14 within the slot")
+    se.add_argument("--block", type=int, help="raw data-block index (alternative to --slot/--save; 0 = autosave)")
+    se.add_argument("--autosave", action="store_true", help="target the autosave block")
+    se.add_argument("--scenario", help="set ScenarioCounter: a value (2500) or an area name (\"Ice Cavern\")")
+    se.add_argument("--set", dest="set_flags", help="comma-separated flag indices (or [[flag]] names with --names) to SET")
+    se.add_argument("--clear", dest="clear_flags", help="comma-separated flag indices to CLEAR")
+    se.add_argument("--names", help="a field.toml/campaign.toml whose [[flag]] table names --set/--clear flags")
+    se.add_argument("--out", help="write the edited save to this path (safe; leaves the original untouched)")
+    se.add_argument("--in-place", action="store_true", help="overwrite the save (a timestamped .bak is made first)")
+    se.set_defaults(func=_cmd_save_edit)
 
     ed = sub.add_parser("edit", help="open the form-based field-logic editor (no TOML hand-editing)")
     ed.add_argument("field", nargs="?", default=None, help="a .field.toml to open (optional)")

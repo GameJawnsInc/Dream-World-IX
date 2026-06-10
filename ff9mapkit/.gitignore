@@ -28,3 +28,4 @@ __pycache__/
 build/
 dist/
 ff9mapkit/blender/dist/
+_savescratch/
