@@ -119,6 +119,14 @@ def apply_theme(root, mode: str = "auto") -> dict:
     root.option_add("*TCombobox*Listbox.foreground", pal["text"])
     root.option_add("*TCombobox*Listbox.selectBackground", pal["accent"])
     root.option_add("*TCombobox*Listbox.selectForeground", pal["accent_fg"])
+    # Plain classic Listboxes (the catalog picker) aren't ttk -> theme them via the option DB too, so a
+    # widget that doesn't pass explicit colours (unlike the editor's own lists) still matches the app.
+    root.option_add("*Listbox.background", pal["field"])
+    root.option_add("*Listbox.foreground", pal["text"])
+    root.option_add("*Listbox.selectBackground", pal["accent"])
+    root.option_add("*Listbox.selectForeground", pal["accent_fg"])
+    root.option_add("*Listbox.highlightColor", pal["accent"])
+    root.option_add("*Listbox.highlightBackground", pal["border"])
 
     st = ttk.Style(root)
     try:

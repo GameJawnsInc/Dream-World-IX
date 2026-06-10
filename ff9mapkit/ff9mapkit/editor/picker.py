@@ -36,6 +36,7 @@ class _PickerDialog:
         win.title(title)
         win.transient(parent)
         win.geometry("560x440")
+        win.configure(background=parent.winfo_toplevel()["background"])   # inherit the themed window bg
 
         top = ttk.Frame(win, padding=6)
         top.pack(fill="x")

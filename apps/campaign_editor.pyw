@@ -25,7 +25,9 @@ sys.path.insert(0, str(ROOT / "ff9mapkit"))     # the kit package
 sys.path.insert(0, str(ROOT / "tools"))         # the field-usage helper (Info Hub's Where-in-FF9)
 
 import tkinter as tk                              # noqa: E402
-from tkinter import ttk, filedialog, messagebox, simpledialog  # noqa: E402
+from tkinter import ttk, filedialog, messagebox  # noqa: E402
+
+from ff9mapkit.editor import dialogs              # noqa: E402  (themed askstring/askinteger replacements)
 
 
 def _load_app(filename, modname):
@@ -326,13 +328,13 @@ class Workspace:
         d = filedialog.askdirectory(title="New campaign: choose an empty folder for it")
         if not d:
             return
-        name = simpledialog.askstring("New campaign", "Campaign / mod name:", parent=self.root)
+        name = dialogs.ask_string(self.root, "New campaign", "Campaign / mod name:")
         if not name:
             return
-        id_base = simpledialog.askinteger(
-            "New campaign", "First field id (id_base) for this campaign.\nEach member takes id_base, +1, "
-            "+2 ...  Must be >= 4000 and NOT collide with other deployed fields.",
-            parent=self.root, initialvalue=4000, minvalue=4000, maxvalue=32767)
+        id_base = dialogs.ask_integer(
+            self.root, "New campaign", "First field id (id_base) for this campaign.\nEach member takes "
+            "id_base, +1, +2 ...  Must be >= 4000 and NOT collide with other deployed fields.",
+            initial=4000, minvalue=4000, maxvalue=32767)
         if id_base is None:
             return
         from ff9mapkit import campaign
@@ -349,12 +351,12 @@ class Workspace:
     def on_add_field(self):
         if self.plan is None:
             return
-        name = simpledialog.askstring("Add field", "New member name (unique, e.g. HUB):", parent=self.root)
+        name = dialogs.ask_string(self.root, "Add field", "New member name (unique, e.g. HUB):")
         if not name:
             return
-        src = simpledialog.askstring("Add field",
-                                     "Fork which real FF9 field? (a field id or unique FBG name -- needs the "
-                                     "game install)\n\nLeave BLANK for an empty room.", parent=self.root)
+        src = dialogs.ask_string(self.root, "Add field",
+                                 "Fork which real FF9 field? (a field id or unique FBG name -- needs the "
+                                 "game install)\n\nLeave BLANK for an empty room.")
         src = (src or "").strip() or None
         from ff9mapkit import campaign
         try:
@@ -386,8 +388,8 @@ class Workspace:
         name = self._selected_member()
         if not name:
             return
-        new = simpledialog.askstring("Rename member", f"New (structural) name for '{name}':",
-                                     parent=self.root, initialvalue=name)
+        new = dialogs.ask_string(self.root, "Rename member", f"New (structural) name for '{name}':",
+                                 initial=name)
         if not new or new == name:
             return
         from ff9mapkit import campaign
@@ -422,6 +424,7 @@ class Workspace:
         win = tk.Toplevel(self.root)
         win.title(f"Shared named flags -- {self.plan.name}")
         win.transient(self.root)
+        win.configure(background=self.palette["bg"])      # match the themed app (a bare Toplevel is OS-gray)
         ttk.Label(win, justify="left", text=(
             "Cross-field story gates. A member gates by NAME (requires_flag = \"<name>\").\n"
             "Indices auto-allocate ABOVE the per-member flag blocks, in the census-safe band.")
@@ -439,7 +442,7 @@ class Workspace:
                 tv.insert("", "end", iid=str(fdef.get("name")), values=(fdef.get("name"), fdef.get("index")))
 
         def add():
-            name = simpledialog.askstring("Add flag", "New shared flag name (e.g. boss_dead):", parent=win)
+            name = dialogs.ask_string(win, "Add flag", "New shared flag name (e.g. boss_dead):")
             if not name:
                 return
             try:
@@ -525,13 +528,12 @@ def _smoke(ws):
     assert calls == [1], "a dirty switch should prompt exactly once"
 
     # --- Phase D authoring: add / rename / remove a member via the handlers (patched dialogs) ---
-    import tkinter.simpledialog as _sd
     import tkinter.messagebox as _mb
     answers = iter(["WEST", ""])                                   # on_add_field: name, then source (blank)
-    _sd.askstring = lambda *a, **k: next(answers, "")
+    dialogs.ask_string = lambda *a, **k: next(answers, "")
     ws.on_add_field()
     assert "WEST" in ws.tree.get_children() and (d / "WEST" / "west.field.toml").is_file()
-    _sd.askstring = lambda *a, **k: "WESTWING"                     # on_rename_field
+    dialogs.ask_string = lambda *a, **k: "WESTWING"               # on_rename_field
     ws.tree.selection_set("WEST")
     ws.on_rename_field()
     assert "WESTWING" in ws.tree.get_children() and "WEST" not in ws.tree.get_children()
