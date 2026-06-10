@@ -389,8 +389,9 @@ scene_name = "{name}"     # -> EVT_BATTLE_{name} + BSC_{name}{tint}
 # --- author the opening camera SWEEP from keyframes (optional, advanced) ------------------------------
 # Replaces the opening swoop with your own, in the SAME grammar the base game uses. Keyframes ADJUST the
 # battle's PROVEN framing (the shot it normally settles into): yaw/pitch/roll are degree OFFSETS and `zoom`
-# is a distance multiplier, so {} = the normal framing. Keyframe 0 is the instant START pose; each later
-# one MOVES the camera there over `move` frames. End on {} (or small offsets) so the fight stays framed --
+# is a distance multiplier (a keyframe with no offsets = the normal framing). Keyframe 0 is the instant
+# START pose; each later one MOVES the camera there over `move` frames. End on a no-offset keyframe (or
+# small offsets) so the fight stays framed --
 # the camera's origin is the battle centre, and distance is measured from it, so anchoring on the proven
 # pose is what stops a sweep from mis-framing. The donor's on-fight look-at + the intro->battle handoff are
 # kept. Pin `camera = 0` above. Needs >= 2 keyframes (a start + a move).
