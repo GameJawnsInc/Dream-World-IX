@@ -1,7 +1,7 @@
 #!/usr/bin/env pythonw
 """FF9 Map Kit -- Info Hub viewer (browse the catalogs; copy the field.toml snippet).
 
-Double-click to launch (windowless via pythonw), or:  py tools\\ff9_infohub.pyw
+Double-click to launch (windowless via pythonw), or:  py apps\\ff9_infohub.pyw
 
 A standalone window over the Info Hub spine (``ff9mapkit.infohub``): type to search every catalog at once
 (archetypes, creatures, props, set pieces, raw models, items, battle scenes), pick a result to see its
@@ -9,19 +9,24 @@ model + animations + composite parts + aliases, and Copy snippet drops the ready
 ``[[npc]]`` / ``[[prop]]`` block on the clipboard. This is the FIRST frontend on the spine -- the same
 core the planned Campaign Editor will embed (and a Blender panel could reuse).
 
-Deferred (the spine already supports the hooks): a "Where in FF9?" button (the `detail(usage_fn=...)`
-field-usage hook) and a "Preview in-game" button (deploy a gallery of the selection).
+Preview in-game deploys a gallery of the selection to the test slot (then F6 -> Reload to see it live).
+Deferred: a "Where in FF9?" button (the `detail(usage_fn=...)` field-usage hook).
 """
 import os
+import subprocess
 import sys
+from pathlib import Path
 
-KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
-sys.path.insert(0, KIT)                                   # the kit root holds the ff9mapkit package
+ROOT = Path(__file__).resolve().parents[1]               # repo root (apps/ is a direct child)
+sys.path.insert(0, str(ROOT / "ff9mapkit"))              # the kit root holds the ff9mapkit package
 from ff9mapkit import infohub                             # noqa: E402
 
 import tkinter as tk                                      # noqa: E402
 from tkinter import ttk                                   # noqa: E402
 
+DEPLOY = ROOT / "tools" / "deploy_field.py"               # builds + deploys a field.toml into the test slot
+PREVIEW = Path(os.environ.get("IHTEST", r"C:\Users\skaki\AppData\Local\Temp\ihtest"))
+NOWIN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 KIND_CHOICES = ("all",) + infohub.KINDS
 
 
@@ -61,6 +66,7 @@ class InfoHubApp:
         bar = ttk.Frame(right)
         bar.pack(fill="x")
         ttk.Button(bar, text="Copy snippet", command=self.copy).pack(side="left", pady=4)
+        ttk.Button(bar, text="Preview in-game", command=self.preview).pack(side="left", padx=6, pady=4)
 
         self.status = ttk.Label(root, text="", anchor="w", padding=(6, 2))
         self.status.pack(fill="x")
@@ -91,6 +97,30 @@ class InfoHubApp:
         self.root.clipboard_clear()
         self.root.clipboard_append(infohub.snippet(self._current))
         self.status.config(text=f'copied the {self._current.kind} "{self._current.name}" snippet to the clipboard')
+
+    def preview(self):
+        """Deploy a gallery of the selection to the test slot so you can F6 -> Reload and see it live."""
+        if not self._current:
+            return
+        toml = infohub.preview_field_toml([self._current], PREVIEW / "art")
+        if not toml:
+            self.status.config(text=f'"{self._current.name}" ({self._current.kind}) is not placeable in a field')
+            return
+        out = PREVIEW / "preview.field.toml"
+        out.write_text(toml, encoding="utf-8")
+        self.status.config(text=f'building + deploying "{self._current.name}" ...')
+        self.root.update()
+        try:
+            r = subprocess.run([sys.executable, str(DEPLOY), str(out)],
+                               capture_output=True, text=True, timeout=180, creationflags=NOWIN)
+            blob = (r.stdout or "") + (r.stderr or "")
+            if "deployed" in blob.lower():
+                self.status.config(text=f'deployed "{self._current.name}" -- in-game press F6 -> Reload field')
+            else:
+                tail = (blob.strip().splitlines() or ["(no output)"])[-1][:100]
+                self.status.config(text=f"deploy failed: {tail}")
+        except Exception as ex:
+            self.status.config(text=f"deploy error: {ex}")
 
     # ----- view -----
     @staticmethod

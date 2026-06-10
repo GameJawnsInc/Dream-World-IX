@@ -91,6 +91,18 @@ def test_crate_alias_resolves_to_the_storage_prop():
     assert PA.resolve("crate") == PA.resolve("cask")                    # -> FF9's barrel/cask
 
 
+def test_preview_field_toml_places_selection(tmp_path):
+    art = tmp_path / "art"
+    npc = infohub.preview_field_toml([infohub.find("black_mage")], art)
+    assert npc and "[[npc]]" in npc and 'archetype = "black_mage"' in npc
+    assert "[camera.scroll]" in npc                                     # the scrolling arena scene
+    assert (art / "back.png").exists() and (art / "floor.png").exists()  # checkerboard art was written
+    prop = infohub.preview_field_toml([infohub.find("chest")], art)
+    assert "[[prop]]" in prop and 'prop = "chest"' in prop
+    item = next(e for e in infohub.browse("potion", kinds=["item"]))
+    assert infohub.preview_field_toml([item], art) is None              # items aren't field objects
+
+
 def test_browse_limit_none_is_uncapped():
     assert len(infohub.browse("", limit=None)) > 1000        # all ~2000+ entries, no 500-row cap
     assert len(infohub.browse("", limit=10)) == 10           # an explicit cap still applies

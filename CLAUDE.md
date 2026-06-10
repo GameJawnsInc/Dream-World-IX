@@ -508,9 +508,10 @@ Read these on demand — they hold the full technical detail this file only summ
   reuse the same core with no rework. **Frontend:** `apps/ff9_infohub.pyw` (opened from the `apps/ff9_studio.pyw`
   launcher) — a standalone Tkinter window
   (live search/filter, detail pane, copy-snippet; `--smoke` self-test), the first view on the spine
-  (user-verified). Deferred: a "Where in FF9?" button (the `detail(usage_fn=)` field-usage hook) + a
-  "Preview in-game" button (lift the arena builder into the package so `preview_field_toml(selection)`
-  deploys a gallery of the selection).
+  (user-verified), now with a **Preview in-game** button -- `spine.preview_field_toml(selection)` builds a
+  gallery on the **`ff9mapkit/scene/arena.py`** stage (the arena builder, lifted out of `build_debug_arena.py`
+  so the package can stage a preview) and deploys it to the test slot -> F6 reloads to see it live. Deferred:
+  the "Where in FF9?" field-usage button.
 
 ---
 

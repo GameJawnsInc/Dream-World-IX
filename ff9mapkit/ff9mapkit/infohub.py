@@ -261,3 +261,45 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None) -> Detail:
             except Exception:
                 d.locations = None
     return d
+
+
+_PLACEABLE = ("archetype", "creature", "composite", "prop", "model")
+
+
+def _place_lines(entry, x, z) -> list:
+    """The ``[[npc]]`` / ``[[prop]]`` block placing one entry at world (x, z) on a preview field."""
+    e, pos = entry, f"pos = [{x}, {z}]"
+    if e.kind in ("archetype", "creature"):
+        return ["", "[[npc]]", f'archetype = "{e.name}"', pos]
+    if e.kind in ("prop", "composite"):
+        return ["", "[[prop]]", f'prop = "{e.name}"', pos]
+    if e.kind == "model":
+        m = _cat.model(e.ident) if e.ident is not None else _cat.model(e.model)
+        if m and m.group == "ACC":
+            return ["", "[[prop]]", f'model = "{m.name}"', pos]
+        return ["", "[[npc]]", f'model = "{e.model}"', pos]
+    return []
+
+
+def preview_field_toml(entries, art_dir, *, screens: int = 3) -> Optional[str]:
+    """Build a deployable arena ``field.toml`` that PLACES the given entries -- a gallery of your selection,
+    so a frontend deploys it + F6-reloads to see them LIVE on the debug checkerboard. Writes the arena art
+    into ``art_dir`` and returns the toml; returns ``None`` if nothing is placeable (items/scenes are not
+    field objects). Game-free -- only the caller's deploy touches the install."""
+    from .scene import arena as _arena
+    placeable = [e for e in (entries or []) if e.kind in _PLACEABLE]
+    if not placeable:
+        return None
+    n = len(placeable)
+    meta = _arena.build_arena(art_dir, screens=max(screens, n))
+    half = meta["quad"][1][0]
+    margin = 700
+    xs = [round(-(half - margin) + 2 * (half - margin) * i / max(1, n - 1)) for i in range(n)]
+    zs = [z for _, z in meta["quad"]]
+    z_lo, z_hi = min(zs), max(zs)
+    row_z, spawn_z = (z_lo + z_hi) // 2, z_hi - 150
+    lines = [f"# Info Hub preview -- {', '.join(e.name for e in placeable)}. F6 -> Reload field to see it."]
+    lines += _arena.arena_scene_lines(meta, spawn_z=spawn_z, name="PREVIEW")
+    for e, x in zip(placeable, xs):
+        lines += _place_lines(e, x, row_z)
+    return "\n".join(lines)
