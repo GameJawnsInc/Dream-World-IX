@@ -72,3 +72,19 @@ def test_snippet_forms_per_kind():
         assert infohub.snippet(acc).startswith("[[prop]]")
     scene = infohub.browse("", kinds=["scene"], limit=1)[0]                   # a battle scene -> [encounter]
     assert infohub.snippet(scene).startswith("[encounter]")
+
+
+def test_browse_matches_by_comment_description():
+    # the rich comment descriptions are searchable: "box" -> shelf (BBX, "...shelf / box"); "barrel" -> cask
+    assert any(e.name == "shelf" for e in infohub.browse("box")), "comment description not searched"
+    assert any(e.name == "cask" for e in infohub.browse("barrel"))
+
+
+def test_browse_finds_model_by_friendly_name():
+    # a character's MODEL is reachable by the friendly name folded into its summary, not just the GEO token
+    assert any(e.kind == "model" and e.name == "GEO_MAIN_F0_ZDN" for e in infohub.browse("zidane"))
+
+
+def test_browse_limit_none_is_uncapped():
+    assert len(infohub.browse("", limit=None)) > 1000        # all ~2000+ entries, no 500-row cap
+    assert len(infohub.browse("", limit=10)) == 10           # an explicit cap still applies

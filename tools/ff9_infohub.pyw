@@ -70,12 +70,11 @@ class InfoHubApp:
     def refresh(self):
         kind = self.kind.get()
         kinds = None if kind == "all" else [kind]
-        self._entries = infohub.browse(self.q.get(), kinds=kinds, limit=500)
+        self._entries = infohub.browse(self.q.get(), kinds=kinds, limit=None)
         self.lst.delete(0, "end")
         for e in self._entries:
             self.lst.insert("end", f"{e.name}    [{e.kind}]")
-        n = len(self._entries)
-        self.status.config(text=f"{n} result(s)" + (" (capped at 500)" if n >= 500 else ""))
+        self.status.config(text=f"{len(self._entries)} result(s)")
         self._current = None
         self._render("")
 
