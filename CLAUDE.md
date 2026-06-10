@@ -517,8 +517,10 @@ Read these on demand — they hold the full technical detail this file only summ
   (live search/filter, detail pane, copy-snippet; `--smoke` self-test), the first view on the spine
   (user-verified), now with a **Preview in-game** button -- `spine.preview_field_toml(selection)` builds a
   gallery on the **`ff9mapkit/scene/arena.py`** stage (the arena builder, lifted out of `build_debug_arena.py`
-  so the package can stage a preview) and deploys it to the test slot -> F6 reloads to see it live. Deferred:
-  the "Where in FF9?" field-usage button.
+  so the package can stage a preview) and deploys it to the test slot -> F6 reloads to see it live, plus a
+  **Where in FF9?** button (`detail(usage_fn=...)` via `tools/model_field_usage`, cached) listing the real
+  fields that place the selected model -- on-demand so browsing stays install-free. **The Info Hub pillar is
+  feature-complete** (spine + viewer: search by name/description, detail, copy-snippet, preview, where-in-FF9).
 
 ---
 

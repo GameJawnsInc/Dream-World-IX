@@ -9,8 +9,8 @@ model + animations + composite parts + aliases, and Copy snippet drops the ready
 ``[[npc]]`` / ``[[prop]]`` block on the clipboard. This is the FIRST frontend on the spine -- the same
 core the planned Campaign Editor will embed (and a Blender panel could reuse).
 
-Preview in-game deploys a gallery of the selection to the test slot (then F6 -> Reload to see it live).
-Deferred: a "Where in FF9?" button (the `detail(usage_fn=...)` field-usage hook).
+Preview in-game deploys a gallery of the selection to the test slot (then F6 -> Reload to see it live);
+Where in FF9? lists the real fields whose scripts place the selected model (the `detail(usage_fn=...)` hook).
 """
 import os
 import subprocess
@@ -19,7 +19,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]               # repo root (apps/ is a direct child)
 sys.path.insert(0, str(ROOT / "ff9mapkit"))              # the kit root holds the ff9mapkit package
+sys.path.insert(0, str(ROOT / "tools"))                  # tools/ holds the field-usage index helper
 from ff9mapkit import infohub                             # noqa: E402
+try:                                                     # the "Where in FF9?" lookup is optional
+    import model_field_usage as _mfu                      # noqa: E402
+except Exception:
+    _mfu = None
 
 import tkinter as tk                                      # noqa: E402
 from tkinter import ttk                                   # noqa: E402
@@ -37,6 +42,7 @@ class InfoHubApp:
         root.geometry("920x580")
         self._entries = []
         self._current = None
+        self._det = None
 
         top = ttk.Frame(root, padding=6)
         top.pack(fill="x")
@@ -67,6 +73,7 @@ class InfoHubApp:
         bar.pack(fill="x")
         ttk.Button(bar, text="Copy snippet", command=self.copy).pack(side="left", pady=4)
         ttk.Button(bar, text="Preview in-game", command=self.preview).pack(side="left", padx=6, pady=4)
+        ttk.Button(bar, text="Where in FF9?", command=self.where).pack(side="left", pady=4)
 
         self.status = ttk.Label(root, text="", anchor="w", padding=(6, 2))
         self.status.pack(fill="x")
@@ -89,7 +96,8 @@ class InfoHubApp:
         if not sel:
             return
         self._current = self._entries[sel[0]]
-        self._render(self._format(infohub.detail(self._current)))
+        self._det = infohub.detail(self._current)
+        self._render(self._format(self._det))
 
     def copy(self):
         if not self._current:
@@ -121,6 +129,29 @@ class InfoHubApp:
                 self.status.config(text=f"deploy failed: {tail}")
         except Exception as ex:
             self.status.config(text=f"deploy error: {ex}")
+
+    def where(self):
+        """On-demand: which real FF9 fields place the selection's model? (the field-usage hook)."""
+        if not self._current or self._det is None:
+            return
+        d = self._det
+        if _mfu is None:
+            self.status.config(text="field-usage tool unavailable (tools/model_field_usage.py)")
+            return
+        if d.model_id is None or not (d.model or "").startswith("GEO"):
+            self.status.config(text=f'"{d.name}" ({d.kind}) has no field model to locate')
+            return
+        self.status.config(text=f'looking up where "{d.name}" appears in FF9 ...')
+        self.root.update()
+        try:
+            locs, total = _mfu.usage(d.model_id, limit=20)
+        except Exception as ex:
+            self.status.config(text=f"field-usage lookup failed (build it: py tools/model_field_usage.py --build): {ex}")
+            return
+        d.locations = locs
+        self._render(self._format(d))
+        self.status.config(text=(f'"{d.name}" is placed by {total} real FF9 field script(s)' if total else
+                                 f'"{d.name}" not in any field script (battle-only / prop-only / unique)'))
 
     # ----- view -----
     @staticmethod
@@ -164,6 +195,9 @@ def main():
         body = app.detail.get("1.0", "end")
         print(f"smoke ok: {len(app._entries)} entries; first = {app._entries[0].name!r}; "
               f"detail {len(body)} chars; snippet line 1 = {infohub.snippet(app._entries[0]).splitlines()[0]!r}")
+        app.where()                                      # exercise the field-usage (Where in FF9?) hook
+        print(f"where ok: {app._det.name!r} model {app._det.model_id} -> "
+              f"{len(app._det.locations or [])} field location(s); status = {app.status.cget('text')!r}")
         root.destroy()
         return
     root.mainloop()
