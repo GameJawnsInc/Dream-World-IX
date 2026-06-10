@@ -58,7 +58,7 @@ engine build, the build/deploy loop, version control, and all docs/notes.
 | Memoria.ini | `<game>\Memoria.ini` (engine toggles; dev build has boosters/ini cheats) |
 | Toolkit | `ff9mapkit/` — CLI `py -m ff9mapkit <cmd>` (run from the kit root so the local pkg shadows any editable install) |
 | Deploy tool | `tools/deploy_field.py <field.toml> [--id N]` (default test slot = field 4003) |
-| GUI / editor | `tools/ff9_build_gui.pyw` (build+deploy GUI), `tools/ff9_editor.pyw` (form-based logic editor) |
+| GUI apps | in **`apps/`**: `ff9_studio.pyw` = the **launcher** (front door to all GUIs) · `ff9_build_gui.pyw` (build+deploy) · `ff9_editor.pyw` (logic editor) · `ff9_infohub.pyw` (Info Hub viewer) |
 | Reference field scripts | `reference/test2/` (gitignored, 817 HW field-script exports) + `reference/field-manifest.tsv` (HW-index→field-id→name; index ≠ field id) |
 | FF9 field assets | `<game>\StreamingAssets\p0data*.bin` (UnityRaw 5.2.3 bundles; UnityPy reads them — `py -m pip install UnityPy`) |
 
@@ -499,12 +499,14 @@ Read these on demand — they hold the full technical detail this file only summ
   square on the tilted floor); the gallery `--arena` flag stages a batch on it, ~1 screen per model.
 - **Info Hub spine** (`ff9mapkit/infohub.py`, + `test_infohub.py`) — the UI-agnostic discovery CORE for the
   planned user-facing viewer: `browse(query, kinds)` (cross-kind search over every catalog + the archetype/
-  prop/creature/composite tables), `detail(entry, usage_fn=None)` (model + full anims + the auto-resolved 5
+  prop/creature/composite tables -- matched on names + comment DESCRIPTIONS + friendly aliases, so 'box' -> shelf
+  and 'zidane' -> the ZDN model), `detail(entry, usage_fn=None)` (model + full anims + the auto-resolved 5
   movement slots + composite parts + aliases + the field.toml snippet; `usage_fn` = an injected hook for
   real-FF9 field-locations, so the spine stays install-free), `snippet(entry)` (the `[[npc]]`/`[[prop]]`/
   `give_item`/`[encounter]` block), `find(name, kind)`. All plain dataclasses (Tkinter/web/CLI/JSON). Built
   spine-first ON PURPOSE so a standalone viewer NOW + the **Campaign Editor** suite LATER (+ Blender if ever)
-  reuse the same core with no rework. **Frontend:** `tools/ff9_infohub.pyw` — a standalone Tkinter window
+  reuse the same core with no rework. **Frontend:** `apps/ff9_infohub.pyw` (opened from the `apps/ff9_studio.pyw`
+  launcher) — a standalone Tkinter window
   (live search/filter, detail pane, copy-snippet; `--smoke` self-test), the first view on the spine
   (user-verified). Deferred: a "Where in FF9?" button (the `detail(usage_fn=)` field-usage hook) + a
   "Preview in-game" button (lift the arena builder into the package so `preview_field_toml(selection)`
