@@ -497,6 +497,15 @@ Read these on demand — they hold the full technical detail this file only summ
   checkerboard (`scene/placeholder.write_placeholders`, auto-aligned via `cam.to_canvas`) + a flat walkmesh
   + a scrolling camera, with **pitch-compensated** cells (world cells made ~1/sin(pitch) DEEPER so they read
   square on the tilted floor); the gallery `--arena` flag stages a batch on it, ~1 screen per model.
+- **Info Hub spine** (`ff9mapkit/infohub.py`, + `test_infohub.py`) — the UI-agnostic discovery CORE for the
+  planned user-facing viewer: `browse(query, kinds)` (cross-kind search over every catalog + the archetype/
+  prop/creature/composite tables), `detail(entry, usage_fn=None)` (model + full anims + the auto-resolved 5
+  movement slots + composite parts + aliases + the field.toml snippet; `usage_fn` = an injected hook for
+  real-FF9 field-locations, so the spine stays install-free), `snippet(entry)` (the `[[npc]]`/`[[prop]]`/
+  `give_item`/`[encounter]` block), `find(name, kind)`. All plain dataclasses (Tkinter/web/CLI/JSON). Built
+  spine-first ON PURPOSE so a standalone viewer NOW + the **Campaign Editor** suite LATER (+ Blender if ever)
+  reuse the same core with no rework. Deferred: the in-game-PREVIEW hook (lift the arena builder into the
+  package so `preview_field_toml(selection)` deploys a gallery) + the standalone Tkinter view.
 
 ---
 
