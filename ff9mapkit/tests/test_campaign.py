@@ -323,6 +323,36 @@ def test_lint_explicit_flag_in_chest_band_errors(tmp_path):
     assert any("8400" in e and "treasure-chest" in e for e in errors)
 
 
+def test_lint_shared_flag_valid(tmp_path):
+    # a shared [[flag]] ABOVE the two member blocks (8512-8639) and inside the band -> clean
+    plan = _lint_plan(tmp_path)
+    plan.flags = [{"name": "boss_dead", "index": 8700}]
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert not any("flag" in e.lower() for e in errors)
+
+
+def test_lint_shared_flag_in_chest_band_errors(tmp_path):
+    plan = _lint_plan(tmp_path)
+    plan.flags = [{"name": "bad", "index": 8400}]            # chest band
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("treasure-chest" in e for e in errors)
+
+
+def test_lint_shared_flag_collides_member_block_errors(tmp_path):
+    plan = _lint_plan(tmp_path)                              # members A/B -> auto blocks 8512-8639
+    plan.flags = [{"name": "boom", "index": 8520}]          # inside member A's block
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("per-member auto-flag blocks" in e for e in errors)
+
+
+def test_campaign_render_roundtrips_shared_flags(tmp_path):
+    plan = _lint_plan(tmp_path)
+    plan.flags = [{"name": "boss_dead", "index": 8700}]
+    f = tmp_path / "campaign.toml"
+    f.write_text(campaign.render_campaign_toml(plan), encoding="utf-8")
+    assert campaign.load_campaign(f).flags == [{"name": "boss_dead", "index": 8700}]
+
+
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_real_build_all(tmp_path):
     from ff9mapkit import eventscan

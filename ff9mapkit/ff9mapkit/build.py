@@ -44,6 +44,7 @@ from . import archetypes as _archetypes
 from . import prop_archetypes as _prop_archetypes
 from ._held_poses import HELD_POSES                  # (carrier_model, prop_model) -> (bone, held_pose)
 from . import catalog as _catalog
+from . import flags as _flags
 from . import items as _items
 from . import data as _data
 from .eb import EbScript, opcodes
@@ -126,12 +127,16 @@ class FieldProject:
     flag_base: int | None = None
 
     @classmethod
-    def load(cls, toml_path) -> "FieldProject":
+    def load(cls, toml_path, *, flag_names: dict | None = None) -> "FieldProject":
         p = Path(toml_path)
         with p.open("rb") as fh:
             base = tomllib.load(fh)
         scene = _find_scene(p, base)
         raw = _merge_scene(base, scene) if scene is not None else base
+        # Resolve named flag references (a [[flag]] table + optional campaign-level `flag_names`) to
+        # integer indices BEFORE any int() reads them. A project with no named flags is left unchanged
+        # (numeric flags pass through), so single-field builds stay byte-identical.
+        _flags.resolve_project_flags(raw, flag_names)
         return cls(raw, p.parent)
 
     # convenience accessors

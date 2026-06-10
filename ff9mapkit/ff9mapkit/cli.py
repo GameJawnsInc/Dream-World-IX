@@ -626,6 +626,33 @@ def _cmd_animations(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_flags(args: argparse.Namespace) -> int:
+    """Browse the FF9 story-flag registry (named vars, reserved regions, scenario milestones, safe band)."""
+    from . import flags as F
+    rows = F.registry_rows()
+    if args.filter:
+        f = args.filter.lower()
+        rows = [r for r in rows if f in r[1].lower() or f in r[3].lower()]
+    print(f"{len(rows)} registry entr(ies). Author a custom story flag with a [[flag]] table "
+          f"(name + index in [{F.FIRST_SAFE_FLAG}, {F.CHOICE_SCRATCH_FLOOR})), then gate by name "
+          f'(requires_flag = "<name>").\n')
+    for kind, name, loc, meaning, tier in rows:
+        print(f"  [{kind:8}] {name:24} {loc:18} ({tier})  {meaning}")
+    return 0
+
+
+def _cmd_flags_inspect(args: argparse.Namespace) -> int:
+    """Decode + render a save's gEventGlobal story state (offline; reads the open JSON/Base64 form)."""
+    from . import flags as F
+    try:
+        blob = F.gEventGlobal_from_save(args.save)
+    except Exception as e:                                              # noqa: BLE001
+        print(f"could not read gEventGlobal: {e}")
+        return 2
+    print(F.render_report(F.decode_gEventGlobal(blob), show_bits=args.all))
+    return 0
+
+
 def _cmd_items(args: argparse.Namespace) -> int:
     """List FF9 item names + ids (use a name for `give_item = ["<name>", count]`)."""
     from . import items as I
@@ -960,6 +987,16 @@ def build_parser() -> argparse.ArgumentParser:
     ct.add_argument("query", help="substring to search across all catalogs")
     ct.add_argument("--limit", type=int, default=15, help="max rows per kind (default 15)")
     ct.set_defaults(func=_cmd_catalog)
+
+    fl = sub.add_parser("flags", help="browse the FF9 story-flag registry (named vars / reserved regions / milestones)")
+    fl.add_argument("filter", nargs="?", default=None, help="substring to filter by name or meaning")
+    fl.set_defaults(func=_cmd_flags)
+
+    fi = sub.add_parser("flags-inspect",
+                        help="decode a save's gEventGlobal (ScenarioCounter, chests, treasure points, story bits)")
+    fi.add_argument("save", help="a save JSON file / JSON text, or a bare Base64 gEventGlobal blob")
+    fi.add_argument("--all", action="store_true", help="also list the unmapped set bits")
+    fi.set_defaults(func=_cmd_flags_inspect)
 
     ed = sub.add_parser("edit", help="open the form-based field-logic editor (no TOML hand-editing)")
     ed.add_argument("field", nargs="?", default=None, help="a .field.toml to open (optional)")

@@ -202,7 +202,7 @@ walkmesh exports as one floor. Multi-floor meshes use the world frame directly (
 | `text_id` | use an explicit text id instead of `dialogue`. |
 | `speaker` | optional name shown before the line → `"Vivi: …"`. See *Speaker names & the tail* below. |
 | `tail` | the dialogue window's pointer corner (`UPR` default). See below. |
-| `requires_flag` | GlobBool index — the NPC only **appears** when that story flag is SET (its Init returns early otherwise: no model, not interactable). For story-gated characters. |
+| `requires_flag` | GlobBool index (or a `[[flag]]` name) — the NPC only **appears** when that story flag is SET (its Init returns early otherwise: no model, not interactable). For story-gated characters. |
 | `requires_flag_clear` | …only appears when the flag is CLEAR (the inverse — e.g. an NPC that leaves once an event fires). |
 | `holds` | a **prop the NPC holds in hand** — a prop-archetype name (`"cup"`, `"sword"`, `"save_the_queen"`) or a model, or a **list** of them. The kit attaches each prop to the right hand-bone *and* poses the prop + the holder correctly, **auto-resolved for this holder's model** from the shipping `AttachObject` catalog (`tools/extract_attach_poses.py` → `_held_poses.py`). So `holds = "save_the_queen"` on a `beatrix` puts the sword in her hand at her real holding pose. A (holder, prop) pair not in the catalog falls back to bone 11 + the prop's resting pose (and leaves the holder's pose alone). |
 
@@ -307,7 +307,7 @@ pose  = "close"           # optional pose (see below)
 | `pose` | OPTIONAL static pose — an **action name** (`"close"`, `"save_open"`) resolved via the model→anim catalog, **or a raw clip id**. Omitted → a sensible resting pose. A prop's *true* pose is often a raw clip the name-join doesn't list (the save book rests at `1872`); `tools/extract_prop_poses.py` harvests the canonical one from shipping fields (already baked into the archetypes). |
 | `pos` | `[x, z]` world position (on the walkmesh). |
 | `face` | OPTIONAL facing (0..255; 0=south, 64=west, 128=north, 192=east). |
-| `requires_flag` | OPTIONAL GlobBool index — the prop only appears when that story flag is set (same gating as `[[npc]]`). |
+| `requires_flag` | OPTIONAL GlobBool index (or a `[[flag]]` name) — the prop only appears when that story flag is set (same gating as `[[npc]]`). |
 | `attach_to` | OPTIONAL — the **`name` of an `[[npc]]`** to *attach* this prop to (a held item: a cup, a sword). The prop binds to that NPC's `bone` and follows it (the engine's `AttachObject`). Give it the **held** `pose` — props often have a per-holder held orientation (the cup has `dom`/`zdn`/`jjy` poses), so pick the one matching the carrier. |
 | `bone` | OPTIONAL attachment bone index (default **11**, the right hand the shipping cup uses; e.g. 13/19 for other models). |
 
@@ -359,7 +359,7 @@ A region the player walks into to warp to another field.
 | `to` | target field id. |
 | `entrance` | which entrance to arrive at in the target (default `0`). |
 | `zone` | 4 corners `[[x, z], ...]` (auto-made IsInQuad-safe) or 5 explicit points. Order: the `q0→q1` edge is the walk-out direction (put the front edge first). |
-| `requires_flag` / `requires_flag_clear` | GlobBool index — the exit only **fires** when that story flag is SET / CLEAR (a locked door that opens once a switch flag is set). |
+| `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the exit only **fires** when that story flag is SET / CLEAR (a locked door that opens once a switch flag is set). |
 
 ---
 
@@ -447,7 +447,7 @@ once = false
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
 | `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
 | `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `8000`, a high band clear of base-game flags; override for a shipped mod to avoid clashes). |
-| `requires_flag` / `requires_flag_clear` | GlobBool index — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
+| `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
 
 > An event needs at least one action. The same conditional-region primitive underlies chests, story
 > flags, and one-time triggers. A faithful treasure chest is `give_item` + `received = true` +
@@ -463,15 +463,39 @@ variable scope — `gEventGlobal`) that an event SETs (`set_flag = [N, 1]`) and 
 looted chest stays looted, a one-time scene stays played. (The kit uses the persistent *Global* bool,
 not the transient per-field *Map* bool.) That's how the world gains state: hit a switch (event
 `set_flag`) → a guard appears (`[[npc]] requires_flag`) and a door unlocks (`[[gateway]]
-requires_flag`). The kit's auto `once` flags occupy a high band (from **8000**) well clear of the
-base game's flags (which sit low) — pick your explicit flag indices in that high range too, and keep
-them clear of indices the kit auto-allocates (or set them explicitly). For unbounded mod state beyond
-simple flags, Memoria also provides save-backed vector/dictionary stores (a future kit feature).
+requires_flag`). The kit's auto `once` flags occupy a high band (from **8000**). **Pick your explicit
+flag indices in the provably-safe band [8512, 16320)** — real FF9 uses bit-flags up to **8511** (the
+treasure-chest "opened" bitfield is bits **8376–8511**), so an index there silently corrupts the
+player's save. The lint enforces this. For unbounded mod state beyond simple flags, Memoria also
+provides save-backed vector/dictionary stores (a future kit feature).
+
+**Name your flags (optional `[[flag]]` table).** Instead of tracking raw indices, declare a name once
+and gate by it — readable, and the kit checks both sides resolve to the same bit:
+
+```toml
+[[flag]]
+name  = "lever_pulled"
+index = 8520            # must be in [8512, 16320), clear of real-FF9 usage
+
+[[gateway]]
+to = 4002
+requires_flag = "lever_pulled"      # a NAME or a raw int both work
+```
+
+In a **campaign**, put shared cross-field flags in a `[[flag]]` table in `campaign.toml` (placed above
+the per-member auto-flag blocks) — every member can then gate by that name (`field A` `set_flag`,
+`field B` `requires_flag`), and `lint-campaign` verifies the producer exists. Browse the built-in
+registry of FF9's known flags / reserved regions / scenario milestones with **`ff9mapkit flags`**.
+
+**Inspect a save:** **`ff9mapkit flags-inspect <save.json>`** decodes a save's `gEventGlobal` — the
+ScenarioCounter (+ nearest story beat), FieldEntrance, treasure-hunter points, opened-chest count, and
+set story bits grouped by region. (Reads the open JSON/Base64 form; an encrypted on-disc save must be
+decrypted first.)
 
 **Check your logic before building:** `ff9mapkit lint <field.toml>` (or the GUI's *Check logic*
 button) reports schema errors plus story-flag lints — a `requires_flag` that no event ever sets (dead
-content), an explicit flag index that collides with an auto-allocated `once` flag, and duplicate
-entity names. `build` runs the same lints and shows them as warnings.
+content), an explicit flag index that collides with an auto-allocated `once` flag, an index inside the
+real-FF9 chest band, and duplicate entity names. `build` runs the same lints and shows them as warnings.
 
 ---
 

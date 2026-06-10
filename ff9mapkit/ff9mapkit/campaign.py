@@ -23,18 +23,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import chain
+# Safe GLOB story-flag allocation band -- single source of truth in ``flags`` (grounded in
+# research/STORY_FLAGS.md §4, a 676-field census): real FF9 uses bit-flags up to 8511 (the treasure-chest
+# bitfield 8376-8511); the choice scratch is at bit 16320+; custom flags live in [8512, 16320). The old
+# flag_base=8300 + 64/field collided with the chest block from member index 1 onward.
+from .flags import CHEST_FLAG_HI, CHEST_FLAG_LO, CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG, collect_flag_defs
 
 _MAP_SEG = re.compile(r"^map\d", re.I)     # the 'map<NNN>' segment of an FBG folder
-
-# --- safe GLOB story-flag allocation band (grounded in research/STORY_FLAGS.md §4, a 676-field census) ---
-# Real FF9 uses save-persistent bit-flags up to bit 8511: the treasure-chest "opened" bitfield is bits
-# 8376-8511 (bytes 1047-1063), written by 48 chest fields. The choice-visibility scratch sits at byte 2040
-# = bits 16320+. So custom campaign flags MUST live in (8511, 16320). The old flag_base=8300 + 64/field
-# collided with the chest block from member index 1 onward -> a latent save-corrupter once the per-member
-# allocator was wired. 8512 (start of byte 1064) is the first bit clear of ALL real-FF9 usage.
-FIRST_SAFE_FLAG = 8512          # first bit provably clear of real-FF9 usage (was 8300 -> chest collision)
-CHEST_FLAG_LO, CHEST_FLAG_HI = 8376, 8511      # real-FF9 treasure-chest bitfield -- never allocate into
-CHOICE_SCRATCH_FLOOR = 16320    # byte 2040: kit/engine-owned choice mask scratch -- members stay below
 
 
 class CampaignError(ValueError):
@@ -65,6 +60,7 @@ class CampaignPlan:
     members: "list[Member]" = field(default_factory=list)
     edges: list = field(default_factory=list)   # {frm, to, entrance, story_conditional}
     seams: list = field(default_factory=list)    # {frm, to_real, kind, note, to_member?}
+    flags: list = field(default_factory=list)    # [[flag]] shared named flags: {name, index} (cross-field)
 
     @property
     def needs_export(self):
@@ -290,6 +286,11 @@ def render_campaign_toml(plan: CampaignPlan) -> str:
                 L.append(f'to_member = "{s["to_member"]}"')
             L.append(f'note = "{_q(s["note"])}"')
             L.append("")
+    if plan.flags:
+        L += ["# Shared NAMED flags -- members gate by NAME (requires_flag = \"<name>\"). Place ABOVE the",
+              "# per-member auto-flag blocks; indices must be in [8512, 16320), clear of real-FF9 usage."]
+        for fdef in plan.flags:
+            L += ["[[flag]]", f'name = "{fdef.get("name", "")}"', f"index = {int(fdef.get('index', 0))}", ""]
     L += ["[initial_flags]", "# GLOB flags pre-set at campaign entry (empty by default)", ""]
     return "\n".join(L)
 
@@ -312,6 +313,7 @@ def load_campaign(path) -> CampaignPlan:
         id_base=int(c.get("id_base", 4000)), flag_base=int(c.get("flag_base", FIRST_SAFE_FLAG)),
         flags_per_field=int(c.get("flags_per_field", 64)), entry_name=c.get("entry_field", ""),
         entry_entrance=int(c.get("entry_entrance", 0)), members=members,
+        flags=list(data.get("flag", [])),
         edges=[{"frm": e["from"], "to": e["to"], "entrance": int(e.get("entrance", 0)),
                 "story_conditional": "gated_by" in e} for e in data.get("edge", [])],
         # normalize seams to the in-memory shape (from -> frm), exactly as edges above; render_campaign_toml
@@ -350,6 +352,7 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         raise CampaignError("campaign lint failed:\n  - " + "\n  - ".join(lint_errors))
     out = Path(out) if out else (manifest_dir / "dist")
 
+    campaign_names = collect_flag_defs({"flag": plan.flags})   # shared [[flag]] names (lint already validated)
     projects = []
     for i, m in enumerate(plan.members):
         toml_path = (manifest_dir / m.toml_rel).resolve()      # member subdir -> sidecars resolve via base_dir
@@ -359,7 +362,7 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
             raise CampaignError(
                 f"member {m.name} needs in-game art before build: export it once (Memoria.ini [Export] "
                 f"Field=1) + re-fork --editable, or pass --allow-artless to build it with no background.")
-        proj = FieldProject.load(toml_path)
+        proj = FieldProject.load(toml_path, flag_names=campaign_names)   # members gate by shared flag NAME
         # Per-member once-flag base so member i's auto chest/event/cutscene/choice flags can't alias a
         # sibling's (the per-field-counter-resets-per-build bug). Block = [flag_base + i*K, +K), packed
         # by build._FlagAlloc. lint_campaign asserts every block is in the provably-safe band.
@@ -442,6 +445,16 @@ def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
             cap = (CHOICE_SCRATCH_FLOOR - plan.flag_base) // K
             errors.append(f"member {m.name}: flag block {lo}-{hi} reaches the choice-scratch floor "
                           f"{CHOICE_SCRATCH_FLOOR} -- too many members for the band (max {cap} at this base/K).")
+
+    try:                                          # (a4) shared [[flag]] names: valid + clear of member blocks
+        shared = collect_flag_defs({"flag": plan.flags})
+    except ValueError as ex:
+        shared, _ = {}, errors.append(f"campaign [[flag]]: {ex}")
+    block_hi = plan.flag_base + len(plan.members) * K - 1   # member auto-flag blocks span [flag_base, block_hi]
+    for nm, idx in sorted(shared.items()):
+        if plan.flag_base <= idx <= block_hi:
+            errors.append(f"shared flag {nm!r} (index {idx}) falls inside the per-member auto-flag blocks "
+                          f"[{plan.flag_base}, {block_hi}] -- put shared flags ABOVE them (>= {block_hi + 1}).")
 
     for e in plan.edges:                          # (b) edges resolve to members
         if e.get("frm") not in names:

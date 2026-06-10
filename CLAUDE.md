@@ -667,6 +667,15 @@ Read these on demand — they hold the full technical detail this file only summ
   BYTE-IDENTICAL; campaign members get `flag_base + i*K`); `campaign.py` default `flag_base` 8300 → **8512**
   (`FIRST_SAFE_FLAG`, clear of the chest band); `lint_campaign` errors on any block/explicit-flag in 8376-8511
   or ≥ bit 16320. Single-field builds stay byte-identical (golden preserved). Memory: `project-ff9-story-flags`.
+  **NAME + VIEW landed (report recs #2/#3):** `ff9mapkit/flags.py` is the canonical flag registry (engine named
+  vars + reserved bit regions + scenario milestones + the safe-band constants — now the single source of truth;
+  `campaign.py` imports them). Authoring: a **`[[flag]]`** table (`name` + `index` in [8512,16320)) + a load-time
+  resolver (`resolve_project_flags`) so any `requires_flag`/`set_flag`/`flag` takes a NAME, resolved
+  byte-identically to the int (test-proven); campaigns share cross-field names via a `campaign.toml` `[[flag]]`
+  table (lint-checked clear of the per-member auto blocks). New CLI: **`ff9mapkit flags`** (browse the registry)
+  + **`flags-inspect <save>`** (decode a save's `gEventGlobal`: ScenarioCounter+beat, FieldEntrance, TH points,
+  chest count, story bits by region; reads the open JSON/Base64 form). **Deferred:** the name-aware in-game F6
+  Flags tab (needs an engine rebuild + playtest) and a seed/recreate tool (rec #4). 580 kit tests pass.
 
 ---
 

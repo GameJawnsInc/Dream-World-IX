@@ -7,7 +7,7 @@ save-persistent story flags. Start with **`STORY_FLAGS.md`**.
 |---|---|
 | **`STORY_FLAGS.md`** | **The research report.** The 2048-byte heap mapped; the five verbs (current state & gaps); the safe-band collision finding; prioritized toolkit work; a named-flag catalog. |
 | `CENSUS_DIGEST.md` | Human-readable data appendix — scenario milestones, bit-flag region clusters, word-var map. Regenerate: `py make_digest.py`. |
-| `flag_catalog.toml` | **Named-flag registry seed** (machine-readable) — engine-grounded named vars + reserved regions + scenario milestones + auto-derived empirical clusters + recommended safe bands. Regenerate: `py make_catalog.py`. |
+| `flag_catalog.toml` | **Named-flag registry seed** (machine-readable) — engine-grounded named vars + reserved regions + scenario milestones + auto-derived empirical clusters + recommended safe bands. Regenerate: `py make_catalog.py`. **This seeded the kit's canonical registry, now `ff9mapkit/ff9mapkit/flags.py`** (recommendation 2 — `ff9mapkit flags` / `flags-inspect`). |
 | `flag_census.py` | The scanner: reads every real field's `.eb` from p0data and decodes every save-persistent `gEventGlobal` variable, byte-exact against the engine's token layout. Run from kit root: `cd ff9mapkit && py ../research/flag_census.py`. |
 | `flag_census.json` | Full census output (per-index aggregation, per-field summary, scenario map). **Gitignored — regenerable** (~1 MB). |
 | `make_digest.py` / `make_catalog.py` | Regenerate the digest / catalog from the JSON. |

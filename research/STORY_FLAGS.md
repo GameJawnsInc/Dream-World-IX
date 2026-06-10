@@ -35,9 +35,10 @@ index is a **bit address** for `Bit` vars (byte = `idx>>3`, bit = `idx&7`) and a
 **State of the kit.** `ff9mapkit` already encodes flag ops **byte-for-byte** against real FF9 bytecode
 (`content/region.py`), scans what each field touches offline (`eventscan.py`), allocates per-field
 once-flags, lints dangling/colliding flags (`build.py`, `campaign.py`), and exposes get/set/clear/
-snapshot/reset in the **F6 debug menu** (`Ff9mkDebugMenu.cs`). What it *lacks*: any **index↔name registry**
-(flags are raw integers everywhere), any **save-file reader** (it cannot decode a player's `gEventGlobal`),
-and any **seed/recreate** mechanism.
+snapshot/reset in the **F6 debug menu** (`Ff9mkDebugMenu.cs`). *Since this research:* a **named flag
+registry** (`flags.py`, recommendation 2) and an **offline save-file reader** (`flags-inspect`,
+recommendation 3) have landed. Still missing: a **seed/recreate** mechanism (recommendation 4) and a
+name-aware in-game F6 tab (the in-game half of 3, deferred — needs an engine rebuild).
 
 **Three headline findings:**
 
@@ -123,10 +124,10 @@ Palace / Eiko abduction 9250–9890** · Terra 10830–10890 · Pandemonium 1093
   transient. The census (`research/flag_census.py`) aggregates this across all 676 real fields. In-game, the
   **F6 → Flags** tab (`Ff9mkDebugMenu.cs:457-526`) does live get/set/clear/snapshot/restore on
   `gEventGlobal`.
-- **Gaps:** No **save-file reader** — the kit cannot Base64-decode a player's `gEventGlobal` blob and show
-  its state. No name-aware view (F6 shows raw indices). Scanners see only the `0x05` expression path; flags
-  mutated by engine C# (e.g. worldmap-unlock consumers) are invisible — this is why **276 bits read as
-  "write-only."**
+- **Now:** ✅ an **offline save-file reader** landed (`flags-inspect`, recommendation 3) — Base64-decodes a
+  player's `gEventGlobal` and renders it against the registry. **Remaining gaps:** no name-aware *in-game* F6
+  view (deferred — engine rebuild); the `.eb` scanners still see only the `0x05` expression path, so flags
+  mutated by engine C# (e.g. worldmap-unlock consumers) stay invisible — why **276 bits read as "write-only."**
 
 ### UNDERSTAND — *know what a flag means*
 
@@ -140,8 +141,9 @@ Palace / Eiko abduction 9250–9890** · Terra 10830–10890 · Pandemonium 1093
 
 ### NAME — *refer to a flag by name, not index*
 
-- **Today:** **Not implemented.** Flags are raw integers throughout (`field.toml` → `build.py` → bytecode).
-  A `[[field.flag]]` schema is *sketched* (`CAMPAIGN_IMPORT.md` §3.1) but parsing is deferred.
+- **Today:** ✅ **Implemented** (recommendation 2). A `[[flag]]` table names a flag (`name` + `index`); the
+  `flags.py` registry + load-time resolver let any `requires_flag`/`set_flag`/`flag` take a name, resolved
+  byte-identically to the numeric form. Campaign-level `[[flag]]` defs give shared cross-field names.
 - **Gaps:** The whole registry. Hades Workshop already proves the model — it names
   `General_ScenarioCounter` / `General_FieldEntrance` and lets modders attach custom names per script
   (`Gui_ScriptEditor.cpp`). Note the **HW naming inversion trap** (CLAUDE.md already flags it): HW `GlobBool`
@@ -238,24 +240,27 @@ preserved); `campaign.build_campaign` assigns each member `flag_base + i*K`, pac
 the chest band 8376–8511 or at/above the choice scratch (bit 16320). Tests: `test_build.py`
 (`_FlagAlloc` invariants), `test_campaign.py` (collision + safe-band lint). **547 tests pass.**
 
-**(2) — A NAMED flag registry. [Foundational for NAME/UNDERSTAND.]**
-*What:* A canonical `index ↔ name ↔ meaning` table, seeded from three tiers: **engine** (ScenarioCounter@0,
-FieldEntrance@2, TH regions, Chocograph, Choco-level, byte-23-RESERVED — all (a)); **empirical** (the
-census's per-region clusters and per-field producer/consumer pairs); **community** (the ~15 scenario
-milestones, HW's `General_*` names — with the **HW inversion guard**). Surface it as a `[[flag]]` table in
-`campaign.toml` (`name`, `index`, `writable_by`) plus a build-time resolver so
-`requires_flag = ["ice_path_unlocked"]` validates the producer is reachable. *Why:* turns raw indices into
-legible authoring; prerequisite for a name-aware viewer and for `RECREATE`. *Builds on:* the `[[field.flag]]`
-sketch (`CAMPAIGN_IMPORT.md` §3.1), the census producer/consumer scan. *Seed shipped here:*
-`research/flag_catalog.toml`. *Guard:* never label the persistent space "Glob" (that's HW's transient Map).
+**(2) — A NAMED flag registry. ✅ LANDED 2026-06-10 (this branch).**
+*Done:* `ff9mapkit/ff9mapkit/flags.py` is the canonical `index ↔ name ↔ meaning` registry — engine-grounded
+named vars (ScenarioCounter@0, FieldEntrance@2, TranceGauge, ChocoDigLevel), reserved bit regions
+(chest 8376–8511, worldmap unlocks, byte-23 handshake, choice scratch), scenario milestones, and the
+safe-band constants (now the **single source of truth** — `campaign.py` imports them). Authoring: a
+`[[flag]]` table (`name` + `index`, validated into [8512, 16320)) plus a load-time resolver
+(`resolve_project_flags`) so `requires_flag = "ice_path_unlocked"` resolves to the index — **byte-identical**
+to the numeric form (test-proven). Campaigns share cross-field names via a `campaign.toml` `[[flag]]` table
+(`lint_campaign` checks they sit clear of the per-member auto blocks). CLI: `ff9mapkit flags` browses it.
+*Guard kept:* the persistent space is never labelled "Glob" (that's HW's transient Map). *(The empirical
+seed `research/flag_catalog.toml` fed this; `flags.py` is now canonical.)*
 
-**(3) — A flag inspector/viewer (offline + in-game). [Delivers VIEW.]**
-*What:* (1) An **offline save decoder**: Base64-decode `gEventGlobal` from `FF9State.json` → 2048-byte array
-→ render each set bit/word against the registry (name, region, meaning, confidence). (2) Make the **F6 Flags
-tab name-aware** — show the registry name beside the index, and group by region. *Why:* lets the user *see*
-story state — both a player's save and the live game. *Builds on:* `JsonParser`'s Base64 surface
-(`JsonParser.cs:522`), the census decoder (`decode_global_var`), the existing F6 menu
-(`Ff9mkDebugMenu.cs:457-526`), and the Info Hub spine pattern (UI-agnostic core → Tkinter/CLI frontends).
+**(3) — A flag inspector/viewer. Offline part ✅ LANDED 2026-06-10; in-game part deferred.**
+*Done (offline):* `flags.decode_gEventGlobal(blob)` + `gEventGlobal_from_save(json|base64|path)` +
+`render_report` decode a save's `gEventGlobal` (Base64 from `FF9State.json`, `JsonParser.cs:522`) into a
+human report — ScenarioCounter + nearest story beat, IsEikoAbducted flag, FieldEntrance, treasure-hunter
+points (engine ranges), opened-chest count, and set story bits grouped by region (named/reserved vs custom
+vs unmapped). CLI: `ff9mapkit flags-inspect <save>`. *Deferred (in-game):* making the **F6 Flags tab
+name-aware** needs an engine rebuild (`Ff9mkDebugMenu.cs`) + in-game verification — held for a session where
+the human can playtest (a rebuild auto-deploys). *Caveat:* the on-disc `EncryptedSavedData` must be decrypted
+to JSON first; the open JSON/Base64 path is what ships.
 
 **(4) — A "recreate" / seed mechanism. [Delivers RECREATE.]**
 *What:* A tool that writes a target story state into a save: set `gEventGlobal[0..1]` to a chosen
