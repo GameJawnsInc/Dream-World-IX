@@ -85,6 +85,12 @@ def test_browse_finds_model_by_friendly_name():
     assert any(e.kind == "model" and e.name == "GEO_MAIN_F0_ZDN" for e in infohub.browse("zidane"))
 
 
+def test_crate_alias_resolves_to_the_storage_prop():
+    from ff9mapkit import prop_archetypes as PA
+    assert any(e.name == "crate" for e in infohub.browse("crate"))      # the natural word resolves
+    assert PA.resolve("crate") == PA.resolve("cask")                    # -> FF9's barrel/cask
+
+
 def test_browse_limit_none_is_uncapped():
     assert len(infohub.browse("", limit=None)) > 1000        # all ~2000+ entries, no 500-row cap
     assert len(infohub.browse("", limit=10)) == 10           # an explicit cap still applies

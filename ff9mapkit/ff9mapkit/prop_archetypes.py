@@ -32,6 +32,7 @@ PROP_ARCHETYPES: dict = {
     "sword": {"model": "GEO_ACC_F0_SWD", "pose": 4470},         # SWD -- a "SWorD" (the theatrical replica from "I Want to Be Your Canary")
     "cask": {"model": "GEO_ACC_F0_CSK", "pose": 1904},          # CSK -- a "CaSK" / barrel (Dali storage, Lindblum alleys)
     "barrel": {"model": "GEO_ACC_F0_CSK", "pose": 1904},        # alias of cask
+    "crate": {"model": "GEO_ACC_F0_CSK", "pose": 1904},         # alias of cask -- FF9's storage container is the barrel, so the word "crate" resolves to it
     "great_leaf": {"model": "GEO_ACC_F0_ELE", "pose": 1894},    # ELE -- Cleyra's Great Leaf / the leaf elevator pad (Iifa roots, Cleyra climbs)
     "fish": {"model": "GEO_ACC_F0_FS1", "pose": 10751},         # FS1 -- "FiSh 1", the orange fish kitchen prop (Madain Sari, Memoria)
     "hand_bell": {"model": "GEO_ACC_F0_HDB", "pose": 2471},     # HDB -- "HanD Bell": the small Burmecian hand bell (not Gizamaluke's giant one)
