@@ -531,13 +531,15 @@ Read these on demand — they hold the full technical detail this file only summ
   **Where in FF9?** button (`detail(usage_fn=...)` via `tools/model_field_usage`, cached) listing the real
   fields that place the selected model -- on-demand so browsing stays install-free. **The Info Hub pillar is
   feature-complete** (spine + viewer: search by name/description, detail, copy-snippet, preview, where-in-FF9).
-- **Campaign Editor — Phase 1 (catalog picker; offline-verified, awaits GUI check):** the Logic Editor's
-  name fields gain a **Browse...** button opening a modal Info Hub picker (`ff9mapkit/editor/picker.py`, over
-  the spine) that writes the chosen name back -- no more blind typing. A `forms.Field.catalog` hint
-  ("archetype,creature" / "item") drives it; wired on NPC **preset** + choice **give_item**. Roadmap to the
-  IDE: Phase 2 panelize the apps (mount on a parent frame, not own `tk.Tk()`), Phase 3 a unified tabbed
-  Campaign Editor window (the launcher becomes it), Phase 4 the multi-field campaign/project model (linked
-  fields + a gateway graph). Picker smoke + 481 tests pass; the spine↔editor reuse is the payoff of building spine-first.
+- **Campaign Editor — Phases 1-3 (the IDE shell):** **Phase 1 (catalog picker, GUI-verified)** -- the Logic
+  Editor's name fields gain a **Browse...** button opening a modal Info Hub picker (`ff9mapkit/editor/picker.py`,
+  over the spine) that writes the chosen name back -- no more blind typing (a `forms.Field.catalog` hint
+  drives it; on NPC **preset** + choice **give_item**). **Phases 2-3 (the IDE window, offline-verified)** --
+  the editor/build/infohub apps were refactored to mount on a parent frame (not own `tk.Tk()`; standalone
+  launchers preserved), and **`apps/campaign_editor.pyw`** tabs all three over one root (Logic Editor / Info
+  Hub / Build & Deploy); the `ff9_studio` launcher offers it as the all-in-one. **Phase 4** (the multi-field
+  campaign/project model: linked fields + a gateway graph) remains. 487 tests pass; the spine↔editor reuse
+  is the payoff of building spine-first.
 
 ---
 

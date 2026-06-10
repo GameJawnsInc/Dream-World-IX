@@ -36,15 +36,13 @@ KIND_CHOICES = ("all",) + infohub.KINDS
 
 
 class InfoHubApp:
-    def __init__(self, root):
-        self.root = root
-        root.title("FF9 Map Kit — Info Hub")
-        root.geometry("920x580")
+    def __init__(self, parent):
+        self.root = parent.winfo_toplevel()      # real Tk root (clipboard/update); the UI mounts on `parent`
         self._entries = []
         self._current = None
         self._det = None
 
-        top = ttk.Frame(root, padding=6)
+        top = ttk.Frame(parent, padding=6)
         top.pack(fill="x")
         ttk.Label(top, text="Search:").pack(side="left")
         self.q = tk.StringVar()
@@ -54,7 +52,7 @@ class InfoHubApp:
         self.kind = tk.StringVar(value="all")
         ttk.OptionMenu(top, self.kind, "all", *KIND_CHOICES, command=lambda v: self.refresh()).pack(side="left")
 
-        body = ttk.Panedwindow(root, orient="horizontal")
+        body = ttk.Panedwindow(parent, orient="horizontal")
         body.pack(fill="both", expand=True, padx=6, pady=4)
         left = ttk.Frame(body)
         body.add(left, weight=1)
@@ -75,7 +73,7 @@ class InfoHubApp:
         ttk.Button(bar, text="Preview in-game", command=self.preview).pack(side="left", padx=6, pady=4)
         ttk.Button(bar, text="Where in FF9?", command=self.where).pack(side="left", pady=4)
 
-        self.status = ttk.Label(root, text="", anchor="w", padding=(6, 2))
+        self.status = ttk.Label(parent, text="", anchor="w", padding=(6, 2))
         self.status.pack(fill="x")
         self.refresh()
 
@@ -186,6 +184,8 @@ class InfoHubApp:
 def main():
     smoke = "--smoke" in sys.argv
     root = tk.Tk()
+    root.title("FF9 Map Kit — Info Hub")
+    root.geometry("920x580")
     if smoke:
         root.withdraw()
     app = InfoHubApp(root)

@@ -41,16 +41,14 @@ def detect_game_mod():
 
 
 class App:
-    def __init__(self, root):
-        self.root = root
+    def __init__(self, parent):
+        self.root = parent.winfo_toplevel()      # real Tk root (after/dialogs); the UI mounts on `parent`
         self.busy = False
         self.game_mod = detect_game_mod()
-        root.title("FF9 Map Kit - Build & Deploy")
-        root.minsize(660, 480)
         pad = dict(padx=10, pady=5)
 
         # --- field file ---
-        top = ttk.Frame(root); top.pack(fill="x", **pad)
+        top = ttk.Frame(parent); top.pack(fill="x", **pad)
         ttk.Label(top, text="Field file  (<name>.field.toml):").grid(row=0, column=0, sticky="w")
         self.field = tk.StringVar()
         ttk.Entry(top, textvariable=self.field).grid(row=1, column=0, sticky="we")
@@ -58,7 +56,7 @@ class App:
         top.columnconfigure(0, weight=1)
 
         # --- target ---
-        tgt = ttk.LabelFrame(root, text="Build to"); tgt.pack(fill="x", **pad)
+        tgt = ttk.LabelFrame(parent, text="Build to"); tgt.pack(fill="x", **pad)
         self.target = tk.StringVar(value="test")
         ttk.Radiobutton(tgt, text="Test field 4003  -  play it now (New Game -> hut door)",
                         value="test", variable=self.target).pack(anchor="w", padx=6, pady=2)
@@ -76,7 +74,7 @@ class App:
         ttk.Button(of, text="Browse...", command=self.browse_other).pack(side="left")
 
         # --- buttons ---
-        btns = ttk.Frame(root); btns.pack(fill="x", **pad)
+        btns = ttk.Frame(parent); btns.pack(fill="x", **pad)
         self.chk = ttk.Button(btns, text="Check logic", command=self.on_check)
         self.chk.pack(side="left", padx=(0, 8))
         self.go = ttk.Button(btns, text="Build / Deploy", command=self.on_go)
@@ -87,13 +85,13 @@ class App:
             self.rev.state(["disabled"])
 
         # --- log ---
-        self.log = scrolledtext.ScrolledText(root, height=16, state="disabled", wrap="word")
+        self.log = scrolledtext.ScrolledText(parent, height=16, state="disabled", wrap="word")
         self.log.pack(fill="both", expand=True, **pad)
         self._write("Pick a .field.toml, choose where to build it, then Build / Deploy.\n"
                     "Tip: 'Test field 4003' lets you walk it in-game immediately.\n")
 
         self.q: queue.Queue = queue.Queue()
-        root.after(120, self._drain)
+        self.root.after(120, self._drain)
 
     # ---- logging (post() is thread-safe; drained on the UI thread) ----
     def _write(self, msg):
@@ -277,6 +275,8 @@ class App:
 
 def main():
     root = tk.Tk()
+    root.title("FF9 Map Kit - Build & Deploy")
+    root.minsize(660, 480)
     try:
         App(root)
     except Exception:

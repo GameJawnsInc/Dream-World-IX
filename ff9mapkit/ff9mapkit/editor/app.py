@@ -47,8 +47,9 @@ def _find_tool(name):
 
 
 class EditorApp:
-    def __init__(self, root, path=None):
-        self.root = root
+    def __init__(self, parent, path=None):
+        self.container = parent                       # where the UI mounts (a window OR a notebook tab)
+        self.root = parent.winfo_toplevel()           # the real Tk root (after / dialogs / theme)
         self.doc: FieldDoc | None = None
         self.active = None                 # {"type":..., "index":...} currently-edited node
         self.getters = {}                  # key -> widget reader for the active form
@@ -60,13 +61,10 @@ class EditorApp:
         self.revert = _find_tool("revert_deploy.py")
         self.q: queue.Queue = queue.Queue()
 
-        self.palette = apply_theme(root)             # modern look (auto light/dark) -> palette colours
-        root.title("FF9 Map Kit - Field Editor")
-        root.minsize(960, 600)
-        root.geometry("1180x720")                    # roomy default: tree + form + the help column + pickers
+        self.palette = apply_theme(self.root)        # modern look (auto light/dark) -> palette colours
         self._build_toolbar()
-        ttk.Separator(root, orient="horizontal").pack(fill="x")
-        panes = ttk.PanedWindow(root, orient="horizontal")
+        ttk.Separator(self.container, orient="horizontal").pack(fill="x")
+        panes = ttk.PanedWindow(self.container, orient="horizontal")
         panes.pack(fill="both", expand=True, padx=8, pady=8)
         left = ttk.Frame(panes)
         self.tree = ttk.Treeview(left, show="tree", selectmode="browse")
@@ -79,10 +77,10 @@ class EditorApp:
         self.form = ttk.Frame(panes)
         panes.add(self.form, weight=3)
 
-        self.status = self._build_log(root)
+        self.status = self._build_log(self.container)
         self._log("Open a .field.toml, or New. Edit logic on the right; placement stays in Blender. "
                   "New here? Click Help for a 30-second tour.")
-        root.after(120, self._drain)
+        self.root.after(120, self._drain)
         if path:
             self._load(Path(path))
         else:
@@ -90,7 +88,7 @@ class EditorApp:
 
     # --------------------------------------------------------------- toolbar
     def _build_toolbar(self):
-        bar = ttk.Frame(self.root)
+        bar = ttk.Frame(self.container)
         bar.pack(fill="x", padx=6, pady=6)
         ttk.Button(bar, text="Open", command=self.on_open).pack(side="left")
         ttk.Button(bar, text="New", command=self.on_new).pack(side="left", padx=(6, 0))
@@ -828,6 +826,9 @@ def _apply(target: dict, spec, entity: dict):
 
 def main(path=None):
     root = tk.Tk()
+    root.title("FF9 Map Kit - Field Editor")
+    root.minsize(960, 600)
+    root.geometry("1180x720")                    # roomy default: tree + form + the help column + pickers
     try:
         EditorApp(root, path)
     except Exception:                                      # noqa: BLE001

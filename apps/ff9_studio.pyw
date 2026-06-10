@@ -2,9 +2,9 @@
 """FF9 Map Kit -- the launcher: one window, every tool.
 
 Double-click this (windowless via pythonw) to pick which app to open. It's the front door to the kit's
-GUI apps (all in this apps/ folder) AND the seed of the eventual unified suite -- these buttons become
-tabs/panels when the apps merge into one Campaign Editor.
+GUI apps (all in this apps/ folder). The apps now ALSO combine into one tabbed window:
 
+  * Campaign Editor -- campaign_editor.pyw (the all-in-one: the three below as tabs over one root)
   * Build & Deploy  -- ff9_build_gui.pyw  (compile a field.toml + deploy it)
   * Logic Editor    -- ff9_editor.pyw     (form-based field.toml logic editor)
   * Info Hub        -- ff9_infohub.pyw    (browse the catalogs; copy snippets)
@@ -21,6 +21,7 @@ import tkinter as tk                                   # noqa: E402
 from tkinter import ttk                                # noqa: E402
 
 TOOLS = [
+    ("Campaign Editor", "campaign_editor.pyw", "All-in-one: Logic Editor + Info Hub + Build & Deploy in one tabbed window."),
     ("Build & Deploy", "ff9_build_gui.pyw", "Compile a field.toml and deploy it to the test slot or the game."),
     ("Logic Editor",   "ff9_editor.pyw",    "Edit a field's logic (NPCs, events, gateways, cutscenes) in forms."),
     ("Info Hub",       "ff9_infohub.pyw",   "Browse every catalog (models, archetypes, props, items); copy snippets."),
@@ -35,7 +36,7 @@ def launch(filename):
 class Launcher:
     def __init__(self, root):
         root.title("FF9 Map Kit")
-        root.geometry("450x250")
+        root.geometry("480x300")
         ttk.Label(root, text="FF9 Map Kit", font=("Segoe UI", 16, "bold")).pack(pady=(16, 0))
         ttk.Label(root, text="Pick a tool to open:", foreground="#555").pack(pady=(0, 10))
         for label, fname, desc in TOOLS:
