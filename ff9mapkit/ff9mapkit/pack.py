@@ -16,9 +16,17 @@ import hashlib
 import zipfile
 from pathlib import Path
 
-CUSTOM_ID_MIN = 4000          # custom field ids start here (below this is base-game territory)
-CUSTOM_ID_MAX = 9899
+CUSTOM_ID_MIN = 4000          # shipped-content custom field ids start here (below this is base-game territory)
+CUSTOM_ID_MAX = 9899          #   ...content blocks live in [CUSTOM_ID_MIN..CUSTOM_ID_MAX]
 BLOCK_SIZE = 100              # ids per mod block
+# HARD engine cap: the live current-field id (engine `FF9StateSystem.Common.FF9.fldMapNo`) is Int16, so a
+# field id above FIELD_ID_MAX overflows and is unreachable -- the DictionaryPatch *key* is Int32, but the
+# runtime current-field variable is 16-bit (FF9Snd.cs:2651), so you can register a higher id yet never
+# navigate to it. Ephemeral dev/test "scratch" slots (per-worktree, gitignored .ff9deploy.toml) sit in
+# [SCRATCH_ID_MIN..SCRATCH_ID_MAX] -- the top of the valid range, clearly ABOVE shipped content.
+FIELD_ID_MAX = 32767
+SCRATCH_ID_MIN = 30000
+SCRATCH_ID_MAX = FIELD_ID_MAX
 
 
 def suggest_base(mod_name: str) -> int:

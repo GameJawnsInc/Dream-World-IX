@@ -69,11 +69,18 @@ engine build, the build/deploy loop, version control, and all docs/notes.
 > `FieldScene` line → black-screen warp to an unregistered id.) Each worktree pins its target in a
 > gitignored **`.ff9deploy.toml`** (`mod_folder` + `id`; override via `--mod-folder`/`$FF9_MOD_FOLDER`);
 > `Memoria.ini [Mod] FolderNames` stacks the folders and each folder's own DictionaryPatch/BattlePatch
-> is read at launch (`DataPatchers.Initialize`). Assignments: `C:\gd\FFIX` master → `FF9CustomMap`/4003 ·
-> `C:\gd\FFIX-battle-backgrounds` → `FF9CustomMap-bb`/5000 · `C:\gd\FFIX-infohub-catalog` →
-> `FF9CustomMap-ih`/5001. **Distinct ids still required** (EventDB/SceneData are GLOBAL dicts merged from
-> every folder at launch → same id across folders collides). New worktree: drop a `.ff9deploy.toml`,
-> add its folder to `Memoria.ini FolderNames`, relaunch. Reach any slot via the F6 menu's "Warp".
+> is read at launch (`DataPatchers.Initialize`). Per-worktree slots live in the scratch band: `C:\gd\FFIX`
+> master → `FF9CustomMap`/**30000** · `C:\gd\FFIX-battle-backgrounds` → `FF9CustomMap-bb`/**30001** ·
+> `C:\gd\FFIX-infohub-catalog` → `FF9CustomMap-ih`/**30002** (existing worktrees migrate by editing their
+> gitignored `.ff9deploy.toml` id + relaunching once to register it). **Distinct ids still required**
+> (EventDB/SceneData are GLOBAL, merged from every folder at launch → same id across folders collides).
+> New worktree: drop a `.ff9deploy.toml` (id 30000-32767), add its folder to `Memoria.ini FolderNames`,
+> relaunch. Reach any slot via F6 → Warp.
+> **Field-id bands** (`pack.py`; engine cap: the live `FF9StateSystem.Common.FF9.fldMapNo` is **Int16 → max
+> 32767**, so a higher DictionaryPatch id *registers* but is unreachable): **10-3100** real fields (locked) ·
+> **4000-9899** shipped custom content in 100-id blocks (`pack.suggest_base`) · **30000-32767** ephemeral
+> dev/test scratch slots (the per-worktree deploy targets). Wiring `suggest_base` into `ff9mapkit new` /
+> the Campaign Editor is a future task.
 > **Merge discipline (keeps CLAUDE.md current, cheaply):** do all CLAUDE.md edits on the *feature*
 > branch and let `master` only ever **fast-forward** — it stays a clean receiver, so the FF is
 > conflict-free and master's CLAUDE.md never goes stale. FF from this worktree without checking out
