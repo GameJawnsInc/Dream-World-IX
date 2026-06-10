@@ -209,22 +209,93 @@ def extract_event_script(field: str, *, game=None, lang: str = EVT_LANG):
     return None
 
 
-def _imported_content_toml(eb_bytes, *, out_dir=None, name="field"):
+# ---- id-keyed event extraction (the chain walk) -----------------------------------------
+# resolve_field()/event_name_for() are NAME-keyed (substring match on FBG folders), so a bare
+# numeric field id mis-resolves. The graph walk needs id -> .eb DIRECTLY, so invert the baked table.
+ID_TO_FBG = {rec[0]: folder for folder, rec in FBG_TO_EVT.items()}    # field id -> FBG folder
+ID_TO_EVT = {rec[0]: rec[1] for folder, rec in FBG_TO_EVT.items()}    # field id -> EVT_ script name
+
+
+class EventBundle:
+    """The field event-script bundle loaded ONCE, with id -> ``.eb`` bytes lookup + per-id cache.
+
+    For walking many fields (``import-chain``) without re-loading the bundle per field. Never raises on
+    a miss: an id with no FBG/event mapping (world/special field) or whose binary is absent returns None,
+    so the walk terminates that branch cleanly (same contract as ``extract_event_script``)."""
+
+    def __init__(self, game=None, lang: str = EVT_LANG):
+        UnityPy = _unitypy()
+        bundle = _events_bundle(game)
+        if not bundle:
+            raise RuntimeError(
+                "could not locate the field event bundle (eventbinary/field/...) in StreamingAssets/p0data*.bin")
+        self.lang = lang
+        env = UnityPy.load(str(_streaming_assets(game) / bundle))
+        marker = f"eventbinary/field/{lang}/"     # container keys carry a leading path -> substring match
+        self._by_evt = {}
+        for k, obj in env.container.items():
+            kl = k.lower()
+            i = kl.find(marker)
+            if i >= 0 and kl.endswith(".eb.bytes"):
+                self._by_evt[kl[i + len(marker):-len(".eb.bytes")]] = obj
+        self._cache: dict = {}
+
+    def eb_for_id(self, field_id: int):
+        """``.eb`` bytes for a field id, or None (no FBG/event mapping, or binary absent)."""
+        fid = int(field_id)
+        if fid in self._cache:
+            return self._cache[fid]
+        data = None
+        evt = ID_TO_EVT.get(fid)
+        if evt is not None:
+            obj = self._by_evt.get(evt.lower())
+            if obj is not None:
+                data = _raw_bytes(obj.read())
+        self._cache[fid] = data
+        return data
+
+
+def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=None, live_seams=False):
     """field.toml blocks (gateways / encounter / music / ladders) + the control-direction value,
     extracted LIVE from a real field's ``.eb``. Returns (blocks_text, control_dir, summary). blocks_text
     is appended at the end of the toml; control_dir (or None) goes in the [camera] block; summary feeds
     the CLI. Ladders carry a binary climb, so they're emitted only when ``out_dir`` is given (each climb
-    written verbatim to a ``<name>.ladder<i>.climb.bin`` sidecar that ``build`` grafts faithfully)."""
+    written verbatim to a ``<name>.ladder<i>.climb.bin`` sidecar that ``build`` grafts faithfully).
+
+    ``id_remap`` (import-chain / campaign): a ``{real_dest_id: new_id}`` map. When given, each gateway's
+    ``to`` is RETARGETED -- in-chain targets become the sibling NEW id; targets OUTSIDE the chain are NOT
+    emitted as a live gateway (that would warp the player back into the live game) but as a commented
+    seam stub for the author. ``live_seams=True`` keeps out-of-chain targets as live doors instead. When
+    ``id_remap is None`` the output is byte-identical to before (single-field ``import`` is unchanged).
+    NOTE: the retarget touches ONLY gateway ``to`` ids -- the encounter ``scene =`` (a battle-scene id,
+    not a field) is deliberately left alone."""
     content = eventscan.scan_content(eb_bytes)
     parts = []
     gws = content["gateways"]
+    n_retargeted = n_seamed = 0
     if gws:
-        parts.append(
-            "# --- EXITS imported from the real field (LIVE). `to` is the REAL destination field id --\n"
-            "# retarget each to your own room ids, or leave them to walk back into the live game. ---")
+        if id_remap is None:
+            parts.append(
+                "# --- EXITS imported from the real field (LIVE). `to` is the REAL destination field id --\n"
+                "# retarget each to your own room ids, or leave them to walk back into the live game. ---")
+        else:
+            parts.append("# --- EXITS retargeted to this chain's own field ids (import-chain). "
+                         "Out-of-chain exits are commented seam stubs. ---")
         for g in gws:
             zone = ", ".join(f"[{x}, {z}]" for x, z in g["zone"])
-            parts.append(f"[[gateway]]\nto = {g['to']}\nentrance = {g['entrance']}\nzone = [{zone}]")
+            raw_to = int(g["to"])
+            if id_remap is None or raw_to in id_remap:
+                to = id_remap[raw_to] if id_remap else raw_to
+                parts.append(f"[[gateway]]\nto = {to}\nentrance = {g['entrance']}\nzone = [{zone}]")
+                n_retargeted += 1 if id_remap is not None else 0
+            elif live_seams:
+                parts.append(f"# SEAM (live): real field {raw_to} -- a door back into the live game\n"
+                             f"[[gateway]]\nto = {raw_to}\nentrance = {g['entrance']}\nzone = [{zone}]")
+                n_seamed += 1
+            else:
+                parts.append(f"# SEAM (out-of-chain): real field {raw_to} via this zone -- author by hand.\n"
+                             f"# [[gateway]]\n# to = {raw_to}\n# entrance = {g['entrance']}\n# zone = [{zone}]")
+                n_seamed += 1
     enc = content["encounter"]
     if enc:
         block = f"[encounter]\nscene = {enc['scenes'][0]}\nfreq = {enc['freq']}"
@@ -258,18 +329,21 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field"):
         parts.append("\n\n".join(blocks))
         n_ladders = len(lads)
     summary = {"gateways": len(gws), "encounter": enc is not None, "music": content["music"],
-               "control_direction": content["control_direction"], "ladders": n_ladders}
+               "control_direction": content["control_direction"], "ladders": n_ladders,
+               "gateways_retargeted": n_retargeted, "gateways_seamed": n_seamed}
     return "\n\n".join(parts), content["control_direction"], summary
 
 
-def _content_for_import(field: str, game, *, out_dir=None, name="field"):
+def _content_for_import(field: str, game, *, out_dir=None, name="field", id_remap=None, live_seams=False):
     """(content_blocks, control_dir, summary) for a field's import. Locates + scans the real .eb;
     returns ("", None, None) if it can't (no mapping / no game / UnityPy absent) so import still works.
-    ``out_dir``/``name`` let ladder climbs be written as sidecars next to the field.toml."""
+    ``out_dir``/``name`` let ladder climbs be written as sidecars next to the field.toml.
+    ``id_remap``/``live_seams`` retarget gateway ``to`` ids for import-chain (see _imported_content_toml)."""
     eb_bytes = extract_event_script(field, game=game)
     if not eb_bytes:
         return "", None, None
-    return _imported_content_toml(eb_bytes, out_dir=out_dir, name=name)
+    return _imported_content_toml(eb_bytes, out_dir=out_dir, name=name,
+                                  id_remap=id_remap, live_seams=live_seams)
 
 
 def _content_section(content_blocks: str, x: int, z: int) -> str:
@@ -596,7 +670,8 @@ def safe_custom_area(area: int) -> int:
 
 
 def write_editable_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
-                           text_block: int = 1073, game=None, bundle=None):
+                           text_block: int = 1073, game=None, bundle=None,
+                           id_remap=None, live_seams=False):
     """Fork a real field as a fully EDITABLE custom scene (vs BG-borrow): re-export its walkmesh via the
     world-frame builder + extract its art as per-DEPTH layers (occlusion preserved) + reuse its camera.
 
@@ -631,7 +706,8 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     meta["blend_layers"] = layers_info["blend_layers"]
     meta["editable_name"] = name
 
-    content_blocks, control_dir, content_summary = _content_for_import(field, game, out_dir=out, name=name)
+    content_blocks, control_dir, content_summary = _content_for_import(
+        field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams)
     meta["imported_content"] = content_summary
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
@@ -688,7 +764,8 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
 
 
 def write_field_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
-                        text_block: int = 1073, game=None, bundle=None, want_atlas=False):
+                        text_block: int = 1073, game=None, bundle=None, want_atlas=False,
+                        id_remap=None, live_seams=False):
     """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx in out_dir.
 
     `name` is the custom script/field id (must be unique vs real fieldids; defaults to
@@ -717,7 +794,7 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
         pass
     # extract the real field's LIVE content (gateways / encounter / music / movement) from its .eb
     content_blocks, control_dir, content_summary = _content_for_import(
-        field, game, out_dir=Path(out_dir), name=name)
+        field, game, out_dir=Path(out_dir), name=name, id_remap=id_remap, live_seams=live_seams)
     meta["imported_content"] = content_summary
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]

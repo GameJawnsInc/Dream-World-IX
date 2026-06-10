@@ -23,6 +23,9 @@ from .binutils import u16
 from .eb import EbScript
 
 FIELD_OP = 0x2B            # Field(target)            -- a field transition (the exit)
+WORLDMAP_OP = 0xB6         # WorldMap(loc)            -- leave to the overworld; loc is a WORLD-MAP
+                           #                            LOCATION id (e.g. 9000-9012), NOT a field id
+SHARED_MENU_WARPS = frozenset(range(2950, 2956))  # chocobo/mognet shared menu warps -- not geography
 SETREGION_OP = 0x29        # SetRegion(points)        -- the trigger polygon
 SET_RANDOM_BATTLES = 0x3C  # SetRandomBattles(slot, s1..s4)
 SET_BATTLE_FREQ = 0x57     # SetRandomBattleFrequency(freq)
@@ -261,3 +264,178 @@ def scan_content(eb_bytes) -> dict:
         "control_direction": scan_control_direction(eb_bytes),
         "ladders": scan_ladders(eb_bytes),
     }
+
+
+def _entry_has_region(eb, entry) -> bool:
+    """True if any function in ``entry`` contains a ``SetRegion`` (so its ``Field`` ops are walk-in)."""
+    for f in entry.funcs:
+        for ins in eb.instrs(f):
+            if ins.op == SETREGION_OP:
+                return True
+    return False
+
+
+def _classify_trigger(entry_index: int, tag: int) -> str:
+    """Cheap classification of a scripted warp from its host entry/tag (grounded in the real-bytes
+    survey): Main_Init -> auto-on-entry; tag 10 -> after-battle reinit; tag 1 -> cutscene/sequence loop."""
+    if entry_index == 0 and tag == 0:
+        return "auto-on-entry"
+    if tag == 10:
+        return "after-battle"
+    if tag == 1:
+        return "cutscene-loop"
+    return "scripted"
+
+
+def scan_all_warps(eb_bytes) -> dict:
+    """Every field-to-field connection in the script, classified by KIND -- the import-chain taxonomy.
+    Returns ``{walk_in, scripted, overworld_exits}``:
+
+      * ``walk_in``         -- a ``SetRegion``+``Field`` region exit (from :func:`scan_gateways`); the
+        player walks into a zone. Each carries the extra ``story_conditional`` flag: True when >=2
+        edges share a BYTE-IDENTICAL zone polygon but reach DIFFERENT destinations -- FF9's stacked /
+        ``if(flag){A}else{B}`` story-conditional door (only one active per story state; re-author with
+        ``requires_flag`` on each). ~2.9% of real region exits; the rest are plain unconditional doors.
+      * ``scripted``        -- ``[{to, entrance, host_entry, host_tag, trigger}]`` for a bare ``Field()``
+        whose entry has NO region (cutscene / teleport / post-battle warp). Target + entrance are
+        literals (FF9 never computes a warp id). ~41% of real connectivity is scripted, so the strict
+        walk-in scan alone misses a lot -- but these are predominantly one-way story transitions, so a
+        walk should treat them as seams by default, not auto-followed.
+      * ``overworld_exits`` -- sorted ``WorldMap`` (0xB6) operands: WORLD-MAP LOCATION ids (e.g.
+        9000-9012), NOT field ids. A 'this screen leaves to the overworld' marker, never a graph edge.
+
+    Shared chocobo/mognet menu warps (2950-2955) are filtered out (they appear in nearly every field).
+    Field ops in a region-bearing entry are attributed to ``walk_in`` (matching :func:`scan_gateways`)."""
+    eb = EbScript.from_bytes(eb_bytes)
+
+    walk_in = scan_gateways(eb_bytes)
+    by_zone: dict = {}
+    for g in walk_in:
+        by_zone.setdefault(tuple(map(tuple, g["zone"])), set()).add(g["to"])
+    for g in walk_in:
+        g["story_conditional"] = len(by_zone[tuple(map(tuple, g["zone"]))]) > 1
+
+    scripted, overworld = [], []
+    for e in eb.entries:
+        if e.empty:
+            continue
+        region_entry = _entry_has_region(eb, e)
+        for f in e.funcs:
+            entrance = 0
+            for ins in eb.instrs(f):
+                if ins.op == 0x05:
+                    ent = _entrance_at(eb.data, ins.off)
+                    if ent is not None:
+                        entrance = ent
+                elif ins.op == WORLDMAP_OP:
+                    loc = ins.imm(0)
+                    if loc is not None:
+                        overworld.append(int(loc))
+                elif ins.op == FIELD_OP and not region_entry:
+                    tgt = ins.imm(0)
+                    if tgt is None or int(tgt) in SHARED_MENU_WARPS:
+                        continue
+                    scripted.append({"to": int(tgt), "entrance": int(entrance),
+                                     "host_entry": e.index, "host_tag": int(f.tag),
+                                     "trigger": _classify_trigger(e.index, f.tag)})
+    return {"walk_in": walk_in, "scripted": scripted, "overworld_exits": sorted(set(overworld))}
+
+
+# --- GLOB story-flag scanners (cross-field flag dependencies; raw-byte, like _entrance_at) ---
+# Filters to GLOBAL bools (save-persistent gEventGlobal). MAP bools (0xC5/0xE5) are per-field TRANSIENT
+# -> never a cross-field dependency, so _glob_var_token returns None for them.
+GLOB_BOOL_SHORT = 0xC4    # Global+Bit, idx <= 0xFF (1-byte index)
+GLOB_BOOL_LONG = 0xE4     # Global+Bit, long-index form (class | 0x20) for idx > 0xFF (2-byte LE)
+_PUSH_CONST16 = 0x7D
+_T_ASSIGN = 0x2C
+_T_OR_ASSIGN = 0x3F
+_T_NOT = 0x0E
+_T_END = 0x7F
+_JMP_FALSE = 0x02
+_JMP_TRUE = 0x03
+_RETURN = 0x04            # eb/opcodes.RETURN == bytes([0x04])
+
+
+def _glob_var_token(data: bytes, off: int):
+    """If ``data[off]`` is a GLOBAL bool var token, return ``(glob_idx, token_len)``; else None.
+    0xC4 -> (data[off+1], 2);  0xE4 -> (u16le, 3). MAP bools (0xC5/0xE5) and everything else -> None."""
+    if off >= len(data):
+        return None
+    b = data[off]
+    if b == GLOB_BOOL_SHORT and off + 1 < len(data):
+        return (data[off + 1], 2)
+    if b == GLOB_BOOL_LONG and off + 2 < len(data):
+        return (data[off + 1] | (data[off + 2] << 8), 3)
+    return None
+
+
+def _expr_offsets(eb):
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op == 0x05:            # EXPR statement -> the byte after is the var token
+                    yield ins.off
+
+
+def scan_flags_set(eb_bytes) -> list:
+    """GLOB flag WRITES. Pattern ``05 <glob-var> 7D <i16> <2C|3F> 7F`` (set / or-assign). Returns
+    sorted-unique ``[(glob_idx, op)]`` with op in {'set', 'or'}. Round-trips region.set_var/or_var."""
+    eb = EbScript.from_bytes(eb_bytes)
+    d = eb.data
+    out = set()
+    for off in _expr_offsets(eb):
+        tok = _glob_var_token(d, off + 1)
+        if tok is None:
+            continue
+        idx, vlen = tok
+        p = off + 1 + vlen
+        if p + 4 < len(d) and d[p] == _PUSH_CONST16 and d[p + 3] in (_T_ASSIGN, _T_OR_ASSIGN) and d[p + 4] == _T_END:
+            out.add((idx, "set" if d[p + 3] == _T_ASSIGN else "or"))
+    return sorted(out)
+
+
+def scan_required_flags(eb_bytes) -> list:
+    """GLOB flag READS that drive a conditional jump (general if-block, ANY body length). Pattern
+    ``05 <glob-var> [0E] 7F <02|03> <skip:i16> ...``. Returns sorted-unique ``[(glob_idx, require_set)]``
+    (require_set = the flag state that lets the guarded block run). Catches region.flag_gate as a special case."""
+    eb = EbScript.from_bytes(eb_bytes)
+    d = eb.data
+    out = set()
+    for off in _expr_offsets(eb):
+        tok = _glob_var_token(d, off + 1)
+        if tok is None:
+            continue
+        idx, vlen = tok
+        p = off + 1 + vlen
+        negated = p < len(d) and d[p] == _T_NOT
+        if negated:
+            p += 1
+        if p + 1 >= len(d) or d[p] != _T_END:
+            continue
+        jmp = d[p + 1]
+        if jmp not in (_JMP_FALSE, _JMP_TRUE):
+            continue
+        require_set = (jmp == _JMP_TRUE and not negated) or (jmp == _JMP_FALSE and negated)
+        out.add((idx, require_set))
+    return sorted(out)
+
+
+def scan_edge_flag_gates(eb_bytes) -> list:
+    """STRICT kit-prologue gate ``05 <glob-var> 7F <02|03> 01 00 04`` (skip=1 + RETURN=0x04) -- the exact
+    shape region.flag_gate emits. Returns ``[(glob_idx, require_set)]``. (Use scan_required_flags for the
+    general real-field form; this is the round-trip self-test target.)"""
+    eb = EbScript.from_bytes(eb_bytes)
+    d = eb.data
+    out = set()
+    for off in _expr_offsets(eb):
+        tok = _glob_var_token(d, off + 1)
+        if tok is None:
+            continue
+        idx, vlen = tok
+        p = off + 1 + vlen
+        if (p + 4 < len(d) and d[p] == _T_END and d[p + 1] in (_JMP_FALSE, _JMP_TRUE)
+                and d[p + 2] == 0x01 and d[p + 3] == 0x00 and d[p + 4] == _RETURN):
+            out.add((idx, d[p + 1] == _JMP_TRUE))
+    return sorted(out)

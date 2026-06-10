@@ -51,6 +51,27 @@ def test_scan_encounter_none_in_town():
     assert eventscan.scan_encounter(ALEX100) is None       # towns have no random battles
 
 
+# --- GLOB flag scanners (P5) --------------------------------------------------------------
+def test_glob_var_token():
+    assert eventscan._glob_var_token(bytes([0xC4, 191]), 0) == (191, 2)          # short GLOB bool
+    assert eventscan._glob_var_token(bytes([0xE4, 0x71, 0x20]), 0) == (8305, 3)  # long GLOB bool (LE)
+    assert eventscan._glob_var_token(bytes([0xC5, 5]), 0) is None                # MAP bool = transient
+    assert eventscan._glob_var_token(bytes([0xE5, 0, 1]), 0) is None             # MAP long = transient
+    assert eventscan._glob_var_token(bytes([0x7D, 0, 0]), 0) is None             # not a var token
+
+
+def test_flag_gate_scanners_roundtrip():
+    Z = [[-700, 2200], [200, 2200], [200, 3400], [-700, 3400], [-700, 3400]]   # quad + doubled last vertex
+    eb = _gw.inject_gateway(CLEAN, 4000, entrance=0, zone=Z, gate_flag=8305, gate_require_set=True)
+    assert eventscan.scan_edge_flag_gates(eb) == [(8305, True)]      # the exact region.flag_gate prologue
+    assert (8305, True) in eventscan.scan_required_flags(eb)         # general read form catches it too
+    # a gate READS its flag, never WRITES it (the template's own housekeeping writes 184/191 stay separate)
+    assert 8305 not in {idx for idx, _op in eventscan.scan_flags_set(eb)}
+
+    eb2 = _gw.inject_gateway(CLEAN, 4000, entrance=0, zone=Z, gate_flag=8305, gate_require_set=False)
+    assert eventscan.scan_edge_flag_gates(eb2) == [(8305, False)]    # polarity flips with require_set
+
+
 def test_scan_content_aggregate():
     c = eventscan.scan_content(ALEX100)
     assert c["music"] == 9 and c["control_direction"] == 0 and c["encounter"] is None
@@ -89,7 +110,8 @@ def test_imported_content_toml_is_valid_and_complete():
     blocks, cd, summary = extract._imported_content_toml(ALEX100)
     assert cd == 0
     assert summary == {"gateways": 4, "encounter": False, "music": 9, "control_direction": 0,
-                       "ladders": 0}    # field 100 (a town) has no ladders
+                       "ladders": 0,                          # field 100 (a town) has no ladders
+                       "gateways_retargeted": 0, "gateways_seamed": 0}   # no id_remap -> retarget counters 0
     # embed in a complete borrow field.toml -> it must be valid TOML with the right structures
     toml = ('[field]\nid=4003\nname="T"\narea=2\nborrow_bg="X"\n\n'
             f'[camera]\nborrow="c.bgx"\ncontrol_direction={cd}\n\n[player]\nspawn=[0,0]\n\n{blocks}')

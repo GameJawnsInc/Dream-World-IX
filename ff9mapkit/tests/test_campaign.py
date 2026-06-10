@@ -1,0 +1,326 @@
+"""Tests for P2 (campaign.py + the extract.py id_remap retarget).
+
+The pure tests need no game: the retarget is exercised by monkeypatching eventscan.scan_content; id/name
+assignment uses the STATIC field table (extract.ID_TO_FBG, baked from Memoria source -- no p0data); TOML
+validity is checked with tomllib. A final real-bytes test forks the actual Ice Cavern and is skipped when
+the FF9 install / UnityPy is absent."""
+
+import tomllib
+from collections import OrderedDict
+
+import pytest
+
+from ff9mapkit import campaign, chain, extract
+
+
+# ---- retarget logic (monkeypatched scan_content, no game) -------------------------------
+def _fake_content(gateways, encounter=None):
+    return {"gateways": gateways, "music": None, "encounter": encounter,
+            "control_direction": None, "ladders": []}
+
+
+def test_imported_content_retarget(monkeypatch):
+    Z = [[0, 0], [1, 0], [1, 1], [0, 1]]
+    gws = [{"to": 301, "entrance": 1, "zone": Z}, {"to": 999, "entrance": 2, "zone": Z}]
+    # encounter scene 301 == a field id on purpose: must NOT be retargeted (it's a battle scene)
+    monkeypatch.setattr(extract.eventscan, "scan_content",
+                        lambda eb: _fake_content(gws, encounter={"scenes": [301, 301, 301, 301], "freq": 40}))
+
+    blocks, _cd, summ = extract._imported_content_toml(b"EVxx", id_remap={301: 6001})
+    assert "to = 6001" in blocks                       # in-chain retargeted 301 -> 6001
+    assert "# SEAM (out-of-chain): real field 999" in blocks
+    assert "\nto = 999" not in blocks                  # 999 only appears commented (# to = 999)
+    assert "scene = 301" in blocks                     # battle scene id left ALONE
+    assert summ["gateways_retargeted"] == 1 and summ["gateways_seamed"] == 1
+
+    live, _c, s2 = extract._imported_content_toml(b"EVxx", id_remap={301: 6001}, live_seams=True)
+    assert "SEAM (live)" in live and "\nto = 999" in live   # live door kept
+
+    plain, _c, s0 = extract._imported_content_toml(b"EVxx")  # id_remap=None -> unchanged behavior
+    assert "to = 301" in plain and "to = 999" in plain
+    assert s0["gateways_retargeted"] == 0 and s0["gateways_seamed"] == 0
+
+
+# ---- a synthetic walk over REAL Ice Cavern ids (in the static table; no game) ------------
+def _synthetic_result():
+    Z = [[0, 0], [1, 0], [1, 1], [0, 1]]
+    Z2 = [[5, 5], [6, 5], [6, 6], [5, 6]]
+
+    def node(zone, edges, wm=None):
+        return {"zone": zone, "found": True, "edges": edges, "overworld_exits": wm or [],
+                "encounter": None, "music": None, "hop": 0}
+
+    nodes = OrderedDict()
+    nodes[300] = node("iccv", [{"to": 301, "kind": chain.WALK_IN, "entrance": 0, "zone": Z,
+                                "story_conditional": False}], wm=[9000])
+    nodes[301] = node("iccv", [
+        {"to": 300, "kind": chain.WALK_IN, "entrance": 1, "zone": Z, "story_conditional": False},
+        {"to": 302, "kind": chain.WALK_IN, "entrance": 1, "zone": Z2, "story_conditional": True},   # stacked
+        {"to": 303, "kind": chain.WALK_IN, "entrance": 1, "zone": Z2, "story_conditional": True}])
+    nodes[302] = node("iccv", [{"to": 301, "kind": chain.WALK_IN, "entrance": 2, "zone": Z,
+                                "story_conditional": False}])
+    nodes[303] = node("iccv", [{"to": 301, "kind": chain.WALK_IN, "entrance": 3, "zone": Z,
+                                "story_conditional": False}])
+    return chain.GraphResult(
+        nodes=nodes, portals=[],
+        seams=[{"from": 302, "to": 652, "entrance": 99, "trigger": "cutscene-loop", "to_zone": "kuin"}],
+        unforkable=[{"from": 300, "to": 108}], seeds=[300], allowed_zones={"iccv"},
+        truncated=False, remaining=0,
+        bounds={"max_hops": 20, "max_fields": 25, "zones": ["iccv"], "follow_scripted": False,
+                "stop_at_zone_boundary": True})
+
+
+def test_member_name_rule():
+    taken = set()
+    assert campaign.member_name("fbg_n05_iccv_map085_ic_ent_0", 0, taken) == "IC_ENT"
+    assert campaign.member_name("fbg_n06_vgdl_map097_dl_viw_0", 1, taken) == "DL_VIW"
+    # collision -> zone-prefixed
+    n1 = campaign.member_name("fbg_n05_iccv_map085_ic_ent_0", 2, taken)
+    assert n1 != "IC_ENT" and n1 not in (set() | {"IC_ENT", "DL_VIW"})
+
+
+def test_assign_ids_contiguous_and_named():
+    members_ids, new_id, name_of = campaign.assign_ids(_synthetic_result(), id_base=6000)
+    assert members_ids == [300, 301, 302, 303]
+    assert new_id == {300: 6000, 301: 6001, 302: 6002, 303: 6003}
+    assert all(v >= 4000 for v in new_id.values()) and len(set(new_id.values())) == 4
+    assert name_of[300] == "IC_ENT" and name_of[303] == "IC_JMP"
+
+
+def test_collect_edges_and_seams():
+    r = _synthetic_result()
+    members_ids, new_id, name_of = campaign.assign_ids(r, id_base=6000)
+    edges, seams = campaign._collect_edges_seams(r, members_ids, new_id, name_of)
+    pairs = {(e["frm"], e["to"]) for e in edges}
+    assert ("IC_ENT", "IC_STP") in pairs and ("IC_STP", "IC_TER") in pairs
+    # the two stacked same-zone exits are flagged story-conditional
+    sc = {(e["frm"], e["to"]) for e in edges if e["story_conditional"]}
+    assert sc == {("IC_STP", "IC_TER"), ("IC_STP", "IC_JMP")}
+    kinds = {s["kind"] for s in seams}
+    assert {"scripted", "overworld", "menu"} <= kinds
+    assert any(s["kind"] == "overworld" and s["to_real"] == "WORLDMAP" for s in seams)
+    assert any(s["kind"] == "scripted" and s["to_real"] == 652 for s in seams)
+
+
+def test_render_is_valid_toml():
+    r = _synthetic_result()
+    members_ids, new_id, name_of = campaign.assign_ids(r, id_base=6000)
+    edges, seams = campaign._collect_edges_seams(r, members_ids, new_id, name_of)
+    members = [campaign.Member(rid, new_id[rid], name_of[rid], "editable", 5, extract.ID_TO_FBG[rid],
+                               f"{name_of[rid]}/{name_of[rid]}.field.toml", True) for rid in members_ids]
+    plan = campaign.CampaignPlan(name="ICE", mod_folder="FF9CustomMap-ow", id_base=6000, flag_base=8300,
+                                 flags_per_field=64, entry_name=name_of[members_ids[0]], entry_entrance=0,
+                                 members=members, edges=edges, seams=seams)
+    d = tomllib.loads(campaign.render_campaign_toml(plan))     # must parse
+    assert d["campaign"]["id_base"] == 6000 and d["campaign"]["entry_field"] == "IC_ENT"
+    assert [f["id"] for f in d["field"]] == [6000, 6001, 6002, 6003]
+    names = {f["name"] for f in d["field"]}
+    for e in d["edge"]:                                        # every edge resolves to a member name
+        assert e["from"] in names and e["to"] in names
+    assert not any(e["to"] in {"300", "301", "302", "303"} for e in d["edge"])   # never a raw real id
+    assert {s["kind"] for s in d["seam"]} >= {"scripted", "overworld", "menu"}
+
+
+# ---- real-bytes: fork the actual Ice Cavern (skip without the game) ----------------------
+def _game_ready():
+    try:
+        import UnityPy  # noqa: F401
+        from ff9mapkit import config
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_real_ice_cavern_campaign(tmp_path):
+    from ff9mapkit import eventscan
+    bundle = extract.EventBundle()
+
+    def zone_fn(fid):
+        return chain.zone_label(extract.ID_TO_FBG.get(int(fid)))
+
+    def scan_fn(fid):
+        eb = bundle.eb_for_id(fid)
+        if eb is None:
+            return {"found": False}
+        w = eventscan.scan_all_warps(eb)
+        edges = [{"to": g["to"], "kind": chain.WALK_IN, "entrance": g["entrance"], "zone": g["zone"],
+                  "story_conditional": g["story_conditional"]} for g in w["walk_in"]]
+        edges += [{"to": s["to"], "kind": chain.SCRIPTED, "entrance": s["entrance"],
+                   "trigger": s["trigger"]} for s in w["scripted"]]
+        return {"found": True, "edges": edges, "overworld_exits": w["overworld_exits"],
+                "encounter": eventscan.scan_encounter(eb), "music": eventscan.scan_music(eb)}
+
+    result = chain.walk(300, scan_fn, zone_fn,
+                        forkable_fn=lambda f: int(f) in extract.ID_TO_FBG, zones=["iccv", "vgdl"])
+    plan = campaign.write_campaign(result, tmp_path, id_base=6000, name="ICE_CAVERN",
+                                   mod_folder="FF9CustomMap-ow")
+    d = tomllib.loads((tmp_path / "campaign.toml").read_text(encoding="utf-8"))
+
+    assert len(d["field"]) == 13
+    assert [f["id"] for f in d["field"]] == list(range(6000, 6013))
+    assert [f["source"] for f in d["field"]] == list(range(300, 313))
+    assert d["campaign"]["entry_field"] == "IC_ENT"
+    names = {f["name"] for f in d["field"]}
+    for e in d["edge"]:
+        assert e["from"] in names and e["to"] in names
+    # every member toml's live gateway points at a 6000-band id (the retarget invariant)
+    member_ids = {f["id"] for f in d["field"]}
+    for f in d["field"]:
+        text = (tmp_path / f["toml"]).read_text(encoding="utf-8")
+        for line in text.splitlines():
+            ls = line.strip()
+            if ls.startswith("to =") and not ls.startswith("#"):
+                assert int(ls.split("=", 1)[1].strip()) in member_ids
+    # IC_WAF (308) has no walk-in gateway -> a scripted seam, not an edge
+    assert any(s["kind"] == "scripted" for s in d["seam"])
+    # all 13 are area<10 -> editable + need export
+    assert all(f["mode"] == "editable" for f in d["field"])
+
+
+# ---- P3: load_campaign + build_campaign -------------------------------------------------
+def test_load_campaign_round_trips(tmp_path):
+    r = _synthetic_result()
+    members_ids, new_id, name_of = campaign.assign_ids(r, id_base=6000)
+    edges, seams = campaign._collect_edges_seams(r, members_ids, new_id, name_of)
+    members = [campaign.Member(rid, new_id[rid], name_of[rid], "editable", 5, extract.ID_TO_FBG[rid],
+                               f"{name_of[rid]}/{name_of[rid]}.field.toml", rid == 300) for rid in members_ids]
+    plan = campaign.CampaignPlan(name="ICE", mod_folder="FF9CustomMap-ow", id_base=6000, flag_base=8300,
+                                 flags_per_field=64, entry_name="IC_ENT", entry_entrance=0,
+                                 members=members, edges=edges, seams=seams)
+    p = tmp_path / "campaign.toml"
+    p.write_text(campaign.render_campaign_toml(plan), encoding="utf-8")
+
+    loaded = campaign.load_campaign(p)
+    assert loaded.name == "ICE" and loaded.mod_folder == "FF9CustomMap-ow"
+    assert loaded.id_base == 6000 and loaded.entry_name == "IC_ENT"
+    assert [m.new_id for m in loaded.members] == [6000, 6001, 6002, 6003]
+    assert [m.name for m in loaded.members] == ["IC_ENT", "IC_STP", "IC_TER", "IC_JMP"]
+    assert all(m.mode == "editable" for m in loaded.members)
+    assert loaded.members[0].needs_export and not any(m.needs_export for m in loaded.members[1:])
+    assert sum(1 for e in loaded.edges if e["story_conditional"]) == 2     # the 307-style stacked pair
+
+
+def _plan_with_ids(ids):
+    members = [campaign.Member(0, i, f"F{i}", "borrow", 11, "", f"F{i}/F{i}.field.toml", False) for i in ids]
+    return campaign.CampaignPlan(name="X", mod_folder="M", id_base=4000, flag_base=8300, flags_per_field=64,
+                                 entry_name="A", entry_entrance=0, members=members)
+
+
+def test_validate_ids():
+    campaign.validate_ids(_plan_with_ids([6000, 6001, 6002]))            # ok
+    for bad in ([6000, 6000], [3999], [40000], []):
+        with pytest.raises(campaign.CampaignError):
+            campaign.validate_ids(_plan_with_ids(bad))
+
+
+# ---- P5: campaign lint -------------------------------------------------------------------
+def _lint_plan(tmp_path, *, members=None, edges=None, seams=None, entry="A", member_content=None):
+    members = members if members is not None else [
+        campaign.Member(300, 6000, "A", "borrow", 11, "", "A/A.field.toml", False),
+        campaign.Member(301, 6001, "B", "borrow", 11, "", "B/B.field.toml", False)]
+    plan = campaign.CampaignPlan(name="C", mod_folder="M", id_base=6000, flag_base=8300,
+                                 flags_per_field=64, entry_name=entry, entry_entrance=0,
+                                 members=members, edges=edges or [], seams=seams or [])
+    for m in members:                                      # materialize minimal member field.tomls
+        d = tmp_path / m.name
+        d.mkdir(parents=True, exist_ok=True)
+        extra = (member_content or {}).get(m.name, "")
+        (d / f"{m.name}.field.toml").write_text(
+            f'[field]\nid = {m.new_id}\nname = "{m.name}"\narea = 11\n{extra}', encoding="utf-8")
+    return plan
+
+
+def test_lint_structural_pass(tmp_path):
+    plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])
+    errors, warnings = campaign.lint_campaign(plan, tmp_path)
+    assert errors == []
+
+
+def test_lint_dangling_edge_and_entry(tmp_path):
+    plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "GHOST", "entrance": 0}], entry="NOPE")
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("GHOST" in e and "not a campaign member" in e for e in errors)
+    assert any("entry_field" in e for e in errors)
+
+
+def test_lint_bad_seam(tmp_path):
+    bad = _lint_plan(tmp_path, seams=[{"frm": "A", "to_real": "FOO", "kind": "scripted"}])
+    assert any("to_real" in e for e in campaign.lint_campaign(bad, tmp_path)[0])
+    ok = _lint_plan(tmp_path, seams=[{"frm": "A", "to_real": "WORLDMAP", "kind": "overworld"},
+                                     {"frm": "B", "to_real": 652, "kind": "scripted"}])
+    assert campaign.lint_campaign(ok, tmp_path)[0] == []
+
+
+def test_lint_missing_member_file(tmp_path):
+    plan = _lint_plan(tmp_path)
+    (tmp_path / "B" / "B.field.toml").unlink()              # remove one member's toml
+    assert any("not found" in e for e in campaign.lint_campaign(plan, tmp_path)[0])
+
+
+def test_lint_ungated_stacked_door_warns(tmp_path):
+    plan = _lint_plan(tmp_path, edges=[
+        {"frm": "A", "to": "B", "entrance": 0, "story_conditional": True},
+        {"frm": "A", "to": "A", "entrance": 0, "story_conditional": True}])
+    _, warnings = campaign.lint_campaign(plan, tmp_path)
+    assert any("stacked same-zone" in w for w in warnings)
+
+
+def test_lint_flag_dangling_and_dupwriter(tmp_path):
+    # B requires flag 8500 that nobody sets -> dangling; A+B both set 8500 -> covered separately
+    dangling = _lint_plan(tmp_path, member_content={
+        "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = 8500\n'})
+    _, w1 = campaign.lint_campaign(dangling, tmp_path)
+    assert any("8500" in w and "permanently locked" in w for w in w1)
+
+    dup = _lint_plan(tmp_path, member_content={
+        "A": '[[event]]\nname = "x"\nflag = 8500\n', "B": '[[event]]\nname = "y"\nflag = 8500\n'})
+    _, w2 = campaign.lint_campaign(dup, tmp_path)
+    assert any("8500" in w and "multiple members" in w for w in w2)
+
+
+def test_lint_empty_forks_have_no_flag_warnings(tmp_path):
+    # the import-chain reality: empty rooms -> structural checks pass, zero flag findings
+    plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])
+    errors, warnings = campaign.lint_campaign(plan, tmp_path)
+    assert errors == [] and not any("flag" in w for w in warnings)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_real_build_all(tmp_path):
+    from ff9mapkit import eventscan
+    bundle = extract.EventBundle()
+
+    def zone_fn(fid):
+        return chain.zone_label(extract.ID_TO_FBG.get(int(fid)))
+
+    def scan_fn(fid):
+        eb = bundle.eb_for_id(fid)
+        if eb is None:
+            return {"found": False}
+        w = eventscan.scan_all_warps(eb)
+        edges = [{"to": g["to"], "kind": chain.WALK_IN, "entrance": g["entrance"], "zone": g["zone"],
+                  "story_conditional": g["story_conditional"]} for g in w["walk_in"]]
+        return {"found": True, "edges": edges, "overworld_exits": w["overworld_exits"],
+                "encounter": eventscan.scan_encounter(eb), "music": eventscan.scan_music(eb)}
+
+    result = chain.walk(300, scan_fn, zone_fn, forkable_fn=lambda f: int(f) in extract.ID_TO_FBG,
+                        zones=["iccv"], max_fields=2)
+    camp = tmp_path / "camp"
+    campaign.write_campaign(result, camp, id_base=30100, name="ICE2", mod_folder="FF9CustomMap-ow")
+    try:
+        info = campaign.build_campaign(camp / "campaign.toml", out=tmp_path / "dist")
+    except FileNotFoundError as e:                       # base templates not extracted on this machine
+        if "extract-templates" in str(e):
+            pytest.skip("base templates not extracted (run ff9mapkit extract-templates)")
+        raise
+
+    dist = tmp_path / "dist"
+    lines = (dist / "DictionaryPatch.txt").read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 2 and len(info["dictionary"]) == 2
+    toks = [ln.split() for ln in lines]                  # FieldScene <id> <area> <mapid> <name> <textid>
+    assert all(t[0] == "FieldScene" for t in toks)
+    assert sorted(int(t[1]) for t in toks) == [30100, 30101]            # ids = id_base + i
+    assert all(int(t[5]) == 1073 for t in toks)                         # textid = a VALID MesDB base block
+    md = (dist / "ModDescription.xml").read_text(encoding="utf-8")
+    assert "<InstallationPath>FF9CustomMap-ow</InstallationPath>" in md  # matches Memoria FolderNames
