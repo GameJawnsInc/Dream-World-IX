@@ -85,6 +85,8 @@ class Workspace:
         ttk.Button(bar, text="New...", command=self.on_new_campaign).pack(side="left", padx=(6, 0))
         self.btn_check = ttk.Button(bar, text="Check", command=self.on_check, state="disabled")
         self.btn_check.pack(side="left", padx=(6, 0))
+        self.btn_flags = ttk.Button(bar, text="Flags...", command=self.on_flags, state="disabled")
+        self.btn_flags.pack(side="left", padx=(6, 0))
         # member-authoring actions (Phase D) -- enabled once a campaign is open
         self.bar2 = ttk.Frame(side)
         self.bar2.pack(fill="x", padx=6, pady=(0, 4))
@@ -172,6 +174,7 @@ class Workspace:
         self._member_paths = {m.name: (path.parent / m.toml_rel).resolve() for m in plan.members}
         self.editor.campaign_idmap = {m.new_id: m.name for m in plan.members}   # gateway annotations
         self.btn_check.configure(state="normal")
+        self.btn_flags.configure(state="normal")
         for b in self._edit_btns:
             b.configure(state="normal")
         self._populate(plan)
@@ -408,6 +411,62 @@ class Workspace:
         self._reload()
         self._log(f"entry set to {name}", "ok")
 
+    def on_flags(self):
+        """A modal manager for the campaign's shared NAMED flags (cross-field story gates) -- the [[flag]]
+        table members gate by name. Indices auto-allocate above the per-member blocks, in the safe band."""
+        if self.plan is None:
+            return
+        from ff9mapkit import campaign
+        win = tk.Toplevel(self.root)
+        win.title(f"Shared named flags -- {self.plan.name}")
+        win.transient(self.root)
+        ttk.Label(win, justify="left", text=(
+            "Cross-field story gates. A member gates by NAME (requires_flag = \"<name>\").\n"
+            "Indices auto-allocate ABOVE the per-member flag blocks, in the census-safe band.")
+        ).pack(anchor="w", padx=10, pady=(10, 6))
+        tv = ttk.Treeview(win, columns=("name", "index"), show="headings", height=10, selectmode="browse")
+        tv.heading("name", text="Name")
+        tv.heading("index", text="Index")
+        tv.column("name", width=240)
+        tv.column("index", width=80, anchor="e")
+        tv.pack(fill="both", expand=True, padx=10)
+
+        def refresh():
+            tv.delete(*tv.get_children())
+            for fdef in self.plan.flags:
+                tv.insert("", "end", iid=str(fdef.get("name")), values=(fdef.get("name"), fdef.get("index")))
+
+        def add():
+            name = simpledialog.askstring("Add flag", "New shared flag name (e.g. boss_dead):", parent=win)
+            if not name:
+                return
+            try:
+                f = campaign.add_flag(self.plan, self.campaign_path.parent, name)
+            except Exception as e:                    # noqa: BLE001
+                messagebox.showerror("Add flag failed", str(e), parent=win)
+                return
+            refresh()
+            self._log(f"added shared flag {f['name']} = {f['index']}", "ok")
+
+        def remove():
+            sel = tv.selection()
+            if not sel:
+                return
+            try:
+                campaign.remove_flag(self.plan, self.campaign_path.parent, sel[0])
+            except Exception as e:                    # noqa: BLE001
+                messagebox.showerror("Remove flag failed", str(e), parent=win)
+                return
+            refresh()
+            self._log(f"removed shared flag {sel[0]}", "warn")
+
+        btns = ttk.Frame(win)
+        btns.pack(fill="x", padx=10, pady=10)
+        ttk.Button(btns, text="Add...", command=add).pack(side="left")
+        ttk.Button(btns, text="Remove", command=remove).pack(side="left", padx=(6, 0))
+        ttk.Button(btns, text="Close", command=win.destroy).pack(side="right")
+        refresh()
+
 
 def build(root):
     """Mount the campaign workspace (navigator + the three app tabs) on `root`; return the Workspace."""
@@ -427,8 +486,9 @@ def _smoke(ws):
     members = [M(300, 30100, "IC_ENT", "borrow", 11, "", "IC_ENT/IC_ENT.field.toml", False),
                M(301, 30101, "IC_COR", "borrow", 11, "", "IC_COR/IC_COR.field.toml", False),
                M(302, 30102, "IC_LOST", "borrow", 11, "", "IC_LOST/IC_LOST.field.toml", False)]
-    plan = campaign.CampaignPlan(name="ICE", mod_folder="M", id_base=30100, flag_base=8300,
-                                 flags_per_field=64, entry_name="IC_ENT", entry_entrance=0, members=members,
+    plan = campaign.CampaignPlan(name="ICE", mod_folder="M", id_base=30100,
+                                 flag_base=campaign.FIRST_SAFE_FLAG, flags_per_field=64,
+                                 entry_name="IC_ENT", entry_entrance=0, members=members,
                                  edges=[{"frm": "IC_ENT", "to": "IC_COR", "entrance": 2},
                                         {"frm": "IC_ENT", "to": "GHOST", "entrance": 0}],   # dangling
                                  seams=[{"frm": "IC_COR", "to_real": "WORLDMAP", "kind": "overworld",
@@ -478,8 +538,15 @@ def _smoke(ws):
     ws.tree.selection_set("WESTWING")
     ws.on_remove_field()
     assert "WESTWING" not in ws.tree.get_children() and not (d / "WESTWING").exists()
+    # F1: shared named flags -- the button is live and add/remove round-trip through campaign.toml
+    assert str(ws.btn_flags["state"]) == "normal"
+    f = campaign.add_flag(ws.plan, ws.campaign_path.parent, "boss_dead")
+    assert f["index"] >= campaign.FIRST_SAFE_FLAG + 3 * 64               # above the 3 member blocks
+    assert campaign.load_campaign(ws.campaign_path).flags == [{"name": "boss_dead", "index": f["index"]}]
+    campaign.remove_flag(ws.plan, ws.campaign_path.parent, "boss_dead")
+    assert campaign.load_campaign(ws.campaign_path).flags == []
     print(f"campaign editor smoke ok: {ws.nb.index('end')} tabs, 3 members, graph children + edge-nav + "
-          f"Check ({len(errors)} err) + dirty-gate + Phase-D add/rename/remove verified")
+          f"Check ({len(errors)} err) + dirty-gate + Phase-D add/rename/remove + shared-flags verified")
 
 
 def members_path(d, name):

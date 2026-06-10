@@ -897,3 +897,47 @@ def remove_edge(plan: CampaignPlan, manifest_dir, frm, to) -> None:
     """Remove the graph edge(s) frm->to (campaign.toml [[edge]])."""
     plan.edges = [e for e in plan.edges if not (e.get("frm") == frm and e.get("to") == to)]
     _save_plan(plan, manifest_dir)
+
+
+def _shared_flag_floor(plan: CampaignPlan) -> int:
+    """The lowest index a shared [[flag]] may take: just ABOVE every per-member auto-flag block (which span
+    [flag_base, flag_base + members*K)), and never below the census-safe floor."""
+    block_hi = plan.flag_base + len(plan.members) * plan.flags_per_field - 1
+    return max(block_hi + 1, FIRST_SAFE_FLAG)
+
+
+def add_flag(plan: CampaignPlan, manifest_dir, name, index=None) -> dict:
+    """Add a shared NAMED campaign flag (a cross-field story gate) to campaign.toml's [[flag]] table; members
+    then gate by NAME (``requires_flag = "<name>"``). ``index=None`` auto-picks the next free safe index
+    ABOVE the per-member auto-flag blocks (inside [FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR)). Validates name +
+    band; returns the new ``{name, index}``."""
+    name = str(name).strip()
+    if not name:
+        raise CampaignError("a shared flag needs a name")
+    floor = _shared_flag_floor(plan)
+    used = {int(f.get("index", -1)) for f in plan.flags}
+    if index is None:
+        index = max([floor] + [i + 1 for i in used])
+    index = int(index)
+    if not (floor <= index < CHOICE_SCRATCH_FLOOR):
+        raise CampaignError(f"flag index {index} must be in [{floor}, {CHOICE_SCRATCH_FLOOR}) -- above the "
+                            f"per-member auto-flag blocks, below the choice scratch")
+    if index in used:
+        raise CampaignError(f"flag index {index} is already used by another shared flag")
+    plan.flags.append({"name": name, "index": index})
+    try:
+        collect_flag_defs({"flag": plan.flags})      # re-validate (dup name, safe band); rollback on failure
+    except ValueError as e:
+        plan.flags.pop()
+        raise CampaignError(str(e))
+    _save_plan(plan, manifest_dir)
+    return {"name": name, "index": index}
+
+
+def remove_flag(plan: CampaignPlan, manifest_dir, name) -> None:
+    """Remove the shared named flag ``name`` from the campaign's [[flag]] table."""
+    keep = [f for f in plan.flags if f.get("name") != name]
+    if len(keep) == len(plan.flags):
+        raise CampaignError(f"no shared flag named {name!r}")
+    plan.flags = keep
+    _save_plan(plan, manifest_dir)

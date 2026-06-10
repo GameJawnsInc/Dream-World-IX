@@ -457,6 +457,28 @@ def test_member_name_validation_rejects_separators(tmp_path):
         campaign.rename_field(plan, tmp_path, "OK", "../escape")
 
 
+def test_add_remove_shared_flag(tmp_path):
+    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)   # flag_base = FIRST_SAFE_FLAG (8512)
+    campaign.add_field(plan, tmp_path, name="HUB")
+    campaign.add_field(plan, tmp_path, name="NORTH")                   # member blocks span [8512, 8639]
+    f = campaign.add_flag(plan, tmp_path, "boss_dead")                 # auto-index just ABOVE the blocks
+    assert f["name"] == "boss_dead" and f["index"] == 8640
+    assert campaign.lint_campaign(plan, tmp_path)[0] == []             # clear of member blocks + chest band
+    loaded = campaign.load_campaign(tmp_path / "campaign.toml")        # round-trips
+    assert loaded.flags == [{"name": "boss_dead", "index": 8640}]
+    campaign.add_flag(plan, tmp_path, "switch", index=9000)           # explicit safe index
+    with pytest.raises(campaign.CampaignError):
+        campaign.add_flag(plan, tmp_path, "boss_dead")                # dup name
+    with pytest.raises(campaign.CampaignError):
+        campaign.add_flag(plan, tmp_path, "again", index=9000)        # dup index
+    with pytest.raises(campaign.CampaignError):
+        campaign.add_flag(plan, tmp_path, "inchest", index=8400)      # below floor / in chest band
+    campaign.remove_flag(plan, tmp_path, "boss_dead")
+    assert {x["name"] for x in plan.flags} == {"switch"}
+    with pytest.raises(campaign.CampaignError):
+        campaign.remove_flag(plan, tmp_path, "nope")
+
+
 def test_campaign_flag_block_overflow_raises(tmp_path):
     # master's _FlagAlloc packs a member's auto once-events into base+1..base+EVENTS_PER_FIELD; Phase D
     # GUARDS the overflow (raise, not silently alias the choice sub-band -> save corruption).
