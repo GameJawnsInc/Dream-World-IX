@@ -342,6 +342,173 @@ def _cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _chain_label_fn(game=None):
+    """id -> display name. Prefers reference/field-manifest.tsv (nice names like 'Ice Cavern/Entrance');
+    falls back to the FBG mapid (always available, provenance-clean) so it works with no reference dir."""
+    from pathlib import Path
+    from . import extract
+    names: dict = {}
+    for cand in (Path(__file__).resolve().parents[2] / "reference" / "field-manifest.tsv",
+                 Path.cwd() / "reference" / "field-manifest.tsv"):
+        try:
+            if cand.is_file():
+                for line in cand.read_text(encoding="utf-8", errors="replace").splitlines():
+                    cols = line.split("\t")
+                    if len(cols) >= 3 and cols[1].strip().isdigit():
+                        names.setdefault(int(cols[1]), cols[2].strip())
+                break
+        except OSError:
+            pass
+
+    def label(fid):
+        if fid in names:
+            return names[fid]
+        folder = extract.ID_TO_FBG.get(int(fid))
+        return re.sub(r"^fbg_n\d+_", "", folder) if folder else "?"
+    return label
+
+
+def _resolve_chain_seeds(seed: str, game=None):
+    """Seed -> field-id list. A numeric seed is that id; otherwise an FBG substring seeds EVERY matching
+    field (e.g. 'iccv' seeds the whole Ice Cavern zone)."""
+    from . import extract
+    s = seed.strip()
+    if s.lstrip("-").isdigit():
+        return [int(s)]
+    sl = s.lower()
+    hits = sorted(fid for fid, folder in extract.ID_TO_FBG.items() if sl in folder)
+    if not hits:
+        raise FileNotFoundError(f"no field id or FBG folder matches seed {seed!r}")
+    return hits
+
+
+def _deploy_cfg():
+    """The worktree's .ff9deploy.toml (mod_folder + campaign_id_base defaults), or {}."""
+    import tomllib
+    from pathlib import Path
+    f = Path(__file__).resolve().parents[2] / ".ff9deploy.toml"
+    try:
+        return tomllib.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+    except Exception:
+        return {}
+
+
+def _print_campaign_summary(plan, out_dir):
+    n = len(plan.members)
+    ids = f"{plan.members[0].new_id}-{plan.members[-1].new_id}" if n else "-"
+    sc = sum(1 for e in plan.edges if e["story_conditional"])
+    print(f"{n} fields forked into {out_dir} (ids {ids}); {len(plan.edges)} in-chain gateways retargeted.")
+    if sc:
+        print(f"  {sc} STORY-COND edge(s) flagged -- add requires_flag (see campaign.toml).")
+    if plan.seams:
+        kinds = {}
+        for s in plan.seams:
+            kinds[s["kind"]] = kinds.get(s["kind"], 0) + 1
+        print("  " + str(len(plan.seams)) + " seam(s): " + ", ".join(f"{v} {k}" for k, v in sorted(kinds.items())))
+    if plan.needs_export:
+        print(f"  {len(plan.needs_export)} member(s) NEED an in-game [Export] before deploy: "
+              + " ".join(plan.needs_export))
+    print(f"  wrote: {out_dir}/campaign.toml")
+    print(f"Next: ff9mapkit build-all {out_dir}/campaign.toml")
+
+
+def _cmd_build_all(args: argparse.Namespace) -> int:
+    from . import campaign
+    try:
+        info = campaign.build_campaign(args.campaign, out=args.out, author=args.author or "",
+                                       description=args.description or "", allow_artless=args.allow_artless)
+    except (campaign.CampaignError, FileNotFoundError, ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    plan = info["plan"]
+    print(f"built campaign '{plan.name}' (mod {plan.mod_folder}, {len(info['dictionary'])} fields) -> {info['out']}")
+    for line in info["dictionary"]:
+        print("  " + line)
+    for w in info["warnings"]:
+        print("  warning: " + w, file=sys.stderr)
+    print(f"Next: add '{plan.mod_folder}' to Memoria.ini [Mod] FolderNames + relaunch, then deploy-all (P4).")
+    return 0
+
+
+def _cmd_lint_campaign(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from . import campaign
+    try:
+        plan = campaign.load_campaign(args.campaign)
+        errors, warnings = campaign.lint_campaign(plan, Path(args.campaign).parent)
+    except (campaign.CampaignError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    for w in warnings:
+        print("warning: " + w, file=sys.stderr)
+    for e in errors:
+        print("error: " + e, file=sys.stderr)
+    if errors:
+        print(f"campaign '{plan.name}': FAILED -- {len(errors)} error(s), {len(warnings)} warning(s)",
+              file=sys.stderr)
+        return 2
+    print(f"campaign '{plan.name}' OK -- {len(plan.members)} members, {len(plan.edges)} edges, "
+          f"{len(plan.seams)} seams, {len(warnings)} warning(s)")
+    return 0
+
+
+def _cmd_import_chain(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from . import chain, eventscan, extract
+    try:
+        seeds = _resolve_chain_seeds(args.seed, game=args.game)
+        bundle = extract.EventBundle(game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    def zone_fn(fid):
+        return chain.zone_label(extract.ID_TO_FBG.get(int(fid)))
+
+    def forkable_fn(fid):
+        return int(fid) in extract.ID_TO_FBG       # has a real background -> a walkable field we can fork
+
+    def scan_fn(fid):
+        eb = bundle.eb_for_id(fid)
+        if eb is None:
+            return {"found": False}
+        warps = eventscan.scan_all_warps(eb)
+        edges = [{"to": g["to"], "kind": chain.WALK_IN, "entrance": g["entrance"],
+                  "zone": g["zone"], "story_conditional": g["story_conditional"]}
+                 for g in warps["walk_in"]]
+        edges += [{"to": s["to"], "kind": chain.SCRIPTED, "entrance": s["entrance"],
+                   "trigger": s["trigger"]} for s in warps["scripted"]]
+        return {"found": True, "edges": edges, "overworld_exits": warps["overworld_exits"],
+                "encounter": eventscan.scan_encounter(eb), "music": eventscan.scan_music(eb)}
+
+    zones = [z.strip().lower() for z in args.zones.split(",") if z.strip()] if args.zones else None
+    stop_at = [int(x) for x in args.stop_at.split(",") if x.strip()] if args.stop_at else None
+    result = chain.walk(seeds, scan_fn, zone_fn, forkable_fn=forkable_fn, max_hops=args.max_hops,
+                        zones=zones, stop_at=stop_at, max_fields=args.max_fields,
+                        follow_scripted=args.follow_scripted,
+                        stop_at_zone_boundary=not args.cross_zones)
+
+    if args.out:                                  # P2 write mode: fork the chain into campaign/
+        from . import campaign
+        cfg = _deploy_cfg()
+        id_base = args.id_base if args.id_base is not None else int(cfg.get("campaign_id_base", 6000))
+        mod_folder = args.mod_folder or cfg.get("mod_folder") or "FF9CustomMap-ow"
+        seed_zone = chain.zone_label(extract.ID_TO_FBG.get(seeds[0]))
+        cname = args.campaign_name or f"{seed_zone.upper()}_CAMPAIGN"
+        try:
+            plan = campaign.write_campaign(result, Path(args.out), id_base=id_base,
+                        flag_base=args.flag_base, flags_per_field=args.flags_per_field,
+                        name=cname, mod_folder=mod_folder, game=args.game, live_seams=args.live_seams)
+        except (RuntimeError, FileNotFoundError, ValueError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        _print_campaign_summary(plan, args.out)
+        return 0
+
+    print(chain.render(result, label_fn=_chain_label_fn(game=args.game)))
+    return 0
+
+
 def _cmd_battle_import(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .battle import extract as bextract
@@ -677,6 +844,53 @@ def build_parser() -> argparse.ArgumentParser:
                          "needs the field exported in-game once via Memoria.ini [Export] Field=1")
     im.add_argument("--atlas", action="store_true", help="also extract the raw atlas.png (BG-borrow mode only)")
     im.set_defaults(func=_cmd_import)
+
+    ic = sub.add_parser("import-chain",
+                        help="walk a connected region of REAL fields from a seed (read-only door graph; P1)")
+    ic.add_argument("seed", help="seed field id (e.g. 300) OR an FBG substring (e.g. iccv = seed every Ice Cavern screen)")
+    ic.add_argument("--zones", default=None,
+                    help="comma-separated zone tokens to span (e.g. iccv,vgdl); default = stay in the seed's zone")
+    ic.add_argument("--max-hops", type=int, default=20, dest="max_hops",
+                    help="BFS depth cap (default 20; within --zones, --max-fields is the real bound)")
+    ic.add_argument("--max-fields", type=int, default=25, dest="max_fields",
+                    help="hard field cap; aborts LOUDLY if exceeded (default 25)")
+    ic.add_argument("--stop-at", default=None, dest="stop_at", help="comma-separated field ids to not cross")
+    ic.add_argument("--follow-scripted", action="store_true", dest="follow_scripted",
+                    help="also follow scripted/teleport warps (default: list them as seams, don't recurse)")
+    ic.add_argument("--cross-zones", action="store_true", dest="cross_zones",
+                    help="don't stop at zone boundaries (follow into any zone, bounded by --max-hops/--max-fields)")
+    ic.add_argument("--dry-run", action="store_true", dest="dry_run",
+                    help="just print the discovered graph (the default when --out is omitted)")
+    # P2 write mode: --out flips import-chain from the read-only dry-run to forking the chain.
+    ic.add_argument("--out", default=None,
+                    help="WRITE the chain: emit campaign.toml + per-member field.tomls into this dir (P2)")
+    ic.add_argument("--id-base", type=int, default=None, dest="id_base",
+                    help="member i gets id_base+i (default: .ff9deploy.toml campaign_id_base, else 6000; >=4000)")
+    ic.add_argument("--flag-base", type=int, default=8300, dest="flag_base",
+                    help="campaign flag band start recorded in campaign.toml (default 8300)")
+    ic.add_argument("--flags-per-field", type=int, default=64, dest="flags_per_field",
+                    help="reserved GLOB block width per field (recorded for P5; default 64)")
+    ic.add_argument("--campaign-name", default=None, dest="campaign_name",
+                    help="campaign/mod name (default <SEED-ZONE>_CAMPAIGN)")
+    ic.add_argument("--mod-folder", default=None, dest="mod_folder",
+                    help="target mod folder in campaign.toml (default: .ff9deploy.toml, else FF9CustomMap-ow)")
+    ic.add_argument("--live-seams", action="store_true", dest="live_seams",
+                    help="emit out-of-chain gateways as LIVE doors into the real game (default: comment as seams)")
+    ic.set_defaults(func=_cmd_import_chain)
+
+    ba = sub.add_parser("build-all", help="compile a campaign.toml (all member fields) into one Memoria mod (P3)")
+    ba.add_argument("campaign", help="path to the campaign.toml manifest (from import-chain --out)")
+    ba.add_argument("--out", default=None, help="output mod folder (default: <campaign-dir>/dist)")
+    ba.add_argument("--author", default=None, help="ModDescription author (optional)")
+    ba.add_argument("--description", default=None, help="ModDescription description (optional)")
+    ba.add_argument("--allow-artless", action="store_true", dest="allow_artless",
+                    help="build editable members that lack exported art (they render with NO background)")
+    ba.set_defaults(func=_cmd_build_all)
+
+    lc = sub.add_parser("lint-campaign",
+                        help="validate a campaign.toml (edges/entry/seams/ids/flags) without building (P5)")
+    lc.add_argument("campaign", help="path to the campaign.toml manifest")
+    lc.set_defaults(func=_cmd_lint_campaign)
 
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")
     lf.add_argument("pattern", nargs="?", default=None, help="substring filter (e.g. alex, treno, grgr)")
