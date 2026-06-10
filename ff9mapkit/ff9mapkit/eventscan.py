@@ -123,6 +123,25 @@ def scan_gateways(eb_bytes) -> list:
     return out
 
 
+def scan_region_zones(eb_bytes) -> list:
+    """Every static ``SetRegion`` trigger polygon in the script (exits AND interaction/event/trap
+    regions), as ``[x, z]``-corner quads. Used to keep an imported field's spawn OFF a trigger: a spawn
+    inside an exit gateway instant-warps you back out the moment you arrive, and inside a tread region it
+    auto-fires (e.g. a sand trap). Computed polygons (expression args) are skipped (can't place them)."""
+    eb = EbScript.from_bytes(eb_bytes)
+    out = []
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op == SETREGION_OP:
+                    pts = _region_points(ins)
+                    if len(pts) >= 3:
+                        out.append(_zone_quad(pts))
+    return out
+
+
 def _first_instr(eb, op, *, entry_index=None):
     """First instruction with opcode ``op`` (optionally restricted to one entry), or None."""
     entries = [eb.entry(entry_index)] if entry_index is not None else eb.entries

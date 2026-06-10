@@ -406,8 +406,42 @@ def find_field(field: str, game=None, bundle: str | None = None):
     return str(sa / bundle), folder, roles, env
 
 
-def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=False) -> dict:
-    """Extract a real field's camera + walkmesh (+ optional atlas) to `out_dir`; return metadata."""
+def _pt_in_quad(px, pz, quad) -> bool:
+    """True if (px, pz) is inside the convex polygon ``quad`` ([x, z] corners), top-down. Convex
+    same-side-of-every-edge test (the trigger zones are convex quads, the IsInQuad norm)."""
+    n = len(quad)
+    if n < 3:
+        return False
+    sign = 0
+    for i in range(n):
+        ax, az = quad[i]
+        bx, bz = quad[(i + 1) % n]
+        cross = (bx - ax) * (pz - az) - (bz - az) * (px - ax)
+        if cross != 0:
+            s = 1 if cross > 0 else -1
+            if sign == 0:
+                sign = s
+            elif s != sign:
+                return False
+    return True
+
+
+def _trigger_zones(field: str, game=None) -> list:
+    """Every trigger polygon in a field's event script (exits + interaction/trap regions), or [] if the
+    script can't be read. Lets ``extract_field`` keep the spawn off a trigger without the caller plumbing
+    the zones through. Never raises -- a missing script just means no zones to avoid."""
+    try:
+        eb_bytes = extract_event_script(field, game=game)
+        return eventscan.scan_region_zones(eb_bytes) if eb_bytes else []
+    except Exception:
+        return []
+
+
+def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=False, avoid_zones=None) -> dict:
+    """Extract a real field's camera + walkmesh (+ optional atlas) to `out_dir`; return metadata.
+
+    ``avoid_zones`` ([x, z]-corner quads) are trigger polygons the spawn must stay OUT of (so a forked
+    field doesn't instant-warp on arrival); when None they're auto-scanned from the field's event script."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     path, folder, roles, env = find_field(field, game=game, bundle=bundle)
@@ -441,23 +475,30 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     wz = [p[2] for p in wv]
     ox, oz = wm.orgPos.x, wm.orgPos.z         # header offset (for the charPos spawn guesses below)
     # spawn: charPos is stored per-field in EITHER the corner frame or already world, and is unreliable
-    # for multi-floor fields. Prefer it only if it lands on the walkmesh AND on-camera; else spawn at
-    # the centre of the ON-CAMERA walkmesh (a real walkmesh often runs far past the screen into gated
-    # tunnels, so the player should appear on-screen).
+    # for multi-floor fields. Prefer it only if it lands on the walkmesh, on-camera, AND clear of every
+    # trigger zone; else spawn at the centre of the ON-CAMERA walkmesh (a real walkmesh often runs far
+    # past the screen into gated tunnels, so the player should appear on-screen). The trigger-zone check
+    # matters because a field's stored charPos is usually right at the MAIN door -- which is the exit
+    # that warps you BACK out -- so a naive spawn lands inside that gateway and instant-warps on arrival.
     bx0, bx1, bz0, bz1 = min(wx), max(wx), min(wz), max(wz)
     rw, rh = c0.range
+    trigger_zones = avoid_zones if avoid_zones is not None else _trigger_zones(field, game=game)
     def _inb(px, pz):
         return bx0 <= px <= bx1 and bz0 <= pz <= bz1
     def _oncam(px, pz):
         cx, cy = cam.to_canvas((px, 0.0, pz), c0)
         return 0 <= cx <= rw and 0 <= cy <= rh
+    def _clear(px, pz):                                       # outside every exit/trigger polygon
+        return not any(_pt_in_quad(px, pz, q) for q in trigger_zones)
     _cp = [(wm.charPos.x + ox, wm.charPos.z + oz), (wm.charPos.x, wm.charPos.z)]
     _oncam_verts = [(px, pz) for px, pz in zip(wx, wz) if _oncam(px, pz)]
-    _spawn = next((p for p in _cp if _inb(*p) and _oncam(*p)), None)
-    if _spawn is None and _oncam_verts:                       # centre of the visible walkmesh
+    _clear_oncam = [p for p in _oncam_verts if _clear(*p)]
+    _spawn = next((p for p in _cp if _inb(*p) and _oncam(*p) and _clear(*p)), None)
+    if _spawn is None and _oncam_verts:                       # nearest-to-centre visible vert, clear if any
         mcx = sum(p[0] for p in _oncam_verts) / len(_oncam_verts)
         mcz = sum(p[1] for p in _oncam_verts) / len(_oncam_verts)
-        _spawn = min(_oncam_verts, key=lambda p: (p[0] - mcx) ** 2 + (p[1] - mcz) ** 2)
+        pool = _clear_oncam or _oncam_verts
+        _spawn = min(pool, key=lambda p: (p[0] - mcx) ** 2 + (p[1] - mcz) ** 2)
     if _spawn is None:                                        # no on-camera verts: in-bounds / centroid
         _spawn = next((p for p in _cp if _inb(*p)), (sum(wx) / len(wx), sum(wz) / len(wz)))
     _spawn = [round(_spawn[0]), round(_spawn[1])]
