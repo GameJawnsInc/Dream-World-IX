@@ -394,6 +394,17 @@ label-accuracy / curation — + 2 research agents → synthesis). All landed in 
   score is the separate `HuntFestivalScore` UInt16 words at bytes 314/316.
 - **Two engine-grounded discovery bits named** (refining the reserved `worldmap_unlocks` band): bit **815** =
   Mognet Central discovered, bit **814** = Chocobo's Paradise discovered (`WorldConfiguration.cs:183-184`).
+- **Engine-reader pass — 9 new tier-(a) named byte vars** (`flags.NAMED_WORDS`). Scanned every
+  `gEventGlobal[<const>]` read across the Memoria source (47 sites / 15 files); the engine reads several
+  fixed bytes whose meaning *is* its own var name, so these are engine-grounded with no inference:
+  **NaviMode** (byte 100, `ff9.cs:2266`), **WorldmapTransport** (byte 102: 0=foot, 8=Invincible,
+  `WorldConfiguration.cs:256`), **VegetableItemUsed** (byte 181, Dead Pepper, `ItemUI.cs:47`), **MoveControl**
+  (byte 190, current transport, `ff9.cs:5793`), **TonberiCount** (192), **SummonRayFlag** (193),
+  **SummonAllLongFlag** (207, full-summon-animation toggle, `battle.cs:41-43`), **MagicDisabledFlag** (byte 227,
+  `AbilityUI.cs:28` — nonzero greys out magic; this *is* the census "Oeilvert cluster" at bit 1816, set by
+  Oeilvert's anti-magic field, so that bit region is folded into the named word). Garnet's summon byte was also
+  split into the engine's two flags (`GarnetDepressFlag` 17 / `GarnetSummonFlag` 18). A decoded save now reports
+  e.g. "WorldmapTransport = 8 (Invincible)" — turning several previously-"unmapped" bytes into named state.
 - **★ Open question #1 (ATE/Mognet indices) RESOLVED — negative.** ATE *seen-state is NOT in the gEventGlobal
   heap at all*: it lives in `AchievementState.AteCheck` (`Int32[100]`, save key `AteCheckArray`), and ATE
   selection is a per-field `.eb` branch keyed on (fldLocNo, fldMapNo, ScenarioCounter, chosen choice) via the

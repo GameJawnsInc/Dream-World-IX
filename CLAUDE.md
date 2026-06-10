@@ -703,7 +703,13 @@ Read these on demand — they hold the full technical detail this file only summ
   bits by dominant writer area (`lindblum_events`, `mognet_central_state`, …); **reconciled a report error** (the
   "Lindblum festival @ 304-335" claim is wrong — those bits are the prologue; real Lindblum events are 2592-2663;
   the Hunt score is the separate `HuntFestivalScore` words 314/316). (3) **two engine-grounded discovery bits
-  named** (815 Mognet Central, 814 Chocobo's Paradise; `WorldConfiguration.cs`). **★ Report open-Q #1 RESOLVED —
+  named** (815 Mognet Central, 814 Chocobo's Paradise; `WorldConfiguration.cs`). **Engine-reader pass
+  (2026-06-10):** scanned every `gEventGlobal[<const>]` read in the Memoria source (47 sites/15 files) → **9 new
+  tier-(a) `NAMED_WORDS`** whose meaning is the engine's own var name: NaviMode@100, WorldmapTransport@102
+  (0=foot/8=Invincible), VegetableItemUsed@181, MoveControl@190, TonberiCount@192, SummonRay@193,
+  SummonAllLong@207, MagicDisabledFlag@227 (= the census "Oeilvert" bit 1816, Oeilvert's anti-magic; folds that
+  story cluster into the word) + split Garnet summon into Depress@17/Summon@18. A decoded save now reports e.g.
+  "WorldmapTransport = 8 (Invincible)". **★ Report open-Q #1 RESOLVED —
   negative:** ATE seen-state is **NOT in gEventGlobal** — it lives in `AchievementState.AteCheck` (`Int32[100]`,
   key `AteCheckArray`), ATE selection a per-field `.eb` branch via the hardcoded `EMinigame.MappingATEID` switch →
   no heap "ATE flag index" exists (`flags.ATE_STATE_LOCATION`). **Open-Q #3 confirmed intractable:** every chest

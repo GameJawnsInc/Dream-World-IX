@@ -43,6 +43,19 @@ def test_scenario_milestones_census_verified():
     assert flags.nearest_milestone(5950) == (5900, "Fossil Roo")
 
 
+def test_engine_reader_named_words():
+    """The engine-reader pass: byte vars the Memoria C# reads at a fixed index (all tier-a, cited)."""
+    byname = {w.name: w for w in flags.NAMED_WORDS}
+    assert byname["NaviMode"].byte == 100 and byname["WorldmapTransport"].byte == 102
+    assert byname["MoveControl"].byte == 190 and byname["MoveControl"].signed       # SByte transport idx
+    assert byname["MagicDisabledFlag"].byte == 227                                  # Oeilvert anti-magic
+    assert all(w.tier == "a" for w in flags.NAMED_WORDS)                            # every named word engine-cited
+    # byte 227 (bit 1816) is now the MagicDisabledFlag word, not a separate Oeilvert bit region
+    assert not any(r.name == "oeilvert_events" for r in flags.STORY_REGIONS)
+    rep = flags.decode_gEventGlobal(bytes(bytearray(2048)[:102]) + b"\x08" + bytes(2048 - 103))
+    assert any(w.name == "WorldmapTransport" and v == 8 for w, v in rep.named_words)  # 8 = Invincible
+
+
 def test_story_regions_and_named_bits():
     """Informational story clusters annotate set bits; engine-grounded named bits beat the broad band."""
     assert all(not r.reserved for r in flags.STORY_REGIONS)         # informational, never block allocation

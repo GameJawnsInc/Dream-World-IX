@@ -61,17 +61,34 @@ class BitRegion:
     source: str
 
 
-# Named word vars (byte-addressed). Order: low offsets first.
+# Named word vars (byte-addressed). Order: low offsets first. Each is a save-persistent byte/word the
+# engine C# reads at a FIXED index (so the meaning IS the engine's own var name -- tier a). Found by
+# scanning every `gEventGlobal[<const>]` read in the Memoria source (the engine-reader pass).
 NAMED_WORDS = [
     WordVar("ScenarioCounter", 0, 2, False, "Master story-progress value (1..12000).", "a",
             "EventState.cs:16-24; EBin.cs:34"),
     WordVar("FieldEntrance", 2, 2, True, "Last entrance / arrival map index (read by every field).", "a",
             "EventState.cs:26-34; EBin.cs:35"),
-    WordVar("TranceGaugeFlag", 16, 1, False, "Trance gauge enable (0/1).", "a", "battle.cs:38"),
-    WordVar("GarnetSummonAvailable", 17, 2, False, "Garnet summon depression/reserve state.", "a",
-            "battle.cs:39-40"),
-    WordVar("ChocoDigLevel", 191, 1, False, "Choco's dig ability level (set to 5 at milestones).", "a",
-            "ChocographUI.cs:245; EMinigame.cs:454"),
+    WordVar("TranceGaugeFlag", 16, 1, False, "Trance gauge enable (0/1); also gates the Trance status UI.", "a",
+            "battle.cs:38; StatusUI.cs:291"),
+    WordVar("GarnetDepressFlag", 17, 1, False, "Garnet summon-depression state (summons withheld).", "a",
+            "battle.cs:39"),
+    WordVar("GarnetSummonFlag", 18, 1, False, "Garnet summon availability.", "a", "battle.cs:40"),
+    WordVar("NaviMode", 100, 1, False, "Worldmap Navi/cursor navigation mode.", "a", "ff9.cs:2266-2271"),
+    WordVar("WorldmapTransport", 102, 1, False, "Worldmap transport id (0=on foot, 8=Invincible, ...).", "a",
+            "WorldConfiguration.cs:256"),
+    WordVar("VegetableItemUsed", 181, 1, False, "Dead Pepper / vegetable item used flag (gates re-use).", "a",
+            "ItemUI.cs:47,960"),
+    WordVar("MoveControl", 190, 1, True, "Current field/worldmap move-control (transport) index.", "a",
+            "ff9.cs:5793"),
+    WordVar("ChocoDigLevel", 191, 1, False, "Choco's dig ability level (set to 5 at milestones); also the "
+            "chocobo-kind gate for the vegetable item.", "a", "ChocographUI.cs:245; EMinigame.cs:454; ItemUI.cs:48"),
+    WordVar("TonberiCount", 192, 1, False, "Tonberry encounter/kill counter (battle).", "a", "battle.cs:41"),
+    WordVar("SummonRayFlag", 193, 1, False, "Summon 'ray' animation flag (battle).", "a", "battle.cs:42"),
+    WordVar("SummonAllLongFlag", 207, 1, False, "Show full-length summon animations toggle (battle).", "a",
+            "battle.cs:43"),
+    WordVar("MagicDisabledFlag", 227, 1, False, "Nonzero disables magic in the menu (e.g. Oeilvert's "
+            "anti-magic field; set by Oeilvert fields).", "a", "AbilityUI.cs:28,881"),
 ]
 
 # Reserved / named BIT regions (bit-addressed). A mod must not allocate into a reserved region.
@@ -113,8 +130,8 @@ STORY_REGIONS = [
     BitRegion("chocobo_garden_state", 1156, 1159, "Chocobo Hot & Cold dig-progress flags.", False, "c", "census"),
     BitRegion("chocobo_air_garden_state", 1416, 1423, "Chocobo Hot & Cold / Air Garden unlock state "
               "(top of the choco-dig band, bytes 106-177).", False, "c", "census"),
-    BitRegion("oeilvert_events", 1816, 1816, "Oeilvert ruin event/progress flag (single Oeilvert-only bit).",
-              False, "b", "census"),
+    # (byte 227 / bit 1816 was a census "Oeilvert event" cluster -> it's the MagicDisabledFlag word above,
+    #  set by Oeilvert's anti-magic field. Named there, so no separate bit region.)
     BitRegion("dali_madain_iifa_events", 2048, 2128, "Early-mid story band (Dali / Madain Sari / Iifa Tree).",
               False, "b", "census"),
     BitRegion("prima_vista_evil_forest_events", 2418, 2495, "Prologue band (Prima Vista / Evil Forest / North "
