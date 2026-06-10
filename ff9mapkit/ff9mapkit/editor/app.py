@@ -22,7 +22,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import forms
+from . import forms, picker
 from .model import FieldDoc, protected_reason
 from .theme import apply_theme
 
@@ -353,13 +353,20 @@ class EditorApp:
             if f.kind == forms.BOOL:
                 var = tk.BooleanVar(value=bool(values.get(f.key, f.default)))
                 ttk.Checkbutton(parent, variable=var).grid(row=r, column=1, sticky="w")
-            elif f.kind == forms.PRESET:
-                var = tk.StringVar(value=str(values.get(f.key, "") or ""))
-                ttk.Combobox(parent, textvariable=var, values=forms.PRESETS).grid(
-                    row=r, column=1, sticky="we")
             else:
                 var = tk.StringVar(value=str(values.get(f.key, "") or ""))
-                ttk.Entry(parent, textvariable=var).grid(row=r, column=1, sticky="we")
+                mk = ((lambda h: ttk.Combobox(h, textvariable=var, values=forms.PRESETS))
+                      if f.kind == forms.PRESET else (lambda h: ttk.Entry(h, textvariable=var)))
+                if getattr(f, "catalog", None):           # a catalog-backed field gets a "Browse..." picker
+                    host = ttk.Frame(parent)
+                    host.grid(row=r, column=1, sticky="we")
+                    host.columnconfigure(0, weight=1)
+                    mk(host).grid(row=0, column=0, sticky="we")
+                    ttk.Button(host, text="Browse...", width=9,
+                               command=lambda fk=f, v=var: self._pick_catalog(fk, v)).grid(
+                        row=0, column=1, padx=(4, 0))
+                else:
+                    mk(parent).grid(row=r, column=1, sticky="we")
             getters[f.key] = var.get
             if vars_out is not None:          # expose the vars so a caller can re-populate (option editor)
                 vars_out[f.key] = var
@@ -368,6 +375,13 @@ class EditorApp:
                     row=r, column=2, sticky="w", padx=6)
         parent.columnconfigure(1, weight=1)
         return getters
+
+    def _pick_catalog(self, field, var):
+        """Open the Info Hub picker for a catalog-backed field; write the chosen name into its widget."""
+        kinds = [k.strip() for k in field.catalog.split(",")] if field.catalog else None
+        name = picker.pick(self.root, kinds=kinds, title=f"Pick {field.label}", initial=var.get().strip())
+        if name:
+            var.set(name)
 
     def _show_single(self, key, spec, title):
         self._header(title, key)

@@ -531,6 +531,13 @@ Read these on demand — they hold the full technical detail this file only summ
   **Where in FF9?** button (`detail(usage_fn=...)` via `tools/model_field_usage`, cached) listing the real
   fields that place the selected model -- on-demand so browsing stays install-free. **The Info Hub pillar is
   feature-complete** (spine + viewer: search by name/description, detail, copy-snippet, preview, where-in-FF9).
+- **Campaign Editor — Phase 1 (catalog picker; offline-verified, awaits GUI check):** the Logic Editor's
+  name fields gain a **Browse...** button opening a modal Info Hub picker (`ff9mapkit/editor/picker.py`, over
+  the spine) that writes the chosen name back -- no more blind typing. A `forms.Field.catalog` hint
+  ("archetype,creature" / "item") drives it; wired on NPC **preset** + choice **give_item**. Roadmap to the
+  IDE: Phase 2 panelize the apps (mount on a parent frame, not own `tk.Tk()`), Phase 3 a unified tabbed
+  Campaign Editor window (the launcher becomes it), Phase 4 the multi-field campaign/project model (linked
+  fields + a gateway graph). Picker smoke + 481 tests pass; the spine↔editor reuse is the payoff of building spine-first.
 
 ---
 

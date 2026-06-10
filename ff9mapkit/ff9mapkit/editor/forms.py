@@ -33,6 +33,7 @@ class Field:
     kind: str
     help: str = ""
     default: object = None            # for BOOL: the value omitted from the file (e.g. once=True)
+    catalog: str = None               # comma-separated Info Hub kinds -> render a "Browse..." picker button
 
 
 # --- section specs (the editor's logic vocabulary) ---------------------------------------
@@ -46,7 +47,8 @@ FIELD_SPEC = [
 ]
 NPC_SPEC = [
     Field("name", "Name", STR, "a label (also links this NPC to its Blender marker)"),
-    Field("preset", "Preset", PRESET, "who it looks like: vivi or zidane (the easy path)"),
+    Field("preset", "Preset", PRESET, "who it looks like -- Browse the archetype/creature catalog",
+          catalog="archetype,creature"),
     Field("model", "Model id", OPTINT, "advanced: a custom model instead of a preset"),
     Field("animset", "Animset id", OPTINT, "advanced: with a custom model (also add anims in the .toml)"),
     Field("dialogue", "Dialogue", STR, "the line shown when the player talks to it"),
@@ -116,7 +118,8 @@ CHOICE_OPTION_SPEC = [
     Field("requires_flag", "Show if flag set", OPTINT, "hide this row UNTIL this story flag is set"),
     Field("requires_flag_clear", "Show if flag clear", OPTINT, "hide this row ONCE this story flag is set"),
     Field("reply", "Reply", STR, "optional line shown after choosing this option"),
-    Field("give_item", "Give item", ITEMCOUNT, 'item + count, e.g. "Potion, 1" (name or id)'),
+    Field("give_item", "Give item", ITEMCOUNT, 'item + count, e.g. "Potion, 1" (name or id)',
+          catalog="item"),
     Field("gil", "Gil", OPTINT, "gil; NEGATIVE charges the player (e.g. -100)"),
     Field("set_flag", "Set flag (idx, val)", PAIR, "raise a story flag, e.g. 8001, 1"),
 ]
