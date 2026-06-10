@@ -780,6 +780,23 @@ Read these on demand — they hold the full technical detail this file only summ
   malformed campaign `[[flag]]` at Check instead of swallowing it. **599 kit tests pass**; `--smoke` covers the
   shared-flag add/remove. (Pre-existing, untouched: `_collect_flags` still doesn't extract `set_flag`'s pair
   index as a producer — only the `flag` key — so set-by-`set_flag` isn't seen by the dangling check.)
+- **Campaign Editor — the visual Map (node-link graph; offline-verified, human GUI-confirmed)** — the one
+  deferred Phase-4 frontier (the visual node-link diagram) now ships as a **Map** tab in
+  `apps/campaign_editor.pyw`, beside the Logic Editor. It draws the SAME connectivity as the left tree
+  navigator, but spatially: members are nodes, live gateways are arrows (dashed when story-gated), onward
+  seams are dashed stubs labeled with their outside-campaign target, with the tree's cues (green=entry,
+  red=unreachable, amber=needs-art; the open member filled accent). Single-click highlights a node + a status
+  line (id/mode/door+seam counts/flags); **double-click opens** it in the Logic Editor (and the open member
+  stays highlighted as you navigate); wheel / shift-wheel / middle-drag pan. Built spine-style:
+  **`ff9mapkit/ff9mapkit/editor/graphview.py`** is a **tk-free pure layout core** (`compute_layout` over a
+  `campaign.CampaignGraph` — top-down BFS levels from the entry, unreachable members in a row below, edge
+  endpoints border-clipped so arrows touch the boxes) + a `GraphView` Canvas widget on top. The pure core is
+  headless-tested (`tests/test_graphview.py`: levels, unreachable band, clipped edges, gated flag, seam stubs,
+  determinism, empties); the widget is covered by the campaign-editor `--smoke` (renders the graph, double-click
+  opens a node, highlight tracks the open member). `_graph_open` syncs the tree selection AND opens directly so
+  it works with or without the Tk event loop (open_member is idempotent if `<<TreeviewSelect>>` re-fires).
+  **632 kit tests pass.** Deferred polish (only if asked): edge entrance-number labels, zoom, a force-directed
+  option for dense graphs. **The whole Campaign-Editor "Phase 4" arc is now complete INCLUDING the visual graph.**
 
 ---
 

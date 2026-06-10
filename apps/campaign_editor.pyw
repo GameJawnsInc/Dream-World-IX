@@ -28,6 +28,7 @@ import tkinter as tk                              # noqa: E402
 from tkinter import ttk, filedialog, messagebox  # noqa: E402
 
 from ff9mapkit.editor import dialogs              # noqa: E402  (themed askstring/askinteger replacements)
+from ff9mapkit.editor import graphview            # noqa: E402  (the visual campaign map)
 
 
 def _load_app(filename, modname):
@@ -121,6 +122,9 @@ class Workspace:
         self.ed_tab = ttk.Frame(self.nb)
         self.nb.add(self.ed_tab, text="Logic Editor")
         self.editor = EditorApp(self.ed_tab)
+        self.map_tab = ttk.Frame(self.nb)              # the visual node-link map of the open campaign
+        self.nb.add(self.map_tab, text="Map")
+        self.graph = graphview.GraphView(self.map_tab, palette, on_open=self._graph_open)
         ih = _load_app("ff9_infohub.pyw", "ff9_infohub")
         f = ttk.Frame(self.nb)
         self.nb.add(f, text="Info Hub")
@@ -224,6 +228,30 @@ class Workspace:
                                  tags=("door",))
                 if s.get("to_member"):
                     self._nav[iid] = s["to_member"]
+        self.graph.render(g, current=self._current_member_name())     # the visual Map tab, same graph
+
+    def _current_member_name(self):
+        """The member whose field.toml is open in the editor (None if none / not a member)."""
+        cur = getattr(self.editor.doc, "path", None) if self.editor.doc is not None else None
+        if cur is None:
+            return None
+        curp = Path(cur).resolve()
+        return next((nm for nm, p in self._member_paths.items() if Path(p).resolve() == curp), None)
+
+    def _sync_graph(self, name):
+        """Mark ``name`` as the open member on the Map tab (no-op before the graph exists)."""
+        g = getattr(self, "graph", None)
+        if g is not None:
+            g.highlight(name)
+
+    def _graph_open(self, name):
+        """Double-click on a Map node -> open that member. Syncs the tree selection AND opens it directly,
+        so it works with or without the Tk event loop (open_member is idempotent if <<TreeviewSelect>>
+        re-fires it)."""
+        if self.tree.exists(name):
+            self.tree.see(name)
+            self.tree.selection_set(name)
+        self.open_member(name)
 
     # ---------------------------------------------------------------- member nav
     def _on_member_select(self, _evt=None):
@@ -247,6 +275,7 @@ class Workspace:
         cur = getattr(self.editor.doc, "path", None) if self.editor.doc is not None else None
         if cur is not None and Path(cur) == path:     # already open -> just focus the editor tab (no reload,
             self.nb.select(self.ed_tab)               # and dodges the load-on-campaign-open double fire)
+            self._sync_graph(name)
             return True
         if not path.is_file():
             messagebox.showerror("Member not found",
@@ -254,6 +283,7 @@ class Workspace:
             return False
         if self.editor.open_path(path):
             self.nb.select(self.ed_tab)
+            self._sync_graph(name)
             return True
         return False
 
@@ -511,6 +541,13 @@ def _smoke(ws):
     assert list(ws.tree.get_children()) == ["IC_ENT", "IC_COR", "IC_LOST"]
     assert ws.editor.doc is not None and ws.editor.doc.path == members_path(d, "IC_ENT")   # auto-land entry
     assert ws.editor.campaign_idmap == {30100: "IC_ENT", 30101: "IC_COR", 30102: "IC_LOST"}  # gateway hints
+    # the visual Map tab renders the same graph and highlights the auto-landed entry
+    assert ws.graph._layout is not None and len(ws.graph._layout.nodes) == 3
+    assert ws.graph._current == "IC_ENT"
+    ws._graph_open("IC_LOST")                         # double-click a Map node opens that member
+    assert ws.editor.doc.path == members_path(d, "IC_LOST") and ws.graph._current == "IC_LOST"
+    ws._graph_open("IC_ENT")                          # back to the entry for the rest of the flow
+    assert ws.editor.doc.path == members_path(d, "IC_ENT")
     # graph children: IC_ENT shows its one live door (the dangling GHOST is NOT a child); IC_COR a seam
     ent_kids = ws.tree.get_children("IC_ENT")
     assert len(ent_kids) == 1 and ws._nav[ent_kids[0]] == "IC_COR"
@@ -549,8 +586,8 @@ def _smoke(ws):
     assert campaign.load_campaign(ws.campaign_path).flags == [{"name": "boss_dead", "index": f["index"]}]
     campaign.remove_flag(ws.plan, ws.campaign_path.parent, "boss_dead")
     assert campaign.load_campaign(ws.campaign_path).flags == []
-    print(f"campaign editor smoke ok: {ws.nb.index('end')} tabs, 3 members, graph children + edge-nav + "
-          f"Check ({len(errors)} err) + dirty-gate + Phase-D add/rename/remove + shared-flags verified")
+    print(f"campaign editor smoke ok: {ws.nb.index('end')} tabs, 3 members, tree+Map graph + edge-nav + "
+          f"map-open + Check ({len(errors)} err) + dirty-gate + Phase-D add/rename/remove + shared-flags")
 
 
 def members_path(d, name):
