@@ -84,6 +84,32 @@ def test_append_entry_registers_slot():
     assert eb2.to_bytes() == out                             # still round-trips
 
 
+def test_grow_entry_table_preserves_entries():
+    raw = data.blank_field_bytes("us")
+    s0 = EbScript.from_bytes(raw)
+    grown = edit.grow_entry_table(raw, 24)
+    s = EbScript.from_bytes(grown)
+    assert s.entry_count == 24 and len(s.free_slots()) == 24 - 2     # 2 base entries, 22 new empties
+    for i in (0, 1):                                                 # base entry bodies survive the shift
+        assert grown[s.entry(i).abs_start:s.entry(i).abs_end] == raw[s0.entry(i).abs_start:s0.entry(i).abs_end]
+    for e in s.entries:                                              # everything still disassembles
+        for f in e.funcs:
+            list(s.instrs(f))
+    assert edit.grow_entry_table(raw, 2) == raw                      # no-op when not growing
+
+
+def test_append_entry_autogrows_past_template_ceiling():
+    raw = data.blank_field_bytes("us")
+    region = bytes([0x02, 0x01]) + struct.pack("<HH", 0, 4) + opcodes.RETURN
+    eb = raw
+    for _ in range(12):                                             # 8 free slots -> the 9th forces a grow
+        slot = EbScript.from_bytes(eb).first_free_slot()
+        eb = edit.append_entry(eb, slot, region)
+    s = EbScript.from_bytes(eb)
+    assert sum(1 for e in s.entries if not e.empty) == 2 + 12       # all 12 landed
+    assert s.entry_count > 10                                       # the table grew on demand
+
+
 def test_find_wait_clean_base():
     eb = EbScript.from_bytes(data.blank_field_bytes("us"))
     waits = edit.find_instrs(eb, 0x22, entry_index=0, func_tag=0)

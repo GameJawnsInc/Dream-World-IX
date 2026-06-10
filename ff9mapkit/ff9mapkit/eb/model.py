@@ -159,10 +159,15 @@ class EbScript:
         return [e.index for e in self.entries if e.empty]
 
     def first_free_slot(self) -> int:
+        """Index of the first empty entry-table slot. When the table is FULL, returns
+        :attr:`entry_count` (the index one past the last slot) -- the signal for
+        :func:`ff9mapkit.eb.edit.append_entry` to grow the table. Real fields run to ~30 entries, so a
+        content-dense field (e.g. an Ice Cavern screen with 6 jumps) legitimately needs more than the
+        blank template's 10 slots; growth is on-demand so fields that fit stay byte-identical."""
         for e in self.entries:
             if e.empty:
                 return e.index
-        raise ValueError(f"no free entry slot (all {self.entry_count} in use)")
+        return self.entry_count
 
     def instrs(self, func: Func):
         """Iterate decoded instructions of a function."""

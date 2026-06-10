@@ -63,12 +63,46 @@ def insert_bytes(data, abs_off: int, ins: bytes) -> bytes:
     return bytes(b[:abs_off]) + bytes(ins) + bytes(b[abs_off:])
 
 
+ENTRY_GROW_CHUNK = 8            # slots added per growth (amortise the body reshuffle; real fields ~30)
+ENTRY_TABLE_MAX = 255          # entry_count is a single header byte
+
+
+def grow_entry_table(data, new_count: int) -> bytes:
+    """Enlarge the entry table to ``new_count`` slots (a no-op if already that big).
+
+    The table lives at :data:`ENTRY_TABLE_OFF` (128) as ``entry_count`` 8-byte slots, immediately
+    followed by the entry bodies (whose slot ``off`` is relative to 128). Adding slots inserts
+    ``(new-old)*8`` zero bytes right after the existing table -- pushing every body later -- so each
+    EXISTING body's ``off`` is bumped by that amount; the new slots read as empty (off=size=0). The
+    44-byte header (byte 3 = count) + 84-byte name precede the table and need no fixup beyond the
+    count. ``InitRegion``/``InitObject`` reference a SLOT INDEX (not a byte offset) and func ``fpos``
+    is entry-relative, so activations + internal jumps survive untouched."""
+    b = bytearray(_as_bytes(data))
+    old = b[3]
+    if new_count <= old:
+        return bytes(b)
+    if new_count > ENTRY_TABLE_MAX:
+        raise ValueError(f"entry table can hold at most {ENTRY_TABLE_MAX} slots (asked {new_count})")
+    k = (new_count - old) * ENTRY_SLOT_SIZE
+    for i in range(old):                              # bump every NON-empty body offset by the insert
+        so = ENTRY_TABLE_OFF + i * ENTRY_SLOT_SIZE
+        if u16(b, so + 2) > 0:                        # empty slots keep off=0
+            set_u16(b, so, u16(b, so) + k)
+    b[3] = new_count
+    ins_at = ENTRY_TABLE_OFF + old * ENTRY_SLOT_SIZE  # right after the old table, before the bodies
+    return bytes(b[:ins_at]) + bytes(k) + bytes(b[ins_at:])
+
+
 def append_entry(data, slot: int, entry_bytes: bytes) -> bytes:
     """Append ``entry_bytes`` at end-of-file and register it in entry-table ``slot``.
 
-    The slot must currently be empty. Returns new bytes. Does not shift existing bytecode.
+    The slot must currently be empty. If ``slot`` is beyond the current table (``slot >= entry_count``
+    -- what :meth:`EbScript.first_free_slot` returns when the table is full), the table is grown
+    on-demand to accommodate it first. Returns new bytes. Does not shift existing bytecode.
     """
     b = bytearray(_as_bytes(data))
+    if slot >= b[3]:                                  # table full -> grow (chunked) to fit this slot
+        b = bytearray(grow_entry_table(b, max(slot + 1, b[3] + ENTRY_GROW_CHUNK)))
     so = ENTRY_TABLE_OFF + slot * ENTRY_SLOT_SIZE
     if u16(b, so + 2) != 0:
         raise ValueError(f"entry slot {slot} is not empty (size={u16(b, so + 2)})")
