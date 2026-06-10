@@ -504,8 +504,11 @@ Read these on demand — they hold the full technical detail this file only summ
   real-FF9 field-locations, so the spine stays install-free), `snippet(entry)` (the `[[npc]]`/`[[prop]]`/
   `give_item`/`[encounter]` block), `find(name, kind)`. All plain dataclasses (Tkinter/web/CLI/JSON). Built
   spine-first ON PURPOSE so a standalone viewer NOW + the **Campaign Editor** suite LATER (+ Blender if ever)
-  reuse the same core with no rework. Deferred: the in-game-PREVIEW hook (lift the arena builder into the
-  package so `preview_field_toml(selection)` deploys a gallery) + the standalone Tkinter view.
+  reuse the same core with no rework. **Frontend:** `tools/ff9_infohub.pyw` — a standalone Tkinter window
+  (live search/filter, detail pane, copy-snippet; `--smoke` self-test), the first view on the spine
+  (user-verified). Deferred: a "Where in FF9?" button (the `detail(usage_fn=)` field-usage hook) + a
+  "Preview in-game" button (lift the arena builder into the package so `preview_field_toml(selection)`
+  deploys a gallery of the selection).
 
 ---
 

@@ -57,12 +57,15 @@ class Detail:
 
 # ----------------------------------------------------------------- helpers ---
 def _model_of_archetype(name) -> Optional[str]:
-    """The GEO model NAME an archetype/creature resolves to (or None if it doesn't resolve cleanly)."""
-    try:
-        mid = _arch.resolve(name)[0]
-    except ValueError:
-        return None
-    m = _cat.model(mid) if mid is not None else None
+    """The GEO model NAME an archetype/creature maps to (or None). Cheap -- a direct model lookup, NOT
+    ``archetypes.resolve`` (which also scans every animation to build the movement set)."""
+    key = str(name).strip().lower()
+    if key in _CHAR_PRESETS:
+        model = _CHAR_PRESETS[key][0]
+    else:
+        spec = _arch.ARCHETYPES.get(key) or _arch.CREATURES.get(key)
+        model = spec["model"] if spec else None
+    m = _cat.model(model) if model is not None else None
     return m.name if m else None
 
 
@@ -105,20 +108,33 @@ def _all_entries() -> list:
     return _ENTRY_CACHE
 
 
+_MODEL_NAMES_CACHE: Optional[dict] = None
+
+
+def _model_names_index() -> dict:
+    """``{model_name: [names...]}`` -- every archetype/creature/prop name grouped by its GEO model, built
+    ONCE so :func:`_aliases_for` is an O(1) lookup instead of re-scanning every archetype per detail."""
+    global _MODEL_NAMES_CACHE
+    if _MODEL_NAMES_CACHE is None:
+        idx: dict = {}
+        for n in set(_CHAR_PRESETS) | set(_arch.ARCHETYPES) | set(_arch.CREATURES):
+            mn = _model_of_archetype(n)
+            if mn:
+                idx.setdefault(mn, []).append(n)
+        for n, spec in _props.PROP_ARCHETYPES.items():
+            m = _cat.model(_cat.resolve_model(spec["model"]))
+            if m:
+                idx.setdefault(m.name, []).append(n)
+        _MODEL_NAMES_CACHE = {k: sorted(v) for k, v in idx.items()}
+    return _MODEL_NAMES_CACHE
+
+
 def _aliases_for(name, model_name) -> list:
-    """Other archetype/creature/prop names that resolve to the same GEO model (so a detail pane can show
-    'also: dagger, garnets_mother')."""
+    """Other archetype/creature/prop names on the same GEO model (so a detail pane can show 'also: dagger,
+    garnets_mother') -- an O(1) lookup into the cached :func:`_model_names_index`."""
     if not model_name:
         return []
-    out = set()
-    for n in set(_CHAR_PRESETS) | set(_arch.ARCHETYPES) | set(_arch.CREATURES):
-        if n != name and _model_of_archetype(n) == model_name:
-            out.add(n)
-    for n, spec in _props.PROP_ARCHETYPES.items():
-        m = _cat.model(_cat.resolve_model(spec["model"]))
-        if n != name and m and m.name == model_name:
-            out.add(n)
-    return sorted(out)
+    return [n for n in _model_names_index().get(model_name, []) if n != name]
 
 
 # --------------------------------------------------------------- public API ---
