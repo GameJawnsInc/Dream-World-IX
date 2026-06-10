@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]               # repo root (apps/ is a
 sys.path.insert(0, str(ROOT / "ff9mapkit"))              # the kit root holds the ff9mapkit package
 sys.path.insert(0, str(ROOT / "tools"))                  # tools/ holds the field-usage index helper
 from ff9mapkit import infohub                             # noqa: E402
+from ff9mapkit.editor.theme import apply_theme            # noqa: E402  (shared modern theme/palette)
 try:                                                     # the "Where in FF9?" lookup is optional
     import model_field_usage as _mfu                      # noqa: E402
 except Exception:
@@ -38,6 +39,7 @@ KIND_CHOICES = ("all",) + infohub.KINDS
 class InfoHubApp:
     def __init__(self, parent):
         self.root = parent.winfo_toplevel()      # real Tk root (clipboard/update); the UI mounts on `parent`
+        self.pal = apply_theme(self.root)        # shared modern palette (styles ttk globally too)
         self._entries = []
         self._current = None
         self._det = None
@@ -56,7 +58,9 @@ class InfoHubApp:
         body.pack(fill="both", expand=True, padx=6, pady=4)
         left = ttk.Frame(body)
         body.add(left, weight=1)
-        self.lst = tk.Listbox(left, activestyle="none", exportselection=False)
+        self.lst = tk.Listbox(left, activestyle="none", exportselection=False, borderwidth=0,
+                              highlightthickness=0, bg=self.pal["field"], fg=self.pal["text"],
+                              selectbackground=self.pal["accent"], selectforeground=self.pal["accent_fg"])
         self.lst.pack(side="left", fill="both", expand=True)
         sb = ttk.Scrollbar(left, command=self.lst.yview)
         sb.pack(side="right", fill="y")
@@ -65,7 +69,8 @@ class InfoHubApp:
 
         right = ttk.Frame(body)
         body.add(right, weight=2)
-        self.detail = tk.Text(right, wrap="word", state="disabled", font=("Consolas", 10))
+        self.detail = tk.Text(right, wrap="word", state="disabled", font=("Consolas", 10), borderwidth=0,
+                              highlightthickness=0, padx=8, pady=6, bg=self.pal["surface"], fg=self.pal["text"])
         self.detail.pack(fill="both", expand=True)
         bar = ttk.Frame(right)
         bar.pack(fill="x")

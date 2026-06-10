@@ -31,6 +31,8 @@ def _load_app(filename, modname):
 
 def build(root):
     """Mount the three app panels as tabs on `root`; return the notebook."""
+    from ff9mapkit.editor.theme import apply_theme
+    apply_theme(root)                                # theme the root + notebook strip before the tabs
     nb = ttk.Notebook(root)
     nb.pack(fill="both", expand=True)
     from ff9mapkit.editor.app import EditorApp        # in the package; built first so it sets the shared theme

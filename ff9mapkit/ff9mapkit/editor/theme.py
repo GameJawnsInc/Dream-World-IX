@@ -189,4 +189,12 @@ def apply_theme(root, mode: str = "auto") -> dict:
                      bordercolor=pal["bg"], arrowcolor=pal["muted"], relief="flat")
         st.map(s, background=[("active", pal["muted"])])
 
+    # Notebook (the Campaign Editor's tab strip): flat themed tabs, the active one on the page bg.
+    st.configure("TNotebook", background=pal["bg"], bordercolor=pal["border"])
+    st.configure("TNotebook.Tab", background=pal["surface_btn"], foreground=pal["muted"],
+                 bordercolor=pal["border"], lightcolor=pal["surface_btn"], padding=(14, 7))
+    st.map("TNotebook.Tab",
+           background=[("selected", pal["bg"]), ("active", pal["hover"])],
+           foreground=[("selected", pal["text"]), ("active", pal["text"])])
+
     return pal

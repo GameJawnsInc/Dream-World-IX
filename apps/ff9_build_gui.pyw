@@ -29,6 +29,7 @@ NOWIN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 import tkinter as tk                                   # noqa: E402
 from tkinter import ttk, filedialog, messagebox, scrolledtext   # noqa: E402
+from ff9mapkit.editor.theme import apply_theme         # noqa: E402  (shared modern theme/palette)
 
 
 def detect_game_mod():
@@ -43,6 +44,7 @@ def detect_game_mod():
 class App:
     def __init__(self, parent):
         self.root = parent.winfo_toplevel()      # real Tk root (after/dialogs); the UI mounts on `parent`
+        self.pal = apply_theme(self.root)        # shared modern palette (styles ttk globally too)
         self.busy = False
         self.game_mod = detect_game_mod()
         pad = dict(padx=10, pady=5)
@@ -85,7 +87,8 @@ class App:
             self.rev.state(["disabled"])
 
         # --- log ---
-        self.log = scrolledtext.ScrolledText(parent, height=16, state="disabled", wrap="word")
+        self.log = scrolledtext.ScrolledText(parent, height=16, state="disabled", wrap="word",
+                                             borderwidth=0, bg=self.pal["log_bg"], fg=self.pal["log_fg"])
         self.log.pack(fill="both", expand=True, **pad)
         self._write("Pick a .field.toml, choose where to build it, then Build / Deploy.\n"
                     "Tip: 'Test field 4003' lets you walk it in-game immediately.\n")
