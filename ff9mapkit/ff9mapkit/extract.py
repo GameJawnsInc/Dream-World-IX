@@ -598,26 +598,67 @@ def _overlay_shader(sprite) -> str:
     return f"PSX/FieldMap_Abr_{min(3, sprite.alpha)}"
 
 
-def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, include_blend=True):
-    """Per-overlay art layers (grouped by depth + blend mode) for an EDITABLE custom-scene fork that
-    PRESERVES occlusion AND lighting -- the inverse of `compose_background`'s flat merge.
+def _depth_groups(overlays, sOrgX, sOrgY, sOrgZ, has_png, *, include_blend=True, depth_tolerance=1):
+    """Bucket every renderable tile-sprite by (depth-bucket, shader) -- the PER-TILE occlusion split.
 
-    Groups the field's overlays by (DEPTH, SHADER) and writes one transparent full-canvas PNG per
-    group, returning the `[[layers]]` list ({image, z, [shader]}) for a custom scene. The engine
-    redraws the depth-ordered scene, so the 3D player is occluded by / occludes each layer exactly
-    like the real field (smaller z = nearer the camera = drawn in front), and light/shadow overlays
-    blend (Abr shaders). Depth + position follow Memoria's OWN .bgx exporter (BGSCENE_DEF.cs:606):
-    z = scene.orgZ + overlay.orgZ + min(sprite.depth); position = scene.org{X,Y}+overlay.org{X,Y}+
-    min(sprite.off{X,Y}) -- baked into each full-canvas PNG, so the kit layer is position [0,0], size
-    = range. Shader per BGSCENE_DEF.cs:611.
+    FF9 occludes the player per 16px TILE: the engine places each tile-sprite at its OWN depth
+    (BGSCENE_DEF.cs:1742 combined / :1846 separate, quad z = sprite.depth) and the player competes at a
+    single projected eye-Z. A pure-`.bgx` OVERLAY carries only ONE depth per PNG, so faithful occlusion
+    means one layer per distinct tile depth -- NOT one layer per overlay at min(sprite.depth) (the old
+    flatten, which pinned a whole multi-depth overlay to its NEAREST tile and drew the player UNDER art
+    physically behind him). `depth_tolerance` coarsens depths into buckets (1 = exact per-distinct-depth).
 
-    Returns None if the field hasn't been `[Export] Field=1`'d in-game yet (no per-overlay PNGs on
-    disk). `include_blend` (default) emits the additive/subtractive light+shadow overlays too (they
-    carry a lot of a field's art -- e.g. GRGR is 5/7 blend); set False for opaque structure only.
+    Pure (no PIL/IO): `has_png(i)` reports whether overlay i has exported art on disk. Returns
+    ((bucket_z, shader) -> [(overlay_index, sprite, scene_x, scene_y, mnX, mnY)], skipped_blend), where
+    scene_x/scene_y are the tile's logical top-left on the canvas (sceneOrg + overlay.org + sprite.off,
+    matching compose_background) and mnX/mnY are its overlay's min offsets (for the tile crop)."""
+    tol = max(1, int(depth_tolerance))
+    groups, skipped = {}, 0
+    for i, o in enumerate(overlays):
+        if not o.sprites:
+            continue
+        shader = _overlay_shader(o.sprites[0])
+        if not include_blend and shader != _ABR_NONE:
+            skipped += 1
+            continue
+        if not has_png(i):
+            continue
+        mnX = min(s.offX for s in o.sprites)
+        mnY = min(s.offY for s in o.sprites)
+        for s in o.sprites:
+            bz = ((sOrgZ + o.orgZ + s.depth) // tol) * tol    # tol==1 => exact per-distinct-depth
+            groups.setdefault((bz, shader), []).append(
+                (i, s, sOrgX + o.orgX + s.offX, sOrgY + o.orgY + s.offY, mnX, mnY))
+    return groups, skipped
 
-    Co-located same-(depth,shader) overlays merge into one layer (correct for a tiled plane,
-    approximate for overlapping animation frames -- a known v1 simplification).
-    """
+
+def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, include_blend=True,
+                   depth_tolerance=8, max_layers=48, bleed=1):
+    """Per-TILE-DEPTH art layers for an EDITABLE custom-scene fork that PRESERVES per-tile occlusion.
+
+    Real FF9 fields occlude the player per 16px tile (each tile-sprite drawn at its own depth); a
+    pure-`.bgx` OVERLAY can carry only ONE depth per PNG, so this SPLITS each overlay into one tight
+    sub-PNG per distinct tile depth (within `depth_tolerance`), each emitted at that depth's own `z` +
+    explicit `position`/`size`. The engine redraws the depth-ordered scene, so the 3D player is occluded
+    by / occludes each layer exactly like the real field (smaller z = nearer = drawn in front), and
+    light/shadow overlays blend (Abr shaders, BGSCENE_DEF.cs:597). This REPLACES the old
+    one-PNG-per-overlay-at-min(sprite.depth) flatten (a verbatim port of Memoria's own lossy `.bgx`
+    exporter, BGSCENE_DEF.cs:592), which drew the player UNDER any overlay whose nearest tile sat in
+    front of him (the "Zidane under the boxes" bug).
+
+    Tiles are cropped from the engine's exported `Overlay{i}.png` (correct tile assembly) via
+    `bgs.tile_box`. `depth_tolerance` buckets nearby depths into one layer (1 = exact per-distinct-depth);
+    the default 8 keeps each smooth surface whole (real surfaces vary only a few depth units per tile)
+    while still splitting at the big depth jumps that actually occlude. `max_layers` then auto-coarsens
+    the tolerance until the count fits (default 48) -- a real field can split into HUNDREDS of distinct
+    tile depths (field 122 = 215 at tol 1), which both lags the load (one GameObject/texture per layer)
+    and multiplies tile-cut seams. `bleed` edge-extends opaque layers to hide the bilinear cut seams.
+    Tune `depth_tolerance` up for fewer layers (snappier load, coarser occlusion) or down for finer
+    occlusion. Returns None if the field hasn't been `[Export] Field=1`'d in-game yet (no per-overlay PNGs
+    on disk). `include_blend` (default) emits the additive/subtractive light+shadow overlays too.
+
+    Co-located tiles sharing a (depth-bucket, shader) merge into one layer (correct for a tiled plane,
+    approximate for overlapping animation frames at the same depth -- a known v1 simplification)."""
     art = field_art_dir(field, game)
     if art is None:
         return None
@@ -628,42 +669,91 @@ def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, in
     bgs.resolve_sprites(bgs_bytes, overlays, 2048, 40)        # atlas params irrelevant for off/depth
     sOrgX, sOrgY, sOrgZ = h.bounds[2], h.bounds[3], h.bounds[0]
     c0 = bgs.parse_cameras(bgs_bytes)[0]
-    W, H = c0.range[0] * upscale, c0.range[1] * upscale
 
-    groups = {}      # (z, shader) -> [(overlay_index, Overlay)]
-    skipped = 0
-    for i, o in enumerate(overlays):
-        if not o.sprites:
-            continue
-        shader = _overlay_shader(o.sprites[0])
-        if not include_blend and shader != _ABR_NONE:
-            skipped += 1
-            continue
-        if not (art / f"Overlay{i}.png").is_file():
-            continue
-        z = sOrgZ + o.orgZ + min(s.depth for s in o.sprites)
-        groups.setdefault((z, shader), []).append((i, o))
+    def _has_png(i):
+        return (art / f"Overlay{i}.png").is_file()
 
+    tol = max(1, int(depth_tolerance))
+    groups, skipped = _depth_groups(overlays, sOrgX, sOrgY, sOrgZ, _has_png,
+                                    include_blend=include_blend, depth_tolerance=tol)
+    while len(groups) > max_layers and tol < 4096:            # runaway-field backstop: coarsen the bucket
+        tol *= 2
+        groups, skipped = _depth_groups(overlays, sOrgX, sOrgY, sOrgZ, _has_png,
+                                        include_blend=include_blend, depth_tolerance=tol)
+
+    png_cache = {}
+    def _png(i):
+        im = png_cache.get(i)
+        if im is None:
+            im = png_cache[i] = Image.open(art / f"Overlay{i}.png").convert("RGBA")
+        return im
+
+    layers, blend = _render_depth_groups(groups, _png, out_dir, upscale=upscale, bleed=bleed)
+    return {"layers": layers, "blend_layers": blend, "skipped_blend_overlays": skipped,
+            "range": list(c0.range), "depth_tolerance": tol,
+            "tiles": sum(len(v) for v in groups.values())}
+
+
+def _edge_bleed(img, px):
+    """Dilate opaque pixels `px` px outward into transparent neighbours (edge-extend). The kit's `.bgx`
+    layer PNGs load BILINEAR (Unity `LoadImage` default; the engine's `.memnfo` `FilterMode Point` hook is
+    dummied), so a tile cut from a larger image samples TRANSPARENT just past its edge -> a 1px seam at
+    every boundary between tiles split into different depth layers. Bleeding real edge colour into a 1px
+    margin makes the bilinear tap land on art, not transparent, killing the seam. Pure PIL (no numpy):
+    each pass composites eight 1px-shifted copies UNDER the image, filling only the still-transparent
+    border with the nearest edge pixel."""
+    from PIL import Image  # noqa: PLC0415 - only the art path needs PIL
+    shifts = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1))
+    for _ in range(px):
+        under = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        for dx, dy in shifts:
+            shifted = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            shifted.paste(img, (dx, dy))
+            under = Image.alpha_composite(under, shifted)     # accumulate every neighbour shift
+        img = Image.alpha_composite(under, img)               # original on top -> only the border fills
+    return img
+
+
+def _render_depth_groups(groups, png_provider, out_dir, *, upscale=4, bleed=1):
+    """Composite each (depth-bucket, shader) group from `_depth_groups` into one tight sub-PNG and
+    return its `[[layers]]` list (back-to-front by depth). `png_provider(i)` yields overlay i's exported
+    `Overlay{i}.png` as an RGBA PIL image; each tile is cropped from it via `bgs.tile_box` and blitted at
+    its own canvas spot. Each layer gets an EXPLICIT `position`/`size` (the group's tile bbox) so the
+    engine maps the sub-PNG onto exactly the quad the tiles occupy.
+
+    `bleed` (logical px) gives each OPAQUE layer a transparent margin that `_edge_bleed` fills with the
+    tile edge colour, so the engine's bilinear sampling doesn't bleed a cut tile's edge to transparent
+    (the 1px seams). Blend (additive) layers skip it: a transparent bleed only DIMS their glow (no dark
+    seam) and a margin would double-add the glow where layers overlap. Split out for unit-testing the
+    crop + placement (and the bleed) without a real `.bgs`."""
+    from PIL import Image  # noqa: PLC0415 - only the art path needs PIL
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     layers, blend = [], 0
-    for (z, shader) in sorted(groups, key=lambda k: (-k[0], k[1])):    # back (large z) -> front
-        canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        for i, o in groups[(z, shader)]:
-            im = Image.open(art / f"Overlay{i}.png").convert("RGBA")
-            mnX = min(s.offX for s in o.sprites)
-            mnY = min(s.offY for s in o.sprites)
-            canvas.alpha_composite(im, ((sOrgX + o.orgX + mnX) * upscale, (sOrgY + o.orgY + mnY) * upscale))
+    for (bz, shader) in sorted(groups, key=lambda k: (-k[0], k[1])):    # back (large z) -> front
+        tiles = groups[(bz, shader)]
+        gx0 = min(t[2] for t in tiles)
+        gy0 = min(t[3] for t in tiles)
+        gx1 = max(t[2] + bgs.TILE for t in tiles)
+        gy1 = max(t[3] + bgs.TILE for t in tiles)
+        m = bleed if (shader == _ABR_NONE and bleed > 0) else 0         # opaque layers get a bleed margin
+        px0, py0 = gx0 - m, gy0 - m
+        sw, sh = (gx1 - gx0) + 2 * m, (gy1 - gy0) + 2 * m
+        canvas = Image.new("RGBA", (sw * upscale, sh * upscale), (0, 0, 0, 0))
+        for (i, s, sx, sy, mnX, mnY) in tiles:               # blit each tile at its own canvas spot
+            canvas.alpha_composite(png_provider(i).crop(bgs.tile_box(s, mnX, mnY, upscale)),
+                                   ((sx - px0) * upscale, (sy - py0) * upscale))
+        if m:
+            canvas = _edge_bleed(canvas, m * upscale)         # fill the margin with edge colour
         abr = shader.rsplit("_", 1)[-1]                       # None / 0 / 1 / 2 / 3
-        name = f"layer_{int(z):05d}_{abr}.png"
+        name = f"layer_{int(bz):05d}_{abr}.png"
         canvas.save(out / name)
-        L = {"image": name, "z": int(z)}
+        L = {"image": name, "z": int(bz), "position": [int(px0), int(py0)], "size": [int(sw), int(sh)]}
         if shader != _ABR_NONE:
             L["shader"] = shader
             blend += 1
         layers.append(L)
-    return {"layers": layers, "blend_layers": blend, "skipped_blend_overlays": skipped,
-            "range": list(c0.range)}
+    return layers, blend
 
 
 def _world_walkmesh_obj_text(wm) -> str:
@@ -764,6 +854,12 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     meta["layers"] = len(layers)
     meta["blend_layers"] = layers_info["blend_layers"]
     meta["editable_name"] = name
+    # A single composited backdrop (opaque art) for the Blender modeling preview: the per-tile-depth
+    # sub-layers are tight crops that don't FIT-stretch, so the add-on models against this instead.
+    try:                                                          # preview-only -- never fatal
+        compose_background(field, out / "background.png", game=game, bundle=bundle, draw_footprint=False)
+    except Exception:
+        pass
 
     content_blocks, control_dir, content_summary = _content_for_import(
         field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams)
@@ -775,7 +871,11 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     control_line = f"control_direction = {control_dir}   # imported WASD-vs-camera tuning\n" if control_dir is not None else ""
 
     def _layer_block(L):
-        s = f'[[layers]]\nimage = "{L["image"]}"\nz = {L["z"]}'
+        pos, sz = L.get("position", [0, 0]), L.get("size")
+        s = (f'[[layers]]\nimage = "{L["image"]}"\nz = {L["z"]}\n'
+             f'position = [{int(pos[0])}, {int(pos[1])}]')
+        if sz:                                                 # tight per-tile-depth sub-PNG (vs full canvas)
+            s += f'\nsize = [{int(sz[0])}, {int(sz[1])}]'
         return s + (f'\nshader = "{L["shader"]}"' if L.get("shader") else "")
     layer_blocks = "\n".join(_layer_block(L) for L in layers)
 
@@ -794,7 +894,8 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     )
     toml = (
         f"# EDITABLE fork of {meta['field']} (area {meta['area']}) by ff9mapkit -- a full CUSTOM SCENE.\n"
-        f"# Re-exported walkmesh + the real art split into one layer per DEPTH (occlusion preserved).\n"
+        f"# Re-exported walkmesh + the real art split into one layer per TILE-DEPTH (per-tile occlusion\n"
+        f"# preserved -- the player is occluded by each tile exactly as in the real field).\n"
         f"# Repaint any layer_*.png, reshape walkmesh.obj, add content -- then:  ff9mapkit build {name}.field.toml\n"
         f"# Camera: pitch {cm['pitch_deg']} deg, FOV {cm['fov_deg']} deg, range {cm['range'][0]}x{cm['range'][1]}"
         f"{' (SCROLLING)' if meta['scrolling'] else ''}.  Walkmesh bounds: x {wb['x']}  z {wb['z']}.\n"
@@ -810,6 +911,167 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f"{scroll}\n"
         f"{walkmesh_toml}\n"
         f"{layer_blocks}\n\n"
+        f"[player]\n"
+        f"spawn = [{x}, {z}]\n\n"
+        f"# --- add NPCs/dialogue (uncomment + edit); keep positions within the walkmesh bounds above ---\n"
+        f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n\n'
+        f"{_content_section(content_blocks, x, z)}"
+    )
+    p = Path(out_dir) / f"{name}.field.toml"
+    p.write_text(toml, encoding="utf-8", newline="\n")
+    meta["field_toml"] = str(p)
+    return meta, p
+
+
+def _mod_folders(game=None) -> list:
+    """Active mod folders (Memoria.ini [Mod] FolderNames), in listed order. The engine stacks these over
+    the base assets, so a background mod (Moguri) supplies the field atlas the player actually sees."""
+    try:
+        ini = config.find_game_path(game) / "Memoria.ini"
+        for line in ini.read_text(encoding="utf-8", errors="replace").splitlines():
+            s = line.strip()
+            if s.lower().startswith("foldernames") and "=" in s and not s.startswith(";"):
+                return [v.strip().strip('"') for v in s.split("=", 1)[1].split(",") if v.strip().strip('"')]
+    except OSError:
+        pass
+    return []
+
+
+def _active_tilesize(game=None) -> int:
+    """The effective field-map atlas TileSize (Memoria.ini; a mod folder's ini overrides the base). Vanilla
+    32 / Moguri 64. The native atlas MUST be packed at this tile size or the engine samples the wrong cells
+    (garbled art) -- it lays each tile out at i*(TileSize+pad)."""
+    gp = config.find_game_path(game)
+    ts = 32
+    for ini in [gp / "Memoria.ini"] + [gp / f / "Memoria.ini" for f in _mod_folders(game)]:
+        try:
+            for line in ini.read_text(encoding="utf-8", errors="replace").splitlines():
+                s = line.strip()
+                if s.lower().startswith("tilesize") and "=" in s and not s.startswith(";"):
+                    ts = int(s.split("=", 1)[1].split(";")[0].strip())
+        except (OSError, ValueError):
+            pass
+    return ts
+
+
+def _atlas_png_bytes(tex) -> bytes:
+    import io  # noqa: PLC0415
+    buf = io.BytesIO()
+    tex.image.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _mod_field_atlas(folder: str, game=None):
+    """The field's ``atlas.png`` from the highest-priority MOD folder that ships it (Moguri's high-res
+    atlas), as PNG bytes -- or None. Scans each mod folder's loose Fieldmaps, then its p0data bundles."""
+    gp = config.find_game_path(game)
+    key = f"assets/resources/fieldmaps/{folder.lower()}/atlas.png"
+    for mod in _mod_folders(game):
+        sa = gp / mod / "StreamingAssets"
+        loose = sa / "Assets" / "Resources" / "Fieldmaps" / folder / "atlas.png"
+        if loose.is_file():
+            return loose.read_bytes()
+        for b in sorted(sa.glob("p0data*.bin")):
+            try:
+                env = _unitypy().load(str(b))
+            except Exception:                                # noqa: BLE001 - a non-bundle / unreadable bin
+                continue
+            for path, obj in env.container.items():
+                if path.lower() == key:
+                    return _atlas_png_bytes(obj.read())
+    return None
+
+
+def _native_atlas(field: str, game=None, bundle=None):
+    """(atlas_png_bytes, source) for a NATIVE fork: the field atlas packed at the ACTIVE TileSize. The base
+    bundle atlas fits vanilla (32); when a mod raises TileSize (Moguri = 64) the base atlas no longer fits,
+    so we ship the bg mod's high-res atlas -- a Moguri player gets Moguri art, seamless + faithful. Returns
+    the first atlas whose dimensions accommodate the field's sprite coords at the active TileSize."""
+    from PIL import Image  # noqa: PLC0415
+    import io  # noqa: PLC0415
+    folder, _ = resolve_field(field, game)
+    _, _, roles, env = find_field(field, game=game, bundle=bundle)
+    bgs_bytes = _raw_bytes(env.container[roles["bgs"]].read())
+    ts = _active_tilesize(game)
+
+    def _fits(png: bytes) -> bool:
+        w, h = Image.open(io.BytesIO(png)).size
+        _, ov = bgs.parse_overlays(bgs_bytes)                # fresh overlays (resolve_sprites appends)
+        bgs.resolve_sprites(bgs_bytes, ov, w, ts)
+        sprites = [s for o in ov for s in o.sprites]
+        return (max((s.atlasX for s in sprites), default=0) <= w
+                and max((s.atlasY for s in sprites), default=0) <= h)
+
+    base = _atlas_png_bytes(env.container[roles["atlas"]].read()) if "atlas" in roles else None
+    if base is not None and _fits(base):
+        return base, "base"
+    mod = _mod_field_atlas(folder, game=game)               # Moguri / a bg mod's high-res atlas
+    if mod is not None and _fits(mod):
+        return mod, f"mod (TileSize {ts})"
+    return (base or mod), ("base (TILESIZE MISMATCH -- art will garble)" if base else "none found")
+
+
+def write_native_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
+                         text_block: int = 1073, game=None, bundle=None,
+                         id_remap=None, live_seams=False):
+    """Fork a real field as a NATIVE custom scene: ship its OWN ``atlas.png`` + ``.bgs`` (the real
+    per-tile-depth scene) + a custom walkmesh ``.bgi``, and NO ``.bgx``.
+
+    The engine then renders it through the SEAMLESS native path (point-sampled atlas, per-tile-depth
+    quads) -- exactly how Moguri ships (vanilla ``.bgs`` + a high-res atlas, no ``.bgx``), so the player
+    is occluded per-tile with none of the bilinear tile seams a ``.bgx`` memoria-image fork has. The area
+    is remapped >= 10 so the ``FBG_N<area>`` lookup doesn't black-screen, which also lets this fork
+    area<10 fields that BG-borrow can't. Repaint by editing ``atlas.png`` (or the Memoria PSD pipeline).
+    Returns (metadata, field_toml_path). Needs no in-game export (unlike ``--editable``)."""
+    out = Path(out_dir)
+    # camera.bgx (content logic) + walkmesh.bgi (real walkmesh)
+    meta = extract_field(field, out, game=game, bundle=bundle)
+    # atlas packed at the ACTIVE TileSize: base for vanilla, Moguri's high-res atlas when a mod raised it
+    atlas_bytes, atlas_src = _native_atlas(field, game=game, bundle=bundle)
+    if atlas_bytes is None:
+        raise RuntimeError(f"{meta['field']}: no atlas.png in the field bundle -- can't ship a native scene "
+                           f"(use `ff9mapkit import {field}` for a BG-borrow fork instead).")
+    (out / "atlas.png").write_bytes(atlas_bytes)
+    meta["atlas_source"] = atlas_src
+    name = name or (meta["mapid"].split("_")[0] + "_NATIVE")
+    safe_area = safe_custom_area(meta["area"])
+    remap_note = ("" if safe_area == meta["area"] else
+                  f"# NOTE: source area {meta['area']} < 10 black-screens via the engine's FBG_N<area> "
+                  f"lookup, so this\n# native scene uses area {safe_area} (it ships its own art).\n")
+    # ship the field's NATIVE .bgs VERBATIM -- it carries the per-tile depth the engine renders seamlessly
+    _, _, roles, env = find_field(field, game=game, bundle=bundle)
+    (out / "scene.bgs.bytes").write_bytes(_raw_bytes(env.container[roles["bgs"]].read()))
+    meta["editable_name"] = name
+
+    content_blocks, control_dir, content_summary = _content_for_import(
+        field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams)
+    meta["imported_content"] = content_summary
+    cm = meta["camera"]
+    wb = meta["walkmesh_bounds"]
+    x, z = meta["player_start"]
+    scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
+    control_line = f"control_direction = {control_dir}   # imported WASD-vs-camera tuning\n" if control_dir is not None else ""
+
+    toml = (
+        f"# NATIVE fork of {meta['field']} (area {meta['area']}) by ff9mapkit -- ships its OWN atlas.png +\n"
+        f"# scene.bgs (the real per-tile-depth scene) + custom walkmesh, NO .bgx. The engine renders it via\n"
+        f"# the SEAMLESS native path (point-sampled atlas, per-tile occlusion) -- exactly how Moguri ships.\n"
+        f"# Repaint by editing atlas.png (or the Memoria PSD pipeline). Add content below, then build it.\n"
+        f"# Camera: pitch {cm['pitch_deg']} deg, FOV {cm['fov_deg']} deg.  Walkmesh bounds: x {wb['x']}  z {wb['z']}.\n"
+        f"{remap_note}\n"
+        f"[field]\n"
+        f"id = {field_id}\n"
+        f'name = "{name}"\n'
+        f"area = {safe_area}\n"
+        f"text_block = {text_block}\n"
+        f'bgs = "scene.bgs.bytes"   # NATIVE scene (per-tile depth) -> seamless render, NO .bgx / no tile seams\n'
+        f'atlas = "atlas.png"\n\n'
+        f"[camera]\n"
+        f'borrow = "camera.bgx"   # content logic uses this; the RENDERED camera lives inside scene.bgs\n'
+        f"{control_line}"
+        f"{scroll}\n"
+        f"[walkmesh]\n"
+        f'bgi = "walkmesh.bgi"   # the real field\'s walkmesh -- connectivity preserved (faithful copy)\n\n'
         f"[player]\n"
         f"spawn = [{x}, {z}]\n\n"
         f"# --- add NPCs/dialogue (uncomment + edit); keep positions within the walkmesh bounds above ---\n"

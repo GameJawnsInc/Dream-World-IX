@@ -404,11 +404,18 @@ def layers_to_toml(layers):
     for L in layers:
         if isinstance(L, dict):
             img, z, shader, cam_id = L["image"], L["z"], L.get("shader"), L.get("camera")
+            pos, size = L.get("position"), L.get("size")
         else:
             img, z = L[0], L[1]
             shader = L[2] if len(L) > 2 else None
-            cam_id = None
+            cam_id = pos = size = None
         block = f'[[layers]]\nimage = "{img}"\nz = {int(z)}'
+        # tight per-tile-depth sub-layers (editable forks) carry an explicit position+size; full-canvas
+        # painted layers omit them (build defaults to [0,0] + the camera range). Preserve them on
+        # re-export so an imported fork's per-tile OCCLUSION survives the Blender round-trip.
+        if size:
+            block += (f'\nposition = [{int((pos or (0, 0))[0])}, {int((pos or (0, 0))[1])}]'
+                      f'\nsize = [{int(size[0])}, {int(size[1])}]')
         if shader:
             block += f'\nshader = "{shader}"'
         if cam_id:                                   # only emit a non-zero camera (0 is the default)

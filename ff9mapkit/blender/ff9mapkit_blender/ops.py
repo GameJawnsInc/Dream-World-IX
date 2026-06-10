@@ -58,6 +58,11 @@ class FF9MKLayer(bpy.types.PropertyGroup):
     camera: bpy.props.IntProperty(name="Camera", default=0, min=0,
                                   description="Which camera shows this layer in a multi-camera field "
                                               "(0 = the only/default camera)")
+    # A tight per-tile-depth sub-layer (editable fork) carries its own position+size; a full-canvas
+    # painted layer leaves size (0,0) so build defaults to [0,0] + the camera range. Preserved so a
+    # fork's per-tile occlusion survives import -> export.
+    position: bpy.props.IntVectorProperty(name="Position", size=2, default=(0, 0))
+    size: bpy.props.IntVectorProperty(name="Size", size=2, default=(0, 0))
 
 
 class FF9MKProps(bpy.types.PropertyGroup):
@@ -1128,21 +1133,32 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         except AttributeError:
             while len(cam_obj.data.background_images):
                 cam_obj.data.background_images.remove(cam_obj.data.background_images[0])
-        for Lc in sorted(cfg.get("layers", []), key=lambda L: -int(L.get("z", 0))):   # back (hi z) first
+        cfg_layers = cfg.get("layers", [])
+        # Tight per-tile-depth sub-layers (an editable fork's occlusion split) each cover only a few
+        # tiles, so FIT-stretching them as full-screen backdrops would garble the preview. For a tight
+        # fork we model against the single composited background.png (loaded below) and keep the
+        # sub-layers in p.layers purely so Export round-trips the per-tile occlusion (position+size).
+        tight = any(Lc.get("size") for Lc in cfg_layers)
+        for Lc in sorted(cfg_layers, key=lambda L: -int(L.get("z", 0))):   # back (hi z) first
             img_path = os.path.join(d, Lc.get("image", ""))
             if not os.path.isfile(img_path):
                 continue
-            img = bpy.data.images.load(img_path, check_existing=True)
-            cam_obj.data.show_background_images = True
-            bg = cam_obj.data.background_images.new()
-            bg.image = img
-            bg.frame_method = "FIT"
-            bg.alpha = 1.0
-            bg.display_depth = "FRONT" if int(Lc.get("z", 4000)) < 1000 else "BACK"
+            if not tight:                                 # a full-canvas layer is usable as a FIT backdrop
+                img = bpy.data.images.load(img_path, check_existing=True)
+                cam_obj.data.show_background_images = True
+                bg = cam_obj.data.background_images.new()
+                bg.image = img
+                bg.frame_method = "FIT"
+                bg.alpha = 1.0
+                bg.display_depth = "FRONT" if int(Lc.get("z", 4000)) < 1000 else "BACK"
             La = p.layers.add()
             La.image = img_path
             La.z = int(Lc.get("z", 4000))
             La.shader = Lc.get("shader", "") or ""
+            pos, size = Lc.get("position"), Lc.get("size")
+            if size:                                      # tight sub-layer -> preserve its placement
+                La.position = (int((pos or (0, 0))[0]), int((pos or (0, 0))[1]))
+                La.size = (int(size[0]), int(size[1]))
 
         # real walkmesh -> editable mesh (reference for placing markers; borrow ships the real one).
         # Real .bgi verts are corner-origin PER FLOOR; the world transform (vert+orgPos+floor.org) lands
@@ -1211,11 +1227,12 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         content = _import_content(context, cfg, scene_cfg)
         p.export_dir = d                       # re-export here, preserving the exact camera.bgx
 
-        # real-art backdrop, if `ff9mapkit import` composited a single flattened one (older path).
-        # Loads it as the camera's BACK background so you model against the actual room. Skipped when
-        # per-depth [[layers]] were already loaded above (the editable-fork path).
+        # real-art backdrop: the single composited background.png `ff9mapkit import` writes. Loads it as
+        # the camera's BACK background so you model against the actual room. Used for a tight editable
+        # fork (whose per-tile sub-layers don't FIT-stretch) and for the older single-flattened path;
+        # skipped only when full-canvas [[layers]] were already added as FIT backdrops above.
         bg_path = os.path.join(d, "background.png")
-        if not p.layers and os.path.isfile(bg_path):
+        if (tight or not p.layers) and os.path.isfile(bg_path):
             img = bpy.data.images.load(bg_path, check_existing=True)
             cam_obj.data.show_background_images = True
             bg = cam_obj.data.background_images.new()
@@ -1296,8 +1313,11 @@ class FF9MK_OT_export_field(bpy.types.Operator):
                 dst = os.path.join(out, os.path.basename(src))
                 if os.path.abspath(src) != os.path.abspath(dst):
                     shutil.copyfile(src, dst)
-                layers.append({"image": os.path.basename(src), "z": int(L.z),
-                               "shader": L.shader or None})
+                Ld = {"image": os.path.basename(src), "z": int(L.z), "shader": L.shader or None}
+                if tuple(L.size) != (0, 0):              # tight per-tile-depth sub-layer: keep placement
+                    Ld["position"] = [int(L.position[0]), int(L.position[1])]
+                    Ld["size"] = [int(L.size[0]), int(L.size[1])]
+                layers.append(Ld)
             npcs, gateways, spawn, events = _collect_markers(context)
             scene_body = '[camera]\nborrow = "camera.bgx"\n'
             if p.scroll_enabled:

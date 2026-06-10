@@ -128,6 +128,23 @@ def parse_overlays(data: bytes):
     return h, overlays
 
 
+TILE = 16     # one background tile is 16x16 logical (pre-upscale) px (BGSCENE_DEF sprite quad)
+
+
+def tile_box(sprite, mnX, mnY, upscale: int = 4, tile: int = TILE):
+    """The crop rectangle ``(left, top, right, bottom)`` of one tile-sprite inside its overlay's
+    engine-exported ``Overlay{i}.png``.
+
+    The ``[Export] Field=1`` dump writes each overlay as a tight composite whose pixel (0,0) is the
+    overlay's MIN-offset tile (BGSCENE_DEF.cs:570-588), which is exactly where
+    ``extract.compose_background`` places the whole PNG (``(sOrg+org+min(off))*upscale``, no flip), so
+    a tile at ``(offX, offY)`` sits ``(offX-mnX, offY-mnY)`` tiles in -- each ``tile`` px, upscaled.
+    Pure arithmetic so the per-tile occlusion split is unit-testable without art."""
+    x0 = (sprite.offX - mnX) * upscale
+    y0 = (sprite.offY - mnY) * upscale
+    return (x0, y0, x0 + tile * upscale, y0 + tile * upscale)
+
+
 def resolve_sprites(data: bytes, overlays, atlas_w: int, tile_size: int = 64):
     """Fill each overlay's .sprites (offX/offY/depth + atlas cell). Mutates in place."""
     cpr = atlas_w // (tile_size + 4)

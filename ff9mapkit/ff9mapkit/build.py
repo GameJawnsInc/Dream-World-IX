@@ -208,6 +208,17 @@ def validate(project: FieldProject) -> list[str]:
         problems.append(f"[walkmesh] links not found: {wm['links']}")
     if wm.get("reference") and not project.path(wm["reference"]).is_file():
         problems.append(f"[walkmesh] reference not found: {wm['reference']}")
+    bgf = project.field.get("bgs")               # NATIVE custom scene (Moguri/vanilla path): own .bgs + atlas
+    if bgf:
+        if not project.path(bgf).is_file():
+            problems.append(f"[field] bgs (native scene) not found: {bgf}")
+        atl = project.field.get("atlas")
+        if not atl:
+            problems.append('[field] a native scene needs an atlas too -- add  atlas = "atlas.png"')
+        elif not project.path(atl).is_file():
+            problems.append(f"[field] atlas not found: {atl}")
+        if not (wm.get("bgi") or wm.get("obj")):
+            problems.append("[field] a native scene needs a [walkmesh] (bgi or obj)")
     for layer in project.raw.get("layers", []):
         if "image" not in layer:
             problems.append("[[layers]] entry missing 'image'")
@@ -1852,8 +1863,26 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # drives movement/scroll derivation + content guidance. Proven path (Session 4). Otherwise build
     # a full custom scene (camera + walkmesh + overlays -> .bgx / .bgi / PNGs).
     borrow_bg = project.field.get("borrow_bg")
+    native_bgs = project.field.get("bgs")       # NATIVE custom scene (Moguri/vanilla path): own .bgs + atlas
     cutscene_wmesh = None                       # walkmesh used to auto-route cutscene walks (custom or borrow)
-    if not borrow_bg:
+    if native_bgs:
+        # Ship atlas.png + <FBG>.bgs.bytes + the custom <FBG>.bgi.bytes and NO .bgx, so the engine's
+        # BGSCENE_DEF.LoadResources takes the NATIVE branch (LoadAtlasAndEBG, not ReadMemoriaBGS): a
+        # point-sampled atlas + per-tile-depth quads = NO seams + faithful occlusion (the .bgs already
+        # carries per-tile depth -- unlike a .bgx, which pins one depth per overlay PNG). This is exactly
+        # how Moguri ships (vanilla .bgs + a high-res atlas, no .bgx). Repaint = swap atlas.png / the
+        # Memoria PSD pipeline. Area is remapped >= 10 by the importer so the FBG lookup doesn't black-screen.
+        bgi_bytes = resolve_walkmesh(project, camera, warnings)
+        wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
+        cutscene_wmesh = wmesh
+        _validate_content_placement(project, wmesh, warnings)
+        _validate_walkmesh_geometry(project, wmesh, warnings)
+        fm = layout.fieldmap_dir(fbg)
+        shutil.copyfile(project.path(native_bgs), fm / f"{fbg}.bgs.bytes")
+        if project.field.get("atlas"):
+            shutil.copyfile(project.path(project.field["atlas"]), fm / "atlas.png")
+        (fm / f"{fbg}.bgi.bytes").write_bytes(bgi_bytes)
+    elif not borrow_bg:
         bgi_bytes = resolve_walkmesh(project, camera, warnings)
         wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
         cutscene_wmesh = wmesh

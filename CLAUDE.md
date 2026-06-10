@@ -712,6 +712,29 @@ Read these on demand — they hold the full technical detail this file only summ
   add/rename/remove; the full kit suite passes. **The one thing I can't self-verify**: runtime flag isolation —
   loot a chest in member A, confirm member B's chest is NOT pre-looted — needs an in-game playtest. **Phase D
   done → the whole Campaign-Editor "Phase 4" arc (A–D) is complete.**
+- **Seamless field forks — studied Moguri → the NATIVE fork (in-game proven 2026-06-10).** An `--editable`
+  `.bgx` fork had two bugs the human hit forking the Dali storage room (UDFT **field 122**, area 8, the
+  box-jumps): the player drew UNDER the boxes, and tile **seams**. Root-caused from `BGSCENE_DEF.cs`: FF9
+  occludes the player per 16px TILE (each sprite quad at its own `depth`, `:1742`/`:1846`), but a `.bgx`
+  "memoria image" overlay is ONE flat quad per PNG, and the kit (mirroring Memoria's own lossy `.bgx`
+  exporter `:592`) collapsed each overlay to `min(sprite.depth)` → the box drew at its nearest tile. **`.bgx`
+  fix:** split each overlay into one sub-PNG **per distinct tile depth** (`extract._depth_groups` +
+  `bgs.tile_box`), depth-bucketed to cap the layer count, + **edge-bleed** opaque layers (`_edge_bleed`) —
+  because `.bgx` PNGs load **Bilinear** (Unity default; the `.memnfo` `FilterMode Point` hook is dummied), so
+  a cut tile bleeds to transparent = a seam. That made occlusion correct + seams "better but still there".
+  **The faithful answer (studied Moguri):** Moguri ships the **vanilla `.bgs` verbatim** (per-tile depth
+  untouched) + a **high-res atlas**, and **NO `.bgx`**. `BGSCENE_DEF.LoadResources` (`:821`) picks the path by
+  one rule — **a `.bgx` exists → bilinear memoria path (SEAMS); else → native `atlas.png`+`.bgs` (point-
+  sampled, per-tile depth = NO seams)**. So the `.bgx` is what forces seams. New kit mode **`import <field>
+  --native`** (`extract.write_native_project`, build.py native branch gated on `[field] bgs`): ship
+  `atlas.png` + `<FBG>.bgs.bytes` (copied verbatim) + custom `.bgi`, NO `.bgx`, area remapped ≥10 (so it forks
+  **area<10** fields BG-borrow can't). **TileSize gotcha:** the atlas must match the active `TileSize`
+  (Memoria.ini; vanilla 32 / Moguri 64) — a 32px atlas at TileSize 64 garbles. `extract._native_atlas` sources
+  the atlas from the **active mod stack** (`_mod_folders` → scan each mod's p0data for the field's `atlas.png`),
+  picking the one that fits at the active TileSize → a Moguri player gets Moguri's 64px atlas, seamless. **All
+  four in-game confirmed on field 122: seams gone, Moguri high-res art, occlusion correct, snappy load.** The
+  `.bgx` per-tile+bleed path stays as the REPAINT tool. → memory `project-ff9-novel-bg-pipeline`,
+  `project-ff9-import-fidelity`. Dev slot: `overworld` → FF9CustomMap-ow / field 30003.
 
 ---
 

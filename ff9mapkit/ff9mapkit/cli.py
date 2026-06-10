@@ -299,7 +299,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
     from pathlib import Path
     from . import extract
     try:
-        if args.editable:
+        if args.native:
+            meta, toml = extract.write_native_project(
+                args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game)
+        elif args.editable:
             meta, toml = extract.write_editable_project(
                 args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game)
         else:
@@ -311,7 +314,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
         return 2
     cm = meta["camera"]
     print(f"imported {meta['field']}  (area {meta['area']}, mapid {meta['mapid']})")
-    if args.editable:
+    if args.native:
+        print("  mode   : NATIVE custom scene (atlas.png + .bgs, NO .bgx -- seamless per-tile render, Moguri-style)")
+        print(f"  atlas  : {meta.get('atlas_source', '?')}")
+    elif args.editable:
         nb = meta.get("blend_layers", 0)
         print(f"  mode   : EDITABLE custom scene ({meta['layers']} art layers"
               f"{f', {nb} light/shadow' if nb else ''})")
@@ -338,7 +344,9 @@ def _cmd_import(args: argparse.Namespace) -> int:
         print(f"  content: {', '.join(bits) if bits else 'none found in the source script'}"
               + ("   (gateways point at REAL fields -- retarget them)" if ic["gateways"] else ""))
     print(f"  wrote  : {toml}")
-    if args.editable:
+    if args.native:
+        print(f"Next: add content (retarget imported gateways, add [[npc]]/dialogue), then: ff9mapkit build {toml}")
+    elif args.editable:
         print(f"Next: repaint any layer_*.png / reshape walkmesh.obj / add content, then: ff9mapkit build {toml}")
     else:
         print(f"Next: edit it (retarget imported gateways, add [[npc]]/dialogue), then: ff9mapkit build {toml}")
@@ -1013,6 +1021,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="fork as a full editable CUSTOM SCENE (re-exported walkmesh + the real art split "
                          "into one repaintable layer per depth, occlusion preserved) instead of BG-borrow; "
                          "needs the field exported in-game once via Memoria.ini [Export] Field=1")
+    im.add_argument("--native", action="store_true",
+                    help="fork as a NATIVE custom scene: ship the real atlas.png + .bgs (per-tile depth) + "
+                         "custom walkmesh, NO .bgx -- renders via the engine's seamless native path (no tile "
+                         "seams, faithful occlusion), exactly how Moguri ships. Also forks area<10 fields that "
+                         "BG-borrow can't. Needs no in-game export.")
     im.add_argument("--atlas", action="store_true", help="also extract the raw atlas.png (BG-borrow mode only)")
     im.set_defaults(func=_cmd_import)
 

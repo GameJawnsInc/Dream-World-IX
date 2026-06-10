@@ -52,6 +52,42 @@ def test_layers_to_toml_carries_shader_when_present():
     assert doc["layers"][2]["z"] == 8 and doc["layers"][2]["shader"] == "PSX/FieldMap_Abr_2"
 
 
+def test_layers_to_toml_carries_position_size():
+    # tight per-tile-depth sub-layers (an editable fork's occlusion split) carry position+size so the
+    # per-tile occlusion survives the Blender round-trip; full-canvas painted layers omit them.
+    doc = tomllib.loads(bridge.layers_to_toml([
+        {"image": "layer_00400_None.png", "z": 400, "position": [16, 0], "size": [16, 16]},
+        {"image": "layer_04000_None.png", "z": 4000},                       # full-canvas -> no pos/size
+    ]))
+    a, b = doc["layers"]
+    assert a["position"] == [16, 0] and a["size"] == [16, 16]
+    assert "position" not in b and "size" not in b
+
+
+def test_editable_fork_builds_tight_per_tile_layer(tmp_path):
+    # a tight sub-layer (position + size) must build into a .bgx OVERLAY at its own position AND depth,
+    # not a full-canvas quad at [0,0] -- the in-game occlusion fix carried through the Blender bridge.
+    proj = tmp_path / "proj"; proj.mkdir()
+    eye = (0.0, -3000.0, 3000.0)
+    R_bl = bridge.look_at_blender(eye, (0.0, 0.0, 0.0))
+    c = bridge.blender_cam_to_ff9(eye, R_bl, bridge.H_to_lens(497, bridge.DEFAULT_SENSOR, 384))
+    (proj / "camera.bgx").write_text(bgx.build(c, []), encoding="utf-8")
+    verts = [(-1000.0, 0.0, -1000.0), (1000.0, 0.0, -1000.0), (1000.0, 0.0, 1000.0), (-1000.0, 0.0, 1000.0)]
+    (proj / "walkmesh.obj").write_text(
+        bridge.mesh_to_ff9_obj(verts, [(0, 1, 2), (0, 2, 3)]), encoding="utf-8")
+    _png(proj / "layer_00400_None.png", 64, 64)           # 16x16 logical sub-tile -> 64x64 px (size x4)
+    layers = [{"image": "layer_00400_None.png", "z": 400, "position": [16, 0], "size": [16, 16]}]
+    meta = {"field_id": 4009, "field_name": "TILE_EDIT", "area": 21, "text_block": 1073}
+    (proj / "tile.field.toml").write_text(
+        bridge.editable_field_toml(meta, layers, spawn=(0, 0), has_links=False), encoding="utf-8")
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(proj / "tile.field.toml")], out, mod_name="FF9CustomMap")
+    scene = (ModLayout(out).fieldmap_dir("FBG_N21_TILE_EDIT") / "FBG_N21_TILE_EDIT.bgx").read_text(
+        encoding="utf-8")
+    assert "Position: 16, 0, 400" in scene                # own position + per-tile depth
+    assert "Size: 16, 16" in scene
+
+
 def test_editable_field_toml_structure_multifloor():
     meta = {"field_id": 4003, "field_name": "GRGR_EDIT", "area": 21, "text_block": 1073}
     layers = [{"image": "layer_04088_None.png", "z": 4088},
