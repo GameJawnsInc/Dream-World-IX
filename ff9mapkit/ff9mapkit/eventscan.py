@@ -312,6 +312,13 @@ def scan_jumps(eb_bytes) -> list:
                     pts = _region_points(ins)
                     if len(pts) >= 3:
                         zone = _zone_quad(pts)
+        if zone is None:
+            # The dispatching entry isn't a navigable region: either it has NO SetRegion (the jump is
+            # fired from Main_Loop / a cutscene sequence -- a scripted hop, not player navigation) or its
+            # SetRegion is computed (expression args -> not statically placeable). Either way it's not an
+            # authorable ledge jump, so skip it. (A field can mix both: field 950 has a loop-fired hop in
+            # entry 0 AND a real region jump in entry 6 -- this keeps only the latter.)
+            continue
         bubble = any(ins.op == BUBBLE_OP for f in e.funcs for ins in eb.instrs(f))
         for f in e.funcs:
             for ins in eb.instrs(f):

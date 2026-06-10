@@ -6,6 +6,8 @@ jump scanner is DISJOINT from the ladder scanner (ladder = has the ladder flag, 
 """
 from __future__ import annotations
 
+import struct
+
 from ff9mapkit import data, eventscan
 from ff9mapkit.content import jump as _jump
 from ff9mapkit.content import ladder as _ladder
@@ -90,6 +92,22 @@ def test_jump_and_ladder_are_disjoint():
 def test_clean_field_has_no_jumps():
     assert eventscan.scan_jumps(CLEAN) == []
     assert eventscan.scan_jumps(_jump.ensure_jump_animation(CLEAN)) == []   # the splice alone adds none
+
+
+def test_jump_without_a_region_is_not_navigable():
+    # A jump arc fired from a NON-region entry (Main_Loop / a cutscene sequence -- no SetRegion, so no
+    # placeable zone) is a scripted hop, NOT player navigation -> scan_jumps must ignore it. (This was a
+    # real over-match: 20 fields dispatch a hop from entry-0/tag-1; e.g. field 950 mixes one with a
+    # ladder. The zone gate drops them.)
+    from ff9mapkit.eb import edit
+    eb = _jump.ensure_jump_animation(CLEAN)
+    pe = find_player_entry(EbScript.from_bytes(eb))
+    eb = edit.add_function(eb, pe, _jump.FIRST_JUMP_TAG, _arc())     # arc on the player, no region
+    body = opcodes.run_script_sync(2, _jump.PLAYER_UID, _jump.FIRST_JUMP_TAG) + opcodes.RETURN
+    entry = bytes([2, 1]) + struct.pack("<HH", 0, 4) + body          # a code entry (no SetRegion) calling it
+    slot = EbScript.from_bytes(eb).first_free_slot()
+    eb = edit.append_entry(eb, slot, entry)
+    assert eventscan.scan_jumps(eb) == []                            # no region -> not extracted
 
 
 # --- the built script parses + carries the player jump function ---------------------------
