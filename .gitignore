@@ -21,6 +21,10 @@ Memoria/
 hades-workshop/
 Hades-Workshop/
 
+# ── Generated campaigns (regenerable via `ff9mapkit import-chain`; member dirs hold ──────
+#    game-derived scene/art bytes -- .bgx/.bgi/.eb + layer PNGs -- so never commit) ────────
+campaigns/
+
 # ── Binaries & build artifacts (derived, not source) ───────────────────
 *.dll
 *.exe
@@ -79,6 +83,9 @@ backups/pre-reclone-*/
 # pile up fast and only ever protect the throwaway test slot. On disk only.
 backups/*.preDEPLOY.*
 backups/*.preSCROLL.*
+# deploy_campaign.py's set-wide pre-deploy mod-folder snapshots (full game-folder copies, e.g.
+# backups/FF9CustomMap-ow.pre-ICE_CAVERN.<ts>/). Like the per-deploy snapshots above: on disk only.
+backups/*.pre-*/
 
 # Per-worktree deploy target (mod folder + slot id). Each worktree pins its own so they never share a
 # mod folder / DictionaryPatch and can't clobber each other's registrations. On disk only.
