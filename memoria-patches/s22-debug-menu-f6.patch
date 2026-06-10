@@ -12,7 +12,7 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..b4c3057e
+index 00000000..ed7e54cd
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 @@ -0,0 +1,661 @@
@@ -550,8 +550,8 @@ index 00000000..b4c3057e
 +    // ff9mapkit/flags.py does (the canonical registry). Uses the engine's OWN accessors where they exist
 +    // (ScenarioCounter / FieldEntrance / IsEikoAbducted / GetTreasureHunterPoints) -- so this also
 +    // cross-checks the kit's Python decoder against the engine.
-+    private static readonly Int32[] MsVal = { 1000, 1900, 2300, 2500, 2530, 2700, 2800, 3000, 3710, 3750, 4445, 4500, 4600, 4650, 4990, 5030, 5510, 5660, 5900, 6100, 6300, 6600, 6900, 7010, 7200, 7550, 8000, 8400, 9000, 9400, 9700, 9800, 9910, 9990, 10000, 10400, 10500, 10600, 10670, 10830, 10900, 11100, 11610 };
-+    private static readonly String[] MsName = { "Prima Vista", "Cargo Ship", "Evil Forest", "Ice Cavern", "Dali", "Dali (underground)", "Cargo Ship", "Lindblum", "Gizamaluke's Grotto", "South Gate", "Treno", "Gargan Roo", "Alexandria Castle", "Cleyra", "Red Rose", "Alexandria Castle", "Pinnacle Rocks", "Lindblum", "Iifa Tree", "Conde Petie", "Conde Petie Mt. Path", "Madain Sari", "Iifa Tree", "Alexandria", "Alexandria Castle", "Treno", "Alexandria", "Alexandria Castle", "Lindblum", "Hilda Garde", "Oeilvert", "Desert Palace", "Hilda Garde", "Outer Continent", "Lindblum", "Alexandria Castle", "Ipsen's Castle", "Hilda Garde", "Earth Shrine", "Terra", "Bran Bal", "Invincible", "Crystal World" };
++    private static readonly Int32[] MsVal = { 1000, 2020, 2300, 2500, 2600, 2700, 2800, 2910, 3000, 3100, 3710, 3750, 3800, 4445, 4500, 4600, 4650, 4990, 5030, 5510, 5660, 5900, 6100, 6300, 6600, 6700, 6800, 6900, 7010, 7200, 7550, 8000, 8400, 9000, 9400, 9510, 9605, 9800, 9990, 10000, 10400, 10500, 10600, 10620, 10670, 10830, 10900, 10930, 11100, 11610, 11765, 12000 };
++    private static readonly String[] MsName = { "Prima Vista", "Evil Forest", "Evil Forest", "Ice Cavern", "Dali", "Dali (underground)", "Observatory Mountain", "Cargo Ship", "Lindblum Castle", "Lindblum", "Gizamaluke's Grotto", "South Gate", "Burmecia", "Treno", "Gargan Roo", "Alexandria Castle", "Cleyra", "Red Rose", "Alexandria Castle", "Pinnacle Rocks", "Lindblum", "Fossil Roo", "Conde Petie", "Conde Petie Mountain Path", "Madain Sari", "Iifa Tree", "Madain Sari", "Iifa Tree", "Alexandria", "Alexandria Castle", "Treno", "Alexandria", "Alexandria Castle", "Lindblum", "Blue Narciss", "Desert Palace", "Oeilvert", "Desert Palace", "Mount Gulug", "Lindblum Castle", "Alexandria Castle", "Ipsen's Castle", "Hilda Garde 3", "Water Shrine", "Earth Shrine", "Terra", "Bran Bal", "Pandemonium", "Invincible", "Memoria", "Crystal World", "Crystal World (ending)" };
 +
 +    private static String ScenarioBeat(Int32 sc)
 +    {

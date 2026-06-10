@@ -689,6 +689,26 @@ Read these on demand — they hold the full technical detail this file only summ
   on load (overriding the vanilla block) → `save-edit` patches BOTH; an offline-edited save loaded to "SC 2500
   → Ice Cavern" with no relaunch. Needs `pycryptodome` (lazy import). **All 5 verbs done**
   (view/understand/name/create/recreate). Dev engine stock `6b8bb2d5` + s22 (story-state view).
+  **UNDERSTAND-layer deepening (the "meaning" pass, offline-verified 2026-06-10):** deepened the thinnest verb
+  via a field-granular census×manifest join (`research/gen_understand_layer.py` → `understand_layer.json`),
+  curated + adversarially verified by the **`ff9-understand-layer`** workflow (3 lenses: story-order /
+  label-accuracy / curation + 2 research agents → synthesis). Landed in `flags.py` (602 tests pass): (1) the
+  **scenario→beat table rebuilt 43→52 anchors, field-grounded** — each traces to its setter field + manifest
+  room, fixing real mislabels (5900 "Iifa Tree"→**Fossil Roo**, 9990 "Outer Continent"→**Mount Gulug**, 9400
+  "Hilda Garde"→**Blue Narciss**, 11610 "Crystal World"→**Memoria**) and restoring lost beats (Burmecia 3800,
+  Oeilvert 9605, Water Shrine, Pandemonium 10930); 7200→Alexandria Castle preserved; mirrored to the F6 C#
+  (`MsVal`/`MsName`, **needs an engine rebuild + playtest to show in-game**, patch `s22` regenerated). (2)
+  **`flags.STORY_REGIONS`** — 18 informational (non-reserved) named flag clusters annotate a decoded save's set
+  bits by dominant writer area (`lindblum_events`, `mognet_central_state`, …); **reconciled a report error** (the
+  "Lindblum festival @ 304-335" claim is wrong — those bits are the prologue; real Lindblum events are 2592-2663;
+  the Hunt score is the separate `HuntFestivalScore` words 314/316). (3) **two engine-grounded discovery bits
+  named** (815 Mognet Central, 814 Chocobo's Paradise; `WorldConfiguration.cs`). **★ Report open-Q #1 RESOLVED —
+  negative:** ATE seen-state is **NOT in gEventGlobal** — it lives in `AchievementState.AteCheck` (`Int32[100]`,
+  key `AteCheckArray`), ATE selection a per-field `.eb` branch via the hardcoded `EMinigame.MappingATEID` switch →
+  no heap "ATE flag index" exists (`flags.ATE_STATE_LOCATION`). **Open-Q #3 confirmed intractable:** every chest
+  bit 8376-8511 has exactly 48 writers (computed index, not per-chest-static) → band stays reserved. Standing
+  frontier = the per-flag-meaning dictionary for the ~1900 un-annotated heap bytes (cluster names are
+  dominant-writer inference, not proven per-bit lore).
 - **Campaign Editor — Phase D: authoring (create / mutate a campaign), on the story-flags safe-flag base
   (offline-verified; awaits a human GUI click-through + one in-game flag-isolation playtest)** — the from-scratch
   twin of import-chain (which forks a real region), landed AFTER + rebased onto the story-flags work above.

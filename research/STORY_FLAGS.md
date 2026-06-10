@@ -368,3 +368,40 @@ Hades Workshop (`Database_Script.cpp`, `Gui_ScriptEditor.cpp`); kit (`content/re
 `cutscene.py`, `choice.py`, `eventscan.py`, `campaign.py`, `build.py`; `docs/GLOBAL_RESOURCES.md`,
 `CAMPAIGN_IMPORT.md`). Corrections applied per adversarial verdicts: Eiko range 9860–9989 inclusive; byte 23
 is an active handshake; campaign collision is latent; safe band starts at bit 8512.*
+
+---
+
+## 8. UNDERSTAND-layer deepening — landed 2026-06-10 (the "meaning" pass)
+
+Section 3's UNDERSTAND verb was the thinnest (mechanism known, *meaning* not). This pass deepened it from a
+field-granular census×manifest join (`research/gen_understand_layer.py` → `understand_layer.json`), curated +
+adversarially verified by the **`ff9-understand-layer`** workflow (3 verification lenses — story-order /
+label-accuracy / curation — + 2 research agents → synthesis). All landed in `ff9mapkit/flags.py`; 602 tests pass.
+
+- **Scenario→beat dictionary, rebuilt (43 → 52 anchors, field-grounded).** Each anchor now traces to the
+  *setter field* and its manifest room, fixing real mislabels the old zone-coded table shipped: **5900** "Iifa
+  Tree" → **Fossil Roo** (field 1422); **9990** "Outer Continent" → **Mount Gulug** (field 2357, closing the
+  IsEikoAbducted window); **9400** "Hilda Garde" → **Blue Narciss** (field 2855); **11610** "Crystal World" →
+  **Memoria** (with Crystal World correctly split to 11765/12000). Restored lost beats: **Burmecia** (3800),
+  **Oeilvert** (9605), a second elemental shrine (Water 10620), **Pandemonium** (10930), Memoria. The
+  in-game-validated **7200 → Alexandria Castle** anchor is preserved. Mirrored to the F6 menu C# (needs an
+  engine rebuild + playtest to show in-game).
+- **18 named story-flag clusters** (`flags.STORY_REGIONS`, informational/non-reserved) annotate a decoded
+  save's set bits by dominant writer area (e.g. `lindblum_events` 2592–2663, `mognet_central_state` 4046–4047).
+  **Reconciled a §2 report error:** the "Lindblum festival @ bytes 304–335" claim is wrong — bits 2418–2495 are
+  the *prologue* (Prima Vista/Evil Forest); the true Lindblum cluster is 2592–2663, and the Festival-of-the-Hunt
+  score is the separate `HuntFestivalScore` UInt16 words at bytes 314/316.
+- **Two engine-grounded discovery bits named** (refining the reserved `worldmap_unlocks` band): bit **815** =
+  Mognet Central discovered, bit **814** = Chocobo's Paradise discovered (`WorldConfiguration.cs:183-184`).
+- **★ Open question #1 (ATE/Mognet indices) RESOLVED — negative.** ATE *seen-state is NOT in the gEventGlobal
+  heap at all*: it lives in `AchievementState.AteCheck` (`Int32[100]`, save key `AteCheckArray`), and ATE
+  selection is a per-field `.eb` branch keyed on (fldLocNo, fldMapNo, ScenarioCounter, chosen choice) via the
+  hardcoded `EMinigame.MappingATEID` switch. So there is **no heap "ATE flag index" to name** (recorded in
+  `flags.ATE_STATE_LOCATION`). The portable ATE-id table (0..82) could be ported from `MappingATEID` later, but
+  it is not a flag dictionary.
+- **Open question #3 (per-chest bit identity) confirmed intractable from the static census:** every bit in the
+  8376–8511 chest band has *exactly 48 writers* → a computed index, not a per-chest-static bit. `flags.py`
+  correctly keeps the whole band reserved; mapping bit→chest would need a runtime trace.
+- **Standing UNDERSTAND frontier:** the cluster names are "where these flags are written from" (dominant-writer
+  inference), not a proven per-bit lore dictionary — the bulk of the ~1900 un-annotated heap bytes remain a
+  per-flag-meaning gap.

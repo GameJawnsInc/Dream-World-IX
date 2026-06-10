@@ -75,37 +75,103 @@ NAMED_WORDS = [
 ]
 
 # Reserved / named BIT regions (bit-addressed). A mod must not allocate into a reserved region.
+# Specific named bits are listed BEFORE the broad band they sit inside, so bit_region() resolves the
+# precise name first (e.g. bit 815 -> "mognet_central_discovered", not the broad "worldmap_unlocks").
 BIT_REGIONS = [
     BitRegion("field_menu_guard", 184, 184, "Engine handshake: 'in-field menu/transition in progress'. "
               "Re-checked + cleared every Main_Init.", True, "a", "disassembly fields 50/100/300"),
     BitRegion("boot_scratch", 191, 191, "Companion scratch bit zeroed on every boot.", True, "a",
               "disassembly"),
+    BitRegion("chocobo_paradise_discovered", 814, 814, "Chocobo's Paradise discovered (byte 101 & 0x40); "
+              "gates its world-map alternate form.", True, "a", "WorldConfiguration.cs:183-184"),
+    BitRegion("mognet_central_discovered", 815, 815, "Mognet Central discovered (byte 101 & 0x80); gates its "
+              "world-map alternate form. The only engine-grounded Mognet bit in gEventGlobal.", True, "a",
+              "WorldConfiguration.cs:183-184"),
     BitRegion("worldmap_unlocks", 736, 823, "Worldmap/Navi cursor + location-unlock/first-visit bits "
               "(consumed by engine C#; mostly write-only on the field side).", True, "a/b",
               "ff9.cs:2259-2333; census"),
     BitRegion("chest_opened", CHEST_FLAG_LO, CHEST_FLAG_HI, "Global treasure-chest 'opened' bitfield "
-              "(48 chest fields). NEVER allocate here.", True, "a/b", "census; EventState.GetTreasureHunterPoints"),
+              "(48 chest fields, every bit a 48-writer computed index -> per-chest identity is NOT static). "
+              "NEVER allocate here.", True, "a/b", "census; EventState.GetTreasureHunterPoints"),
     BitRegion("choice_scratch", CHOICE_SCRATCH_FLOOR, CHOICE_SCRATCH_FLOOR + 15,
               "Choice-visibility mask scratch (kit MASK_SCRATCH_IDX); engine/kit-owned.", True, "a", "region.py:57"),
 ]
 
+# Informational (NON-reserved) named story-flag clusters from the 676-field census: contiguous bit bands
+# named by their dominant writer area, for ANNOTATING a decoded save's set bits (not for allocation -- they
+# sit below FIRST_SAFE_FLAG anyway). These are "where these flags are written from", not a proven per-bit
+# meaning. Derived + verified by the ff9-understand-layer workflow (research/gen_understand_layer.py).
+STORY_REGIONS = [
+    BitRegion("hilda_garde_invincible_events", 196, 199, "Late-game airship/event flags "
+              "(Lindblum Castle / Hilda Garde 3 / Invincible).", False, "c", "census"),
+    BitRegion("chocobo_dig_state", 848, 853, "Chocobo Hot & Cold / Chocograph minigame state.", False, "b",
+              "census; EMinigame.cs"),
+    BitRegion("chocobo_forest_state", 888, 895, "Chocobo Hot & Cold dig-spot / chocograph-found bits.", False,
+              "b", "census; EMinigame.cs"),
+    BitRegion("chocograph_found_opened", 1040, 1087, "Chocograph 'found'/'opened' treasure bitfields "
+              "(choco-dig minigame).", False, "b", "census; ChocographUI.cs"),
+    BitRegion("chocobo_garden_state", 1156, 1159, "Chocobo Hot & Cold dig-progress flags.", False, "c", "census"),
+    BitRegion("chocobo_air_garden_state", 1416, 1423, "Chocobo Hot & Cold / Air Garden unlock state "
+              "(top of the choco-dig band, bytes 106-177).", False, "c", "census"),
+    BitRegion("oeilvert_events", 1816, 1816, "Oeilvert ruin event/progress flag (single Oeilvert-only bit).",
+              False, "b", "census"),
+    BitRegion("dali_madain_iifa_events", 2048, 2128, "Early-mid story band (Dali / Madain Sari / Iifa Tree).",
+              False, "b", "census"),
+    BitRegion("prima_vista_evil_forest_events", 2418, 2495, "Prologue band (Prima Vista / Evil Forest / North "
+              "Gate). NB: corrects the report's 'Lindblum festival @ 304-335' -- those bits are the prologue; "
+              "the Hunt-Festival score is the separate UInt16 words at bytes 314/316.", False, "b", "census"),
+    BitRegion("lindblum_events", 2592, 2663, "The true Lindblum cluster (25 Lindblum fields; town/festival "
+              "event flags).", False, "b", "census"),
+    BitRegion("disc2_3_dungeon_events", 2817, 2983, "Disc-2/3 dungeon/town band (Treno / Conde Petie / Bran "
+              "Bal / Black Mage Village).", False, "b", "census"),
+    BitRegion("outer_continent_events", 3228, 3263, "Outer-Continent traversal (Mount Gulug / Fossil Roo / "
+              "Qu's Marsh).", False, "b", "census"),
+    BitRegion("ipsen_ice_cavern_events", 3457, 3471, "Mixed: Ipsen's Castle + Ice Cavern (name with caution).",
+              False, "c", "census"),
+    BitRegion("desert_palace_lindblum_events", 3536, 3671, "Disc-3 Kuja-stronghold + Hilda-search flags "
+              "(Desert Palace / Lindblum Castle).", False, "b", "census"),
+    BitRegion("alexandria_events", 3712, 3718, "Alexandria-town event flags (clean single-area cluster).",
+              False, "b", "census"),
+    BitRegion("cleyra_alexandria_gizamaluke_events", 3784, 3905, "Disc-2 Burmecia-war / Cleyra-assault arc "
+              "(Cleyra / Alexandria / Gizamaluke's Grotto).", False, "b", "census"),
+    BitRegion("alexandria_castle_events", 3948, 3967, "Alexandria Castle interior event flags.", False, "c",
+              "census"),
+    BitRegion("mognet_central_state", 4046, 4047, "Mognet (moogle-mail) sidequest progress -- written only by "
+              "Mognet Central (field 3100). Dominant-writer inference; exact per-bit meaning empirical.", False,
+              "c", "census"),
+]
+
+# UNDERSTAND note (ff9-understand-layer workflow, engine-verified): ATE ("Active Time Event") seen-state is
+# NOT in this 2048-byte heap -- it lives in AchievementState.AteCheck (Int32[100], save key "AteCheckArray").
+# ATE selection is a per-field .eb script branch keyed on (fldLocNo, fldMapNo, ScenarioCounter, chosen choice)
+# via the hardcoded EMinigame.MappingATEID switch. So there is NO gEventGlobal "ATE flag index" to name.
+ATE_STATE_LOCATION = "AchievementState.AteCheck (Int32[100], save key 'AteCheckArray') -- not gEventGlobal"
+
 # Treasure-Hunter scoring byte ranges (EventState.GetTreasureHunterPoints): (byte_lo, byte_hi, weight).
 TH_POINT_RANGES = [(896, 960, 1), (966, 975, 1), (182, 186, 2)]
 
-# ScenarioCounter -> story AREA progression: the value where the game enters each area, derived from the
-# census (the area of the field that sets each value) and cleaned (research/gen_scenario_table.py). Use
-# nearest_milestone(sc) for "what story beat is this". In-game-validated (SC 7200 -> Alexandria Castle).
+# ScenarioCounter -> story AREA progression: the value where the game enters each area, derived from a
+# field-granular census x field-manifest join (research/gen_understand_layer.py: each value -> its setter
+# field -> that field's manifest room) and curated/verified by the ff9-understand-layer workflow (3
+# adversarial lenses + research). Use nearest_milestone(sc) for "what story beat is this". In-game-validated
+# (SC 7200 -> Alexandria Castle). This 52-anchor table supersedes the earlier 43-anchor zone-coded one, which
+# mislabelled several beats (5900 was "Iifa Tree" -> really Fossil Roo; 9990 "Outer Continent" -> Mount Gulug;
+# 9400 "Hilda Garde" -> Blue Narciss; 11610 "Crystal World" -> Memoria) and lost real beats (Burmecia, Oeilvert,
+# the second shrine, Pandemonium, Memoria).
 SCENARIO_MILESTONES = {
-    1000: "Prima Vista", 1900: "Cargo Ship", 2300: "Evil Forest", 2500: "Ice Cavern", 2530: "Dali",
-    2700: "Dali (underground)", 2800: "Cargo Ship", 3000: "Lindblum", 3710: "Gizamaluke's Grotto",
-    3750: "South Gate", 4445: "Treno", 4500: "Gargan Roo", 4600: "Alexandria Castle", 4650: "Cleyra",
-    4990: "Red Rose", 5030: "Alexandria Castle", 5510: "Pinnacle Rocks", 5660: "Lindblum",
-    5900: "Iifa Tree", 6100: "Conde Petie", 6300: "Conde Petie Mt. Path", 6600: "Madain Sari",
-    6900: "Iifa Tree", 7010: "Alexandria", 7200: "Alexandria Castle", 7550: "Treno", 8000: "Alexandria",
-    8400: "Alexandria Castle", 9000: "Lindblum", 9400: "Hilda Garde", 9700: "Oeilvert",
-    9800: "Desert Palace", 9910: "Hilda Garde", 9990: "Outer Continent", 10000: "Lindblum",
-    10400: "Alexandria Castle", 10500: "Ipsen's Castle", 10600: "Hilda Garde", 10670: "Earth Shrine",
-    10830: "Terra", 10900: "Bran Bal", 11100: "Invincible", 11610: "Crystal World",
+    1000: "Prima Vista", 2020: "Evil Forest", 2300: "Evil Forest", 2500: "Ice Cavern",
+    2600: "Dali", 2700: "Dali (underground)", 2800: "Observatory Mountain", 2910: "Cargo Ship",
+    3000: "Lindblum Castle", 3100: "Lindblum", 3710: "Gizamaluke's Grotto", 3750: "South Gate",
+    3800: "Burmecia", 4445: "Treno", 4500: "Gargan Roo", 4600: "Alexandria Castle",
+    4650: "Cleyra", 4990: "Red Rose", 5030: "Alexandria Castle", 5510: "Pinnacle Rocks",
+    5660: "Lindblum", 5900: "Fossil Roo", 6100: "Conde Petie", 6300: "Conde Petie Mountain Path",
+    6600: "Madain Sari", 6700: "Iifa Tree", 6800: "Madain Sari", 6900: "Iifa Tree",
+    7010: "Alexandria", 7200: "Alexandria Castle", 7550: "Treno", 8000: "Alexandria",
+    8400: "Alexandria Castle", 9000: "Lindblum", 9400: "Blue Narciss", 9510: "Desert Palace",
+    9605: "Oeilvert", 9800: "Desert Palace", 9990: "Mount Gulug", 10000: "Lindblum Castle",
+    10400: "Alexandria Castle", 10500: "Ipsen's Castle", 10600: "Hilda Garde 3", 10620: "Water Shrine",
+    10670: "Earth Shrine", 10830: "Terra", 10900: "Bran Bal", 10930: "Pandemonium",
+    11100: "Invincible", 11610: "Memoria", 11765: "Crystal World", 12000: "Crystal World (ending)",
 }
 # IsEikoAbducted (EventState.cs:36): 9860 <= ScenarioCounter < 9990.
 EIKO_ABDUCTED_LO, EIKO_ABDUCTED_HI = 9860, 9989
@@ -117,8 +183,12 @@ def bit_to_byte(bit: int) -> tuple:
 
 
 def bit_region(bit: int):
-    """The :class:`BitRegion` a bit falls in, or None (unmapped = free/custom space)."""
+    """The :class:`BitRegion` a bit falls in, or None (unmapped = free/custom space). Reserved bands are
+    checked first, then the informational story clusters -- so a reserved verdict always wins."""
     for r in BIT_REGIONS:
+        if r.lo <= bit <= r.hi:
+            return r
+    for r in STORY_REGIONS:
         if r.lo <= bit <= r.hi:
             return r
     return None
@@ -388,6 +458,8 @@ def registry_rows() -> list:
     for r in BIT_REGIONS:
         tag = "RESERVED" if r.reserved else "region"
         rows.append((tag, r.name, f"bits {r.lo}-{r.hi}", r.meaning, r.tier))
+    for r in STORY_REGIONS:
+        rows.append(("story", r.name, f"bits {r.lo}-{r.hi}", r.meaning, r.tier))
     for v, beat in sorted(SCENARIO_MILESTONES.items()):
         rows.append(("scenario", str(v), "ScenarioCounter", beat, "a"))
     rows.append(("band", "safe_custom", f"bits {FIRST_SAFE_FLAG}-{CHOICE_SCRATCH_FLOOR - 1}",

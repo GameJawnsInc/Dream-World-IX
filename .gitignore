@@ -123,6 +123,10 @@ tools/model_field_usage.json
 # story-flag research: the full census JSON is large (~1 MB) and regenerable from the install
 # (research/flag_census.py). Keep the human-readable digest/report/catalog + the tools tracked.
 research/flag_census.json
+# UNDERSTAND-layer pass: generated outputs of research/gen_understand_layer.py (regenerable). Track the
+# generator + the STORY_FLAGS.md §8 write-up, ignore the derived JSON + the verification-input scratch.
+research/understand_layer.json
+research/understand_candidate.md
 
 _private_memoria_archive/
 tools/prop_poses.json

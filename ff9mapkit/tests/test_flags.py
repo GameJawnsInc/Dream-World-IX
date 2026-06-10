@@ -31,6 +31,30 @@ def test_scenario_milestones_and_eiko():
     assert not (flags.EIKO_ABDUCTED_LO <= 9990 <= flags.EIKO_ABDUCTED_HI)   # engine uses `< 9990`
 
 
+def test_scenario_milestones_census_verified():
+    """The 52-anchor census-grounded table: the labels the old zone-coded table got wrong, + monotonicity."""
+    m = flags.SCENARIO_MILESTONES
+    assert sorted(m) == list(m) and len(m) >= 50           # sorted (nearest_milestone relies on it) + fuller
+    assert m[5900] == "Fossil Roo"                          # was wrongly "Iifa Tree" (zone-code error)
+    assert m[9990] == "Mount Gulug"                         # was wrongly "Outer Continent"
+    assert m[9400] == "Blue Narciss"                        # was wrongly "Hilda Garde"
+    assert m[11610] == "Memoria" and m[11765] == "Crystal World"   # was conflated as "Crystal World"
+    assert m[3800] == "Burmecia"                            # a real beat the old table lost
+    assert flags.nearest_milestone(5950) == (5900, "Fossil Roo")
+
+
+def test_story_regions_and_named_bits():
+    """Informational story clusters annotate set bits; engine-grounded named bits beat the broad band."""
+    assert all(not r.reserved for r in flags.STORY_REGIONS)         # informational, never block allocation
+    assert flags.bit_region(2600).name == "lindblum_events"        # a story cluster (byte 325)
+    assert not flags.is_reserved(2600) and not flags.is_safe_custom(2600)   # named but below the safe band
+    assert flags.bit_region(815).name == "mognet_central_discovered"        # specific name wins
+    assert flags.bit_region(814).name == "chocobo_paradise_discovered"
+    assert flags.bit_region(815).reserved                          # engine save state -> reserved
+    assert flags.bit_region(770).name == "worldmap_unlocks"        # rest of the band keeps the broad name
+    assert "AteCheck" in flags.ATE_STATE_LOCATION                  # ATE-seen is NOT in the heap (recorded)
+
+
 # ---- author-side name resolution --------------------------------------------------------
 def test_collect_flag_defs_valid():
     nm = flags.collect_flag_defs({"flag": [{"name": "Switch Pulled", "index": 8520}]})
