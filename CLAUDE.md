@@ -58,7 +58,7 @@ engine build, the build/deploy loop, version control, and all docs/notes.
 | Memoria.ini | `<game>\Memoria.ini` (engine toggles; dev build has boosters/ini cheats) |
 | Toolkit | `ff9mapkit/` — CLI `py -m ff9mapkit <cmd>` (run from the kit root so the local pkg shadows any editable install) |
 | Deploy tool | `tools/deploy_field.py <field.toml> [--id N]` (default test slot = field 4003) |
-| GUI apps | in **`apps/`**: `ff9_studio.pyw` = the **launcher** (front door to all GUIs) · `ff9_build_gui.pyw` (build+deploy) · `ff9_editor.pyw` (logic editor) · `ff9_infohub.pyw` (Info Hub viewer) |
+| GUI apps | in **`apps/`**: `ff9_studio.pyw` = the **launcher** (front door to all GUIs) · `ff9_build_gui.pyw` (build+deploy — auto-detects **field / campaign / battle map**) · `ff9_editor.pyw` (logic editor) · `ff9_infohub.pyw` (Info Hub viewer) |
 | Reference field scripts | `reference/test2/` (gitignored, 817 HW field-script exports) + `reference/field-manifest.tsv` (HW-index→field-id→name; index ≠ field id) |
 | FF9 field assets | `<game>\StreamingAssets\p0data*.bin` (UnityRaw 5.2.3 bundles; UnityPy reads them — `py -m pip install UnityPy`) |
 
@@ -596,6 +596,18 @@ Read these on demand — they hold the full technical detail this file only summ
   `revert_campaign.py` on Revert; an experimental "Wire New Game entry" checkbox), vs the unchanged
   test-4003/game/other field flow. A banner shows the detected kind (campaign name, field count, id range, mod
   folder). Same App-on-parent contract, so it still mounts as the Campaign Editor's Build tab.
+- **Battle deploy in the Build & Deploy GUI** (in-game proven 2026-06-10) — extends the campaign auto-detect
+  above with a THIRD kind: the window also recognizes a `battle.toml` (a `[battlemap]` table) and re-skins to a
+  **Deploy battle map** panel. **Check battle** runs `validate_battle` in-process (classifies override / repoint
+  / MINT); **Build / Deploy battle** shells out to the proven `tools/deploy_battle.py <toml> [--trigger-field N]`
+  (cwd=repo-root so the WORKTREE's code runs, not the editable install's); **Revert battle** runs the latest
+  `tools/scroll_out/revert_battle_*.py`. It reads `.ff9deploy.toml` for the worktree mod folder, and the optional
+  **Trigger field** hint lists the fields actually deployed in that folder (from its DictionaryPatch) — so you
+  pick a real repoint target, not the reserved slot id. `detect_kind` → field/campaign/battle; the shared
+  Check/Build-Deploy/Revert buttons relabel per kind; `--smoke` self-test added. Same App-on-parent contract
+  (still mounts as the Campaign Editor's Build tab). **Provenance fix landed alongside:** `deploy_battle.py`'s
+  `backups/*.preBATTLE.*` + `backups/battle_predeploy.*/` snapshots (SE-derived forked raw16/raw17/eb/mes) were
+  not gitignored — now they are (mirrors the `preDEPLOY`/`preSCROLL` rules), closing a latent `git add -A` leak.
 
 ---
 
