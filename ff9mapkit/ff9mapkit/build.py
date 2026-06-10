@@ -125,6 +125,7 @@ class FieldProject:
     # Per-member campaign once-flag base (set by campaign.build_campaign). None => single-field defaults
     # (event 8000+ / cutscene 8100 / choice 8200+), which keeps single-field builds BYTE-IDENTICAL.
     flag_base: int | None = None
+    flags_per_field: int = 64    # width of this member's flag block -> the overflow guard's choice cap
 
     @classmethod
     def load(cls, toml_path, *, flag_names: dict | None = None) -> "FieldProject":
@@ -1231,6 +1232,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     parts.append(_event.message(event_txids[j]))
             once_flag = None
             if ev.get("once", True):
+                if _auto.base is not None and "flag" not in ev and flag_counter >= EVENTS_PER_FIELD:
+                    raise BuildError(
+                        f"field {project.name}: more than {EVENTS_PER_FIELD} auto-flagged 'once' events "
+                        f"overflow this campaign member's flag block -- raise [campaign] flags_per_field, set "
+                        f"an explicit flag = N on some events, or split the field. (Auto event flags would "
+                        f"alias the choice sub-band -> save corruption.)")
                 once_flag = int(ev["flag"]) if "flag" in ev else _auto.event(flag_counter)
                 flag_counter += 1
             gf, gs = _gate_of(ev)
@@ -1282,6 +1289,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 init_body = None
             eb, _slot = _region.inject_region(eb, zone, body, tag=_region.INTERACT_TAG, init_body=init_body)
         else:
+            if (_auto.base is not None and "flag" not in ch
+                    and choice_flag_counter >= getattr(project, "flags_per_field", 64) - 1 - EVENTS_PER_FIELD):
+                raise BuildError(
+                    f"field {project.name}: too many auto-flagged walk-choices overflow this campaign "
+                    f"member's flag block -- raise [campaign] flags_per_field or set an explicit flag = N. "
+                    f"(Auto choice flags would alias the next member's block -> save corruption.)")
             fidx = int(ch["flag"]) if "flag" in ch else _auto.choice(choice_flag_counter)
             if "flag" not in ch:
                 choice_flag_counter += 1

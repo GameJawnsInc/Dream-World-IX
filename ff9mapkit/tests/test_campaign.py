@@ -353,6 +353,139 @@ def test_campaign_render_roundtrips_shared_flags(tmp_path):
     assert campaign.load_campaign(f).flags == [{"name": "boss_dead", "index": 8700}]
 
 
+# ---- P6: mutation / creation API (new_campaign / add_field / remove / rename / set_entry) -----
+def test_new_campaign_empty_round_trips(tmp_path):
+    plan = campaign.new_campaign("MYGAME", "FF9CustomMap-bb", tmp_path, id_base=30100)
+    assert plan.members == [] and plan.entry_name == ""
+    assert (tmp_path / "campaign.toml").is_file()
+    loaded = campaign.load_campaign(tmp_path / "campaign.toml")        # parses + round-trips
+    assert loaded.name == "MYGAME" and loaded.id_base == 30100 and loaded.members == []
+
+
+def test_add_blank_fields_and_edges_offline(tmp_path):
+    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
+    a = campaign.add_field(plan, tmp_path, name="HUB")                 # blank member (no game)
+    b = campaign.add_field(plan, tmp_path, name="NORTH")
+    assert (a.new_id, b.new_id) == (30100, 30101)                     # next-free ids, contiguous here
+    assert plan.entry_name == "HUB"                                    # first add becomes entry
+    assert (tmp_path / "HUB" / "hub.field.toml").is_file()             # pack scaffolded a buildable room
+    assert (tmp_path / "HUB" / "art" / "back.png").is_file()
+    campaign.add_edge(plan, tmp_path, "HUB", "NORTH", entrance=1)
+    # reload + lint the whole thing from disk: structurally valid, both ends real, HUB->NORTH resolves
+    loaded = campaign.load_campaign(tmp_path / "campaign.toml")
+    assert {m.name for m in loaded.members} == {"HUB", "NORTH"}
+    errors, _ = campaign.lint_campaign(loaded, tmp_path)
+    assert errors == []
+    g = campaign.campaign_graph(loaded)
+    assert g.by_name["HUB"].out_edges == [{"to": "NORTH", "entrance": 1, "gated": False}]
+
+
+def test_add_field_rejects_duplicate_name(tmp_path):
+    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
+    campaign.add_field(plan, tmp_path, name="HUB")
+    with pytest.raises(campaign.CampaignError):
+        campaign.add_field(plan, tmp_path, name="HUB")
+
+
+def test_remove_field_prunes_refs_and_subdir(tmp_path):
+    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
+    campaign.add_field(plan, tmp_path, name="HUB")
+    campaign.add_field(plan, tmp_path, name="NORTH")
+    campaign.add_field(plan, tmp_path, name="ATTIC")
+    campaign.add_edge(plan, tmp_path, "HUB", "NORTH")
+    campaign.add_edge(plan, tmp_path, "NORTH", "ATTIC")
+    campaign.remove_field(plan, tmp_path, "NORTH")
+    assert {m.name for m in plan.members} == {"HUB", "ATTIC"}
+    assert not (tmp_path / "NORTH").exists()                          # subdir gone
+    assert plan.edges == []                                            # both edges referenced NORTH -> pruned
+    assert campaign.load_campaign(tmp_path / "campaign.toml").edges == []
+    # removing the entry re-points it
+    campaign.remove_field(plan, tmp_path, "HUB")
+    assert plan.entry_name == "ATTIC"
+
+
+def test_rename_field_moves_subdir_and_rekeys(tmp_path):
+    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
+    campaign.add_field(plan, tmp_path, name="HUB")
+    campaign.add_field(plan, tmp_path, name="NORTH")
+    campaign.add_edge(plan, tmp_path, "HUB", "NORTH", entrance=2)
+    campaign.set_entry(plan, tmp_path, "HUB")
+    campaign.rename_field(plan, tmp_path, "HUB", "LOBBY")
+    assert {m.name for m in plan.members} == {"LOBBY", "NORTH"}
+    assert (tmp_path / "LOBBY").is_dir() and not (tmp_path / "HUB").exists()
+    assert plan.entry_name == "LOBBY"
+    e = plan.edges[0]
+    assert e["frm"] == "LOBBY" and e["to"] == "NORTH"                  # edge rekeyed
+    loaded = campaign.load_campaign(tmp_path / "campaign.toml")        # the renamed member still resolves
+    m = next(x for x in loaded.members if x.name == "LOBBY")
+    assert (tmp_path / m.toml_rel).is_file()
+    assert campaign.lint_campaign(loaded, tmp_path)[0] == []
+
+
+def test_rename_rejects_collision(tmp_path):
+    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
+    campaign.add_field(plan, tmp_path, name="HUB")
+    campaign.add_field(plan, tmp_path, name="NORTH")
+    with pytest.raises(campaign.CampaignError):
+        campaign.rename_field(plan, tmp_path, "HUB", "NORTH")
+
+
+def test_set_entry_validates(tmp_path):
+    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
+    campaign.add_field(plan, tmp_path, name="HUB")
+    with pytest.raises(campaign.CampaignError):
+        campaign.set_entry(plan, tmp_path, "GHOST")
+    campaign.set_entry(plan, tmp_path, "HUB", entrance=3)
+    assert plan.entry_name == "HUB" and plan.entry_entrance == 3
+
+
+def test_mutation_rejects_path_traversal(tmp_path):
+    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
+    plan.members.append(campaign.Member(0, 30100, "EVIL", "editable", 11, "", "../EVIL/evil.field.toml", False))
+    with pytest.raises(campaign.CampaignError):                      # _safe_member_dir blocks the rmtree
+        campaign.remove_field(plan, tmp_path, "EVIL")
+    assert any("escapes" in e for e in campaign.lint_campaign(plan, tmp_path)[0])   # lint surfaces it too
+
+
+def test_member_name_validation_rejects_separators(tmp_path):
+    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
+    for bad in ("../x", "a/b", "a\\b", "  ", "."):
+        with pytest.raises(campaign.CampaignError):
+            campaign.add_field(plan, tmp_path, name=bad)
+    campaign.add_field(plan, tmp_path, name="OK")
+    with pytest.raises(campaign.CampaignError):
+        campaign.rename_field(plan, tmp_path, "OK", "../escape")
+
+
+def test_campaign_flag_block_overflow_raises(tmp_path):
+    # master's _FlagAlloc packs a member's auto once-events into base+1..base+EVENTS_PER_FIELD; Phase D
+    # GUARDS the overflow (raise, not silently alias the choice sub-band -> save corruption).
+    from ff9mapkit import build
+    evs = "".join(f'[[event]]\nname = "e{i}"\nzone = [[{i},0],[{i+1},0],[{i+1},1],[{i},1]]\ngil = 1\n\n'
+                  for i in range(build.EVENTS_PER_FIELD + 1))           # one past the per-member event slots
+    p = tmp_path / "z.field.toml"
+    p.write_text('[field]\nid = 4003\nname = "Z"\narea = 11\ntext_block = 1073\n\n'
+                 '[camera]\npitch = 45\nfov = 42.2\n\n'
+                 '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n' + evs, encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    _m, _t, et, _c, _x = build.collect_text(proj)
+    build.build_script(proj, "us", {}, event_txids=et)                 # single-field (no block): builds fine
+    proj.flag_base = campaign.FIRST_SAFE_FLAG                          # campaign member: now it overflows
+    proj.flags_per_field = 64
+    with pytest.raises(build.BuildError):
+        build.build_script(proj, "us", {}, event_txids=et)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_add_field_forks_a_real_field(tmp_path):
+    # the fork path: add a real field (Ice Cavern entrance 300) by id -- needs the game install
+    plan = campaign.new_campaign("ICE", "M", tmp_path, id_base=30100)
+    m = campaign.add_field(plan, tmp_path, name="IC_ENT", source=300)
+    assert m.real_id == 300 and m.new_id == 30100 and m.mode in ("borrow", "editable")
+    assert (tmp_path / m.toml_rel).is_file()
+    assert campaign.lint_campaign(campaign.load_campaign(tmp_path / "campaign.toml"), tmp_path)[0] == []
+
+
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_real_build_all(tmp_path):
     from ff9mapkit import eventscan

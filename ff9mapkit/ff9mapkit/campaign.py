@@ -367,6 +367,7 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         # sibling's (the per-field-counter-resets-per-build bug). Block = [flag_base + i*K, +K), packed
         # by build._FlagAlloc. lint_campaign asserts every block is in the provably-safe band.
         proj.flag_base = plan.flag_base + i * plan.flags_per_field
+        proj.flags_per_field = plan.flags_per_field     # the overflow guard's per-member block width
         # Do NOT override text_block to a per-member id. The FieldScene textid (6th DictionaryPatch token)
         # MUST already be a key in FF9DBAll.MesDB, or DataPatchers SKIPS the whole scene registration
         # (DataPatchers.cs:392-395 `if (!MesDB.ContainsKey(mesID)) continue;` -- verified in-game: textid
@@ -376,6 +377,8 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         # that safely (a custom .mes that registers its id in MesDB) is a follow-up, not done here.
         projects.append(proj)
 
+    # each member's per-member flag_base was set on its FieldProject above; build_script's _FlagAlloc packs
+    # that member's auto chest/event/cutscene/choice flags into its own disjoint block (no cross-field alias).
     info = build_mod(projects, out, mod_name=plan.mod_folder, author=author, description=description)
     info["plan"] = plan
     info["out"] = str(Path(out).resolve())
@@ -474,9 +477,12 @@ def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
         if tm and tm not in names:
             warnings.append(f"seam from {s.get('frm')!r}: to_member {tm!r} is not a member (stale name?)")
 
-    member_raw = {}                               # (e) member field.toml exists (+ cache for flags)
+    member_raw = {}                               # (e) member field.toml exists, within the campaign folder
     for m in plan.members:
         p = manifest_dir / m.toml_rel
+        if not _within(manifest_dir, p):          # a crafted toml_rel ('../..') must not read outside
+            errors.append(f"member {m.name}: field.toml path escapes the campaign folder ({m.toml_rel})")
+            continue
         if not p.is_file():
             errors.append(f"member {m.name}: field.toml not found at {p}")
             continue
@@ -679,3 +685,215 @@ def render_graph(plan: CampaignPlan) -> str:
         out.append("DANGLING SEAMS (from not a member -- stale manifest?): "
                    + ", ".join(f"{s.get('frm')}->{s.get('to_real')}" for s in g.dangling_seams))
     return "\n".join(out).rstrip() + "\n"
+
+
+# ---- P6: mutation / creation API (author/edit a campaign WITHOUT import-chain) -----------
+# import-chain FORKS a connected real-game region; this is the from-scratch / hand-edit twin -- create an
+# empty campaign and add/remove/rename members + edges by hand. Every mutation re-renders campaign.toml
+# through render_campaign_toml so the manifest stays the single round-trip-safe source of truth, and ids
+# are next-free (never renumbered -- a renumber would have to rewrite every member's retargeted gateways).
+def _save_plan(plan: CampaignPlan, manifest_dir) -> Path:
+    """(Re)write campaign.toml from the in-memory plan -- the single persistence point for every mutation."""
+    p = Path(manifest_dir) / "campaign.toml"
+    p.write_text(render_campaign_toml(plan), encoding="utf-8", newline="\n")
+    return p
+
+
+def _next_member_id(plan: CampaignPlan) -> int:
+    """Next free member id: max existing + 1 (ids needn't be contiguous; removes leave gaps), or id_base
+    for the first member. Never renumbers existing members (that would rewrite their retargeted gateways)."""
+    return max((m.new_id for m in plan.members), default=plan.id_base - 1) + 1
+
+
+def _subdir_of(member: Member) -> str:
+    """The member's on-disk subdir (the first path component of toml_rel)."""
+    return Path(member.toml_rel).parts[0]
+
+
+def _within(base, path) -> bool:
+    """True if ``path`` resolves to ``base`` itself or somewhere inside it -- the guard that keeps a
+    crafted/stale ``toml_rel`` (``../..``) from letting a mutation rename/rmtree/read OUTSIDE the campaign."""
+    base, path = Path(base).resolve(), Path(path).resolve()
+    return path == base or base in path.parents
+
+
+def _validate_member_name(name: str) -> str:
+    """A member name is a simple token -- it becomes an on-disk subdir + the key edges/seams reference, so
+    no path separators / traversal / surrounding whitespace."""
+    name = str(name)
+    if not name or name != name.strip() or name in (".", "..") or any(c in name for c in "/\\"):
+        raise CampaignError(f"invalid member name {name!r} (no path separators / leading-trailing space)")
+    return name
+
+
+def _safe_member_dir(manifest_dir, member: Member) -> Path:
+    """A member's subdir, RESOLVED and validated to stay within manifest_dir -- the guard before any
+    destructive rename/rmtree (a crafted toml_rel must never reach outside the campaign folder)."""
+    sub = Path(manifest_dir) / _subdir_of(member)
+    if not _within(manifest_dir, sub):
+        raise CampaignError(f"member {member.name!r}: subdir escapes the campaign folder ({member.toml_rel})")
+    return sub.resolve()
+
+
+def _resolve_source_folder(source) -> str:
+    """A real field reference (an id, or a unique FBG-folder substring) -> its FBG folder. For add_field's
+    fork path. Raises if it's not a single known field."""
+    from . import extract
+    try:
+        fid = int(source)
+        if fid in extract.ID_TO_FBG:
+            return extract.ID_TO_FBG[fid]
+    except (TypeError, ValueError):
+        pass
+    s = str(source).lower()
+    hits = sorted({f for f in extract.ID_TO_FBG.values() if s in f.lower()})
+    if len(hits) == 1:
+        return hits[0]
+    raise CampaignError(f"source {source!r} matched {len(hits)} fields -- give a field id or a unique FBG name")
+
+
+def new_campaign(name, mod_folder, manifest_dir, *, id_base=4000, flag_base=FIRST_SAFE_FLAG,
+                 flags_per_field=64, entry_entrance=0) -> CampaignPlan:
+    """Create an EMPTY campaign (no members) and write its campaign.toml -- the from-scratch path that
+    import-chain (which forks a real region) doesn't cover. Add members with :func:`add_field`. The default
+    flag_base is the census-grounded safe floor (clear of real-FF9 chest flags); see :mod:`flags`."""
+    if not (4000 <= id_base <= 32767):
+        raise CampaignError(f"id_base {id_base} out of range (must be 4000-32767)")
+    plan = CampaignPlan(name=str(name), mod_folder=str(mod_folder), id_base=int(id_base),
+                        flag_base=int(flag_base), flags_per_field=int(flags_per_field),
+                        entry_name="", entry_entrance=int(entry_entrance))
+    Path(manifest_dir).mkdir(parents=True, exist_ok=True)
+    _save_plan(plan, manifest_dir)
+    return plan
+
+
+def add_field(plan: CampaignPlan, manifest_dir, *, name, source=None, game=None) -> Member:
+    """Add a member to a campaign + re-render campaign.toml. ``source=None`` scaffolds a BLANK room
+    (offline, via pack.new_project -- placeholder art, walkable). A ``source`` (a real field id or a unique
+    FBG-folder substring) FORKS that real field (needs the game install, like import-chain), retargeting
+    any gateway that points at an existing member. The member gets the next free id (no renumber). The
+    first member added becomes the entry if none is set yet."""
+    from . import extract
+    name = _validate_member_name(name)
+    manifest_dir = Path(manifest_dir)
+    if any(m.name == name for m in plan.members):
+        raise CampaignError(f"member name {name!r} is already in this campaign")
+    new_id = _next_member_id(plan)
+    if new_id > 32767:
+        raise CampaignError(f"next member id {new_id} exceeds 32767 (the live fldMapNo is Int16)")
+    if source is None:                                   # blank/template member -- fully offline
+        from . import pack
+        pack.new_project(name, manifest_dir, field_id=new_id, area=11)
+        member = Member(0, new_id, name, "editable", 11, "", f"{name}/{name.lower()}.field.toml", False)
+    else:                                                # fork a real field -- needs the game
+        folder = _resolve_source_folder(source)
+        real_id = next((i for i, f in extract.ID_TO_FBG.items() if f == folder), 0)
+        area, _ = extract.parse_fbg_folder(folder)
+        mode = "borrow" if area >= extract.MIN_CUSTOM_AREA else "editable"
+        mdir = manifest_dir / name
+        mdir.mkdir(parents=True, exist_ok=True)
+        remap = {m.real_id: m.new_id for m in plan.members if m.real_id}
+        remap[real_id] = new_id                          # so a self/back-reference retargets to this member
+        needs_export = False
+        try:
+            fork = extract.write_field_project if mode == "borrow" else extract.write_editable_project
+            _meta, p = fork(folder, mdir, name=name, field_id=new_id, game=game, id_remap=remap)
+        except RuntimeError as e:
+            if mode == "editable" and "[Export]" in str(e):
+                _meta, p = _emit_logic_only_member(folder, mdir, name, new_id, remap, False, game)
+                needs_export = True
+            else:
+                raise
+        member = Member(real_id, new_id, name, mode, area, folder, f"{name}/{p.name}", needs_export)
+    plan.members.append(member)
+    if not plan.entry_name:
+        plan.entry_name = name
+    _save_plan(plan, manifest_dir)
+    return member
+
+
+def remove_field(plan: CampaignPlan, manifest_dir, name) -> None:
+    """Drop a member from the campaign: remove its subdir, prune every edge/seam that referenced it, and
+    re-point the entry if it was the removed member. Leaves an id gap (no renumber)."""
+    import shutil
+    manifest_dir = Path(manifest_dir)
+    m = next((x for x in plan.members if x.name == name), None)
+    if m is None:
+        raise CampaignError(f"no member named {name!r}")
+    mdir = _safe_member_dir(manifest_dir, m)             # validate within manifest_dir BEFORE any mutation
+    plan.members.remove(m)
+    plan.edges = [e for e in plan.edges if e.get("frm") != name and e.get("to") != name]
+    plan.seams = [s for s in plan.seams if s.get("frm") != name]
+    for s in plan.seams:
+        if s.get("to_member") == name:
+            s["to_member"] = None
+    if plan.entry_name == name:
+        plan.entry_name = plan.members[0].name if plan.members else ""
+    if mdir.is_dir():
+        shutil.rmtree(mdir, ignore_errors=True)
+    _save_plan(plan, manifest_dir)
+
+
+def rename_field(plan: CampaignPlan, manifest_dir, old, new) -> None:
+    """Rename a member's STRUCTURAL identity: its subdir + toml_rel + campaign.toml name, and rekey every
+    edge/seam/entry that referenced it. Does NOT touch the field's in-game ``[field] name`` (that's the
+    separate display name the Logic Editor owns) or the inner field.toml filename -- a structural rename
+    only. Ids are unchanged, so no member's gateways need rewriting."""
+    manifest_dir = Path(manifest_dir)
+    m = next((x for x in plan.members if x.name == old), None)
+    if m is None:
+        raise CampaignError(f"no member named {old!r}")
+    new = _validate_member_name(new)
+    if old == new:
+        return
+    if any(x.name == new for x in plan.members):
+        raise CampaignError(f"member name {new!r} is already in this campaign")
+    old_dir = _safe_member_dir(manifest_dir, m)          # validated within manifest_dir before the rename
+    new_dir = (manifest_dir / new).resolve()
+    if old_dir.is_dir() and old_dir != new_dir:
+        if new_dir.exists():
+            raise CampaignError(f"cannot rename onto existing path {new_dir}")
+        old_dir.rename(new_dir)
+    m.toml_rel = f"{new}/{Path(m.toml_rel).name}"        # keep the inner filename; swap the subdir
+    m.name = new
+    for e in plan.edges:
+        if e.get("frm") == old:
+            e["frm"] = new
+        if e.get("to") == old:
+            e["to"] = new
+    for s in plan.seams:
+        if s.get("frm") == old:
+            s["frm"] = new
+        if s.get("to_member") == old:
+            s["to_member"] = new
+    if plan.entry_name == old:
+        plan.entry_name = new
+    _save_plan(plan, manifest_dir)
+
+
+def set_entry(plan: CampaignPlan, manifest_dir, name, *, entrance=None) -> None:
+    """Set the campaign's entry member (and optionally its entrance). Validates the member exists."""
+    if name not in {m.name for m in plan.members}:
+        raise CampaignError(f"entry {name!r} is not a campaign member")
+    plan.entry_name = name
+    if entrance is not None:
+        plan.entry_entrance = int(entrance)
+    _save_plan(plan, manifest_dir)
+
+
+def add_edge(plan: CampaignPlan, manifest_dir, frm, to, *, entrance=0, gated=False) -> None:
+    """Record an in-chain connection in the graph (campaign.toml [[edge]]). NOTE: this is the graph-level
+    reflection of connectivity -- the LIVE door is a ``[[gateway]]`` you author in the source member's
+    field.toml (the Logic Editor). Both ends must be members."""
+    names = {m.name for m in plan.members}
+    if frm not in names or to not in names:
+        raise CampaignError(f"edge {frm!r}->{to!r}: both ends must be campaign members")
+    plan.edges.append({"frm": frm, "to": to, "entrance": int(entrance),
+                       "story_conditional": bool(gated)})
+    _save_plan(plan, manifest_dir)
+
+
+def remove_edge(plan: CampaignPlan, manifest_dir, frm, to) -> None:
+    """Remove the graph edge(s) frm->to (campaign.toml [[edge]])."""
+    plan.edges = [e for e in plan.edges if not (e.get("frm") == frm and e.get("to") == to)]
+    _save_plan(plan, manifest_dir)

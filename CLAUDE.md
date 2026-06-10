@@ -638,11 +638,9 @@ Read these on demand — they hold the full technical detail this file only summ
   (the `to`-int lookup, standalone safety, and theme-palette keys all verified correct). All offline-testable:
   `--smoke` covers navigation + graph children + edge-nav + Check + the dirty gate both ways; **551 kit tests
   pass**. Scope was **A–C** (navigate + validate imported campaigns, text/tree graph first) and is **DONE**; the
-  only deferred frontier is the visual node-link diagram (optional follow-up). Deferred to **Phase D** (out of
-  this scope): create-a-campaign-from-scratch + add/remove/rewire/**rename** mutation API. (The navigator's
-  member name is the structural campaign id that edges/seams key on; the editor's "Name" is the field's in-game
-  name — decoupled by design, so a true member RENAME is Phase D.) *(The per-member flag-isolation fix that was
-  flagged here as Phase-D has since LANDED — see the next bullet.)*
+  only deferred frontier is the visual node-link diagram (optional follow-up). (The navigator's member name is the
+  structural campaign id that edges/seams key on; the editor's "Name" is the field's in-game name — decoupled by
+  design, so a true member RENAME is the Phase-D op below, NOT a field-name edit.)
 - **Story-flag research (Pillar: Resources / `gEventGlobal`) — `story_flags` branch** (2026-06-10;
   `research/`). Mapped FF9's save-persistent story-flag heap end-to-end: `EventState.gEventGlobal` (Byte[2048],
   Base64 in the save JSON) holds the **ScenarioCounter** (UInt16 @ bytes 0-1, master story-progress 1..12000),
@@ -682,6 +680,29 @@ Read these on demand — they hold the full technical detail this file only summ
   census-grounded **43-area progression** (`research/gen_scenario_table.py` → `flags.SCENARIO_MILESTONES`,
   mirrored to the C# menu) reads 7200 → "Alexandria Castle". **Deferred:** a seed/recreate tool (rec #4).
   580 kit tests pass; dev engine still stock `6b8bb2d5` + s22 (now with the story-state view).
+- **Campaign Editor — Phase D: authoring (create / mutate a campaign), on the story-flags safe-flag base
+  (offline-verified; awaits a human GUI click-through + one in-game flag-isolation playtest)** — the from-scratch
+  twin of import-chain (which forks a real region), landed AFTER + rebased onto the story-flags work above.
+  **D1 — mutation/creation API** (`campaign.py` P6 section): `new_campaign` (empty manifest; default
+  `flag_base = FIRST_SAFE_FLAG` from `flags.py`), `add_field` (a BLANK room via `pack.new_project` offline, OR
+  FORK a real field by id/FBG-name — needs the game), `remove_field` (drops the member + subdir, prunes its
+  edges/seams), `rename_field` (renames the subdir + toml_rel + rekeys edges/seams/entry; structural only — the
+  field's in-game `[field] name` stays the Logic Editor's to own), `set_entry`, `add_edge`/`remove_edge`. Ids are
+  **next-free** (`max+1`; never renumbered, so no member's retargeted gateways are rewritten); every mutation
+  re-renders campaign.toml so the manifest stays the lossless source of truth. **D2 — flag isolation IS the
+  story-flags branch's `build._FlagAlloc`** (the bullet above): Phase D's authoring sits on it — `build_campaign`
+  sets each member's `flag_base` so its auto chest/event/cutscene/choice flags pack into a disjoint, census-safe
+  block (clear of real-FF9 chest flags 8376-8511); single-field output stays byte-identical. Phase D ADDS a
+  build-time **overflow guard**: a member with more auto once-flags than its block holds now raises `BuildError`
+  instead of silently aliasing the next sub-band (`_FlagAlloc` packed but didn't guard). **D3 — the authoring
+  GUI**: workspace buttons New… / + Field / Rename / Remove / Set Entry over D1 (CLI parity: **`new-campaign`** +
+  **`add-field`**), refreshing the navigator and keeping the editor off a removed/renamed member. **Hardened by a
+  4th adversarial review pass** (28 agents): the overflow guard above + **path-traversal guards** (a crafted/stale
+  `toml_rel` can't `rmtree`/rename/read outside the campaign — `_within`/`_safe_member_dir` + member-name
+  validation) + a duplicate-member-name lint error + an `id_base` prompt on New Campaign. `--smoke` covers
+  add/rename/remove; the full kit suite passes. **The one thing I can't self-verify**: runtime flag isolation —
+  loot a chest in member A, confirm member B's chest is NOT pre-looted — needs an in-game playtest. **Phase D
+  done → the whole Campaign-Editor "Phase 4" arc (A–D) is complete.**
 
 ---
 

@@ -31,6 +31,7 @@ import sys
 
 from . import __version__
 from .config import ConfigError, ModLayout, find_game_path, find_mod_root
+from .flags import FIRST_SAFE_FLAG     # the census-grounded safe campaign flag floor (clear of real-FF9 flags)
 
 
 def _has_unitypy() -> bool:
@@ -453,6 +454,40 @@ def _cmd_lint_campaign(args: argparse.Namespace) -> int:
         return 2
     print(f"campaign '{plan.name}' OK -- {len(plan.members)} members, {len(plan.edges)} edges, "
           f"{len(plan.seams)} seams, {len(warnings)} warning(s)")
+    return 0
+
+
+def _cmd_new_campaign(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from . import campaign
+    cfg = _deploy_cfg()
+    id_base = args.id_base if args.id_base is not None else int(cfg.get("campaign_id_base", 4000))
+    mod_folder = args.mod_folder or cfg.get("mod_folder") or "FF9CustomMap"
+    try:
+        plan = campaign.new_campaign(args.name, mod_folder, Path(args.dir), id_base=id_base,
+                                     flag_base=args.flag_base, flags_per_field=args.flags_per_field)
+    except campaign.CampaignError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    cpath = Path(args.dir) / "campaign.toml"
+    print(f"created empty campaign '{plan.name}' at {cpath} (id_base {plan.id_base}, "
+          f"mod_folder {plan.mod_folder}).\nNext: ff9mapkit add-field {cpath} --name ROOM1")
+    return 0
+
+
+def _cmd_add_field(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from . import campaign
+    cpath = Path(args.campaign)
+    try:
+        plan = campaign.load_campaign(cpath)
+        m = campaign.add_field(plan, cpath.parent, name=args.name, source=args.source, game=args.game)
+    except (campaign.CampaignError, RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    kind = f"forked field {args.source}" if args.source else "blank room"
+    print(f"added {m.name} (id {m.new_id}, {kind}) -> {m.toml_rel}; campaign now has {len(plan.members)} "
+          f"member(s).\nEdit it: ff9mapkit edit {cpath.parent / m.toml_rel}")
     return 0
 
 
@@ -897,8 +932,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="WRITE the chain: emit campaign.toml + per-member field.tomls into this dir (P2)")
     ic.add_argument("--id-base", type=int, default=None, dest="id_base",
                     help="member i gets id_base+i (default: .ff9deploy.toml campaign_id_base, else 6000; >=4000)")
-    ic.add_argument("--flag-base", type=int, default=8300, dest="flag_base",
-                    help="campaign flag band start recorded in campaign.toml (default 8300)")
+    ic.add_argument("--flag-base", type=int, default=FIRST_SAFE_FLAG, dest="flag_base",
+                    help=f"campaign flag band start recorded in campaign.toml (default {FIRST_SAFE_FLAG}, "
+                         f"the safe floor clear of real-FF9 chest flags)")
     ic.add_argument("--flags-per-field", type=int, default=64, dest="flags_per_field",
                     help="reserved GLOB block width per field (recorded for P5; default 64)")
     ic.add_argument("--campaign-name", default=None, dest="campaign_name",
@@ -924,6 +960,24 @@ def build_parser() -> argparse.ArgumentParser:
     lc.add_argument("--graph", action="store_true",
                     help="also print the resolved member graph (doors/seams/dead-ends/unreachable)")
     lc.set_defaults(func=_cmd_lint_campaign)
+
+    nc = sub.add_parser("new-campaign", help="create an EMPTY campaign manifest to author by hand (P6)")
+    nc.add_argument("dir", help="directory to create campaign.toml in")
+    nc.add_argument("--name", required=True, help="campaign / mod display name")
+    nc.add_argument("--mod-folder", default=None, dest="mod_folder",
+                    help="Memoria mod folder (default: .ff9deploy.toml / FF9CustomMap)")
+    nc.add_argument("--id-base", type=int, default=None, dest="id_base",
+                    help="first member field id (default: deploy cfg / 4000)")
+    nc.add_argument("--flag-base", type=int, default=FIRST_SAFE_FLAG, dest="flag_base")
+    nc.add_argument("--flags-per-field", type=int, default=64, dest="flags_per_field")
+    nc.set_defaults(func=_cmd_new_campaign)
+
+    af = sub.add_parser("add-field", help="add a member to a campaign: a blank room, or fork a real field (P6)")
+    af.add_argument("campaign", help="path to the campaign.toml manifest")
+    af.add_argument("--name", required=True, help="member name (unique; e.g. HUB)")
+    af.add_argument("--source", default=None,
+                    help="a real field id or unique FBG name to FORK (needs the game); omit for a blank room")
+    af.set_defaults(func=_cmd_add_field)
 
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")
     lf.add_argument("pattern", nargs="?", default=None, help="substring filter (e.g. alex, treno, grgr)")

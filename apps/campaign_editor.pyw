@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "ff9mapkit"))     # the kit package
 sys.path.insert(0, str(ROOT / "tools"))         # the field-usage helper (Info Hub's Where-in-FF9)
 
 import tkinter as tk                              # noqa: E402
-from tkinter import ttk, filedialog, messagebox  # noqa: E402
+from tkinter import ttk, filedialog, messagebox, simpledialog  # noqa: E402
 
 
 def _load_app(filename, modname):
@@ -80,12 +80,22 @@ class Workspace:
         side = ttk.Frame(panes)
         panes.add(side, weight=0)
         bar = ttk.Frame(side)
-        bar.pack(fill="x", padx=6, pady=6)
+        bar.pack(fill="x", padx=6, pady=(6, 2))
         ttk.Button(bar, text="Open Campaign...", command=self.on_open_campaign).pack(side="left")
+        ttk.Button(bar, text="New...", command=self.on_new_campaign).pack(side="left", padx=(6, 0))
         self.btn_check = ttk.Button(bar, text="Check", command=self.on_check, state="disabled")
         self.btn_check.pack(side="left", padx=(6, 0))
-        self.header = ttk.Label(side, text="No campaign open.\nOpen a campaign.toml to navigate its fields.",
-                                justify="left", anchor="nw")
+        # member-authoring actions (Phase D) -- enabled once a campaign is open
+        self.bar2 = ttk.Frame(side)
+        self.bar2.pack(fill="x", padx=6, pady=(0, 4))
+        self._edit_btns = []
+        for txt, cmd in (("+ Field", self.on_add_field), ("Rename", self.on_rename_field),
+                         ("Remove", self.on_remove_field), ("Set Entry", self.on_set_entry)):
+            b = ttk.Button(self.bar2, text=txt, command=cmd, state="disabled")
+            b.pack(side="left", padx=(0, 4))
+            self._edit_btns.append(b)
+        self.header = ttk.Label(side, text="No campaign open.\nOpen a campaign.toml to navigate its fields, "
+                                "or New... to author one.", justify="left", anchor="nw")
         self.header.pack(fill="x", padx=8, pady=(0, 6))
         twrap = ttk.Frame(side)
         twrap.pack(fill="both", expand=True, padx=6, pady=(0, 6))
@@ -162,6 +172,8 @@ class Workspace:
         self._member_paths = {m.name: (path.parent / m.toml_rel).resolve() for m in plan.members}
         self.editor.campaign_idmap = {m.new_id: m.name for m in plan.members}   # gateway annotations
         self.btn_check.configure(state="normal")
+        for b in self._edit_btns:
+            b.configure(state="normal")
         self._populate(plan)
         self._log(f"opened campaign {plan.name} ({len(plan.members)} fields) -- click a field to edit it, "
                   "expand it to see its doors, or Check it.", "ok")
@@ -268,6 +280,134 @@ class Workspace:
             self.tree.see(first)
         return errors, warnings
 
+    # ---------------------------------------------------------------- authoring (Phase D)
+    def _reload(self, land=None):
+        """Re-read campaign.toml after a mutation (the API re-renders it) and repopulate the navigator;
+        optionally open ``land`` in the editor. Keeps the manifest the single source of truth, and keeps
+        the editor OFF a removed/renamed member (whose file just moved/vanished) so a later Save can't
+        write to a dead path."""
+        from ff9mapkit import campaign
+        self.plan = campaign.load_campaign(self.campaign_path)
+        self._member_paths = {m.name: (self.campaign_path.parent / m.toml_rel).resolve()
+                              for m in self.plan.members}
+        self.editor.campaign_idmap = {m.new_id: m.name for m in self.plan.members}
+        self._populate(self.plan)
+        cur = getattr(self.editor.doc, "path", None)
+        live = {p.resolve() for p in self._member_paths.values()}
+        stale = cur is not None and Path(cur).resolve() not in live
+        target = land if (land and land in self._member_paths) else None
+        if target is None and stale and self.plan.members:    # editor was on a removed/renamed member
+            target = self.plan.entry_name if self.plan.entry_name in self._member_paths \
+                else self.plan.members[0].name
+        if target and target in self._member_paths:
+            self.tree.see(target)
+            self.open_member(target)
+
+    def _selected_member(self):
+        """The selected member name (a door/seam child resolves to its parent member); None if nothing
+        member-like is selected (with a nudge)."""
+        sel = self.tree.selection()
+        if sel:
+            iid = sel[0]
+            if iid in self._member_paths:
+                return iid
+            parent = self.tree.parent(iid)
+            if parent in self._member_paths:
+                return parent
+        messagebox.showinfo("No member selected", "Select a field in the list first.")
+        return None
+
+    def on_new_campaign(self):
+        d = filedialog.askdirectory(title="New campaign: choose an empty folder for it")
+        if not d:
+            return
+        name = simpledialog.askstring("New campaign", "Campaign / mod name:", parent=self.root)
+        if not name:
+            return
+        id_base = simpledialog.askinteger(
+            "New campaign", "First field id (id_base) for this campaign.\nEach member takes id_base, +1, "
+            "+2 ...  Must be >= 4000 and NOT collide with other deployed fields.",
+            parent=self.root, initialvalue=4000, minvalue=4000, maxvalue=32767)
+        if id_base is None:
+            return
+        from ff9mapkit import campaign
+        try:
+            campaign.new_campaign(name, "FF9CustomMap", Path(d), id_base=id_base)
+        except Exception as e:                        # noqa: BLE001
+            messagebox.showerror("New campaign failed", str(e))
+            return
+        self.open_campaign(Path(d) / "campaign.toml")
+        self._log("new campaign created -- add fields with '+ Field' (blank rooms, or fork a real field). "
+                  "Tip: set mod_folder precisely by editing campaign.toml or via `ff9mapkit new-campaign`.",
+                  "muted")
+
+    def on_add_field(self):
+        if self.plan is None:
+            return
+        name = simpledialog.askstring("Add field", "New member name (unique, e.g. HUB):", parent=self.root)
+        if not name:
+            return
+        src = simpledialog.askstring("Add field",
+                                     "Fork which real FF9 field? (a field id or unique FBG name -- needs the "
+                                     "game install)\n\nLeave BLANK for an empty room.", parent=self.root)
+        src = (src or "").strip() or None
+        from ff9mapkit import campaign
+        try:
+            m = campaign.add_field(self.plan, self.campaign_path.parent, name=name, source=src)
+        except Exception as e:                        # noqa: BLE001
+            messagebox.showerror("Add field failed", str(e))
+            return
+        self._reload(land=m.name)
+        self._log(f"added {m.name} (id {m.new_id}, {'fork ' + src if src else 'blank room'})", "ok")
+
+    def on_remove_field(self):
+        name = self._selected_member()
+        if not name:
+            return
+        if not messagebox.askyesno("Remove member",
+                                   f"Remove '{name}' from the campaign AND delete its folder on disk?\n\n"
+                                   "Edges/seams referencing it are pruned. This can't be undone."):
+            return
+        from ff9mapkit import campaign
+        try:
+            campaign.remove_field(self.plan, self.campaign_path.parent, name)
+        except Exception as e:                        # noqa: BLE001
+            messagebox.showerror("Remove failed", str(e))
+            return
+        self._reload()
+        self._log(f"removed {name}", "warn")
+
+    def on_rename_field(self):
+        name = self._selected_member()
+        if not name:
+            return
+        new = simpledialog.askstring("Rename member", f"New (structural) name for '{name}':",
+                                     parent=self.root, initialvalue=name)
+        if not new or new == name:
+            return
+        from ff9mapkit import campaign
+        try:
+            campaign.rename_field(self.plan, self.campaign_path.parent, name, new)
+        except Exception as e:                        # noqa: BLE001
+            messagebox.showerror("Rename failed", str(e))
+            return
+        self._reload(land=new)
+        self._log(f"renamed {name} -> {new} (the field's in-game [field] name is separate -- edit it in the "
+                  "Logic Editor)", "ok")
+
+    def on_set_entry(self):
+        name = self._selected_member()
+        if not name:
+            return
+        from ff9mapkit import campaign
+        try:
+            campaign.set_entry(self.plan, self.campaign_path.parent, name)
+        except Exception as e:                        # noqa: BLE001
+            messagebox.showerror("Set entry failed", str(e))
+            return
+        self._reload()
+        self._log(f"entry set to {name}", "ok")
+
 
 def build(root):
     """Mount the campaign workspace (navigator + the three app tabs) on `root`; return the Workspace."""
@@ -321,8 +461,25 @@ def _smoke(ws):
     ws.editor.doc.data["__dirty_probe__"] = True
     assert ws.open_member("IC_ENT") and ws.editor.doc.path == members_path(d, "IC_ENT")
     assert calls == [1], "a dirty switch should prompt exactly once"
+
+    # --- Phase D authoring: add / rename / remove a member via the handlers (patched dialogs) ---
+    import tkinter.simpledialog as _sd
+    import tkinter.messagebox as _mb
+    answers = iter(["WEST", ""])                                   # on_add_field: name, then source (blank)
+    _sd.askstring = lambda *a, **k: next(answers, "")
+    ws.on_add_field()
+    assert "WEST" in ws.tree.get_children() and (d / "WEST" / "west.field.toml").is_file()
+    _sd.askstring = lambda *a, **k: "WESTWING"                     # on_rename_field
+    ws.tree.selection_set("WEST")
+    ws.on_rename_field()
+    assert "WESTWING" in ws.tree.get_children() and "WEST" not in ws.tree.get_children()
+    assert (d / "WESTWING").is_dir() and not (d / "WEST").exists()
+    _mb.askyesno = lambda *a, **k: True                            # on_remove_field (confirm)
+    ws.tree.selection_set("WESTWING")
+    ws.on_remove_field()
+    assert "WESTWING" not in ws.tree.get_children() and not (d / "WESTWING").exists()
     print(f"campaign editor smoke ok: {ws.nb.index('end')} tabs, 3 members, graph children + edge-nav + "
-          f"Check ({len(errors)} err) + dirty-gate verified")
+          f"Check ({len(errors)} err) + dirty-gate + Phase-D add/rename/remove verified")
 
 
 def members_path(d, name):
