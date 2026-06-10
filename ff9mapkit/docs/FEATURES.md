@@ -111,6 +111,7 @@ codec/golden tests) with the full in-game pass still pending.
 | **Tune the fight** (`[scene]`) — override enemy positions / stats / rewards / camera pose on a mint | ✓ | [FORMAT](FORMAT.md) |
 | **Spawn composition** (`[scene]` `monster_count` + per-slot `type`) — recompose AND grow the encounter (1–4 enemies; re-authors the eb's enemy-AI binding so a mint can exceed the donor's count) | ✓ | [FORMAT](FORMAT.md) |
 | **Opening-camera tweaks** (`[scene]` `camera_yaw` / `camera_pitch` / `camera_zoom`) — rotate/tilt/zoom a minted battle's opening shot (in-place raw17 edit; the native plugin renders it, no DLL rebuild) | ✓ | [FORMAT](FORMAT.md) |
+| **Author the opening sweep** (`[[scene.camera_keyframes]]`) — a from-scratch multi-segment crane/orbit in FF9's real opening-camera grammar; keyframes are offsets/zoom around the battle's proven framing, so it always stays framed and ends on the normal shot | ✓ | [FORMAT](FORMAT.md) |
 | Deploy reversibly + repoint a field encounter to trigger it (`deploy_battle.py --trigger-field`) | ✓ | [FORMAT](FORMAT.md) |
 
 ---
@@ -120,8 +121,10 @@ codec/golden tests) with the full in-game pass still pending.
 Honest limits — the kit deliberately does **not**:
 - **Paint your background art / battle-map textures** — it gives you a pixel-accurate guide and forks
   the real geometry; the painting is yours.
-- Author a **bespoke moving battle camera** — minted battles use the donor's (working) camera or a static
-  default pose; custom camera keyframes (the closed `FF9SpecialEffectPlugin.dll`) aren't authored yet.
+- Author a **fully arbitrary battle camera from absolute coordinates** — the closed `FF9SpecialEffectPlugin.dll`
+  hides the exact world scale, so authored sweeps are expressed as offsets/zoom *around the donor's proven
+  framing* (which always frames the fight), not as raw world poses. A multi-segment opening crane/orbit IS
+  authorable (`[[scene.camera_keyframes]]`); a from-nothing pose in world units is not.
 - Generate **world-map** content (the overworld + its terrain/encounters; no world-map pillar yet).
 - Run the game or judge final visual alignment — that's the human playtest step.
 - Ship Square Enix's game data — game-derived blobs are sourced from *your own* install.

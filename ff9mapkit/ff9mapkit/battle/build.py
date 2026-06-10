@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import LANGS, ModLayout
+from . import camera_codec as _camera_codec
 from . import camera_data as _camera_data
 from . import event_data as _event_data
 from . import fbx as _fbx
@@ -175,9 +176,15 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
         # camera plays = raw16 pattern Camera byte (the `[scene] camera` selector); tweak that one (0-2) or
         # all of 0/1/2 if it's random/unpinned.
         raw17 = (sd / "btlseq.raw17.bytes").read_bytes()
+        cam_idx = _camera_data.opening_indices(scene_cfg.get("camera")) if scene_cfg else []
+        if scene_cfg and scene_cfg.get("camera_keyframes"):     # tier ii: author the opening from scratch
+            try:
+                raw17 = _camera_codec.author_opening(raw17, cam_idx, scene_cfg["camera_keyframes"])
+            except ValueError as ex:
+                raise BattleBuildError(f"camera keyframe authoring failed: {ex}")
         if scene_cfg and any(k in scene_cfg for k in ("camera_yaw", "camera_pitch", "camera_zoom")):
-            raw17 = _camera_data.tweak_opening(
-                raw17, _camera_data.opening_indices(scene_cfg.get("camera")),
+            raw17 = _camera_data.tweak_opening(                 # tier i: offset (composes over keyframes)
+                raw17, cam_idx,
                 yaw_deg=float(scene_cfg.get("camera_yaw", 0)),
                 pitch_deg=float(scene_cfg.get("camera_pitch", 0)),
                 zoom=float(scene_cfg.get("camera_zoom", 1.0)))

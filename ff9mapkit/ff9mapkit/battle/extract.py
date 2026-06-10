@@ -385,6 +385,28 @@ scene_name = "{name}"     # -> EVT_BATTLE_{name} + BSC_{name}{tint}
 # #                            value can dip the camera below the floor (the ground mesh is see-through from
 # #                            under). Use small steps + test; yaw + zoom are the predictable knobs.
 # camera_zoom = 1.0          # opening-camera distance multiplier (1.5 = farther out, 0.7 = closer in)
+#
+# --- author the opening camera SWEEP from keyframes (optional, advanced) ------------------------------
+# Replaces the opening swoop with your own, in the SAME grammar the base game uses. Keyframes ADJUST the
+# battle's PROVEN framing (the shot it normally settles into): yaw/pitch/roll are degree OFFSETS and `zoom`
+# is a distance multiplier, so {} = the normal framing. Keyframe 0 is the instant START pose; each later
+# one MOVES the camera there over `move` frames. End on {} (or small offsets) so the fight stays framed --
+# the camera's origin is the battle centre, and distance is measured from it, so anchoring on the proven
+# pose is what stops a sweep from mis-framing. The donor's on-fight look-at + the intro->battle handoff are
+# kept. Pin `camera = 0` above. Needs >= 2 keyframes (a start + a move).
+# [[scene.camera_keyframes]]    # START: swing 76deg to one side, 2.5x farther out, slightly higher
+# yaw = -76                     # degrees to orbit from the normal shot (+/-)
+# pitch = 5                     # degrees to tilt (small; +tips the camera down toward the floor)
+# zoom = 2.5                    # distance x2.5 (start wide); 1.0 = the normal framing, <1 = closer
+# [[scene.camera_keyframes]]    # swoop IN and around
+# yaw = -20
+# zoom = 1.6
+# move = 45                     # frames to reach this pose
+# ease = "in"                   # in (start slow) | out (end slow) | linear
+# [[scene.camera_keyframes]]    # settle EXACTLY on the battle's normal framing
+# move = 30
+# ease = "out"
+#
 # monster_count = 4          # how many of the 4 slots SPAWN (1-4). The kit re-authors the eb's enemy-AI
 # #                            binding to match, so you CAN exceed the donor's natural count. Give each
 # #                            active slot a 'type' (an existing scene type).

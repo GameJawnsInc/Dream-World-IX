@@ -11,7 +11,7 @@ import struct
 
 import pytest
 
-from ff9mapkit.battle import camera_data, event_data, fbx, scene_data
+from ff9mapkit.battle import camera_codec, camera_data, event_data, fbx, scene_data
 from ff9mapkit.battle.build import (BattleProject, _author_inb, _bbg_number, build_battle_mod,
                                     validate_battle)
 from ff9mapkit.config import LANGS, ModLayout
@@ -358,6 +358,81 @@ def test_camera_opening_indices():
 def test_camera_tweak_no_keyframes_raises():
     with pytest.raises(camera_data.CameraEditError):
         camera_data.tweak_opening(_raw17_cam(), [5], yaw_deg=90)   # camera index out of range
+
+
+def test_camera_codec_roundtrip():
+    raw = _raw17_cam(pitch=0x40, ori=0x10, dist=0x14)
+    cam_off, cams = camera_codec.parse_block(raw)
+    assert camera_codec.serialize_block(cams) == raw[cam_off:]     # byte-identical (offset repack correct)
+
+
+def _raw17_opening(est_campos=bytes([0x15, 0x80, 0xF1, 0x20, 0x00, 0x0B])):
+    """A donor raw17 shaped like a REAL opening: an establishing code (cameraPosition + targetPosition +
+    focal) followed by the handoff (SAVE_FIXED|SETTING SetCameraPhase(1)) + UNK6 marker + terminator.
+    Built via the codec itself so the offset tables are correct."""
+    tgt = bytes([0x15, 0x80, 0x78, 0x06, 0x80, 0x13])            # static look-at
+    focal = bytes([1, 3, 200 & 0xFF, 200 >> 8])
+    seq = [
+        {"frame": 1, "flags": 0x0809, "block": est_campos + tgt + focal},   # establish (no move)
+        {"frame": 90, "flags": 0x4080, "block": b"\x01\x00"},               # SAVE_FIXED|SETTING type=1
+        {"frame": 91, "flags": 0x8000, "block": b"\x21\x00\x00\x00"},       # UNK6 marker
+        {"frame": 0},
+    ]
+    cams = [{"flags": 0x01, "sequences": [seq], "unknown": None, "position": None}]
+    return struct.pack("<hh", 4, 4) + camera_codec.serialize_block(cams)     # camOffset = 4
+
+
+def test_camera_author_grammar_matches_real_opening():
+    donor = _raw17_opening()
+    out = camera_codec.author_opening(donor, [0], [
+        {"yaw": -76, "pitch": 5, "zoom": 2.5},                              # establish (instant, far/offset)
+        {"yaw": -20, "zoom": 1.6, "move": 45, "ease": "in"},               # swoop
+        {"move": 30, "ease": "out"}])                                       # settle == proven framing
+    assert camera_codec.serialize_block(camera_codec.parse_block(out)[1]) == out[4:]   # round-trips
+    codes = camera_codec.parse_block(out)[1][0]["sequences"][0]
+    # frames: establish@1, move1@1, move2@(1+45)=46, handoff@(76+5)=81, marker@82, END
+    assert [c["frame"] for c in codes] == [1, 1, 46, 81, 82, 0]
+    assert codes[0]["flags"] & 0x02 == 0                          # establishing has NO movement (instant)
+    assert codes[1]["flags"] & 0x02 and codes[2]["flags"] & 0x02  # both swoop segments DO move
+    assert codes[3]["flags"] == 0x4080                            # SAVE_FIXED|SETTING handoff preserved
+    assert codes[3]["block"] == b"\x01\x00"                       # == SetCameraPhase(1)
+    assert codes[4]["flags"] == 0x8000                            # UNK6 marker preserved
+
+
+def test_camera_author_anchors_on_proven_settle_pose():
+    # the last keyframe with no offsets/zoom must reproduce the donor's SETTLE pose byte-for-byte (the shot
+    # the battle actually uses) -- so an authored sweep always ends on the game's normal framing.
+    base = bytes([0x15, 0x80, 0xF1, 0x20, 0x00, 0x0B])
+    donor = _raw17_opening(est_campos=base)
+    out = camera_codec.author_opening(donor, [0], [{"yaw": -40, "zoom": 2.0}, {"move": 30}])
+    codes = camera_codec.parse_block(out)[1][0]["sequences"][0]
+    settle = camera_codec._split_code(codes[1]["flags"], codes[1]["block"])
+    assert settle["campos"][:6] == base                          # last segment == proven settle pose verbatim
+    start = camera_codec._split_code(codes[0]["flags"], codes[0]["block"])
+    assert start["campos"][3] == (0x20 - round(40 / 360 * 0x40)) % 0x40    # yaw offset -40deg
+    assert start["campos"][5] == round(0x0B * 2.0)               # zoom x2 on distance
+
+
+def test_camera_author_static_target_keeps_fight_framed():
+    donor = _raw17_opening()
+    out = camera_codec.author_opening(donor, [0], [
+        {"yaw": -40}, {"yaw": -20, "move": 30}, {"move": 30}])
+    codes = camera_codec.parse_block(out)[1][0]["sequences"][0]
+    # every authored code looks at the donor's proven ON-FIGHT target (its last targetPosition), NOT a zeroed
+    # or far one -- that's what keeps the framing where the battle actually settles.
+    on_fight = bytes([0x15, 0x80, 0x78, 0x06, 0x80, 0x13])
+    for c in codes[:3]:
+        assert camera_codec._split_code(c["flags"], c["block"])["tgtpos"] == on_fight
+
+
+def test_camera_author_needs_two_keyframes():
+    with pytest.raises(camera_codec.CameraCodecError):
+        camera_codec.author_opening(_raw17_opening(), [0], [{"yaw": 200}])     # one pose = static, not a sweep
+
+
+def test_camera_author_no_opening_sequence_raises():
+    with pytest.raises(camera_codec.CameraCodecError):
+        camera_codec.author_opening(_raw17_opening(), [7], [{"yaw": 1}, {"yaw": 2, "move": 10}])  # no such cam
 
 
 def test_scene_spawn_type_grounds_to_slot0_height():

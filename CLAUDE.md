@@ -150,7 +150,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.8`, Blender add-on `0.9.6`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.9`, Blender add-on `0.9.6`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -489,8 +489,18 @@ Read these on demand — they hold the full technical detail this file only summ
   0.9.8, in-game confirmed):** `[scene] camera_yaw / camera_pitch / camera_zoom` offset the opening camera's
   keyframes in place (`battle/camera_data.py`); yaw + zoom predictable, **pitch finicky** (offset onto the
   donor's base angle — a moderate +value dips the camera below the floor, which is see-through from under).
-  Tier (ii) = full from-scratch keyframe authoring (future; needs the SFXDataCamera offset-table repack).
-  **All battle frontiers cracked.** Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
+  **Tier (ii) SHIPPED (in-game proven 2026-06-10):** full from-scratch opening-camera SWEEP authoring via
+  `[[scene.camera_keyframes]]` (`battle/camera_codec.py` — the offset-table repack mirroring `UpdateBSC`).
+  Authored in FF9's REAL opening grammar (surveyed 6 donors w/ `tools/dump_battle_camera.py`): an instant
+  establish pose → 2-4 chained `CAMMOVE` segments → the donor's `SAVE_FOR_FIXED|SetCameraPhase(1)` HANDOFF
+  (kept verbatim — without it the battle hangs in the intro). **The origin matters as much as the motion:**
+  battle centre = world origin, default cams ~4500-5900w out → 1 distance unit ≈ ~450-500 world (not the
+  comment's 63), and camera distance is measured FROM THE TARGET — so keyframes ADJUST the donor's PROVEN
+  settle pose (yaw/pitch/roll OFFSETS + `zoom` multiplier) rather than absolute world poses: offset 0/zoom 1
+  == the game's normal framing (can't mis-origin/super-zoom), and the final keyframe becomes the battle's
+  normal camera (SAVE_FOR_FIXED snapshots where the sweep ends). **All battle frontiers cracked** (tier i
+  in-place + tier ii sweep). Full recipe + the origin/scale gotchas: memory `project-ff9-battle-backgrounds`.
+  Dev/test moved to the scratch id band (§3): battle-bg = field 30001, battle scenes 30010-30019.
 - **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
   (`archetypes.py`, merged into `names()`/`resolve()`) holds field-RENDERABLE `GEO_MON` models (verified
