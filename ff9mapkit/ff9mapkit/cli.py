@@ -332,6 +332,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
             bits.append(f"movement dir {ic['control_direction']}")
         if ic.get("ladders"):
             bits.append(f"{ic['ladders']} ladder(s)")
+        if ic.get("jumps"):
+            bits.append(f"{ic['jumps']} jump(s)")
         print(f"  content: {', '.join(bits) if bits else 'none found in the source script'}"
               + ("   (gateways point at REAL fields -- retarget them)" if ic["gateways"] else ""))
     print(f"  wrote  : {toml}")

@@ -29,6 +29,7 @@ from .content import cutscene as _cutscene
 from .content import encounter as _enc
 from .content import event as _event
 from .content import gateway as _gw
+from .content import jump as _jump
 from .content import ladder as _ladder
 from .content import movement as _movement
 from .content import music as _music
@@ -297,6 +298,18 @@ def validate(project: FieldProject) -> list[str]:
             if not (isinstance(t, (list, tuple)) and len(t) in (2, 3)):
                 problems.append('[[ladder]] needs to = [x, z] (one-way), or top=+bottom= (bidirectional), '
                                 'or climb = "<file>" (a real ladder\'s climb, from import)')
+    for jp in project.raw.get("jump", []):              # navigable ledge/gap jumps (Ice Cavern style)
+        z = jp.get("zone", [])
+        if len(z) not in (3, 4, 5):
+            problems.append(f"[[jump]] zone must have 3-5 points (the take-off trigger), got {len(z)}")
+        jb = jp.get("jump")
+        if not jb:
+            problems.append('[[jump]] needs jump = "<file>" (a real jump arc, from `ff9mapkit import`)')
+        elif not project.path(jb).is_file():
+            problems.append(f"[[jump]] arc file not found: {jb}")
+        trig = jp.get("trigger", "action")
+        if trig not in ("action", "tread"):
+            problems.append(f'[[jump]] trigger must be "action" (press) or "tread" (auto), got {trig!r}')
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
@@ -1332,6 +1345,24 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                       climb_bytes=climb_bytes, sequences=sequences,
                                       climb_tag=tag, animation=lad.get("animation"))
         tag += 1
+
+    # jumps: FF9's navigable ledge/gap hops (Ice Cavern etc.) -- a region the player triggers ("!"+press
+    # for trigger="action", auto on walk-in for "tread") that RunScriptSyncs the player's verbatim jump
+    # arc (the perspective-tuned SetupJump/Jump parabola, copied byte-for-byte from import). The arc's
+    # RunJumpAnimation needs a clip, so splice the player's jump animation in once (Zidane's, the blank
+    # field's player). Each jump gets a distinct tag, clear of the ladder climb tags above.
+    jumps = project.raw.get("jump", [])
+    if jumps:
+        eb = _jump.ensure_jump_animation(eb)
+        jtag = _jump.FIRST_JUMP_TAG
+        for jp in jumps:
+            jz = jp["zone"]
+            if len(jz) == 4:
+                jz = _gw.quad_zone(jz)
+            jbytes = project.path(jp["jump"]).read_bytes()
+            eb, _ = _jump.inject_jump(eb, [tuple(p) for p in jz], jbytes, jump_tag=jtag,
+                                      trigger=jp.get("trigger", "action"), bubble=jp.get("bubble", True))
+            jtag += 1
 
     # player spawn (order-independent w.r.t. the appends above)
     if "player" in project.raw and "spawn" in project.raw["player"]:

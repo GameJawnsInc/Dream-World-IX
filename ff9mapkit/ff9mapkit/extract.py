@@ -328,8 +328,26 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
             blocks.append(f'[[ladder]]\nzone = [{zone}]\nclimb = "{fn}"')
         parts.append("\n\n".join(blocks))
         n_ladders = len(lads)
+    jmps = content.get("jumps") or []
+    n_jumps = 0
+    if jmps and out_dir is not None:                    # jumps carry a binary arc -> need out_dir
+        out_path = Path(out_dir)
+        blocks = ["# --- JUMP(s) imported from the real field (LIVE) -- navigable ledge/gap hops (Ice\n"
+                  "# Cavern style). Each carries the EXACT, perspective-tuned jump arc verbatim (the real\n"
+                  "# world coords -- only copyable, like a ladder climb). trigger=\"action\" = walk to the\n"
+                  "# ledge -> '!' -> press the button to hop; trigger=\"tread\" = auto-hop on walk-in. The\n"
+                  "# arc moves the player along a parabola, so the zone must sit at the take-off ledge. ---"]
+        for i, jp in enumerate(jmps):
+            fn = f"{name}.jump{i}.bin"
+            (out_path / fn).write_bytes(jp["jump"])
+            zone = ", ".join(f"[{x}, {z}]" for x, z in (jp["zone"] or []))
+            extra = "" if jp.get("bubble", True) else "\nbubble = false"
+            blocks.append(f'[[jump]]\nzone = [{zone}]\njump = "{fn}"\ntrigger = "{jp["trigger"]}"{extra}')
+        parts.append("\n\n".join(blocks))
+        n_jumps = len(jmps)
     summary = {"gateways": len(gws), "encounter": enc is not None, "music": content["music"],
                "control_direction": content["control_direction"], "ladders": n_ladders,
+               "jumps": n_jumps,
                "gateways_retargeted": n_retargeted, "gateways_seamed": n_seamed}
     return "\n\n".join(parts), content["control_direction"], summary
 

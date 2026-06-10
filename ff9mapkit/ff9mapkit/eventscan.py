@@ -32,7 +32,12 @@ SET_BATTLE_FREQ = 0x57     # SetRandomBattleFrequency(freq)
 RUN_SOUND_CODE = 0xC5      # RunSoundCode(code, id); code 0 = song_play (field BGM)
 TWIST_OP = 0x67            # SetControlDirection(x, y)
 RUN_SCRIPT_SYNC = 0x14     # RunScriptSync(level, uid, tag) -- REQEW: run obj `uid`'s func `tag`, wait
-SETUP_JUMP = 0xE2          # SetupJump(x, y, z, arc) -- a climb's jump arc
+RUN_SCRIPT_ASYNC = 0x10    # RunScriptAsync(level, uid, tag) -- run obj `uid`'s func, don't wait
+RUN_SCRIPT = 0x12          # RunScript(level, uid, tag) -- run obj `uid`'s func
+DISPATCH_OPS = frozenset((RUN_SCRIPT_SYNC, RUN_SCRIPT_ASYNC, RUN_SCRIPT))   # region -> player-func calls
+SETUP_JUMP = 0xE2          # SetupJump(x, y, z, arc) -- a climb's / a jump's arc destination
+JUMP_OP = 0xDC             # Jump() -- perform the SetupJump arc (the navigable-jump signature, with SetupJump)
+SET_JUMP_ANIM_OP = 0x94    # SetJumpAnimation(anim, a, b) -- the player Init's jump-clip setup
 ADD_CHAR_ATTR = 0xCC       # AddCharacterAttribute(flag); flag 4 (LADDER_FLAG) = "on a ladder"
 DEFINE_PC = 0x2C           # DefinePlayerCharacter -- marks the controlled player's entry
 BUBBLE_OP = 0x68           # Bubble(state) -- the "!" interact prompt (ladder tread func)
@@ -170,19 +175,40 @@ def _player_entry_index(eb):
     return None
 
 
-def _is_climb_func(eb, player_index, tag) -> bool:
-    """True if player function ``tag`` is a LADDER climb -- the definitive signature is the ladder
-    flag (``AddCharacterAttribute(4)``) or a jump arc (``SetupJump``). This isolates real ladders from
-    cosmetic region->player triggers (e.g. Treno's facing/stand-anim tweaks, which have neither)."""
+def _func_ops(eb, player_index, tag):
+    """The opcode set + an ``has_ladder_flag`` predicate for player function ``tag`` (or None)."""
     f = eb.entry(player_index).func_by_tag(tag)
     if f is None:
-        return False
+        return None, False
+    ops = set()
+    ladder = False
     for ins in eb.instrs(f):
-        if ins.op == SETUP_JUMP:
-            return True
+        ops.add(ins.op)
         if ins.op == ADD_CHAR_ATTR and ins.imm(0) == LADDER_FLAG:
-            return True
-    return False
+            ladder = True
+    return ops, ladder
+
+
+def _is_ladder_func(eb, player_index, tag) -> bool:
+    """True if player function ``tag`` is a LADDER climb. The definitive signature is the ladder flag
+    (``AddCharacterAttribute(4)``) -- a hold-to-climb. A SetupJump arc WITHOUT the flag is a one-shot
+    navigable JUMP (see :func:`_is_jump_func`), not a ladder, so the flag is what separates them (the
+    census confirms every real ladder sets it; the 10 fields that don't were jumps mis-read as ladders)."""
+    ops, ladder = _func_ops(eb, player_index, tag)
+    return bool(ladder)
+
+
+def _is_jump_func(eb, player_index, tag) -> bool:
+    """True if player function ``tag`` is a navigable JUMP arc: it performs a ``SetupJump``+``Jump``
+    parabola but is NOT a ladder (no ladder flag). These are Ice-Cavern-style ledge hops."""
+    ops, ladder = _func_ops(eb, player_index, tag)
+    return ops is not None and SETUP_JUMP in ops and JUMP_OP in ops and not ladder
+
+
+def _is_climb_func(eb, player_index, tag) -> bool:
+    """Back-compat: a climb is now strictly a flagged ladder (was: flag OR any SetupJump). Kept for any
+    external caller; internal scanners use :func:`_is_ladder_func` / :func:`_is_jump_func`."""
+    return _is_ladder_func(eb, player_index, tag)
 
 
 def _entry_bytes(data, idx) -> bytes:
@@ -244,7 +270,7 @@ def scan_ladders(eb_bytes) -> list:
                 if ins.op != RUN_SCRIPT_SYNC or ins.imm(1) != PLAYER_UID:
                     continue
                 tag = ins.imm(2)
-                if tag is None or (e.index, tag) in seen or not _is_climb_func(eb, pe, tag):
+                if tag is None or (e.index, tag) in seen or not _is_ladder_func(eb, pe, tag):
                     continue
                 seen.add((e.index, tag))
                 cf = eb.entry(pe).func_by_tag(tag)
@@ -254,15 +280,66 @@ def scan_ladders(eb_bytes) -> list:
     return out
 
 
+def scan_jumps(eb_bytes) -> list:
+    """FF9 navigable JUMPS -- ledge/gap hops (Ice Cavern etc.): a region whose trigger dispatches the
+    player's one-shot jump-arc function (``SetupJump``+``Jump``, NOT a ladder climb). The cousin of
+    :func:`scan_ladders`; the two are disjoint (ladder = has the ladder flag, jump = doesn't).
+
+    Returns ``[{zone, trigger, bubble, jump}]``:
+      * ``zone``    -- the trigger polygon (up to 4 [x, z] corners), or None if computed.
+      * ``trigger`` -- "action" (press the action button in the zone, the Ice-Cavern "!"+confirm hop)
+        or "tread" (auto-fires on walk-in), from whether the dispatch sits in the action (tag 3) or
+        tread (tag 2) func.
+      * ``bubble``  -- whether the region shows the floating "!" prompt.
+      * ``jump``    -- the player's jump-arc bytecode, VERBATIM (the exact perspective-tuned world
+        coords -- only copyable, like a ladder climb).
+
+    The dispatch may be ``RunScriptSync``/``Async``/``RunScript`` and may reference the player by the
+    runtime UID 250 OR by the player's entry index (Ice Cavern uses the entry index -- which is exactly
+    why these jumps slipped past the uid-250-only ladder scan and were dropped on fork)."""
+    eb = EbScript.from_bytes(eb_bytes)
+    pe = _player_entry_index(eb)
+    if pe is None:
+        return []
+    out, seen = [], set()
+    for e in eb.entries:
+        if e.empty or e.index == pe:
+            continue
+        zone = None
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op == SETREGION_OP and zone is None:
+                    pts = _region_points(ins)
+                    if len(pts) >= 3:
+                        zone = _zone_quad(pts)
+        bubble = any(ins.op == BUBBLE_OP for f in e.funcs for ins in eb.instrs(f))
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op not in DISPATCH_OPS:
+                    continue
+                if ins.imm(1) not in (PLAYER_UID, pe):       # not a call into the player object
+                    continue
+                tag = ins.imm(2)
+                if tag is None or (e.index, tag) in seen or not _is_jump_func(eb, pe, tag):
+                    continue
+                seen.add((e.index, tag))
+                jf = eb.entry(pe).func_by_tag(tag)
+                trigger = "action" if int(f.tag) == 3 else "tread"
+                out.append({"zone": zone, "trigger": trigger, "bubble": bool(bubble),
+                            "jump": eb.data[jf.abs_start:jf.abs_end]})
+    return out
+
+
 def scan_content(eb_bytes) -> dict:
     """All importable content from a field's ``.eb`` in one pass:
-    ``{gateways, music, encounter, control_direction, ladders}`` (inverse of the content injectors)."""
+    ``{gateways, music, encounter, control_direction, ladders, jumps}`` (inverse of the injectors)."""
     return {
         "gateways": scan_gateways(eb_bytes),
         "music": scan_music(eb_bytes),
         "encounter": scan_encounter(eb_bytes),
         "control_direction": scan_control_direction(eb_bytes),
         "ladders": scan_ladders(eb_bytes),
+        "jumps": scan_jumps(eb_bytes),
     }
 
 
