@@ -11,7 +11,7 @@ import struct
 
 import pytest
 
-from ff9mapkit.battle import event_data, fbx, scene_data
+from ff9mapkit.battle import camera_data, event_data, fbx, scene_data
 from ff9mapkit.battle.build import (BattleProject, _author_inb, _bbg_number, build_battle_mod,
                                     validate_battle)
 from ff9mapkit.config import LANGS, ModLayout
@@ -322,6 +322,42 @@ def test_rewrite_main_init_missing_ai_entry_raises():
     eb = _battle_eb([(1, 0x80)], n_ai=1)                    # only entry 1 is an AI; type 1 would need entry 2
     with pytest.raises(ValueError):
         event_data.rewrite_main_init(eb, [1])
+
+
+# --------------------------------------------------------------------- camera_data (in-place camera tweak)
+def _raw17_cam(pitch=0x40, ori=0x10, dist=0x14):
+    """A minimal raw17 with one camera, one sequence, one cameraPosition code."""
+    b = bytearray(34)
+    struct.pack_into("<h", b, 2, 16)        # camOffset (header's 2nd int16)
+    struct.pack_into("<H", b, 16, 2)        # offset table: setOffset0=2 (firstSet=2 -> cameraCount=1)
+    struct.pack_into("<H", b, 18, 1)        # cam0 Flags = HAS_SEQUENCE_0
+    struct.pack_into("<H", b, 20, 4)        # seq0 offset (relative to cam base 18 -> seq at 22)
+    struct.pack_into("<H", b, 22, 1)        # Code: frame = 1
+    struct.pack_into("<H", b, 24, 1)        # CodeFlags = HAS_CAMERA_POSITION_BIT
+    b[26:32] = bytes([0, 0, pitch, ori, 0, dist])          # cameraPosition: code,flags,pitch,ori,roll,dist
+    struct.pack_into("<H", b, 32, 0)        # terminator frame = 0
+    return bytes(b)
+
+
+def test_camera_tweak_yaw_pitch_zoom():
+    raw = _raw17_cam(pitch=0x40, ori=0x10, dist=0x14)
+    out = camera_data.tweak_opening(raw, [0], yaw_deg=180, pitch_deg=45, zoom=2.0)
+    assert len(out) == len(raw)                            # in place, no length change (no offset repack)
+    assert out[29] == (0x10 + 0x20) % 0x40                 # yaw 180deg -> orientation +0x20
+    assert out[28] == (0x40 + 0x10) % 0x80                 # pitch 45deg -> pitch +0x10
+    assert out[31] == 0x14 * 2                             # zoom x2 -> distance doubled
+
+
+def test_camera_opening_indices():
+    assert camera_data.opening_indices(0) == [0]
+    assert camera_data.opening_indices(2) == [2]
+    assert camera_data.opening_indices(5) == [0, 1, 2]     # random (>=3)
+    assert camera_data.opening_indices(None) == [0, 1, 2]  # unpinned
+
+
+def test_camera_tweak_no_keyframes_raises():
+    with pytest.raises(camera_data.CameraEditError):
+        camera_data.tweak_opening(_raw17_cam(), [5], yaw_deg=90)   # camera index out of range
 
 
 def test_scene_spawn_type_grounds_to_slot0_height():

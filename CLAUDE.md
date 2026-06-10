@@ -471,9 +471,19 @@ Read these on demand — they hold the full technical detail this file only summ
   mint can now spawn more enemies than the donor natively did (1-enemy EF_R007 → four Goblins, no
   player-model twitch — every slot has a real AI object, so no death misroutes into the player via
   `EventEngine.RequestAction`). Root-caused via an ultracode workflow; the old `monster_count` cap is gone
-  (errors only if a needed per-type AI entry is absent). **One open frontier left:** a bespoke moving
-  battle camera (closed native `FF9SpecialEffectPlugin.dll`; donor/static cameras already work). Full
-  recipe + gotchas: memory `project-ff9-battle-backgrounds`.
+  (errors only if a needed per-type AI entry is absent).
+  **Custom CAMERA — feasibility PROVEN in-game (2026-06-09, ultracode scout + byte-edit probe):** a bespoke
+  moving battle camera IS authorable by writing raw17, no DLL rebuild. The closed `FF9SpecialEffectPlugin.dll`
+  is a data CONSUMER — `SFX.StartPlungeCamera` pins the raw17 and passes `(ptr,len,camOffset)` to the native
+  side, which parses the camera keyframes itself; the managed `SFXDataCamera.Load/UpdateBSC` (which the kit's
+  Python port mirrors) have zero call sites = pure spec. Opening shot = `cameraList[CameraNo]`, CameraNo = the
+  raw16 pattern `Camera` byte (kit already writes it). Proven by rotating EF_R007's opening cam[0] 180° via an
+  IN-PLACE orientation byte-edit (no offset repack) → the swoop visibly flipped. **Tier (i) SHIPPED (kit
+  0.9.8, in-game confirmed):** `[scene] camera_yaw / camera_pitch / camera_zoom` offset the opening camera's
+  keyframes in place (`battle/camera_data.py`); yaw + zoom predictable, **pitch finicky** (offset onto the
+  donor's base angle — a moderate +value dips the camera below the floor, which is see-through from under).
+  Tier (ii) = full from-scratch keyframe authoring (future; needs the SFXDataCamera offset-table repack).
+  **All battle frontiers cracked.** Full recipe + gotchas: memory `project-ff9-battle-backgrounds`.
 - **Creature pillar + debug arena** (in-game verified) — place a battle **monster** as a field object by
   name: **`[[npc]] archetype = "zaghnol"`** / `"lich"` / `"griffin"`. The **`CREATURES`** catalog
   (`archetypes.py`, merged into `names()`/`resolve()`) holds field-RENDERABLE `GEO_MON` models (verified

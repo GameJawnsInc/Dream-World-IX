@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import LANGS, ModLayout
+from . import camera_data as _camera_data
 from . import event_data as _event_data
 from . import fbx as _fbx
 from . import scene_data as _scene_data
@@ -164,20 +165,30 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
         sd = project.scene_dir
         scene_out = layout.battle_scene_dir(name)
         scene_out.mkdir(parents=True, exist_ok=True)
+        scene_cfg = project.raw.get("scene") if isinstance(project.raw.get("scene"), dict) else None
         raw16 = (sd / "dbfile0000.raw16.bytes").read_bytes()
-        if "scene" in project.raw:                   # tune the fight (positions/stats/rewards/camera)
-            raw16, scene_warns = _scene_data.apply_scene_edits(raw16, project.raw["scene"])
+        if scene_cfg:                                # tune the fight (positions/stats/rewards/camera selector)
+            raw16, scene_warns = _scene_data.apply_scene_edits(raw16, scene_cfg)
             warnings += scene_warns
         (scene_out / "dbfile0000.raw16.bytes").write_bytes(raw16)
-        shutil.copyfile(sd / "btlseq.raw17.bytes", scene_out / f"{sid}.raw17.bytes")
+        # raw17: tweak the OPENING camera's keyframes IN PLACE (yaw/pitch/zoom) -- no offset repack. Which
+        # camera plays = raw16 pattern Camera byte (the `[scene] camera` selector); tweak that one (0-2) or
+        # all of 0/1/2 if it's random/unpinned.
+        raw17 = (sd / "btlseq.raw17.bytes").read_bytes()
+        if scene_cfg and any(k in scene_cfg for k in ("camera_yaw", "camera_pitch", "camera_zoom")):
+            raw17 = _camera_data.tweak_opening(
+                raw17, _camera_data.opening_indices(scene_cfg.get("camera")),
+                yaw_deg=float(scene_cfg.get("camera_yaw", 0)),
+                pitch_deg=float(scene_cfg.get("camera_pitch", 0)),
+                zoom=float(scene_cfg.get("camera_zoom", 1.0)))
+        (scene_out / f"{sid}.raw17.bytes").write_bytes(raw17)
         written += [scene_out / "dbfile0000.raw16.bytes", scene_out / f"{sid}.raw17.bytes"]
 
         # spawn composition re-authors the eb's Main_Init to bind one enemy-AI object per spawned slot, so
         # the AI binding matches the (now-uniform) pattern -- this is what lets a mint EXCEED the donor's
         # natural enemy count without the player-model twitch. slot types come from the patched raw16.
-        scene_cfg = project.raw.get("scene")
         slot_types = None
-        if isinstance(scene_cfg, dict) and "monster_count" in scene_cfg:
+        if scene_cfg and "monster_count" in scene_cfg:
             mc = raw16[9]                                          # pattern 0 MonsterCount (now uniform)
             slot_types = [raw16[8 + 8 + 12 * s] for s in range(mc)]
         for lang in LANGS:

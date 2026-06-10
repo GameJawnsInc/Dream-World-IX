@@ -378,7 +378,13 @@ scene_name = "{name}"     # -> EVT_BATTLE_{name} + BSC_{name}{tint}
 # The donor's enemies/camera are forked verbatim; uncomment to OVERRIDE. Enemy TYPES are kept (so the
 # forked attack sequences stay valid) -- you reposition / restat / re-reward them and pick the camera.
 # [scene]
-# camera = 2                 # pattern camera: 0/1/2 = a fixed PSX pose, >=3 = random (default = donor's)
+# camera = 0                 # pattern camera: 0/1/2 = a fixed PSX pose, >=3 = random (default = donor's).
+# #                            Pin it 0-2 to make the OPENING-camera tweaks below deterministic.
+# camera_yaw = 0             # rotate the opening sweep N degrees around the battle (in place, no repack)
+# camera_pitch = 0           # tilt N degrees -- FINICKY: an offset onto the donor's base pitch, so a large
+# #                            value can dip the camera below the floor (the ground mesh is see-through from
+# #                            under). Use small steps + test; yaw + zoom are the predictable knobs.
+# camera_zoom = 1.0          # opening-camera distance multiplier (1.5 = farther out, 0.7 = closer in)
 # monster_count = 4          # how many of the 4 slots SPAWN (1-4). The kit re-authors the eb's enemy-AI
 # #                            binding to match, so you CAN exceed the donor's natural count. Give each
 # #                            active slot a 'type' (an existing scene type).

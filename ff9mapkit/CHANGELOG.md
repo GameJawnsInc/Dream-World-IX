@@ -43,6 +43,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   twitch — every slot has a real AI object, so no death misroutes into the player
   (`EventEngine.RequestAction`). In-game proven. Errors only if a needed per-type AI entry is absent
   (a non-standard donor eb). raw16 + Main_Init only; raw17 untouched.
+- **Opening-camera tweaks (`[scene]`).** `camera_yaw` / `camera_pitch` / `camera_zoom` rotate / tilt / zoom
+  a minted battle's opening camera by offsetting the donor's `SFXDataCamera` keyframes in raw17 IN PLACE
+  (no offset-table repack). Cracked the "closed DLL camera" frontier: the native FF9SpecialEffectPlugin.dll
+  reads the raw17 camera bytes directly (`SFX_StartPlungeCamera` gets the pinned raw17 + camOffset), so this
+  renders with NO engine rebuild — in-game proven. Targets `cameraList[CameraNo]` = the raw16 `camera`
+  selector. yaw + zoom are predictable; **pitch is an offset onto the donor's base angle (large values can
+  dip the camera below the floor — use small steps).** Full from-scratch keyframe authoring (length-changing)
+  is a future tier needing the offset repack.
 
 ### Added — `give_item` by name; gil can subtract
 - `give_item = ["Potion", 1]` — items resolve by name (case/space/hyphen-insensitive) or numeric id,
