@@ -58,6 +58,7 @@ class EditorApp:
         self.opt_widgets = None            # choice-options sub-editor state
         self.active_choice = None          # index of the choice whose options are being edited
         self.campaign_idmap = None         # optional {field_id: member_name} set by the Campaign workspace
+        self.campaign_plan = None          # optional CampaignPlan -> flag picker source + name resolution
         self.busy = False
         self.deploy = _find_tool("deploy_field.py")
         self.revert = _find_tool("revert_deploy.py")
@@ -418,11 +419,26 @@ class EditorApp:
         return getters
 
     def _pick_catalog(self, field, var):
-        """Open the Info Hub picker for a catalog-backed field; write the chosen name into its widget."""
+        """Open the Info Hub picker for a catalog-backed field; write the chosen name into its widget.
+        Passes the open campaign so a ``catalog="flag"`` field can pick a shared [[flag]] by name."""
         kinds = [k.strip() for k in field.catalog.split(",")] if field.catalog else None
-        name = picker.pick(self.root, kinds=kinds, title=f"Pick {field.label}", initial=var.get().strip())
+        name = picker.pick(self.root, kinds=kinds, title=f"Pick {field.label}", initial=var.get().strip(),
+                           campaign_context=self.campaign_plan)
         if name:
             var.set(name)
+
+    def _campaign_flag_names(self):
+        """The open campaign's shared [[flag]] name->index map (or None standalone), so Check/Build resolve
+        cross-field flag NAMES exactly as the campaign build does -- else a name would choke _gate_of's int()."""
+        plan = self.campaign_plan
+        if plan is None:
+            return None
+        try:
+            from ..flags import collect_flag_defs
+            return collect_flag_defs({"flag": getattr(plan, "flags", [])})
+        except ValueError as e:               # a malformed campaign [[flag]] -- surface it, don't hide it
+            self.post(f"  warn   campaign [[flag]] table invalid: {e}")
+            return {}
 
     def _show_single(self, key, spec, title):
         self._header(title, key)
@@ -784,7 +800,13 @@ class EditorApp:
     def _check(self):
         from ..build import FieldProject, lint_logic, validate
         self.post(f"\n--- check {self.doc.path.name} ---")
-        p = FieldProject.load(self.doc.path)
+        try:
+            p = FieldProject.load(self.doc.path, flag_names=self._campaign_flag_names())  # resolve names
+        except ValueError as e:
+            self.post(f"  ERROR  flag name didn't resolve: {e}")
+            self.post("         (a campaign-shared flag? open its campaign in the Campaign Editor, or define "
+                      "it in a [[flag]] table / use a numeric index.)")
+            return
         probs, lints = validate(p), lint_logic(p)
         for m in probs:
             self.post("  ERROR  " + m)
@@ -810,7 +832,11 @@ class EditorApp:
     def _build(self, out):
         from ..build import FieldProject, build_mod, validate
         self.post(f"\n--- build {self.doc.path.name} -> {out} ---")
-        p = FieldProject.load(self.doc.path)
+        try:
+            p = FieldProject.load(self.doc.path, flag_names=self._campaign_flag_names())  # resolve names
+        except ValueError as e:
+            self.post(f"INVALID: flag name didn't resolve: {e}  (open its campaign, or use a [[flag]]/index)")
+            return
         probs = validate(p)
         if probs:
             self.post("INVALID:\n  - " + "\n  - ".join(probs))

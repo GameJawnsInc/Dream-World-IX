@@ -173,6 +173,7 @@ class Workspace:
         self.plan = plan
         self._member_paths = {m.name: (path.parent / m.toml_rel).resolve() for m in plan.members}
         self.editor.campaign_idmap = {m.new_id: m.name for m in plan.members}   # gateway annotations
+        self.editor.campaign_plan = plan                                         # flag picker + name resolution
         self.btn_check.configure(state="normal")
         self.btn_flags.configure(state="normal")
         for b in self._edit_btns:
@@ -294,6 +295,7 @@ class Workspace:
         self._member_paths = {m.name: (self.campaign_path.parent / m.toml_rel).resolve()
                               for m in self.plan.members}
         self.editor.campaign_idmap = {m.new_id: m.name for m in self.plan.members}
+        self.editor.campaign_plan = self.plan
         self._populate(self.plan)
         cur = getattr(self.editor.doc, "path", None)
         live = {p.resolve() for p in self._member_paths.values()}

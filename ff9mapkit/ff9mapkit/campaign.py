@@ -27,7 +27,8 @@ from . import chain
 # research/STORY_FLAGS.md §4, a 676-field census): real FF9 uses bit-flags up to 8511 (the treasure-chest
 # bitfield 8376-8511); the choice scratch is at bit 16320+; custom flags live in [8512, 16320). The old
 # flag_base=8300 + 64/field collided with the chest block from member index 1 onward.
-from .flags import CHEST_FLAG_HI, CHEST_FLAG_LO, CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG, collect_flag_defs
+from .flags import (CHEST_FLAG_HI, CHEST_FLAG_LO, CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG,
+                    collect_flag_defs, resolve_project_flags)
 
 _MAP_SEG = re.compile(r"^map\d", re.I)     # the 'map<NNN>' segment of an FBG folder
 
@@ -518,11 +519,16 @@ def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
             warnings.append(f"member {frm}: {n} stacked same-zone exits (story-conditional) -- set "
                             f"requires_flag on each in its field.toml, else the engine resolves only one")
 
-    if not errors:                                 # (h) explicit cross-field flag dependencies
+    if not errors:                                 # (h) cross-field flag dependencies (NAME gates included)
         producers, consumers = {}, []
         for m in plan.members:
             raw = member_raw.get(m.name)
             if raw is None:
+                continue
+            try:                                   # resolve member-own + shared NAME gates -> indices, so a
+                resolve_project_flags(raw, extra_names=shared)   # name-based dependency is seen (not skipped)
+            except ValueError as ex:               # a gate on a name defined NOWHERE -> the build would fail too
+                errors.append(f"member {m.name}: {ex}")
                 continue
             prod, cons = _member_flags_from_toml(raw)
             for idx in prod:

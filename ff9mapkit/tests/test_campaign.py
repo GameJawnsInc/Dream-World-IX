@@ -297,6 +297,28 @@ def test_lint_empty_forks_have_no_flag_warnings(tmp_path):
     assert errors == [] and not any("flag" in w for w in warnings)
 
 
+def test_lint_resolves_named_gates(tmp_path):
+    # F2: a member gating on a shared flag by NAME is now SEEN by the cross-field check (was skipped).
+    # (a) name defined + set by a sibling (its event's once-flag) -> the name-based gate resolves -> clean
+    ok = _lint_plan(tmp_path, member_content={
+        "A": '[[event]]\nname = "s"\nzone = [[0,0]]\ngil = 1\nflag = "boss_dead"\n',
+        "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = "boss_dead"\n'})
+    ok.flags = [{"name": "boss_dead", "index": 8700}]              # above the 2 member blocks [8512,8639]
+    errors, warnings = campaign.lint_campaign(ok, tmp_path)
+    assert errors == [] and not any("permanently locked" in w for w in warnings)
+    # (b) name defined but nobody SETS it -> dangling warning (name-aware now, not silently skipped)
+    dangling = _lint_plan(tmp_path, member_content={
+        "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = "boss_dead"\n'})
+    dangling.flags = [{"name": "boss_dead", "index": 8700}]
+    _, w2 = campaign.lint_campaign(dangling, tmp_path)
+    assert any("8700" in w and "permanently locked" in w for w in w2)
+    # (c) gate on a name defined NOWHERE -> hard error (the build would fail to resolve it too)
+    ghost = _lint_plan(tmp_path, member_content={
+        "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = "ghost_flag"\n'})
+    errors3, _ = campaign.lint_campaign(ghost, tmp_path)
+    assert any("ghost_flag" in e for e in errors3)
+
+
 def test_lint_safe_band_default_is_clean(tmp_path):
     # the new default flag_base (FIRST_SAFE_FLAG=8512) is clear of all real-FF9 usage -> no band errors
     plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])

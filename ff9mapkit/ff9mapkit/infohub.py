@@ -185,6 +185,11 @@ def _campaign_entries(plan) -> list:
         nid = getattr(m, "new_id", None)
         mode = getattr(m, "mode", "") or ""
         out.append(Entry("field", nm, None, f"campaign field #{nid} ({mode})", nid))
+    for fdef in getattr(plan, "flags", None) or []:               # shared NAMED story flags (cross-field gates)
+        nm = fdef.get("name") if isinstance(fdef, dict) else None
+        if nm:
+            idx = fdef.get("index")
+            out.append(Entry("flag", str(nm), None, f"campaign story flag (bit {idx})", idx))
     return out
 
 
@@ -202,7 +207,7 @@ def browse(query: str = "", kinds=None, limit=200, campaign_context=None) -> lis
     if kinds:
         want = set(kinds)
     else:
-        want = set(KINDS) | ({"field"} if field_entries else set())
+        want = set(KINDS) | ({"field", "flag"} if campaign_context is not None else set())
     # no context -> iterate the cached list directly (no copy), preserving today's behavior exactly
     entries = (field_entries + _all_entries()) if field_entries else _all_entries()
     out = []
@@ -248,6 +253,8 @@ def snippet(entry: Entry) -> str:
         return f'[encounter]\nscene = {e.ident}  # {e.name}'
     if e.kind == "field":                              # a campaign member -- not a paste-able toml block
         return f"# campaign field: {e.name} (id {e.ident})"
+    if e.kind == "flag":                               # a shared named story flag -> the gate line
+        return f'requires_flag = "{e.name}"'
     return e.name
 
 
@@ -293,6 +300,11 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
     e = entry
     if e.kind == "field":
         return _field_detail(e, campaign_context)
+    if e.kind == "flag":                               # a shared named story flag (cross-field gate)
+        d = Detail(name=e.name, kind="flag", model=None, model_id=e.ident, snippet=snippet(e))
+        d.facts = [("kind", "campaign story flag"), ("index", str(e.ident)),
+                   ("gate", f'requires_flag = "{e.name}"'), ("set", f'set_flag = ["{e.name}", 1]')]
+        return d
     d = Detail(name=e.name, kind=e.kind, model=e.model, model_id=e.ident, snippet=snippet(e))
     dsc = _descriptions().get(e.name)
     if e.kind == "composite":

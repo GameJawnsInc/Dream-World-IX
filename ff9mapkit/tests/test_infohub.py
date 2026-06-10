@@ -154,3 +154,18 @@ def test_detail_field_without_context_is_minimal():
     ent = next(e for e in infohub.browse("IC_ENT", kinds=["field"], campaign_context=plan))
     d = infohub.detail(ent)                                              # no campaign_context -> graceful
     assert d.kind == "field" and ("id", "6000") in d.facts
+
+
+# ---- F2: campaign shared story flags as a browsable 'flag' kind --------------------------
+def test_browse_flag_kind_via_campaign_context():
+    plan = _demo_campaign()
+    plan.flags = [{"name": "boss_dead", "index": 8700}]
+    hits = infohub.browse("", kinds=["flag"], campaign_context=plan)
+    assert {e.name for e in hits} == {"boss_dead"} and hits[0].ident == 8700
+    d = infohub.detail(hits[0], campaign_context=plan)
+    assert d.kind == "flag" and any(lbl == "index" for lbl, _ in d.facts)
+    assert infohub.snippet(hits[0]) == 'requires_flag = "boss_dead"'
+
+
+def test_flag_kind_absent_without_campaign_context():
+    assert not any(e.kind == "flag" for e in infohub.browse("", limit=None))   # regression: unchanged

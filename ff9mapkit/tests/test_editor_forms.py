@@ -164,3 +164,34 @@ def test_section_help_present_for_all_sections():
     for key in ("field", "camera", "dialogue", "encounter", "music", "cutscene",
                 "npc", "gateway", "event", "marker"):
         assert forms.SECTION_HELP.get(key)
+
+
+# ---- F2: name-tolerant story-flag fields (FLAGREF / FLAGPAIR) ----------------------------
+def test_parse_flagref_accepts_name_or_index():
+    assert forms.parse_flagref("") is None
+    assert forms.parse_flagref(" 8512 ") == 8512
+    assert forms.parse_flagref("boss_dead") == "boss_dead"      # a NAME passes through (resolved at build)
+
+
+def test_parse_flagpair_accepts_name_or_index():
+    assert forms.parse_flagpair("") is None
+    assert forms.parse_flagpair("8512, 1") == [8512, 1]
+    assert forms.parse_flagpair("boss_dead") == ["boss_dead", 1]    # value defaults to 1
+    assert forms.parse_flagpair("boss_dead, 0") == ["boss_dead", 0]
+
+
+def test_flag_fields_roundtrip_names_and_advertise_catalog():
+    e = forms.build_entity(forms.EVENT_SPEC,
+                           {"name": "chest", "requires_flag": "gate", "set_flag": "gate, 1"})
+    assert e["requires_flag"] == "gate" and e["set_flag"] == ["gate", 1]
+    vals = forms.entity_to_values(forms.EVENT_SPEC, e)
+    assert vals["requires_flag"] == "gate" and vals["set_flag"] == "gate, 1"
+    rf = next(f for f in forms.NPC_SPEC if f.key == "requires_flag")
+    assert rf.kind == forms.FLAGREF and rf.catalog == "flag"        # editor renders a Browse picker
+    sf = next(f for f in forms.EVENT_SPEC if f.key == "set_flag")
+    assert sf.kind == forms.FLAGPAIR
+
+
+def test_flagref_index_still_roundtrips():
+    e = forms.build_entity(forms.NPC_SPEC, {"name": "v", "requires_flag": "8700"})
+    assert e["requires_flag"] == 8700                              # a numeric index stays an int

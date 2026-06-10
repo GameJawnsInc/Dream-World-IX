@@ -735,6 +735,23 @@ Read these on demand — they hold the full technical detail this file only summ
   four in-game confirmed on field 122: seams gone, Moguri high-res art, occlusion correct, snappy load.** The
   `.bgx` per-tile+bleed path stays as the REPAINT tool. → memory `project-ff9-novel-bg-pipeline`,
   `project-ff9-import-fidelity`. Dev slot: `overworld` → FF9CustomMap-ow / field 30003.
+- **Named story flags in the GUI (offline-verified; awaits a human GUI click-through)** — surfaces the
+  story-flags branch's named-flag system in the Campaign Editor so cross-field gates are authored by NAME, not
+  raw bit index. **F1 — author shared flags:** `campaign.add_flag` / `remove_flag` manage a campaign's `[[flag]]`
+  table (the cross-field gates); `add_flag` auto-allocates the next safe index ABOVE the per-member auto-flag
+  blocks (in `[FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR)`), rejects a dup name/index or the chest band; a workspace
+  **Flags…** modal lists/adds/removes them. **F2 — pick & use names:** the Info Hub spine gained a `kind="flag"`
+  (the open campaign's `[[flag]]` via the Phase-A `campaign_context` hook), wired to a **Browse picker** on the
+  Logic Editor's `requires_flag` / `requires_flag_clear` / `flag` fields (new name-tolerant **FLAGREF** kind) +
+  `set_flag` (**FLAGPAIR**, name-in-slot-0); a numeric index still round-trips byte-stable. The editor's
+  **Check/Build resolve campaign-shared NAMES** (`FieldProject.load(flag_names=…)` from `editor.campaign_plan`,
+  set by the workspace) so `_gate_of`'s `int()` never sees a raw name. **Hardened by a find→verify review:** made
+  `lint_campaign` NAME-aware (it `resolve_project_flags`-resolves each member before the cross-field check, so a
+  gate on an undefined shared name is now a build-blocking error and a name-based dangling gate warns — it was
+  silently skipped); graceful editor errors when a shared name can't resolve (no campaign open); and surfaced a
+  malformed campaign `[[flag]]` at Check instead of swallowing it. **599 kit tests pass**; `--smoke` covers the
+  shared-flag add/remove. (Pre-existing, untouched: `_collect_flags` still doesn't extract `set_flag`'s pair
+  index as a producer — only the `flag` key — so set-by-`set_flag` isn't seen by the dangling check.)
 
 ---
 

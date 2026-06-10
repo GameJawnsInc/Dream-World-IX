@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from .. import archetypes as _archetypes
 
 # field kinds
-STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE, ITEMCOUNT = (
-    "str", "int", "optint", "bool", "preset", "coord", "pair", "zone", "itemcount")
+STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE, ITEMCOUNT, FLAGREF, FLAGPAIR = (
+    "str", "int", "optint", "bool", "preset", "coord", "pair", "zone", "itemcount", "flagref", "flagpair")
 # cutscene-step kinds: a movement target (a name OR "x, z"), a route (list of those), a gesture (name OR id)
 POINT, PATH, ANIM = "point", "path", "anim"
 
@@ -55,16 +55,20 @@ NPC_SPEC = [
     Field("speaker", "Speaker name", STR, "optional name before the line, e.g. Vivi (or [VIVI] for a renameable party name)"),
     Field("tail", "Window tail", STR, "dialogue pointer corner: UPR/UPL/LOR/LOL/UPC/LOC (default UPR)"),
     Field("pos", "Position (x, z)", COORD, "where it stands on the floor; usually placed in Blender"),
-    Field("requires_flag", "Appears when flag set", OPTINT, "story gate: show only after this flag is set"),
-    Field("requires_flag_clear", "Appears when flag clear", OPTINT, "show only while this flag is unset"),
+    Field("requires_flag", "Appears when flag set", FLAGREF,
+          "story gate: show only after this flag (name or index) is set", catalog="flag"),
+    Field("requires_flag_clear", "Appears when flag clear", FLAGREF,
+          "show only while this flag (name or index) is unset", catalog="flag"),
 ]
 GATEWAY_SPEC = [
     Field("name", "Name", STR, "a label (links to its Blender marker)"),
     Field("to", "To field id", INT, "the field id to send the player to"),
     Field("entrance", "Entrance", OPTINT, "which entrance to arrive at (default 0)"),
     Field("zone", "Zone (x z; x z; ...)", ZONE, "the trigger quad; usually placed in Blender"),
-    Field("requires_flag", "Opens when flag set", OPTINT, "only usable once this flag is set"),
-    Field("requires_flag_clear", "Opens when flag clear", OPTINT, "only usable while this flag is unset"),
+    Field("requires_flag", "Opens when flag set", FLAGREF, "only usable once this flag (name/idx) is set",
+          catalog="flag"),
+    Field("requires_flag_clear", "Opens when flag clear", FLAGREF, "only usable while this flag is unset",
+          catalog="flag"),
 ]
 EVENT_SPEC = [
     Field("name", "Name", STR, "a label (links to its Blender marker)"),
@@ -77,11 +81,13 @@ EVENT_SPEC = [
     Field("require_space", "Skip if bag full", BOOL, "give_item: chest-style -- don't fire if you can't carry it",
           default=False),
     Field("gil", "Gil", OPTINT, "gil to award"),
-    Field("set_flag", "Set flag (idx, val)", PAIR, "raise a story flag, e.g. 8000, 1"),
+    Field("set_flag", "Set flag (name/idx, val)", FLAGPAIR, "raise a story flag, e.g. boss_dead, 1 (name or index)"),
     Field("once", "Fire once", BOOL, "off = fires every step you stand in it", default=True),
     Field("zone", "Zone (x z; x z; ...)", ZONE, "the trigger quad; usually placed in Blender"),
-    Field("requires_flag", "Fires when flag set", OPTINT, "only fires after this flag is set"),
-    Field("requires_flag_clear", "Fires when flag clear", OPTINT, "only fires while this flag is unset"),
+    Field("requires_flag", "Fires when flag set", FLAGREF, "only fires after this flag (name/idx) is set",
+          catalog="flag"),
+    Field("requires_flag_clear", "Fires when flag clear", FLAGREF, "only fires while this flag is unset",
+          catalog="flag"),
 ]
 ENCOUNTER_SPEC = [
     Field("scene", "Battle scene id", INT, "e.g. 67 = Evil Forest"),
@@ -115,13 +121,15 @@ CHOICE_OPTION_SPEC = [
     Field("text", "Option text", STR, "the menu row the player selects (keep it short)"),
     Field("disabled", "Hidden", BOOL, "on = always removed from the menu (cursor can't reach it)",
           default=False),
-    Field("requires_flag", "Show if flag set", OPTINT, "hide this row UNTIL this story flag is set"),
-    Field("requires_flag_clear", "Show if flag clear", OPTINT, "hide this row ONCE this story flag is set"),
+    Field("requires_flag", "Show if flag set", FLAGREF, "hide this row UNTIL this flag (name/idx) is set",
+          catalog="flag"),
+    Field("requires_flag_clear", "Show if flag clear", FLAGREF, "hide this row ONCE this flag is set",
+          catalog="flag"),
     Field("reply", "Reply", STR, "optional line shown after choosing this option"),
     Field("give_item", "Give item", ITEMCOUNT, 'item + count, e.g. "Potion, 1" (name or id)',
           catalog="item"),
     Field("gil", "Gil", OPTINT, "gil; NEGATIVE charges the player (e.g. -100)"),
-    Field("set_flag", "Set flag (idx, val)", PAIR, "raise a story flag, e.g. 8001, 1"),
+    Field("set_flag", "Set flag (name/idx, val)", FLAGPAIR, "raise a story flag, e.g. boss_dead, 1"),
 ]
 DIALOGUE_SPEC = [
     Field("wrap", "Auto-wrap width", OPTINT, "max chars per line (default 28); set 0 to turn wrapping off"),
@@ -245,6 +253,38 @@ def format_itemcount(v):
     return "" if not v else f"{v[0]}, {int(v[1]) if len(v) > 1 else 1}"
 
 
+def parse_flagref(s):
+    """A story-flag gate: a numeric index -> int, a [[flag]] NAME -> the name string, empty -> None.
+    Names resolve to indices at build time (flags.resolve_project_flags)."""
+    s = _str(s).strip()
+    if s == "":
+        return None
+    return int(s) if s.lstrip("-").isdigit() else s
+
+
+def parse_flagpair(s):
+    """set_flag: ``"flag, value"`` -> ``[flag, value]``. ``flag`` is an int index OR a [[flag]] NAME; the
+    value defaults to 1. Empty -> None. Mirrors give_item so a name + value author the same way."""
+    s = _str(s).strip()
+    if s == "":
+        return None
+    flag, _, val = s.partition(",")
+    flag = flag.strip()
+    if flag == "":
+        raise ValueError("set flag: needs a flag name or index")
+    flag_v = int(flag) if flag.lstrip("-").isdigit() else flag
+    val = val.strip()
+    try:
+        value = int(val) if val else 1
+    except ValueError:
+        raise ValueError(f"set flag: value must be a whole number, got {val!r}")
+    return [flag_v, value]
+
+
+def format_flagpair(v):
+    return "" if not v else f"{v[0]}, {int(v[1]) if len(v) > 1 else 1}"
+
+
 def _is_int(s):
     return bool(re.fullmatch(r"-?\d+", str(s).strip()))
 
@@ -304,6 +344,10 @@ def _parse_field(kind, raw):
         return parse_zone(raw)
     if kind == ITEMCOUNT:
         return parse_itemcount(raw)
+    if kind == FLAGREF:
+        return parse_flagref(raw)
+    if kind == FLAGPAIR:
+        return parse_flagpair(raw)
     raise ValueError(f"unknown field kind {kind!r}")
 
 
@@ -340,8 +384,10 @@ def entity_to_values(spec, entity: dict) -> dict:
             vals[f.key] = format_zone(v)
         elif f.kind == ITEMCOUNT:
             vals[f.key] = format_itemcount(v)
+        elif f.kind == FLAGPAIR:
+            vals[f.key] = format_flagpair(v)
         else:
-            vals[f.key] = str(v)
+            vals[f.key] = str(v)              # FLAGREF (int or name), STR, INT, OPTINT, PRESET
     return vals
 
 

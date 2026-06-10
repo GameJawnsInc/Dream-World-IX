@@ -14,19 +14,21 @@ from tkinter import ttk
 from .. import infohub
 
 
-def pick(parent, *, kinds=None, title="Pick from the catalog", initial=""):
+def pick(parent, *, kinds=None, title="Pick from the catalog", initial="", campaign_context=None):
     """Open a modal catalog picker over the spine; return the chosen entry name (str) or None if cancelled.
 
     ``kinds`` restricts the search to those catalog kinds (e.g. ``["archetype", "creature"]``); None = all.
-    ``initial`` pre-fills the search box (e.g. the field's current value)."""
-    dlg = _PickerDialog(parent, kinds=kinds, title=title, initial=initial)
+    ``initial`` pre-fills the search box (e.g. the field's current value). ``campaign_context`` (a
+    CampaignPlan) lets the picker also surface the open campaign's members/shared flags (kind 'field'/'flag')."""
+    dlg = _PickerDialog(parent, kinds=kinds, title=title, initial=initial, campaign_context=campaign_context)
     parent.wait_window(dlg.win)
     return dlg.result
 
 
 class _PickerDialog:
-    def __init__(self, parent, *, kinds=None, title="Pick", initial=""):
+    def __init__(self, parent, *, kinds=None, title="Pick", initial="", campaign_context=None):
         self.kinds = list(kinds) if kinds else None
+        self.campaign_context = campaign_context
         self.result = None
         self._entries = []
 
@@ -68,7 +70,8 @@ class _PickerDialog:
         win.grab_set()
 
     def _refresh(self):
-        self._entries = infohub.browse(self.q.get(), kinds=self.kinds, limit=300)
+        self._entries = infohub.browse(self.q.get(), kinds=self.kinds, limit=300,
+                                       campaign_context=self.campaign_context)
         self.lst.delete(0, "end")
         for e in self._entries:
             self.lst.insert("end", f"{e.name}    [{e.kind}]")
