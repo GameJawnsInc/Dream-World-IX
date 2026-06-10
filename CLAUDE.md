@@ -558,6 +558,44 @@ Read these on demand — they hold the full technical detail this file only summ
   Hub / Build & Deploy); the `ff9_studio` launcher offers it as the all-in-one. **Phase 4** (the multi-field
   campaign/project model: linked fields + a gateway graph) remains. 487 tests pass; the spine↔editor reuse
   is the payoff of building spine-first.
+- **Campaign-import pipeline (Pillar D, field-chain) — P1–P5, in-game proven** (`ff9mapkit/chain.py` +
+  `campaign.py` + `tools/deploy_campaign.py`; commits `ade57d2`..`bd6803d`). Import a connected SLICE of the
+  real game and rebuild it as a custom campaign: **`import-chain <seed> --zones <z> --out <dir>`** BFS-walks
+  the field graph (zone-bounded, via the `scan_all_warps` walk-in/scripted/overworld taxonomy), forks each
+  field, and **RETARGETS** its in-chain gateways from real ids to the chain's own band (`id_remap` at the
+  single gateway-emit site; out-of-chain exits become commented seam stubs). **`build-all`** compiles every
+  member into one drop-in mod; **`lint-campaign`** does structural + cross-field GLOB-flag checks;
+  **`deploy_campaign.py --apply`** installs the whole set reversibly (ONE snapshot + wholesale replace — the
+  `install_tworoom` model, NOT deploy_field's per-id line-merge, which sibling-clobbers). **Proven:** the Ice
+  Cavern (fields 300–312 → 30100–30111) walked in-game via F6→Warp. This realizes the Campaign-Editor "Phase 4"
+  multi-field model flagged above. **textid gotcha** (cost a debug cycle): a member's FieldScene textid (6th
+  DictionaryPatch token) MUST already be a key in `FF9DBAll.MesDB` or `DataPatchers` SKIPS the whole scene
+  (`DataPatchers.cs:392`) → absent from F6; empty forks keep the kit default **1073** (a real block), never a
+  per-member id. **New-Game-into-a-campaign with a full party is still unsolved** (the 70→100→entry route
+  crashes on field 100; deploy with `--no-warp` and reach the chain via F6→Warp). Docs:
+  `ff9mapkit/docs/CAMPAIGN_IMPORT.md` + `GLOBAL_RESOURCES.md`. Dev slot: `overworld` worktree → `FF9CustomMap-ow`,
+  scratch field **30003**, campaign band **30100+**.
+- **Jump-navigation pillar (Ice Cavern ledge/gap hops) — in-game proven 2026-06-10** (field 30101; commit
+  `35d194b`). FF9's navigable jumps decoded byte-for-byte from field 301: a **region** (the ledge) `RunScriptSync`s
+  the **player's verbatim jump-arc function** (`TurnTowardPosition → RunJumpAnimation → SetupJump(x,y,z) → Jump
+  → RunLandAnimation → SetPathing`) — perspective-tuned world coords, **copy-only like a ladder climb**. The
+  fork dropped them because `scan_ladders` matched only player-UID 250 but Ice Cavern dispatches via the player
+  **entry index**; the clean ladder-vs-jump discriminator (full-game census: **181** jump-bearing fields) is the
+  **ladder flag** `AddCharacterAttribute(4)` — ladders have it, jumps don't. New: `eventscan.scan_jumps` (region-
+  gated, `action`/`tread`, disjoint from the now-flag-strict `scan_ladders`); **`[[jump]]`** content section +
+  `content/jump.py` (synthesized region + verbatim arc graft + a one-time `SetJumpAnimation` splice — the fork's
+  player is always Zidane, model 98/93); import emits `[[jump]]` + `.jump.bin` sidecars, build consumes + lints.
+  **24** of the 181 are this region-gated navigable kind (the rest are cutscene/scripted jumps, correctly
+  excluded). **Surfaced + fixed a latent ceiling:** the blank-field `.eb` template ships a **10-slot** entry
+  table, but a 6-jump screen overflows it → `eb/edit.grow_entry_table` + auto-growing `append_entry`/`first_free_slot`
+  (fields that fit in 10 stay byte-identical — hut golden preserved; real fields run to ~30 entries). Held until
+  in-game confirmation, then committed (the "run the branch like the others" cadence).
+- **Campaign in the Build & Deploy GUI** (`apps/ff9_build_gui.pyw`; commit `957b8da`, offline-verified) — the
+  window auto-detects a `campaign.toml` (a `[campaign]` table) and re-skins: a **Deploy campaign** panel
+  (reversible whole-chain install via `deploy_campaign.py`, or Build-only to `dist/`; `lint_campaign` on Check;
+  `revert_campaign.py` on Revert; an experimental "Wire New Game entry" checkbox), vs the unchanged
+  test-4003/game/other field flow. A banner shows the detected kind (campaign name, field count, id range, mod
+  folder). Same App-on-parent contract, so it still mounts as the Campaign Editor's Build tab.
 
 ---
 
