@@ -73,13 +73,15 @@ def resolve_entry(plan: "C.CampaignPlan", entry_arg: str | None) -> int:
 
 def expected_dist_summary(plan: "C.CampaignPlan") -> list[str]:
     """What the built dist will contain, derived from the manifest (no build needed) -- for the dry-run."""
-    editable = [m.name for m in plan.members if m.mode == "editable"]
+    # native (atlas+.bgs) and editable (.bgx+layers) members ship a FieldMaps scene dir; borrow members
+    # reuse the real field's art (no scene dir).
+    scene_members = [m.name for m in plan.members if m.mode in ("native", "editable")]
     return [
         f"DictionaryPatch.txt  -- {len(plan.members)} FieldScene lines (ids "
         f"{plan.members[0].new_id}..{plan.members[-1].new_id})",
         f"EVT_<name>.eb.bytes  -- 7 langs x {len(plan.members)} members",
-        f"FieldMaps/FBG_*      -- {len(editable)} editable member scene dir(s)" + (
-            f" ({', '.join(editable)})" if editable else ""),
+        f"FieldMaps/FBG_*      -- {len(scene_members)} member scene dir(s)" + (
+            f" ({', '.join(scene_members)})" if scene_members else ""),
         "ModDescription.xml   -- InstallationPath = " + plan.mod_folder,
     ]
 

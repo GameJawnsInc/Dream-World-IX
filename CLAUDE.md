@@ -735,6 +735,13 @@ Read these on demand — they hold the full technical detail this file only summ
   four in-game confirmed on field 122: seams gone, Moguri high-res art, occlusion correct, snappy load.** The
   `.bgx` per-tile+bleed path stays as the REPAINT tool. → memory `project-ff9-novel-bg-pipeline`,
   `project-ff9-import-fidelity`. Dev slot: `overworld` → FF9CustomMap-ow / field 30003.
+  **Wired into the campaign import (in-game proven 2026-06-10):** `campaign.write_campaign` + `add_field`
+  now fork area<10 members as `--native` (was `--editable`/`.bgx`), so an imported campaign renders seamless
+  end-to-end — and native needs no in-game `[Export]`, so those members never degrade to logic-only stubs
+  (`needs_export` now only for a truly atlas-less field). The mod-atlas scan is cached (`_load_mod_bundle`)
+  so a 13-field fork loads Moguri's bundles once. Build GUI + `deploy_campaign` handle native members
+  transparently (scene-dir summary counts native+editable). **Re-forked Ice Cavern (30100-30112, 13 native
+  members, 0 stubs) confirmed clean in-game** — the texture seams the human first reported there are gone.
 - **Named story flags in the GUI (offline-verified; awaits a human GUI click-through)** — surfaces the
   story-flags branch's named-flag system in the Campaign Editor so cross-field gates are authored by NAME, not
   raw bit index. **F1 — author shared flags:** `campaign.add_flag` / `remove_flag` manage a campaign's `[[flag]]`

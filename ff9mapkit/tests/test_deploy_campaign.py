@@ -44,7 +44,7 @@ def test_resolve_entry():
 def test_expected_dist_summary():
     s = dc.expected_dist_summary(_plan())
     assert any("2 FieldScene lines" in x and "30100..30101" in x for x in s)
-    assert any("1 editable member" in x and "IC_ENT" in x for x in s)        # only IC_ENT is editable
+    assert any("1 member scene dir" in x and "IC_ENT" in x for x in s)       # IC_ENT ships a scene dir; IC_STP borrows
 
 
 def test_render_revert_valid_and_complete(tmp_path):

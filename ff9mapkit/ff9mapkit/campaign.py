@@ -42,11 +42,11 @@ class Member:
     real_id: int
     new_id: int
     name: str                 # IC_ENT, ...
-    mode: str                 # "borrow" | "editable"
+    mode: str                 # "borrow" (area>=10) | "native" (area<10 fork) | "editable" (blank room)
     src_area: int
     folder: str               # ID_TO_FBG[real_id]
     toml_rel: str             # "IC_ENT/IC_ENT.field.toml"
-    needs_export: bool        # editable member whose art wasn't [Export]'d in-game yet
+    needs_export: bool        # member with no usable background art -> a logic-only stub
 
 
 @dataclass
@@ -190,8 +190,9 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
                    name: str, mod_folder: str, game=None, live_seams=False,
                    entry_entrance=0) -> CampaignPlan:
     """Fork the walk into ``out_dir``: a per-member subdir each + a top-level campaign.toml. Returns the
-    CampaignPlan. Members in area>=10 BG-borrow (fully offline); area<10 members are editable and, if their
-    art was never exported in-game, degrade to logic-only (camera+walkmesh+retargeted gateways) + needs_export."""
+    CampaignPlan. Members in area>=10 BG-borrow; area<10 members fork as a NATIVE scene (own atlas+.bgs, no
+    .bgx -- seamless, no in-game export needed). Both are fully offline; a field with no usable background
+    atlas degrades to a logic-only stub (camera+walkmesh+retargeted gateways) flagged needs_export."""
     from . import extract
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -203,7 +204,7 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
     for real in members_ids:
         folder = extract.ID_TO_FBG[real]
         area, _ = extract.parse_fbg_folder(folder)
-        mode = "borrow" if area >= extract.MIN_CUSTOM_AREA else "editable"
+        mode = "borrow" if area >= extract.MIN_CUSTOM_AREA else "native"
         mname = name_of[real]
         mdir = out / mname
         mdir.mkdir(parents=True, exist_ok=True)
@@ -212,15 +213,14 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
             if mode == "borrow":
                 _meta, p = extract.write_field_project(folder, mdir, name=mname, field_id=new_id[real],
                                                        game=game, id_remap=new_id, live_seams=live_seams)
-            else:
-                _meta, p = extract.write_editable_project(folder, mdir, name=mname, field_id=new_id[real],
-                                                          game=game, id_remap=new_id, live_seams=live_seams)
-        except RuntimeError as e:
-            if mode == "editable" and "[Export]" in str(e):
-                _meta, p = _emit_logic_only_member(folder, mdir, mname, new_id[real], new_id, live_seams, game)
-                needs_export = True
-            else:
+            else:   # area<10: NATIVE fork (own atlas+.bgs, NO .bgx) -- seamless + fully offline (no [Export])
+                _meta, p = extract.write_native_project(folder, mdir, name=mname, field_id=new_id[real],
+                                                        game=game, id_remap=new_id, live_seams=live_seams)
+        except RuntimeError:                                # a field with no usable background atlas (rare)
+            if mode == "borrow":
                 raise
+            _meta, p = _emit_logic_only_member(folder, mdir, mname, new_id[real], new_id, live_seams, game)
+            needs_export = True
         members.append(Member(real, new_id[real], mname, mode, area, folder,
                               f"{mname}/{p.name}", needs_export))
 
@@ -264,7 +264,7 @@ def render_campaign_toml(plan: CampaignPlan) -> str:
         L.append(f'mode = "{m.mode}"')
         L.append(f'toml = "{m.toml_rel}"')
         if m.needs_export:
-            L.append("needs_export = true   # export this field in-game ([Export] Field=1) to add its art")
+            L.append("needs_export = true   # logic-only stub: this field had no usable background atlas")
         L.append("")
     L += ["# In-chain connectivity (each = a retargeted live [[gateway]] in the member toml)."]
     for e in plan.edges:
@@ -795,21 +795,20 @@ def add_field(plan: CampaignPlan, manifest_dir, *, name, source=None, game=None)
         folder = _resolve_source_folder(source)
         real_id = next((i for i, f in extract.ID_TO_FBG.items() if f == folder), 0)
         area, _ = extract.parse_fbg_folder(folder)
-        mode = "borrow" if area >= extract.MIN_CUSTOM_AREA else "editable"
+        mode = "borrow" if area >= extract.MIN_CUSTOM_AREA else "native"
         mdir = manifest_dir / name
         mdir.mkdir(parents=True, exist_ok=True)
         remap = {m.real_id: m.new_id for m in plan.members if m.real_id}
         remap[real_id] = new_id                          # so a self/back-reference retargets to this member
         needs_export = False
-        try:
-            fork = extract.write_field_project if mode == "borrow" else extract.write_editable_project
+        try:                                             # area<10 forks NATIVE (own atlas+.bgs, no .bgx)
+            fork = extract.write_field_project if mode == "borrow" else extract.write_native_project
             _meta, p = fork(folder, mdir, name=name, field_id=new_id, game=game, id_remap=remap)
-        except RuntimeError as e:
-            if mode == "editable" and "[Export]" in str(e):
-                _meta, p = _emit_logic_only_member(folder, mdir, name, new_id, remap, False, game)
-                needs_export = True
-            else:
+        except RuntimeError:                             # a field with no usable background atlas (rare)
+            if mode == "borrow":
                 raise
+            _meta, p = _emit_logic_only_member(folder, mdir, name, new_id, remap, False, game)
+            needs_export = True
         member = Member(real_id, new_id, name, mode, area, folder, f"{name}/{p.name}", needs_export)
     plan.members.append(member)
     if not plan.entry_name:

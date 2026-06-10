@@ -961,9 +961,24 @@ def _atlas_png_bytes(tex) -> bytes:
     return buf.getvalue()
 
 
+_MOD_ENV_CACHE: dict = {}
+
+
+def _load_mod_bundle(path):
+    """Load + cache a mod-folder p0data bundle (read-only, static). A multi-member campaign that needs
+    several fields' mod atlases then loads each bundle ONCE instead of re-loading it per member."""
+    p = str(path)
+    if p not in _MOD_ENV_CACHE:
+        try:
+            _MOD_ENV_CACHE[p] = _unitypy().load(p)
+        except Exception:                                    # noqa: BLE001 - a non-bundle / unreadable bin
+            _MOD_ENV_CACHE[p] = None
+    return _MOD_ENV_CACHE[p]
+
+
 def _mod_field_atlas(folder: str, game=None):
     """The field's ``atlas.png`` from the highest-priority MOD folder that ships it (Moguri's high-res
-    atlas), as PNG bytes -- or None. Scans each mod folder's loose Fieldmaps, then its p0data bundles."""
+    atlas), as PNG bytes -- or None. Scans each mod folder's loose Fieldmaps, then its (cached) p0data."""
     gp = config.find_game_path(game)
     key = f"assets/resources/fieldmaps/{folder.lower()}/atlas.png"
     for mod in _mod_folders(game):
@@ -972,9 +987,8 @@ def _mod_field_atlas(folder: str, game=None):
         if loose.is_file():
             return loose.read_bytes()
         for b in sorted(sa.glob("p0data*.bin")):
-            try:
-                env = _unitypy().load(str(b))
-            except Exception:                                # noqa: BLE001 - a non-bundle / unreadable bin
+            env = _load_mod_bundle(b)
+            if env is None:
                 continue
             for path, obj in env.container.items():
                 if path.lower() == key:

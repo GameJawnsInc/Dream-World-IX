@@ -174,8 +174,9 @@ def test_real_ice_cavern_campaign(tmp_path):
                 assert int(ls.split("=", 1)[1].strip()) in member_ids
     # IC_WAF (308) has no walk-in gateway -> a scripted seam, not an edge
     assert any(s["kind"] == "scripted" for s in d["seam"])
-    # all 13 are area<10 -> editable + need export
-    assert all(f["mode"] == "editable" for f in d["field"])
+    # all 13 are area<10 -> NATIVE fork (own atlas+.bgs, no .bgx; seamless, no in-game export needed)
+    assert all(f["mode"] == "native" for f in d["field"])
+    assert not any(f.get("needs_export") for f in d["field"])   # native ships bundle/mod art -> no stubs
 
 
 # ---- P3: load_campaign + build_campaign -------------------------------------------------
@@ -525,7 +526,7 @@ def test_add_field_forks_a_real_field(tmp_path):
     # the fork path: add a real field (Ice Cavern entrance 300) by id -- needs the game install
     plan = campaign.new_campaign("ICE", "M", tmp_path, id_base=30100)
     m = campaign.add_field(plan, tmp_path, name="IC_ENT", source=300)
-    assert m.real_id == 300 and m.new_id == 30100 and m.mode in ("borrow", "editable")
+    assert m.real_id == 300 and m.new_id == 30100 and m.mode in ("borrow", "native")
     assert (tmp_path / m.toml_rel).is_file()
     assert campaign.lint_campaign(campaign.load_campaign(tmp_path / "campaign.toml"), tmp_path)[0] == []
 
