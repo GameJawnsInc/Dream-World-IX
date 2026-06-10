@@ -121,6 +121,9 @@ def _find_scene(field_path: Path, base: dict):
 class FieldProject:
     raw: dict
     base_dir: Path
+    # Per-member campaign once-flag base (set by campaign.build_campaign). None => single-field defaults
+    # (event 8000+ / cutscene 8100 / choice 8200+), which keeps single-field builds BYTE-IDENTICAL.
+    flag_base: int | None = None
 
     @classmethod
     def load(cls, toml_path) -> "FieldProject":
@@ -433,6 +436,7 @@ def lint_logic(project: FieldProject) -> list[str]:
       * duplicate entity names (the scene<->field merge key would be ambiguous)."""
     raw = project.raw
     out = []
+    _auto = _FlagAlloc(getattr(project, "flag_base", None))   # mirror build_script's auto-allocation EXACTLY
 
     # flags that can ever become SET: event set_flag targets + each once-event's guard flag.
     settable, auto_once, explicit = set(), set(), set()
@@ -444,7 +448,7 @@ def lint_logic(project: FieldProject) -> list[str]:
             if "flag" in ev:
                 settable.add(int(ev["flag"])); explicit.add(int(ev["flag"]))
             else:
-                auto_once.add(_event.EVENT_FLAG_BASE + counter)
+                auto_once.add(_auto.event(counter))
             counter += 1
     cs = raw.get("cutscene")           # a cutscene also sets flags (set_flag steps + its own once-flag)
     if cs:
@@ -452,7 +456,7 @@ def lint_logic(project: FieldProject) -> list[str]:
             if "set_flag" in step:
                 settable.add(int(step["set_flag"][0])); explicit.add(int(step["set_flag"][0]))
         if cs.get("once", True):
-            f = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
+            f = int(cs["flag"]) if "flag" in cs else _auto.cutscene()
             settable.add(f); explicit.add(f)
     choice_counter = 0
     for ch in raw.get("choice", []):           # a choice option can set a story flag too
@@ -463,7 +467,7 @@ def lint_logic(project: FieldProject) -> list[str]:
             if "flag" in ch:
                 settable.add(int(ch["flag"])); explicit.add(int(ch["flag"]))
             else:
-                auto_once.add(_choice.CHOICE_FLAG_BASE + choice_counter)
+                auto_once.add(_auto.choice(choice_counter))
                 choice_counter += 1
     settable |= auto_once
 
@@ -1003,11 +1007,38 @@ def _gate_of(d: dict):
     return None, True
 
 
+# Per-member event-flag reserve inside a campaign member's K-wide block (see _FlagAlloc). With the
+# default flags_per_field=64: cutscene at base+0, events base+1..+31, choices base+32..+63.
+EVENTS_PER_FIELD = 31
+
+
+class _FlagAlloc:
+    """Auto once-flag allocator. ``base is None`` (single-field build) reproduces the historical
+    per-category bands EXACTLY (event 8000+, cutscene 8100, choice 8200+) -> byte-identical output.
+    When a campaign assigns a per-member ``flag_base``, the field's auto once-flags pack into that
+    member's own block via a FIXED sub-partition (order-independent, so :func:`lint_logic` mirrors
+    :func:`build_script` regardless of which it allocates first), keeping every member's once-flags
+    disjoint from its siblings' -- the fix for the per-field-counter-resets-per-build aliasing bug."""
+
+    def __init__(self, base: int | None):
+        self.base = base
+
+    def event(self, i: int) -> int:
+        return (_event.EVENT_FLAG_BASE + i) if self.base is None else (self.base + 1 + i)
+
+    def cutscene(self) -> int:
+        return _cutscene.DEFAULT_CUTSCENE_FLAG if self.base is None else self.base
+
+    def choice(self, i: int) -> int:
+        return (_choice.CHOICE_FLAG_BASE + i) if self.base is None else (self.base + 1 + EVENTS_PER_FIELD + i)
+
+
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None,
                  cutscene_txids: list | None = None, walkmesh=None,
                  choice_txids: dict | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
+    _auto = _FlagAlloc(getattr(project, "flag_base", None))
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
     choice_txids = choice_txids or {}
@@ -1036,7 +1067,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     cs_actor = cs.get("actor") if cs else None
     cs_once_flag = None
     if cs and cs.get("once", True):
-        cs_once_flag = int(cs["flag"]) if "flag" in cs else _cutscene.DEFAULT_CUTSCENE_FLAG
+        cs_once_flag = int(cs["flag"]) if "flag" in cs else _auto.cutscene()
     actor_choreo = None
     if cs_actor:
         actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs_actor), None)
@@ -1044,6 +1075,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         steps = _resolve_move_steps(steps, project, actor_npc)  # names -> [x,z]; @object walks stop short
         steps = _autoroute_steps(steps, project, walkmesh, actor_npc)  # route blocked walks around obstacles
         cs_fclass, cs_fidx = _cutscene.once_flag_for(cs)   # GLOB (once ever) or MAP (replay per visit)
+        if _auto.base is not None and "flag" not in cs and cs.get("once", True):
+            cs_fidx = _auto.cutscene()                     # campaign: pack into this member's block
         actor_choreo = _cutscene.build_choreography(
             steps, cutscene_txids, cs_fidx, flag_class=cs_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)))
@@ -1193,7 +1226,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     parts.append(_event.message(event_txids[j]))
             once_flag = None
             if ev.get("once", True):
-                once_flag = int(ev["flag"]) if "flag" in ev else (_event.EVENT_FLAG_BASE + flag_counter)
+                once_flag = int(ev["flag"]) if "flag" in ev else _auto.event(flag_counter)
                 flag_counter += 1
             gf, gs = _gate_of(ev)
             # chest space-check: skip the reward (and don't set the once-flag) if the bag is full
@@ -1244,7 +1277,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 init_body = None
             eb, _slot = _region.inject_region(eb, zone, body, tag=_region.INTERACT_TAG, init_body=init_body)
         else:
-            fidx = int(ch["flag"]) if "flag" in ch else (_choice.CHOICE_FLAG_BASE + choice_flag_counter)
+            fidx = int(ch["flag"]) if "flag" in ch else _auto.choice(choice_flag_counter)
             if "flag" not in ch:
                 choice_flag_counter += 1
             rb = _event.event_range_body(_choice.region_body(ct["prompt"], opt_bodies, setup=setup), fidx,

@@ -65,10 +65,10 @@ Process-global `static` dicts, rebuilt from every mod folder's DictionaryPatch a
 
 | Namespace | Band | Defined at | Alloc scope TODAY | Persistence |
 |---|---|---|---|---|
-| Event once-flags | 8000+ | `content/event.py:27` | **per-field counter → ALIASES across fields** | GLOB / save |
-| Cutscene once-flags | 8100+ | `content/cutscene.py:37` | per-field | GLOB / save |
-| Choice gate flags | 8200+ | `content/choice.py:35` | per-field (reset on Init) | GLOB / save |
-| Campaign flags | 8300+, 64/field | `campaign.py:177,216` | **campaign-partitioned (the fix)** | GLOB / save |
+| Event once-flags | 8000+ (single-field) | `content/event.py:27` | single-field default; campaign → per-member block via `build._FlagAlloc` | GLOB / save |
+| Cutscene once-flags | 8100 (single-field) | `content/cutscene.py:37` | single-field default; campaign → member `base+0` | GLOB / save |
+| Choice gate flags | 8200+ (single-field) | `content/choice.py:35` | single-field default; campaign → member `base+32..` | GLOB / save |
+| Campaign flags | **8512+** (`FIRST_SAFE_FLAG`), 64/field | `campaign.py` | per-member `flag_base+i*K`, lint-bounded (**was 8300 → chest collision, FIXED**) | GLOB / save |
 | Choice mask scratch | byte 2040 (bits 16320+) | `content/region.py:57` | campaign-global | GLOB / save |
 | Field ids | 4000–9899 content · 30000–32767 scratch | `pack.py` | per-mod hash block; `id_base+i` in campaign | static reg |
 | Battle scenes | 1–177 real · 200+ mint | `battle/build.py:34,162` | manual | static reg |
@@ -84,14 +84,21 @@ Long-index form: `class|0x20` (e.g. `0xE4`) + 2-byte LE — why the 8000 band wo
 
 ---
 
-## The root-cause bug this layer fixes (read before touching allocators)
+## The root-cause bug this layer fixes — FIXED 2026-06-10 (story_flags branch)
 
-`build_script`'s once-flag counter **resets to 0 per build**, flag = `BASE + counter` computed *per-field*
-(`event.py:27`, `cutscene.py:37`, `choice.py:35`; `build.py:1152,1181`). So field B's first chest and
-field A's first chest BOTH pick 8000 → looting A marks B looted campaign-wide. Harmless for one field;
-a **latent save-corrupter for N fields**. `campaign.py` already reserves `flag_base=8300` +
-`flags_per_field=64`/member, but **nothing parameterizes the three allocators yet** — they still hardcode
-the bases. (CAMPAIGN_IMPORT.md §4.1.)
+`build_script`'s once-flag counter **reset to 0 per build**, flag = `BASE + counter` computed *per-field*.
+So field B's first chest and field A's first chest BOTH picked 8000 → looting A marked B looted
+campaign-wide. Harmless for one field; a **latent save-corrupter for N fields**. **Plus** `campaign.py`'s
+reserved `flag_base=8300` + 64/member **collided with real-FF9's treasure-chest bitfield at bits 8376–8511**
+(census-verified; `research/STORY_FLAGS.md` §4) → corrupting real chest-opened state.
+
+**Fix (landed):** `build._FlagAlloc` parameterizes the three allocators by an optional per-member
+`flag_base` threaded through `build_script` + `lint_logic` (default `None` = the historical 8000/8100/8200
+constants, so single-field builds stay **byte-identical**; campaign members get `flag_base + i*K`, packed
+cutscene `+0` / events `+1..+31` / choices `+32..+63`). The default `flag_base` moved **8300 → 8512**
+(`campaign.FIRST_SAFE_FLAG`, the first bit clear of ALL real usage; max real-used bit = 8511).
+`lint_campaign` now errors on any member block / explicit flag inside the chest band 8376–8511 or at/above
+the choice scratch (bit 16320). (CAMPAIGN_IMPORT.md §4.1; tests in `test_campaign.py` / `test_build.py`.)
 
 ---
 

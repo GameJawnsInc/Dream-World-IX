@@ -531,6 +531,31 @@ def test_lint_flag_collision_with_auto_once(tmp_path):
     assert any("clash" in m and str(EVENT_FLAG_BASE) in m for m in lints)
 
 
+def test_flag_alloc_single_field_reproduces_historical_bands():
+    # base=None MUST reproduce the historical per-category bands exactly -> single-field builds byte-identical
+    from ff9mapkit.build import _FlagAlloc
+    from ff9mapkit.content.event import EVENT_FLAG_BASE
+    from ff9mapkit.content.cutscene import DEFAULT_CUTSCENE_FLAG
+    from ff9mapkit.content.choice import CHOICE_FLAG_BASE
+    a = _FlagAlloc(None)
+    assert (a.event(0), a.event(3)) == (EVENT_FLAG_BASE, EVENT_FLAG_BASE + 3)
+    assert a.cutscene() == DEFAULT_CUTSCENE_FLAG
+    assert (a.choice(0), a.choice(5)) == (CHOICE_FLAG_BASE, CHOICE_FLAG_BASE + 5)
+
+
+def test_flag_alloc_campaign_member_blocks_are_disjoint():
+    # a per-member base packs cutscene/events/choices into the member's own K=64 block -> no sibling aliasing
+    from ff9mapkit.build import _FlagAlloc, EVENTS_PER_FIELD
+    base = 8512
+    a, b = _FlagAlloc(base), _FlagAlloc(base + 64)
+    assert a.cutscene() == base                                  # cutscene at base+0
+    assert (a.event(0), a.event(2)) == (base + 1, base + 3)      # events base+1..
+    assert a.choice(0) == base + 1 + EVENTS_PER_FIELD            # choices after the event reserve
+    used_a = {a.cutscene(), a.event(0), a.event(EVENTS_PER_FIELD - 1), a.choice(0), a.choice(31)}
+    used_b = {b.cutscene(), b.event(0), b.choice(0)}
+    assert max(used_a) < base + 64 and used_a.isdisjoint(used_b)
+
+
 def test_lint_duplicate_names(tmp_path):
     lints = _lint(tmp_path, '[[npc]]\nname="g"\npreset="vivi"\npos=[0,-150]\ndialogue="a"\n'
                             '[[npc]]\nname="g"\npreset="vivi"\npos=[100,-150]\ndialogue="b"\n')

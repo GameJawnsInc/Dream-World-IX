@@ -108,7 +108,7 @@ def test_render_is_valid_toml():
     edges, seams = campaign._collect_edges_seams(r, members_ids, new_id, name_of)
     members = [campaign.Member(rid, new_id[rid], name_of[rid], "editable", 5, extract.ID_TO_FBG[rid],
                                f"{name_of[rid]}/{name_of[rid]}.field.toml", True) for rid in members_ids]
-    plan = campaign.CampaignPlan(name="ICE", mod_folder="FF9CustomMap-ow", id_base=6000, flag_base=8300,
+    plan = campaign.CampaignPlan(name="ICE", mod_folder="FF9CustomMap-ow", id_base=6000, flag_base=campaign.FIRST_SAFE_FLAG,
                                  flags_per_field=64, entry_name=name_of[members_ids[0]], entry_entrance=0,
                                  members=members, edges=edges, seams=seams)
     d = tomllib.loads(campaign.render_campaign_toml(plan))     # must parse
@@ -185,7 +185,7 @@ def test_load_campaign_round_trips(tmp_path):
     edges, seams = campaign._collect_edges_seams(r, members_ids, new_id, name_of)
     members = [campaign.Member(rid, new_id[rid], name_of[rid], "editable", 5, extract.ID_TO_FBG[rid],
                                f"{name_of[rid]}/{name_of[rid]}.field.toml", rid == 300) for rid in members_ids]
-    plan = campaign.CampaignPlan(name="ICE", mod_folder="FF9CustomMap-ow", id_base=6000, flag_base=8300,
+    plan = campaign.CampaignPlan(name="ICE", mod_folder="FF9CustomMap-ow", id_base=6000, flag_base=campaign.FIRST_SAFE_FLAG,
                                  flags_per_field=64, entry_name="IC_ENT", entry_entrance=0,
                                  members=members, edges=edges, seams=seams)
     p = tmp_path / "campaign.toml"
@@ -206,7 +206,7 @@ def test_load_campaign_round_trips(tmp_path):
 
 def _plan_with_ids(ids):
     members = [campaign.Member(0, i, f"F{i}", "borrow", 11, "", f"F{i}/F{i}.field.toml", False) for i in ids]
-    return campaign.CampaignPlan(name="X", mod_folder="M", id_base=4000, flag_base=8300, flags_per_field=64,
+    return campaign.CampaignPlan(name="X", mod_folder="M", id_base=4000, flag_base=campaign.FIRST_SAFE_FLAG, flags_per_field=64,
                                  entry_name="A", entry_entrance=0, members=members)
 
 
@@ -222,7 +222,7 @@ def _lint_plan(tmp_path, *, members=None, edges=None, seams=None, entry="A", mem
     members = members if members is not None else [
         campaign.Member(300, 6000, "A", "borrow", 11, "", "A/A.field.toml", False),
         campaign.Member(301, 6001, "B", "borrow", 11, "", "B/B.field.toml", False)]
-    plan = campaign.CampaignPlan(name="C", mod_folder="M", id_base=6000, flag_base=8300,
+    plan = campaign.CampaignPlan(name="C", mod_folder="M", id_base=6000, flag_base=campaign.FIRST_SAFE_FLAG,
                                  flags_per_field=64, entry_name=entry, entry_entrance=0,
                                  members=members, edges=edges or [], seams=seams or [])
     for m in members:                                      # materialize minimal member field.tomls
@@ -278,16 +278,16 @@ def test_lint_ungated_stacked_door_warns(tmp_path):
 
 
 def test_lint_flag_dangling_and_dupwriter(tmp_path):
-    # B requires flag 8500 that nobody sets -> dangling; A+B both set 8500 -> covered separately
+    # B requires flag 8520 that nobody sets -> dangling; A+B both set 8520 -> covered separately
     dangling = _lint_plan(tmp_path, member_content={
-        "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = 8500\n'})
+        "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = 8520\n'})
     _, w1 = campaign.lint_campaign(dangling, tmp_path)
-    assert any("8500" in w and "permanently locked" in w for w in w1)
+    assert any("8520" in w and "permanently locked" in w for w in w1)
 
     dup = _lint_plan(tmp_path, member_content={
-        "A": '[[event]]\nname = "x"\nflag = 8500\n', "B": '[[event]]\nname = "y"\nflag = 8500\n'})
+        "A": '[[event]]\nname = "x"\nflag = 8520\n', "B": '[[event]]\nname = "y"\nflag = 8520\n'})
     _, w2 = campaign.lint_campaign(dup, tmp_path)
-    assert any("8500" in w and "multiple members" in w for w in w2)
+    assert any("8520" in w and "multiple members" in w for w in w2)
 
 
 def test_lint_empty_forks_have_no_flag_warnings(tmp_path):
@@ -295,6 +295,32 @@ def test_lint_empty_forks_have_no_flag_warnings(tmp_path):
     plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])
     errors, warnings = campaign.lint_campaign(plan, tmp_path)
     assert errors == [] and not any("flag" in w for w in warnings)
+
+
+def test_lint_safe_band_default_is_clean(tmp_path):
+    # the new default flag_base (FIRST_SAFE_FLAG=8512) is clear of all real-FF9 usage -> no band errors
+    plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])
+    assert plan.flag_base == campaign.FIRST_SAFE_FLAG
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert not any(("chest" in e.lower() or "safe floor" in e) for e in errors)
+
+
+def test_lint_chest_band_collision_errors(tmp_path):
+    # the PRE-FIX flag_base=8300 + 64/field collides with real-FF9 chest flags (bits 8376-8511): member A's
+    # block dips below the safe floor, member B's intersects the chest band -> save-corruption errors.
+    plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])
+    plan.flag_base = 8300
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("safe floor" in e for e in errors)                 # A: 8300-8363 < 8512
+    assert any("treasure-chest" in e for e in errors)             # B: 8364-8427 hits 8376-8511
+
+
+def test_lint_explicit_flag_in_chest_band_errors(tmp_path):
+    # an explicit story flag inside real-FF9's chest band 8376-8511 -> save corruption, hard error
+    plan = _lint_plan(tmp_path, member_content={
+        "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = 8400\n'})
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("8400" in e and "treasure-chest" in e for e in errors)
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

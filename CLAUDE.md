@@ -639,9 +639,34 @@ Read these on demand — they hold the full technical detail this file only summ
   `--smoke` covers navigation + graph children + edge-nav + Check + the dirty gate both ways; **551 kit tests
   pass**. Scope was **A–C** (navigate + validate imported campaigns, text/tree graph first) and is **DONE**; the
   only deferred frontier is the visual node-link diagram (optional follow-up). Deferred to **Phase D** (out of
-  this scope): create-a-campaign-from-scratch + add/remove/rewire/**rename** mutation API + the per-member
-  flag-isolation fix. (The navigator's member name is the structural campaign id that edges/seams key on; the
-  editor's "Name" is the field's in-game name — decoupled by design, so a true member RENAME is Phase D.)
+  this scope): create-a-campaign-from-scratch + add/remove/rewire/**rename** mutation API. (The navigator's
+  member name is the structural campaign id that edges/seams key on; the editor's "Name" is the field's in-game
+  name — decoupled by design, so a true member RENAME is Phase D.) *(The per-member flag-isolation fix that was
+  flagged here as Phase-D has since LANDED — see the next bullet.)*
+- **Story-flag research (Pillar: Resources / `gEventGlobal`) — `story_flags` branch** (2026-06-10;
+  `research/`). Mapped FF9's save-persistent story-flag heap end-to-end: `EventState.gEventGlobal` (Byte[2048],
+  Base64 in the save JSON) holds the **ScenarioCounter** (UInt16 @ bytes 0-1, master story-progress 1..12000),
+  **~1051 bit-flags** (bits 184..8511), and word-counters; field scripts touch it via the `0x05` expression
+  opcode (`0xC0|(VariableType<<2)|VariableSource`; Bit indexes BITS, Byte/Int16/UInt16 index BYTES). Built an
+  **empirical census** (`research/flag_census.py` → reads every real field's `.eb` from p0data, decodes every
+  GLOBAL var byte-exact vs `EBin.getVarOperation`): **676/676 fields, 0 errors**; the decoder self-validated by
+  rediscovering the engine's worldmap cursor bytes (92-102) and `IsEikoAbducted` (SC 9860-9989 = Desert Palace).
+  **★ Headline finding (verified):** real FF9's **treasure-chest "opened" bitfield is bits 8376-8511** (bytes
+  1047-1063, 48 chest fields) — which **OVERLAPS the kit's campaign flag band** (`campaign.py` `flag_base=8300`,
+  64/field → field index ≥1 aliases real chest bits → save corruption). Latent (the per-field allocator isn't
+  wired yet) but guaranteed once it is. **Fix: the first provably-clear base is bit 8512** (max real-used bit =
+  8511; safe cap 122 fields below the choice-scratch at byte 2040). **Byte 23 (bits 184/191) is an active engine
+  menu/transition handshake, NOT a story flag** (rewritten every `Main_Init`; must avoid). Deliverables (all in
+  `research/`, no kit code changed): **`STORY_FLAGS.md`** (the report — heap map, the 5 verbs view/understand/
+  name/create/recreate, the safe-band fix, prioritized toolkit work), `CENSUS_DIGEST.md`, **`flag_catalog.toml`**
+  (named-flag registry seed: engine vars + reserved regions + scenario milestones + empirical clusters + safe
+  bands), + the reproducible tools. The 5-verb gaps: kit has no name registry, no save-file viewer, no seed/
+  recreate — designs sketched. Done via an `ultracode` workflow (4 dossiers → adversarial verify → synthesis).
+  **Safe-band fix LANDED (same branch):** `build._FlagAlloc` threads an optional per-member `flag_base`
+  through `build_script`/`lint_logic` (default `None` = historical 8000/8100/8200 bands → single-field builds
+  BYTE-IDENTICAL; campaign members get `flag_base + i*K`); `campaign.py` default `flag_base` 8300 → **8512**
+  (`FIRST_SAFE_FLAG`, clear of the chest band); `lint_campaign` errors on any block/explicit-flag in 8376-8511
+  or ≥ bit 16320. Single-field builds stay byte-identical (golden preserved). Memory: `project-ff9-story-flags`.
 
 ---
 

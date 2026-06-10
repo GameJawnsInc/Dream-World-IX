@@ -26,6 +26,16 @@ from . import chain
 
 _MAP_SEG = re.compile(r"^map\d", re.I)     # the 'map<NNN>' segment of an FBG folder
 
+# --- safe GLOB story-flag allocation band (grounded in research/STORY_FLAGS.md §4, a 676-field census) ---
+# Real FF9 uses save-persistent bit-flags up to bit 8511: the treasure-chest "opened" bitfield is bits
+# 8376-8511 (bytes 1047-1063), written by 48 chest fields. The choice-visibility scratch sits at byte 2040
+# = bits 16320+. So custom campaign flags MUST live in (8511, 16320). The old flag_base=8300 + 64/field
+# collided with the chest block from member index 1 onward -> a latent save-corrupter once the per-member
+# allocator was wired. 8512 (start of byte 1064) is the first bit clear of ALL real-FF9 usage.
+FIRST_SAFE_FLAG = 8512          # first bit provably clear of real-FF9 usage (was 8300 -> chest collision)
+CHEST_FLAG_LO, CHEST_FLAG_HI = 8376, 8511      # real-FF9 treasure-chest bitfield -- never allocate into
+CHOICE_SCRATCH_FLOOR = 16320    # byte 2040: kit/engine-owned choice mask scratch -- members stay below
+
 
 class CampaignError(ValueError):
     """A campaign manifest / build-all problem (caught + printed by the CLI)."""
@@ -179,7 +189,7 @@ def _collect_edges_seams(result, members_ids, new_id, name_of):
     return _dedup(edges, ("frm", "to", "entrance")), _dedup(seams, ("frm", "to_real", "kind"))
 
 
-def write_campaign(result, out_dir, *, id_base=6000, flag_base=8300, flags_per_field=64,
+def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, flags_per_field=64,
                    name: str, mod_folder: str, game=None, live_seams=False,
                    entry_entrance=0) -> CampaignPlan:
     """Fork the walk into ``out_dir``: a per-member subdir each + a top-level campaign.toml. Returns the
@@ -299,7 +309,7 @@ def load_campaign(path) -> CampaignPlan:
                for f in data.get("field", [])]
     return CampaignPlan(
         name=c.get("name", "CAMPAIGN"), mod_folder=c.get("mod_folder", "FF9CustomMap"),
-        id_base=int(c.get("id_base", 4000)), flag_base=int(c.get("flag_base", 8300)),
+        id_base=int(c.get("id_base", 4000)), flag_base=int(c.get("flag_base", FIRST_SAFE_FLAG)),
         flags_per_field=int(c.get("flags_per_field", 64)), entry_name=c.get("entry_field", ""),
         entry_entrance=int(c.get("entry_entrance", 0)), members=members,
         edges=[{"frm": e["from"], "to": e["to"], "entrance": int(e.get("entrance", 0)),
@@ -341,7 +351,7 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     out = Path(out) if out else (manifest_dir / "dist")
 
     projects = []
-    for m in plan.members:
+    for i, m in enumerate(plan.members):
         toml_path = (manifest_dir / m.toml_rel).resolve()      # member subdir -> sidecars resolve via base_dir
         if not toml_path.is_file():
             raise CampaignError(f"member {m.name}: field.toml not found at {toml_path}")
@@ -350,6 +360,10 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
                 f"member {m.name} needs in-game art before build: export it once (Memoria.ini [Export] "
                 f"Field=1) + re-fork --editable, or pass --allow-artless to build it with no background.")
         proj = FieldProject.load(toml_path)
+        # Per-member once-flag base so member i's auto chest/event/cutscene/choice flags can't alias a
+        # sibling's (the per-field-counter-resets-per-build bug). Block = [flag_base + i*K, +K), packed
+        # by build._FlagAlloc. lint_campaign asserts every block is in the provably-safe band.
+        proj.flag_base = plan.flag_base + i * plan.flags_per_field
         # Do NOT override text_block to a per-member id. The FieldScene textid (6th DictionaryPatch token)
         # MUST already be a key in FF9DBAll.MesDB, or DataPatchers SKIPS the whole scene registration
         # (DataPatchers.cs:392-395 `if (!MesDB.ContainsKey(mesID)) continue;` -- verified in-game: textid
@@ -414,6 +428,21 @@ def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
         errors.append(f"duplicate member names {name_dups} -- names must be unique "
                       f"(edges/seams + the campaign navigator key on them)")
 
+    K = plan.flags_per_field                      # (a3) per-member flag blocks: in the provably-safe band,
+    for i, m in enumerate(plan.members):          #      clear of real-FF9's chest bitfield + the scratch
+        lo, hi = plan.flag_base + i * K, plan.flag_base + i * K + K - 1
+        if lo < FIRST_SAFE_FLAG:
+            errors.append(f"member {m.name}: flag block {lo}-{hi} dips below the safe floor "
+                          f"{FIRST_SAFE_FLAG} (overlaps real-FF9 flags) -- raise [campaign] flag_base.")
+        if lo <= CHEST_FLAG_HI and hi >= CHEST_FLAG_LO:
+            errors.append(f"member {m.name}: flag block {lo}-{hi} intersects real-FF9's treasure-chest "
+                          f"band {CHEST_FLAG_LO}-{CHEST_FLAG_HI} -> SAVE CORRUPTION -- set [campaign] "
+                          f"flag_base = {FIRST_SAFE_FLAG}.")
+        if hi >= CHOICE_SCRATCH_FLOOR:
+            cap = (CHOICE_SCRATCH_FLOOR - plan.flag_base) // K
+            errors.append(f"member {m.name}: flag block {lo}-{hi} reaches the choice-scratch floor "
+                          f"{CHOICE_SCRATCH_FLOOR} -- too many members for the band (max {cap} at this base/K).")
+
     for e in plan.edges:                          # (b) edges resolve to members
         if e.get("frm") not in names:
             errors.append(f"edge from {e.get('frm')!r}: not a campaign member")
@@ -443,6 +472,20 @@ def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
                 member_raw[m.name] = tomllib.load(fh)
         except (OSError, tomllib.TOMLDecodeError) as ex:
             errors.append(f"member {m.name}: field.toml unreadable ({ex})")
+
+    for m in plan.members:                        # (e2) explicit flags must avoid real-FF9's chest band
+        raw = member_raw.get(m.name)
+        if raw is None:
+            continue
+        prod, cons = _member_flags_from_toml(raw)
+        for idx in sorted(prod | cons):
+            if CHEST_FLAG_LO <= idx <= CHEST_FLAG_HI:
+                errors.append(f"member {m.name}: explicit flag {idx} is inside real-FF9's treasure-chest "
+                              f"band {CHEST_FLAG_LO}-{CHEST_FLAG_HI} -> SAVE CORRUPTION -- use an index in "
+                              f"[{FIRST_SAFE_FLAG}, {CHOICE_SCRATCH_FLOOR}).")
+            elif idx >= FIRST_SAFE_FLAG and idx >= CHOICE_SCRATCH_FLOOR:
+                warnings.append(f"member {m.name}: explicit flag {idx} is at/above the choice-scratch floor "
+                                f"{CHOICE_SCRATCH_FLOOR} (engine-owned) -- pick a lower index.")
 
     for nm in plan.needs_export:                  # (f) artless members
         warnings.append(f"member {nm}: needs in-game art ([Export] Field=1) before a real build")
