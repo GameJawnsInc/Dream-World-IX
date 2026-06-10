@@ -38,6 +38,13 @@ DISPATCH_OPS = frozenset((RUN_SCRIPT_SYNC, RUN_SCRIPT_ASYNC, RUN_SCRIPT))   # re
 SETUP_JUMP = 0xE2          # SetupJump(x, y, z, arc) -- a climb's / a jump's arc destination
 JUMP_OP = 0xDC             # Jump() -- perform the SetupJump arc (the navigable-jump signature, with SetupJump)
 SET_JUMP_ANIM_OP = 0x94    # SetJumpAnimation(anim, a, b) -- the player Init's jump-clip setup
+# An arc with a message WINDOW or a mid-arc BATTLE is an INTERACTIVE sequence, NOT a clean navigable
+# hop: it's the Cleyra/Tree-Trunk SAND TRAP (fall in -> a "press X!" window + a button-mash struggle
+# counter + camera sink + sometimes a Battle -> escape arcs) or a scripted cutscene hop. These reuse
+# SetupJump/Jump for the fall/escape, so they look like jumps by opcode but aren't player navigation --
+# and they carry field-specific text/battle ids that don't port to a fork. Excluded from scan_jumps.
+WINDOW_OPS = frozenset((0x1F, 0x20, 0x95, 0x96))   # WindowSync / WindowAsync / WindowSyncEx / WindowAsyncEx
+BATTLE_OP = 0x2A           # Battle(type, scene) -- a forced encounter (sand traps can spawn one mid-struggle)
 ADD_CHAR_ATTR = 0xCC       # AddCharacterAttribute(flag); flag 4 (LADDER_FLAG) = "on a ladder"
 DEFINE_PC = 0x2C           # DefinePlayerCharacter -- marks the controlled player's entry
 BUBBLE_OP = 0x68           # Bubble(state) -- the "!" interact prompt (ladder tread func)
@@ -199,10 +206,17 @@ def _is_ladder_func(eb, player_index, tag) -> bool:
 
 
 def _is_jump_func(eb, player_index, tag) -> bool:
-    """True if player function ``tag`` is a navigable JUMP arc: it performs a ``SetupJump``+``Jump``
-    parabola but is NOT a ladder (no ladder flag). These are Ice-Cavern-style ledge hops."""
+    """True if player function ``tag`` is a navigable JUMP arc: a ``SetupJump``+``Jump`` parabola that
+    is NOT a ladder (no ladder flag) AND NOT an interactive sequence (no message Window / mid-arc
+    Battle). The window/battle exclusion is what separates an Ice-Cavern-style ledge HOP (a silent arc)
+    from a Cleyra/Tree-Trunk SAND TRAP or a scripted cutscene hop (both reuse SetupJump/Jump but wrap
+    them in a 'press X!' struggle + dialogue/battle the kit can't port)."""
     ops, ladder = _func_ops(eb, player_index, tag)
-    return ops is not None and SETUP_JUMP in ops and JUMP_OP in ops and not ladder
+    if ops is None or ladder or SETUP_JUMP not in ops or JUMP_OP not in ops:
+        return False
+    if ops & WINDOW_OPS or BATTLE_OP in ops:        # an interactive trap/cutscene, not a clean hop
+        return False
+    return True
 
 
 def _is_climb_func(eb, player_index, tag) -> bool:

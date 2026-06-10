@@ -94,6 +94,16 @@ def test_clean_field_has_no_jumps():
     assert eventscan.scan_jumps(_jump.ensure_jump_animation(CLEAN)) == []   # the splice alone adds none
 
 
+def test_trap_arc_with_a_window_is_not_a_navigable_jump():
+    # A Cleyra/Tree-Trunk SAND TRAP (and any cutscene hop) reuses SetupJump/Jump but wraps them in a
+    # "press X!" message Window (+ struggle counter, sometimes a Battle). That's an interactive sequence
+    # carrying field-specific text/battle ids -- NOT a portable navigable hop -> scan_jumps must skip it.
+    trap = opcodes.encode(0x20, 3, 0, 113) + _arc()      # WindowAsync(3,0,113) ("press X!") then an arc
+    eb = _jump.ensure_jump_animation(CLEAN)
+    eb, _ = _jump.inject_jump(eb, ZONE, trap, jump_tag=_jump.FIRST_JUMP_TAG, trigger="tread")
+    assert eventscan.scan_jumps(eb) == []                # the window marks it interactive, so excluded
+
+
 def test_jump_without_a_region_is_not_navigable():
     # A jump arc fired from a NON-region entry (Main_Loop / a cutscene sequence -- no SetRegion, so no
     # placeable zone) is a scripted hop, NOT player navigation -> scan_jumps must ignore it. (This was a
