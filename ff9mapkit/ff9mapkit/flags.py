@@ -92,19 +92,20 @@ BIT_REGIONS = [
 # Treasure-Hunter scoring byte ranges (EventState.GetTreasureHunterPoints): (byte_lo, byte_hi, weight).
 TH_POINT_RANGES = [(896, 960, 1), (966, 975, 1), (182, 186, 2)]
 
-# ScenarioCounter milestones -- anchor beats, not a continuous scale (STORY_FLAGS.md §6).
+# ScenarioCounter -> story AREA progression: the value where the game enters each area, derived from the
+# census (the area of the field that sets each value) and cleaned (research/gen_scenario_table.py). Use
+# nearest_milestone(sc) for "what story beat is this". In-game-validated (SC 7200 -> Alexandria Castle).
 SCENARIO_MILESTONES = {
-    1000: "Game start -- Prima Vista / Cargo Room",
-    1150: "Alexandria / Shop",
-    1900: "Burmecia-area gate",
-    2525: "Ice Cavern",
-    4980: "Cleyra Cathedral",
-    6840: "Madain Sari, Secret Room",
-    9520: "Kuja sends the team to Oeilvert",
-    9860: "Desert Palace -- IsEikoAbducted window starts (9860..9989)",
-    10300: "Late-game threshold",
-    11090: "Near-endgame threshold",
-    12000: "Ending (terminal value)",
+    1000: "Prima Vista", 1900: "Cargo Ship", 2300: "Evil Forest", 2500: "Ice Cavern", 2530: "Dali",
+    2700: "Dali (underground)", 2800: "Cargo Ship", 3000: "Lindblum", 3710: "Gizamaluke's Grotto",
+    3750: "South Gate", 4445: "Treno", 4500: "Gargan Roo", 4600: "Alexandria Castle", 4650: "Cleyra",
+    4990: "Red Rose", 5030: "Alexandria Castle", 5510: "Pinnacle Rocks", 5660: "Lindblum",
+    5900: "Iifa Tree", 6100: "Conde Petie", 6300: "Conde Petie Mt. Path", 6600: "Madain Sari",
+    6900: "Iifa Tree", 7010: "Alexandria", 7200: "Alexandria Castle", 7550: "Treno", 8000: "Alexandria",
+    8400: "Alexandria Castle", 9000: "Lindblum", 9400: "Hilda Garde", 9700: "Oeilvert",
+    9800: "Desert Palace", 9910: "Hilda Garde", 9990: "Outer Continent", 10000: "Lindblum",
+    10400: "Alexandria Castle", 10500: "Ipsen's Castle", 10600: "Hilda Garde", 10670: "Earth Shrine",
+    10830: "Terra", 10900: "Bran Bal", 11100: "Invincible", 11610: "Crystal World",
 }
 # IsEikoAbducted (EventState.cs:36): 9860 <= ScenarioCounter < 9990.
 EIKO_ABDUCTED_LO, EIKO_ABDUCTED_HI = 9860, 9989

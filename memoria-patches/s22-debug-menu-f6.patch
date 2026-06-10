@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..11649d55
+index 00000000..b4c3057e
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,602 @@
+@@ -0,0 +1,661 @@
 +using System;
 +using System.Collections.Generic;
 +using Memoria.Data;
@@ -238,6 +238,9 @@ index 00000000..11649d55
 +
 +    private void DrawFlags()
 +    {
++        Section("Story state");
++        GUILayout.Label(StorySummary(), _label);
++
 +        Section("Story flag (gEventGlobal)");
 +        GUILayout.BeginHorizontal();
 +        GUILayout.Label("idx", _label, GUILayout.Width(28f));
@@ -478,7 +481,7 @@ index 00000000..11649d55
 +        if (!Int32.TryParse(_flagText, out n))
 +            return;
 +        Int32 v = FlagValue(n);
-+        _status = "flag " + n + " = " + (v < 0 ? "out of range" : v.ToString());
++        _status = "flag " + n + " = " + (v < 0 ? "out of range" : v.ToString() + RegionLabel(n));
 +    }
 +
 +    private void FlagWrite(Boolean on)
@@ -541,6 +544,62 @@ index 00000000..11649d55
 +        if (b < 0 || b >= g.Length)
 +            return -1;
 +        return (g[b] >> (n & 7)) & 1;
++    }
++
++    // [ff9mapkit] A live story-state readout, decoded from gEventGlobal the same way the kit's
++    // ff9mapkit/flags.py does (the canonical registry). Uses the engine's OWN accessors where they exist
++    // (ScenarioCounter / FieldEntrance / IsEikoAbducted / GetTreasureHunterPoints) -- so this also
++    // cross-checks the kit's Python decoder against the engine.
++    private static readonly Int32[] MsVal = { 1000, 1900, 2300, 2500, 2530, 2700, 2800, 3000, 3710, 3750, 4445, 4500, 4600, 4650, 4990, 5030, 5510, 5660, 5900, 6100, 6300, 6600, 6900, 7010, 7200, 7550, 8000, 8400, 9000, 9400, 9700, 9800, 9910, 9990, 10000, 10400, 10500, 10600, 10670, 10830, 10900, 11100, 11610 };
++    private static readonly String[] MsName = { "Prima Vista", "Cargo Ship", "Evil Forest", "Ice Cavern", "Dali", "Dali (underground)", "Cargo Ship", "Lindblum", "Gizamaluke's Grotto", "South Gate", "Treno", "Gargan Roo", "Alexandria Castle", "Cleyra", "Red Rose", "Alexandria Castle", "Pinnacle Rocks", "Lindblum", "Iifa Tree", "Conde Petie", "Conde Petie Mt. Path", "Madain Sari", "Iifa Tree", "Alexandria", "Alexandria Castle", "Treno", "Alexandria", "Alexandria Castle", "Lindblum", "Hilda Garde", "Oeilvert", "Desert Palace", "Hilda Garde", "Outer Continent", "Lindblum", "Alexandria Castle", "Ipsen's Castle", "Hilda Garde", "Earth Shrine", "Terra", "Bran Bal", "Invincible", "Crystal World" };
++
++    private static String ScenarioBeat(Int32 sc)
++    {
++        String beat = "(pre-story)";
++        for (Int32 i = 0; i < MsVal.Length; i++)
++            if (sc >= MsVal[i])
++                beat = MsName[i];
++        return beat;
++    }
++
++    private static Int32 CountBits(Int32 v)
++    {
++        Int32 c = 0;
++        v &= 0xFF;
++        while (v != 0) { c += v & 1; v >>= 1; }
++        return c;
++    }
++
++    // The reserved/known gEventGlobal regions a mod must avoid (mirrors flags.BIT_REGIONS + the safe band).
++    private static String RegionLabel(Int32 bit)
++    {
++        if (bit >= 8376 && bit <= 8511) return "  [chest_opened, RESERVED]";
++        if (bit >= 736 && bit <= 823) return "  [worldmap_unlocks, RESERVED]";
++        if (bit == 184 || bit == 191) return "  [byte-23 engine handshake, RESERVED]";
++        if (bit >= 16320 && bit <= 16335) return "  [choice_scratch, RESERVED]";
++        if (bit >= 8512 && bit < 16320) return "  [safe custom band]";
++        return "";
++    }
++
++    private static String StorySummary()
++    {
++        try
++        {
++            EventState es = FF9StateSystem.EventState;
++            Int32 sc = es.ScenarioCounter;
++            Byte[] g = es.gEventGlobal;
++            Int32 chests = 0;
++            for (Int32 b = 1047; b <= 1063 && b < g.Length; b++)
++                chests += CountBits(g[b]);
++            String eiko = es.IsEikoAbducted ? "  [Eiko abducted]" : "";
++            return String.Format(
++                "ScenarioCounter {0}  ->  {1}{2}\nFieldEntrance {3}    TreasureHunter {4} pts    chests opened {5}",
++                sc, ScenarioBeat(sc), eiko, es.FieldEntrance, es.GetTreasureHunterPoints(), chests);
++        }
++        catch (Exception e)
++        {
++            return "story state unavailable: " + e.Message;
++        }
 +    }
 +
 +    private static PosObj Player()

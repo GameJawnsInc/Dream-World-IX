@@ -674,8 +674,14 @@ Read these on demand — they hold the full technical detail this file only summ
   byte-identically to the int (test-proven); campaigns share cross-field names via a `campaign.toml` `[[flag]]`
   table (lint-checked clear of the per-member auto blocks). New CLI: **`ff9mapkit flags`** (browse the registry)
   + **`flags-inspect <save>`** (decode a save's `gEventGlobal`: ScenarioCounter+beat, FieldEntrance, TH points,
-  chest count, story bits by region; reads the open JSON/Base64 form). **Deferred:** the name-aware in-game F6
-  Flags tab (needs an engine rebuild + playtest) and a seed/recreate tool (rec #4). 580 kit tests pass.
+  chest count, story bits by region; reads the open JSON/Base64 form). **In-game F6 "Story state" readout
+  (proven 2026-06-10):** the F6 → Flags tab shows a live ScenarioCounter+beat / FieldEntrance / TreasureHunter
+  pts (engine's own `GetTreasureHunterPoints()`) / chests-opened, plus a region label on Get
+  (`Ff9mkDebugMenu.cs`, patch `s22-debug-menu-f6.patch` regenerated). Real-save playtest at Alexandria Castle
+  (SC 7200) **corrected the scenario→beat table** — the old ~11 anchors mislabelled mid-game; now a
+  census-grounded **43-area progression** (`research/gen_scenario_table.py` → `flags.SCENARIO_MILESTONES`,
+  mirrored to the C# menu) reads 7200 → "Alexandria Castle". **Deferred:** a seed/recreate tool (rec #4).
+  580 kit tests pass; dev engine still stock `6b8bb2d5` + s22 (now with the story-state view).
 
 ---
 

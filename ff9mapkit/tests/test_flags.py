@@ -24,7 +24,8 @@ def test_bit_addressing_and_regions():
 
 
 def test_scenario_milestones_and_eiko():
-    assert flags.nearest_milestone(2600) == (2525, "Ice Cavern")
+    assert flags.nearest_milestone(2510) == (2500, "Ice Cavern")
+    assert flags.nearest_milestone(7200) == (7200, "Alexandria Castle")    # in-game-validated anchor
     assert flags.nearest_milestone(1) is None                 # before the first milestone (1000)
     assert flags.EIKO_ABDUCTED_LO <= 9860 <= flags.EIKO_ABDUCTED_HI
     assert not (flags.EIKO_ABDUCTED_LO <= 9990 <= flags.EIKO_ABDUCTED_HI)   # engine uses `< 9990`
@@ -97,7 +98,7 @@ def _synthetic_blob():
 def test_decode_gEventGlobal():
     rep = flags.decode_gEventGlobal(_synthetic_blob())
     assert rep.scenario_counter == 9860 and rep.eiko_abducted
-    assert rep.milestone[0] == 9860
+    assert rep.milestone == (9800, "Desert Palace")           # nearest area anchor <= 9860
     assert rep.field_entrance == 5
     assert rep.chests_opened == 8
     assert rep.treasure_hunter_points == 3 + 4                # 3 (1pt) + 2 bits *2pt

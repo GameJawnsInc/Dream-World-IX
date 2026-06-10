@@ -36,9 +36,9 @@ index is a **bit address** for `Bit` vars (byte = `idx>>3`, bit = `idx&7`) and a
 (`content/region.py`), scans what each field touches offline (`eventscan.py`), allocates per-field
 once-flags, lints dangling/colliding flags (`build.py`, `campaign.py`), and exposes get/set/clear/
 snapshot/reset in the **F6 debug menu** (`Ff9mkDebugMenu.cs`). *Since this research:* a **named flag
-registry** (`flags.py`, recommendation 2) and an **offline save-file reader** (`flags-inspect`,
-recommendation 3) have landed. Still missing: a **seed/recreate** mechanism (recommendation 4) and a
-name-aware in-game F6 tab (the in-game half of 3, deferred — needs an engine rebuild).
+registry** (`flags.py`, recommendation 2), an **offline save-file reader** (`flags-inspect`,
+recommendation 3), and a **live in-game F6 "Story state" readout** (the in-game half of 3, proven 2026-06-10)
+have landed. Still missing: a **seed/recreate** mechanism (recommendation 4).
 
 **Three headline findings:**
 
@@ -124,10 +124,11 @@ Palace / Eiko abduction 9250–9890** · Terra 10830–10890 · Pandemonium 1093
   transient. The census (`research/flag_census.py`) aggregates this across all 676 real fields. In-game, the
   **F6 → Flags** tab (`Ff9mkDebugMenu.cs:457-526`) does live get/set/clear/snapshot/restore on
   `gEventGlobal`.
-- **Now:** ✅ an **offline save-file reader** landed (`flags-inspect`, recommendation 3) — Base64-decodes a
-  player's `gEventGlobal` and renders it against the registry. **Remaining gaps:** no name-aware *in-game* F6
-  view (deferred — engine rebuild); the `.eb` scanners still see only the `0x05` expression path, so flags
-  mutated by engine C# (e.g. worldmap-unlock consumers) stay invisible — why **276 bits read as "write-only."**
+- **Now:** ✅ an **offline save-file reader** (`flags-inspect`) AND a **live in-game F6 "Story state" readout**
+  both landed (recommendation 3) — the offline reader Base64-decodes a player's `gEventGlobal`; the F6 tab
+  shows ScenarioCounter+beat / FieldEntrance / treasure points / chest count live (in-game proven). **Remaining
+  gap:** the `.eb` scanners still see only the `0x05` expression path, so flags mutated by engine C# (e.g.
+  worldmap-unlock consumers) stay invisible — why **276 bits read as "write-only."**
 
 ### UNDERSTAND — *know what a flag means*
 
@@ -252,15 +253,18 @@ to the numeric form (test-proven). Campaigns share cross-field names via a `camp
 *Guard kept:* the persistent space is never labelled "Glob" (that's HW's transient Map). *(The empirical
 seed `research/flag_catalog.toml` fed this; `flags.py` is now canonical.)*
 
-**(3) — A flag inspector/viewer. Offline part ✅ LANDED 2026-06-10; in-game part deferred.**
-*Done (offline):* `flags.decode_gEventGlobal(blob)` + `gEventGlobal_from_save(json|base64|path)` +
-`render_report` decode a save's `gEventGlobal` (Base64 from `FF9State.json`, `JsonParser.cs:522`) into a
-human report — ScenarioCounter + nearest story beat, IsEikoAbducted flag, FieldEntrance, treasure-hunter
-points (engine ranges), opened-chest count, and set story bits grouped by region (named/reserved vs custom
-vs unmapped). CLI: `ff9mapkit flags-inspect <save>`. *Deferred (in-game):* making the **F6 Flags tab
-name-aware** needs an engine rebuild (`Ff9mkDebugMenu.cs`) + in-game verification — held for a session where
-the human can playtest (a rebuild auto-deploys). *Caveat:* the on-disc `EncryptedSavedData` must be decrypted
-to JSON first; the open JSON/Base64 path is what ships.
+**(3) — A flag inspector/viewer. ✅ FULLY LANDED 2026-06-10 (offline + in-game).**
+*Offline:* `flags.decode_gEventGlobal(blob)` + `gEventGlobal_from_save(json|base64|path)` + `render_report`
+decode a save's `gEventGlobal` (Base64 from `FF9State.json`, `JsonParser.cs:522`) into a human report —
+ScenarioCounter + nearest story beat, IsEikoAbducted, FieldEntrance, treasure-hunter points (engine ranges),
+opened-chest count, set story bits grouped by region. CLI: `ff9mapkit flags-inspect <save>`. *In-game
+(proven 2026-06-10):* the **F6 → Flags tab** gained a live **"Story state"** readout (ScenarioCounter + beat,
+FieldEntrance, TreasureHunter pts via the engine's own `GetTreasureHunterPoints()`, chests opened) + a region
+label on Get (`Ff9mkDebugMenu.cs`, patch `s22`). Verified in a real save at Alexandria Castle (SC 7200) —
+which **corrected the scenario→beat table**: the old ~11-anchor map mislabelled mid-game (7200 read "Madain
+Sari"); now a **census-grounded 43-area progression** (`research/gen_scenario_table.py` → `flags.py`
+`SCENARIO_MILESTONES`, mirrored to the C# menu) reads 7200 → "Alexandria Castle". *Caveat:* the on-disc
+`EncryptedSavedData` must be decrypted to JSON first; the open JSON/Base64 path is what `flags-inspect` reads.
 
 **(4) — A "recreate" / seed mechanism. [Delivers RECREATE.]**
 *What:* A tool that writes a target story state into a save: set `gEventGlobal[0..1]` to a chosen
