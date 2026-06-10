@@ -608,6 +608,40 @@ Read these on demand — they hold the full technical detail this file only summ
   (still mounts as the Campaign Editor's Build tab). **Provenance fix landed alongside:** `deploy_battle.py`'s
   `backups/*.preBATTLE.*` + `backups/battle_predeploy.*/` snapshots (SE-derived forked raw16/raw17/eb/mes) were
   not gitignored — now they are (mirrors the `preDEPLOY`/`preSCROLL` rules), closing a latent `git add -A` leak.
+- **Campaign Editor "Phase 4" — the Campaign WORKSPACE (Phases A+B+C, offline-verified; awaits a human GUI
+  click-through)** — turns `apps/campaign_editor.pyw` from three unrelated tabs into a project IDE. **Phase A
+  (the pure offline foundation):** `campaign.campaign_graph(plan)` resolves a CampaignPlan into a navigable
+  graph — each member with its in/out live doors (to member NAMES, not raw ids), onward seams, reachability
+  from the entry, dead-ends, and dangling-edge/seam detection; `campaign.render_graph(plan)` is the text view
+  (the post-fork twin of `chain.render`, wired to **`lint-campaign --graph`**); the **Info Hub spine** gained an
+  optional `campaign_context` on `browse`/`detail` so a campaign's members are searchable as `kind="field"`
+  entries (door/seam/reachability facts) — fully backward-compatible (no-context path byte-identical, `KINDS`
+  unchanged). **Root-cause fix found en route:** `load_campaign` passed seams through raw, so loaded seams kept
+  the TOML key `from` while in-memory seams use `frm` — silently dropping them from any graph view + nulling
+  `lint_campaign`'s seam messages; now normalized like edges already were. **Phase B (the workspace shell):** a
+  left-hand **member navigator** (ttk.Treeview) wraps the existing three tabs (the approved "project sidebar"
+  UX); **Open Campaign…** loads a `campaign.toml`, populates the tree with per-member flags (entry / needs-art /
+  unreachable / dead-end via `campaign_graph`), and auto-lands on the entry member; clicking a member opens its
+  `field.toml` in the Logic Editor via a new public **`EditorApp.open_path()`** (the SINGLE load entry point —
+  the toolbar Open routes through it too). open_path gained a **dirty-gated save guard** (`_mark_clean`/`_dirty`
+  via a deepcopy `doc.data` snapshot taken on load/new/save): switching members prompts to save ONLY when there
+  are real edits, so clean navigation never nags (the old Open silently discarded). **Phase C (graph view + live
+  lint, all in the workspace):** the member tree is now also the GRAPH — each member expands to its live doors
+  (`→ MEMBER (entrance N) [gated]`) + onward seams, and clicking a door JUMPS the editor to the target member;
+  a **Check** button runs `lint_campaign` and reports errors/warnings in a workspace log (decoupled from
+  navigation — it `see()`s the first problem but never selects/opens it, so checking can't pop a save prompt);
+  and in the Logic Editor a member's gateway shows a read-only **`→ leads to campaign member: NAME`** hint
+  (via an optional `EditorApp.campaign_idmap` the workspace sets; standalone editing unaffected). **Hardened by
+  three adversarial review passes** (find→verify workflows): fixed tolerant `entrance` coercion + `dangling_seams`
+  tracking/render/lint parity (A), duplicate-member-name handling (a new `lint_campaign` error + a defensive
+  navigator guard against a TclError) + the entry-member double-open on load (B); Phase C's pass came back clean
+  (the `to`-int lookup, standalone safety, and theme-palette keys all verified correct). All offline-testable:
+  `--smoke` covers navigation + graph children + edge-nav + Check + the dirty gate both ways; **551 kit tests
+  pass**. Scope was **A–C** (navigate + validate imported campaigns, text/tree graph first) and is **DONE**; the
+  only deferred frontier is the visual node-link diagram (optional follow-up). Deferred to **Phase D** (out of
+  this scope): create-a-campaign-from-scratch + add/remove/rewire/**rename** mutation API + the per-member
+  flag-isolation fix. (The navigator's member name is the structural campaign id that edges/seams key on; the
+  editor's "Name" is the field's in-game name — decoupled by design, so a true member RENAME is Phase D.)
 
 ---
 

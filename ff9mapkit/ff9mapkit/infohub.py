@@ -171,16 +171,42 @@ def _aliases_for(name, model_name) -> list:
     return [n for n in _model_names_index().get(model_name, []) if n != name]
 
 
+# ----------------------------------------------------------- campaign layer ---
+def _campaign_entries(plan) -> list:
+    """Field entries (kind='field') for the members of a campaign -- the ADDITIVE layer browse/detail
+    expose when a frontend passes ``campaign_context``. Lets the Info Hub search 'the fields in THIS
+    campaign' alongside the static catalogs. Duck-typed (anything with a ``.members`` list of objects
+    carrying ``name``/``new_id``/``mode``) so the spine never imports campaign.py at module load."""
+    out = []
+    for m in getattr(plan, "members", None) or []:
+        nm = getattr(m, "name", None)
+        if not nm:
+            continue
+        nid = getattr(m, "new_id", None)
+        mode = getattr(m, "mode", "") or ""
+        out.append(Entry("field", nm, None, f"campaign field #{nid} ({mode})", nid))
+    return out
+
+
 # --------------------------------------------------------------- public API ---
-def browse(query: str = "", kinds=None, limit=200) -> list:
+def browse(query: str = "", kinds=None, limit=200, campaign_context=None) -> list:
     """Search every catalog + archetype table at once. ``query`` = a case-insensitive substring of an
     entry's name / model / SUMMARY (the summary folds in the comment description + friendly names, so you
     can search by what a thing IS); ``kinds`` restricts to a subset of :data:`KINDS`; ``limit`` caps the
-    result (curated/named kinds come first) or ``None`` for no cap. The Info Hub's 'grab anything by name'."""
+    result (curated/named kinds come first) or ``None`` for no cap. The Info Hub's 'grab anything by name'.
+
+    When ``campaign_context`` (a campaign.CampaignPlan) is given, that campaign's member fields are ALSO
+    searchable as kind='field' entries, listed FIRST; with no context the result is exactly as before."""
     q = (query or "").strip().lower()
-    want = set(kinds) if kinds else set(KINDS)
+    field_entries = _campaign_entries(campaign_context) if campaign_context is not None else []
+    if kinds:
+        want = set(kinds)
+    else:
+        want = set(KINDS) | ({"field"} if field_entries else set())
+    # no context -> iterate the cached list directly (no copy), preserving today's behavior exactly
+    entries = (field_entries + _all_entries()) if field_entries else _all_entries()
     out = []
-    for e in _all_entries():
+    for e in entries:
         if e.kind not in want:
             continue
         if q and q not in e.name.lower() and not (e.model and q in e.model.lower()) \
@@ -220,14 +246,53 @@ def snippet(entry: Entry) -> str:
         return f'give_item = [{e.ident}, 1]  # {e.name} -- e.g. an [[event]] reward'
     if e.kind == "scene":
         return f'[encounter]\nscene = {e.ident}  # {e.name}'
+    if e.kind == "field":                              # a campaign member -- not a paste-able toml block
+        return f"# campaign field: {e.name} (id {e.ident})"
     return e.name
 
 
-def detail(entry: Entry, usage_fn: Optional[Callable] = None) -> Detail:
+def _field_detail(entry: Entry, plan) -> Detail:
+    """Detail for a campaign member (kind='field'): its place in the chain -- id/source/mode, the live
+    doors it leads to + is entered from, onward seams, and entry/reachability/needs-export flags. Resolved
+    through :func:`campaign.campaign_graph` (lazy import -- the spine stays campaign-free at module load)."""
+    d = Detail(name=entry.name, kind="field", model=None, model_id=entry.ident, snippet=snippet(entry))
+    d.facts = [("kind", "campaign field"), ("id", str(entry.ident))]
+    if plan is None:
+        return d
+    from . import campaign as _camp
+    node = _camp.campaign_graph(plan).by_name.get(entry.name)
+    if node is None:
+        return d
+    d.facts = [("kind", "campaign field"), ("id", str(node.new_id)),
+               ("source", str(node.real_id)), ("mode", node.mode)]
+    if node.is_entry:
+        d.facts.append(("role", "campaign entry"))
+    if node.needs_export:
+        d.facts.append(("needs_export", "yes -- export this field's art in-game"))
+    if not node.reachable:
+        d.facts.append(("reachable", "NO -- no live-door path from the entry"))
+    if node.dead_end:
+        d.facts.append(("dead_end", "no onward connection"))
+    for oe in node.out_edges:
+        d.facts.append(("door", f"-> {oe['to']} (entrance {oe['entrance']})"
+                                + (" [gated]" if oe["gated"] else "")))
+    for ie in node.in_edges:
+        d.facts.append(("entered_from", f"<- {ie['frm']} (entrance {ie['entrance']})"))
+    for s in node.seams:
+        tgt = s["to_member"] or ("WORLDMAP" if s["to_real"] == "WORLDMAP" else s["to_real"])
+        d.facts.append((f"seam:{s['kind']}", f"-> {tgt}"))
+    return d
+
+
+def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=None) -> Detail:
     """Resolve an :class:`Entry` to its full :class:`Detail`. ``usage_fn(model_id) -> [(field_id, name),
     ...]`` is an optional hook a frontend passes to add 'where it appears in real FF9' (the spine stays
-    install-free -- field-usage needs the game); errors from it degrade to ``locations = None``."""
+    install-free -- field-usage needs the game); errors from it degrade to ``locations = None``. When the
+    entry is a campaign member (kind='field') and ``campaign_context`` (a CampaignPlan) is given, the
+    detail is the member's place in the chain (doors/seams/reachability)."""
     e = entry
+    if e.kind == "field":
+        return _field_detail(e, campaign_context)
     d = Detail(name=e.name, kind=e.kind, model=e.model, model_id=e.ident, snippet=snippet(e))
     dsc = _descriptions().get(e.name)
     if e.kind == "composite":

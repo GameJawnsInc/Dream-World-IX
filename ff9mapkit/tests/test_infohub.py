@@ -1,5 +1,5 @@
 """The Info Hub spine: browse / detail / snippet over the catalogs + archetypes. Pure (no game install)."""
-from ff9mapkit import infohub
+from ff9mapkit import campaign, infohub
 
 
 def test_browse_finds_each_named_kind():
@@ -106,3 +106,51 @@ def test_preview_field_toml_places_selection(tmp_path):
 def test_browse_limit_none_is_uncapped():
     assert len(infohub.browse("", limit=None)) > 1000        # all ~2000+ entries, no 500-row cap
     assert len(infohub.browse("", limit=10)) == 10           # an explicit cap still applies
+
+
+# ---- campaign context: browse/detail over the members of a campaign ---------------------
+def _demo_campaign():
+    members = [campaign.Member(300, 6000, "IC_ENT", "borrow", 11, "", "IC_ENT/IC_ENT.field.toml", False),
+               campaign.Member(301, 6001, "IC_COR", "editable", 5, "", "IC_COR/IC_COR.field.toml", True)]
+    return campaign.CampaignPlan(
+        name="ICE", mod_folder="M", id_base=6000, flag_base=8300, flags_per_field=64,
+        entry_name="IC_ENT", entry_entrance=0, members=members,
+        edges=[{"frm": "IC_ENT", "to": "IC_COR", "entrance": 2, "story_conditional": False}],
+        seams=[{"frm": "IC_COR", "to_real": "WORLDMAP", "kind": "overworld", "note": "", "to_member": None}])
+
+
+def test_browse_no_campaign_context_has_no_field_kind():
+    assert not any(e.kind == "field" for e in infohub.browse("", limit=None))   # regression: unchanged
+
+
+def test_browse_campaign_context_lists_members_first():
+    plan = _demo_campaign()
+    hits = infohub.browse("", campaign_context=plan, limit=None)
+    assert {e.name for e in hits if e.kind == "field"} == {"IC_ENT", "IC_COR"}
+    assert hits[0].kind == "field"                                       # members are listed FIRST
+    assert any(e.kind == "field" and e.name == "IC_COR"                  # searchable by name
+               for e in infohub.browse("IC_COR", campaign_context=plan))
+    only = infohub.browse("", kinds=["field"], campaign_context=plan)    # kind filter
+    assert {e.name for e in only} == {"IC_ENT", "IC_COR"}
+
+
+def test_detail_field_resolves_doors_seams_flags():
+    plan = _demo_campaign()
+    ent = next(e for e in infohub.browse("IC_ENT", kinds=["field"], campaign_context=plan))
+    d = infohub.detail(ent, campaign_context=plan)
+    assert d.kind == "field"
+    assert ("door", "-> IC_COR (entrance 2)") in d.facts
+    assert ("role", "campaign entry") in d.facts
+    assert infohub.snippet(ent).startswith("# campaign field")
+    cor = next(e for e in infohub.browse("IC_COR", kinds=["field"], campaign_context=plan))
+    dc = infohub.detail(cor, campaign_context=plan)
+    assert any(lbl == "entered_from" for lbl, _ in dc.facts)
+    assert any(lbl.startswith("seam:") for lbl, _ in dc.facts)
+    assert any(lbl == "needs_export" for lbl, _ in dc.facts)             # IC_COR is artless
+
+
+def test_detail_field_without_context_is_minimal():
+    plan = _demo_campaign()
+    ent = next(e for e in infohub.browse("IC_ENT", kinds=["field"], campaign_context=plan))
+    d = infohub.detail(ent)                                              # no campaign_context -> graceful
+    assert d.kind == "field" and ("id", "6000") in d.facts

@@ -265,7 +265,7 @@ def render_campaign_toml(plan: CampaignPlan) -> str:
         L.append(f'from = "{e["frm"]}"')
         L.append(f'to = "{e["to"]}"')
         L.append(f"entrance = {e['entrance']}")
-        if e["story_conditional"]:
+        if e.get("story_conditional"):
             L.append(f'gated_by = ""   # STORY-COND stacked same-zone exit -- set requires_flag '
                      f'(suggest {plan.flag_base + 7})')
         L.append("")
@@ -304,7 +304,12 @@ def load_campaign(path) -> CampaignPlan:
         entry_entrance=int(c.get("entry_entrance", 0)), members=members,
         edges=[{"frm": e["from"], "to": e["to"], "entrance": int(e.get("entrance", 0)),
                 "story_conditional": "gated_by" in e} for e in data.get("edge", [])],
-        seams=list(data.get("seam", [])))
+        # normalize seams to the in-memory shape (from -> frm), exactly as edges above; render_campaign_toml
+        # writes `from`, but _collect_edges_seams/lint/campaign_graph all key on `frm`, so a raw passthrough
+        # left loaded seams with `from` (dropping them from the resolved graph + nulling lint messages).
+        seams=[{"frm": s.get("frm", s.get("from")), "to_real": s.get("to_real"), "kind": s.get("kind"),
+                "note": s.get("note", ""), "to_member": s.get("to_member")}
+               for s in data.get("seam", [])])
 
 
 def validate_ids(plan: CampaignPlan):
@@ -403,6 +408,12 @@ def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
     except CampaignError as e:
         errors.append(str(e))
 
+    mem_names = [m.name for m in plan.members]    # (a2) names distinct (they key edges/seams + the navigator)
+    name_dups = sorted({n for n in mem_names if mem_names.count(n) > 1})
+    if name_dups:
+        errors.append(f"duplicate member names {name_dups} -- names must be unique "
+                      f"(edges/seams + the campaign navigator key on them)")
+
     for e in plan.edges:                          # (b) edges resolve to members
         if e.get("frm") not in names:
             errors.append(f"edge from {e.get('frm')!r}: not a campaign member")
@@ -411,10 +422,12 @@ def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
     if plan.members and plan.entry_name not in names:
         errors.append(f"entry_field {plan.entry_name!r} is not a campaign member")
 
-    for s in plan.seams:                          # (c) seams: to_real int|WORLDMAP; to_member valid
+    for s in plan.seams:                          # (c) seams: frm member; to_real int|WORLDMAP; to_member valid
         tr = s.get("to_real")
         if tr != "WORLDMAP" and not isinstance(tr, int):
             errors.append(f"seam from {s.get('frm')!r}: to_real must be an int or 'WORLDMAP' (got {tr!r})")
+        if plan.members and s.get("frm") not in names:
+            warnings.append(f"seam from {s.get('frm')!r}: not a campaign member (stale name?)")
         tm = s.get("to_member")
         if tm and tm not in names:
             warnings.append(f"seam from {s.get('frm')!r}: to_member {tm!r} is not a member (stale name?)")
@@ -464,3 +477,149 @@ def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
                                 f"unintended cross-field coupling (use distinct indices)")
 
     return errors, warnings
+
+
+# ---- read-only resolved graph (the campaign-workspace view; pure, no game) ---------------
+@dataclass
+class GraphNode:
+    """A member resolved into its place in the chain: its live in/out doors (to member NAMES, not raw ids)
+    + onward seams, plus reachability/leaf flags. A pure derived view -- nothing here that isn't already
+    in the CampaignPlan."""
+    name: str
+    new_id: int
+    real_id: int
+    mode: str
+    needs_export: bool
+    is_entry: bool
+    reachable: bool                 # reachable from the entry via LIVE edges (seams don't count)
+    dead_end: bool                  # no onward connection at all (no edges, no seams)
+    out_edges: list                 # [{"to": name, "entrance": int, "gated": bool}]
+    in_edges: list                  # [{"frm": name, "entrance": int, "gated": bool}]
+    seams: list                     # [{"to_real": int|"WORLDMAP", "kind": str, "note": str, "to_member"}]
+
+
+@dataclass
+class CampaignGraph:
+    """The whole campaign resolved for navigation/visualization: members as GraphNodes (in BFS-id order) +
+    the campaign-level findings a workspace UI surfaces (unreachable members, dead-ends, dangling edges)."""
+    entry: "str | None"             # resolved entry member name (falls back to first member)
+    entry_valid: bool               # plan.entry_name actually names a member
+    nodes: list                     # list[GraphNode], in member (id) order
+    unreachable: list               # member names with no live-door path from the entry
+    dead_ends: list                 # member names with no onward connection
+    dangling_edges: list            # [[edge]] rows whose from/to is not a member (stale manifest)
+    dangling_seams: list            # [[seam]] rows whose `from` is not a member (stale manifest)
+
+    @property
+    def by_name(self) -> dict:
+        return {n.name: n for n in self.nodes}
+
+
+def _as_int(v, default=0):
+    """``int(v)`` but tolerant -- a malformed/None value (from a hand-edited manifest) degrades to
+    ``default`` instead of raising, so campaign_graph keeps its 'never choke on a stale toml' contract."""
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def campaign_graph(plan: CampaignPlan) -> CampaignGraph:
+    """Resolve a CampaignPlan into a navigable graph: every member with its in/out live doors (to member
+    NAMES), onward seams, and reachability from the entry. PURE over the plan -- the retargeted gateways
+    live in the member field.tomls, but the manifest's [[edge]] rows mirror them 1:1, so connectivity is
+    fully derivable here (no member-toml read, no game install). Tolerant of a stale / hand-edited
+    manifest: an edge to a non-member is recorded in ``dangling_edges`` rather than raising (that's
+    lint_campaign's job). Entry resolution mirrors deploy_campaign (explicit member name > first member)."""
+    names = [m.name for m in plan.members]
+    nameset = set(names)
+    out_by = {n: [] for n in names}
+    in_by = {n: [] for n in names}
+    seams_by = {n: [] for n in names}
+    dangling_edges, dangling_seams = [], []
+    for e in plan.edges:
+        frm, to = e.get("frm"), e.get("to")
+        gated = bool(e.get("story_conditional"))
+        ent = _as_int(e.get("entrance"))
+        if frm not in nameset or to not in nameset:
+            dangling_edges.append(dict(e))
+            continue
+        out_by[frm].append({"to": to, "entrance": ent, "gated": gated})
+        in_by[to].append({"frm": frm, "entrance": ent, "gated": gated})
+    for s in plan.seams:
+        frm = s.get("frm")
+        if frm in seams_by:
+            seams_by[frm].append({"to_real": s.get("to_real"), "kind": s.get("kind"),
+                                  "note": s.get("note", ""), "to_member": s.get("to_member")})
+        else:                                            # a seam from a non-member -> surface it, don't drop it
+            dangling_seams.append(dict(s))
+
+    entry_valid = plan.entry_name in nameset
+    entry = plan.entry_name if entry_valid else (names[0] if names else None)
+
+    reached = set()                                      # BFS from the entry over live edges only
+    if entry is not None:
+        reached.add(entry)
+        stack = [entry]
+        while stack:
+            for nxt in (oe["to"] for oe in out_by.get(stack.pop(), [])):
+                if nxt not in reached:
+                    reached.add(nxt)
+                    stack.append(nxt)
+
+    nodes = []
+    for m in plan.members:
+        dead = not out_by[m.name] and not seams_by[m.name]
+        nodes.append(GraphNode(
+            name=m.name, new_id=m.new_id, real_id=m.real_id, mode=m.mode, needs_export=m.needs_export,
+            is_entry=(m.name == entry), reachable=(m.name in reached), dead_end=dead,
+            out_edges=out_by[m.name], in_edges=in_by[m.name], seams=seams_by[m.name]))
+    return CampaignGraph(
+        entry=entry, entry_valid=entry_valid, nodes=nodes,
+        unreachable=[m.name for m in plan.members if m.name not in reached],
+        dead_ends=[n.name for n in nodes if n.dead_end],
+        dangling_edges=dangling_edges, dangling_seams=dangling_seams)
+
+
+def render_graph(plan: CampaignPlan) -> str:
+    """A human-readable view of a LOADED campaign's connectivity -- the post-fork twin of chain.render
+    (which only works on a fresh GraphResult). Each member, its live doors resolved to member names, onward
+    seams, and dead-end / unreachable / needs-export flags. Backs the `lint-campaign --graph` CLI + the
+    campaign workspace's text graph panel."""
+    g = campaign_graph(plan)
+    ids = [m.new_id for m in plan.members]
+    rng = f"{min(ids)}..{max(ids)}" if ids else "-"
+    note = "" if g.entry_valid or not plan.members else "  (entry_field not a member -- using first)"
+    out = [f"campaign {plan.name}  ({len(plan.members)} members, ids {rng})  "
+           f"entry: {g.entry or '(none)'} (entrance {plan.entry_entrance}){note}", ""]
+    for n in g.nodes:
+        tags = []
+        if n.is_entry:
+            tags.append("ENTRY")
+        if n.mode != "borrow":
+            tags.append(n.mode)
+        if n.needs_export:
+            tags.append("needs-export")
+        if not n.reachable:
+            tags.append("UNREACHABLE")
+        if n.dead_end:
+            tags.append("dead-end")
+        tagstr = ("  [" + ", ".join(tags) + "]") if tags else ""
+        out.append(f"{n.name:<16} id={n.new_id} (was {n.real_id}){tagstr}")
+        for oe in n.out_edges:
+            out.append(f"    -> {oe['to']} (entrance {oe['entrance']})" + (" [gated]" if oe["gated"] else ""))
+        for s in n.seams:
+            tgt = s["to_member"] or ("WORLDMAP" if s["to_real"] == "WORLDMAP" else s["to_real"])
+            out.append(f"    ~> seam[{s['kind']}] -> {tgt}" + (f"  ({s['note']})" if s.get("note") else ""))
+        if not n.out_edges and not n.seams:
+            out.append("    (no onward connections)")
+        out.append("")
+    if g.unreachable:
+        out.append("UNREACHABLE FROM ENTRY: " + ", ".join(g.unreachable))
+    if g.dangling_edges:
+        out.append("DANGLING EDGES (target not a member -- stale manifest?): "
+                   + ", ".join(f"{e.get('frm')}->{e.get('to')}" for e in g.dangling_edges))
+    if g.dangling_seams:
+        out.append("DANGLING SEAMS (from not a member -- stale manifest?): "
+                   + ", ".join(f"{s.get('frm')}->{s.get('to_real')}" for s in g.dangling_seams))
+    return "\n".join(out).rstrip() + "\n"

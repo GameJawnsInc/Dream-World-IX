@@ -199,6 +199,9 @@ def test_load_campaign_round_trips(tmp_path):
     assert all(m.mode == "editable" for m in loaded.members)
     assert loaded.members[0].needs_export and not any(m.needs_export for m in loaded.members[1:])
     assert sum(1 for e in loaded.edges if e["story_conditional"]) == 2     # the 307-style stacked pair
+    assert seams and all("frm" in s for s in loaded.seams)                 # seams normalized like edges
+    g = campaign.campaign_graph(loaded)                                    # graph sees the loaded seams
+    assert sum(len(n.seams) for n in g.nodes) == len(loaded.seams)         # (none dropped on the 'from' key)
 
 
 def _plan_with_ids(ids):
@@ -250,6 +253,14 @@ def test_lint_bad_seam(tmp_path):
     ok = _lint_plan(tmp_path, seams=[{"frm": "A", "to_real": "WORLDMAP", "kind": "overworld"},
                                      {"frm": "B", "to_real": 652, "kind": "scripted"}])
     assert campaign.lint_campaign(ok, tmp_path)[0] == []
+
+
+def test_lint_duplicate_member_names(tmp_path):
+    dup = [campaign.Member(300, 6000, "A", "borrow", 11, "", "A/A.field.toml", False),
+           campaign.Member(301, 6001, "A", "borrow", 11, "", "A/A.field.toml", False)]   # same name
+    plan = _lint_plan(tmp_path, members=dup)
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("duplicate member names" in e and "'A'" in e for e in errors)
 
 
 def test_lint_missing_member_file(tmp_path):
@@ -324,3 +335,65 @@ def test_real_build_all(tmp_path):
     assert all(int(t[5]) == 1073 for t in toks)                         # textid = a VALID MesDB base block
     md = (dist / "ModDescription.xml").read_text(encoding="utf-8")
     assert "<InstallationPath>FF9CustomMap-ow</InstallationPath>" in md  # matches Memoria FolderNames
+
+
+# ---- read-only resolved graph (campaign_graph + render_graph; pure, no game) ------------
+def _graph_plan(entry="A"):
+    """A 4-member synthetic campaign: A->B->C (B->C gated), a DANGLING edge A->GHOST, C has two onward
+    SEAMS (overworld + portal), and D is wholly disconnected (unreachable + dead-end)."""
+    members = [campaign.Member(300, 6000, "A", "borrow", 11, "", "A/A.field.toml", False),
+               campaign.Member(301, 6001, "B", "editable", 5, "", "B/B.field.toml", True),
+               campaign.Member(302, 6002, "C", "borrow", 11, "", "C/C.field.toml", False),
+               campaign.Member(303, 6003, "D", "borrow", 11, "", "D/D.field.toml", False)]
+    edges = [{"frm": "A", "to": "B", "entrance": 1, "story_conditional": False},
+             {"frm": "B", "to": "C", "entrance": 2, "story_conditional": True},
+             {"frm": "A", "to": "GHOST", "entrance": 0, "story_conditional": False}]      # not a member
+    seams = [{"frm": "C", "to_real": "WORLDMAP", "kind": "overworld", "note": "1 op", "to_member": None},
+             {"frm": "C", "to_real": 999, "kind": "portal", "note": "zone xx", "to_member": None},
+             {"frm": "GHOST2", "to_real": 42, "kind": "scripted", "note": "stale", "to_member": None}]
+    return campaign.CampaignPlan(name="ICE", mod_folder="M", id_base=6000, flag_base=8300,
+                                 flags_per_field=64, entry_name=entry, entry_entrance=0,
+                                 members=members, edges=edges, seams=seams)
+
+
+def test_campaign_graph_resolves_edges_seams_reachability():
+    g = campaign.campaign_graph(_graph_plan())
+    by = g.by_name
+    assert [n.name for n in g.nodes] == ["A", "B", "C", "D"]            # member (id) order preserved
+    assert by["A"].is_entry and by["A"].out_edges == [{"to": "B", "entrance": 1, "gated": False}]
+    assert by["B"].in_edges == [{"frm": "A", "entrance": 1, "gated": False}]
+    assert by["B"].out_edges[0]["gated"] is True                       # story_conditional -> gated
+    assert by["C"].out_edges == [] and len(by["C"].seams) == 2
+    assert by["C"].dead_end is False                                   # has onward seams -> not a dead end
+    assert by["D"].dead_end is True and by["D"].reachable is False
+    assert g.unreachable == ["D"] and g.dead_ends == ["D"]
+    assert all(n.reachable for n in g.nodes if n.name != "D")
+    assert len(g.dangling_edges) == 1 and g.dangling_edges[0]["to"] == "GHOST"
+    assert by["A"].out_edges == [{"to": "B", "entrance": 1, "gated": False}]  # dangling edge NOT an out-edge
+    assert len(g.dangling_seams) == 1 and g.dangling_seams[0]["frm"] == "GHOST2"  # surfaced, not dropped
+    assert len(by["C"].seams) == 2                                     # only the two member-rooted seams
+
+
+def test_campaign_graph_entry_fallback():
+    g = campaign.campaign_graph(_graph_plan(entry="NOPE"))
+    assert g.entry_valid is False and g.entry == "A"                   # falls back to the first member
+    assert g.by_name["A"].is_entry
+
+
+def test_campaign_graph_tolerates_bad_entrance():
+    plan = _graph_plan()
+    plan.edges.append({"frm": "C", "to": "D", "entrance": "oops"})     # hand-edited / malformed entrance
+    g = campaign.campaign_graph(plan)                                  # must NOT raise (tolerant contract)
+    assert g.by_name["C"].out_edges[0]["entrance"] == 0                # coerced to 0, not a crash
+
+
+def test_render_graph_text():
+    txt = campaign.render_graph(_graph_plan())
+    assert "campaign ICE" in txt and "entry: A (entrance 0)" in txt
+    assert "-> B (entrance 1)" in txt and "[gated]" in txt
+    assert "~> seam[overworld] -> WORLDMAP" in txt
+    assert "UNREACHABLE FROM ENTRY: D" in txt
+    assert "DANGLING EDGES" in txt and "A->GHOST" in txt
+    assert "DANGLING SEAMS" in txt and "GHOST2->42" in txt             # stale seam surfaced, not dropped
+    assert "needs-export" in txt                                       # B is an artless editable member
+    assert "entry_field not a member" in campaign.render_graph(_graph_plan(entry="NOPE"))

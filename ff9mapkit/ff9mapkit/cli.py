@@ -441,6 +441,8 @@ def _cmd_lint_campaign(args: argparse.Namespace) -> int:
     except (campaign.CampaignError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
+    if getattr(args, "graph", False):
+        print(campaign.render_graph(plan))
     for w in warnings:
         print("warning: " + w, file=sys.stderr)
     for e in errors:
@@ -892,6 +894,8 @@ def build_parser() -> argparse.ArgumentParser:
     lc = sub.add_parser("lint-campaign",
                         help="validate a campaign.toml (edges/entry/seams/ids/flags) without building (P5)")
     lc.add_argument("campaign", help="path to the campaign.toml manifest")
+    lc.add_argument("--graph", action="store_true",
+                    help="also print the resolved member graph (doors/seams/dead-ends/unreachable)")
     lc.set_defaults(func=_cmd_lint_campaign)
 
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")

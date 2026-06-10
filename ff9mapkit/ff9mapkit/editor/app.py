@@ -12,6 +12,7 @@ All the non-UI logic lives in the tk-free :mod:`.model` (load/save/serialize) an
 
 from __future__ import annotations
 
+import copy
 import queue
 import subprocess
 import sys
@@ -56,6 +57,7 @@ class EditorApp:
         self.step_widgets = None           # cutscene step editor state
         self.opt_widgets = None            # choice-options sub-editor state
         self.active_choice = None          # index of the choice whose options are being edited
+        self.campaign_idmap = None         # optional {field_id: member_name} set by the Campaign workspace
         self.busy = False
         self.deploy = _find_tool("deploy_field.py")
         self.revert = _find_tool("revert_deploy.py")
@@ -196,7 +198,44 @@ class EditorApp:
                                        filetypes=[("Field project", "*.field.toml"),
                                                   ("TOML", "*.toml"), ("All files", "*.*")])
         if f:
-            self._load(Path(f))
+            self.open_path(Path(f))
+
+    def open_path(self, path) -> bool:
+        """Load a field.toml -- the SINGLE load entry point (the toolbar Open and the campaign navigator
+        both route here). If another file is already open, offers to save it first; returns False if the
+        user cancels the switch (or a requested save fails) so a caller can keep the prior selection."""
+        path = Path(path)
+        cur = getattr(self.doc, "path", None) if self.doc is not None else None
+        if cur is not None and Path(cur) != path and not self._offer_save_before_switch(path):
+            return False
+        self._load(path)
+        return True
+
+    def _offer_save_before_switch(self, newpath) -> bool:
+        """Give the user a chance to save the open doc before it's replaced. Returns False to abort the
+        switch (Cancel, or a save the user asked for that then failed). No prompt when nothing changed."""
+        if not self._commit_active():                 # fold the active form in first (may report a parse error)
+            return False
+        if not self._dirty():                         # unchanged since load/save -> switch freely, no nag
+            return True
+        ans = messagebox.askyesnocancel(
+            "Save changes?",
+            f"Save changes to {self.doc.path.name} before opening {Path(newpath).name}?\n\n"
+            "Unsaved edits are lost if you don't.")
+        if ans is None:                               # Cancel -> stay on the current file
+            return False
+        if ans:                                       # Yes -> save (abort the switch if the save fails)
+            return self.on_save()
+        return True                                   # No -> discard and switch
+
+    def _mark_clean(self):
+        """Snapshot the doc's data as the 'saved' baseline -- :meth:`_dirty` compares against this."""
+        self._clean = copy.deepcopy(self.doc.data) if self.doc is not None else None
+
+    def _dirty(self) -> bool:
+        """True if the (committed) doc differs from its last load/save baseline. Used to skip the
+        save-before-switch prompt when the user only navigated. Commit the active form before calling."""
+        return self.doc is not None and self.doc.data != getattr(self, "_clean", None)
 
     def _load(self, path):
         try:
@@ -205,6 +244,7 @@ class EditorApp:
             messagebox.showerror("Open failed", f"{path}\n\n{e}")
             return
         self.active = None
+        self._mark_clean()
         split = " (+ scene.toml)" if self.doc.scene_data is not None else ""
         self.title_lbl.configure(text=path.name + split)
         self._log(f"opened {path.name}{split}")
@@ -223,6 +263,7 @@ class EditorApp:
         name = p.name[:-len(".field.toml")] if p.name.endswith(".field.toml") else p.stem
         self.doc = FieldDoc.new(p, name=name.upper())
         self.active = None
+        self._mark_clean()
         self.title_lbl.configure(text=p.name + " (new, unsaved)")
         self._refresh_tree(reselect="field")     # land on the Field form (clears the welcome)
         self._log(f"new field {name.upper()} -- fill in [field], add content, then Save.")
@@ -240,6 +281,7 @@ class EditorApp:
         try:
             self._cleanup_empty()
             self.doc.save()
+            self._mark_clean()
             self._log(f"saved {self.doc.path.name}")
         except Exception as e:               # noqa: BLE001
             messagebox.showerror("Save failed", str(e))
@@ -448,6 +490,12 @@ class EditorApp:
             spatial = scene_e.get("pos") or scene_e.get("zone")
             ttk.Label(self.form, text=f"placed in Blender: {spatial}",
                       foreground=self.palette["success"]).pack(anchor="w", padx=10, pady=(2, 0))
+        # in a campaign, resolve a gateway's numeric target to the member it leads to (read-only hint)
+        if kind == "gateway" and self.campaign_idmap:
+            member = self.campaign_idmap.get(entity.get("to"))
+            if member:
+                ttk.Label(self.form, text=f"→ leads to campaign member: {member}",
+                          foreground=self.palette["success"]).pack(anchor="w", padx=10, pady=(2, 0))
         ttk.Button(self.form, text=f"Delete this {kind}",
                    command=lambda: self._delete_entity(kind, idx)).pack(anchor="w", padx=10, pady=8)
 
