@@ -768,6 +768,36 @@ def extract_savepoint_director(eb_bytes):
     return bytes(body)
 
 
+def spawn_settle_mismatch(eb, idx):
+    """The 'spawn-flash' signature of a director-driven carried object (P6.1, docs/SAVEPOINT.md): its **Init**
+    raises it to one height -- a literal Y with self-relative (``op78``) X/Z -- but its **loop** settles it to
+    another, via a fully-literal ``MoveInstantXZY``. A real field's entrance fade hides that one-shot
+    spawn-then-move; a fork's (F6-warp / a custom entrance) may not, so the object visibly spawns at the wrong
+    pose then snaps to rest (e.g. the save Moogle standing ON the barrel for ~100ms, then dropping IN).
+
+    Returns ``(init_y, settle_y, init_y_offset_in_entry, size)`` when the Init Y differs from the settle Y
+    (so a caller can normalise the Init Y to the settle Y -- a same-length patch in the entry's bytes), else
+    ``None``. Pure detection; static, no runtime needed -- the insight the in-game capture surfaced."""
+    from .eb.disasm import argsize, read_expr
+    e = eb.entry(idx)
+    f0 = e.func_by_tag(0) if not e.empty else None
+    f1 = e.func_by_tag(1) if not e.empty else None
+    if f0 is None or f1 is None:
+        return None
+    init_mv = next((i for i in eb.instrs(f0) if i.op == 0xA1 and len(i.arg_is_expr) >= 2
+                    and i.arg_is_expr[0] and not i.arg_is_expr[1]), None)          # spawn: self X/Z, literal Y
+    settle_mv = next((i for i in eb.instrs(f1) if i.op == 0xA1 and not any(i.arg_is_expr)), None)  # rest: all literal
+    if init_mv is None or settle_mv is None:
+        return None
+    iy, sy = init_mv.imm(1), settle_mv.imm(1)
+    if iy is None or sy is None or iy == sy:
+        return None
+    raw = eb.data[init_mv.off:init_mv.end]                                         # a1 argflags <Xexpr> Y <Zexpr>
+    _, ypos = read_expr(raw, 2)                                                    # walk the self X-expr -> Y offset
+    base = 128 + u16(eb.data, 128 + idx * 8)                                       # entry start in eb.data
+    return (iy, sy, (init_mv.off - base) + ypos, argsize(0xA1, 1))
+
+
 def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_player_funcs=False,
                           carry_text=False, graft_seq_helpers=False, graft_savepoint=False) -> list:
     """Graft specs for a FAITHFUL fork: each persistent object's VERBATIM ``.eb`` entry plus the data
@@ -906,6 +936,17 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
             "refs": refs, "player_tags_needed": sorted(player_tags),
             "graft_safety": safety, "carry_tags": carry_tags,
         }
+        # P6.1 spawn-flash (docs/SAVEPOINT.md): an object whose Init height != its settled height shows a
+        # one-shot spawn-then-move on a fork (the source field's entrance fade hides it; a fork's may not).
+        mism = spawn_settle_mismatch(eb, slot)
+        if mism:
+            iy, sy, pos, sz = mism
+            if graft_savepoint and slot in savepoint_cluster and rd["model"] == SAVE_MOOGLE_MODEL:
+                b = bytearray(spec["entry_bytes"])              # AUTO-FIX the save Moogle: spawn at the in-barrel Y
+                b[pos:pos + sz] = (int(sy) & ((1 << (8 * sz)) - 1)).to_bytes(sz, "little")
+                spec["entry_bytes"] = bytes(b)
+            else:
+                spec["spawn_flash"] = {"init_y": iy, "settle_y": sy}   # LINT signal for any other such object
         if seq_closeable:                                        # the closeable helpers this object launches
             keep = set(carry_tags)                               # from a KEPT tag (a dropped tag's Seq never runs)
             seqs, seen = [], set()

@@ -299,3 +299,29 @@ def test_savepoint_director_extracted_and_grafted():
     assert any(i.op == 0x05 and p.data[i.off:i.off + 3] == b"\x05\xd5\x20" for i in t1)   # director now lives there
     # a field with no save Moogle -> no director
     assert eventscan.extract_savepoint_director(data.blank_field_bytes("us")) is None
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_savepoint_spawn_y_normalized():
+    # P6.1 (docs/SAVEPOINT.md): the save Moogle's Init height (-362, standing ON the barrel) differs from its
+    # settled height (-2, IN the barrel), so a fork shows a one-shot spawn-then-drop (the source field's
+    # entrance fade hides it; F6-warp does not). The carry AUTO-FIXES it -- the carried Moogle spawns at rest.
+    from ff9mapkit import extract
+    donor = extract.extract_event_script("fbg_n08_udft_map122_uf_sto_0")
+    eb = EbScript.from_bytes(donor)
+    moog = next(e.index for e in eb.entries if not e.empty and e.func_by_tag(0)
+                and any(i.op == 0x2F and i.imm(0) == 220 for i in eb.instrs(e.func_by_tag(0))))
+    mism = eventscan.spawn_settle_mismatch(eb, moog)
+    assert mism is not None                                          # the donor HAS the spawn-flash signature
+    init_y, settle_y, pos, sz = mism
+    assert init_y != settle_y
+    # the carried Moogle's entry is normalised: its Init Y now equals the settle Y
+    specs = eventscan.scan_objects_verbatim(donor, graft_savepoint=True, graft_player_funcs=True,
+                                            graft_seq_helpers=True)
+    moogle = next(s for s in specs if s["model"] == "GEO_NPC_F0_MOG")
+    assert int.from_bytes(moogle["entry_bytes"][pos:pos + sz], "little") == settle_y
+    # the normalised entry still grafts + round-trips byte-exact
+    fork = _object.graft_objects(data.blank_field_bytes("us"), [dict(moogle)])
+    assert EbScript.from_bytes(fork).to_bytes() == fork
+    # the recognised Moogle is auto-fixed (not left as a spawn_flash lint flag)
+    assert "spawn_flash" not in moogle

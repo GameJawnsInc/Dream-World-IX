@@ -525,6 +525,8 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
                "control_direction": content["control_direction"], "ladders": n_ladders,
                "jumps": n_jumps, "objects": n_objects, "player_funcs": n_player_funcs,
                "carry_text": n_carry_text, "save_moogle": n_save_moogle,
+               "spawn_flash": sum(1 for o in objs if o.get("spawn_flash")),   # P6.1: Init pose != rest -> flashes on a fork
+               "spawn_flash_fixed": (1 if (graft_savepoint and n_save_moogle) else 0),
                "gateways_retargeted": n_retargeted, "gateways_seamed": n_seamed}
     return "\n\n".join(parts), content["control_direction"], summary
 

@@ -115,7 +115,8 @@ def test_imported_content_toml_is_valid_and_complete(tmp_path):
     assert summary == {"gateways": 4, "encounter": False, "music": 9, "control_direction": 0,
                        "ladders": 0, "jumps": 0, "objects": 2,   # Alexandria: the bell + the ticket prop,
                        "player_funcs": 0, "carry_text": 0, "save_moogle": 0,   # carried VERBATIM (hidden NPCs
-                       "gateways_retargeted": 0, "gateways_seamed": 0}   # skipped); no graft/carry/save-moogle here
+                       "spawn_flash": 0, "spawn_flash_fixed": 0,   # skipped); no graft/carry/save-moogle/flash here
+                       "gateways_retargeted": 0, "gateways_seamed": 0}
     # the verbatim entry sidecars are written next to the field.toml
     assert (tmp_path / "field.object0.bin").is_file() and (tmp_path / "field.object1.bin").is_file()
     # embed in a complete borrow field.toml -> it must be valid TOML with the right structures
@@ -253,7 +254,14 @@ def test_graft_savepoint_carries_the_moogle_cluster():
     assert 8 not in by_slot                                                              # mognet letter NOT carried
     moogle = by_slot[5]
     assert moogle["model"] == "GEO_NPC_F0_MOG"
-    assert moogle["entry_bytes"] == eventscan._entry_bytes(eb, 5)                        # carried VERBATIM
+    # carried VERBATIM except the P6.1 spawn-Y normalization (Init height -> settled height, so a fork shows no
+    # one-shot spawn-then-drop). Everything else is byte-identical to the donor entry.
+    from ff9mapkit.eb import EbScript as _Eb
+    _verbatim = eventscan._entry_bytes(eb, 5)
+    _iy, _sy, _pos, _sz = eventscan.spawn_settle_mismatch(_Eb.from_bytes(eb), 5)
+    _expected = bytearray(_verbatim)
+    _expected[_pos:_pos + _sz] = int(_sy).to_bytes(_sz, "little")
+    assert moogle["entry_bytes"] == bytes(_expected)
     assert sorted(moogle["player_tags_needed"]) == [13, 14, 15]                          # the pose surgery
     # P2: those player funcs each TurnTowardObject the carried Moogle (a sibling) -- now graftable (the
     # player graft remaps the uid to the Moogle's fork slot), so the Moogle is CLEAN and its tag-3 (the save

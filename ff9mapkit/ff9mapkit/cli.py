@@ -364,6 +364,11 @@ def _cmd_import(args: argparse.Namespace) -> int:
             bits.append("a faithful SAVE MOOGLE (pops out of the barrel + saves)")
         print(f"  content: {', '.join(bits) if bits else 'none found in the source script'}"
               + ("   (gateways point at REAL fields -- retarget them)" if ic["gateways"] else ""))
+        if ic.get("spawn_flash_fixed"):
+            print("  note   : the save Moogle's spawn pose was normalised to its rest pose (no load flash on a fork)")
+        if ic.get("spawn_flash"):
+            print(f"  warning: {ic['spawn_flash']} carried object(s) spawn at a different pose than they rest -- they "
+                  "may visibly snap to rest on a fork (the source field's entrance fade hides it). (docs/SAVEPOINT.md)")
     if args.dialogue:
         from . import dialogue as DLG
         try:
