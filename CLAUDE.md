@@ -25,9 +25,14 @@ state). It runs on **stock Memoria** (the shipped mod is engine-independent; a l
 engine adds only an F6 debug menu). Likely the first practical reference for FF9 custom-field
 authoring — and broad enough now that the working brief below matters more than any one feature.
 
-Current work is **feature expansion / research / polish + release prep**, not "ship a room."
-The toolkit lives at `ff9mapkit/` (package `ff9mapkit/ff9mapkit/`, Blender add-on
-`ff9mapkit/blender/`). The dev-loop tools live at repo-root `tools/`.
+**The objective (north star) is fork FIDELITY, NOT a release:** keep refining borrowed/forked fields
+until the kit can recreate the *functioning game itself* from them. The measure is "fork a real field →
+does it play identically to the original?" Do **not** frame work as "near-release" / "release prep" — that
+pressure is explicitly unwanted. Current state of that goal lives in **`ff9mapkit/docs/FORK_FIDELITY.md`**
+(the honest gap map): the *physical* layer (scene/walkmesh/camera/mechanics/object carry) is largely
+faithful and in-game proven; the *narrative-state* layer is the weak axis (a fork boots at scenario-zero —
+no flag presets, one spawn, no C# `NarrowMapList` cutscene). The toolkit lives at `ff9mapkit/` (package
+`ff9mapkit/ff9mapkit/`, Blender add-on `ff9mapkit/blender/`). The dev-loop tools live at repo-root `tools/`.
 
 ---
 
