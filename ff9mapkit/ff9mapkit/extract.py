@@ -1268,7 +1268,7 @@ def _native_atlas(field: str, game=None, bundle=None):
 def write_native_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                          text_block: int = 1073, game=None, bundle=None,
                          id_remap=None, live_seams=False, graft_player_funcs=False, carry_text=False,
-                         graft_savepoint=False):
+                         graft_savepoint=False, verbatim=False):
     """Fork a real field as a NATIVE custom scene: ship its OWN ``atlas.png`` + ``.bgs`` (the real
     per-tile-depth scene) + a custom walkmesh ``.bgi``, and NO ``.bgx``.
 
@@ -1304,15 +1304,42 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         (out / "mapconfig.bytes").write_bytes(mc_bytes)
     meta["mapconfig"] = bool(mc_bytes)
 
-    content_blocks, control_dir, content_summary = _content_for_import(
-        field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams,
-        graft_player_funcs=graft_player_funcs, carry_text=carry_text, graft_savepoint=graft_savepoint)
-    meta["imported_content"] = content_summary
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
     x, z = meta["player_start"]
     scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
-    control_line = f"control_direction = {control_dir}   # imported WASD-vs-camera tuning\n" if control_dir is not None else ""
+    if verbatim:
+        # VERBATIM .eb fork (docs/FORK_FIDELITY.md, the entry-0 carry): ship the donor's WHOLE event script;
+        # the build runs the real logic instead of synthesizing. No declarative content (it's all in the .eb).
+        from .eb import EbScript
+        donor_eb = extract_event_script(field, game=game)
+        (out / f"{name}.verbatim_eb.bin").write_bytes(donor_eb)
+        _de = EbScript.from_bytes(donor_eb)
+        dests = sorted({int(i.imm(0)) for e in _de.entries if not e.empty for f in e.funcs
+                        for i in _de.instrs(f) if i.op == 0x2B and i.imm(0) is not None})
+        rt = "".join(f"#   {d} = 0\n" for d in dests) or "#   (this field has no Field() exits)\n"
+        control_line = ""
+        content_tail = (
+            "# --- VERBATIM .eb fork: this field ships its REAL event script WHOLE (entry-0 + every object +\n"
+            "# every gateway, slot layout intact) and runs the original logic, so the declarative blocks are\n"
+            "# NOT used here. Add a [startup] block to boot a chosen story beat (its gating then responds). ---\n"
+            "[verbatim_eb]\n"
+            f'bin = "{name}.verbatim_eb.bin"\n'
+            "# The Field() exits below point at REAL fields (live seams back into the game). To redirect any to\n"
+            "# your own fork, set its id and uncomment the table (omit a line to keep that exit a live seam):\n"
+            "# retarget = {\n" + rt + "# }\n")
+        meta["imported_content"] = {"verbatim_eb": True, "field_exits": dests}
+    else:
+        content_blocks, control_dir, content_summary = _content_for_import(
+            field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams,
+            graft_player_funcs=graft_player_funcs, carry_text=carry_text, graft_savepoint=graft_savepoint)
+        meta["imported_content"] = content_summary
+        control_line = (f"control_direction = {control_dir}   # imported WASD-vs-camera tuning\n"
+                        if control_dir is not None else "")
+        content_tail = (
+            "# --- add NPCs/dialogue (uncomment + edit); keep positions within the walkmesh bounds above ---\n"
+            f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n\n'
+            f"{_content_section(content_blocks, x, z)}")
 
     toml = (
         f"# NATIVE fork of {meta['field']} (area {meta['area']}) by ff9mapkit -- ships its OWN atlas.png +\n"
@@ -1339,9 +1366,7 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         f'bgi = "walkmesh.bgi"   # the real field\'s walkmesh -- connectivity preserved (faithful copy)\n\n'
         f"[player]\n"
         f"spawn = [{x}, {z}]\n\n"
-        f"# --- add NPCs/dialogue (uncomment + edit); keep positions within the walkmesh bounds above ---\n"
-        f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n\n'
-        f"{_content_section(content_blocks, x, z)}"
+        f"{content_tail}"
     )
     p = Path(out_dir) / f"{name}.field.toml"
     p.write_text(toml, encoding="utf-8", newline="\n")

@@ -83,7 +83,7 @@ def test_plain_import_auto_routes_area_lt_10_to_native(monkeypatch):
         monkeypatch.setattr(extract, "write_field_project", _borrow)
         args = argparse.Namespace(field="x", out=".", name=None, id=4003, game=None, atlas=False,
                                   native=False, editable=False, graft_player_funcs=False, carry_text=False,
-                                  save_moogle=False, dialogue=False)
+                                  save_moogle=False, dialogue=False, verbatim=False)
         with pytest.raises(_Stop):
             cli._cmd_import(args)
         return calls

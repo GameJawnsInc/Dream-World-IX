@@ -2429,10 +2429,15 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
     # are byte-identical). build_script remaps the grafted windows to these txids. Empty plan -> no change.
     carry_plan = project.carry_text_plan()
+    # Verbatim-.eb fork (docs/FORK_FIDELITY.md, the entry-0 carry): ship the donor's WHOLE event script
+    # (entry-0 + all objects + all gateways, layout intact, Field() destinations remapped) instead of
+    # synthesizing one -- the field runs its real logic. None unless the project has a [verbatim_eb] block.
+    from .content import verbatim as _verbatim
+    verbatim_bytes = _verbatim.verbatim_eb(project)
     for lang in langs:
-        eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
-                          cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
-                          choice_txids=choice_txids)
+        eb = verbatim_bytes if verbatim_bytes is not None else build_script(
+            project, lang, txids, control_value, event_txids=event_txids,
+            cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh, choice_txids=choice_txids)
         layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
         lang_body = mes_body
         if carry_plan:

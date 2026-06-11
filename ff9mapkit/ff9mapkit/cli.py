@@ -315,6 +315,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
         # exactly 2 chars, so single-digit areas never resolve. The native path ships its own art at a remapped
         # area>=10 (seam-free + lit), so auto-route the default (borrow) path to native there -- this unblocks
         # forking the early-game fields (Alexandria area1, Cargo Ship area0) with a plain `import`.
+        if args.verbatim:
+            args.native = True            # --verbatim ships the native scene + the donor's WHOLE .eb
         auto_native_area = None
         if not args.native and not args.editable:
             try:
@@ -328,7 +330,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
         if args.native:
             meta, toml = extract.write_native_project(
                 args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game,
-                graft_player_funcs=gpf, carry_text=ct, graft_savepoint=sm)
+                graft_player_funcs=gpf, carry_text=ct, graft_savepoint=sm, verbatim=args.verbatim)
         elif args.editable:
             meta, toml = extract.write_editable_project(
                 args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game,
@@ -345,6 +347,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
     if args.native:
         print("  mode   : NATIVE custom scene (atlas.png + .bgs, NO .bgx -- seamless per-tile render, Moguri-style)")
         print(f"  atlas  : {meta.get('atlas_source', '?')}")
+        if args.verbatim:
+            n_exits = len(meta.get("imported_content", {}).get("field_exits", []))
+            print(f"  logic  : VERBATIM .eb -- ships the field's REAL event script whole ({n_exits} Field() exit(s); "
+                  "add a [startup] block to boot a beat). The declarative blocks are not used in this mode.")
         if auto_native_area is not None:
             print(f"  note   : auto-selected --native (source area {auto_native_area} < 10 black-screens via BG-borrow)")
     elif args.editable:
@@ -357,7 +363,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
           f"{'  SCROLLING' if meta['scrolling'] else ''}")
     print(f"  spawn  : {meta['player_start']}   walkmesh x{meta['walkmesh_bounds']['x']} z{meta['walkmesh_bounds']['z']}")
     ic = meta.get("imported_content")
-    if ic:
+    if ic and not ic.get("verbatim_eb"):          # verbatim mode has no declarative content summary (it's all .eb)
         bits = []
         if ic["gateways"]:
             bits.append(f"{ic['gateways']} gateway(s)")
@@ -1280,6 +1286,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "custom walkmesh, NO .bgx -- renders via the engine's seamless native path (no tile "
                          "seams, faithful occlusion), exactly how Moguri ships. Also forks area<10 fields that "
                          "BG-borrow can't. Needs no in-game export.")
+    im.add_argument("--verbatim", action="store_true",
+                    help="MOST FAITHFUL: fork over a native scene AND ship the field's REAL event script WHOLE "
+                         "(entry-0 + every object + every gateway, layout intact) instead of re-synthesizing -- "
+                         "the field runs its own logic (story gating, rotating cast, real doors). Implies "
+                         "--native; pair with a [startup] block to boot a chosen beat. (docs/FORK_FIDELITY.md)")
     im.add_argument("--atlas", action="store_true", help="also extract the raw atlas.png (BG-borrow mode only)")
     im.add_argument("--dialogue", action="store_true",
                     help="also append the real field's NPC dialogue as editable [[npc]] stubs (commented) "
