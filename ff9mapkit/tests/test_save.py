@@ -1,6 +1,7 @@
 """Tests for the FF9 save codec (ff9mapkit.save) -- the RECREATE verb. Synthetic saves only (no real
 game data): we build a save block exactly as the engine does and assert the read/edit/round-trip."""
 import base64
+import os
 
 import pytest
 
@@ -163,3 +164,29 @@ def test_write_roundtrips(tmp_path):
     p = tmp_path / "out.dat"
     sv.write(p)
     assert S.FF9Save.load(p).gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])
+
+
+def test_apply_story_edit_in_place_backs_up_and_writes(tmp_path):
+    # the GUI "Apply" path: edit a real .dat in place, backup first, only the target block changes
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(7200), 2: _geg(2500)})).write(p)
+    before_block2 = S.FF9Save.load(p).gEventGlobal(2)[:2]
+    res = S.apply_story_edit(str(p), block=1, scenario=2500, set_flags=(8520,))
+    assert res["written"] and any("2500" in n for n in res["notes"]) and len(res["backups"]) == 1
+    sv = S.FF9Save.load(p)
+    assert sv.gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])         # scenario took
+    assert (sv.gEventGlobal(1)[8520 >> 3] >> (8520 & 7)) & 1 == 1            # flag set
+    assert sv.gEventGlobal(2)[:2] == before_block2                          # the other slot untouched
+    assert os.path.exists(res["backups"][0])                               # the backup was actually written
+    # the reserved-region guard fires BEFORE any write (apply shares edit_story_state's core)
+    unchanged = S.FF9Save.load(p).gEventGlobal(1)[:2]
+    with pytest.raises(ValueError, match="reserved"):
+        S.apply_story_edit(str(p), block=1, set_flags=(8400,))
+    assert S.FF9Save.load(p).gEventGlobal(1)[:2] == unchanged               # nothing written on the refused edit
+
+
+def test_apply_story_edit_noop_when_no_change(tmp_path):
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(6000)})).write(p)
+    res = S.apply_story_edit(str(p), block=1)                               # no scenario / flags -> nothing to do
+    assert res["notes"] == [] and res["written"] is False and res["backups"] == []

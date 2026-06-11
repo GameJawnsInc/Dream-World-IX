@@ -283,3 +283,41 @@ def edit_story_state(geg: bytearray, *, scenario: int | None = None,
             geg[byte] &= ~mask
         notes.append(f"flag {bit} {'set' if on else 'cleared'}")
     return notes
+
+
+def apply_story_edit(path, *, block: int, scenario: int | None = None, set_flags=(), clear_flags=(),
+                     do_backup: bool = True, dry_run: bool = False) -> dict:
+    """Edit a real ``SavedData_ww.dat``'s story state IN PLACE and write it back -- the convenience the GUI's
+    "Apply" uses (the CLI's ``save-edit --in-place`` path as one call). Reads ``block``'s gEventGlobal from
+    the Memoria per-slot extra file when present (it overrides the main block on load), applies
+    :func:`edit_story_state`, backs up the ``.dat`` (+ the extra) when ``do_backup``, writes the ``.dat``,
+    and patches the extra. ``dry_run`` validates + lists the changes but writes NOTHING (the GUI's "Preview").
+    Returns ``{"notes", "extra", "backups", "written"}``. Raises ValueError on a bad edit (e.g. a
+    reserved-region flag) BEFORE writing -- nothing is touched until the edit validates. The edit shares the
+    same core (:func:`edit_story_state`) as the CLI, so the reserved-region guard holds."""
+    import time
+    sv = FF9Save.load(path)
+    extra = extra_file_path(path, block)
+    extra_exists = bool(extra and os.path.exists(extra))
+    src = read_extra_gEventGlobal(extra) if extra_exists else None
+    if src is None:
+        src = sv.gEventGlobal(block)
+    geg = bytearray(src)
+    notes = edit_story_state(geg, scenario=scenario, set_flags=set_flags, clear_flags=clear_flags)
+    if not notes or dry_run:
+        return {"notes": notes, "extra": extra_exists, "backups": [], "written": False}
+    sv.set_gEventGlobal(block, bytes(geg))
+
+    def _bk(p):
+        b = f"{p}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
+        with open(p, "rb") as s, open(b, "wb") as d:
+            d.write(s.read())
+        return b
+
+    backups = [_bk(path)] if do_backup else []
+    sv.write(path)
+    if extra_exists:
+        if do_backup:
+            backups.append(_bk(extra))
+        patch_extra_gEventGlobal(extra, bytes(geg))
+    return {"notes": notes, "extra": extra_exists, "backups": backups, "written": True}

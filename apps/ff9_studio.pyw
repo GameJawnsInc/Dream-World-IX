@@ -29,6 +29,7 @@ TOOLS = [
     ("Logic Editor",   "ff9_editor.pyw",    "Edit a field's logic (NPCs, events, gateways, cutscenes) in forms."),
     ("Dialogue Editor", "ff9_dialogue.pyw", "Word-smith every line with a live wrap preview; view/import stock dialogue."),
     ("Info Hub",       "ff9_infohub.pyw",   "Browse every catalog (models, archetypes, props, items); copy snippets."),
+    ("Story State",    "ff9_storystate.pyw", "Inspect / diff / EDIT a save's story state (ScenarioCounter + flags); backup-guarded."),
 ]
 
 

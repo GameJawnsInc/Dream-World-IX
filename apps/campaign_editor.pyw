@@ -144,6 +144,10 @@ class Workspace:
         f = ttk.Frame(self.nb)
         self.nb.add(f, text="Build & Deploy")
         self.build_app = bg.App(f)
+        ss = _load_app("ff9_storystate.pyw", "ff9_storystate")   # inspect/diff/EDIT a save's story state
+        f = ttk.Frame(self.nb)
+        self.nb.add(f, text="Story State")
+        ss.StoryStateApp(f)
         self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)   # keep Logic+Dialogue tabs in sync
 
     def _on_tab_changed(self, _evt=None):

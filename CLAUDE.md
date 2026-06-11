@@ -68,7 +68,7 @@ engine build, the build/deploy loop, version control, and all docs/notes.
 | Memoria.ini | `<game>\Memoria.ini` (engine toggles; dev build has boosters/ini cheats) |
 | Toolkit | `ff9mapkit/` — CLI `py -m ff9mapkit <cmd>` (run from the kit root so the local pkg shadows any editable install) |
 | Deploy tool | `tools/deploy_field.py <field.toml> [--id N]` (default test slot = field 4003) |
-| GUI apps | in **`apps/`**: `ff9_studio.pyw` = the **launcher** (front door to all GUIs) · `ff9_import.pyw` (**FFIX Import** — preview fork fidelity (fork-report) / fork a real field with fidelity options as checkboxes / read dialogue / inspect a save; shells out to `py -m ff9mapkit`) · `ff9_build_gui.pyw` (build+deploy — auto-detects **field / campaign / battle map**) · `ff9_editor.pyw` (logic editor) · `ff9_dialogue.pyw` (dialogue editor) · `ff9_infohub.pyw` (Info Hub viewer) · `campaign_editor.pyw` (the all-in-one IDE; hosts the others as tabs incl. **Import**) |
+| GUI apps | in **`apps/`**: `ff9_studio.pyw` = the **launcher** (front door to all GUIs) · `ff9_import.pyw` (**FFIX Import** — preview fork fidelity (fork-report) / fork a real field with fidelity options as checkboxes / read dialogue / inspect a save; shells out to `py -m ff9mapkit`) · `ff9_build_gui.pyw` (build+deploy — auto-detects **field / campaign / battle map**) · `ff9_editor.pyw` (logic editor) · `ff9_dialogue.pyw` (dialogue editor) · `ff9_infohub.pyw` (Info Hub viewer) · `ff9_storystate.pyw` (**Story State** — inspect / diff / EDIT a save's `gEventGlobal` story state; backup-guarded; calls `save`/`flags` directly) · `campaign_editor.pyw` (the all-in-one IDE; hosts the others as tabs incl. **Import** + **Story State**) |
 | Reference field scripts | `reference/test2/` (gitignored, 817 HW field-script exports) + `reference/field-manifest.tsv` (HW-index→field-id→name; index ≠ field id) |
 | FF9 field assets | `<game>\StreamingAssets\p0data*.bin` (UnityRaw 5.2.3 bundles; UnityPy reads them — `py -m pip install UnityPy`) |
 
@@ -169,7 +169,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.22`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.23`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -715,6 +715,15 @@ Read these on demand — they hold the full technical detail this file only summ
   at ploop 254/272 vs the ac_alt cutscene at 50), so none was shipped. (2) The clean probe needed an UNAMBIGUOUS
   spawn order (each PC InitObject'd once) — `tr_fbh`'s Dagger re-spawn made it ambiguous; `tr_qhm` was clean.
   Read-only (`forkreport.py` only) — clear of story_flags' build.py lane. kit 0.9.22; 852 tests.
+- **Story State GUI console — the story-flag SAVE verbs surfaced (`story_flags`; `apps/ff9_storystate.pyw`).**
+  The save-side companion to the Info Hub's story-flag REGISTRY (already a `storyflag` kind): `StoryStateApp`
+  loads a save and does **Inspect** (each slot's ScenarioCounter→beat + bits by named region — `save.inspect`
+  + `flags.render_report`), **Diff** (A→B delta of two saves/slots — `flags.diff_reports`/`render_diff`), and
+  **Edit** (set ScenarioCounter / set+clear story bits → write back). Edit is **backup-guarded** (`.bak` first)
+  + **reserved-region-refused**, via a new `save.apply_story_edit` (the in-place edit+backup+write+extra-patch
+  as one call, with `dry_run` for Preview; `edit_story_state` stays the shared core with the CLI). Wired into
+  the launcher (7 tools) + a Campaign-Editor tab (7 tabs). Closes the gap that `flags-diff`/`save-edit` were
+  CLI-only. 3 save tests + a headless `--smoke`; 854 suite. kit 0.9.23.
 
 ---
 

@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — Story State GUI console (inspect / diff / EDIT a save's story state)
+- A new app `apps/ff9_storystate.pyw` (`StoryStateApp`) surfaces the story-flag pillar's save verbs in one
+  window — the save-side companion to the Info Hub's story-flag *registry*: **Inspect** (each populated
+  slot's ScenarioCounter→beat + story bits by named region, via `save.inspect` + `flags.render_report`),
+  **Diff** (load a second save / slot → the A→B delta, `flags.diff_reports`), and **Edit** (set the
+  ScenarioCounter / set+clear story bits → write back). Editing is **backup-guarded** (a `.bak` first) and
+  **reserved-region-refused**, sharing the CLI's guards via a new `save.apply_story_edit` convenience
+  (the in-place edit+backup+write+extra-patch path as one call, with a `dry_run` for the Preview;
+  `edit_story_state` stays the shared core). Wired into the launcher + a Campaign-Editor tab. 3 save tests
+  (`tests/test_save.py`) + a headless `--smoke` (inspect/diff crypto-free; edit-preview when pycryptodome is
+  present). kit 0.9.23.
+
 ### Corrected — fork-fidelity #10 premise (entry cutscenes are `.eb`-borne, not a C# `NarrowMapList` trigger)
 - A load-bearing belief in the docs/memory was **wrong** and is now corrected (verified directly in the Memoria
   source): `NarrowMapList.cs` is the engine's per-field **camera-WIDTH / widescreen** table (PSX screen widths,
