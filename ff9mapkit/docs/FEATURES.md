@@ -91,7 +91,7 @@ codec/golden tests) with the full in-game pass still pending.
 | **Blender add-on** | Visually pose the camera, model the walkmesh, place NPC/gateway/event/spawn/cam-zone markers, paint backdrop, import a real field — **and reshape a 3D battle map** (Import/Export Battle Map) | [blender/README](../blender/README.md) |
 | **Form editor** (`ff9mapkit edit`) | Dialogue / events / encounters / flags / cutscenes in forms — no TOML | [README](../README.md) |
 | **Dialogue editor** (`apps/ff9_dialogue.pyw`) | Every line in one list with a **live FF9-wrap preview**; view/import real stock dialogue | [DIALOGUE](DIALOGUE.md) |
-| **FFIX Import** (`apps/ff9_import.pyw`) | Bring content in from the real game: **fork a field** with the fidelity flags as checkboxes (Native art · carry NPCs/props · carry real dialogue · carry the save point), **read** a field's dialogue, **inspect** a save, list fields. Standalone + a Campaign-Editor tab | [FORK_FIDELITY](FORK_FIDELITY.md) |
+| **FFIX Import** (`apps/ff9_import.pyw`) | Bring content in from the real game: **Preview fidelity** before forking (`fork-report`), **fork a field** with the fidelity flags as checkboxes (Native art · carry NPCs/props · carry real dialogue · carry the save point), **read** a field's dialogue, **inspect** a save, list fields. Standalone + a Campaign-Editor tab | [FORK_REPORT](FORK_REPORT.md) |
 | **Two-file split** | Blender owns *where* (`scene.toml`), you own *what* (`field.toml`); merged at build | [FORMAT](FORMAT.md) |
 
 ## Engineering (how it's trusted)

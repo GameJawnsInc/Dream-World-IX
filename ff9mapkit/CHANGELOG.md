@@ -18,7 +18,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   CLEAN static-roster. **Read-only** — reuses `eventscan.scan_objects_verbatim` (the carry `graft_safety`
   classification) + `scan_gateway_entries` + the `flags` beat table; adds no carry/scanner logic. New module
   `ff9mapkit/forkreport.py` (pure `analyze_eb` + thin id-loader, unit-tested offline against a fixture).
-  (`docs/FORK_FIDELITY.md` — the north star is "fork a real field → does it play identically?")
+  Surfaced as a **Preview fidelity** button in the FFIX Import GUI (`apps/ff9_import.pyw`) — standalone and the
+  Campaign Editor's Import tab — so you can read the verdict before importing.
+  (`docs/FORK_REPORT.md`; `docs/FORK_FIDELITY.md` — the north star is "fork a real field → does it play identically?")
 
 ### Added — `[[gateway]]` on-exit story advance (fork-fidelity #3)
 - A `[[gateway]]` can now **advance story state when the player takes that exit**: `set_scenario = N | "area"`

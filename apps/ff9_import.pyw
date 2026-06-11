@@ -83,8 +83,8 @@ class App:
         self.log = scrolledtext.ScrolledText(parent, height=15, state="disabled", wrap="word",
                                              borderwidth=0, bg=self.pal["log_bg"], fg=self.pal["log_fg"])
         self.log.pack(fill="both", expand=True, **pad)
-        self._write("Pick a field on the Field tab (or Find it), choose how faithfully to carry it, then "
-                    "Import field. Deploy what you make with Build & Deploy.\n")
+        self._write("Pick a field on the Field tab (or Find it), Preview fidelity to see what a fork will "
+                    "reproduce, choose how faithfully to carry it, then Import field. Deploy with Build & Deploy.\n")
         self.root.after(120, self._drain)
 
     # ---------------------------------------------------------------- Field tab
@@ -94,10 +94,16 @@ class App:
         pick.pack(fill="x", **pad)
         ttk.Label(pick, text="Real field  —  an id, or an FBG-name substring (e.g. 100, grgr, alxt_map016).  "
                              "Use Find… to look up the exact names/ids.").grid(
-            row=0, column=0, columnspan=2, sticky="w")
+            row=0, column=0, columnspan=3, sticky="w")
         self.field = tk.StringVar()
         ttk.Entry(pick, textvariable=self.field).grid(row=1, column=0, sticky="we")
         ttk.Button(pick, text="Find…", command=self.on_find).grid(row=1, column=1, padx=(6, 0))
+        self.preview_btn = ttk.Button(pick, text="Preview fidelity", command=self.on_preview)
+        self.preview_btn.grid(row=1, column=2, padx=(6, 0))
+        ttk.Label(pick, text="Preview fidelity: before you fork, see what a fork will/won't reproduce "
+                             "(roster vs interaction, story beats, a suggested [startup]).",
+                  foreground=self.pal["muted"], wraplength=560, justify="left").grid(
+            row=2, column=0, columnspan=3, sticky="w", pady=(2, 0))
         pick.columnconfigure(0, weight=1)
 
         art = ttk.LabelFrame(parent, text="Background art")
@@ -222,7 +228,7 @@ class App:
 
     # ---------------------------------------------------------------- run helpers
     def _buttons(self):
-        return [getattr(self, b) for b in ("import_btn", "dlg_btn", "save_btn", "list_btn", "tpl_btn")
+        return [getattr(self, b) for b in ("import_btn", "preview_btn", "dlg_btn", "save_btn", "list_btn", "tpl_btn")
                 if hasattr(self, b)]
 
     def _busy(self, b):
@@ -268,6 +274,14 @@ class App:
     def on_find(self):
         self._run_kit(["list-fields", self.field.get().strip()] if self.field.get().strip()
                       else ["list-fields"], intro="Finding fields…")
+
+    def on_preview(self):
+        field = self.field.get().strip()
+        if not field:
+            messagebox.showerror("No field", "Enter a real field id or name to preview its fork fidelity.")
+            return
+        self._run_kit(["fork-report", field],
+                      intro=f"Previewing how faithfully {field} will fork (offline; no UnityPy needed)…")
 
     def on_import(self):
         field = self.field.get().strip()
@@ -343,7 +357,7 @@ def main():
         borrow = import_args("100", out="/o", field_id=4003, art="borrow", carry_npcs=False,
                              carry_text=False)
         controls = all(hasattr(app, c) for c in ("field", "art", "carry_npcs", "carry_text",
-                                                 "save_moogle", "out", "fid", "import_btn",
+                                                 "save_moogle", "out", "fid", "import_btn", "preview_btn",
                                                  "dlg_field", "save_path", "list_filter"))
         ok = a == want and borrow == ["import", "100", "--out", "/o", "--id", "4003"] and controls
         print(f"import gui smoke ok: tabs + controls built; import_args correct: {ok}")

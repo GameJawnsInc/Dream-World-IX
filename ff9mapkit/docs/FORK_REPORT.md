@@ -14,6 +14,9 @@ ff9mapkit fork-report dl_shp       # by FBG-name substring (see `list-fields`)
 > `354` means different fields to the two commands). That's why the report's **Suggested authoring** line spells
 > out the `import` command with the field's full **FBG name** — copy that to fork the exact field you reported on.
 
+It's also a one-click **Preview fidelity** button in the FFIX Import GUI (`apps/ff9_import.pyw`, standalone and
+the Campaign Editor's Import tab): type/Find a field, hit **Preview fidelity**, read the verdict, then import.
+
 ## What it reports — two independent axes
 
 A fork can render the right cast yet lose its interactions (or vice-versa), so the two are reported
