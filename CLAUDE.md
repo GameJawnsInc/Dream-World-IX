@@ -120,6 +120,13 @@ The proven fast loop — **edit → deploy → F6**:
 DictionaryPatch line), a BattlePatch change, or an engine-DLL rebuild. Reverting a deploy:
 `py tools/scroll_out/revert_deploy.py` (latest) or `revert_deploy_<id>.py`.
 
+**Text-block shadow (stacked worktree folders):** every worktree's test slot defaults `text_block` 1073,
+and the engine reads a field's `.mes` from the **highest-priority** `FolderNames` folder that defines it —
+so a lower-priority worktree's dialogue is SHADOWED (wrong text, but the *flags* are still correct → F6 →
+Flags is the reliable proof). `deploy_field.py` now **warns** (`deploystack.py`) and suggests a free real
+mesID; fix = a `text_block` no higher folder defines (it must be a real `MesDB` id — arbitrary ids don't
+load), or pin `text_block = N` in `.ff9deploy.toml`. → memory `project-ff9-text-block-shadow`.
+
 **Engine builds** (changing `Assembly-CSharp.dll`): MSBuild VS18 BuildTools, build the csproj
 with **`/p:SolutionDir=C:\gd\FFIX\Memoria\`** (trailing `\` required, else mscorlib conflict).
 ⚠ The build **AUTO-DEPLOYS** to the game (x64+x86 Managed) with **no backup** — back up the
@@ -161,7 +168,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.15`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.16`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).

@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — deploy-time text-block SHADOW guard (`deploystack.py`)
+- A field loads its dialogue by **mesID** (`text_block`), and the engine reads that `.mes` from the **first**
+  mod folder in `Memoria.ini` `FolderNames` that defines `field/<mesID>.mes`. When several stacked worktree
+  mod folders (`FF9CustomMap-*`) all use the kit-default block **1073**, a lower-priority folder's text is
+  **shadowed** — the field renders a *higher*-priority folder's block-1073 text instead. This bit an
+  `[[on_entry]]` playtest: a probe in `FF9CustomMap-sf` showed `FF9CustomMap`'s stale "Rally-ho!" rather than
+  its authored line (the flags were correct; only the text was someone else's). `tools/deploy_field.py` now
+  **warns at deploy time** — naming the shadowing folder and suggesting real mesIDs no higher-priority folder
+  defines (e.g. "use text_block = 187"). The check is a pure, offline, tested kit function
+  (`deploystack.check_text_block_shadow` / `parse_folder_names` / `shadow_warning`); deploy also accepts
+  `--text-block N` (or `text_block = N` in `.ff9deploy.toml`) to pin a worktree-unique block. 8 tests
+  (`tests/test_deploystack.py`). kit 0.9.16.
+
 ### Added — `[[on_entry]]`: gated, once field-load beats (FORK_FIDELITY.md #10)
 - A real FF9 field's entry cutscene fires from the engine's C# `NarrowMapList` table, **not the field `.eb`** —
   so a fork can't carry it. `[[on_entry]]` is the declarative re-authoring hook: fire a narration `message`

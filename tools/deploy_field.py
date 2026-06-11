@@ -47,6 +47,10 @@ _ap.add_argument("--name", default=None,
 _ap.add_argument("--mod-folder", dest="mod_folder", default=_def_folder,
                  help="Memoria mod folder to deploy into (per-worktree isolation; default from "
                       ".ff9deploy.toml / $FF9_MOD_FOLDER / FF9CustomMap)")
+_ap.add_argument("--text-block", dest="text_block", type=int, default=_cfg.get("text_block"),
+                 help="override the field's dialogue .mes block (mesID). Pin a worktree-unique block in "
+                      ".ff9deploy.toml (text_block = N) to avoid the shared-1073 text-shadow collision when "
+                      "several worktree mod folders stack in Memoria.ini FolderNames.")
 _args = _ap.parse_args()
 TOML = Path(_args.toml)
 FID = _args.id
@@ -76,6 +80,8 @@ proj = B.FieldProject.load(TOML)
 _orig_id, _orig_name = proj.field.get("id"), proj.field.get("name")
 proj.raw.setdefault("field", {})["id"] = FID
 proj.raw["field"]["name"] = TEST_NAME
+if _args.text_block is not None:                            # worktree-unique mesID (avoids the shared-1073 shadow)
+    proj.raw["field"]["text_block"] = int(_args.text_block)
 if (_orig_id, _orig_name) != (FID, TEST_NAME):
     print(f"sandbox: {_orig_name} (id {_orig_id}) -> {TEST_NAME} (id {FID}) for the test slot")
 info = B.build_mod([proj], tmp / "mod", mod_name=MOD_FOLDER)
@@ -89,7 +95,8 @@ scroll = 0x71 in [i.op for i in disasm.iter_code(eb0, f0.abs_start, f0.abs_end)]
 print(f"built {FBG} | {info['dictionary'][0]} | scroll={scroll}")
 
 # deploy reversibly
-live = ModLayout(find_game_path() / MOD_FOLDER)
+GAME = find_game_path()
+live = ModLayout(GAME / MOD_FOLDER)
 # bootstrap a fresh per-worktree mod folder: give it a ModDescription.xml (so Memoria's Mod Manager
 # recognizes it) and an empty DictionaryPatch.txt (so the backup/read steps below have a file).
 live.root.mkdir(parents=True, exist_ok=True)
@@ -149,5 +156,16 @@ print("reverted: DictionaryPatch + dialogue restored; {name} removed.")
 (OUT / "revert_deploy.py").write_text(revert, encoding="utf-8", newline="\n")            # generic = latest deploy
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"revert: {OUT / ('revert_deploy_%d.py' % FID)}  (or revert_deploy.py for the latest)")
+
+# text-shadow guard: warn if a HIGHER-priority mod folder in Memoria.ini FolderNames also defines this
+# field's .mes block -- the engine would render THAT folder's text, not ours (the shared-1073 collision).
+try:
+    from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning
+    _warn = shadow_warning(check_text_block_shadow(GAME, MOD_FOLDER, text_block), MOD_FOLDER)
+    if _warn:
+        print(f"\n  !! {_warn}")
+except Exception:
+    pass                                                   # a missing/odd Memoria.ini must never break a deploy
+
 print(f"\n=== Reach it in-game: F6 -> debug menu -> Warp to field {FID} "
       f"(or New Game, if the auto-warp targets {FID}). ===")
