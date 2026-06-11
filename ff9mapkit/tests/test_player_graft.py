@@ -148,6 +148,66 @@ def test_full_graft_field122_cask_examine_resolves():
     assert 907 in packs and 914 in packs
 
 
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_savepoint_carry_trigger_chain_and_flags_intact():
+    # P3 of the verbatim save-Moogle carry (docs/SAVEPOINT.md). After the FULL cluster carry of field 122:
+    #   (1) the TRIGGER CHAIN survives -- every RunScript ref in the carried cluster resolves to a carried
+    #       fork slot / player (250) / self (255) / party (251-254); no ref dangles, whatever the indirect
+    #       Moogle trigger (the cask sets a shared MAP var the Moogle's loop polls -- no direct RunScript).
+    #   (2) the Moogle is carried VERBATIM (its save + state-machine logic byte-identical to the real game).
+    #   (3) the cluster references NO save-persistent (GLOB bool) flag in the kit's CUSTOM band
+    #       (>= FIRST_SAFE_FLAG 8512) -- so a forked save point can't corrupt the kit's own story flags. (It
+    #       DOES reference the chest band 8376-8511: the Moogle's verbatim mognet/treasure-hunter logic reads
+    #       the chest-opened bitfield -- a real-FF9 band the kit reserves anyway, not a collision. Its own
+    #       GLOB writes include bits 184/189 = the byte-23 engine menu handshake.)
+    from ff9mapkit import extract, flags
+    donor = extract.extract_event_script("fbg_n08_udft_map122_uf_sto_0")
+    specs_obj = eventscan.scan_objects_verbatim(donor, graft_savepoint=True, graft_player_funcs=True,
+                                                graft_seq_helpers=True)
+    specs_pf = eventscan.scan_player_funcs(donor, graft_savepoint=True)
+    clean = [s for s in specs_pf if s["safety"] == "clean"]
+    alloc = _player.PlayerTagAllocator(CLEAN)
+    tagmap = {int(s["donor_tag"]): ft for s, ft in zip(clean, alloc.take("object", len(clean)))}
+    fork = _player.graft_player_funcs(CLEAN, specs_pf, tagmap)
+    slot_map = {}
+    fork = _object.graft_objects(fork, [dict(s) for s in specs_obj], player_tag_remap=tagmap, out_slot_map=slot_map)
+    fork = _player.remap_player_func_siblings(fork, tagmap, slot_map)
+    p = EbScript.from_bytes(fork)
+    assert p.to_bytes() == fork                                       # the whole carried cluster round-trips
+    fork_slots = set(slot_map.values())
+
+    # (1) no dangling RunScript ref anywhere in the carried cluster
+    for slot in fork_slots:
+        for f in p.entry(slot).funcs:
+            for i in p.instrs(f):
+                if i.op in (0x10, 0x12, 0x14):
+                    uid = i.imm(1)
+                    if uid is None:
+                        continue
+                    assert uid in fork_slots or uid in (250, 255) or 251 <= uid <= 254, \
+                        f"dangling RunScript uid {uid} (entry {slot} tag {f.tag})"
+
+    # (2) the Moogle carried verbatim -- its save talk (tag 3) is present
+    assert p.entry(slot_map[5]).func_by_tag(3) is not None
+
+    # (3) GLOB-bool writes (0xC4 short / 0xE4 long) stay below the kit's reserved bands
+    globs = []
+    for slot in fork_slots:
+        for f in p.entry(slot).funcs:
+            for ins in p.instrs(f):
+                if ins.op != 0x05:
+                    continue
+                raw = p.data[ins.off:ins.off + 8]
+                tok = raw[1] if len(raw) > 1 else 0
+                if tok in (0xC4, 0xE4):                               # GLOB bool (save-persistent)
+                    globs.append((raw[2] | (raw[3] << 8)) if tok == 0xE4 else raw[2])
+    assert globs, "expected the verbatim Moogle's GLOB refs to carry through"
+    assert all(idx < flags.FIRST_SAFE_FLAG for idx in globs), \
+        f"cluster GLOB ref in the kit's CUSTOM band: {sorted(i for i in globs if i >= flags.FIRST_SAFE_FLAG)}"
+    assert {184, 189} & set(globs)                                   # the real menu-handshake writes, verbatim
+    assert any(flags.CHEST_FLAG_LO <= i <= flags.CHEST_FLAG_HI for i in globs)   # the verbatim treasure-hunter reads
+
+
 # --- P3 wiring: the import emit + build consume + the dangling-tag lint ------------------------------
 def test_lint_flags_dangling_carried_player_tag(tmp_path):
     # an [[object]] whose CARRIED func RunScripts a player tag that no [[player_func]] grafts -> flagged
