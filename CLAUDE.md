@@ -684,8 +684,11 @@ Read these on demand — they hold the full technical detail this file only summ
   build-side #5 lint as a before-you-fork preview. Read-only, reuses `dialogue.scan_dialogue` filtered to the
   carried objects' talk handlers (`forkreport.py` is story_flags'; no scanner logic of its own). 2 offline tests +
   an install-gated assertion; 850 suite. kit 0.9.21.
-
----
+- **#7 — wide scrolling fork VERIFIED IN-GAME (`story_flags`; FORK_FIDELITY.md #7, no code).** A native fork of
+  the wide Alexandria Main Street (field 3000, walkmesh ~12,800 units across, `[camera.scroll] enabled`) deployed
+  to slot 30004 scrolls correctly — the camera pans 1:1 to follow the player across the FULL painting width, art
+  stays floor-aligned (no FOV-doubling). The kit's scroll synthesis (`enable_camera_services`/BGCACTIVE, S15) was
+  unit-tested only; now proven on a genuinely large field. Pure verification — doc-only.
 
 ## 11. Glossary
 
