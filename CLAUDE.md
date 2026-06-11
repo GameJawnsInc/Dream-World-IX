@@ -826,6 +826,32 @@ Read these on demand — they hold the full technical detail this file only summ
   **`flags-inspect` CLI** also routes through `save.inspect` now — it reads an encrypted `SavedData_ww.dat`
   (one report per populated slot, labelled) / a Memoria extra-save / a save JSON / a bare Base64 blob (was
   open-form only); real-save confirmed per-slot. **644 kit tests pass.**
+- **Faithful object carry — the verbatim `.eb` entry graft (Phases 1-4, in-game proven 2026-06-10; commit
+  `86a470e` on `overworld`).** A fork now CARRIES the real field's persistent NPCs/props instead of dropping
+  them — replacing the lossy player-clone emit (which rendered an imported prop as "Zidane in a barrel skin",
+  upside-down) with a **verbatim graft of each object's real entry bytes** (renders byte-identical to the source
+  field). It's the generalization of the ladder `sequences` graft from one helper function to a whole object
+  entry + its instancing. Designed by an **ultracode research workflow** (11 agents, adversarially verified →
+  `ff9mapkit/docs/OBJECT_CARRY.md`: the cross-ref remap table, the census, the save-point defer call). New
+  **`eventscan.scan_objects_verbatim`** (full entry bytes, non-destructive + a classified ref map [`REF_OPS`,
+  optables-verified] + `graft_safety` clean/init_only/refuse + `carry_tags` + `player_tags_needed` + `needs_d9`
+  + the player-entry guard; `scan_objects` refactored to share `_read_object_init`), **`content/object.py`
+  `graft_objects`** (2-pass append+remap+arm; `carry_bytes`, decoder-derived `_arg_byte_offset`, same-length
+  uid/slot remap: self→new slot / player-by-entry-index→250 / sibling→new slot), **extract** `[[object]]` +
+  `.objectN.bin` sidecar (or a `[[prop]]`/`[[npc]]` stub for a refused object), **build** consumes it (no-op
+  without it → hut golden byte-exact). **THE LOAD-BEARING GOTCHA: the fork player has only tags [0,1]**, so an
+  object that `RunScript`s a player tag ≥2 (field-122 cask tag 2 → player 24) is carried **init_only** (render
+  tags graft, the interaction drops). NON-DESTRUCTIVE by design (full entry + `player_tags_needed` kept) so a
+  future **donor-player-script graft** (carry the donor's player funcs onto the fork player via
+  `edit.add_function`, exactly like the ladder/jump arc graft) can light up the dropped interactions.
+  **In-game (field 122 → slot 30003):** cask + boxes render at accurate positions; cask Init byte-identical to
+  the real field (upright). **OPEN FOLLOW-UPS (not graft bugs):** (1) field **object LIGHTING** isn't carried —
+  field 122 tints its models via dedicated `SetModelColor`/`SetTileColor`/shadow CONTROLLER entries (no model of
+  their own) that a blank fork drops, so grafted objects render brighter/flatter; carrying those setup entries +
+  remapping their uids is the fix. (2) **Save moogle DEFERRED** — a 7-entry cluster (5 hidden + 2 STARTSEQ
+  helpers) + player-object surgery + a shared `gEventGlobal` contract → un-graftable; a future
+  `content/savepoint.py` synthesizes it (region + props + cosmetic jump-out). (3) sibling-closure deferred. The
+  authored `[[npc]]`/`[[prop]]` player-clone path is UNTOUCHED (this is import-only). Memory: `project-ff9-object-carry`.
 
 ---
 
