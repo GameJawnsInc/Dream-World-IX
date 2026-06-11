@@ -917,10 +917,20 @@ Read these on demand — they hold the full technical detail this file only summ
   walker needed), **~76% of object-referenced player funcs graftable, ~90% of GEO_ACC**; field-122 cask/boxes all
   clean. **Load-bearing GOTCHA: the blank fork player loads only one anim pack; 86% of Zidane fields load EXTRA
   `RunModelCode` packs in the donor Init the fork lacks → a grafted clip is SILENTLY unloaded** (need
-  `ensure_player_anim_packs`). 685 tests pass. **PENDING: P2** (`content/player.py`: `add_function` graft +
-  `PlayerTagAllocator` 17/40/64 bands + the TAG-arg remap of an object's `RunScript(player,T)` arg2 ONLY when arg1
-  is the player + the anim-pack splice), **P3** (sidecar+build+lint), **P4** (in-game gate = the cask turns to
-  face you on examine). **Validates the player-clone EXIT:** the dialogue pillar's `@x,z` NPC-position garbage
+  `ensure_player_anim_packs`). **P2+P3 DONE + IN-GAME PROVEN (commit `913d0d9`*; pushing the field-122 cask turns
+  Zidane to face it -- the grafted turn func RUNS).** P2 = `content/player.py`: `PlayerTagAllocator` (one next-free
+  allocator across the ladder-17/jump-40/object-64 bands, built AFTER the jump/ladder grafts so it sees their tags
+  + slides past overflow; byte-identical for in-budget fields), `graft_player_funcs` (`add_function` each clean
+  func + `ensure_player_anim_packs` splices the donor Init's `RunModelCode` packs), `remap_player_tag_calls`, and
+  `object.remap_entry_refs(player_tag_remap=)` (the object's `RunScript(player,T)` arg2 -> fork tag, ONLY when arg1
+  is the player -- the cask's self-call tag-30 stays verbatim). P3 = opt-in `import --graft-player-funcs` emits
+  `[[player_func]]` + `.playerfuncN.bin` sidecars + flips objects to whole-entry; `build` threads the allocator +
+  grafts + remaps; lint guards a dangling carried player-tag (carry_tags-aware). 697 tests pass. **GOTCHA the
+  engine clarified: object func tag 2 = the COLLISION/PUSH handler** (`EventCollision.cs` `Request(obj,1,2)`; tag 3
+  = talk) -- so the cask reacts to being PUSHED, not talked to. **Known: pushing the cask turns Zidane then
+  control-LOCKS** (it expects the save Moogle to pop out -- the DEFERRED save-point cluster; valid, not a graft
+  bug). v1 refuses text/exotic/non-Zidane/sibling funcs (objects stay init_only). **Validates the player-clone
+  EXIT:** the dialogue pillar's `@x,z` NPC-position garbage
   (1073,1069) is the player-clone's `D9(0)/D9(4)` positioning convention mis-read on real NPCs (a property of the
   cloned PLAYER object, not a universal NPC convention); object carry's verbatim-entry graft -- and any native NPC
   authoring -- sidesteps it by preserving each object's OWN Init opcodes. Memory: `project-ff9-object-carry`.
