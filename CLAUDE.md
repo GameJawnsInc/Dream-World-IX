@@ -889,6 +889,28 @@ Read these on demand — they hold the full technical detail this file only summ
   your ticket." — in the requested language). **Deferred viewer polish** (user-flagged, not yet done): default-
   hide non-dialogue `flags=0` system/debug windows (`--all` to show), de-dupe repeated call sites, and suppress
   the kit-only `@x,z` position heuristic on real-field reads. 680 kit tests pass; `docs/DIALOGUE.md`.
+- **Player-function graft — P0+P1 (scanner + policy flip; offline-verified, commit `dd8755e`* on `overworld`).**
+  The next step after object carry: carry the donor's PLAYER functions (the ones a carried object's interactive
+  func `RunScript`s) onto the fork player so forked stock-map INTERACTIONS fire (the field-122 cask EXAMINE, the
+  box gestures) -- instead of being dropped to `init_only`. Generalizes the proven one-function jump/ladder
+  `add_function` graft to N funcs. Designed by an **ultracode research pass** (13 agents, full 676-field census →
+  `ff9mapkit/docs/PLAYER_GRAFT.md`). **P0 (eventscan):** `resolve_player_entries` (multi-`DefinePlayerCharacter`;
+  the old `_player_entry_index` returned only the FIRST), `scan_player_funcs` (per needed tag: verbatim body + a
+  7-way safety class clean|text|sibling|transitive|model|exotic|missing + the donor Init's `RunModelCode`
+  ANIM-PACK loads). **P1 (policy flip):** `_graft_safety` gains `graftable_player_tags` (default empty →
+  BYTE-IDENTICAL); `scan_objects_verbatim` gains `graft_player_funcs=False`; when on, an object whose only blocker
+  was a player-tag ref flips `init_only → whole-entry`. **Census: closure is DEPTH-0 on the object path** (no
+  walker needed), **~76% of object-referenced player funcs graftable, ~90% of GEO_ACC**; field-122 cask/boxes all
+  clean. **Load-bearing GOTCHA: the blank fork player loads only one anim pack; 86% of Zidane fields load EXTRA
+  `RunModelCode` packs in the donor Init the fork lacks → a grafted clip is SILENTLY unloaded** (need
+  `ensure_player_anim_packs`). 685 tests pass. **PENDING: P2** (`content/player.py`: `add_function` graft +
+  `PlayerTagAllocator` 17/40/64 bands + the TAG-arg remap of an object's `RunScript(player,T)` arg2 ONLY when arg1
+  is the player + the anim-pack splice), **P3** (sidecar+build+lint), **P4** (in-game gate = the cask turns to
+  face you on examine). **Validates the player-clone EXIT:** the dialogue pillar's `@x,z` NPC-position garbage
+  (1073,1069) is the player-clone's `D9(0)/D9(4)` positioning convention mis-read on real NPCs (a property of the
+  cloned PLAYER object, not a universal NPC convention); object carry's verbatim-entry graft -- and any native NPC
+  authoring -- sidesteps it by preserving each object's OWN Init opcodes. Memory: `project-ff9-object-carry`.
+  *(* hash rewritten by the rebase onto the dialogue pillar.)
 
 ---
 
