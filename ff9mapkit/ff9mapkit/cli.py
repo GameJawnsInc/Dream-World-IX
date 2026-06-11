@@ -347,6 +347,19 @@ def _cmd_import(args: argparse.Namespace) -> int:
             bits.append(f"{ic['objects']} object(s) carried")
         print(f"  content: {', '.join(bits) if bits else 'none found in the source script'}"
               + ("   (gateways point at REAL fields -- retarget them)" if ic["gateways"] else ""))
+    if args.dialogue:
+        from . import dialogue as DLG
+        try:
+            lines = DLG.read_field_dialogue(args.field, lang="us", game=args.game)
+            n = sum(1 for ln in DLG.present(lines) if ln.source == "npc" and ln.text)
+            if n:
+                with open(toml, "a", encoding="utf-8") as fh:
+                    fh.write("\n" + DLG.npc_stub_toml(lines, field_ref=args.field))
+                print(f"  dialogue: appended {n} editable [[npc]] stub(s) (commented) -- uncomment + re-author them")
+            else:
+                print("  dialogue: no NPC dialogue found in this field")
+        except (RuntimeError, FileNotFoundError, ValueError) as e:
+            print(f"  dialogue: skipped ({e})", file=sys.stderr)
     print(f"  wrote  : {toml}")
     if args.native:
         print(f"Next: add content (retarget imported gateways, add [[npc]]/dialogue), then: ff9mapkit build {toml}")
@@ -1110,6 +1123,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "seams, faithful occlusion), exactly how Moguri ships. Also forks area<10 fields that "
                          "BG-borrow can't. Needs no in-game export.")
     im.add_argument("--atlas", action="store_true", help="also extract the raw atlas.png (BG-borrow mode only)")
+    im.add_argument("--dialogue", action="store_true",
+                    help="also append the real field's NPC dialogue as editable [[npc]] stubs (commented) "
+                         "for re-authoring -- the words become kit-authored content, not a faithful graft")
     im.set_defaults(func=_cmd_import)
 
     ic = sub.add_parser("import-chain",

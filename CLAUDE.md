@@ -894,7 +894,15 @@ Read these on demand — they hold the full technical detail this file only summ
   a line shown from several funcs of ONE object (preferring the NPC-talk row; distinct objects sharing a txid
   stay separate), and (3) **drops the kit-only `@x,z`** heuristic on real-field reads (`read_field_dialogue`
   passes `trust_positions=False` — the `D9(0)/D9(4)` convention is the player-clone's, not real NPCs', per the
-  player-graft cross-ref). **Field 100 now reads 30 raw → 13 clean lines.** 688 kit tests pass; `docs/DIALOGUE.md`.
+  player-graft cross-ref). **Field 100 now reads 30 raw → 13 clean lines.** **Re-author a fork
+  (`import --dialogue`):** appends the real field's NPC lines as ready-to-use `[[npc]]` blocks (real model
+  resolved by GEO name → anims auto-resolve, clean editable text, `pos=[0,0]`) for the "fork a field and
+  rewrite its script" workflow (`dialogue.npc_stub_toml` + a cli hook — NO extract/build changes, decoupled
+  from the active object-carry session). Emitted **commented** since a fork already carries the NPCs verbatim
+  as `[[object]]` — they parallel those, uncomment + reposition + rewrite the ones you want. In-game proven via
+  the kit pipeline (field 100 native fork: 2 objects carried + 7 commented stubs; lints clean). The FAITHFUL
+  text-carry (ship the real `.mes` so grafted objects speak — OBJECT_CARRY.md open-risk #3) is the deferred
+  follow-up, best landed with the other session's player-graft. 689 kit tests pass; `docs/DIALOGUE.md`.
 - **Player-function graft — P0+P1 (scanner + policy flip; offline-verified, commit `dd8755e`* on `overworld`).**
   The next step after object carry: carry the donor's PLAYER functions (the ones a carried object's interactive
   func `RunScript`s) onto the fork player so forked stock-map INTERACTIONS fire (the field-122 cask EXAMINE, the

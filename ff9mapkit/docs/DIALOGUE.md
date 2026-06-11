@@ -67,6 +67,17 @@ player-clone's `D9(0)/D9(4)` convention, meaningless for the field's own NPCs, s
 The **offline proof**: the kit's own shipped hut (`release/FF9CustomMap`) decodes its `.eb`, parses its
 `.mes`, and joins to *"I miss you Zidane"* with zero game install — the whole pipeline, provable in tests.
 
+### Re-author a fork's dialogue (`import --dialogue`)
+```
+ff9mapkit import <field> --dialogue --out F     # fork a field AND bring its dialogue in to re-author
+```
+Appends the real field's NPC lines to the imported `field.toml` as ready-to-use `[[npc]]` blocks (real model
+resolved by GEO name so anims auto-resolve, the line as clean editable text, a `pos = [0, 0]` placeholder) —
+the "fork a field and rewrite its script" workflow. They're emitted **commented out**: a fork already
+carries the field's NPCs verbatim as `[[object]]` (object-carry), so these *parallel* them — uncomment the
+ones you want to re-author, reposition + rewrite, and drop the matching `[[object]]` if you're replacing it.
+They become **kit-authored content** (re-wrapped at build), not a faithful graft.
+
 ---
 
 ## GUI

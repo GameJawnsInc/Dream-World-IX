@@ -19,7 +19,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **`ff9mapkit dialogue-import <field>`** reads a REAL FF9 field's dialogue live from your install and shows
   "NPC → text" — the "import from the game to prove plausibility" verb. `--mod <built mod folder>` reads a
   field offline with no install (the kit's own shipped hut joins to *"I miss you Zidane"*); `--zone-id <n>`
-  reads a specific `<n>.mes` text block; `--out` writes a gitignored JSON view (SE-derived).
+  reads a specific `<n>.mes` text block; `--out` writes a gitignored JSON view (SE-derived). By default it
+  shows only real dialogue — `flags=0` system/notification windows (a field's error guard, "Received item!"
+  popups) and repeated call sites are hidden (`--all` shows them), and the kit-only `@x,z` position heuristic
+  is dropped on real fields.
+- **Re-author a fork (`ff9mapkit import <field> --dialogue`)** appends the real field's NPC lines as
+  ready-to-use, commented `[[npc]]` blocks (real model resolved by GEO name, clean editable text, a `pos`
+  placeholder) — the "fork a field and rewrite its script" workflow. They parallel the verbatim-carried
+  `[[object]]` NPCs; uncomment + reposition + rewrite the ones you want.
 - **A dedicated Dialogue editor GUI** (`apps/ff9_dialogue.pyw`): every line of a field in one list, each with
   a **live preview of how it wraps on the FF9 screen** (so simple dialogue stays well-formatted — FF9 never
   auto-wraps), speaker + window-tail edited alongside, and an "Import from game" panel that views stock

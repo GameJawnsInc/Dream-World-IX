@@ -125,6 +125,25 @@ def test_present_hides_system_and_dedupes_preferring_npc():
     assert len(D.present(two)) == 2
 
 
+# --- editable [[npc]] stubs (import --dialogue) ------------------------------------------
+def test_npc_stub_toml_editable_blocks():
+    import tomllib
+    lines = [
+        D.ViewedLine("npc", "NPC (entry 1)", 155, "Hi there, traveler!", entry=1),
+        D.ViewedLine("npc", "NPC (entry 1)", 155, "Hi there, traveler!", entry=1),   # dup -> collapsed
+        D.ViewedLine("scene", "F (entry 0)", 68, "Error", system=True, entry=0),      # system -> excluded
+    ]
+    commented = D.npc_stub_toml(lines, field_ref="alex")
+    assert commented.count("# [[npc]]") == 1 and "Error" not in commented            # 1 npc; system skipped
+    assert "dialogue-import alex" in commented                                       # points at the full script
+    assert tomllib.loads(commented).get("npc") is None                              # commented -> nothing live
+    # the live form parses as valid TOML with the editable block
+    doc = tomllib.loads(D.npc_stub_toml(lines, commented=False))
+    assert len(doc["npc"]) == 1
+    npc = doc["npc"][0]
+    assert npc["dialogue"] == "Hi there, traveler!" and npc["pos"] == [0, 0] and npc["preset"] == "vivi"
+
+
 # --- the offline plausibility proof: the kit's own hut, no install -----------------------
 @pytest.mark.skipif(not HUT_MOD.is_dir(), reason="release/FF9CustomMap absent")
 def test_read_local_dialogue_joins_the_hut():

@@ -91,6 +91,7 @@ class ViewedLine:
     pos: Optional[tuple] = None
     entry: Optional[int] = None  # the source .eb entry (for de-duping a line shown from several funcs)
     system: bool = False         # a system/notification window (flags lacking the dialogue-box bit), not dialogue
+    model: Optional[int] = None  # the speaking object's model id (for emitting an editable [[npc]] stub)
 
 
 # ------------------------------------------------------------------- .mes parse ---
@@ -233,7 +234,7 @@ def join(calls, mes_map: dict, *, field_label: str = "field", trust_positions: b
         out.append(ViewedLine(
             source=c.kind, who=_who(c, field_label), txid=c.txid,
             text=(e.text if e else None), tail=(e.tail if e else None),
-            pos=pos, entry=c.entry_idx, system=c.is_system))
+            pos=pos, entry=c.entry_idx, system=c.is_system, model=c.model))
     return out
 
 
@@ -620,3 +621,55 @@ def format_lines(lines, *, clean: bool = False, show_system: bool = False, dedup
             out.extend("    " + part for part in shown.split("\n"))
         out.append("")
     return "\n".join(out).rstrip() + "\n"
+
+
+# --------------------------------------------------- editable [[npc]] stubs (import --dialogue) ---
+def _toml_str(s: str) -> str:
+    """A TOML basic-string literal (escape backslash + quote; the value is single-line by the time it's here)."""
+    return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _npc_model_ref(model_id) -> Optional[str]:
+    """The GEO model NAME for a real NPC's model id IF it renders as a field NPC (so the kit auto-resolves its
+    anims), else None -> the stub falls back to a safe preset. Keeps an emitted stub buildable as-is."""
+    if model_id is None:
+        return None
+    try:
+        from . import catalog as _cat
+        m = _cat.model(model_id)
+        if m and getattr(m, "field", False) and _cat.npc_anims(m.id):
+            return m.name
+    except Exception:                                  # noqa: BLE001 -- a catalog hiccup -> preset fallback
+        pass
+    return None
+
+
+def npc_stub_toml(lines, *, field_ref: str = "this field", commented: bool = True) -> str:
+    """Emit a real field's NPC dialogue as editable ``[[npc]]`` blocks for the ``import --dialogue``
+    re-authoring workflow: one block per distinct NPC-talk line -- a placeholder name, the real model (by
+    GEO name when it renders as a field NPC, else a ``vivi`` preset), the line as clean editable text (tags
+    stripped, single line -- the kit re-wraps at build), and a ``pos = [0, 0]`` placeholder.
+
+    ``commented=True`` (the default the importer uses) prefixes every block line with ``# `` so they do NOT
+    duplicate the field's verbatim-carried ``[[object]]`` NPCs nor stack live at the origin -- they're a
+    ready-to-use re-authoring reference the author uncomments + edits selectively. ``commented=False`` emits
+    live blocks (what the GUI's deliberate 'Insert NPC stubs' uses)."""
+    npcs = [ln for ln in present(lines) if ln.source == "npc" and ln.text]
+    out = [
+        f"# === Dialogue imported from {field_ref} ({'editable [[npc]] stubs, COMMENTED' if commented else 'editable [[npc]] stubs'}) ===",
+        "# Each block is one real NPC line as a ready [[npc]] -- a starting point for RE-AUTHORING this",
+        "# field's script. They PARALLEL the verbatim-carried [[object]] NPCs (object-carry renders those;",
+        "# their original text isn't shipped). To use one: " + ("uncomment its lines, " if commented else "")
+        + "reposition (pos), tweak the model/preset, rewrite",
+        "# the text -- and remove the matching [[object]] if you're replacing it. Full script (tags intact):",
+        f"#   ff9mapkit dialogue-import {field_ref}",
+    ]
+    pre = "# " if commented else ""
+    for i, ln in enumerate(npcs):
+        txt = " ".join(strip_tags(ln.text).split())    # clean + single-line so the kit re-wraps it
+        mref = _npc_model_ref(ln.model)
+        out.append("")
+        out += [pre + b for b in ("[[npc]]", f'name = "imported_{i}"',
+                                  (f"model = {_toml_str(mref)}" if mref else 'preset = "vivi"'),
+                                  f"dialogue = {_toml_str(txt)}", "pos = [0, 0]")]
+    return "\n".join(out) + "\n"
