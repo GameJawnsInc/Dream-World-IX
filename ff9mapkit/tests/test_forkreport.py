@@ -48,6 +48,27 @@ def test_analyze_eb_alex100_is_static_roster():
     assert sum(rep.safety.values()) == rep.n_objects  # every carried object is classified
 
 
+def test_analyze_eb_alex100_reports_vivi_as_a_non_zidane_player():
+    # ALEX100 (Alexandria street, field 100) is played as VIVI -- the player axis reports who you control,
+    # that it's a single-PC non-Zidane field, and switches the suggested recipe to --verbatim (the graft
+    # path would drop Vivi's wrong-rig clips). Proven faithful in-game (memory project-ff9-non-zidane-donors).
+    rep = FR.analyze_eb(ALEX100, field_id=100, fbg_name="fbg_n01_alxt_map016_at_msa_0")
+    assert rep.player_models and rep.player_models[0][1] == 8      # GEO_MAIN_F0_VIV
+    assert rep.player_models[0][2] == "Vivi"
+    assert rep.non_zidane and not rep.multi_pc
+    out = FR.format_report(rep)
+    assert "Player        : Vivi" in out and "non-Zidane" in out
+    # the SUGGESTED-AUTHORING command line uses --verbatim, NOT the graft recipe (which drops Vivi's funcs)
+    cmd = next(l for l in out.splitlines() if "ff9mapkit import" in l)
+    assert "--verbatim" in cmd and "--graft-player-funcs" not in cmd
+
+
+def test_player_name_falls_back_to_geo_model_name():
+    assert FR.player_name(8) == "Vivi" and FR.player_name(98) == "Zidane"
+    assert FR.player_name(None) == "none"
+    assert FR.player_name(192) == "Freya"
+
+
 def test_analyze_eb_no_script():
     rep = FR.analyze_eb(b"", field_id=1)
     assert not rep.has_script

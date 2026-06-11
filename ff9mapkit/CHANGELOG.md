@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `fork-report` is now PLAYER-CHARACTER aware (non-Zidane donors)
+- A field's controlled character isn't always Zidane (Vivi/Steiner/Garnet/Eiko/Freya/Amarant solo sequences).
+  A census of all 818 field `.eb` (one events-bundle pass; `eventscan.resolve_player_entries` + `_player_model`)
+  found **178 non-Zidane-primary** fields, ~80 *truly playable as a party member*. `fork-report` now reports a
+  **Player** axis: who you play as, single- vs **multi-PC** (`[MULTI-PC]`), and — for a non-Zidane controlled
+  character — switches the suggested recipe to **`--verbatim`** (which ships the donor player rig + anim packs
+  + the field's own party/cutscene setup whole; the `--graft-player-funcs` path *drops* a non-Zidane player's
+  funcs as `"model"` graft-safety — another rig's clip ids). The multi-PC inference is conservative: the FIRST
+  `DefinePlayerCharacter` is NOT reliably who you control (the Cargo Ship lists Blank first; you play Zidane),
+  so a single-PC field is crowned confidently while a multi-PC field is only called non-Zidane-controlled when
+  **no Zidane is among the PCs** (the Treno Dagger/Steiner split) — else it's flagged "likely the Zidane
+  party-leader; co-actors are the rest". **★ In-game proven (Vivi / Alexandria street, field 100):** a
+  `import --verbatim` fork plays IDENTICALLY — Vivi renders + animates + is in the party menu, and the field's
+  real ticket-girl opening cutscene plays (so that intro lives in the `.eb` entry-0, not a C# `NarrowMapList`
+  table — the verbatim fork carries it). So a clean single-PC non-Zidane field already forks faithfully with
+  ZERO new code; the frontier is the multi-PC / scenario-gated-player bind. Read-only (`forkreport.py` only),
+  reuses the existing scanners. 2 tests (`tests/test_forkreport.py`); memory `project-ff9-non-zidane-donors`.
+  kit 0.9.19.
+
 ### Added — message-in-verbatim: an `[[on_entry]]` narration line now SHOWS in a verbatim fork
 - After the convergence (`build._apply_on_entry` runs on the verbatim path), an `[[on_entry]]` gated
   state-advance already fired in a `--verbatim` fork — but the narration **message** was dropped (the donor

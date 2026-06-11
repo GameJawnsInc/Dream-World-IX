@@ -38,6 +38,24 @@ _CMP_OPS = frozenset({0x18, 0x19, 0x1A, 0x1B, 0x20})   # < > <= >= ==
 # at 11 values, Dali through Pandemonium; a static room gates at <=1).
 _ROTATING_GATE_COUNT = 3
 
+# The controlled PLAYER character (DefinePlayerCharacter's SetModel id). Most fields are Zidane; a
+# non-Zidane primary means "you play as someone else" -- which forks faithfully ONLY via --verbatim (it
+# ships the donor player rig + anim packs + the field's own party/cutscene setup whole). The graft path
+# refuses non-Zidane player funcs ("model" graft-safety -- another rig's clip ids). Proven on Vivi/field 100.
+# (memory project-ff9-non-zidane-donors). Names for the playable cast; others fall back to the GEO model name.
+PLAYABLE_NAMES = {98: "Zidane", 532: "Zidane(ZDD)", 8: "Vivi", 5489: "Steiner", 526: "Steiner(STD)",
+                  192: "Freya", 443: "Eiko", 185: "Garnet", 509: "Amarant", 273: "Kuja"}
+
+
+def player_name(model_id) -> str:
+    """A friendly name for a player model id (the playable cast), else its GEO model name, else 'none'."""
+    if model_id is None:
+        return "none"
+    if model_id in PLAYABLE_NAMES:
+        return PLAYABLE_NAMES[model_id]
+    from ._modeldb import MODELS
+    return MODELS.get(model_id, f"model {model_id}")
+
 
 @dataclass
 class ForkReport:
@@ -55,6 +73,9 @@ class ForkReport:
     sc_gates: list = _dc_field(default_factory=list)      # [(value, (milestone_value, beat))] sorted
     suggested_scenario: int | None = None
     roster_class: str = "static-roster"        # "static-roster" | "story-event"
+    player_models: list = _dc_field(default_factory=list)  # [(entry_index, model_id, name)] -- the controlled PC(s)
+    multi_pc: bool = False                                # the field defines >1 DefinePlayerCharacter
+    non_zidane: bool = False                              # the PRIMARY player isn't Zidane -> --verbatim is the faithful mode
     notes: list = _dc_field(default_factory=list)
 
 
@@ -159,6 +180,37 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
     except (ValueError, IndexError, KeyError, struct.error):   # a malformed gateway region -> just omit the count
         rep.gated_doors = 0
 
+    # The controlled player character(s). resolve_player_entries returns EVERY DefinePlayerCharacter entry
+    # (182 fields define >1). CAUTION: in a multi-PC field the FIRST entry is NOT reliably who you control --
+    # the Cargo Ship lists Blank first but you play Zidane; co-actors are also "player characters". So we crown
+    # a single-PC field confidently, but for multi-PC we only enumerate + infer: if ANY pc is Zidane you most
+    # likely control the Zidane party-leader (the rest are co-actors); ONLY when NO Zidane is defined is the
+    # controlled character genuinely non-Zidane (the Treno Dagger/Steiner split). The exact bind is the frontier.
+    pents = _eventscan.resolve_player_entries(eb)
+    rep.player_models = [(pe, _eventscan._player_model(eb, pe),
+                          player_name(_eventscan._player_model(eb, pe))) for pe in pents]
+    rep.multi_pc = len(pents) > 1
+    models = [m for _, m, _ in rep.player_models if m is not None]
+    zidane_present = any(m in _eventscan.ZIDANE_MODELS for m in models)
+    if not rep.multi_pc:
+        rep.non_zidane = bool(models) and models[0] not in _eventscan.ZIDANE_MODELS
+        if rep.non_zidane:
+            nm = rep.player_models[0][2]
+            rep.notes.append(f"you play as {nm} (non-Zidane) -- fork with --verbatim: it ships the donor player "
+                             f"rig + anim packs + the field's own party/cutscene setup whole (proven faithful on "
+                             f"Vivi/field 100). --graft-player-funcs would drop {nm}'s funcs (wrong-rig clips)")
+    elif models:
+        names = ", ".join(n for _, _, n in rep.player_models)
+        rep.non_zidane = not zidane_present                  # no Zidane among the PCs -> genuinely non-Zidane control
+        if rep.non_zidane:
+            rep.notes.append(f"NO Zidane among the {len(models)} player characters ({names}) -- you control a "
+                             f"non-Zidane character. Fork with --verbatim (the player rig + anim packs ship whole); "
+                             f"WHICH pc binds is untested (the multi-PC non-Zidane frontier)")
+        else:
+            rep.notes.append(f"the field defines {len(models)} player characters ({names}) -- you most likely "
+                             f"control the Zidane party-leader; the rest are co-actors. The exact bind in a fork "
+                             f"is untested")
+
     gates = scenario_gates(data)
     rep.sc_gates = [(v, _flags.nearest_milestone(v)) for v in gates]
     # earliest gate ~= when the field's story content first appears = its natural "home" beat. (A rotating
@@ -197,6 +249,14 @@ def format_report(rep: ForkReport) -> str:
         lines.append("  " + (rep.notes[0] if rep.notes else "no event script"))
         return "\n".join(lines)
 
+    if rep.player_models:
+        if rep.multi_pc:
+            names = ", ".join(n for _, _, n in rep.player_models)
+            tag = "non-Zidane -> --verbatim" if rep.non_zidane else "likely Zidane party-leader"
+            pc = f"{len(rep.player_models)} PCs: {names}  [MULTI-PC; {tag}]"
+        else:
+            pc = rep.player_models[0][2] + ("  [non-Zidane -> --verbatim]" if rep.non_zidane else "")
+        lines.append(f"  Player        : {pc}")
     s = rep.safety
     dirs = f"{len(rep.directors)} director(s)" if rep.directors else "0 directors"
     stack = f", {len(rep.stacked)} multi-instance" if rep.stacked else ""
@@ -219,10 +279,16 @@ def format_report(rep: ForkReport) -> str:
         lines.append("")
         for n in rep.notes:
             lines.append(f"   - {n}")
-    # suggested authoring
+    # suggested authoring -- a non-Zidane player forks faithfully only via --verbatim (it ships the donor
+    # player rig + anim packs + the field's own party/cutscene setup whole; the graft path drops them).
     fbg = rep.fbg_name or str(rep.field_id)
-    lines += ["", "  Suggested authoring:",
-              f"    ff9mapkit import {fbg} --native --graft-player-funcs --carry-text"]
+    lines += ["", "  Suggested authoring:"]
+    if rep.non_zidane:
+        who = "the non-Zidane PC(s)" if rep.multi_pc else rep.player_models[0][2]
+        lines.append(f"    ff9mapkit import {fbg} --verbatim"
+                     f"   # ships {who} + rig/anim/party-setup whole (non-Zidane)")
+    else:
+        lines.append(f"    ff9mapkit import {fbg} --native --graft-player-funcs --carry-text")
     if rep.suggested_scenario is not None:
         nm = _flags.nearest_milestone(rep.suggested_scenario)
         lines += ["    [startup]",

@@ -168,7 +168,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.18`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.19`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -649,6 +649,24 @@ Read these on demand — they hold the full technical detail this file only summ
   own Main_Init can set the ScenarioCounter AFTER `[startup]` (the donor's real logic gets the last word) — the
   on_entry gate still matched (the message fired), so it's cosmetic. Touches only `build.py` + `content/onentry.py`
   tests + docs — orthogonal to overworld's non-Zidane (player/eventscan) lane. kit 0.9.18.
+- **Non-Zidane donors — a verbatim fork of a non-Zidane field plays IDENTICALLY (in-game proven, Vivi/field 100;
+  memory `project-ff9-non-zidane-donors`).** New `overworld` lane: fork a field whose controlled character isn't
+  Zidane. A census of all **818** field `.eb` (one events-bundle pass) found **178 non-Zidane-primary** fields, ~80
+  *truly playable as a party member* (Vivi 17 / Steiner 24 / Garnet 34 / Eiko-Freya-Amarant 5; the rest are the
+  Gargant mount + ~80 cutscene-driver "players" — Brahne/Kuja/Beatrix/Cid/Marcus + endings — a cutscene shape, not
+  a control one). ★ **In-game proof:** a `import --verbatim` fork of Vivi's Alexandria street (field 100) warped
+  into via F6 plays the real thing — **Vivi renders + animates + shows in the party menu**, and the field's actual
+  ticket-girl opening cutscene fires (proving that intro lives in the `.eb` entry-0, NOT a C# `NarrowMapList` table,
+  so the verbatim fork carries it + the party setup faithfully). So a CLEAN single-PC, beat-agnostic non-Zidane
+  field already forks faithfully with ZERO new code — the engine honors the field's `SetModel`, not the warp-in
+  party leader, and the lane does NOT collapse into the party-state problem. The kit was SILENT about who you play
+  as; **`fork-report` now has a Player axis** — who you control, single- vs **multi-PC**, and a non-Zidane →
+  **`--verbatim`** recipe switch (the `--graft-player-funcs` path drops a non-Zidane player's funcs as `"model"`
+  graft-safety = another rig's clips). Multi-PC inference is conservative (pents[0] is NOT reliably the controlled
+  PC — the Cargo Ship lists Blank first; flagged non-Zidane only when NO Zidane is among the PCs, e.g. the Treno
+  Dagger/Steiner split). Read-only (`forkreport.py` only, reuses the scanners) — clear of story_flags' build.py
+  on_entry lane. The frontier is the multi-PC / scenario-gated-player BIND (untested which PC binds). kit 0.9.19;
+  843 tests.
 
 ---
 
