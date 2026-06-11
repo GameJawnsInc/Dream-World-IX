@@ -35,6 +35,7 @@ from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
 from .content import object as _object
+from .content import onentry as _onentry
 from .content import pathfind as _pathfind
 from .content import prop as _prop
 from .content import region as _region
@@ -281,6 +282,44 @@ def _validate_story_writes(d: dict, label: str, names: dict, problems: list, *,
             problems.append(f"{label} {flags_key} #{i} value must be 0 or 1 (got {p.get('value')!r})")
 
 
+def _validate_on_entry(hooks, names: dict, problems: list) -> None:
+    """Validate the ``[[on_entry]]`` list -- field-load beats (a ``message`` and/or ``set_scenario`` /
+    ``set_flags`` story writes) optionally gated by ``requires_scenario`` (a ScenarioCounter ``== N``)
+    and/or ``requires_flag``. Each hook needs at least one action; the write block reuses
+    :func:`_validate_story_writes`; the gates resolve like any flag/scenario reference."""
+    if not isinstance(hooks, list):
+        problems.append("[[on_entry]] must be a list of hooks (each: message / set_scenario / set_flags "
+                        "+ optional requires_flag / requires_scenario)")
+        return
+    for i, h in enumerate(hooks):
+        label = f"[[on_entry]] #{i}"
+        if not isinstance(h, dict):
+            problems.append(f"{label} must be a table")
+            continue
+        if not any(k in h for k in ("message", "set_scenario", "set_flags")):
+            problems.append(f"{label} does nothing -- give it a message, set_scenario, and/or set_flags")
+        if "message" in h and not isinstance(h["message"], str):
+            problems.append(f"{label} message must be a string")
+        _validate_story_writes(h, label, names, problems,
+                               scenario_key="set_scenario", flags_key="set_flags")
+        rs = h.get("requires_scenario")
+        if isinstance(rs, str):
+            try:
+                _flags.resolve_scenario(rs)
+            except ValueError as e:
+                problems.append(f"{label} requires_scenario: {e}")
+        elif rs is not None and (isinstance(rs, bool) or not isinstance(rs, int)
+                                 or not (0 <= rs <= _startup.SCENARIO_MAX)):
+            problems.append(f"{label} requires_scenario must be 0..{_startup.SCENARIO_MAX} or an area name "
+                            f"(got {rs!r})")
+        rf = h.get("requires_flag")
+        if rf is not None:
+            try:
+                _flags.resolve(rf, names)
+            except ValueError as e:
+                problems.append(f"{label} requires_flag: {e}")
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
@@ -462,6 +501,9 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[startup] must be a table (scenario = N|\"area\" and/or flags = [{flag, value}])")
         else:
             _validate_story_writes(su, "[startup]", story_names, problems)
+    oe = project.raw.get("on_entry")                     # field-load beats ([[on_entry]]: gated, once)
+    if oe is not None:
+        _validate_on_entry(oe, story_names, problems)
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if len(z) not in (4, 5):
@@ -705,6 +747,17 @@ def lint_logic(project: FieldProject) -> list[str]:
         for p in su.get("flags", []) or []:
             if isinstance(p, dict) and isinstance(p.get("flag"), int) and int(p.get("value", 1)):
                 settable.add(int(p["flag"])); explicit.add(int(p["flag"]))
+    for k, h in enumerate(raw.get("on_entry", [])):   # [[on_entry]] sets flags on entry + has a once-flag
+        if not isinstance(h, dict):
+            continue
+        for p in h.get("set_flags", []) or []:
+            if isinstance(p, dict) and isinstance(p.get("flag"), int) and int(p.get("value", 1)):
+                settable.add(int(p["flag"])); explicit.add(int(p["flag"]))
+        if h.get("once", True):
+            if isinstance(h.get("flag"), int):
+                settable.add(int(h["flag"])); explicit.add(int(h["flag"]))
+            elif _auto.base is None:                   # campaign members need an explicit flag (build enforces)
+                auto_once.add(_auto.on_entry(k))
     settable |= auto_once
 
     # everything that READS a flag (require SET needs a setter; require CLEAR is fine by default).
@@ -723,6 +776,11 @@ def lint_logic(project: FieldProject) -> list[str]:
             if "requires_flag" in o:
                 explicit.add(int(o["requires_flag"]))
                 need_set.append((int(o["requires_flag"]), f"choice #{c} option {oi}"))
+    for k, h in enumerate(raw.get("on_entry", [])):    # an on_entry beat gated on a flag being SET
+        if isinstance(h, dict) and isinstance(h.get("requires_flag"), int):
+            explicit.add(int(h["requires_flag"]))
+            if h.get("requires_set", True):
+                need_set.append((int(h["requires_flag"]), f"on_entry #{k}"))
 
     for flag, who in need_set:
         if flag not in settable:
@@ -758,6 +816,13 @@ def lint_logic(project: FieldProject) -> list[str]:
                        f"will ALL arm and the player hits the wrong branch. This is a collapsed story-branch "
                        f"door; gate each with requires_flag / requires_flag_clear so only the right one fires "
                        f"per story beat. (FORK_FIDELITY.md #2)")
+
+    # a --verbatim fork ships the donor .eb as-is, bypassing the synthesizer that injects [[on_entry]] hooks
+    # -> the beats would silently never fire. Warn rather than drop them invisibly.
+    if raw.get("verbatim_eb") and raw.get("on_entry"):
+        out.append("[[on_entry]] hooks are IGNORED in a --verbatim fork: the donor .eb ships as-is, bypassing "
+                   "the synthesizer that arms them, so the beats won't fire. Drop [verbatim_eb] to synthesize "
+                   "the field, or fold the beat into the donor's own logic.")
 
     # pre-choose: a choice's `default` can't sit at/after a greyed (`disabled`) row. The engine
     # (SetChooseParam) converts the absolute default into the AVAILABLE-row index, but Dialog then reads
@@ -904,6 +969,16 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
         for i, p in enumerate(su.get("flags", []) or []):
             if isinstance(p, dict) and "flag" in p:
                 _write(p["flag"], f"[startup] preset #{i}")
+    for k, h in enumerate(raw.get("on_entry", [])):    # [[on_entry]] beats write (set_flags / once-flag)
+        if not isinstance(h, dict):                     # + read (requires_flag) story flags
+            continue
+        for i, p in enumerate(h.get("set_flags", []) or []):
+            if isinstance(p, dict) and "flag" in p:
+                _write(p["flag"], f"[[on_entry]] #{k} set_flags #{i}")
+        if "flag" in h and h.get("once", True):
+            _write(h["flag"], f"[[on_entry]] #{k} once-flag")
+        if "requires_flag" in h:
+            _read(h["requires_flag"], f"[[on_entry]] #{k}")
     return out
 
 
@@ -1464,16 +1539,28 @@ class _FlagAlloc:
     def choice(self, i: int) -> int:
         return (_choice.CHOICE_FLAG_BASE + i) if self.base is None else (self.base + 1 + EVENTS_PER_FIELD + i)
 
+    def on_entry(self, i: int) -> int:
+        """Auto once-flag for an ``[[on_entry]]`` hook. Single-field only -- a campaign member's
+        K-wide block is already fully partitioned (cutscene/events/choices), so an on_entry hook there
+        needs an explicit ``flag = N`` (build_script raises a clear error rather than alias a sibling)."""
+        if self.base is None:
+            return _onentry.ONENTRY_FLAG_BASE + i
+        raise BuildError(
+            "an [[on_entry]] hook in a campaign member needs an explicit `flag = N` -- the per-member "
+            "flag block is fully reserved for cutscene/events/choices, so an auto once-flag would alias "
+            "a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
+
 
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None,
                  cutscene_txids: list | None = None, walkmesh=None,
-                 choice_txids: dict | None = None) -> bytes:
+                 choice_txids: dict | None = None, on_entry_txids: dict | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
     _auto = _FlagAlloc(getattr(project, "flag_base", None))
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
     choice_txids = choice_txids or {}
+    on_entry_txids = on_entry_txids or {}
     # a choice attached to an NPC (choice.npc == npc.name) replaces that NPC's talk with a branch.
     choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []))
                      if "npc" in ch}
@@ -1748,6 +1835,43 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if cs and not cs_actor:
         steps = [_cutscene.compile_steps(cs["steps"], cutscene_txids)]
         eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag)
+
+    # on-entry beats ([[on_entry]]): a gated, once field-load hook -- a narration message and/or a
+    # story-state write (set_scenario / set_flags), fired the moment the player enters but ONLY when
+    # requires_flag / requires_scenario match. The declarative stand-in for a real field's C#
+    # NarrowMapList entry cutscene (docs/FORK_FIDELITY.md #10), which a fork can't carry. Each hook is
+    # a code entry armed by InitCode in Main_Init. Absent -> no injection (byte-identical).
+    on_entry = project.raw.get("on_entry") or []
+    if on_entry:
+        oe_names = _flags.collect_flag_defs(project.raw)
+        hooks = []
+        for k, h in enumerate(on_entry):
+            sc = h.get("set_scenario")
+            if isinstance(sc, str):
+                sc = _flags.resolve_scenario(sc)
+            rsc = h.get("requires_scenario")
+            if isinstance(rsc, str):
+                rsc = _flags.resolve_scenario(rsc)
+            pairs = [(_flags.resolve(p["flag"], oe_names), int(p.get("value", 1)))
+                     for p in h.get("set_flags", [])]
+            rf = h.get("requires_flag")
+            rf = _flags.resolve(rf, oe_names) if rf is not None else None
+            once_flag = None
+            if h.get("once", True):
+                if "flag" in h:
+                    once_flag = int(h["flag"])
+                else:
+                    once_flag = _auto.on_entry(k)          # single-field 8300+k (campaign: raises -> explicit flag)
+                    if once_flag >= _flags.CHEST_FLAG_LO:   # would write into FF9's reserved chest bitfield
+                        raise BuildError(
+                            f"field {project.name}: too many auto-flagged [[on_entry]] hooks -- hook #{k}'s auto "
+                            f"once-flag {once_flag} reaches FF9's reserved chest bitfield "
+                            f"({_flags.CHEST_FLAG_LO}-{_flags.CHEST_FLAG_HI}) -> save corruption. Give the later "
+                            f"hooks an explicit flag = N (>= {_flags.FIRST_SAFE_FLAG}).")
+            hooks.append({"message_txid": on_entry_txids.get(k), "set_flag_pairs": pairs,
+                          "scenario": sc, "once_flag": once_flag, "requires_flag": rf,
+                          "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc})
+        eb = _onentry.inject_on_entries(eb, hooks)
 
     # ladders: FF9's real ladder mechanism -- walk to the base ("!" prompt via tread Bubble) + press
     # action to climb (the region's action func RunScriptSyncs the player's climb function, which runs
@@ -2253,16 +2377,18 @@ def _wrap_width(project: FieldProject):
 
 
 def collect_text(project: FieldProject):
-    """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids). All field text (NPC
-    dialogue, event messages, cutscene 'say' lines, choice prompts + replies) shares one .mes block,
-    in that order (so a field with no events/cutscene/choices is byte-identical to the old layout).
-    ``cutscene_txids`` is a list (one per 'say' step); ``choice_txids[c]`` = ``{"prompt": id,
-    "replies": {opt_index: id}}``.
+    """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids). All
+    field text (NPC dialogue, event messages, cutscene 'say' lines, choice prompts + replies, on-entry
+    messages) shares one .mes block, in that order (so a field with no events/cutscene/choices/on_entry
+    is byte-identical to the old layout). ``cutscene_txids`` is a list (one per 'say' step);
+    ``choice_txids[c]`` = ``{"prompt": id, "replies": {opt_index: id}}``; ``on_entry_txids[k]`` = the
+    txid of hook ``k``'s message (only for hooks that have one).
 
     Lines are auto-wrapped to fit the screen (FF9 doesn't wrap; see content.text) unless
     ``[dialogue] wrap = false``; a line that already fits is left byte-identical."""
     lines, tails = [], []
     npc_pos, ev_pos, cs_pos = {}, {}, []
+    oe_pos = {}                               # on_entry hook idx -> message line
     ch_prompt_pos, ch_reply_pos = {}, {}      # choice idx -> prompt line; (choice, opt) -> reply line
     wrap = _wrap_width(project)
 
@@ -2308,8 +2434,13 @@ def collect_text(project: FieldProject):
         for oi, o in enumerate(ch.get("options", [])):
             if o.get("reply"):
                 ch_reply_pos[(c, oi)] = _add(o, o["reply"])
+    # on-entry beats: a hook's narration message. Added LAST so a field without [[on_entry]] is
+    # byte-identical to the previous layout (no existing line shifts).
+    for k, h in enumerate(project.raw.get("on_entry", [])):
+        if isinstance(h, dict) and "message" in h:
+            oe_pos[k] = _add(h, h["message"])
     if not lines:
-        return "", {}, {}, [], {}
+        return "", {}, {}, [], {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
@@ -2318,7 +2449,8 @@ def collect_text(project: FieldProject):
                         "replies": {oi: mapping[ch_reply_pos[(cc, oi)]]
                                     for (cc, oi) in ch_reply_pos if cc == c}}
                     for c, p in ch_prompt_pos.items()}
-    return body, npc_txids, event_txids, cutscene_txids, choice_txids
+    on_entry_txids = {k: mapping[p] for k, p in oe_pos.items()}
+    return body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids
 
 
 # --------------------------------------------------------------------------- the build
@@ -2432,7 +2564,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids, cutscene_txids, choice_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     # faithful text carry: the donor's referenced dialogue, shipped VERBATIM per language and APPENDED after
     # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
@@ -2449,7 +2581,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             lang_body = _verbatim.verbatim_mes(project, lang) or ""    # the donor's WHOLE text (index-txids)
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
-                              cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh, choice_txids=choice_txids)
+                              cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
+                              choice_txids=choice_txids, on_entry_txids=on_entry_txids)
             lang_body = mes_body
             if carry_plan:
                 from .content import textcarry as _textcarry

@@ -513,7 +513,7 @@ def test_campaign_flag_block_overflow_raises(tmp_path):
                  '[camera]\npitch = 45\nfov = 42.2\n\n'
                  '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n' + evs, encoding="utf-8")
     proj = build.FieldProject.load(p)
-    _m, _t, et, _c, _x = build.collect_text(proj)
+    _m, _t, et, _c, _x, _o = build.collect_text(proj)
     build.build_script(proj, "us", {}, event_txids=et)                 # single-field (no block): builds fine
     proj.flag_base = campaign.FIRST_SAFE_FLAG                          # campaign member: now it overflows
     proj.flags_per_field = 64

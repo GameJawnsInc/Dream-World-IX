@@ -43,8 +43,9 @@ clean after-battle return; carried NPCs/props that render byte-identically, spea
 lines, and respond to push/talk. **You don't get:** the field plays in its **scenario-zero state** — every
 story-gated NPC/door/event defaults to the not-yet-happened branch (hidden areas may be exposed, story NPCs
 absent); you **spawn at one fixed point** no matter which gateway you arrived through; any field-entry
-**cutscene never fires**; exit gateways warp correctly but **don't advance the ScenarioCounter**, so chaining
-forks won't progress the story.
+**cutscene won't auto-fire** from the C# table (re-author it declaratively with `[[on_entry]]` — a gated,
+once field-load beat); exit gateways warp correctly but **don't advance the ScenarioCounter** unless you add
+a `[[gateway]]` `set_scenario`/`set_flags`.
 
 Note: faithful carry is **opt-in** (the three flags above). A plain `import` is BG-borrow with no
 object/text/func carry; `import-chain` text carry needs a live install (offline `.mes` read not yet wired).
@@ -82,7 +83,7 @@ deferred). Orthogonal items remain the lowest-risk picks.
 | 7 | Large scrolling field unverified in real gameplay (math implemented + unit-tested only) | minor | easy | no | Deploy one wide scrolling fork to the test slot, ask the human to playtest — pure verification |
 | 8 | BG-borrow `.bgx` tile seams (bilinear path; edge-bleed exists only on the editable path) | major | medium | no | Steer faithful forks to `--native` (seam-free); optionally port edge-bleed into the `.bgx` writer |
 | 9 | Per-door spawn arrival — one spawn regardless of entrance | major | hard | **yes** | Reconstruct a `if(FieldEntrance==N)` arrival table in player-init (`scan_gateways` already recovers each exit's entrance id). **Defer**; interim: emit discovered entrance ids as commented `[[spawn]]` stubs |
-| 10 | Field-entry cutscene auto-fire (C# `NarrowMapList`, not the `.eb`) | major | needs-engine-fork | no | v1: document + offer a manual fire-on-entry hook (`InitCode` in Main_Init). True fidelity: a dev-engine `NarrowMapList` patch registering custom ids → cutscene metadata (research) |
+| 10 | Field-entry cutscene auto-fire (C# `NarrowMapList`, not the `.eb`) | major | needs-engine-fork | no | **✅ v1 LANDED — the `[[on_entry]]` block** (`content/onentry.py`): fire a narration `message` and/or story-state writes (`set_scenario`/`set_flags`) on field load, **once**, GATED by `requires_scenario` (ScenarioCounter `== N`) / `requires_flag` — the gating neither `[startup]` nor `[cutscene]` could express. Armed by `InitCode` in Main_Init (no movement gate — runs before control); the gate sits *outside* the once-block so it fires on the first entry that matches. Byte-identical when absent; 14 tests. The declarative re-authoring of a lost entry cutscene. True auto-fire from the C# table still needs a dev-engine `NarrowMapList` patch (research) |
 | 11 | Non-tag-3 / choice/menu window carry — carried NPCs' choice prompts + event windows still point at donor TXIDs | major | medium | **yes** | Extend `collect_carry` to all kept funcs' windows + choice txids. **Defer** behind the graft session; lint-warn meanwhile |
 | 12 | Non-Zidane player donors (~8%, Garnet/Steiner rig clip-id mismatch) | major | hard | **yes** | Clip-id remap table per donor rig, or carry the donor party-member as the fork player. **Defer** (player.py) |
 | 13 | Per-fork battle-background override (scene_id maps to BBG globally) | major | hard | no | Only when minting a scene that reuses vanilla gameplay but a custom BBG; battle-pillar enhancement, low priority |
@@ -90,8 +91,10 @@ deferred). Orthogonal items remain the lowest-risk picks.
 ## The next step
 
 **Landed:** #1 (`[startup]` presets), #2 (gated story-branch doors), #3 (`[[gateway]]` on-exit advance —
-`set_scenario`/`set_flags`), and #4 (auto-`--native` for area<10 — a plain `import` of an early-game field
-now works, in-game proven), plus the verbatim save-moogle carry (P1–P6.1) — so the graft lane is FREE.
+`set_scenario`/`set_flags`), #4 (auto-`--native` for area<10 — a plain `import` of an early-game field
+now works, in-game proven), and **#10 v1** (`[[on_entry]]` — gated, once field-load beats: the declarative
+re-authoring of a lost `NarrowMapList` entry cutscene), plus the verbatim save-moogle carry (P1–P6.1) and the
+verbatim `.eb`+`.mes` fork (`import --verbatim`) — so the graft lane is FREE.
 
 The next levers, biggest narrative-state leverage first (the weak axis — making a fork *behave* as its beat):
 - **#5 — softlock lint on a plain import** (medium): a plain fork of a field with a talkable/interactive

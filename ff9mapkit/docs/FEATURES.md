@@ -81,6 +81,7 @@ codec/golden tests) with the full in-game pass still pending.
 | Cutscenes — actor (NPC walk / turn / emote / teleport / talk) | ✓ | [FORMAT](FORMAT.md) |
 | Save-persistent story flags (correct `gEventGlobal` scope) | ✓ | [FORMAT](FORMAT.md) |
 | Story-state author surface: `[startup]` asserts the beat on entry; `[[gateway]]` `set_scenario`/`set_flags` advances it on exit | ✓ | [FORK_FIDELITY](FORK_FIDELITY.md) |
+| Gated field-entry beats — `[[on_entry]]` fires a message / story write on load, once, only when `requires_scenario`/`requires_flag` match (re-author a lost `NarrowMapList` cutscene) | ✓ | [FORMAT](FORMAT.md) |
 | Wire a custom room into the real game world (entrance + exit) | ✓ | [PIPELINE](PIPELINE.md) |
 
 ## Front-ends (author however you like)

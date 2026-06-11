@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[on_entry]]`: gated, once field-load beats (FORK_FIDELITY.md #10)
+- A real FF9 field's entry cutscene fires from the engine's C# `NarrowMapList` table, **not the field `.eb`** —
+  so a fork can't carry it. `[[on_entry]]` is the declarative re-authoring hook: fire a narration `message`
+  and/or story-state writes (`set_scenario` / `set_flags`) the moment the player **enters** the field, **once**,
+  but **only when the story state matches** (`requires_scenario` = a ScenarioCounter `== N`, and/or
+  `requires_flag`). The gating is the new capability — neither `[startup]` (unconditional, every entry) nor
+  `[cutscene]` (ungated, single) can say "fire this beat only at scenario N / when bit B is set", which is
+  exactly what a `NarrowMapList` entry trigger does. Each hook is a standalone code entry armed by an `InitCode`
+  in Main_Init (the proven narration-cutscene arming, now robust for any count via the region-arming fix below),
+  so it runs at field load *before* control is re-enabled (hence no movement gate); a `message` beat reuses the
+  cutscene's reorder-`Wait` + `DisableMove`/`EnableMove` lock so the window shows cleanly during the entry fade.
+  `content/onentry.py` + `build.py` (validate / collect_text / inject / lint) + `flags.py` (name resolution,
+  read/write parity); surfaced in the dialogue viewer/editor (`collect_text_refs`). Byte-identical when absent.
+  An adversarial pre-commit review (4 read-only lenses) hardened two edges: the single-field auto once-flag
+  band is guarded against reaching FF9's reserved chest bitfield (a `BuildError` instead of silent save
+  corruption), and `lint_logic` warns when `[[on_entry]]` coexists with a `--verbatim` fork (which ships the
+  donor `.eb` as-is, bypassing the hook). 16 tests (`tests/test_on_entry.py`); 828 suite. kit 0.9.15.
+
 ### Fixed — region arming silently lost on fields with >2 regions
 - `eb.edit.activate` (the Main_Init region-arming primitive) overwrites a `Wait` filler shift-free, but the
   blank/borrowed template has only **2 `Wait` fillers**; the 3rd+ region fell back to a raw `insert_bytes` at

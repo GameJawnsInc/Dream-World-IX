@@ -518,7 +518,7 @@ def project_dialogue(project) -> list:
     by running the unchanged :func:`build.collect_text` and parsing its ``.mes`` back, so it can never drift
     from the real build output."""
     from . import build as _build
-    mes_body, npc_txids, ev_txids, cs_txids, ch_txids = _build.collect_text(project)
+    mes_body, npc_txids, ev_txids, cs_txids, ch_txids, oe_txids = _build.collect_text(project)
     mes = parse_mes(mes_body)
     raw = getattr(project, "raw", {}) or {}
     npcs, events = raw.get("npc", []), raw.get("event", [])
@@ -534,6 +534,8 @@ def project_dialogue(project) -> list:
         label.setdefault(t, ("cutscene", f"cutscene say {k}"))
     for k, t in _iter_txids(ch_txids):
         label.setdefault(t, ("choice", f"choice {k}"))
+    for k, t in _iter_txids(oe_txids):
+        label.setdefault(t, ("on_entry", f"on_entry {k}"))
 
     out = []
     for txid in sorted(mes):
@@ -614,6 +616,10 @@ def collect_text_refs(data: dict) -> list:
         for k, st in enumerate(cs.get("steps", []) or []):
             if "say" in st:
                 refs.append(TextRef("cutscene", f"Cutscene: say #{k}", ("cutscene", "steps", k, "say")))
+    for k, h in enumerate(data.get("on_entry", []) or []):
+        if isinstance(h, dict) and "message" in h:
+            refs.append(TextRef("on_entry", f"On-entry beat #{k}", ("on_entry", k, "message"),
+                                ("on_entry", k, "speaker"), ("on_entry", k, "tail")))
     return refs
 
 

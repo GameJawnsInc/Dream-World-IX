@@ -161,7 +161,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.14`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.15`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -585,6 +585,21 @@ Read these on demand — they hold the full technical detail this file only summ
   The only LIMIT left is cosmetic: an F6-warp has no entrance fade to mask first-frame model streaming (a heavy
   model flickers in; faithful, fade-hidden in real play). **The verbatim fork is the most faithful mode — a real
   slice of the game (scene + real logic + real text) from one command.**
+- **`[[on_entry]]` — gated, once field-LOAD beats (`story_flags` branch; FORK_FIDELITY.md #10 v1, kit 0.9.15).**
+  A real field's entry cutscene fires from the engine's C# `NarrowMapList` table, NOT the `.eb`, so a fork can't
+  carry it. `[[on_entry]]` is the declarative re-authoring hook: fire a narration `message` and/or story-state
+  writes (`set_scenario`/`set_flags`) the moment the player ENTERS, **once**, but **only when the story state
+  matches** (`requires_scenario` = ScenarioCounter `== N`, and/or `requires_flag`). The **gating** is the new
+  capability — neither `[startup]` (unconditional, every entry) nor `[cutscene]` (ungated, single) can express
+  "fire this beat only at scenario N / when bit B is set", which is exactly what a `NarrowMapList` entry trigger
+  does. Each hook = a code entry armed by `InitCode` in Main_Init (the proven narration-cutscene arming, robust
+  for any count post the region-arming fix), so it runs at load BEFORE control (hence no movement gate); the
+  gates sit OUTSIDE the once-block, so a hook returns without spending its once-flag until its beat is reached
+  (the NarrowMapList semantics). A `message` reuses the cutscene reorder-`Wait` + `DisableMove`/`EnableMove`
+  lock. `content/onentry.py` + `build.py` (validate/collect_text/inject/lint) + `flags.py` (name resolution,
+  read/write parity); surfaced in the dialogue viewer/editor. Byte-identical when absent; 14 tests, 826 suite.
+  Orthogonal to overworld's verbatim/graft/import-chain lane (touches only the declarative-author + lint side).
+  *In-game verification (a fork's entry message fires at the right beat) is the human step.*
 
 ---
 

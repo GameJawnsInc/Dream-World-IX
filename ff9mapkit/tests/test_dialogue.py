@@ -181,10 +181,11 @@ def test_collect_text_refs_covers_every_section():
         "choice": [{"npc": "V", "prompt": "Well?", "options": [{"text": "Yes", "reply": "Good."},
                                                                {"text": "No"}]}],
         "cutscene": {"steps": [{"say": "Once upon a time."}, {"wait": 10}]},
+        "on_entry": [{"message": "The gate is shut.", "set_flags": [{"flag": 8512, "value": 1}]}],
     }
     refs = D.collect_text_refs(data)
     secs = [r.section for r in refs]
-    assert secs == ["npc", "event", "choice", "reply", "reply", "cutscene"]      # prompt + 2 replies
+    assert secs == ["npc", "event", "choice", "reply", "reply", "cutscene", "on_entry"]   # prompt + 2 replies
     npc = refs[0]
     assert D.get_text(data, npc.path) == "hi" and D.get_text(data, npc.speaker_path) == "Vivi"
 

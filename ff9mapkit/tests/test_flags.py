@@ -242,7 +242,7 @@ def _build_lever(tmp_path, gate_value, tag):
         '[[choice.options]]\ntext = "Yes"\nset_flag = [8521, 1]\n'
         '[[choice.options]]\ntext = "No"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    _, _, _, _, ctx = build.collect_text(proj)
+    _, _, _, _, ctx, _ = build.collect_text(proj)
     return build.build_script(proj, "us", {}, choice_txids=ctx)
 
 
