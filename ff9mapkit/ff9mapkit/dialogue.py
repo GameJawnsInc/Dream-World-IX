@@ -444,7 +444,10 @@ def extract_field_mes(field, lang: str = "us", game=None, zone_id: Optional[int]
     if zone_id is None:
         zone_id = EVENT_ID_TO_MES.get(fid)
     cands = _field_text_blocks(None, lang, game=game, zone_id=zone_id)
-    return cands[0][2] if cands else None
+    # all candidates are the SAME text block in different languages, so pick by LANGUAGE score -- NOT coverage
+    # (the default sort prefers the longest block, which silently handed every language the German variant).
+    real = [c for c in cands if len(c[2]) > 1000] or cands   # the real per-language blocks, not padding stubs
+    return max(real, key=lambda c: c[1])[2] if real else None
 
 
 def read_field_dialogue(field, lang: str = "us", game=None, zone_id: Optional[int] = None) -> list:
