@@ -54,7 +54,7 @@ never aborts the review.
 ### Import / view real FF9 dialogue
 ```
 ff9mapkit dialogue-import 100 --lang us                     # a real field, live from your install
-ff9mapkit dialogue-import alexandria                        # by FBG name
+ff9mapkit dialogue-import alxt_map016                       # by FBG-name substring (Alexandria is ALXT, not "alexandria")
 ff9mapkit dialogue-import HUT_INT --mod release/FF9CustomMap  # a built mod folder — NO install needed
 ff9mapkit dialogue-import 100 --zone-id 33                  # read the field's <33>.mes text block directly
 ff9mapkit dialogue-import 100 --all                        # also show system/notification windows + dupes

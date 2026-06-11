@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — FFIX Import GUI: the import-from-game functions, made discoverable
+- **`apps/ff9_import.pyw`** — a front door to the kit's "bring content in from the real game" commands, so
+  the powerful but cryptic `import` flags become **plain checkboxes**. Two tabs: **Field** (pick a real
+  field — `Find…` runs `list-fields` — choose Background art `Native` / BG-borrow / Editable, and tick what
+  to carry: *NPCs & props* / *real dialogue* / *dialogue stubs* / *save point*; then `Import field`) and
+  **Read & Inspect** (`dialogue-import` a field, `flags-inspect` a save, `list-fields`, regenerate base
+  templates). Each action shells out to `py -m ff9mapkit …` from the kit root and **streams** the output;
+  the Field tab ends with a "→ deploy with Build & Deploy" hint. Standalone (in the `ff9_studio` launcher)
+  **and** a new **Import** tab in the Campaign Editor. The fidelity mapping is a pure, smoke-tested
+  `import_args()` (e.g. Native + carry-NPCs + carry-text → `import <f> --out … --id … --native
+  --graft-player-funcs --carry-text`).
+
 ### Added — `[startup]`: assert the story beat a forked field represents
 - **A forked real field boots with a zero `gEventGlobal`**, so every story-gated NPC/door/event takes the
   not-yet-happened branch — the field plays in its scenario-zero state. The new **`[startup]`** block presets

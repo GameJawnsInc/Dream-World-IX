@@ -67,7 +67,7 @@ engine build, the build/deploy loop, version control, and all docs/notes.
 | Memoria.ini | `<game>\Memoria.ini` (engine toggles; dev build has boosters/ini cheats) |
 | Toolkit | `ff9mapkit/` — CLI `py -m ff9mapkit <cmd>` (run from the kit root so the local pkg shadows any editable install) |
 | Deploy tool | `tools/deploy_field.py <field.toml> [--id N]` (default test slot = field 4003) |
-| GUI apps | in **`apps/`**: `ff9_studio.pyw` = the **launcher** (front door to all GUIs) · `ff9_build_gui.pyw` (build+deploy — auto-detects **field / campaign / battle map**) · `ff9_editor.pyw` (logic editor) · `ff9_infohub.pyw` (Info Hub viewer) |
+| GUI apps | in **`apps/`**: `ff9_studio.pyw` = the **launcher** (front door to all GUIs) · `ff9_import.pyw` (**FFIX Import** — fork a real field with fidelity options as checkboxes / read dialogue / inspect a save; shells out to `py -m ff9mapkit`) · `ff9_build_gui.pyw` (build+deploy — auto-detects **field / campaign / battle map**) · `ff9_editor.pyw` (logic editor) · `ff9_dialogue.pyw` (dialogue editor) · `ff9_infohub.pyw` (Info Hub viewer) · `campaign_editor.pyw` (the all-in-one IDE; hosts the others as tabs incl. **Import**) |
 | Reference field scripts | `reference/test2/` (gitignored, 817 HW field-script exports) + `reference/field-manifest.tsv` (HW-index→field-id→name; index ≠ field id) |
 | FF9 field assets | `<game>\StreamingAssets\p0data*.bin` (UnityRaw 5.2.3 bundles; UnityPy reads them — `py -m pip install UnityPy`) |
 
@@ -479,6 +479,13 @@ Read these on demand — they hold the full technical detail this file only summ
   known-location words** `WorldmapKnownLocationsF0..F3` (bytes 92/94/96/98, UInt16, tier a, `keventNaviLocF0..F3`).
   Naming bytes 92–99 reclassifies that slice of the "write-only worldmap-unlock bits" as recognized word data
   (`flags-inspect` reports `WorldmapKnownLocationsF0 = N`). `NAMED_WORDS` kept tier-(a)-pure (tested).
+- **FFIX Import GUI** (`story_flags` branch; `apps/ff9_import.pyw`) — surfaces the "import from game data" CLI
+  commands so the `import` fidelity flags become **checkboxes** (Field tab: Native/BG-borrow/Editable art +
+  carry NPCs/dialogue/stubs/save-point; Read & Inspect tab: `dialogue-import` / `flags-inspect` /
+  `list-fields` / `extract-templates`). Shells out to `py -m ff9mapkit` from the kit root + streams output;
+  standalone (launcher) + a Campaign-Editor **Import** tab. Pure `import_args()` is smoke-tested. Note: the
+  field filter matches the **FBG technical name** (`grgr`, `alxt`, `tshp`), not friendly names — `Find…` lists
+  them. Orthogonal to the graft lane (subprocess-based; only `apps/` + the launcher list).
 - **Fork-fidelity audit + the `[startup]` preset block** (`story_flags` branch; `ff9mapkit/docs/FORK_FIDELITY.md`)
   — the **north star is fork FIDELITY, not a release** (§1): "fork a real field → does it play identically?" The
   audit (7-dimension workflow) found the *physical* layer faithful + in-game proven, the *narrative-state* layer

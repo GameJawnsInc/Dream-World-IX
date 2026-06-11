@@ -5,6 +5,7 @@ Double-click this (windowless via pythonw) to pick which app to open. It's the f
 GUI apps (all in this apps/ folder). The apps now ALSO combine into one tabbed window:
 
   * Campaign Editor -- campaign_editor.pyw (the all-in-one: the others below as tabs over one root)
+  * FFIX Import     -- ff9_import.pyw      (bring content in from the real game: fork a field, read dialogue, inspect a save)
   * Build & Deploy  -- ff9_build_gui.pyw  (compile a field.toml + deploy it)
   * Logic Editor    -- ff9_editor.pyw     (form-based field.toml logic editor)
   * Dialogue Editor -- ff9_dialogue.pyw   (word-smith lines with a wrap preview; view/import stock dialogue)
@@ -23,6 +24,7 @@ from tkinter import ttk                                # noqa: E402
 
 TOOLS = [
     ("Campaign Editor", "campaign_editor.pyw", "All-in-one: Logic Editor + Info Hub + Build & Deploy in one tabbed window."),
+    ("FFIX Import", "ff9_import.pyw", "Bring content in from the real game: fork a field (Native art, carry NPCs/dialogue/save), read dialogue, inspect a save."),
     ("Build & Deploy", "ff9_build_gui.pyw", "Compile a field.toml and deploy it to the test slot or the game."),
     ("Logic Editor",   "ff9_editor.pyw",    "Edit a field's logic (NPCs, events, gateways, cutscenes) in forms."),
     ("Dialogue Editor", "ff9_dialogue.pyw", "Word-smith every line with a live wrap preview; view/import stock dialogue."),
