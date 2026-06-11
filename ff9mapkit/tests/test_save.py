@@ -101,6 +101,40 @@ def test_extra_file_read_and_patch(tmp_path):
     assert S.patch_extra_gEventGlobal(str(q), _geg(1)) is False                          # nothing to patch
 
 
+def test_default_save_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    assert S.default_save_dir() is None                                 # nothing there yet
+    d = tmp_path / "AppData" / "LocalLow" / "SquareEnix" / "FINAL FANTASY IX" / "Steam" / "EncryptedSavedData"
+    d.mkdir(parents=True)
+    assert S.default_save_dir() == str(d)
+
+
+def test_inspect_encrypted_container(tmp_path):
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(7200), 2: _geg(2500)})).write(p)
+    got = {label: rep.scenario_counter for label, rep in S.inspect(str(p))}
+    assert got == {"slot 1 · save 1": 7200, "slot 1 · save 2": 2500}
+
+
+def test_inspect_open_json_and_base64(tmp_path):
+    import json
+    blob = base64.b64encode(_geg(2530)).decode()
+    j = tmp_path / "save.json"                                          # an exported save JSON
+    j.write_text(json.dumps({"profile": {"gEventGlobal": blob}}), encoding="utf-8")
+    rep = S.inspect(str(j))
+    assert len(rep) == 1 and rep[0][0] == "gEventGlobal" and rep[0][1].scenario_counter == 2530
+    b = tmp_path / "blob.txt"                                           # a bare Base64 gEventGlobal
+    b.write_text(blob, encoding="utf-8")
+    assert S.inspect(str(b))[0][1].scenario_counter == 2530
+
+
+def test_inspect_memoria_extra_file(tmp_path):
+    p = tmp_path / "SavedData_ww_Memoria_0_2.dat"                       # plaintext extra-save (no crypto)
+    p.write_bytes(b"\x02\x00\x00\x00key\x00" + base64.b64encode(_geg(6900)) + b"\x00\x00tail")
+    rep = S.inspect(str(p))
+    assert len(rep) == 1 and rep[0][0] == "Memoria extra-save" and rep[0][1].scenario_counter == 6900
+
+
 def test_write_roundtrips(tmp_path):
     sv = S.FF9Save(_make_save({1: _geg(6000)}))
     geg = bytearray(sv.gEventGlobal(1))

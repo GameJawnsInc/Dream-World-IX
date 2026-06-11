@@ -169,3 +169,29 @@ def test_browse_flag_kind_via_campaign_context():
 
 def test_flag_kind_absent_without_campaign_context():
     assert not any(e.kind == "flag" for e in infohub.browse("", limit=None))   # regression: unchanged
+
+
+# --- F3: the FF9 story-flag registry as a reference kind (always available, install-free) ---
+def test_storyflag_registry_is_browsable():
+    # a scenario milestone is searchable by its beat AND its value; the chest band + safe band are findable
+    ice = infohub.browse("ice cavern", kinds=["storyflag"])
+    assert any(e.ident == 2500 for e in ice), [e.name for e in ice]
+    assert any(e.name == "chest_opened" for e in infohub.browse("chest", kinds=["storyflag"]))
+    assert any(e.name == "safe_custom" for e in infohub.browse("safe custom", kinds=["storyflag"]))
+    assert any(e.name == "ScenarioCounter" for e in infohub.browse("scenariocounter", kinds=["storyflag"]))
+
+
+def test_storyflag_detail_and_snippet():
+    band = infohub.find("safe_custom", "storyflag")
+    d = infohub.detail(band)
+    assert d.kind == "storyflag" and any(lbl == "location" for lbl, _ in d.facts)
+    assert "[[flag]]" in infohub.snippet(band) and "8512" in infohub.snippet(band)
+    scen = next(e for e in infohub.browse("ice cavern", kinds=["storyflag"]) if e.ident == 2500)
+    assert "save-edit" in infohub.snippet(scen) and "2500" in infohub.snippet(scen)
+    chest = infohub.find("chest_opened", "storyflag")
+    assert any("reserved" in str(v).lower() for _, v in infohub.detail(chest).facts)
+
+
+def test_storyflag_in_default_browse_but_a_distinct_kind():
+    assert any(e.kind == "storyflag" for e in infohub.browse("", limit=None))   # in the unified search
+    assert "storyflag" in infohub.KINDS and "flag" not in infohub.KINDS         # registry kind != campaign 'flag'

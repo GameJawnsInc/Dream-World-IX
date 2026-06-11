@@ -1,8 +1,9 @@
 """Read/edit an FF9 (Memoria/Steam) save file's story state -- the RECREATE verb.
 
-The on-disc save (``…/SquareEnix/FINAL FANTASY IX/Steam/EncryptedSavedData/SavedData_ww.dat``) is a
-container of fixed-size **save blocks**, each independently AES-256-CBC encrypted. Layout (all from the
-engine, ``SharedDataBytesStorage.MetaData``):
+The on-disc save lives under **AppData\\LocalLow** (NOT Roaming/Local):
+``%USERPROFILE%\\AppData\\LocalLow\\SquareEnix\\FINAL FANTASY IX\\Steam\\EncryptedSavedData\\SavedData_ww.dat``
+(:func:`default_save_dir` returns it). It is a container of fixed-size **save blocks**, each independently
+AES-256-CBC encrypted. Layout (all from the engine, ``SharedDataBytesStorage.MetaData``):
 
     [0, 320)          metadata header
     [320, 320+150*1024)   150 preview blocks (1024 B each)
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import re
 import struct
 from dataclasses import dataclass
@@ -216,6 +218,40 @@ class FF9Save:
     def write(self, path):
         with open(path, "wb") as fh:
             fh.write(bytes(self.data))
+
+
+# --- the high-level read (VIEW; used by the GUI inspector + a future CLI flag) ---
+def default_save_dir():
+    """The FF9 Steam save folder if it exists, else None. Steam FF9 saves live under **AppData/LocalLow**
+    (``%USERPROFILE%/AppData/LocalLow/SquareEnix/FINAL FANTASY IX/Steam/EncryptedSavedData``) -- a frontend
+    uses this as a file-dialog's start directory so the user doesn't have to hunt for SavedData_ww.dat."""
+    base = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+    cand = os.path.join(base, "AppData", "LocalLow", "SquareEnix", "FINAL FANTASY IX", "Steam",
+                        "EncryptedSavedData")
+    return cand if os.path.isdir(cand) else None
+
+
+def _slot_label(s: "SaveSlot") -> str:
+    return "autosave" if s.slot < 0 else f"slot {s.slot + 1} · save {s.save + 1}"
+
+
+def inspect(path) -> "list[tuple[str, _flags.SaveReport]]":
+    """Decode a save's story state for VIEWING -- returns ``[(label, SaveReport)]``. Accepts, in order: a
+    Memoria plaintext extra-save (a ``.dat`` with a loose gEventGlobal -- no crypto); an encrypted
+    ``SavedData_ww.dat`` container (one entry per populated block -- needs pycryptodome); or an open save
+    JSON / bare Base64 gEventGlobal (one entry). Raises with a clear message if nothing decodes."""
+    p = str(path)
+    if p.lower().endswith(".dat"):
+        blob = read_extra_gEventGlobal(p)               # a Memoria plaintext extra-save? (no crypto needed)
+        if blob is not None:
+            return [("Memoria extra-save", _flags.decode_gEventGlobal(blob))]
+        sv = FF9Save.load(p)                             # the encrypted container (needs pycryptodome)
+        out = [(_slot_label(s), _flags.decode_gEventGlobal(sv.gEventGlobal(s.block))) for s in sv.populated()]
+        if not out:
+            raise ValueError("no populated save slots found in this file")
+        return out
+    blob = _flags.gEventGlobal_from_save(p)             # an open save JSON / bare Base64 gEventGlobal
+    return [("gEventGlobal", _flags.decode_gEventGlobal(blob))]
 
 
 # --- the high-level edit (used by the CLI) ---

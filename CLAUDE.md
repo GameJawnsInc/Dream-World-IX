@@ -803,6 +803,28 @@ Read these on demand — they hold the full technical detail this file only summ
   it works with or without the Tk event loop (open_member is idempotent if `<<TreeviewSelect>>` re-fires).
   **632 kit tests pass.** Deferred polish (only if asked): edge entrance-number labels, zoom, a force-directed
   option for dense graphs. **The whole Campaign-Editor "Phase 4" arc is now complete INCLUDING the visual graph.**
+- **Info Hub — story-flag registry + save inspector (F3; offline-verified + real-save confirmed)** — surfaces
+  the story-flags branch's `flags.py` in the Info Hub GUI. **(1) Registry browse:** a new `storyflag` spine
+  kind makes FF9's built-in story state searchable alongside the catalogs — scenario milestones (by beat OR
+  value: "ice cavern" / "2500" -> `Ice Cavern (2500)`), reserved/named bit regions (`chest_opened`,
+  `worldmap_unlocks`, the byte-23 handshake), the census story clusters, named word vars
+  (`ScenarioCounter`/`FieldEntrance`), and the safe custom band; detail shows location + confidence tier +
+  meaning + a reserved/safe note, and Copy snippet gives the right thing per kind (a `[[flag]]` template for
+  the safe band, a `save-edit --scenario N` hint for milestones, a reference comment for reserved regions).
+  Distinct from F2's campaign `flag` kind (that's a campaign's own gates; `storyflag` is FF9's engine state)
+  and it doesn't leak into the catalog/flag pickers (they filter by kind). **(2) Save inspector:** an "Inspect
+  save…" button opens a window that decodes a save's story state via a new thin `save.inspect()` over the
+  proven codec — an encrypted `SavedData_ww.dat` (one entry **per populated slot**, reusing `FF9Save`/AES), a
+  Memoria plaintext extra-save, or an open save JSON / Base64 `gEventGlobal`; selecting a slot shows the full
+  `flags.render_report` (ScenarioCounter+beat, FieldEntrance, treasure points, chests, story bits by region).
+  **Real-save confirmed** against the user's actual save (SC 6000 Fossil Roo / 7200 Alexandria Castle / 5900
+  Fossil Roo). **Save-path gotcha (cost a hunt):** FF9 Steam saves live under **`AppData\LocalLow`** (NOT
+  Roaming/Local) — `…\LocalLow\SquareEnix\FINAL FANTASY IX\Steam\EncryptedSavedData\SavedData_ww.dat`; new
+  `save.default_save_dir()` returns it (the docstring was wrong) and the inspector's Browse dialog opens there.
+  Spine-first: `save.inspect`/`flags.render_report` are pure + unit-tested (encrypted-container, extra-file,
+  JSON, and bare-Base64 input forms); the window is the thin GUI (covered by the viewer `--smoke`). **642 kit
+  tests pass.** Optional follow-up: wire `save.inspect` into the `flags-inspect` CLI (today the CLI is the
+  open-form only).
 
 ---
 

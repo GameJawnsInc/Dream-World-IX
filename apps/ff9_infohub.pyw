@@ -28,7 +28,7 @@ except Exception:
     _mfu = None
 
 import tkinter as tk                                      # noqa: E402
-from tkinter import ttk                                   # noqa: E402
+from tkinter import ttk, filedialog                       # noqa: E402
 
 DEPLOY = ROOT / "tools" / "deploy_field.py"               # builds + deploys a field.toml into the test slot
 PREVIEW = Path(os.environ.get("IHTEST", r"C:\Users\skaki\AppData\Local\Temp\ihtest"))
@@ -77,6 +77,7 @@ class InfoHubApp:
         ttk.Button(bar, text="Copy snippet", command=self.copy).pack(side="left", pady=4)
         ttk.Button(bar, text="Preview in-game", command=self.preview).pack(side="left", padx=6, pady=4)
         ttk.Button(bar, text="Where in FF9?", command=self.where).pack(side="left", pady=4)
+        ttk.Button(bar, text="Inspect save…", command=self.inspect_save).pack(side="left", padx=6, pady=4)
 
         self.status = ttk.Label(parent, text="", anchor="w", padding=(6, 2))
         self.status.pack(fill="x")
@@ -133,6 +134,10 @@ class InfoHubApp:
         except Exception as ex:
             self.status.config(text=f"deploy error: {ex}")
 
+    def inspect_save(self):
+        """Open the save inspector -- decode a real save's story state (ScenarioCounter, beat, chests, bits)."""
+        _SaveInspector(self.root, self.pal)
+
     def where(self):
         """On-demand: which real FF9 fields place the selection's model? (the field-usage hook)."""
         if not self._current or self._det is None:
@@ -186,6 +191,101 @@ class InfoHubApp:
         self.detail.config(state="disabled")
 
 
+class _SaveInspector:
+    """A window that decodes an FF9 save's story state. Pick a file (an encrypted SavedData_ww.dat, a
+    Memoria plaintext extra-save, or an open save JSON / Base64 gEventGlobal); each populated slot is
+    listed with its ScenarioCounter + beat, and selecting one shows the full report (treasure points,
+    chests, set story bits by region) via the spine (``save.inspect`` + ``flags.render_report``)."""
+
+    def __init__(self, parent, palette, path=None):
+        self.pal = palette
+        self.reports = []                                # [(label, SaveReport)]
+        win = self.win = tk.Toplevel(parent)
+        win.title("Inspect save — story state")
+        win.transient(parent)
+        win.geometry("780x540")
+        win.configure(background=palette["bg"])
+
+        top = ttk.Frame(win, padding=6)
+        top.pack(fill="x")
+        ttk.Label(top, text="Save file:").pack(side="left")
+        self.pathvar = tk.StringVar(value=path or "")
+        ttk.Entry(top, textvariable=self.pathvar).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(top, text="Browse…", command=self._browse).pack(side="left")
+
+        body = ttk.Panedwindow(win, orient="horizontal")
+        body.pack(fill="both", expand=True, padx=6, pady=4)
+        left = ttk.Frame(body)
+        body.add(left, weight=1)
+        self.lst = tk.Listbox(left, activestyle="none", exportselection=False, borderwidth=0,
+                              highlightthickness=0, bg=palette["field"], fg=palette["text"],
+                              selectbackground=palette["accent"], selectforeground=palette["accent_fg"])
+        self.lst.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(left, command=self.lst.yview)
+        sb.pack(side="right", fill="y")
+        self.lst.config(yscrollcommand=sb.set)
+        self.lst.bind("<<ListboxSelect>>", lambda e: self._show())
+        right = ttk.Frame(body)
+        body.add(right, weight=2)
+        self.report = tk.Text(right, wrap="word", state="disabled", font=("Consolas", 10), borderwidth=0,
+                              highlightthickness=0, padx=8, pady=6, bg=palette["surface"], fg=palette["text"])
+        self.report.pack(fill="both", expand=True)
+
+        self.status = ttk.Label(win, text="", anchor="w", padding=(6, 2), foreground=palette["muted"])
+        self.status.pack(fill="x")
+        if path:
+            self._load(path)
+        else:
+            self._render("Pick a save file (Browse…) to decode its story state.\n\n"
+                         "Works on:  EncryptedSavedData\\SavedData_ww.dat   (per slot; needs pycryptodome)\n"
+                         "           a Memoria plaintext extra-save  ( *_Memoria_*.dat )\n"
+                         "           an exported save JSON / a Base64 gEventGlobal blob")
+
+    def _browse(self):
+        from ff9mapkit import save as _save
+        f = filedialog.askopenfilename(
+            title="Pick a save (SavedData_ww.dat, a Memoria extra-save, or a save JSON)",
+            initialdir=_save.default_save_dir() or "",   # open right where FF9's saves live (AppData/LocalLow)
+            filetypes=[("FF9 save", "*.dat"), ("Save JSON / Base64", "*.json *.txt"), ("All files", "*.*")])
+        if f:
+            self.pathvar.set(f)
+            self._load(f)
+
+    def _load(self, path):
+        from ff9mapkit import save as _save
+        try:
+            self.reports = _save.inspect(path)
+        except Exception as e:                           # noqa: BLE001
+            self.reports = []
+            self.lst.delete(0, "end")
+            self._render(f"Could not read story state from:\n{path}\n\n{e}\n\n"
+                         "(An encrypted SavedData_ww.dat needs pycryptodome:  py -m pip install pycryptodome)")
+            self.status.config(text="no story state decoded")
+            return
+        self.lst.delete(0, "end")
+        for label, rep in self.reports:
+            beat = rep.milestone[1] if rep.milestone else "(pre-story)"
+            self.lst.insert("end", f"{label}  —  SC {rep.scenario_counter} · {beat}")
+        self.status.config(text=f"{len(self.reports)} populated save(s) -- select one to read its story state")
+        if self.reports:
+            self.lst.selection_set(0)
+            self._show()
+
+    def _show(self):
+        sel = self.lst.curselection()
+        if not sel:
+            return
+        from ff9mapkit import flags as _flags
+        label, rep = self.reports[sel[0]]
+        self._render(f"{label}\n\n" + _flags.render_report(rep))
+
+    def _render(self, text):
+        self.report.config(state="normal")
+        self.report.delete("1.0", "end")
+        self.report.insert("1.0", text)
+        self.report.config(state="disabled")
+
+
 def main():
     smoke = "--smoke" in sys.argv
     root = tk.Tk()
@@ -203,6 +303,24 @@ def main():
         app.where()                                      # exercise the field-usage (Where in FF9?) hook
         print(f"where ok: {app._det.name!r} model {app._det.model_id} -> "
               f"{len(app._det.locations or [])} field location(s); status = {app.status.cget('text')!r}")
+        # F3: the story-flag registry kind is browsable (a scenario milestone searchable by beat)
+        sfs = infohub.browse("ice cavern", kinds=["storyflag"])
+        assert any(e.ident == 2500 for e in sfs), "scenario milestone Ice Cavern (2500) searchable"
+        # F3: the save inspector decodes a synthetic open save JSON (no crypto needed)
+        import base64
+        import json
+        import tempfile
+        geg = bytearray(2048)
+        geg[0], geg[1] = 2500 & 0xFF, 2500 >> 8
+        sp = Path(tempfile.gettempdir()) / "ih_smoke_save.json"
+        sp.write_text(json.dumps({"profile": {"gEventGlobal": base64.b64encode(bytes(geg)).decode()}}),
+                      encoding="utf-8")
+        insp = _SaveInspector(root, app.pal, path=str(sp))
+        assert len(insp.reports) == 1 and insp.reports[0][1].scenario_counter == 2500
+        rpt = insp.report.get("1.0", "end")
+        assert "Ice Cavern" in rpt, "the inspector renders the decoded report"
+        print(f"F3 ok: {len(sfs)} storyflag hit(s); inspector decoded SC "
+              f"{insp.reports[0][1].scenario_counter} ({len(rpt)} chars)")
         root.destroy()
         return
     root.mainloop()

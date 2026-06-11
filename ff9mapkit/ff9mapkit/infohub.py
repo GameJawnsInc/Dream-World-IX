@@ -26,8 +26,8 @@ from . import catalog as _cat
 from . import prop_archetypes as _props
 from .content.npc import PRESETS as _CHAR_PRESETS    # vivi / zidane -- explicit, byte-golden
 
-# the kinds the Info Hub indexes, listed in browse priority order (curated/named first, raw last)
-KINDS = ("archetype", "creature", "composite", "prop", "model", "item", "scene")
+# the kinds the Info Hub indexes, listed in browse priority order (curated/named first, raw + reference last)
+KINDS = ("archetype", "creature", "composite", "prop", "model", "item", "scene", "storyflag")
 
 
 @dataclass(frozen=True)
@@ -128,6 +128,7 @@ def _build_entries() -> list:
         out.append(Entry("item", nm, None, f"item #{iid}", iid))
     for nm, sid in _cat.battle_scenes():                              # battle scenes (encounters)
         out.append(Entry("scene", nm, None, f"battle scene #{sid}", sid))
+    out += _storyflag_entries()                                       # FF9 story-flag registry (reference)
     return out
 
 
@@ -169,6 +170,41 @@ def _aliases_for(name, model_name) -> list:
     if not model_name:
         return []
     return [n for n in _model_names_index().get(model_name, []) if n != name]
+
+
+# ------------------------------------------------------ story-flag registry ---
+# The FF9 story-flag REGISTRY (flags.py) browsable as a reference kind: named engine vars, reserved bit
+# regions, the census story clusters, the scenario-milestone table, and the safe custom band. Always
+# available + install-free (flags.py is pure). Distinct from the campaign 'flag' kind (a campaign's own
+# [[flag]] gates) -- this is FF9's built-in story state, for "what bit / scenario is X?".
+_STORYFLAG_SUBLABEL = {"var": "story var", "RESERVED": "RESERVED region", "region": "bit region",
+                       "story": "story cluster", "scenario": "scenario milestone", "band": "safe custom band"}
+_STORYFLAG_TIER = {"a": "engine-grounded", "b": "empirical (census)", "c": "uncertain",
+                   "a/b": "engine + census"}
+_STORYFLAG_ROWS_CACHE: Optional[dict] = None
+
+
+def _storyflag_rows() -> dict:
+    """``{display_name: (sub, raw_name, location, meaning, tier)}`` from ``flags.registry_rows()`` (built
+    once). Scenario rows display as 'Beat (value)' so they're unique + searchable by beat AND value."""
+    global _STORYFLAG_ROWS_CACHE
+    if _STORYFLAG_ROWS_CACHE is None:
+        from . import flags as _flags
+        rows: dict = {}
+        for sub, name, loc, meaning, tier in _flags.registry_rows():
+            disp = f"{meaning} ({name})" if sub == "scenario" else name
+            rows[disp] = (sub, name, loc, meaning, tier)
+        _STORYFLAG_ROWS_CACHE = rows
+    return _STORYFLAG_ROWS_CACHE
+
+
+def _storyflag_entries() -> list:
+    out = []
+    for disp, (sub, name, loc, meaning, tier) in _storyflag_rows().items():
+        label = _STORYFLAG_SUBLABEL.get(sub, sub)
+        ident = int(name) if sub == "scenario" else None
+        out.append(Entry("storyflag", disp, None, f"{label} · {loc} · {meaning}", ident))
+    return out
 
 
 # ----------------------------------------------------------- campaign layer ---
@@ -255,6 +291,16 @@ def snippet(entry: Entry) -> str:
         return f"# campaign field: {e.name} (id {e.ident})"
     if e.kind == "flag":                               # a shared named story flag -> the gate line
         return f'requires_flag = "{e.name}"'
+    if e.kind == "storyflag":                          # the FF9 registry -> a reference / authoring hint
+        from . import flags as _flags
+        sub = _storyflag_rows().get(e.name, ("",))[0]
+        if sub == "band":
+            return (f'[[flag]]\nname = "my_flag"\nindex = {_flags.FIRST_SAFE_FLAG}   '
+                    f'# a custom story flag in the safe band')
+        if sub == "scenario":
+            return f'ff9mapkit save-edit <SavedData_ww.dat> --scenario {e.ident}   # jump to this story beat'
+        loc = _storyflag_rows().get(e.name, ("", "", "?"))[2]
+        return f"# {e.name}  ({loc})  -- FF9 engine state, reference only (do not allocate here)"
     return e.name
 
 
@@ -304,6 +350,18 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
         d = Detail(name=e.name, kind="flag", model=None, model_id=e.ident, snippet=snippet(e))
         d.facts = [("kind", "campaign story flag"), ("index", str(e.ident)),
                    ("gate", f'requires_flag = "{e.name}"'), ("set", f'set_flag = ["{e.name}", 1]')]
+        return d
+    if e.kind == "storyflag":                          # an FF9 story-flag registry entry (reference)
+        sub, name, loc, meaning, tier = _storyflag_rows().get(e.name, ("", e.name, "", e.summary, ""))
+        d = Detail(name=e.name, kind="storyflag", model=None, model_id=None, snippet=snippet(e))
+        d.facts = [("kind", _STORYFLAG_SUBLABEL.get(sub, sub)), ("location", loc),
+                   ("confidence", _STORYFLAG_TIER.get(tier, tier))]
+        if meaning:
+            d.facts.append(("meaning", meaning))
+        if sub == "RESERVED":
+            d.facts.append(("note", "reserved -- a mod must NOT allocate flags here"))
+        elif sub == "band":
+            d.facts.append(("note", "allocate your custom story flags in this band"))
         return d
     d = Detail(name=e.name, kind=e.kind, model=e.model, model_id=e.ident, snippet=snippet(e))
     dsc = _descriptions().get(e.name)
