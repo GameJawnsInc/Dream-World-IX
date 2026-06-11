@@ -21,9 +21,15 @@ Fork fidelity is **strong on the "physical" layer and partial-to-absent on the "
   flag presets, a single heuristic spawn regardless of which door you entered, and **no field-entry cutscene**
   (those fire from the C# `NarrowMapList` table, not the `.eb`).
 
-**Honest grade: a high-fidelity diorama of a field, not yet a faithful slice of the playthrough.** You can
-fork a story room and walk around it faithfully; you cannot yet fork it and have it *behave* as that story
-beat.
+**Honest grade: a high-fidelity diorama of a field, not yet a faithful slice of the playthrough** — *via the
+declarative carry.* You can fork a story room and walk around it faithfully; the declarative rebuild can't yet
+have it *behave* as that story beat.
+
+> **`import --verbatim` changes this for self-contained story fields.** It ships the donor's WHOLE `.eb`
+> (entry-0 + every object + every gateway, layout intact) and runs the **real logic** instead of
+> re-synthesizing — a faithful *slice*, in-game proven on Dali Inn (the gated door OPENS, the cast gates by
+> story beat). Remaining gaps: donor `.mes` text carry (next), the entrance-fade model-streaming artifact, and
+> ref-bearing entries. (`content/verbatim.py` + the `[verbatim_eb]` block; pair with `[startup]` to boot a beat.)
 
 ## Play a fork today
 

@@ -554,6 +554,17 @@ Read these on demand — they hold the full technical detail this file only summ
   35/~50 gated entries are self-contained (carried); the **remaining limit** is the door-only carry not
   reconstructing MAP/transient vars the field's *main* logic (entry-0) sets, + the 15 ref-bearing gated entries
   (left as seams). Carrying entry-0 is the next frontier.
+- **Verbatim-`.eb` fork (`import --verbatim`)** — the **entry-0 carry, productionized + in-game proven** (the
+  truest "recreate the field from its bytes"). Entry-0's `Main_Init` arms the field's objects + gates the cast by
+  ScenarioCounter, and the gated doors read MAP vars it sets — references that only resolve if the WHOLE donor
+  entry LAYOUT is kept. So this mode ships the donor's entire `.eb` (entry-0 + every object + every gateway, slots
+  intact) and the build runs it **AS-IS** (only `Field()` destinations remapped) instead of re-synthesizing.
+  **In-game (Dali Inn): the field plays its real logic** — the gated door OPENS (its MAP-var deps satisfied, vs
+  #2b's gated-closed door-only carry), the cast gates by story beat (consistent across re-entry). `content/verbatim.py`
+  (`remap_fields` + `verbatim_eb`) + a `[verbatim_eb]` block (sidecar + a `retarget` template); `build_field` ships
+  it when present (else synthesizes — golden byte-identical); pair with `[startup]` to boot a beat. **LIMITS:** the
+  donor `.mes` text is a separate carry (TXIDs may not resolve until then — the next step), and an F6-warp has no
+  entrance fade to mask first-frame model streaming (a heavy model flickers in; faithful, fade-hidden in real play).
 
 ---
 
