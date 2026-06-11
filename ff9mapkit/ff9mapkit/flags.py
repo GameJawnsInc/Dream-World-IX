@@ -316,6 +316,16 @@ def resolve(value, name_map: dict) -> int:
     raise ValueError(f"unknown flag name {value!r}.{extra}")
 
 
+def _resolve_flag_dicts(lst, name_map: dict):
+    """Resolve the ``flag`` field (name -> int) in a ``[{flag = <name|index>, value = 0|1}, ...]`` list --
+    the shape used by a gateway's ``set_flags`` (on-exit advance) and ``[startup]``'s ``flags`` (presets).
+    Rewrites in place; a non-list or a dict without ``flag`` is left untouched."""
+    if isinstance(lst, list):
+        for p in lst:
+            if isinstance(p, dict) and "flag" in p:
+                p["flag"] = resolve(p["flag"], name_map)
+
+
 def _resolve_item(item: dict, name_map: dict):
     """Rewrite a content item's flag fields (names -> ints) in place, recursing into options/steps."""
     for k in _FLAG_INDEX_KEYS:
@@ -324,6 +334,7 @@ def _resolve_item(item: dict, name_map: dict):
     for k in _FLAG_PAIR_KEYS:
         if k in item and isinstance(item[k], list) and item[k]:
             item[k] = [resolve(item[k][0], name_map)] + list(item[k][1:])
+    _resolve_flag_dicts(item.get("set_flags"), name_map)   # gateway on-exit advance (write-side story flags)
     for sub in ("options", "steps"):
         if isinstance(item.get(sub), list):
             for it in item[sub]:
@@ -346,6 +357,9 @@ def resolve_project_flags(raw: dict, extra_names: dict | None = None) -> dict:
             for it in val:
                 if isinstance(it, dict):
                     _resolve_item(it, name_map)
+    su = raw.get("startup")                        # [startup] is a single table; its `flags` presets carry names
+    if isinstance(su, dict):
+        _resolve_flag_dicts(su.get("flags"), name_map)
     return name_map
 
 

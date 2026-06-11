@@ -34,12 +34,21 @@ def quad_zone(corners) -> list:
 
 def inject_gateway(eb_bytes, target: int, *, entrance: int = 0, zone, slot: int | None = None,
                    spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
-                   gate_flag: int | None = None, gate_require_set: bool = True) -> bytes:
+                   gate_flag: int | None = None, gate_require_set: bool = True,
+                   on_exit_body: bytes = b"") -> bytes:
     """Inject an exit gateway to ``Field(target)`` arriving at ``entrance``. Returns new bytes.
 
     ``gate_flag`` (a GlobBool index) locks the exit behind a story flag: the region's trigger returns
     early unless the flag is in the required state (``gate_require_set`` True = open when SET, e.g. a
-    door that unlocks once a switch flag is set; False = open when CLEAR)."""
+    door that unlocks once a switch flag is set; False = open when CLEAR).
+
+    ``on_exit_body`` (raw ``set_var`` bytes -- e.g. from :func:`ff9mapkit.content.startup.startup_body`)
+    ADVANCES story state when the player TAKES this exit: it is prepended to the Range trigger behind a
+    ``usercontrol`` guard, so the writes fire only on an actual walk-out (not while the player is puppeted
+    through with control disabled) and -- when the exit is also ``gate_flag``-locked -- only when the gate
+    passes (the flag gate sits ahead of the writes). The byte sequence runs just before the template's own
+    warp path, so the ScenarioCounter / story bits commit to the save-backed gEventGlobal before the
+    transition. Empty -> no change (the gateway builds byte-identically to before)."""
     zone = list(zone)
     if len(zone) != 5:
         raise ValueError("zone must be 5 points (convex quad + doubled last vertex); see quad_zone()")
@@ -55,6 +64,10 @@ def inject_gateway(eb_bytes, target: int, *, entrance: int = 0, zone, slot: int 
     out = edit.append_entry(eb_bytes, slot, bytes(tpl))
     out = edit.activate(out, opcodes.init_region(slot, 0), spawn_wait_n=spawn_wait_n,
                         spawn_wait_occurrence=spawn_wait_occurrence)
+    # Order matters: prepend the on-exit writes first, then the flag gate, so the final Range reads
+    # [flag gate] -> [usercontrol guard + writes] -> [template warp]. (Each prepend goes to Range's start.)
+    if on_exit_body:
+        out = _region.prepend_range_gate(out, slot, _region.MOVEMENT_GATE + on_exit_body)
     if gate_flag is not None:
         out = _region.prepend_range_gate(out, slot, _region.flag_gate(
             _region.GLOB_BOOL, gate_flag, require_set=gate_require_set))

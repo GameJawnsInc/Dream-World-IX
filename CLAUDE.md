@@ -161,7 +161,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.11`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.12`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -495,6 +495,20 @@ Read these on demand — they hold the full technical detail this file only summ
   prepended to Main_Init (`edit.insert_in_function`, byte-safe; golden identical when absent). Lint flags
   reserved-region presets; real story bits below 8512 are allowed (the point). A fork can now boot in the right
   beat. Touches only `build.py` + `content/startup.py` — clear of the save-moogle graft lane.
+- **Fork-fidelity in-game verification + `[[gateway]]` on-exit advance (#3)** (`story_flags` branch) — A1/A2
+  **verified in real gameplay**: `[startup]` asserts the beat (F6 reads ScenarioCounter 2600/Dali, 10000/Daguerreo)
+  and a faithful `--native` fork of a CLEAN static-roster field (Daguerreo 2F) RENDERS its real NPCs while the
+  simple ones are fully interactive (turn + real carry-text lines + the shopkeeper opens the shop/inn menu). The
+  contrast with a forked STORY-EVENT field (Dali Weapon Shop — `Field()`-warp DIRECTORS carried as NPCs → stacked /
+  letterbox spawns) pinpointed two bounded carry gaps now in the worklist: **#13** event-actor-vs-standing-NPC
+  classification + **#14** talk-handler `RunScript`-closure (both GRAFT LANE — overworld's). An ad-hoc scan that
+  ranks all 674 fields by their count of `Field()`-warp DIRECTOR objects (0-director = cleanly forkable) picked
+  the donor — the seed of a future `fork-report` (a per-field "what will/won't this fork reproduce" preview). New lever
+  **#3 LANDED**: `[[gateway]]` gains `set_scenario`/`set_flags` (the write-side complement to `[startup]`) so a
+  forked CHAIN progresses the beat — the `set_var` writes prepend to the gateway Range behind a usercontrol guard +
+  any `requires_flag` gate, just before `Field()`; reuses `startup.startup_body`, validate + reserved-band lint
+  mirror `[startup]`. Touches only `content/gateway.py` + `build.py` (orthogonal to overworld's import-scanner
+  lane). kit 0.9.12; 787 tests.
 - **Verbatim SAVE-MOOGLE carry — the iconic FF9 save point, CARRIED (not synthesized) into a custom field
   (in-game proven; `import --save-moogle`; memory `project-ff9-savepoint`).** The cluster the object-carry research
   deferred as "structurally un-graftable" now forks faithfully (P1–P6.1, all on master): **P1** scoped cluster

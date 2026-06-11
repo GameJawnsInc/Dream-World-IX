@@ -104,12 +104,25 @@ def _problems(tmp_path, toml: str):
 
 
 def test_startup_validate_catches_bad_shapes(tmp_path):
-    assert any("scenario" in m for m in _problems(tmp_path, BASE + "\n[startup]\nscenario = 40000\n"))
-    assert any("scenario" in m for m in _problems(tmp_path, BASE + '\n[startup]\nscenario = "Nowheresville"\n'))
-    assert any("value" in m for m in
+    # pin distinctive message fragments (not just "scenario"/"value") so a future wording drift in the
+    # shared _validate_story_writes helper is caught -- it's reused by [[gateway]] set_scenario/set_flags too.
+    assert any("scenario must be 0.." in m for m in _problems(tmp_path, BASE + "\n[startup]\nscenario = 40000\n"))
+    assert any("unknown scenario area" in m for m in
+               _problems(tmp_path, BASE + '\n[startup]\nscenario = "Nowheresville"\n'))
+    assert any("value must be 0 or 1" in m for m in
                _problems(tmp_path, BASE + "\n[startup]\nflags = [{flag = 8520, value = 2}]\n"))
     assert any("needs a `flag`" in m for m in
                _problems(tmp_path, BASE + "\n[startup]\nflags = [{value = 1}]\n"))
+
+
+def test_startup_shared_flag_name_resolves_at_load(tmp_path):
+    """A campaign-shared flag name in [startup] flags (not in the member's own [[flag]] table) resolves via
+    the campaign name map at load -- same fix as the gateway set_flags read/write-parity regression."""
+    p = tmp_path / "f.field.toml"
+    p.write_text(BASE + '\n[startup]\nflags = [{flag = "rescued_dagger", value = 1}]\n', encoding="utf-8")
+    proj = FieldProject.load(p, flag_names={"rescued_dagger": 8700})
+    assert validate(proj) == []
+    assert proj.raw["startup"]["flags"][0]["flag"] == 8700
 
 
 def test_startup_lint_warns_only_on_reserved_band(tmp_path):

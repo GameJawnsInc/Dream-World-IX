@@ -239,9 +239,52 @@ def _seq_helper_problem(bin_bytes) -> str | None:
     return None
 
 
+def _story_names(project: FieldProject) -> dict:
+    """``{name: index}`` from the project's ``[[flag]]`` table, for resolving named flags in story-state
+    writes. Defensive: a malformed ``[[flag]]`` table is reported by its own validation, so degrade to
+    ``{}`` here rather than crash validate()/lint (an unresolved name then surfaces as its own problem)."""
+    try:
+        return _flags.collect_flag_defs(project.raw)
+    except Exception:
+        return {}
+
+
+def _validate_story_writes(d: dict, label: str, names: dict, problems: list, *,
+                           scenario_key: str = "scenario", flags_key: str = "flags") -> None:
+    """Validate a story-state write block -- the ``[startup]`` presets OR a ``[[gateway]]``'s on-exit
+    advance (``set_scenario``/``set_flags``). ``<scenario_key>`` is 0..SCENARIO_MAX or an area name;
+    ``<flags_key>`` is a list of ``{flag = <index|name>, value = 0|1}``. Appends human-readable problems."""
+    sc = d.get(scenario_key)
+    if isinstance(sc, str):
+        try:
+            _flags.resolve_scenario(sc)
+        except ValueError as e:
+            problems.append(f"{label} {scenario_key}: {e}")
+    elif sc is not None and (isinstance(sc, bool) or not isinstance(sc, int)
+                             or not (0 <= sc <= _startup.SCENARIO_MAX)):
+        problems.append(f"{label} {scenario_key} must be 0..{_startup.SCENARIO_MAX} or an area name "
+                        f"(got {sc!r})")
+    fl = d.get(flags_key, [])
+    if not isinstance(fl, list):
+        problems.append(f"{label} {flags_key} must be a list of {{flag = <index|name>, value = 0|1}}")
+        return
+    for i, p in enumerate(fl):
+        if not isinstance(p, dict) or "flag" not in p:
+            problems.append(f"{label} {flags_key} #{i} needs a `flag` (a gEventGlobal index or a "
+                            f"[[flag]] name)")
+            continue
+        try:
+            _flags.resolve(p["flag"], names)
+        except ValueError as e:
+            problems.append(f"{label} {flags_key} #{i}: {e}")
+        if p.get("value", 1) not in (0, 1):
+            problems.append(f"{label} {flags_key} #{i} value must be 0 or 1 (got {p.get('value')!r})")
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
+    story_names = _story_names(project)
     f = project.field
     for key in ("id", "name", "area"):
         if key not in f:
@@ -316,6 +359,9 @@ def validate(project: FieldProject) -> list[str]:
         z = gw.get("zone", [])
         if len(z) not in (4, 5):
             problems.append(f"[[gateway]] zone must have 4 or 5 points (got {len(z)})")
+        # on-exit story advance: set_scenario / set_flags fire when the player takes this exit
+        _validate_story_writes(gw, "[[gateway]]", story_names, problems,
+                               scenario_key="set_scenario", flags_key="set_flags")
     for ev in project.raw.get("event", []):
         z = ev.get("zone", [])
         if len(z) not in (4, 5):
@@ -406,32 +452,7 @@ def validate(project: FieldProject) -> list[str]:
         if not isinstance(su, dict):
             problems.append("[startup] must be a table (scenario = N|\"area\" and/or flags = [{flag, value}])")
         else:
-            names = _flags.collect_flag_defs(project.raw)   # [[flag]] table already validated at load
-            sc = su.get("scenario")
-            if isinstance(sc, str):
-                try:
-                    _flags.resolve_scenario(sc)
-                except ValueError as e:
-                    problems.append(f"[startup] scenario: {e}")
-            elif sc is not None and (isinstance(sc, bool) or not isinstance(sc, int)
-                                     or not (0 <= sc <= _startup.SCENARIO_MAX)):
-                problems.append(f"[startup] scenario must be 0..{_startup.SCENARIO_MAX} or an area name "
-                                f"(got {sc!r})")
-            flags_list = su.get("flags", [])
-            if not isinstance(flags_list, list):
-                problems.append("[startup] flags must be a list of {flag = <index|name>, value = 0|1}")
-            else:
-                for i, p in enumerate(flags_list):
-                    if not isinstance(p, dict) or "flag" not in p:
-                        problems.append(f"[startup] flags #{i} needs a `flag` (a gEventGlobal index or a "
-                                        f"[[flag]] name)")
-                        continue
-                    try:
-                        _flags.resolve(p["flag"], names)
-                    except ValueError as e:
-                        problems.append(f"[startup] flags #{i}: {e}")
-                    if p.get("value", 1) not in (0, 1):
-                        problems.append(f"[startup] flags #{i} value must be 0 or 1 (got {p.get('value')!r})")
+            _validate_story_writes(su, "[startup]", story_names, problems)
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if len(z) not in (4, 5):
@@ -842,6 +863,9 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
         gf, _gs = _gate_of(gw)
         if gf is not None:
             _read(gf, f"gateway -> {gw.get('to')}")
+        for i, p in enumerate(gw.get("set_flags", []) or []):   # on-exit story advance (set/clear bits)
+            if isinstance(p, dict) and "flag" in p:
+                _write(p["flag"], f"gateway -> {gw.get('to')} set_flags #{i}")
     cs = raw.get("cutscene")
     if cs:
         for j, s in enumerate(cs.get("steps", [])):
@@ -1383,6 +1407,20 @@ def _gate_of(d: dict):
     return None, True
 
 
+def _gateway_on_exit_body(gw: dict, names: dict) -> bytes:
+    """The story-state advance a ``[[gateway]]`` applies when the player TAKES this exit: the raw
+    ``set_var`` bytes from ``set_scenario`` (ScenarioCounter) + ``set_flags`` (gEventGlobal bits), built
+    with the shared :func:`ff9mapkit.content.startup.startup_body`. ``b""`` when the gateway has neither
+    (so the build is byte-identical to a gateway without on-exit writes)."""
+    sc = gw.get("set_scenario")
+    if isinstance(sc, str):
+        sc = _flags.resolve_scenario(sc)
+    presets = [(_flags.resolve(p["flag"], names), int(p.get("value", 1))) for p in gw.get("set_flags", [])]
+    if sc is None and not presets:
+        return b""
+    return _startup.startup_body(presets, sc)
+
+
 # Per-member event-flag reserve inside a campaign member's K-wide block (see _FlagAlloc). With the
 # default flags_per_field=64: cutscene at base+0, events base+1..+31, choices base+32..+63.
 EVENTS_PER_FIELD = 31
@@ -1557,13 +1595,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                    attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs)
 
     # gateways
+    gw_names = _story_names(project)                    # [[flag]] name -> index, for set_flags resolution
     for gw in project.raw.get("gateway", []):
         zone = gw["zone"]
         if len(zone) == 4:
             zone = _gw.quad_zone(zone)
         gf, gs = _gate_of(gw)
         eb = _gw.inject_gateway(eb, int(gw["to"]), entrance=int(gw.get("entrance", 0)),
-                                zone=[tuple(p) for p in zone], gate_flag=gf, gate_require_set=gs)
+                                zone=[tuple(p) for p in zone], gate_flag=gf, gate_require_set=gs,
+                                on_exit_body=_gateway_on_exit_body(gw, gw_names))
 
     # multi-camera switch zones (area model): each zone owns the floor area where its camera is
     # active; crossing into it cuts the active background camera + re-tunes movement for that camera's

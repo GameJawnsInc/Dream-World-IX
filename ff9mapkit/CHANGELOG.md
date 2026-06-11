@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[gateway]]` on-exit story advance (fork-fidelity #3)
+- A `[[gateway]]` can now **advance story state when the player takes that exit**: `set_scenario = N | "area"`
+  bumps the ScenarioCounter and `set_flags = [{flag = <index|name>, value = 0|1}]` sets/clears gEventGlobal
+  bits. The `set_var` writes are prepended to the gateway's Range trigger **behind a `usercontrol` guard**
+  (so they fire on an actual walk-out, not a puppeted pass) and **behind any `requires_flag` gate** (so a
+  gated door only advances the story when it's actually open), just before `Field()` — the values commit to
+  the save-backed gEventGlobal before the transition. This is the write-side complement to `[startup]`'s
+  entry-side assert: a forked field **chain** can now progress the beat as the player moves through it.
+  Reuses `content/startup.startup_body`; `validate` + the reserved-band `lint` mirror `[startup]` (a write
+  into a reserved region is flagged). Flag **names** in `set_flags` (and `[startup]`'s `flags`) resolve at
+  load against the project's `[[flag]]` table **merged with campaign-shared names** — read/write parity with
+  `requires_flag`, so a campaign member can write a shared story flag by name. Byte-identical build when the
+  keys are absent. (`docs/FORK_FIDELITY.md` #3.)
+
 ### Added — FFIX Import GUI: the import-from-game functions, made discoverable
 - **`apps/ff9_import.pyw`** — a front door to the kit's "bring content in from the real game" commands, so
   the powerful but cryptic `import` flags become **plain checkboxes**. Two tabs: **Field** (pick a real

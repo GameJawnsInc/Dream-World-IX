@@ -360,6 +360,14 @@ A region the player walks into to warp to another field.
 | `entrance` | which entrance to arrive at in the target (default `0`). |
 | `zone` | 4 corners `[[x, z], ...]` (auto-made IsInQuad-safe) or 5 explicit points. Order: the `q0→q1` edge is the walk-out direction (put the front edge first). |
 | `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the exit only **fires** when that story flag is SET / CLEAR (a locked door that opens once a switch flag is set). |
+| `set_scenario` | *(optional)* on taking this exit, set the **ScenarioCounter** — an int (`0`–`32767`) or an area name (`"Dali (underground)"`). Advances the story so the **next** field boots at the right beat. |
+| `set_flags` | *(optional)* on taking this exit, set/clear story bits: `[{flag = <index|name>, value = 0|1}, …]`. |
+
+> `set_scenario` / `set_flags` are the **write-side complement to `[startup]`** (which asserts the beat on
+> *entry*): they let a forked field **chain** progress the story as you move through it. The writes fire only on
+> an actual walk-out (gated by `usercontrol`) and only when the exit is open (after any `requires_flag` gate),
+> committing to the save-backed `gEventGlobal` just before the warp. A write into a reserved flag band is
+> flagged by `lint`.
 
 ---
 
