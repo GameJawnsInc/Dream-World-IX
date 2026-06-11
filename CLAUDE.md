@@ -495,6 +495,23 @@ Read these on demand — they hold the full technical detail this file only summ
   prepended to Main_Init (`edit.insert_in_function`, byte-safe; golden identical when absent). Lint flags
   reserved-region presets; real story bits below 8512 are allowed (the point). A fork can now boot in the right
   beat. Touches only `build.py` + `content/startup.py` — clear of the save-moogle graft lane.
+- **Verbatim SAVE-MOOGLE carry — the iconic FF9 save point, CARRIED (not synthesized) into a custom field
+  (in-game proven; `import --save-moogle`; memory `project-ff9-savepoint`).** The cluster the object-carry research
+  deferred as "structurally un-graftable" now forks faithfully (P1–P6.1, all on master): **P1** scoped cluster
+  recognition (the hidden Moogle model 220 + its book/feather/tent, BFS over RunScript refs) + un-skip; **P2** the
+  player-pose surgery (player funcs 13/14/15 graft, sibling-uid remap); **P3** trigger-chain + flag-integrity (no
+  dangling refs; the cluster reads chest flags 8376–8511 = its verbatim mognet/treasure logic, validating
+  `FIRST_SAFE_FLAG=8512`); **P4** the user-facing `[[save_moogle]]` wrapper (`import --save-moogle` ⇒ the cluster as
+  `[[object]]`/`[[player_func]]` blocks + a marker); **P5** in-game gate → surfaced **THE CONTROLLER DEPENDENCY**:
+  the Moogle is a PUPPET driven by the donor's **entry-0 tag-1** save-sequence DIRECTOR (a 44-instr loop that
+  advances the Moogle's state via shared MAP vars `d5 20`/`e5 47 01`) — not an object, so the object carry missed
+  it; **P6** the **director graft** (`eventscan.extract_savepoint_director` → `graft_director` = `replace_function_body`
+  into the fork's empty entry-0 tag-1; references no entries → verbatim, no remap; the save-flash `SetBackgroundColor`
+  NOP'd); **P6.1** the **spawn-flash fix** (`spawn_settle_mismatch` auto-normalizes the Moogle's Init Y `-362`→`-2`
+  so it spawns at its rest pose, not standing-on-the-barrel-then-dropping — a real field's entrance fade hides that
+  one-shot settle, a fork's doesn't). ★ P6.1 cracked by an **in-game video capture**, not static analysis (the
+  `feedback-video-for-visual-bugs` memory). **OPEN: re-talk-after-cancel softlock** (the director re-arm /
+  return-from-barrel state) — the last save-Moogle issue; debug via a short clip + the handshake vars (memory).
 
 ---
 
