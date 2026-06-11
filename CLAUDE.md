@@ -608,7 +608,8 @@ Read these on demand — they hold the full technical detail this file only summ
   Orthogonal to overworld's verbatim/graft/import-chain lane (touches only the declarative-author + lint side).
   *In-game verification (a fork's entry message fires at the right beat) is the human step.*
 - **Verbatim CHAINS (`import-chain --verbatim`)** — the verbatim fork extended from one room to a **connected
-  SLICE** (offline-proven on a 4-field Dali slice; awaits an in-game walk). `write_campaign(verbatim=True)` forks
+  SLICE** (**IN-GAME PROVEN** — a 4-field Dali slice: doors warp between the forks (ids verified via F6), each
+  runs its real logic + speaks its real dialogue). `write_campaign(verbatim=True)` forks
   EVERY member native + verbatim, and the in-chain `Field()` exits are **retargeted to the chain's own member
   ids** (`content/verbatim.render_retarget` pre-fills the live `[verbatim_eb] retarget` table from the chain's id
   assignment; out-of-chain exits stay live seams). Each member ships its donor `.mes` at the donor's **own

@@ -41,8 +41,9 @@ have it *behave* as that story beat.
 > whole `.mes` at the donor's **own registered textid** (`EVENT_ID_TO_MES` — a valid MesDB key, so the
 > FieldScene registers; all 676 forkable fields are covered, so the `1073` fallback never fires; same-zone
 > members share a textid and ship identical text → no clobber). `import-chain --verbatim --out C → build-all`
-> compiles a drop-in mod whose `.eb`s carry the retargets in their shipped bytes (offline-proven on a 4-field
-> Dali slice). Awaits an in-game walk of the connected region.
+> compiles a drop-in mod whose `.eb`s carry the retargets in their shipped bytes. **In-game proven** (a 4-field
+> Dali slice: the doors warp between the forks — ids verified via F6 — each screen runs its real logic and
+> speaks its real dialogue).
 
 ## Play a fork today
 
