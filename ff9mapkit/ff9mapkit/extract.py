@@ -349,7 +349,7 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
     content = eventscan.scan_content(eb_bytes)
     parts = []
     gws = content["gateways"]
-    n_retargeted = n_seamed = 0
+    n_retargeted = n_seamed = n_story_branch = 0
     if gws:
         if id_remap is None:
             parts.append(
@@ -358,16 +358,30 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
         else:
             parts.append("# --- EXITS retargeted to this chain's own field ids (import-chain). "
                          "Out-of-chain exits are commented seam stubs. ---")
+        # #2 (FORK_FIDELITY.md): a STORY-BRANCH door = one zone with >1 DISTINCT destination -- FF9's
+        # if(flag){Field(A)}else{Field(B)} stacked door. scan_gateways emits each branch as its own [[gateway]]
+        # at that shared zone; left ungated BOTH arm in the fork (the player hits the wrong branch). Group by
+        # zone here (scan_gateways doesn't carry the flag -- scan_all_warps does) to mark them for gating.
+        dests_by_zone: dict = {}
+        for g in gws:
+            dests_by_zone.setdefault(tuple(map(tuple, g["zone"])), set()).add(int(g["to"]))
         for g in gws:
             zone = ", ".join(f"[{x}, {z}]" for x, z in g["zone"])
             raw_to = int(g["to"])
+            cond = len(dests_by_zone[tuple(map(tuple, g["zone"]))]) > 1
+            n_story_branch += 1 if cond else 0
+            note = ("# STORY-BRANCH door: this zone has >1 conditional exit (the real field picks one by story\n"
+                    "# flag). Gate each branch with requires_flag / requires_flag_clear so only the right one\n"
+                    "# arms per beat -- else both fire and you hit the wrong exit.\n") if cond else ""
+            stub = ("\n# requires_flag =        # the GlobBool that selects THIS branch (flags-inspect to find it)"
+                    if cond else "")
             if id_remap is None or raw_to in id_remap:
                 to = id_remap[raw_to] if id_remap else raw_to
-                parts.append(f"[[gateway]]\nto = {to}\nentrance = {g['entrance']}\nzone = [{zone}]")
+                parts.append(f"{note}[[gateway]]\nto = {to}\nentrance = {g['entrance']}\nzone = [{zone}]{stub}")
                 n_retargeted += 1 if id_remap is not None else 0
             elif live_seams:
-                parts.append(f"# SEAM (live): real field {raw_to} -- a door back into the live game\n"
-                             f"[[gateway]]\nto = {raw_to}\nentrance = {g['entrance']}\nzone = [{zone}]")
+                parts.append(f"{note}# SEAM (live): real field {raw_to} -- a door back into the live game\n"
+                             f"[[gateway]]\nto = {raw_to}\nentrance = {g['entrance']}\nzone = [{zone}]{stub}")
                 n_seamed += 1
             else:
                 parts.append(f"# SEAM (out-of-chain): real field {raw_to} via this zone -- author by hand.\n"
@@ -527,7 +541,8 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
                "carry_text": n_carry_text, "save_moogle": n_save_moogle,
                "spawn_flash": sum(1 for o in objs if o.get("spawn_flash")),   # P6.1: Init pose != rest -> flashes on a fork
                "spawn_flash_fixed": (1 if (graft_savepoint and n_save_moogle) else 0),
-               "gateways_retargeted": n_retargeted, "gateways_seamed": n_seamed}
+               "gateways_retargeted": n_retargeted, "gateways_seamed": n_seamed,
+               "story_branch": n_story_branch}   # #2: doors sharing a zone (gate each with requires_flag)
     return "\n\n".join(parts), content["control_direction"], summary
 
 

@@ -116,7 +116,7 @@ def test_imported_content_toml_is_valid_and_complete(tmp_path):
                        "ladders": 0, "jumps": 0, "objects": 2,   # Alexandria: the bell + the ticket prop,
                        "player_funcs": 0, "carry_text": 0, "save_moogle": 0,   # carried VERBATIM (hidden NPCs
                        "spawn_flash": 0, "spawn_flash_fixed": 0,   # skipped); no graft/carry/save-moogle/flash here
-                       "gateways_retargeted": 0, "gateways_seamed": 0}
+                       "gateways_retargeted": 0, "gateways_seamed": 0, "story_branch": 0}
     # the verbatim entry sidecars are written next to the field.toml
     assert (tmp_path / "field.object0.bin").is_file() and (tmp_path / "field.object1.bin").is_file()
     # embed in a complete borrow field.toml -> it must be valid TOML with the right structures
@@ -163,6 +163,18 @@ def _game_ready():
         return (config.find_game_path(None) / "StreamingAssets").is_dir()
     except Exception:
         return False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_flags_stacked_story_branch_doors(tmp_path):
+    # #2 (FORK_FIDELITY.md): a real field with a stacked if(flag){Field(A)}else{Field(B)} door (>1 DISTINCT
+    # destination at one zone) must be surfaced so the author gates each branch -- else both arm in the fork.
+    # Alexandria Castle 3F (ALXC_MAP040) has such a door; ~43 real fields do.
+    from ff9mapkit import extract
+    eb = extract.extract_event_script("fbg_n02_alxc_map040_ac_h3f_0")
+    blocks, _cd, summary = extract._imported_content_toml(eb, name="CONDT", out_dir=tmp_path)
+    assert summary["story_branch"] >= 2                 # both branches of the stacked door flagged
+    assert "STORY-BRANCH door" in blocks and "# requires_flag =" in blocks
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

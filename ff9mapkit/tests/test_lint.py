@@ -82,6 +82,31 @@ def test_flag_bands_warns_handshake_and_scratch(tmp_path):
     assert lint_flag_bands(_load(tmp_path, set_flag=16320, requires_flag=200))     # choice_scratch
 
 
+# ---------------------------------------------------------------- lint_logic: story-branch doors (#2)
+
+def test_lint_warns_on_ungated_co_zone_gateways(tmp_path):
+    # #2 (FORK_FIDELITY.md): a collapsed story-branch door = 2+ gateways at one zone. Ungated, they ALL arm
+    # in a fork -> the player hits the wrong branch. lint_logic warns until each is gated by requires_flag.
+    from ff9mapkit.build import lint_logic
+    Z = "[[300, -600], [700, -600], [700, -1000], [300, -1000], [300, -1000]]"
+    base = ('[field]\nid = 4003\nname = "LR"\narea = 11\ntext_block = 1073\n\n'
+            '[camera]\npitch = 45\n\n'
+            '[walkmesh]\nquad = [[-1200, -100], [1200, -100], [1200, -1400], [-1200, -1400]]\n\n'
+            '[player]\nspawn = [0, -700]\n\n')
+
+    def _warns(body):
+        return [x for x in lint_logic(_load(tmp_path, body=body)) if "share one zone" in x]
+
+    # two exits sharing one zone, both ungated -> warns and names both destinations
+    w = _warns(base + f'[[gateway]]\nto = 4100\nzone = {Z}\n\n[[gateway]]\nto = 4200\nzone = {Z}\n')
+    assert len(w) == 1 and "4100" in w[0] and "4200" in w[0]
+    # each branch gated (one when SET, one when CLEAR) -> no warning (the fix the author is meant to apply)
+    assert _warns(base + f'[[gateway]]\nto = 4100\nzone = {Z}\nrequires_flag = 8001\n\n'
+                         f'[[gateway]]\nto = 4200\nzone = {Z}\nrequires_flag_clear = 8001\n') == []
+    # a single door at the zone -> nothing to disambiguate
+    assert _warns(base + f'[[gateway]]\nto = 4100\nzone = {Z}\n') == []
+
+
 # ---------------------------------------------------------------- lint_all (the unified pass)
 
 def test_lint_all_clean_field_is_ok(tmp_path):

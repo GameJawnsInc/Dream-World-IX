@@ -704,6 +704,22 @@ def lint_logic(project: FieldProject) -> list[str]:
                 out.append(f"duplicate {label} name {nm!r} ({c}x) -- the scene<->field merge by name "
                            f"will be ambiguous; give each a unique name.")
 
+    # #2 (FORK_FIDELITY.md): collapsed story-branch doors. The scanner flattens a real
+    # if(flag){Field(A)}else{Field(B)} into 2+ [[gateway]] blocks at the SAME zone; ungated they ALL arm in the
+    # fork, so the player hits whichever fires first (usually the wrong branch). Warn unless each is gated.
+    by_zone = {}
+    for gw in raw.get("gateway", []):
+        z = tuple(tuple(p) for p in gw.get("zone", []))
+        if z:
+            by_zone.setdefault(z, []).append(gw)
+    for group in by_zone.values():
+        if len(group) > 1 and any(_gate_of(g)[0] is None for g in group):
+            tos = ", ".join(str(g.get("to")) for g in group)
+            out.append(f"{len(group)} gateways share one zone (exits to {tos}) but not all are gated -- they "
+                       f"will ALL arm and the player hits the wrong branch. This is a collapsed story-branch "
+                       f"door; gate each with requires_flag / requires_flag_clear so only the right one fires "
+                       f"per story beat. (FORK_FIDELITY.md #2)")
+
     # pre-choose: a choice's `default` can't sit at/after a greyed (`disabled`) row. The engine
     # (SetChooseParam) converts the absolute default into the AVAILABLE-row index, but Dialog then reads
     # it as ABSOLUTE -- so a default past a disabled row falls back to the first available row instead of

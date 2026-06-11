@@ -385,6 +385,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
         if ic.get("spawn_flash"):
             print(f"  warning: {ic['spawn_flash']} carried object(s) spawn at a different pose than they rest -- they "
                   "may visibly snap to rest on a fork (the source field's entrance fade hides it). (docs/SAVEPOINT.md)")
+        if ic.get("story_branch"):
+            print(f"  warning: {ic['story_branch']} STORY-BRANCH door(s) share a zone (the real field selects one by "
+                  "story flag).\n           Gate each with requires_flag in the field.toml, else both arm and you "
+                  "hit the wrong exit. (FORK_FIDELITY.md #2)")
     if args.dialogue:
         from . import dialogue as DLG
         try:
