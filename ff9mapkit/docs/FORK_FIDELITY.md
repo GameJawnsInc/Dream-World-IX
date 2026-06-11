@@ -32,7 +32,10 @@ have it *behave* as that story beat.
 > carried) **and now speaks** — it ships the donor's whole `.mes` so its index-txids resolve in the right
 > language (in-game proven on Dali Inn: renders + runs the real logic + English dialogue). The only remaining
 > item is the cosmetic entrance-fade model-streaming flicker on an F6-warp. (`content/verbatim.py` + the
-> `[verbatim_eb]` block; pair with `[startup]` to boot a beat.)
+> `[verbatim_eb]` block.) **Both field-load levers fire in a verbatim fork** — `[startup]` (boot a beat) and
+> `[[on_entry]]` (a gated, once field-load beat) are armed onto the donor's real Main_Init (the shared
+> `build._apply_startup` / `_apply_on_entry`); an `[[on_entry]]` *narration message* is the one exception
+> (no authored-text channel in a verbatim fork → dropped + warned, the state-advance still fires).
 >
 > **`import-chain --verbatim` extends this to a CONNECTED SLICE** (a region, not one room). Every member forks
 > native + verbatim, and the in-chain `Field()` exits are **retargeted to the chain's own member ids** (the

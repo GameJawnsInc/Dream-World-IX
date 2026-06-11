@@ -32,6 +32,35 @@ def test_startup_applies_to_verbatim_eb():
     assert booted != blank and len(booted) > len(blank)        # the ScenarioCounter preset was injected
 
 
+def test_on_entry_arms_into_verbatim_bytes():
+    # CONVERGENCE with story_flags' [[on_entry]]: like [startup], a field-load hook must fire in a verbatim
+    # fork too -- build_field applies the shared _apply_on_entry to the verbatim bytes (the synthesize path's
+    # build_script bypasses it). The helper arms a gated, once code entry into Main_Init.
+    from ff9mapkit import build
+    from ff9mapkit.build import _FlagAlloc
+    from ff9mapkit.eb import EbScript
+
+    class _P:
+        name = "DV"
+
+        def __init__(self, raw):
+            self.raw = raw
+
+    blank = data.blank_field_bytes("us")
+    n0 = sum(1 for e in EbScript.from_bytes(blank).entries if not e.empty)
+    assert build._apply_on_entry(_P({}), blank, {}, _FlagAlloc(None)) == blank   # no [[on_entry]] -> identical
+    # a gated state-advance hook arms as one more code entry (the InitCode-in-Main_Init NarrowMapList stand-in)
+    armed = build._apply_on_entry(_P({"on_entry": [{"set_scenario": 2600, "requires_scenario": 2000}]}),
+                                  blank, {}, _FlagAlloc(None))
+    assert armed != blank and len(armed) > len(blank)
+    assert sum(1 for e in EbScript.from_bytes(armed).entries if not e.empty) == n0 + 1
+    # verbatim drop_messages: a message hook drops the narration (warned) but STILL arms its state-advance
+    warns = []
+    armed_m = build._apply_on_entry(_P({"on_entry": [{"message": "Hi", "set_scenario": 2600}]}),
+                                    blank, {0: 1234}, _FlagAlloc(None), drop_messages=True, warnings=warns)
+    assert armed_m != blank and any("dropped" in w for w in warns)
+
+
 def test_render_retarget_live_table_vs_template():
     # single-field import (no id_remap): the commented-out fill-in template, count 0 (byte-identical golden)
     txt, n = _vb.render_retarget([100, 200], None)

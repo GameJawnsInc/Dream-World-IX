@@ -817,12 +817,17 @@ def lint_logic(project: FieldProject) -> list[str]:
                        f"door; gate each with requires_flag / requires_flag_clear so only the right one fires "
                        f"per story beat. (FORK_FIDELITY.md #2)")
 
-    # a --verbatim fork ships the donor .eb as-is, bypassing the synthesizer that injects [[on_entry]] hooks
-    # -> the beats would silently never fire. Warn rather than drop them invisibly.
-    if raw.get("verbatim_eb") and raw.get("on_entry"):
-        out.append("[[on_entry]] hooks are IGNORED in a --verbatim fork: the donor .eb ships as-is, bypassing "
-                   "the synthesizer that arms them, so the beats won't fire. Drop [verbatim_eb] to synthesize "
-                   "the field, or fold the beat into the donor's own logic.")
+    # a --verbatim fork ships the donor .eb, but the field-load hooks are now armed onto its Main_Init too
+    # (build._apply_on_entry, the same path build_script uses). The one limit: a NARRATION message has no
+    # text channel (the donor .mes ships verbatim), so a message beat's narration is dropped -- the gated
+    # state-advance still fires. Flag only the message hooks, so the author knows the line won't show.
+    if raw.get("verbatim_eb"):
+        msg_hooks = [k for k, h in enumerate(raw.get("on_entry", []) or []) if h.get("message")]
+        if msg_hooks:
+            out.append(f"[[on_entry]] narration message(s) {msg_hooks} won't show in a --verbatim fork (the "
+                       "donor .mes ships verbatim, with no slot for authored text) -- the hook's gated "
+                       "state-advance (set_scenario/set_flags) still fires. Fold the line into the donor's "
+                       "own logic if you need it on-screen.")
 
     # pre-choose: a choice's `default` can't sit at/after a greyed (`disabled`) row. The engine
     # (SetChooseParam) converts the absolute default into the AVAILABLE-row index, but Dialog then reads
@@ -1567,6 +1572,57 @@ def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
     return _startup.inject_startup(eb, presets, sc)
 
 
+def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto,
+                    *, drop_messages: bool = False, warnings: list | None = None) -> bytes:
+    """Arm the ``[[on_entry]]`` hooks (gated, once field-LOAD beats) into ``eb`` -- each a code entry run by
+    an ``InitCode`` in Main_Init (the NarrowMapList stand-in, FORK_FIDELITY.md #10). Shared by
+    :func:`build_script` (synthesize path) AND the verbatim-`.eb` path in :func:`build_field` (which bypasses
+    build_script, so it would otherwise drop ``[[on_entry]]`` -- the same gap ``[startup]`` had). ``auto`` is
+    the field's :class:`_FlagAlloc` (for an unflagged hook's auto once-flag). ``drop_messages`` (verbatim): a
+    verbatim fork ships the DONOR's `.mes` (index-implicit txids), with no channel for an authored narration
+    line, so a ``message`` beat is dropped (and warned) while its gated state-advance still fires. No
+    ``[[on_entry]]`` -> unchanged (byte-identical)."""
+    on_entry = project.raw.get("on_entry") or []
+    if not on_entry:
+        return eb
+    oe_names = _flags.collect_flag_defs(project.raw)
+    hooks = []
+    for k, h in enumerate(on_entry):
+        sc = h.get("set_scenario")
+        if isinstance(sc, str):
+            sc = _flags.resolve_scenario(sc)
+        rsc = h.get("requires_scenario")
+        if isinstance(rsc, str):
+            rsc = _flags.resolve_scenario(rsc)
+        pairs = [(_flags.resolve(p["flag"], oe_names), int(p.get("value", 1)))
+                 for p in h.get("set_flags", [])]
+        rf = h.get("requires_flag")
+        rf = _flags.resolve(rf, oe_names) if rf is not None else None
+        once_flag = None
+        if h.get("once", True):
+            if "flag" in h:
+                once_flag = int(h["flag"])
+            else:
+                once_flag = auto.on_entry(k)            # single-field 8300+k (campaign: raises -> explicit flag)
+                if once_flag >= _flags.CHEST_FLAG_LO:   # would write into FF9's reserved chest bitfield
+                    raise BuildError(
+                        f"field {project.name}: too many auto-flagged [[on_entry]] hooks -- hook #{k}'s auto "
+                        f"once-flag {once_flag} reaches FF9's reserved chest bitfield "
+                        f"({_flags.CHEST_FLAG_LO}-{_flags.CHEST_FLAG_HI}) -> save corruption. Give the later "
+                        f"hooks an explicit flag = N (>= {_flags.FIRST_SAFE_FLAG}).")
+        txid = on_entry_txids.get(k)
+        if drop_messages and txid is not None:
+            txid = None                                 # no authored-text channel in a verbatim fork
+            if warnings is not None:
+                warnings.append(f"[[on_entry]] #{k}: narration message dropped in a verbatim fork (the donor "
+                                f".mes ships verbatim, with no slot for authored text); the gated state-advance "
+                                f"still fires.")
+        hooks.append({"message_txid": txid, "set_flag_pairs": pairs,
+                      "scenario": sc, "once_flag": once_flag, "requires_flag": rf,
+                      "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc})
+    return _onentry.inject_on_entries(eb, hooks)
+
+
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None,
                  cutscene_txids: list | None = None, walkmesh=None,
@@ -1850,37 +1906,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # requires_flag / requires_scenario match. The declarative stand-in for a real field's C#
     # NarrowMapList entry cutscene (docs/FORK_FIDELITY.md #10), which a fork can't carry. Each hook is
     # a code entry armed by InitCode in Main_Init. Absent -> no injection (byte-identical).
-    on_entry = project.raw.get("on_entry") or []
-    if on_entry:
-        oe_names = _flags.collect_flag_defs(project.raw)
-        hooks = []
-        for k, h in enumerate(on_entry):
-            sc = h.get("set_scenario")
-            if isinstance(sc, str):
-                sc = _flags.resolve_scenario(sc)
-            rsc = h.get("requires_scenario")
-            if isinstance(rsc, str):
-                rsc = _flags.resolve_scenario(rsc)
-            pairs = [(_flags.resolve(p["flag"], oe_names), int(p.get("value", 1)))
-                     for p in h.get("set_flags", [])]
-            rf = h.get("requires_flag")
-            rf = _flags.resolve(rf, oe_names) if rf is not None else None
-            once_flag = None
-            if h.get("once", True):
-                if "flag" in h:
-                    once_flag = int(h["flag"])
-                else:
-                    once_flag = _auto.on_entry(k)          # single-field 8300+k (campaign: raises -> explicit flag)
-                    if once_flag >= _flags.CHEST_FLAG_LO:   # would write into FF9's reserved chest bitfield
-                        raise BuildError(
-                            f"field {project.name}: too many auto-flagged [[on_entry]] hooks -- hook #{k}'s auto "
-                            f"once-flag {once_flag} reaches FF9's reserved chest bitfield "
-                            f"({_flags.CHEST_FLAG_LO}-{_flags.CHEST_FLAG_HI}) -> save corruption. Give the later "
-                            f"hooks an explicit flag = N (>= {_flags.FIRST_SAFE_FLAG}).")
-            hooks.append({"message_txid": on_entry_txids.get(k), "set_flag_pairs": pairs,
-                          "scenario": sc, "once_flag": once_flag, "requires_flag": rf,
-                          "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc})
-        eb = _onentry.inject_on_entries(eb, hooks)
+    eb = _apply_on_entry(project, eb, on_entry_txids, _auto)
 
     # ladders: FF9's real ladder mechanism -- walk to the base ("!" prompt via tread Bubble) + press
     # action to climb (the region's action func RunScriptSyncs the player's climb function, which runs
@@ -2585,10 +2611,15 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     from .content import verbatim as _verbatim
     verbatim_bytes = _verbatim.verbatim_eb(project)
     if verbatim_bytes is not None:
-        # the verbatim .eb bypasses build_script, so apply [startup] HERE too -- else the documented
-        # "pair with [startup] to boot a beat" is a silent no-op (the fork would boot at scenario-zero).
-        # The .eb is language-identical, so inject once before the per-language loop.
+        # the verbatim .eb bypasses build_script, so apply the field-load hooks HERE too -- else the
+        # documented "pair with [startup] to boot a beat" is a silent no-op (the fork would boot at
+        # scenario-zero), and [[on_entry]] beats would never fire. Both arm into the donor's Main_Init;
+        # the .eb is language-identical, so inject once before the per-language loop. ([[on_entry]] narration
+        # messages have no text channel in a verbatim fork -> dropped + warned; the gated state-advance fires.)
         verbatim_bytes = _apply_startup(project, verbatim_bytes)
+        verbatim_bytes = _apply_on_entry(project, verbatim_bytes, on_entry_txids,
+                                         _FlagAlloc(getattr(project, "flag_base", None)),
+                                         drop_messages=True, warnings=warnings)
     for lang in langs:
         if verbatim_bytes is not None:
             eb = verbatim_bytes

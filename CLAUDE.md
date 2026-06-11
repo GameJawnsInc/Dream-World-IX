@@ -624,11 +624,19 @@ Read these on demand — they hold the full technical detail this file only summ
   graph showed live retargeted scripted/self doors as dead seams → `write_campaign` now adds them as `[[edge]]`s
   (honest reachability). (3) a verbatim member with no native atlas degrades to a declarative stub — now flagged
   loudly in the CLI summary (NOT verbatim). Touches `campaign.py`/`extract.py`/`content/verbatim.py`/`build.py`/
-  `cli.py`; kit 0.9.16. ★ **Convergence with `[[on_entry]]` (above):** BOTH are field-load presets the synthesizer
-  arms in Main_Init and the verbatim path bypasses — `story_flags` WARNS `[[on_entry]]` is ignored in a verbatim
-  fork, while this session made `[startup]` WORK in one (same insert hook). Making `[[on_entry]]` ALSO fire in a
-  verbatim fork (graft its armed code into the donor `.eb`'s Main_Init) is the natural next convergence — OPEN.
-  Other frontier: New-Game INTO a verbatim chain with a full party.
+  `cli.py`; kit 0.9.16. Other frontier: New-Game INTO a verbatim chain with a full party.
+- **Convergence: `[startup]` + `[[on_entry]]` both fire in a verbatim fork (the two branches unified).** BOTH are
+  field-load levers the synthesizer arms in Main_Init, and the verbatim path bypasses build_script — so each was
+  silently dropped there. This session unified them: a shared **`build._apply_startup`** AND **`build._apply_on_entry`**
+  (the latter factored from `build_script`'s `[[on_entry]]` loop) are now applied to the verbatim bytes too. So a
+  verbatim fork (single or chain) boots its `[startup]` beat AND fires its gated, once `[[on_entry]]` state-advances,
+  armed onto the **donor's real Main_Init** (`inject_on_entries` works on a populated donor `.eb` — proven 23→24
+  entries on Dali Inn, +1 InitCode, round-trips). The one limit: an `[[on_entry]]` **narration message** has no text
+  channel in a verbatim fork (the donor `.mes` ships verbatim) → the message is **dropped + warned**, the gated
+  state-advance still fires; the verbatim lint now flags only message hooks (was "all ignored"). Reuses story_flags'
+  `content/onentry.py` UNCHANGED; touches only `build.py` (the shared helpers) — the minimal convergence surface.
+  Offline + end-to-end proven; the in-game "beat fires at scenario N in a verbatim fork" is a natural add to
+  story_flags' on_entry deep-dive. kit 0.9.17; 840 tests.
 
 ---
 
