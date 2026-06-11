@@ -940,7 +940,7 @@ Read these on demand — they hold the full technical detail this file only summ
   DONOR `.mes` txid the fork doesn't ship -> EMPTY box. Carry ships the donor's referenced field text VERBATIM
   (per language) + remaps each grafted window's txid to a fresh band, so forked interactions show the REAL words.
   The faithful counterpart to `import --dialogue` (which appends editable `[[npc]]` stubs to re-author). **In-game
-  (THORC orchestra -> slot 30003): a carried NPC speaks the real Conductor line.** New `content/textcarry.py`:
+  (THORC orchestra -> slot 30003): a carried NPC speaks the donor's real per-language line.** New `content/textcarry.py`:
   `collect_carry` (the txids the grafts SHOW, via `dialogue.WINDOW_OPS` -- TXID = a 2-BYTE operand, operand 2 for
   `WindowSync`/`Async` 0x1F/0x20, operand 3 for the Ex 0x95/0x96), `remap_object_windows`/
   `remap_player_func_windows` (same-length 2-byte patch via `object._arg_byte_offset`), `carried_mes_body`

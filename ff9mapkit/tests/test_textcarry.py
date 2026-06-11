@@ -241,12 +241,15 @@ def test_import_carry_text_npc_full_pipeline(tmp_path):
     talk = sorted({c.txid for c in dialogue.scan_dialogue(data_us) if c.func_tag == 3 and c.txid is not None})
     assert talk == [1000, 1001, 1002, 1003, 1004]            # carried band, not the donor 132-136
     # the per-language .mes ships the donor text verbatim at the carried txids
+    first = {}                                                # the first carried line per language
     for lang in ("us", "fr", "jp"):
         body = lay.mes_path(lang, p.text_block).read_text(encoding="utf-8")
         m = dialogue.parse_mes(body)
         assert all(t in m and m[t].text for t in talk)       # every carried txid resolves, non-empty
-    assert "Conductor" in dialogue.parse_mes(
-        lay.mes_path("us", p.text_block).read_text(encoding="utf-8"))[1000].text
+        first[lang] = m[1000].text
+    # REAL per-language carry (no us-fallback): the same line differs across languages. Asserts the
+    # property, not the words -- so no Square-Enix string is embedded in the repo (provenance-clean).
+    assert first["us"] != first["fr"] != first["jp"]
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
