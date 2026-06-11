@@ -41,6 +41,19 @@ def test_borrow_validates_and_emits_borrow_dictionary(tmp_path):
     assert info["dictionary"] == ["FieldScene 4003 21 GRGR_MAP420_GR_CEN_0 GRGR_FORK 1073"]
 
 
+def test_import_extractors_accept_the_cli_graft_flags():
+    # `_cmd_import` passes graft_player_funcs / carry_text / graft_savepoint to ALL three import extractors
+    # (native / editable / BG-borrow). A missing param on any one is an uncaught TypeError on that path --
+    # the default `import` (BG-borrow) once crashed because write_field_project lacked graft_savepoint. Keep
+    # the three signatures in sync with what the cli hands them.
+    import inspect
+    from ff9mapkit import extract
+    for fn in ("write_field_project", "write_native_project", "write_editable_project"):
+        params = inspect.signature(getattr(extract, fn)).parameters
+        for flag in ("graft_player_funcs", "carry_text", "graft_savepoint"):
+            assert flag in params, f"{fn} is missing {flag!r} -> the cli passing it TypeErrors that import path"
+
+
 def test_borrow_ships_script_but_no_custom_scene(tmp_path):
     proj = _borrow_project(tmp_path)
     out = tmp_path / "mod"

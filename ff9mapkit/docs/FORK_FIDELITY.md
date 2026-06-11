@@ -14,8 +14,9 @@ Fork fidelity is **strong on the "physical" layer and partial-to-absent on the "
   `.bgi` walkmesh frame, native point-sampled per-tile occlusion, MapConfigData lighting) and the static
   mechanics (ladders, jumps, save-point synthesis, encounters, music, after-battle reinit) reproduce the real
   field.
-- **Object/NPC carry — ~70% and advancing.** Verbatim `.eb`-entry graft + player-func graft + per-language
-  text carry; the save-moogle director graft (P6) is mid-flight in the concurrent session.
+- **Object/NPC carry — ~75% and advancing.** Verbatim `.eb`-entry graft + player-func graft + per-language
+  text carry; the **verbatim save-moogle carry is COMPLETE** (P1–P6.1, on master — director graft + the
+  spawn-pose fix that resolved both timing bugs). The graft lane is now FREE (the deferred items below unblock).
 - **Narrative state — the weak axis.** A fork boots with a **zero `gEventGlobal`**, no ScenarioCounter, no
   flag presets, a single heuristic spawn regardless of which door you entered, and **no field-entry cutscene**
   (those fire from the C# `NarrowMapList` table, not the `.eb`).
@@ -57,8 +58,9 @@ object/text/func carry; `import-chain` text carry needs a live install (offline 
 ## Prioritized worklist (biggest leverage first)
 
 A **graft-lane** tag = a fix would edit `content/object.py` / `content/player.py` / `eventscan.py` /
-`content/savepoint.py` / the `extract.py` graft code, **where the concurrent save-moogle session is
-mid-flight** — those are **deferred** until it lands. The orthogonal items are workable now.
+`content/savepoint.py` / the `extract.py` graft code. The save-moogle session that held this lane has **LANDED
+(2026-06-11)** — the lane is now FREE, so the graft-tagged items (#9, #11, #12) are workable too (no longer
+deferred). Orthogonal items remain the lowest-risk picks.
 
 | # | Gap | Sev | Diff | Graft lane | Direction |
 |---|-----|-----|------|:---:|-----------|

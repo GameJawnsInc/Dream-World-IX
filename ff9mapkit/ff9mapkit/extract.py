@@ -1305,7 +1305,8 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
 
 def write_field_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                         text_block: int = 1073, game=None, bundle=None, want_atlas=False,
-                        id_remap=None, live_seams=False, graft_player_funcs=False, carry_text=False):
+                        id_remap=None, live_seams=False, graft_player_funcs=False, carry_text=False,
+                        graft_savepoint=False):
     """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx in out_dir.
 
     `name` is the custom script/field id (must be unique vs real fieldids; defaults to
