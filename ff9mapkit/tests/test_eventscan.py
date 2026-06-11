@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ff9mapkit import data, eventscan
 from ff9mapkit.content import encounter as _enc
 from ff9mapkit.content import gateway as _gw
@@ -104,14 +106,17 @@ def test_encounter_distinct_scenes_roundtrip():
 
 
 # --- import emission (the field.toml blocks ff9mapkit import writes) ----------------------
-def test_imported_content_toml_is_valid_and_complete():
+def test_imported_content_toml_is_valid_and_complete(tmp_path):
     import tomllib
     from ff9mapkit import extract
-    blocks, cd, summary = extract._imported_content_toml(ALEX100)
+    # objects carry a verbatim entry sidecar, so the emit needs an out_dir (as ladders/jumps do)
+    blocks, cd, summary = extract._imported_content_toml(ALEX100, out_dir=tmp_path, name="field")
     assert cd == 0
     assert summary == {"gateways": 4, "encounter": False, "music": 9, "control_direction": 0,
-                       "ladders": 0, "jumps": 0,              # field 100 (a town) has no ladders/jumps
-                       "gateways_retargeted": 0, "gateways_seamed": 0}   # no id_remap -> retarget counters 0
+                       "ladders": 0, "jumps": 0, "objects": 2,   # Alexandria: the bell + the ticket prop,
+                       "gateways_retargeted": 0, "gateways_seamed": 0}   # carried VERBATIM (hidden NPCs skipped)
+    # the verbatim entry sidecars are written next to the field.toml
+    assert (tmp_path / "field.object0.bin").is_file() and (tmp_path / "field.object1.bin").is_file()
     # embed in a complete borrow field.toml -> it must be valid TOML with the right structures
     toml = ('[field]\nid=4003\nname="T"\narea=2\nborrow_bg="X"\n\n'
             f'[camera]\nborrow="c.bgx"\ncontrol_direction={cd}\n\n[player]\nspawn=[0,0]\n\n{blocks}')
@@ -119,6 +124,116 @@ def test_imported_content_toml_is_valid_and_complete():
     assert {g["to"] for g in d["gateway"]} == {101, 107, 114, 4000}
     assert all(len(g["zone"]) == 4 for g in d["gateway"])
     assert d["music"]["song"] == 9
+    # the imported objects are emitted as [[object]] graft blocks pointing at their sidecars
+    assert len(d["object"]) == 2 and {o["bin"] for o in d["object"]} == {"field.object0.bin", "field.object1.bin"}
+    assert all("instances" in o and o["donor_player_entry"] == 19 for o in d["object"])
+
+
+# --- scan_objects: carry a real field's persistent NPCs/props (faithful fork) -------------
+def test_scan_objects_roundtrips_an_injected_prop():
+    # the scanner is the inverse of the prop injector: inject a prop, scan it back exactly.
+    from ff9mapkit.content import prop as _prop
+    eb = _prop.inject_prop(CLEAN, 120, -340, model=133, pose=1872, face=5)
+    objs = eventscan.scan_objects(eb)
+    assert len(objs) == 1
+    o = objs[0]
+    assert o["kind"] == "prop" and o["model_id"] == 133 and o["pose"] == 1872
+    assert (o["x"], o["z"]) == (120, -340) and o["face"] == 5 and o["talkable"] is False
+
+
+def test_scan_objects_roundtrips_an_injected_npc_as_talkable():
+    from ff9mapkit.content import npc as _npc
+    eb = _npc.inject_npc(CLEAN, -80, 200, model=220, animset=50)   # a GEO_NPC moogle, talkable (keeps tag-3)
+    objs = eventscan.scan_objects(eb)
+    assert len(objs) == 1 and objs[0]["kind"] == "npc" and objs[0]["talkable"] is True
+    assert (objs[0]["x"], objs[0]["z"]) == (-80, 200) and objs[0]["model_id"] == 220
+
+
+def test_scan_objects_blank_field_has_none():
+    # the bare template's only object is the PLAYER (DefinePlayerCharacter), which is excluded.
+    assert eventscan.scan_objects(CLEAN) == []
+
+
+def _game_ready():
+    try:
+        import UnityPy  # noqa: F401
+        from ff9mapkit import config
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_scan_objects_skips_script_hidden_save_machinery():
+    # field 122 (the Dali storage room): the visible barrel/boxes carry; the SAVE-POINT machinery
+    # (moogle/book/tent, all loaded HIDDEN via SetObjectFlags + shown by the save script) is skipped --
+    # carrying it placed an always-deployed tent + a floating moogle (the in-game-reported bug).
+    from ff9mapkit import extract
+    models = {o["model"] for o in eventscan.scan_objects(
+        extract.extract_event_script("fbg_n08_udft_map122_uf_sto_0"))}
+    assert "GEO_ACC_F0_CSK" in models                                  # the barrel (shown set-dressing)
+    assert not (models & {"GEO_ACC_F0_TNT", "GEO_ACC_F0_MGR", "GEO_NPC_F0_MOG"})   # hidden save machinery
+
+
+# --- scan_objects_verbatim: the FAITHFUL graft spec (verbatim entry bytes + ref classification) -----
+def test_scan_objects_verbatim_blank_has_none():
+    assert eventscan.scan_objects_verbatim(CLEAN) == []
+
+
+def test_scan_objects_verbatim_roundtrips_injected_prop_verbatim():
+    # the graft scanner carries the donor entry VERBATIM (not a decode) -- a kit prop references nothing,
+    # so it's fully graft-safe, and its carried bytes are byte-identical to the entry in the script.
+    from ff9mapkit.content import prop as _prop
+    eb = _prop.inject_prop(CLEAN, 120, -340, model=133, pose=1872, face=5)
+    specs = eventscan.scan_objects_verbatim(eb)
+    assert len(specs) == 1
+    s = specs[0]
+    assert s["kind"] == "prop" and s["model_id"] == 133 and s["pose"] == 1872
+    assert s["instances"] == [{"arg": 0, "x": 120, "z": -340}]
+    assert s["graft_safety"] == "clean" and s["carry_tags"] == [0]     # bare prop: Init-only, no refs
+    assert s["player_tags_needed"] == [] and s["refs"] == []
+    assert s["entry_bytes"] == eventscan._entry_bytes(eb, s["donor_idx"])   # VERBATIM
+    assert s["self_positions"] is True and s["needs_d9"] == {}
+
+
+def test_scan_objects_verbatim_npc_is_talkable_and_clean():
+    from ff9mapkit.content import npc as _npc
+    eb = _npc.inject_npc(CLEAN, -80, 200, model=220, animset=50)
+    specs = eventscan.scan_objects_verbatim(eb)
+    assert len(specs) == 1 and specs[0]["kind"] == "npc"               # keeps a tag-3 talk func
+    assert specs[0]["graft_safety"] == "clean" and specs[0]["carry_tags"] == [0, 1, 3]
+    assert specs[0]["entry_bytes"] == eventscan._entry_bytes(eb, specs[0]["donor_idx"])
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_scan_objects_verbatim_field122_cask_is_render_faithful():
+    # The bug that started this: the field-122 cask rendered upside-down via the player-clone. The graft
+    # carries its REAL entry verbatim. Its interactive tag-2 RunScripts the PLAYER (by entry index 23) at
+    # tag 24 -- a tag the blank fork's player (tags 0/1 only) lacks -- so it is init_only: render tags
+    # carry, tag 2 drops. Validates the design's key facts (docs/OBJECT_CARRY.md).
+    from ff9mapkit import extract
+    from ff9mapkit.eb import EbScript
+    eb = extract.extract_event_script("fbg_n08_udft_map122_uf_sto_0")
+    specs = eventscan.scan_objects_verbatim(eb)
+    by_slot = {s["donor_idx"]: s for s in specs}
+
+    cask = next(s for s in specs if s["model"] == "GEO_ACC_F0_CSK")
+    assert cask["graft_safety"] == "init_only"
+    assert cask["instances"][0]["x"] == -250 and cask["instances"][0]["z"] == -571   # measured placement
+    assert cask["pose"] == 1904 and cask["self_positions"] is True
+    assert 2 not in cask["carry_tags"] and 24 in cask["player_tags_needed"]           # drop the dangling tag
+    assert cask["entry_bytes"] == eventscan._entry_bytes(eb, cask["donor_idx"])       # VERBATIM
+    pref = next(r for r in cask["refs"] if r["klass"] == "player")
+    assert pref["op"] == 0x12 and pref["value"] == 23 and pref["tag"] == 24           # player BY ENTRY INDEX
+
+    # the BBX is an arg-instanced row: ONE entry, three InitObject args, self-contained position.
+    bbx = next(s for s in specs if s["model"] == "GEO_ACC_F0_BBX")
+    assert bbx["graft_safety"] == "clean" and len(bbx["instances"]) == 3
+    assert [i["arg"] for i in bbx["instances"]] == [128, 129, 130]
+
+    # the player-entry-index guard: the controlled player (entry 23) is never carried as an object.
+    assert eventscan._player_entry_index(EbScript.from_bytes(eb)) == 23
+    assert 23 not in by_slot
 
 
 def test_content_section_falls_back_to_commented_stub_when_empty():

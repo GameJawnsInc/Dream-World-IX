@@ -34,6 +34,7 @@ from .content import ladder as _ladder
 from .content import movement as _movement
 from .content import music as _music
 from .content import npc as _npc
+from .content import object as _object
 from .content import pathfind as _pathfind
 from .content import prop as _prop
 from .content import region as _region
@@ -330,6 +331,14 @@ def validate(project: FieldProject) -> list[str]:
         trig = jp.get("trigger", "action")
         if trig not in ("action", "tread"):
             problems.append(f'[[jump]] trigger must be "action" (press) or "tread" (auto), got {trig!r}')
+    for ob in project.raw.get("object", []):            # faithful object carry (verbatim .eb entry graft)
+        binref = ob.get("bin")
+        if not binref:
+            problems.append('[[object]] needs bin = "<file>" (a verbatim entry sidecar, from `ff9mapkit import`)')
+        elif not project.path(binref).is_file():
+            problems.append(f"[[object]] entry sidecar not found: {binref}")
+        elif not project.path(binref).read_bytes()[:2]:
+            problems.append(f"[[object]] entry sidecar is empty: {binref}")
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
@@ -1425,6 +1434,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             eb, _ = _jump.inject_jump(eb, [tuple(p) for p in jz], jbytes, jump_tag=jtag,
                                       trigger=jp.get("trigger", "action"), bubble=jp.get("bubble", True))
             jtag += 1
+
+    # objects: FAITHFUL carry of the real field's persistent NPCs/props -- graft each donor object's
+    # VERBATIM .eb entry at a free slot + arm it from Main_Init (docs/OBJECT_CARRY.md). The authored
+    # [[npc]]/[[prop]] blocks (below) are the player-clone synthesis; this is the import-only verbatim
+    # graft (renders byte-identical, not "Zidane in a barrel skin"). No-op without [[object]].
+    objects = project.raw.get("object", [])
+    if objects:
+        eb = _object.graft_objects(eb, [dict(o) for o in objects],
+                                   load=lambda ref: project.path(ref).read_bytes())
 
     # player spawn (order-independent w.r.t. the appends above)
     if "player" in project.raw and "spawn" in project.raw["player"]:

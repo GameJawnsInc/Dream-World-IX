@@ -255,6 +255,47 @@ class EventBundle:
         return data
 
 
+def _inst_tbl(it) -> str:
+    """One ``InitObject`` instance as a TOML inline table -- the spawn ``arg`` (+ the resolved x/z when
+    known, informational; build reads only ``arg`` and the entry self-positions)."""
+    parts = [f"arg = {int(it.get('arg', 0))}"]
+    if it.get("x") is not None and it.get("z") is not None:
+        parts += [f"x = {it['x']}", f"z = {it['z']}"]
+    return "{ " + ", ".join(parts) + " }"
+
+
+def _object_block(o, fn: str) -> str:
+    """A ``[[object]]`` graft block: the verbatim-entry sidecar + what ``build`` needs to append + arm
+    it. ``carry_tags`` is emitted only for an ``init_only`` carry (a ``clean`` object carries whole);
+    ``needs_d9`` only for a ``Main_Init``-D9-positioned object (else the entry self-positions)."""
+    lines = [f'[[object]]\nbin = "{fn}"\nkind = "{o["kind"]}"\ndonor_idx = {o["donor_idx"]}']
+    if o.get("donor_player_entry") is not None:
+        lines.append(f'donor_player_entry = {o["donor_player_entry"]}')
+    if o["graft_safety"] == "init_only":
+        lines.append("carry_tags = [" + ", ".join(str(t) for t in o["carry_tags"]) + "]")
+    if o.get("needs_d9"):
+        lines.append("needs_d9 = { " + ", ".join(f"{k} = {v}" for k, v in sorted(o["needs_d9"].items())) + " }")
+    lines.append("instances = [" + ", ".join(_inst_tbl(it) for it in o["instances"]) + "]")
+    return "\n".join(lines)
+
+
+def _object_stub(o) -> str:
+    """A REFUSED object (its render funcs reference field state a fork lacks) -> a ``[[prop]]``/``[[npc]]``
+    author stub (the lossy player-clone path, to fix up by hand)."""
+    inst = o["instances"][0] if o["instances"] else {}
+    x = inst.get("x") if inst.get("x") is not None else 0
+    z = inst.get("z") if inst.get("z") is not None else 0
+    mref = f'"{o["model"]}"' if isinstance(o["model"], str) else str(o["model_id"])
+    face = f"\nface = {o['face']}" if o.get("face") is not None else ""
+    head = "# REFUSED graft (its render funcs reference field state a fork lacks) -- author by hand:\n"
+    if o["kind"] == "npc":
+        short = o["model"].split("_")[-1] if isinstance(o["model"], str) else str(o["model_id"])
+        return (f'{head}[[npc]]\nname = "{short}_{o["donor_idx"]}"\nmodel = {mref}\npos = [{x}, {z}]\n'
+                f'dialogue = "..."   # TODO: author this NPC\'s dialogue (text not carried){face}')
+    pose = f"\npose = {o['pose']}" if o.get("pose") is not None else ""
+    return f'{head}[[prop]]\nmodel = {mref}{pose}\npos = [{x}, {z}]{face}'
+
+
 def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=None, live_seams=False):
     """field.toml blocks (gateways / encounter / music / ladders) + the control-direction value,
     extracted LIVE from a real field's ``.eb``. Returns (blocks_text, control_dir, summary). blocks_text
@@ -345,9 +386,29 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
             blocks.append(f'[[jump]]\nzone = [{zone}]\njump = "{fn}"\ntrigger = "{jp["trigger"]}"{extra}')
         parts.append("\n\n".join(blocks))
         n_jumps = len(jmps)
+    objs = content.get("objects_verbatim") or []
+    n_objects = 0
+    if objs and out_dir is not None:                    # objects carry a verbatim entry -> need out_dir
+        out_path = Path(out_dir)
+        blocks = ["# --- OBJECTS imported from the real field -- the persistent NPCs/props (set-dressing the\n"
+                  "# fork would otherwise DROP: the cask, signs, the save moogle's barrel, ...). Each is\n"
+                  "# carried by GRAFTING the object's REAL .eb entry VERBATIM (renders byte-identical -- not a\n"
+                  "# lossy player-clone). `bin` is the entry sidecar; `carry_tags` (init_only objects) keeps\n"
+                  "# only the render-defining funcs, dropping interactive funcs that call a player function a\n"
+                  "# blank fork lacks (those can't port). A REFUSED object falls back to a [[prop]]/[[npc]]\n"
+                  "# author stub. The DIALOGUE text of a talkable NPC is still not carried -- author it. ---"]
+        for i, o in enumerate(objs):
+            if o["graft_safety"] in ("clean", "init_only"):
+                fn = f"{name}.object{i}.bin"
+                (out_path / fn).write_bytes(o["entry_bytes"])     # the verbatim entry build grafts
+                blocks.append(_object_block(o, fn))
+            else:
+                blocks.append(_object_stub(o))
+        parts.append("\n\n".join(blocks))
+        n_objects = len(objs)
     summary = {"gateways": len(gws), "encounter": enc is not None, "music": content["music"],
                "control_direction": content["control_direction"], "ladders": n_ladders,
-               "jumps": n_jumps,
+               "jumps": n_jumps, "objects": n_objects,
                "gateways_retargeted": n_retargeted, "gateways_seamed": n_seamed}
     return "\n\n".join(parts), content["control_direction"], summary
 

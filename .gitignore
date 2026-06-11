@@ -107,6 +107,11 @@ backups/battle_predeploy.*/
 **/scene/eb/*.eb.bytes
 **/scene/mes/*.mes
 
+# Field-import verbatim object-entry sidecars: `ff9mapkit import` writes <name>.objectN.bin = a real
+# field object's .eb entry bytes, grafted at build (faithful object carry). SE-derived -- never commit
+# (same zero-SE-bytes posture as the field *.eb.bytes/*.bgx art). Regenerable from the install any time.
+*.object*.bin
+
 # Blender working/test projects (user art + exports)
 ff9mapkit/blender/debug_proj/
 

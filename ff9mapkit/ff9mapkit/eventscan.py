@@ -19,6 +19,8 @@ arbitrary event triggers, cutscenes) is deliberately NOT scanned -- you author t
 
 from __future__ import annotations
 
+import re
+
 from .binutils import u16
 from .eb import EbScript
 
@@ -380,9 +382,346 @@ def scan_jumps(eb_bytes) -> list:
     return out
 
 
+# --- persistent NPCs / props (faithful fork) ---------------------------------------------
+SET_MODEL_OP = 0x2F        # SetModel(model, animset)
+SET_STAND_ANIM_OP = 0x33   # SetStandAnimation(pose)
+MOVE_INSTANT_OP = 0xA1     # MoveInstantXZY(worldX, -worldY, worldZ) -- the object's static placement
+TURN_INSTANT_OP = 0x36     # TurnInstant(dir)
+SET_OBJECT_FLAGS_OP = 0x93 # SetObjectFlags(bits); bit 1 = SHOW model (off => loaded hidden, script-driven)
+SHOW_MODEL_BIT = 1
+INIT_OBJECT_OP = 0x09      # InitObject(slot, arg) in Main_Init -- spawns/activates object `slot`
+SETVAR_EXPR_OP = 0x05      # an expression; `05 D9 idx 7D lo hi 2C 7F` = SetVar D9(idx)=const
+POS_VAR_CLASS = 0xD9       # the D9 var class CreateObject/MoveInstantXZY read for x/y/z
+
+
+def _read_object_init(eb, init_func) -> dict:
+    """Decode the render-defining fields an object's Init (tag 0) sets: model/animset, pose, face, a
+    literal placement (``lit``), the object's OWN local D9 consts, its SetObjectFlags, and whether it is
+    the player. Shared by :func:`scan_objects` (decoded facts) and :func:`scan_objects_verbatim` (graft)."""
+    model = animset = pose = face = lit = flags = None
+    local: dict = {}
+    player = False
+    for ins in eb.instrs(init_func):
+        if ins.op == DEFINE_PC:
+            player = True
+        elif ins.op == SETVAR_EXPR_OP:
+            raw = eb.data[ins.off:ins.off + 8]
+            if len(raw) >= 6 and raw[1] == POS_VAR_CLASS and raw[3] == 0x7D:
+                local[raw[2]] = _s16(raw[4] | (raw[5] << 8))
+        elif ins.op == SET_MODEL_OP and model is None and len(ins.args) >= 2 \
+                and isinstance(ins.args[0], int):
+            model, animset = int(ins.args[0]), int(ins.args[1])
+        elif ins.op == SET_STAND_ANIM_OP and pose is None and ins.args and isinstance(ins.args[0], int):
+            pose = int(ins.args[0])
+        elif ins.op == TURN_INSTANT_OP and face is None and ins.args and isinstance(ins.args[0], int):
+            face = int(ins.args[0])
+        elif ins.op == MOVE_INSTANT_OP and lit is None and len(ins.args) >= 3 \
+                and all(isinstance(a, int) for a in ins.args[:3]):
+            lit = (_s16(int(ins.args[0])), _s16(int(ins.args[2])))      # (worldX, worldZ)
+        elif ins.op == SET_OBJECT_FLAGS_OP and ins.args and isinstance(ins.args[0], int):
+            flags = int(ins.args[0])                  # last wins (an object may hide then show)
+    return {"model": model, "animset": animset, "pose": pose, "face": face, "lit": lit,
+            "local": local, "flags": flags, "player": player}
+
+
+# --- the cross-reference surface a verbatim graft must remap (docs/OBJECT_CARRY.md S3) -------------
+# Every reference-bearing opcode's uid/slot operand is a 1-byte immediate (verified vs eb/_optables.py),
+# so a graft remap is always a same-length in-place patch (like the ladder STARTSEQ remap). UID-space:
+# 250=player, 255=self, 251-254=party, else == an entry slot. SLOT-space: Init*/STARTSEQ entry index.
+# (0x44/0x45 Wait/StopSharedScript have NO operand -- they act on the current shared script -- so they
+# are NOT here; same for 0x16/18/1A REPLY* which target the dynamic caller, and 0xD4/0x1D/0xA2 which act
+# on self with non-uid args.)
+REF_OPS = {
+    0x09: {"slot": (0,), "uid": (1,)}, 0x07: {"slot": (0,), "uid": (1,)}, 0x08: {"slot": (0,), "uid": (1,)},
+    0x10: {"uid": (1,)}, 0x12: {"uid": (1,)}, 0x14: {"uid": (1,)},   # RunScript[Async|Sync](level, uid, tag)
+    0x24: {"uid": (0,)}, 0x39: {"uid": (0,)}, 0x3A: {"uid": (0,)},   # Walk/Show/HideObject
+    0x4C: {"uid": (0, 1)},                                           # AttachObject(attached, carrying, bone)
+    0x4D: {"uid": (0,)}, 0x51: {"uid": (0,)}, 0x87: {"uid": (0,)}, 0x8A: {"uid": (0,)},
+    0x8F: {"uid": (0,)}, 0x95: {"uid": (0,)}, 0x96: {"uid": (0,)}, 0x97: {"uid": (0,)},
+    0x9F: {"uid": (0,)}, 0xA9: {"uid": (0,)}, 0xAD: {"uid": (0,)}, 0xBB: {"uid": (0,)},
+    0xBC: {"uid": (0,)}, 0xBD: {"uid": (0,)}, 0xBE: {"uid": (0,)}, 0xBF: {"uid": (0,)},
+    0xB5: {"uid": (0,)}, 0xC2: {"uid": (0,)},
+    0x43: {"slot": (0,)},                                            # RunSharedScript (STARTSEQ) -- entry idx
+}
+INIT_OPS = (0x09, 0x07, 0x08)        # the uid arg defaults to the slot when it is 0 (not an explicit ref)
+RUNSCRIPT_OPS = (0x10, 0x12, 0x14)   # carry a (uid, tag) -- the tag is the player function the object calls
+UID_PLAYER, UID_SELF = 250, 255
+PARTY_UIDS = (251, 252, 253, 254)
+FORK_PLAYER_TAGS = frozenset((0, 1))  # a blank fork's player (Zidane) defines only Init+Loop -- a carried
+#                                       object that RunScripts a player tag >= 2 dangles (softlock); that
+#                                       interaction can only be lit up by a later donor-player-script graft.
+RENDER_TAGS = (0, 1)                  # Init + Loop: model/pose/placement/flags/size all live here
+_OBJVAR_RE = re.compile(r"op78\((\d+),")  # B_OBJSPECA expression token: op78(uid, field) -- a uid read
+
+
+def _classify_ref(kind: str, val: int, donor_player_entry, carried_slots, self_slot: int) -> str:
+    """Classify one slot/uid reference value: self | player | party | sibling | uncarried."""
+    if val == self_slot:
+        return "self"
+    if kind == "uid":
+        if val == UID_SELF:
+            return "self"
+        if val == UID_PLAYER or (donor_player_entry is not None and val == donor_player_entry):
+            return "player"                          # 250, or the player BY ENTRY INDEX (-> 250 on graft)
+        if val in PARTY_UIDS:
+            return "party"
+    return "sibling" if val in carried_slots else "uncarried"
+
+
+def _expr_obj_uids(expr) -> list:
+    """The object UIDs an expression operand reads via the ``op78(uid, field)`` token (B_OBJSPECA)."""
+    return [int(m) for m in _OBJVAR_RE.findall(expr)] if isinstance(expr, str) else []
+
+
+def _classify_entry_refs(eb, entry, donor_player_entry, carried_slots, self_slot):
+    """Classify every outbound slot/uid reference the entry's functions make. Returns
+    ``(refs, player_tags)`` -- ``refs`` is one record per reference (func_tag/op/kind/value/klass[/tag]);
+    ``player_tags`` is the set of player function tags the entry RunScripts (the donor-script dependency)."""
+    refs, player_tags = [], set()
+    for f in entry.funcs:
+        for ins in eb.instrs(f):
+            spec = REF_OPS.get(ins.op)
+            if spec:
+                for kind in ("slot", "uid"):
+                    for ai in spec.get(kind, ()):
+                        if ins.arg_is_expr[ai] if ai < len(ins.arg_is_expr) else False:
+                            refs.append({"func_tag": f.tag, "op": ins.op, "op_name": ins.name,
+                                         "kind": kind, "arg_index": ai, "value": None, "klass": "expr"})
+                            continue
+                        val = ins.imm(ai)
+                        if val is None:
+                            continue
+                        if kind == "uid" and ins.op in INIT_OPS and val == 0:
+                            continue                 # uid 0 aliases the slot arg -- not an explicit ref
+                        rec = {"func_tag": f.tag, "op": ins.op, "op_name": ins.name, "kind": kind,
+                               "arg_index": ai, "value": int(val),
+                               "klass": _classify_ref(kind, int(val), donor_player_entry, carried_slots, self_slot)}
+                        if ins.op in RUNSCRIPT_OPS and ai == 1:
+                            t = ins.imm(2)               # the called function tag (player OR self/sibling)
+                            if t is not None:
+                                rec["tag"] = int(t)
+                                if rec["klass"] == "player":
+                                    player_tags.add(int(t))
+                        refs.append(rec)
+            for ai, is_expr in enumerate(ins.arg_is_expr):
+                if is_expr:
+                    for uidv in _expr_obj_uids(ins.args[ai]):
+                        refs.append({"func_tag": f.tag, "op": ins.op, "op_name": ins.name,
+                                     "kind": "expr_objvar", "arg_index": ai, "value": uidv,
+                                     "klass": _classify_ref("uid", uidv, donor_player_entry, carried_slots, self_slot)})
+    return refs, player_tags
+
+
+def _graft_safety(entry, refs, fork_player_tags):
+    """Per the carry policy (docs/OBJECT_CARRY.md S4): is the WHOLE entry graftable, only its
+    render-defining tags (the rest reference player funcs a blank fork lacks / uncarried siblings), or
+    must it be refused? Returns ``(safety, carry_tags)``. A reference is SAFE when it resolves to
+    self / a carried sibling / the player at a tag the fork has; everything else (a player tag >= 2, an
+    uncarried sibling, party, an expression-computed uid) leaves its function un-graftable. A FIXPOINT
+    then also drops any function that ``RunScript``s a SELF tag we are dropping (else it would dangle)."""
+    bad_tags, self_deps = set(), {}
+    for r in refs:
+        if r["op"] in RUNSCRIPT_OPS and r["kind"] == "uid" and r["klass"] == "self" and "tag" in r:
+            self_deps.setdefault(r["func_tag"], set()).add(r["tag"])    # F depends on its own func `tag`
+        if r["klass"] in ("self", "sibling"):
+            ok = True
+        elif r["klass"] == "player":
+            ok = r.get("tag") is None or r["tag"] in fork_player_tags
+        else:                                        # party / uncarried / expr -> not resolvable in a fork
+            ok = False
+        if not ok:
+            bad_tags.add(r["func_tag"])
+    changed = True
+    while changed:                                   # propagate: a kept func calling a dropped func is bad
+        changed = False
+        for ftag, targets in self_deps.items():
+            if ftag not in bad_tags and (targets & bad_tags):
+                bad_tags.add(ftag)
+                changed = True
+    all_tags = sorted({f.tag for f in entry.funcs})
+    if not bad_tags:
+        return "clean", all_tags
+    if any(t in bad_tags for t in RENDER_TAGS):       # can't even render faithfully -> hand back to author
+        return "refuse", []
+    return "init_only", [t for t in all_tags if t not in bad_tags]
+
+
+def scan_objects(eb_bytes) -> list:
+    """Persistent NPCs/props a real field places, for a FAITHFUL fork. Returns a list of
+    ``{kind: "npc"|"prop", model, model_id, animset, pose, x, z, face, talkable, slot}``.
+
+    FF9 spawns an object with ``InitObject(slot)`` in Main_Init (entry 0, tag 0); the object's own Init
+    (tag 0) does ``SetModel`` + ``SetStandAnimation`` + a placement. We walk Main_Init in order, tracking
+    the D9 position vars (``SetVar D9(0/2/4)=const``) so each ``InitObject`` records the (x,z) in force;
+    then read each spawned object's Init. Placement = a LITERAL ``MoveInstantXZY(worldX,-worldY,worldZ)``
+    if present, else the tracked D9 (x,z). One entry InitObject'd N times yields N instances (a row of
+    boxes). SKIPPED: the player (``DefinePlayerCharacter``) and ``GEO_MAIN`` models (the party) -- and
+    CUTSCENE actors fall out naturally (they have neither a literal ``MoveInstantXZY`` nor a tracked D9
+    placement; they position by expression). Objects loaded HIDDEN -- ``SetObjectFlags`` without the
+    show-model bit (1) -- are also skipped: those are SCRIPT-driven (a save point's moogle/book/tent, an
+    event prop), shown/animated by the field script, NOT static set-dressing (carrying them places the
+    machinery wrong, e.g. an always-deployed tent). A talkable object (tag 3) -> ``"npc"``; else ->
+    ``"prop"``. The model + pose + placement ARE carried; dialogue TEXT is NOT (author it on the fork)."""
+    from ._modeldb import MODELS                  # local: only import needs the model-name table
+    eb = EbScript.from_bytes(eb_bytes)
+    e0 = next((e for e in eb.entries if not e.empty and e.index == 0), None)
+    f0 = e0.func_by_tag(0) if e0 else None
+    if f0 is None:
+        return []
+
+    # 1) walk Main_Init: track D9(idx)=const, record each InitObject(slot) at the current (x,z)
+    d9: dict = {}
+    instances = []                               # (slot, x_or_None, z_or_None)
+    for ins in eb.instrs(f0):
+        if ins.op == SETVAR_EXPR_OP:
+            raw = eb.data[ins.off:ins.off + 8]
+            if len(raw) >= 6 and raw[1] == POS_VAR_CLASS and raw[3] == 0x7D:
+                d9[raw[2]] = _s16(raw[4] | (raw[5] << 8))
+        elif ins.op == INIT_OBJECT_OP and ins.args:
+            instances.append((int(ins.args[0]), d9.get(0), d9.get(4)))
+    slot_count: dict = {}
+    for s, _x, _z in instances:
+        slot_count[s] = slot_count.get(s, 0) + 1
+
+    # 2) read each spawned object's Init
+    out = []
+    for slot, dx, dz in instances:
+        if not 0 <= slot < eb.entry_count:
+            continue
+        e = eb.entry(slot)
+        fi = e.func_by_tag(0) if not e.empty else None
+        if fi is None:
+            continue
+        rd = _read_object_init(eb, fi)
+        model, animset, pose, face = rd["model"], rd["animset"], rd["pose"], rd["face"]
+        lit, local, flags, player = rd["lit"], rd["local"], rd["flags"], rd["player"]
+        if player or model is None:
+            continue
+        if flags is not None and not (flags & SHOW_MODEL_BIT):
+            continue                                  # loaded HIDDEN -> shown/animated by SCRIPT (a save
+            #                                           point, an event prop), NOT static set-dressing
+        name = MODELS.get(model)
+        if name and name.startswith("GEO_MAIN"):     # the party -- not set-dressing
+            continue
+        if lit is not None:                          # a literal MoveInstantXZY -- the real props
+            x, z = lit
+        elif 0 in local and 4 in local and slot_count[slot] == 1:   # the object set its OWN single position
+            x, z = local[0], local[4]                # (a kit-injected prop, or a single real D9-positioned one)
+        elif dx is not None and dz is not None:      # position carried in Main_Init's D9 before InitObject
+            x, z = dx, dz
+        else:
+            continue                                 # no STATIC placement (cutscene actor / arg-instanced) -> skip
+        out.append({"kind": "npc" if e.func_by_tag(3) is not None else "prop",
+                    "model": name or model, "model_id": model, "animset": animset, "pose": pose,
+                    "x": int(x), "z": int(z), "face": face,
+                    "talkable": e.func_by_tag(3) is not None, "slot": slot})
+    return out
+
+
+def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS) -> list:
+    """Graft specs for a FAITHFUL fork: each persistent object's VERBATIM ``.eb`` entry plus the data
+    needed to append it at a free slot, arm it, and remap its references -- the faithful counterpart of
+    :func:`scan_objects` (which emits human-authored ``[[npc]]``/``[[prop]]`` stubs). Where scan_objects
+    returns the DECODED facts (model/pose/pos), this carries the RAW entry bytes so the object renders
+    byte-identical to the real field (no player-clone lossiness), with the cross-reference classification
+    that decides the carry (docs/OBJECT_CARRY.md). The FULL entry bytes are ALWAYS carried (non-
+    destructive), so a later 'graft the donor player scripts' pass can light up the deferred tags.
+
+    Skips the same non-set-dressing objects as scan_objects (player / ``GEO_MAIN`` party / script-hidden)
+    AND adds the player-entry-index guard ``scan_jumps`` uses. One dict per carried object (grouped by
+    donor slot):
+      ``donor_idx, entry_bytes, kind, model, model_id, animset, pose, face, instances[{arg,x,z}],
+      self_positions, needs_d9{idx:val}, donor_player_entry, refs[...], player_tags_needed[...],
+      graft_safety("clean"|"init_only"|"refuse"), carry_tags[...]``.
+    """
+    from ._modeldb import MODELS
+    eb = EbScript.from_bytes(eb_bytes)
+    dpe = _player_entry_index(eb)
+    e0 = next((e for e in eb.entries if not e.empty and e.index == 0), None)
+    f0 = e0.func_by_tag(0) if e0 else None
+    if f0 is None:
+        return []
+
+    # 1) walk Main_Init: each InitObject records the D9 position snapshot in force + its instancing arg
+    d9: dict = {}
+    grouped: dict = {}
+    order = []
+    for ins in eb.instrs(f0):
+        if ins.op == SETVAR_EXPR_OP:
+            raw = eb.data[ins.off:ins.off + 8]
+            if len(raw) >= 6 and raw[1] == POS_VAR_CLASS and raw[3] == 0x7D:
+                d9[raw[2]] = _s16(raw[4] | (raw[5] << 8))
+        elif ins.op == INIT_OBJECT_OP and ins.args and isinstance(ins.args[0], int):
+            slot = int(ins.args[0])
+            arg = int(ins.args[1]) if len(ins.args) >= 2 and isinstance(ins.args[1], int) else 0
+            if slot not in grouped:
+                grouped[slot] = []
+                order.append(slot)
+            grouped[slot].append((arg, dict(d9)))
+    slot_count = {s: len(v) for s, v in grouped.items()}
+
+    # 2) which slots are actually carried (apply the skip rules first, so sibling refs classify right)
+    info: dict = {}
+    for slot in order:
+        if not 0 <= slot < eb.entry_count or slot == dpe:        # player-entry guard (as scan_jumps does)
+            continue
+        e = eb.entry(slot)
+        fi = e.func_by_tag(0) if not e.empty else None
+        if fi is None:
+            continue
+        rd = _read_object_init(eb, fi)
+        if rd["player"] or rd["model"] is None:
+            continue
+        if rd["flags"] is not None and not (rd["flags"] & SHOW_MODEL_BIT):
+            continue                                             # script-hidden (save machinery / event)
+        name = MODELS.get(rd["model"])
+        if name and name.startswith("GEO_MAIN"):                 # the party -- not set-dressing
+            continue
+        info[slot] = rd
+    carried = set(info)
+
+    # 3) build a graft spec per carried object
+    out = []
+    for slot in order:
+        if slot not in info:
+            continue
+        rd = info[slot]
+        e = eb.entry(slot)
+        insts = grouped[slot]
+        self_positions = rd["lit"] is not None or (0 in rd["local"] and 4 in rd["local"] and slot_count[slot] == 1)
+        instances = []
+        for arg, snap in insts:
+            if rd["lit"] is not None:
+                x, z = rd["lit"]
+            elif 0 in rd["local"] and 4 in rd["local"] and slot_count[slot] == 1:
+                x, z = rd["local"][0], rd["local"][4]
+            elif 0 in snap and 4 in snap:
+                x, z = snap[0], snap[4]
+            else:
+                x, z = None, None
+            instances.append({"arg": arg, "x": x, "z": z})
+        needs_d9: dict = {}
+        if not self_positions:                                   # Main_Init-D9-positioned (the moogle class)
+            snap0 = insts[0][1]
+            needs_d9 = {i: snap0[i] for i in (0, 2, 4) if i in snap0}
+        refs, player_tags = _classify_entry_refs(eb, e, dpe, carried, slot)
+        safety, carry_tags = _graft_safety(e, refs, fork_player_tags)
+        out.append({
+            "donor_idx": slot,
+            "entry_bytes": _entry_bytes(eb.data, slot),          # VERBATIM (full entry, all tags)
+            "kind": "npc" if e.func_by_tag(3) is not None else "prop",
+            "model": MODELS.get(rd["model"], rd["model"]), "model_id": rd["model"],
+            "animset": rd["animset"], "pose": rd["pose"], "face": rd["face"],
+            "instances": instances, "self_positions": self_positions, "needs_d9": needs_d9,
+            "donor_player_entry": dpe, "refs": refs, "player_tags_needed": sorted(player_tags),
+            "graft_safety": safety, "carry_tags": carry_tags,
+        })
+    return out
+
+
 def scan_content(eb_bytes) -> dict:
-    """All importable content from a field's ``.eb`` in one pass:
-    ``{gateways, music, encounter, control_direction, ladders, jumps}`` (inverse of the injectors)."""
+    """All importable content from a field's ``.eb`` in one pass: ``{gateways, music, encounter,
+    control_direction, ladders, jumps, objects, objects_verbatim}`` (inverse of the injectors)."""
     return {
         "gateways": scan_gateways(eb_bytes),
         "music": scan_music(eb_bytes),
@@ -390,6 +729,8 @@ def scan_content(eb_bytes) -> dict:
         "control_direction": scan_control_direction(eb_bytes),
         "ladders": scan_ladders(eb_bytes),
         "jumps": scan_jumps(eb_bytes),
+        "objects": scan_objects(eb_bytes),
+        "objects_verbatim": scan_objects_verbatim(eb_bytes),
     }
 
 

@@ -341,6 +341,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
             bits.append(f"{ic['ladders']} ladder(s)")
         if ic.get("jumps"):
             bits.append(f"{ic['jumps']} jump(s)")
+        if ic.get("objects"):
+            bits.append(f"{ic['objects']} object(s) carried")
         print(f"  content: {', '.join(bits) if bits else 'none found in the source script'}"
               + ("   (gateways point at REAL fields -- retarget them)" if ic["gateways"] else ""))
     print(f"  wrote  : {toml}")
