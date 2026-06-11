@@ -237,6 +237,29 @@ def test_scan_objects_verbatim_field122_cask_is_render_faithful():
     assert 23 not in by_slot
 
 
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_graft_savepoint_carries_the_moogle_cluster():
+    # P1 of the verbatim save-Moogle carry (docs/SAVEPOINT.md): the save cluster is loaded script-HIDDEN, so
+    # the scanner skips it by default. graft_savepoint un-skips the RECOGNISED cluster -- the Moogle (model
+    # 220) + the hidden book/feather/tent props it RunScripts -- as a unit. The mognet letter (entry 8) is
+    # NOT in the cluster (it's mognet, not save). Default builds stay byte-identical (gated).
+    from ff9mapkit import extract
+    eb = extract.extract_event_script("fbg_n08_udft_map122_uf_sto_0")
+    assert 5 not in {s["donor_idx"] for s in eventscan.scan_objects_verbatim(eb)}        # hidden -> skipped (gated off)
+
+    sp = eventscan.scan_objects_verbatim(eb, graft_savepoint=True, graft_player_funcs=True, graft_seq_helpers=True)
+    by_slot = {s["donor_idx"]: s for s in sp}
+    assert {5, 6, 7, 9} <= set(by_slot)                                                  # Moogle + book base/page + tent
+    assert 8 not in by_slot                                                              # mognet letter NOT carried
+    moogle = by_slot[5]
+    assert moogle["model"] == "GEO_NPC_F0_MOG"
+    assert moogle["entry_bytes"] == eventscan._entry_bytes(eb, 5)                        # carried VERBATIM
+    assert sorted(moogle["player_tags_needed"]) == [13, 14, 15]                          # the pose surgery (P2 grafts these)
+    # P2 pending: the Moogle's interactive tag (3) still drops -- 13/14/15 TurnTowardObject the carried Moogle
+    # (a "sibling" the player graft must learn to remap). So at P1 the Moogle is init_only, not yet clean.
+    assert moogle["graft_safety"] == "init_only"
+
+
 # --- STARTSEQ-helper closure + the two v1 classification fixes (docs/OBJECT_CARRY.md S2 v1.5) ----------
 import struct                                                                          # noqa: E402
 

@@ -685,8 +685,47 @@ def scan_objects(eb_bytes) -> list:
     return out
 
 
+SAVE_MOOGLE_MODEL = 220   # GEO_NPC_F0_MOG -- the save Moogle (the save-point cluster's seed)
+
+
+def _savepoint_cluster(eb, init_slots) -> frozenset:
+    """The save-Moogle CLUSTER a faithful save-point fork carries as a unit: a hidden, InitObject'd Moogle
+    (model :data:`SAVE_MOOGLE_MODEL`) + the transitive closure of the hidden sibling entries it
+    ``RunScript``s -- its book/feather/tent props (entries 6/7/9 in field 122). These are script-hidden
+    (loaded without the show-model bit) so they're SKIPPED by default (correctly -- a hidden object is
+    generally shown/animated by script and can't be statically placed); the save cluster is the recognised
+    exception. The Moogle's STARTSEQ helpers are carried by the separate ``graft_seq_helpers`` closure, its
+    player-pose funcs by the player graft. Returns the cluster entry indices (empty if no hidden Moogle is
+    InitObject'd)."""
+    def hidden_init(idx):
+        if not 0 <= idx < eb.entry_count:
+            return None
+        e = eb.entry(idx)
+        fi = e.func_by_tag(0) if not e.empty else None
+        if fi is None:
+            return None
+        rd = _read_object_init(eb, fi)
+        return rd if (rd["model"] is not None and rd["flags"] is not None
+                      and not (rd["flags"] & SHOW_MODEL_BIT)) else None
+
+    seeds = [s for s in init_slots if (hidden_init(s) or {}).get("model") == SAVE_MOOGLE_MODEL]
+    cluster = set(seeds)
+    frontier = list(seeds)
+    while frontier:
+        for f in eb.entry(frontier.pop()).funcs:
+            for ins in eb.instrs(f):
+                if ins.op in RUNSCRIPT_OPS and len(ins.args) >= 2 and isinstance(ins.args[1], int):
+                    ref = int(ins.args[1])
+                    if (0 <= ref < eb.entry_count and ref not in cluster
+                            and ref not in (250, 255) and not (251 <= ref <= 254)
+                            and hidden_init(ref)):              # only HIDDEN siblings (the cluster props)
+                        cluster.add(ref)
+                        frontier.append(ref)
+    return frozenset(cluster)
+
+
 def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_player_funcs=False,
-                          carry_text=False, graft_seq_helpers=False) -> list:
+                          carry_text=False, graft_seq_helpers=False, graft_savepoint=False) -> list:
     """Graft specs for a FAITHFUL fork: each persistent object's VERBATIM ``.eb`` entry plus the data
     needed to append it at a free slot, arm it, and remap its references -- the faithful counterpart of
     :func:`scan_objects` (which emits human-authored ``[[npc]]``/``[[prop]]`` stubs). Where scan_objects
@@ -734,6 +773,10 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
             grouped[slot].append((arg, dict(d9)))
     slot_count = {s: len(v) for s, v in grouped.items()}
 
+    # the recognised save-Moogle cluster (hidden Moogle + its hidden book/feather/tent props): carried as a
+    # UNIT despite being script-hidden, so a forked field's save point comes along verbatim (docs/SAVEPOINT.md).
+    savepoint_cluster = _savepoint_cluster(eb, order) if graft_savepoint else frozenset()
+
     # 2) which slots are actually carried (apply the skip rules first, so sibling refs classify right)
     info: dict = {}
     for slot in order:
@@ -746,7 +789,7 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
         rd = _read_object_init(eb, fi)
         if rd["player"] or rd["model"] is None:
             continue
-        if rd["flags"] is not None and not (rd["flags"] & SHOW_MODEL_BIT):
+        if rd["flags"] is not None and not (rd["flags"] & SHOW_MODEL_BIT) and slot not in savepoint_cluster:
             continue                                             # script-hidden (save machinery / event)
         name = MODELS.get(rd["model"])
         if name and name.startswith("GEO_MAIN"):                 # the party -- not set-dressing
@@ -756,13 +799,15 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
 
     # the player funcs the player-function graft WILL carry (docs/PLAYER_GRAFT.md): those tags become SAFE,
     # flipping an object from init_only to whole-entry. OFF by default (byte-identical). scan_player_funcs
-    # calls scan_objects_verbatim WITHOUT this flag, so there is no recursion. ``carry_text`` ALSO admits a
-    # "text" player func (its window TXID is carried + remapped by content.textcarry, so its bytes are
-    # graft-safe once the text ships) -- so the seeding object carries its interactive tag whole.
+    # calls scan_objects_verbatim with graft_player_funcs OFF (its default), so there is no recursion --
+    # ``graft_savepoint`` is threaded so it sees the save cluster's player tags (13/14/15). ``carry_text``
+    # ALSO admits a "text" player func (its window TXID is carried + remapped by content.textcarry, so its
+    # bytes are graft-safe once the text ships) -- so the seeding object carries its interactive tag whole.
     graftable_player = frozenset()
     if graft_player_funcs:
         ok = {"clean", "text"} if carry_text else {"clean"}
-        graftable_player = frozenset(p["donor_tag"] for p in scan_player_funcs(eb_bytes) if p["safety"] in ok)
+        graftable_player = frozenset(p["donor_tag"] for p in scan_player_funcs(eb_bytes, graft_savepoint=graft_savepoint)
+                                     if p["safety"] in ok)
 
     # the BENIGN STARTSEQ helpers the closure carries (docs/OBJECT_CARRY.md S2 v1.5): every uncarried entry a
     # carried object launches via STARTSEQ that passes the body vet. OFF by default (byte-identical). These make
@@ -903,7 +948,7 @@ def _player_func_safety(eb, func, donor_model, donor_player_entry):
     return "clean", rs_tags
 
 
-def scan_player_funcs(eb_bytes) -> list:
+def scan_player_funcs(eb_bytes, *, graft_savepoint=False) -> list:
     """The donor PLAYER functions a fork must graft so its carried objects' INTERACTIONS fire -- the tags an
     object's interactive func ``RunScript``s (the object scanner's ``player_tags_needed``). One spec per needed
     tag: ``{donor_tag, safety, body (verbatim), runscript_tags, donor_player_entry, donor_player_model,
@@ -911,7 +956,7 @@ def scan_player_funcs(eb_bytes) -> list:
     ``edit.add_function`` at a fresh tag); the rest keep the seeding object ``init_only``. The donor tag is
     later remapped to a fresh fork-player tag (docs/PLAYER_GRAFT.md)."""
     eb = EbScript.from_bytes(eb_bytes)
-    specs = scan_objects_verbatim(eb_bytes)
+    specs = scan_objects_verbatim(eb_bytes, graft_savepoint=graft_savepoint)
     needed = sorted({t for s in specs for t in s["player_tags_needed"]})
     if not needed:
         return []
