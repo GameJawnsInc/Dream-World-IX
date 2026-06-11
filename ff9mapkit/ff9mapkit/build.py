@@ -817,17 +817,9 @@ def lint_logic(project: FieldProject) -> list[str]:
                        f"door; gate each with requires_flag / requires_flag_clear so only the right one fires "
                        f"per story beat. (FORK_FIDELITY.md #2)")
 
-    # a --verbatim fork ships the donor .eb, but the field-load hooks are now armed onto its Main_Init too
-    # (build._apply_on_entry, the same path build_script uses). The one limit: a NARRATION message has no
-    # text channel (the donor .mes ships verbatim), so a message beat's narration is dropped -- the gated
-    # state-advance still fires. Flag only the message hooks, so the author knows the line won't show.
-    if raw.get("verbatim_eb"):
-        msg_hooks = [k for k, h in enumerate(raw.get("on_entry", []) or []) if h.get("message")]
-        if msg_hooks:
-            out.append(f"[[on_entry]] narration message(s) {msg_hooks} won't show in a --verbatim fork (the "
-                       "donor .mes ships verbatim, with no slot for authored text) -- the hook's gated "
-                       "state-advance (set_scenario/set_flags) still fires. Fold the line into the donor's "
-                       "own logic if you need it on-screen.")
+    # (a --verbatim fork now fires BOTH [startup] and [[on_entry]] -- state-advances AND narration messages
+    # (the message is appended to the donor .mes above its txids, build._verbatim_on_entry_messages) -- so
+    # there is no longer a verbatim-specific on_entry limitation to warn about.)
 
     # pre-choose: a choice's `default` can't sit at/after a greyed (`disabled`) row. The engine
     # (SetChooseParam) converts the absolute default into the AVAILABLE-row index, but Dialog then reads
@@ -1621,6 +1613,43 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
                       "scenario": sc, "once_flag": once_flag, "requires_flag": rf,
                       "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc})
     return _onentry.inject_on_entries(eb, hooks)
+
+
+def _verbatim_on_entry_messages(project: FieldProject, langs) -> tuple[dict, dict]:
+    """For a verbatim fork's ``[[on_entry]]`` narration MESSAGE hooks: give each message a txid ABOVE the
+    donor `.mes`'s max (so it can't collide with the donor's index-txids) and the `.mes` lines to APPEND to
+    each language's donor body. The verbatim `.eb`'s ``WindowSync`` then resolves into the appended entry, so
+    the message SHOWS instead of being dropped. Returns ``(txid_by_hook, suffix_by_lang)`` -- ``({}, {})`` when
+    the fork has no message hook (a state-only verbatim fork is then unchanged). The authored message is
+    single-block: the SAME text for every language (like the synthesize path), appended at the same txid in
+    each language's body -- so the `.eb` (injected once, language-identical) stays valid.
+
+    The band floor is :data:`content.textcarry.CARRY_BASE_TXID` (1000, the unconditionally-safe id above
+    real-field text); a donor whose text reaches it pushes the base to ``max donor txid + 1``. This is the
+    same append-and-resolve trick ``--carry-text`` uses, so the donor's verbatim text stays untouched."""
+    from .content import verbatim as _verbatim, textcarry as _textcarry
+    from . import dialogue as _dialogue
+    msg_hooks = [(k, h) for k, h in enumerate(project.raw.get("on_entry") or []) if h.get("message")]
+    if not msg_hooks:
+        return {}, {}
+    bodies = {lang: (_verbatim.verbatim_mes(project, lang) or "") for lang in langs}
+    max_txid = 0
+    for body in bodies.values():
+        ids = _dialogue.parse_mes(body) if body else {}
+        if ids:
+            max_txid = max(max_txid, max(ids))
+    base = max(max_txid + 1, _textcarry.CARRY_BASE_TXID)
+    wrap = _wrap_width(project)
+    lines, tails, txid_by_hook = [], [], {}
+    for i, (k, h) in enumerate(msg_hooks):
+        line = _text.with_speaker(h.get("speaker"), h["message"])
+        if wrap is not None:
+            line = _text.wrap_text(line, wrap)[0]
+        lines.append(line)
+        tails.append(h.get("tail"))
+        txid_by_hook[k] = base + i
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    return txid_by_hook, {lang: suffix for lang in langs}
 
 
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
@@ -2610,20 +2639,23 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # synthesizing one -- the field runs its real logic. None unless the project has a [verbatim_eb] block.
     from .content import verbatim as _verbatim
     verbatim_bytes = _verbatim.verbatim_eb(project)
+    oe_suffix: dict = {}
     if verbatim_bytes is not None:
         # the verbatim .eb bypasses build_script, so apply the field-load hooks HERE too -- else the
         # documented "pair with [startup] to boot a beat" is a silent no-op (the fork would boot at
         # scenario-zero), and [[on_entry]] beats would never fire. Both arm into the donor's Main_Init;
-        # the .eb is language-identical, so inject once before the per-language loop. ([[on_entry]] narration
-        # messages have no text channel in a verbatim fork -> dropped + warned; the gated state-advance fires.)
+        # the .eb is language-identical, so inject once before the per-language loop. An [[on_entry]]
+        # narration MESSAGE is given a text channel by APPENDING it to the donor `.mes` above the donor's
+        # txids (oe_suffix, added per-language below); its WindowSync resolves into that appended entry.
         verbatim_bytes = _apply_startup(project, verbatim_bytes)
-        verbatim_bytes = _apply_on_entry(project, verbatim_bytes, on_entry_txids,
-                                         _FlagAlloc(getattr(project, "flag_base", None)),
-                                         drop_messages=True, warnings=warnings)
+        oe_msg_txids, oe_suffix = _verbatim_on_entry_messages(project, langs)
+        verbatim_bytes = _apply_on_entry(project, verbatim_bytes, oe_msg_txids,
+                                         _FlagAlloc(getattr(project, "flag_base", None)), warnings=warnings)
     for lang in langs:
         if verbatim_bytes is not None:
             eb = verbatim_bytes
-            lang_body = _verbatim.verbatim_mes(project, lang) or ""    # the donor's WHOLE text (index-txids)
+            # the donor's WHOLE text (index-txids) + any appended [[on_entry]] narration lines (high txids)
+            lang_body = (_verbatim.verbatim_mes(project, lang) or "") + oe_suffix.get(lang, "")
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,

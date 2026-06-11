@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — message-in-verbatim: an `[[on_entry]]` narration line now SHOWS in a verbatim fork
+- After the convergence (`build._apply_on_entry` runs on the verbatim path), an `[[on_entry]]` gated
+  state-advance already fired in a `--verbatim` fork — but the narration **message** was dropped (the donor
+  `.mes` ships verbatim, with no slot for authored text). Now the authored line is **appended to the donor
+  `.mes` above its max txid** (`build._verbatim_on_entry_messages`, floored at `textcarry.CARRY_BASE_TXID`
+  1000 — the same append-and-resolve trick `--carry-text` uses), and the hook's `WindowSync` resolves into
+  it. So a verbatim fork's on_entry beat now fires its message **and** its state-advance on top of the
+  donor's real logic. `_apply_on_entry` is unchanged (its `drop_messages` param stays a general capability);
+  only the verbatim branch of `build_field` now supplies the text channel, and the now-obsolete
+  "message won't show in verbatim" lint warning is retired. **In-game proven** on a Dali-Inn verbatim fork
+  (the appended line renders, `set_flags` advances state, the inn's own NPCs still speak their real lines).
+  3 tests (`tests/test_on_entry.py`); kit 0.9.18.
+
 ### Added — deploy-time text-block SHADOW guard (`deploystack.py`)
 - A field loads its dialogue by **mesID** (`text_block`), and the engine reads that `.mes` from the **first**
   mod folder in `Memoria.ini` `FolderNames` that defines `field/<mesID>.mes`. When several stacked worktree

@@ -34,8 +34,10 @@ have it *behave* as that story beat.
 > item is the cosmetic entrance-fade model-streaming flicker on an F6-warp. (`content/verbatim.py` + the
 > `[verbatim_eb]` block.) **Both field-load levers fire in a verbatim fork** — `[startup]` (boot a beat) and
 > `[[on_entry]]` (a gated, once field-load beat) are armed onto the donor's real Main_Init (the shared
-> `build._apply_startup` / `_apply_on_entry`); an `[[on_entry]]` *narration message* is the one exception
-> (no authored-text channel in a verbatim fork → dropped + warned, the state-advance still fires).
+> `build._apply_startup` / `_apply_on_entry`), and an `[[on_entry]]` **narration message now SHOWS too**
+> (in-game proven on a Dali-Inn verbatim fork): the authored line is appended to the donor `.mes` *above its
+> txids* (`build._verbatim_on_entry_messages`, the `--carry-text` trick) so the hook's `WindowSync` resolves
+> into it — message + gated state-advance both fire on top of the donor's real logic.
 >
 > **`import-chain --verbatim` extends this to a CONNECTED SLICE** (a region, not one room). Every member forks
 > native + verbatim, and the in-chain `Field()` exits are **retargeted to the chain's own member ids** (the

@@ -168,7 +168,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.16`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.18`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -637,6 +637,18 @@ Read these on demand — they hold the full technical detail this file only summ
   `content/onentry.py` UNCHANGED; touches only `build.py` (the shared helpers) — the minimal convergence surface.
   Offline + end-to-end proven; the in-game "beat fires at scenario N in a verbatim fork" is a natural add to
   story_flags' on_entry deep-dive. kit 0.9.17; 840 tests.
+- **message-in-verbatim — an `[[on_entry]]` narration line now SHOWS in a verbatim fork (`story_flags`; IN-GAME
+  PROVEN).** Closes the one limit the convergence left: the message was dropped (the donor `.mes` ships verbatim,
+  no slot for authored text). Now the authored line is **appended to the donor `.mes` above its max txid**
+  (`build._verbatim_on_entry_messages`, floored at `textcarry.CARRY_BASE_TXID` 1000 — the `--carry-text` trick) and
+  the hook's `WindowSync` resolves into it. Only the verbatim branch of `build_field` changed (supply the text
+  channel) + the now-obsolete lint warning retired; `_apply_on_entry` stays untouched (its `drop_messages` param is a
+  general capability). **In-game proven on a Dali-Inn verbatim fork** (slot 30004, `text_block` 187 to dodge the
+  1073 shadow): the appended line renders ON TOP of the donor's real logic, `set_flags` 8800→1, the once-flag holds
+  on re-entry, and the inn's own NPCs still speak their real lines. ★ Nuance surfaced: in a verbatim fork the donor's
+  own Main_Init can set the ScenarioCounter AFTER `[startup]` (the donor's real logic gets the last word) — the
+  on_entry gate still matched (the message fired), so it's cosmetic. Touches only `build.py` + `content/onentry.py`
+  tests + docs — orthogonal to overworld's non-Zidane (player/eventscan) lane. kit 0.9.18.
 
 ---
 

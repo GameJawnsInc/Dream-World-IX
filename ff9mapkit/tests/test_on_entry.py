@@ -233,13 +233,51 @@ def test_on_entry_auto_flag_overflow_into_chest_band_is_blocked(tmp_path):
     build_script(FieldProject.load(p), "us", {})                         # no raise
 
 
-def test_on_entry_with_verbatim_eb_warns(tmp_path):
-    """[[on_entry]] is silently bypassed in a --verbatim fork (the donor .eb ships as-is). lint_logic must
-    warn so the author isn't surprised the beat never fires."""
-    toml = BASE + '\n[verbatim_eb]\nbin = "donor.eb.bin"\n' + '\n[[on_entry]]\nmessage = "hi"\n'
-    p = tmp_path / "f.field.toml"; p.write_text(toml, encoding="utf-8")
-    warns = lint_logic(FieldProject.load(p))
-    assert any("on_entry" in w.lower() and "verbatim" in w.lower() for w in warns)
-    # without the verbatim block, no such warning
-    p.write_text(BASE + '\n[[on_entry]]\nmessage = "hi"\n', encoding="utf-8")
-    assert not any("verbatim" in w.lower() for w in lint_logic(FieldProject.load(p)))
+def test_on_entry_in_verbatim_fork_has_no_lint_warning(tmp_path):
+    """message-in-verbatim landed: a --verbatim fork now fires BOTH the gated state-advance AND the narration
+    message (the message is appended to the donor .mes above its txids), so lint_logic no longer warns about
+    [[on_entry]] in a verbatim fork -- neither a message hook nor a state-only one."""
+    for hook in ('\n[[on_entry]]\nmessage = "hi"\n',
+                 '\n[[on_entry]]\nset_scenario = 2700\nset_flags = [{flag = 8800, value = 1}]\n'):
+        p = tmp_path / "f.field.toml"
+        p.write_text(BASE + '\n[verbatim_eb]\nbin = "donor.eb.bin"\n' + hook, encoding="utf-8")
+        assert not any("verbatim" in w.lower() for w in lint_logic(FieldProject.load(p)))
+
+
+def _verbatim_fork(tmp_path, donor_us_mes: str, hooks: str):
+    """A minimal verbatim-fork project: a [verbatim_eb] block with a donor .mes text sidecar + on_entry
+    hooks. The .eb bin isn't read by _verbatim_on_entry_messages (only the text sidecar is)."""
+    import json
+    (tmp_path / "donor_text.json").write_text(json.dumps({"us": donor_us_mes}), encoding="utf-8")
+    (tmp_path / "donor.eb.bin").write_bytes(b"\x00")
+    p = tmp_path / "f.field.toml"
+    p.write_text(BASE + '\n[verbatim_eb]\nbin = "donor.eb.bin"\ntext = "donor_text.json"\n' + hooks,
+                 encoding="utf-8")
+    return FieldProject.load(p)
+
+
+def test_verbatim_on_entry_message_appends_above_donor_txids(tmp_path):
+    """A verbatim fork's [[on_entry]] narration message is APPENDED to the donor .mes above its txids (so it
+    can't collide) and the hook gets that txid -> the message SHOWS, not dropped. A state-only hook gets no
+    message txid. Floor is CARRY_BASE_TXID (1000); a donor reaching it pushes the base higher."""
+    from ff9mapkit.build import _verbatim_on_entry_messages
+    proj = _verbatim_fork(
+        tmp_path, "_[TXID=12][STRT=10,1][TAIL=UPR]donor line[ENDN]\n",
+        '\n[[on_entry]]\nmessage = "A real entry line."\nset_flags = [{flag = 8800, value = 1}]\n'
+        '\n[[on_entry]]\nset_scenario = 2700\n')            # 2nd hook is state-only -> no message
+    txids, suffix = _verbatim_on_entry_messages(proj, ["us"])
+    assert txids == {0: 1000}                                # only the message hook; floored at 1000 (> donor 12)
+    assert 1 not in txids                                    # the state-only hook gets no message txid
+    assert "[TXID=1000]" in suffix["us"] and "A real entry line." in suffix["us"]
+    assert "donor line" not in suffix["us"]                  # the donor's verbatim text is untouched (appended-to)
+
+    # no message hooks at all -> nothing to append (state-only verbatim fork stays unchanged)
+    proj2 = _verbatim_fork(tmp_path, "_[TXID=12][STRT=10,1][TAIL=UPR]x[ENDN]\n",
+                           '\n[[on_entry]]\nset_scenario = 2700\n')
+    assert _verbatim_on_entry_messages(proj2, ["us"]) == ({}, {})
+
+    # a donor whose text reaches the safe floor pushes the base up (no collision with donor txids)
+    proj3 = _verbatim_fork(tmp_path, "_[TXID=1500][STRT=10,1][TAIL=UPR]x[ENDN]\n",
+                           '\n[[on_entry]]\nmessage = "hi"\n')
+    txids3, _ = _verbatim_on_entry_messages(proj3, ["us"])
+    assert txids3 == {0: 1501}
