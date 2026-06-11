@@ -29,8 +29,10 @@ have it *behave* as that story beat.
 > (entry-0 + every object + every gateway, layout intact) and runs the **real logic** instead of
 > re-synthesizing — a faithful *slice*, in-game proven on Dali Inn (the gated door OPENS, the cast gates by
 > story beat). It ships the whole `.eb`, so it even subsumes #2b's ref-bearing gated doors (every entry is
-> carried). Remaining gaps: donor `.mes` text carry (next) + the entrance-fade model-streaming artifact.
-> (`content/verbatim.py` + the `[verbatim_eb]` block; pair with `[startup]` to boot a beat.)
+> carried) **and now speaks** — it ships the donor's whole `.mes` so its index-txids resolve in the right
+> language (in-game proven on Dali Inn: renders + runs the real logic + English dialogue). The only remaining
+> item is the cosmetic entrance-fade model-streaming flicker on an F6-warp. (`content/verbatim.py` + the
+> `[verbatim_eb]` block; pair with `[startup]` to boot a beat.)
 
 ## Play a fork today
 

@@ -562,9 +562,15 @@ Read these on demand — they hold the full technical detail this file only summ
   **In-game (Dali Inn): the field plays its real logic** — the gated door OPENS (its MAP-var deps satisfied, vs
   #2b's gated-closed door-only carry), the cast gates by story beat (consistent across re-entry). `content/verbatim.py`
   (`remap_fields` + `verbatim_eb`) + a `[verbatim_eb]` block (sidecar + a `retarget` template); `build_field` ships
-  it when present (else synthesizes — golden byte-identical); pair with `[startup]` to boot a beat. **LIMITS:** the
-  donor `.mes` text is a separate carry (TXIDs may not resolve until then — the next step), and an F6-warp has no
-  entrance fade to mask first-frame model streaming (a heavy model flickers in; faithful, fade-hidden in real play).
+  it when present (else synthesizes — golden byte-identical); pair with `[startup]` to boot a beat. **It also SPEAKS
+  (P2, in-game proven):** the donor's WHOLE `.mes` ships too (`dialogue.extract_field_mes` → a `verbatim_mes.json`
+  sidecar → the field's text block), and the verbatim `.eb`'s index-txids resolve straight into it (base-game field
+  text is index-implicit) — NO remap, unlike `--carry-text`'s append-and-remap. ★ Per-lang gotcha (fixed): the 14
+  same-zone `.mes` blocks carry no language in the name, so selecting by COVERAGE handed every language the longest
+  (German) block — a `us` fork spoke German until `extract_field_mes` was switched to select by **`lang_score`**.
+  The only LIMIT left is cosmetic: an F6-warp has no entrance fade to mask first-frame model streaming (a heavy
+  model flickers in; faithful, fade-hidden in real play). **The verbatim fork is the most faithful mode — a real
+  slice of the game (scene + real logic + real text) from one command.**
 
 ---
 
