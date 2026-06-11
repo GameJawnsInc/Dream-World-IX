@@ -125,6 +125,10 @@ backups/battle_predeploy.*/
 # field's referenced .mes strings, per language + the donor->carried txid map, shipped VERBATIM so a forked
 # interaction shows the real words). SE-derived -- never commit (same posture as the object/player sidecars).
 *.carrytext.json
+# FFIX Import GUI default output dir (apps/ff9_import.pyw `--out` default = repo-root/imported/). A fork's
+# assets (atlas.png / scene.bgs.bytes / mapconfig.bytes / camera.bgx) are SE-DERIVED game bytes -- the whole
+# dir must never be committed (the zero-SE-bytes provenance gate). Import elsewhere if you don't want it here.
+/imported/
 
 # Blender working/test projects (user art + exports)
 ff9mapkit/blender/debug_proj/
