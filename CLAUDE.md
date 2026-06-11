@@ -161,7 +161,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.12`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.13`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -190,6 +190,8 @@ real gameplay and reproducible in Python (zero Hades Workshop):
 - **Import/fork:** `ff9mapkit import <field>` (BG-borrow · `--editable` custom-scene · `--native`
   seamless per-tile fork) + `list-fields` — fork any of **674** real fields (camera + walkmesh +
   gateways/BGM/encounters extracted offline from p0data), **carrying their NPCs/props faithfully**
+  · **`ff9mapkit fork-report <field>`** previews fork fidelity BEFORE you fork (roster vs interaction
+  axes, story-gated beats, suggested `[startup]`; clean static-roster vs story-event verdict — `forkreport.py`)
   (verbatim `.eb`-entry graft + player-func + lighting + per-language text). Blender "Import FF9 Field"
   gives a visual fork→author loop.
 - **Battle backgrounds:** author custom 3D battle maps — texture reskin, loose-FBX geometry, a net-new
@@ -509,6 +511,18 @@ Read these on demand — they hold the full technical detail this file only summ
   any `requires_flag` gate, just before `Field()`; reuses `startup.startup_body`, validate + reserved-band lint
   mirror `[startup]`. Touches only `content/gateway.py` + `build.py` (orthogonal to overworld's import-scanner
   lane). kit 0.9.12; 787 tests.
+- **`fork-report` — preview a real field's fork fidelity, OFFLINE** (`story_flags` branch; `ff9mapkit/forkreport.py`;
+  the realized `fork-report` the ad-hoc scan above seeded). `ff9mapkit fork-report <field>` reads the compiled `.eb`
+  (no game) and reports two INDEPENDENT axes — **roster fidelity** (# carried objects, # `Field()`-warp DIRECTORS,
+  whether content rotates by beat) and **interaction fidelity** (per-NPC `graft_safety`: `clean`/`init_only`/`refuse`)
+  — plus story-gated doors, the ScenarioCounter **beats the field gates content on** (scan for `DC 00 7D <const> <cmp>`),
+  and a suggested `[startup] scenario` (earliest gate) + `import` recipe. Verdict: clean static-roster (forks faithfully)
+  vs story-event (diorama). Validated against the real Dali shop (STORY-EVENT: 1 director, 11 beats Dali→Pandemonium —
+  the rotating cast, now machine-readable) + Daguerreo (CLEAN). **Read-only** — reuses `eventscan.scan_objects_verbatim`/
+  `scan_gateway_entries` + the `flags` beat table, adds NO carry/scanner logic (clear of overworld's lane). The design
+  was grounded by a parallel understand workflow (4 read-only agents validating each signal on real fields); the
+  scenario-inference heuristic was proven before baking it in. Pure `analyze_eb` unit-tested offline against the
+  ALEX100 fixture. kit 0.9.13; 802 tests.
 - **Verbatim SAVE-MOOGLE carry — the iconic FF9 save point, CARRIED (not synthesized) into a custom field
   (in-game proven; `import --save-moogle`; memory `project-ff9-savepoint`).** The cluster the object-carry research
   deferred as "structurally un-graftable" now forks faithfully (P1–P6.1, all on master): **P1** scoped cluster

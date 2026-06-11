@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `fork-report`: preview a real field's fork fidelity (offline)
+- **`ff9mapkit fork-report <field>`** (id or FBG substring) answers, before you fork, "will this field play
+  faithfully?" — reading the compiled `.eb` with no game running. It reports two INDEPENDENT axes:
+  **roster fidelity** (how many objects a fork carries, how many are `Field()`-warp **directors** = cutscene
+  actors carried as NPCs, and whether content rotates by story beat) and **interaction fidelity** (per NPC,
+  whether its talk handler ports — `clean` = fully interactive / `init_only` = render-only / `refuse` = stub).
+  Plus story-gated doors, the ScenarioCounter **beats the field gates content on**, and a suggested
+  `[startup] scenario` (the earliest gate) + `import` recipe. Verdict: a clean static-roster field (forks
+  faithfully) vs a story-event field (a high-fidelity diorama — rotating cast / cutscene actors). Validated:
+  the real Dali Weapon Shop → STORY-EVENT (1 director, 11 rotating beats Dali→Pandemonium); Daguerreo 2F →
+  CLEAN static-roster. **Read-only** — reuses `eventscan.scan_objects_verbatim` (the carry `graft_safety`
+  classification) + `scan_gateway_entries` + the `flags` beat table; adds no carry/scanner logic. New module
+  `ff9mapkit/forkreport.py` (pure `analyze_eb` + thin id-loader, unit-tested offline against a fixture).
+  (`docs/FORK_FIDELITY.md` — the north star is "fork a real field → does it play identically?")
+
 ### Added — `[[gateway]]` on-exit story advance (fork-fidelity #3)
 - A `[[gateway]]` can now **advance story state when the player takes that exit**: `set_scenario = N | "area"`
   bumps the ScenarioCounter and `set_flags = [{flag = <index|name>, value = 0|1}]` sets/clears gEventGlobal

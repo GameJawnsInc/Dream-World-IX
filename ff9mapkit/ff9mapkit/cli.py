@@ -17,6 +17,7 @@ Subcommands are wired up incrementally as the library lands:
     battle-list   - list the real FF9 battle backgrounds available to fork
     dialogue  - view a field.toml's authored dialogue + how each line wraps on screen
     dialogue-import - read a REAL FF9 field's dialogue (or a built mod's) -- 'NPC -> text'
+    fork-report - preview, offline, what a fork of a REAL field will/won't reproduce (fidelity report)
     animations/items - browse the cutscene-gesture / item catalogs by name
     models/scenes/catalog - the Info Hub: browse models (+ their animations), battle scenes, or
                             search every reference catalog by name
@@ -1037,6 +1038,21 @@ def _cmd_dialogue_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_fork_report(args: argparse.Namespace) -> int:
+    """Preview, OFFLINE, what a fork of a real field will and won't reproduce (roster / interaction
+    fidelity, story gating, a suggested [startup] beat) -- the 'before you fork, is it faithful?' verb."""
+    _safe_console()
+    from . import forkreport as FR
+    try:
+        fid = FR.resolve_field_id(args.field, game=args.game)
+        rep = FR.analyze(fid, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(FR.format_report(rep))
+    return 0
+
+
 def _cmd_items(args: argparse.Namespace) -> int:
     """List FF9 item names + ids (use a name for `give_item = ["<name>", count]`)."""
     from . import items as I
@@ -1481,6 +1497,11 @@ def build_parser() -> argparse.ArgumentParser:
     di.add_argument("--out", default=None,
                     help="also write a JSON view here (use a .dialogue.json suffix -- SE-derived, gitignored)")
     di.set_defaults(func=_cmd_dialogue_import)
+
+    fr = sub.add_parser("fork-report",
+                        help="preview what a fork of a REAL field will/won't reproduce, offline (fidelity report)")
+    fr.add_argument("field", help="real field id or FBG name (e.g. 354, dl_shp, lb_tmp) -- see `list-fields`")
+    fr.set_defaults(func=_cmd_fork_report)
 
     xt = sub.add_parser("extract-templates",
                         help="regenerate the kit's base assets from YOUR FF9 install (ships no game data)")
