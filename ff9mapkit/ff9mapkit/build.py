@@ -214,6 +214,33 @@ def _entry_player_call_tags(entry_bytes, donor_player_entry, carry_tags=None) ->
     return out
 
 
+def _entry_window_txids(entry_bytes, carry_tags=None) -> set:
+    """The literal WindowSync txids a carried object entry SHOWS in its CARRIED funcs -- decode and collect
+    each window op's txid immediate (``0x1F``/``0x20`` -> ``imm(2)``; ``0x95``/``0x96`` -> ``imm(3)``); an
+    EXPRESSION operand (``imm`` None) is skipped. ``carry_tags`` (the init_only kept subset; ``None`` = whole
+    entry) gates which funcs are scanned -- a DROPPED func's window never runs. Used by the text-carry lint:
+    a carried talkable object whose donor lines aren't carried shows WRONG/missing dialogue in the fork."""
+    from .binutils import u16
+    from .eb.disasm import iter_code
+    out: set = set()
+    b = entry_bytes
+    if len(b) < 2:
+        return out
+    keep = None if carry_tags is None else {int(t) for t in carry_tags}
+    fc = b[1]
+    funcs = [(u16(b, 2 + i * 4), u16(b, 2 + i * 4 + 2)) for i in range(fc)]   # (tag, fpos)
+    for i, (tag, fpos) in enumerate(funcs):
+        if keep is not None and tag not in keep:
+            continue                                      # a dropped func's window never runs -> ignore
+        start = 2 + fpos
+        end = (2 + funcs[i + 1][1]) if i + 1 < fc else len(b)
+        for ins in iter_code(b, start, end):
+            txid = ins.imm(2) if ins.op in (0x1F, 0x20) else (ins.imm(3) if ins.op in (0x95, 0x96) else None)
+            if txid is not None:
+                out.add(int(txid))
+    return out
+
+
 def _seq_helper_problem(bin_bytes) -> str | None:
     """Reason a STARTSEQ-helper sidecar (docs/OBJECT_CARRY.md S2 v1.5) is UNSAFE to graft, or None. Mirrors
     ``eventscan._seq_helper_safe`` on a standalone entry sidecar: a type-1 Seq/region entry with a benign body
@@ -816,6 +843,28 @@ def lint_logic(project: FieldProject) -> list[str]:
                        f"will ALL arm and the player hits the wrong branch. This is a collapsed story-branch "
                        f"door; gate each with requires_flag / requires_flag_clear so only the right one fires "
                        f"per story beat. (FORK_FIDELITY.md #2)")
+
+    # #5 (FORK_FIDELITY.md): a carried TALKABLE object whose donor dialogue isn't carried -> WRONG/missing
+    # text in the fork. A plain import (no --carry-text) keeps a self-contained talk handler (a bare
+    # WindowSync) but doesn't ship its words, so the WindowSync points at a donor txid the fork's text block
+    # doesn't hold. (The build remaps a carried window to the [carry_text] band; an UN-carried one is the gap.)
+    # The dangling-PLAYER-tag softlock half of #5 is already a build-blocking validate() problem.
+    objs = raw.get("object", [])
+    if objs:
+        try:
+            carried = {e.donor_txid for e in project.carry_text_plan()}
+        except Exception:
+            carried = set()
+        for ob in objs:
+            binref = ob.get("bin")
+            if not binref or not project.path(binref).is_file():
+                continue
+            shown = _entry_window_txids(project.path(binref).read_bytes(), ob.get("carry_tags"))
+            missing = sorted(t for t in shown if t not in carried)
+            if missing:
+                out.append(f"[[object]] {binref} ({ob.get('kind', 'object')}) shows dialogue the fork doesn't "
+                           f"carry (donor txid {missing}) -- it will render WRONG/missing text in-game. Import "
+                           f"with --carry-text (ships the donor's lines + remaps the windows), or author the line.")
 
     # (a --verbatim fork now fires BOTH [startup] and [[on_entry]] -- state-advances AND narration messages
     # (the message is appended to the donor .mes above its txids, build._verbatim_on_entry_messages) -- so

@@ -168,7 +168,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.19`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.20`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -667,6 +667,16 @@ Read these on demand — they hold the full technical detail this file only summ
   Dagger/Steiner split). Read-only (`forkreport.py` only, reuses the scanners) — clear of story_flags' build.py
   on_entry lane. The frontier is the multi-PC / scenario-gated-player BIND (untested which PC binds). kit 0.9.19;
   843 tests.
+- **#5 — softlock / wrong-text lint for a plain (no-carry) import (`story_flags`; FORK_FIDELITY.md #5 LANDED).** A
+  plain `import` carries a real field's objects but NOT their player funcs / dialogue text → softlock or wrong text
+  in-game. Both halves now caught **offline, build-side**: **(b) the dangling-player-tag SOFTLOCK** was already a
+  build-blocking `validate()` error (`_entry_player_call_tags` — a carried `[[object]]` that `RunScript`s the player
+  at an un-grafted tag); **(a) un-carried TALKABLE text** is the new lint — `lint_logic` decodes each carried
+  object's talk windows (`_entry_window_txids`, mirrors the player-call decoder) and warns when a shown donor txid
+  isn't in the `[carry_text]` plan (import `--carry-text`, or author it). Validated on REAL imports: a plain
+  `--native` Daguerreo fork flags all 5 talkable NPCs; a `--carry-text` fork (DGLO_FORK) stays silent (no false
+  positive); props skipped. Reads only stable build-side data (`[[object]]` bins + the carry plan) — does NOT touch
+  the eventscan classifier (overworld's lane). 5 tests; 848 suite. kit 0.9.20.
 
 ---
 

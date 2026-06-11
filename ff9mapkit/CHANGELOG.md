@@ -24,6 +24,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   reuses the existing scanners. 2 tests (`tests/test_forkreport.py`); memory `project-ff9-non-zidane-donors`.
   kit 0.9.19.
 
+### Added — softlock / wrong-text lint for a plain (no-carry) import (FORK_FIDELITY.md #5)
+- A plain `import` (no carry flags) carries a real field's objects but **not** their player funcs or dialogue
+  text, which can softlock or mis-render in-game. Both halves are now caught **build-side, offline**:
+  - **(b) dangling player tag = the softlock** was already a build-blocking `validate()` error — a carried
+    `[[object]]` that `RunScript`s the player at an un-grafted tag (`_entry_player_call_tags`).
+  - **(a) un-carried talkable text = wrong/missing dialogue** is the new piece: `lint_logic` decodes each
+    carried object's talk windows (`_entry_window_txids` — mirrors the player-call decoder) and warns when a
+    shown donor txid isn't in the `[carry_text]` plan (\"import with --carry-text, or author the line\").
+  Validated against real imports — a plain `--native` Daguerreo fork flags all 5 talkable NPCs, a
+  `--carry-text` fork is silent (no false positive), props are skipped. Reads only stable build-side
+  representations (the `[[object]]` bins + the carry plan); orthogonal to the eventscan classifier.
+  5 tests (`tests/test_carry_text_lint.py`); kit 0.9.20.
+
 ### Added — message-in-verbatim: an `[[on_entry]]` narration line now SHOWS in a verbatim fork
 - After the convergence (`build._apply_on_entry` runs on the verbatim path), an `[[on_entry]]` gated
   state-advance already fired in a `--verbatim` fork — but the narration **message** was dropped (the donor
