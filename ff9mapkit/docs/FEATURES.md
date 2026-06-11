@@ -53,6 +53,8 @@ codec/golden tests) with the full in-game pass still pending.
 | Reshape a multi-floor fork while preserving cross-floor seams | ✓ | [WALKMESH_EDITING](WALKMESH_EDITING.md) |
 | Build-time validation: floors reachable, content on-mesh, near-edge, zero-area tris, seams | ✓ | [FORMAT](FORMAT.md) |
 | `walkmesh verify` standalone checker | ✓ | [README](../README.md) |
+| `lint` = ONE offline pass: schema + logic + flag bands + geometry/placement + layer + camera pitch | ✓ | [README](../README.md) |
+| Reserved story-flag-band check (chest / handshake / scratch writes flagged by name) | ✓ | [FORMAT](FORMAT.md) |
 
 ## Background art
 

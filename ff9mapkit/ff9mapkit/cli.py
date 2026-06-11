@@ -252,25 +252,29 @@ def _cmd_build(args: argparse.Namespace) -> int:
 
 
 def _cmd_lint(args: argparse.Namespace) -> int:
-    """Check a field.toml WITHOUT building: schema errors (validate) + story/flag lints (lint_logic).
-    Exits 1 if anything is reported, so it's scriptable. Merges a sibling scene.toml first."""
-    from .build import FieldProject, lint_logic, validate
+    """Check a field.toml WITHOUT building -- ONE pass over every offline validator: schema errors
+    (validate), story/flag logic + dialogue overflow + dup names (lint_logic), reserved flag-band use
+    (lint_flag_bands), walkmesh geometry + content placement + layer art + cutscene movement
+    (verify_walkmesh), and camera pitch range. Warnings are grouped by [section]. Exits 1 if anything is
+    reported, so it's scriptable. Merges a sibling scene.toml first."""
+    from .build import FieldProject, lint_all
     try:
         proj = FieldProject.load(args.field)
     except (OSError, ValueError) as e:
         print(f"failed to load: {e}", file=sys.stderr)
         return 2
-    problems = validate(proj)
-    lints = lint_logic(proj)
-    print(f"lint: {args.field}")
-    for p in problems:
+    rep = lint_all(proj)
+    print(f"lint: {args.field}  [{rep.source}]")
+    for p in rep.errors:
         print(f"  ERROR  {p}")
-    for w in lints:
-        print(f"  warn   {w}")
-    if not problems and not lints:
+    for tag, items in (("logic", rep.logic), ("flags", rep.flags),
+                       ("placement", rep.placement), ("camera", rep.camera)):
+        for w in items:
+            print(f"  warn  [{tag}] {w}")
+    if rep.ok:
         print("  OK -- no problems.")
         return 0
-    print(f"  {len(problems)} error(s), {len(lints)} warning(s)")
+    print(f"  {len(rep.errors)} error(s), {len(rep.warnings)} warning(s)")
     return 1
 
 
@@ -1127,7 +1131,9 @@ def build_parser() -> argparse.ArgumentParser:
     bd.add_argument("--description", default="", help="mod description")
     bd.set_defaults(func=_cmd_build)
 
-    ln = sub.add_parser("lint", help="check a field.toml's logic (story flags, dup names, placement) without building")
+    ln = sub.add_parser("lint", help="check a field.toml without building -- one pass over every offline "
+                        "validator (schema, story/flag logic, reserved flag bands, walkmesh geometry + "
+                        "content placement, layer art, camera pitch)")
     ln.add_argument("field", help="path to a .field.toml")
     ln.set_defaults(func=_cmd_lint)
 

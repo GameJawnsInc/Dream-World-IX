@@ -457,6 +457,13 @@ Read these on demand — they hold the full technical detail this file only summ
   1-9 scratch, pre-dating the gate) `git rm`'d from HEAD; `release/FF9CustomMap/` is 100% kit-authored; old
   bytes remain only in local-only history (never pushed; a full scrub was offered + DECLINED). The toolkit OUTPUT
   was already clean — `extract-templates` regenerates base templates from the user's own install.
+- **Unified offline lint** (`story_flags` branch) — `ff9mapkit lint` now runs the WHOLE offline suite in one pass
+  (`build.lint_all` → a sectioned `LintReport`): schema + story/flag logic + **reserved flag-band check** +
+  walkmesh geometry/placement/layer-art/cutscene-movement (was `walkmesh verify`-only) + camera pitch (was
+  `guide`-only). The new `lint_flag_bands` extends the `[[flag]]` safe-band guard to literal `set_flag`/
+  `requires_flag` indices — a write into a reserved `gEventGlobal` region (chest 8376-8511 / byte-23 handshake /
+  worldmap unlocks / choice scratch) is flagged by name; the kit's 8000+ working band stays clean. Lint-only
+  (build output byte- AND warning-identical). Mirrors §2 "I can't see the game" → offline checks are the leverage.
 
 ---
 

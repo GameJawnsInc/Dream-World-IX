@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `lint` is now one pass over every offline validator (+ a reserved flag-band check)
+- **`ff9mapkit lint <field.toml>` runs the WHOLE offline suite in one go.** It used to be schema
+  (`validate`) + story/flag logic (`lint_logic`) only; the walkmesh geometry / content-placement /
+  layer-art / cutscene-movement checks lived behind `walkmesh verify`, and the camera-pitch advisory
+  behind `guide`. They now all surface through `lint`, grouped by `[section]` — `logic`, `flags`,
+  `placement`, `camera`. The pass degrades gracefully: a project whose camera/walkmesh can't resolve
+  still reports its schema + logic findings (the resolve failure is recorded as an error, never a crash).
+  Spine: `build.lint_all(project) -> LintReport` (the single source of truth; `walkmesh verify` is
+  unchanged and still standalone).
+- **New check — reserved story-flag bands.** A raw `set_flag = [N, 1]` / hand-written once `flag = N` /
+  `requires_flag = N` (on an event, NPC, **prop**, gateway, cutscene, or choice) that lands in a *reserved*
+  `gEventGlobal` region (the treasure-chest 'opened' bitfield 8376-8511, the byte-23 menu handshake, the
+  worldmap-unlock bits, or the choice-mask scratch) is flagged and named — a WRITE there corrupts real
+  save/engine state; a chest-band READ is unreliable. This extends the `[[flag]]` validator's safe-band
+  guard to the literal indices that bypass it. The kit's established 8000+ working band is free space, so
+  it draws no warning. `build.lint_flag_bands`.
+- **Refined — the off-walkmesh content check no longer cries wolf on back-wall NPCs.** An NPC is placed by
+  a world transform and renders regardless of the walkmesh; a normal FF9 NPC stands against the back wall,
+  just past the floor edge, and the player talks to it from the adjacent floor. The check now HARD-warns
+  only when an NPC is *grossly* off (farther than talk reach outside the floor's bounding box — a real
+  misplacement), instead of flagging every edge-adjacent NPC as "will float / be unreachable." The player
+  spawn and ladder landings still require being on the mesh. (Fixes a false-positive the unified `lint`
+  exposed on the in-game-verified `vivi-hut` oracle; affects `build` / `walkmesh verify` warnings too.)
+
 ### Added — `flags-diff`: compare two saves' story state
 - **`ff9mapkit flags-diff <A> [B]`** decodes two saves' `gEventGlobal` and shows the **A → B delta** — the
   ScenarioCounter change (with beat names), FieldEntrance, Treasure-Hunter points, chests, named word vars,

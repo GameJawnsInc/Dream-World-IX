@@ -724,6 +724,142 @@ def lint_logic(project: FieldProject) -> list[str]:
     return out
 
 
+def lint_flag_bands(project: FieldProject) -> list[str]:
+    """Warn when a RAW story-flag index lands in a reserved ``gEventGlobal`` region -- the treasure-chest
+    'opened' bitfield (8376-8511), the byte-23 menu handshake, the worldmap-unlock bits, or the choice-mask
+    scratch -- where a WRITE corrupts real save/engine state and a READ is meaningless. Named ``[[flag]]``s
+    are already validated into the safe custom band (``flags.resolve_project_flags``); this catches the
+    literal indices that bypass that path (``set_flag = [N, 1]`` / a hand-written once ``flag = N`` /
+    ``requires_flag = N``). Lint-only -- NOT run during the build, so the golden output is byte- AND
+    warning-identical."""
+    raw = project.raw
+    out: list[str] = []
+
+    def _flag_index(v):
+        """The flag index from a ``set_flag`` value -- ``[idx, val]`` (the documented shape) or a bare
+        ``idx`` -- or None for an empty/odd value. Defensive so a malformed toml never crashes the lint."""
+        if isinstance(v, (list, tuple)):
+            return v[0] if v else None
+        return v
+
+    def _write(idx, who):
+        try:
+            idx = int(idx)
+        except (TypeError, ValueError):
+            return
+        if _flags.is_reserved(idx):
+            r = _flags.bit_region(idx)
+            out.append(f"{who} writes story flag {idx}, inside FF9's reserved '{r.name}' region "
+                       f"({r.meaning}) -- writing here corrupts real save/engine state. Use a named "
+                       f"[[flag]] (auto-allocated into the safe band) or an index >= "
+                       f"{_flags.FIRST_SAFE_FLAG}.")
+
+    def _read(idx, who):
+        try:
+            idx = int(idx)
+        except (TypeError, ValueError):
+            return
+        if _flags.CHEST_FLAG_LO <= idx <= _flags.CHEST_FLAG_HI:
+            out.append(f"{who} gates on flag {idx}, in the treasure-chest 'opened' bitfield (bits "
+                       f"{_flags.CHEST_FLAG_LO}-{_flags.CHEST_FLAG_HI}) -- those bits have no static "
+                       f"per-chest identity, so the gate is unreliable. Gate on a named [[flag]] instead. "
+                       f"(advisory)")
+
+    for k, ev in enumerate(raw.get("event", [])):
+        who = f"event {ev.get('name', '#' + str(k))!r}"
+        if "set_flag" in ev:
+            _write(_flag_index(ev["set_flag"]), who)
+        if "flag" in ev and ev.get("once", True):
+            _write(ev["flag"], who)
+        gf, _gs = _gate_of(ev)
+        if gf is not None:
+            _read(gf, who)
+    for k, n in enumerate(raw.get("npc", [])):
+        gf, _gs = _gate_of(n)
+        if gf is not None:
+            _read(gf, f"NPC {n.get('name', '#' + str(k))!r}")
+    for p in raw.get("prop", []):                 # props gate exactly like NPCs (same _gate_of read path)
+        gf, _gs = _gate_of(p)
+        if gf is not None:
+            _read(gf, f"prop {p.get('prop', p.get('name', '?'))!r}")
+    for gw in raw.get("gateway", []):
+        gf, _gs = _gate_of(gw)
+        if gf is not None:
+            _read(gf, f"gateway -> {gw.get('to')}")
+    cs = raw.get("cutscene")
+    if cs:
+        for j, s in enumerate(cs.get("steps", [])):
+            if "set_flag" in s:
+                _write(_flag_index(s["set_flag"]), f"cutscene step #{j}")
+        if "flag" in cs and cs.get("once", True):
+            _write(cs["flag"], "cutscene")
+    for c, ch in enumerate(raw.get("choice", [])):
+        if "flag" in ch and (ch.get("trigger") or "action") == "walk":
+            _write(ch["flag"], f"choice #{c}")
+        for oi, o in enumerate(ch.get("options", [])):
+            if "set_flag" in o:
+                _write(_flag_index(o["set_flag"]), f"choice #{c} option {oi}")
+            if "requires_flag" in o:
+                _read(o["requires_flag"], f"choice #{c} option {oi}")
+    return out
+
+
+@dataclass
+class LintReport:
+    """Every offline check in one structured pass (the ``ff9mapkit lint`` command). ``errors`` are fatal
+    schema problems (a build can't proceed); the rest are advisory warnings grouped by what they're about.
+    ``source`` notes how the walkmesh was resolved (custom scene / BG-borrow / not resolvable)."""
+    errors: list = _dc_field(default_factory=list)        # validate(): schema / structural (build-blocking)
+    logic: list = _dc_field(default_factory=list)         # lint_logic(): story flags, dialogue, dup names
+    flags: list = _dc_field(default_factory=list)         # lint_flag_bands(): reserved-band flag use
+    placement: list = _dc_field(default_factory=list)     # verify_walkmesh(): geometry/placement/layer/cutscene
+    camera: list = _dc_field(default_factory=list)         # camera pitch outside the supported range
+    source: str = "?"
+
+    @property
+    def warnings(self) -> list:
+        return self.logic + self.flags + self.placement + self.camera
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors and not self.warnings
+
+
+def lint_all(project: FieldProject) -> LintReport:
+    """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
+    story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
+    layer art + cutscene movement (:func:`verify_walkmesh`), and camera pitch range. Degrades gracefully --
+    a project whose camera/walkmesh can't resolve still returns the schema + logic results, with the resolve
+    failure recorded as an error (so one broken section never masks the others). This is the single source
+    of truth behind the ``lint`` CLI; a clean ``lint_all`` is what a clean build expects."""
+    rep = LintReport(errors=validate(project), logic=lint_logic(project), flags=lint_flag_bands(project))
+    # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
+    # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad
+    # -> TypeError, a truncated .bgi -> struct.error, ...). A linter must NEVER traceback on bad input --
+    # any resolve failure is itself a finding -- so both resolve blocks catch broadly and report instead.
+    try:
+        wm = verify_walkmesh(project)
+        rep.source = wm.get("source", "?")
+        # the "no walkmesh to verify" note (a BG-borrow without a custom walkmesh) is informational, not a
+        # problem -- the engine uses the real field's mesh -- so it folds into the source, not the warnings.
+        rep.placement = [w for w in wm.get("warnings", []) if "no walkmesh to verify" not in w]
+        if len(rep.placement) != len(wm.get("warnings", [])):
+            rep.source += " (no custom walkmesh -- geometry/placement checks skipped)"
+    except Exception as e:                    # noqa: BLE001 -- never-crash contract (see comment above)
+        rep.source = "not resolvable"
+        rep.errors.append(f"couldn't resolve the camera/walkmesh to run geometry checks: "
+                          f"{type(e).__name__}: {e}")
+    try:
+        cams = resolve_cameras(project)
+        for ci, c in enumerate(cams):
+            w = cam.pitch_warning(cam.pitch_deg(c))
+            if w:
+                rep.camera.append((f"camera #{ci}: " if len(cams) > 1 else "") + w)
+    except Exception:                         # noqa: BLE001 -- the same resolve failure is already an error
+        pass                                  # (reported by validate() and/or the geometry block above)
+    return rep
+
+
 def resolve_npc_model(value):
     """Resolve an ``[[npc]] model`` value to the numeric model id ``SetModel`` takes.
 
@@ -969,14 +1105,36 @@ def _validate_content_placement(project: FieldProject, wmesh, warnings: list) ->
         d = wmesh.distance_to_boundary(int(round(x)), int(round(z)))
         return d if (d is not None and d < R) else None
 
+    # An off-mesh NPC is only a real problem if the player can't reach talking range. NPCs are placed by a
+    # world transform and render regardless of the walkmesh -- a normal FF9 NPC stands against the BACK
+    # WALL, just past the floor edge, and the player talks to it from the adjacent floor (proven by the
+    # in-game-verified hut oracle: Vivi sits ~100u beyond the floor's back edge and works). So we only HARD
+    # warn when an NPC is GROSSLY off -- farther than talk reach (~2x the object-collision radius) outside
+    # the floor's bounding box, i.e. a clear misplacement -- and treat a near-footprint NPC as intentional.
+    wv = wmesh.world_verts()
+    if wv:
+        _minx, _maxx = min(v[0] for v in wv), max(v[0] for v in wv)
+        _minz, _maxz = min(v[2] for v in wv), max(v[2] for v in wv)
+    else:
+        _minx = _maxx = _minz = _maxz = 0.0
+    NPC_REACH = 2.0 * cam.OBJECT_COLLISION_W          # an NPC this close to the floor footprint is reachable
+
+    def gross_off(x, z):
+        """Distance the point lies OUTSIDE the walkmesh bounding box (0 if within it), > talk reach."""
+        dx, dz = max(_minx - x, x - _maxx, 0.0), max(_minz - z, z - _maxz, 0.0)
+        return (dx * dx + dz * dz) ** 0.5 > NPC_REACH
+
     for i, n in enumerate(project.raw.get("npc", [])):
         p = n.get("pos")
         if not p:
             continue
         label = f"NPC {n.get('name', f'#{i}')!r} at ({int(p[0])}, {int(p[1])})"
         if off(p[0], p[1]):
-            warnings.append(f"{label} is off the walkmesh -- it will float / be unreachable. "
-                            f"Move it onto the walkable area.")
+            if gross_off(p[0], p[1]):                 # far outside the floor footprint -- a misplacement
+                warnings.append(f"{label} is far off the walkmesh (well outside the floor footprint) -- "
+                                f"it will render in empty space and the player can't reach it. Put it on, "
+                                f"or just behind, the walkable floor.")
+            # else: a back-wall NPC just past the floor edge -- normal placement, no warning.
         else:
             d = near_edge(p[0], p[1])
             if d is not None:
