@@ -27,6 +27,10 @@ separately:
   stacked-spawn failure mode), and whether content **rotates by story beat** (many ScenarioCounter gates).
 - **Interaction fidelity** — per carried NPC, whether its talk handler **ports**: `clean` = fully
   interactive on the fork, `init_only` = renders but its talk is dropped (re-author it), `refuse` = a stub.
+- **Dialogue** (the TEXT axis, orthogonal to interaction) — how many carried NPCs **speak** (a tag-3 talk
+  window) and how many lines. Their words render **wrong** unless the fork carries the text, so the report
+  flags it before you fork: ship with `--carry-text` (remaps the windows) or `--verbatim` (ships the whole
+  donor `.mes`). This is the preview of the build-side lint (FORK_FIDELITY.md #5).
 
 Plus: **story-gated doors**, the ScenarioCounter **beats the field gates content on**, a suggested
 `[startup] scenario` (the earliest gate — its natural "home" beat), and the `import` recipe.

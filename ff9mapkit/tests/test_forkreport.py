@@ -104,6 +104,32 @@ def test_format_report_edge_cases_render_ascii():
     assert "2 stub" in out2 and "1 gated door" in out2 and "no ScenarioCounter gates" in out2
 
 
+# ---- #5 preview: the speaking-NPC (text-carry) axis ----
+def test_analyze_eb_reports_speaking_npcs_subset_of_talkable():
+    # the TEXT axis: carried NPCs whose tag-3 talk SHOWS dialogue (-> need --carry-text). It's a subset of
+    # the talkable NPCs, and each speaking NPC shows >= 1 distinct line. (Fixture-independent invariants.)
+    rep = FR.analyze_eb(ALEX100, field_id=100, fbg_name="fbg_n01_alxt_map016_at_msa_0")
+    assert 0 <= rep.n_speaking <= rep.n_talkable
+    assert rep.n_dialogue_lines >= rep.n_speaking
+    out = FR.format_report(rep)
+    if rep.n_speaking:
+        line = next(l for l in out.splitlines() if l.strip().startswith("Dialogue"))
+        assert "carry-text" in line and "#5" in line
+
+
+def test_format_report_dialogue_line_present_and_absent():
+    rep = FR.ForkReport(field_id=12, fbg_name="z", roster_class="static-roster")
+    rep.n_objects = rep.n_talkable = rep.n_speaking = 2
+    rep.n_dialogue_lines = 5
+    rep.safety = {"clean": 2}
+    out = FR.format_report(rep)
+    out.encode("ascii")                                       # ASCII-safe for cp1252 consoles
+    assert "2 NPC(s) speak 5 line(s)" in out and "carry-text" in out and "#5" in out
+    # no speaking NPCs -> no Dialogue line at all
+    rep.n_speaking = rep.n_dialogue_lines = 0
+    assert not any(l.strip().startswith("Dialogue") for l in FR.format_report(rep).splitlines())
+
+
 # ---- format_report (pure render; must be ASCII-safe for cp1252 consoles) ----
 def _sample_report():
     rep = FR.ForkReport(field_id=354, fbg_name="fbg_n06_vgdl_map103_dl_shp_0", event_name="EVT_DALI")
@@ -176,3 +202,6 @@ def test_analyze_daguerreo_is_static_roster():
     rep = FR.analyze(2803)                               # Daguerreo 2F -- a clean static-roster field
     assert rep.roster_class == "static-roster"
     assert rep.directors == []
+    # the #5 text axis: all 6 carried NPCs speak (36 lines) -> the report tells you to fork with --carry-text
+    assert rep.n_speaking == 6 and rep.n_dialogue_lines == 36
+    assert "6 NPC(s) speak 36 line(s)" in FR.format_report(rep)

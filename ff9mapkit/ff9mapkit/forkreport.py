@@ -66,6 +66,8 @@ class ForkReport:
     n_objects: int = 0
     n_props: int = 0                          # non-talkable set-dressing
     n_talkable: int = 0
+    n_speaking: int = 0                        # carried NPCs whose tag-3 talk SHOWS dialogue (need --carry-text)
+    n_dialogue_lines: int = 0                  # total distinct talk txids those NPCs show
     directors: list = _dc_field(default_factory=list)     # donor_idx of carried objects that warp/switch in LOOP
     stacked: list = _dc_field(default_factory=list)       # donor_idx of multi-instance (one-spot stacking) objects
     safety: dict = _dc_field(default_factory=dict)        # {clean: n, init_only: n, refuse: n}
@@ -174,6 +176,22 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
         if len(o.get("instances", []) or []) > 1:
             rep.stacked.append(di)
 
+    # #5 preview (the TEXT axis, orthogonal to the interaction safety above): which carried NPCs SPEAK. A
+    # talk handler's WindowSync shows a donor txid that renders WRONG/missing unless the fork carries the
+    # words -- `--carry-text` remaps them, `--verbatim` ships the whole donor `.mes`. Mirrors the build-side
+    # lint (`build._entry_window_txids`) as a BEFORE-you-fork preview, via the dialogue reader (analysis layer).
+    try:
+        from . import dialogue as _dialogue
+        obj_idxs = {o.get("donor_idx") for o in objs}
+        speaking: dict = {}
+        for c in _dialogue.scan_dialogue(eb):
+            if c.func_tag == TALK_TAG and c.entry_idx in obj_idxs and c.txid is not None:
+                speaking.setdefault(c.entry_idx, set()).add(c.txid)
+        rep.n_speaking = len(speaking)
+        rep.n_dialogue_lines = sum(len(v) for v in speaking.values())
+    except Exception:                          # a preview must never crash on an odd field
+        pass
+
     try:
         gw = _eventscan.scan_gateway_entries(data)
         rep.gated_doors = sum(1 for g in gw if g.get("story_gated"))
@@ -264,6 +282,9 @@ def format_report(rep: ForkReport) -> str:
                  f"- {dirs}{stack}  -> {rep.roster_class.upper()}")
     lines.append(f"  Interactions  : {s.get('clean', 0)} fully interactive, {s.get('init_only', 0)} render-only, "
                  f"{s.get('refuse', 0)} stub  (faithful carry = --graft-player-funcs --carry-text)")
+    if rep.n_speaking:
+        lines.append(f"  Dialogue      : {rep.n_speaking} NPC(s) speak {rep.n_dialogue_lines} line(s) -- "
+                     f"--carry-text (or --verbatim) ships them; else they render WRONG text (lint #5)")
     if rep.sc_gates:
         beats = ", ".join(f"{v} ({nm[1] if nm else '?'})" for v, nm in rep.sc_gates)
         lines.append(f"  Story gating  : {rep.gated_doors} gated door(s); ScenarioCounter gates at {beats}")

@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `fork-report` Dialogue axis (the #5 text gap, previewed before you fork)
+- `fork-report` now reports a **Dialogue** axis (orthogonal to the interaction-safety axis): how many carried
+  NPCs **speak** (a tag-3 talk window) and how many lines — e.g. Daguerreo 2F "6 NPC(s) speak 36 line(s)".
+  Their words render **wrong** unless the fork carries the text, so the line says ship with `--carry-text`
+  (or `--verbatim`), pointing at the build-side lint (FORK_FIDELITY.md #5) as a *before-you-fork* preview.
+  Read-only — reuses `dialogue.scan_dialogue` (the analysis-layer `.eb` reader), filtered to the carried
+  objects' talk handlers; no scanner logic of its own. Validated on real fields (Daguerreo 6/36, Dali Inn
+  1/8). 2 offline tests + an install-gated assertion (`tests/test_forkreport.py`); kit 0.9.21.
+
 ### Added — `fork-report` is now PLAYER-CHARACTER aware (non-Zidane donors)
 - A field's controlled character isn't always Zidane (Vivi/Steiner/Garnet/Eiko/Freya/Amarant solo sequences).
   A census of all 818 field `.eb` (one events-bundle pass; `eventscan.resolve_player_entries` + `_player_model`)

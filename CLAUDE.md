@@ -168,7 +168,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.20`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.21`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -677,6 +677,13 @@ Read these on demand — they hold the full technical detail this file only summ
   `--native` Daguerreo fork flags all 5 talkable NPCs; a `--carry-text` fork (DGLO_FORK) stays silent (no false
   positive); props skipped. Reads only stable build-side data (`[[object]]` bins + the carry plan) — does NOT touch
   the eventscan classifier (overworld's lane). 5 tests; 848 suite. kit 0.9.20.
+- **`fork-report` Dialogue axis — the #5 text gap, previewed BEFORE you fork (`story_flags`).** `fork-report` now
+  reports a **Dialogue** line (orthogonal to the interaction-safety axis): how many carried NPCs SPEAK (a tag-3
+  talk window) + line count (Daguerreo 2F "6 NPC(s) speak 36 line(s)"; Dali Inn "1 / 8"). Their words render WRONG
+  unless the fork carries the text → the line says ship with `--carry-text` (or `--verbatim`), pointing at the
+  build-side #5 lint as a before-you-fork preview. Read-only, reuses `dialogue.scan_dialogue` filtered to the
+  carried objects' talk handlers (`forkreport.py` is story_flags'; no scanner logic of its own). 2 offline tests +
+  an install-gated assertion; 850 suite. kit 0.9.21.
 
 ---
 
