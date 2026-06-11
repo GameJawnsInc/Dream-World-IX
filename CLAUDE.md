@@ -886,9 +886,15 @@ Read these on demand — they hold the full technical detail this file only summ
   hut (`release/FF9CustomMap`) decodes its `.eb`, parses its `.mes`, and joins to *"I miss you Zidane"*; and
   `scan_dialogue` decodes 30 real dialogue calls from the Alexandria field-100 `.eb` fixture. **Install-
   verified** (the human ran `dialogue-import 100`: the real Alexandria opening dialogue — "Here! You dropped
-  your ticket." — in the requested language). **Deferred viewer polish** (user-flagged, not yet done): default-
-  hide non-dialogue `flags=0` system/debug windows (`--all` to show), de-dupe repeated call sites, and suppress
-  the kit-only `@x,z` position heuristic on real-field reads. 680 kit tests pass; `docs/DIALOGUE.md`.
+  your ticket." — in the requested language). **Viewer polish DONE** (the 3 user-flagged items, all in the
+  spine): `scan_dialogue` now captures the window FLAGS; `join` is lossless (marks each line `system`/`entry`,
+  honors `trust_positions`) and a new `present()` gives the clean reading view — it (1) default-hides
+  non-dialogue `flags=0` **system/notification** windows (the `0x80` text-box bit is the signal; the field's
+  "Error Env Play()" guard + "Received item!" popups; `--all`/the GUI "Show all" reveals them), (2) **de-dupes**
+  a line shown from several funcs of ONE object (preferring the NPC-talk row; distinct objects sharing a txid
+  stay separate), and (3) **drops the kit-only `@x,z`** heuristic on real-field reads (`read_field_dialogue`
+  passes `trust_positions=False` — the `D9(0)/D9(4)` convention is the player-clone's, not real NPCs', per the
+  player-graft cross-ref). **Field 100 now reads 30 raw → 13 clean lines.** 688 kit tests pass; `docs/DIALOGUE.md`.
 - **Player-function graft — P0+P1 (scanner + policy flip; offline-verified, commit `dd8755e`* on `overworld`).**
   The next step after object carry: carry the donor's PLAYER functions (the ones a carried object's interactive
   func `RunScript`s) onto the fork player so forked stock-map INTERACTIONS fire (the field-122 cask EXAMINE, the

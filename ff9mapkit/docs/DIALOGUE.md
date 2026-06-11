@@ -53,9 +53,16 @@ ff9mapkit dialogue-import 100 --lang us                     # a real field, live
 ff9mapkit dialogue-import alexandria                        # by FBG name
 ff9mapkit dialogue-import HUT_INT --mod release/FF9CustomMap  # a built mod folder — NO install needed
 ff9mapkit dialogue-import 100 --zone-id 33                  # read the field's <33>.mes text block directly
+ff9mapkit dialogue-import 100 --all                        # also show system/notification windows + dupes
 ff9mapkit dialogue-import 100 --out alex.dialogue.json      # also write a JSON view (gitignored)
 ```
-Prints `NPC @ (x,z) → txid → "text"`. Reading the live install needs UnityPy (`py -m pip install UnityPy`).
+Prints `NPC → txid → "text"`. Reading the live install needs UnityPy (`py -m pip install UnityPy`).
+
+**By default it shows only real dialogue.** Windows whose flags lack the `0x80` text-box bit are
+**system/notification** windows (a field's "Error …" guard, the "Received item!" popups) — hidden unless
+`--all`. A line referenced from several funcs of one object is collapsed to one row (preferring the NPC-talk
+representation). And the `@x,z` position is shown only for kit-built mod folders — on a *real* field it's the
+player-clone's `D9(0)/D9(4)` convention, meaningless for the field's own NPCs, so it's suppressed.
 
 The **offline proof**: the kit's own shipped hut (`release/FF9CustomMap`) decodes its `.eb`, parses its
 `.mes`, and joins to *"I miss you Zidane"* with zero game install — the whole pipeline, provable in tests.

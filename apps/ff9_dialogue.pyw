@@ -323,6 +323,10 @@ class DialogueApp:
         ttk.Entry(top, textvariable=mod_var, width=40).grid(row=2, column=1, columnspan=2, sticky="we")
         ttk.Label(top, text="(optional: a built mod folder to read offline -- no install needed)",
                   foreground=pal["muted"]).grid(row=3, column=1, columnspan=2, sticky="w")
+        show_all_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(top, text="Show all (system/notification windows + repeated call sites)",
+                        variable=show_all_var, command=lambda: do_read() if state["lines"] else None
+                        ).grid(row=4, column=1, columnspan=2, sticky="w", pady=(4, 0))
         top.columnconfigure(1, weight=1)
 
         bar = ttk.Frame(win, padding=8)               # reserve the buttons at the BOTTOM first, so they keep
@@ -340,13 +344,15 @@ class DialogueApp:
                 messagebox.showerror("Import failed", str(e), parent=win)
                 return
             state["lines"] = lines
+            sa = show_all_var.get()
             out.configure(state="normal")
             out.delete("1.0", "end")
-            out.insert("1.0", DLG.format_lines(lines) if lines else "(no dialogue found)")
+            out.insert("1.0", DLG.format_lines(lines, show_system=sa, dedupe=not sa)
+                       if lines else "(no dialogue found)")
             out.configure(state="disabled")
 
         def insert_npcs():
-            npc_lines = [ln for ln in state["lines"] if ln.source == "npc" and ln.text]
+            npc_lines = [ln for ln in DLG.present(state["lines"]) if ln.source == "npc" and ln.text]
             if not npc_lines or self.doc is None:
                 messagebox.showinfo("Nothing to insert",
                                     "Read a field first, and open a field.toml to insert into.", parent=win)

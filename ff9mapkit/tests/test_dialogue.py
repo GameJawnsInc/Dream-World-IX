@@ -92,6 +92,39 @@ def test_join_pairs_calls_with_text():
     assert lines[1].source == "scene" and lines[1].text is None            # unresolved txid -> None, kept
 
 
+# --- viewer polish: hide system windows, de-dupe, drop the kit-only position heuristic ----
+def test_dialogue_call_is_system_by_flags():
+    assert D.DialogueCall(0, 0, 68, flags=0).is_system          # flags=0 -> a system/notification window
+    assert not D.DialogueCall(1, 3, 500, flags=128).is_system   # 0x80 set -> a real dialogue box
+    assert not D.DialogueCall(1, 3, 500, flags=None).is_system  # unknown flags -> shown (not marked system)
+
+
+def test_join_marks_system_and_can_drop_positions():
+    calls = [D.DialogueCall(0, 0, 68, x=0, z=-700, flags=0),     # a system window
+             D.DialogueCall(1, 3, 500, x=10, z=20, flags=128)]   # real dialogue
+    mes = {68: D.MesEntry(68, "Error"), 500: D.MesEntry(500, "Hi")}
+    full = D.join(calls, mes, field_label="F")                   # trust_positions defaults True
+    assert full[0].system and not full[1].system
+    assert full[1].pos == (10, 20)
+    dropped = D.join(calls, mes, field_label="F", trust_positions=False)
+    assert dropped[1].pos is None                                # real-field reads suppress the heuristic
+
+
+def test_present_hides_system_and_dedupes_preferring_npc():
+    lines = [
+        D.ViewedLine("scene", "F (entry 0, func 0)", 68, "Error", system=True, entry=0),
+        D.ViewedLine("scene", "F (entry 1, func 18)", 155, "Hi", entry=1),
+        D.ViewedLine("npc", "NPC (entry 1)", 155, "Hi", entry=1),    # same line, from the talk handler
+    ]
+    clean = D.present(lines)
+    assert len(clean) == 1                                       # system hidden; (entry1, 155, "Hi") collapsed
+    assert clean[0].source == "npc"                             # ...preferring the NPC-talk representative
+    assert len(D.present(lines, show_system=True, dedupe=False)) == 3   # the --all view keeps everything
+    # two DIFFERENT objects sharing a txid are NOT collapsed (two NPCs may speak the same line)
+    two = [D.ViewedLine("npc", "A", 9, "Yo", entry=1), D.ViewedLine("npc", "B", 9, "Yo", entry=2)]
+    assert len(D.present(two)) == 2
+
+
 # --- the offline plausibility proof: the kit's own hut, no install -----------------------
 @pytest.mark.skipif(not HUT_MOD.is_dir(), reason="release/FF9CustomMap absent")
 def test_read_local_dialogue_joins_the_hut():

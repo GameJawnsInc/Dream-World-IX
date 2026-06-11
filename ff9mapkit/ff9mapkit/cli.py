@@ -863,16 +863,21 @@ def _cmd_dialogue_import(args: argparse.Namespace) -> int:
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
-    print(f"dialogue-import: {args.field}  (from {src}, lang {args.lang}) -- {len(lines)} line(s)\n")
-    print(DLG.format_lines(lines, clean=args.clean))
-    unresolved = sum(1 for ln in lines if ln.text is None)
+    show_all = args.show_all
+    shown = DLG.present(lines, show_system=show_all, dedupe=not show_all)
+    print(f"dialogue-import: {args.field}  (from {src}, lang {args.lang}) -- {len(shown)} line(s)\n")
+    print(DLG.format_lines(lines, clean=args.clean, show_system=show_all, dedupe=not show_all))
+    hidden = len(lines) - len(shown)
+    if hidden and not show_all:
+        print(f"({hidden} system/duplicate window(s) hidden -- pass --all to show them)", file=sys.stderr)
+    unresolved = sum(1 for ln in shown if ln.text is None)
     if unresolved and not args.mod:
         print(f"note: {unresolved} line(s) had no resolvable text -- pass --zone-id <n> to read the "
               "field's <n>.mes text block directly.", file=sys.stderr)
     if args.out:
         import json
         recs = [{"source": ln.source, "who": ln.who, "txid": ln.txid, "tail": ln.tail,
-                 "pos": list(ln.pos) if ln.pos else None, "text": ln.text} for ln in lines]
+                 "pos": list(ln.pos) if ln.pos else None, "text": ln.text} for ln in shown]
         from pathlib import Path
         Path(args.out).write_text(json.dumps(recs, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"wrote {args.out}  (SE-derived view -- keep it gitignored)")
@@ -1284,6 +1289,9 @@ def build_parser() -> argparse.ArgumentParser:
     di.add_argument("--zone-id", type=int, default=None, dest="zone_id",
                     help="the field's text-block id -> read <zone-id>.mes directly (else auto-detect by txid)")
     di.add_argument("--clean", action="store_true", help="strip FF9 control tags for a plain read")
+    di.add_argument("--all", action="store_true", dest="show_all",
+                    help="show ALL window calls incl. system/notification windows + repeated call sites "
+                         "(default hides them: only real dialogue, de-duplicated)")
     di.add_argument("--out", default=None,
                     help="also write a JSON view here (use a .dialogue.json suffix -- SE-derived, gitignored)")
     di.set_defaults(func=_cmd_dialogue_import)

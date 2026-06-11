@@ -65,11 +65,18 @@ class DialogueCall:
     z: Optional[int] = None
     model: Optional[int] = None
     op: int = 0x1F
+    flags: Optional[int] = None  # the window flags operand; the 0x80 bit marks a real dialogue box
 
     @property
     def kind(self) -> str:
         # an NPC's talk handler is func tag 3; everything else (Init / region / code entry) is "scene"
         return "npc" if self.func_tag == TALK_TAG else "scene"
+
+    @property
+    def is_system(self) -> bool:
+        # real dialogue carries the 0x80 (text-box) flag; flags==0 windows are system/notification overlays
+        # (the field's error guard, the "Received item!" popup) -- not conversation.
+        return self.flags is not None and not (self.flags & 0x80)
 
 
 @dataclass
@@ -82,6 +89,8 @@ class ViewedLine:
     text: Optional[str]
     tail: Optional[str] = None
     pos: Optional[tuple] = None
+    entry: Optional[int] = None  # the source .eb entry (for de-duping a line shown from several funcs)
+    system: bool = False         # a system/notification window (flags lacking the dialogue-box bit), not dialogue
 
 
 # ------------------------------------------------------------------- .mes parse ---
@@ -198,7 +207,8 @@ def scan_dialogue(eb) -> list:
                 if pos_model is None:
                     pos_model = _entry_pos_model(eb, entry)
                 x, z, model = pos_model
-                calls.append(DialogueCall(entry.index, func.tag, ins.imm(opnd), x, z, model, ins.op))
+                calls.append(DialogueCall(entry.index, func.tag, ins.imm(opnd), x, z, model, ins.op,
+                                          ins.imm(1)))   # operand 1 = window flags (0x80 = dialogue box)
     return calls
 
 
@@ -210,18 +220,39 @@ def _who(call: DialogueCall, field_label: str) -> str:
     return f"{field_label} (entry {call.entry_idx}, func {call.func_tag})"
 
 
-def join(calls, mes_map: dict, *, field_label: str = "field") -> list:
+def join(calls, mes_map: dict, *, field_label: str = "field", trust_positions: bool = True) -> list:
     """JOIN decoded ``.eb`` calls (:func:`scan_dialogue`) with parsed ``.mes`` text (:func:`parse_mes`) on
-    txid -> ordered :class:`ViewedLine`s. A call whose txid has no ``.mes`` entry keeps ``text=None`` (the
-    line exists but its text wasn't resolved). Calls that share a txid are emitted separately (not deduped --
-    two NPCs may speak the same line)."""
+    txid -> ordered :class:`ViewedLine`s (LOSSLESS -- every call, system windows flagged, no de-dup; use
+    :func:`present` for the clean reading view). A call whose txid has no ``.mes`` entry keeps ``text=None``.
+    ``trust_positions=False`` drops the ``(x,z)`` -- the position heuristic is the kit player-clone's
+    ``D9(0)/D9(4)`` convention, which is meaningless on a real field's own NPCs (set it False for those)."""
     out = []
     for c in calls:
         e = mes_map.get(c.txid) if c.txid is not None else None
+        pos = (c.x, c.z) if (trust_positions and c.x is not None and c.z is not None) else None
         out.append(ViewedLine(
             source=c.kind, who=_who(c, field_label), txid=c.txid,
             text=(e.text if e else None), tail=(e.tail if e else None),
-            pos=((c.x, c.z) if c.x is not None and c.z is not None else None)))
+            pos=pos, entry=c.entry_idx, system=c.is_system))
+    return out
+
+
+def present(lines, *, show_system: bool = False, dedupe: bool = True) -> list:
+    """The clean reading view over the lossless :func:`join` output: hide system/notification windows (the
+    ``flags=0`` error/'Received item!' overlays) unless ``show_system``, and collapse a line referenced from
+    several funcs of the SAME object to one row (preferring its NPC-talk representation over a scene/init
+    one). Distinct objects that share a txid stay separate (two NPCs may speak the same line)."""
+    rows = [ln for ln in lines if show_system or not ln.system]
+    if not dedupe:
+        return rows
+    out, seen = [], {}
+    for ln in rows:
+        key = (ln.entry, ln.txid, ln.text)
+        if key not in seen:
+            seen[key] = len(out)
+            out.append(ln)
+        elif out[seen[key]].source != "npc" and ln.source == "npc":
+            out[seen[key]] = ln                        # prefer the NPC-talk row as the representative
     return out
 
 
@@ -416,7 +447,8 @@ def read_field_dialogue(field, lang: str = "us", game=None, zone_id: Optional[in
         zone_id = EVENT_ID_TO_MES.get(fid)            # own eventIDToMESID); txids alone can't pick the block
     mes_map = _load_field_text(txids, lang, game=game, zone_id=zone_id)
     folder = extract.ID_TO_FBG.get(fid, str(fid))
-    return join(calls, mes_map, field_label=folder)
+    # real fields don't use the kit's D9(0)/D9(4) spawn convention -> the (x,z) heuristic is noise here
+    return join(calls, mes_map, field_label=folder, trust_positions=False)
 
 
 # ---------------------------------------------------------- read: an authored field.toml ---
@@ -566,17 +598,20 @@ def overflow(text: str, width=None) -> list:
     return _text.overflow_lines(text or "", width if width is not None else _text.DEFAULT_WRAP_WIDTH)
 
 
-def format_lines(lines, *, clean: bool = False) -> str:
-    """Render :class:`ViewedLine`s as a readable block (the CLI viewer's output). ``clean=True`` strips FF9
-    control tags from the text for a plain read; otherwise the text is shown verbatim (tags intact)."""
+def format_lines(lines, *, clean: bool = False, show_system: bool = False, dedupe: bool = True) -> str:
+    """Render :class:`ViewedLine`s as a readable block (the CLI viewer's output), through :func:`present`
+    (hide system windows + de-dupe by default; ``show_system`` / ``dedupe=False`` give the raw view).
+    ``clean=True`` strips FF9 control tags from the text for a plain read; otherwise tags are kept verbatim."""
     out = []
-    for ln in lines:
+    for ln in present(lines, show_system=show_system, dedupe=dedupe):
         meta = []
         meta.append(f"txid {ln.txid}" if ln.txid is not None else "txid <expr>")
         if ln.tail:
             meta.append(f"tail {ln.tail}")
         if ln.pos:
             meta.append(f"@ {ln.pos[0]}, {ln.pos[1]}")
+        if ln.system:
+            meta.append("system")
         out.append(f"[{ln.source}] {ln.who}   ({', '.join(meta)})")
         if ln.text is None:
             out.append("    (text not resolved)")
