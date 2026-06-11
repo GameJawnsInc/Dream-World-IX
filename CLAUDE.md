@@ -524,8 +524,22 @@ Read these on demand — they hold the full technical detail this file only summ
   NOP'd); **P6.1** the **spawn-flash fix** (`spawn_settle_mismatch` auto-normalizes the Moogle's Init Y `-362`→`-2`
   so it spawns at its rest pose, not standing-on-the-barrel-then-dropping — a real field's entrance fade hides that
   one-shot settle, a fork's doesn't). ★ P6.1 cracked by an **in-game video capture**, not static analysis (the
-  `feedback-video-for-visual-bugs` memory). **OPEN: re-talk-after-cancel softlock** (the director re-arm /
-  return-from-barrel state) — the last save-Moogle issue; debug via a short clip + the handshake vars (memory).
+  `feedback-video-for-visual-bugs` memory). The **re-talk-after-cancel softlock is also RESOLVED** — P6.1's
+  consistent spawn=rest pose fixed the return-from-barrel state too. The verbatim save-Moogle carry is COMPLETE.
+- **Narrative-state fidelity arc** (the weak axis advanced; `ff9mapkit/docs/FORK_FIDELITY.md` #1-4 + #2b) — a fork
+  now *behaves* more like its story beat, not just looks like it: **`[startup]`** presets (ScenarioCounter + story
+  bits, prepended to Main_Init); **`import` auto-routes area<10 → native** (early-game fields — Alexandria/Cargo
+  Ship/Dali — fork at last, in-game proven); **story-BRANCH doors** (>1 dest at one zone) flagged with a
+  `requires_flag` stub + a `lint_logic` co-zone warning; **`[[gateway]]` `set_scenario`/`set_flags`** advance the
+  ScenarioCounter/flags when the player takes an exit (so a chain progresses the story); and **story-GATED doors
+  carried VERBATIM** — a real `if(flag)` door is a complex multi-flag state machine (NOT a single `requires_flag`),
+  so `scan_gateway_entries` classifies it, the import emits a `[[gateway_carry]]` block + `.gatewayN.bin` sidecar,
+  and `graft_gateway_entry` grafts the whole entry + retargets its `Field()` ids. **In-game proven (Dali Inn):**
+  the forked door loads, runs, and stays GATED (closed at scenario-zero) instead of the declarative always-open —
+  its GLOB conditions read the `[startup]` state (toggling its flags 2064/2073/2078 via F6 makes the gate respond).
+  35/~50 gated entries are self-contained (carried); the **remaining limit** is the door-only carry not
+  reconstructing MAP/transient vars the field's *main* logic (entry-0) sets, + the 15 ref-bearing gated entries
+  (left as seams). Carrying entry-0 is the next frontier.
 
 ---
 
