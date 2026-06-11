@@ -209,6 +209,34 @@ def extract_event_script(field: str, *, game=None, lang: str = EVT_LANG):
     return None
 
 
+def extract_mapconfig(field: str, *, game=None):
+    """The field's **MapConfigData** bytes (``CommonAsset/MapConfigData/<EVT_name>``), or None if absent.
+
+    This config drives the 3D-model LIGHTING the engine applies at field load (``fldmcf.cs``): per-FLOOR
+    lights (``DMSMapLight``, keyed by the walkmesh floor) + per-object base colors (``DMSMapChar``) +
+    per-floor shadow intensity/scale. A native fork that ships its own scene but NOT this config renders
+    every field model untinted/bright (the cave's dim lighting is gone). Shipping it verbatim under the
+    fork's event name restores it -- the per-floor lights key on the ``.bgi`` the native fork already
+    carries verbatim, so the floors line up. Lives in the SAME bundle as the field event scripts
+    (``_events_bundle``); never raises (a missing config just means the fork renders with default light)."""
+    try:
+        evt = event_name_for(field, game)
+        if not evt:
+            return None
+        bundle = _events_bundle(game)
+        if not bundle:
+            return None
+        UnityPy = _unitypy()
+        env = UnityPy.load(str(_streaming_assets(game) / bundle))
+        want = f"commonasset/mapconfigdata/{evt}.bytes".lower()
+        for k, obj in env.container.items():
+            if want in k.lower():
+                return _raw_bytes(obj.read())
+    except Exception:
+        return None
+    return None
+
+
 # ---- id-keyed event extraction (the chain walk) -----------------------------------------
 # resolve_field()/event_name_for() are NAME-keyed (substring match on FBG folders), so a bare
 # numeric field id mis-resolves. The graph walk needs id -> .eb DIRECTLY, so invert the baked table.
@@ -1117,6 +1145,12 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
     _, _, roles, env = find_field(field, game=game, bundle=bundle)
     (out / "scene.bgs.bytes").write_bytes(_raw_bytes(env.container[roles["bgs"]].read()))
     meta["editable_name"] = name
+    # ship the field's MapConfigData VERBATIM -- the 3D-model LIGHTING (per-floor lights + shadows + per-
+    # object colors) the engine applies at load. Without it a native fork's models render bright/untinted.
+    mc_bytes = extract_mapconfig(field, game=game)
+    if mc_bytes:
+        (out / "mapconfig.bytes").write_bytes(mc_bytes)
+    meta["mapconfig"] = bool(mc_bytes)
 
     content_blocks, control_dir, content_summary = _content_for_import(
         field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams)
@@ -1140,7 +1174,10 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         f"area = {safe_area}\n"
         f"text_block = {text_block}\n"
         f'bgs = "scene.bgs.bytes"   # NATIVE scene (per-tile depth) -> seamless render, NO .bgx / no tile seams\n'
-        f'atlas = "atlas.png"\n\n'
+        f'atlas = "atlas.png"\n'
+        + ('mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights + shadows) for 3D models\n'
+           if mc_bytes else "")
+        + "\n"
         f"[camera]\n"
         f'borrow = "camera.bgx"   # content logic uses this; the RENDERED camera lives inside scene.bgs\n'
         f"{control_line}"

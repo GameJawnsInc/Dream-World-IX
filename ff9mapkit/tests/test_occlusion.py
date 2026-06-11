@@ -11,8 +11,19 @@ Provenance-clean: all art here is synthetic PIL; no Square-Enix bytes.
 """
 from __future__ import annotations
 
+import pytest
+
 from ff9mapkit import build, extract
 from ff9mapkit.scene import bgs, bgx, cam
+
+
+def _game_ready():
+    try:
+        import UnityPy  # noqa: F401
+        from ff9mapkit import config
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
 
 NONE = extract._ABR_NONE
 ADD = "PSX/FieldMap_Abr_1"
@@ -214,6 +225,53 @@ def test_native_scene_ships_bgs_atlas_no_bgx(tmp_path):
     assert (fm / "FBG_N11_NAT.bgi.bytes").is_file()                  # custom walkmesh
     assert not (fm / "FBG_N11_NAT.bgx").exists()                     # NO .bgx -> seamless native path
     assert info["dictionary"] == ["FieldScene 4003 11 NAT NAT 1073"]
+
+
+def test_native_scene_ships_mapconfig_lighting(tmp_path):
+    # A native fork ships the field's MapConfigData (3D-model LIGHTING: per-floor lights + shadows + per-
+    # object colors) under the fork's EVENT name -- EVT_<name>.bytes in commonasset/mapconfigdata -- so the
+    # engine lights the models like the real field (else they render bright/untinted). Loaded by the SAME
+    # event name as the .eb (MapConfiguration.LoadMapConfigData).
+    from ff9mapkit.config import ModLayout
+    from ff9mapkit.scene import bgi as _bgi
+    proj = tmp_path / "p"; proj.mkdir()
+    (proj / "scene.bgs.bytes").write_bytes(b"BGS")
+    (proj / "atlas.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+    (proj / "mapconfig.bytes").write_bytes(b"FAKE_MAPCONFIG_LIGHT")        # build ships it verbatim
+    wm = _bgi.build([(-100, 0, -100), (100, 0, -100), (100, 0, 100), (-100, 0, 100)], [(0, 1, 2), (0, 2, 3)])
+    (proj / "walkmesh.bgi").write_bytes(wm.to_bytes())
+    (proj / "n.field.toml").write_text(
+        '[field]\nid = 4003\nname = "NAT"\narea = 11\ntext_block = 1073\n'
+        'bgs = "scene.bgs.bytes"\natlas = "atlas.png"\nmapconfig = "mapconfig.bytes"\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n[walkmesh]\nbgi = "walkmesh.bgi"\n\n[player]\nspawn = [0, 0]\n',
+        encoding="utf-8")
+    p = build.FieldProject.load(proj / "n.field.toml")
+    assert build.validate(p) == []                                   # mapconfig present -> lint clean
+    out = tmp_path / "mod"
+    build.build_mod([p], out, mod_name="FF9CustomMap")
+    mc = ModLayout(out).mapconfig_path("EVT_NAT")                     # shipped under the EVENT name
+    assert mc.is_file() and mc.read_bytes() == b"FAKE_MAPCONFIG_LIGHT"
+
+
+def test_native_scene_mapconfig_missing_file_is_flagged(tmp_path):
+    proj = tmp_path / "p"; proj.mkdir()
+    (proj / "scene.bgs.bytes").write_bytes(b"x")
+    (proj / "atlas.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (proj / "walkmesh.bgi").write_bytes(b"")
+    (proj / "n.field.toml").write_text(
+        '[field]\nid=4003\nname="NAT"\narea=11\ntext_block=1073\n'
+        'bgs="scene.bgs.bytes"\natlas="atlas.png"\nmapconfig="missing.bytes"\n\n'
+        '[camera]\npitch=45\nfov=42.2\n\n[walkmesh]\nbgi="walkmesh.bgi"\n\n[player]\nspawn=[0,0]\n',
+        encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(proj / "n.field.toml"))
+    assert any("mapconfig" in x for x in probs)                      # referenced-but-missing -> flagged
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_extract_mapconfig_for_real_field():
+    # the real field 122 carries a MapConfigData lighting asset (the dim Dali storage-room lighting)
+    mc = extract.extract_mapconfig("fbg_n08_udft_map122_uf_sto_0")
+    assert mc and len(mc) > 0
 
 
 def test_native_scene_validate_flags_missing_atlas(tmp_path):

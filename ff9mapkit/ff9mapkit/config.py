@@ -178,6 +178,13 @@ class ModLayout:
         """``<root>/.../eventbinary/field/<lang>/<evt_name>`` (evt_name includes .eb.bytes)."""
         return self.eventbinary_field_dir / lang / evt_name
 
+    def mapconfig_path(self, evt_name: str) -> Path:
+        """``<root>/.../commonasset/mapconfigdata/<evt_name>.bytes`` -- the field's 3D-model LIGHTING config
+        (per-floor lights + shadows + per-object colors), loaded at field setup by the SAME event name as
+        the ``.eb`` (``MapConfiguration.LoadMapConfigData`` / ``fldmcf.cs``). Not per-language."""
+        return (self.root / "StreamingAssets" / "assets" / "resources" / "commonasset"
+                / "mapconfigdata" / f"{evt_name}.bytes")
+
     # --- dialogue text (.mes), one folder per language ---
     def text_field_dir(self, lang: str) -> Path:
         return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "field"

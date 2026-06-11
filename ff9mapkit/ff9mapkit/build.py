@@ -218,6 +218,9 @@ def validate(project: FieldProject) -> list[str]:
             problems.append('[field] a native scene needs an atlas too -- add  atlas = "atlas.png"')
         elif not project.path(atl).is_file():
             problems.append(f"[field] atlas not found: {atl}")
+        mc = project.field.get("mapconfig")          # OPTIONAL: the field's 3D-model lighting config
+        if mc and not project.path(mc).is_file():
+            problems.append(f"[field] mapconfig (lighting) not found: {mc}")
         if not (wm.get("bgi") or wm.get("obj")):
             problems.append("[field] a native scene needs a [walkmesh] (bgi or obj)")
     for layer in project.raw.get("layers", []):
@@ -1900,6 +1903,14 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if project.field.get("atlas"):
             shutil.copyfile(project.path(project.field["atlas"]), fm / "atlas.png")
         (fm / f"{fbg}.bgi.bytes").write_bytes(bgi_bytes)
+        # the field's 3D-model LIGHTING (MapConfigData: per-floor lights + shadows + per-object colors),
+        # shipped under the fork's event name so the engine lights the models like the real field. Loaded
+        # by the SAME event name as the .eb (MapConfiguration.LoadMapConfigData) -> EVT_<name>.bytes.
+        mapconfig = project.field.get("mapconfig")
+        if mapconfig:
+            dst = layout.mapconfig_path(f"EVT_{project.name}")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(project.path(mapconfig), dst)
     elif not borrow_bg:
         bgi_bytes = resolve_walkmesh(project, camera, warnings)
         wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)

@@ -111,6 +111,10 @@ src_fm = tl.fieldmap_dir(FBG)
 if src_fm.exists() and any(src_fm.iterdir()):          # borrow fields ship no scene -> skip
     shutil.rmtree(live.fieldmap_dir(FBG), ignore_errors=True)
     shutil.copytree(src_fm, live.fieldmap_dir(FBG))
+mc_src = tl.mapconfig_path(f"EVT_{name}")              # native fork: the 3D-model LIGHTING config (optional)
+if mc_src.exists():
+    live.mapconfig_path(f"EVT_{name}").parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(mc_src, live.mapconfig_path(f"EVT_{name}"))
 for L in LANGS:
     live.ensure_dirs(FBG, langs=[L])
     shutil.copyfile(tl.eb_path(L, f"EVT_{name}.eb.bytes"), live.eb_path(L, f"EVT_{name}.eb.bytes"))
@@ -132,6 +136,8 @@ from ff9mapkit.config import find_game_path, ModLayout, LANGS
 STAMP="{STAMP}"; BK=Path(r"{BK}"); live=ModLayout(find_game_path()/"{MOD_FOLDER}")
 shutil.copyfile(BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}", live.dictionary_patch)
 shutil.rmtree(live.fieldmap_dir("{FBG}"), ignore_errors=True)
+mc=live.mapconfig_path("EVT_{name}")
+if mc.exists(): mc.unlink()
 for L in LANGS:
     p=live.eb_path(L,"EVT_{name}.eb.bytes")
     if p.exists(): p.unlink()
