@@ -274,3 +274,28 @@ def test_import_save_moogle_emits_cluster_and_builds(tmp_path):
     assert s.to_bytes() == data                                          # the carried fork round-trips
     models = {i.imm(0) for e in s.entries if not e.empty for f in e.funcs for i in s.instrs(f) if i.op == 0x2F}
     assert {220, 133, 134, 225} <= models                               # Moogle + book base/page + tent carried
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_savepoint_director_extracted_and_grafted():
+    # the director graft (docs/SAVEPOINT.md P6): the donor's entry-0 tag-1 puppeteers the carried Moogle via
+    # shared MAP vars. Extract it, confirm it's a clean shared-var driver (no entry refs, save-flash stripped),
+    # and graft it into the fork's empty entry-0 tag-1.
+    from ff9mapkit import data, extract
+    from ff9mapkit.content import savepoint as _savepoint
+    donor = extract.extract_event_script("fbg_n08_udft_map122_uf_sto_0")
+    director = eventscan.extract_savepoint_director(donor)
+    assert director is not None
+    from ff9mapkit.eb.disasm import iter_code
+    ops = [i.op for i in iter_code(director, 0, len(director))]
+    assert not any(o in (0x10, 0x12, 0x14, 0x43, 0x07, 0x08, 0x09) for o in ops)   # no entry refs (shared-var only)
+    assert 0x6B not in ops                                              # SetBackgroundColor (save flash) stripped
+    assert any(director[j:j + 3] == b"\xd5\x20\x7d" for j in range(len(director)))  # drives the Moogle state var
+    # graft into a blank fork's empty entry-0 tag-1, round-trip
+    fork = _savepoint.graft_director(data.blank_field_bytes("us"), director)
+    p = EbScript.from_bytes(fork)
+    assert p.to_bytes() == fork
+    t1 = list(p.instrs(p.entry(0).func_by_tag(1)))
+    assert any(i.op == 0x05 and p.data[i.off:i.off + 3] == b"\x05\xd5\x20" for i in t1)   # director now lives there
+    # a field with no save Moogle -> no director
+    assert eventscan.extract_savepoint_director(data.blank_field_bytes("us")) is None

@@ -1779,6 +1779,16 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             from .content import player as _player
             eb = _player.remap_player_func_siblings(eb, player_tag_remap, object_slot_map)
 
+    # save-Moogle DIRECTOR (docs/SAVEPOINT.md): the carried Moogle is a PUPPET driven by the donor field's
+    # entry-0 tag-1 loop (it advances the Moogle's state via shared MAP vars). The object carry misses it
+    # (it's main-loop logic, not an object), so graft it into the fork's empty entry-0 tag-1 -- then the
+    # Moogle + cask + director reconstitute the source state machine (lower-in-barrel, pop-out, flourish,
+    # save). No-op without [[save_moogle]] director. Runs after the object graft so the cluster exists.
+    for sm in project.raw.get("save_moogle", []):
+        d = sm.get("director")
+        if d:
+            eb = _savepoint.graft_director(eb, project.path(d).read_bytes())
+
     # faithful TEXT CARRY (docs/TEXT_CARRY.md): the grafted objects' windows + grafted text player funcs
     # still name the DONOR's .mes txids; remap each to the carried band (>=1000) -- a same-length 2-byte
     # in-place patch -- so they resolve to the verbatim text shipped in the per-language .mes (build_field).

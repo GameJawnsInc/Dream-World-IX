@@ -167,3 +167,7 @@ backups/EVT_CUSTOM_FIELD_*
 backups/field70-warp*
 backups/*prima-vista*.txt
 backups/*opening-for-fmv*.txt
+
+# save-Moogle director sidecar (SE-derived: the donor field entry-0 tag-1 logic)
+ff9mapkit/**/*.savemoogle_director.bin
+*.savemoogle_director.bin

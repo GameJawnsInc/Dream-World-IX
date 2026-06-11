@@ -77,3 +77,14 @@ def inject_savepoints(data, savepoints, *, activate: bool = True):
         data, slot = inject_savepoint(data, sp["zone"], bubble=sp.get("bubble", True), activate=activate)
         slots.append(slot)
     return data, slots
+
+
+def graft_director(data, director_body):
+    """Graft the save-sequence DIRECTOR (the donor field's entry-0 tag-1, from
+    :func:`eventscan.extract_savepoint_director`) into the fork's EMPTY entry-0 tag-1, so it puppeteers the
+    carried save Moogle. The director references no entries -- it drives the Moogle through shared transient
+    MAP vars only -- so it grafts VERBATIM (replace the empty system-loop body with it). The carried Moogle +
+    carried cask + this director then reconstitute the source field's exact state machine over those shared
+    vars: the Moogle lowers into the barrel, pops out on a cask push, and runs the save flourish. The fork's
+    entry-0 tag-1 is empty in a blank field, so this is a clean swap (docs/SAVEPOINT.md)."""
+    return edit.replace_function_body(data, 0, 1, bytes(director_body))

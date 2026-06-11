@@ -726,6 +726,48 @@ def _savepoint_cluster(eb, init_slots) -> frozenset:
     return frozenset(cluster)
 
 
+def extract_savepoint_director(eb_bytes):
+    """The save-sequence DIRECTOR a faithful save-Moogle carry needs: the donor field's **entry-0 tag-1**
+    (the system/main entry's loop). It puppeteers the carried Moogle PURELY via shared MAP vars -- it
+    ``Wait``s on a handshake var, advances the Moogle's state var through its sequence, and fires the save
+    flash. Unlike the Moogle/cask it is NOT an object (never ``InitObject``'d) -- it IS the field's main-loop
+    logic -- so the object carry misses it and the carried Moogle defaults to its resting pose
+    (docs/SAVEPOINT.md). Returns the director's VERBATIM body bytes (to graft into the fork's empty entry-0
+    tag-1), or ``None`` when the field has no save Moogle, no entry-0 tag-1, or the director makes direct
+    entry references (then it isn't a clean shared-var driver -- refuse rather than dangle).
+
+    The director drives the Moogle through shared MAP vars ONLY (zero RunScript/Init* entry refs), so it
+    grafts verbatim with no remap -- the Moogle (carried) + cask (carried) + director write/read the same
+    transient MAP vars, reconstituting the exact source-field state machine."""
+    eb = EbScript.from_bytes(eb_bytes) if isinstance(eb_bytes, (bytes, bytearray)) else eb_bytes
+    e0 = eb.entry(0) if eb.entry_count > 0 else None
+    f0 = e0.func_by_tag(0) if (e0 and not e0.empty) else None
+    if f0 is None:
+        return None
+    init_slots = [int(i.imm(0)) for i in eb.instrs(f0) if i.op == 0x09]   # InitObject targets in Main_Init
+    if not _savepoint_cluster(eb, init_slots):           # no save Moogle in this field -> no director
+        return None
+    director = e0.func_by_tag(1)
+    if director is None:
+        return None
+    ins = list(eb.instrs(director))
+    if not ins:
+        return None
+    # safety: a clean director references NO entries (drives the Moogle via shared vars). If it RunScripts /
+    # Inits an entry, grafting it verbatim would dangle -> refuse (this field's main loop does more than drive
+    # the Moogle; a future refinement would slice out just the Moogle-state portion).
+    if any(i.op in (0x10, 0x12, 0x14, 0x43, 0x07, 0x08, 0x09) for i in ins):
+        return None
+    body = bytearray(eb.data[ins[0].off:ins[-1].end])
+    base = ins[0].off
+    for i in ins:
+        if i.op == 0x6B:                                 # SetBackgroundColor = the save FLASH. The donor field
+            for k in range(i.off, i.end):                # restores it elsewhere (not carried), so in a fork it
+                body[k - base] = 0x00                    # would persist (white pillarbox bars). NOP it in place
+        # (keep the byte length so the director's relative jumps stay valid). In-game proven: the bars vanish.
+    return bytes(body)
+
+
 def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_player_funcs=False,
                           carry_text=False, graft_seq_helpers=False, graft_savepoint=False) -> list:
     """Graft specs for a FAITHFUL fork: each persistent object's VERBATIM ``.eb`` entry plus the data

@@ -461,10 +461,20 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
         # handle -- and the forward-compatible slot for a future AUTHORED save Moogle (jump arc + distance).
         if graft_savepoint and any(o.get("model") == "GEO_NPC_F0_MOG" for o in objs):
             src = f'from = "{field_id}"\n' if field_id is not None else ""
+            # the save-sequence DIRECTOR (donor entry-0 tag-1) puppeteers the Moogle via shared MAP vars; carry
+            # it too -- the object carry misses it (it's main-loop logic, not an object) so without it the Moogle
+            # has no driver. Emitted as a gitignored sidecar the build grafts into the fork's empty entry-0 tag-1.
+            director_ref = ""
+            director = eventscan.extract_savepoint_director(eb_bytes)
+            if director and out_dir is not None:
+                dfn = f"{name}.savemoogle_director.bin"
+                (Path(out_dir) / dfn).write_bytes(director)
+                director_ref = f'director = "{dfn}"\n'
             parts.append("# --- SAVE MOOGLE: a faithful FF9 save point, carried VERBATIM from the donor field --\n"
                          "# the hidden Moogle pops out of its barrel + the full save flourish, exactly as the\n"
-                         "# original (the cluster lives in the [[object]] + [[player_func]] blocks above). ---\n"
-                         f"[[save_moogle]]\n{src}carried = true")
+                         "# original (cluster = the [[object]]+[[player_func]] blocks above; `director` = the donor's\n"
+                         "# save-sequence loop that drives the Moogle through shared MAP vars). ---\n"
+                         f"[[save_moogle]]\n{src}{director_ref}carried = true")
             n_save_moogle = 1
     # player-function graft (docs/PLAYER_GRAFT.md): the donor player gesture funcs a carried object
     # RunScripts -- carried onto the fork player so the INTERACTIONS fire (the cask turns to face you on
