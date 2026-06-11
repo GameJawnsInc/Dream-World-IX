@@ -852,6 +852,18 @@ Read these on demand — they hold the full technical detail this file only summ
   helpers) + player-object surgery + a shared `gEventGlobal` contract → un-graftable; a future
   `content/savepoint.py` synthesizes it (region + props + cosmetic jump-out). (3) sibling-closure deferred. The
   authored `[[npc]]`/`[[prop]]` player-clone path is UNTOUCHED (this is import-only). Memory: `project-ff9-object-carry`.
+- **Native fork carries the field's 3D-model LIGHTING (in-game proven 2026-06-10, "stellar/near-identical";
+  commit `45c6082`).** Follow-up to object carry: a forked field's 3D models rendered bright/untinted (the dim
+  cave lighting gone). Root cause — the field-model lighting is the **`MapConfigData`** asset
+  (`CommonAsset/MapConfigData/<EVT_name>`, `fldmcf.cs`/`MapConfiguration.LoadMapConfigData`): per-FLOOR lights +
+  shadows + per-OBJECT colors applied at load. The native fork shipped its own scene (`.bgs`/atlas/`.bgi`) but
+  NOT this file. (Note: the SetModelColor calls in the script are SAVE-POINT choreography, fire on save not load —
+  a red herring.) **Fix: ship it VERBATIM under `EVT_<forkname>.bytes`**, exactly parallel to the `.eb` (it loads
+  by the same event name; the per-floor lights key on the `.bgi` the native fork already carries verbatim). New
+  `extract.extract_mapconfig` + `write_native_project` ships `mapconfig.bytes` + a `[field] mapconfig=` ref;
+  `build`'s native branch writes `commonasset/mapconfigdata/EVT_<name>.bytes` (`config.mapconfig_path`); lint flags
+  a referenced-but-missing file; `deploy_field` copies + reverts it. **Fixes lighting for ALL native forks.** 665
+  tests pass (+3). Memory: `project-ff9-object-carry`.
 
 ---
 
