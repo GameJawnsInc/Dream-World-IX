@@ -74,6 +74,20 @@ NAMED_WORDS = [
     WordVar("GarnetDepressFlag", 17, 1, False, "Garnet summon-depression state (summons withheld).", "a",
             "battle.cs:39"),
     WordVar("GarnetSummonFlag", 18, 1, False, "Garnet summon availability.", "a", "battle.cs:40"),
+    # Worldmap Navi known-location bitmasks (bytes 92-99 = 4 UInt16 slots F0-F3, the engine's
+    # keventNaviLocF0..F3). `w_naviLocationAvailable` (ff9.cs:6957-6982) reads all four as bitmasks partitioning 64
+    # Navi locations into 16-per-slot groups; a set bit reveals a location on the worldmap. Previously seen
+    # only as "write-only worldmap-unlock bits"; the engine reads them at these fixed indices as words.
+    WordVar("WorldmapKnownLocationsF0", 92, 2, False, "Worldmap known-locations bitmask, slot F0 / locations "
+            "0-15 (the engine's `knownLocations` / keventNaviLocF0); a set bit reveals a location on the Navi "
+            "worldmap (the engine ORs in e.g. 0x7C0 Treno/South Gates, 0xC000 Dali).", "a",
+            "ff9.cs:2315-2317,6927-6935,6960-6982"),
+    WordVar("WorldmapKnownLocationsF1", 94, 2, False, "Worldmap known-locations bitmask, slot F1 / locations "
+            "16-31 (keventNaviLocF1).", "a", "ff9.cs:2320-2323,6960-6982"),
+    WordVar("WorldmapKnownLocationsF2", 96, 2, False, "Worldmap known-locations bitmask, slot F2 / locations "
+            "32-47 (keventNaviLocF2).", "a", "ff9.cs:2325-2328,6960-6982"),
+    WordVar("WorldmapKnownLocationsF3", 98, 2, False, "Worldmap known-locations bitmask, slot F3 / locations "
+            "48-63 (keventNaviLocF3).", "a", "ff9.cs:2330-2333,6960-6982"),
     WordVar("NaviMode", 100, 1, False, "Worldmap Navi/cursor navigation mode.", "a", "ff9.cs:2266-2271"),
     WordVar("WorldmapTransport", 102, 1, False, "Worldmap transport id (0=on foot, 8=Invincible, ...).", "a",
             "WorldConfiguration.cs:256"),

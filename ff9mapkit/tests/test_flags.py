@@ -56,6 +56,23 @@ def test_engine_reader_named_words():
     assert any(w.name == "WorldmapTransport" and v == 8 for w, v in rep.named_words)  # 8 = Invincible
 
 
+def test_worldmap_navi_location_words():
+    """Engine-reader DEPTH pass: bytes 92-99 are the worldmap Navi known-location bitmasks
+    (keventNaviLocF0..F3), read at those fixed indices -> named UInt16 word vars (tier a), not the loose
+    'write-only worldmap-unlock bits' they previously read as."""
+    byname = {w.name: w for w in flags.NAMED_WORDS}
+    for name, byte in (("WorldmapKnownLocationsF0", 92), ("WorldmapKnownLocationsF1", 94),
+                       ("WorldmapKnownLocationsF2", 96), ("WorldmapKnownLocationsF3", 98)):
+        assert byname[name].byte == byte and byname[name].width == 2 and byname[name].tier == "a"
+    b = bytearray(2048)
+    b[92:94] = struct.pack("<H", 0x07C0)            # the engine's "Treno & South Gates" known-locations mask
+    rep = flags.decode_gEventGlobal(bytes(b))
+    assert any(w.name == "WorldmapKnownLocationsF0" and v == 0x07C0 for w, v in rep.named_words)
+    # the value's set bits are now recognized as WORD data, NOT counted as loose story/unmapped bits
+    _by_region, _custom, unmapped, n_story = flags._group_set_bits(rep.set_bits)
+    assert n_story == 0 and unmapped == []
+
+
 def test_story_regions_and_named_bits():
     """Informational story clusters annotate set bits; engine-grounded named bits beat the broad band."""
     assert all(not r.reserved for r in flags.STORY_REGIONS)         # informational, never block allocation

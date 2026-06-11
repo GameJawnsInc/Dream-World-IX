@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — story-flag registry depth: the worldmap Navi known-location words
+- **Four new engine-grounded named vars** (`flags.NAMED_WORDS`): `WorldmapKnownLocationsF0..F3` (bytes
+  92/94/96/98, UInt16, tier a) — the worldmap Navi cursor's known-location bitmasks (`keventNaviLocF0..F3`;
+  F0 is the engine's own `knownLocations`). The first engine-reader pass grepped `gEventGlobal[<const>]`
+  directly and missed the wrapper-accessor form (`ushort_gEventGlobal(92)`); re-scanning the complete
+  fixed-index set recovered them. Naming bytes 92–99 as words also reclassifies that slice of the
+  "write-only worldmap-unlock bits" as recognized word data (a decoded save now reports
+  `WorldmapKnownLocationsF0 = N` instead of anonymous set bits). Surfaces automatically through
+  `flags-inspect` / the Info Hub / `flags-diff`. `NAMED_WORDS` stays tier-(a)-pure (tested invariant).
+
 ### Added — dialogue polish: campaign-wide review + a live-text resolver diagnostic
 - **`ff9mapkit dialogue` now accepts a `campaign.toml`** (it auto-detects a `[campaign]` manifest) and
   reviews **every member field's** authored dialogue in one pass — per-field sections with the final

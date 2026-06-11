@@ -417,3 +417,25 @@ label-accuracy / curation — + 2 research agents → synthesis). All landed in 
 - **Standing UNDERSTAND frontier:** the cluster names are "where these flags are written from" (dominant-writer
   inference), not a proven per-bit lore dictionary — the bulk of the ~1900 un-annotated heap bytes remain a
   per-flag-meaning gap.
+
+### Engine-reader pass v2 — landed 2026-06-11 (the worldmap Navi band)
+
+The first engine-reader pass (above) grepped `gEventGlobal[<const>]` **direct indexing** and so missed the
+**wrapper-accessor** form (`ushort_gEventGlobal(N)` / `byte_gEventGlobal(N)` / the named `..._keventX()`
+functions). Re-scanning the *complete* fixed-index access set (45 sites) recovered a class the first pass
+couldn't see — the **worldmap Navi known-location bitmasks**:
+
+- **`WorldmapKnownLocationsF0..F3`** (bytes **92/94/96/98**, UInt16 each, tier **(a)**, `flags.NAMED_WORDS`).
+  The engine reads these four fixed indices as the worldmap Navi cursor's known-location masks
+  (`keventNaviLocF0..F3`, `ff9.cs:2315-2333`); F0 (byte 92) is the engine's own `knownLocations` value, which
+  it ORs with named location bits (`0x7C0` Treno/South Gates, `0xC000` Dali; `ff9.cs:6927-6935`). A set bit
+  reveals a location on the Navi worldmap.
+- **Why it matters:** this is exactly part of the `worldmap_unlocks` band (bytes 92–102) that §2/§3 counted
+  among the "276 write-only bits." Naming bytes 92–99 as **words** means `flags._group_set_bits` now treats
+  their bits as recognized word data (it already excludes named-word bytes) instead of loose unmapped
+  "unlock" bits — so a decoded save reports e.g. `WorldmapKnownLocationsF0 = 1984` rather than five anonymous
+  set bits. The four other byte-101/102 worldmap reads were already named (`WorldmapTransport`, the 814/815
+  discovery bits); the remaining unnamed reads (byte 104 music scratch, bytes 194/198 worldmap-build mask,
+  byte 199 battle-AI scratch) are **transient/inferred (tier b–c)** and deliberately left out to keep
+  `NAMED_WORDS` tier-(a)-pure (a tested invariant). `flags-inspect` / the Info Hub / `flags-diff` surface the
+  new words automatically.

@@ -468,6 +468,12 @@ Read these on demand — they hold the full technical detail this file only summ
   (auto-detected) and reviews EVERY member field's authored dialogue in one pass (per-field + a roll-up), and
   `dialogue-import` now says WHY a real field's text is unresolved (UnityPy missing / no install / block didn't
   cover the txids → `--zone-id`). Spine: `dialogue.campaign_dialogue` + `flag_overflow` + `text_source_status`.
+- **Story-flag registry depth — engine-reader pass v2** (`story_flags` branch; research `STORY_FLAGS.md` §8) —
+  the original engine-reader scan grepped `gEventGlobal[<const>]` directly and missed the wrapper-accessor form
+  (`ushort_gEventGlobal(92)`); re-scanning the full 45-site fixed-index set recovered the **worldmap Navi
+  known-location words** `WorldmapKnownLocationsF0..F3` (bytes 92/94/96/98, UInt16, tier a, `keventNaviLocF0..F3`).
+  Naming bytes 92–99 reclassifies that slice of the "write-only worldmap-unlock bits" as recognized word data
+  (`flags-inspect` reports `WorldmapKnownLocationsF0 = N`). `NAMED_WORDS` kept tier-(a)-pure (tested).
 
 ---
 
