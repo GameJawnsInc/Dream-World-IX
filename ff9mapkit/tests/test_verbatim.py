@@ -49,6 +49,13 @@ def test_import_verbatim_ships_the_whole_donor_eb(tmp_path):
     project = build.FieldProject.load(toml)
     donor = extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0")
     assert _vb.verbatim_eb(project) == donor                    # no retarget -> the whole donor .eb, verbatim
+    # P2 text: the donor's WHOLE .mes ships too, and the verbatim .eb's index-txids resolve into it (no remap)
+    from ff9mapkit import dialogue
+    assert meta["imported_content"]["text"]
+    us = _vb.verbatim_mes(project, "us")
+    assert us == dialogue.extract_field_mes("fbg_n06_vgdl_map101_dl_inn_0", "us")
+    shown = {c.txid for c in dialogue.scan_dialogue(EbScript.from_bytes(donor)) if c.txid is not None}
+    assert shown and shown <= set(dialogue.parse_mes(us))       # every line the .eb shows resolves in the text
     # with a retarget, that destination is patched in the shipped .eb (the rest stay live seams)
     exits = meta["imported_content"]["field_exits"]
     assert exits                                                # Dali Inn has Field() exits

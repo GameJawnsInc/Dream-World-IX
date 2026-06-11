@@ -388,24 +388,24 @@ def _lang_score(text: str, lang: str) -> int:
     return hits - 3 * cjk                              # a CJK block is never a romance/germanic match
 
 
-def _load_field_text(want_txids, lang: str, game=None, zone_id: Optional[int] = None) -> dict:
-    """Best-effort ``{txid: MesEntry}`` for a real field's text, read live from the install. A field's text
-    file is ``<zone-id>.mes`` (named by the field's text-zone id, not its map id). With ``zone_id`` it reads
-    that block (picking the requested LANGUAGE among its per-lang copies); otherwise it scans every
-    ``<n>.mes`` and picks the block that best covers ``want_txids`` (a field references a contiguous range, so
-    the best-overlap block is its own), tie-broken by language. Returns ``{}`` -- never raises -- when nothing
-    resolves, so the caller still shows the decoded calls. (Install-/layout-dependent: verified vs the game.)"""
+def _field_text_blocks(want_txids, lang: str, game=None, zone_id: Optional[int] = None) -> list:
+    """Sorted candidate ``.mes`` blocks for a field: ``(coverage, lang_score, raw_body, {txid: MesEntry})``,
+    best first. A field's text file is ``<zone-id>.mes`` (named by the field's text-zone id, not its map id).
+    With ``zone_id`` it reads that block (picking the requested LANGUAGE among its per-lang copies); otherwise
+    it scans every ``<n>.mes`` and keeps the block that best covers ``want_txids`` (a field references a
+    contiguous range, so the best-overlap block is its own), tie-broken by language. Returns ``[]`` -- never
+    raises. Shared by :func:`_load_field_text` (parsed map) and :func:`extract_field_mes` (raw body)."""
     from . import extract
     ra = _resources_assets(game)
     if ra is None:
-        return {}
+        return []
     try:
         UnityPy = extract._unitypy()
         env = UnityPy.load(str(ra))
     except Exception:                                  # noqa: BLE001 -- missing UnityPy / unreadable asset
-        return {}
+        return []
     want = set(t for t in (want_txids or []) if t is not None)
-    cands = []                                         # (coverage, lang_score, parsed)
+    cands = []                                         # (coverage, lang_score, raw, parsed)
     for o in env.objects:
         if o.type.name != "TextAsset":
             continue
@@ -422,11 +422,29 @@ def _load_field_text(want_txids, lang: str, game=None, zone_id: Optional[int] = 
         cov = len(want & set(parsed)) if want else len(parsed)
         if zone_id is None and want and cov == 0:      # auto-detect: ignore blocks that share no txid at all
             continue
-        cands.append((cov, _lang_score(raw, lang), parsed))
-    if not cands:
-        return {}
+        cands.append((cov, _lang_score(raw, lang), raw, parsed))
     cands.sort(key=lambda c: (c[0], c[1]), reverse=True)   # best coverage, then best language match
-    return cands[0][2]
+    return cands
+
+
+def _load_field_text(want_txids, lang: str, game=None, zone_id: Optional[int] = None) -> dict:
+    """Best-effort ``{txid: MesEntry}`` for a real field's text, read live from the install. Returns ``{}``
+    when nothing resolves, so the caller still shows the decoded calls. See :func:`_field_text_blocks`."""
+    cands = _field_text_blocks(want_txids, lang, game=game, zone_id=zone_id)
+    return cands[0][3] if cands else {}
+
+
+def extract_field_mes(field, lang: str = "us", game=None, zone_id: Optional[int] = None) -> Optional[str]:
+    """The donor field's WHOLE ``.mes`` text body for ``lang`` -- to ship VERBATIM with a verbatim-`.eb` fork
+    (docs/FORK_FIDELITY.md) so its index-based txids resolve into it directly (no remap, unlike `--carry-text`
+    which appends to authored text). Picks the block via the engine's field-id -> text-block table
+    (``EVENT_ID_TO_MES``). Returns ``None`` -- never raises -- when the install/UnityPy can't read it."""
+    from ._fieldtext import EVENT_ID_TO_MES
+    fid = _resolve_field_id(field)
+    if zone_id is None:
+        zone_id = EVENT_ID_TO_MES.get(fid)
+    cands = _field_text_blocks(None, lang, game=game, zone_id=zone_id)
+    return cands[0][2] if cands else None
 
 
 def read_field_dialogue(field, lang: str = "us", game=None, zone_id: Optional[int] = None) -> list:

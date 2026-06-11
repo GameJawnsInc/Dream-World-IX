@@ -14,6 +14,7 @@ F6-warp has no entrance fade to mask first-frame model streaming.
 """
 from __future__ import annotations
 
+import json
 import struct
 
 from ..eb import EbScript
@@ -48,3 +49,15 @@ def verbatim_eb(project):
         return None
     retarget = {int(k): int(v) for k, v in (spec.get("retarget") or {}).items()}
     return remap_fields(project.path(spec["bin"]).read_bytes(), retarget)
+
+
+def verbatim_mes(project, lang: str):
+    """The donor field's WHOLE `.mes` text body to ship for ``lang`` (from the ``[verbatim_eb] text`` JSON
+    sidecar, ``{lang: body}``) -- the verbatim `.eb`'s index-txids resolve straight into it. Falls back to the
+    ``us`` body for a language the dialogue reader couldn't distinguish. ``None`` if the fork carries no text."""
+    spec = project.raw.get("verbatim_eb") or {}
+    tf = spec.get("text")
+    if not tf:
+        return None
+    data = json.loads(project.path(tf).read_text(encoding="utf-8"))
+    return data.get(lang) or data.get("us")

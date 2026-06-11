@@ -1311,6 +1311,10 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
     if verbatim:
         # VERBATIM .eb fork (docs/FORK_FIDELITY.md, the entry-0 carry): ship the donor's WHOLE event script;
         # the build runs the real logic instead of synthesizing. No declarative content (it's all in the .eb).
+        import json as _json
+
+        from . import dialogue as _dlg
+        from .config import LANGS
         from .eb import EbScript
         donor_eb = extract_event_script(field, game=game)
         (out / f"{name}.verbatim_eb.bin").write_bytes(donor_eb)
@@ -1318,6 +1322,13 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         dests = sorted({int(i.imm(0)) for e in _de.entries if not e.empty for f in e.funcs
                         for i in _de.instrs(f) if i.op == 0x2B and i.imm(0) is not None})
         rt = "".join(f"#   {d} = 0\n" for d in dests) or "#   (this field has no Field() exits)\n"
+        # ship the donor's WHOLE text per language: the verbatim .eb's index-txids resolve straight into it
+        # (no remap, unlike --carry-text). Per-lang is coarse (the dialogue reader groups langs) but us is right.
+        mes_by_lang = {L: b for L in LANGS if (b := _dlg.extract_field_mes(field, L, game=game))}
+        text_line = ""
+        if mes_by_lang:
+            (out / f"{name}.verbatim_mes.json").write_text(_json.dumps(mes_by_lang), encoding="utf-8")
+            text_line = f'text = "{name}.verbatim_mes.json"   # the donor field text (its index-txids resolve in)\n'
         control_line = ""
         content_tail = (
             "# --- VERBATIM .eb fork: this field ships its REAL event script WHOLE (entry-0 + every object +\n"
@@ -1325,10 +1336,11 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
             "# NOT used here. Add a [startup] block to boot a chosen story beat (its gating then responds). ---\n"
             "[verbatim_eb]\n"
             f'bin = "{name}.verbatim_eb.bin"\n'
+            f"{text_line}"
             "# The Field() exits below point at REAL fields (live seams back into the game). To redirect any to\n"
             "# your own fork, set its id and uncomment the table (omit a line to keep that exit a live seam):\n"
             "# retarget = {\n" + rt + "# }\n")
-        meta["imported_content"] = {"verbatim_eb": True, "field_exits": dests}
+        meta["imported_content"] = {"verbatim_eb": True, "field_exits": dests, "text": bool(mes_by_lang)}
     else:
         content_blocks, control_dir, content_summary = _content_for_import(
             field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams,

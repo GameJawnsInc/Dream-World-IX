@@ -2435,14 +2435,17 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     from .content import verbatim as _verbatim
     verbatim_bytes = _verbatim.verbatim_eb(project)
     for lang in langs:
-        eb = verbatim_bytes if verbatim_bytes is not None else build_script(
-            project, lang, txids, control_value, event_txids=event_txids,
-            cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh, choice_txids=choice_txids)
+        if verbatim_bytes is not None:
+            eb = verbatim_bytes
+            lang_body = _verbatim.verbatim_mes(project, lang) or ""    # the donor's WHOLE text (index-txids)
+        else:
+            eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
+                              cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh, choice_txids=choice_txids)
+            lang_body = mes_body
+            if carry_plan:
+                from .content import textcarry as _textcarry
+                lang_body = (mes_body or "") + _textcarry.carried_mes_body(carry_plan, lang)
         layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
-        lang_body = mes_body
-        if carry_plan:
-            from .content import textcarry as _textcarry
-            lang_body = (mes_body or "") + _textcarry.carried_mes_body(carry_plan, lang)
         if lang_body:
             layout.mes_path(lang, project.text_block).write_text(lang_body, encoding="utf-8", newline="\n")
 
