@@ -729,6 +729,32 @@ def _cmd_flags_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_flags_diff(args: argparse.Namespace) -> int:
+    """Diff two saves' gEventGlobal story state (A -> B) -- what a beat / session wrote. Each arg reads the
+    same forms as flags-inspect; with one save, --slot-a/--slot-b pick two slots (default: slot 0 -> slot 1)."""
+    from . import flags as F
+    from . import save as S
+    try:
+        reps_a = S.inspect(args.a)
+        reps_b = S.inspect(args.b) if args.b else reps_a
+    except Exception as e:                                              # noqa: BLE001
+        print(f"could not read story state: {e}")
+        return 2
+    sa = args.slot_a if args.slot_a is not None else 0
+    sb = args.slot_b if args.slot_b is not None else (1 if args.b is None else 0)
+    if not 0 <= sa < len(reps_a):
+        print(f"save A has {len(reps_a)} populated slot(s); --slot-a {sa} is out of range")
+        return 2
+    if not 0 <= sb < len(reps_b):
+        print(f"save B has {len(reps_b)} populated slot(s); --slot-b {sb} is out of range "
+              f"(diffing two slots of one save needs >=2 populated slots)")
+        return 2
+    (la, ra), (lb, rb) = reps_a[sa], reps_b[sb]
+    print(f"A: {la}\nB: {lb}\n")
+    print(F.render_diff(F.diff_reports(ra, rb), show_bits=args.all))
+    return 0
+
+
 def _cmd_save_edit(args: argparse.Namespace) -> int:
     """Set a real FF9 save's story state (ScenarioCounter + flags) -- the RECREATE verb. Dry-run unless
     --out or --in-place is given; --in-place backs the original up first. Never mutates other state."""
@@ -1289,6 +1315,18 @@ def build_parser() -> argparse.ArgumentParser:
                                  "file / text, or a bare Base64 gEventGlobal blob")
     fi.add_argument("--all", action="store_true", help="also list the unmapped set bits")
     fi.set_defaults(func=_cmd_flags_inspect)
+
+    fd = sub.add_parser("flags-diff",
+                        help="diff two saves' story state (A -> B): what scenario/flags a beat changed")
+    fd.add_argument("a", help="save A: SavedData_ww.dat / a Memoria extra-save / a save JSON file-or-text "
+                              "/ a bare Base64 gEventGlobal blob")
+    fd.add_argument("b", nargs="?", default=None,
+                    help="save B (default: same source as A -- diff two slots of one save)")
+    fd.add_argument("--slot-a", type=int, default=None, help="A's populated-slot index (default 0)")
+    fd.add_argument("--slot-b", type=int, default=None,
+                    help="B's populated-slot index (default 1 when B is omitted, else 0)")
+    fd.add_argument("--all", action="store_true", help="also list the raw unmapped bit indices")
+    fd.set_defaults(func=_cmd_flags_diff)
 
     se = sub.add_parser("save-edit",
                         help="set a real FF9 save's story state (ScenarioCounter + flags) -- the 'recreate' verb")

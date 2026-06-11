@@ -424,6 +424,28 @@ def _find_key(obj, key):
     return None
 
 
+def _group_set_bits(set_bits):
+    """Group set story BITs by named region. Returns ``(by_region{name:[bits]}, custom[bits],
+    unmapped[bits], n_story)``. Bits inside a named WORD var's bytes (ScenarioCounter/FieldEntrance/...)
+    are EXCLUDED -- those are word data, not story bits. Shared by :func:`render_report` (single save)
+    and :func:`render_diff` (the set/cleared deltas) so both classify a bit the same way."""
+    word_bytes = {b for w in NAMED_WORDS for b in range(w.byte, w.byte + w.width)}
+    by_region: dict = {}
+    custom, unmapped, n_story = [], [], 0
+    for bit in set_bits:
+        if (bit >> 3) in word_bytes:                # part of a named word var (ScenarioCounter/FieldEntrance/..)
+            continue
+        n_story += 1
+        r = bit_region(bit)
+        if r is not None:
+            by_region.setdefault(r.name, []).append(bit)
+        elif is_safe_custom(bit):
+            custom.append(bit)
+        else:
+            unmapped.append(bit)
+    return by_region, custom, unmapped, n_story
+
+
 def render_report(rep: SaveReport, *, show_bits: bool = False) -> str:
     """A human-readable summary of a decoded save."""
     L = ["FF9 gEventGlobal (story state)", "=" * 32]
@@ -438,21 +460,7 @@ def render_report(rep: SaveReport, *, show_bits: bool = False) -> str:
         L.append("Named vars set  :")
         for w, v in rep.named_words:
             L.append(f"  - {w.name} = {v}")
-    # group set BIT-flags by region; skip bits that belong to a named WORD var (those aren't story bits)
-    word_bytes = {b for w in NAMED_WORDS for b in range(w.byte, w.byte + w.width)}
-    by_region: dict = {}
-    custom, unmapped, n_story = [], [], 0
-    for bit in rep.set_bits:
-        if (bit >> 3) in word_bytes:                # part of a named word var (ScenarioCounter/FieldEntrance/..)
-            continue
-        n_story += 1
-        r = bit_region(bit)
-        if r is not None:
-            by_region.setdefault(r.name, []).append(bit)
-        elif is_safe_custom(bit):
-            custom.append(bit)
-        else:
-            unmapped.append(bit)
+    by_region, custom, unmapped, n_story = _group_set_bits(rep.set_bits)
     L.append(f"Set story bits  : {n_story} "
              f"(in {len(by_region)} known region(s), {len(custom)} custom, {len(unmapped)} unmapped)")
     for name, bits in sorted(by_region.items()):
@@ -461,6 +469,88 @@ def render_report(rep: SaveReport, *, show_bits: bool = False) -> str:
         L.append(f"  [custom 8512+] {len(custom)} bit(s): {custom[:20]}{' ...' if len(custom) > 20 else ''}")
     if show_bits and unmapped:
         L.append(f"  [unmapped] {unmapped}")
+    return "\n".join(L)
+
+
+@dataclass
+class FlagDiff:
+    """The story-state delta between two saves (A -> B): what a story beat / play session changed."""
+    scenario_from: int
+    scenario_to: int
+    field_entrance_from: int
+    field_entrance_to: int
+    th_from: int
+    th_to: int
+    chests_from: int
+    chests_to: int
+    bits_set: list = field(default_factory=list)       # bits TRUE in B but not A (newly set)
+    bits_cleared: list = field(default_factory=list)   # bits TRUE in A but not B (cleared)
+    words_changed: list = field(default_factory=list)  # [(WordVar, old, new)] (excl. Scenario/FieldEntrance)
+
+    @property
+    def empty(self) -> bool:
+        return not (self.bits_set or self.bits_cleared or self.words_changed
+                    or self.scenario_from != self.scenario_to
+                    or self.field_entrance_from != self.field_entrance_to
+                    or self.th_from != self.th_to or self.chests_from != self.chests_to)
+
+
+def diff_reports(a: SaveReport, b: SaveReport) -> FlagDiff:
+    """Diff two decoded saves (A -> B). The set/cleared bit lists + the changed word vars are what a story
+    beat (or a play session) wrote to ``gEventGlobal`` -- the practical way to learn what a transition does
+    (save before, do the thing, save after, diff). Scenario/FieldEntrance are reported as their own deltas
+    (not in ``words_changed``, to avoid double-listing)."""
+    sa, sb = set(a.set_bits), set(b.set_bits)
+    wa = {w.name: (w, v) for w, v in a.named_words}
+    wb = {w.name: (w, v) for w, v in b.named_words}
+    words = []
+    for name in sorted(set(wa) | set(wb)):
+        if name in ("ScenarioCounter", "FieldEntrance"):     # shown as dedicated deltas below
+            continue
+        w = (wa.get(name) or wb.get(name))[0]
+        old = wa[name][1] if name in wa else 0
+        new = wb[name][1] if name in wb else 0
+        if old != new:
+            words.append((w, old, new))
+    return FlagDiff(
+        scenario_from=a.scenario_counter, scenario_to=b.scenario_counter,
+        field_entrance_from=a.field_entrance, field_entrance_to=b.field_entrance,
+        th_from=a.treasure_hunter_points, th_to=b.treasure_hunter_points,
+        chests_from=a.chests_opened, chests_to=b.chests_opened,
+        bits_set=sorted(sb - sa), bits_cleared=sorted(sa - sb), words_changed=words)
+
+
+def render_diff(diff: FlagDiff, *, show_bits: bool = False) -> str:
+    """A human-readable A -> B story-state delta (the output of :func:`diff_reports`)."""
+    def beat(v):
+        m = nearest_milestone(v)
+        return f"{v} ({m[1]})" if m else f"{v}"
+    L = ["FF9 gEventGlobal diff (A -> B)", "=" * 32]
+    if diff.scenario_from != diff.scenario_to:
+        L.append(f"ScenarioCounter : {beat(diff.scenario_from)}  ->  {beat(diff.scenario_to)}")
+    if diff.field_entrance_from != diff.field_entrance_to:
+        L.append(f"FieldEntrance   : {diff.field_entrance_from}  ->  {diff.field_entrance_to}")
+    if diff.th_from != diff.th_to:
+        L.append(f"Treasure-Hunter : {diff.th_from}  ->  {diff.th_to} pts  ({diff.th_to - diff.th_from:+d})")
+    if diff.chests_from != diff.chests_to:
+        L.append(f"Chests opened   : {diff.chests_from}  ->  {diff.chests_to}  ({diff.chests_to - diff.chests_from:+d})")
+    if diff.words_changed:
+        L.append("Named vars changed :")
+        for w, old, new in diff.words_changed:
+            L.append(f"  - {w.name}: {old} -> {new}")
+    for tag, bits in (("SET (newly true)", diff.bits_set), ("CLEARED (now false)", diff.bits_cleared)):
+        if not bits:
+            continue
+        by_region, custom, unmapped, n = _group_set_bits(bits)
+        L.append(f"Bits {tag}: {n}")
+        for name, bs in sorted(by_region.items()):
+            L.append(f"  [{name}] {len(bs)} bit(s): {bs[:20]}{' ...' if len(bs) > 20 else ''}")
+        if custom:
+            L.append(f"  [custom 8512+] {len(custom)} bit(s): {custom[:20]}{' ...' if len(custom) > 20 else ''}")
+        if unmapped:
+            L.append(f"  [unmapped] {len(unmapped)}" + (f": {unmapped}" if show_bits else " bit(s)"))
+    if diff.empty:
+        L.append("(no story-state difference)")
     return "\n".join(L)
 
 

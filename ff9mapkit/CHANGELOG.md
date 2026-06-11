@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `flags-diff`: compare two saves' story state
+- **`ff9mapkit flags-diff <A> [B]`** decodes two saves' `gEventGlobal` and shows the **A → B delta** — the
+  ScenarioCounter change (with beat names), FieldEntrance, Treasure-Hunter points, chests, named word vars,
+  and the story **bits set / cleared** (grouped by named region). The practical way to learn what a story
+  beat writes: save before, do the thing, save after, diff. Reads the same forms as `flags-inspect` (an
+  encrypted `SavedData_ww.dat`, a Memoria extra-save, a save JSON, or a bare Base64 blob); with one save,
+  `--slot-a` / `--slot-b` diff two slots (default slot 0 → slot 1). Spine: `flags.diff_reports` /
+  `flags.render_diff` (the bit-grouping is shared with `render_report`, so a bit is classified identically).
+
 ### Added — faithful object carry v1.5: the STARTSEQ-helper closure (+ two v1 correctness fixes)
 - **A forked object now carries the concurrent Seq it launches.** A real field object often runs a
   benign per-frame helper via `STARTSEQ` (RunSharedScript) — a forward-lean, a shadow toggle, a small

@@ -152,7 +152,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.10`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.11`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -1025,6 +1025,17 @@ Read these on demand — they hold the full technical detail this file only summ
   the **FBG NAME** (`ID_TO_FBG[id]`) — `import "<id>"` resolves a different field (HW index ≠ field id).
   docs/OBJECT_CARRY.md §2; memory `project-ff9-object-carry`.
   *(* hash will be rewritten by the rebase onto master's save-point + provenance commits.)
+- **`flags-diff` — compare two saves' story state (kit 0.9.11; offline, story-flag pillar).** The "what did
+  this beat change?" tool: `ff9mapkit flags-diff <A> [B]` decodes two saves' `gEventGlobal` and prints the
+  A→B delta — ScenarioCounter (with beat names), FieldEntrance, Treasure-Hunter pts, chests, named word vars,
+  and the story bits **set/cleared** grouped by named region. Complements `flags-inspect` (single state) +
+  `save-edit` (write); the practical reverse-engineering loop is save-before → act → save-after → diff. Reads
+  the same forms as `flags-inspect` (encrypted `.dat` per slot / Memoria extra-save / save JSON / bare Base64);
+  one save + `--slot-a`/`--slot-b` diffs two slots (default 0→1). `flags.diff_reports`/`render_diff` +
+  `_group_set_bits` (refactored OUT of `render_report` so a bit classifies identically in both; render_report
+  output byte-unchanged). 737 tests. **Done in the story-flag lane on purpose — zero file overlap with the
+  other session's save-point completion** (a parallel-work choice; the only shared file is this §10 + §5,
+  the expected keep-both). Memory: `project-ff9-story-flags`.
 
 ---
 

@@ -169,6 +169,44 @@ def test_render_report_smoke():
     assert "Chests opened   : 8" in out and "chest_opened" in out
 
 
+# ---- flags-diff: the A -> B story-state delta (what a beat / session wrote) --------------
+def test_diff_reports_set_cleared_scenario_words_chests():
+    a = bytearray(2048)
+    a[0:2] = struct.pack("<H", 1000)        # scenario 1000
+    a[1047] = 0xFF                          # 8 chest bits set in A (8376-8383)
+    a[8520 >> 3] |= 1 << (8520 & 7)         # custom flag 8520 set in A (and B)
+    a[16] = 1                               # TranceGaugeFlag = 1 in A (named word @ byte 16)
+    b = bytearray(a)
+    b[0:2] = struct.pack("<H", 2500)        # scenario 1000 -> 2500
+    b[1047] = 0x0F                          # chest bits 8380-8383 CLEARED (8 -> 4)
+    b[8521 >> 3] |= 1 << (8521 & 7)         # custom flag 8521 newly SET in B
+    b[16] = 0                               # TranceGaugeFlag 1 -> 0
+    diff = flags.diff_reports(flags.decode_gEventGlobal(bytes(a)), flags.decode_gEventGlobal(bytes(b)))
+    assert (diff.scenario_from, diff.scenario_to) == (1000, 2500)
+    assert 8521 in diff.bits_set and 8520 not in diff.bits_set       # 8520 was already set in A
+    assert {8380, 8381, 8382, 8383} <= set(diff.bits_cleared)        # the 4 cleared chest bits
+    assert (diff.chests_from, diff.chests_to) == (8, 4)
+    assert ("TranceGaugeFlag", 1, 0) in [(w.name, o, n) for w, o, n in diff.words_changed]
+    assert not diff.empty
+
+
+def test_diff_excludes_scenario_field_entrance_from_words():
+    a = bytearray(2048); a[0:2] = struct.pack("<H", 100); a[2:4] = struct.pack("<h", 1)
+    b = bytearray(2048); b[0:2] = struct.pack("<H", 200); b[2:4] = struct.pack("<h", 3)
+    diff = flags.diff_reports(flags.decode_gEventGlobal(bytes(a)), flags.decode_gEventGlobal(bytes(b)))
+    names = {w.name for w, _o, _n in diff.words_changed}
+    assert "ScenarioCounter" not in names and "FieldEntrance" not in names   # shown as dedicated deltas
+    assert diff.field_entrance_from == 1 and diff.field_entrance_to == 3
+
+
+def test_render_diff_smoke_and_empty():
+    rep = flags.decode_gEventGlobal(_synthetic_blob())
+    same = flags.diff_reports(rep, rep)
+    assert same.empty and "no story-state difference" in flags.render_diff(same)
+    out = flags.render_diff(flags.diff_reports(flags.decode_gEventGlobal(bytes(2048)), rep))
+    assert "ScenarioCounter" in out and "->" in out and "Bits SET" in out
+
+
 # ---- build integration: named flags produce IDENTICAL bytes to numeric ------------------
 def _build_lever(tmp_path, gate_value, tag):
     """A one-shot lever field whose choice is gated by `gate_value` (an int OR a registered name)."""
