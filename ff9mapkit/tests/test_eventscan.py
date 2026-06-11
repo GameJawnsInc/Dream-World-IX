@@ -178,6 +178,24 @@ def test_import_flags_stacked_story_branch_doors(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_scan_gateway_entries_classifies_story_gated_doors():
+    # #2b (FORK_FIDELITY.md): a story-gated door (a conditional jump 0x02/0x03 on a GLOB save flag opC4/opE4)
+    # is to be carried VERBATIM, not re-synthesized -- the kit's declarative rebuild drops the conditional
+    # logic. scan_gateway_entries classifies each gateway entry + exposes Field-target offsets for the
+    # destination remap. Dali Inn (VGDL_MAP101) entry 16 is story-gated (-> field 350); ~40 real fields are.
+    from ff9mapkit import extract
+    folder = next(f[0] for f in extract.list_fields() if "VGDL_MAP101" in f[2])
+    ge = eventscan.scan_gateway_entries(extract.extract_event_script(folder))
+    gated = [x for x in ge if x["story_gated"]]
+    assert gated                                            # Dali Inn HAS a story-gated door
+    for g in ge:
+        # every Field-target offset really points at that destination id (LE) inside the verbatim entry bytes
+        for off, fid in g["field_targets"]:
+            assert int.from_bytes(g["entry_bytes"][off:off + 2], "little") == fid
+        assert g["entry_bytes"][:1] == bytes([1])           # a type-1 region entry (carried whole)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_scan_objects_skips_script_hidden_save_machinery():
     # field 122 (the Dali storage room): the visible barrel/boxes carry; the SAVE-POINT machinery
     # (moogle/book/tent, all loaded HIDDEN via SetObjectFlags + shown by the save script) is skipped --

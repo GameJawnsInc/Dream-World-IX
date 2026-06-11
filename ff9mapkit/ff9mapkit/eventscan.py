@@ -133,6 +133,62 @@ def scan_gateways(eb_bytes) -> list:
     return out
 
 
+def scan_gateway_entries(eb_bytes) -> list:
+    """Gateway region entries (a ``SetRegion`` + >=1 ``Field``), classified for faithful door carry -- the
+    entry-level view that :func:`scan_gateways` flattens to one dict per ``Field``.
+
+    Each: ``{entry_idx, zone, fields: [(to, entrance)], story_gated, entry_bytes, field_targets}``.
+
+      * ``story_gated`` -- a conditional jump (``JMP_FALSE`` 0x02 / ``JMP_TRUE`` 0x03) tests a GLOB SAVE story
+        flag (``opC4``/``opE4``) in the entry: the door's firing/destination depends on story state (~40 real
+        fields, e.g. Dali Inn). The kit's declarative re-synthesis DROPS that logic (the door goes
+        always-active), so such an entry is carried VERBATIM (its conditional state machine preserved; the
+        GLOB conditions then read the ``[startup]``-preset story state). NOTE: it may also read MAP/transient
+        vars set by the field's main logic -- a door-only carry doesn't reconstruct those (documented limit).
+      * ``field_targets`` -- ``[(offset_in_entry, field_id)]`` for every ``Field()`` literal (id at instr
+        offset +2), so the carry remaps destinations with a byte patch (no re-encode).
+      * ``fields`` -- ``(destination, arrival_entrance)`` per ``Field()`` (the declarative view used for the
+        simple, non-gated entries that keep the clean editable [[gateway]] path)."""
+    eb = EbScript.from_bytes(eb_bytes)
+    SETREGION, FIELD, JMP_F, JMP_T = 0x29, 0x2B, 0x02, 0x03
+    out = []
+    for e in eb.entries:
+        if e.empty:
+            continue
+        zone = None
+        field_ins = []                                    # (Field instr, arrival entrance)
+        gated = False
+        for f in e.funcs:
+            entrance = 0
+            ins = list(eb.instrs(f))
+            for k, i in enumerate(ins):
+                if i.op == SETREGION and zone is None:
+                    pts = _region_points(i)
+                    if len(pts) >= 3:
+                        zone = _zone_quad(pts)
+                elif i.op == 0x05:
+                    ent = _entrance_at(eb.data, i.off)
+                    if ent is not None:
+                        entrance = ent
+                elif i.op == FIELD and i.imm(0) is not None:
+                    field_ins.append((i, entrance))
+                if i.op in (JMP_F, JMP_T) and k > 0 and ins[k - 1].op == 0x05 \
+                        and any(("opC4" in str(a)) or ("opE4" in str(a)) for a in ins[k - 1].args):
+                    gated = True                          # a conditional jump on a GLOB save story flag
+        if zone is None or not field_ins:
+            continue
+        base = 128 + u16(eb.data, 128 + e.index * 8)      # entry start in eb.data
+        out.append({
+            "entry_idx": e.index,
+            "zone": zone,
+            "fields": [(int(i.imm(0)), int(ent)) for i, ent in field_ins],
+            "story_gated": gated,
+            "entry_bytes": _entry_bytes(eb.data, e.index),
+            "field_targets": [((i.off - base) + 2, int(i.imm(0))) for i, _ent in field_ins],
+        })
+    return out
+
+
 def scan_region_zones(eb_bytes) -> list:
     """Every static ``SetRegion`` trigger polygon in the script (exits AND interaction/event/trap
     regions), as ``[x, z]``-corner quads. Used to keep an imported field's spawn OFF a trigger: a spawn
