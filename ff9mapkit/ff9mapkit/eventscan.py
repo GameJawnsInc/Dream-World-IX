@@ -477,7 +477,9 @@ UNSAFE_SEQ_OPS = frozenset((
 # give-item, a sibling uid ref, a RunScript) disqualifies the func -> it stays refused (its object stays init_only).
 SAFE_GESTURE_OPS = frozenset((
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x22,       # nop / jumps / return / expr / switch / wait
-    0x36, 0x56, 0x9B, 0x50, 0x99,                         # TurnInstant/TimedTurn/TurnTowardPosition/WaitTurn/SetTurnSpeed
+    0x36, 0x56, 0x9B, 0x51, 0x50, 0x99,                   # TurnInstant/TimedTurn/TurnToward{Position,Object}/WaitTurn/SetTurnSpeed
+    #                                                        (0x51 TurnTowardObject is safe -- its object ref is vetted
+    #                                                        by the carried-sibling check, like the save Moogle's 13/14/15)
     0x33, 0x34, 0x40, 0x41, 0x3F, 0x3D,                   # Set{Stand,Walk}Anim/RunAnimation/WaitAnimation/AnimFlags/AnimInOut
     0x47, 0x8B,                                           # EnableHeadFocus / SetHeadFocusMask
     0xCC, 0xCD,                                           # Add/RemoveCharacterAttribute (ladder flag etc.)
@@ -911,13 +913,16 @@ def _player_init_packs(eb, player_entries) -> list:
     return packs
 
 
-def _player_func_safety(eb, func, donor_model, donor_player_entry):
+def _player_func_safety(eb, func, donor_model, donor_player_entry, carried_siblings=frozenset()):
     """Classify a referenced player function for graftability (docs/PLAYER_GRAFT.md S2). Returns
-    ``(safety, runscript_tags)`` -- safety in clean | text | sibling | transitive | model | exotic | missing.
-    Only ``clean`` is v1-graftable; the rest keep the seeding object ``init_only`` (lint-warned)."""
+    ``(safety, runscript_tags, sibling_refs)`` -- safety in clean | text | sibling | transitive | model |
+    exotic | missing. Only ``clean`` is v1-graftable; the rest keep the seeding object ``init_only``
+    (lint-warned). A uid ref to a CARRIED sibling (in ``carried_siblings``) does NOT refuse -- it is recorded
+    in ``sibling_refs`` to be remapped to the sibling's fork slot at graft (the save Moogle's player funcs
+    13/14/15 ``TurnTowardObject`` the carried Moogle); only an UNCARRIED sibling refuses."""
     if func is None:
-        return "missing", []
-    ops, rs_tags, sibling = set(), [], False
+        return "missing", [], []
+    ops, rs_tags, sibling_refs, uncarried = set(), [], [], False
     for ins in eb.instrs(func):
         ops.add(ins.op)
         spec = REF_OPS.get(ins.op)
@@ -933,19 +938,21 @@ def _player_func_safety(eb, func, donor_model, donor_player_entry):
                         t = ins.imm(2)
                         if t is not None:
                             rs_tags.append(int(t))        # a player->player call (transitive; depth-0 in practice)
+                elif int(v) in carried_siblings:
+                    sibling_refs.append(int(v))           # a CARRIED sibling -> graftable (remap the uid at graft)
                 else:
-                    sibling = True                        # a sibling / party / uncarried uid ref
+                    uncarried = True                      # a party / uncarried-sibling uid ref -> can't resolve
     if ops & TEXT_OPS:
-        return "text", rs_tags                            # needs a .mes the fork doesn't carry -> v1.5
-    if sibling:
-        return "sibling", rs_tags                         # references another object -> can't resolve on a fork
+        return "text", rs_tags, sibling_refs              # needs a .mes the fork doesn't carry -> v1.5
+    if uncarried:
+        return "sibling", rs_tags, sibling_refs           # references an uncarried object -> can't resolve on a fork
     if rs_tags:
-        return "transitive", rs_tags                      # depth-0 census -> v1 refuses (no closure walker)
+        return "transitive", rs_tags, sibling_refs        # depth-0 census -> v1 refuses (no closure walker)
     if (ops & ANIM_OPS) and donor_model not in ZIDANE_MODELS:
-        return "model", rs_tags                           # clip ids are another character's -> wrong on Zidane
+        return "model", rs_tags, sibling_refs             # clip ids are another character's -> wrong on Zidane
     if ops - SAFE_GESTURE_OPS:
-        return "exotic", rs_tags                          # warp / camera / scripted-walk / menu / sound / give
-    return "clean", rs_tags
+        return "exotic", rs_tags, sibling_refs            # warp / camera / scripted-walk / menu / sound / give
+    return "clean", rs_tags, sibling_refs
 
 
 def scan_player_funcs(eb_bytes, *, graft_savepoint=False) -> list:
@@ -960,6 +967,7 @@ def scan_player_funcs(eb_bytes, *, graft_savepoint=False) -> list:
     needed = sorted({t for s in specs for t in s["player_tags_needed"]})
     if not needed:
         return []
+    carried = frozenset(s["donor_idx"] for s in specs)       # a player func may TurnTowardObject a carried sibling
     pents = resolve_player_entries(eb)
     if not pents:
         return []
@@ -973,10 +981,10 @@ def scan_player_funcs(eb_bytes, *, graft_savepoint=False) -> list:
             if func is not None:
                 pe = p
                 break
-        safety, rs_tags = _player_func_safety(eb, func, model, pe)
+        safety, rs_tags, sibling_refs = _player_func_safety(eb, func, model, pe, carried_siblings=carried)
         out.append({"donor_tag": tag, "safety": safety,
                     "body": eb.data[func.abs_start:func.abs_end] if func is not None else b"",
-                    "runscript_tags": rs_tags, "donor_player_entry": pe,
+                    "runscript_tags": rs_tags, "sibling_refs": sibling_refs, "donor_player_entry": pe,
                     "donor_player_model": model, "donor_init_packs": packs})
     return out
 

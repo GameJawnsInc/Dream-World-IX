@@ -1606,6 +1606,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         eb = _object.graft_objects(eb, [dict(o) for o in objects],
                                    load=lambda ref: project.path(ref).read_bytes(),
                                    player_tag_remap=player_tag_remap, out_slot_map=object_slot_map)
+        # a grafted player func may TurnTowardObject a CARRIED sibling (the save Moogle's 13/14/15 turn toward
+        # the Moogle); now that the object graft placed each sibling at its fork slot, remap those uids (a
+        # same-length 1-byte patch). No-op without carried siblings (docs/SAVEPOINT.md).
+        if player_tag_remap:
+            from .content import player as _player
+            eb = _player.remap_player_func_siblings(eb, player_tag_remap, object_slot_map)
 
     # faithful TEXT CARRY (docs/TEXT_CARRY.md): the grafted objects' windows + grafted text player funcs
     # still name the DONOR's .mes txids; remap each to the carried band (>=1000) -- a same-length 2-byte

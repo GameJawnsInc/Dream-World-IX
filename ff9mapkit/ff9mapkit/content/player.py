@@ -134,3 +134,35 @@ def graft_player_funcs(data, specs, tagmap, *, load=None, graftable_safeties=("c
         body = remap_player_tag_calls(bytes(body), tagmap)
         data = edit.add_function(data, pe, tagmap[int(s["donor_tag"])], body)
     return data
+
+
+def remap_player_func_siblings(data, tagmap, slot_map) -> bytes:
+    """Post-graft pass: in each grafted player function, remap a CARRIED-sibling uid ref to that sibling's
+    fork slot. A grafted func may ``TurnTowardObject`` a carried sibling -- the save Moogle's funcs 13/14/15
+    each ``TurnTowardObject(<Moogle donor slot>)``; once the object graft has placed the Moogle at its fork
+    slot (``slot_map``: donor_idx -> fork_slot), rewrite the uid. Same-length 1-byte patch, exactly like
+    :func:`content.object.remap_entry_refs`. Only uids that are carried-object slots (in ``slot_map``) are
+    touched -- player/self/party uids are never in ``slot_map``. Runs AFTER both grafts so the map exists; a
+    no-op (byte-identical) without carried siblings (``slot_map`` empty / no matching ref)."""
+    if not slot_map or not tagmap:
+        return data
+    eb = EbScript.from_bytes(data)
+    pe = find_player_entry(eb)
+    fork_tags = set(tagmap.values())
+    b = bytearray(data)
+    for f in eb.entry(pe).funcs:
+        if f.tag not in fork_tags:
+            continue
+        for ins in eb.instrs(f):
+            spec = eventscan.REF_OPS.get(ins.op)
+            if not spec:
+                continue
+            for ai in spec.get("uid", ()):
+                if ai >= len(ins.arg_is_expr) or ins.arg_is_expr[ai]:
+                    continue
+                v = ins.imm(ai)
+                if v is not None and int(v) in slot_map:
+                    bo = _arg_byte_offset(ins, ai)
+                    if bo is not None:
+                        b[ins.off + bo] = slot_map[int(v)] & 0xFF
+    return bytes(b)

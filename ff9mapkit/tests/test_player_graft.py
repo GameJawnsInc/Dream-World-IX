@@ -53,6 +53,27 @@ def test_remap_entry_refs_player_tag_arg2_discriminator():
     assert eb.to_bytes() == g                             # same-length patches -> still valid
 
 
+def test_remap_player_func_siblings():
+    # P2 of the save-Moogle carry: a grafted player func that TurnTowardObject(donor sibling 5) -- once the
+    # object graft placed that sibling at fork slot 7 -- gets its uid remapped 5 -> 7. A player uid (250) is
+    # never in the slot map, so it's untouched. Same-length 1-byte patch.
+    body = opcodes.encode(0x51, 5, 16) + opcodes.encode(0x14, 2, 250, 0) + opcodes.RETURN   # TurnToward(5); RunScript(player)
+    pe = eventscan._player_entry_index(EbScript.from_bytes(CLEAN))
+    g = edit.add_function(CLEAN, pe, 66, body)                       # graft at fork tag 66
+    out = _player.remap_player_func_siblings(g, {13: 66}, {5: 7})
+    eb = EbScript.from_bytes(out)
+    f = eb.entry(pe).func_by_tag(66)
+    assert [i.imm(0) for i in eb.instrs(f) if i.op == 0x51] == [7]   # 5 -> 7 (the sibling's fork slot)
+    assert [i.imm(1) for i in eb.instrs(f) if i.op == 0x14] == [250] # the player uid is untouched (not in slot_map)
+    assert len(out) == len(g) and eb.to_bytes() == out              # same-length, valid
+
+
+def test_remap_player_func_siblings_noop_without_map():
+    pe = eventscan._player_entry_index(EbScript.from_bytes(CLEAN))
+    g = edit.add_function(CLEAN, pe, 66, opcodes.encode(0x51, 5, 16) + opcodes.RETURN)
+    assert _player.remap_player_func_siblings(g, {13: 66}, {}) == g  # empty slot_map -> byte-identical
+
+
 def test_remap_player_tag_calls_site_b():
     body = bytes([0x14, 0x00, 2, 250, 11]) + bytes([0x14, 0x00, 2, 5, 11]) + opcodes.RETURN
     out = _player.remap_player_tag_calls(body, {11: 64})

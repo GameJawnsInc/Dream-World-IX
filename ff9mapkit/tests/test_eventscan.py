@@ -254,10 +254,14 @@ def test_graft_savepoint_carries_the_moogle_cluster():
     moogle = by_slot[5]
     assert moogle["model"] == "GEO_NPC_F0_MOG"
     assert moogle["entry_bytes"] == eventscan._entry_bytes(eb, 5)                        # carried VERBATIM
-    assert sorted(moogle["player_tags_needed"]) == [13, 14, 15]                          # the pose surgery (P2 grafts these)
-    # P2 pending: the Moogle's interactive tag (3) still drops -- 13/14/15 TurnTowardObject the carried Moogle
-    # (a "sibling" the player graft must learn to remap). So at P1 the Moogle is init_only, not yet clean.
-    assert moogle["graft_safety"] == "init_only"
+    assert sorted(moogle["player_tags_needed"]) == [13, 14, 15]                          # the pose surgery
+    # P2: those player funcs each TurnTowardObject the carried Moogle (a sibling) -- now graftable (the
+    # player graft remaps the uid to the Moogle's fork slot), so the Moogle is CLEAN and its tag-3 (the save
+    # talk) is carried whole, not dropped.
+    assert moogle["graft_safety"] == "clean"
+    assert 3 in moogle["carry_tags"]
+    pf = {p["donor_tag"]: p for p in eventscan.scan_player_funcs(eb, graft_savepoint=True)}
+    assert all(pf[t]["safety"] == "clean" and pf[t]["sibling_refs"] == [5] for t in (13, 14, 15))
 
 
 # --- STARTSEQ-helper closure + the two v1 classification fixes (docs/OBJECT_CARRY.md S2 v1.5) ----------
