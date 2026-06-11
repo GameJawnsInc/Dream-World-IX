@@ -28,8 +28,9 @@ have it *behave* as that story beat.
 > **`import --verbatim` changes this for self-contained story fields.** It ships the donor's WHOLE `.eb`
 > (entry-0 + every object + every gateway, layout intact) and runs the **real logic** instead of
 > re-synthesizing — a faithful *slice*, in-game proven on Dali Inn (the gated door OPENS, the cast gates by
-> story beat). Remaining gaps: donor `.mes` text carry (next), the entrance-fade model-streaming artifact, and
-> ref-bearing entries. (`content/verbatim.py` + the `[verbatim_eb]` block; pair with `[startup]` to boot a beat.)
+> story beat). It ships the whole `.eb`, so it even subsumes #2b's ref-bearing gated doors (every entry is
+> carried). Remaining gaps: donor `.mes` text carry (next) + the entrance-fade model-streaming artifact.
+> (`content/verbatim.py` + the `[verbatim_eb]` block; pair with `[startup]` to boot a beat.)
 
 ## Play a fork today
 
