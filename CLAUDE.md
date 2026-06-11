@@ -464,6 +464,10 @@ Read these on demand — they hold the full technical detail this file only summ
   `requires_flag` indices — a write into a reserved `gEventGlobal` region (chest 8376-8511 / byte-23 handshake /
   worldmap unlocks / choice scratch) is flagged by name; the kit's 8000+ working band stays clean. Lint-only
   (build output byte- AND warning-identical). Mirrors §2 "I can't see the game" → offline checks are the leverage.
+- **Dialogue-pillar polish** (`story_flags` branch) — `ff9mapkit dialogue` now also takes a **`campaign.toml`**
+  (auto-detected) and reviews EVERY member field's authored dialogue in one pass (per-field + a roll-up), and
+  `dialogue-import` now says WHY a real field's text is unresolved (UnityPy missing / no install / block didn't
+  cover the txids → `--zone-id`). Spine: `dialogue.campaign_dialogue` + `flag_overflow` + `text_source_status`.
 
 ---
 

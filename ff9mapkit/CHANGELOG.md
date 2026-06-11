@@ -5,7 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Changed — `lint` is now one pass over every offline validator (+ a reserved flag-band check)
+### Added — dialogue polish: campaign-wide review + a live-text resolver diagnostic
+- **`ff9mapkit dialogue` now accepts a `campaign.toml`** (it auto-detects a `[campaign]` manifest) and
+  reviews **every member field's** authored dialogue in one pass — per-field sections with the final
+  on-screen wrapping, plus a roll-up (total lines, which fields may overflow). A member that fails to load
+  is noted and skipped, never aborts the review. Single-field `dialogue <field.toml>` is unchanged. Spine:
+  `dialogue.campaign_dialogue` + `dialogue.flag_overflow` (the overflow check, now shared by both paths).
+- **`dialogue-import` now says WHY a real field's text didn't resolve.** When the live `<zone>.mes` read
+  comes back empty it distinguishes the two install/dependency failure modes — UnityPy not installed, or
+  the game install / `resources.assets` not found (pass `--game`) — from "the source is fine, the field's
+  block just didn't cover these txids; pass `--zone-id`." Spine: `dialogue.text_source_status` (never raises).
 - **`ff9mapkit lint <field.toml>` runs the WHOLE offline suite in one go.** It used to be schema
   (`validate`) + story/flag logic (`lint_logic`) only; the walkmesh geometry / content-placement /
   layer-art / cutscene-movement checks lived behind `walkmesh verify`, and the camera-pitch advisory

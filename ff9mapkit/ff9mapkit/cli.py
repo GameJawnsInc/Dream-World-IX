@@ -880,10 +880,23 @@ def _safe_console():
 
 def _cmd_dialogue(args: argparse.Namespace) -> int:
     """View the authored dialogue of a field.toml -- every NPC line / event message / choice prompt /
-    cutscene 'say', with its FINAL on-screen wrapping (the well-formatted-text check). Read-only."""
+    cutscene 'say', with its FINAL on-screen wrapping (the well-formatted-text check). Read-only. A
+    campaign.toml (a [campaign] manifest) instead reviews EVERY member field's dialogue in one pass."""
     _safe_console()
+    import tomllib
     from . import dialogue as DLG
     from .build import FieldProject
+    try:
+        with open(args.field, "rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f"failed to load: {e}", file=sys.stderr)
+        return 2
+    # a campaign manifest has a [campaign] table and [[field]] members (a list); a single field has a
+    # [field] TABLE -- so a field.toml never misroutes even if it carries a stray [campaign] key.
+    is_campaign = "campaign" in data and not isinstance(data.get("field"), dict)
+    if is_campaign:
+        return _dialogue_campaign(args, DLG)
     try:
         proj = FieldProject.load(args.field)
     except (OSError, ValueError) as e:
@@ -895,12 +908,62 @@ def _cmd_dialogue(args: argparse.Namespace) -> int:
         return 0
     print(f"dialogue: {args.field}  ({len(lines)} line(s))\n")
     print(DLG.format_lines(lines, clean=args.clean))
-    bad = [ln for ln in lines if ln.text and DLG.overflow(ln.text)]
+    bad = DLG.flag_overflow(lines)
     if bad:
         print(f"{len(bad)} line(s) may overflow the window (an unbreakable wide word) -- check in-game:",
               file=sys.stderr)
         for ln in bad:
             print(f"  ! {ln.who}", file=sys.stderr)
+    return 0
+
+
+def _dialogue_campaign(args: argparse.Namespace, DLG) -> int:
+    """Review every member field's authored dialogue in a campaign.toml, in member order, with a roll-up
+    (total lines + which fields may overflow). A member that fails to load is noted and skipped, not fatal."""
+    from pathlib import Path
+    from . import campaign
+    from .build import FieldProject
+    try:
+        plan = campaign.load_campaign(args.field)
+    except (campaign.CampaignError, OSError, ValueError) as e:
+        print(f"failed to load campaign: {e}", file=sys.stderr)
+        return 2
+    base = Path(args.field).parent
+    members = []
+    for m in plan.members:
+        p = (base / m.toml_rel)
+        label = f"{m.name} (id {m.new_id})"
+        if not campaign._within(base, p):              # a crafted/stale toml_rel must not read outside the set
+            members.append((label, None, f"field.toml path escapes the campaign folder ({m.toml_rel})"))
+            continue
+        try:
+            members.append((label, FieldProject.load(p), None))
+        except Exception as e:                         # noqa: BLE001 -- one broken member must not abort the review
+            members.append((label, None, f"{type(e).__name__}: {e}"))
+    fields = DLG.campaign_dialogue(members)
+    print(f"dialogue (campaign): {plan.name}  ({len(fields)} member field(s))\n")
+    total, with_dialogue, overflow = 0, 0, []
+    for fd in fields:
+        if fd.error:
+            print(f"=== {fd.label} ===  (skipped: {fd.error})\n")
+            continue
+        if not fd.lines:
+            print(f"=== {fd.label} ===  (no dialogue)\n")
+            continue
+        with_dialogue += 1
+        total += len(fd.lines)
+        print(f"=== {fd.label} ===  ({len(fd.lines)} line(s))")
+        print(DLG.format_lines(fd.lines, clean=args.clean))
+        bad = DLG.flag_overflow(fd.lines)
+        if bad:
+            overflow.append((fd.label, bad))
+    print(f"total: {total} line(s) across {with_dialogue} field(s) with dialogue.")
+    if overflow:
+        print(f"{len(overflow)} field(s) may overflow the window (an unbreakable wide word) -- check in-game:",
+              file=sys.stderr)
+        for label, bad in overflow:
+            for ln in bad:
+                print(f"  ! {label}: {ln.who}", file=sys.stderr)
     return 0
 
 
@@ -928,8 +991,12 @@ def _cmd_dialogue_import(args: argparse.Namespace) -> int:
         print(f"({hidden} system/duplicate window(s) hidden -- pass --all to show them)", file=sys.stderr)
     unresolved = sum(1 for ln in shown if ln.text is None)
     if unresolved and not args.mod:
-        print(f"note: {unresolved} line(s) had no resolvable text -- pass --zone-id <n> to read the "
-              "field's <n>.mes text block directly.", file=sys.stderr)
+        status = DLG.text_source_status(game=args.game)
+        if status != "ok":
+            print(f"note: {unresolved} line(s) unresolved -- {status}.", file=sys.stderr)
+        else:
+            print(f"note: {unresolved} line(s) had no resolvable text -- the field's text block didn't "
+                  "cover them; pass --zone-id <n> to read a specific <n>.mes block directly.", file=sys.stderr)
     if args.out:
         import json
         recs = [{"source": ln.source, "who": ln.who, "txid": ln.txid, "tail": ln.tail,
@@ -1362,8 +1429,9 @@ def build_parser() -> argparse.ArgumentParser:
     ed.add_argument("field", nargs="?", default=None, help="a .field.toml to open (optional)")
     ed.set_defaults(func=_cmd_edit)
 
-    dl = sub.add_parser("dialogue", help="view a field.toml's authored dialogue + how each line wraps on screen")
-    dl.add_argument("field", help="path to a .field.toml")
+    dl = sub.add_parser("dialogue", help="view a field.toml's authored dialogue + how each line wraps on "
+                        "screen (or a campaign.toml: review every member field at once)")
+    dl.add_argument("field", help="path to a .field.toml (or a campaign.toml to review the whole set)")
     dl.add_argument("--clean", action="store_true", help="strip FF9 control tags for a plain read")
     dl.set_defaults(func=_cmd_dialogue)
 

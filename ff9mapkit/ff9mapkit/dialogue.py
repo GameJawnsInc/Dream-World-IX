@@ -452,6 +452,27 @@ def read_field_dialogue(field, lang: str = "us", game=None, zone_id: Optional[in
     return join(calls, mes_map, field_label=folder, trust_positions=False)
 
 
+def text_source_status(game=None) -> str:
+    """A one-line reason the live ``<zone>.mes`` text source can't be read -- the diagnostic
+    ``dialogue-import`` prints when a real field's lines come back unresolved. Distinguishes the two
+    install/dependency failure modes that make ALL text unresolvable (``UnityPy`` not installed, or the
+    game install / ``resources.assets`` not found) from a healthy source. Returns ``"ok"`` when the source
+    looks readable -- in which case unresolved txids just mean the field's own ``.mes`` block didn't cover
+    them (try ``--zone-id``). Never raises (so the caller can always print it)."""
+    from . import extract
+    try:
+        extract._unitypy()
+    except Exception:                                  # noqa: BLE001 -- ImportError/RuntimeError = not installed
+        return "UnityPy is not installed (pip install UnityPy), so live game text can't be read"
+    try:
+        ra = _resources_assets(game)
+    except Exception:                                  # noqa: BLE001 -- find_game_path raises if no install
+        ra = None
+    if ra is None:
+        return "the game install (resources.assets) wasn't found -- pass --game <FF9 folder>"
+    return "ok"
+
+
 # ---------------------------------------------------------- read: an authored field.toml ---
 def _iter_txids(obj, prefix=""):
     """Yield ``(label, txid)`` for every int leaf in a collect_text txid map (dict/list, possibly nested --
@@ -505,6 +526,31 @@ def _name(lst, i, fallback):
     if i is not None and isinstance(lst, list) and 0 <= i < len(lst):
         return lst[i].get("name") or fallback
     return fallback
+
+
+# ----------------------------------------------------- read: a whole campaign ---
+@dataclass
+class FieldDialogue:
+    """One member field's authored dialogue, for the campaign-wide review. ``error`` is set (and ``lines``
+    is empty) when that member's field.toml couldn't be loaded -- a broken member never aborts the review."""
+    label: str
+    lines: list = _dc_field(default_factory=list)   # ViewedLine
+    error: Optional[str] = None
+
+
+def campaign_dialogue(members) -> list:
+    """The authored dialogue of every member of a campaign, in member order. ``members`` is an iterable of
+    ``(label, project_or_None, error_or_None)`` -- the caller resolves the campaign.toml to loaded
+    ``FieldProject``s (keeping the path/sandbox logic out of the spine); this just runs the unchanged
+    :func:`project_dialogue` per field, so the campaign view can never drift from the single-field one.
+    Returns one :class:`FieldDialogue` per member (a load failure becomes an ``error`` row, not an abort)."""
+    out = []
+    for label, project, err in members:
+        if err or project is None:
+            out.append(FieldDialogue(label, [], err or "could not load"))
+        else:
+            out.append(FieldDialogue(label, project_dialogue(project)))
+    return out
 
 
 # ----------------------------------------------------- editable refs (for the GUI) ---
@@ -597,6 +643,12 @@ def wrap_preview(text: str, width=None) -> str:
 def overflow(text: str, width=None) -> list:
     """Final wrapped lines that still exceed ``width`` -- an unbreakable over-wide word. Empty = it fits."""
     return _text.overflow_lines(text or "", width if width is not None else _text.DEFAULT_WRAP_WIDTH)
+
+
+def flag_overflow(lines, width=None) -> list:
+    """The :class:`ViewedLine`s whose final wrapped text still overflows the window (an unbreakable wide
+    word) -- the 'check this in-game' set, shared by the single-field and campaign dialogue reviews."""
+    return [ln for ln in lines if ln.text and overflow(ln.text, width)]
 
 
 def format_lines(lines, *, clean: bool = False, show_system: bool = False, dedupe: bool = True) -> str:

@@ -43,9 +43,13 @@ how each line will break, and warns when an unbreakable over-wide word remains. 
 ### View a field's authored dialogue
 ```
 ff9mapkit dialogue examples/SHOWCASE/showcase.field.toml [--clean]
+ff9mapkit dialogue path/to/campaign.toml                   # review EVERY member field at once
 ```
 Lists every line with its final on-screen wrapping; `--clean` strips FF9 control tags for a plain read.
-Flags any line that may still overflow.
+Flags any line that may still overflow. Pass a **`campaign.toml`** (a `[campaign]` manifest) instead of a
+single field and it auto-detects it and reviews every member field in member order — per-field sections
+plus a roll-up (total lines, which fields may overflow). A member that fails to load is noted and skipped,
+never aborts the review.
 
 ### Import / view real FF9 dialogue
 ```
@@ -56,7 +60,10 @@ ff9mapkit dialogue-import 100 --zone-id 33                  # read the field's <
 ff9mapkit dialogue-import 100 --all                        # also show system/notification windows + dupes
 ff9mapkit dialogue-import 100 --out alex.dialogue.json      # also write a JSON view (gitignored)
 ```
-Prints `NPC → txid → "text"`. Reading the live install needs UnityPy (`py -m pip install UnityPy`).
+Prints `NPC → txid → "text"`. Reading the live install needs UnityPy (`py -m pip install UnityPy`). When a
+real field's lines come back **unresolved**, the note says *why* — UnityPy not installed, the install /
+`resources.assets` not found (pass `--game`), or "the source is fine, this field's block just didn't cover
+these txids; pass `--zone-id`."
 
 **By default it shows only real dialogue.** Windows whose flags lack the `0x80` text-box bit are
 **system/notification** windows (a field's "Error …" guard, the "Received item!" popups) — hidden unless

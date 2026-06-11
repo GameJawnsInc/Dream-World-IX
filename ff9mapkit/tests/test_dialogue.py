@@ -215,3 +215,100 @@ def test_wrap_preview_and_overflow():
     assert "\n" in D.wrap_preview(long)                                     # a long line wraps for preview
     assert D.overflow("short enough") == []                                 # nothing overflows
     assert D.overflow("Supercalifragilisticexpialidocious!!!!!!!!!!")       # an unbreakable wide word does
+
+
+# --- polish: campaign-wide review + the live-text resolver diagnostic --------------------
+def test_flag_overflow_picks_only_overflowing_lines():
+    wide = D.ViewedLine("npc", "X", 1, "Supercalifragilisticexpialidocious!!!!!!!!!!")
+    fine = D.ViewedLine("npc", "Y", 2, "a short line that fits")
+    assert D.flag_overflow([wide, fine]) == [wide]
+
+
+def test_campaign_dialogue_runs_each_member_and_survives_a_bad_one(tmp_path):
+    """campaign_dialogue runs project_dialogue per member; a load failure becomes an error row, not an abort."""
+    proj = _mini_project(tmp_path, "Member line.")
+    fields = D.campaign_dialogue([("A", proj, None), ("B", None, "boom")])
+    assert [f.label for f in fields] == ["A", "B"]
+    assert any("Member line." in (ln.text or "") for ln in fields[0].lines)
+    assert fields[1].error == "boom" and fields[1].lines == []
+
+
+def test_text_source_status_reports_missing_unitypy(monkeypatch):
+    """When UnityPy can't be imported, the status says so (not a bare 'unresolved')."""
+    import ff9mapkit.extract as X
+
+    def _boom():
+        raise RuntimeError("UnityPy missing")
+    monkeypatch.setattr(X, "_unitypy", _boom)
+    assert "UnityPy" in D.text_source_status()
+
+
+def test_text_source_status_reports_missing_install(monkeypatch):
+    """With UnityPy present but no game install, the status points at resources.assets / --game."""
+    import ff9mapkit.extract as X
+    monkeypatch.setattr(X, "_unitypy", lambda: object())          # pretend UnityPy is importable
+    monkeypatch.setattr(D, "_resources_assets", lambda game=None: None)
+    s = D.text_source_status()
+    assert s != "ok" and "resources.assets" in s
+
+
+def test_dialogue_cli_reviews_a_whole_campaign(tmp_path, capsys):
+    """`ff9mapkit dialogue <campaign.toml>` auto-detects the manifest and reviews every member field."""
+    import argparse
+    from ff9mapkit import cli
+    (tmp_path / "ROOM_A").mkdir()
+    (tmp_path / "ROOM_A" / "ROOM_A.field.toml").write_text(
+        '[field]\nid = 4000\nname = "ROOM_A"\narea = 11\n\n[camera]\nborrow = "c.bgx"\n\n'
+        '[walkmesh]\nquad = [[0,0],[10,0],[10,10],[0,10]]\n\n'
+        '[[npc]]\nname = "Guard"\npos = [0, 0]\ndialogue = "Halt, who goes there?"\n', encoding="utf-8")
+    camp = tmp_path / "campaign.toml"
+    camp.write_text(
+        '[campaign]\nname = "TESTCAMP"\nmod_folder = "FF9CustomMap-t"\nid_base = 4000\n\n'
+        '[[field]]\nname = "ROOM_A"\nid = 4000\nsource = 100\nmode = "borrow"\n'
+        'toml = "ROOM_A/ROOM_A.field.toml"\n', encoding="utf-8")
+    rc = cli._cmd_dialogue(argparse.Namespace(field=str(camp), clean=False))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "dialogue (campaign): TESTCAMP" in out
+    assert "ROOM_A (id 4000)" in out and "Halt, who goes there?" in out
+
+
+def test_dialogue_campaign_survives_a_broken_member(tmp_path, capsys):
+    """A member whose field.toml is malformed is noted + skipped -- it must not abort the whole review."""
+    import argparse
+    from ff9mapkit import cli
+    (tmp_path / "GOOD").mkdir()
+    (tmp_path / "GOOD" / "GOOD.field.toml").write_text(
+        '[field]\nid = 4000\nname = "GOOD"\narea = 11\n\n[camera]\nborrow = "c.bgx"\n\n'
+        '[walkmesh]\nquad = [[0,0],[10,0],[10,10],[0,10]]\n\n'
+        '[[npc]]\nname = "G"\npos = [0, 0]\ndialogue = "I load fine."\n', encoding="utf-8")
+    (tmp_path / "BAD").mkdir()
+    (tmp_path / "BAD" / "BAD.field.toml").write_text("this is not valid toml = = =\n", encoding="utf-8")
+    camp = tmp_path / "campaign.toml"
+    camp.write_text(
+        '[campaign]\nname = "C"\nmod_folder = "m"\nid_base = 4000\n\n'
+        '[[field]]\nname = "GOOD"\nid = 4000\nsource = 1\nmode = "borrow"\ntoml = "GOOD/GOOD.field.toml"\n\n'
+        '[[field]]\nname = "BAD"\nid = 4001\nsource = 2\nmode = "borrow"\ntoml = "BAD/BAD.field.toml"\n',
+        encoding="utf-8")
+    rc = cli._cmd_dialogue(argparse.Namespace(field=str(camp), clean=False))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "I load fine." in out                       # the good member still rendered
+    assert "BAD (id 4001)" in out and "skipped" in out  # the broken member noted, not a crash
+
+
+def test_dialogue_field_with_stray_campaign_key_is_not_misrouted(tmp_path, capsys):
+    """A single field.toml carries a [field] TABLE -- even with a stray [campaign] key it stays single-field
+    (a campaign manifest uses [[field]] = a list), so the auto-detect can't misroute it."""
+    import argparse
+    from ff9mapkit import cli
+    p = tmp_path / "f.field.toml"
+    p.write_text(
+        '[campaign]\nname = "oops typo"\n\n'                # a stray [campaign] table, but...
+        '[field]\nid = 4003\nname = "X"\narea = 11\n\n[camera]\nborrow = "c.bgx"\n\n'   # ...a real [field] TABLE
+        '[walkmesh]\nquad = [[0,0],[10,0],[10,10],[0,10]]\n\n'
+        '[[npc]]\nname = "V"\npos = [0, 0]\ndialogue = "single field still."\n', encoding="utf-8")
+    rc = cli._cmd_dialogue(argparse.Namespace(field=str(p), clean=False))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "dialogue (campaign)" not in out and "single field still." in out
