@@ -15,6 +15,8 @@ Subcommands are wired up incrementally as the library lands:
     battle-import - fork a real FF9 battle background (BBG) into an editable battle.toml (needs UnityPy)
     battle-build  - compile a battle.toml into a Memoria mod (custom 3D battle map; stock engine)
     battle-list   - list the real FF9 battle backgrounds available to fork
+    dialogue  - view a field.toml's authored dialogue + how each line wraps on screen
+    dialogue-import - read a REAL FF9 field's dialogue (or a built mod's) -- 'NPC -> text'
     animations/items - browse the cutscene-gesture / item catalogs by name
     models/scenes/catalog - the Info Hub: browse models (+ their animations), battle scenes, or
                             search every reference catalog by name
@@ -809,6 +811,74 @@ def _cmd_save_edit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _safe_console():
+    """Keep dialogue output (which dumps arbitrary FF9 text -- smart quotes, box-drawing, CJK) from crashing
+    a legacy console: replace any char the console encoding can't represent instead of raising. No-op on a
+    UTF-8 console / when stdout can't be reconfigured."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")       # keep the console's encoding; just don't crash
+        except Exception:                              # noqa: BLE001 -- redirected/older stream
+            pass
+
+
+def _cmd_dialogue(args: argparse.Namespace) -> int:
+    """View the authored dialogue of a field.toml -- every NPC line / event message / choice prompt /
+    cutscene 'say', with its FINAL on-screen wrapping (the well-formatted-text check). Read-only."""
+    _safe_console()
+    from . import dialogue as DLG
+    from .build import FieldProject
+    try:
+        proj = FieldProject.load(args.field)
+    except (OSError, ValueError) as e:
+        print(f"failed to load: {e}", file=sys.stderr)
+        return 2
+    lines = DLG.project_dialogue(proj)
+    if not lines:
+        print(f"{args.field}: no dialogue (no NPC lines / events / choices / cutscene says).")
+        return 0
+    print(f"dialogue: {args.field}  ({len(lines)} line(s))\n")
+    print(DLG.format_lines(lines, clean=args.clean))
+    bad = [ln for ln in lines if ln.text and DLG.overflow(ln.text)]
+    if bad:
+        print(f"{len(bad)} line(s) may overflow the window (an unbreakable wide word) -- check in-game:",
+              file=sys.stderr)
+        for ln in bad:
+            print(f"  ! {ln.who}", file=sys.stderr)
+    return 0
+
+
+def _cmd_dialogue_import(args: argparse.Namespace) -> int:
+    """Read a REAL FF9 field's dialogue (or a built mod folder's, with --mod) and show 'NPC -> text' --
+    the 'import from the game to prove plausibility' verb. Reading the live install needs UnityPy."""
+    _safe_console()
+    from . import dialogue as DLG
+    try:
+        if args.mod:
+            lines = DLG.read_local_dialogue(args.mod, args.field, lang=args.lang)
+            src = args.mod
+        else:
+            lines = DLG.read_field_dialogue(args.field, lang=args.lang, game=args.game, zone_id=args.zone_id)
+            src = "the game install"
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"dialogue-import: {args.field}  (from {src}, lang {args.lang}) -- {len(lines)} line(s)\n")
+    print(DLG.format_lines(lines, clean=args.clean))
+    unresolved = sum(1 for ln in lines if ln.text is None)
+    if unresolved and not args.mod:
+        print(f"note: {unresolved} line(s) had no resolvable text -- pass --zone-id <n> to read the "
+              "field's <n>.mes text block directly.", file=sys.stderr)
+    if args.out:
+        import json
+        recs = [{"source": ln.source, "who": ln.who, "txid": ln.txid, "tail": ln.tail,
+                 "pos": list(ln.pos) if ln.pos else None, "text": ln.text} for ln in lines]
+        from pathlib import Path
+        Path(args.out).write_text(json.dumps(recs, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"wrote {args.out}  (SE-derived view -- keep it gitignored)")
+    return 0
+
+
 def _cmd_items(args: argparse.Namespace) -> int:
     """List FF9 item names + ids (use a name for `give_item = ["<name>", count]`)."""
     from . import items as I
@@ -1198,6 +1268,25 @@ def build_parser() -> argparse.ArgumentParser:
     ed = sub.add_parser("edit", help="open the form-based field-logic editor (no TOML hand-editing)")
     ed.add_argument("field", nargs="?", default=None, help="a .field.toml to open (optional)")
     ed.set_defaults(func=_cmd_edit)
+
+    dl = sub.add_parser("dialogue", help="view a field.toml's authored dialogue + how each line wraps on screen")
+    dl.add_argument("field", help="path to a .field.toml")
+    dl.add_argument("--clean", action="store_true", help="strip FF9 control tags for a plain read")
+    dl.set_defaults(func=_cmd_dialogue)
+
+    di = sub.add_parser("dialogue-import",
+                        help="read a REAL FF9 field's dialogue (or a built mod's, with --mod) -- 'NPC -> text'")
+    di.add_argument("field", help="real field id or FBG name (e.g. 100, alexandria); or a name/id in the --mod")
+    di.add_argument("--lang", default="us", help="language block to read (default us)")
+    di.add_argument("--mod", default=None,
+                    help="read from a BUILT mod folder on disk instead of the install (no UnityPy needed); "
+                         "e.g. --mod release/FF9CustomMap")
+    di.add_argument("--zone-id", type=int, default=None, dest="zone_id",
+                    help="the field's text-block id -> read <zone-id>.mes directly (else auto-detect by txid)")
+    di.add_argument("--clean", action="store_true", help="strip FF9 control tags for a plain read")
+    di.add_argument("--out", default=None,
+                    help="also write a JSON view here (use a .dialogue.json suffix -- SE-derived, gitignored)")
+    di.set_defaults(func=_cmd_dialogue_import)
 
     xt = sub.add_parser("extract-templates",
                         help="regenerate the kit's base assets from YOUR FF9 install (ships no game data)")

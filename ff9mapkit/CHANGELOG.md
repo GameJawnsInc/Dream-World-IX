@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — dialogue pillar (a dialogue editor + a stock-dialogue viewer)
+- **The read side of FF9 field text.** New `ff9mapkit.dialogue` spine (UI-agnostic, tk-free): `parse_mes`
+  (the missing `.mes` reader — handles BOTH the base game's index-implicit entries, where the txid is the
+  entry's 0-based position with no `[TXID=]` tags, and the kit's explicit form it round-trips), `scan_dialogue`
+  (decode every dialogue-window call + its txid out of a field's `.eb`), and `read_local_dialogue` /
+  `read_field_dialogue` that JOIN the two into "NPC → text". A real field's text block is found via the
+  engine's own `eventIDToMESID` table (baked into `_fieldtext.py`), language picked by stopword match.
+  `project_dialogue` lists a `field.toml`'s authored lines with their final on-screen wrapping. The proven
+  write path (`content.text` wrap/build_mes) is untouched — goldens stay byte-identical.
+- **`ff9mapkit dialogue <field.toml>`** views a field's authored dialogue (every NPC line / event message /
+  choice prompt+reply / cutscene say) and how each line wraps; flags lines that may overflow the window.
+- **`ff9mapkit dialogue-import <field>`** reads a REAL FF9 field's dialogue live from your install and shows
+  "NPC → text" — the "import from the game to prove plausibility" verb. `--mod <built mod folder>` reads a
+  field offline with no install (the kit's own shipped hut joins to *"I miss you Zidane"*); `--zone-id <n>`
+  reads a specific `<n>.mes` text block; `--out` writes a gitignored JSON view (SE-derived).
+- **A dedicated Dialogue editor GUI** (`apps/ff9_dialogue.pyw`): every line of a field in one list, each with
+  a **live preview of how it wraps on the FF9 screen** (so simple dialogue stays well-formatted — FF9 never
+  auto-wraps), speaker + window-tail edited alongside, and an "Import from game" panel that views stock
+  dialogue and can drop lines in as NPC stubs. Edits round-trip the same `field.toml` the Logic Editor uses.
+- **Integrated:** a **Dialogue tab** in the Campaign Editor that **shares one `FieldDoc`** with the Logic
+  Editor (the words edited in either are the same data, no divergence); the Logic Editor's new **"Dialogue…"**
+  button hands the current field off to it; and a launcher entry. View stock dialogue, or word-smith a
+  campaign's lines, from the same surface.
+
 ### Added — battle-map pillar (custom 3D battle backgrounds)
 - `ff9mapkit battle-import <BBG>` forks a REAL FF9 battle background out of your install (geometry +
   per-submesh textures) into an editable `battle.toml` + `<BBG>.fbx`; `ff9mapkit battle-build` compiles

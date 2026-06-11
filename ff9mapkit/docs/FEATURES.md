@@ -68,7 +68,8 @@ codec/golden tests) with the full in-game pass still pending.
 | Capability | | Docs |
 |---|---|---|
 | NPCs (presets or custom model + animations) | ✓ | [FORMAT](FORMAT.md) |
-| Custom dialogue (own `.mes` text, no base-game collision) | ✓ | [FORMAT](FORMAT.md) |
+| Custom dialogue (own `.mes` text, no base-game collision) | ✓ | [FORMAT](FORMAT.md) · [DIALOGUE](DIALOGUE.md) |
+| View / import real FF9 dialogue (decode `.eb` + `.mes` → "NPC → text") | ✓ | [DIALOGUE](DIALOGUE.md) |
 | Gateways (room-to-room exits, walk-out direction) | ✓ | [FORMAT](FORMAT.md) |
 | Random encounters (+ battle music, + after-battle reinit) | ✓ | [FORMAT](FORMAT.md) |
 | Events: chests / gil / messages / story flags (one-shot or repeatable) | ✓ | [FORMAT](FORMAT.md) |
@@ -82,9 +83,10 @@ codec/golden tests) with the full in-game pass still pending.
 
 | Tool | What | Docs |
 |---|---|---|
-| **CLI** | `new / guide / camera / walkmesh / disasm / build / import / list-fields / lint / pack / edit / doctor` | [README](../README.md) |
+| **CLI** | `new / guide / camera / walkmesh / disasm / build / import / list-fields / lint / pack / edit / dialogue / dialogue-import / doctor` | [README](../README.md) |
 | **Blender add-on** | Visually pose the camera, model the walkmesh, place NPC/gateway/event/spawn/cam-zone markers, paint backdrop, import a real field — **and reshape a 3D battle map** (Import/Export Battle Map) | [blender/README](../blender/README.md) |
 | **Form editor** (`ff9mapkit edit`) | Dialogue / events / encounters / flags / cutscenes in forms — no TOML | [README](../README.md) |
+| **Dialogue editor** (`apps/ff9_dialogue.pyw`) | Every line in one list with a **live FF9-wrap preview**; view/import real stock dialogue | [DIALOGUE](DIALOGUE.md) |
 | **Two-file split** | Blender owns *where* (`scene.toml`), you own *what* (`field.toml`); merged at build | [FORMAT](FORMAT.md) |
 
 ## Engineering (how it's trusted)

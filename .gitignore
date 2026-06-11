@@ -112,6 +112,11 @@ backups/battle_predeploy.*/
 # (same zero-SE-bytes posture as the field *.eb.bytes/*.bgx art). Regenerable from the install any time.
 *.object*.bin
 
+# Dialogue read out of the game (`ff9mapkit dialogue-import --out FILE.dialogue.json`): a VIEW of real FF9
+# text -- SE-derived, regenerable from the install. Use the `.dialogue.json` suffix so it's never committed;
+# only author-written dialogue (in a field.toml) belongs in the repo.
+*.dialogue.json
+
 # Blender working/test projects (user art + exports)
 ff9mapkit/blender/debug_proj/
 

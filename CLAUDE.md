@@ -864,6 +864,31 @@ Read these on demand — they hold the full technical detail this file only summ
   `build`'s native branch writes `commonasset/mapconfigdata/EVT_<name>.bytes` (`config.mapconfig_path`); lint flags
   a referenced-but-missing file; `deploy_field` copies + reverts it. **Fixes lighting for ALL native forks.** 665
   tests pass (+3). Memory: `project-ff9-object-carry`.
+- **Dialogue pillar — the READ side of FF9 field text + a dialogue editor/viewer (offline- + install-verified).**
+  The kit was write-only for dialogue; this closes the loop.
+  **Core** `ff9mapkit/dialogue.py` (tk-free spine): `parse_mes` (the missing `.mes` reader — exact inverse of
+  `content.text.mes_entry`, round-trips `build_mes`), `scan_dialogue` (decode every dialogue-window opcode
+  `0x1F/0x20/0x95/0x96` + its txid out of a field's `.eb`; tag-3 func = NPC talk; best-effort (x,z)+model
+  from the Init), and `read_local_dialogue`/`read_field_dialogue` that **JOIN on txid** → "NPC → text".
+  `project_dialogue` lists a `field.toml`'s authored lines with final wrapping; `collect_text_refs`/`get_text`/
+  `set_text` are the GUI's tk-free edit API. **Engine fact** (Memoria `FF9TextTool.GetFieldTextFileName`): a
+  field's text file is `<zone-id>.mes`, the DictionaryPatch FieldScene 6th token (1073 custom; a small id for
+  a real field) — so the offline JOIN is exact; a REAL field's block is resolved via Memoria's own
+  **`eventIDToMESID`** table (baked as `_fieldtext.EVENT_ID_TO_MES`, 831 entries — field 100 → mes 33),
+  language picked by stopword match (`--zone-id` overrides). **★ base-game `.mes` is INDEX-IMPLICIT** — NO
+  `[TXID=]` tags, the txid is the entry's 0-based position; `parse_mes` handles that + the kit's explicit form. The proven WRITE path (`text.wrap_text`/`build_mes`) is untouched → goldens
+  byte-identical. **CLI**: `ff9mapkit dialogue <field.toml>` (view authored lines + wrapping), `dialogue-import
+  <field>` (real install, or `--mod <built folder>` offline, `--out *.dialogue.json` SE-derived/gitignored).
+  **GUI**: `apps/ff9_dialogue.pyw` (`DialogueApp`, App-on-parent) — every line in one list with a **live
+  wrap preview** + speaker/tail, an Import-from-game panel; a **Dialogue tab** in the Campaign Editor that
+  **shares one `FieldDoc`** with the Logic Editor (no divergence) + the Logic Editor's **"Dialogue…"** hand-off
+  button + a launcher entry. **★ Offline plausibility proof (no install, in tests)**: the kit's own shipped
+  hut (`release/FF9CustomMap`) decodes its `.eb`, parses its `.mes`, and joins to *"I miss you Zidane"*; and
+  `scan_dialogue` decodes 30 real dialogue calls from the Alexandria field-100 `.eb` fixture. **Install-
+  verified** (the human ran `dialogue-import 100`: the real Alexandria opening dialogue — "Here! You dropped
+  your ticket." — in the requested language). **Deferred viewer polish** (user-flagged, not yet done): default-
+  hide non-dialogue `flags=0` system/debug windows (`--all` to show), de-dupe repeated call sites, and suppress
+  the kit-only `@x,z` position heuristic on real-field reads. 680 kit tests pass; `docs/DIALOGUE.md`.
 
 ---
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env pythonw
 """FF9 Map Kit -- Campaign Editor: the kit's GUIs in one tabbed window, with a campaign workspace.
 
-The unified front-end: the Logic Editor, the Info Hub catalog browser, and Build & Deploy hosted as
-tabs over ONE Tk root (each app mounts on a parent frame, so they also run standalone). The campaign
-WORKSPACE is a left-hand pane that opens a `campaign.toml` as a project:
+The unified front-end: the Logic Editor, the Dialogue editor, the visual Map, the Info Hub catalog
+browser, and Build & Deploy hosted as tabs over ONE Tk root (each app mounts on a parent frame, so they
+also run standalone). The Logic + Dialogue tabs SHARE one FieldDoc, so words edited in either are the
+same data. The campaign WORKSPACE is a left-hand pane that opens a `campaign.toml` as a project:
 
   * a member NAVIGATOR + GRAPH -- each member is a tree node; expand it to see its live doors (resolved
     to member NAMES) and onward seams; click a member (or a door) to open/jump to that field.toml in the
@@ -122,6 +123,12 @@ class Workspace:
         self.ed_tab = ttk.Frame(self.nb)
         self.nb.add(self.ed_tab, text="Logic Editor")
         self.editor = EditorApp(self.ed_tab)
+        dl = _load_app("ff9_dialogue.pyw", "ff9_dialogue")   # the focused dialogue editor / stock-text viewer
+        self.dlg_tab = ttk.Frame(self.nb)
+        self.nb.add(self.dlg_tab, text="Dialogue")
+        self.dialogue = dl.DialogueApp(self.dlg_tab)
+        # the Logic Editor's "Dialogue..." button flips to this tab; both tabs SHARE one FieldDoc (no divergence)
+        self.editor.dialogue_opener = lambda: self.nb.select(self.dlg_tab)
         self.map_tab = ttk.Frame(self.nb)              # the visual node-link map of the open campaign
         self.nb.add(self.map_tab, text="Map")
         self.graph = graphview.GraphView(self.map_tab, palette, on_open=self._graph_open)
@@ -133,6 +140,26 @@ class Workspace:
         f = ttk.Frame(self.nb)
         self.nb.add(f, text="Build & Deploy")
         self.build_app = bg.App(f)
+        self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)   # keep Logic+Dialogue tabs in sync
+
+    def _on_tab_changed(self, _evt=None):
+        """The Logic + Dialogue tabs share ONE FieldDoc, so a tab flip just commits the leaving tab's
+        in-progress edit and refreshes the entering tab from the shared data (no save, no divergence)."""
+        ed, dlg = getattr(self, "editor", None), getattr(self, "dialogue", None)
+        if ed is None or dlg is None:
+            return
+        cur = self.nb.select()
+        if cur == str(self.dlg_tab):
+            ed._commit_active()
+            if dlg.doc is not ed.doc:
+                dlg.set_doc(ed.doc)
+            else:
+                dlg._refresh_tree()
+        elif cur == str(self.ed_tab):
+            dlg._commit_active()
+            sel = ed.tree.selection()
+            if sel:
+                ed._show(sel[0])                       # re-render the Logic form from the shared doc
 
     # ---------------------------------------------------------------- logging
     def _build_log(self, parent):
@@ -180,6 +207,7 @@ class Workspace:
         self._member_paths = {m.name: (path.parent / m.toml_rel).resolve() for m in plan.members}
         self.editor.campaign_idmap = {m.new_id: m.name for m in plan.members}   # gateway annotations
         self.editor.campaign_plan = plan                                         # flag picker + name resolution
+        self.dialogue.campaign_plan = plan                                       # same, for the Dialogue tab's picker
         self.btn_check.configure(state="normal")
         self.btn_flags.configure(state="normal")
         for b in self._edit_btns:
@@ -272,9 +300,12 @@ class Workspace:
         path = self._member_paths.get(name)
         if not path:
             return False
+        if getattr(self, "dialogue", None) is not None:
+            self.dialogue._commit_active()            # fold any in-progress Dialogue-tab edit into the shared doc first
         cur = getattr(self.editor.doc, "path", None) if self.editor.doc is not None else None
         if cur is not None and Path(cur) == path:     # already open -> just focus the editor tab (no reload,
-            self.nb.select(self.ed_tab)               # and dodges the load-on-campaign-open double fire)
+            self.dialogue.set_doc(self.editor.doc)    # and dodges the load-on-campaign-open double fire)
+            self.nb.select(self.ed_tab)
             self._sync_graph(name)
             return True
         if not path.is_file():
@@ -282,6 +313,7 @@ class Workspace:
                                  f"{name}: field.toml not found at\n{path}\n\n(stale campaign.toml?)")
             return False
         if self.editor.open_path(path):
+            self.dialogue.set_doc(self.editor.doc)    # both tabs now share the one FieldDoc
             self.nb.select(self.ed_tab)
             self._sync_graph(name)
             return True
@@ -540,6 +572,13 @@ def _smoke(ws):
     assert ws.open_campaign(d / "campaign.toml")
     assert list(ws.tree.get_children()) == ["IC_ENT", "IC_COR", "IC_LOST"]
     assert ws.editor.doc is not None and ws.editor.doc.path == members_path(d, "IC_ENT")   # auto-land entry
+    # the Dialogue tab shares the SAME FieldDoc as the Logic Editor (no divergence on edit)
+    assert ws.dialogue.doc is ws.editor.doc
+    ws.nb.select(ws.dlg_tab)
+    ws._on_tab_changed()
+    assert ws.dialogue.doc is ws.editor.doc
+    ws.nb.select(ws.ed_tab)
+    ws._on_tab_changed()
     assert ws.editor.campaign_idmap == {30100: "IC_ENT", 30101: "IC_COR", 30102: "IC_LOST"}  # gateway hints
     # the visual Map tab renders the same graph and highlights the auto-landed entry
     assert ws.graph._layout is not None and len(ws.graph._layout.nodes) == 3
@@ -586,8 +625,9 @@ def _smoke(ws):
     assert campaign.load_campaign(ws.campaign_path).flags == [{"name": "boss_dead", "index": f["index"]}]
     campaign.remove_flag(ws.plan, ws.campaign_path.parent, "boss_dead")
     assert campaign.load_campaign(ws.campaign_path).flags == []
-    print(f"campaign editor smoke ok: {ws.nb.index('end')} tabs, 3 members, tree+Map graph + edge-nav + "
-          f"map-open + Check ({len(errors)} err) + dirty-gate + Phase-D add/rename/remove + shared-flags")
+    print(f"campaign editor smoke ok: {ws.nb.index('end')} tabs (incl. Dialogue, shared doc), 3 members, "
+          f"tree+Map graph + edge-nav + map-open + Check ({len(errors)} err) + dirty-gate + "
+          f"Phase-D add/rename/remove + shared-flags")
 
 
 def members_path(d, name):

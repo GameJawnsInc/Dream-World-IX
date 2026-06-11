@@ -47,6 +47,17 @@ def _find_tool(name):
     return None
 
 
+def _find_app(name):
+    """Locate a GUI app (e.g. ff9_dialogue.pyw) under a repo-root ``apps/`` dir, or None (a packaged
+    install without the apps/ dir just won't offer the standalone hand-off)."""
+    here = Path(__file__).resolve()
+    for base in here.parents:
+        cand = base / "apps" / name
+        if cand.is_file():
+            return cand
+    return None
+
+
 class EditorApp:
     def __init__(self, parent, path=None):
         self.container = parent                       # where the UI mounts (a window OR a notebook tab)
@@ -59,6 +70,7 @@ class EditorApp:
         self.active_choice = None          # index of the choice whose options are being edited
         self.campaign_idmap = None         # optional {field_id: member_name} set by the Campaign workspace
         self.campaign_plan = None          # optional CampaignPlan -> flag picker source + name resolution
+        self.dialogue_opener = None        # optional hook: hand the current field to the Dialogue tab (unified window)
         self.busy = False
         self.deploy = _find_tool("deploy_field.py")
         self.revert = _find_tool("revert_deploy.py")
@@ -102,6 +114,7 @@ class EditorApp:
         self.btn_check.pack(side="left")
         self.btn_build = ttk.Button(bar, text="Build to game", command=self.on_build_game)
         self.btn_build.pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="Dialogue...", command=self.on_open_dialogue).pack(side="left", padx=(6, 0))
         if self.deploy:
             self.btn_test = ttk.Button(bar, text="Build & Test (4003)", command=self.on_test,
                                        style="Accent.TButton")
@@ -144,6 +157,28 @@ class EditorApp:
             "  - Text block: leave at 1073 unless you know otherwise.\n"
             "  - NPC preset: vivi or zidane is the easy path (a custom model also needs anims set "
             "in the .toml).")
+
+    def on_open_dialogue(self):
+        """Hand the current field to the Dialogue editor (the focused word-smithing + stock-dialogue view).
+        In the unified Campaign Editor the host wires ``dialogue_opener`` to flip to the Dialogue tab (which
+        shares this very doc); standalone, it saves + launches the Dialogue app on the file."""
+        if self.doc is None:
+            messagebox.showinfo("No field", "Open or create a field first.")
+            return
+        if not self._commit_active():
+            return
+        if self.dialogue_opener is not None:           # unified window: same shared doc, just flip tabs
+            self.dialogue_opener()
+            return
+        if not self._ensure_saved():                   # standalone: persist, then open the app on the file
+            return
+        app = _find_app("ff9_dialogue.pyw")
+        if app is None:
+            messagebox.showinfo("Dialogue editor",
+                                "The standalone Dialogue app wasn't found (apps/ff9_dialogue.pyw).")
+            return
+        subprocess.Popen([sys.executable, str(app), str(self.doc.path)])
+        self._log("opened the Dialogue editor on this field.")
 
     # --------------------------------------------------------------- logging
     def _build_log(self, root):

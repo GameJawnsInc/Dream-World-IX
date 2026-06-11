@@ -87,6 +87,8 @@ and `build` compiles both.
 | `list-fields [pat]` | list the real FF9 fields available to `import` |
 | `extract-templates` | one-time: regenerate the kit's base assets from **your own** FF9 install (the kit ships no game data — see [Provenance](docs/PROVENANCE.md)) |
 | `edit [field.toml]` | open the **form-based logic editor** (no TOML hand-editing) |
+| `dialogue <field.toml>` | view a field's authored dialogue + how each line wraps on screen ([DIALOGUE](docs/DIALOGUE.md)) |
+| `dialogue-import <field>` | read a **real** FF9 field's dialogue (or a built mod's, with `--mod`) — "NPC → text" |
 | `lint <field.toml>` | check story-flag/placement logic without building |
 | `pack <mod>` | zip a built mod for distribution |
 
