@@ -169,7 +169,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.21`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.22`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -696,6 +696,27 @@ Read these on demand — they hold the full technical detail this file only summ
   to slot 30004 scrolls correctly — the camera pans 1:1 to follow the player across the FULL painting width, art
   stays floor-aligned (no FOV-doubling). The kit's scroll synthesis (`enable_camera_services`/BGCACTIVE, S15) was
   unit-tested only; now proven on a genuinely large field. Pure verification — doc-only.
+- **Multi-PC control-bind CRACKED — engine-sourced + IN-GAME PROVEN; `fork-report` names the real controlled PC.**
+  A 3-lens workflow (Memoria C# source + donor bytes + a verbatim playtest) settled "which PC binds when a field
+  defines several": the engine sets `controlUID = gExec.uid` on each `DefinePlayerCharacter` (0x2C) as it
+  EXECUTES (last-write-wins, `EventEngine.DoEventCode.cs`), and entries run their Init in **InitObject (0x09)
+  order** — so control binds to the entry whose tag-0 Init runs a 0x2C **unconditionally** and is InitObject'd
+  **LATEST**; it is **party-leader-INDEPENDENT** for fixed-SID fields. ★ **In-game proven** (a verbatim fork of
+  the Treno Dagger+Steiner room `evt_treno1_tr_qhm_0` — an *alternate event script* for the FBG, shipped over the
+  scene): you control **Garnet** (entry 9, last-executed 0x2C), NOT Steiner (entry 10, spawned first), NOT Zidane;
+  free-roam, bind persists across gateways; the party MENU still shows Zidane (`controlUID` is decoupled from
+  party state). `fork-report`'s Player axis now computes the real binder (`controlled_player`) — e.g. `controls
+  Eiko of [Garnet, Eiko]` — replacing the `pents[0]` guess (the FIRST entry, which mispredicts — ac_alt binds
+  Eiko, not the first-entry Garnet). Scoped to the non-Zidane lane (validated); a Zidane-present field keeps the
+  "likely Zidane party-leader" hedge (control can route through a party slot — the Cargo Ship would mispredict).
+  ★ Two process lessons: (1) the FIRST multi-PC probe (ac_alt) BURNED a playtest on a coronation CUTSCENE —
+  "0 directors + static roster" ≠ free-roam (the PLAYER entries choreographed the scene); and there is **no
+  reliable offline free-roam-vs-cutscene flag** (player-LOOP length doesn't separate: free-roam Vivi-100/Dali-Inn
+  at ploop 254/272 vs the ac_alt cutscene at 50), so none was shipped. (2) The clean probe needed an UNAMBIGUOUS
+  spawn order (each PC InitObject'd once) — `tr_fbh`'s Dagger re-spawn made it ambiguous; `tr_qhm` was clean.
+  Read-only (`forkreport.py` only) — clear of story_flags' build.py lane. kit 0.9.22; 852 tests.
+
+---
 
 ## 11. Glossary
 

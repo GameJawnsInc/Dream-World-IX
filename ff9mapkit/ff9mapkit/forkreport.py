@@ -57,6 +57,62 @@ def player_name(model_id) -> str:
     return MODELS.get(model_id, f"model {model_id}")
 
 
+# Which entry the engine BINDS CONTROL to when a field defines >1 DefinePlayerCharacter (0x2C). The engine
+# sets controlUID = the uid of each 0x2C as it EXECUTES (last-write-wins; Memoria EventEngine.DoEventCode.cs),
+# and entries run their Init in InitObject (0x09 in Main_Init) order -- so control binds to the entry whose
+# 0x2C runs LAST: among entries whose tag-0 Init runs a 0x2C UNCONDITIONALLY, the one InitObject'd latest.
+# In-game PROVEN on the Treno Dagger+Steiner room (-> Garnet, the last-executed 0x2C, NOT the first-spawned
+# Steiner nor the warp-in Zidane). memory project-ff9-non-zidane-donors. Reliable for FIXED-SID character
+# fields (the non-Zidane lane); a normal party field can route control through a party slot to the LIVE
+# leader, which this doesn't model -- so trust it only when no Zidane is among the PCs (the lane).
+_BRANCH_OPS = frozenset({0x02, 0x03, 0x04})   # conditional-branch family (empirically gates a following 0x2C)
+INITOBJ_OP = 0x09
+DEFINE_PC_OP = 0x2C
+
+
+def _init_0x2c_status(eb, entry_index) -> str:
+    """A player entry's load-time Init (tag 0) DefinePlayerCharacter: 'uncond' (binds at spawn), 'cond'
+    (behind a conditional branch -> story-dependent), or 'absent' (its 0x2C is in a cutscene func, not Init)."""
+    try:
+        f = eb.entry(entry_index).func_by_tag(0)
+    except (IndexError, AttributeError):
+        return "absent"
+    if f is None:
+        return "absent"
+    ins = list(eb.instrs(f))
+    idx = next((k for k, i in enumerate(ins) if i.op == DEFINE_PC_OP), None)
+    if idx is None:
+        return "absent"
+    return "cond" if any(i.op in _BRANCH_OPS for i in ins[:idx]) else "uncond"
+
+
+def controlled_player(eb):
+    """Best-effort (entry_index | None, confidence in {'high','low','none'}) for the player entry the engine
+    binds control to at field load (see the module note above). Single-PC -> that entry. Multi-PC -> among
+    the entries whose Init runs a 0x2C unconditionally (else any 0x2C-in-Init), the one InitObject'd latest in
+    Main_Init; 'low' confidence when that entry is multi-spawned or only gated (the binder is then ambiguous)."""
+    from . import eventscan as _es  # lazy (extraction-free, but keeps import cost off the core path)
+    pents = _es.resolve_player_entries(eb)
+    if not pents:
+        return (None, "none")
+    if len(pents) == 1:
+        return (pents[0], "high")
+    mi = eb.entry(0).func_by_tag(0) if eb.entry_count > 0 else None
+    order = [i.imm(0) for i in eb.instrs(mi) if i.op == INITOBJ_OP] if mi is not None else []
+
+    def last_pos(p):
+        occ = [k for k, v in enumerate(order) if v == p]
+        return max(occ) if occ else -1
+
+    status = {p: _init_0x2c_status(eb, p) for p in pents}
+    pool = ([p for p in pents if status[p] == "uncond"]
+            or [p for p in pents if status[p] == "cond"] or list(pents))
+    binder = max(pool, key=last_pos)
+    multi_spawn = sum(1 for v in order if v == binder) > 1
+    conf = "high" if (status[binder] == "uncond" and not multi_spawn) else "low"
+    return (binder, conf)
+
+
 @dataclass
 class ForkReport:
     field_id: int
@@ -75,9 +131,12 @@ class ForkReport:
     sc_gates: list = _dc_field(default_factory=list)      # [(value, (milestone_value, beat))] sorted
     suggested_scenario: int | None = None
     roster_class: str = "static-roster"        # "static-roster" | "story-event"
-    player_models: list = _dc_field(default_factory=list)  # [(entry_index, model_id, name)] -- the controlled PC(s)
+    player_models: list = _dc_field(default_factory=list)  # [(entry_index, model_id, name)] -- the defined PC(s)
     multi_pc: bool = False                                # the field defines >1 DefinePlayerCharacter
-    non_zidane: bool = False                              # the PRIMARY player isn't Zidane -> --verbatim is the faithful mode
+    non_zidane: bool = False                              # the controlled player isn't Zidane -> --verbatim is the faithful mode
+    controlled_entry: int | None = None                  # the entry the engine BINDS control to (multi-PC; controlled_player)
+    controlled_name: str = ""                            # its character name
+    control_confidence: str = "none"                     # 'high' | 'low' | 'none' (binder ambiguity)
     notes: list = _dc_field(default_factory=list)
 
 
@@ -221,9 +280,18 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
         names = ", ".join(n for _, _, n in rep.player_models)
         rep.non_zidane = not zidane_present                  # no Zidane among the PCs -> genuinely non-Zidane control
         if rep.non_zidane:
-            rep.notes.append(f"NO Zidane among the {len(models)} player characters ({names}) -- you control a "
-                             f"non-Zidane character. Fork with --verbatim (the player rig + anim packs ship whole); "
-                             f"WHICH pc binds is untested (the multi-PC non-Zidane frontier)")
+            # compute WHICH non-Zidane PC binds control (the last DefinePlayerCharacter executed). This is
+            # in-game proven for fixed-SID fields (the lane); see controlled_player. A Zidane-present field is
+            # NOT computed -- control may route through a party slot to the live leader (left as the hedge below).
+            ce, conf = controlled_player(eb)
+            rep.controlled_entry, rep.control_confidence = ce, conf
+            if ce is not None:
+                rep.controlled_name = player_name(_eventscan._player_model(eb, ce))
+            hedge = "" if conf == "high" else " (likely -- ambiguous spawn/gating)"
+            who = rep.controlled_name or "a non-Zidane character"
+            rep.notes.append(f"you control {who}{hedge} -- the last DefinePlayerCharacter executed of the "
+                             f"{len(models)} PCs ({names}); the rest are co-defined companions. Fork --verbatim "
+                             f"(the player rig + anim packs ship whole). In-game proven on the Treno Dagger/Steiner room.")
         else:
             rep.notes.append(f"the field defines {len(models)} player characters ({names}) -- you most likely "
                              f"control the Zidane party-leader; the rest are co-actors. The exact bind in a fork "
@@ -270,8 +338,11 @@ def format_report(rep: ForkReport) -> str:
     if rep.player_models:
         if rep.multi_pc:
             names = ", ".join(n for _, _, n in rep.player_models)
-            tag = "non-Zidane -> --verbatim" if rep.non_zidane else "likely Zidane party-leader"
-            pc = f"{len(rep.player_models)} PCs: {names}  [MULTI-PC; {tag}]"
+            if rep.non_zidane and rep.controlled_name:
+                q = "" if rep.control_confidence == "high" else "?"
+                pc = f"controls {rep.controlled_name}{q} of [{names}]  [MULTI-PC non-Zidane -> --verbatim]"
+            else:
+                pc = f"{len(rep.player_models)} PCs: {names}  [MULTI-PC; likely Zidane party-leader]"
         else:
             pc = rep.player_models[0][2] + ("  [non-Zidane -> --verbatim]" if rep.non_zidane else "")
         lines.append(f"  Player        : {pc}")

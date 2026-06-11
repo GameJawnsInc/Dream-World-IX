@@ -26,6 +26,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   objects' talk handlers; no scanner logic of its own. Validated on real fields (Daguerreo 6/36, Dali Inn
   1/8). 2 offline tests + an install-gated assertion (`tests/test_forkreport.py`); kit 0.9.21.
 
+### Added — `fork-report` computes the REAL controlled PC in a multi-PC non-Zidane fork
+- The control-bind mechanism is now **engine-sourced + in-game proven** (a 3-lens workflow over the Memoria
+  C# + the donor bytes + a verbatim playtest). When a field defines >1 `DefinePlayerCharacter` (0x2C), the
+  engine binds player control to the entry whose 0x2C **executes LAST** at load (`controlUID = gExec.uid`,
+  last-write-wins, `EventEngine.DoEventCode.cs`); entries run their Init in **InitObject (0x09) order**, so the
+  binder is the entry whose tag-0 Init runs a 0x2C **unconditionally** and is InitObject'd **latest**. It is
+  **party-leader-independent** for fixed-SID character fields. ★ **IN-GAME PROVEN** on a verbatim fork of the
+  Treno Dagger+Steiner room (`evt_treno1_tr_qhm_0`, shipped over the FBG scene): you control **Garnet** (entry
+  9, last-executed 0x2C) — NOT Steiner (entry 10, spawned first), NOT Zidane (party leader); free-roam, and the
+  bind persists across gateways. The party MENU still shows Zidane — `controlUID` is decoupled from party state.
+- So `fork-report`'s **Player** axis now reports the *real* controlled character (`controlled_player` = last
+  unconditional 0x2C by InitObject order) for a non-Zidane multi-PC field — e.g. `controls Eiko of [Garnet,
+  Eiko]` — instead of the old `pents[0]` guess (the FIRST entry, which mispredicts: ac_alt binds Eiko not the
+  first-entry Garnet). It's scoped to the non-Zidane lane (where it's validated); a **Zidane-present** multi-PC
+  field keeps the conservative "likely Zidane party-leader" hedge (control there can route through a party slot
+  to the live leader, which this doesn't model — the Cargo Ship would mispredict). Confidence is hedged (`?`)
+  when the binder is multi-spawned or only gated. Read-only (`forkreport.py` only). 2 tests; memory
+  `project-ff9-non-zidane-donors`. (No reliable offline free-roam-vs-cutscene flag exists — player-LOOP length
+  doesn't separate them: Vivi-100/Dali-Inn free-roam at ploop 254/272, the ac_alt *cutscene* at 50 — so none
+  was added; the first multi-PC probe burned a playtest on the ac_alt coronation cutscene.) kit 0.9.22.
+
 ### Added — `fork-report` is now PLAYER-CHARACTER aware (non-Zidane donors)
 - A field's controlled character isn't always Zidane (Vivi/Steiner/Garnet/Eiko/Freya/Amarant solo sequences).
   A census of all 818 field `.eb` (one events-bundle pass; `eventscan.resolve_player_entries` + `_player_model`)

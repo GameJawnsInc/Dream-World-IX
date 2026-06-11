@@ -69,6 +69,14 @@ def test_player_name_falls_back_to_geo_model_name():
     assert FR.player_name(192) == "Freya"
 
 
+def test_controlled_player_single_pc_is_the_one_entry():
+    # ALEX100 is single-PC (Vivi, entry 19); controlled_player returns it with high confidence.
+    from ff9mapkit.eb import EbScript
+    eb = EbScript.from_bytes(ALEX100)
+    entry, conf = FR.controlled_player(eb)
+    assert entry == 19 and conf == "high"
+
+
 def test_analyze_eb_no_script():
     rep = FR.analyze_eb(b"", field_id=1)
     assert not rep.has_script
@@ -205,3 +213,15 @@ def test_analyze_daguerreo_is_static_roster():
     # the #5 text axis: all 6 carried NPCs speak (36 lines) -> the report tells you to fork with --carry-text
     assert rep.n_speaking == 6 and rep.n_dialogue_lines == 36
     assert "6 NPC(s) speak 36 line(s)" in FR.format_report(rep)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_analyze_multipc_nonzidane_names_the_controlled_pc():
+    # field 2003 (ac_alt) defines Garnet + Eiko (no Zidane). The engine binds control to the LAST
+    # DefinePlayerCharacter executed = Eiko (Garnet's is gated, Eiko's is unconditional + spawned later).
+    # fork-report must NAME Eiko as the controlled PC, not the first-entry Garnet (the old pents[0] guess).
+    rep = FR.analyze(2003)
+    assert rep.multi_pc and rep.non_zidane
+    assert rep.controlled_name == "Eiko"                 # NOT "Garnet" (entry 7 binds, not the first entry 3)
+    out = FR.format_report(rep)
+    assert "controls Eiko" in out and "--verbatim" in out
