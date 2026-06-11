@@ -54,6 +54,45 @@ def test_import_extractors_accept_the_cli_graft_flags():
             assert flag in params, f"{fn} is missing {flag!r} -> the cli passing it TypeErrors that import path"
 
 
+def test_plain_import_auto_routes_area_lt_10_to_native(monkeypatch):
+    # #4 (FORK_FIDELITY.md): a plain `import` (no --native/--editable) of an area<10 field would BG-borrow ->
+    # black-screen (the engine builds 'FBG_N<area>' and reads exactly 2 chars). _cmd_import must auto-route it
+    # to the native path (ships its own art at a remapped area>=10). Mocks keep this offline; the extractor
+    # raises a sentinel right after recording which path was taken, so no full meta is needed.
+    import argparse
+    import pytest
+    from ff9mapkit import cli, extract
+
+    class _Stop(Exception):
+        pass
+
+    def _run(area):
+        calls = []
+
+        def _native(*a, **k):
+            calls.append("native")
+            raise _Stop()
+
+        def _borrow(*a, **k):
+            calls.append("borrow")
+            raise _Stop()
+
+        monkeypatch.setattr(extract, "resolve_field", lambda field, game: (f"FBG_N{area:02d}_X", None))
+        monkeypatch.setattr(extract, "parse_fbg_folder", lambda folder: (area, "X"))
+        monkeypatch.setattr(extract, "write_native_project", _native)
+        monkeypatch.setattr(extract, "write_field_project", _borrow)
+        args = argparse.Namespace(field="x", out=".", name=None, id=4003, game=None, atlas=False,
+                                  native=False, editable=False, graft_player_funcs=False, carry_text=False,
+                                  save_moogle=False, dialogue=False)
+        with pytest.raises(_Stop):
+            cli._cmd_import(args)
+        return calls
+
+    assert _run(1) == ["native"]      # area 1 (Alexandria) -> auto-native, not a black-screen borrow
+    assert _run(0) == ["native"]      # area 0 (Cargo Ship) -> auto-native
+    assert _run(21) == ["borrow"]     # area >= 10 -> BG-borrow unchanged
+
+
 def test_borrow_ships_script_but_no_custom_scene(tmp_path):
     proj = _borrow_project(tmp_path)
     out = tmp_path / "mod"

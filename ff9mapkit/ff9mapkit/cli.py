@@ -310,6 +310,20 @@ def _cmd_import(args: argparse.Namespace) -> int:
         sm = getattr(args, "save_moogle", False)
         if ct or sm:
             gpf = True             # text carry / save-moogle ride on the graft (the carried objects/funcs must exist)
+        # #4 (FORK_FIDELITY.md): BG-borrow black-screens area<10 -- the engine builds 'FBG_N<area>' and reads
+        # exactly 2 chars, so single-digit areas never resolve. The native path ships its own art at a remapped
+        # area>=10 (seam-free + lit), so auto-route the default (borrow) path to native there -- this unblocks
+        # forking the early-game fields (Alexandria area1, Cargo Ship area0) with a plain `import`.
+        auto_native_area = None
+        if not args.native and not args.editable:
+            try:
+                _folder, _ = extract.resolve_field(args.field, args.game)
+                _area, _ = extract.parse_fbg_folder(_folder)
+                if _area < extract.MIN_CUSTOM_AREA:
+                    args.native = True
+                    auto_native_area = _area
+            except (RuntimeError, FileNotFoundError, ValueError):
+                pass               # can't resolve area offline -> let the normal dispatch surface any error
         if args.native:
             meta, toml = extract.write_native_project(
                 args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game,
@@ -330,6 +344,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
     if args.native:
         print("  mode   : NATIVE custom scene (atlas.png + .bgs, NO .bgx -- seamless per-tile render, Moguri-style)")
         print(f"  atlas  : {meta.get('atlas_source', '?')}")
+        if auto_native_area is not None:
+            print(f"  note   : auto-selected --native (source area {auto_native_area} < 10 black-screens via BG-borrow)")
     elif args.editable:
         nb = meta.get("blend_layers", 0)
         print(f"  mode   : EDITABLE custom scene ({meta['layers']} art layers"
