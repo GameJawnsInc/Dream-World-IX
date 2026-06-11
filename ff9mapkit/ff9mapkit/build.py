@@ -172,6 +172,34 @@ class FieldProject:
 
 # --------------------------------------------------------------------------- validation
 
+def _entry_player_call_tags(entry_bytes, donor_player_entry, carry_tags=None) -> set:
+    """The player function tags a verbatim object entry ``RunScript``s in its CARRIED funcs -- decode and
+    collect ``RunScript(uid, tag)`` where uid resolves to the player (250 or the donor player entry index).
+    ``carry_tags`` (the init_only subset; ``None`` = whole entry) gates which funcs are scanned: a DROPPED
+    interactive func can't dangle. Used by the dangling-tag lint (a carried player call to an un-grafted
+    tag would softlock)."""
+    from .binutils import u16
+    from .eb.disasm import iter_code
+    out: set = set()
+    b = entry_bytes
+    if len(b) < 2:
+        return out
+    keep = None if carry_tags is None else {int(t) for t in carry_tags}
+    fc = b[1]
+    funcs = [(u16(b, 2 + i * 4), u16(b, 2 + i * 4 + 2)) for i in range(fc)]   # (tag, fpos)
+    for i, (tag, fpos) in enumerate(funcs):
+        if keep is not None and tag not in keep:
+            continue                                      # this func is DROPPED (init_only) -> not carried
+        start = 2 + fpos                                  # fpos is relative to entryStart+2 (= offset 2)
+        end = (2 + funcs[i + 1][1]) if i + 1 < fc else len(b)
+        for ins in iter_code(b, start, end):
+            if ins.op in (0x10, 0x12, 0x14):              # RunScript[Async|Sync](level, uid, tag)
+                uid, t = ins.imm(1), ins.imm(2)
+                if t is not None and (uid == 250 or (donor_player_entry is not None and uid == donor_player_entry)):
+                    out.add(int(t))
+    return out
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
@@ -342,6 +370,28 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[object]] entry sidecar not found: {binref}")
         elif not project.path(binref).read_bytes()[:2]:
             problems.append(f"[[object]] entry sidecar is empty: {binref}")
+    pf_tags = {0, 1}                                     # the fork player's own tags + the grafted donor tags
+    for pf in project.raw.get("player_func", []):        # player-function graft (carried-object interactions)
+        binref = pf.get("bin")
+        if not binref:
+            problems.append('[[player_func]] needs bin = "<file>" (a player-func body, from import --graft-player-funcs)')
+        elif not project.path(binref).is_file():
+            problems.append(f"[[player_func]] body sidecar not found: {binref}")
+        if "donor_tag" not in pf:
+            problems.append("[[player_func]] needs donor_tag = <int> (the donor player function tag it grafts)")
+        else:
+            pf_tags.add(int(pf["donor_tag"]))
+    # dangling-tag guard (the softlock case): a carried object that RunScripts the PLAYER at a tag NOT being
+    # grafted (nor 0/1) would dispatch into a nonexistent func -> freeze. Decode each object's verbatim entry
+    # and flag any player-call tag outside pf_tags. (The kit's own emit is consistent; this catches hand-edits.)
+    for ob in project.raw.get("object", []):
+        binref, dpe = ob.get("bin"), ob.get("donor_player_entry")
+        if not binref or not project.path(binref).is_file():
+            continue
+        for tag in _entry_player_call_tags(project.path(binref).read_bytes(), dpe, ob.get("carry_tags")):
+            if tag not in pf_tags:
+                problems.append(f"[[object]] {binref}: RunScripts player tag {tag} but no [[player_func]] grafts "
+                                f"it (would dangle/softlock) -- import with --graft-player-funcs, or it stays init_only")
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
@@ -1438,6 +1488,22 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                       trigger=jp.get("trigger", "action"), bubble=jp.get("bubble", True))
             jtag += 1
 
+    # player-function graft: carry the donor PLAYER funcs a carried object RunScripts onto the fork player,
+    # so the interactions fire (the cask EXAMINE turn, the box gestures) -- docs/PLAYER_GRAFT.md. The tag
+    # allocator is built AFTER the ladder/jump grafts above, so it sees their tags as used and the object
+    # band (64+) never collides. graft_player_funcs splices the donor anim packs + adds each func; the
+    # resulting tag map then drives the object graft's RunScript(player, T) remap. No-op without [[player_func]].
+    player_funcs = project.raw.get("player_func", [])
+    player_tag_remap = None
+    if player_funcs:
+        from .content import player as _player
+        pf_specs = [{"donor_tag": int(p["donor_tag"]), "safety": p.get("safety", "clean"),
+                     "body": project.path(p["bin"]).read_bytes(),
+                     "donor_init_packs": p.get("donor_init_packs", [])} for p in player_funcs]
+        fork_tags = _player.PlayerTagAllocator(eb).take("object", len(pf_specs))
+        player_tag_remap = {s["donor_tag"]: ft for s, ft in zip(pf_specs, fork_tags)}
+        eb = _player.graft_player_funcs(eb, pf_specs, player_tag_remap)
+
     # objects: FAITHFUL carry of the real field's persistent NPCs/props -- graft each donor object's
     # VERBATIM .eb entry at a free slot + arm it from Main_Init (docs/OBJECT_CARRY.md). The authored
     # [[npc]]/[[prop]] blocks (below) are the player-clone synthesis; this is the import-only verbatim
@@ -1445,7 +1511,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     objects = project.raw.get("object", [])
     if objects:
         eb = _object.graft_objects(eb, [dict(o) for o in objects],
-                                   load=lambda ref: project.path(ref).read_bytes())
+                                   load=lambda ref: project.path(ref).read_bytes(),
+                                   player_tag_remap=player_tag_remap)
 
     # player spawn (order-independent w.r.t. the appends above)
     if "player" in project.raw and "spawn" in project.raw["player"]:

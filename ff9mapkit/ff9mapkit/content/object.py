@@ -80,10 +80,16 @@ def _remap_value(kind, val, donor_idx, new_slot, donor_player_entry, donor2new):
     return val                                        # uncarried (a kept func never has one) -> leave
 
 
-def remap_entry_refs(data, slot, donor_idx, donor_player_entry, donor2new) -> bytes:
+def remap_entry_refs(data, slot, donor_idx, donor_player_entry, donor2new, player_tag_remap=None) -> bytes:
     """Same-length, in-place remap of every slot/uid reference the grafted entry at ``slot`` makes.
     Patches each :data:`ff9mapkit.eventscan.REF_OPS` immediate operand byte via the decoder-derived
-    offset (never a fixed +N); only width-1 operands are touched, so internal jumps survive untouched."""
+    offset (never a fixed +N); only width-1 operands are touched, so internal jumps survive untouched.
+
+    ``player_tag_remap`` (the player-function graft, docs/PLAYER_GRAFT.md): when an object ``RunScript``s
+    the PLAYER, the called function moved to a fresh fork tag, so this also remaps the RunScript TAG (arg2)
+    -- but ONLY when the call targets the player (uid 250 or the donor player entry index); a self/sibling
+    call's tag lives in that object's own tag space and is left verbatim (the field-122 cask's tag-2 has
+    BOTH forms: ``RunScript(player, 24)`` -> remap, ``RunScript(self, 30)`` -> keep)."""
     eb = EbScript.from_bytes(data)
     b = bytearray(data)
     for f in eb.entry(slot).funcs:
@@ -107,6 +113,13 @@ def remap_entry_refs(data, slot, donor_idx, donor_player_entry, donor2new) -> by
                     if bo is None or argsize(ins.op, ai) != 1:
                         continue                      # only same-length 1-byte operands are patchable
                     b[ins.off + bo] = new & 0xFF
+            if player_tag_remap and ins.op in eventscan.RUNSCRIPT_OPS:      # site (a): the called PLAYER tag
+                uid, tag = ins.imm(1), ins.imm(2)
+                if (uid == eventscan.UID_PLAYER or (donor_player_entry is not None and uid == donor_player_entry)) \
+                        and tag in player_tag_remap:
+                    bo = _arg_byte_offset(ins, 2)
+                    if bo is not None and argsize(ins.op, 2) == 1:
+                        b[ins.off + bo] = player_tag_remap[tag] & 0xFF
     return bytes(b)
 
 
@@ -126,7 +139,7 @@ def _arm(data, slot, arg, needs_d9):
     return edit.activate(data, opcodes.init_object(slot, arg))
 
 
-def graft_objects(data, specs, *, load=None) -> bytes:
+def graft_objects(data, specs, *, load=None, player_tag_remap=None) -> bytes:
     """Graft each spec's VERBATIM object entry into ``data`` and arm it. ``specs`` come from
     :func:`ff9mapkit.eventscan.scan_objects_verbatim` (entry bytes inline) or an import sidecar (a ``bin``
     ref + a ``load(ref) -> bytes`` callable). Objects flagged ``graft_safety == "refuse"`` are skipped
@@ -151,7 +164,8 @@ def graft_objects(data, specs, *, load=None) -> bytes:
         donor2new[int(s["donor_idx"])] = slot
         appended.append((s, slot))
     for s, slot in appended:                          # PASS 2 -- remap references + arm from Main_Init
-        data = remap_entry_refs(data, slot, int(s["donor_idx"]), s.get("donor_player_entry"), donor2new)
+        data = remap_entry_refs(data, slot, int(s["donor_idx"]), s.get("donor_player_entry"), donor2new,
+                                player_tag_remap)
         for inst in (s.get("instances") or [{"arg": 0}]):
             data = _arm(data, slot, int(inst.get("arg", 0)), s.get("needs_d9") or {})
     return data

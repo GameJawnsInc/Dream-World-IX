@@ -301,16 +301,19 @@ def _cmd_import(args: argparse.Namespace) -> int:
     from pathlib import Path
     from . import extract
     try:
+        gpf = getattr(args, "graft_player_funcs", False)
         if args.native:
             meta, toml = extract.write_native_project(
-                args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game)
+                args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game,
+                graft_player_funcs=gpf)
         elif args.editable:
             meta, toml = extract.write_editable_project(
-                args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game)
+                args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game,
+                graft_player_funcs=gpf)
         else:
             meta, toml = extract.write_field_project(
                 args.field, Path(args.out), name=args.name, field_id=args.id,
-                game=args.game, want_atlas=args.atlas)
+                game=args.game, want_atlas=args.atlas, graft_player_funcs=gpf)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -345,6 +348,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
             bits.append(f"{ic['jumps']} jump(s)")
         if ic.get("objects"):
             bits.append(f"{ic['objects']} object(s) carried")
+        if ic.get("player_funcs"):
+            bits.append(f"{ic['player_funcs']} player-func(s) grafted (interactions)")
         print(f"  content: {', '.join(bits) if bits else 'none found in the source script'}"
               + ("   (gateways point at REAL fields -- retarget them)" if ic["gateways"] else ""))
     if args.dialogue:
@@ -1126,6 +1131,11 @@ def build_parser() -> argparse.ArgumentParser:
     im.add_argument("--dialogue", action="store_true",
                     help="also append the real field's NPC dialogue as editable [[npc]] stubs (commented) "
                          "for re-authoring -- the words become kit-authored content, not a faithful graft")
+    im.add_argument("--graft-player-funcs", action="store_true",
+                    help="also carry the donor PLAYER functions a carried object interacts with, onto the fork "
+                         "player, so the interactions FIRE (a chest/cask turns to face you on examine, boxes "
+                         "gesture) -- the objects carry their interactive funcs WHOLE instead of init_only. "
+                         "Clean gesture funcs only; text/exotic/non-Zidane interactions stay dropped. (docs/PLAYER_GRAFT.md)")
     im.set_defaults(func=_cmd_import)
 
     ic = sub.add_parser("import-chain",

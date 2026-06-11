@@ -324,7 +324,8 @@ def _object_stub(o) -> str:
     return f'{head}[[prop]]\nmodel = {mref}{pose}\npos = [{x}, {z}]{face}'
 
 
-def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=None, live_seams=False):
+def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=None, live_seams=False,
+                           graft_player_funcs=False):
     """field.toml blocks (gateways / encounter / music / ladders) + the control-direction value,
     extracted LIVE from a real field's ``.eb``. Returns (blocks_text, control_dir, summary). blocks_text
     is appended at the end of the toml; control_dir (or None) goes in the [camera] block; summary feeds
@@ -414,7 +415,8 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
             blocks.append(f'[[jump]]\nzone = [{zone}]\njump = "{fn}"\ntrigger = "{jp["trigger"]}"{extra}')
         parts.append("\n\n".join(blocks))
         n_jumps = len(jmps)
-    objs = content.get("objects_verbatim") or []
+    objs = ((eventscan.scan_objects_verbatim(eb_bytes, graft_player_funcs=True) if graft_player_funcs
+             else content.get("objects_verbatim")) or [])   # graft mode flips init_only -> whole-entry
     n_objects = 0
     if objs and out_dir is not None:                    # objects carry a verbatim entry -> need out_dir
         out_path = Path(out_dir)
@@ -434,23 +436,46 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
                 blocks.append(_object_stub(o))
         parts.append("\n\n".join(blocks))
         n_objects = len(objs)
+    # player-function graft (docs/PLAYER_GRAFT.md): the donor player gesture funcs a carried object
+    # RunScripts -- carried onto the fork player so the INTERACTIONS fire (the cask turns to face you on
+    # examine, the boxes gesture). Emitted ONLY with graft_player_funcs; only CLEAN (graft-safe) funcs are
+    # emitted (the rest leave their object init_only). The build grafts them + remaps each object's call.
+    n_player_funcs = 0
+    if graft_player_funcs and out_dir is not None:
+        pfuncs = [s for s in eventscan.scan_player_funcs(eb_bytes) if s["safety"] == "clean"]
+        if pfuncs:
+            out_path = Path(out_dir)
+            blocks = ["# --- PLAYER FUNCTION(S) grafted onto the fork player so the carried objects'\n"
+                      "# INTERACTIONS fire (the cask EXAMINE turn, the box gestures). Each is a real donor player\n"
+                      "# gesture func (turn/animation) carried VERBATIM at a fresh tag; the build remaps each\n"
+                      "# object's RunScript(player, tag) to it + splices the donor's animation packs. ---"]
+            for i, p in enumerate(pfuncs):
+                fn = f"{name}.playerfunc{i}.bin"
+                (out_path / fn).write_bytes(p["body"])
+                packs = ", ".join("[" + ", ".join(str(x) for x in pk) + "]" for pk in p["donor_init_packs"])
+                blocks.append(f'[[player_func]]\nbin = "{fn}"\ndonor_tag = {p["donor_tag"]}\n'
+                              f'safety = "clean"\ndonor_init_packs = [{packs}]')
+            parts.append("\n\n".join(blocks))
+            n_player_funcs = len(pfuncs)
     summary = {"gateways": len(gws), "encounter": enc is not None, "music": content["music"],
                "control_direction": content["control_direction"], "ladders": n_ladders,
-               "jumps": n_jumps, "objects": n_objects,
+               "jumps": n_jumps, "objects": n_objects, "player_funcs": n_player_funcs,
                "gateways_retargeted": n_retargeted, "gateways_seamed": n_seamed}
     return "\n\n".join(parts), content["control_direction"], summary
 
 
-def _content_for_import(field: str, game, *, out_dir=None, name="field", id_remap=None, live_seams=False):
+def _content_for_import(field: str, game, *, out_dir=None, name="field", id_remap=None, live_seams=False,
+                        graft_player_funcs=False):
     """(content_blocks, control_dir, summary) for a field's import. Locates + scans the real .eb;
     returns ("", None, None) if it can't (no mapping / no game / UnityPy absent) so import still works.
     ``out_dir``/``name`` let ladder climbs be written as sidecars next to the field.toml.
-    ``id_remap``/``live_seams`` retarget gateway ``to`` ids for import-chain (see _imported_content_toml)."""
+    ``id_remap``/``live_seams`` retarget gateway ``to`` ids for import-chain (see _imported_content_toml).
+    ``graft_player_funcs`` emits the player-function graft (the carried objects' interactions)."""
     eb_bytes = extract_event_script(field, game=game)
     if not eb_bytes:
         return "", None, None
-    return _imported_content_toml(eb_bytes, out_dir=out_dir, name=name,
-                                  id_remap=id_remap, live_seams=live_seams)
+    return _imported_content_toml(eb_bytes, out_dir=out_dir, name=name, id_remap=id_remap,
+                                  live_seams=live_seams, graft_player_funcs=graft_player_funcs)
 
 
 def _content_section(content_blocks: str, x: int, z: int) -> str:
@@ -909,7 +934,7 @@ def safe_custom_area(area: int) -> int:
 
 def write_editable_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                            text_block: int = 1073, game=None, bundle=None,
-                           id_remap=None, live_seams=False):
+                           id_remap=None, live_seams=False, graft_player_funcs=False):
     """Fork a real field as a fully EDITABLE custom scene (vs BG-borrow): re-export its walkmesh via the
     world-frame builder + extract its art as per-DEPTH layers (occlusion preserved) + reuse its camera.
 
@@ -951,7 +976,8 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         pass
 
     content_blocks, control_dir, content_summary = _content_for_import(
-        field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams)
+        field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams,
+        graft_player_funcs=graft_player_funcs)
     meta["imported_content"] = content_summary
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
@@ -1116,7 +1142,7 @@ def _native_atlas(field: str, game=None, bundle=None):
 
 def write_native_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                          text_block: int = 1073, game=None, bundle=None,
-                         id_remap=None, live_seams=False):
+                         id_remap=None, live_seams=False, graft_player_funcs=False):
     """Fork a real field as a NATIVE custom scene: ship its OWN ``atlas.png`` + ``.bgs`` (the real
     per-tile-depth scene) + a custom walkmesh ``.bgi``, and NO ``.bgx``.
 
@@ -1153,7 +1179,8 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
     meta["mapconfig"] = bool(mc_bytes)
 
     content_blocks, control_dir, content_summary = _content_for_import(
-        field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams)
+        field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams,
+        graft_player_funcs=graft_player_funcs)
     meta["imported_content"] = content_summary
     cm = meta["camera"]
     wb = meta["walkmesh_bounds"]
@@ -1198,7 +1225,7 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
 
 def write_field_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                         text_block: int = 1073, game=None, bundle=None, want_atlas=False,
-                        id_remap=None, live_seams=False):
+                        id_remap=None, live_seams=False, graft_player_funcs=False):
     """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx in out_dir.
 
     `name` is the custom script/field id (must be unique vs real fieldids; defaults to
