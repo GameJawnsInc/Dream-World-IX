@@ -325,3 +325,49 @@ def test_savepoint_spawn_y_normalized():
     assert EbScript.from_bytes(fork).to_bytes() == fork
     # the recognised Moogle is auto-fixed (not left as a spawn_flash lint flag)
     assert "spawn_flash" not in moogle
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_graft_gateway_entry_carries_gated_door_verbatim():
+    # #2b P2 (FORK_FIDELITY.md): a story-gated door is carried VERBATIM (its conditional state machine kept) +
+    # the Field() destinations retargeted, NOT re-synthesized. Dali Inn (VGDL_MAP101) entry 16 is story-gated
+    # -> field 350.
+    from ff9mapkit import extract
+    from ff9mapkit.content import gateway as _gw
+    folder = next(f[0] for f in extract.list_fields() if "VGDL_MAP101" in f[2])
+    gated = next(x for x in eventscan.scan_gateway_entries(extract.extract_event_script(folder))
+                 if x["story_gated"])
+    fork = data.blank_field_bytes("us")
+    out, slot = _gw.graft_gateway_entry(fork, gated["entry_bytes"], retarget={350: 4100})
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out                                   # a valid eb (round-trips byte-exact)
+    fields = [i.imm(0) for f in eb.entry(slot).funcs for i in eb.instrs(f) if i.op == 0x2B]
+    assert fields == [4100]                                       # destination retargeted 350 -> 4100
+    assert any(i.op == 0x08 and i.imm(0) == slot                  # armed: InitRegion(slot) in Main_Init
+               for i in eb.instrs(eb.entry(0).func_by_tag(0)))
+    assert any(i.op in (0x02, 0x03)                               # its conditional state machine SURVIVES
+               for f in eb.entry(slot).funcs for i in eb.instrs(f))
+    # no-retarget -> destinations stay as live seams (the door walks back into the live game)
+    out2, slot2 = _gw.graft_gateway_entry(fork, gated["entry_bytes"])
+    eb2 = EbScript.from_bytes(out2)
+    assert [i.imm(0) for f in eb2.entry(slot2).funcs for i in eb2.instrs(f) if i.op == 0x2B] == [350]
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_story_gated_door_carried_verbatim_and_builds(tmp_path):
+    # #2b P3 (docs/FORK_FIDELITY.md): the import emits a story-gated door as a [[gateway_carry]] block +
+    # .gatewayN.bin sidecar (NOT a declarative [[gateway]]), and the build grafts its conditional state machine
+    # verbatim. Dali Inn (VGDL_MAP101) has one (-> field 350). End-to-end: import -> build -> the gate survives.
+    from ff9mapkit import build, extract
+    from ff9mapkit.config import ModLayout
+    folder = next(f[0] for f in extract.list_fields() if "VGDL_MAP101" in f[2])
+    meta, toml = extract.write_native_project(folder, tmp_path / "proj", name="DALIINN", field_id=30003)
+    assert meta["imported_content"]["gateway_carry"] >= 1                 # a story-gated door was carried
+    p = build.FieldProject.load(toml)
+    assert any(gc.get("bin") for gc in p.raw.get("gateway_carry", []))    # [[gateway_carry]] emitted
+    dist = tmp_path / "dist"
+    build.build_mod([p], dist, mod_name="FF9CustomMap")
+    data = ModLayout(dist).eb_path("us", "EVT_DALIINN.eb.bytes").read_bytes()
+    assert EbScript.from_bytes(data).to_bytes() == data                  # the carried fork round-trips
+    # the conditional state machine survived the graft -- the built fork still has a story-gated door entry
+    assert any(x["story_gated"] for x in eventscan.scan_gateway_entries(data))

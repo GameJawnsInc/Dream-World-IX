@@ -178,11 +178,15 @@ def scan_gateway_entries(eb_bytes) -> list:
         if zone is None or not field_ins:
             continue
         base = 128 + u16(eb.data, 128 + e.index * 8)      # entry start in eb.data
+        ref_ops = {0x07, 0x08, 0x09, 0x10, 0x12, 0x14, 0x43}    # InitCode/Region/Object + RunScript family
         out.append({
             "entry_idx": e.index,
             "zone": zone,
             "fields": [(int(i.imm(0)), int(ent)) for i, ent in field_ins],
             "story_gated": gated,
+            # self-contained = the entry references NO other entry, so a verbatim graft needs no ref carry
+            # (the door-only carry path). ~30% of gated entries fail this (they RunScript siblings) -> seam.
+            "self_contained": not any(i.op in ref_ops for f in e.funcs for i in eb.instrs(f)),
             "entry_bytes": _entry_bytes(eb.data, e.index),
             "field_targets": [((i.off - base) + 2, int(i.imm(0))) for i, _ent in field_ins],
         })

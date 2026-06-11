@@ -353,6 +353,15 @@ def validate(project: FieldProject) -> list[str]:
                 _archetypes.resolve(arch)                 # a named archetype (or vivi/zidane) must be known
             except ValueError as e:
                 problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} archetype: {e}")
+    for gc in project.raw.get("gateway_carry", []):     # #2b: a verbatim story-gated door entry sidecar
+        binref = gc.get("bin")
+        if not binref:
+            problems.append('[[gateway_carry]] needs bin = "<file>" (a verbatim entry sidecar, from import)')
+        elif not project.path(binref).is_file():
+            problems.append(f"[[gateway_carry]] entry sidecar not found: {binref}")
+        rt = gc.get("retarget")
+        if rt is not None and not isinstance(rt, dict):
+            problems.append("[[gateway_carry]] retarget must be a table { <real id> = <new id> }")
     for gw in project.raw.get("gateway", []):
         if "to" not in gw:
             problems.append("[[gateway]] needs a 'to' (destination field id).")
@@ -1892,6 +1901,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         d = sm.get("director")
         if d:
             eb = _savepoint.graft_director(eb, project.path(d).read_bytes())
+
+    # #2b (docs/FORK_FIDELITY.md): STORY-GATED doors carried VERBATIM. A real story-gated door is a complex
+    # GLOB-flag conditional the declarative inject_gateway can't reproduce; graft the entry whole + retarget
+    # its Field() destinations, so the conditional logic survives (its GLOB conditions read the [startup]
+    # story state). No-op without [[gateway_carry]].
+    for gc in project.raw.get("gateway_carry", []):
+        retarget = {int(k): int(v) for k, v in (gc.get("retarget") or {}).items()}
+        eb, _ = _gw.graft_gateway_entry(eb, project.path(gc["bin"]).read_bytes(), retarget=retarget or None)
 
     # faithful TEXT CARRY (docs/TEXT_CARRY.md): the grafted objects' windows + grafted text player funcs
     # still name the DONOR's .mes txids; remap each to the carried band (>=1000) -- a same-length 2-byte

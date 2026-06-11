@@ -350,6 +350,16 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
     parts = []
     gws = content["gateways"]
     n_retargeted = n_seamed = n_story_branch = 0
+    # #2b (FORK_FIDELITY.md): a STORY-GATED door (its firing/destination guarded by a complex GLOB-flag
+    # conditional) is carried VERBATIM -- the declarative rebuild can't reproduce that state machine. Route
+    # self-contained gated entries to a [[gateway_carry]] block (+ a .gatewayN.bin sidecar) and EXCLUDE their
+    # zones from the declarative emission below. Needs an out_dir (the sidecar); ref-bearing gated entries
+    # (~30%) can't be door-only-carried -> they fall through to declarative + a warning.
+    gentries = eventscan.scan_gateway_entries(eb_bytes) if out_dir is not None else []
+    carry = [x for x in gentries if x["story_gated"] and x["self_contained"]]
+    carried_zones = {tuple(map(tuple, x["zone"])) for x in carry}
+    n_gateway_carry = len(carry)
+    n_gateway_gated_seam = sum(1 for x in gentries if x["story_gated"] and not x["self_contained"])
     if gws:
         if id_remap is None:
             parts.append(
@@ -366,6 +376,8 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
         for g in gws:
             dests_by_zone.setdefault(tuple(map(tuple, g["zone"])), set()).add(int(g["to"]))
         for g in gws:
+            if tuple(map(tuple, g["zone"])) in carried_zones:
+                continue                                          # carried VERBATIM as a [[gateway_carry]] below
             zone = ", ".join(f"[{x}, {z}]" for x, z in g["zone"])
             raw_to = int(g["to"])
             cond = len(dests_by_zone[tuple(map(tuple, g["zone"]))]) > 1
@@ -387,6 +399,23 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
                 parts.append(f"# SEAM (out-of-chain): real field {raw_to} via this zone -- author by hand.\n"
                              f"# [[gateway]]\n# to = {raw_to}\n# entrance = {g['entrance']}\n# zone = [{zone}]")
                 n_seamed += 1
+    if carry:                                                     # the verbatim story-gated doors + sidecars
+        out_path = Path(out_dir)
+        parts.append("# --- STORY-GATED doors carried VERBATIM (their conditional state machine preserved; the\n"
+                     "# GLOB conditions read the [startup]-preset story state). Destinations are the REAL field\n"
+                     "# ids -- add `retarget = { <real id> = <your id> }` to redirect into your own rooms. ---")
+        for x in carry:
+            fn = f"{name}.gateway{x['entry_idx']}.bin"
+            out_path.joinpath(fn).write_bytes(x["entry_bytes"])
+            dests = sorted({fid for fid, _ent in x["fields"]})
+            retarget = ""
+            if id_remap:                                          # import-chain: pre-fill in-chain retargets
+                pairs = [(fid, id_remap[fid]) for fid in dests if fid in id_remap]
+                if pairs:
+                    retarget = "\nretarget = { " + ", ".join(f"{a} = {b}" for a, b in pairs) + " }"
+            parts.append(f'[[gateway_carry]]\nbin = "{fn}"{retarget}\n'
+                         f"# verbatim story-gated door (real dest field id(s): {', '.join(map(str, dests))}). "
+                         f"To redirect: retarget = {{ {dests[0]} = <your id> }}")
     enc = content["encounter"]
     if enc:
         block = f"[encounter]\nscene = {enc['scenes'][0]}\nfreq = {enc['freq']}"
@@ -542,7 +571,9 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
                "spawn_flash": sum(1 for o in objs if o.get("spawn_flash")),   # P6.1: Init pose != rest -> flashes on a fork
                "spawn_flash_fixed": (1 if (graft_savepoint and n_save_moogle) else 0),
                "gateways_retargeted": n_retargeted, "gateways_seamed": n_seamed,
-               "story_branch": n_story_branch}   # #2: doors sharing a zone (gate each with requires_flag)
+               "story_branch": n_story_branch,   # #2: doors sharing a zone (gate each with requires_flag)
+               "gateway_carry": n_gateway_carry,         # #2b: story-gated doors carried VERBATIM
+               "gateway_gated_seam": n_gateway_gated_seam}   # #2b: story-gated but ref-bearing -> can't carry yet
     return "\n\n".join(parts), content["control_direction"], summary
 
 

@@ -378,6 +378,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
             bits.append(f"{ic['carry_text']} dialogue line(s) carried verbatim")
         if ic.get("save_moogle"):
             bits.append("a faithful SAVE MOOGLE (pops out of the barrel + saves)")
+        if ic.get("gateway_carry"):
+            bits.append(f"{ic['gateway_carry']} story-gated door(s) carried verbatim")
         print(f"  content: {', '.join(bits) if bits else 'none found in the source script'}"
               + ("   (gateways point at REAL fields -- retarget them)" if ic["gateways"] else ""))
         if ic.get("spawn_flash_fixed"):
@@ -389,6 +391,9 @@ def _cmd_import(args: argparse.Namespace) -> int:
             print(f"  warning: {ic['story_branch']} STORY-BRANCH door(s) share a zone (the real field selects one by "
                   "story flag).\n           Gate each with requires_flag in the field.toml, else both arm and you "
                   "hit the wrong exit. (FORK_FIDELITY.md #2)")
+        if ic.get("gateway_gated_seam"):
+            print(f"  warning: {ic['gateway_gated_seam']} story-gated door(s) reference other entries and couldn't be "
+                  "carried\n           verbatim -- they're left as ungated seams (the gate is dropped). (FORK_FIDELITY.md #2b)")
     if args.dialogue:
         from . import dialogue as DLG
         try:

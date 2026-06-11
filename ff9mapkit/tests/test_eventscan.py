@@ -116,7 +116,8 @@ def test_imported_content_toml_is_valid_and_complete(tmp_path):
                        "ladders": 0, "jumps": 0, "objects": 2,   # Alexandria: the bell + the ticket prop,
                        "player_funcs": 0, "carry_text": 0, "save_moogle": 0,   # carried VERBATIM (hidden NPCs
                        "spawn_flash": 0, "spawn_flash_fixed": 0,   # skipped); no graft/carry/save-moogle/flash here
-                       "gateways_retargeted": 0, "gateways_seamed": 0, "story_branch": 0}
+                       "gateways_retargeted": 0, "gateways_seamed": 0, "story_branch": 0,
+                       "gateway_carry": 0, "gateway_gated_seam": 0}   # Alexandria doors are spatial, not story-gated
     # the verbatim entry sidecars are written next to the field.toml
     assert (tmp_path / "field.object0.bin").is_file() and (tmp_path / "field.object1.bin").is_file()
     # embed in a complete borrow field.toml -> it must be valid TOML with the right structures
