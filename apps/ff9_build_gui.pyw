@@ -6,7 +6,8 @@ Double-click this file to launch (it runs windowless via pythonw), or:  py apps\
 Auto-detects what you picked -- a single field, a whole campaign, OR a battle map:
 
   * <name>.field.toml  -- ONE field. Build/deploy to:
-      Test field 4003  -- the in-game test slot, reachable via the debug warp. Reversible.
+      Test field  -- this worktree's pinned scratch slot (from .ff9deploy.toml; e.g. 30004), reachable
+                      via F6 -> Warp. Reversible.
       Game mod folder  -- install at its real id in the game's FF9CustomMap.
       Other folder     -- build it anywhere.
     The build auto-merges a sibling <name>.scene.toml (Blender placement) with the field.toml (logic).
@@ -145,7 +146,10 @@ class App:
 
         self.field_tgt = ttk.LabelFrame(self.tgt_holder, text="Build to (field)")
         self.target = tk.StringVar(value="test")
-        ttk.Radiobutton(self.field_tgt, text="Test field 4003  -  play it now (New Game -> hut door)",
+        _tid = self.worktree_id or 4003                  # this worktree's pinned slot (.ff9deploy.toml), not 4003
+        _test_lbl = (f"Test field {_tid}  -  reach via F6 -> Warp to {_tid}"
+                     + ("  (or New Game -> hut door)" if _tid == 4003 else ""))
+        ttk.Radiobutton(self.field_tgt, text=_test_lbl,
                         value="test", variable=self.target).pack(anchor="w", padx=6, pady=2)
         gtxt = (f"Game mod folder (install):  {self.game_mod}" if self.game_mod
                 else "Game mod folder  -  (game install not found)")
@@ -416,11 +420,14 @@ class App:
     def _go_field(self, field):
         tgt = self.target.get()
         if tgt == "test":
+            tid = self.worktree_id or 4003
+            reach = ("New Game -> walk to the hut door (or F6 -> Warp)" if tid == 4003
+                     else f"F6 -> Warp to field {tid}")
             if messagebox.askyesno(
-                    "Deploy to test field 4003",
-                    "Build and deploy this field to the in-game test slot (4003)?\n\n"
-                    "It replaces whatever test field is there now and becomes reachable via the debug "
-                    "warp (New Game -> walk to the hut door). This is reversible."):
+                    f"Deploy to test field {tid}",
+                    f"Build and deploy this field to this worktree's test slot {tid}  ({self.mod_folder})?\n\n"
+                    f"It replaces whatever test field is there now and becomes reachable via {reach}. "
+                    "This is reversible."):
                 self._start(self._deploy_test, field)
         elif tgt == "game":
             if messagebox.askyesno(
@@ -497,8 +504,9 @@ class App:
             self.root.after(0, lambda: self._busy(False))
 
     def _deploy_test(self, field):
+        tid = self.worktree_id or 4003
         try:
-            self.post(f"\n--- deploy {Path(field).name}  ->  test field 4003 ---")
+            self.post(f"\n--- deploy {Path(field).name}  ->  test field {tid}  ({self.mod_folder}) ---")
             r = subprocess.run([sys.executable, str(DEPLOY), field], cwd=str(KIT_ROOT),
                                capture_output=True, text=True, creationflags=NOWIN)
             if r.stdout:
@@ -506,7 +514,11 @@ class App:
             if r.returncode != 0:
                 self.post("ERROR (deploy failed):\n" + (r.stderr or "(no detail)"))
                 return
-            self.post(">>> In-game: New Game -> walk to the hut door -> your field.")
+            if tid == 4003:
+                self.post(">>> In-game: New Game -> walk to the hut door, or F6 -> Warp to field 4003.")
+            else:
+                self.post(f">>> In-game: F6 -> Warp to field -> {tid}.  "
+                          "(First deploy of a NEW id? Relaunch the game once to register it.)")
         except Exception:
             self.post("ERROR:\n" + traceback.format_exc())
         finally:
