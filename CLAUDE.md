@@ -935,6 +935,27 @@ Read these on demand — they hold the full technical detail this file only summ
   cloned PLAYER object, not a universal NPC convention); object carry's verbatim-entry graft -- and any native NPC
   authoring -- sidesteps it by preserving each object's OWN Init opcodes. Memory: `project-ff9-object-carry`.
   *(* hash rewritten by the rebase onto the dialogue pillar.)
+- **Faithful TEXT carry — ship the donor's dialogue verbatim + remap the txids (in-game proven, commit
+  `ac10f2f`).** Closes the last gap the object/player grafts left: a window the grafted/carried bytes open names a
+  DONOR `.mes` txid the fork doesn't ship -> EMPTY box. Carry ships the donor's referenced field text VERBATIM
+  (per language) + remaps each grafted window's txid to a fresh band, so forked interactions show the REAL words.
+  The faithful counterpart to `import --dialogue` (which appends editable `[[npc]]` stubs to re-author). **In-game
+  (THORC orchestra -> slot 30003): a carried NPC speaks the real Conductor line.** New `content/textcarry.py`:
+  `collect_carry` (the txids the grafts SHOW, via `dialogue.WINDOW_OPS` -- TXID = a 2-BYTE operand, operand 2 for
+  `WindowSync`/`Async` 0x1F/0x20, operand 3 for the Ex 0x95/0x96), `remap_object_windows`/
+  `remap_player_func_windows` (same-length 2-byte patch via `object._arg_byte_offset`), `carried_mes_body`
+  (per-language VERBATIM re-emit preserving the donor STRT/TAIL -- an empty entry stays empty, NO us-fallback),
+  the gitignored `.carrytext.json` sidecar. `CARRY_BASE_TXID = 1000` (clears the census max real txid 863 + the
+  authored `content.text.DEFAULT_BASE_TXID` 500 band; still a 2-byte immediate). Reads the donor's per-language
+  `.mes` via the dialogue pillar's `read_field_dialogue`/`_load_field_text` + the 831-entry `_fieldtext.EVENT_ID_TO_MES`
+  zone table. **Un-refuses the player graft's "text" funcs** (graftable once their words are carried: `eventscan`
+  `scan_objects_verbatim(carry_text=)`, `player.graft_player_funcs(graftable_safeties=)`); `extract` emits
+  `[carry_text]`; `build` merges the carried `.mes` AFTER the authored block + remaps the grafted windows post-graft;
+  `cli --carry-text` (implies `--graft-player-funcs`); works on all import modes (BG-borrow now forwards the flags
+  it previously dropped). Opt-in, default-off -> byte-identical (hut golden). 715 tests pass. **PROCESS NOTE: this
+  was WORKFLOW-GENERATED (a "research" pass that overstepped + implemented), then INDEPENDENTLY reviewed +
+  verified (code read, 715 tests re-run, own import->build->deploy->in-game). Provenance double-check still pending.
+  LESSON: scope research workflows so they cannot write production code.** docs/TEXT_CARRY.md.
 
 ---
 
