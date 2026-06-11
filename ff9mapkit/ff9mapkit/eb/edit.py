@@ -295,17 +295,18 @@ def activate(data, init_bytes: bytes, *, spawn_wait_n: int = 2, spawn_wait_occur
     Overwrites a Main_Init ``Wait(n)`` filler (shift-free) when one is free; otherwise INSERTS the
     call at the start of Main_Init. The blank field has only 2 Wait fillers, so a content-rich field
     (NPCs + gateways + events) overflows them -- the insert path lets any amount of content activate.
-    The insert is safe because entry-0's only other function is an empty placeholder (its ``fpos``
-    points past the code), the same reason ``content.camera.enable_camera_services`` can insert.
-    Within-budget fields hit the Wait path and stay byte-identical to before."""
+    The insert goes through :func:`insert_in_function` (the fpos-fixing insert), so it stays correct
+    even when entry-0 has a REAL second function (a borrowed field's tag-1) and even across MANY
+    sequential inserts -- the bug that previously left a 3rd+ region silently un-armed (raw
+    ``insert_bytes`` left other funcs' ``fpos`` stale, corrupting the 2nd+ insertion). Within-budget
+    fields hit the Wait path and stay byte-identical to before."""
     eb = EbScript.from_bytes(data)
     try:
         off = find_wait(eb, n=spawn_wait_n, occurrence=spawn_wait_occurrence)
     except ValueError:
-        f0 = eb.entry(0).func_by_tag(0)
-        if f0 is None:
+        if eb.entry(0).func_by_tag(0) is None:
             raise ValueError("entry 0 has no Main_Init to activate from")
-        return insert_bytes(data, f0.abs_start, bytes(init_bytes))
+        return insert_in_function(data, 0, 0, 0, bytes(init_bytes))
     return patch_bytes(data, off, bytes(init_bytes), expect=bytes([WAIT_OP, 0x00, spawn_wait_n & 0xFF]))
 
 

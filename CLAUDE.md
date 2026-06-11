@@ -161,7 +161,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.13`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.14`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -523,6 +523,20 @@ Read these on demand — they hold the full technical detail this file only summ
   was grounded by a parallel understand workflow (4 read-only agents validating each signal on real fields); the
   scenario-inference heuristic was proven before baking it in. Pure `analyze_eb` unit-tested offline against the
   ALEX100 fixture. kit 0.9.13; 802 tests.
+- **FORKED STORY-CHAIN CAPSTONE — a forked field chain that PROGRESSES the story, in-game proven** (`story_flags`
+  branch). `import-chain`'d the 4-field Daguerreo zone into a campaign, wired the full narrative-state stack:
+  `[startup]` on the entry (DG_ENT, scenario 11090), the DG_ENT->DG_SRH **story door** advances on exit
+  (`set_scenario 11765` + `set_flags 8800`, #3), DG_SRH gates content on that flag (#2). **In-game F6 -> Flags
+  proved it**: walking the one door flips ScenarioCounter 11090->11765 AND flag 8800 0->1 — a campaign flag set
+  in one forked field, read in another. The FIRST end-to-end demo that a forked chain progresses the story. ★
+  Surfaced + fixed a real engine-build bug (memory `project-ff9-region-arming`): **`eb.edit.activate` silently
+  lost region arming on fields with >2 regions** (blank Main_Init has 2 `Wait` fillers; the 3rd+ region used a
+  raw `insert_bytes` at a stale position -> the 2nd+ insert corrupted -> the region never armed; the campaign's
+  on-entry events never fired). Fix: route the fallback through `insert_in_function` (fpos-fixing). Diagnosed by
+  an adversarial workflow; `tests/test_arming.py`. **Lessons:** F6 Reload does NOT refresh a campaign field
+  (RELAUNCH to load a redeploy); a BG-borrow campaign of a multi-floor field is a MESSY demo surface (carried
+  NPCs show orphan text, the carried elevator warps to real fields, content lands on the wrong walkmesh floor) —
+  the F6 -> Flags readout is the reliable proof. kit 0.9.14; 810 tests.
 - **Verbatim SAVE-MOOGLE carry — the iconic FF9 save point, CARRIED (not synthesized) into a custom field
   (in-game proven; `import --save-moogle`; memory `project-ff9-savepoint`).** The cluster the object-carry research
   deferred as "structurally un-graftable" now forks faithfully (P1–P6.1, all on master): **P1** scoped cluster

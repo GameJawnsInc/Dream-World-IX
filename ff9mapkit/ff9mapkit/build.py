@@ -696,6 +696,15 @@ def lint_logic(project: FieldProject) -> list[str]:
             else:
                 auto_once.add(_auto.choice(choice_counter))
                 choice_counter += 1
+    for gw in raw.get("gateway", []):          # a gateway's on-exit set_flags SETS story flags (#3 advance)
+        for p in gw.get("set_flags", []) or []:
+            if isinstance(p, dict) and isinstance(p.get("flag"), int) and int(p.get("value", 1)):
+                settable.add(int(p["flag"])); explicit.add(int(p["flag"]))
+    su = raw.get("startup")                    # [startup] presets a flag SET unconditionally at field load
+    if isinstance(su, dict):
+        for p in su.get("flags", []) or []:
+            if isinstance(p, dict) and isinstance(p.get("flag"), int) and int(p.get("value", 1)):
+                settable.add(int(p["flag"])); explicit.add(int(p["flag"]))
     settable |= auto_once
 
     # everything that READS a flag (require SET needs a setter; require CLEAR is fine by default).

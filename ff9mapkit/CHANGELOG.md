@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — region arming silently lost on fields with >2 regions
+- `eb.edit.activate` (the Main_Init region-arming primitive) overwrites a `Wait` filler shift-free, but the
+  blank/borrowed template has only **2 `Wait` fillers**; the 3rd+ region fell back to a raw `insert_bytes` at
+  a **stale Main_Init position**, so the 2nd+ insertion landed in already-consumed bytecode and that region
+  **silently never armed** (its trigger never fired). It bit a forked **campaign chain** (a field's 2 gateways
+  consumed both fillers, so its on-entry events never fired) and would bite any content-rich fork. Fixed by
+  routing the fallback through `insert_in_function` (the fpos-fixing insert, same primitive `[startup]` uses),
+  so any number of regions arm correctly even on a borrowed field with a real entry-0 tag-1 function.
+  Within-budget fields (≤2 regions) still hit the patch path and are **byte-identical**. New `tests/test_arming.py`
+  (5 regions all arm; the `.eb` stays parseable). Surfaced by an adversarial diagnosis workflow.
+- `build.lint_logic` now counts a gateway's `set_flags` and `[startup]`'s `flags` as flag **setters**, so a
+  same-field "a door reveals an NPC" pattern no longer false-warns "no event sets it".
+
 ### Added — `fork-report`: preview a real field's fork fidelity (offline)
 - **`ff9mapkit fork-report <field>`** (id or FBG substring) answers, before you fork, "will this field play
   faithfully?" — reading the compiled `.eb` with no game running. It reports two INDEPENDENT axes:

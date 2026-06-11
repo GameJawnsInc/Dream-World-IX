@@ -140,6 +140,19 @@ def test_gateway_advance_validate_catches_bad_shapes(tmp_path):
                _problems(tmp_path, BASE + _GW + "set_flags = [{value = 1}]\n"))
 
 
+def test_gateway_set_flags_counts_as_a_flag_setter(tmp_path):
+    """A same-field 'the door sets a flag -> reveals an NPC' pattern must NOT lint-warn 'no event sets it':
+    a gateway's set_flags is a flag SETTER (regression: lint_logic only knew event/cutscene/choice set_flag)."""
+    from ff9mapkit.build import lint_logic
+    toml = (BASE + _GW + "set_flags = [{flag = 8800, value = 1}]\n"
+            + '\n[[npc]]\nname = "Revealed"\narchetype = "moogle"\npos = [0, -300]\n'
+            + 'requires_flag = 8800\ndialogue = "You opened the way."\n')
+    p = tmp_path / "f.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    warns = lint_logic(FieldProject.load(p))
+    assert not any("8800" in w and "no event sets it" in w for w in warns)
+
+
 def test_gateway_advance_lint_warns_on_reserved_band(tmp_path):
     p = tmp_path / "f.field.toml"
     p.write_text(BASE + _GW + "set_flags = [{flag = 8400, value = 1}]\n", encoding="utf-8")
