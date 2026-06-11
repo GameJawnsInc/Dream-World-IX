@@ -62,7 +62,7 @@ mid-flight** — those are **deferred** until it lands. The orthogonal items are
 
 | # | Gap | Sev | Diff | Graft lane | Direction |
 |---|-----|-----|------|:---:|-----------|
-| 1 | **Story-flag / scenario presets** — a fork boots at scenario-zero, so every story-gated NPC/door/event takes the wrong branch | **blocker** | medium | no | **`[startup]` preset block** wired into Main_Init via existing `content/event.set_flag` + `inject_events` (author asserts the beat; no extraction for v1) |
+| 1 | ~~**Story-flag / scenario presets** — a fork boots at scenario-zero~~ | **blocker** | medium | no | **✅ LANDED — the `[startup]` block** (`content/startup.py`): `scenario = N\|"area"` + `flags = [{flag, value}]`, prepended to Main_Init via `edit.insert_in_function` (golden byte-identical when absent); lint flags reserved-region presets. A fork can now boot in the right beat. *In-game verification (a fork's F6 reads the asserted SC) is the human step.* Remaining: per-door spawn (#9) + gated doors (#2). |
 | 2 | Story-gated doors/content shown unconditionally (scanner collapses `if(flag){A}else{B}`) | major | medium | no | Once (1) exists: surface a lint when conditional `Field()` arms were collapsed; let the author attach `requires_flag` to emitted `[[gateway]]` stubs (`gateway.inject_gateway` already gates) |
 | 3 | Scenario-counter doesn't advance on exit → chaining forks never progresses the story | major | medium | no | `[[on_exit]]` / gateway-side `set_flag`/`set_scenario` injected into the gateway region before `Field()` (reuses `content/event.set_flag`) |
 | 4 | **BG-borrow black-screens area<10** (Alexandria area1, Cargo Ship area0) | **blocker** | easy | no | Auto-select `--native` for area<10 instead of raising (native already remaps ≥10, seam-free + lighting); document BG-borrow as the ≥10 fast path. Tiny cli/build change |
@@ -76,23 +76,26 @@ mid-flight** — those are **deferred** until it lands. The orthogonal items are
 | 12 | Non-Zidane player donors (~8%, Garnet/Steiner rig clip-id mismatch) | major | hard | **yes** | Clip-id remap table per donor rig, or carry the donor party-member as the fork player. **Defer** (player.py) |
 | 13 | Per-fork battle-background override (scene_id maps to BBG globally) | major | hard | no | Only when minting a scene that reuses vanilla gameplay but a custom BBG; battle-pillar enhancement, low priority |
 
-## The recommended next step (orthogonal to the graft lane)
+## The next step (orthogonal to the graft lane)
 
-**Ship the `[startup]` story-flag preset authoring block (worklist #1).** It is the single highest-leverage
-fidelity lever — it directly unfreezes the scenario-zero boot state that breaks every story-gated NPC / door /
-event — and it lives entirely in the **authoring half**: a declarative `field.toml` `[startup]` /
-`[[flag_preset]]` block wired into Main_Init at build time, on top of the **existing**
-`content/event.set_flag` + `inject_events` arming-entry primitives. It touches **`build.py` + `content/event.py`
-only** — never `object.py` / `player.py` / `eventscan.py` / `savepoint.py` / `extract.py`-graft, so **zero
-contention** with the concurrent save-moogle session.
+**Worklist #1 (`[startup]` presets) is LANDED** — `content/startup.py` + `build.py`, never the graft lane,
+golden byte-identical when absent. A forked story field can now boot in the right beat (assert the
+ScenarioCounter + story bits at field entry). *The in-game confirmation — fork a real story field with
+`[startup]`, warp in, check the F6 readout shows the asserted beat — is the human step (§2: I can't see the
+game).*
 
-Sketch: `[startup] flags = [{flag=8520, value=1}, ...]` (+ optional scenario word) → `build_field` injects one
-Main_Init arming entry that runs the `set_flag` bodies once unconditionally → lint against the reserved-flag
-band (`lint_flag_bands` exists) → authored builds stay byte-identical when `[startup]` is absent (hut golden
-tripwire). This makes "fork a story field and have it boot in the right beat" possible for the first time.
+The next orthogonal levers, all clear of the save-moogle session:
+- **#4 — auto-`--native` for area<10** (easy): today `import` black-screens early-game fields (Alexandria,
+  Cargo Ship); the native path already handles them. A small cli/build change.
+- **#5 — softlock lint on a plain import** (medium): a plain fork of a field with a talkable/interactive
+  carried object can softlock; the classifier exists, the build-side lint wiring doesn't.
+- **#2 — gated doors** (medium): now that `[startup]` can set the gate flags, let the author attach
+  `requires_flag` to imported `[[gateway]]` stubs + lint when the scanner collapsed a conditional `Field()`.
+- **#3 — `[[on_exit]]` scenario advance** (medium): pairs with `[startup]` so chaining forks progresses the
+  story (gateway-side `set_flag`/`set_scenario`).
 
-Extraction of *which* flags a real prior field set on exit is a separate, later, eventscan-touching task — keep
-it out of v1; let the author assert the beat (they have the game knowledge — cf. `feedback_trust_user_game_knowledge`).
+Extraction of *which* flags a real prior field set on exit remains a separate, later, eventscan-touching task —
+the author asserts the beat for now (they have the game knowledge — cf. `feedback_trust_user_game_knowledge`).
 
 ## Docs to refresh (flagged by the audit)
 

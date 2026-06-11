@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[startup]`: assert the story beat a forked field represents
+- **A forked real field boots with a zero `gEventGlobal`**, so every story-gated NPC/door/event takes the
+  not-yet-happened branch — the field plays in its scenario-zero state. The new **`[startup]`** block presets
+  the **ScenarioCounter** (`scenario = N` or an area name like `"Alexandria Castle"`) and/or specific story
+  bits (`flags = [{flag = <index|name>, value = 0|1}]`) **unconditionally at field load**, prepended to
+  Main_Init so every gate evaluated afterwards sees the asserted state. The biggest single fork-fidelity lever
+  (`docs/FORK_FIDELITY.md` #1): a fork can finally boot in the right beat.
+- Author-side only (you assert the beat — you have the game knowledge); no extraction. The ScenarioCounter is
+  written via the engine's `0xDC` token (`set_var(GLOB_UINT16, 0, value)`); a story bit via
+  `set_var(GLOB_BOOL, idx, value)` (long-index aware). Injected with `edit.insert_in_function` (entry-0 tag-0,
+  offset 0 → byte-safe, fpos fixed), so a field **without** `[startup]` builds byte-for-byte as before.
+- Unlike authored `set_flag` (safe `[8512,16320)` band only), a `[startup]` preset is *meant* to assert REAL
+  FF9 story bits below 8512 — so the safe-band rule doesn't apply; the lint still flags a preset into a
+  genuinely *reserved* region (chest bitfield / byte-23 handshake / worldmap unlocks / choice scratch).
+  Spine: `content/startup.py`. *In-game verification (F6 reads the asserted beat) is the human step.*
+
 ### Added — story-flag registry depth: the worldmap Navi known-location words
 - **Four new engine-grounded named vars** (`flags.NAMED_WORDS`): `WorldmapKnownLocationsF0..F3` (bytes
   92/94/96/98, UInt16, tier a) — the worldmap Navi cursor's known-location bitmasks (`keventNaviLocF0..F3`;

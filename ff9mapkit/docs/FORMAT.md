@@ -497,6 +497,35 @@ button) reports schema errors plus story-flag lints — a `requires_flag` that n
 content), an explicit flag index that collides with an auto-allocated `once` flag, an index inside the
 real-FF9 chest band, and duplicate entity names. `build` runs the same lints and shows them as warnings.
 
+### `[startup]` — assert the story beat (preset state at field entry)
+
+A **forked** real field boots with a **zero `gEventGlobal`**, so every story-gated NPC/door/event takes
+the not-yet-happened branch and the room plays in its scenario-zero state. `[startup]` lets you **assert
+the beat the field represents** — set the ScenarioCounter and/or specific story bits, unconditionally, at
+field load (they're prepended to Main_Init, so every gate evaluated afterwards sees the asserted state):
+
+```toml
+[startup]
+scenario = 7200                      # the ScenarioCounter value, OR an area name: scenario = "Alexandria Castle"
+flags = [
+  { flag = 3712, value = 1 },        # a REAL story bit (an Alexandria-town event flag) — asserts it happened
+  { flag = "lever_pulled", value = 1 },  # or a [[flag]] name
+]
+```
+
+- **`scenario`** — an int (`0`–`32767`; every real beat is ≤ 12000) or an area name resolved against the
+  registry (`ff9mapkit flags` lists them). Writes the save-backed ScenarioCounter (`gEventGlobal` byte 0).
+- **`flags`** — a list of `{ flag = <index|name>, value = 0|1 }`. Unlike authored `set_flag` (which must use
+  the safe `[8512, 16320)` band), a `[startup]` preset is **meant** to assert REAL FF9 story bits (below
+  8512) — that's the point — so the safe-band rule does **not** apply. The lint still flags a preset into a
+  genuinely *reserved* region (the chest bitfield, the byte-23 menu handshake, worldmap-unlock bits, the
+  choice scratch), which would corrupt engine/save state rather than assert a beat.
+
+The presets **re-assert on every field entry** (idempotent — right for a fork that stands for one beat). For
+a multi-field chain, put `[startup]` on the **entry** field only. v1 is author-side (you assert the beat —
+you have the game knowledge); it does not yet preset per-door spawn (a separate gap) or auto-fire C#
+`NarrowMapList` cutscenes. See `docs/FORK_FIDELITY.md`.
+
 ---
 
 ## `[[choice]]` (optional, repeatable)

@@ -479,6 +479,15 @@ Read these on demand — they hold the full technical detail this file only summ
   known-location words** `WorldmapKnownLocationsF0..F3` (bytes 92/94/96/98, UInt16, tier a, `keventNaviLocF0..F3`).
   Naming bytes 92–99 reclassifies that slice of the "write-only worldmap-unlock bits" as recognized word data
   (`flags-inspect` reports `WorldmapKnownLocationsF0 = N`). `NAMED_WORDS` kept tier-(a)-pure (tested).
+- **Fork-fidelity audit + the `[startup]` preset block** (`story_flags` branch; `ff9mapkit/docs/FORK_FIDELITY.md`)
+  — the **north star is fork FIDELITY, not a release** (§1): "fork a real field → does it play identically?" The
+  audit (7-dimension workflow) found the *physical* layer faithful + in-game proven, the *narrative-state* layer
+  the weak axis (a fork boots at scenario-zero, one spawn, no C# `NarrowMapList` cutscene). Highest-leverage
+  orthogonal fix = **`[startup]`** (`content/startup.py`): preset the ScenarioCounter (`scenario = N|"area"`,
+  via `set_var(GLOB_UINT16, 0, v)` — token 0xDC) + story bits (`flags = [{flag, value}]`) unconditionally,
+  prepended to Main_Init (`edit.insert_in_function`, byte-safe; golden identical when absent). Lint flags
+  reserved-region presets; real story bits below 8512 are allowed (the point). A fork can now boot in the right
+  beat. Touches only `build.py` + `content/startup.py` — clear of the save-moogle graft lane.
 
 ---
 

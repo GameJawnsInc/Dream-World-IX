@@ -40,6 +40,7 @@ from .content import prop as _prop
 from .content import region as _region
 from .content import reinit as _reinit
 from .content import savepoint as _savepoint
+from .content import startup as _startup
 from .content import text as _text
 from . import animations as _animations
 from . import archetypes as _archetypes
@@ -400,6 +401,37 @@ def validate(project: FieldProject) -> list[str]:
         trig = jp.get("trigger", "action")
         if trig not in ("action", "tread"):
             problems.append(f'[[jump]] trigger must be "action" (press) or "tread" (auto), got {trig!r}')
+    su = project.raw.get("startup")                     # story-state presets ([startup]: assert the beat)
+    if su is not None:
+        if not isinstance(su, dict):
+            problems.append("[startup] must be a table (scenario = N|\"area\" and/or flags = [{flag, value}])")
+        else:
+            names = _flags.collect_flag_defs(project.raw)   # [[flag]] table already validated at load
+            sc = su.get("scenario")
+            if isinstance(sc, str):
+                try:
+                    _flags.resolve_scenario(sc)
+                except ValueError as e:
+                    problems.append(f"[startup] scenario: {e}")
+            elif sc is not None and (isinstance(sc, bool) or not isinstance(sc, int)
+                                     or not (0 <= sc <= _startup.SCENARIO_MAX)):
+                problems.append(f"[startup] scenario must be 0..{_startup.SCENARIO_MAX} or an area name "
+                                f"(got {sc!r})")
+            flags_list = su.get("flags", [])
+            if not isinstance(flags_list, list):
+                problems.append("[startup] flags must be a list of {flag = <index|name>, value = 0|1}")
+            else:
+                for i, p in enumerate(flags_list):
+                    if not isinstance(p, dict) or "flag" not in p:
+                        problems.append(f"[startup] flags #{i} needs a `flag` (a gEventGlobal index or a "
+                                        f"[[flag]] name)")
+                        continue
+                    try:
+                        _flags.resolve(p["flag"], names)
+                    except ValueError as e:
+                        problems.append(f"[startup] flags #{i}: {e}")
+                    if p.get("value", 1) not in (0, 1):
+                        problems.append(f"[startup] flags #{i} value must be 0 or 1 (got {p.get('value')!r})")
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if len(z) not in (4, 5):
@@ -809,6 +841,11 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
                 _write(_flag_index(o["set_flag"]), f"choice #{c} option {oi}")
             if "requires_flag" in o:
                 _read(o["requires_flag"], f"choice #{c} option {oi}")
+    su = raw.get("startup")                            # [startup] presets assert real flags by design, but
+    if isinstance(su, dict):                           # a preset into a RESERVED region still corrupts state
+        for i, p in enumerate(su.get("flags", []) or []):
+            if isinstance(p, dict) and "flag" in p:
+                _write(p["flag"], f"[startup] preset #{i}")
     return out
 
 
@@ -1372,6 +1409,17 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # movement control-direction first (shift-free, before any appends that move bytecode)
     if control_value != -1:
         eb = _movement.set_control_direction(eb, control_value)
+    # story-state presets ([startup]): assert the beat the forked field represents (ScenarioCounter +
+    # gEventGlobal story bits), prepended to Main_Init so every gate evaluated afterwards sees the
+    # asserted state. Absent -> no injection, so the build is byte-identical to before.
+    su = project.raw.get("startup")
+    if su:
+        names = _flags.collect_flag_defs(project.raw)
+        sc = su.get("scenario")
+        if isinstance(sc, str):
+            sc = _flags.resolve_scenario(sc)
+        presets = [(_flags.resolve(p["flag"], names), int(p.get("value", 1))) for p in su.get("flags", [])]
+        eb = _startup.inject_startup(eb, presets, sc)
     has_encounter = "encounter" in project.raw
 
     # larger-than-screen scrolling: enable the field's camera services (Active flag) so the engine's
