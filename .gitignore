@@ -77,6 +77,8 @@ backups/*.bgi.bytes.*
 backups/*.bgx.*
 backups/*.png.*
 backups/pre-reclone-*/
+# Transient build/scratch logs under backups/ (regenerable; not the intentional text safety-net)
+backups/*.log
 
 # deploy_field.py's transient pre-overwrite safety nets (the test-slot DictionaryPatch/.mes it
 # snapshots on every deploy). Distinct from intentional manual backups/<file>.<timestamp> -- these
