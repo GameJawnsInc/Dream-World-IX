@@ -139,7 +139,7 @@ def _arm(data, slot, arg, needs_d9):
     return edit.activate(data, opcodes.init_object(slot, arg))
 
 
-def graft_objects(data, specs, *, load=None, player_tag_remap=None) -> bytes:
+def graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map=None) -> bytes:
     """Graft each spec's VERBATIM object entry into ``data`` and arm it. ``specs`` come from
     :func:`ff9mapkit.eventscan.scan_objects_verbatim` (entry bytes inline) or an import sidecar (a ``bin``
     ref + a ``load(ref) -> bytes`` callable). Objects flagged ``graft_safety == "refuse"`` are skipped
@@ -147,6 +147,10 @@ def graft_objects(data, specs, *, load=None, player_tag_remap=None) -> bytes:
 
     Two passes, like the ladder ``sequences`` graft: (1) append every entry first so all new slots exist
     (so a sibling cross-reference can resolve); (2) remap each entry's references + arm it from Main_Init.
+
+    ``out_slot_map`` (optional): a dict the caller passes in; on return it holds ``{donor_idx: fork_slot}``
+    for every grafted (non-refused) object. The text-carry path (:mod:`content.textcarry`) needs it to find
+    each grafted entry and remap its window TXIDs; existing callers omit it and are unaffected.
     """
     specs = [s for s in specs if s.get("graft_safety") != "refuse"]
     if not specs:
@@ -168,4 +172,6 @@ def graft_objects(data, specs, *, load=None, player_tag_remap=None) -> bytes:
                                 player_tag_remap)
         for inst in (s.get("instances") or [{"arg": 0}]):
             data = _arm(data, slot, int(inst.get("arg", 0)), s.get("needs_d9") or {})
+    if out_slot_map is not None:
+        out_slot_map.update(donor2new)
     return data

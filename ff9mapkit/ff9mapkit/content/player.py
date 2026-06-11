@@ -102,14 +102,20 @@ def ensure_player_anim_packs(data, packs) -> bytes:
     return edit.insert_in_function(data, pe, 0, rel, block)
 
 
-def graft_player_funcs(data, specs, tagmap, *, load=None) -> bytes:
-    """Graft each CLEAN player function (``safety == "clean"``) verbatim onto the fork player at its fork
-    tag (``tagmap[donor_tag]``) via :func:`eb.edit.add_function` -- the N-function generalization of the
+def graft_player_funcs(data, specs, tagmap, *, load=None, graftable_safeties=("clean",)) -> bytes:
+    """Graft each graftable player function verbatim onto the fork player at its fork tag
+    (``tagmap[donor_tag]``) via :func:`eb.edit.add_function` -- the N-function generalization of the
     one-func jump/ladder graft. Splices the donor Init's anim packs first (so the gestures' clips load).
-    Refused (non-clean) funcs are skipped (their seeding object stays ``init_only``). ``specs`` come from
+    Non-graftable funcs are skipped (their seeding object stays ``init_only``). ``specs`` come from
     :func:`ff9mapkit.eventscan.scan_player_funcs`; bodies are inline (``body``) or loaded via
-    ``load(spec["bin"])``. Returns the new ``.eb`` bytes (unchanged when nothing is graftable)."""
-    clean = [s for s in specs if s.get("safety") == "clean" and int(s["donor_tag"]) in tagmap]
+    ``load(spec["bin"])``. Returns the new ``.eb`` bytes (unchanged when nothing is graftable).
+
+    ``graftable_safeties`` (default ``("clean",)``) selects which safety classes are grafted; the
+    text-carry path passes ``("clean", "text")`` so a ``text`` player func (one whose window TXID the carry
+    is about to remap + ship) is also grafted -- its bytes are graft-safe once its text is carried. Default
+    is byte-identical to before (only ``clean`` funcs)."""
+    ok = set(graftable_safeties)
+    clean = [s for s in specs if s.get("safety") in ok and int(s["donor_tag"]) in tagmap]
     if not clean:
         return data
     packs = []

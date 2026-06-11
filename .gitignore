@@ -119,6 +119,10 @@ backups/battle_predeploy.*/
 # text -- SE-derived, regenerable from the install. Use the `.dialogue.json` suffix so it's never committed;
 # only author-written dialogue (in a field.toml) belongs in the repo.
 *.dialogue.json
+# Faithful text-carry sidecars (`ff9mapkit import --carry-text` writes <name>.carrytext.json = the donor
+# field's referenced .mes strings, per language + the donor->carried txid map, shipped VERBATIM so a forked
+# interaction shows the real words). SE-derived -- never commit (same posture as the object/player sidecars).
+*.carrytext.json
 
 # Blender working/test projects (user art + exports)
 ff9mapkit/blender/debug_proj/

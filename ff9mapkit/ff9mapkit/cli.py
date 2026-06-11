@@ -302,18 +302,21 @@ def _cmd_import(args: argparse.Namespace) -> int:
     from . import extract
     try:
         gpf = getattr(args, "graft_player_funcs", False)
+        ct = getattr(args, "carry_text", False)
+        if ct:
+            gpf = True             # text carry rides on the graft (the carrying objects/funcs must exist)
         if args.native:
             meta, toml = extract.write_native_project(
                 args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game,
-                graft_player_funcs=gpf)
+                graft_player_funcs=gpf, carry_text=ct)
         elif args.editable:
             meta, toml = extract.write_editable_project(
                 args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game,
-                graft_player_funcs=gpf)
+                graft_player_funcs=gpf, carry_text=ct)
         else:
             meta, toml = extract.write_field_project(
                 args.field, Path(args.out), name=args.name, field_id=args.id,
-                game=args.game, want_atlas=args.atlas, graft_player_funcs=gpf)
+                game=args.game, want_atlas=args.atlas, graft_player_funcs=gpf, carry_text=ct)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -350,6 +353,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
             bits.append(f"{ic['objects']} object(s) carried")
         if ic.get("player_funcs"):
             bits.append(f"{ic['player_funcs']} player-func(s) grafted (interactions)")
+        if ic.get("carry_text"):
+            bits.append(f"{ic['carry_text']} dialogue line(s) carried verbatim")
         print(f"  content: {', '.join(bits) if bits else 'none found in the source script'}"
               + ("   (gateways point at REAL fields -- retarget them)" if ic["gateways"] else ""))
     if args.dialogue:
@@ -1136,6 +1141,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "player, so the interactions FIRE (a chest/cask turns to face you on examine, boxes "
                          "gesture) -- the objects carry their interactive funcs WHOLE instead of init_only. "
                          "Clean gesture funcs only; text/exotic/non-Zidane interactions stay dropped. (docs/PLAYER_GRAFT.md)")
+    im.add_argument("--carry-text", action="store_true",
+                    help="FAITHFULLY carry the donor field's referenced dialogue text (per language, VERBATIM) "
+                         "and remap the grafted windows to it, so a carried NPC's talk + grafted text "
+                         "interactions show the REAL words (vs --dialogue's editable stubs you re-author). "
+                         "Implies --graft-player-funcs; the words are SE-derived (gitignored sidecar). (docs/TEXT_CARRY.md)")
     im.set_defaults(func=_cmd_import)
 
     ic = sub.add_parser("import-chain",

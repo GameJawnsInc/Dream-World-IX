@@ -169,6 +169,17 @@ class FieldProject:
     def path(self, rel: str) -> Path:
         return (self.base_dir / rel).resolve()
 
+    def carry_text_plan(self):
+        """The faithful text-carry plan (a ``list[content.textcarry.CarriedEntry]``) from this project's
+        ``[carry_text] bin`` sidecar, or ``[]`` when there is none. The donor's referenced dialogue text +
+        the donor->carried txid map; the build remaps the grafted windows to it + ships it per-language
+        (import-only, opt-in -- a plain authored field has no ``[carry_text]`` and this returns ``[]``)."""
+        ct = self.raw.get("carry_text")
+        if not ct or not ct.get("bin"):
+            return []
+        from .content import textcarry as _textcarry
+        return _textcarry.load_sidecar(self.path(ct["bin"]))
+
 
 # --------------------------------------------------------------------------- validation
 
@@ -392,6 +403,24 @@ def validate(project: FieldProject) -> list[str]:
             if tag not in pf_tags:
                 problems.append(f"[[object]] {binref}: RunScripts player tag {tag} but no [[player_func]] grafts "
                                 f"it (would dangle/softlock) -- import with --graft-player-funcs, or it stays init_only")
+    ct = project.raw.get("carry_text")                  # faithful text carry (import --carry-text)
+    if ct:
+        binref = ct.get("bin")
+        if not binref:
+            problems.append('[carry_text] needs bin = "<file>" (a carry sidecar, from `ff9mapkit import --carry-text`)')
+        elif not project.path(binref).is_file():
+            problems.append(f"[carry_text] sidecar not found: {binref}")
+        else:
+            try:
+                plan = project.carry_text_plan()
+            except (ValueError, KeyError, OSError) as e:
+                problems.append(f"[carry_text] sidecar {binref} is malformed: {e}")
+                plan = []
+            from .content import textcarry as _textcarry
+            for e in plan:
+                if not (_textcarry.CARRY_BASE_TXID <= e.new_txid <= 0xFFFF):
+                    problems.append(f"[carry_text] carried txid {e.new_txid} out of the safe band "
+                                    f"[{_textcarry.CARRY_BASE_TXID}, 65535] (would collide with base/authored text)")
     for m in project.raw.get("marker", []):
         if "name" not in m or "pos" not in m:
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
@@ -1495,24 +1524,45 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # resulting tag map then drives the object graft's RunScript(player, T) remap. No-op without [[player_func]].
     player_funcs = project.raw.get("player_func", [])
     player_tag_remap = None
+    # text carry un-refuses "text" player funcs: their window TXIDs are remapped + the words shipped, so
+    # the func is graft-safe. Without carry, only "clean" funcs graft (a stray "text" stays refused).
+    _has_carry = bool(project.raw.get("carry_text", {}).get("bin"))
+    _graftable = ("clean", "text") if _has_carry else ("clean",)
     if player_funcs:
         from .content import player as _player
         pf_specs = [{"donor_tag": int(p["donor_tag"]), "safety": p.get("safety", "clean"),
                      "body": project.path(p["bin"]).read_bytes(),
-                     "donor_init_packs": p.get("donor_init_packs", [])} for p in player_funcs]
+                     "donor_init_packs": p.get("donor_init_packs", [])} for p in player_funcs
+                    if p.get("safety", "clean") in _graftable]
         fork_tags = _player.PlayerTagAllocator(eb).take("object", len(pf_specs))
         player_tag_remap = {s["donor_tag"]: ft for s, ft in zip(pf_specs, fork_tags)}
-        eb = _player.graft_player_funcs(eb, pf_specs, player_tag_remap)
+        eb = _player.graft_player_funcs(eb, pf_specs, player_tag_remap, graftable_safeties=_graftable)
 
     # objects: FAITHFUL carry of the real field's persistent NPCs/props -- graft each donor object's
     # VERBATIM .eb entry at a free slot + arm it from Main_Init (docs/OBJECT_CARRY.md). The authored
     # [[npc]]/[[prop]] blocks (below) are the player-clone synthesis; this is the import-only verbatim
     # graft (renders byte-identical, not "Zidane in a barrel skin"). No-op without [[object]].
     objects = project.raw.get("object", [])
+    object_slot_map = {}
     if objects:
         eb = _object.graft_objects(eb, [dict(o) for o in objects],
                                    load=lambda ref: project.path(ref).read_bytes(),
-                                   player_tag_remap=player_tag_remap)
+                                   player_tag_remap=player_tag_remap, out_slot_map=object_slot_map)
+
+    # faithful TEXT CARRY (docs/TEXT_CARRY.md): the grafted objects' windows + grafted text player funcs
+    # still name the DONOR's .mes txids; remap each to the carried band (>=1000) -- a same-length 2-byte
+    # in-place patch -- so they resolve to the verbatim text shipped in the per-language .mes (build_field).
+    # No-op without [[carry_text]] (import --carry-text). Runs AFTER both grafts so the fork slots/tags exist.
+    carry_plan = project.carry_text_plan()
+    if carry_plan:
+        from .content import player as _player
+        from .content import textcarry as _textcarry
+        txid_map = {e.donor_txid: e.new_txid for e in carry_plan}
+        if object_slot_map:
+            eb = _textcarry.remap_object_windows(eb, [dict(o) for o in objects], object_slot_map, txid_map)
+        if player_tag_remap:
+            pe = _player.find_player_entry(EbScript.from_bytes(eb))
+            eb = _textcarry.remap_player_func_windows(eb, pe, player_tag_remap, txid_map)
 
     # player spawn (order-independent w.r.t. the appends above)
     if "player" in project.raw and "spawn" in project.raw["player"]:
@@ -2014,13 +2064,21 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # --- dialogue + per-language script ---
     mes_body, txids, event_txids, cutscene_txids, choice_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
+    # faithful text carry: the donor's referenced dialogue, shipped VERBATIM per language and APPENDED after
+    # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
+    # are byte-identical). build_script remaps the grafted windows to these txids. Empty plan -> no change.
+    carry_plan = project.carry_text_plan()
     for lang in langs:
         eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                           cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
                           choice_txids=choice_txids)
         layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
-        if mes_body:
-            layout.mes_path(lang, project.text_block).write_text(mes_body, encoding="utf-8", newline="\n")
+        lang_body = mes_body
+        if carry_plan:
+            from .content import textcarry as _textcarry
+            lang_body = (mes_body or "") + _textcarry.carried_mes_body(carry_plan, lang)
+        if lang_body:
+            layout.mes_path(lang, project.text_block).write_text(lang_body, encoding="utf-8", newline="\n")
 
     bg_mapid = borrow_bg if borrow_bg else project.name
     dict_line = f"FieldScene {project.id} {project.area} {bg_mapid} {project.name} {project.text_block}"

@@ -637,7 +637,8 @@ def scan_objects(eb_bytes) -> list:
     return out
 
 
-def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_player_funcs=False) -> list:
+def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_player_funcs=False,
+                          carry_text=False) -> list:
     """Graft specs for a FAITHFUL fork: each persistent object's VERBATIM ``.eb`` entry plus the data
     needed to append it at a free slot, arm it, and remap its references -- the faithful counterpart of
     :func:`scan_objects` (which emits human-authored ``[[npc]]``/``[[prop]]`` stubs). Where scan_objects
@@ -701,10 +702,13 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
 
     # the player funcs the player-function graft WILL carry (docs/PLAYER_GRAFT.md): those tags become SAFE,
     # flipping an object from init_only to whole-entry. OFF by default (byte-identical). scan_player_funcs
-    # calls scan_objects_verbatim WITHOUT this flag, so there is no recursion.
+    # calls scan_objects_verbatim WITHOUT this flag, so there is no recursion. ``carry_text`` ALSO admits a
+    # "text" player func (its window TXID is carried + remapped by content.textcarry, so its bytes are
+    # graft-safe once the text ships) -- so the seeding object carries its interactive tag whole.
     graftable_player = frozenset()
     if graft_player_funcs:
-        graftable_player = frozenset(p["donor_tag"] for p in scan_player_funcs(eb_bytes) if p["safety"] == "clean")
+        ok = {"clean", "text"} if carry_text else {"clean"}
+        graftable_player = frozenset(p["donor_tag"] for p in scan_player_funcs(eb_bytes) if p["safety"] in ok)
 
     # 3) build a graft spec per carried object
     out = []
