@@ -822,9 +822,10 @@ Read these on demand — they hold the full technical detail this file only summ
   Roaming/Local) — `…\LocalLow\SquareEnix\FINAL FANTASY IX\Steam\EncryptedSavedData\SavedData_ww.dat`; new
   `save.default_save_dir()` returns it (the docstring was wrong) and the inspector's Browse dialog opens there.
   Spine-first: `save.inspect`/`flags.render_report` are pure + unit-tested (encrypted-container, extra-file,
-  JSON, and bare-Base64 input forms); the window is the thin GUI (covered by the viewer `--smoke`). **642 kit
-  tests pass.** Optional follow-up: wire `save.inspect` into the `flags-inspect` CLI (today the CLI is the
-  open-form only).
+  JSON, and bare-Base64 input forms); the window is the thin GUI (covered by the viewer `--smoke`). The
+  **`flags-inspect` CLI** also routes through `save.inspect` now — it reads an encrypted `SavedData_ww.dat`
+  (one report per populated slot, labelled) / a Memoria extra-save / a save JSON / a bare Base64 blob (was
+  open-form only); real-save confirmed per-slot. **644 kit tests pass.**
 
 ---
 

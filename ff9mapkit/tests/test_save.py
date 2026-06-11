@@ -135,6 +135,26 @@ def test_inspect_memoria_extra_file(tmp_path):
     assert len(rep) == 1 and rep[0][0] == "Memoria extra-save" and rep[0][1].scenario_counter == 6900
 
 
+def test_cli_flags_inspect_json(tmp_path, capsys):
+    import argparse
+    import json
+    from ff9mapkit import cli
+    j = tmp_path / "save.json"
+    j.write_text(json.dumps({"p": {"gEventGlobal": base64.b64encode(_geg(7200)).decode()}}), encoding="utf-8")
+    rc = cli._cmd_flags_inspect(argparse.Namespace(save=str(j), all=False))
+    assert rc == 0 and "Alexandria Castle" in capsys.readouterr().out
+
+
+def test_cli_flags_inspect_encrypted_multi(tmp_path, capsys):
+    import argparse
+    from ff9mapkit import cli
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(2500), 2: _geg(6000)})).write(p)
+    rc = cli._cmd_flags_inspect(argparse.Namespace(save=str(p), all=False))
+    out = capsys.readouterr().out
+    assert rc == 0 and "slot 1" in out and "Ice Cavern" in out and "Fossil Roo" in out   # both slots labelled
+
+
 def test_write_roundtrips(tmp_path):
     sv = S.FF9Save(_make_save({1: _geg(6000)}))
     geg = bytearray(sv.gEventGlobal(1))

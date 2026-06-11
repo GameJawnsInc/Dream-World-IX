@@ -685,14 +685,20 @@ def _cmd_flags(args: argparse.Namespace) -> int:
 
 
 def _cmd_flags_inspect(args: argparse.Namespace) -> int:
-    """Decode + render a save's gEventGlobal story state (offline; reads the open JSON/Base64 form)."""
+    """Decode + render a save's gEventGlobal story state. Reads an encrypted SavedData_ww.dat (one report
+    per populated slot), a Memoria plaintext extra-save, or an open save JSON / bare Base64 gEventGlobal."""
     from . import flags as F
+    from . import save as S
     try:
-        blob = F.gEventGlobal_from_save(args.save)
+        reports = S.inspect(args.save)
     except Exception as e:                                              # noqa: BLE001
-        print(f"could not read gEventGlobal: {e}")
+        print(f"could not read story state: {e}")
         return 2
-    print(F.render_report(F.decode_gEventGlobal(blob), show_bits=args.all))
+    multi = len(reports) > 1
+    for i, (label, rep) in enumerate(reports):
+        if multi:                                                      # label each slot of a multi-save .dat
+            print(("\n" if i else "") + f"=== {label} ===")
+        print(F.render_report(rep, show_bits=args.all))
     return 0
 
 
@@ -1165,8 +1171,9 @@ def build_parser() -> argparse.ArgumentParser:
     fl.set_defaults(func=_cmd_flags)
 
     fi = sub.add_parser("flags-inspect",
-                        help="decode a save's gEventGlobal (ScenarioCounter, chests, treasure points, story bits)")
-    fi.add_argument("save", help="a save JSON file / JSON text, or a bare Base64 gEventGlobal blob")
+                        help="decode a save's story state (SavedData_ww.dat per slot, or a save JSON / Base64)")
+    fi.add_argument("save", help="path to SavedData_ww.dat (per slot), a Memoria extra-save, a save JSON "
+                                 "file / text, or a bare Base64 gEventGlobal blob")
     fi.add_argument("--all", action="store_true", help="also list the unmapped set bits")
     fi.set_defaults(func=_cmd_flags_inspect)
 
