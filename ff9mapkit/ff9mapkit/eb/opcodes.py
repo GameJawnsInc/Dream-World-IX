@@ -81,6 +81,15 @@ def init_object(slot: int, arg: int = 0) -> bytes:  # 0x09
     return encode(0x09, slot, arg)
 
 
+def menu(menu_id: int, sub_id: int = 0) -> bytes:             # 0x75 (Menu) argsize [1,1]
+    """Menu(menu_id, sub_id): open a field menu via ``EventService.StartMenu`` -> ``FF9Menu_Command``.
+    The menu enum (``EventService.cs``): 1 = name, 2 = shop, **4 + sub_id 0 = the SAVE menu**
+    (``OpenSaveMenu`` -> ``SaveLoadUI.SerializeType.Save``), 5 = chocograph. ``menu(4, 0)`` is the
+    functional save point, verified byte-exact (``75 00 04 00``) against the real Dali save moogle
+    (field 122 entry 5 tag 3)."""
+    return encode(0x75, menu_id, sub_id)
+
+
 # --- flow / misc ---
 def wait(n: int) -> bytes:                          # 0x22
     return encode(0x22, n)

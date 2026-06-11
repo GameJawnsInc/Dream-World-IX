@@ -39,6 +39,7 @@ from .content import pathfind as _pathfind
 from .content import prop as _prop
 from .content import region as _region
 from .content import reinit as _reinit
+from .content import savepoint as _savepoint
 from .content import text as _text
 from . import animations as _animations
 from . import archetypes as _archetypes
@@ -373,6 +374,10 @@ def validate(project: FieldProject) -> list[str]:
         trig = jp.get("trigger", "action")
         if trig not in ("action", "tread"):
             problems.append(f'[[jump]] trigger must be "action" (press) or "tread" (auto), got {trig!r}')
+    for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
+        z = sp.get("zone", [])
+        if len(z) not in (4, 5):
+            problems.append(f"[[savepoint]] zone must have 4 or 5 points (the press area), got {len(z)}")
     for ob in project.raw.get("object", []):            # faithful object carry (verbatim .eb entry graft)
         binref = ob.get("bin")
         if not binref:
@@ -1516,6 +1521,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             eb, _ = _jump.inject_jump(eb, [tuple(p) for p in jz], jbytes, jump_tag=jtag,
                                       trigger=jp.get("trigger", "action"), bubble=jp.get("bubble", True))
             jtag += 1
+
+    # save points: a press-to-interact region that opens the SAVE menu (Menu(4,0) -> OpenSaveMenu), the
+    # functional core of FF9's save moogle (the barrel/moogle/jump-out are cosmetic set-dressing). Unlike a
+    # jump, no player-function graft -- the save is a self-contained engine call. docs/SAVEPOINT.md.
+    savepoints = project.raw.get("savepoint", [])
+    if savepoints:
+        sps = [{"zone": _gw.quad_zone(sp["zone"]) if len(sp["zone"]) == 4 else sp["zone"],
+                "bubble": sp.get("bubble", True)} for sp in savepoints]
+        eb, _ = _savepoint.inject_savepoints(eb, sps)
 
     # player-function graft: carry the donor PLAYER funcs a carried object RunScripts onto the fork player,
     # so the interactions fire (the cask EXAMINE turn, the box gestures) -- docs/PLAYER_GRAFT.md. The tag
