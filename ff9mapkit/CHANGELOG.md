@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Corrected — fork-fidelity #10 premise (entry cutscenes are `.eb`-borne, not a C# `NarrowMapList` trigger)
+- A load-bearing belief in the docs/memory was **wrong** and is now corrected (verified directly in the Memoria
+  source): `NarrowMapList.cs` is the engine's per-field **camera-WIDTH / widescreen** table (PSX screen widths,
+  narrow-vs-wide cam, crop margins) with **zero** cutscene logic — its only callers are `FieldMap`/`PSXCameraAspect`.
+  A field's **entry cutscene runs from its own `.eb`** (entry-0 + actor sequences), so a `--verbatim` fork carries
+  it (in-game proven: Vivi/field 100's opening), and `[[on_entry]]` re-authors one for a synthesize fork. The
+  "needs a dev-engine `NarrowMapList` patch" framing of #10 was a phantom; the only genuine engine-side residual is
+  **cosmetic and keyed on the donor's real id** — widescreen camera-width (`MapWidth` defaults to 500 for a custom
+  id), a few per-actor anim tweaks (`FieldMapActor.cs`), and FMV playback (field 70). Docs/comments-only correction
+  across CLAUDE.md, FORK_FIDELITY.md, FORMAT.md, FEATURES.md, CAMPAIGN_IMPORT.md, `content/onentry.py`, `build.py`,
+  the tests, and the project memory (no code-behaviour change).
+
 ### Added — `fork-report` Dialogue axis (the #5 text gap, previewed before you fork)
 - `fork-report` now reports a **Dialogue** axis (orthogonal to the interaction-safety axis): how many carried
   NPCs **speak** (a tag-3 talk window) and how many lines — e.g. Daguerreo 2F "6 NPC(s) speak 36 line(s)".
@@ -73,13 +85,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (`tests/test_deploystack.py`). kit 0.9.16.
 
 ### Added — `[[on_entry]]`: gated, once field-load beats (FORK_FIDELITY.md #10)
-- A real FF9 field's entry cutscene fires from the engine's C# `NarrowMapList` table, **not the field `.eb`** —
-  so a fork can't carry it. `[[on_entry]]` is the declarative re-authoring hook: fire a narration `message`
+- *(Premise corrected later — see "fork-fidelity #10 premise" below: a field's entry cutscene runs from its own
+  `.eb`, so a verbatim fork carries it; `[[on_entry]]` re-authors one for a synthesize fork. The "C# `NarrowMapList`
+  table" framing was a misread — that's the camera-width table.)* `[[on_entry]]` is the declarative re-authoring
+  hook: fire a narration `message`
   and/or story-state writes (`set_scenario` / `set_flags`) the moment the player **enters** the field, **once**,
   but **only when the story state matches** (`requires_scenario` = a ScenarioCounter `== N`, and/or
   `requires_flag`). The gating is the new capability — neither `[startup]` (unconditional, every entry) nor
-  `[cutscene]` (ungated, single) can say "fire this beat only at scenario N / when bit B is set", which is
-  exactly what a `NarrowMapList` entry trigger does. Each hook is a standalone code entry armed by an `InitCode`
+  `[cutscene]` (ungated, single) can say "fire this beat only at scenario N / when bit B is set". Each hook is a standalone code entry armed by an `InitCode`
   in Main_Init (the proven narration-cutscene arming, now robust for any count via the region-arming fix below),
   so it runs at field load *before* control is re-enabled (hence no movement gate); a `message` beat reuses the
   cutscene's reorder-`Wait` + `DisableMove`/`EnableMove` lock so the window shows cleanly during the entry fade.

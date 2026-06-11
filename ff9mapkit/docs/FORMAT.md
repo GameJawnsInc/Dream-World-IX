@@ -532,16 +532,16 @@ flags = [
 The presets **re-assert on every field entry** (idempotent — right for a fork that stands for one beat). For
 a multi-field chain, put `[startup]` on the **entry** field only. v1 is author-side (you assert the beat —
 you have the game knowledge); it does not yet preset per-door spawn (a separate gap). To **fire** a beat on
-entry (rather than just preset state) — re-authoring a lost C# `NarrowMapList` entry cutscene — use
+entry (rather than just preset state) — e.g. re-author an entry cutscene for a synthesize fork — use
 `[[on_entry]]` below. See `docs/FORK_FIDELITY.md`.
 
 ### `[[on_entry]]` — fire a beat on field entry (gated, once)
 
-A real field's **entry cutscene** fires from the engine's C# `NarrowMapList` table, **not** the field
-`.eb`, so a fork can't carry it. `[[on_entry]]` is the declarative re-authoring hook: fire a narration
-**message** and/or **story-state writes** the moment the player **enters** — but **only when the story
-state matches**. That gating is what `[startup]` (unconditional, every entry) and `[cutscene]` (ungated)
-can't express, and it's exactly what a `NarrowMapList` entry trigger does:
+A real field's **entry cutscene** runs from the field's own `.eb` (entry-0 + actor sequences), so a
+**`--verbatim`** fork already carries it. `[[on_entry]]` is for the **synthesize** path (which doesn't ship
+the donor `.eb`) and for **adding** a new gated entry beat: fire a narration **message** and/or
+**story-state writes** the moment the player **enters** — but **only when the story state matches**. That
+gating is what `[startup]` (unconditional, every entry) and `[cutscene]` (ungated) can't express:
 
 ```toml
 [[on_entry]]
@@ -558,7 +558,7 @@ once = true                                 # default: fire once ever (a save-pe
 - Each hook needs at least one of **`message`** / **`set_scenario`** / **`set_flags`**.
 - The gates (`requires_scenario` / `requires_flag`) sit *outside* the once-check, so a hook whose condition
   isn't met yet returns without spending its once-flag — it can still fire on a **later** entry once the beat
-  is reached (the `NarrowMapList` semantics).
+  is reached.
 - `set_scenario` / `set_flags` follow the same band rules as `[startup]` (assert REAL story bits below 8512;
   the lint flags a write into a genuinely *reserved* region). `message` shares the field's `.mes` block.
 - A campaign member's per-member flag block is fully reserved, so a `once` hook there needs an explicit

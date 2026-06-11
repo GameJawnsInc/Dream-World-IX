@@ -1616,7 +1616,7 @@ def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
 def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto,
                     *, drop_messages: bool = False, warnings: list | None = None) -> bytes:
     """Arm the ``[[on_entry]]`` hooks (gated, once field-LOAD beats) into ``eb`` -- each a code entry run by
-    an ``InitCode`` in Main_Init (the NarrowMapList stand-in, FORK_FIDELITY.md #10). Shared by
+    an ``InitCode`` in Main_Init (the declarative entry-beat hook, FORK_FIDELITY.md #10). Shared by
     :func:`build_script` (synthesize path) AND the verbatim-`.eb` path in :func:`build_field` (which bypasses
     build_script, so it would otherwise drop ``[[on_entry]]`` -- the same gap ``[startup]`` had). ``auto`` is
     the field's :class:`_FlagAlloc` (for an unflagged hook's auto once-flag). ``drop_messages`` (verbatim): a
@@ -1981,8 +1981,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 
     # on-entry beats ([[on_entry]]): a gated, once field-load hook -- a narration message and/or a
     # story-state write (set_scenario / set_flags), fired the moment the player enters but ONLY when
-    # requires_flag / requires_scenario match. The declarative stand-in for a real field's C#
-    # NarrowMapList entry cutscene (docs/FORK_FIDELITY.md #10), which a fork can't carry. Each hook is
+    # requires_flag / requires_scenario match. Re-authors an entry cutscene for a SYNTHESIZE fork (a
+    # verbatim fork carries the real one in the donor .eb; docs/FORK_FIDELITY.md #10). Each hook is
     # a code entry armed by InitCode in Main_Init. Absent -> no injection (byte-identical).
     eb = _apply_on_entry(project, eb, on_entry_txids, _auto)
 

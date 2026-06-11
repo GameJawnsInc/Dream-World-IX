@@ -1,10 +1,12 @@
 """Field-ENTRY one-shot hooks -- the ``[[on_entry]]`` block.
 
-A real FF9 field's entry cutscene fires from the engine's C# ``NarrowMapList`` table, NOT the field
-``.eb`` -- so a FORK loses it (``docs/FORK_FIDELITY.md`` #10). This is the declarative re-authoring
-hook: fire a lightweight beat (a narration ``message`` and/or story-state writes) the moment the player
-ENTERS the field, **once**, optionally **gated by the story state** -- the stand-in for "the entry
-cutscene the real field plays at scenario N".
+A real FF9 field's entry cutscene runs from the field's OWN ``.eb`` (entry-0 + actor sequences), so a
+``--verbatim`` fork already carries it. (NOT a C# ``NarrowMapList`` table -- that's the engine's per-field
+camera-WIDTH table, no cutscene logic; the old "fires from NarrowMapList, the .eb can't carry it" framing
+was a misread -- ``docs/FORK_FIDELITY.md`` #10.) This block is for a **synthesize** fork (which doesn't ship
+the donor ``.eb``) and for ADDING a new gated entry beat: fire a lightweight beat (a narration ``message``
+and/or story-state writes) the moment the player ENTERS the field, **once**, optionally **gated by the
+story state** -- so a fork can fire "the entry cutscene the real field plays at scenario N".
 
 It sits between the existing field-load levers, filling the gap each leaves:
 
@@ -14,8 +16,7 @@ It sits between the existing field-load levers, filling the gap each leaves:
 * ``[[on_entry]]`` -- fires on field LOAD, **gated by ``requires_flag`` / ``requires_scenario``**, once.
 
 The gating is the new capability: neither ``[startup]`` (unconditional) nor ``[cutscene]`` (ungated)
-can say "fire this beat only when the ScenarioCounter is N / story bit B is set" -- exactly what a
-``NarrowMapList`` entry trigger does.
+can say "fire this beat only when the ScenarioCounter is N / story bit B is set".
 
 It arms like a narration cutscene (:func:`ff9mapkit.content.cutscene.inject_cutscene`): a standalone
 code entry run by an ``InitCode`` in Main_Init. So it runs at field load, *before* Main_Init re-enables
@@ -68,8 +69,8 @@ def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenari
         return
 
     The gates sit OUTSIDE the once-block, so a hook whose condition isn't met yet returns without
-    spending its once-flag -- it can still fire on a LATER entry once the beat is reached (the
-    ``NarrowMapList`` semantics). Returns ``b""``-safe building blocks only; raises nothing."""
+    spending its once-flag -- it can still fire on a LATER entry once the beat is reached. Returns
+    ``b""``-safe building blocks only; raises nothing."""
     gates = b""
     if requires_flag is not None:
         gates += _region.flag_gate(_region.GLOB_BOOL, int(requires_flag), require_set=requires_set)

@@ -49,7 +49,7 @@ def test_on_entry_arms_into_verbatim_bytes():
     blank = data.blank_field_bytes("us")
     n0 = sum(1 for e in EbScript.from_bytes(blank).entries if not e.empty)
     assert build._apply_on_entry(_P({}), blank, {}, _FlagAlloc(None)) == blank   # no [[on_entry]] -> identical
-    # a gated state-advance hook arms as one more code entry (the InitCode-in-Main_Init NarrowMapList stand-in)
+    # a gated state-advance hook arms as one more code entry (the InitCode-in-Main_Init entry-beat hook)
     armed = build._apply_on_entry(_P({"on_entry": [{"set_scenario": 2600, "requires_scenario": 2000}]}),
                                   blank, {}, _FlagAlloc(None))
     assert armed != blank and len(armed) > len(blank)

@@ -18,8 +18,9 @@ Fork fidelity is **strong on the "physical" layer and partial-to-absent on the "
   text carry; the **verbatim save-moogle carry is COMPLETE** (P1–P6.1, on master — director graft + the
   spawn-pose fix that resolved both timing bugs). The graft lane is now FREE (the deferred items below unblock).
 - **Narrative state — the weak axis.** A fork boots with a **zero `gEventGlobal`**, no ScenarioCounter, no
-  flag presets, a single heuristic spawn regardless of which door you entered, and **no field-entry cutscene**
-  (those fire from the C# `NarrowMapList` table, not the `.eb`).
+  flag presets, and a single heuristic spawn regardless of which door you entered. (A field's **entry
+  cutscene** is NOT a separate problem — it runs from the field's own `.eb`, so a **verbatim** fork carries
+  it; see the `NarrowMapList` correction below.)
 
 **Honest grade: a high-fidelity diorama of a field, not yet a faithful slice of the playthrough** — *via the
 declarative carry.* You can fork a story room and walk around it faithfully; the declarative rebuild can't yet
@@ -101,7 +102,7 @@ deferred). Orthogonal items remain the lowest-risk picks.
 | 7 | ~~Large scrolling field unverified in real gameplay (math implemented + unit-tested only)~~ | minor | easy | no | **✅ VERIFIED IN-GAME** — a native fork of the wide Alexandria Main Street (field 3000, walkmesh ~12,800 units across, `[camera.scroll] enabled`) deployed to the test slot scrolls correctly: the camera pans 1:1 to follow the player across the full painting width, art stays aligned to the floor. The kit's scroll synthesis (`enable_camera_services` / BGCACTIVE) holds on a genuinely large field, not just the unit-tested math. |
 | 8 | BG-borrow `.bgx` tile seams (bilinear path; edge-bleed exists only on the editable path) | major | medium | no | Steer faithful forks to `--native` (seam-free); optionally port edge-bleed into the `.bgx` writer |
 | 9 | Per-door spawn arrival — one spawn regardless of entrance | major | hard | **yes** | Reconstruct a `if(FieldEntrance==N)` arrival table in player-init (`scan_gateways` already recovers each exit's entrance id). **Defer**; interim: emit discovered entrance ids as commented `[[spawn]]` stubs |
-| 10 | Field-entry cutscene auto-fire (C# `NarrowMapList`, not the `.eb`) | major | needs-engine-fork | no | **✅ v1 LANDED — the `[[on_entry]]` block** (`content/onentry.py`): fire a narration `message` and/or story-state writes (`set_scenario`/`set_flags`) on field load, **once**, GATED by `requires_scenario` (ScenarioCounter `== N`) / `requires_flag` — the gating neither `[startup]` nor `[cutscene]` could express. Armed by `InitCode` in Main_Init (no movement gate — runs before control); the gate sits *outside* the once-block so it fires on the first entry that matches. Byte-identical when absent; 14 tests. The declarative re-authoring of a lost entry cutscene. True auto-fire from the C# table still needs a dev-engine `NarrowMapList` patch (research) |
+| 10 | Field-entry cutscene on a fork | major | **mostly SOLVED** | no | **✅ Premise CORRECTED + covered both ways.** The old framing ("entry cutscenes fire from a C# `NarrowMapList` table the `.eb` can't carry → needs an engine fork") was **WRONG** — verified in the Memoria source: `NarrowMapList` is the per-field **camera-WIDTH / widescreen** table (PSX screen widths, narrow-vs-wide cam, crop margins), with **zero** cutscene logic. A field's **entry cutscene runs from its own `.eb`** (entry-0 `Main_Init` + actor LOOP sequences). So it's covered: a **`--verbatim` fork carries the real cutscene** (in-game proven — Vivi/field 100's ticket-girl opening), and **`[[on_entry]]`** (`content/onentry.py`) re-authors a gated, once entry beat for a synthesize fork (`message`/`set_scenario`/`set_flags`, gated by `requires_scenario`/`requires_flag`; armed by `InitCode` in Main_Init). The only genuine engine-side residual is **cosmetic and keyed on the donor's real id**: the widescreen camera-width (`NarrowMapList.MapWidth` → defaults to 500 for a custom id), a few per-actor anim tweaks (`FieldMapActor.cs`), and FMV playback (field 70) — optional to backfill by registering the custom id in those tables. |
 | 11 | Non-tag-3 / choice/menu window carry — carried NPCs' choice prompts + event windows still point at donor TXIDs | major | medium | **yes** | Extend `collect_carry` to all kept funcs' windows + choice txids. **Defer** behind the graft session; lint-warn meanwhile |
 | 12 | Non-Zidane player donors (~8%, Garnet/Steiner rig clip-id mismatch) | major | hard | **yes** | Clip-id remap table per donor rig, or carry the donor party-member as the fork player. **Defer** (player.py) |
 | 13 | Per-fork battle-background override (scene_id maps to BBG globally) | major | hard | no | Only when minting a scene that reuses vanilla gameplay but a custom BBG; battle-pillar enhancement, low priority |
@@ -110,8 +111,8 @@ deferred). Orthogonal items remain the lowest-risk picks.
 
 **Landed:** #1 (`[startup]` presets), #2 (gated story-branch doors), #3 (`[[gateway]]` on-exit advance —
 `set_scenario`/`set_flags`), #4 (auto-`--native` for area<10 — a plain `import` of an early-game field
-now works, in-game proven), and **#10 v1** (`[[on_entry]]` — gated, once field-load beats: the declarative
-re-authoring of a lost `NarrowMapList` entry cutscene), plus the verbatim save-moogle carry (P1–P6.1) and the
+now works, in-game proven), and **#10** (its premise corrected — entry cutscenes are `.eb`-borne, carried by a
+verbatim fork; `[[on_entry]]` re-authors a gated entry beat for a synthesize fork), plus the verbatim save-moogle carry (P1–P6.1) and the
 verbatim `.eb`+`.mes` fork (`import --verbatim`) — so the graft lane is FREE.
 
 The next levers, biggest narrative-state leverage first (the weak axis — making a fork *behave* as its beat):

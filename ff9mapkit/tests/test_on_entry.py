@@ -1,9 +1,10 @@
 """[[on_entry]] -- gated, once field-load beats (FORK_FIDELITY.md #10).
 
-A real field's entry cutscene fires from the engine's C# NarrowMapList table, not the .eb, so a fork
-loses it. [[on_entry]] is the declarative re-authoring hook: fire a narration message and/or story-state
-writes the moment the player ENTERS, once, but ONLY when requires_flag / requires_scenario match -- the
-gating neither [startup] (unconditional) nor [cutscene] (ungated) can express. These tests pin the
+A real field's entry cutscene runs from its own .eb (so a verbatim fork carries it; NOT a C# NarrowMapList
+table -- that's the camera-width table). [[on_entry]] re-authors an entry beat for a SYNTHESIZE fork (or
+adds a new one): fire a narration message and/or story-state writes the moment the player ENTERS, once, but
+ONLY when requires_flag / requires_scenario match -- the gating neither [startup] (unconditional) nor
+[cutscene] (ungated) can express. These tests pin the
 injected bytes (gates, once-block, the message lock), name/area resolution, validation, the reserved-band
 lint, the flag-setter accounting, and byte-identity when the block is absent.
 """

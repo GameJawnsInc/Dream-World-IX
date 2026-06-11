@@ -31,7 +31,8 @@ does it play identically to the original?" Do **not** frame work as "near-releas
 pressure is explicitly unwanted. Current state of that goal lives in **`ff9mapkit/docs/FORK_FIDELITY.md`**
 (the honest gap map): the *physical* layer (scene/walkmesh/camera/mechanics/object carry) is largely
 faithful and in-game proven; the *narrative-state* layer is the weak axis (a fork boots at scenario-zero —
-no flag presets, one spawn, no C# `NarrowMapList` cutscene). The toolkit lives at `ff9mapkit/` (package
+no flag presets, one spawn). (The entry **cutscene** is NOT a gap — it runs from the field's own `.eb`, so a
+verbatim fork carries it; the old "C# `NarrowMapList` cutscene" framing was a misread — see §7.) The toolkit lives at `ff9mapkit/` (package
 `ff9mapkit/ff9mapkit/`, Blender add-on `ff9mapkit/blender/`). The dev-loop tools live at repo-root `tools/`.
 
 ---
@@ -331,8 +332,11 @@ mechanic above was grounded byte-for-byte against shipping FF9 data, not invente
   the kit before deploy). → `project-ff9-mint-gotchas`, `project-ff9-eb-script-tooling`.
 - **Never edit a bundled example in place** — the form editor's Save will rewrite the
   byte-exact golden oracle. Author on a copy / `ff9mapkit new` / a Blender export.
-- Grep alone can't prove a field is unused — FF9 cutscenes fire from C# tables
-  (`NarrowMapList.cs`), not just field scripts. Trust the user's game knowledge over grep.
+- Grep alone can't prove a field is unused — a field can be reached by a scenario-counter dispatcher, a
+  runtime-computed id, or a *scripted* (non-`SetRegion`) `Field()` warp that `scan_gateways` skips, none of
+  which a field-script grep sees. Trust the user's game knowledge over grep. (★ NOT via `NarrowMapList.cs`,
+  despite older notes — that's the engine's per-field **camera-WIDTH / widescreen** table, not a cutscene
+  trigger; entry cutscenes run from the `.eb`. → `feedback_trust_user_game_knowledge`.)
   → `feedback_trust_user_game_knowledge`, `project_ff9_has_no_unused_fields`.
 
 ---
@@ -498,7 +502,8 @@ Read these on demand — they hold the full technical detail this file only summ
 - **Fork-fidelity audit + the `[startup]` preset block** (`story_flags` branch; `ff9mapkit/docs/FORK_FIDELITY.md`)
   — the **north star is fork FIDELITY, not a release** (§1): "fork a real field → does it play identically?" The
   audit (7-dimension workflow) found the *physical* layer faithful + in-game proven, the *narrative-state* layer
-  the weak axis (a fork boots at scenario-zero, one spawn, no C# `NarrowMapList` cutscene). Highest-leverage
+  the weak axis (a fork boots at scenario-zero, one spawn). [The audit's "no C# `NarrowMapList` cutscene" line
+  was WRONG — entry cutscenes are `.eb`-borne; see the #10-premise-corrected timeline entry below.] Highest-leverage
   orthogonal fix = **`[startup]`** (`content/startup.py`): preset the ScenarioCounter (`scenario = N|"area"`,
   via `set_var(GLOB_UINT16, 0, v)` — token 0xDC) + story bits (`flags = [{flag, value}]`) unconditionally,
   prepended to Main_Init (`edit.insert_in_function`, byte-safe; golden identical when absent). Lint flags
@@ -592,17 +597,19 @@ Read these on demand — they hold the full technical detail this file only summ
   The only LIMIT left is cosmetic: an F6-warp has no entrance fade to mask first-frame model streaming (a heavy
   model flickers in; faithful, fade-hidden in real play). **The verbatim fork is the most faithful mode — a real
   slice of the game (scene + real logic + real text) from one command.**
-- **`[[on_entry]]` — gated, once field-LOAD beats (`story_flags` branch; FORK_FIDELITY.md #10 v1, kit 0.9.15).**
-  A real field's entry cutscene fires from the engine's C# `NarrowMapList` table, NOT the `.eb`, so a fork can't
-  carry it. `[[on_entry]]` is the declarative re-authoring hook: fire a narration `message` and/or story-state
-  writes (`set_scenario`/`set_flags`) the moment the player ENTERS, **once**, but **only when the story state
-  matches** (`requires_scenario` = ScenarioCounter `== N`, and/or `requires_flag`). The **gating** is the new
+- **`[[on_entry]]` — gated, once field-LOAD beats (`story_flags` branch; FORK_FIDELITY.md #10, kit 0.9.15).**
+  ★ **Premise corrected (2026-06-11):** a field's entry cutscene RUNS FROM ITS OWN `.eb` (entry-0 + actor
+  sequences), so a **verbatim** fork already carries it (proven, Vivi/field 100) — the old "fires from the C#
+  `NarrowMapList` table, the `.eb` can't carry it" claim was a misread (`NarrowMapList` is the per-field
+  camera-WIDTH table, zero cutscene logic). `[[on_entry]]` is still the right hook for a **synthesize** fork
+  (which doesn't ship the donor `.eb`) and for ADDING a new gated entry beat: fire a narration `message` and/or
+  story writes (`set_scenario`/`set_flags`) the moment the player ENTERS, **once**, but **only when the story
+  state matches** (`requires_scenario` = ScenarioCounter `== N`, and/or `requires_flag`). The **gating** is the
   capability — neither `[startup]` (unconditional, every entry) nor `[cutscene]` (ungated, single) can express
-  "fire this beat only at scenario N / when bit B is set", which is exactly what a `NarrowMapList` entry trigger
-  does. Each hook = a code entry armed by `InitCode` in Main_Init (the proven narration-cutscene arming, robust
-  for any count post the region-arming fix), so it runs at load BEFORE control (hence no movement gate); the
-  gates sit OUTSIDE the once-block, so a hook returns without spending its once-flag until its beat is reached
-  (the NarrowMapList semantics). A `message` reuses the cutscene reorder-`Wait` + `DisableMove`/`EnableMove`
+  "fire this beat only at scenario N / when bit B is set". Each hook = a code entry armed by `InitCode` in
+  Main_Init (the proven narration-cutscene arming, robust for any count post the region-arming fix), so it runs
+  at load BEFORE control (hence no movement gate); the gates sit OUTSIDE the once-block, so a hook returns
+  without spending its once-flag until its beat is reached. A `message` reuses the cutscene reorder-`Wait` + `DisableMove`/`EnableMove`
   lock. `content/onentry.py` + `build.py` (validate/collect_text/inject/lint) + `flags.py` (name resolution,
   read/write parity); surfaced in the dialogue viewer/editor. Byte-identical when absent; 14 tests, 826 suite.
   Orthogonal to overworld's verbatim/graft/import-chain lane (touches only the declarative-author + lint side).
