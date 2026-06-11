@@ -139,8 +139,10 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   under the popup isn't blocked — keep the window top-left, off the battle command UI. **This SUPERSEDES
   the old single-key F6-reload / F10-reset hotkeys — do not refer to those as current.**
 - **Canonical demo content:** two painted "Vivi" hut rooms — **4000** exterior + **4002**
-  interior — door round-trip, a talking Vivi NPC, an encounter, and an **Alexandria (field 100)
-  door**. The clean packaged copy lives in **`release/FF9CustomMap/`** (the known-good source).
+  interior — door round-trip, a talking Vivi NPC, and an encounter. The clean packaged copy lives in
+  **`release/FF9CustomMap/`** (the known-good source), now **100% kit-authored** — the SE-derived
+  Alexandria field-100 door `.eb` was removed in the provenance cleanup (the field-100 path already
+  crashed / was off the New-Game route), so the demo is the two painted hut rooms.
 - **The live dev `FF9CustomMap` is a churned scratchpad** — test deploys overwrite/remove scene
   folders, so the hut's `FBG_N11_HUT_*` scenes are frequently absent (they are right now;
   FieldMaps holds only the test-slot scenes). **To actually play the hut, redeploy it from
@@ -972,6 +974,22 @@ Read these on demand — they hold the full technical detail this file only summ
   **★ This RESOLVES the long-open "save->Continue into a custom field (id >=4000)" risk (worldmap-feasibility
   memory) -- it WORKS.** 723 tests. docs/SAVEPOINT.md. The COSMETIC barrel/moogle/jump-out is a deferred later
   layer (place a `[[prop]]`/`[[npc]]` over the zone). Memory: `project-ff9-savepoint`.
+- **Provenance cleanup — the working tree now ships ZERO Square-Enix game bytes (commit `e1a8667`).** Two
+  parts. (1) **Text-carry double-check** (commit `3d0dac6`): the install-gated test embedded the donor's real
+  `.mes` word as an assertion -> replaced with the PROPERTY (carried text DIFFERS across us/fr/jp, no us-fallback),
+  so no SE string is in the repo; the descriptive "Conductor line" doc/memory mentions softened to generic. (The
+  `conductor` ARCHETYPE name in `docs/ARCHETYPES.md` is the kit's own catalog id, not game text -- kept.) (2)
+  **Repo audit + removal**: ~217 SE-derived dev artifacts (sessions 1-9 scratch, predating the provenance gate,
+  all unreferenced by code/tests) `git rm`'d from HEAD -- `mod/` (borrowed-grgr / custom-field clones / alex /
+  NPC-injected forks), `reference/bgx-samples/`, `tools/room02_out`+`room03_out`, the SE `backups/` items (the
+  Alexandria `evt_alex1` `.eb`, `EVT_CUSTOM_FIELD_001`, `field70-warp`, the HW script-export `.txt` of fields
+  050/070, the borrowed-GRGR `ROOM01_BASE`/`CUSTOM_ROOM_01` geometry), AND the modified Alexandria field-100 door
+  `.eb` that was inside `release/FF9CustomMap/`. **`release/FF9CustomMap/` is now 100% kit-authored** (the painted
+  hut EXT/INT; the field-100 path already crashed / was off the New-Game route). KEPT: the hut everywhere
+  (`release/`, `tests/fixtures/hut_*`, the hut `.eb`/`.mes`/config backups). `.gitignore` extended so none recur;
+  723 tests pass. The bytes remain in old LOCAL-ONLY history (never pushed) -- a full `filter-repo` history scrub
+  was offered + DECLINED (HEAD-clean is the chosen depth for a local repo). The toolkit OUTPUT was already clean
+  (`extract-templates` regenerates base templates from the user's own install).
 
 ---
 
