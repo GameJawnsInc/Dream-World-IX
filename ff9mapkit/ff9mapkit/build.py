@@ -404,6 +404,14 @@ def validate(project: FieldProject) -> list[str]:
         z = sp.get("zone", [])
         if len(z) not in (4, 5):
             problems.append(f"[[savepoint]] zone must have 4 or 5 points (the press area), got {len(z)}")
+    for sm in project.raw.get("save_moogle", []):       # a carried (imported) save Moogle (docs/SAVEPOINT.md)
+        if sm.get("carried"):                           # the cluster lives in the [[object]]/[[player_func]] blocks
+            if not project.raw.get("object"):
+                problems.append("[[save_moogle]] carried=true needs its cluster -- the [[object]] blocks from "
+                                "`import --save-moogle` (the hidden Moogle + book/feather/tent)")
+            if not project.raw.get("player_func"):
+                problems.append("[[save_moogle]] carried=true needs the Moogle's pose funcs -- the [[player_func]] "
+                                "blocks from `import --save-moogle` (tags 13/14/15)")
     obj_donor_idx = {ob.get("donor_idx") for ob in project.raw.get("object", [])}
     for ob in project.raw.get("object", []):            # faithful object carry (verbatim .eb entry graft)
         binref = ob.get("bin")

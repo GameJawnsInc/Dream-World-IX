@@ -105,6 +105,22 @@ def test_build_field_with_savepoint(tmp_path):
     assert len(save_regions) == 1
 
 
+def test_validate_flags_savemoogle_without_cluster(tmp_path):
+    # the [[save_moogle]] carry marker (from `import --save-moogle`) needs its cluster: the hidden Moogle +
+    # book/feather/tent are [[object]] blocks, the pose surgery [[player_func]] blocks. A bare marker is flagged.
+    from ff9mapkit import build
+    p = tmp_path / "sm.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "S"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[save_moogle]]\ncarried = true\n',           # marker, but no carried cluster
+        encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))
+    assert any("[[save_moogle]]" in x and "object" in x for x in probs)
+    assert any("[[save_moogle]]" in x and "player_func" in x for x in probs)
+
+
 def test_validate_flags_bad_savepoint_zone(tmp_path):
     from ff9mapkit import build
     p = tmp_path / "bad.field.toml"

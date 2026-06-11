@@ -114,8 +114,8 @@ def test_imported_content_toml_is_valid_and_complete(tmp_path):
     assert cd == 0
     assert summary == {"gateways": 4, "encounter": False, "music": 9, "control_direction": 0,
                        "ladders": 0, "jumps": 0, "objects": 2,   # Alexandria: the bell + the ticket prop,
-                       "player_funcs": 0, "carry_text": 0,       # carried VERBATIM (hidden NPCs skipped);
-                       "gateways_retargeted": 0, "gateways_seamed": 0}   # no --graft-player-funcs / --carry-text here
+                       "player_funcs": 0, "carry_text": 0, "save_moogle": 0,   # carried VERBATIM (hidden NPCs
+                       "gateways_retargeted": 0, "gateways_seamed": 0}   # skipped); no graft/carry/save-moogle here
     # the verbatim entry sidecars are written next to the field.toml
     assert (tmp_path / "field.object0.bin").is_file() and (tmp_path / "field.object1.bin").is_file()
     # embed in a complete borrow field.toml -> it must be valid TOML with the right structures

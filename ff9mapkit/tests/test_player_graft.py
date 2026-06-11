@@ -251,3 +251,26 @@ def test_import_graft_player_funcs_builds_working_field122(tmp_path):
     runs = [[i.imm(k) for k in range(len(i.args))]
             for i in eb.instrs(eb.entry(cask["donor_idx"]).func_by_tag(2)) if i.op in (0x10, 0x12, 0x14)]
     assert [6, 250, 66] in runs and [0, 255, 30] in runs                 # examine -> fork tag 66; self-call kept
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_save_moogle_emits_cluster_and_builds(tmp_path):
+    # P4 (docs/SAVEPOINT.md): `import --save-moogle` (graft_savepoint) emits the hidden save-Moogle cluster as
+    # [[object]] blocks (the Moogle + book/feather/tent) + its pose surgery (13/14/15) as [[player_func]] +
+    # a [[save_moogle]] marker; the build carries them. The closing proof (the pop-out + flourish) is P5 in-game.
+    from ff9mapkit import build, extract
+    from ff9mapkit.config import ModLayout
+    meta, toml = extract.write_native_project("fbg_n08_udft_map122_uf_sto_0", tmp_path / "proj",
+                                              name="SAVEMOG", field_id=30003, graft_player_funcs=True,
+                                              graft_savepoint=True)
+    assert meta["imported_content"]["save_moogle"] == 1                  # the marker fired (field 122 has one)
+    p = build.FieldProject.load(toml)
+    assert any(sm.get("carried") for sm in p.raw.get("save_moogle", []))  # [[save_moogle]] carried=true emitted
+    assert build.validate(p) == []                                       # lint clean (cluster present)
+    dist = tmp_path / "dist"
+    build.build_mod([p], dist, mod_name="FF9CustomMap")
+    data = ModLayout(dist).eb_path("us", "EVT_SAVEMOG.eb.bytes").read_bytes()
+    s = EbScript.from_bytes(data)
+    assert s.to_bytes() == data                                          # the carried fork round-trips
+    models = {i.imm(0) for e in s.entries if not e.empty for f in e.funcs for i in s.instrs(f) if i.op == 0x2F}
+    assert {220, 133, 134, 225} <= models                               # Moogle + book base/page + tent carried
