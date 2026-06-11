@@ -212,6 +212,32 @@ def _entry_player_call_tags(entry_bytes, donor_player_entry, carry_tags=None) ->
     return out
 
 
+def _seq_helper_problem(bin_bytes) -> str | None:
+    """Reason a STARTSEQ-helper sidecar (docs/OBJECT_CARRY.md S2 v1.5) is UNSAFE to graft, or None. Mirrors
+    ``eventscan._seq_helper_safe`` on a standalone entry sidecar: a type-1 Seq/region entry with a benign body
+    (no warp/battle/camera/menu/window op) and no nested ``STARTSEQ`` (the closure is depth-1). Guards a
+    hand-edited project; the kit's own emit always passes."""
+    from . import eventscan
+    from .binutils import u16
+    from .eb.disasm import iter_code
+    b = bytes(bin_bytes)
+    if len(b) < 2:
+        return "empty / too short"
+    if b[0] != 1:
+        return f"not a type-1 Seq/region entry (type byte {b[0]})"
+    fc = b[1]
+    funcs = [(u16(b, 2 + i * 4), u16(b, 2 + i * 4 + 2)) for i in range(fc)]
+    for i, (_tag, fpos) in enumerate(funcs):
+        start = 2 + fpos
+        end = (2 + funcs[i + 1][1]) if i + 1 < fc else len(b)
+        for ins in iter_code(b, start, end):
+            if ins.op == eventscan.RUN_SHARED_SCRIPT:
+                return "contains a nested STARTSEQ (the closure carries depth-1 helpers only)"
+            if ins.op in eventscan.UNSAFE_SEQ_OPS:
+                return f"contains the cutscene op {ins.name} (warp/battle/camera/menu/window) -- would fire in a static fork"
+    return None
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
@@ -378,6 +404,7 @@ def validate(project: FieldProject) -> list[str]:
         z = sp.get("zone", [])
         if len(z) not in (4, 5):
             problems.append(f"[[savepoint]] zone must have 4 or 5 points (the press area), got {len(z)}")
+    obj_donor_idx = {ob.get("donor_idx") for ob in project.raw.get("object", [])}
     for ob in project.raw.get("object", []):            # faithful object carry (verbatim .eb entry graft)
         binref = ob.get("bin")
         if not binref:
@@ -386,6 +413,23 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[object]] entry sidecar not found: {binref}")
         elif not project.path(binref).read_bytes()[:2]:
             problems.append(f"[[object]] entry sidecar is empty: {binref}")
+        # STARTSEQ-helper closure (docs/OBJECT_CARRY.md S2 v1.5): each carried helper must exist, be a benign
+        # self-contained type-1 Seq, and NOT also be armed as an [[object]] (a double-append). The kit's own
+        # emit is always consistent; these guard a hand-edited project.
+        for h in (ob.get("seqs") or []):
+            sb = h.get("bin")
+            if not sb:
+                problems.append('[[object]] seqs entry needs bin = "<file>" (a STARTSEQ helper sidecar)')
+                continue
+            if not project.path(sb).is_file():
+                problems.append(f"[[object]] seqs helper sidecar not found: {sb}")
+                continue
+            why = _seq_helper_problem(project.path(sb).read_bytes())
+            if why:
+                problems.append(f"[[object]] seqs helper {sb}: {why}")
+            if h.get("entry") in obj_donor_idx:
+                problems.append(f"[[object]] seqs helper entry {h.get('entry')} is also a carried [[object]] "
+                                f"(double-append) -- it must be either armed OR Seq-launched, not both")
     pf_tags = {0, 1}                                     # the fork player's own tags + the grafted donor tags
     for pf in project.raw.get("player_func", []):        # player-function graft (carried-object interactions)
         binref = pf.get("bin")

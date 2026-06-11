@@ -136,3 +136,62 @@ def iter_code(raw: bytes, start: int, end: int):
         instr, pos = read_code(raw, pos)
         yield instr
         guard += 1
+
+
+def _expr_uid_offsets(raw: bytes, pos: int) -> tuple[int, list]:
+    """Walk one expression token stream (mirrors :func:`read_expr`); return (new_pos, uid_offsets) where
+    each uid_offset is the absolute byte offset of a ``0x78`` (B_OBJSPECA) token's UID operand byte (the
+    first of its two data bytes -- ``78 <uid> <field>``, uid first)."""
+    offs = []
+    while True:
+        o = raw[pos]; pos += 1
+        isconst = o in (0x7D, 0x7E)
+        isvar = o >= 0xC0 or o in (0x29, 0x5F, 0x78, 0x79, 0x7A)
+        if not isconst and not isvar:
+            if o == 0x7F:
+                break
+            continue
+        if o == 0x7E:
+            pos += 4
+        elif o >= 0xE0 or o in (0x78, 0x7D):
+            if o == 0x78:
+                offs.append(pos)              # the UID byte (first data byte of the obj-var token)
+            pos += 2
+        else:
+            pos += 1
+    return pos, offs
+
+
+def expr_obj_uid_offsets(raw: bytes, start: int, end: int) -> list:
+    """Absolute byte offsets of every ``0x78`` (B_OBJSPECA, obj-var read) token's UID operand byte in
+    ``raw[start:end]``. Decodes instruction-by-instruction exactly like :func:`read_code` and walks each
+    EXPRESSION operand's token stream -- NOT a raw-byte ``0x78`` scan (which false-positives on const data,
+    per docs/OBJECT_CARRY.md S3 invariant 2). The object graft uses this to remap a sibling uid read inside
+    an expression operand (a same-length 1-byte patch). Mirrors ``read_code``'s operand decode."""
+    out = []
+    pos = start
+    while pos < end:
+        op = raw[pos]; pos += 1
+        if op == 0xFF:
+            op = 0x100 | raw[pos]; pos += 1
+        ac = OP_ARG_COUNT[op] if op < len(OP_ARG_COUNT) else 0
+        arg_flag = 0
+        if op >= 0x10 and ac != 0:
+            arg_flag = raw[pos]; pos += 1
+        if op == 0x05:
+            arg_flag = 1
+        if ac < 0:
+            ac = raw[pos]; pos += 1
+            if op == 0x0D:
+                ac |= raw[pos] << 8; pos += 1
+            if op == 0x06:
+                ac = 1 + 2 * ac
+            elif op in (0x0B, 0x0D):
+                ac = 2 + ac
+        for i in range(ac):
+            if arg_flag & (1 << i):
+                pos, uoffs = _expr_uid_offsets(raw, pos)
+                out.extend(uoffs)
+            else:
+                pos += argsize(op, i)
+    return out

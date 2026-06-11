@@ -22,7 +22,7 @@ import struct
 from .. import eventscan
 from ..binutils import u16
 from ..eb import EbScript, edit, opcodes
-from ..eb.disasm import argsize
+from ..eb.disasm import argsize, expr_obj_uid_offsets
 from . import region as _region
 
 
@@ -67,13 +67,15 @@ def _arg_byte_offset(ins, ai):
 
 
 def _remap_value(kind, val, donor_idx, new_slot, donor_player_entry, donor2new):
-    """Remap one slot/uid value when an entry moves ``donor_idx`` -> ``new_slot`` (docs/OBJECT_CARRY.md S3)."""
+    """Remap one slot/uid value when an entry moves ``donor_idx`` -> ``new_slot`` (docs/OBJECT_CARRY.md S3).
+    ``donor_player_entry`` is the primary PC entry index (int) OR the full collection of PC entry indices
+    (a field with several ``DefinePlayerCharacter`` entries -- ANY of them aliases the controlUID 250)."""
     if val == donor_idx:                              # self by slot / entry index -> the new slot
         return new_slot
     if kind == "uid":
         if val in (eventscan.UID_PLAYER, eventscan.UID_SELF) or val in eventscan.PARTY_UIDS:
             return val                                # engine specials -- slot-independent, kept
-        if donor_player_entry is not None and val == donor_player_entry:
+        if eventscan._is_player_entry(val, donor_player_entry):
             return eventscan.UID_PLAYER               # player BY ENTRY INDEX -> the controlUID alias 250
     if val in donor2new:                              # a carried sibling -> its new slot
         return donor2new[val]
@@ -95,31 +97,39 @@ def remap_entry_refs(data, slot, donor_idx, donor_player_entry, donor2new, playe
     for f in eb.entry(slot).funcs:
         for ins in eb.instrs(f):
             spec = eventscan.REF_OPS.get(ins.op)
-            if not spec:
-                continue
-            for kind in ("slot", "uid"):
-                for ai in spec.get(kind, ()):
-                    if ai >= len(ins.arg_is_expr) or ins.arg_is_expr[ai]:
-                        continue
-                    val = ins.imm(ai)
-                    if val is None:
-                        continue
-                    if kind == "uid" and ins.op in eventscan.INIT_OPS and val == 0:
-                        continue                      # uid 0 aliases the slot -- not an explicit ref
-                    new = _remap_value(kind, val, donor_idx, slot, donor_player_entry, donor2new)
-                    if new == val:
-                        continue
-                    bo = _arg_byte_offset(ins, ai)
-                    if bo is None or argsize(ins.op, ai) != 1:
-                        continue                      # only same-length 1-byte operands are patchable
-                    b[ins.off + bo] = new & 0xFF
-            if player_tag_remap and ins.op in eventscan.RUNSCRIPT_OPS:      # site (a): the called PLAYER tag
-                uid, tag = ins.imm(1), ins.imm(2)
-                if (uid == eventscan.UID_PLAYER or (donor_player_entry is not None and uid == donor_player_entry)) \
-                        and tag in player_tag_remap:
-                    bo = _arg_byte_offset(ins, 2)
-                    if bo is not None and argsize(ins.op, 2) == 1:
-                        b[ins.off + bo] = player_tag_remap[tag] & 0xFF
+            if spec:
+                for kind in ("slot", "uid"):
+                    for ai in spec.get(kind, ()):
+                        if ai >= len(ins.arg_is_expr) or ins.arg_is_expr[ai]:
+                            continue
+                        val = ins.imm(ai)
+                        if val is None:
+                            continue
+                        if kind == "uid" and ins.op in eventscan.INIT_OPS and val == 0:
+                            continue                  # uid 0 aliases the slot -- not an explicit ref
+                        new = _remap_value(kind, val, donor_idx, slot, donor_player_entry, donor2new)
+                        if new == val:
+                            continue
+                        bo = _arg_byte_offset(ins, ai)
+                        if bo is None or argsize(ins.op, ai) != 1:
+                            continue                  # only same-length 1-byte operands are patchable
+                        b[ins.off + bo] = new & 0xFF
+                if player_tag_remap and ins.op in eventscan.RUNSCRIPT_OPS:  # site (a): the called PLAYER tag
+                    uid, tag = ins.imm(1), ins.imm(2)
+                    if (uid == eventscan.UID_PLAYER or eventscan._is_player_entry(uid, donor_player_entry)) \
+                            and tag in player_tag_remap:
+                        bo = _arg_byte_offset(ins, 2)
+                        if bo is not None and argsize(ins.op, 2) == 1:
+                            b[ins.off + bo] = player_tag_remap[tag] & 0xFF
+        # site (b): a sibling uid read inside an EXPRESSION operand -- the op78 (B_OBJSPECA) token. The
+        # immediate REF_OPS loop above skips expr args, so without this a grafted body that reads
+        # `op78(<entry>)` (e.g. a MoveInstantXZY positioned off a sibling, or a Seq helper's self/sibling
+        # read) keeps the DONOR index after the move -> acts on the wrong/empty fork entry. The uid is a
+        # 1-byte token operand (same-length patch). Decoder-walked (NOT a raw 0x78 scan -> no false hits).
+        for off in expr_obj_uid_offsets(data, f.abs_start, f.abs_end):
+            new = _remap_value("uid", b[off], donor_idx, slot, donor_player_entry, donor2new)
+            if new != b[off]:
+                b[off] = new & 0xFF
     return bytes(b)
 
 
@@ -149,14 +159,24 @@ def graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map
     (so a sibling cross-reference can resolve); (2) remap each entry's references + arm it from Main_Init.
 
     ``out_slot_map`` (optional): a dict the caller passes in; on return it holds ``{donor_idx: fork_slot}``
-    for every grafted (non-refused) object. The text-carry path (:mod:`content.textcarry`) needs it to find
+    for every grafted (non-refused) OBJECT. The text-carry path (:mod:`content.textcarry`) needs it to find
     each grafted entry and remap its window TXIDs; existing callers omit it and are unaffected.
+
+    ``seqs`` on a spec (docs/OBJECT_CARRY.md S2 v1.5): the BENIGN ``STARTSEQ`` helper entries the object
+    launches from a kept tag (``{entry, bytes}`` or ``{entry, bin}``). Each is appended at a free slot
+    FIELD-SCOPED-DEDUPED (a shared helper once, not once per consumer) and its launcher arg is remapped via
+    ``donor2new`` like the ladder ``sequences`` graft -- but a helper is a runtime-launched Seq, so it is
+    appended-and-remapped, NEVER ``InitObject``'d.
     """
     specs = [s for s in specs if s.get("graft_safety") != "refuse"]
     if not specs:
         return data
-    donor2new, appended = {}, []
-    for s in specs:                                   # PASS 1 -- reserve every slot
+
+    def _pents(s):                                    # primary PC int OR the full PC-entry list (multi-PC)
+        return s.get("donor_player_entries") or s.get("donor_player_entry")
+
+    donor2new, appended, helpers = {}, [], []
+    for s in specs:                                   # PASS 1 -- reserve every slot (objects + their helpers)
         raw = s.get("entry_bytes")
         if raw is None:
             if load is None:
@@ -167,11 +187,25 @@ def graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map
         data = edit.append_entry(data, slot, raw)
         donor2new[int(s["donor_idx"])] = slot
         appended.append((s, slot))
+        for h in (s.get("seqs") or []):               # the STARTSEQ helpers this object carries
+            hi = int(h["entry"])
+            if hi in donor2new:                       # field-scoped dedup -- a shared helper is appended once
+                continue
+            hraw = h.get("bytes")
+            if hraw is None:
+                if load is None:
+                    raise ValueError(f"seq helper {hi} has no bytes and no loader")
+                hraw = load(h["bin"])
+            hslot = EbScript.from_bytes(data).first_free_slot()
+            data = edit.append_entry(data, hslot, hraw)
+            donor2new[hi] = hslot
+            helpers.append((hi, hslot, _pents(s)))
     for s, slot in appended:                          # PASS 2 -- remap references + arm from Main_Init
-        data = remap_entry_refs(data, slot, int(s["donor_idx"]), s.get("donor_player_entry"), donor2new,
-                                player_tag_remap)
+        data = remap_entry_refs(data, slot, int(s["donor_idx"]), _pents(s), donor2new, player_tag_remap)
         for inst in (s.get("instances") or [{"arg": 0}]):
             data = _arm(data, slot, int(inst.get("arg", 0)), s.get("needs_d9") or {})
+    for hi, hslot, pents in helpers:                  # helpers: remap their own refs, but NEVER arm (Seq-launched)
+        data = remap_entry_refs(data, hslot, hi, pents, donor2new, player_tag_remap)
     if out_slot_map is not None:
-        out_slot_map.update(donor2new)
+        out_slot_map.update({int(s["donor_idx"]): slot for s, slot in appended})
     return data

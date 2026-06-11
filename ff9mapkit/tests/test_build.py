@@ -166,6 +166,52 @@ once = false
 """
 
 
+SEQROOM = """
+[field]
+id = 4003
+name = "SEQROOM"
+area = 11
+text_block = 1073
+
+[camera]
+pitch = 45
+
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+
+[player]
+spawn = [0, -300]
+
+[[object]]
+bin = "f.object0.bin"
+kind = "prop"
+donor_idx = 7
+instances = [{ arg = 0, x = 0, z = 0 }]
+seqs = [{ entry = 9, bin = "f.object0.seq9.bin" }]
+"""
+
+
+def test_seq_helper_closure_lint(tmp_path):
+    # the STARTSEQ-helper closure lint guards (docs/OBJECT_CARRY.md S2 v1.5): a benign type-1 helper
+    # validates clean; an unsafe (cutscene) body, a missing sidecar, and a double-arm are all errors.
+    import struct
+    from ff9mapkit.eb import opcodes
+    init = opcodes.encode(0x2F, 133, 0) + opcodes.encode(0x33, 1872) + opcodes.RETURN   # SetModel + pose
+    loop = opcodes.encode(0x43, 9) + opcodes.RETURN                                     # STARTSEQ(9)
+    obj = bytes([0, 2]) + struct.pack("<HH", 0, 8) + struct.pack("<HH", 1, 8 + len(init)) + init + loop
+    (tmp_path / "f.object0.bin").write_bytes(obj)
+    p = tmp_path / "f.field.toml"
+    p.write_text(SEQROOM, encoding="utf-8")
+    benign = bytes([1, 1]) + struct.pack("<HH", 0, 4) + opcodes.RETURN
+    (tmp_path / "f.object0.seq9.bin").write_bytes(benign)
+    assert validate(FieldProject.load(p)) == []                                        # benign -> clean
+    (tmp_path / "f.object0.seq9.bin").write_bytes(                                      # MoveCamera -> error
+        bytes([1, 1]) + struct.pack("<HH", 0, 4) + opcodes.encode(0x6F, 0, 0, 0, 0, 0, 0) + opcodes.RETURN)
+    assert any("cutscene op MoveCamera" in x for x in validate(FieldProject.load(p)))
+    (tmp_path / "f.object0.seq9.bin").unlink()                                          # missing -> error
+    assert any("seqs helper sidecar not found" in x for x in validate(FieldProject.load(p)))
+
+
 def test_event_field_validates_and_builds(tmp_path):
     from ff9mapkit.eb import EbScript
     from ff9mapkit.eb.disasm import iter_code

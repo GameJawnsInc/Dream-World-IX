@@ -152,7 +152,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.9`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.10`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -956,7 +956,8 @@ Read these on demand — they hold the full technical detail this file only summ
   `cli --carry-text` (implies `--graft-player-funcs`); works on all import modes (BG-borrow now forwards the flags
   it previously dropped). Opt-in, default-off -> byte-identical (hut golden). 715 tests pass. **PROCESS NOTE: this
   was WORKFLOW-GENERATED (a "research" pass that overstepped + implemented), then INDEPENDENTLY reviewed +
-  verified (code read, 715 tests re-run, own import->build->deploy->in-game). Provenance double-check still pending.
+  verified (code read, 715 tests re-run, own import->build->deploy->in-game). Provenance double-check **now done**
+  (the `.carrytext.json` sidecar is gitignored line 125; nothing SE-derived tracked).
   LESSON: scope research workflows so they cannot write production code.** docs/TEXT_CARRY.md.
 - **Save-point synthesis — a functional save point in a custom field (in-game proven, commit `46f96d3`).** The
   deferred capstone after the object/player/text carry arc. FF9's save point SYNTHESIZED as a press-to-interact
@@ -990,6 +991,40 @@ Read these on demand — they hold the full technical detail this file only summ
   723 tests pass. The bytes remain in old LOCAL-ONLY history (never pushed) -- a full `filter-repo` history scrub
   was offered + DECLINED (HEAD-clean is the chosen depth for a local repo). The toolkit OUTPUT was already clean
   (`extract-templates` regenerates base templates from the user's own install).
+- **Faithful object carry v1.5 — the STARTSEQ-helper closure (kit 0.9.10; in-game proven, commit `2eb0f84`*).**
+  The follow-on to object carry: a forked object that launches a benign concurrent **Seq** via `STARTSEQ`
+  (RunSharedScript, an entry index — a forward-lean, a shadow toggle, an idle loop) was REFUSED by v1 (the fork
+  dropped the helper). v1.5 CARRIES the helper too — appended at a free slot + the launcher arg remapped, the exact
+  `inject_ladder` `sequences` graft generalized to objects (`content/object.py` `graft_objects` `seqs`). **A
+  research workflow (`object-sibling-closure-research`, read-only Explore agents — honoring the text-carry LESSON
+  above, no production code) + a 676-field census** refined the picked "sibling + STARTSEQ closure" to **STARTSEQ
+  ONLY**: the sibling-OBJECT axis is **EMPTY** (0 safe targets — every uncarried object-ref is party/player/
+  controller/save-machinery/out-of-range; adversarially confirmed). The closure **un-refuses 53 + un-stubs 23**
+  (faithful object coverage ~65%→~70%; 109 helpers, all type-1). Three things naive ladder-reuse lacks, all
+  shipped: a **body vet** (`eventscan.UNSAFE_SEQ_OPS`/`_seq_helper_safe` — 9 objects whose RENDER-tag helper runs a
+  cutscene op `MoveCamera`/`Battle`/`Field`/menu/window stay refused, so no sweep fires in a static fork),
+  **append-without-arm** (a Seq is runtime-launched, never `InitObject`'d), and **field-scoped dedup** (a shared
+  helper appended once — reuse `donor2new`, NOT `inject_ladder`'s per-call map). Depth-1 (0 nested STARTSEQ
+  game-wide → no recursive walker). **+ two v1 correctness fixes the census surfaced** (the user picked "closure +
+  both"): the **op78 expression-uid remap** (`disasm.expr_obj_uid_offsets` walks the token stream — a raw 0x78 scan
+  false-positives; `remap_entry_refs` now patches a sibling read inside an expr operand → fixes ~31 already-shipped
+  v1 objects) and the **multi-`DefinePlayerCharacter` classification** (`resolve_player_entries`; 182 fields — a
+  secondary-PC ref → `player`, the grafter normalizes ALL PC entries to 250; removes ~170 false-uncarried refs + 7
+  secondary-PC false objects). Gated on `[[object]]` + `graft_seq_helpers=False` default → authored builds
+  **byte-identical** (hut SHA-256 golden held). Extract emits `[[object]] seqs` + gitignored `.object{i}.seq{ei}.bin`
+  sidecars; build lint guards (unsafe/non-type-1/nested/double-arm). **726 kit tests pass; 676/676 fields graft +
+  round-trip, 0 errors** (op78 + multi-PC + closure all active). Designed/verified offline by me directly (the
+  workflow was research-ONLY); implementation NOT delegated. **In-game gates ALL PASSED: 705** (the Gizamaluke
+  moogle's `MoveCamera` helper stays refused — moogle spawns, **NO camera hijack** = the body-vet works), **2053**
+  (a shared helper → all 7 objects render, dedup holds), **567** (the closure-carried `GEO_ACC_F0_V02` renders at
+  its **byte-faithful real position** — verified its grafted Init D9 consts == the donor's; it's the distant/high
+  "airship" the human saw, a sprawling-vista field, NOT a bug). **★ Gotcha for the gate: a carried object's spec
+  `pos` is `None` when the scanner can't surface a single (x,z) (≈375 game-wide, e.g. `slot_count>1` or
+  expression-form placement) — but the VERBATIM graft still places it correctly via its own Init D9
+  (`CreateObject`/`MoveInstantXZY`); pos=None is cosmetic (summary/stub only), never a placement bug.** Import by
+  the **FBG NAME** (`ID_TO_FBG[id]`) — `import "<id>"` resolves a different field (HW index ≠ field id).
+  docs/OBJECT_CARRY.md §2; memory `project-ff9-object-carry`.
+  *(* hash will be rewritten by the rebase onto master's save-point + provenance commits.)
 
 ---
 

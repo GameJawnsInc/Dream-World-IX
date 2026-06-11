@@ -126,6 +126,92 @@ def test_graft_arms_main_init_d9_positioned_object():
     assert (back[0]["instances"][0]["x"], back[0]["instances"][0]["z"]) == (-250, -571)
 
 
+# --- STARTSEQ-helper closure (docs/OBJECT_CARRY.md S2 v1.5) ----------------------------------------
+STARTSEQ = 0x43
+
+
+def _type1_helper(body=None):
+    """A minimal type-1 Seq/region helper entry (1 func), benign by default."""
+    b = (opcodes.RETURN if body is None else body)
+    return bytes([1, 1]) + struct.pack("<HH", 0, 4) + b
+
+
+def _obj_with_startseq(donor_idx, helper_idx, *, model=133, pose=1872):
+    """A synthetic carried object whose LOOP (tag 1) launches ``STARTSEQ(helper_idx)`` -- the closure case."""
+    init = (opcodes.encode(eventscan.SET_MODEL_OP, model, 0)
+            + opcodes.encode(eventscan.SET_STAND_ANIM_OP, pose) + opcodes.RETURN)
+    loop = opcodes.encode(STARTSEQ, helper_idx) + opcodes.RETURN
+    entry = (bytes([0, 2]) + struct.pack("<HH", 0, 8) + struct.pack("<HH", 1, 8 + len(init)) + init + loop)
+    return {"donor_idx": donor_idx, "entry_bytes": entry, "kind": "prop", "carry_tags": None,
+            "graft_safety": "clean", "donor_player_entry": None, "self_positions": True,
+            "needs_d9": {}, "instances": [{"arg": 0}],
+            "seqs": [{"entry": helper_idx, "bytes": _type1_helper()}]}
+
+
+def _startseq_target(eb, obj_slot):
+    ins = next(i for f in eb.entry(obj_slot).funcs for i in eb.instrs(f) if i.op == STARTSEQ)
+    return ins.imm(0)
+
+
+def _main_init_armed(eb):
+    f0 = eb.entry(0).func_by_tag(0)
+    return [i.imm(0) for i in eb.instrs(f0) if i.op == 0x09]      # InitObject slot args
+
+
+def test_seq_helper_appended_at_a_fresh_slot_and_remapped_not_armed():
+    spec = _obj_with_startseq(donor_idx=7, helper_idx=9)
+    g = _obj.graft_objects(CLEAN, [spec])
+    eb = EbScript.from_bytes(g)
+    assert eb.to_bytes() == g
+    obj_slot = eventscan.scan_objects_verbatim(g)[0]["donor_idx"]
+    helper_slot = _startseq_target(eb, obj_slot)
+    assert helper_slot != 9 and not eb.entry(helper_slot).empty    # appended at a fresh slot, remapped
+    assert helper_slot not in _main_init_armed(eb)                 # a Seq helper is launched, NEVER InitObject'd
+
+
+def test_seq_helper_field_scoped_dedup():
+    # two objects launch the SAME helper (donor index 9) -> appended ONCE, both STARTSEQ args point at it
+    g = _obj.graft_objects(CLEAN, [_obj_with_startseq(7, 9), _obj_with_startseq(8, 9)])
+    eb = EbScript.from_bytes(g)
+    assert eb.to_bytes() == g
+    slots = [s["donor_idx"] for s in eventscan.scan_objects_verbatim(g)]
+    targets = {_startseq_target(eb, s) for s in slots}
+    assert len(targets) == 1                                       # one shared helper slot
+    helper_slot = targets.pop()
+    assert helper_slot not in _main_init_armed(eb)
+
+
+def test_op78_expr_sibling_uid_is_remapped():
+    # a body that READS a sibling via the op78 (B_OBJSPECA) expression token -- the v1 latent-bug fix:
+    # remap_entry_refs must rewrite the uid inside the expression operand, not just the immediate ops.
+    body = bytes([0x05, 0x78, 5, 1, 0x7F]) + opcodes.RETURN        # EXPR{ op78(uid=5, field=1) }
+    entry = bytes([0, 1]) + struct.pack("<HH", 0, 4) + body
+    slot = EbScript.from_bytes(CLEAN).first_free_slot()
+    g = edit.append_entry(CLEAN, slot, entry)
+    g = _obj.remap_entry_refs(g, slot, donor_idx=7, donor_player_entry=None, donor2new={7: slot, 5: 42})
+    eb = EbScript.from_bytes(g)
+    f = eb.entry(slot).funcs[0]
+    # the op78 uid byte (was 5) is now 42 (sibling 5's new slot); the script still round-trips
+    assert "op78(42," in str(next(eb.instrs(f))) and eb.to_bytes() == g
+
+
+def test_multi_pc_secondary_entry_normalized_to_250():
+    # a body that RunScripts a SECONDARY player entry (8) by index; with the full PC list it -> 250
+    rss = bytes([0x14, 0x00, 2, 8, 0])                            # RunScriptSync(level=2, uid=8, tag=0)
+    entry = bytes([0, 1]) + struct.pack("<HH", 0, 4) + rss + opcodes.RETURN
+    slot = EbScript.from_bytes(CLEAN).first_free_slot()
+    g = edit.append_entry(CLEAN, slot, entry)
+    g = _obj.remap_entry_refs(g, slot, donor_idx=7, donor_player_entry=[5, 8], donor2new={7: slot})
+    eb = EbScript.from_bytes(g)
+    run = next(i for f in eb.entry(slot).funcs for i in eb.instrs(f) if i.op == 0x14)
+    assert run.imm(1) == 250                                       # secondary PC entry 8 -> controlUID 250
+
+
+def test_default_scan_has_no_seqs_key():
+    s = _prop_spec()
+    assert "seqs" not in s                                         # closure OFF by default -> byte-identical specs
+
+
 def _game_ready():
     try:
         import UnityPy  # noqa: F401

@@ -56,10 +56,27 @@ into a **field-specific player function tag** the fork's player lacks. So:
   to 250 first.
 - Any **uncarried sibling/region** reference.
 
+**v1.5 — STARTSEQ-helper closure — DONE (✓ shipped; in-game gate pending).** Carry the benign concurrent Seq a
+carried object launches via `STARTSEQ` (RunSharedScript, an entry index), appended at a free slot + the launcher
+arg remapped — the exact `inject_ladder` `sequences` graft generalized to objects. A 676-field census +
+adversarial verification (the `object-sibling-closure-research` workflow) refined the original "sibling +
+STARTSEQ" scope to **STARTSEQ-helper only**: the sibling-OBJECT axis is EMPTY (every uncarried object-to-object
+ref is the party / player / a controller / save machinery / out-of-range — nothing safe to carry), so v1.5 ships
+the STARTSEQ closure alone. It **un-refuses 53 objects + un-stubs 23** (faithful object coverage ~65% → ~70%; 109
+helpers, all type-1). Three things the naive ladder reuse lacks, all shipped: a **helper-body vet** (9 objects
+whose render-path helper runs a cutscene op — `MoveCamera`/`Battle`/`Field`/menu/window — stay refused, via
+`eventscan.UNSAFE_SEQ_OPS` + `_seq_helper_safe`), **append-without-arm** (a Seq is runtime-launched, never
+`InitObject`'d), and **field-scoped dedup** (a shared helper appended once). Closure depth is 1 (0 nested
+STARTSEQ game-wide), so no recursive walker. Landed with two orthogonal v1 fixes the census surfaced: the
+**op78 expression-uid remap** (`disasm.expr_obj_uid_offsets`; ~31 already-shipped objects mis-read a sibling)
+and the **multi-`DefinePlayerCharacter` classification** (182 fields; a secondary-PC ref → `player`, normalized
+to 250). Gated on `[[object]]` + `graft_seq_helpers=False` default → authored builds byte-identical. Scanner
+`eventscan.scan_objects_verbatim(graft_seq_helpers=)` + `_seq_helper_safe`; grafter `content/object.py`
+(append-no-arm + dedup + op78); extract `[[object]] seqs` + `.object{i}.seq{ei}.bin` sidecars; build lint guards.
+In-game gates: **567** (a `GEO_ACC_F0_V02` prop, refuse→renders), **1212/2053** (a shared helper → all render
+once), **705** (the Gizamaluke moogle's `MoveCamera` helper → stays refused, no sweep fires).
+
 **DEFERRED:**
-- **v1.5 — sibling-closure + STARTSEQ-helper-closure:** carry the referenced siblings too and remap mutually
-  (reuses `inject_ladder`'s exact `sequences` machinery). Climbs coverage from ~75% to ~86%. The dominant tail
-  mechanism is `STARTSEQ → type-1 Seq-helper entries` (169 refs) — identical to what the ladder grafter handles.
 - **Save-point transitive closure — DEFER ENTIRELY, re-scope as synthesis.** The save point is **5 hidden objects
   + 2 STARTSEQ helpers = 7 entries PLUS mandatory player-object surgery** (moogle tag3 → player tags 13/14/15;
   player tags 13/14/15 → moogle = a cycle through the player) PLUS a shared `gEventGlobal`/MAP state contract. The

@@ -292,18 +292,24 @@ def _inst_tbl(it) -> str:
     return "{ " + ", ".join(parts) + " }"
 
 
-def _object_block(o, fn: str) -> str:
+def _object_block(o, fn: str, seq_fns=None) -> str:
     """A ``[[object]]`` graft block: the verbatim-entry sidecar + what ``build`` needs to append + arm
     it. ``carry_tags`` is emitted only for an ``init_only`` carry (a ``clean`` object carries whole);
-    ``needs_d9`` only for a ``Main_Init``-D9-positioned object (else the entry self-positions)."""
+    ``needs_d9`` only for a ``Main_Init``-D9-positioned object (else the entry self-positions); ``seqs``
+    (``seq_fns`` = ``[(entry, sidecar)]``) only when the closure carries STARTSEQ helpers for this object."""
     lines = [f'[[object]]\nbin = "{fn}"\nkind = "{o["kind"]}"\ndonor_idx = {o["donor_idx"]}']
     if o.get("donor_player_entry") is not None:
         lines.append(f'donor_player_entry = {o["donor_player_entry"]}')
+    dpes = o.get("donor_player_entries") or []
+    if len(dpes) > 1:                                    # multi-DefinePlayerCharacter -> the grafter normalizes ALL
+        lines.append("donor_player_entries = [" + ", ".join(str(p) for p in dpes) + "]")
     if o["graft_safety"] == "init_only":
         lines.append("carry_tags = [" + ", ".join(str(t) for t in o["carry_tags"]) + "]")
     if o.get("needs_d9"):
         lines.append("needs_d9 = { " + ", ".join(f"{k} = {v}" for k, v in sorted(o["needs_d9"].items())) + " }")
     lines.append("instances = [" + ", ".join(_inst_tbl(it) for it in o["instances"]) + "]")
+    if seq_fns:
+        lines.append("seqs = [" + ", ".join(f'{{ entry = {ei}, bin = "{sfn}" }}' for ei, sfn in seq_fns) + "]")
     return "\n".join(lines)
 
 
@@ -415,8 +421,14 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
             blocks.append(f'[[jump]]\nzone = [{zone}]\njump = "{fn}"\ntrigger = "{jp["trigger"]}"{extra}')
         parts.append("\n\n".join(blocks))
         n_jumps = len(jmps)
-    objs = ((eventscan.scan_objects_verbatim(eb_bytes, graft_player_funcs=True, carry_text=carry_text)
-             if graft_player_funcs else content.get("objects_verbatim")) or [])   # graft mode flips init_only -> whole-entry
+    # faithful object carry. The STARTSEQ-helper closure (graft_seq_helpers) is a pure fidelity win -- it
+    # carries the benign Seq an object launches, un-refusing it -- so it's ALWAYS on: the default path reads
+    # it via scan_content (objects_verbatim is scanned with it), and the graft_player_funcs path (which also
+    # touches the fork PLAYER, opt-in) requests it directly. graft mode flips init_only -> whole-entry; the
+    # closure flips refuse -> graftable. docs/OBJECT_CARRY.md S2 v1.5.
+    objs = ((eventscan.scan_objects_verbatim(eb_bytes, graft_player_funcs=True, carry_text=carry_text,
+                                             graft_seq_helpers=True)
+             if graft_player_funcs else content.get("objects_verbatim")) or [])
     n_objects = 0
     if objs and out_dir is not None:                    # objects carry a verbatim entry -> need out_dir
         out_path = Path(out_dir)
@@ -431,7 +443,12 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
             if o["graft_safety"] in ("clean", "init_only"):
                 fn = f"{name}.object{i}.bin"
                 (out_path / fn).write_bytes(o["entry_bytes"])     # the verbatim entry build grafts
-                blocks.append(_object_block(o, fn))
+                seq_fns = []                                       # the closure's STARTSEQ helper sidecars
+                for h in (o.get("seqs") or []):
+                    sfn = f"{name}.object{i}.seq{h['entry']}.bin"
+                    (out_path / sfn).write_bytes(h["bytes"])
+                    seq_fns.append((int(h["entry"]), sfn))
+                blocks.append(_object_block(o, fn, seq_fns))
             else:
                 blocks.append(_object_stub(o))
         parts.append("\n\n".join(blocks))

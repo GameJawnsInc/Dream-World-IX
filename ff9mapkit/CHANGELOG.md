@@ -5,6 +5,35 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — faithful object carry v1.5: the STARTSEQ-helper closure (+ two v1 correctness fixes)
+- **A forked object now carries the concurrent Seq it launches.** A real field object often runs a
+  benign per-frame helper via `STARTSEQ` (RunSharedScript) — a forward-lean, a shadow toggle, a small
+  animation loop. v1 dropped that helper, so the object was REFUSED (left to a hand-authored stub).
+  v1.5 carries the helper too — appended at a free slot and the launcher's entry-arg remapped, exactly
+  like the proven ladder `sequences` graft — so the object renders faithfully. Across the real game this
+  **un-refuses 53 objects and un-stubs 23 more** (faithful object coverage ~65% → ~70%); 109 helpers are
+  carried, every one a benign type-1 Seq. Always on for `import` (a pure fidelity win, no flag).
+- **The closure is body-vetted, not blind.** A helper that runs a cutscene op — a `MoveCamera` sweep, a
+  `Battle`, a `Field`/`PreloadField` warp, a menu, a window — is NOT carried (it would fire in a static
+  fork): those objects stay refused. The helper is appended-but-never-armed (a Seq is launched at runtime,
+  not `InitObject`'d) and a helper shared by several objects is appended **once** (field-scoped dedup).
+  `ff9mapkit lint` rejects an unsafe / non-type-1 / nested-STARTSEQ / double-armed helper.
+- **Sibling-OBJECT closure was investigated and found EMPTY** — every uncarried object-to-object reference
+  resolves to the party, the player, a controller, save machinery, or out-of-range, so there is nothing
+  safe to carry there; v1.5 is exclusively the STARTSEQ-helper closure (a 676-field census + adversarial
+  verification).
+- **Fix: a sibling read inside an EXPRESSION operand is now remapped.** A grafted body that reads another
+  object via the `op78` (B_OBJSPECA) expression token kept the donor's entry index after the move → it
+  acted on the wrong/empty fork entry. The graft now walks the expression token stream and remaps it (a
+  same-length 1-byte patch) — fixing ~31 already-shipped v1 objects as well as the closure.
+- **Fix: a field with several `DefinePlayerCharacter` entries (182 of them) is classified correctly.** A
+  reference to a *secondary* player entry was mis-read as an uncarried sibling; it now classifies as the
+  player and the graft normalizes every PC entry to the runtime controlUID (250). Removes ~170 false
+  "uncarried" refs and 7 secondary-PC false objects.
+- Single-field authored builds stay **byte-identical** (the closure is off by default in
+  `scan_objects_verbatim`; the hut SHA-256 golden is unchanged). Every real field's objects graft and
+  round-trip (676/676, 0 errors). See `docs/OBJECT_CARRY.md` §2.
+
 ### Added — dialogue pillar (a dialogue editor + a stock-dialogue viewer)
 - **The read side of FF9 field text.** New `ff9mapkit.dialogue` spine (UI-agnostic, tk-free): `parse_mes`
   (the missing `.mes` reader — handles BOTH the base game's index-implicit entries, where the txid is the

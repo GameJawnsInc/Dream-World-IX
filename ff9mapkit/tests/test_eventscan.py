@@ -237,6 +237,103 @@ def test_scan_objects_verbatim_field122_cask_is_render_faithful():
     assert 23 not in by_slot
 
 
+# --- STARTSEQ-helper closure + the two v1 classification fixes (docs/OBJECT_CARRY.md S2 v1.5) ----------
+import struct                                                                          # noqa: E402
+
+from ff9mapkit.eb import EbScript, edit, opcodes                                       # noqa: E402
+
+STARTSEQ = 0x43
+
+
+def _type1(body=None):
+    return bytes([1, 1]) + struct.pack("<HH", 0, 4) + (opcodes.RETURN if body is None else body)
+
+
+def test_seq_helper_safe_vets_the_body():
+    eb = EbScript.from_bytes(edit.append_entry(CLEAN, 10, _type1()))                   # benign type-1
+    assert eventscan._seq_helper_safe(eb, 10) is True
+    movecam = EbScript.from_bytes(edit.append_entry(CLEAN, 10, _type1(
+        opcodes.encode(0x6F, 0, 0, 0, 0, 0, 0) + opcodes.RETURN)))                     # MoveCamera = cutscene
+    assert eventscan._seq_helper_safe(movecam, 10) is False
+    nested = EbScript.from_bytes(edit.append_entry(CLEAN, 10, _type1(
+        opcodes.encode(STARTSEQ, 3) + opcodes.RETURN)))                                # nested STARTSEQ
+    assert eventscan._seq_helper_safe(nested, 10) is False
+    type0 = EbScript.from_bytes(edit.append_entry(CLEAN, 10, bytes([0, 1]) + struct.pack("<HH", 0, 4)
+                                                  + opcodes.RETURN))
+    assert eventscan._seq_helper_safe(type0, 10) is False                              # not a type-1 entry
+
+
+def test_classify_ref_secondary_pc_is_player_not_uncarried():
+    # a uid ref to a SECONDARY DefinePlayerCharacter entry must classify as `player` (the multi-PC fix)
+    assert eventscan._classify_ref("uid", 8, [5, 8], carried_slots=set(), self_slot=7) == "player"
+    assert eventscan._classify_ref("uid", 5, 5, carried_slots=set(), self_slot=7) == "player"   # int form
+    assert eventscan._classify_ref("uid", 9, [5, 8], carried_slots={9}, self_slot=7) == "sibling"
+    assert eventscan._classify_ref("uid", 9, [5, 8], carried_slots=set(), self_slot=7) == "uncarried"
+
+
+def test_graft_seq_helpers_flips_a_synthetic_object():
+    # an object whose LOOP (a render tag) launches STARTSEQ(<benign type-1 helper>): refused by default
+    # (the helper is uncarried), graftable with graft_seq_helpers (the closure carries the helper).
+    g = edit.append_entry(CLEAN, 10, _type1())                                         # the helper at slot 10
+    init = (opcodes.encode(eventscan.SET_MODEL_OP, 133, 0)
+            + opcodes.encode(eventscan.SET_STAND_ANIM_OP, 1872) + opcodes.RETURN)
+    loop = opcodes.encode(STARTSEQ, 10) + opcodes.RETURN
+    obj = bytes([0, 2]) + struct.pack("<HH", 0, 8) + struct.pack("<HH", 1, 8 + len(init)) + init + loop
+    g = edit.append_entry(g, 11, obj)
+    g = edit.activate(g, opcodes.init_object(11, 0))
+    off = {s["donor_idx"]: s for s in eventscan.scan_objects_verbatim(g)}[11]
+    assert off["graft_safety"] == "refuse" and "seqs" not in off                       # closure OFF
+    on = {s["donor_idx"]: s for s in eventscan.scan_objects_verbatim(g, graft_seq_helpers=True)}[11]
+    assert on["graft_safety"] == "clean" and [h["entry"] for h in on["seqs"]] == [10]  # closure ON
+    assert on["seqs"][0]["bytes"] == eventscan._entry_bytes(g, 10)                      # the verbatim helper
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_seq_closure_invariants_across_all_fields():
+    # The closure must never carry an unsafe/non-type-1/nested helper, never double-arm, and never make a
+    # previously-graftable object WORSE (monotone). Census-grounded over every real field.
+    from ff9mapkit.extract import EventBundle, ID_TO_EVT
+    bundle = EventBundle()
+    rank = {"clean": 2, "init_only": 1, "refuse": 0}
+    n_seqs = n_helpers = unrefused = 0
+    for fid in sorted(ID_TO_EVT):
+        try:
+            eb_bytes = bundle.eb_for_id(fid)
+        except Exception:
+            continue
+        if not eb_bytes:
+            continue
+        eb = EbScript.from_bytes(eb_bytes)
+        off = {s["donor_idx"]: s for s in eventscan.scan_objects_verbatim(eb_bytes)}
+        on = eventscan.scan_objects_verbatim(eb_bytes, graft_seq_helpers=True)
+        donor_idx = {s["donor_idx"] for s in on}
+        for s in on:
+            assert rank[s["graft_safety"]] >= rank[off[s["donor_idx"]]["graft_safety"]]   # monotone
+            if off[s["donor_idx"]]["graft_safety"] == "refuse" and s["graft_safety"] != "refuse":
+                unrefused += 1
+            for h in (s.get("seqs") or []):
+                n_seqs += 1
+                ei = h["entry"]
+                assert eventscan._seq_helper_safe(eb, ei)                                  # benign + type-1
+                assert ei not in donor_idx                                                 # no double-arm
+                assert h["bytes"] == eventscan._entry_bytes(eb_bytes, ei)                   # verbatim
+        n_helpers += sum(len(s.get("seqs") or []) for s in on)
+    assert unrefused >= 40 and n_seqs >= 80                                            # the real win (53 / 109)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_seq_closure_field567_flips_the_v02_prop():
+    # field 567 (Lindblum): a GEO_ACC_F0_V02 prop is REFUSED by v1 (its Loop STARTSEQs a benign Seq helper
+    # the fork drops); the closure carries the helper, so it grafts. The in-game positive gate.
+    from ff9mapkit.extract import EventBundle
+    eb = EventBundle().eb_for_id(567)
+    off = {s["model"]: s for s in eventscan.scan_objects_verbatim(eb)}
+    on = {s["model"]: s for s in eventscan.scan_objects_verbatim(eb, graft_seq_helpers=True)}
+    assert off["GEO_ACC_F0_V02"]["graft_safety"] == "refuse"
+    assert on["GEO_ACC_F0_V02"]["graft_safety"] == "clean"
+    assert [h["entry"] for h in on["GEO_ACC_F0_V02"]["seqs"]]                          # carries its helper
+
+
 # --- scan_player_funcs: the player-function graft scanner (docs/PLAYER_GRAFT.md) -----------
 def _classify_player_body(body, model=98):
     from ff9mapkit.eb import edit

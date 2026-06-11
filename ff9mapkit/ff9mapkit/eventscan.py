@@ -458,6 +458,20 @@ RUN_MODEL_CODE_OP = 0x88     # RunModelCode(code, pack) -- the player Init's ani
 ZIDANE_MODELS = frozenset((98, 93))   # the blank fork's player rig; a non-Zidane donor's clips won't match (532 too)
 TEXT_OPS = frozenset((0x1F, 0x20, 0x95, 0x96))   # WindowSync/Async[Ex] -- references a .mes TXID the fork lacks
 ANIM_OPS = frozenset((0x33, 0x34, 0x40, 0x94))   # Set{Stand,Walk}Animation/RunAnimation/SetJumpAnimation: MODEL-keyed clips
+# --- STARTSEQ-helper closure (docs/OBJECT_CARRY.md S2 v1.5): a carried object launches a concurrent type-1
+# Seq helper via STARTSEQ (0x43, an ENTRY index). The fork drops the helper -> the object refused/init_only.
+# Carry the helper too (like the ladder `sequences` graft). But a bare type-1 check is WRONG: ~15 of the 164
+# real helpers contain a CUTSCENE op (a MoveCamera sweep, a Battle, a Field warp, a menu) that must NOT fire in
+# a static fork -- so vet the helper BODY. UNSAFE_SEQ_OPS = warp / battle / camera / menu / window / fade (the
+# census found ONLY these families across all 164 helpers; reproduces the 48/32/9 flip split byte-for-byte).
+UNSAFE_SEQ_OPS = frozenset((
+    0x1F, 0x20, 0x21, 0x95, 0x96, 0x8E, 0xEB, 0x54, 0x53, 0xC9,   # Window* / Close*Window / Raise/WaitWindow / tile-loop
+    0x2A, 0x8C, 0xD0, 0xE1, 0x1B, 0x3C, 0x4A, 0x57,               # Battle / BattleEx / BattleDialog / ...Battle...
+    0x2B, 0xB6, 0xFD,                                             # Field / WorldMap / PreloadField (a warp mid-Seq)
+    0x6F, 0x70,                                                   # MoveCamera / ReleaseCamera (a cutscene camera)
+    0x75, 0xAA, 0xAB,                                             # Menu / Enable / DisableMenu
+    0xEC,                                                         # FadeFilter
+))
 # the allow-list for a graft-safe player GESTURE: turn / animation / wait / head-focus / char-attr / jump-arc +
 # structure (nop/jumps/return/expr/switch/wait). Anything ELSE (text, warp, camera, scripted walk, menu, sound,
 # give-item, a sibling uid ref, a RunScript) disqualifies the func -> it stays refused (its object stays init_only).
@@ -471,6 +485,35 @@ SAFE_GESTURE_OPS = frozenset((
 ))
 
 
+def _is_player_entry(val, donor_player_entry) -> bool:
+    """True if ``val`` is a donor player ENTRY INDEX. ``donor_player_entry`` is an int (the primary PC) OR a
+    collection of every PC entry index (182 real fields define >1 ``DefinePlayerCharacter`` -- a secondary-PC
+    ref must classify as ``player``, else it leaks into ``uncarried`` and is mistaken for a closeable sibling)."""
+    if donor_player_entry is None:
+        return False
+    if isinstance(donor_player_entry, int):
+        return val == donor_player_entry
+    return val in donor_player_entry
+
+
+def _seq_helper_safe(eb, ei: int) -> bool:
+    """Is entry ``ei`` a CLOSEABLE STARTSEQ helper (docs/OBJECT_CARRY.md S2 v1.5)? In-range + a type-1
+    Seq/region entry + a BENIGN body (no :data:`UNSAFE_SEQ_OPS` cutscene op and no nested ``STARTSEQ`` --
+    census: depth-1, 0 nested). A benign helper is launched as a concurrent per-frame Seq, so carrying it +
+    remapping the launcher's entry-arg is the proven ladder ``sequences`` graft. An unsafe one (a MoveCamera
+    sweep / a Battle / a warp) must stay refused so it can't fire in a static fork."""
+    if not (0 <= ei < eb.entry_count):
+        return False
+    e = eb.entry(ei)
+    if e.empty or _entry_bytes(eb.data, ei)[:1] != bytes([1]):   # type byte 1 = a Seq/region helper entry
+        return False
+    for f in e.funcs:
+        for ins in eb.instrs(f):
+            if ins.op == RUN_SHARED_SCRIPT or ins.op in UNSAFE_SEQ_OPS:   # nested STARTSEQ or a cutscene op
+                return False
+    return True
+
+
 def _classify_ref(kind: str, val: int, donor_player_entry, carried_slots, self_slot: int) -> str:
     """Classify one slot/uid reference value: self | player | party | sibling | uncarried."""
     if val == self_slot:
@@ -478,7 +521,7 @@ def _classify_ref(kind: str, val: int, donor_player_entry, carried_slots, self_s
     if kind == "uid":
         if val == UID_SELF:
             return "self"
-        if val == UID_PLAYER or (donor_player_entry is not None and val == donor_player_entry):
+        if val == UID_PLAYER or _is_player_entry(val, donor_player_entry):
             return "player"                          # 250, or the player BY ENTRY INDEX (-> 250 on graft)
         if val in PARTY_UIDS:
             return "party"
@@ -529,13 +572,16 @@ def _classify_entry_refs(eb, entry, donor_player_entry, carried_slots, self_slot
     return refs, player_tags
 
 
-def _graft_safety(entry, refs, fork_player_tags, *, graftable_player_tags=frozenset()):
+def _graft_safety(entry, refs, fork_player_tags, *, graftable_player_tags=frozenset(),
+                  seq_closeable=frozenset()):
     """Per the carry policy (docs/OBJECT_CARRY.md S4): is the WHOLE entry graftable, only its
     render-defining tags (the rest reference player funcs a blank fork lacks / uncarried siblings), or
     must it be refused? Returns ``(safety, carry_tags)``. A reference is SAFE when it resolves to
-    self / a carried sibling / the player at a tag the fork has; everything else (a player tag >= 2, an
-    uncarried sibling, party, an expression-computed uid) leaves its function un-graftable. A FIXPOINT
-    then also drops any function that ``RunScript``s a SELF tag we are dropping (else it would dangle)."""
+    self / a carried sibling / the player at a tag the fork has / a BENIGN STARTSEQ helper the closure
+    carries (``seq_closeable``); everything else (a player tag >= 2, an uncarried sibling, party, an
+    expression-computed uid, an UNSAFE STARTSEQ helper) leaves its function un-graftable. A FIXPOINT then
+    also drops any function that ``RunScript``s a SELF tag we are dropping (else it would dangle).
+    ``seq_closeable`` defaults empty -> byte-identical to before (the v1.5 closure is opt-in)."""
     bad_tags, self_deps = set(), {}
     for r in refs:
         if r["op"] in RUNSCRIPT_OPS and r["kind"] == "uid" and r["klass"] == "self" and "tag" in r:
@@ -546,7 +592,9 @@ def _graft_safety(entry, refs, fork_player_tags, *, graftable_player_tags=frozen
             # safe if the fork player has the tag (0/1) OR it WILL be grafted (the player-function graft,
             # docs/PLAYER_GRAFT.md). graftable_player_tags defaults empty -> byte-identical to before.
             ok = r.get("tag") is None or r["tag"] in fork_player_tags or r["tag"] in graftable_player_tags
-        else:                                        # party / uncarried / expr -> not resolvable in a fork
+        elif r["op"] == RUN_SHARED_SCRIPT and r["kind"] == "slot" and r.get("value") in seq_closeable:
+            ok = True                                # an uncarried but BENIGN STARTSEQ helper -> closure carries it
+        else:                                        # party / uncarried / expr / unsafe-helper -> not resolvable
             ok = False
         if not ok:
             bad_tags.add(r["func_tag"])
@@ -638,7 +686,7 @@ def scan_objects(eb_bytes) -> list:
 
 
 def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_player_funcs=False,
-                          carry_text=False) -> list:
+                          carry_text=False, graft_seq_helpers=False) -> list:
     """Graft specs for a FAITHFUL fork: each persistent object's VERBATIM ``.eb`` entry plus the data
     needed to append it at a free slot, arm it, and remap its references -- the faithful counterpart of
     :func:`scan_objects` (which emits human-authored ``[[npc]]``/``[[prop]]`` stubs). Where scan_objects
@@ -651,12 +699,18 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
     AND adds the player-entry-index guard ``scan_jumps`` uses. One dict per carried object (grouped by
     donor slot):
       ``donor_idx, entry_bytes, kind, model, model_id, animset, pose, face, instances[{arg,x,z}],
-      self_positions, needs_d9{idx:val}, donor_player_entry, refs[...], player_tags_needed[...],
-      graft_safety("clean"|"init_only"|"refuse"), carry_tags[...]``.
+      self_positions, needs_d9{idx:val}, donor_player_entry, donor_player_entries, refs[...],
+      player_tags_needed[...], graft_safety("clean"|"init_only"|"refuse"), carry_tags[...], seqs[...]``.
+
+    ``graft_seq_helpers`` (docs/OBJECT_CARRY.md S2 v1.5): when on, an object whose only blocker is an
+    uncarried but BENIGN ``STARTSEQ`` (RunSharedScript) helper entry is un-refused -- the closure carries the
+    helper too (``seqs``: one ``{entry, bytes}`` per distinct closeable helper the object launches from a kept
+    tag) and ``build`` appends + remaps it like the ladder ``sequences`` graft. OFF by default -> byte-identical.
     """
     from ._modeldb import MODELS
     eb = EbScript.from_bytes(eb_bytes)
-    dpe = _player_entry_index(eb)
+    pents = resolve_player_entries(eb)           # ALL DefinePlayerCharacter entries (182 fields define >1)
+    dpe = pents[0] if pents else None            # the primary, kept for the sidecar/grafter back-compat
     e0 = next((e for e in eb.entries if not e.empty and e.index == 0), None)
     f0 = e0.func_by_tag(0) if e0 else None
     if f0 is None:
@@ -683,7 +737,7 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
     # 2) which slots are actually carried (apply the skip rules first, so sibling refs classify right)
     info: dict = {}
     for slot in order:
-        if not 0 <= slot < eb.entry_count or slot == dpe:        # player-entry guard (as scan_jumps does)
+        if not 0 <= slot < eb.entry_count or slot in pents:      # player-entry guard (every PC, as scan_jumps does)
             continue
         e = eb.entry(slot)
         fi = e.func_by_tag(0) if not e.empty else None
@@ -710,6 +764,21 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
         ok = {"clean", "text"} if carry_text else {"clean"}
         graftable_player = frozenset(p["donor_tag"] for p in scan_player_funcs(eb_bytes) if p["safety"] in ok)
 
+    # the BENIGN STARTSEQ helpers the closure carries (docs/OBJECT_CARRY.md S2 v1.5): every uncarried entry a
+    # carried object launches via STARTSEQ that passes the body vet. OFF by default (byte-identical). These make
+    # a STARTSEQ ref SAFE in _graft_safety, flipping an object refuse->graftable / init_only->whole-entry.
+    seq_closeable = frozenset()
+    if graft_seq_helpers:
+        cand = set()
+        for slot in carried:
+            for f in eb.entry(slot).funcs:
+                for ins in eb.instrs(f):
+                    if ins.op == RUN_SHARED_SCRIPT and ins.args and isinstance(ins.args[0], int):
+                        ei = int(ins.args[0])
+                        if ei not in carried:                # a carried sibling already resolves; vet the rest
+                            cand.add(ei)
+        seq_closeable = frozenset(ei for ei in cand if _seq_helper_safe(eb, ei))
+
     # 3) build a graft spec per carried object
     out = []
     for slot in order:
@@ -734,18 +803,35 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
         if not self_positions:                                   # Main_Init-D9-positioned (the moogle class)
             snap0 = insts[0][1]
             needs_d9 = {i: snap0[i] for i in (0, 2, 4) if i in snap0}
-        refs, player_tags = _classify_entry_refs(eb, e, dpe, carried, slot)
-        safety, carry_tags = _graft_safety(e, refs, fork_player_tags, graftable_player_tags=graftable_player)
-        out.append({
+        refs, player_tags = _classify_entry_refs(eb, e, pents, carried, slot)
+        safety, carry_tags = _graft_safety(e, refs, fork_player_tags, graftable_player_tags=graftable_player,
+                                           seq_closeable=seq_closeable)
+        spec = {
             "donor_idx": slot,
             "entry_bytes": _entry_bytes(eb.data, slot),          # VERBATIM (full entry, all tags)
             "kind": "npc" if e.func_by_tag(3) is not None else "prop",
             "model": MODELS.get(rd["model"], rd["model"]), "model_id": rd["model"],
             "animset": rd["animset"], "pose": rd["pose"], "face": rd["face"],
             "instances": instances, "self_positions": self_positions, "needs_d9": needs_d9,
-            "donor_player_entry": dpe, "refs": refs, "player_tags_needed": sorted(player_tags),
+            "donor_player_entry": dpe, "donor_player_entries": pents,
+            "refs": refs, "player_tags_needed": sorted(player_tags),
             "graft_safety": safety, "carry_tags": carry_tags,
-        })
+        }
+        if seq_closeable:                                        # the closeable helpers this object launches
+            keep = set(carry_tags)                               # from a KEPT tag (a dropped tag's Seq never runs)
+            seqs, seen = [], set()
+            for f in e.funcs:
+                if f.tag not in keep:
+                    continue
+                for ins in eb.instrs(f):
+                    if ins.op == RUN_SHARED_SCRIPT and ins.args and isinstance(ins.args[0], int):
+                        ei = int(ins.args[0])
+                        if ei in seq_closeable and ei not in seen:
+                            seen.add(ei)
+                            seqs.append({"entry": ei, "bytes": _entry_bytes(eb.data, ei)})
+            if seqs:
+                spec["seqs"] = seqs
+        out.append(spec)
     return out
 
 
@@ -861,7 +947,9 @@ def scan_content(eb_bytes) -> dict:
         "ladders": scan_ladders(eb_bytes),
         "jumps": scan_jumps(eb_bytes),
         "objects": scan_objects(eb_bytes),
-        "objects_verbatim": scan_objects_verbatim(eb_bytes),
+        # the STARTSEQ-helper closure (docs/OBJECT_CARRY.md S2 v1.5) is a pure fidelity win for the import
+        # carry, so the import-content aggregator scans WITH it (the default `import` path reads this).
+        "objects_verbatim": scan_objects_verbatim(eb_bytes, graft_seq_helpers=True),
     }
 
 
