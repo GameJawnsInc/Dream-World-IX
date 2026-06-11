@@ -956,6 +956,22 @@ Read these on demand — they hold the full technical detail this file only summ
   was WORKFLOW-GENERATED (a "research" pass that overstepped + implemented), then INDEPENDENTLY reviewed +
   verified (code read, 715 tests re-run, own import->build->deploy->in-game). Provenance double-check still pending.
   LESSON: scope research workflows so they cannot write production code.** docs/TEXT_CARRY.md.
+- **Save-point synthesis — a functional save point in a custom field (in-game proven, commit `46f96d3`).** The
+  deferred capstone after the object/player/text carry arc. FF9's save point SYNTHESIZED as a press-to-interact
+  region instead of grafting the real save moogle's un-graftable 7-entry cluster (hidden objects + STARTSEQ
+  helpers + player-pose surgery + a `gEventGlobal` contract). **★ The functional save is a SINGLE opcode:
+  `Menu(4, 0)` (`0x75`) -> `EventService.StartMenu` -> `OpenSaveMenu`** (menu enum `EventService.cs`: 1=name,
+  2=shop, **4+sub 0 = SAVE**, 5=chocograph); byte-exact `75 00 04 00` vs the real Dali moogle (field 122 entry 5
+  tag 3 -- whose jump-out-of-barrel / Save-Shop dialogue / `RunScriptAsync(4,250,13)` player-pose are ALL
+  cosmetic). The kit's `[[savepoint]]` is the navigable cousin of `content/jump.py`'s action region (Init
+  `SetRegion` / tread `Bubble("!")` / action `DisableMove; Menu(4,0); EnableMove`) -- **NO player-func graft**
+  (the save is a self-contained engine call). `eb/opcodes.py menu()` + `content/savepoint.py`
+  (`save_dispatch`/`savepoint_region`/`inject_savepoint(s)`) + `build.py` `[[savepoint]]` (zone 4-5 pts ->
+  `quad_zone`). **IN-GAME (forked Dali room -> slot 30003, a custom field id): press action -> save menu opens ->
+  save -> quit-to-title -> load -> back in the custom field; full game reload -> load -> custom field again.**
+  **★ This RESOLVES the long-open "save->Continue into a custom field (id >=4000)" risk (worldmap-feasibility
+  memory) -- it WORKS.** 723 tests. docs/SAVEPOINT.md. The COSMETIC barrel/moogle/jump-out is a deferred later
+  layer (place a `[[prop]]`/`[[npc]]` over the zone). Memory: `project-ff9-savepoint`.
 
 ---
 
