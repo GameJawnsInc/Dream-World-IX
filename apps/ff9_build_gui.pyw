@@ -146,23 +146,30 @@ class App:
 
         self.field_tgt = ttk.LabelFrame(self.tgt_holder, text="Build to (field)")
         self.target = tk.StringVar(value="test")
+        self.field_id, self.field_name = None, None      # the picked field.toml's OWN [field] id / name
         _tid = self.worktree_id or 4003                  # this worktree's pinned slot (.ff9deploy.toml), not 4003
-        _test_lbl = (f"Test field {_tid}  -  reach via F6 -> Warp to {_tid}"
-                     + ("  (or New Game -> hut door)" if _tid == 4003 else ""))
-        ttk.Radiobutton(self.field_tgt, text=_test_lbl,
-                        value="test", variable=self.target).pack(anchor="w", padx=6, pady=2)
-        gtxt = (f"Game mod folder (install):  {self.game_mod}" if self.game_mod
-                else "Game mod folder  -  (game install not found)")
+        # Each radio says WHAT it does; the live "destination" line below says the exact id + folder it pushes to.
+        ttk.Radiobutton(self.field_tgt, value="test", variable=self.target,
+                        text=f"Test slot {_tid}  -  quick + reversible; play it via F6 -> Warp"
+                             + ("  (or New Game -> hut door)" if _tid == 4003 else "")
+                        ).pack(anchor="w", padx=6, pady=2)
+        gtxt = (f"Install to game (shipping mod folder):  {self.game_mod}" if self.game_mod
+                else "Install to game  -  (game install not found)")
         self.rb_game = ttk.Radiobutton(self.field_tgt, text=gtxt, value="game", variable=self.target)
         self.rb_game.pack(anchor="w", padx=6, pady=2)
         if not self.game_mod:
             self.rb_game.state(["disabled"])
         of = ttk.Frame(self.field_tgt); of.pack(fill="x", padx=6, pady=2)
-        ttk.Radiobutton(of, text="Other folder:", value="other",
+        ttk.Radiobutton(of, text="Build only - to a folder:", value="other",
                         variable=self.target).pack(side="left")
         self.other = tk.StringVar()
         ttk.Entry(of, textvariable=self.other).pack(side="left", fill="x", expand=True, padx=(6, 6))
         ttk.Button(of, text="Browse...", command=self.browse_other).pack(side="left")
+        # the always-visible "where does the selected option push?" readout (the exact id + folder)
+        self.dest = ttk.Label(self.field_tgt, foreground=self.pal["accent"], wraplength=590, justify="left")
+        self.dest.pack(anchor="w", padx=6, pady=(2, 6))
+        self.target.trace_add("write", lambda *_: self._update_dest())
+        self.other.trace_add("write", lambda *_: self._update_dest())
 
         self.camp_tgt = ttk.LabelFrame(self.tgt_holder, text="Deploy campaign")
         self.camp_action = tk.StringVar(value="deploy")
@@ -238,6 +245,8 @@ class App:
         if kind != self.kind or plan is not self.plan:
             self.kind, self.plan = kind, plan
             self._render_targets()
+        elif self.kind == "field":
+            self._refresh_field_dest()         # same kind, different field -> refresh the id + destination
 
     def _render_targets(self):
         """Show the target frame for the current kind, relabel the action/revert buttons, and update the
@@ -272,12 +281,53 @@ class App:
             self.rev.config(text="Revert battle")
         else:
             self.field_tgt.pack(fill="x")
-            path = self.field.get().strip()
-            self.status.config(text=(f"Field project: {Path(path).name}" if path
-                                     else "Pick a field, campaign, or battle file."))
             self.chk.config(text="Check logic")
             self.go.config(text="Build / Deploy")
-            self.rev.config(text="Revert test field")
+            self.rev.config(text="Revert test deploy")
+            self._refresh_field_dest()
+
+    @staticmethod
+    def _field_id_name(path):
+        """(id, name) from a field.toml's [field] table, or (None, None) -- a light parse, no full load."""
+        try:
+            d = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+            f = d.get("field", {}) or {}
+            return (f.get("id"), f.get("name"))
+        except Exception:
+            return (None, None)
+
+    def _refresh_field_dest(self):
+        """Re-read the picked field's own id/name -> update the banner + the destination line. Runs on ANY
+        field-path change (not only a kind change), so switching between two field.tomls updates the id."""
+        path = self.field.get().strip()
+        self.field_id, self.field_name = self._field_id_name(path) if path else (None, None)
+        if path and self.field_id is not None:
+            self.status.config(text=f"Field:  {self.field_name or Path(path).stem}  "
+                                    f"(its own id: {self.field_id})  -  {Path(path).name}")
+        elif path:
+            self.status.config(text=f"Field project: {Path(path).name}")
+        else:
+            self.status.config(text="Pick a field, campaign, or battle file.")
+        self._update_dest()
+
+    def _update_dest(self):
+        """Set the live 'where does the selected option push?' line -- the exact id + folder -- so the
+        destination is always visible, not just an action name."""
+        if not hasattr(self, "dest") or self.kind != "field":
+            return
+        tid = self.worktree_id or 4003
+        own = self.field_id if self.field_id is not None else "?"
+        tgt = self.target.get()
+        if tgt == "test":
+            msg = (f"-> deploys to field {tid} in {self.mod_folder} (this worktree's test slot; reversible). "
+                   f"Your field's own id ({own}) is overridden - reach it via F6 -> Warp to {tid}.")
+        elif tgt == "game":
+            where = self.game_mod or "(game install not found)"
+            msg = f"-> installs at field {own} (the field's OWN id) in {where} - overwrites any field {own} there."
+        else:
+            folder = self.other.get().strip() or "(pick a folder)"
+            msg = f"-> builds field {own} into {folder} - no game change."
+        self.dest.config(text=msg)
 
     # ---- pickers ----
     @staticmethod
