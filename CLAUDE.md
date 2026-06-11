@@ -600,6 +600,27 @@ Read these on demand — they hold the full technical detail this file only summ
   read/write parity); surfaced in the dialogue viewer/editor. Byte-identical when absent; 14 tests, 826 suite.
   Orthogonal to overworld's verbatim/graft/import-chain lane (touches only the declarative-author + lint side).
   *In-game verification (a fork's entry message fires at the right beat) is the human step.*
+- **Verbatim CHAINS (`import-chain --verbatim`)** — the verbatim fork extended from one room to a **connected
+  SLICE** (offline-proven on a 4-field Dali slice; awaits an in-game walk). `write_campaign(verbatim=True)` forks
+  EVERY member native + verbatim, and the in-chain `Field()` exits are **retargeted to the chain's own member
+  ids** (`content/verbatim.render_retarget` pre-fills the live `[verbatim_eb] retarget` table from the chain's id
+  assignment; out-of-chain exits stay live seams). Each member ships its donor `.mes` at the donor's **own
+  registered textid** (`EVENT_ID_TO_MES` — keyed in the FieldScene-id space, NOT the event-id space; a valid MesDB
+  key so the FieldScene registers. All 676 forkable fields are covered → the `1073` fallback never fires;
+  same-zone members share a textid and ship IDENTICAL zone text → no `<id>.mes` clobber). `import-chain --verbatim
+  --out C` → `build-all` compiles a drop-in mod whose `.eb`s carry the retargets in their shipped bytes. ★ Three
+  bugs caught by an **adversarial review workflow** (not in-game, not the test suite) and fixed: (1) **`[startup]`
+  was silently dropped for ANY verbatim fork** — it lived only inside `build_script`, which the verbatim path
+  bypasses; the documented "pair with `[startup]` to boot a beat" was a no-op (Dali Inn missed it by booting at
+  scenario-zero). Fixed by a shared `build._apply_startup` applied to the verbatim bytes too. (2) the manifest
+  graph showed live retargeted scripted/self doors as dead seams → `write_campaign` now adds them as `[[edge]]`s
+  (honest reachability). (3) a verbatim member with no native atlas degrades to a declarative stub — now flagged
+  loudly in the CLI summary (NOT verbatim). Touches `campaign.py`/`extract.py`/`content/verbatim.py`/`build.py`/
+  `cli.py`; kit 0.9.16. ★ **Convergence with `[[on_entry]]` (above):** BOTH are field-load presets the synthesizer
+  arms in Main_Init and the verbatim path bypasses — `story_flags` WARNS `[[on_entry]]` is ignored in a verbatim
+  fork, while this session made `[startup]` WORK in one (same insert hook). Making `[[on_entry]]` ALSO fire in a
+  verbatim fork (graft its armed code into the donor `.eb`'s Main_Init) is the natural next convergence — OPEN.
+  Other frontier: New-Game INTO a verbatim chain with a full party.
 
 ---
 

@@ -39,6 +39,29 @@ def remap_fields(eb_bytes: bytes, retarget: dict) -> bytes:
     return bytes(buf)
 
 
+def render_retarget(dests, id_remap=None):
+    """The ``[verbatim_eb] retarget`` portion for a verbatim fork's ``Field()`` exits, plus the count of
+    exits actually retargeted.
+
+    ``dests`` = the field's distinct ``Field(id)`` destinations (real ids). With ``id_remap`` (a
+    ``{real_id: fork_id}`` map from import-chain) this emits a LIVE ``retarget = {...}`` table for the
+    in-chain destinations and a comment listing the rest (left as live seams back into the real game) --
+    so a forked CHAIN's doors warp into its OWN member forks. Without ``id_remap`` (single-field
+    ``import --verbatim``) it emits the commented-out fill-in template the author edits by hand, BYTE-FOR-BYTE
+    as before (so the single-field golden is unchanged). Returns ``(toml_text, n_retargeted)``."""
+    dests = list(dests)
+    if id_remap:
+        inchain = [(d, int(id_remap[d])) for d in dests if d in id_remap]
+        if inchain:
+            seams = [d for d in dests if d not in id_remap]
+            tbl = "retarget = { " + ", ".join(f"{a} = {b}" for a, b in inchain) + " }\n"
+            note = ("# (the rest are live seams back into the real game -- not in this chain: "
+                    + ", ".join(map(str, seams)) + ")\n") if seams else ""
+            return tbl + note, len(inchain)
+    body = "".join(f"#   {d} = 0\n" for d in dests) or "#   (this field has no Field() exits)\n"
+    return ("# retarget = {\n" + body + "# }\n"), 0
+
+
 def verbatim_eb(project):
     """The verbatim `.eb` to ship for ``project`` (from its ``[verbatim_eb]`` block, ``bin`` + optional
     ``retarget``), Field-remapped -- or ``None`` if the project isn't a verbatim fork (the build then

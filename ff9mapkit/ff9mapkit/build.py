@@ -1551,6 +1551,22 @@ class _FlagAlloc:
             "a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
 
 
+def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
+    """Prepend the ``[startup]`` presets (ScenarioCounter + gEventGlobal story bits) to Main_Init so every
+    gate evaluated afterwards sees the asserted beat. Shared by :func:`build_script` (synthesize path) AND
+    the verbatim-`.eb` path in :func:`build_field` (which bypasses build_script, so it would otherwise drop
+    ``[startup]`` entirely -- the pairing the docs promise). No ``[startup]`` -> unchanged (byte-identical)."""
+    su = project.raw.get("startup")
+    if not su:
+        return eb
+    names = _flags.collect_flag_defs(project.raw)
+    sc = su.get("scenario")
+    if isinstance(sc, str):
+        sc = _flags.resolve_scenario(sc)
+    presets = [(_flags.resolve(p["flag"], names), int(p.get("value", 1))) for p in su.get("flags", [])]
+    return _startup.inject_startup(eb, presets, sc)
+
+
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None,
                  cutscene_txids: list | None = None, walkmesh=None,
@@ -1571,14 +1587,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # story-state presets ([startup]): assert the beat the forked field represents (ScenarioCounter +
     # gEventGlobal story bits), prepended to Main_Init so every gate evaluated afterwards sees the
     # asserted state. Absent -> no injection, so the build is byte-identical to before.
-    su = project.raw.get("startup")
-    if su:
-        names = _flags.collect_flag_defs(project.raw)
-        sc = su.get("scenario")
-        if isinstance(sc, str):
-            sc = _flags.resolve_scenario(sc)
-        presets = [(_flags.resolve(p["flag"], names), int(p.get("value", 1))) for p in su.get("flags", [])]
-        eb = _startup.inject_startup(eb, presets, sc)
+    eb = _apply_startup(project, eb)
     has_encounter = "encounter" in project.raw
 
     # larger-than-screen scrolling: enable the field's camera services (Active flag) so the engine's
@@ -2575,6 +2584,11 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # synthesizing one -- the field runs its real logic. None unless the project has a [verbatim_eb] block.
     from .content import verbatim as _verbatim
     verbatim_bytes = _verbatim.verbatim_eb(project)
+    if verbatim_bytes is not None:
+        # the verbatim .eb bypasses build_script, so apply [startup] HERE too -- else the documented
+        # "pair with [startup] to boot a beat" is a silent no-op (the fork would boot at scenario-zero).
+        # The .eb is language-identical, so inject once before the per-language loop.
+        verbatim_bytes = _apply_startup(project, verbatim_bytes)
     for lang in langs:
         if verbatim_bytes is not None:
             eb = verbatim_bytes

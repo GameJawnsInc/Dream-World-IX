@@ -475,11 +475,13 @@ def _deploy_cfg():
         return {}
 
 
-def _print_campaign_summary(plan, out_dir):
+def _print_campaign_summary(plan, out_dir, *, verbatim=False):
     n = len(plan.members)
     ids = f"{plan.members[0].new_id}-{plan.members[-1].new_id}" if n else "-"
     sc = sum(1 for e in plan.edges if e["story_conditional"])
-    print(f"{n} fields forked into {out_dir} (ids {ids}); {len(plan.edges)} in-chain gateways retargeted.")
+    mode = "VERBATIM (whole donor .eb + .mes, real logic)" if verbatim else "declarative"
+    print(f"{n} fields forked [{mode}] into {out_dir} (ids {ids}); "
+          f"{len(plan.edges)} in-chain gateways retargeted.")
     if sc:
         print(f"  {sc} STORY-COND edge(s) flagged -- add requires_flag (see campaign.toml).")
     if plan.seams:
@@ -487,9 +489,14 @@ def _print_campaign_summary(plan, out_dir):
         for s in plan.seams:
             kinds[s["kind"]] = kinds.get(s["kind"], 0) + 1
         print("  " + str(len(plan.seams)) + " seam(s): " + ", ".join(f"{v} {k}" for k, v in sorted(kinds.items())))
-    if plan.needs_export:
-        print(f"  {len(plan.needs_export)} member(s) NEED an in-game [Export] before deploy: "
-              + " ".join(plan.needs_export))
+    degraded = set(getattr(plan, "verbatim_degraded", []) or [])
+    if degraded:                                  # verbatim members that lost their .eb (no native atlas)
+        print(f"  {len(degraded)} member(s) fell back to DECLARATIVE -- NOT verbatim (no native atlas; "
+              f"re-synthesized logic, no real .eb): " + " ".join(sorted(degraded)))
+    plain_export = [n for n in plan.needs_export if n not in degraded]
+    if plain_export:
+        print(f"  {len(plain_export)} member(s) NEED an in-game [Export] before deploy: "
+              + " ".join(plain_export))
     print(f"  wrote: {out_dir}/campaign.toml")
     print(f"Next: ff9mapkit build-all {out_dir}/campaign.toml")
 
@@ -616,11 +623,12 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
         try:
             plan = campaign.write_campaign(result, Path(args.out), id_base=id_base,
                         flag_base=args.flag_base, flags_per_field=args.flags_per_field,
-                        name=cname, mod_folder=mod_folder, game=args.game, live_seams=args.live_seams)
+                        name=cname, mod_folder=mod_folder, game=args.game, live_seams=args.live_seams,
+                        verbatim=args.verbatim)
         except (RuntimeError, FileNotFoundError, ValueError) as e:
             print(str(e), file=sys.stderr)
             return 2
-        _print_campaign_summary(plan, args.out)
+        _print_campaign_summary(plan, args.out, verbatim=args.verbatim)
         return 0
 
     print(chain.render(result, label_fn=_chain_label_fn(game=args.game)))
@@ -1344,6 +1352,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="target mod folder in campaign.toml (default: .ff9deploy.toml, else FF9CustomMap-ow)")
     ic.add_argument("--live-seams", action="store_true", dest="live_seams",
                     help="emit out-of-chain gateways as LIVE doors into the real game (default: comment as seams)")
+    ic.add_argument("--verbatim", action="store_true",
+                    help="MOST FAITHFUL: fork every member NATIVE + VERBATIM (ship each donor's whole .eb + "
+                         ".mes, run the real logic; in-chain doors retargeted to sibling forks)")
     ic.set_defaults(func=_cmd_import_chain)
 
     ba = sub.add_parser("build-all", help="compile a campaign.toml (all member fields) into one Memoria mod (P3)")

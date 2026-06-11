@@ -188,12 +188,20 @@ def _collect_edges_seams(result, members_ids, new_id, name_of):
 
 def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, flags_per_field=64,
                    name: str, mod_folder: str, game=None, live_seams=False,
-                   entry_entrance=0) -> CampaignPlan:
+                   entry_entrance=0, verbatim=False) -> CampaignPlan:
     """Fork the walk into ``out_dir``: a per-member subdir each + a top-level campaign.toml. Returns the
     CampaignPlan. Members in area>=10 BG-borrow; area<10 members fork as a NATIVE scene (own atlas+.bgs, no
     .bgx -- seamless, no in-game export needed). Both are fully offline; a field with no usable background
-    atlas degrades to a logic-only stub (camera+walkmesh+retargeted gateways) flagged needs_export."""
+    atlas degrades to a logic-only stub (camera+walkmesh+retargeted gateways) flagged needs_export.
+
+    ``verbatim`` (the MOST faithful chain -- docs/FORK_FIDELITY.md): fork EVERY member native + VERBATIM --
+    each ships its donor's WHOLE event script (entry-0 + objects + gateways, run as-is) with the in-chain
+    ``Field()`` exits retargeted to this chain's own member ids, plus the donor's whole ``.mes`` at the
+    donor's OWN registered textid (``EVENT_ID_TO_MES`` -- a valid MesDB key, so the FieldScene registers;
+    same-zone members share it harmlessly, ship identical text). The chain then plays its real logic +
+    speaks its real lines, doors wired to each other instead of back into the live game."""
     from . import extract
+    from ._fieldtext import EVENT_ID_TO_MES
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     members_ids, new_id, name_of = assign_ids(result, id_base=id_base)
@@ -201,16 +209,27 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
         raise ValueError("no forkable fields in the walk -- nothing to fork (try a different seed/--zones)")
 
     members = []
+    member_exits: dict = {}                                  # real -> its donor .eb Field() dests (verbatim)
+    degraded: list = []                                      # verbatim members that fell back to declarative
     for real in members_ids:
         folder = extract.ID_TO_FBG[real]
         area, _ = extract.parse_fbg_folder(folder)
-        mode = "borrow" if area >= extract.MIN_CUSTOM_AREA else "native"
+        # verbatim ships its own native scene + the donor's whole .eb, so it forks NATIVE for any area
+        mode = "native" if verbatim else ("borrow" if area >= extract.MIN_CUSTOM_AREA else "native")
         mname = name_of[real]
         mdir = out / mname
         mdir.mkdir(parents=True, exist_ok=True)
         needs_export = False
         try:
-            if mode == "borrow":
+            if verbatim:
+                # the donor's OWN registered textid (a valid MesDB key); shipping its .mes there is an
+                # identity override, and same-zone members share it (identical text -> harmless).
+                tb = EVENT_ID_TO_MES.get(real, 1073)
+                _meta, p = extract.write_native_project(folder, mdir, name=mname, field_id=new_id[real],
+                                                        text_block=tb, game=game, id_remap=new_id,
+                                                        live_seams=live_seams, verbatim=True)
+                member_exits[real] = _meta.get("imported_content", {}).get("field_exits", [])
+            elif mode == "borrow":
                 _meta, p = extract.write_field_project(folder, mdir, name=mname, field_id=new_id[real],
                                                        game=game, id_remap=new_id, live_seams=live_seams)
             else:   # area<10: NATIVE fork (own atlas+.bgs, NO .bgx) -- seamless + fully offline (no [Export])
@@ -219,15 +238,31 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
         except RuntimeError:                                # a field with no usable background atlas (rare)
             if mode == "borrow":
                 raise
+            # verbatim degrades to a logic-only stub too (loses the verbatim .eb for this one member)
             _meta, p = _emit_logic_only_member(folder, mdir, mname, new_id[real], new_id, live_seams, game)
             needs_export = True
+            if verbatim:
+                degraded.append(mname)                       # surfaced loudly in the CLI summary (NOT verbatim)
         members.append(Member(real, new_id[real], mname, mode, area, folder,
                               f"{mname}/{p.name}", needs_export))
 
     edges, seams = _collect_edges_seams(result, members_ids, new_id, name_of)
+    # In a verbatim chain the LIVE doors are the donor .eb's retargeted Field() exits -- which include
+    # scripted/self warps that aren't walk-in [[edge]]s. Surface every in-chain retarget as an edge so the
+    # graph/reachability reflect what was baked into the shipped .eb (else a member reachable only via a
+    # retargeted scripted warp reads as UNREACHABLE). Skip self-loops; dedup against the walk-in edges.
+    if verbatim:
+        have = {(e["frm"], e["to"]) for e in edges}
+        for real, exits in member_exits.items():
+            for d in exits:
+                if d in new_id and d != real and (name_of[real], name_of[d]) not in have:
+                    edges.append({"frm": name_of[real], "to": name_of[d], "entrance": 0,
+                                  "story_conditional": False})
+                    have.add((name_of[real], name_of[d]))
     plan = CampaignPlan(name=name, mod_folder=mod_folder, id_base=id_base, flag_base=flag_base,
                         flags_per_field=flags_per_field, entry_name=name_of[members_ids[0]],
                         entry_entrance=entry_entrance, members=members, edges=edges, seams=seams)
+    plan.verbatim_degraded = degraded     # transient build-time signal (NOT persisted): verbatim members
     (out / "campaign.toml").write_text(render_campaign_toml(plan), encoding="utf-8", newline="\n")
     return plan
 

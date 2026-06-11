@@ -33,6 +33,16 @@ have it *behave* as that story beat.
 > language (in-game proven on Dali Inn: renders + runs the real logic + English dialogue). The only remaining
 > item is the cosmetic entrance-fade model-streaming flicker on an F6-warp. (`content/verbatim.py` + the
 > `[verbatim_eb]` block; pair with `[startup]` to boot a beat.)
+>
+> **`import-chain --verbatim` extends this to a CONNECTED SLICE** (a region, not one room). Every member forks
+> native + verbatim, and the in-chain `Field()` exits are **retargeted to the chain's own member ids** (the
+> `[verbatim_eb] retarget` table, pre-filled from the chain's id assignment) so the doors warp between the
+> forks instead of back into the live game; out-of-chain exits stay live seams. Each member ships its donor's
+> whole `.mes` at the donor's **own registered textid** (`EVENT_ID_TO_MES` — a valid MesDB key, so the
+> FieldScene registers; all 676 forkable fields are covered, so the `1073` fallback never fires; same-zone
+> members share a textid and ship identical text → no clobber). `import-chain --verbatim --out C → build-all`
+> compiles a drop-in mod whose `.eb`s carry the retargets in their shipped bytes (offline-proven on a 4-field
+> Dali slice). Awaits an in-game walk of the connected region.
 
 ## Play a fork today
 
@@ -48,7 +58,9 @@ once field-load beat); exit gateways warp correctly but **don't advance the Scen
 a `[[gateway]]` `set_scenario`/`set_flags`.
 
 Note: faithful carry is **opt-in** (the three flags above). A plain `import` is BG-borrow with no
-object/text/func carry; `import-chain` text carry needs a live install (offline `.mes` read not yet wired).
+object/text/func carry. For the most faithful single field use `import --verbatim`; for a connected region use
+`import-chain --verbatim` (each member runs its real logic + speaks, doors wired to siblings — the scenario-zero
+caveats above are then governed by each donor's real story gating, presettable per-member with `[startup]`).
 
 ## Solved (faithful today)
 
