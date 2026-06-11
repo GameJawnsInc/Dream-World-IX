@@ -453,6 +453,23 @@ FORK_PLAYER_TAGS = frozenset((0, 1))  # a blank fork's player (Zidane) defines o
 RENDER_TAGS = (0, 1)                  # Init + Loop: model/pose/placement/flags/size all live here
 _OBJVAR_RE = re.compile(r"op78\((\d+),")  # B_OBJSPECA expression token: op78(uid, field) -- a uid read
 
+# --- player-function graft (docs/PLAYER_GRAFT.md): carry the donor player funcs a carried object RunScripts ---
+RUN_MODEL_CODE_OP = 0x88     # RunModelCode(code, pack) -- the player Init's animation-pack loads
+ZIDANE_MODELS = frozenset((98, 93))   # the blank fork's player rig; a non-Zidane donor's clips won't match (532 too)
+TEXT_OPS = frozenset((0x1F, 0x20, 0x95, 0x96))   # WindowSync/Async[Ex] -- references a .mes TXID the fork lacks
+ANIM_OPS = frozenset((0x33, 0x34, 0x40, 0x94))   # Set{Stand,Walk}Animation/RunAnimation/SetJumpAnimation: MODEL-keyed clips
+# the allow-list for a graft-safe player GESTURE: turn / animation / wait / head-focus / char-attr / jump-arc +
+# structure (nop/jumps/return/expr/switch/wait). Anything ELSE (text, warp, camera, scripted walk, menu, sound,
+# give-item, a sibling uid ref, a RunScript) disqualifies the func -> it stays refused (its object stays init_only).
+SAFE_GESTURE_OPS = frozenset((
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x22,       # nop / jumps / return / expr / switch / wait
+    0x36, 0x56, 0x9B, 0x50, 0x99,                         # TurnInstant/TimedTurn/TurnTowardPosition/WaitTurn/SetTurnSpeed
+    0x33, 0x34, 0x40, 0x41, 0x3F, 0x3D,                   # Set{Stand,Walk}Anim/RunAnimation/WaitAnimation/AnimFlags/AnimInOut
+    0x47, 0x8B,                                           # EnableHeadFocus / SetHeadFocusMask
+    0xCC, 0xCD,                                           # Add/RemoveCharacterAttribute (ladder flag etc.)
+    0xE2, 0xDC, 0x9C, 0x9D, 0x94, 0xA8,                   # jump-arc: SetupJump/Jump/RunJump/RunLand/SetJumpAnim/SetPathing
+))
+
 
 def _classify_ref(kind: str, val: int, donor_player_entry, carried_slots, self_slot: int) -> str:
     """Classify one slot/uid reference value: self | player | party | sibling | uncarried."""
@@ -512,7 +529,7 @@ def _classify_entry_refs(eb, entry, donor_player_entry, carried_slots, self_slot
     return refs, player_tags
 
 
-def _graft_safety(entry, refs, fork_player_tags):
+def _graft_safety(entry, refs, fork_player_tags, *, graftable_player_tags=frozenset()):
     """Per the carry policy (docs/OBJECT_CARRY.md S4): is the WHOLE entry graftable, only its
     render-defining tags (the rest reference player funcs a blank fork lacks / uncarried siblings), or
     must it be refused? Returns ``(safety, carry_tags)``. A reference is SAFE when it resolves to
@@ -526,7 +543,9 @@ def _graft_safety(entry, refs, fork_player_tags):
         if r["klass"] in ("self", "sibling"):
             ok = True
         elif r["klass"] == "player":
-            ok = r.get("tag") is None or r["tag"] in fork_player_tags
+            # safe if the fork player has the tag (0/1) OR it WILL be grafted (the player-function graft,
+            # docs/PLAYER_GRAFT.md). graftable_player_tags defaults empty -> byte-identical to before.
+            ok = r.get("tag") is None or r["tag"] in fork_player_tags or r["tag"] in graftable_player_tags
         else:                                        # party / uncarried / expr -> not resolvable in a fork
             ok = False
         if not ok:
@@ -618,7 +637,7 @@ def scan_objects(eb_bytes) -> list:
     return out
 
 
-def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS) -> list:
+def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_player_funcs=False) -> list:
     """Graft specs for a FAITHFUL fork: each persistent object's VERBATIM ``.eb`` entry plus the data
     needed to append it at a free slot, arm it, and remap its references -- the faithful counterpart of
     :func:`scan_objects` (which emits human-authored ``[[npc]]``/``[[prop]]`` stubs). Where scan_objects
@@ -680,6 +699,13 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS) -> lis
         info[slot] = rd
     carried = set(info)
 
+    # the player funcs the player-function graft WILL carry (docs/PLAYER_GRAFT.md): those tags become SAFE,
+    # flipping an object from init_only to whole-entry. OFF by default (byte-identical). scan_player_funcs
+    # calls scan_objects_verbatim WITHOUT this flag, so there is no recursion.
+    graftable_player = frozenset()
+    if graft_player_funcs:
+        graftable_player = frozenset(p["donor_tag"] for p in scan_player_funcs(eb_bytes) if p["safety"] == "clean")
+
     # 3) build a graft spec per carried object
     out = []
     for slot in order:
@@ -705,7 +731,7 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS) -> lis
             snap0 = insts[0][1]
             needs_d9 = {i: snap0[i] for i in (0, 2, 4) if i in snap0}
         refs, player_tags = _classify_entry_refs(eb, e, dpe, carried, slot)
-        safety, carry_tags = _graft_safety(e, refs, fork_player_tags)
+        safety, carry_tags = _graft_safety(e, refs, fork_player_tags, graftable_player_tags=graftable_player)
         out.append({
             "donor_idx": slot,
             "entry_bytes": _entry_bytes(eb.data, slot),          # VERBATIM (full entry, all tags)
@@ -716,6 +742,107 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS) -> lis
             "donor_player_entry": dpe, "refs": refs, "player_tags_needed": sorted(player_tags),
             "graft_safety": safety, "carry_tags": carry_tags,
         })
+    return out
+
+
+def resolve_player_entries(eb) -> list:
+    """Every entry index that defines a player character (``DefinePlayerCharacter`` 0x2C). A field can have
+    MORE THAN ONE (fields 820/108/316-319/332/...); :func:`_player_entry_index` returns only the FIRST, which
+    misses a referenced func defined on a later player entry."""
+    return [e.index for e in eb.entries if not e.empty
+            and any(ins.op == DEFINE_PC for f in e.funcs for ins in eb.instrs(f))]
+
+
+def _player_model(eb, player_entry_index):
+    """The model id the player entry's Init ``SetModel``s (the donor player rig), or None."""
+    fi = eb.entry(player_entry_index).func_by_tag(0) if 0 <= player_entry_index < eb.entry_count else None
+    return _read_object_init(eb, fi)["model"] if fi is not None else None
+
+
+def _player_init_packs(eb, player_entries) -> list:
+    """The animation-pack loads (``RunModelCode``) in the player Init(s). The fork player loads only the
+    blank-field default pack, so a grafted func that plays a clip from one of these donor packs needs the
+    pack spliced into the fork player Init (else the clip is silently unloaded -- docs/PLAYER_GRAFT.md S4)."""
+    packs = []
+    for pe in player_entries:
+        fi = eb.entry(pe).func_by_tag(0)
+        if fi is None:
+            continue
+        for ins in eb.instrs(fi):
+            if ins.op == RUN_MODEL_CODE_OP and ins.args and not any(ins.arg_is_expr):
+                t = tuple(int(a) for a in ins.args)
+                if t not in packs:
+                    packs.append(t)
+    return packs
+
+
+def _player_func_safety(eb, func, donor_model, donor_player_entry):
+    """Classify a referenced player function for graftability (docs/PLAYER_GRAFT.md S2). Returns
+    ``(safety, runscript_tags)`` -- safety in clean | text | sibling | transitive | model | exotic | missing.
+    Only ``clean`` is v1-graftable; the rest keep the seeding object ``init_only`` (lint-warned)."""
+    if func is None:
+        return "missing", []
+    ops, rs_tags, sibling = set(), [], False
+    for ins in eb.instrs(func):
+        ops.add(ins.op)
+        spec = REF_OPS.get(ins.op)
+        if spec:
+            for ai in spec.get("uid", ()):
+                if ai >= len(ins.arg_is_expr) or ins.arg_is_expr[ai]:
+                    continue
+                v = ins.imm(ai)
+                if v is None or (ins.op in INIT_OPS and v == 0):
+                    continue
+                if v in (UID_PLAYER, UID_SELF) or (donor_player_entry is not None and v == donor_player_entry):
+                    if ins.op in RUNSCRIPT_OPS and ai == 1:
+                        t = ins.imm(2)
+                        if t is not None:
+                            rs_tags.append(int(t))        # a player->player call (transitive; depth-0 in practice)
+                else:
+                    sibling = True                        # a sibling / party / uncarried uid ref
+    if ops & TEXT_OPS:
+        return "text", rs_tags                            # needs a .mes the fork doesn't carry -> v1.5
+    if sibling:
+        return "sibling", rs_tags                         # references another object -> can't resolve on a fork
+    if rs_tags:
+        return "transitive", rs_tags                      # depth-0 census -> v1 refuses (no closure walker)
+    if (ops & ANIM_OPS) and donor_model not in ZIDANE_MODELS:
+        return "model", rs_tags                           # clip ids are another character's -> wrong on Zidane
+    if ops - SAFE_GESTURE_OPS:
+        return "exotic", rs_tags                          # warp / camera / scripted-walk / menu / sound / give
+    return "clean", rs_tags
+
+
+def scan_player_funcs(eb_bytes) -> list:
+    """The donor PLAYER functions a fork must graft so its carried objects' INTERACTIONS fire -- the tags an
+    object's interactive func ``RunScript``s (the object scanner's ``player_tags_needed``). One spec per needed
+    tag: ``{donor_tag, safety, body (verbatim), runscript_tags, donor_player_entry, donor_player_model,
+    donor_init_packs}``. ``safety == "clean"`` is v1-graftable (grafted onto the fork player via
+    ``edit.add_function`` at a fresh tag); the rest keep the seeding object ``init_only``. The donor tag is
+    later remapped to a fresh fork-player tag (docs/PLAYER_GRAFT.md)."""
+    eb = EbScript.from_bytes(eb_bytes)
+    specs = scan_objects_verbatim(eb_bytes)
+    needed = sorted({t for s in specs for t in s["player_tags_needed"]})
+    if not needed:
+        return []
+    pents = resolve_player_entries(eb)
+    if not pents:
+        return []
+    model = _player_model(eb, pents[0])
+    packs = _player_init_packs(eb, pents)
+    out = []
+    for tag in needed:
+        func = pe = None
+        for p in pents:
+            func = eb.entry(p).func_by_tag(tag)
+            if func is not None:
+                pe = p
+                break
+        safety, rs_tags = _player_func_safety(eb, func, model, pe)
+        out.append({"donor_tag": tag, "safety": safety,
+                    "body": eb.data[func.abs_start:func.abs_end] if func is not None else b"",
+                    "runscript_tags": rs_tags, "donor_player_entry": pe,
+                    "donor_player_model": model, "donor_init_packs": packs})
     return out
 
 

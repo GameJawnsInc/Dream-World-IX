@@ -236,6 +236,70 @@ def test_scan_objects_verbatim_field122_cask_is_render_faithful():
     assert 23 not in by_slot
 
 
+# --- scan_player_funcs: the player-function graft scanner (docs/PLAYER_GRAFT.md) -----------
+def _classify_player_body(body, model=98):
+    from ff9mapkit.eb import edit
+    pe = eventscan._player_entry_index(eventscan.EbScript.from_bytes(CLEAN))
+    eb2 = eventscan.EbScript.from_bytes(edit.add_function(CLEAN, pe, 50, bytes(body)))
+    f = eb2.entry(pe).func_by_tag(50)
+    return eventscan._player_func_safety(eb2, f, model, pe)[0]
+
+
+def test_player_func_safety_classifies_each_class():
+    from ff9mapkit.eb import opcodes
+    assert _classify_player_body(opcodes.RETURN) == "clean"                          # bare gesture (only RETURN)
+    assert _classify_player_body(opcodes.window_sync(1, 128, 62) + opcodes.RETURN) == "text"
+    assert _classify_player_body(opcodes.field(100) + opcodes.RETURN) == "exotic"     # a warp mid-interaction
+    assert _classify_player_body(opcodes.run_script_sync(2, 5, 0) + opcodes.RETURN) == "sibling"      # uid 5 = sibling
+    assert _classify_player_body(opcodes.run_script_sync(2, 250, 9) + opcodes.RETURN) == "transitive"  # -> player tag
+    anim = opcodes.encode(0x33, 200) + opcodes.RETURN                                 # SetStandAnimation(200)
+    assert _classify_player_body(anim, model=98) == "clean"                           # Zidane donor -> ok
+    assert _classify_player_body(anim, model=520) == "model"                          # non-Zidane -> clips won't match
+
+
+def test_scan_player_funcs_blank_and_no_objects():
+    assert eventscan.scan_player_funcs(CLEAN) == []
+    from ff9mapkit.content import prop as _prop
+    # a kit prop never RunScripts a player tag -> nothing to graft
+    assert eventscan.scan_player_funcs(_prop.inject_prop(CLEAN, 0, 0, model=133, pose=1)) == []
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_scan_player_funcs_field122_cask_box_are_clean():
+    from ff9mapkit import extract
+    eb = extract.extract_event_script("fbg_n08_udft_map122_uf_sto_0")
+    assert eventscan.resolve_player_entries(eventscan.EbScript.from_bytes(eb)) == [23]
+    specs = {s["donor_tag"]: s for s in eventscan.scan_player_funcs(eb)}
+    assert set(specs) == {11, 12, 24}                            # the cask (24) + the two boxes (11, 12)
+    assert all(s["safety"] == "clean" for s in specs.values())   # all graftable
+    assert all(s["runscript_tags"] == [] for s in specs.values())          # depth-0 (no transitive closure)
+    assert all(s["donor_player_model"] == 98 for s in specs.values())      # Zidane donor
+    assert all(len(s["body"]) > 0 for s in specs.values())
+    # the donor player Init loads anim packs the blank fork lacks (the clip-load caveat -- box clips live here)
+    packs = {p[-1] for p in specs[11]["donor_init_packs"]}
+    assert 907 in packs and 914 in packs
+
+
+def test_player_graft_flag_off_is_byte_identical():
+    # the policy-flip flag defaults OFF -> the object-carry result is unchanged (a kit prop has no player refs)
+    from ff9mapkit.content import prop as _prop
+    eb = _prop.inject_prop(CLEAN, 10, 20, model=133, pose=1)
+    assert eventscan.scan_objects_verbatim(eb) == eventscan.scan_objects_verbatim(eb, graft_player_funcs=True)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_player_graft_policy_flip_makes_cask_whole():
+    from ff9mapkit import extract
+    eb = extract.extract_event_script("fbg_n08_udft_map122_uf_sto_0")
+    base = {s["donor_idx"]: s for s in eventscan.scan_objects_verbatim(eb)}
+    flip = {s["donor_idx"]: s for s in eventscan.scan_objects_verbatim(eb, graft_player_funcs=True)}
+    # the cask's ONLY blocker was the player tag-24 ref -> with the graft it carries WHOLE (interactive tag 2 kept)
+    assert base[10]["graft_safety"] == "init_only" and 2 not in base[10]["carry_tags"]
+    assert flip[10]["graft_safety"] == "clean" and 2 in flip[10]["carry_tags"]
+    # TBX-12 ALSO has a STARTSEQ-to-uncarried (tag 18) -> stays init_only, but now carries its player tag 2
+    assert flip[12]["graft_safety"] == "init_only" and 2 in flip[12]["carry_tags"]
+
+
 def test_content_section_falls_back_to_commented_stub_when_empty():
     from ff9mapkit import extract
     assert extract._content_section("", 5, 7).lstrip().startswith("# [[gateway]]")
