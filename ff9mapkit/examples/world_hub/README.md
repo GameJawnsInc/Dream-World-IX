@@ -14,11 +14,15 @@ This scaffold has three fields:
 | `journey_one.field.toml` | 4501 | A trivial destination (Black Mage Village backdrop). |
 | `journey_two.field.toml` | 4502 | A trivial destination (Treno backdrop). |
 
+`journeys.toml` is the **generator input** — `ff9mapkit gen-hub journeys.toml` emits a `hub.field.toml`
+logically identical to the hand-authored one above (see *Generate the hub* below).
+
 ## How it works
 
-- **Moogle PC** — `[player] model = 199` re-skins the field avatar to a Moogle (the new `[player] model=`
-  option; movement clips auto-resolved via the Info Hub model→animation join). Control ≠ party — the party
-  menu is unchanged; the Moogle is just who you *walk* as.
+- **Moogle PC** — `[player] model = 220` re-skins the field avatar to the iconic Moogle (`GEO_NPC_F0_MOG`,
+  the save moogle — **not** 199, which is a bat-winged variant). The new `[player] model=` option; movement
+  clips auto-resolved via the Info Hub model→animation join. Control ≠ party — the party menu is unchanged;
+  the Moogle is just who you *walk* as.
 - **The menu** — a normal `[[npc]]` (Stiltzkin) + `[[choice]]`. Each option has `warp = <entry id>` (the new
   choice **warp action**) and optionally `set_scenario`. Picking a row plays the transition sound and
   `Field()`s into that journey — grounded in real FF9 talk-handler warps (the Dali innkeeper, the airship).
@@ -60,13 +64,31 @@ Then **relaunch once** (to register the three new ids), and in-game:
 That's the **select → seed → warp** loop. (New Game → hub, and a real forked-slice journey, are the next
 steps — see below.)
 
+## Generate the hub from `journeys.toml`
+
+Instead of hand-authoring `hub.field.toml`, describe the journeys in a small registry and let the kit emit
+the hub field — the **"hardcoded MVP → generator"** step. The hub stays *thin*: per journey just
+`{title, entry field id, optional seed}`.
+
+```bash
+# from the kit root (ff9mapkit/)
+py -m ff9mapkit gen-hub examples/world_hub/journeys.toml --out examples/world_hub/hub.field.toml
+```
+
+That reads [`journeys.toml`](journeys.toml) (a `[hub]` table + one `[[journey]]` row per destination) and
+writes a `hub.field.toml` **logically identical** to the hand-authored one above (same Moogle PC, narrator,
+and warp menu) — then build/deploy it exactly as in the previous section. Add or reorder journeys by editing
+`journeys.toml` and regenerating; the emitted `hub.field.toml` is a build artifact (don't hand-edit it). The
+generator validates the registry offline (id bands, dup names, the `text_block` 1073 shadow trap, menu
+paging) before emitting.
+
 ## What's a scaffold vs a real hub
 
-- **Scaffold (this):** hand-authored, trivial destinations, reached via F6 → Warp.
+- **Scaffold (this):** trivial destinations, reached via F6 → Warp.
 - **Real hub (next):** (a) retarget the **field-70 New-Game override** to 4500 in the highest mod folder so
   New Game lands here; (b) point each journey at a real `import-chain --verbatim` slice (story_flags' lane)
-  with its own `[startup]`/`[party]` so it boots in the right beat with the right party; (c) a `[[journey]]`
-  block + a generator (`journeys.toml` → the hub) so journeys auto-appear ("hardcoded MVP → generator").
+  with its own `[startup]`/`[party]` so it boots in the right beat with the right party. *(The `[[journey]]`
+  block + generator — item (c) — now exists: `ff9mapkit gen-hub`, see above.)*
 
 ## Placement
 

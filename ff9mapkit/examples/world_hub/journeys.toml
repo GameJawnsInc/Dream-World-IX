@@ -1,0 +1,35 @@
+# ============================================================================
+#  WORLD HUB registry -- the generator input for `ff9mapkit gen-hub`.
+#
+#  `ff9mapkit gen-hub journeys.toml` emits a hub.field.toml (the journey-selector
+#  field) from this small registry: per journey just {title, entry field id, seed}.
+#  The emitted hub is logically identical to the hand-authored hub.field.toml in
+#  this folder (the in-game-proven MVP) -- this is the "hardcoded MVP -> generator"
+#  step. Build/deploy the emitted field.toml like any field. (memory: project-ff9-world-hub)
+# ============================================================================
+
+[hub]
+name      = "WORLD_HUB"
+id        = 4500
+borrow_bg = "GRGR_MAP420_GR_CEN_0"   # a real room as the backdrop (swap to ANY area>=10 field for theme)
+area      = 21
+camera    = "camera_hub.bgx"         # the borrowed room's camera (extract from your install; gitignored)
+text_block = 8                       # a real MesDB id NOT shadowed by the higher FF9CustomMap folder (1073 IS)
+prompt    = "Kupo! Which journey will you take?"
+stay_text = "Stay here, kupo..."     # the trailing no-warp (cancel) row
+player_model   = 220                 # walk the hub as the iconic Moogle (220 = GEO_NPC_F0_MOG, the save moogle)
+player_spawn   = [404, 127]
+narrator       = "Stiltzkin"         # the narrator moogle (an NPC instance of model 220)
+narrator_model = 220
+narrator_pos   = [480, 127]
+
+[[journey]]
+name  = "black_mage_village"
+title = "The Black Mage Village"
+entry = 4501                         # -> journey_one
+set_scenario = 2600                  # demo: assert a beat before warping (optional)
+
+[[journey]]
+name  = "treno"
+title = "Treno, City of Nobles"
+entry = 4502                         # -> journey_two

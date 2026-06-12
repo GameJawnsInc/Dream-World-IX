@@ -10,6 +10,7 @@ Subcommands are wired up incrementally as the library lands:
     build     - compile a field.toml into a Memoria mod folder              (Phase 4)
     new       - scaffold a new field project directory                      (Phase 5)
     pack      - package a built mod for distribution                        (Phase 5)
+    gen-hub   - generate a World-Hub field.toml from a journeys.toml registry (P6)
     import    - fork a real FF9 field (BG-borrow, or --editable custom scene) (Tier 3)
     list-fields - list the real FF9 fields available to import              (Tier 3)
     battle-import - fork a real FF9 battle background (BBG) into an editable battle.toml (needs UnityPy)
@@ -288,6 +289,28 @@ def _cmd_new(args: argparse.Namespace) -> int:
     print(f"scaffolded {proj}  (suggested field id {fid}, area {args.area})")
     print(f"  edit {proj}/{args.name.lower()}.field.toml, add art, then: ff9mapkit build "
           f"{proj}/{args.name.lower()}.field.toml")
+    return 0
+
+
+def _cmd_gen_hub(args: argparse.Namespace) -> int:
+    """Generate a World-Hub field.toml from a journeys.toml registry. Pure codegen (no game install): it
+    emits a BG-borrow hub field whose narrator menu warps to each journey's entry. Build/deploy the emitted
+    field.toml like any field (extract the borrowed camera first -- it's gitignored)."""
+    from . import hub
+    try:
+        info = hub.generate(args.journeys, out_path=args.out)
+    except (OSError, ValueError) as e:        # HubError (a ValueError) + unreadable/parse errors
+        print(str(e), file=sys.stderr)
+        return 2
+    spec = info["spec"]
+    print(f"generated hub '{spec.name}' (id {spec.id}, {info['journeys']} journey(s)) -> {info['path']}")
+    for j in spec.journeys:
+        seed = f", seed {j.set_scenario}" if j.set_scenario is not None else ""
+        print(f"  {j.title!r} -> field {j.entry}{seed}")
+    for w in info.get("warnings", []):
+        print(f"warning: {w}", file=sys.stderr)
+    print(f"Next: extract the borrowed camera ({spec.camera}) from your install, then "
+          f"`ff9mapkit build {info['path']}` (or tools/deploy_field.py).")
     return 0
 
 
@@ -1785,6 +1808,13 @@ def build_parser() -> argparse.ArgumentParser:
     pk.add_argument("mod_root", help="path to a built mod folder")
     pk.add_argument("--out", default=None, help="output .zip (default: <modname>.zip)")
     pk.set_defaults(func=_cmd_pack)
+
+    gh = sub.add_parser("gen-hub", help="generate a World-Hub field.toml from a journeys.toml registry "
+                        "(a journey selector: pick a journey -> warp into it) (P6)")
+    gh.add_argument("journeys", help="path to a journeys.toml ([hub] + [[journey]] rows)")
+    gh.add_argument("--out", default=None,
+                    help="output field.toml (default: hub.field.toml beside the journeys.toml)")
+    gh.set_defaults(func=_cmd_gen_hub)
 
     im = sub.add_parser("import", help="fork a REAL FF9 field into an editable field.toml (needs UnityPy)")
     im.add_argument("field", help="field name: full FBG, bare mapid, or a unique substring (e.g. grgr_map420)")
