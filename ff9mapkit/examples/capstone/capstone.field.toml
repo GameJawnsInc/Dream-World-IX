@@ -1,0 +1,91 @@
+# CAPSTONE — the narrative-state capstone: a New Game that boots DIRECTLY into a custom field
+# with its starting BEAT, PARTY, BAG, and GEAR all seeded from this ONE entry field.toml.
+#
+# The four starting-state channels compose at build/deploy into ONE mod folder — two go into the
+# field's event script (.eb) at synthesis, two into mod-global CSVs at the mod-write stage:
+#   [startup]         -> the .eb   (ScenarioCounter + story bits, prepended to Main_Init)   [story_flags]
+#   [party]           -> the .eb   (B_PARTYADD, on top of the Zidane-slot-0 new-game base)  [story_flags]
+#   [start_inventory] -> StreamingAssets/Data/Items/InitialItems.csv   (the FULL bag)        [items_equipment]
+#   [[equipment]]     -> StreamingAssets/Data/Characters/DefaultEquipment.csv (a delta)       [items_equipment]
+#
+# All four are read ONLY at a true New Game (FF9Play_Init / FF9Item_Init) — so the proof is a New
+# Game, NOT an F6 warp (which skips them). At New Game the engine seeds Zidane into party slot 0
+# (FF9Play_SetParty(0, Zidane); slots 1-3 = NONE), so [party] adds the OTHERS on top.
+#
+# Entry plumbing (engine-independent, no DLL): the stock New Game loads field 70, whose mod override
+# (evt_alex1_ts_opening) warps Field(4003); tools/skip_opening_fmv.py strips its opening FMV so the
+# entry is instant. (memory project-ff9-new-game-entry.)
+#
+#   ff9mapkit lint  examples/capstone/capstone.field.toml
+#   # Deploy to id 4003 in the HIGHEST mod folder: the New-Game override warps Field(4003) and lives in
+#   # FF9CustomMap, and InitialItems.csv is highest-priority-wins (a lower folder's bag would shadow this).
+#   # The flags are REQUIRED -- the bare command uses this worktree's scratch slot (.ff9deploy.toml), which
+#   # a New Game cannot reach and where the bag would be shadowed.
+#   py tools/deploy_field.py examples/capstone/capstone.field.toml --id 4003 --mod-folder FF9CustomMap
+#   py tools/skip_opening_fmv.py                                     # seamless New-Game entry (idempotent)
+#   New Game -> lands in 4003 as Zidane/Steiner/Freya, with the bag + Steiner's gear, at the beat.
+
+[field]
+id = 4003
+name = "CAPSTONE"          # -> FBG_N11_CAPSTONE + EVT_CAPSTONE.eb
+area = 11
+text_block = 1073
+title = "ff9mapkit starting-state capstone"
+
+# Camera + walkmesh + art reuse the proven SHOWCASE room geometry (offline-buildable placeholder art).
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# ===================== the four starting-state channels (the capstone) =====================
+
+# 1) [startup] — assert the story BEAT (ScenarioCounter) + a custom story bit at field load (.eb lever).
+#    On a custom field the beat gates no content, so prove it via F6 -> Flags (ScenarioCounter == 2600,
+#    bit 8512 == 1). The presets prepend to Main_Init and nothing overwrites them (synthesized field).
+[startup]
+scenario = 2600                         # a recognizable beat (Dali); chosen to be obvious in F6 -> Flags
+flags = [{ flag = 8512, value = 1 }]    # a custom-band story bit (safe band >= 8512, clear of real FF9 usage)
+
+# 2) [party] — who's in the MENU/BATTLE roster. Zidane is already party slot 0 at New Game, so add only
+#    the OTHERS (re-adding Zidane would duplicate the slot). Final party: Zidane / Steiner / Freya.
+[party]
+add = ["steiner", "freya"]
+
+# 3) [start_inventory] — the FULL new-game bag. Highest-priority-wins: this REPLACES the base bag, so it
+#    is the complete intended inventory. Excalibur (an end-game weapon) makes the custom bag unmistakable.
+[start_inventory]
+items = [
+    ["Potion", 20],
+    ["Hi-Potion", 10],
+    ["Phoenix Down", 5],
+    ["Ether", 5],
+    ["Tent", 3],
+    ["Excalibur", 1],
+]
+
+# 4) [[equipment]] — Steiner JOINS (via [party]) wearing this loadout instead of his default new-game gear
+#    (a partial DefaultEquipment.csv delta, merged by the engine). Composes with the [party] add above.
+[[equipment]]
+character = "steiner"
+weapon = "Excalibur"
+head   = "Genji Helmet"
+armor  = "Genji Armor"
+# wrist + accessory omitted -> those slots start empty (the row replaces Steiner's whole default set)

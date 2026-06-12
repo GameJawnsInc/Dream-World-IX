@@ -1005,6 +1005,34 @@ Read these on demand — they hold the full technical detail this file only summ
   `import` arg; campaign/chain seeds already digit-first; issue #2 "multi-id folder → wrong event" confirmed
   non-existent, the baked table is strictly 1:1). Minor remainder (noted): `import` still doesn't match bare
   `EVT_…` event-name tokens the way `fork-report` does. `extract.py` only. 4 tests. kit 0.9.42; 955 tests.
+- **STARTING-STATE CAPSTONE — a New Game that boots DIRECTLY into a custom field seeding the right BEAT, PARTY,
+  BAG, and GEAR from ONE entry `field.toml` (`story_flags`; ★ IN-GAME PROVEN 2026-06-12, all 5 channels).** The
+  narrative-state north star realized end-to-end: not "fork a field and walk around at scenario-zero" but "start a
+  fresh game and land in the right beat, as the right party, holding the right things." It is the CONVERGENCE of
+  three lanes onto one field, composing automatically at build/deploy: **`[startup]`** (ScenarioCounter + a story
+  bit) **+ `[party]`** (add Steiner+Freya) prepend to the field's Main_Init at synthesis (story_flags' `.eb`
+  levers); **`[start_inventory]`** → `Data/Items/InitialItems.csv` **+ `[[equipment]]`** →
+  `Data/Characters/DefaultEquipment.csv` emit at the mod-write stage (items_equipment's CSV writers, the #3
+  handoff); and the engine-independent **field-70 override** (`evt_alex1_ts_opening` → `Field(4003)`, FMV-skipped)
+  is the seamless entry. `build_mod`/`deploy_field` fire all four from the entry field's blocks; the CSVs are read
+  ONLY at a true New Game (`ff9item.FF9Item_Init` / `ff9play.FF9Play_Init`), so the proof is a New Game, not an F6
+  warp. ★ A **3-lens adversarial review** confirmed every engine fact against Memoria source: `FF9Play_Init` seeds
+  **Zidane into party slot 0** (slots 1-3 NONE) and builds each PLAYER with its `DefaultEquipment`, so `[party]`
+  adds the OTHERS (never re-add Zidane) and an added member **joins WEARING its `[[equipment]]` gear**
+  (`FF9Play_New`→`FF9Play_SetDefEquips`; `partyadd` reuses the already-built struct, and `B_PARTYADD` is
+  dedup/overflow-guarded); `InitialItems.csv` is **whole-file REPLACE** (highest-priority-wins) while
+  `DefaultEquipment.csv` MERGES low→high; the override runs NO party/item ops before the warp. The review caught
+  one real defect (now fixed): the example's bare deploy recipe would land in this worktree's scratch slot
+  (`-sf`/30004) — **unreachable by the `Field(4003)` override AND its bag shadowed by the higher folder** — so the
+  recipe MUST be `--id 4003 --mod-folder FF9CustomMap` (the override's target, in the HIGHEST folder where
+  `InitialItems.csv` isn't shadowed). Ships `examples/capstone/` (a self-contained, provenance-clean room on
+  committed placeholder art) + `tests/test_capstone.py` (5 tests: the four-channel emission + the two design
+  invariants — party-adds-not-Zidane, flag-in-safe-band). Follow-up for items_equipment (their CSV-shadow lane):
+  `deploy_field`'s `deploystack` guard warns on the `.mes` text-block shadow but not on an `InitialItems.csv`
+  shadow (highest-wins → a lower-folder deploy silently drops the bag). Touches only `examples/` + `tests/` (no kit
+  code change — the four channels already existed; this is the composition + the proof). story_flags is the
+  composition owner ([[project-ff9-branch-lanes]]). kit 0.9.43; 961 tests. → memory [[project-ff9-new-game-entry]],
+  [[project-ff9-pc-party-system]].
 
 ---
 

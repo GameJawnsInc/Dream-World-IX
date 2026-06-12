@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — starting-state capstone: a New Game that boots into a custom field with the right beat/party/bag/gear (0.9.43)
+- `examples/capstone/` — a self-contained entry `field.toml` that composes all FOUR new-game starting-state channels
+  on ONE field: `[startup]` (ScenarioCounter + a story bit) + `[party]` (add Steiner/Freya) → the field `.eb`
+  (prepended to Main_Init at synthesis); `[start_inventory]` → `Data/Items/InitialItems.csv` + `[[equipment]]` →
+  `Data/Characters/DefaultEquipment.csv` (emitted at the mod-write stage). `build`/`deploy_field` fire all four
+  automatically; the CSVs are read **only at a true New Game**. ★ IN-GAME PROVEN end-to-end — New Game → field 4003
+  as **Zidane/Steiner/Freya**, Steiner wearing his Excalibur+Genji delta, the custom bag, at ScenarioCounter 2600.
+- The entry is the engine-independent field-70 override (`Field(4003)`, FMV-skipped) — no DLL.
+- ★ Deploy to **id 4003 in the highest mod folder** (`--id 4003 --mod-folder FF9CustomMap`): the override warps
+  `Field(4003)` and `InitialItems.csv` is highest-priority-wins (a lower folder's bag would shadow it silently).
+- `tests/test_capstone.py` (5 tests): the four-channel emission + two design invariants — `[party]` adds the others,
+  not Zidane (the new-game base is Zidane-slot-0, and added members join wearing their `[[equipment]]` gear); the
+  `[startup]` flag stays in the custom safe band.
+- No kit code changed — the four channels already existed; this is the **composition + the proof** (story_flags'
+  composition lane). Engine facts verified by a 3-lens adversarial review against Memoria source.
+
 ### Fixed — `import <id>` now means the FIELD ID, not a `map<NNN>` folder substring (0.9.42)
 - `import <field>` / `import-chain` resolved a token by **FBG-folder substring**, while `fork-report` /
   `list-fields` / `find-rooms` resolve a digit as a **field id** — so they targeted *different* fields for the
