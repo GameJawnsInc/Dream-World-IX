@@ -392,6 +392,18 @@ def test_analyze_populates_camera_axis_from_the_scene():
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_and_fork_report_resolve_a_numeric_token_to_the_same_field():
+    # the reconcile fix: `import <id>` (extract.resolve_field) and `fork-report <id>` (resolve_field_id)
+    # must target the SAME field. Was broken -- "100" substring-matched the map100 Dali folder for import
+    # while fork-report used field id 100 (Alexandria); the .eb/.mes shipped mismatched.
+    from ff9mapkit import extract
+    fid = FR.resolve_field_id("100")
+    assert fid == 100
+    assert extract.resolve_field("100")[0] == extract.ID_TO_FBG[fid]              # same folder
+    assert extract.extract_event_script("100") == extract.EventBundle(None).eb_for_id(100)  # same .eb bytes
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_field_camera_info_exposes_range_and_analyze_populates_it():
     from ff9mapkit import extract
     ci = extract.field_camera_info("fbg_n02_alxc_map878a_ac_rst_x")    # the proven anchor (field 1200)

@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `import <id>` now means the FIELD ID, not a `map<NNN>` folder substring (0.9.42)
+- `import <field>` / `import-chain` resolved a token by **FBG-folder substring**, while `fork-report` /
+  `list-fields` / `find-rooms` resolve a digit as a **field id** — so they targeted *different* fields for the
+  same number. `import 100` forked the Dali field whose folder contains `map100`; `fork-report 100` analyzes
+  field id 100 (Alexandria). Field ids and the folder `map<NNN>` numbers are **unrelated schemes** (0 of 676
+  coincide), so a numeric token diverged for **every** field — 79 silently forked the wrong field, 38 errored
+  ambiguously, 559 just failed.
+- Fix: `extract.resolve_field` is now **digit-first** — a pure-digit token resolves via `ID_TO_FBG[int]` (parity
+  with `fork-report`); non-digit tokens keep the FBG/mapid-substring behavior (so `map100` / `vgdl_map100` still
+  match a folder by its map number). This transitively fixes an **internal** mismatch too: `import 100 --verbatim`
+  used to ship the Dali field's `.eb` (folder-keyed) with Alexandria's `.mes` (the dialogue path is already
+  digit-first) — now both halves are the same field. Surfaced + grounded by a 2-agent workflow (full caller audit:
+  the only digit token entering `resolve_field` is the user's `import` arg; campaign/chain seeds were already
+  digit-first; issue #2 "multi-id folders → wrong event" confirmed non-existent — the table is strictly 1:1).
+  4 tests (3 offline + an install-gated consistency check). One minor remainder noted: `import` still doesn't
+  match bare event-name tokens (`EVT_…`) the way `fork-report` does — a possible future polish. kit 0.9.42.
+
 ### Added — `--swap-player --neutralize-gestures`: stand cleanly through a cutscene (0.9.41)
 - `import <field> --swap-player <char> --neutralize-gestures` (also on `import-chain`) makes a swapped
   character STAND/idle cleanly through a cutscene field instead of T-posing on the donor rig's scripted

@@ -176,7 +176,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   `Cinematic` ops in the field-70 override (→ instant `Field(4003)`, no DLL, no `SkipIntros`). The companion
   overrides `EVT_ALEX1_AT_STREET_A` (id 100 → doors to 4003/4004/30100) + `EVT_ALEX1_TS_CARGO_0` (id 50) are the
   walk-through-Alexandria route (separate from the direct New-Game→4003 hop). → memory `project-ff9-new-game-entry`.
-- **Versions:** kit `0.9.41`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.42`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -986,6 +986,18 @@ Read these on demand — they hold the full technical detail this file only summ
   it); reads natural because the idle has a real length + the scene's macro-pacing is gated by dialogue windows /
   fixed `Wait(N)` ops neutralize leaves intact. Touches `playerswap.py`/`extract.py`/`cli.py`/`campaign.py`. kit
   0.9.41; 951 tests. See memory [[project-ff9-non-zidane-donors]].
+- **`import <id>` now means the FIELD ID, not a `map<NNN>` folder substring (the reconcile fix the neutralize
+  playtest surfaced).** `import`/`import-chain` resolved a token by FBG-FOLDER SUBSTRING while `fork-report`/
+  `list-fields`/`find-rooms` resolve a digit as a FIELD ID — so `import 100` forked the `map100` Dali field while
+  `fork-report 100` analyzed field id 100 (Alexandria). ★ **Field ids and folder `map<NNN>` numbers are UNRELATED
+  schemes (0 of 676 coincide)** — so a numeric token diverged for EVERY field (79 silent-wrong / 38 ambiguous / 559
+  fail). Fix: `extract.resolve_field` is **digit-first** (a pure digit → `ID_TO_FBG[int]`, parity with
+  `fork-report`; non-digit keeps FBG-substring). Transitively fixed an INTERNAL split too: `import 100 --verbatim`
+  shipped the Dali `.eb` (folder-keyed) with Alexandria's `.mes` (dialogue path already digit-first) — now one
+  field. Grounded by a 2-agent workflow (full caller audit: the ONLY digit token into `resolve_field` is the user's
+  `import` arg; campaign/chain seeds already digit-first; issue #2 "multi-id folder → wrong event" confirmed
+  non-existent, the baked table is strictly 1:1). Minor remainder (noted): `import` still doesn't match bare
+  `EVT_…` event-name tokens the way `fork-report` does. `extract.py` only. 4 tests. kit 0.9.42; 955 tests.
 
 ---
 

@@ -105,3 +105,31 @@ def test_borrow_ships_script_but_no_custom_scene(tmp_path):
     fm = L.fieldmap_dir("FBG_N21_GRGR_FORK")
     assert not (fm / "FBG_N21_GRGR_FORK.bgx").exists()
     assert not (fm / "FBG_N21_GRGR_FORK.bgi.bytes").exists()
+
+
+# ---- resolve_field digit-first: `import <id>` must mean the FIELD ID (parity with fork-report), not a
+# map<NNN> folder substring. Offline via a monkeypatched index (field ids and folder map-numbers are
+# unrelated schemes -- id 100 = Alexandria, but "100" substring-matches the map100 Dali folder).
+import pytest                                                              # noqa: E402
+from ff9mapkit import extract                                             # noqa: E402
+
+
+def test_resolve_field_digit_is_a_field_id_not_a_map_substring(monkeypatch):
+    real = extract.ID_TO_FBG[100]                 # fbg_n01_alxt_map016_... (id 100, no "100" in the name)
+    decoy = "fbg_n06_vgdl_map100_dl_fwm_0"        # the OLD trap: contains "100" (map100) -> the Dali field
+    assert "100" not in real and "100" in decoy   # guard the fixture's premise
+    monkeypatch.setattr(extract, "build_field_index", lambda game=None, **k: {real: "a.bin", decoy: "b.bin"})
+    assert extract.resolve_field("100")[0] == real          # digit -> the field-id folder, NOT the substring
+    assert extract.resolve_field("vgdl_map100")[0] == decoy  # a non-digit substring still matches the folder
+
+
+def test_resolve_field_digit_not_a_field_id_falls_through(monkeypatch):
+    monkeypatch.setattr(extract, "build_field_index", lambda game=None, **k: {"fbg_n01_x_map001_y_0": "b.bin"})
+    with pytest.raises(FileNotFoundError):
+        extract.resolve_field("99999")            # not a real field id + no substring match -> clean error
+
+
+def test_resolve_field_real_id_with_no_live_bundle_raises(monkeypatch):
+    monkeypatch.setattr(extract, "build_field_index", lambda game=None, **k: {})   # empty index
+    with pytest.raises(FileNotFoundError):
+        extract.resolve_field("100")              # id 100 is real but its folder isn't in the (empty) index

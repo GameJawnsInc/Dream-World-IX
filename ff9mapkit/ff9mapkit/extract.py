@@ -114,12 +114,21 @@ def build_field_index(game=None, *, force=False, verbose=True) -> dict:
 
 
 def resolve_field(field: str, game=None):
-    """(folder, bundle) for a field name (full FBG, bare mapid, or unique substring) via the index."""
-    want = re.sub(r"^fbg_n\d+_", "", field.strip().lower())
+    """(folder, bundle) for a field token via the index. A pure-DIGIT token is a FIELD ID (parity with
+    ``fork-report`` / ``eb_for_id`` -- so ``import <id>`` forks the SAME field the analysis commands describe),
+    NOT a folder substring: field ids and the folder ``map<NNN>`` numbers are UNRELATED schemes (id 100 =
+    Alexandria, not the ``map100`` Dali field). To match a folder by its map number, pass an FBG/mapid
+    substring (e.g. ``map100`` / ``vgdl_map100``)."""
     index = build_field_index(game, verbose=True)
-    if field.strip().lower() in index:
-        f = field.strip().lower()
-        return f, index[f]
+    tok = field.strip()
+    if tok.isdigit() and int(tok) in ID_TO_FBG:        # a field id -> its folder (NOT a map<NNN> substring)
+        folder = ID_TO_FBG[int(tok)]
+        if folder in index:
+            return folder, index[folder]
+        raise FileNotFoundError(f"field id {tok} ({folder}) has no live field bundle -- not a forkable field")
+    want = re.sub(r"^fbg_n\d+_", "", tok.lower())
+    if tok.lower() in index:
+        return tok.lower(), index[tok.lower()]
     hits = [f for f in index if want in f]
     if not hits:
         raise FileNotFoundError(f"no field matches {field!r}. Try: ff9mapkit list-fields {want}")
