@@ -15,6 +15,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   needed (memory `project-ff9-new-game-entry`). `--stock` is now a deprecated no-op; `revert_campaign.py` chains the
   retarget's revert. Surfaced by running the productionized `--apply` live (the warp step errored, the new guards
   worked). +1 regression-guard test.
+- ★ **IN-GAME PROVEN (2026-06-12):** the full productionized path — `deploy_campaign --apply` (collision guard +
+  CSV promotion + field-70 retarget) → relaunch → New Game — **boots straight into the Dali chain.** The
+  end-to-end campaign New-Game capstone is now reproducible from one command + a relaunch.
 
 ### Added — save-item editor #5 step 4c: the Item & Equipment GUI (`apps/ff9_items.pyw`), IN-GAME PROVEN (0.9.54)
 - A standalone tkinter app — the item/equip companion to the Story State console — to inspect + EDIT a save's
