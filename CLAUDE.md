@@ -383,10 +383,11 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - Faithful object/NPC carry → verbatim fork (`--verbatim` = the truest fork: real logic + real text) → [[project-ff9-verbatim-fork]], [[project_ff9_object_carry]]
 - Non-Zidane donors + PC/party control (`--swap-player`, `[party]`) → [[project-ff9-non-zidane-donors]], [[project-ff9-pc-party-system]]
 - Items / equipment / shops + the New-Game starting-state capstone → [[project-ff9-items-equipment]], [[project-ff9-new-game-entry]]
+- Campaign-scale New-Game capstone — New Game → a forked verbatim CHAIN that plays its real story (Dali: wake-up → Garnet rejoins @2640), beat/bag/gear seeded on the entry; `tools/retarget_newgame_warp.py` + `import-chain --name-prefix` (cross-worktree FBG/EVT namespace) → [[project-ff9-new-game-entry]]
 - InfoHub authoring — place any model/prop/creature by name → [[project-ff9-infohub-authoring]]
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 
-**Latest:** kit 0.9.46, 1024 tests. Active: **battle TUNING / encounter authoring** (`battle_design`) — recon +
+**Latest:** kit 0.9.47, 1025 tests. Active: **battle TUNING / encounter authoring** (`battle_design`) — recon +
 Phase 0/1/2 (raw16 full codec + golden round-trip; `[scene]` combat-identity tuning by name; `battle-actions` /
 `battle-scene` catalogs; the **offline balance-lint** `scenelint.py`). ★ **Phase 1 IN-GAME PROVEN** (forked
 EF_R007 Goblin: auto-Protect icon + phys-def wall → ~1 dmg + 10 AP). ★ **Phase 2** lint validated by a 562-scene

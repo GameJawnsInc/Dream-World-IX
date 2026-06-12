@@ -68,7 +68,7 @@ class CampaignPlan:
         return [m.name for m in self.members if m.needs_export]
 
 
-def member_name(folder: str, idx: int, taken: set) -> str:
+def member_name(folder: str, idx: int, taken: set, prefix: str = "") -> str:
     """Deterministic, collision-safe member name from an FBG folder. ``fbg_n05_iccv_map085_ic_ent_0`` ->
     ``IC_ENT`` (the segments after ``map<NNN>``, trailing variant digit dropped). Collisions get a zone
     prefix then a numeric suffix. Falls back to ``<ZONE>_<idx>`` when the folder has no map segment."""
@@ -86,17 +86,22 @@ def member_name(folder: str, idx: int, taken: set) -> str:
             nm = f"{base}_{k}"
             k += 1
     taken.add(nm)
-    return nm
+    # A campaign-unique PREFIX makes the deployed FBG_N<area>_<NAME> + EVT_<NAME> globally unique, so two
+    # campaigns/worktrees that fork the SAME source field don't collide on the by-NAME, highest-folder-wins
+    # scene/.eb file resolution (a stacked-FolderNames shadow that serves the WRONG fork -> torn load).
+    pfx = prefix.strip().upper().rstrip("_")
+    return f"{pfx}_{nm}" if pfx else nm
 
 
-def assign_ids(result, *, id_base: int):
+def assign_ids(result, *, id_base: int, name_prefix: str = ""):
     """(members_ids, new_id, name_of) for the FORKABLE nodes of a walk, in BFS discovery order.
-    members_ids[i] -> id_base + i; name_of[real] is the unique member name."""
+    members_ids[i] -> id_base + i; name_of[real] is the unique member name (``name_prefix`` namespaces it
+    globally so cross-campaign/cross-worktree forks of the same field don't collide on the deployed names)."""
     from . import extract
     members_ids = [fid for fid, info in result.nodes.items() if info.get("found")]
     new_id = {real: id_base + i for i, real in enumerate(members_ids)}
     taken: set = set()
-    name_of = {real: member_name(extract.ID_TO_FBG[real], i, taken)
+    name_of = {real: member_name(extract.ID_TO_FBG[real], i, taken, name_prefix)
                for i, real in enumerate(members_ids)}
     return members_ids, new_id, name_of
 
@@ -189,7 +194,7 @@ def _collect_edges_seams(result, members_ids, new_id, name_of):
 def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, flags_per_field=64,
                    name: str, mod_folder: str, game=None, live_seams=False,
                    entry_entrance=0, verbatim=False, swap_player=None,
-                   neutralize_gestures=False) -> CampaignPlan:
+                   neutralize_gestures=False, name_prefix="") -> CampaignPlan:
     """Fork the walk into ``out_dir``: a per-member subdir each + a top-level campaign.toml. Returns the
     CampaignPlan. Members in area>=10 BG-borrow; area<10 members fork as a NATIVE scene (own atlas+.bgs, no
     .bgx -- seamless, no in-game export needed). Both are fully offline; a field with no usable background
@@ -205,7 +210,7 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
     from ._fieldtext import EVENT_ID_TO_MES
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    members_ids, new_id, name_of = assign_ids(result, id_base=id_base)
+    members_ids, new_id, name_of = assign_ids(result, id_base=id_base, name_prefix=name_prefix)
     if not members_ids:
         raise ValueError("no forkable fields in the walk -- nothing to fork (try a different seed/--zones)")
 

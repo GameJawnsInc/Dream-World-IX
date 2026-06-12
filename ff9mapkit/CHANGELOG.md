@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — campaign-scale New-Game capstone: boot directly into a forked verbatim CHAIN (0.9.47)
+- **`tools/retarget_newgame_warp.py <id>`** — point the field-70 New-Game override at any custom field id (the
+  chain's entry), byte-patching its `Field()` literal in place via `content.verbatim.remap_fields`. Composes with
+  `skip_opening_fmv.py`. So New Game → a forked `import-chain --verbatim` slice that runs its real story.
+- **`import-chain --name-prefix <TAG>`** — namespace every member's deployed FBG/EVT name (e.g. `DC_DL_INN`) so two
+  campaigns/worktrees that fork the SAME source field don't collide on the by-name, highest-`FolderNames`-folder-wins
+  scene/`.eb` resolution (a shadow that silently serves the WRONG fork → black screen). Byte-identical when unused.
+  `member_name`/`assign_ids`/`write_campaign` gain a `name_prefix`; CLI `--name-prefix`. (75 campaign tests pass.)
+- ★ IN-GAME PROVEN (Dali): New Game → wake up in the Dali inn → the slice plays its REAL logic (party splits to
+  explore town — faithful) → Garnet rejoins at scenario 2640. A forked chain advancing real story state from a fresh
+  game. Lessons: seed `[startup]` to the donor's OWN beat (Dali = 2600, not a notch past it); deploy the chain to
+  `-sf` but promote the entry's start-state CSVs UP to the highest folder. See memory `project-ff9-new-game-entry`.
+
 ### Added — starting-state capstone: a New Game that boots into a custom field with the right beat/party/bag/gear (0.9.43)
 - `examples/capstone/` — a self-contained entry `field.toml` that composes all FOUR new-game starting-state channels
   on ONE field: `[startup]` (ScenarioCounter + a story bit) + `[party]` (add Steiner/Freya) → the field `.eb`

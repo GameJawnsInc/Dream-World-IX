@@ -79,6 +79,17 @@ def test_member_name_rule():
     assert n1 != "IC_ENT" and n1 not in (set() | {"IC_ENT", "DL_VIW"})
 
 
+def test_member_name_prefix_namespaces_globally():
+    # --name-prefix makes the deployed FBG/EVT name globally unique (cross-worktree collision fix). The prefix
+    # is normalized (uppercased, trailing _ stripped) and byte-identical to the base when empty.
+    assert campaign.member_name("fbg_n06_vgdl_map102_dl_inn_1", 0, set()) == "DL_INN"  # no prefix unchanged
+    assert campaign.member_name("fbg_n06_vgdl_map102_dl_inn_1", 0, set(), "DC") == "DC_DL_INN"
+    assert campaign.member_name("fbg_n06_vgdl_map102_dl_inn_1", 0, set(), "dc_") == "DC_DL_INN"
+    # assign_ids threads the prefix to every member
+    _, _, name_of = campaign.assign_ids(_synthetic_result(), id_base=4100, name_prefix="DC")
+    assert all(n.startswith("DC_") for n in name_of.values())
+
+
 def test_assign_ids_contiguous_and_named():
     members_ids, new_id, name_of = campaign.assign_ids(_synthetic_result(), id_base=6000)
     assert members_ids == [300, 301, 302, 303]

@@ -682,7 +682,8 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
                         flag_base=args.flag_base, flags_per_field=args.flags_per_field,
                         name=cname, mod_folder=mod_folder, game=args.game, live_seams=args.live_seams,
                         verbatim=args.verbatim, swap_player=getattr(args, "swap_player", None),
-                        neutralize_gestures=getattr(args, "neutralize_gestures", False))
+                        neutralize_gestures=getattr(args, "neutralize_gestures", False),
+                        name_prefix=getattr(args, "name_prefix", "") or "")
         except (RuntimeError, FileNotFoundError, ValueError) as e:
             print(str(e), file=sys.stderr)
             return 2
@@ -1574,6 +1575,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="reserved GLOB block width per field (recorded for P5; default 64)")
     ic.add_argument("--campaign-name", default=None, dest="campaign_name",
                     help="campaign/mod name (default <SEED-ZONE>_CAMPAIGN)")
+    ic.add_argument("--name-prefix", default=None, dest="name_prefix",
+                    help="prefix every member's deployed FBG/EVT name (e.g. DC -> DC_DL_ENT) so two "
+                         "campaigns/worktrees forking the SAME source field don't collide on the by-name, "
+                         "highest-folder-wins scene/.eb resolution. Use a short unique tag per campaign.")
     ic.add_argument("--mod-folder", default=None, dest="mod_folder",
                     help="target mod folder in campaign.toml (default: .ff9deploy.toml, else FF9CustomMap-ow)")
     ic.add_argument("--live-seams", action="store_true", dest="live_seams",
