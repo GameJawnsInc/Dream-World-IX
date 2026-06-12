@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `--swap-player` accepts ANY model (the field-side bridge to custom characters)
+- `--swap-player` (single `import` and `import-chain`) now takes a playable name OR **any registered model** —
+  a `GEO_..` name or a numeric id (a moogle `199`, `GEO_NPC_F0_BMG`, …; `ff9mapkit models`). A playable uses
+  its proven home-field rig table; any other model resolves its 5 movement clips (stand/walk/run/turn) via the
+  kit's model→animation join (`catalog.npc_anims`), so you can **walk as a moogle / an NPC / a creature**. A
+  model with no movement (a static monster) raises cleanly; an arbitrary model keeps the field's eye-height
+  (cosmetic dialog anchor). This is the **field-side bridge to custom characters** — a registered custom model
+  would be driven by exactly this path (`SetModel` + movement clips), no DLL. Smoke-verified (Vivi field → a
+  moogle). 2 tests. ★ Cross-rig GESTURE remap was probed and is **infeasible** — a cutscene field's player
+  gestures are scene-specific (Vivi field 100's 15 = KOKE/RECEIVE/GIVE/KISS_ME/HIZA, **0** with a Steiner
+  equivalent), not a shared vocabulary, so the cutscene-glitch caveat is fundamental and the `WARN` stays the
+  right handling. `playerswap.resolve_char` (general) + `cli.py`; read-only join reuse. kit 0.9.30.
+
 ### Added — `import-chain --swap-player <char>`: play as one character across a whole forked region
 - `import-chain <seed> --swap-player steiner` swaps EVERY verbatim member's player rig, so you walk as the
   chosen character across the whole forked slice (implies `--verbatim`; party/menu unchanged). Factored a

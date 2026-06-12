@@ -169,7 +169,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.29`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.30`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -790,6 +790,15 @@ Read these on demand — they hold the full technical detail this file only summ
   Zidane-present, a distinct `NoSwappablePlayer` (chain skips a no-player member; real corruption ValueErrors
   propagate), true fail-fast char validation, a qualified summary. Lesson: an adversarial review pays for itself
   on chain features — same as the verbatim-chain capstone. kit 0.9.29; 870 tests.
+- **`--swap-player` generalized to ANY model — the field-side bridge to custom characters.** `--swap-player`
+  (single + chain) now takes a playable name OR **any registered model** (a `GEO_..` name or numeric id — a
+  moogle `199`, `GEO_NPC_F0_BMG`): a playable uses its proven home-field table, any other model resolves its 5
+  movement clips via the kit's model→animation join (`catalog.npc_anims`) — so you can **walk as a moogle / an
+  NPC / a creature** (a static monster raises). This is the field-side mechanism a CUSTOM model would use
+  (`SetModel` + movement clips, no DLL), demonstrable now with existing assets. ★ Cross-rig GESTURE remap was
+  PROBED + found infeasible (cutscene player gestures are scene-specific — Vivi-100's 15 = KOKE/RECEIVE/KISS_ME,
+  0 with a Steiner equivalent — not a shared vocabulary; the `WARN` stays the handling). `playerswap.resolve_char`
+  (general) + `cli.py`; overworld's lane (clear of story_flags' party-membership authoring). kit 0.9.30; 873 tests.
 
 ---
 

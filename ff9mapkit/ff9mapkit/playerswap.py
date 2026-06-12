@@ -1,5 +1,7 @@
 """Swap who you WALK as in a forked field -- patch the player entry's ``SetModel`` + movement anim ids to a
-different EXISTING character's rig.
+different rig: one of the 8 PLAYABLES (a proven home-field table) or ANY registered model -- a moogle, an NPC,
+a creature -- resolved through the kit's model->animation join (:func:`catalog.npc_anims`). The latter is the
+field-side bridge toward CUSTOM characters: a custom model would be driven by exactly this path.
 
 Field control (who you walk as) is DECOUPLED from party state (the menu/battle roster), so this changes only
 the field-controlled character; the party is untouched (use a party-membership op for that). It is the
@@ -52,13 +54,31 @@ ALIASES = {"dagger": "garnet", "salamander": "amarant"}
 
 
 def resolve_char(name):
-    """``(canonical_name, spec)`` for a character name (case-insensitive; aliases ``dagger``->garnet,
-    ``salamander``->amarant). Raises ``ValueError`` on an unknown name."""
+    """``(canonical_name, spec)`` for a swap target. A playable name (zidane..amarant; aliases ``dagger``->
+    garnet, ``salamander``->amarant) returns its proven home-field rig table. ANY OTHER registered model -- a
+    ``GEO_..`` name or a numeric id (a moogle, an NPC, a creature) -- returns a spec built from the kit's
+    model->animation join (:func:`catalog.npc_anims`), so you can walk as it: the field-side bridge to custom
+    characters (a custom model would use the same path). ``spec`` always has ``model`` + the movement clips;
+    a playable also carries ``eye`` + ``inactive``. Raises ``ValueError`` on an unknown target or a model with
+    no movement animations (e.g. a static monster)."""
     k = ALIASES.get(str(name).lower().strip(), str(name).lower().strip())
-    if k not in CHARACTERS:
-        raise ValueError("unknown character %r -- choose from %s (aliases: dagger, salamander)"
-                         % (name, ", ".join(sorted(CHARACTERS))))
-    return k, CHARACTERS[k]
+    if k in CHARACTERS:
+        return k, CHARACTERS[k]
+    from . import catalog
+    try:
+        mid = catalog.resolve_model(name)
+    except Exception:
+        raise ValueError("unknown swap target %r -- a playable (%s; aliases dagger, salamander) or a model "
+                         "name/id (see `ff9mapkit models`)" % (name, ", ".join(sorted(CHARACTERS))))
+    na = catalog.npc_anims(mid)                          # {stand,walk,run,left,right} via the model->anim join
+    if not na:
+        from ._modeldb import MODELS
+        raise ValueError("model %s has no movement animations -- can't walk as it"
+                         % MODELS.get(mid, mid))
+    from ._modeldb import MODELS
+    spec = {"model": mid, "idle": na["stand"], "walk": na["walk"], "run": na["run"],
+            "left": na["left"], "right": na["right"]}    # no 'eye' (keep the field's) / no 'inactive' (-> idle)
+    return MODELS.get(mid, str(mid)), spec
 
 
 def _arg_off(ins, ai):
@@ -142,9 +162,10 @@ def swap_player(eb_bytes, char, *, entry=None) -> bytes:
         for ins in eb.instrs(eb.entry(tgt).func_by_tag(0)):
             if any(ins.arg_is_expr):
                 continue
-            if ins.op == SETMODEL_OP and len(ins.args) >= 2:
+            if ins.op == SETMODEL_OP and ins.args:
                 put(ins, 0, spec["model"])
-                put(ins, 1, spec["eye"])
+                if "eye" in spec and len(ins.args) >= 2:        # playables carry an eye-height; an arbitrary
+                    put(ins, 1, spec["eye"])                    # model keeps the field's (cosmetic dialog anchor)
             elif ins.op in ANIM_OPS and ins.args:
                 put(ins, 0, spec.get(ANIM_OPS[ins.op], spec["idle"]))
 

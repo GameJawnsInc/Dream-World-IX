@@ -1336,9 +1336,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "(entry-0 + every object + every gateway, layout intact) instead of re-synthesizing -- "
                          "the field runs its own logic (story gating, rotating cast, real doors). Implies "
                          "--native; pair with a [startup] block to boot a chosen beat. (docs/FORK_FIDELITY.md)")
-    im.add_argument("--swap-player", metavar="CHAR", default=None,
-                    help="SWAP who you WALK as to a different existing character: zidane/vivi/steiner/garnet/"
-                         "freya/quina/eiko/amarant (aliases dagger, salamander). Patches the player entry's "
+    im.add_argument("--swap-player", metavar="WHO", default=None,
+                    help="SWAP who you WALK as to a playable (zidane/vivi/steiner/garnet/freya/quina/eiko/"
+                         "amarant; aliases dagger, salamander) OR ANY model -- a GEO name or numeric id (a "
+                         "moogle 199, GEO_NPC_F0_BMG, ...; `ff9mapkit models`). Patches the player entry's "
                          "SetModel + movement anims to that rig. Implies --verbatim (needs the donor player "
                          "entry); party/menu state is unchanged. CLEAN on free-roam fields; on a cutscene-heavy "
                          "field the player's scripted GESTURES glitch (warned) -- only movement clips are swapped. "
@@ -1399,11 +1400,12 @@ def build_parser() -> argparse.ArgumentParser:
     ic.add_argument("--verbatim", action="store_true",
                     help="MOST FAITHFUL: fork every member NATIVE + VERBATIM (ship each donor's whole .eb + "
                          ".mes, run the real logic; in-chain doors retargeted to sibling forks)")
-    ic.add_argument("--swap-player", metavar="CHAR", default=None,
-                    help="play as a different existing character across the WHOLE chain: zidane/vivi/steiner/"
-                         "garnet/freya/quina/eiko/amarant (aliases dagger, salamander). Swaps every member's "
-                         "player rig (SetModel + movement anims). Implies --verbatim; party/menu unchanged; "
-                         "cutscene members with scripted player gestures are warned. (see import --swap-player)")
+    ic.add_argument("--swap-player", metavar="WHO", default=None,
+                    help="play as one character/model across the WHOLE chain: a playable (zidane/vivi/steiner/"
+                         "garnet/freya/quina/eiko/amarant; aliases dagger, salamander) OR any model (a GEO name "
+                         "or id, e.g. a moogle 199). Swaps every member's player rig (SetModel + movement anims). "
+                         "Implies --verbatim; party/menu unchanged; cutscene-gesture members warned. "
+                         "(see import --swap-player)")
     ic.set_defaults(func=_cmd_import_chain)
 
     ba = sub.add_parser("build-all", help="compile a campaign.toml (all member fields) into one Memoria mod (P3)")

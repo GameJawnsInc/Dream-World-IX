@@ -49,8 +49,26 @@ def test_resolve_char_aliases_and_errors():
     assert playerswap.resolve_char("Dagger")[0] == "garnet"
     assert playerswap.resolve_char("salamander")[0] == "amarant"
     assert playerswap.resolve_char(" STEINER ")[0] == "steiner"
-    with pytest.raises(ValueError, match="unknown character"):
-        playerswap.resolve_char("kuja")                      # not a field-playable (no F0 player model)
+    with pytest.raises(ValueError, match="unknown swap target"):
+        playerswap.resolve_char("notacharacter")             # not a playable and not a resolvable model
+
+
+def test_swap_to_any_model_via_the_catalog_join():
+    # the field-side bridge to custom characters: --swap-player accepts ANY model (a moogle, an NPC), resolved
+    # through the model->animation join (catalog.npc_anims). The Vivi field can become a moogle (model 199).
+    name, spec = playerswap.resolve_char(199)                # GEO_NPC_F5_MOG (a moogle)
+    assert spec["model"] == 199 and "eye" not in spec        # arbitrary model -> keep the field's eye-height
+    assert all(k in spec for k in ("idle", "walk", "run", "left", "right"))
+    out = playerswap.swap_player(ALEX100, 199)
+    assert EbScript.from_bytes(out).to_bytes() == out and len(out) == len(ALEX100)
+    eb = EbScript.from_bytes(out)
+    assert eventscan._player_model(eb, eventscan.resolve_player_entries(eb)[0]) == 199   # now a moogle
+
+
+def test_swap_to_a_static_model_with_no_movement_raises():
+    # a model with no movement animations (a static monster) cannot be a field-walk player
+    with pytest.raises(ValueError, match="no movement animations"):
+        playerswap.swap_player(ALEX100, 93)                  # GEO_MON_B3_048
 
 
 def test_every_character_spec_has_the_movement_set():
