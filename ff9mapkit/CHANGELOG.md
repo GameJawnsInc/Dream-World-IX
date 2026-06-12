@@ -18,6 +18,44 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   equivalent), not a shared vocabulary, so the cutscene-glitch caveat is fundamental and the `WARN` stays the
   right handling. `playerswap.resolve_char` (general) + `cli.py`; read-only join reuse. kit 0.9.30.
 
+### Added — `[party]` block: add/remove party members at field load (0.9.31)
+The authoring complement to overworld's `import --swap-player` — where that changes who you **walk as**,
+`[party]` changes who's **in the party** (the menu + battle roster). Field *control* and party *state* are
+decoupled (memory `project-ff9-pc-party-system`); this is the declarative half flagged for the story_flags
+lane.
+
+```toml
+[party]
+add    = ["steiner", "vivi"]   # add existing playable characters (B_PARTYADD, the real JOIN form)
+remove = ["zidane"]            # optional: RemoveParty
+```
+
+- New `content/party.py`: `add_member` emits the **in-game-proven** probe bytes `05 C5 93 7D <id> 00 6D 2C
+  7F` (op `0x6D` `B_PARTYADD` — the kit had no expression-opcode emitter for it; this is the first), and
+  `remove_member` is `RemoveParty` (`0xDD`) via the existing `opcodes.encode`. `party_body`/`inject_party`
+  prepend the sequence to **Main_Init** like `[startup]` (`edit.insert_in_function`, byte-safe; byte-identical
+  when the block is absent). Names resolve via a CharacterOldIndex table (Zidane 0..Blank 11; aliases
+  `dagger`/`salamander`; bare `0`–`11` ok) kept in lockstep with `forkreport.CHAR_OLD_INDEX` by a test.
+- Wired into `build.py`: `_apply_party` runs in BOTH the synthesize path (`build_script`) and the verbatim
+  `.eb` path (`build_field`) — so a verbatim fork's `[party]` fires too, mirroring `[startup]`/`[[on_entry]]`.
+  `validate()` resolves every name (`_validate_party`). ★ A verbatim fork that rebuilds the roster
+  (`SetPartyReserve`, `0xB4`, which runs **after** our prepend → can wipe the op) gets a build **warning**
+  (`field_resets_party` scan). `.eb`-only, no DLL; FF9 renders only the leader, so an added member shows in
+  the menu/battle, not as a field follower. No flag allocation (party state, not gEventGlobal).
+- **Adversarial review (3-lens workflow) caught two real bugs the tests missed — both fixed before landing:**
+  (1) **jump-table crash** — `inject_party` (and the pre-existing `[startup]`/`[[on_entry]]`) raised an *opaque*
+  `ValueError` on the ~11% of real fields (incl. **field 100**) whose Main_Init opens with a 0x06 jump table the
+  byte-inserter can't shift past. Now the verbatim path **fails closed** with a clear `BuildError` (shared
+  `_field_load_inject` wrapper, all three levers). (2) **wipe-warning blind spot** — the reset scan only looked
+  at entry-0/tag-0, but real `SetPartyReserve` lives in object Inits / tag-1 (only **2 of 111** reset fields keep
+  it in Main_Init); broadened to all non-empty entries' tag-0 + tag-1 (`field_resets_party`, catches 111/111).
+  Plus two minor fixes: the wipe gate widened to `add OR remove`, and `inject_party` normalized to accept bytes
+  or `EbScript`. Doc note: don't `remove` every member (an empty party hangs the menu).
+- 12 tests (`tests/test_party.py`): emitters pinned to the proven probe, name/alias/int resolution + errors, the
+  table↔forkreport lockstep, build injection (prepended, parses clean), byte-identity when absent, validation
+  shapes, the broadened reset scan (a non-Main_Init `0xB4` is detected), and the jump-table fail-closed guard.
+  (Adding a brand-new *custom* member is still the engine-fork frontier — Tier C in the memory.)
+
 ### Added — `import-chain --swap-player <char>`: play as one character across a whole forked region
 - `import-chain <seed> --swap-player steiner` swaps EVERY verbatim member's player rig, so you walk as the
   chosen character across the whole forked slice (implies `--verbatim`; party/menu unchanged). Factored a

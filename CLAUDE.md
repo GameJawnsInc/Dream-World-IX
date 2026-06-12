@@ -799,6 +799,26 @@ Read these on demand — they hold the full technical detail this file only summ
   PROBED + found infeasible (cutscene player gestures are scene-specific — Vivi-100's 15 = KOKE/RECEIVE/KISS_ME,
   0 with a Steiner equivalent — not a shared vocabulary; the `WARN` stays the handling). `playerswap.resolve_char`
   (general) + `cli.py`; overworld's lane (clear of story_flags' party-membership authoring). kit 0.9.30; 873 tests.
+- **`[party]` — add/remove party members at field load (`story_flags`; the declarative complement to
+  `--swap-player`).** Where `--swap-player` changes who you WALK as (overworld's fork-transform lane), `[party]`
+  changes who's in the PARTY (menu + battle roster) — the two are DECOUPLED (control vs party state, memory
+  `project-ff9-pc-party-system`); this is the declarative half flagged for our lane. `content/party.py`:
+  `add_member` emits the **in-game-proven** `B_PARTYADD` form `05 C5 93 7D <id> 00 6D 2C 7F` (op 0x6D — the
+  kit's FIRST expression-opcode emitter; the proven Tier-B probe productionized), `remove_member` = `RemoveParty`
+  0xDD via `opcodes.encode`; `inject_party` prepends to Main_Init like `[startup]` (byte-identical when absent).
+  Names → CharacterOldIndex (Zidane 0..Blank 11; aliases dagger/salamander; bare 0–11), pinned to
+  `forkreport.CHAR_OLD_INDEX` by a test. Wired into build.py via a shared `_apply_party` in BOTH the synthesize
+  AND verbatim paths (so a verbatim fork's `[party]` fires too); `validate()` resolves every name; a verbatim
+  fork that rebuilds the roster (`SetPartyReserve` 0xB4, runs AFTER our prepend → can wipe the op) gets a build
+  WARNING (`field_resets_party`). `.eb`-only, no DLL; FF9 renders only the leader (added member = menu/battle,
+  not a field follower); no flag allocation. A brand-new CUSTOM member is still the engine-fork frontier (Tier C).
+  ★ An **adversarial-review workflow** (3 lenses) caught two real bugs the 882-test suite missed — both FIXED:
+  (1) `inject_party` (+ the pre-existing `[startup]`/`[[on_entry]]`) raised an OPAQUE `ValueError` on the ~11% of
+  fields (incl. field 100) whose Main_Init opens with a 0x06 jump table the inserter can't shift past → now the
+  verbatim path FAILS CLOSED with a clear `BuildError` (shared `_field_load_inject`); (2) the wipe-warning scanned
+  only entry-0/tag-0, but real `SetPartyReserve` lives in object Inits / tag-1 (only 2/111 reset fields keep it in
+  Main_Init) → broadened to all non-empty entries' tag-0+tag-1 (catches 111/111). 12 tests (`tests/test_party.py`);
+  883 suite. kit 0.9.31. *(In-game verification of a built `[party]` field is the human step.)*
 
 ---
 

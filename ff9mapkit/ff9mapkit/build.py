@@ -39,6 +39,7 @@ from .content import onentry as _onentry
 from .content import pathfind as _pathfind
 from .content import prop as _prop
 from .content import region as _region
+from .content import party as _party
 from .content import reinit as _reinit
 from .content import savepoint as _savepoint
 from .content import startup as _startup
@@ -309,6 +310,29 @@ def _validate_story_writes(d: dict, label: str, names: dict, problems: list, *,
             problems.append(f"{label} {flags_key} #{i} value must be 0 or 1 (got {p.get('value')!r})")
 
 
+def _validate_party(pty, problems: list) -> None:
+    """Validate the ``[party]`` block -- ``add`` / ``remove`` lists of existing-character names (or 0..11
+    CharacterOldIndex). Each name must resolve; unknown keys are flagged."""
+    if not isinstance(pty, dict):
+        problems.append("[party] must be a table (add = [names], remove = [names])")
+        return
+    for key in ("add", "remove"):
+        members = pty.get(key, [])
+        if not isinstance(members, list):
+            problems.append(f"[party] {key} must be a list of character names (e.g. [\"steiner\", \"vivi\"])")
+            continue
+        for m in members:
+            try:
+                _party.resolve_member(m)
+            except ValueError as e:
+                problems.append(f"[party] {key}: {e}")
+    for key in pty:
+        if key not in ("add", "remove"):
+            problems.append(f"[party] unknown key {key!r} (use add / remove)")
+    if not pty.get("add") and not pty.get("remove"):
+        problems.append("[party] has no add or remove -- give at least one (add = [\"steiner\"])")
+
+
 def _validate_on_entry(hooks, names: dict, problems: list) -> None:
     """Validate the ``[[on_entry]]`` list -- field-load beats (a ``message`` and/or ``set_scenario`` /
     ``set_flags`` story writes) optionally gated by ``requires_scenario`` (a ScenarioCounter ``== N``)
@@ -531,6 +555,9 @@ def validate(project: FieldProject) -> list[str]:
     oe = project.raw.get("on_entry")                     # field-load beats ([[on_entry]]: gated, once)
     if oe is not None:
         _validate_on_entry(oe, story_names, problems)
+    pty = project.raw.get("party")                       # party membership ([party]: add/remove members)
+    if pty is not None:
+        _validate_party(pty, problems)
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if len(z) not in (4, 5):
@@ -1613,6 +1640,46 @@ def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
     return _startup.inject_startup(eb, presets, sc)
 
 
+def _apply_party(project: FieldProject, eb: bytes, warnings: list | None = None) -> bytes:
+    """Prepend the ``[party]`` add/remove sequence to Main_Init (party MEMBERSHIP -- who's in the menu/battle;
+    decoupled from who you control). Shared by :func:`build_script` (synthesize) AND the verbatim-`.eb` path in
+    :func:`build_field` (which bypasses build_script). No ``[party]`` -> unchanged (byte-identical). On a
+    verbatim fork whose Main_Init rebuilds the roster (``SetPartyReserve`` 0xB4, which runs AFTER our prepend
+    and can wipe the add), warn (``warnings`` is in scope only on the verbatim path)."""
+    pty = project.raw.get("party")
+    if not pty:
+        return eb
+    adds = [_party.resolve_member(m) for m in pty.get("add", [])]
+    removes = [_party.resolve_member(m) for m in pty.get("remove", [])]
+    if not adds and not removes:
+        return eb
+    if warnings is not None and (adds or removes) and _party.field_resets_party(eb):
+        warnings.append("[party]: this field rebuilds the party roster (SetPartyReserve, 0xB4) at load, which "
+                        "runs AFTER the [party] op(s) and can override them -- the add(s)/remove(s) may not "
+                        "stick. The reset can be partial or scenario-gated, so verify in-game; or use a field "
+                        "that doesn't reset the party.")
+    return _party.inject_party(eb, adds, removes)
+
+
+def _field_load_inject(label: str, field_name: str, fn):
+    """Run a field-load injection (``_apply_startup`` / ``_apply_party`` / ``_apply_on_entry``), converting the
+    byte inserter's opaque "0x06 jump table -- insert unsupported" ``ValueError`` into a clear, actionable
+    :class:`BuildError`. ~11% of real fields (e.g. field 100) have a jump table at the top of Main_Init that
+    :func:`edit.insert_in_function` can't yet shift past; on a verbatim fork of one of those, prepending a
+    field-load block fails closed with a useful message instead of an opaque mid-build traceback. (Harmless on
+    the synthesize path -- the kit-built Main_Init never has a jump table -- but the same guard is cheap there.)"""
+    try:
+        return fn()
+    except ValueError as e:
+        if "jump table" in str(e):
+            raise BuildError(
+                f"field {field_name}: cannot prepend {label} to Main_Init -- this donor's Main_Init has a 0x06 "
+                f"jump table, which the byte inserter can't yet shift past (affects ~11% of real fields, e.g. "
+                f"field 100). Fork this field WITHOUT {label} (a verbatim fork already carries its real logic + "
+                f"cast), or choose a different donor.") from e
+        raise
+
+
 def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto,
                     *, drop_messages: bool = False, warnings: list | None = None) -> bytes:
     """Arm the ``[[on_entry]]`` hooks (gated, once field-LOAD beats) into ``eb`` -- each a code entry run by
@@ -1722,6 +1789,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # gEventGlobal story bits), prepended to Main_Init so every gate evaluated afterwards sees the
     # asserted state. Absent -> no injection, so the build is byte-identical to before.
     eb = _apply_startup(project, eb)
+    # party membership ([party]): add/remove existing playable characters at field load (B_PARTYADD /
+    # RemoveParty), prepended to Main_Init. Decoupled from [startup] (party state, not story flags). A
+    # synthesized field's Main_Init never rebuilds the roster, so no wipe warning is needed here.
+    eb = _apply_party(project, eb)
     has_encounter = "encounter" in project.raw
 
     # larger-than-screen scrolling: enable the field's camera services (Active flag) so the engine's
@@ -2696,10 +2767,17 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         # the .eb is language-identical, so inject once before the per-language loop. An [[on_entry]]
         # narration MESSAGE is given a text channel by APPENDING it to the donor `.mes` above the donor's
         # txids (oe_suffix, added per-language below); its WindowSync resolves into that appended entry.
-        verbatim_bytes = _apply_startup(project, verbatim_bytes)
+        # ~11% of real fields have a 0x06 jump table at the top of Main_Init that the byte inserter can't shift
+        # past -> fail closed with a clear BuildError (not an opaque ValueError) if the author asked for a
+        # field-load block on such a donor (shared by all three levers; a no-block field never calls insert).
+        verbatim_bytes = _field_load_inject("[startup]", project.name,
+                                            lambda: _apply_startup(project, verbatim_bytes))
+        verbatim_bytes = _field_load_inject("[party]", project.name,
+                                            lambda: _apply_party(project, verbatim_bytes, warnings=warnings))
         oe_msg_txids, oe_suffix = _verbatim_on_entry_messages(project, langs)
-        verbatim_bytes = _apply_on_entry(project, verbatim_bytes, oe_msg_txids,
-                                         _FlagAlloc(getattr(project, "flag_base", None)), warnings=warnings)
+        verbatim_bytes = _field_load_inject("[[on_entry]]", project.name,
+                                            lambda: _apply_on_entry(project, verbatim_bytes, oe_msg_txids,
+                                            _FlagAlloc(getattr(project, "flag_base", None)), warnings=warnings))
     for lang in langs:
         if verbatim_bytes is not None:
             eb = verbatim_bytes

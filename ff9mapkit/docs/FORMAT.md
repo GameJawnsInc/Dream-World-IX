@@ -564,6 +564,31 @@ once = true                                 # default: fire once ever (a save-pe
 - A campaign member's per-member flag block is fully reserved, so a `once` hook there needs an explicit
   `flag = N` (the build raises a clear error otherwise).
 
+### `[party]` — add/remove party members at field entry
+
+Change **who's in the party** (the MENU + BATTLE roster) when the field loads. This is the authoring
+complement to `import --swap-player` (which changes who you **walk as**): field *control* and party *state*
+are decoupled — `[party]` touches the roster, not the character you move.
+
+```toml
+[party]
+add    = ["steiner", "vivi"]   # add these existing playable characters (B_PARTYADD)
+remove = ["zidane"]            # optional: remove these (RemoveParty)
+```
+
+- Names are case-insensitive: `zidane vivi garnet steiner freya quina eiko amarant beatrix cinna marcus
+  blank` (aliases `dagger`→garnet, `salamander`→amarant); a bare `0`–`11` CharacterOldIndex also works.
+- The adds are FF9's real **JOIN** form (in-game proven): an added member arrives with their normal starting
+  equipment (the 12 character structs exist at boot). `remove` runs first (free a slot), then `add`. Adding a
+  character already in the party, or past the 4-slot cap, is a harmless no-op. **Don't `remove` every member** —
+  an empty party hangs the menu/leader cursor (the build can't see runtime party state, so this is on you).
+- Prepended to **Main_Init**, so it applies at field load. **`.eb`-only, no DLL.** FF9 renders only the party
+  **leader** in the field, so an added member shows in the menu/battle, **not** as a walking follower. Adding
+  a brand-new *custom* character (not one of the 12) needs an engine fork — out of scope here.
+- ★ **Caveat:** if the field's own Main_Init runs `SetPartyReserve` (rebuilds the roster) **after** our
+  prepend, it can wipe the add — the build **warns** on a verbatim fork where this is the case. A synthesized
+  field never resets the party. Pair with `[startup]`/`[[gateway]]` to also set the story beat.
+
 ---
 
 ## `[[choice]]` (optional, repeatable)
