@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — save-item editor #5 step 4b cont.: main-block ITEMS + GUI vanilla-save editing (0.9.57)
+### Added — save-item editor #5 step 4b cont.: main-block ITEMS + GUI vanilla-save editing, IN-GAME PROVEN (0.9.57)
 - Completes editing a **vanilla (no-extra) save** — now its **inventory** is editable too (gil landed in 0.9.56),
   via both the CLI and the GUI.
 - **`save_items.set_main_item(container, block, item, count)`** — set an item's count in the main block's 256-pair
@@ -27,6 +27,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   item slot as the padding terminator; a clean ValueError (not IndexError / a wrong-block read) for a bad block
   index; a position-aware post-write confirm; and the stale "extra-only / main mirror pending" docstrings refreshed.
 - 18 new tests (synthetic encrypted containers + the GUI `--smoke` vanilla path); suite green.
+- ★ **IN-GAME PROVEN (2026-06-12):** on the vanilla slot 1/save 1, edited the inventory via the main block —
+  Potion 68→99 (change) + DarkMatter x3 (add, not previously held) — gil + other items + other slots untouched —
+  loaded in-game and both showed, inventory intact. **Step 4b is fully done: a vanilla (no-extra) save is editable
+  for gil AND items, via CLI + GUI.** The #5 editor is now functionally complete (extra: gil/items/equip; main
+  block: gil/items); only main-block equipment + key items remain, both deferred.
 
 ### Added — save-item editor #5 step 4b: encrypted MAIN-block gil write + dual-write (edit vanilla saves), IN-GAME PROVEN (0.9.56)
 - The editor can now write the **encrypted main AES block** of a `SavedData_ww.dat`, not just the Memoria extra
