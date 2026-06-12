@@ -113,6 +113,57 @@ def controlled_player(eb):
     return (binder, conf)
 
 
+# --- party-membership ops (a verbatim fork RUNS these -> the fork can change your party) ----------------
+# CharacterOldIndex (the .eb id space the party ops take; project-ff9-pc-party-system). NOT the GEO model id.
+CHAR_OLD_INDEX = {0: "Zidane", 1: "Vivi", 2: "Garnet", 3: "Steiner", 4: "Freya", 5: "Quina", 6: "Eiko",
+                  7: "Amarant", 8: "Beatrix", 9: "Cinna", 10: "Marcus", 11: "Blank"}
+PARTY_NONE = 0xFFFF                         # the NONE sentinel (slot-clear / add terminator) -- not a real member
+REMOVE_PARTY_OP = 0xDD                      # RemoveParty(charIndex)
+SET_PARTY_RESERVE_OP = 0xB4                 # SetPartyReserve(mask) -- rebuilds the recruitable roster
+JOIN_OP = 0xFE                              # SetCharacterData / JOIN -- a formal recruit (battle+menu init)
+PARTY_MENU_OP = 0xB2                        # Party() -- the change-members menu UI
+EXPR_STMT_OP = 0x05                         # an expression statement (holds the B_PARTYADD call)
+# literal single-char ADD inside an expression: B_CONST(0x7D) <2-byte CharacterOldIndex> B_PARTYADD(0x6D)
+_PARTYADD_RE = re.compile(rb"\x7d(..)\x6d", re.DOTALL)
+
+
+def party_char_name(idx) -> str:
+    return CHAR_OLD_INDEX.get(int(idx), "#%d" % int(idx))
+
+
+def scan_party_ops(eb_bytes) -> dict:
+    """The party-membership operations a field performs -- a ``--verbatim`` fork RUNS these, so they preview
+    how a fork will change your party. Returns ``{adds, removes}`` (sorted distinct CharacterOldIndex, NONE
+    filtered) + the flags ``reset`` (``SetPartyReserve`` -> rebuilds the recruitable roster), ``recruit``
+    (``SetCharacterData``/JOIN), ``menu`` (the change-members UI). Heuristic: the literal single-char ADD
+    (``B_CONST <id> B_PARTYADD``) is decoded inside expression statements; the statement ops by their arg.
+    A field that drives membership from a variable (the common reserve-mask form) is captured by ``reset``."""
+    data = bytes(eb_bytes)
+    eb = EbScript.from_bytes(data)
+    adds, removes = set(), set()
+    reset = recruit = menu = False
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op == REMOVE_PARTY_OP:
+                    if ins.args and not any(ins.arg_is_expr):
+                        removes.add(int(ins.args[0]))
+                elif ins.op == SET_PARTY_RESERVE_OP:
+                    reset = True
+                elif ins.op == JOIN_OP:
+                    recruit = True
+                elif ins.op == PARTY_MENU_OP:
+                    menu = True
+                elif ins.op == EXPR_STMT_OP:
+                    for h in _PARTYADD_RE.findall(data[ins.off:ins.end]):
+                        adds.add(struct.unpack("<H", h)[0])
+    adds.discard(PARTY_NONE)
+    removes.discard(PARTY_NONE)
+    return {"adds": sorted(adds), "removes": sorted(removes), "reset": reset, "recruit": recruit, "menu": menu}
+
+
 @dataclass
 class ForkReport:
     field_id: int
@@ -137,6 +188,11 @@ class ForkReport:
     controlled_entry: int | None = None                  # the entry the engine BINDS control to (multi-PC; controlled_player)
     controlled_name: str = ""                            # its character name
     control_confidence: str = "none"                     # 'high' | 'low' | 'none' (binder ambiguity)
+    party_adds: list = _dc_field(default_factory=list)    # distinct CharacterOldIndex names the field ADDS (B_PARTYADD)
+    party_removes: list = _dc_field(default_factory=list)  # distinct names it REMOVES (RemoveParty)
+    party_reset: bool = False                            # SetPartyReserve -- rebuilds the recruitable roster (story reset)
+    party_recruit: bool = False                          # SetCharacterData/JOIN -- a formal recruit (battle+menu init)
+    party_menu: bool = False                             # opens the change-members MENU (moogle/save-point UI)
     notes: list = _dc_field(default_factory=list)
 
 
@@ -297,6 +353,12 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
                              f"control the Zidane party-leader; the rest are co-actors. The exact bind in a fork "
                              f"is untested")
 
+    # Party-membership ops the field runs (a verbatim fork executes them -> the fork changes your party).
+    party = scan_party_ops(data)
+    rep.party_adds = [party_char_name(i) for i in party["adds"]]
+    rep.party_removes = [party_char_name(i) for i in party["removes"]]
+    rep.party_reset, rep.party_recruit, rep.party_menu = party["reset"], party["recruit"], party["menu"]
+
     gates = scenario_gates(data)
     rep.sc_gates = [(v, _flags.nearest_milestone(v)) for v in gates]
     # earliest gate ~= when the field's story content first appears = its natural "home" beat. (A rotating
@@ -326,6 +388,25 @@ def _verdict_line(rep: ForkReport) -> str:
     inter = (f"{clean} of {rep.n_talkable} NPC(s) keep their interactions; the rest render-only "
              f"(re-author their dialogue)") if rep.n_talkable else "no talkable NPCs"
     return f"{head}; {inter}."
+
+
+def _party_line(rep: ForkReport) -> str:
+    """The 'Party' axis: what a verbatim fork will do to your party. Empty when the field is party-neutral."""
+    if not (rep.party_adds or rep.party_removes or rep.party_reset or rep.party_recruit or rep.party_menu):
+        return ""
+    bits = []
+    if rep.party_adds:
+        shown = ", ".join(rep.party_adds[:6]) + (f" +{len(rep.party_adds) - 6}" if len(rep.party_adds) > 6 else "")
+        bits.append(f"adds {shown}")
+    if rep.party_reset:
+        bits.append("rebuilds the roster (story reset)" if rep.party_removes else "sets the recruitable roster")
+    elif rep.party_removes:
+        shown = ", ".join(rep.party_removes[:6]) + (f" +{len(rep.party_removes) - 6}" if len(rep.party_removes) > 6 else "")
+        bits.append(f"removes {shown}")
+    if rep.party_menu:
+        bits.append("opens the change-members menu")
+    tail = "  (a --verbatim fork RUNS this; a plain fork inherits your current party)"
+    return f"  Party         : {'; '.join(bits)}{tail}"
 
 
 def format_report(rep: ForkReport) -> str:
@@ -366,6 +447,9 @@ def format_report(rep: ForkReport) -> str:
         beat = f' "{nm[1]}"' if nm else ""
         lines.append(f"  Home beat     : suggested [startup] scenario = {rep.suggested_scenario}{beat} "
                      f"(the earliest gate -- adjust to the beat you're forking)")
+    party_line = _party_line(rep)
+    if party_line:
+        lines.append(party_line)
     lines += ["", "  Verdict: " + _verdict_line(rep)]
     if rep.notes:
         lines.append("")

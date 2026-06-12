@@ -169,7 +169,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.26`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.27`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -758,6 +758,14 @@ Read these on demand — they hold the full technical detail this file only summ
   For STORY fidelity (be a character THROUGH the story) use a verbatim fork at the right beat + the right party,
   not a model swap (fully handling story characters = cross-rig gesture remap or the party/flag path — future).
   kit 0.9.26; 863 tests.
+- **`fork-report` Party axis — what a fork does to your PARTY.** Completes the fork-preview (Player / Roster /
+  Interactions / Dialogue / Story-gating / **Party**): `fork-report` now decodes a field's party-membership ops
+  (which a `--verbatim` fork RUNS) — the literal `B_PARTYADD` (`B_CONST <CharacterOldIndex> 0x6D`) inside expr
+  statements + the statement ops `RemoveParty`/`SetPartyReserve`/`SetCharacterData`/`Party`-menu — e.g. field 60
+  "adds Zidane, Vivi, Garnet, Marcus; sets the recruitable roster", field 100 "adds Vivi; rebuilds the roster",
+  the Dali Inn "opens the change-members menu"; party-neutral fields (the Hangar) get no line (NONE filtered,
+  deduped). Read-only (`forkreport.scan_party_ops`, reuses the disasm) — overworld's analysis lane; serves the
+  PC/party goal (recipe in memory `project-ff9-pc-party-system`). 4 tests. kit 0.9.27; 867 tests.
 
 ---
 

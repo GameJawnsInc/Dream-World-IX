@@ -77,6 +77,34 @@ def test_controlled_player_single_pc_is_the_one_entry():
     assert entry == 19 and conf == "high"
 
 
+# ---- the Party axis: what a verbatim fork does to your party ----
+def test_scan_party_ops_on_alex100_adds_vivi_and_resets():
+    # ALEX100 (field 100) is the disc-1 opening: it strips the party and adds Vivi (CharacterOldIndex 1).
+    ops = FR.scan_party_ops(ALEX100)
+    assert 1 in ops["adds"]                            # adds Vivi
+    assert FR.PARTY_NONE not in ops["adds"]            # the NONE sentinel is filtered out
+    assert ops["reset"]                                # SetPartyReserve -> rebuilds the recruitable roster
+
+
+def test_party_char_name_maps_old_index():
+    assert FR.party_char_name(1) == "Vivi" and FR.party_char_name(3) == "Steiner"
+    assert FR.party_char_name(99) == "#99"             # unknown -> a raw marker, never crashes
+
+
+def test_analyze_eb_alex100_reports_a_party_line():
+    rep = FR.analyze_eb(ALEX100, field_id=100, fbg_name="fbg_n01_alxt_map016_at_msa_0")
+    assert "Vivi" in rep.party_adds
+    out = FR.format_report(rep)
+    line = next(l for l in out.splitlines() if l.strip().startswith("Party"))
+    assert "adds" in line and "Vivi" in line
+
+
+def test_party_line_omitted_when_party_neutral():
+    rep = FR.ForkReport(field_id=10, fbg_name="x", roster_class="static-roster")  # no party ops set
+    assert FR._party_line(rep) == ""
+    assert not any(l.strip().startswith("Party") for l in FR.format_report(rep).splitlines())
+
+
 def test_analyze_eb_no_script():
     rep = FR.analyze_eb(b"", field_id=1)
     assert not rep.has_script

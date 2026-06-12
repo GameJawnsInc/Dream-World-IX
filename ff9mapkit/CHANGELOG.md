@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `fork-report` Party axis: what a fork does to your party
+- `fork-report` now reports a **Party** line — the party-membership ops a field performs, which a `--verbatim`
+  fork RUNS (a plain fork inherits your current party). It decodes the literal single-char `B_PARTYADD`
+  (`B_CONST <CharacterOldIndex> B_PARTYADD`, the expr op `0x6D`) inside expression statements + the statement
+  party ops (`RemoveParty` 0xDD, `SetPartyReserve` 0xB4 = roster rebuild, `SetCharacterData`/JOIN 0xFE, `Party`
+  menu 0xB2) — e.g. field 60 "adds Zidane, Vivi, Garnet, Marcus; sets the recruitable roster", field 100 "adds
+  Vivi; rebuilds the roster (story reset)", the Dali Inn "opens the change-members menu"; a party-neutral field
+  (the Hangar) gets no line. The `NONE` (0xFFFF) add-terminator is filtered and the lists are deduped. Read-only
+  (`forkreport.py` only; `scan_party_ops` reuses the disasm) — completes the fork-preview (Player / Roster /
+  Interactions / Dialogue / Story-gating / **Party**), and directly serves the PC/party goal (the recipe lives
+  in memory `project-ff9-pc-party-system`). 4 tests (`tests/test_forkreport.py`). kit 0.9.27.
+
 ### Added — `import --swap-player <char>`: walk as a different existing character (Tier A, productionized)
 - Fork a field and **swap who you walk as** to any existing playable — `import <field> --swap-player steiner`
   (zidane/vivi/steiner/garnet/freya/quina/eiko/amarant; aliases dagger, salamander). It patches the player
