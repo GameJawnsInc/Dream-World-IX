@@ -344,12 +344,15 @@ def _cmd_import(args: argparse.Namespace) -> int:
                 args.field, Path(args.out), name=args.name, field_id=args.id,
                 game=args.game, want_atlas=args.atlas, graft_player_funcs=gpf, carry_text=ct, graft_savepoint=sm)
         args._swapped_to = None
+        args._swap_gestures = 0
         if getattr(args, "swap_player", None):           # productionized Tier-A: walk as a different existing char
             import tomllib
             from . import playerswap
             args._swapped_to, _ = playerswap.resolve_char(args.swap_player)
             binp = toml.parent / tomllib.loads(toml.read_text(encoding="utf-8"))["verbatim_eb"]["bin"]
-            binp.write_bytes(playerswap.swap_player(binp.read_bytes(), args._swapped_to))
+            swapped = playerswap.swap_player(binp.read_bytes(), args._swapped_to)
+            args._swap_gestures = playerswap.scripted_gesture_ops(swapped)
+            binp.write_bytes(swapped)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -365,6 +368,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
         if getattr(args, "_swapped_to", None):
             print(f"  player : SWAPPED -> you walk as {args._swapped_to} (SetModel + movement anims patched; "
                   "party/menu state unchanged)")
+            if args._swap_gestures:
+                print(f"  WARN   : the player plays {args._swap_gestures} scripted GESTURE(s) (RunAnimation) -- those "
+                      f"reference the ORIGINAL rig and will glitch on {args._swapped_to} (only movement clips are "
+                      "swapped). This is a cutscene-heavy field; --swap-player is clean on free-roam fields.")
         if auto_native_area is not None:
             print(f"  note   : auto-selected --native (source area {auto_native_area} < 10 black-screens via BG-borrow)")
     elif args.editable:
@@ -1317,7 +1324,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="SWAP who you WALK as to a different existing character: zidane/vivi/steiner/garnet/"
                          "freya/quina/eiko/amarant (aliases dagger, salamander). Patches the player entry's "
                          "SetModel + movement anims to that rig. Implies --verbatim (needs the donor player "
-                         "entry); party/menu state is unchanged. (memory project-ff9-pc-party-system)")
+                         "entry); party/menu state is unchanged. CLEAN on free-roam fields; on a cutscene-heavy "
+                         "field the player's scripted GESTURES glitch (warned) -- only movement clips are swapped. "
+                         "(memory project-ff9-pc-party-system)")
     im.add_argument("--atlas", action="store_true", help="also extract the raw atlas.png (BG-borrow mode only)")
     im.add_argument("--dialogue", action="store_true",
                     help="also append the real field's NPC dialogue as editable [[npc]] stubs (commented) "

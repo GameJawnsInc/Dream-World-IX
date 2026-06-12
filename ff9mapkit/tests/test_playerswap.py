@@ -55,3 +55,14 @@ def test_every_character_spec_has_the_movement_set():
 def test_unknown_char_raises_before_touching_bytes():
     with pytest.raises(ValueError):
         playerswap.swap_player(ALEX100, "bogus")
+
+
+def test_scripted_gesture_ops_flags_cutscene_player_gestures():
+    # ALEX100 (the Vivi field) opens with a scripted cutscene where the player gestures (RunAnimation) --
+    # swapping the rig would glitch those (only movement clips are repointed), so the detector flags them
+    # for a swap-time WARN. A free-roam field's player plays 0 (the caveat is the cutscene-field case).
+    n = playerswap.scripted_gesture_ops(ALEX100)
+    assert n > 0                                              # Vivi's opening has scripted player gestures
+    # the swap itself still succeeds (it only repoints movement clips); the gesture count is unchanged by it
+    out = playerswap.swap_player(ALEX100, "steiner")
+    assert playerswap.scripted_gesture_ops(out) == n

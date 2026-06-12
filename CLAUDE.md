@@ -169,7 +169,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.25`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.26`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -750,9 +750,14 @@ Read these on demand — they hold the full technical detail this file only summ
   (needs the donor's real player entry); party/menu state UNCHANGED (control vs party decoupled). The character
   table is real data extracted from each char's home field (model + eye-height + movement clips). New module
   `ff9mapkit/playerswap.py` (read-only transform) + `--swap-player` wired through `cli.py`; `.eb`-only, no DLL.
-  5 tests incl. a Vivi-field→Steiner round-trip + a swap-to-self identity check (proves the baked table matches
+  6 tests incl. a Vivi-field→Steiner round-trip + a swap-to-self identity check (proves the baked table matches
   the game). Clear of story_flags' `content/`+`build.py` lane (the party-MEMBERSHIP authoring half stays theirs).
-  kit 0.9.25; 862 tests.
+  ★ CAVEAT (warned): the swap repoints only the 6 MOVEMENT clips, so it's CLEAN on a free-roam field (Quina +
+  Steiner in-game proven) but on a CUTSCENE field the player's scripted GESTURES (`RunAnimation`, rig-specific)
+  glitch on the new model — `playerswap.scripted_gesture_ops` counts them (Vivi field 100 = 15) + the CLI WARNs.
+  For STORY fidelity (be a character THROUGH the story) use a verbatim fork at the right beat + the right party,
+  not a model swap (fully handling story characters = cross-rig gesture remap or the party/flag path — future).
+  kit 0.9.26; 863 tests.
 
 ---
 

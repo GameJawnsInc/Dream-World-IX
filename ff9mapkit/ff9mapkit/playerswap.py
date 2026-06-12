@@ -10,6 +10,14 @@ entry's tag-0 Init -- ``.eb``-only, no DLL (memory ``project-ff9-pc-party-system
 movement clips), EXTRACTED from that character's own home field. The animation ids are rig-partitioned -- the
 engine does NOT translate a Zidane clip id onto another rig -- so every movement clip the field's player Init
 sets must be repointed to the target rig (else a wrong-skeleton anim / T-pose).
+
+CAVEAT -- free-roam vs cutscene fields: this swaps only the 6 MOVEMENT clips (idle/walk/run/turns), which is
+everything a free-roam field needs (proven clean: walk Quina/Steiner around the Hangar). But a STORY-EVENT
+field can make the PLAYER play scripted GESTURES in a cutscene via ``RunAnimation`` (0x40) with a specific
+clip id -- that id is NOT swapped, so it would try to play the ORIGINAL rig's clip on the new model and
+glitch/T-pose. So ``--swap-player`` is clean on free-roam fields and cosmetic-and-risky on cutscene-heavy
+ones; :func:`scripted_gesture_ops` flags that risk. For STORY fidelity (be a character THROUGH the story),
+the right tool is a verbatim fork at the right beat with the right party, not a model swap.
 """
 from __future__ import annotations
 
@@ -18,6 +26,7 @@ from .eb.disasm import argsize
 
 SETMODEL_OP = 0x2F
 ANIM_OPS = {0x33: "idle", 0x34: "walk", 0x35: "run", 0x7A: "left", 0x7B: "right", 0x52: "inactive"}
+RUN_ANIM_OPS = frozenset({0x40, 0xBD})   # RunAnimation / RunAnimationEx -- scripted gesture plays (rig-specific)
 
 # Canonical field player-Init values per playable, read from each character's home field (model, eye-height,
 # movement clips). idle/walk/run/left/right exist for all 8; ``inactive`` (the idle-break) only where the home
@@ -73,6 +82,19 @@ def player_entry_to_swap(eb):
     if ctrl is not None and has_setmodel(ctrl):
         return ctrl
     return next((p for p in pents if has_setmodel(p)), None)
+
+
+def scripted_gesture_ops(eb_bytes, *, entry=None) -> int:
+    """How many scripted-gesture ops (``RunAnimation``/``RunAnimationEx``) the player entry plays. These
+    reference the ORIGINAL rig's clips (the swap only repoints the 6 movement clips), so any count > 0 means
+    ``--swap-player`` will glitch those gestures on the new model -- i.e. the field is a cutscene-heavy one
+    where the swap is cosmetic-and-risky, not a clean free-roam swap. Used to WARN at swap time."""
+    eb = EbScript.from_bytes(eb_bytes)
+    if entry is None:
+        entry = player_entry_to_swap(eb)
+    if entry is None:
+        return 0
+    return sum(1 for f in eb.entry(entry).funcs for i in eb.instrs(f) if i.op in RUN_ANIM_OPS)
 
 
 def swap_player(eb_bytes, char, *, entry=None) -> bytes:

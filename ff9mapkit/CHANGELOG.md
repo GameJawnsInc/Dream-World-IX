@@ -15,10 +15,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   id + eye-height + movement clips). ★ The productionized form of the **in-game-proven Tier-A probe** (walk as
   Steiner in a Zidane field; memory `project-ff9-pc-party-system`). New module `ff9mapkit/playerswap.py`
   (read-only transform) + the `--swap-player` flag wired through `cli.py` (forces verbatim, applies the swap to
-  the shipped sidecar `.eb`). `.eb`-only, no DLL. 5 offline tests (`tests/test_playerswap.py`) — incl. a Vivi
-  field→Steiner round-trip and a "swap to self is identity" check that proves the baked table matches the real
-  game. kit 0.9.25. (The complementary party-MEMBERSHIP authoring — `B_PARTYADD` etc. — is a declarative block
-  in story_flags' lane; here only the fork-transform half landed.)
+  the shipped sidecar `.eb`). `.eb`-only, no DLL. ★ CAVEAT (warned): the swap repoints only the 6 MOVEMENT
+  clips, so it's CLEAN on a free-roam field but on a CUTSCENE field the player's scripted GESTURES
+  (`RunAnimation`, rig-specific) glitch on the new model — `playerswap.scripted_gesture_ops` counts them (Vivi
+  field 100 = 15) and the CLI prints a `WARN`. For STORY fidelity (be a character *through* the story), use a
+  verbatim fork at the right beat + the right party, not a model swap. 6 offline tests
+  (`tests/test_playerswap.py`) — incl. a Vivi field→Steiner round-trip, a "swap to self is identity" check that
+  proves the baked table matches the real game, and the gesture-warning detector. kit 0.9.26. (The complementary
+  party-MEMBERSHIP authoring — `B_PARTYADD` etc. — is a declarative block in story_flags' lane; here only the
+  fork-transform half landed.)
 
 ### Fixed — Story State console: B-slot dropdown + Memoria extra-save authority
 - The Diff tab's **"B slot" dropdown couldn't be clicked** — it was created with no menu items and only
