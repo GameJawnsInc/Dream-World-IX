@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — save-item editor #5 step 3: the first real-save WRITE = gil (`items-set-gil`) (0.9.50)
+### Added — save-item editor #5 step 3: the first real-save WRITE = gil (`items-set-gil`), IN-GAME PROVEN (0.9.50)
 - **`save_items.set_gil(extra_path, gil, *, dry_run=True, backup=True)`** — write `40000_Common/gil` into a
   Memoria EXTRA save file (the **load-authoritative** store — it overrides the encrypted main block on load,
   memory `project-ff9-save-item-layout`). gil is a length-stable Int32 leaf (IntValue, tag 4), so this is the
@@ -22,10 +22,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **CLI `items-set-gil <save> <gil> [--slot S --save-no N | --autosave] [--apply] [--no-backup]`** — dry-run
   preview unless `--apply`. (`render_gil_write` shows the diff + the proof instructions.)
 - 14 new tests (37 in `test_save_items`), incl. a CLI-glue test + an install-gated real-save **dry-run** (no
-  write). ★ Offline-verified against the real save: `gil 500 → 9,999,999 (3 bytes)`, files untouched. The
-  in-game apply is a STOP-and-test point (human go-ahead). A 3-lens adversarial-verify workflow (engine-fidelity
-  / python-safety / integration) hardened it: atomic write, timestamped no-clobber backup, no-op short-circuit,
-  non-Class guard, `--save-no` message fix, gil=0 + CLI coverage.
+  write). A 3-lens adversarial-verify workflow (engine-fidelity / python-safety / integration) hardened it:
+  atomic write, timestamped no-clobber backup, no-op short-circuit, non-Class guard, `--save-no` message fix,
+  gil=0 + CLI coverage.
+- ★ **IN-GAME PROVEN (2026-06-12):** applied gil `500 → 1,234,567` to the EXTRA file of slot 1/save 3 — the main
+  container `SavedData_ww.dat` was byte-untouched — loaded the save and the in-game menu showed **1,234,567**.
+  So **the extra overrides the encrypted main block on load = confirmed live** (the whole #5 dual-write thesis).
+  ★ And **no relaunch was needed** — the extra is re-read on every save-load, so the edit→load loop is as fast as
+  an F6 field reload.
 
 ### Added — World Hub: a playable journey selector (choice `warp` action + `[player] model=`), IN-GAME PROVEN (0.9.48)
 - The **World Hub** is a playable field that lets the player pick which **journey** (a complete arc = one or
