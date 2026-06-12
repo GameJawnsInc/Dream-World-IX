@@ -30,6 +30,7 @@ TOOLS = [
     ("Dialogue Editor", "ff9_dialogue.pyw", "Word-smith every line with a live wrap preview; view/import stock dialogue."),
     ("Info Hub",       "ff9_infohub.pyw",   "Browse every catalog (models, archetypes, props, items); copy snippets."),
     ("Story State",    "ff9_storystate.pyw", "Inspect / diff / EDIT a save's story state (ScenarioCounter + flags); backup-guarded."),
+    ("Item & Equip",   "ff9_items.pyw",      "Inspect / EDIT a save's gil, inventory and equipment by name; backup-guarded."),
 ]
 
 

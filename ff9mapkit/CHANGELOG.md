@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — save-item editor #5 step 4c: the Item & Equipment GUI (`apps/ff9_items.pyw`) (0.9.54)
+- A standalone tkinter app — the item/equip companion to the Story State console — to inspect + EDIT a save's
+  gil, inventory and equipment by name, with a click. A **SEPARATE surface** (touches only `save_items`, never
+  the story-state core; project-ff9-branch-lanes rule 3), modelled on `ff9_storystate.pyw`'s conventions.
+- **Inspect** — pick a `SavedData_ww.dat` (enumerates its populated slots' extra files; the container read needs
+  pycryptodome) or a Memoria extra-save directly; the left list shows each slot, the Inspect tab its decoded
+  gil/inventory/equipment (`save_items.inspect`). Editable only for slots that have a Memoria extra file (the
+  load-authoritative store); a slot with none is shown read-only (the main-block mirror is step 4b).
+- **Edit** — three grouped editors (Gil / Item / Equipment), each with **Preview** (dry-run) + **Apply**
+  (backup-guarded, atomic, re-read-confirmed via the proven `set_gil`/`set_item`/`set_equip`). Apply pops a
+  confirm dialog showing the exact change; the character dropdown is populated from the selected slot; the slot
+  dropdown is the five equip slots. After a write, the view refreshes against the just-written save.
+- Registered in the launcher (`ff9_studio.pyw`, now 8 tools). A `--smoke` headless self-test exercises the full
+  load → gil/item/equip preview+apply → backup path (no display, no real save). ★ Logic also verified against
+  the real save's container (5 slots, 3 editable). ⏳ The visual GUI render is the next human playtest.
+
 ### Added — `deploy_campaign` productionized: auto-promote start-state CSVs + a name-collision guard (0.9.53)
 - **Name-collision guard** — `tools/deploy_campaign.py` now checks, before install, whether any `EVT_*.eb.bytes`
   or `FBG_*` scene name the chain ships collides (same name) with another live `Memoria.ini` `FolderNames` folder.
