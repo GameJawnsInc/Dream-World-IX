@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `deploy_campaign` productionized: auto-promote start-state CSVs + a name-collision guard (0.9.53)
+- **Name-collision guard** — `tools/deploy_campaign.py` now checks, before install, whether any `EVT_*.eb.bytes`
+  or `FBG_*` scene name the chain ships collides (same name) with another live `Memoria.ini` `FolderNames` folder.
+  Scene/`.eb` files resolve BY NAME, highest-folder-wins, so a same-named file in a stacked sibling folder silently
+  serves the WRONG fork → torn load / black screen (the cross-worktree shadow that black-screened the Dali chain).
+  Previewed in the dry-run (EVT names from the manifest), authoritatively checked at `--apply` against the built
+  dist (EVT + FBG, ground truth) where it **ABORTS** (override `--allow-name-collision`); the message points at the
+  fix, `import-chain --name-prefix <TAG>`. New `deploystack` helpers `check_name_collisions` / `name_collision_warning`
+  / `eb_names_at` / `scene_names_at`.
+- **Start-state CSV promotion** — a campaign installs into its OWN mod folder (usually NOT the highest), so its
+  new-game `InitialItems.csv` (read highest-priority-wins) would be shadowed. When the campaign claims New Game,
+  `deploy_campaign` now PROMOTES the entry field's `InitialItems`/`DefaultEquipment`/`ShopItems` CSVs up to the
+  highest `FolderNames` folder, reversibly (single-owner, like the warp). Skip with `--no-promote-csv`, retarget with
+  `--promote-csv-to <folder>`; gated off for `--no-warp` slices (a World-Hub journey shares the global bag/gear and
+  seeds per-journey via scripted `give_item`). `revert_campaign.py` now restores/removes the promoted CSVs too.
+- This is the manual lesson from the campaign-scale capstone session, made automatic. The generated
+  `revert_campaign.py` is hardened too: it no longer `rmtree`s the live folder when the snapshot is missing,
+  tolerates a vanished backup CSV, and is emitted even if CSV promotion fails partway. +13 tests.
+
 ### Added — save-item editor #5 step 4a: inventory + equipment WRITES, IN-GAME PROVEN (`items-set-item`/`items-set-equip`) (0.9.52)
 - Extends the proven step-3 extra-file write path from gil to **items and equipment**, by name, same safety model.
 - **`save_items.set_item(extra, item, count)`** — set an item's inventory stack count (a kit name or 0-254 id).

@@ -14,12 +14,23 @@ id is globally registered (every mod folder's DictionaryPatch is merged at launc
 even though it lives in a different folder than the warp. Because that warp edits FF9CustomMap (not the
 campaign's mod folder), ``revert_campaign.py`` undoes BOTH the folder snapshot AND the warp.
 
+Two productionization guards (the lessons from the Dali-chain session) run automatically:
+  * NAME-COLLISION CHECK -- scene (``FBG_*``) and event (``EVT_*.eb.bytes``) files resolve BY NAME,
+    highest-FolderNames-folder-wins, so two worktrees that fork the SAME source field deploy identically-named
+    files into different folders and the WRONG fork loads (a silent shadow -> black screen). Before install we
+    compare the built dist's names against the other live FolderNames folders and ABORT on a collision (the fix
+    is ``import-chain --name-prefix <TAG>``; override with ``--allow-name-collision``).
+  * START-STATE CSV PROMOTION -- a campaign installs into its OWN mod folder, usually NOT the highest, so its
+    new-game ``InitialItems.csv`` (read highest-priority-wins) would be shadowed. When the campaign claims New
+    Game we PROMOTE the entry field's ``InitialItems/DefaultEquipment/ShopItems`` CSVs to the highest folder
+    (reversibly; single-owner, like the warp). Skip with ``--no-promote-csv`` / retarget with ``--promote-csv-to``.
+
 SAFE BY DEFAULT: prints the plan and stops. Pass ``--apply`` to actually touch the game. I cannot see the
 running game (Hard Constraint §2): after --apply, follow the printed manual steps (Memoria.ini FolderNames +
 one relaunch) and PLAYTEST.
 
 Usage:
-  py tools/deploy_campaign.py <campaign.toml>                 # dry-run (prints the plan)
+  py tools/deploy_campaign.py <campaign.toml>                 # dry-run (prints the plan + guards)
   py tools/deploy_campaign.py <campaign.toml> --apply --stock # install + wire New Game (stock+F6 engine)
 """
 from __future__ import annotations
@@ -38,6 +49,7 @@ KIT = REPO / "ff9mapkit"
 sys.path.insert(0, str(KIT))
 
 from ff9mapkit import campaign as C            # noqa: E402
+from ff9mapkit import deploystack as DS        # noqa: E402
 from ff9mapkit.config import ModLayout, find_game_path  # noqa: E402
 
 
@@ -86,18 +98,24 @@ def expected_dist_summary(plan: "C.CampaignPlan") -> list[str]:
     ]
 
 
-def render_revert_campaign(live_root: Path, snap: Path, warp_revert: Path | None, name: str, stamp: str) -> str:
+def render_revert_campaign(live_root: Path, snap: Path, warp_revert: Path | None, name: str, stamp: str,
+                           csv_reverts: list | None = None) -> str:
     """The text of tools/scroll_out/revert_campaign.py: full-restore the mod folder + (if the warp ran) undo
-    the shared FF9CustomMap New-Game patch."""
+    the shared FF9CustomMap New-Game patch + (if start-state CSVs were promoted to the highest folder) restore
+    or remove those. ``csv_reverts`` is a list of ``(dst_path, backup_path_or_None)``: a backup => restore it,
+    ``None`` => the CSV was newly created, so delete it on revert."""
     lines = [
         f'"""Revert campaign {name} ({stamp}): restore {live_root.name} + undo the New-Game warp."""',
         "import shutil",
         "from pathlib import Path",
         f"live = Path(r{str(live_root)!r})",
         f"snap = Path(r{str(snap)!r})",
-        "shutil.rmtree(live, ignore_errors=True)",
-        "shutil.copytree(snap, live)",
-        'print("restored", live)',
+        "if snap.is_dir():",
+        "    shutil.rmtree(live, ignore_errors=True)",
+        "    shutil.copytree(snap, live)",
+        '    print("restored", live)',
+        "else:",          # never rmtree the live folder when there's no snapshot to restore from
+        '    print("WARNING: snapshot missing -- left", live, "untouched:", snap)',
     ]
     if warp_revert is not None:
         lines += [
@@ -107,8 +125,36 @@ def render_revert_campaign(live_root: Path, snap: Path, warp_revert: Path | None
             '    runpy.run_path(str(warp_revert), run_name="__main__")',
             '    print("undid New-Game warp")',
         ]
+    if csv_reverts:
+        lines += ["CSV_REVERTS = ["]
+        lines += [f"    ({dst!r}, {bkp!r})," for dst, bkp in csv_reverts]
+        lines += [
+            "]",
+            "for _dst, _bkp in CSV_REVERTS:",
+            "    _dst = Path(_dst)",
+            "    if _bkp is None:",                                  # the CSV was newly created -> delete it
+            "        if _dst.exists(): _dst.unlink(); print('removed promoted', _dst)",
+            "    elif Path(_bkp).is_file():",                        # a prior copy was backed up -> restore it
+            "        shutil.copyfile(_bkp, _dst); print('restored promoted', _dst)",
+            "    else:",                                             # backup vanished -> don't crash the whole revert
+            "        print('WARNING: backup missing -- left', _dst, 'as-is:', _bkp)",
+        ]
     lines += [f'print("reverted campaign {name} {stamp}")', ""]
     return "\n".join(lines)
+
+
+def folder_order(game) -> list:
+    """The Memoria.ini ``FolderNames`` priority list (highest first), or ``[]`` when it can't be read."""
+    ini = Path(game) / "Memoria.ini"
+    if not ini.is_file():
+        return []
+    return DS.parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore"))
+
+
+def resolve_highest_folder(order: list, override: str | None) -> str:
+    """The folder start-state CSVs should be promoted into: the explicit override, else the highest-priority
+    FolderNames folder, else the canonical primary ``FF9CustomMap`` (when the stack can't be read)."""
+    return override or (order[0] if order else "FF9CustomMap")
 
 
 def _is_dist_dir(p: Path) -> bool:
@@ -126,6 +172,14 @@ def main(argv=None) -> int:
     ap.add_argument("--allow-artless", action="store_true", dest="allow_artless",
                     help="install editable members that lack exported art (they render with NO background)")
     ap.add_argument("--no-warp", action="store_true", dest="no_warp", help="install the mod but skip New-Game wiring")
+    ap.add_argument("--allow-name-collision", action="store_true", dest="allow_name_collision",
+                    help="install even when EVT/FBG names collide with another FolderNames folder (default: ABORT; "
+                         "the proper fix is to re-fork with `import-chain --name-prefix <TAG>`)")
+    ap.add_argument("--no-promote-csv", action="store_true", dest="no_promote_csv",
+                    help="do NOT promote the entry field's start-state CSVs (InitialItems/DefaultEquipment/ShopItems) "
+                         "to the highest FolderNames folder (default: promote when this campaign claims New Game)")
+    ap.add_argument("--promote-csv-to", dest="promote_csv_to", default=None,
+                    help="folder to promote start-state CSVs into (default: the highest Memoria.ini FolderNames folder)")
     ap.add_argument("--apply", action="store_true", help="ACTUALLY touch the game (default: dry-run, prints the plan)")
     args = ap.parse_args(argv)
 
@@ -148,6 +202,12 @@ def main(argv=None) -> int:
     game = find_game_path()
     live_root = game / mod_folder
     member_ids = [m.new_id for m in plan.members]
+    order = folder_order(game)
+    highest = resolve_highest_folder(order, args.promote_csv_to)
+    # promote start-state CSVs only when this campaign actually CLAIMS New Game (a --no-warp slice -- e.g. a World
+    # Hub journey -- shares the global bag/gear and seeds per-journey via scripted give_item instead) and the
+    # campaign folder isn't already the highest (in which case the wholesale install already placed them right).
+    will_promote = (not args.no_promote_csv) and (not args.no_warp) and (highest != mod_folder)
 
     # --- lint (offline; aborts on structural errors) ---
     errors, warnings = C.lint_campaign(plan, target.parent if not _is_dist_dir(target) else target.parent.parent)
@@ -169,6 +229,26 @@ def main(argv=None) -> int:
     print("  dist will contain:")
     for line in expected_dist_summary(plan):
         print("    " + line)
+    # start-state CSV promotion plan
+    if args.no_promote_csv:
+        csv_note = "skipped (--no-promote-csv)"
+    elif args.no_warp:
+        csv_note = "in place (--no-warp: this campaign doesn't claim New Game)"
+    elif highest == mod_folder:
+        csv_note = f"in place ('{mod_folder}' is already the highest FolderNames folder)"
+    else:
+        csv_note = (f"will PROMOTE to highest folder '{highest}' (reversible; single-owner -- "
+                    f"clobbers that folder's prior start-state)")
+    print(f"  start-state CSVs: {csv_note}")
+    # name-collision preview: EVT names from the manifest (FBG scene names are also checked at --apply vs the
+    # built dist). A same-named scene/.eb in another stacked folder serves the WRONG fork -> torn load.
+    plan_eb = {f"EVT_{m.name}" for m in plan.members}
+    cwarn = DS.name_collision_warning(
+        DS.check_name_collisions(game, mod_folder, plan_eb, set(), folder_names=order), mod_folder)
+    if cwarn:
+        print("  !! " + cwarn.replace("\n", "\n     "))
+    print("  name check: EVT names checked now vs the FolderNames stack; FBG scene names are also verified at "
+          "--apply (vs the built dist), so --apply may catch a collision a clean dry-run did not.")
     if plan.needs_export and not args.allow_artless:
         print(f"REFUSING: members need in-game art (export + re-fork, or --allow-artless): {plan.needs_export}",
               file=sys.stderr)
@@ -192,6 +272,19 @@ def main(argv=None) -> int:
             print("  warn:", w)
     if not (dist_root / "DictionaryPatch.txt").is_file():
         raise SystemExit(f"build produced no DictionaryPatch.txt at {dist_root}")
+
+    # (1.5) authoritative name-collision check against the BUILT dist (EVT + FBG scene names = ground truth). A
+    #       same-named file in another stacked folder silently serves the WRONG fork -> torn load / black screen
+    #       (the cross-worktree shadow that --name-prefix prevents). Abort before touching any live file.
+    cwarn = DS.name_collision_warning(
+        DS.check_name_collisions(game, mod_folder, DS.eb_names_at(dist_root), DS.scene_names_at(dist_root),
+                                 folder_names=order), mod_folder)
+    if cwarn:
+        print("\n  !! " + cwarn)
+        if not args.allow_name_collision:
+            print("\nABORTING before install (no game files touched). Re-fork with `import-chain --name-prefix "
+                  "<TAG>`, or pass --allow-name-collision to install anyway.", file=sys.stderr)
+            return 2
 
     # (2) bootstrap a fresh mod folder so the snapshot has something to copy (deploy_field pattern)
     live_root.mkdir(parents=True, exist_ok=True)
@@ -227,12 +320,51 @@ def main(argv=None) -> int:
             wr = HERE / "scroll_out" / "revert_newgame_warp.py"
             warp_revert = wr if wr.is_file() else None
 
-    # (6) emit the single full-restore revert
+    # prepare the revert emitter up front: the campaign is already installed + wired, so a LATER partial failure
+    # (CSV promotion) must still leave a COMPLETE revert for whatever was touched (reversibility is the contract).
     out_dir = HERE / "scroll_out"
     out_dir.mkdir(exist_ok=True)
     rev = out_dir / "revert_campaign.py"
-    rev.write_text(render_revert_campaign(live_root, snap, warp_revert, plan.name, stamp),
-                   encoding="utf-8", newline="\n")
+    csv_reverts: list = []
+
+    def _write_revert():
+        rev.write_text(render_revert_campaign(live_root, snap, warp_revert, plan.name, stamp, csv_reverts),
+                       encoding="utf-8", newline="\n")
+
+    # (5.5) promote the entry field's start-state CSVs to the HIGHEST folder so they win at New Game. The
+    #       campaign installs into its OWN folder, usually NOT the highest -> InitialItems.csv (read
+    #       HIGHEST-PRIORITY-WINS) would be silently shadowed; the others (DefaultEquipment/ShopItems) merge,
+    #       but promoting guarantees this campaign's rows win. Reversible; single-owner (the global bag/gear is
+    #       shared, like the New-Game warp). Source = the dist CSVs just installed into live_root.
+    if will_promote:
+        src_l, dst_l = ModLayout(live_root), ModLayout(game / highest)
+        try:
+            for src_csv, dst_csv, label in ((src_l.initial_items_csv, dst_l.initial_items_csv, "InitialItems"),
+                                            (src_l.default_equipment_csv, dst_l.default_equipment_csv, "DefaultEquipment"),
+                                            (src_l.shop_items_csv, dst_l.shop_items_csv, "ShopItems")):
+                if not src_csv.exists():
+                    continue
+                dst_csv.parent.mkdir(parents=True, exist_ok=True)
+                bk = None
+                if dst_csv.exists():
+                    bk = snap.parent / f"{label}.csv.pre-{plan.name}.{stamp}"
+                    shutil.copyfile(dst_csv, bk)
+                shutil.copyfile(src_csv, dst_csv)
+                csv_reverts.append((str(dst_csv), str(bk) if bk else None))
+                print(f"  promoted {label}.csv -> {highest}" + (" (backed up prior)" if bk else " (new)"))
+        except OSError as e:
+            _write_revert()    # campaign already live + wired -> leave a usable revert for the partial state
+            print(f"\nERROR promoting start-state CSVs to '{highest}': {e}", file=sys.stderr)
+            print(f"The campaign is installed + wired but CSV promotion is INCOMPLETE. "
+                  f"Revert with: py {rev.relative_to(REPO).as_posix()}", file=sys.stderr)
+            return 2
+        if csv_reverts:
+            print(f"start-state CSVs promoted to highest folder '{highest}' (revert restores its prior copies).")
+        else:
+            print("(no start-state CSVs in the dist to promote -- entry field has no [start_inventory]/[[equipment]])")
+
+    # (6) emit the single full-restore revert
+    _write_revert()
 
     # (7) the manual steps this script cannot perform
     print("\n=== MANUAL STEPS (deploy_campaign cannot do these) ===")
@@ -244,6 +376,9 @@ def main(argv=None) -> int:
     if not args.no_warp and warp_revert is not None:
         print("   (New-Game route patched the SHARED FF9CustomMap field-100/70 overrides -- only one campaign")
         print("    can own New Game at a time; revert_campaign.py undoes it.)")
+    if will_promote and csv_reverts:
+        print(f"   (start-state CSVs were promoted to \"{highest}\" so the New-Game bag/gear win -- also a")
+        print("    SINGLE-OWNER write; revert_campaign.py restores that folder's prior CSVs.)")
     print(f"Then PLAYTEST and report.   revert: py {rev.relative_to(REPO).as_posix()}")
     return 0
 

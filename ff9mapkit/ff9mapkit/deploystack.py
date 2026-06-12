@@ -131,3 +131,86 @@ def check_csv_shadow(game_dir, target_folder: str, csv_relpath: str,
             f"FolderNames and also ships {name}, which is read HIGHEST-PRIORITY-WINS -- the engine uses "
             f"'{shadowed_by}'s {name}, not yours (your starting bag is silently dropped). Deploy to the "
             f"highest-priority folder, or remove the higher folder's {name}.")
+
+
+# ---- cross-folder NAME-collision guard (scene/.eb files resolve BY NAME, highest-folder-wins) ----
+# A field's scene (``FBG_*``) and event script (``EVT_*.eb.bytes``) are looked up by NAME, and -- exactly like
+# the highest-wins CSV above -- the engine serves the copy from the FIRST FolderNames folder that has it. So two
+# worktrees/campaigns that fork the SAME source field deploy IDENTICALLY-named FBG/EVT into different folders;
+# the higher folder's (WRONG) fork wins -> a torn load / black screen. (This bit the Dali chain until
+# ``import-chain --name-prefix`` namespaced every member.) This guard catches the collision at deploy time.
+
+@dataclass
+class NameCollision:
+    """One scene/.eb name a deploy would put in ``target_folder`` that ANOTHER live FolderNames folder already
+    ships. ``kind`` is ``"eb"`` or ``"scene"``; ``name`` is the on-disk base name (``EVT_DC_DL_ENT`` /
+    ``FBG_N11_DC_DL_ENT``). ``relation``: ``"shadows_us"`` (the other folder is higher priority -> it serves its
+    copy, ours is dead), ``"we_shadow"`` (we are higher -> we break the other), ``"ambiguous"`` (the target isn't
+    listed in FolderNames yet, so whichever order it lands in decides the winner)."""
+    kind: str
+    name: str
+    other_folder: str
+    relation: str
+
+
+def eb_names_at(root) -> set:
+    """The EVT base names (``EVT_*.eb.bytes`` stems, extension stripped) a mod/dist root ships, across all langs."""
+    d = ModLayout(Path(root)).eventbinary_field_dir
+    return {p.name[:-len(".eb.bytes")] for p in d.rglob("*.eb.bytes")} if d.is_dir() else set()
+
+
+def scene_names_at(root) -> set:
+    """The FBG scene-dir names a mod/dist root ships."""
+    d = ModLayout(Path(root)).fieldmaps_dir
+    return {p.name for p in d.iterdir() if p.is_dir()} if d.is_dir() else set()
+
+
+def check_name_collisions(game_dir, target_folder: str, eb_names, scene_names,
+                          folder_names: list | None = None) -> list:
+    """Do any EVT/.eb or FBG-scene names a deploy puts in ``target_folder`` collide (same name) with one a
+    DIFFERENT live FolderNames folder already ships? Returns a list of :class:`NameCollision` (``[]`` => clear).
+    Reads ``Memoria.ini`` ``FolderNames`` (unless ``folder_names`` is passed); degrades to ``[]`` when the stack
+    can't be read. The TARGET folder is EXCLUDED -- a redeploy of the same campaign replaces its own files in
+    place, which is not a collision. Only folders actually in the stack are checked (others aren't loaded)."""
+    game_dir = Path(game_dir)
+    order = folder_names
+    if order is None:
+        ini = game_dir / "Memoria.ini"
+        order = parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+    others = [f for f in order if f != target_folder]
+    if not others:
+        return []
+    ti = order.index(target_folder) if target_folder in order else None
+    want = {"eb": set(eb_names), "scene": set(scene_names)}
+    out: list = []
+    for f in others:
+        have = {"eb": eb_names_at(game_dir / f), "scene": scene_names_at(game_dir / f)}
+        rel = "ambiguous" if ti is None else ("shadows_us" if order.index(f) < ti else "we_shadow")
+        for kind in ("eb", "scene"):
+            for nm in sorted(want[kind] & have[kind]):
+                out.append(NameCollision(kind, nm, f, rel))
+    return out
+
+
+def name_collision_warning(collisions: list, target_folder: str) -> str | None:
+    """A human-readable multi-line warning for cross-folder name collisions, or ``None`` when clear."""
+    if not collisions:
+        return None
+    by_folder: dict = {}
+    for c in collisions:
+        by_folder.setdefault(c.other_folder, []).append(c)
+    rel_tag = {
+        "shadows_us": "is HIGHER priority -> it shadows YOURS (your fields won't load)",
+        "we_shadow":  "is LOWER priority -> YOURS shadows it (you break that campaign)",
+        "ambiguous":  f"is in the stack ('{target_folder}' isn't listed yet -> FolderNames order decides)",
+    }
+    lines = [f"NAME COLLISION: {len(collisions)} scene/.eb name(s) this deploy puts in '{target_folder}' are "
+             f"ALSO shipped by another Memoria.ini FolderNames folder -- these resolve BY NAME, "
+             f"highest-folder-wins, so the WRONG fork loads (a silent shadow -> torn load / black screen):"]
+    for f, cs in by_folder.items():
+        names = ", ".join(c.name for c in cs[:8]) + (" ..." if len(cs) > 8 else "")
+        lines.append(f"  - vs '{f}' ({rel_tag[cs[0].relation]}): {names}")
+    lines.append("Fix: re-fork the chain with a campaign-unique prefix -- `ff9mapkit import-chain <seed> "
+                 "--name-prefix <TAG>` -- so every FBG/EVT name is globally unique; or drop the colliding "
+                 "folder from Memoria.ini FolderNames.")
+    return "\n".join(lines)

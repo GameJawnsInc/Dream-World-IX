@@ -58,6 +58,70 @@ def test_render_revert_valid_and_complete(tmp_path):
     assert "runpy" not in no_warp                                    # no warp -> no warp-revert step
 
 
+def test_folder_order(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    assert dc.folder_order(g) == []                                  # no Memoria.ini -> empty
+    (g / "Memoria.ini").write_text('[Mod]\nFolderNames = "X", "Y"\n', encoding="utf-8")
+    assert dc.folder_order(g) == ["X", "Y"]                          # highest first
+
+
+def test_resolve_highest_folder():
+    assert dc.resolve_highest_folder(["A", "B"], None) == "A"        # highest = first FolderNames entry
+    assert dc.resolve_highest_folder([], None) == "FF9CustomMap"     # unreadable stack -> canonical primary
+    assert dc.resolve_highest_folder(["A", "B"], "OVERRIDE") == "OVERRIDE"   # explicit --promote-csv-to wins
+
+
+def test_render_revert_with_promoted_csvs(tmp_path):
+    live, snap = tmp_path / "FF9CustomMap-ow", tmp_path / "snap"
+    csvs = [(r"C:\g\FF9CustomMap\StreamingAssets\Data\Items\InitialItems.csv",
+             r"C:\repo\backups\InitialItems.csv.pre-ICE.20260612-000000"),     # had a prior -> restore
+            (r"C:\g\FF9CustomMap\StreamingAssets\Data\Items\ShopItems.csv", None)]  # newly created -> delete
+    txt = dc.render_revert_campaign(live, snap, None, "ICE", "20260612-000000", csvs)
+    ast.parse(txt)                                                   # valid python
+    assert "CSV_REVERTS" in txt
+    assert "shutil.copyfile(_bkp, _dst)" in txt and "_dst.unlink()" in txt
+    assert "Path(_bkp).is_file()" in txt                             # don't crash if a backup CSV vanished
+    assert "if snap.is_dir():" in txt                                # never rmtree live without a snapshot
+    no_csv = dc.render_revert_campaign(live, snap, None, "ICE", "20260612-000000")
+    ast.parse(no_csv)
+    assert "CSV_REVERTS" not in no_csv                               # no promotion -> no CSV block
+
+
+def test_generated_revert_executes(tmp_path):
+    # build a realistic post-deploy state and prove the generated revert restores/deletes/skips correctly
+    live, snap = tmp_path / "FF9CustomMap-ow", tmp_path / "snap"
+    snap.mkdir()
+    (snap / "marker.txt").write_text("snapshot", encoding="utf-8")
+    live.mkdir()
+    (live / "stale.txt").write_text("stale", encoding="utf-8")       # should be wiped by the snapshot restore
+    high = tmp_path / "FF9CustomMap" / "Data"
+    high.mkdir(parents=True)
+    bkdir = tmp_path / "backups"
+    bkdir.mkdir()
+    dst1 = high / "InitialItems.csv"; dst1.write_text("NEW", encoding="utf-8")       # 1) prior backed up -> restore
+    bk1 = bkdir / "InitialItems.csv.bk"; bk1.write_text("OLD", encoding="utf-8")
+    dst2 = high / "ShopItems.csv"; dst2.write_text("CREATED", encoding="utf-8")      # 2) newly created -> remove
+    dst3 = high / "DefaultEquipment.csv"; dst3.write_text("KEEP", encoding="utf-8")  # 3) backup vanished -> skip
+    bk3 = bkdir / "gone.bk"                                                          #    (never created)
+    txt = dc.render_revert_campaign(live, snap, None, "ICE", "x",
+                                    [(str(dst1), str(bk1)), (str(dst2), None), (str(dst3), str(bk3))])
+    exec(compile(txt, "<revert>", "exec"), {})
+    assert dst1.read_text(encoding="utf-8") == "OLD"                 # restored from backup
+    assert not dst2.exists()                                         # newly created -> removed
+    assert dst3.read_text(encoding="utf-8") == "KEEP"               # backup missing -> left as-is (no crash)
+    assert (live / "marker.txt").exists() and not (live / "stale.txt").exists()   # folder restored from snapshot
+
+
+def test_generated_revert_skips_when_snapshot_missing(tmp_path):
+    live, snap = tmp_path / "live", tmp_path / "nope"               # snapshot does NOT exist
+    live.mkdir()
+    (live / "keep.txt").write_text("keep", encoding="utf-8")
+    txt = dc.render_revert_campaign(live, snap, None, "ICE", "x")
+    exec(compile(txt, "<revert>", "exec"), {})
+    assert (live / "keep.txt").exists()                             # snapshot missing -> live left untouched, not nuked
+
+
 def _game_ready():
     try:
         import UnityPy  # noqa: F401

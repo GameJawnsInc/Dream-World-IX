@@ -133,3 +133,96 @@ def test_csv_shadow_target_not_in_stack(tmp_path):
     g = _csv_stack(tmp_path)
     _mk_csv(g, "A", INITIAL_ITEMS)
     assert check_csv_shadow(g, "FF9CustomMap-zz", INITIAL_ITEMS) is None   # unlisted target -> nothing higher
+
+
+# ---- the cross-folder NAME-collision guard (EVT_/FBG_ shadow) ----------------------------------
+from ff9mapkit.deploystack import (check_name_collisions, name_collision_warning,  # noqa: E402
+                                   eb_names_at, scene_names_at)
+
+
+def _mk_eb(game, folder, lang, names):
+    d = (game / folder / "StreamingAssets" / "assets" / "resources" / "commonasset"
+         / "eventengine" / "eventbinary" / "field" / lang)
+    d.mkdir(parents=True, exist_ok=True)
+    for n in names:
+        (d / f"{n}.eb.bytes").write_bytes(b"\x00")
+
+
+def _mk_scene(game, folder, names):
+    base = game / folder / "StreamingAssets" / "assets" / "resources" / "FieldMaps"
+    for n in names:
+        (base / n).mkdir(parents=True, exist_ok=True)
+
+
+def test_eb_and_scene_names_at(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    _mk_eb(g, "A", "us", ["EVT_FOO", "EVT_BAR"])
+    _mk_eb(g, "A", "uk", ["EVT_FOO", "EVT_BAR"])           # other langs hold the same names
+    _mk_scene(g, "A", ["FBG_N11_FOO"])
+    assert eb_names_at(g / "A") == {"EVT_FOO", "EVT_BAR"}   # extension stripped, deduped across langs
+    assert scene_names_at(g / "A") == {"FBG_N11_FOO"}
+    assert eb_names_at(g / "missing") == set() and scene_names_at(g / "missing") == set()
+
+
+def test_name_collision_shadows_us_when_higher_has_it(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")   # FolderNames = A, B, C
+    _mk_eb(g, "A", "us", ["EVT_DL_ENT"])                    # higher-priority A already ships the name
+    cs = check_name_collisions(g, "C", {"EVT_DL_ENT", "EVT_UNIQUE"}, set())
+    assert len(cs) == 1
+    c = cs[0]
+    assert c.name == "EVT_DL_ENT" and c.other_folder == "A" and c.kind == "eb" and c.relation == "shadows_us"
+
+
+def test_name_collision_we_shadow_lower_folder(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")
+    _mk_scene(g, "C", ["FBG_N11_DL_ENT"])                  # lower-priority C ships the scene; we (A) are higher
+    cs = check_name_collisions(g, "A", set(), {"FBG_N11_DL_ENT"})
+    assert len(cs) == 1 and cs[0].relation == "we_shadow" and cs[0].kind == "scene"
+
+
+def test_name_collision_excludes_target_folder(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")
+    _mk_eb(g, "B", "us", ["EVT_X"])
+    assert check_name_collisions(g, "B", {"EVT_X"}, set()) == []   # our own folder is replaced in place
+
+
+def test_name_collision_ambiguous_when_target_unlisted(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")   # A, B, C (target not among them)
+    _mk_eb(g, "A", "us", ["EVT_X"])
+    cs = check_name_collisions(g, "FF9CustomMap-zz", {"EVT_X"}, set())
+    assert len(cs) == 1 and cs[0].relation == "ambiguous"
+
+
+def test_name_collision_graceful_without_ini(tmp_path):
+    g = tmp_path / "bare"
+    g.mkdir()
+    assert check_name_collisions(g, "C", {"EVT_X"}, {"FBG_N11_X"}) == []   # empty stack -> no false alarm
+
+
+def test_name_collision_explicit_order_override(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    _mk_eb(g, "A", "us", ["EVT_X"])
+    # pass the order directly (no Memoria.ini read): C first, A lower -> A shadows nothing of C's
+    cs = check_name_collisions(g, "C", {"EVT_X"}, set(), folder_names=["C", "A", "B"])
+    assert len(cs) == 1 and cs[0].relation == "we_shadow"   # C is highest -> C shadows A's copy
+
+
+def test_name_collision_warning_text_and_none(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")
+    _mk_eb(g, "A", "us", ["EVT_DL_ENT"])
+    cs = check_name_collisions(g, "C", {"EVT_DL_ENT"}, set())
+    w = name_collision_warning(cs, "C")
+    assert w and "NAME COLLISION" in w and "--name-prefix" in w and "EVT_DL_ENT" in w and "'A'" in w
+    assert name_collision_warning([], "C") is None         # clear -> no warning

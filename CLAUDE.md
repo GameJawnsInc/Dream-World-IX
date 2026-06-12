@@ -142,7 +142,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   (`deploy_field.py`, currently a CPMP ladder fork).
 - **New-Game → field 4003 is a stock mod field-70 override, NOT a DLL edit** — the only custom DLL is the F6
   menu. The mechanism, the seamless-entry lever, and the starting-state capstone → [[project-ff9-new-game-entry]].
-- **Versions:** kit `0.9.48`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.53`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -383,16 +383,17 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - Faithful object/NPC carry → verbatim fork (`--verbatim` = the truest fork: real logic + real text) → [[project-ff9-verbatim-fork]], [[project_ff9_object_carry]]
 - Non-Zidane donors + PC/party control (`--swap-player`, `[party]`) → [[project-ff9-non-zidane-donors]], [[project-ff9-pc-party-system]]
 - Items / equipment / shops + the New-Game starting-state capstone → [[project-ff9-items-equipment]], [[project-ff9-new-game-entry]]
-- Campaign-scale New-Game capstone — New Game → a forked verbatim CHAIN that plays its real story (Dali: wake-up → Garnet rejoins @2640), beat/bag/gear seeded on the entry; `tools/retarget_newgame_warp.py` + `import-chain --name-prefix` (cross-worktree FBG/EVT namespace) → [[project-ff9-new-game-entry]]
+- Campaign-scale New-Game capstone — New Game → a forked verbatim CHAIN that plays its real story (Dali: wake-up → Garnet rejoins @2640), beat/bag/gear seeded on the entry; `tools/retarget_newgame_warp.py` + `import-chain --name-prefix` (cross-worktree FBG/EVT namespace); `deploy_campaign` auto-promotes start-state CSVs to the highest folder + ABORTS on a cross-folder EVT/FBG name collision (`--allow-name-collision` to override) → [[project-ff9-new-game-entry]]
 - InfoHub authoring — place any model/prop/creature by name → [[project-ff9-infohub-authoring]]
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 - World Hub — a playable journey selector (choice `warp` action + `[player] model=` moogle PC); MVP scaffold IN-GAME PROVEN (talk→pick→warp) → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.51, 1105 tests. World-Hub scaffold IN-GAME PROVEN (the select→warp loop). Active: **battle
-TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4: raw16 full codec + golden round-trip;
-`[scene]` combat-identity tuning by name; `battle-actions` / `battle-scene` catalogs; the **offline balance-lint**
-`scenelint.py`; **`[[battle_action]]`/`[[status]]`** CSV-delta ability/status rebalancing; **Phase 4 — the
-`BattlePatch.txt` emitter** (`battlepatch.py`): `[[battle_patch]]` (scene-scoped) + `[[battle_enemy]]`/
+**Latest:** kit 0.9.53, 1152 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
+folder + ABORT on a cross-folder EVT/FBG name collision). World-Hub scaffold IN-GAME PROVEN (the select→warp loop).
+Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4: raw16 full codec + golden
+round-trip; `[scene]` combat-identity tuning by name; `battle-actions` / `battle-scene` catalogs; the **offline
+balance-lint** `scenelint.py`; **`[[battle_action]]`/`[[status]]`** CSV-delta ability/status rebalancing; **Phase 4 —
+the `BattlePatch.txt` emitter** (`battlepatch.py`): `[[battle_patch]]` (scene-scoped) + `[[battle_enemy]]`/
 `[[battle_attack]]` (global by-name `AnyEnemyByName:`/`AnyAttackByName:` = the campaign-wide WIN) reaching the
 BP-only rate arrays / `BonusElement` / `MaxDamageLimit` / `WinCardRate`, the enemy ATTACK table, and scene flags
 **without re-packing raw16**; merged non-clobbering into a live `BattlePatch.txt` under `//` markers + the BGM
