@@ -20,8 +20,10 @@ prompt    = "Kupo! Which journey will you take?"
 stay_text = "Stay here, kupo..."     # the trailing no-warp (cancel) row
 player_model   = 220                 # walk the hub as the iconic Moogle (220 = GEO_NPC_F0_MOG, the save moogle)
 player_spawn   = [404, 127]
-narrator       = "Stiltzkin"         # the narrator moogle (an NPC instance of model 220)
-narrator_model = 220
+narrator       = "Stiltzkin"         # the narrator moogle
+narrator_model = 212                 # Stiltzkin's ACTUAL rig (GEO_NPC_F3_MOG) -- confirmed from Mognet Central
+                                     # (field 3100): the NPC named "Stiltzkin" SetModels 212 (not 220 = the
+                                     # white save-moogle). He even says "Maybe I'll go on a journey again." kupo
 narrator_pos   = [480, 127]
 
 [[journey]]
