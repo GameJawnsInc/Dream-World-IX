@@ -741,6 +741,8 @@ def _cmd_battle_build(args: argparse.Namespace) -> int:
         print(f"  BattlePatch: {line}")
     for w in info["warnings"]:
         print(f"warning: {w}", file=sys.stderr)
+    for ln in info.get("lint", []):
+        print(f"  lint {ln}")
     print("To install reversibly into your mod folder: py tools/deploy_battle.py <battle.toml>")
     return 0
 
@@ -798,7 +800,7 @@ def _cmd_battle_scene(args: argparse.Namespace) -> int:
     """Inspect a REAL battle scene's enemy data: read-only fork its raw16 and print every enemy type's
     stats / affinities / rewards + the attack table. The 'import -> SEE it' step for battle tuning."""
     _safe_console()
-    from .battle import battlecsv as B, extract as bextract, scene_codec
+    from .battle import battlecsv as B, extract as bextract, scene_codec, scenelint
     try:
         assets = bextract.read_scene_assets(args.donor, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
@@ -835,6 +837,8 @@ def _cmd_battle_scene(args: argparse.Namespace) -> int:
             print(f"    [{i}] {B.script_name(a.script_id)}  pow {a.power}{extra}")
     aps = sorted({p.ap for p in scene.patterns})
     print(f"\n  AP reward (per formation): {', '.join(str(a) for a in aps)}")
+    print()
+    print(scenelint.format_findings(scenelint.lint_scene(scene)))
     print(f"\n  Fork + tune:  ff9mapkit battle-import --fork-scene {args.donor} ...  "
           "then [scene]/[[scene.enemy]] in battle.toml")
     return 0

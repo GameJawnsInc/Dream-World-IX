@@ -29,7 +29,9 @@ from . import camera_codec as _camera_codec
 from . import camera_data as _camera_data
 from . import event_data as _event_data
 from . import fbx as _fbx
+from . import scene_codec as _scene_codec
 from . import scene_data as _scene_data
+from . import scenelint as _scenelint
 
 _BBG_RE = re.compile(r"^BBG_[A-Z]\d+$")
 # Real shipping battle maps are BBG_B001..177; a NEW number (>= this) = a wholly custom map that needs
@@ -137,6 +139,7 @@ class BattleResult:
     battle_patch_lines: list           # list[str]
     warnings: list                     # list[str]
     written: list = field(default_factory=list)   # list[Path] -- every file emitted into the layout
+    lint: list = field(default_factory=list)       # list[scenelint.Finding] -- offline balance notes
 
 
 def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
@@ -159,6 +162,7 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
     dict_line = None
     bp: list[str] = []
     warnings: list[str] = []
+    lint: list = []
 
     # 2) MINT: copy the forked scene assets + author a static INB for a new bbg number + register
     if project.is_mint:
@@ -172,6 +176,12 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
             raw16, scene_warns = _scene_data.apply_scene_edits(raw16, scene_cfg)
             warnings += scene_warns
         (scene_out / "dbfile0000.raw16.bytes").write_bytes(raw16)
+        # offline BALANCE lint of the final (tuned) scene -- "I can't see the game" leverage. Advisory only:
+        # a lint failure must NEVER crash the build, so degrade to no findings on ANY error.
+        try:
+            lint = _scenelint.lint_scene(_scene_codec.parse_scene(raw16))
+        except Exception:                                # noqa: BLE001 -- best-effort, build must not fail on lint
+            lint = []
         # raw17: tweak the OPENING camera's keyframes IN PLACE (yaw/pitch/zoom) -- no offset repack. Which
         # camera plays = raw16 pattern Camera byte (the `[scene] camera` selector); tweak that one (0-2) or
         # all of 0/1/2 if it's random/unpinned.
@@ -227,7 +237,7 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
         bp.append(f"BattleBackground {bbg}")
 
     return BattleResult(bbg=bbg, dict_line=dict_line, battle_patch_lines=bp, warnings=warnings,
-                        written=written)
+                        written=written, lint=lint)
 
 
 def build_battle_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="") -> dict:
@@ -267,4 +277,5 @@ def build_battle_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", 
     return {"root": str(layout.root), "maps": [r.bbg for r in results],
             "dictionary": dlines, "battle_patch": bplines,
             "written": [str(p) for r in results for p in r.written],
-            "warnings": [w for r in results for w in r.warnings]}
+            "warnings": [w for r in results for w in r.warnings],
+            "lint": [str(f) for r in results for f in r.lint]}

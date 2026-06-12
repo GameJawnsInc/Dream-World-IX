@@ -386,11 +386,12 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - InfoHub authoring — place any model/prop/creature by name → [[project-ff9-infohub-authoring]]
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 
-**Latest:** kit 0.9.45, 1015 tests. Active: **battle TUNING / encounter authoring** (`battle_design`) — recon +
-Phase 0/1 (raw16 full codec + golden round-trip; `[scene]` combat-identity tuning — element affinities / status
-masks / defences / AP by name; `battle-actions` + `battle-scene` catalogs). ★ **Phase 1 IN-GAME PROVEN**
-(forked EF_R007 Goblin: auto-Protect icon + phys-def wall → ~1 dmg + 10 AP confirmed; element fields byte-verified,
-await a magic save) → [[project-ff9-battle-tuning]], `docs/BATTLE_DESIGN.md`. Next: Phase 2 (offline LINT suite).
+**Latest:** kit 0.9.46, 1024 tests. Active: **battle TUNING / encounter authoring** (`battle_design`) — recon +
+Phase 0/1/2 (raw16 full codec + golden round-trip; `[scene]` combat-identity tuning by name; `battle-actions` /
+`battle-scene` catalogs; the **offline balance-lint** `scenelint.py`). ★ **Phase 1 IN-GAME PROVEN** (forked
+EF_R007 Goblin: auto-Protect icon + phys-def wall → ~1 dmg + 10 AP). ★ **Phase 2** lint validated by a 562-scene
+adversarial sweep (trustworthy default: 0 false-positive warns; turns-to-kill deferred — needs a party model) →
+[[project-ff9-battle-tuning]], `docs/BATTLE_DESIGN.md`. Next: Phase 3 (CSV-delta action/status authoring).
 Frontier: #13 (story-event director/roster on rotating-cast fields) — open.
 
 ---

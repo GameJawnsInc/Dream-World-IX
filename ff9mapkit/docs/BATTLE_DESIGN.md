@@ -358,8 +358,22 @@ Add to `scene_data._MON_FIELDS` the verified scalar offsets: element affinities 
 AP `@4` + type AP `@50`, WinCard `@105` (drop/steal rates + MaxDamageLimit via BattlePatch arrays). Each = the
 identical `struct.pack_into` surgical pattern. Add element/status/category **name↔bit tables** (committable).
 
-### Phase 2 — the validation/lint suite (the superpower)
-Ship the §5 checks. Reuses Phase-0 catalogs + Phase-1 fields; can ship incrementally.
+### Phase 2 — the validation/lint suite (the superpower) ✅ DONE (kit 0.9.46)
+`battle/scenelint.py` — `lint_scene(scene) -> [Finding]` over the Phase-0 parsed scene, surfaced in
+`battle-scene` (inspector footer) and `battle-build` (lints the **tuned** raw16 → `BattleResult.lint`). The bar
+is TRUST (quiet on vanilla, loud only on real problems), so every check was **validated against a 562-scene
+sweep** (a 3-lens adversarial review). Checks shipped: **no_reward** / **bad_item** (`warn`: a fight that rewards
+nothing; a drop/steal id that isn't a real item — both 0 false-positives across all 562 scenes), **status_immune**
+(immune to every common offensive status → status abilities dead), **element_wall** (resists/absorbs/halves ≥7/8
+elements), **phys/mag_wall** (defence in the weapon-power band ≥50 — real enemies cap ~24, FF9 weapon power ~108 —
+→ attacks floored, subtractive defence), **level5** (level %5 AND not Death-immune → LV5 Death one-shots).
+Severity: `warn` = likely real problem, `info` = design awareness. ★ The review CAUGHT + we removed three
+over-firing heuristics the single smoke missed: an `hp_sponge`/turns-to-kill estimate (fired on ~49% of real
+scenes — FF9 damage is multiplicative `Strength×(weaponPower−def)` ×party, off by 10-40× without a live party
+model), the raw `level3/4/5` divisibility notes (~74%, plus a backwards "LV4 Holy" on Holy-absorbers), and a
+standalone `no_weakness` note (~29%, a normal design choice). DEFERRED (needs a live party model): a precise
+turns-to-kill / time-to-kill-a-PC estimator + the economy-curve-vs-zone check. 9 lint tests (incl. a
+normal-late-game-enemy-is-clean regression) + the real-donor sweep.
 
 ### Phase 3 — CSV-delta ability + status authoring (the natural WIN vs HW)
 Read-modify-emit minimal `Actions.csv`/`StatusData.csv`/`StatusSets.csv` deltas via `ModLayout`, carrying the
