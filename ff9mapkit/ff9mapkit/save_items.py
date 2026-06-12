@@ -9,8 +9,9 @@ in-game). The READ surface: :func:`inspect` / :func:`report_from_common` (extra)
 with a validation gate + a scoped-change check + atomic write + post-write confirm): :func:`set_gil`/
 :func:`set_item`/:func:`set_equip` on the extra; :func:`set_main_gil`/:func:`set_main_item` on the ENCRYPTED MAIN
 block (so a **vanilla no-extra save is editable** -- gil + items); and :func:`set_gil_in_save`/
-:func:`set_item_in_save`, which DUAL-WRITE the main block + the extra mirror (the extra stays load-authoritative).
-Main-block EQUIPMENT (the old-format 9-player struct) is the remaining deferred follow-up.
+:func:`set_item_in_save`/:func:`set_equip_in_save`, which DUAL-WRITE the main block + the extra mirror (the extra
+stays load-authoritative). So a vanilla no-extra save is now editable for gil, items AND equipment; only
+key/important items remain deferred.
 
 SEPARATE surface per [[project-ff9-branch-lanes]] rule 3: reuses :class:`save.FF9Save` + :mod:`sjbinary`; it
 does NOT touch :func:`save.apply_story_edit` / ``edit_story_state`` (story_flags' gEventGlobal core).
@@ -40,6 +41,15 @@ ITEM_COUNT_CAP = 99                                        # the in-game per-sta
 MAIN_GIL_OFF = 5235                                        # UInt32 LE (40000_Common/gil)
 MAIN_ITEMS_OFF = 5239                                      # 256 fixed {count:Byte, id:Byte} pairs (count BEFORE id)
 MAIN_ITEMS_N = 256
+# Old-format players: 9 fixed 244-byte structs; each holds a 5-BYTE equip array [wpn,head,wrist,armor,accy].
+# Empirically byte-stable across Memoria + vanilla saves. (slots 5-7 SHARE with story temp Cinna/Marcus/Blank.)
+MAIN_EQUIP_OFF = 5784                                      # old-slot 0's equip; old-slot k = +MAIN_PLAYER_STRIDE*k
+MAIN_PLAYER_STRIDE = 244
+MAIN_PLAYERS_N = 9
+OLD_SLOT_NAMES = {0: "Zidane", 1: "Vivi", 2: "Garnet", 3: "Steiner", 4: "Freya",
+                  5: "Quina", 6: "Eiko", 7: "Amarant", 8: "Beatrix"}        # old-slot -> primary character
+_CHAR_TO_OLD_SLOT = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 11: 8,   # CharacterId -> old-slot
+                     8: 5, 9: 6, 10: 7}                                       # Cinna/Marcus/Blank share 5/6/7
 
 # CharacterId (Memoria.Data.Characters.CharacterId) -- the key of `players[].info.slot_no` in the save. The
 # equip array is keyed by THIS (not array index / EquipmentSetId, which diverges above 7). Names/ids only.
@@ -83,9 +93,9 @@ class ItemWriteReport:
 
 @dataclass
 class EquipWriteReport:
-    """The outcome of a :func:`set_equip` call (dry-run or applied)."""
+    """The outcome of a :func:`set_equip` / :func:`set_main_equip` call (dry-run or applied)."""
     path: str
-    slot_no: int                                          # the CharacterId whose equip changed
+    slot_no: int                                          # CharacterId (extra writer) OR old-format slot 0-8 (main writer)
     character: "str | None"                               # its in-save name
     slot: str                                             # one of EQUIP_SLOTS
     old_id: int
@@ -170,8 +180,8 @@ def inspect(path) -> list:
     populated slot. Accepts a Memoria extra file directly (plaintext, no crypto), OR the encrypted
     ``SavedData_ww.dat`` container (enumerates populated slots via :meth:`save.FF9Save.populated` -- needs
     pycryptodome). A Memoria slot reads its EXTRA (what the game loads); a VANILLA slot (no extra) reads the
-    encrypted MAIN block (:func:`decode_main_block` -- gil + inventory, no equipment). A slot that decodes to
-    neither is reported as ``None``. Raises with a clear message if nothing decodes."""
+    encrypted MAIN block (:func:`decode_main_block` -- gil + inventory + the 9 players' equipment). A slot that
+    decodes to neither is reported as ``None``. Raises with a clear message if nothing decodes."""
     p = str(path)
     # case 1: path IS a Memoria extra file (a plaintext SimpleJSON tree with 40000_Common)
     common, _, _ = load_extra_common(p)
@@ -527,9 +537,26 @@ def read_main_inventory(pt) -> list:
     return out
 
 
+def read_main_equipment(pt) -> list:
+    """``[{slot_no, name, equip}, ...]`` for the 9 old-format player slots (same shape as :func:`read_equipment`).
+    ``slot_no`` is the OLD-slot 0-8; ``name`` its primary character (slots 5-7 may instead hold the temp
+    Cinna/Marcus/Blank -- the current gear disambiguates). ``equip`` maps each of the 5 slots to ``(id, name)``
+    or ``None`` (255 = empty)."""
+    out = []
+    for k in range(MAIN_PLAYERS_N):
+        base = MAIN_EQUIP_OFF + MAIN_PLAYER_STRIDE * k
+        gear = {}
+        for j, slot in enumerate(EQUIP_SLOTS):
+            iid = pt[base + j]
+            gear[slot] = None if iid == NO_ITEM else (iid, _items.name_of(iid))
+        out.append({"slot_no": k, "name": OLD_SLOT_NAMES.get(k), "equip": gear})
+    return out
+
+
 def main_report(pt) -> ItemReport:
-    """An :class:`ItemReport` for a decrypted main block (gil + inventory; equipment is the deferred 4b-follow-up)."""
-    return ItemReport(gil=read_main_gil(pt), inventory=read_main_inventory(pt), equipment=[])
+    """An :class:`ItemReport` for a decrypted main block (gil + inventory + the 9 old-format players' equipment)."""
+    return ItemReport(gil=read_main_gil(pt), inventory=read_main_inventory(pt),
+                      equipment=read_main_equipment(pt))
 
 
 def decode_main_block(container, block):
@@ -656,6 +683,72 @@ def set_main_item(container, block: int, item, count: int, *, dry_run: bool = Tr
                            wrote=did_write, backup_path=backup_path)
 
 
+def _resolve_old_slot(character) -> int:
+    """A ``character`` (a CharacterId 0-11, a digit string, or a name/alias incl. Cinna/Marcus/Blank) -> its
+    OLD-format slot 0-8. Quina/Cinna -> 5, Eiko/Marcus -> 6, Amarant/Blank -> 7, Beatrix -> 8 (either name targets
+    that shared slot; the slot's current gear shows who actually holds it). Raises ValueError on an unknown
+    name / out-of-range CharacterId."""
+    if isinstance(character, bool):
+        raise ValueError("character cannot be a boolean")
+    if isinstance(character, str) and character.strip().isdigit():
+        character = int(character.strip())
+    if isinstance(character, int):
+        if character in _CHAR_TO_OLD_SLOT:                # a CharacterId 0-11
+            return _CHAR_TO_OLD_SLOT[character]
+        raise ValueError(f"CharacterId {character} out of range (0-11)")
+    key = str(character).strip().lower()
+    cid = _CHAR_BY_NAME.get(key)
+    if cid is None or cid not in _CHAR_TO_OLD_SLOT:
+        raise ValueError(f"unknown character {character!r} (Zidane..Beatrix, Cinna/Marcus/Blank, Dagger/Salamander)")
+    return _CHAR_TO_OLD_SLOT[cid]
+
+
+def set_main_equip(container, block: int, character, slot, item, *, dry_run: bool = True,
+                   backup: bool = True) -> EquipWriteReport:
+    """Set one equip ``slot`` of one ``character`` in the ENCRYPTED MAIN block (for editing a vanilla/no-extra
+    save's equipment). ``character`` is a CharacterId 0-11 / name / alias (Beatrix = CharacterId 11; old-slots
+    5-7 hold Quina/Eiko/Amarant OR the story temp Cinna/Marcus/Blank, either name -> that shared slot -- check the
+    slot's current gear). ``item`` is a name/id, or
+    ``None``/255/"empty" to unequip. Each player's equip is 5 BYTES at :data:`MAIN_EQUIP_OFF` ``+ stride*old_slot``;
+    only that one byte moves. Same safety as :func:`set_main_item`: validate gate, a scoped byte-diff, atomic
+    write, timestamped backup, position-aware post-write confirm, dry-run default. The engine resets an unknown
+    id to NoItem + recomputes derived stats on load, so only the id is written."""
+    slot_idx = _resolve_slot(slot)
+    if item is None or (isinstance(item, str) and item.strip().lower() in ("none", "empty", "unequip", "")):
+        iid = NO_ITEM
+    else:
+        iid = _items.resolve(item)
+    old_slot = _resolve_old_slot(character)
+    try:
+        raw = open(container, "rb").read()
+    except OSError as e:
+        raise ValueError(f"cannot read save container {container!r}: {e}") from e
+    sv = _save.FF9Save.load(container)
+    orig_pt = bytes(_decrypt_main(sv, block))
+    pt = bytearray(orig_pt)
+    validate_main_block(pt)                               # GATE (gil/items confirm the old-format layout)
+    pos = MAIN_EQUIP_OFF + MAIN_PLAYER_STRIDE * old_slot + slot_idx
+    old_id = pt[pos]
+    pt[pos] = iid
+    diff = [k for k in range(len(pt)) if pt[k] != orig_pt[k]]   # SCOPED: only that one equip byte may move
+    if diff and diff != [pos]:
+        raise AssertionError(f"main equip edit touched bytes other than slot {old_slot} {EQUIP_SLOTS[slot_idx]}; "
+                             "aborting")
+    backup_path, did_write = None, False
+    if not dry_run and diff:
+        sv._encrypt_block(block, bytes(pt))
+        backup_path = _atomic_write(container, raw, bytes(sv.data), backup=backup)
+        chk = bytearray(_decrypt_main(_save.FF9Save.load(container), block))   # CONFIRM the exact byte
+        if chk[pos] != iid:
+            raise AssertionError(f"post-write check failed: equip byte read back {chk[pos]}, expected {iid}")
+        did_write = True
+    return EquipWriteReport(path=f"{container}#block{block}", slot_no=old_slot, character=OLD_SLOT_NAMES.get(old_slot),
+                            slot=EQUIP_SLOTS[slot_idx], old_id=old_id,
+                            old_name=(None if old_id == NO_ITEM else _items.name_of(old_id)),
+                            new_id=iid, new_name=(None if iid == NO_ITEM else _items.name_of(iid)),
+                            wrote=did_write, backup_path=backup_path)
+
+
 def set_gil_in_save(container, block: int, gil: int, *, dry_run: bool = True, backup: bool = True,
                     mirror: bool = True) -> dict:
     """Write gil into a whole save SLOT: the ENCRYPTED MAIN block AND (when ``mirror`` and it exists) the Memoria
@@ -686,6 +779,21 @@ def set_item_in_save(container, block: int, item, count: int, *, dry_run: bool =
         if extra and os.path.isfile(extra):
             extra_rep = set_item(extra, item, count, dry_run=dry_run, backup=backup)
     main_rep = set_main_item(container, block, item, count, dry_run=dry_run, backup=backup)
+    return {"main": main_rep, "extra": extra_rep}
+
+
+def set_equip_in_save(container, block: int, character, slot, item, *, dry_run: bool = True, backup: bool = True,
+                      mirror: bool = True) -> dict:
+    """Set one equip slot in a whole save SLOT: the MAIN block AND (when ``mirror`` + present) the Memoria EXTRA.
+    Vanilla -> main only. ★ The extra keys equip by CharacterId (12 players) and the main by OLD-slot (9); both
+    resolve ``character`` independently, so the same name targets the matching player in each. Returns
+    ``{"main": EquipWriteReport, "extra": EquipWriteReport|None}`` (extra written FIRST -- it's load-authoritative)."""
+    extra_rep = None
+    if mirror:
+        extra = _save.extra_file_path(container, block)
+        if extra and os.path.isfile(extra):
+            extra_rep = set_equip(extra, character, slot, item, dry_run=dry_run, backup=backup)
+    main_rep = set_main_equip(container, block, character, slot, item, dry_run=dry_run, backup=backup)
     return {"main": main_rep, "extra": extra_rep}
 
 
@@ -741,6 +849,18 @@ def render_item_dual(res: dict) -> str:
     if res.get("extra") is not None:
         lines.append("  [Memoria extra -- the load-authoritative store]")
         lines += ["  " + ln for ln in render_item_write(res["extra"]).splitlines()]
+    else:
+        lines.append("  (no Memoria extra for this slot -- a vanilla save; the main block governs in-game)")
+    return "\n".join(lines)
+
+
+def render_equip_dual(res: dict) -> str:
+    """Render a :func:`set_equip_in_save` outcome (the main block + the extra mirror)."""
+    lines = ["  [main block]"]
+    lines += ["  " + ln for ln in render_equip_write(res["main"]).splitlines()]
+    if res.get("extra") is not None:
+        lines.append("  [Memoria extra -- the load-authoritative store]")
+        lines += ["  " + ln for ln in render_equip_write(res["extra"]).splitlines()]
     else:
         lines.append("  (no Memoria extra for this slot -- a vanilla save; the main block governs in-game)")
     return "\n".join(lines)

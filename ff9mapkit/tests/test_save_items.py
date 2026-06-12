@@ -654,6 +654,78 @@ def test_main_block_bad_block_is_value_error(tmp_path):
     assert SI.decode_main_block(c, 99) is None                            # decode of a bad block -> None
 
 
+def test_resolve_old_slot_unit():
+    assert SI._resolve_old_slot("Zidane") == 0 and SI._resolve_old_slot(0) == 0
+    assert SI._resolve_old_slot("Beatrix") == 8 and SI._resolve_old_slot(11) == 8
+    assert SI._resolve_old_slot("Quina") == 5 and SI._resolve_old_slot("Cinna") == 5    # shared old-slot
+    assert SI._resolve_old_slot("amarant") == 7 and SI._resolve_old_slot("blank") == 7
+    assert SI._resolve_old_slot("8") == 5                                               # CharacterId 8 = Cinna -> slot 5
+    with pytest.raises(ValueError):
+        SI._resolve_old_slot("nobody")
+    with pytest.raises(ValueError):
+        SI._resolve_old_slot(99)
+
+
+def _enc_container_eq(tmp_path, block=1, equips=None):
+    """An encrypted container whose main block also has equip bytes laid in at MAIN_EQUIP_OFF + stride*k."""
+    c = _enc_container(tmp_path, block=block, gil=500, items=((236, 7),))
+    from ff9mapkit import save as SaveMod
+    sv = SaveMod.FF9Save.load(c)
+    pt = bytearray(sv._decrypt_block(block))
+    for k, ids in (equips or {}).items():
+        base = SI.MAIN_EQUIP_OFF + SI.MAIN_PLAYER_STRIDE * k
+        pt[base:base + 5] = bytes(ids)
+    sv._encrypt_block(block, bytes(pt))
+    sv.write(c)
+    return c
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_equip_change_and_unequip(tmp_path):
+    c = _enc_container_eq(tmp_path, block=1, equips={0: [1, 112, 88, 149, 200], 3: [16, 137, 255, 177, 255]})
+    rep = SI.decode_main_block(c, 1)
+    assert rep.equipment[0]["equip"]["weapon"] == (1, I.name_of(1))       # Zidane weapon = Dagger
+    r = SI.set_main_equip(c, 1, "Zidane", "weapon", "MageMasher", dry_run=False)
+    assert r.wrote and r.slot_no == 0 and r.old_id == 1 and r.new_id == I.resolve("MageMasher")
+    assert SI.decode_main_block(c, 1).equipment[0]["equip"]["weapon"][1] == "MageMasher"
+    # unequip Zidane's accessory (was 200)
+    r = SI.set_main_equip(c, 1, 0, "accessory", "empty", dry_run=False)
+    assert r.new_id == SI.NO_ITEM and SI.decode_main_block(c, 1).equipment[0]["equip"]["accessory"] is None
+    # Steiner (old-slot 3) by name -> his slot, not Zidane's
+    r = SI.set_main_equip(c, 1, "Steiner", "head", "IronHelm", dry_run=False)
+    assert r.slot_no == 3 and SI.decode_main_block(c, 1).equipment[3]["equip"]["head"][1] == "IronHelm"
+    assert SI.decode_main_block(c, 1).equipment[0]["equip"]["weapon"][1] == "MageMasher"   # Zidane untouched
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_equip_scoped_one_byte(tmp_path):
+    c = _enc_container_eq(tmp_path, block=1, equips={3: [16, 137, 255, 177, 255]})
+    SI.set_main_equip(c, 1, "Steiner", "armor", "BronzeArmor", dry_run=False)
+    rep = SI.decode_main_block(c, 1)
+    assert rep.gil == 500 and rep.inventory[0] == (236, I.name_of(236), 7)   # gil + items untouched (one byte moved)
+    assert rep.equipment[3]["equip"]["head"][1] == I.name_of(137)            # other equip slots untouched
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_equip_in_save_and_cli(tmp_path, capsys):
+    from ff9mapkit import cli
+    c = _enc_container_eq(tmp_path / "v", block=1, equips={3: [16, 137, 255, 177, 255]})
+    res = SI.set_equip_in_save(c, 1, "Steiner", "weapon", "IceBrand", dry_run=False)
+    assert res["main"].wrote and res["extra"] is None                       # vanilla -> main only
+    assert SI.decode_main_block(c, 1).equipment[3]["equip"]["weapon"][1] == "IceBrand"
+    ns = _ns3(save=c, character="Steiner", equip_slot="head", item="BronzeHelm", slot=0, save_no=0, apply=True)
+    assert cli._cmd_items_set_equip(ns) == 0
+    assert SI.decode_main_block(c, 1).equipment[3]["equip"]["head"][1] == "BronzeHelm"
+
+
+def _ns3(**kw):
+    import argparse
+    base = dict(save=None, character=None, equip_slot=None, item=None, slot=None, save_no=None,
+                autosave=False, apply=False, no_backup=False)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
 @pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
 def test_inspect_decodes_vanilla_main_block(tmp_path):
     """inspect() on a no-extra container slot reads the MAIN block (was 'not yet supported')."""

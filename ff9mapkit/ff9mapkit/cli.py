@@ -1075,17 +1075,23 @@ def _cmd_items_set_item(args: argparse.Namespace) -> int:
 
 
 def _cmd_items_set_equip(args: argparse.Namespace) -> int:
-    """Set one equip slot of one character in the Memoria EXTRA file (item 'empty'/255 unequips). Dry-run
-    unless --apply."""
+    """Set one equip slot of one character (item 'empty'/255 unequips). On a container, dual-writes the MAIN
+    block + the Memoria extra mirror (so a vanilla no-extra save is editable too); on an extra-save directly,
+    writes that. Dry-run unless --apply."""
     from . import save_items as SI
     try:
-        extra = SI.resolve_extra(args.save, slot=args.slot, save=args.save_no, autosave=args.autosave)
-        rep = SI.set_equip(extra, args.character, args.equip_slot, args.item,
-                           dry_run=not args.apply, backup=not args.no_backup)
+        if SI.load_extra_common(args.save)[0] is not None:             # a Memoria extra-save directly
+            rep = SI.set_equip(args.save, args.character, args.equip_slot, args.item,
+                               dry_run=not args.apply, backup=not args.no_backup)
+            print(SI.render_equip_write(rep))
+        else:                                                          # a SavedData_ww.dat container + slot
+            block = SI._resolve_block(slot=args.slot, save=args.save_no, autosave=args.autosave)
+            res = SI.set_equip_in_save(args.save, block, args.character, args.equip_slot, args.item,
+                                       dry_run=not args.apply, backup=not args.no_backup)
+            print(SI.render_equip_dual(res))
     except Exception as e:                                              # noqa: BLE001
         print(f"could not set equipment: {e}")
         return 2
-    print(SI.render_equip_write(rep))
     return 0
 
 

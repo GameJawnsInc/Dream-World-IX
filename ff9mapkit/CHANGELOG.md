@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — save-item editor #5 step 4b: main-block EQUIPMENT (vanilla saves fully editable) (0.9.59)
+- The last deferred piece: a **vanilla (no-extra) save's EQUIPMENT** is now editable, completing the editor.
+- ★ **Layout finding (empirical):** the old format stores **9 player structs of 244 bytes**, each with a
+  **5-BYTE equip array** `[weapon,head,wrist,armor,accessory]` at `MAIN_EQUIP_OFF=5784 + 244·old_slot` — verified
+  byte-stable (all 9 players decoded correctly vs the extra on the autosave, and to valid loadouts on both
+  vanilla blocks). The 9 old-slots: 0-4 = Zidane/Vivi/Garnet/Steiner/Freya, 8 = Beatrix; **slots 5/6/7 are SHARED
+  by Quina/Eiko/Amarant and their story temp-replacements Cinna/Marcus/Blank** (`SelectOldSaveSlot`) — the
+  GUI/inspect shows each slot's current gear so you target the right one.
+- **`save_items.set_main_equip(container, block, character, slot, item)`** — set one of a character's 5 equip
+  bytes (`character` = CharacterId / name / Cinna·Marcus·Blank → old-slot; `item` = name/id or `empty`/255).
+  Same proven safety (validate gate · scoped byte-diff: exactly one byte moves · atomic · backup · position-aware
+  confirm · dry-run). Plus `read_main_equipment` + `main_report` now carries the 9 players' equipment.
+- **`save_items.set_equip_in_save`** dual-write orchestrator (extra keyed by CharacterId/12, main by old-slot/9 —
+  resolved independently); CLI `items-set-equip` on a container dual-writes; `render_equip_dual`. The **GUI** now
+  enables the Equipment editor on vanilla slots (was refused).
+- A focused adversarial-verify workflow reviewed it. 18 new tests; 1172 suite green. ⏳ In-game proof of
+  main-block equip on a vanilla save = the next STOP-and-test. **With this, the #5 editor is essentially
+  complete** — only key/important items (the 2-bit `rareItems` bitfield) remain deferred.
+
 ### Added — save-item editor #5 step 4b cont.: main-block ITEMS + GUI vanilla-save editing, IN-GAME PROVEN (0.9.57)
 - Completes editing a **vanilla (no-extra) save** — now its **inventory** is editable too (gil landed in 0.9.56),
   via both the CLI and the GUI.
