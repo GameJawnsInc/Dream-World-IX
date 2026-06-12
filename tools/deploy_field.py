@@ -157,6 +157,30 @@ for _label, _live, _had in csv_reverts:
         csv_revert_code += f'\nshutil.copyfile(BK/f"{_label}.csv.preDEPLOY.{{STAMP}}", Path(r"{_live}"))'
     else:
         csv_revert_code += f'\n_p = Path(r"{_live}")\nif _p.exists(): _p.unlink()'
+
+# BattlePatch.txt: the field's Phase-4 enemy/attack/scene tuning ([[battle_patch]] / [[battle_enemy]] /
+# [[battle_attack]]) + any per-encounter BGM. build_mod emits the COMPLETE block into the built mod; we SPLICE
+# it into the live file under this field's `//` sentinel markers -- NON-clobbering (a co-deployed battle's
+# BGM/repoint lines + a stacked worktree's lines survive) and reversible. The engine skips `//` lines, and
+# BattlePatch is parsed once at startup -> a battle-tuning change needs a RELAUNCH (not just F6 Reload).
+from ff9mapkit.battle import battlepatch as _bp
+_live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
+_built_block = ([ln for ln in tl.battle_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
+                if tl.battle_patch.exists() else [])
+bp_revert_code = ""
+if _built_block or f"ff9mapkit field {FID}" in _live_bp_text:
+    _had_bp = live.battle_patch.exists()
+    if _had_bp:
+        shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preDEPLOY.{STAMP}")
+    _merged = _bp.merge_battle_patch(_live_bp_text, _built_block, FID)
+    if _merged:
+        live.battle_patch.write_text(_merged, encoding="utf-8", newline="\n")
+    elif live.battle_patch.exists():
+        live.battle_patch.unlink()
+    bp_revert_code = ('\nshutil.copyfile(BK/f"BattlePatch.txt.preDEPLOY.{STAMP}", live.battle_patch)' if _had_bp
+                      else '\n_pb = live.battle_patch\nif _pb.exists(): _pb.unlink()')
+    if _built_block:
+        print(f"  + BattlePatch.txt (battle tuning + BGM, merged under field-{FID} markers; RELAUNCH to apply)")
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")
 
 revert = f'''#!/usr/bin/env python3
@@ -173,8 +197,8 @@ for L in LANGS:
     p=live.eb_path(L,"EVT_{name}.eb.bytes")
     if p.exists(): p.unlink()
     mb=BK/f"{{L}}-{text_block}.mes.preDEPLOY.{{STAMP}}"
-    if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}
-print("reverted: DictionaryPatch + dialogue + start-state CSVs restored; {name} removed.")
+    if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}
+print("reverted: DictionaryPatch + dialogue + start-state CSVs + BattlePatch restored; {name} removed.")
 '''
 (OUT / f"revert_deploy_{FID}.py").write_text(revert, encoding="utf-8", newline="\n")    # per-id revert
 (OUT / "revert_deploy.py").write_text(revert, encoding="utf-8", newline="\n")            # generic = latest deploy

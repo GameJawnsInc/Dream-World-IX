@@ -791,6 +791,52 @@ def _cmd_battle_actions(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_battle_patch(args: argparse.Namespace) -> int:
+    """Preview the ``BattlePatch.txt`` a field.toml's ``[[battle_patch]]`` / ``[[battle_enemy]]`` /
+    ``[[battle_attack]]`` blocks emit (offline, no install) -- or, with ``--fields``, the catalog of tunable
+    field names by token. The actual patch is written + deployed (reversibly) by build/deploy_field."""
+    _safe_console()
+    from .battle import battlepatch as BP
+    if args.fields:
+        for title, m in (("enemy   (Enemy: / EnemyByName: / AnyEnemyByName:)", BP.ENEMY_FIELDS),
+                         ("attack  (Attack: / AttackByName: / AnyAttackByName:)", BP.ATTACK_FIELDS),
+                         ("pattern (Pattern:)", BP.PATTERN_FIELDS),
+                         ("scene   (Battle: flags)", BP.SCENE_FLAGS)):
+            print(f"\n{title}")
+            by_engine: dict = {}
+            for k, (eng, _enc, _max) in m.items():
+                by_engine.setdefault(eng, []).append(k)
+            for eng, keys in by_engine.items():
+                print(f"  {'/'.join(keys):<30} -> {eng}")
+        print("\nelement/status fields take NAMES (weak = [\"Fire\"], auto_status = [\"Protect\"]); drop/steal "
+              "take 4 item names/ids ('none'=empty); scene flags take true/false; the rest take integers.")
+        return 0
+    if not args.toml:
+        print("give a field.toml to preview, or `--fields` for the tunable-field catalog", file=sys.stderr)
+        return 2
+    import tomllib
+    from pathlib import Path
+    try:
+        raw = tomllib.loads(Path(args.toml).read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f"could not read {args.toml}: {e}", file=sys.stderr)
+        return 2
+    try:
+        lines, warns = BP.build_lines(raw.get("battle_patch"), raw.get("battle_enemy"), raw.get("battle_attack"))
+    except BP.BattlePatchError as e:
+        print(f"battle-patch error: {e}", file=sys.stderr)
+        return 1
+    if not lines:
+        print("no [[battle_patch]] / [[battle_enemy]] / [[battle_attack]] blocks in this field.toml")
+        return 0
+    print("# --- BattlePatch.txt (emitted from this field.toml; merged with BGM + deployed reversibly) ---")
+    for ln in lines:
+        print(ln)
+    for w in warns:
+        print(f"  ! {w}", file=sys.stderr)
+    return 0
+
+
 def _item_label(ids) -> str:
     from . import items as I
     names = [I.name_of(i) or str(i) for i in ids if i != 255]
@@ -1694,6 +1740,13 @@ def build_parser() -> argparse.ArgumentParser:
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")
     bsc.add_argument("donor", help="battle scene name to inspect, e.g. EF_R007 (see `battle-list --scenes`)")
     bsc.set_defaults(func=_cmd_battle_scene)
+
+    bp = sub.add_parser("battle-patch",
+                        help="preview the BattlePatch.txt a field.toml emits (enemy/attack/scene tuning by name)")
+    bp.add_argument("toml", nargs="?", default=None, help="field.toml to preview (omit when using --fields)")
+    bp.add_argument("--fields", action="store_true",
+                    help="list the tunable [PatchableField] names by token instead of previewing a toml")
+    bp.set_defaults(func=_cmd_battle_patch)
 
     an = sub.add_parser("animations", help="list a character's cutscene gestures (pick by name)")
     an.add_argument("character", nargs="?", help="vivi / zidane / garnet / steiner / freya / quina / eiko / amarant")

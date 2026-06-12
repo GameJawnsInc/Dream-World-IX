@@ -514,6 +514,13 @@ def validate(project: FieldProject) -> list[str]:
             problems += [f"[[battle_action]] #{q}: {p}" for p in _adelta.validate_entry(ba, kind="battle_action")]
         for q, st in enumerate(project.raw.get("status", [])):
             problems += [f"[[status]] #{q}: {p}" for p in _adelta.validate_entry(st, kind="status")]
+    # [[battle_patch]] / [[battle_enemy]] / [[battle_attack]] -- the BattlePatch.txt by-name enemy/attack/scene
+    # tuner (structural + range/encoder/selector checks; all install-free since names/ids are the author's).
+    if project.raw.get("battle_patch") or project.raw.get("battle_enemy") or project.raw.get("battle_attack"):
+        from .battle import battlepatch as _bp
+        problems += _bp.validate_blocks(project.raw.get("battle_patch", []),
+                                        project.raw.get("battle_enemy", []),
+                                        project.raw.get("battle_attack", []))
     for la in project.raw.get("ladder", []):
         if la.get("navigable"):                      # NAVIGABLE (FF9's real ladder mechanism, recreated)
             rungs = la.get("rungs")
@@ -2942,6 +2949,24 @@ def _emit_battle_data(projects, layout) -> list:
         raise BuildError(str(ex))
 
 
+def _emit_battle_patch(projects) -> tuple:
+    """Aggregate every project's ``[[battle_patch]]`` (scene-scoped) + ``[[battle_enemy]]`` / ``[[battle_attack]]``
+    (global by-name) blocks -> (battle_patch_lines, warnings). Mod-GLOBAL reflection patches (always-on, not
+    new-game-scoped), so they aggregate across ALL built fields -- the same model as ``[[battle_action]]``.
+    Pure/offline (names are the author's; masks come from the committed tables); raises BuildError on a bad
+    block. Returns ([], []) when no field carries one (no BattlePatch contribution)."""
+    scene_patches = [b for p in projects for b in p.raw.get("battle_patch", [])]
+    enemies = [b for p in projects for b in p.raw.get("battle_enemy", [])]
+    attacks = [b for p in projects for b in p.raw.get("battle_attack", [])]
+    if not (scene_patches or enemies or attacks):
+        return [], []
+    from .battle import battlepatch as _bp
+    try:
+        return _bp.build_lines(scene_patches, enemies, attacks)
+    except _bp.BattlePatchError as ex:
+        raise BuildError(str(ex))
+
+
 def _emit_start_state(projects, layout, entry_project=None) -> list:
     """Emit the mod-GLOBAL new-game CSV deltas ONCE into the mod root, from the ENTRY field's blocks:
     ``[start_inventory]`` -> ``Data/Items/InitialItems.csv`` (the FULL starting bag, highest-priority-wins) and
@@ -3032,18 +3057,22 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     layout.dictionary_patch.write_text(
         "\n".join(r.dict_line for r in results) + "\n", encoding="utf-8", newline="\n")
 
-    battles = [r.battle for r in results if r.battle]
-    if battles:
-        lines = []
-        for scene, mus in battles:
-            lines.append(f"Battle: {scene}")
-            lines.append(f"Music: {mus}")
-        layout.battle_patch.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    # BattlePatch.txt = the per-encounter BGM block (Battle:/Music:) + the Phase-4 by-name enemy/attack/scene
+    # tuning blocks ([[battle_patch]] / [[battle_enemy]] / [[battle_attack]]). Both are mod-global reflection
+    # patches that coexist in one file -- each Battle:/AnyEnemyByName: selector opens an independent patch.
+    bp_lines: list[str] = []
+    for scene, mus in (r.battle for r in results if r.battle):
+        bp_lines += [f"Battle: {scene}", f"Music: {mus}"]
+    tune_lines, bp_warnings = _emit_battle_patch(projects)
+    bp_lines += tune_lines
+    if bp_lines:
+        layout.battle_patch.write_text("\n".join(bp_lines) + "\n", encoding="utf-8", newline="\n")
 
     # mod-global new-game starting state (CSV deltas, written once into the mod root -- not field bytes)
     start_warnings = _emit_start_state(projects, layout, entry_project)
     start_warnings += _emit_shops(projects, layout)
     start_warnings += _emit_battle_data(projects, layout)
+    start_warnings += bp_warnings
 
     layout.mod_description.write_text(
         "<Mod>\n"

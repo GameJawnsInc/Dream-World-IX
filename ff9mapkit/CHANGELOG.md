@@ -31,6 +31,39 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   ★ And **no relaunch was needed** — the extra is re-read on every save-load, so the edit→load loop is as fast as
   an F6 field reload.
 
+### Added — battle-tuning Phase 4: the `BattlePatch.txt` emitter (enemy/attack/scene by name) (0.9.51)
+- **`battle/battlepatch.py`** — author Memoria's reflection-patch `BattlePatch.txt` declaratively, reaching the
+  combat data CSV can't and that raw16 `[scene]` can only reach by FORKING the scene. Three `field.toml` blocks
+  map 1:1 to the engine's selector model (`DataPatchers.PatchBattles`):
+  - `[[battle_patch]]` — **scene-scoped** (`scene = <id|BSC_ name>`): scene flags (`back_attack`, `preemptive`,
+    `runaway`, …, → `BTL_SCENE_INFO`) + nested `[[battle_patch.enemy]]` / `.attack` / `.pattern` sub-blocks
+    targeting an enemy/attack by `index =` or `name =`. Patches ANY scene **in place** (no fork, no raw16 repack).
+  - `[[battle_enemy]]` / `[[battle_attack]]` — **global by-name** (`AnyEnemyByName:` / `AnyAttackByName:`): retune
+    EVERY enemy/attack of that name across ALL scenes — the campaign-wide WIN over Hades Workshop ("buff every
+    Goblin across the chain").
+  - Reaches the **BP-only** levers with no raw16 slot: drop/steal **rate** arrays, `BonusElement`,
+    `MaxDamageLimit`/`MaxMpDamageLimit`, `WinCardRate` — and the **enemy ATTACK table** (`AA_DATA`/`BTL_REF`:
+    power/element/rate/`status_set`/mp/script), which the kit could not touch before. Plus the full enemy combat
+    identity (stats, the 4 element affinities, the 3 status masks, defences, level/category, drop/steal ids).
+- **Uniform integer emission**: `.NET Enum.Parse` accepts integer strings for every enum/flags field, so element/
+  status/item values resolve through the committed `battlecsv`/`itemstats` name↔bit tables + `items.resolve` —
+  **no new SE-derived table is committed** (provenance: the authored toml holds only overrides; the emitted
+  `BattlePatch.txt` is build-output, never committed). Narrow engine column types (Byte/UInt16/UInt32) are
+  RANGE-CHECKED offline so a value the engine would silently drop fails the lint/build instead.
+- **Non-clobbering deploy** (`merge_battle_patch`): the built block is spliced into the live `BattlePatch.txt`
+  under per-field `//` sentinel markers (the engine skips `//` lines), so a co-deployed battle's BGM/repoint
+  lines + a stacked worktree's lines survive; idempotent + reversible (`deploy_field.py`). `build_mod` merges the
+  Phase-4 lines with the per-encounter BGM `Battle:`/`Music:` block into one file.
+- CLI **`battle-patch <field.toml>`** previews the emitted lines offline; `battle-patch --fields` lists the
+  tunable `[PatchableField]` names by token. Offline lint wired into `validate_field`.
+- ★ A 4-lens adversarial review (engine source + the structs) verified the grammar/ordering, every field
+  name↔`[PatchableField]`↔token↔range, and the value-encoding sound, and caught three real bugs (fixed): the
+  `status_set`/`AddStatusNo` cap was `_U16` but `StatusSetId` defines only 0-38 → an undefined id is a
+  `KeyNotFoundException` crash at command-build (capped at 38); a malformed (non-table/non-list) toml block
+  tracebacked instead of raising `BattlePatchError`; and the `scene` selector was unvalidated → a
+  float/list/over-Int32 value silently emitted a dead `Battle:` line the engine never matches (the whole block
+  no-oping). 23 tests (`test_battlepatch.py`); *in-game proof (the tuned scene behaves) is the human step.*
+
 ### Added — World Hub: a playable journey selector (choice `warp` action + `[player] model=`), IN-GAME PROVEN (0.9.48)
 - The **World Hub** is a playable field that lets the player pick which **journey** (a complete arc = one or
   more chained campaign slices) to play, then warps them in — NOT a worldmap (no engine fork), just a field +

@@ -310,16 +310,20 @@ All derivable **offline** from the fields above + the known formulas:
 
 ## 6. Current kit capability vs the gap
 
-**`[scene]` today** (`scene_data.py`): surgically byte-patches a *forked* raw16 for **exactly 9
-`SB2_MON_PARM` fields** (`hp@12, mp@14, gil@16, exp@18, speed@52, str@53, mag@54, spr@55, level@64`) + drop/steal
-ids (`@20/@24`, by name) + `SB2_PUT` placement + MonsterCount + Camera + the opening camera (raw17). With
-`monster_count` it re-composes every pattern and re-authors the eb `Main_Init` InitObject bindings (up to the
-4-enemy engine cap, existing types only).
+**The kit today** spans the no-DLL channels. **raw16 `[scene]`** (`scene_data.py`, Phase 1) byte-patches a
+*forked* scene's enemy combat identity — HP/MP/gil/exp, the 4 stats, level, category, hit-rate, the 4 def/evade,
+blue-magic, win-card, the 4 element-affinity bytes + 3 status masks (by name), drop/steal ids, `SB2_PUT`
+placement, MonsterCount, Camera, pattern AP + the opening camera (raw17); `monster_count` re-composes every
+pattern and re-authors the eb `Main_Init` bindings (≤4 existing types). **CSV deltas** (`actiondelta.py`, Phase
+3) rebalance the 192 shared player abilities + the 33 statuses. **`BattlePatch.txt`** (`battlepatch.py`, Phase 4)
+reaches ANY scene by name **without forking** — the BP-only rate arrays / `BonusElement` / `MaxDamageLimit` /
+`WinCardRate`, the enemy ATTACK table, scene flags, pattern Rate/AP — plus the cross-scene
+`AnyEnemyByName:`/`AnyAttackByName:` channel. Offline **lint** (`scenelint.py`, Phase 2) sits over all of it.
 
-**Misses:** the whole enemy combat identity (5 element bytes, 3 status masks, 4 def/evade, HitRate, Category,
-BlueMagic, MaxDamageLimit — all `[PatchableField]`, all trivially addable); rewards (AP ×2, drop/steal rates,
-WinCard); scene flags; pattern Rate; **all CSV channels** (no action/ability layer at all — item *names* only);
-**enemy attack table** (raw16 tail); **enemy AI bodies**; a `BattlePatch.txt` emitter; model re-skin (`Geo/Mot`).
+**Still missing:** **character/growth CSVs** (`BaseStats`/`Leveling`/abilities — Phase 5); **enemy AI bodies**
+(the battle `.eb` opcode/expression authoring layer — Phase 6); **model re-skin** (`Geo/Mot`, raw16-only); a
+net-new raw17 attack SEQUENCE (needs a btlseq codec); and a brand-new battle-calc **formula** (a separate
+`Memoria.Scripts.<Mod>.dll`, not the engine DLL).
 
 ---
 
@@ -395,11 +399,37 @@ UInt16) were unguarded so an out-of-range value would **crash the game at boot**
 `ConfirmQuit`) → range-checked OFFLINE; a name that maps to several ids now raises "ambiguous — use the id". 14
 tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is the human step.*
 
-### Phase 4 — `BattlePatch.txt` emitter for enemy/attack/scene tuning
-By-name/index `Battle:`/`AnyEnemyByName:`/`AnyAttackByName:`/`Pattern:`/`Scene:` blocks targeting
-`[PatchableField]`s (scene flags, drop-rate arrays, **enemy AA_DATA** power/element/rate/status) — the only
-clean way to reach the rate arrays + enemy attacks without re-packing raw16. *Verify:* coexistence with the
-kit's existing repoint/Music BattlePatch lines (avoid the wholesale-restore clobber the field pillar warned of).
+### Phase 4 — `BattlePatch.txt` emitter for enemy/attack/scene tuning ✅ DONE (kit 0.9.51)
+`battle/battlepatch.py` — three `field.toml` blocks map 1:1 to the engine's selector model
+(`DataPatchers.PatchBattles`/`TryParseBattleSelector`, `DataPatchers.cs:538-682`):
+- **`[[battle_patch]]`** — scene-scoped (`scene = <id|BSC_ name>` → `Battle:`): scene flags (→ `BTL_SCENE_INFO`
+  Booleans) + nested **`[[battle_patch.enemy]]`** (`index =`/`name =` → `Enemy:`/`EnemyByName:`),
+  **`.attack`** (→ `Attack:`/`AttackByName:`), **`.pattern`** (→ `Pattern:`). Patches ANY scene **in place**
+  (no fork, no raw16 repack) — the lever raw16 `[scene]` structurally can't offer.
+- **`[[battle_enemy]]`/`[[battle_attack]]`** — global by-name (`AnyEnemyByName:`/`AnyAttackByName:`): retune
+  EVERY enemy/attack of that name across ALL scenes (the campaign-wide WIN).
+- Reaches the **BP-only** levers with no raw16 slot — drop/steal **rate** arrays, `BonusElement`,
+  `MaxDamageLimit`/`MaxMpDamageLimit`, `WinCardRate` — and the **enemy ATTACK table** (`AA_DATA`/`BTL_REF`
+  power/element/rate/`status_set`/mp/script), which the kit could not touch before. Plus the full enemy combat
+  identity (stats/affinities/status masks/defences/level/category/drop+steal ids).
+- **Uniform integer emission**: `.NET Enum.Parse` accepts an integer string for every enum/flags field, so all
+  element/status/item values resolve through the committed `battlecsv`/`itemstats` name↔bit tables +
+  `items.resolve` — **no new SE-derived table is committed**. Narrow engine column types (Byte/UInt16/UInt32 +
+  the `StatusSetId` 0-38 enum) are RANGE-CHECKED offline (a value the engine would mis-store / `KeyNotFound`-crash
+  fails the lint/build instead).
+- **Non-clobbering deploy** (`merge_battle_patch`): the built block is spliced into the live `BattlePatch.txt`
+  under per-field `//` sentinel markers (the engine skips `//` lines, `DataPatchers.cs:551`), so a co-deployed
+  battle's repoint/`Music:` lines + a stacked worktree's lines survive — idempotent + reversible
+  (`deploy_field.py`). `build_mod` merges the Phase-4 lines with the per-encounter BGM `Battle:`/`Music:` block.
+- CLI `battle-patch <field.toml>` (offline preview) + `--fields` (the tunable-field catalog); offline lint in
+  `validate_field`. ★ A 4-lens adversarial review (engine source + the structs) verified the grammar/ordering,
+  every field name↔[PatchableField]↔token↔range, and the value-encoding sound, and CAUGHT three real bugs
+  (fixed): the `status_set`/`AddStatusNo` cap was `_U16` but `StatusSetId` only defines 0-38 → an undefined id
+  is a `KeyNotFoundException` crash at command-build (capped at 38); a malformed (non-table / non-list) toml
+  block tracebacked instead of raising `BattlePatchError` (the linter-never-traceback invariant); and the
+  `scene` selector was unvalidated → a float/list/over-Int32 value silently emitted a DEAD `Battle:` line that
+  the engine never matches (the whole block no-oping — the exact silent-drop class the module exists to
+  prevent). 23 tests; *in-game proof (the tuned scene behaves) is the human step.*
 
 ### Phase 5 — character/growth CSV deltas
 `BaseStats.csv` (partial), `Leveling.csv` (**whole-file, 99 rows**), `AbilityGems.csv`, optionally

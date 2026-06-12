@@ -388,14 +388,20 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 - World Hub — a playable journey selector (choice `warp` action + `[player] model=` moogle PC); MVP scaffold IN-GAME PROVEN (talk→pick→warp) → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.49, 1082 tests. World-Hub scaffold IN-GAME PROVEN (the select→warp loop). Active: **battle
-TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3: raw16 full codec + golden round-trip;
+**Latest:** kit 0.9.51, 1105 tests. World-Hub scaffold IN-GAME PROVEN (the select→warp loop). Active: **battle
+TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4: raw16 full codec + golden round-trip;
 `[scene]` combat-identity tuning by name; `battle-actions` / `battle-scene` catalogs; the **offline balance-lint**
-`scenelint.py`; **`[[battle_action]]`/`[[status]]`** CSV-delta ability/status rebalancing. ★ **Phase 1 IN-GAME
-PROVEN** (forked EF_R007 Goblin: auto-Protect + phys-def wall + AP). ★ Phase 2 lint + Phase 3 CSV-delta each
-validated by a 3-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught a boot-crash range bug + the
-cp1252 encoding) → [[project-ff9-battle-tuning]], `docs/BATTLE_DESIGN.md`. Next: Phase 4 (`BattlePatch.txt`
-emitter — enemy attacks). Frontier: #13 (story-event director/roster on rotating-cast fields) — open.
+`scenelint.py`; **`[[battle_action]]`/`[[status]]`** CSV-delta ability/status rebalancing; **Phase 4 — the
+`BattlePatch.txt` emitter** (`battlepatch.py`): `[[battle_patch]]` (scene-scoped) + `[[battle_enemy]]`/
+`[[battle_attack]]` (global by-name `AnyEnemyByName:`/`AnyAttackByName:` = the campaign-wide WIN) reaching the
+BP-only rate arrays / `BonusElement` / `MaxDamageLimit` / `WinCardRate`, the enemy ATTACK table, and scene flags
+**without re-packing raw16**; merged non-clobbering into a live `BattlePatch.txt` under `//` markers + the BGM
+block; CLI `battle-patch`. ★ **Phase 1 IN-GAME PROVEN** (forked EF_R007 Goblin: auto-Protect + phys-def wall +
+AP). ★ Phases 2/3/4 each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
+a boot-crash range bug + the cp1252 encoding; Phase 4: caught a `StatusSetId` over-range KeyNotFound crash, a
+malformed-toml traceback, + a silent dead-`Battle:` selector) → [[project-ff9-battle-tuning]],
+`docs/BATTLE_DESIGN.md`. Next: Phase 5 (character/growth CSVs). Frontier: #13 (story-event director/roster on
+rotating-cast fields) — open.
 
 ---
 
