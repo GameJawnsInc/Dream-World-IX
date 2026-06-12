@@ -961,7 +961,14 @@ Read these on demand — they hold the full technical detail this file only summ
   toml + committed name tables, no game stat data read/committed), and the partial DefaultEquipment confirmed to
   MERGE with the base (no "must define 15 sets" boot crash). `validate()` resolves every name; new `ModLayout`
   paths. 15 tests; clear of story_flags' compose lane (I ship the deltas, they compose). kit 0.9.40; 948 tests
-  (15 new, atop overworld's list-fields 933).
+  (15 new, atop overworld's list-fields 933). ★ **IN-GAME PROVEN (2026-06-12, BOTH halves):** a New Game starts
+  with the authored `[start_inventory]` bag (Excalibur + 50 Potions, screenshot-confirmed) AND Zidane wears his
+  `[[equipment]]` loadout (Ultima Weapon/Circlet/Bracer/Brave Suit/Protect Ring — the catalog #1 picked it,
+  cross-checked vs raw CSVs + lore by a workflow). Surfaced + fixed a deploy gap (`deploy_field.py` did a
+  SELECTIVE copy and never shipped the CSVs → now deploys them reversibly; `deploy_campaign` already wholesale-
+  copies). The 4-block CAPSTONE shape (`[startup]`+`[party]`+`[start_inventory]`+`[[equipment]]`) builds clean on
+  one entry field — the CSV channel (mod-write) and `.eb` channel (synthesis) don't interfere. **#3 DONE +
+  HANDED OFF to story_flags for the capstone.**
 - **`--swap-player --neutralize-gestures` — stand cleanly through a cutscene (the option-#4 swap fix).** Makes a
   swapped character STAND/idle through a cutscene field instead of T-posing on the donor rig's scripted gestures.
   On every swap-target player entry it rewrites each `RunAnimation` (0x40) clip + LOOP movement re-sets to the
