@@ -70,6 +70,34 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   and a standalone `zone` counter — opens shop 40 / shop 41 with their authored inventories, and a real purchase
   (a Mage Masher) deducted gil + added the item. The deploy shipped `ShopItems.csv` (the gap fix confirmed).
 
+### Added — `fork-report --explain`: decode a field's NPC interactions into readable English (0.9.44)
+- `fork-report <field> --explain` traces every carried NPC's **tag-3 talk routine** into plain steps —
+  real `.mes` dialogue + items/gil/menus + the funcs it `RunScript`s — and **inlines** those funcs (the
+  Main_Init shared logic `uid 0`, the player sequences `uid 250`/a player entry, a sibling object) so a
+  multi-NPC sidequest reads as one quest. It also shows **why** a render-only NPC is render-only: you SEE
+  that its talk routine *is* the field's own quest logic (shared/player/economy), not a graftable gesture
+  → "fork with `--verbatim` to keep it interactive." Validated on the Daguerreo 2F (field 2803) positive
+  control — the debate, the librarian's book quest, the old man's **Excalibur** trade, all legible.
+- `forkreport.explain_eb` is **pure** (`.eb`-only structure; a parsed `.mes` enriches the windows with real
+  text, else `<line N>` placeholders) → offline-testable; `forkreport.explain` is the id→bytes loader over
+  it; `format_explain` renders the transcript (ASCII chrome). Read-only — reuses the disassembler + the
+  item-pool decode + `dialogue.parse_mes`; no carry/graft logic of its own (analysis lane). 7 tests.
+
+### Closed (proven infeasible) — #14 talk-handler graft closure
+- The carry-fidelity gap "graft a render-only NPC's talk routine into a non-verbatim fork" is **infeasible**.
+  A **verified census of all 675 forkable fields under maximal grafting** (`graft_player_funcs` + `carry_text`
+  + `graft_seq_helpers` + `graft_savepoint`, with the self-dependency fixpoint modelled) found **55 NPCs across
+  36 fields that render faithfully but lose their tag-3 talk handler, and 0 of them are blocked only by a
+  graftable gesture**: every one depends on the field's own logic — Main_Init shared dialogue branches (40),
+  exotic non-gesture player sequences (15), uncarried co-actors (4), an unsafe background script (1), a party
+  op (1). (A further **39 objects in 20 fields are refused outright** — their tag-1 LOOP itself is un-graftable,
+  an even harder case.) The census agrees with `fork-report`'s interaction axis (field 2803 = 3 render-only).
+  In FF9 an NPC's *interactive* talk handler **is** the field's transaction logic (dialogue + rewards + menus +
+  walkmesh-triangle toggles the engine even hardcodes per-field), inseparable from its text/economy/geometry.
+  `--verbatim` already carries all of it byte-for-byte, so the standing answer for "keep these NPCs interactive"
+  is `--verbatim`. `--explain` is the shipped takeaway: read the quest, decide per-field. (Memory
+  `project-ff9-fork-fidelity-worklist`.)
+
 ### Fixed — `import <id>` now means the FIELD ID, not a `map<NNN>` folder substring (0.9.42)
 - `import <field>` / `import-chain` resolved a token by **FBG-folder substring**, while `fork-report` /
   `list-fields` / `find-rooms` resolve a digit as a **field id** — so they targeted *different* fields for the

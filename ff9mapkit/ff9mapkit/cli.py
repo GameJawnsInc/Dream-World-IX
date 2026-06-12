@@ -1148,6 +1148,9 @@ def _cmd_fork_report(args: argparse.Namespace) -> int:
     from . import forkreport as FR
     try:
         fid = FR.resolve_field_id(args.field, game=args.game)
+        if getattr(args, "explain", False):
+            print(FR.format_explain(FR.explain(fid, game=args.game)))
+            return 0
         rep = FR.analyze(fid, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
@@ -1659,6 +1662,9 @@ def build_parser() -> argparse.ArgumentParser:
     fr = sub.add_parser("fork-report",
                         help="preview what a fork of a REAL field will/won't reproduce, offline (fidelity report)")
     fr.add_argument("field", help="real field id or FBG name (e.g. 354, dl_shp, lb_tmp) -- see `list-fields`")
+    fr.add_argument("--explain", action="store_true",
+                    help="decode each NPC's talk routine into readable English (dialogue + items + the funcs "
+                         "it runs) -- shows WHY a render-only NPC needs --verbatim")
     fr.set_defaults(func=_cmd_fork_report)
 
     fdr = sub.add_parser("find-rooms",

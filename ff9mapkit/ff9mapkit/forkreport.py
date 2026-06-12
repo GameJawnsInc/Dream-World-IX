@@ -887,3 +887,225 @@ def field_players(*, game=None, pattern=None, non_zidane_only=False, bundle=None
         rows.append(FieldPlayer(fid, fbg, ID_TO_EVT.get(fid, "") or "", label, nz, rep.multi_pc,
                                 _player_is_playable(rep)))
     return rows, scanned
+
+
+# --- fork-report --explain: decode a field's NPC interactions into readable English -------------------
+# The antidote to "staring at bits": for every carried NPC, trace its tag-3 talk handler into plain
+# steps (real dialogue text + items/gil/menus + cross-refs), INLINING the funcs it RunScripts -- the
+# Main_Init shared logic (uid 0), the player sequences (uid 250 / a player entry), a sibling object --
+# so a multi-NPC sidequest reads as one quest. This is also WHY a render-only NPC is render-only: you
+# SEE that its talk routine is the field's own quest logic, not a graftable gesture (-> use --verbatim).
+# Pure structure is .eb-only; dialogue TEXT enriches it when the install's .mes is available. Read-only;
+# reuses the disassembler + item-pool decode + dialogue.parse_mes (no carry/graft logic of its own).
+_EXPLAIN_WIN = {0x1F: 2, 0x95: 3, 0x20: 2, 0x96: 3}    # window op -> txid arg index (mirrors dialogue.WINDOW_OPS)
+_RUNSCRIPT_OPS = (0x10, 0x12, 0x14)                    # RunScript[Async|Sync](level, uid, tag)
+SAVE_MENU_ID = 4                                        # Menu(4, 0) = the save point (memory project-ff9-savepoint)
+_VERDICT = {"clean": "interactive", "init_only": "render-only", "refuse": "not carried"}
+
+
+@dataclass
+class NpcExplain:
+    slot: int
+    model: str
+    verdict: str                                       # interactive | render-only | not carried
+    reason: str = ""                                   # why, in English (render-only / not-carried only)
+    steps: list = _dc_field(default_factory=list)      # [(depth, kind, text)] -- kind: say|give|gil|menu|call
+
+
+@dataclass
+class ExplainReport:
+    field_id: int
+    fbg_name: str = ""
+    event_name: str = ""
+    npcs: list = _dc_field(default_factory=list)       # NpcExplain, in spawn order
+    n_props: int = 0                                   # non-talkable set-dressing (carried, no interaction)
+    has_text: bool = False                             # the .mes was resolved (dialogue is real text vs <line N>)
+
+
+def _resolve_line(entries, txid, *, width=72) -> str:
+    """A window's txid -> its (tag-stripped, one-line, truncated) text, or a ``<line N>`` placeholder when
+    no ``.mes`` is loaded / the id is absent / the operand is computed."""
+    if txid is None:
+        return "(text chosen at runtime)"
+    if not entries:
+        return f"<line {txid}>"
+    e = entries.get(int(txid))
+    if e is None:
+        return f"<line {txid}: not in this field's text>"
+    from . import dialogue as _d
+    s = _d.strip_tags(e.text).replace("\n", " / ").strip()
+    s = " ".join(s.split())                            # collapse runs of whitespace from the join
+    return (s[:width] + "...") if len(s) > width else (s or "(blank line)")
+
+
+def _explain_call(eb, current_entry, uid, tag, pents):
+    """Label a ``RunScript(uid, tag)`` in English + the entry index(es) to INLINE its body from.
+    uid 255 = self, 250 / a player entry = the player, 0 = Main_Init shared logic (obj.uid defaults to
+    the entry index -> uid 0 is entry 0), 251-254 = a party slot, else = the object at that entry."""
+    if uid == 255:
+        return f"runs its own routine #{tag}", [current_entry]
+    if uid == 250 or uid in pents:
+        return f"directs the player (sequence #{tag})", list(pents)
+    if 251 <= uid <= 254:
+        return f"calls a party member (routine #{tag})", []
+    if uid == 0:
+        return f"runs shared field logic (Main_Init routine #{tag})", [0]
+    if 0 <= uid < eb.entry_count:
+        return f"drives object #{uid} (routine #{tag})", [uid]
+    return f"calls uid {uid} (routine #{tag})", []
+
+
+def _trace_interaction(eb, entry_idx, tag, entries, *, depth, visited, steps, pents):
+    """Walk one function into readable steps, recursing (depth-capped, cycle-guarded) into the player /
+    Main_Init / sibling routines it RunScripts -- so a sidequest split across helpers reads as one flow."""
+    key = (entry_idx, tag)
+    if depth > 2 or key in visited:
+        return
+    visited.add(key)
+    e = eb.entry(entry_idx) if 0 <= entry_idx < eb.entry_count else None
+    f = e.func_by_tag(tag) if (e is not None and not e.empty) else None
+    if f is None:
+        return
+    for ins in eb.instrs(f):
+        op = ins.op
+        if op in _EXPLAIN_WIN:
+            steps.append((depth, "say", _resolve_line(entries, ins.imm(_EXPLAIN_WIN[op]))))
+        elif op == ADD_ITEM_OP:
+            iid = ins.imm(0)
+            if iid is None:
+                steps.append((depth, "give", "an item (chosen at runtime)"))
+            elif iid != NO_ITEM and not item_inert(iid):
+                cnt = ins.imm(1)
+                steps.append((depth, "give", item_label(iid) + (f" x{cnt}" if cnt and cnt != 1 else "")))
+        elif op == ADD_GIL_OP:
+            steps.append((depth, "gil", "gil"))
+        elif op == MENU_OP:
+            mid = ins.imm(0)
+            steps.append((depth, "menu", "a shop" if mid == SHOP_MENU_ID
+                          else ("the save menu" if mid == SAVE_MENU_ID else f"menu #{mid}")))
+        elif op in _RUNSCRIPT_OPS:
+            uid, t = ins.imm(1), ins.imm(2)
+            if uid is None or t is None:
+                continue
+            label, inline_from = _explain_call(eb, entry_idx, uid, t, pents)
+            steps.append((depth, "call", label))
+            for cand in inline_from:                   # inline the FIRST candidate that actually defines the tag
+                ce = eb.entry(cand) if 0 <= cand < eb.entry_count else None
+                if ce is not None and not ce.empty and ce.func_by_tag(t) is not None:
+                    _trace_interaction(eb, cand, t, entries, depth=depth + 1,
+                                       visited=visited, steps=steps, pents=pents)
+                    break
+
+
+def _explain_reason(spec) -> str:
+    """Why a non-clean NPC's talk handler can't be carried as-is, in English (from its classified refs)."""
+    cats = []
+    for r in spec["refs"]:
+        k = r["klass"]
+        if k in ("self", "sibling"):
+            continue
+        if k == "player" and r.get("tag") is None:     # TurnTowardObject(player) etc. -- already safe
+            continue
+        if k == "player" and r.get("tag") is not None:
+            cats.append("a scripted player sequence")
+        elif r["op"] == 0x43:                          # RunSharedScript (STARTSEQ) -- a background script
+            cats.append("a background script")
+        elif k == "uncarried" and r.get("value") == 0 and r.get("tag") is not None:
+            cats.append("shared field logic (Main_Init)")
+        elif k == "uncarried" and r.get("tag") is not None:
+            cats.append("another object that isn't carried")
+        elif k == "expr":
+            cats.append("a runtime-computed reference")
+        elif k == "party":
+            cats.append("a party member")
+    seen = []
+    for c in cats:
+        if c not in seen:
+            seen.append(c)
+    if not seen:
+        return "its talk routine references something the carry can't resolve"
+    if len(seen) == 1:
+        body = seen[0]
+    else:
+        body = ", ".join(seen[:-1]) + " and " + seen[-1]
+    return "its talk routine depends on " + body
+
+
+def explain_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: str = "",
+               entries=None) -> ExplainReport:
+    """Decode a field's NPC interactions to an :class:`ExplainReport` from its ``.eb`` bytes (pure;
+    ``entries`` = a parsed ``.mes`` ``{txid: MesEntry}`` enriches the windows with real text -- omit it
+    for the structure-only view). Reuses ``scan_objects_verbatim`` with FULL grafting on, so a verdict of
+    ``render-only`` means the NPC stays render-only even with every graft -- i.e. genuinely field logic."""
+    from . import eventscan       # lazy (keeps import cost off the core path)
+    rep = ExplainReport(field_id=field_id, fbg_name=fbg_name, event_name=event_name, has_text=bool(entries))
+    if not eb_bytes:
+        return rep
+    eb = EbScript.from_bytes(bytes(eb_bytes))
+    pents = set(eventscan.resolve_player_entries(eb))
+    specs = eventscan.scan_objects_verbatim(bytes(eb_bytes), graft_player_funcs=True,
+                                            carry_text=True, graft_seq_helpers=True)
+    for s in specs:
+        if s["kind"] != "npc":
+            rep.n_props += 1
+            continue
+        steps: list = []
+        _trace_interaction(eb, s["donor_idx"], 3, entries or {}, depth=0,
+                           visited=set(), steps=steps, pents=pents)
+        verdict = _VERDICT.get(s["graft_safety"], s["graft_safety"])
+        reason = _explain_reason(s) if s["graft_safety"] != "clean" else ""
+        rep.npcs.append(NpcExplain(s["donor_idx"], s["model"], verdict, reason, steps))
+    return rep
+
+
+def explain(field_id: int, *, game=None, bundle=None, lang: str = "us") -> ExplainReport:
+    """The id->bytes loader over :func:`explain_eb` -- resolves the field's ``.mes`` (install needed for
+    real dialogue text; degrades to ``<line N>`` placeholders without it). Read-only."""
+    from .extract import EventBundle, ID_TO_FBG, ID_TO_EVT       # lazy: UnityPy only when used
+    b = bundle or EventBundle(game)
+    data = b.eb_for_id(field_id)
+    entries = None
+    try:
+        from . import dialogue as _d
+        mes = _d.extract_field_mes(str(field_id), lang=lang, game=game)
+        if mes:
+            entries = _d.parse_mes(mes)
+    except Exception:                                  # no install / no UnityPy / no text block -> structure-only
+        entries = None
+    return explain_eb(data, field_id=field_id, fbg_name=ID_TO_FBG.get(field_id, ""),
+                      event_name=ID_TO_EVT.get(field_id, ""), entries=entries)
+
+
+_STEP_GLYPH = {"say": '"{}"', "give": "gives {}", "gil": "gives gil", "menu": "opens {}", "call": "-> {}"}
+
+
+def format_explain(rep: ExplainReport) -> str:
+    """Render an :class:`ExplainReport` as a readable cast-interaction transcript."""
+    head = rep.fbg_name or f"field {rep.field_id}"
+    suffix = f"  (field {rep.field_id}{', ' + rep.event_name if rep.event_name else ''})"
+    out = [f"fork-report --explain: {head}{suffix}", ""]
+    n_int = sum(1 for n in rep.npcs if n.verdict == "interactive")
+    n_ro = sum(1 for n in rep.npcs if n.verdict == "render-only")
+    out.append(f"  {len(rep.npcs)} NPC(s): {n_int} interactive, {n_ro} render-only"
+               f"{f', {rep.n_props} prop(s)' if rep.n_props else ''}.")
+    out.append("  Each NPC's talk routine is decoded below (dialogue + items + the funcs it runs).")
+    if n_ro:
+        out.append("  A render-only NPC's routine IS field logic (shared/player/quest), not a graftable")
+        out.append("  gesture -- fork with --verbatim to keep it interactive (or re-author the interaction).")
+    if not rep.has_text:
+        out.append("  (no install / text block -> dialogue shown as <line N>; run with the game present for words.)")
+    out.append("")
+    if not rep.npcs:
+        out.append("  (no carried NPCs -- nothing to explain.)")
+        return "\n".join(out)
+    for n in rep.npcs:
+        glyph = "*" if n.verdict == "interactive" else "o"
+        tag = f"[{n.verdict}{' -- ' + n.reason if n.reason else ''}]"
+        out.append(f"  {glyph} {n.model}  (slot {n.slot})  {tag}")
+        if not n.steps:
+            out.append("        (no talk routine -- silent NPC)")
+        for depth, kind, text in n.steps:
+            pad = "        " + "    " * depth
+            out.append(pad + _STEP_GLYPH.get(kind, "{}").format(text))
+        out.append("")
+    return "\n".join(out).rstrip()

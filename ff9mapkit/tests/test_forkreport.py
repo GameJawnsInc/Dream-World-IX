@@ -620,3 +620,96 @@ def test_format_report_items_line_for_var_give_or_var_shop_only():
     rep2.item_var_shop = True
     line = next(l for l in FR.format_report(rep2).splitlines() if l.strip().startswith("Items"))
     assert "story-gated shop" in line and "ShopItems.csv" in line
+
+
+# ---- fork-report --explain: NPC-interaction decoder (#14 closed -> read the quest, not the bits) ----
+def test_explain_eb_alex100_structure_only_degrades_without_text():
+    # ALEX100 is the opening cutscene field -- 0 static NPCs (2 props), no .mes passed -> the decoder must
+    # not crash and must report has_text False (the structure-only path is offline-safe + fixture-stable).
+    rep = FR.explain_eb(ALEX100, field_id=100, fbg_name="fbg_n01_alxt_map016_at_msa_0")
+    assert rep.has_text is False and rep.npcs == [] and rep.n_props == 2
+    out = FR.format_explain(rep)
+    out.encode("ascii")                                  # _safe_console-free path stays ascii-clean here
+    assert "no carried NPCs" in out
+
+
+def test_resolve_line_placeholder_text_and_runtime():
+    from types import SimpleNamespace
+    assert FR._resolve_line(None, 5) == "<line 5>"        # no .mes -> placeholder
+    assert FR._resolve_line({}, 5) == "<line 5>"
+    assert FR._resolve_line({}, None) == "(text chosen at runtime)"
+    entries = {5: SimpleNamespace(text="Hello\nthere, traveler")}
+    assert FR._resolve_line(entries, 5) == "Hello / there, traveler"
+    assert FR._resolve_line(entries, 7).startswith("<line 7")   # absent txid
+    long = {9: SimpleNamespace(text="x" * 200)}
+    assert FR._resolve_line(long, 9, width=10).endswith("...") and len(FR._resolve_line(long, 9, width=10)) == 13
+
+
+def test_explain_call_classifies_uid_space():
+    from types import SimpleNamespace
+    eb = SimpleNamespace(entry_count=40)
+    pents = {32}
+    assert FR._explain_call(eb, 19, 255, 3, pents) == ("runs its own routine #3", [19])
+    assert FR._explain_call(eb, 19, 250, 7, pents)[0].startswith("directs the player")
+    assert FR._explain_call(eb, 19, 32, 7, pents)[0].startswith("directs the player")   # a player ENTRY uid
+    assert FR._explain_call(eb, 19, 0, 12, pents) == ("runs shared field logic (Main_Init routine #12)", [0])
+    assert FR._explain_call(eb, 19, 20, 16, pents) == ("drives object #20 (routine #16)", [20])
+    assert FR._explain_call(eb, 19, 252, 1, pents)[1] == []          # a party slot -> not inlined
+
+
+def test_explain_reason_reads_refs_to_english():
+    # the render-only "why" -- the classified refs on the dropped talk handler -> a human sentence.
+    main_init = {"refs": [{"klass": "uncarried", "value": 0, "tag": 12, "op": 0x14}]}
+    assert "shared field logic (Main_Init)" in FR._explain_reason(main_init)
+    player = {"refs": [{"klass": "player", "tag": 27, "op": 0x12}]}
+    assert "scripted player sequence" in FR._explain_reason(player)
+    startseq = {"refs": [{"klass": "uncarried", "value": 21, "tag": None, "op": 0x43}]}
+    assert "background script" in FR._explain_reason(startseq)
+    # self/sibling and a tag-less player turn are SAFE -> contribute no reason (fall through to the generic)
+    benign = {"refs": [{"klass": "player", "tag": None, "op": 0x51}, {"klass": "sibling", "op": 0x12}]}
+    assert "references something" in FR._explain_reason(benign)
+
+
+def test_format_explain_renders_verdicts_steps_and_verbatim_hint():
+    interactive = FR.NpcExplain(16, "GEO_NPC_F2_APM", "interactive", "",
+                                [(0, "say", "Hello."), (0, "give", "Potion x2")])
+    renderonly = FR.NpcExplain(19, "GEO_NPC_F0_HUM", "render-only",
+                               "its talk routine depends on shared field logic (Main_Init)",
+                               [(0, "call", "runs shared field logic (Main_Init routine #12)"),
+                                (1, "say", "We're having a debate.")])
+    rep = FR.ExplainReport(field_id=2803, fbg_name="dg_2f", npcs=[interactive, renderonly], has_text=True)
+    out = FR.format_explain(rep)
+    out.encode("ascii")
+    assert "2 NPC(s): 1 interactive, 1 render-only" in out
+    assert "--verbatim" in out                            # the render-only -> verbatim guidance
+    assert '"Hello."' in out and "gives Potion x2" in out
+    assert "-> runs shared field logic" in out
+    assert "    \"We're having a debate.\"" in out        # depth-1 inlined line is extra-indented
+
+
+def test_format_explain_no_text_notes_placeholder_mode():
+    rep = FR.ExplainReport(field_id=1, npcs=[FR.NpcExplain(5, "GEO_NPC_X", "interactive")], has_text=False)
+    assert "<line N>" in FR.format_explain(rep)
+
+
+# ---- install-gated: the end-to-end decode on a real field (Daguerreo 2F sidequests) ----
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_explain_daguerreo_decodes_the_three_sidequests():
+    # field 2803 is the positive control: 3 interactive NPCs + 3 render-only (the debate, the librarian's
+    # book quest, the old man's Excalibur trade). The decoder must (a) split 3/3, (b) attribute each
+    # render-only NPC's reason to real field logic, (c) surface the real dialogue + the Excalibur grant.
+    rep = FR.explain(2803)
+    assert rep.has_text is True and len(rep.npcs) == 6
+    interactive = [n for n in rep.npcs if n.verdict == "interactive"]
+    renderonly = [n for n in rep.npcs if n.verdict == "render-only"]
+    assert len(interactive) == 3 and len(renderonly) == 3
+    by_slot = {n.slot: n for n in rep.npcs}
+    # the debate young man (slot 19) -> shared Main_Init logic; the old man (slot 23) -> a scripted player seq
+    assert "Main_Init" in by_slot[19].reason
+    assert "scripted player sequence" in by_slot[23].reason
+    # the old man's quest reward (Excalibur) is decoded from his (dropped) talk routine
+    assert any(k == "give" and "Excalibur" in t for _d, k, t in by_slot[23].steps)
+    # and a real dialogue line resolved into the trace (not a <line N> placeholder)
+    assert any(k == "say" and "Old Man" in t for _d, k, t in by_slot[23].steps)
+    out = FR.format_explain(rep)
+    assert "--verbatim" in out and "3 interactive, 3 render-only" in out

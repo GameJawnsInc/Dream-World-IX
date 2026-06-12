@@ -178,7 +178,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   `Cinematic` ops in the field-70 override (→ instant `Field(4003)`, no DLL, no `SkipIntros`). The companion
   overrides `EVT_ALEX1_AT_STREET_A` (id 100 → doors to 4003/4004/30100) + `EVT_ALEX1_TS_CARGO_0` (id 50) are the
   walk-through-Alexandria route (separate from the direct New-Game→4003 hop). → memory `project-ff9-new-game-entry`.
-- **Versions:** kit `0.9.42`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.44`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -361,6 +361,14 @@ mechanic above was grounded byte-for-byte against shipping FF9 data, not invente
   frame is always `vert + orgPos + floor.org`; no heuristic.
 - **Per-pitch `sx/sy` canvas scale** — the map is exact scale-1; the "back-edge drift" was the
   character collision radius, not a map error.
+- **Grafting a render-only NPC's talk handler into a NON-verbatim fork (#14 closure)** — 0 tractable. A
+  verified census of all 675 fields under MAXIMAL grafting: **55 NPCs (36 fields) render but lose their tag-3
+  talk handler, and 0 are blocked only by a graftable gesture** — every one depends on the field's own logic
+  (Main_Init shared branches 40 / exotic player sequences 15 / uncarried co-actors 4 / unsafe bg script 1 /
+  party 1); a further 39 objects (20 fields) are refused outright (LOOP un-graftable). An NPC's *interactive*
+  tag-3 IS the field's quest logic, not a gesture. Use **`--verbatim`** (carries it byte-for-byte). Read what
+  any NPC does with **`fork-report --explain`**. (★ NOT #13 — the story-event director/roster problem is
+  separate and still open.) → memory `project-ff9-fork-fidelity-worklist`.
 
 ---
 
@@ -1067,6 +1075,30 @@ Read these on demand — they hold the full technical detail this file only summ
   each stocks its authored custom inventory (incl. Excalibur / the weapon set), and a real PURCHASE (bought a
   Mage Masher) DEDUCTED the gil + ADDED the item. The deploy also confirmed `deploy_field` now ships
   `ShopItems.csv` (the gap fix). #4 DONE.
+- **#14 talk-handler graft closure CLOSED-as-infeasible + `fork-report --explain` (the readable-quest decoder).**
+  Investigated the long-flagged "make a forked field's render-only NPCs interactive" gap and PROVED it a dead end
+  (now §8): a VERIFIED census of all 675 fields under MAXIMAL grafting (`graft_player_funcs`+`carry_text`+
+  `graft_seq_helpers`+`graft_savepoint`, self-dep fixpoint modelled) found **55 NPCs across 36 fields render but
+  lose their tag-3 talk handler, and 0 are blocked only by a graftable gesture** — every one depends on the
+  field's OWN logic (Main_Init shared branches 40 / exotic non-gesture player sequences 15 / uncarried co-actors
+  4 / unsafe background script 1 / party 1); a further 39 objects (20 fields) are refused outright (their LOOP
+  is un-graftable). The census agrees with `fork-report`'s interaction axis (field 2803 = 3 render-only, both).
+  ★ My FIRST-pass numbers (128/93 + a 39/13/6/4/3/2 tally) were WRONG — they ignored the self-dep fixpoint +
+  conflated refused objects; caught by re-running the census before finalizing (the corrected figures stand).
+  Grounded against the positive control **Daguerreo 2F (field 2803)** by decoding the bytes to
+  English: its 3 render-only NPCs are 3 sidequests (the Young Man/Sales Clerk **debate** whose branches live on
+  Main_Init *because two NPCs share them*; the librarian **book quest** the Memoria engine even hardcodes a
+  `mapNo==2803` walkmesh-triangle hotfix for; the old man's **Excalibur** trade). `RunScript(uid=0, tag)` =
+  Main_Init (engine-verified `GetObjUID` — obj.uid defaults to the entry index). An NPC's *interactive* talk
+  handler IS the field's transaction logic (dialogue + economy + menus + geometry), inseparable — no gesture
+  subset to peel off. **`--verbatim` already carries it byte-for-byte = the standing answer.** Shipped takeaway:
+  **`ff9mapkit fork-report <field> --explain`** decodes any field's NPC routines to readable English (real `.mes`
+  dialogue + items/gil/menus + the inlined funcs they call — Main_Init/player/sibling) so you READ the quest and
+  decide per-field, instead of staring at bits. `forkreport.explain_eb` is pure/offline-testable (text via a
+  parsed `.mes`, else `<line N>`); `explain`/`format_explain` over it; analysis lane (reuses the disasm +
+  item-pool decode + `dialogue.parse_mes`, no carry/graft logic) — clear of items_equipment + story_flags. 7
+  tests. kit 0.9.44; 998 tests. (#13 — the story-event director/roster problem on rotating-cast fields — is
+  SEPARATE and still open.) → memory [[project-ff9-fork-fidelity-worklist]].
 
 ---
 

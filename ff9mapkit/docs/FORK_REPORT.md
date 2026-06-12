@@ -68,12 +68,29 @@ The real Dali Weapon Shop gates content across 11 story beats (Dali → Pandemon
 director — exactly the "rotating shop" that forks into a stacked-NPC mess. Daguerreo 2F, by contrast, reports
 a CLEAN static-roster.
 
+## `--explain` — decode the cast's interactions into readable English
+
+`fork-report <field> --explain` traces every carried NPC's **tag-3 talk routine** into plain steps — the real
+`.mes` dialogue + items/gil/menus + the funcs it `RunScript`s — and **inlines** those funcs (the Main_Init
+shared logic at `uid 0`, the player sequences at `uid 250`/a player entry, a sibling object) so a multi-NPC
+sidequest reads as one quest. Each NPC is tagged `[interactive]` or `[render-only -- <why>]`.
+
+Its real value is showing **why a render-only NPC is render-only**: you SEE that its talk routine *is* the
+field's own quest logic (shared dialogue branches / a scripted player walk / an item-card economy), not a
+graftable gesture — so the fix is **`--verbatim`** (which carries it byte-for-byte), not a graft. This is the
+shipped conclusion of the **#14 talk-handler-closure investigation** (proven infeasible by a verified census:
+of 55 render-only NPCs across 36 fields, 0 are blocked only by a graftable gesture — every one depends on the
+field's own logic). Read the quest, decide per-field. Needs the install for the dialogue text (degrades to
+`<line N>` placeholders without it); the structure is `.eb`-only.
+
 ## The workflow it fits
 
 1. `fork-report <field>` → pick a field whose verdict is **CLEAN static-roster** for a faithful fork (or accept
    the diorama trade-off for a story-event field).
-2. `ff9mapkit import <field> --native --graft-player-funcs --carry-text` (the recipe it suggests).
-3. Add the suggested `[startup]` block so the fork boots in the right beat.
+2. `fork-report <field> --explain` → read what the cast actually does; if its NPCs need their quest logic, fork
+   `--verbatim` (else `import --native --graft-player-funcs --carry-text`).
+3. `ff9mapkit import <field> --native --graft-player-funcs --carry-text` (the recipe it suggests).
+4. Add the suggested `[startup]` block so the fork boots in the right beat.
 
 ## How it works (read-only)
 
