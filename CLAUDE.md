@@ -322,7 +322,8 @@ trigger (entry cutscenes run from the `.eb`). → `project_ff9_mint_gotchas`, `f
 - **Grafting a render-only NPC's talk handler into a NON-verbatim fork (#14)** — proven 0-tractable (census of
   675 fields: 55 NPCs lose their tag-3 handler, 0 blocked only by a graftable gesture — an NPC's interactive
   tag-3 IS the field's quest logic, inseparable). Use **`--verbatim`**; read what an NPC does with
-  **`fork-report --explain`**. (#13, the story-event director/roster problem, is separate + still open.)
+  **`fork-report --explain`**. (#13, the story-event director/roster problem, is separate; its CORE is now
+  in-game proven — `--verbatim` + `[startup]` shows a beat-correct rotating roster — see §10.)
   → [[project-ff9-fork-fidelity-worklist]].
 
 ---
@@ -407,7 +408,10 @@ campaign-wide by-name channel + BP-only levers + scene flags in one fight). ★ 
 a boot-crash range bug + the cp1252 encoding; Phase 4: caught a `StatusSetId` over-range KeyNotFound crash, a
 malformed-toml traceback, + a silent dead-`Battle:` selector) → [[project-ff9-battle-tuning]],
 `docs/BATTLE_DESIGN.md`. Next: Phase 5 (character/growth CSVs). Frontier: #13 (story-event director/roster on
-rotating-cast fields) — open.
+rotating-cast fields) — ★ **core PROVEN** (a `--verbatim` fork + `[startup]` shows a beat-correct rotating
+roster: forking Dali Weapon Shop 354 at SC 2600 vs 11090, the shopkeeper changed + an NPC appeared, in-game
+2026-06-12); narrowed to a roster-by-beat analyzer + synthesized-fork director classify/skip + multi-instance
+sub-bugs → [[project-ff9-fork-fidelity-worklist]].
 
 ---
 
