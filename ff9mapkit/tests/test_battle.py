@@ -484,6 +484,57 @@ def test_scene_validate_catches_bad_slot_pattern_item():
     assert scene_data.validate_scene(raw, {"enemy": [{"slot": 0, "drop": ["Nope", "none", "none", "none"]}]})
 
 
+# --------------------------------------------------------------- scene_data combat-identity (Phase 1)
+def test_scene_edits_combat_identity():
+    raw = _raw16()                                              # patcount 1, typcount 2; slot 0 -> type 0
+    scene = {"ap": 40, "enemy": [{
+        "slot": 0, "weak": ["Fire"], "null": ["Ice"], "absorb": ["Holy"], "half": ["Thunder"],
+        "phys_def": 20, "phys_evade": 5, "mag_def": 15, "mag_evade": 3, "hit_rate": 60,
+        "category": 8, "blue_magic": 12, "win_card": 99,
+        "resist_status": ["Death", "Petrify"], "auto_status": ["Float"]}]}
+    out, warns = scene_data.apply_scene_edits(raw, scene)
+    assert not warns and len(out) == len(raw)
+    mon0 = 8 + 56                                               # type-0 block
+    assert out[mon0 + 63] == 1 and out[mon0 + 60] == 2          # weak=Fire / null(guard)=Ice
+    assert out[mon0 + 61] == 64 and out[mon0 + 62] == 4         # absorb=Holy / half=Thunder
+    assert out[mon0 + 67] == 20 and out[mon0 + 68] == 5         # phys def / evade
+    assert out[mon0 + 69] == 15 and out[mon0 + 70] == 3         # mag def / evade
+    assert out[mon0 + 66] == 60 and out[mon0 + 65] == 8         # hit_rate / category
+    assert out[mon0 + 71] == 12 and out[mon0 + 105] == 99       # blue_magic / win_card
+    assert struct.unpack_from("<I", out, mon0 + 0)[0] == (1 << 8) | (1 << 0)   # resist = Death|Petrify
+    assert struct.unpack_from("<I", out, mon0 + 4)[0] == (1 << 21)             # auto = Float
+    assert struct.unpack_from("<I", out, 8 + 4)[0] == 40                       # pattern AP reward
+
+
+def test_scene_edits_ap_reward_written_to_all_patterns():
+    raw = _raw16(patcount=2)
+    out, _ = scene_data.apply_scene_edits(raw, {"ap": 1234})
+    for p in range(2):
+        assert struct.unpack_from("<I", out, 8 + 56 * p + 4)[0] == 1234
+
+
+def test_scene_edits_masks_accept_raw_int():
+    out, _ = scene_data.apply_scene_edits(_raw16(), {"enemy": [
+        {"slot": 0, "weak": 5, "resist_status": 1 << 19}]})
+    mon0 = 8 + 56
+    assert out[mon0 + 63] == 5                                  # raw element bitmask passes through
+    assert struct.unpack_from("<I", out, mon0 + 0)[0] == (1 << 19)
+
+
+def test_scene_edits_bad_element_and_status_names():
+    assert any("element" in p for p in
+               scene_data.validate_scene(_raw16(), {"enemy": [{"slot": 0, "weak": ["Nope"]}]}))
+    assert any("status" in p for p in
+               scene_data.validate_scene(_raw16(), {"enemy": [{"slot": 0, "resist_status": ["Bogus"]}]}))
+
+
+def test_scene_edits_combat_identity_only_touches_edited_bytes():
+    raw = _raw16()
+    out, _ = scene_data.apply_scene_edits(raw, {"enemy": [{"slot": 1, "weak": ["Fire"]}]})
+    diff = [i for i in range(len(raw)) if raw[i] != out[i]]
+    assert diff == [8 + 56 + 116 + 63]                         # ONLY type-1's WeakElement byte
+
+
 def test_build_mint_existing_slot_reuses_bundle_inb(tmp_path):
     proj = _write_project(tmp_path, '''
         [battlemap]

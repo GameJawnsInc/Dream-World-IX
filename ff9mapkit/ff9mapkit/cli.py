@@ -15,6 +15,8 @@ Subcommands are wired up incrementally as the library lands:
     battle-import - fork a real FF9 battle background (BBG) into an editable battle.toml (needs UnityPy)
     battle-build  - compile a battle.toml into a Memoria mod (custom 3D battle map; stock engine)
     battle-list   - list the real FF9 battle backgrounds available to fork
+    battle-actions- list the shared PLAYER abilities (Actions.csv) + the scriptId formula catalog
+    battle-scene  - inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)
     dialogue  - view a field.toml's authored dialogue + how each line wraps on screen
     dialogue-import - read a REAL FF9 field's dialogue (or a built mod's) -- 'NPC -> text'
     fork-report - preview, offline, what a fork of a REAL field will/won't reproduce (fidelity report)
@@ -758,6 +760,83 @@ def _cmd_battle_list(args: argparse.Namespace) -> int:
     for n in rows:
         print(n)
     print(f"{len(rows)} {kind}")
+    return 0
+
+
+def _cmd_battle_actions(args: argparse.Namespace) -> int:
+    """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
+    _safe_console()
+    from .battle import battlecsv as B
+    if args.script_ids:
+        for sid in sorted(B.SCRIPT_IDS):
+            print(f"  {sid:>3}  {B.SCRIPT_IDS[sid]}")
+        print(f"\n{len(B.SCRIPT_IDS)} stock battle-calc formulas. Re-pointing an action's scriptId at one of "
+              "these is pure CSV (no DLL);\na NEW formula needs a Memoria.Scripts.<Mod>.dll (not the engine DLL).")
+        return 0
+    if not B.available(game=args.game):
+        print("needs your FF9 install (StreamingAssets/Data/Battle/Actions.csv); set FF9_GAME_PATH "
+              "or run from the game dir.", file=sys.stderr)
+        return 2
+    rows = B.actions(game=args.game)
+    if args.filter:
+        f = args.filter.lower()
+        rows = [a for a in rows if f in a.name.lower()]
+    for a in rows:
+        print(f"  {a.id:>3}  {a.summary()}")
+    print(f"\n{len(rows)} action(s) -- the PLAYER ability table. (Enemy attacks live per-scene in the raw16; "
+          "see `battle-scene`.)")
+    return 0
+
+
+def _item_label(ids) -> str:
+    from . import items as I
+    names = [I.name_of(i) or str(i) for i in ids if i != 255]
+    return "/".join(names) if names else "-"
+
+
+def _cmd_battle_scene(args: argparse.Namespace) -> int:
+    """Inspect a REAL battle scene's enemy data: read-only fork its raw16 and print every enemy type's
+    stats / affinities / rewards + the attack table. The 'import -> SEE it' step for battle tuning."""
+    _safe_console()
+    from .battle import battlecsv as B, extract as bextract, scene_codec
+    try:
+        assets = bextract.read_scene_assets(args.donor, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    scene = scene_codec.parse_scene(assets["raw16"])
+    flags = ([f for f, on in (("back-attack", scene.back_attack), ("preemptive", scene.preemptive),
+                              ("no-escape", not scene.can_escape), ("no-EXP", scene.no_exp)) if on])
+    print(f"scene {args.donor} (id {assets['donor_id']}): {scene.pat_count} pattern(s), "
+          f"{scene.typ_count} enemy type(s), {scene.atk_count} attack(s)"
+          + (f"  [{', '.join(flags)}]" if flags else ""))
+    for t, m in enumerate(scene.monsters):
+        print(f"\n  enemy type {t}:  HP {m.hp}  MP {m.mp}  Lv {m.level}  "
+              f"(Spd {m.speed} Str {m.strength} Mag {m.magic} Spr {m.spirit})")
+        print(f"    defence: phys {m.phys_def}/{m.phys_evade}  mag {m.mag_def}/{m.mag_evade}  hit {m.hit_rate}")
+        aff = [f"{lab} {'/'.join(B.decode_elements(mask))}"
+               for lab, mask in (("weak", m.weak_element), ("null", m.guard_element),
+                                 ("absorb", m.absorb_element), ("half", m.half_element)) if B.decode_elements(mask)]
+        if aff:
+            print(f"    elements: {';  '.join(aff)}")
+        st = [f"{lab} {'/'.join(B.decode_status(mask))}"
+              for lab, mask in (("resist", m.resist_status), ("auto", m.auto_status),
+                                ("initial", m.initial_status)) if B.decode_status(mask)]
+        if st:
+            print(f"    status: {';  '.join(st)}")
+        print(f"    rewards: gil {m.gil}  EXP {m.exp}  card {m.win_card}  "
+              f"drop {_item_label(m.drop)}  steal {_item_label(m.steal)}")
+    if scene.attacks:
+        print(f"\n  attack table ({scene.atk_count}):")
+        for i, a in enumerate(scene.attacks):
+            els = B.decode_elements(a.elements)
+            extra = ("  " + "/".join(els) if els else "") \
+                + (f"  rate {a.rate}" if a.rate not in (0, 255) else "") + (f"  {a.mp} MP" if a.mp else "")
+            print(f"    [{i}] {B.script_name(a.script_id)}  pow {a.power}{extra}")
+    aps = sorted({p.ap for p in scene.patterns})
+    print(f"\n  AP reward (per formation): {', '.join(str(a) for a in aps)}")
+    print(f"\n  Fork + tune:  ff9mapkit battle-import --fork-scene {args.donor} ...  "
+          "then [scene]/[[scene.enemy]] in battle.toml")
     return 0
 
 
@@ -1562,6 +1641,18 @@ def build_parser() -> argparse.ArgumentParser:
     bl.add_argument("--scenes", action="store_true",
                     help="list battle SCENE names (mint donors, e.g. EF_R007) instead of map names")
     bl.set_defaults(func=_cmd_battle_list)
+
+    bac = sub.add_parser("battle-actions",
+                         help="list the shared PLAYER abilities (Actions.csv) + the scriptId formula catalog")
+    bac.add_argument("-f", "--filter", help="only show actions whose name contains this")
+    bac.add_argument("--script-ids", action="store_true",
+                     help="dump the scriptId->formula catalog (the data-vs-DLL boundary)")
+    bac.set_defaults(func=_cmd_battle_actions)
+
+    bsc = sub.add_parser("battle-scene",
+                         help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")
+    bsc.add_argument("donor", help="battle scene name to inspect, e.g. EF_R007 (see `battle-list --scenes`)")
+    bsc.set_defaults(func=_cmd_battle_scene)
 
     an = sub.add_parser("animations", help="list a character's cutscene gestures (pick by name)")
     an.add_argument("character", nargs="?", help="vivi / zidane / garnet / steiner / freya / quina / eiko / amarant")
