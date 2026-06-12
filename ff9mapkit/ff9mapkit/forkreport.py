@@ -20,6 +20,7 @@ is a clean *roster* (0 directors, renders faithfully) yet degrades *interactions
 """
 from __future__ import annotations
 
+import bisect as _bisect
 import re
 import struct
 from dataclasses import dataclass, field as _dc_field
@@ -71,6 +72,13 @@ def player_name(model_id) -> str:
 _BRANCH_OPS = frozenset({0x02, 0x03, 0x04})   # conditional-branch family (empirically gates a following 0x2C)
 INITOBJ_OP = 0x09
 DEFINE_PC_OP = 0x2C
+# control-flow opcodes for the beat-roster walk: an EXPR (0x05) ScenarioCounter comparison drives a
+# conditional jump -- 0x02 skips its body when the condition is FALSE, 0x03 skips when TRUE. 0x01 is the
+# undocumented UNCONDITIONAL jump (CLAUDE.md §7); it does NOT gate its body, so the walk FOLLOWS it (which
+# is what correctly steps over an if/else's else-branch) rather than treating it as a guard.
+JMP_UNCOND = 0x01
+JMP_FALSE = 0x02
+JMP_TRUE = 0x03
 
 
 def _init_0x2c_status(eb, entry_index) -> str:
@@ -298,6 +306,9 @@ class ForkReport:
     sc_gates: list = _dc_field(default_factory=list)      # [(value, (milestone_value, beat))] sorted
     suggested_scenario: int | None = None
     roster_class: str = "static-roster"        # "static-roster" | "story-event"
+    beat_roster: list = _dc_field(default_factory=list)   # [(beat, milestone, [(slot, model_name, is_director)])]
+    #   per ScenarioCounter beat (incl. 0), which carried objects the director actually spawns -- the
+    #   #13 "rotating cast" preview (empty unless the roster genuinely VARIES across beats)
     player_models: list = _dc_field(default_factory=list)  # [(entry_index, model_id, name)] -- the defined PC(s)
     multi_pc: bool = False                                # the field defines >1 DefinePlayerCharacter
     non_zidane: bool = False                              # the controlled player isn't Zidane -> --verbatim is the faithful mode
@@ -345,6 +356,156 @@ def scenario_gates(eb_bytes) -> list[int]:
         if m.group(2)[0] in _CMP_OPS:
             out.add(struct.unpack("<H", m.group(1))[0])
     return sorted(out)
+
+
+# --- roster by beat (#13): which carried objects the director actually spawns at each ScenarioCounter beat -
+# A story-event field gates its InitObject calls on ScenarioCounter (the "rotating cast"). To preview the cast
+# at a given beat WITHOUT deploying, we symbolically walk Main_Init at that beat: evaluate only the
+# ScenarioCounter comparisons that drive conditional jumps (fall through every OTHER conditional -- flag gates
+# are assumed satisfied), follow unconditional jumps, and collect the InitObject slots actually reached. This
+# correctly handles if/else, nesting, and the `if(SC==BEAT){spawn}` dispatch chain (vs naive range-containment).
+
+def _sc_cond(data, off):
+    """If the EXPR statement at ``off`` is a SIMPLE ScenarioCounter comparison (``05 DC 00 7D <u16> <cmp> 7F``),
+    return ``(cmp_op, const)``; else ``None`` (compound/other exprs are treated as non-SC -> fall through)."""
+    if off + 7 >= len(data) or data[off] != EXPR_STMT_OP:
+        return None
+    if data[off + 1] != 0xDC or data[off + 2] != 0x00 or data[off + 3] != 0x7D:
+        return None
+    cmp = data[off + 6]
+    if cmp not in _CMP_OPS or data[off + 7] != 0x7F:
+        return None
+    return (cmp, data[off + 4] | (data[off + 5] << 8))
+
+
+def _eval_cmp(sc, cond) -> bool:
+    """Does ``ScenarioCounter == sc`` satisfy the comparison ``cond = (cmp_op, const)``?"""
+    cmp, const = cond
+    return {0x20: sc == const, 0x18: sc < const, 0x19: sc > const,
+            0x1A: sc <= const, 0x1B: sc >= const}.get(cmp, False)
+
+
+def _jump_target(ins) -> int:
+    """Absolute byte target of a jump instr (operand is a signed i16 skip distance from the instr end)."""
+    raw = ins.imm(0)
+    if raw is None:
+        return -1
+    return ins.end + (raw - 0x10000 if raw >= 0x8000 else raw)
+
+
+def _spawned_slots(instrs, sc_conds, sc) -> list:
+    """Symbolically execute the Main_Init instr list at ``ScenarioCounter == sc``: take a conditional jump
+    only when its driving ScenarioCounter comparison is known (else fall through = run the guarded body),
+    follow forward jumps (incl. the unconditional 0x01 that steps over an if's else-branch), and return the
+    ordered InitObject slots reached. A FORWARD jump lands on the first instr at-or-after the target (so a
+    jump to the function end correctly terminates); a BACKWARD jump is not followed (loop guard). Bounded by
+    a visited set + step cap."""
+    offs = [ins.off for ins in instrs]             # ascending (Main_Init in order)
+    n = len(instrs)
+
+    def _forward(i, ins):                           # next index for a jump from instr i, or fall-through
+        tgt = _jump_target(ins)
+        k = _bisect.bisect_left(offs, tgt) if tgt >= 0 else i + 1
+        return k if k > i else i + 1               # forward only; backward/unknown -> fall through
+
+    out, visited, last, i, steps = [], set(), None, 0, 0
+    while 0 <= i < n and steps < 20000:
+        steps += 1
+        if i in visited:
+            break
+        visited.add(i)
+        ins = instrs[i]
+        op = ins.op
+        if op == EXPR_STMT_OP:
+            last = sc_conds.get(ins.off)           # the SC condition for an immediately-following jump (or None)
+            i += 1
+            continue
+        if op in (JMP_FALSE, JMP_TRUE):
+            take = None
+            if last is not None:                   # known SC condition -> decide the jump deterministically
+                base = _eval_cmp(sc, last)
+                take = (not base) if op == JMP_FALSE else base
+            last = None
+            i = _forward(i, ins) if take else i + 1   # take -> skip guarded body; else/unknown -> run it
+            continue
+        if op == JMP_UNCOND:                        # follow forward (steps over an if's else-branch)
+            last = None
+            i = _forward(i, ins)
+            continue
+        last = None
+        if op == INITOBJ_OP:
+            s = ins.imm(0)
+            if s is not None:
+                out.append(int(s))
+        i += 1
+    return out
+
+
+def _roster_entry_name(eb, slot):
+    """The model name for an InitObject slot (incl. cutscene actors ``scan_objects`` skips), or ``None`` for
+    the player / party (excluded from the roster table -- the cast of interest is the NPCs/actors)."""
+    from . import eventscan as _eventscan
+    from ._modeldb import MODELS
+    try:
+        e = eb.entry(slot)
+    except (IndexError, AttributeError):
+        return None
+    if e is None or e.empty:
+        return None
+    fi = e.func_by_tag(0)
+    if fi is None:
+        return None
+    try:
+        rd = _eventscan._read_object_init(eb, fi)
+    except Exception:
+        return None
+    m = rd.get("model")
+    if m is None or rd.get("player"):
+        return None
+    name = MODELS.get(m)
+    if name and name.startswith("GEO_MAIN"):       # the party rig, not set-dressing
+        return None
+    return name or f"model {m}"
+
+
+def roster_by_beat(eb, data, director_slots) -> list:
+    """For each ScenarioCounter beat the field gates on (plus 0 = the scenario-zero baseline), the set of
+    carried objects the director SPAWNS at that beat. Returns ``[(beat, milestone, [(slot, name, is_dir)])]``,
+    or ``[]`` when the field has no gates OR the roster does not actually vary across beats (then the flat
+    ``sc_gates`` line already says it all).
+
+    APPROXIMATE (a guide, confirm in-game): it evaluates only SIMPLE ScenarioCounter comparisons that drive a
+    jump; flag gates are assumed satisfied (so flag-gated actors are over-included), compound/looping
+    ScenarioCounter logic is run once (backward jumps fall through rather than iterate), and a director's OWN
+    per-beat model swap inside its LOOP is not traced (only WHICH objects spawn in Main_Init)."""
+    try:
+        mi = eb.entry(0).func_by_tag(0)
+    except (IndexError, AttributeError):
+        return []
+    if mi is None:
+        return []
+    instrs = list(eb.instrs(mi))
+    sc_conds = {ins.off: c for ins in instrs if ins.op == EXPR_STMT_OP
+                for c in (_sc_cond(data, ins.off),) if c is not None}
+    gates = scenario_gates(data)
+    if not gates:
+        return []
+    table = []
+    for beat in sorted(set(gates) | {0}):
+        seen, entries = set(), []
+        for s in _spawned_slots(instrs, sc_conds, beat):
+            if s in seen:
+                continue
+            nm = _roster_entry_name(eb, s)
+            if nm is None:
+                continue
+            seen.add(s)
+            entries.append((s, nm, s in director_slots))
+        table.append((beat, _flags.nearest_milestone(beat), entries))
+    # only meaningful if the cast genuinely rotates -- else the flat sc_gates line suffices. Compare by
+    # (slot, model) so a same-slot model swap also counts as variation (not just add/remove of slots).
+    rosters = {frozenset((s, n) for s, n, _d in row[2]) for row in table}
+    return table if len(rosters) >= 2 else []
 
 
 def resolve_field_id(token, *, game=None) -> int:
@@ -520,6 +681,11 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
     # earliest gate ~= when the field's story content first appears = its natural "home" beat. (A rotating
     # field also gates at later beats; the author picks which one -- the list shows them all.)
     rep.suggested_scenario = gates[0] if gates else None
+    # #13 rotating-cast preview: which carried objects the director spawns at each beat (empty unless it varies)
+    try:
+        rep.beat_roster = roster_by_beat(eb, data, set(rep.directors))
+    except Exception:                          # a preview must never crash on an odd field
+        rep.beat_roster = []
 
     rotating = len(gates) >= _ROTATING_GATE_COUNT
     rep.roster_class = "story-event" if (rep.directors or rotating) else "static-roster"
@@ -664,6 +830,24 @@ def format_report(rep: ForkReport) -> str:
         beat = f' "{nm[1]}"' if nm else ""
         lines.append(f"  Home beat     : suggested [startup] scenario = {rep.suggested_scenario}{beat} "
                      f"(the earliest gate -- adjust to the beat you're forking)")
+    if rep.beat_roster:
+        lines.append("  Roster by beat: which carried NPCs/actors the director spawns at each beat "
+                     "(set [startup] scenario to one):")
+        has_dir = False
+        for bv, nm, entries in rep.beat_roster:
+            label = (nm[1] if nm else "?")
+            if entries:
+                names = ", ".join((n[4:] if n.startswith("GEO_") else n) + ("*" if d else "")
+                                  for _s, n, d in entries)
+                has_dir = has_dir or any(d for _s, _n, d in entries)
+            else:
+                names = "(no carried cast)"
+            base = "  <- scenario-zero baseline" if bv == 0 else ""
+            lines.append(f"      {bv:>6}  {label:<20}: {names}{base}")
+        lines.append("      (approximate -- a guide, confirm in-game: flag-gated content is assumed present; "
+                     "compound/looping ScenarioCounter logic is run once)")
+        if has_dir:
+            lines.append("      (* = a director; its OWN model may further vary by beat inside its loop -- not traced)")
     party_line = _party_line(rep)
     if party_line:
         lines.append(party_line)

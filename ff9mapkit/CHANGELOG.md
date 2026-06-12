@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — fork-report ROSTER-BY-BEAT: which carried cast a story-event director spawns at each beat (#13) (0.9.60)
+- `fork-report` now prints a **Roster by beat** table for rotating-cast (story-event) fields: for each
+  ScenarioCounter beat the field gates on (plus a scenario-zero baseline), the carried NPCs/actors the director
+  actually spawns at that beat — so you can pick the right `[startup]` beat OFFLINE instead of deploy-and-warp.
+  Built on a small **symbolic walk of Main_Init** (`_spawned_slots`): it evaluates only the ScenarioCounter
+  comparisons that drive a conditional jump (decoded by `_sc_cond`/`_eval_cmp`), follows forward jumps incl. the
+  unconditional 0x01 (correctly stepping over an if/else's else-branch), and collects the `InitObject` slots
+  reached — handling dispatch chains, if/else, and nesting (vs naive range-containment). New `ForkReport.beat_roster`.
+- This operationalizes the #13 finding (verbatim + `[startup]` shows a beat-correct rotating roster): the table
+  REPRODUCES the in-game observation OFFLINE — on the real Dali Weapon Shop (354) the cast is `DAC`+`DAF*` at
+  Dali (2600), gains `DAW` at Iifa/Alexandria (6990/8800), and is wholly different (`HUF`/`HUM`) at Pandemonium
+  (11090). Honest about its limits (flag gates assumed present, compound/looping gates run once, a director's
+  OWN per-beat model swap not traced — all surfaced in the output caveat). Reviewed by a 2-lens adversarial +
+  verify pass (the variation gate now compares (slot, model); backward-jump fall-through pinned by a test).
+- +9 tests (`test_forkreport`): the condition decode, the symbolic walk (dispatch chain / if-else / non-SC
+  fall-through / backward-jump), and an install-gated Dali rotation assertion.
+
 ### Added — save-item editor #5 step 4b: main-block EQUIPMENT (vanilla saves fully editable) (0.9.59)
 - The last deferred piece: a **vanilla (no-extra) save's EQUIPMENT** is now editable, completing the editor.
 - ★ **Layout finding (empirical):** the old format stores **9 player structs of 244 bytes**, each with a

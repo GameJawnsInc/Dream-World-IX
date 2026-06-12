@@ -38,6 +38,77 @@ def test_scenario_gates_empty_when_none():
     assert FR.scenario_gates(b"\x00\x01\x02\x03no gates here") == []
 
 
+# ---- roster-by-beat (#13): ScenarioCounter condition decode + symbolic Main_Init walk (pure) ----
+class _I:                                                 # a minimal Instr stand-in for the control-flow walk
+    def __init__(self, op, off, length, *args):
+        self.op, self.off, self.end, self._a = op, off, off + length, list(args)
+
+    def imm(self, i):
+        return self._a[i] if i < len(self._a) else None
+
+
+def test_sc_cond_decodes_simple_scenario_compare():
+    data = b"\x05\xDC\x00\x7D" + struct.pack("<H", 2600) + b"\x20\x7F"     # 05 DC 00 7D <2600> 20(==) 7F
+    assert FR._sc_cond(data, 0) == (0x20, 2600)
+    assert FR._sc_cond(b"\x05\xC4\x10\x7F", 0) is None                     # a flag read, not ScenarioCounter
+    assert FR._sc_cond(b"\x00\x00", 0) is None                            # not an EXPR statement
+
+
+def test_eval_cmp_each_operator():
+    assert FR._eval_cmp(2600, (0x20, 2600)) and not FR._eval_cmp(2601, (0x20, 2600))   # ==
+    assert FR._eval_cmp(2600, (0x1B, 2600)) and not FR._eval_cmp(2599, (0x1B, 2600))   # >=
+    assert FR._eval_cmp(2599, (0x18, 2600)) and not FR._eval_cmp(2600, (0x18, 2600))   # <
+
+
+def test_jump_target_forward_and_backward():
+    assert FR._jump_target(_I(FR.JMP_FALSE, 8, 3, 2)) == 8 + 3 + 2          # forward skip 2
+    assert FR._jump_target(_I(FR.JMP_FALSE, 20, 3, 0xFFFC)) == 20 + 3 - 4   # signed i16 backward
+
+
+def test_spawned_slots_dispatch_chain_per_beat():
+    # if(SC==2600){InitObject(10)}  if(SC==8800){InitObject(20)}  -- a director dispatch chain
+    instrs = [_I(FR.EXPR_STMT_OP, 0, 8),                  # EXPR SC==2600
+              _I(FR.JMP_FALSE, 8, 3, 2),                  # skip InitObject (len 2) when SC != 2600
+              _I(FR.INITOBJ_OP, 11, 2, 10),
+              _I(FR.EXPR_STMT_OP, 13, 8),                 # EXPR SC==8800
+              _I(FR.JMP_FALSE, 21, 3, 2),                 # target 26 = past end -> terminate when SC != 8800
+              _I(FR.INITOBJ_OP, 24, 2, 20)]
+    conds = {0: (0x20, 2600), 13: (0x20, 8800)}
+    assert FR._spawned_slots(instrs, conds, 2600) == [10]
+    assert FR._spawned_slots(instrs, conds, 8800) == [20]
+    assert FR._spawned_slots(instrs, conds, 0) == []      # neither gate matches -> empty cast
+
+
+def test_spawned_slots_if_else_via_unconditional_jump():
+    # if(SC==2600){InitObject(10)} else {InitObject(20)} -- the 0x01 unconditional jump steps over the else
+    instrs = [_I(FR.EXPR_STMT_OP, 0, 8),
+              _I(FR.JMP_FALSE, 8, 3, 5),                  # SC != 2600 -> jump to the else body (off 16)
+              _I(FR.INITOBJ_OP, 11, 2, 10),              # then-branch
+              _I(FR.JMP_UNCOND, 13, 3, 2),                # 0x01: skip the else body (jump past off 16)
+              _I(FR.INITOBJ_OP, 16, 2, 20)]              # else-branch
+    conds = {0: (0x20, 2600)}
+    assert FR._spawned_slots(instrs, conds, 2600) == [10]    # then
+    assert FR._spawned_slots(instrs, conds, 9999) == [20]    # else
+
+
+def test_spawned_slots_non_sc_gate_falls_through():
+    # a NON-ScenarioCounter conditional (a flag, absent from conds) is unknown -> the walk runs the body
+    instrs = [_I(FR.EXPR_STMT_OP, 0, 4),
+              _I(FR.JMP_FALSE, 4, 3, 2),
+              _I(FR.INITOBJ_OP, 7, 2, 30)]
+    assert FR._spawned_slots(instrs, {}, 2600) == [30]      # flag gates assumed satisfied (documented)
+
+
+def test_spawned_slots_backward_jump_falls_through_not_followed():
+    # BACKWARD jumps (loops) are NOT followed: the walk runs the body once then CONTINUES past the loop, so
+    # it still covers the rest of Main_Init (the right heuristic for real fields, whose backward jumps are
+    # short non-SC loops). Following them would break at the loop and under-include everything after.
+    instrs = [_I(FR.INITOBJ_OP, 0, 2, 10),
+              _I(FR.JMP_UNCOND, 2, 3, 0xFFFB),             # 0x01 backward to off 0 (end 5 + signed -5) -- a loop
+              _I(FR.INITOBJ_OP, 5, 2, 20)]                 # code after the back-jump
+    assert FR._spawned_slots(instrs, {}, 0) == [10, 20]    # loop body once, then continue (no infinite walk)
+
+
 # ---- analyze_eb on the real ALEX100 fixture (offline) ----
 def test_analyze_eb_alex100_is_static_roster():
     rep = FR.analyze_eb(ALEX100, field_id=100, fbg_name="fbg_n01_alxt_map016_at_msa_0")
@@ -368,6 +439,17 @@ def test_analyze_dali_shop_is_story_event():
     assert rep.roster_class == "story-event"
     assert rep.directors                                 # >= 1 cutscene-director object
     assert len(rep.sc_gates) >= FR._ROTATING_GATE_COUNT  # gates content across many beats
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_analyze_dali_shop_roster_rotates_by_beat():
+    # #13 in-game finding, made offline: the Dali Weapon Shop's carried cast differs by ScenarioCounter beat
+    rep = FR.analyze(354)
+    assert rep.beat_roster                               # the rotating-cast table is populated
+    by_beat = {beat: frozenset(n for _s, n, _d in entries) for beat, _m, entries in rep.beat_roster}
+    assert 2600 in by_beat and 11090 in by_beat
+    assert by_beat[2600] != by_beat[11090]               # the cast genuinely rotates (Dali vs Pandemonium)
+    assert any(d for _b, _m, entries in rep.beat_roster for _s, _n, d in entries)   # a director is flagged
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

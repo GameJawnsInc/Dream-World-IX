@@ -142,7 +142,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   (`deploy_field.py`, currently a CPMP ladder fork).
 - **New-Game → field 4003 is a stock mod field-70 override, NOT a DLL edit** — the only custom DLL is the F6
   menu. The mechanism, the seamless-entry lever, and the starting-state capstone → [[project-ff9-new-game-entry]].
-- **Versions:** kit `0.9.55`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.60`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -389,7 +389,7 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 - World Hub — a playable journey selector (choice `warp` action + `[player] model=` moogle PC); MVP scaffold IN-GAME PROVEN (talk→pick→warp) → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.58, 1177 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
+**Latest:** kit 0.9.60, 1195 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
 folder + ABORT on a cross-folder EVT/FBG name collision; wires New Game via the field-70 retarget, not the broken
 field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain. World-Hub scaffold IN-GAME PROVEN (the select→warp loop).
 Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4/5: raw16 full codec + golden
@@ -415,8 +415,9 @@ missing whole-file shadow-guard) → [[project-ff9-battle-tuning]],
 `docs/BATTLE_DESIGN.md`. Next: Phase 6 (enemy-AI `.eb` authoring) or Phase 5b (AbilityGems/Commands CSVs).
 Frontier: #13 (story-event director/roster on rotating-cast fields) — ★ **core PROVEN** (a `--verbatim` fork +
 `[startup]` shows a beat-correct rotating roster: forking Dali Weapon Shop 354 at SC 2600 vs 11090, the shopkeeper
-changed + an NPC appeared, in-game 2026-06-12); narrowed to a roster-by-beat analyzer + synthesized-fork director
-classify/skip + multi-instance sub-bugs → [[project-ff9-fork-fidelity-worklist]].
+changed + an NPC appeared, in-game 2026-06-12); the **`fork-report` roster-by-beat analyzer LANDED** (offline
+beat→cast table via a symbolic Main_Init walk; reproduces the Dali rotation). Remaining: synthesized-fork director
+classify/skip + the multi-instance sub-bugs → [[project-ff9-fork-fidelity-worklist]].
 
 ---
 
