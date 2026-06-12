@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a synthesized fork no longer carries cutscene WARP-directors (#13b) (0.9.62)
+- A non-`--verbatim` fork's object carry (`content.object.graft_objects`) now SKIPS cutscene **warp-directors** —
+  an object whose kept LOOP (tag 1) fires `Field()`. Carrying one re-fired its warp / cast-rotation at the fork's
+  asserted beat (the stacked-spawn / warp-out bug seen forking the Dali Weapon Shop: the empirical check showed
+  its director object was carried `graft_safety='clean'` with all 13 `Field()` ops in its loop). New
+  `object._loop_warps()`; `graft_objects(..., out_skipped=[])` collects the dropped directors' donor ids.
+- Deliberately NARROW (`Field()` only, checked on the carry_tags-filtered bytes): an `init_only` object whose loop
+  was already dropped still renders, and phase-switch-only animated props + the save-Moogle (no LOOP `Field()`) are
+  UNAFFECTED — the proven prop/save-point/player-graft carries keep working. `--verbatim` keeps directors whole.
+- This is #13's last code piece (after the roster-by-beat analyzer): a synth fork of a story-event field is now a
+  clean static diorama instead of a stacked-cutscene mess. +6 tests (`test_object_graft`, incl. an install-gated
+  Dali assertion). Remaining #13 tail: the multi-instance self-positioned + per-door sub-bugs.
+
 ### Added — fork-report ROSTER-BY-BEAT: which carried cast a story-event director spawns at each beat (#13) (0.9.60)
 - `fork-report` now prints a **Roster by beat** table for rotating-cast (story-event) fields: for each
   ScenarioCounter beat the field gates on (plus a scenario-zero baseline), the carried NPCs/actors the director

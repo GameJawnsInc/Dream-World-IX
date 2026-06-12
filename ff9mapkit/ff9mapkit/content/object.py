@@ -22,8 +22,11 @@ import struct
 from .. import eventscan
 from ..binutils import u16
 from ..eb import EbScript, edit, opcodes
-from ..eb.disasm import argsize, expr_obj_uid_offsets
+from ..eb.disasm import argsize, expr_obj_uid_offsets, iter_code
 from . import region as _region
+
+_LOOP_TAG = 1             # an object's per-frame LOOP function
+_FIELD_OP = 0x2B          # Field(dest) -- a warp; in an object's LOOP it makes the object a cutscene director
 
 
 def carry_bytes(entry_bytes, carry_tags=None) -> bytes:
@@ -49,6 +52,27 @@ def carry_bytes(entry_bytes, carry_tags=None) -> bytes:
         table += struct.pack("<HH", tag, pos)
         pos += len(body)
     return bytes([etype, len(bodies)]) + table + b"".join(body for _, body in bodies)
+
+
+def _loop_warps(entry_bytes) -> bool:
+    """True if the entry's LOOP (tag 1) fires a ``Field()`` warp -- a cutscene WARP director carried as an NPC.
+    A SYNTHESIZED fork must NOT carry these: their loop re-fires the warp / cast-rotation against the asserted
+    beat (the #13 stacked-spawn / warp-out bug seen forking the Dali shop). Checked on the CARRIED bytes, so an
+    ``init_only`` object whose loop was already dropped is NOT flagged (it still renders). Only an actual
+    ``Field()`` flags it -- phase-switch-only animated props and the save Moogle (no LOOP warp) are unaffected,
+    so the proven prop/save-point carries keep working; ``--verbatim`` keeps directors whole regardless."""
+    b = bytes(entry_bytes)
+    if len(b) < 2:
+        return False
+    fc = b[1]
+    funcs = [(u16(b, 2 + i * 4), u16(b, 2 + i * 4 + 2)) for i in range(fc)]
+    for i, (tag, fpos) in enumerate(funcs):
+        if tag != _LOOP_TAG:
+            continue
+        start = 2 + fpos
+        end = (2 + funcs[i + 1][1]) if i + 1 < fc else len(b)
+        return any(ins.op == _FIELD_OP for ins in iter_code(b, start, end))
+    return False
 
 
 def _arg_byte_offset(ins, ai):
@@ -149,11 +173,13 @@ def _arm(data, slot, arg, needs_d9):
     return edit.activate(data, opcodes.init_object(slot, arg))
 
 
-def graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map=None) -> bytes:
+def graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map=None, out_skipped=None) -> bytes:
     """Graft each spec's VERBATIM object entry into ``data`` and arm it. ``specs`` come from
     :func:`ff9mapkit.eventscan.scan_objects_verbatim` (entry bytes inline) or an import sidecar (a ``bin``
     ref + a ``load(ref) -> bytes`` callable). Objects flagged ``graft_safety == "refuse"`` are skipped
-    (the importer leaves those to the authored ``[[npc]]``/``[[prop]]`` path). Returns the new bytes.
+    (the importer leaves those to the authored ``[[npc]]``/``[[prop]]`` path); cutscene WARP-directors (a
+    ``Field()`` in the kept LOOP) are ALSO skipped (#13b -- they'd re-warp the fork; ``--verbatim`` keeps them).
+    Pass ``out_skipped`` (a list) to collect the dropped directors' ``donor_idx``. Returns the new bytes.
 
     Two passes, like the ladder ``sequences`` graft: (1) append every entry first so all new slots exist
     (so a sibling cross-reference can resolve); (2) remap each entry's references + arm it from Main_Init.
@@ -169,6 +195,21 @@ def graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map
     appended-and-remapped, NEVER ``InitObject``'d.
     """
     specs = [s for s in specs if s.get("graft_safety") != "refuse"]
+    # #13b: a SYNTHESIZED fork must NOT carry cutscene WARP-directors -- an object whose KEPT loop (tag 1) fires
+    # Field() re-warps / rotates the cast at the asserted beat (the stacked-spawn / warp-out bug seen forking the
+    # Dali shop). Drop them here (`--verbatim` keeps them whole; the author can re-add a static [[npc]]). Checked
+    # on the carry_tags-filtered bytes so an init_only object that already drops its loop is left rendering.
+    kept = []
+    for s in specs:
+        raw = s.get("entry_bytes")
+        if raw is None and load is not None and s.get("bin") is not None:
+            raw = load(s["bin"])
+        if raw is not None and _loop_warps(carry_bytes(raw, s.get("carry_tags"))):
+            if out_skipped is not None:
+                out_skipped.append(int(s.get("donor_idx", -1)))
+            continue
+        kept.append(s)
+    specs = kept
     if not specs:
         return data
 

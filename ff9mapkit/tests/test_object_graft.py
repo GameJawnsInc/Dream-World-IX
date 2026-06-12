@@ -101,6 +101,49 @@ def test_graft_refused_objects_are_skipped():
     assert _obj.graft_objects(CLEAN, [s]) == CLEAN          # nothing grafted
 
 
+# --- #13b: a synthesized fork drops cutscene WARP-directors (Field() in the kept LOOP) ---------------
+def _mk_entry(bodies):                                       # bodies = [(tag, body_bytes)] -> a valid entry blob
+    table, pos = b"", len(bodies) * 4
+    for tag, body in bodies:
+        table += struct.pack("<HH", tag, pos)
+        pos += len(body)
+    return bytes([0, len(bodies)]) + table + b"".join(b for _, b in bodies)
+
+
+def _director_spec(donor_idx=7):
+    # tag 0 = Init (SetModel renders); tag 1 = LOOP firing Field() -> a cutscene WARP director
+    entry = _mk_entry([(0, opcodes.set_model(133, 50) + opcodes.RETURN),
+                       (1, opcodes.field(100) + opcodes.RETURN)])
+    return {"donor_idx": donor_idx, "entry_bytes": entry, "graft_safety": "clean", "carry_tags": [0, 1],
+            "kind": "npc", "model": "GEO_DIR", "instances": [{"arg": 0}], "needs_d9": {},
+            "donor_player_entry": None, "self_positions": True}
+
+
+def test_loop_warps_detects_field_in_loop():
+    d = _director_spec()
+    assert _obj._loop_warps(d["entry_bytes"])                                   # Field() in tag-1 LOOP
+    assert not _obj._loop_warps(_obj.carry_bytes(d["entry_bytes"], [0]))         # loop dropped -> not a warper
+    assert not _obj._loop_warps(_prop_spec()["entry_bytes"])                     # tag-0-only prop, no loop
+
+
+def test_graft_skips_warp_director_and_records_it():
+    skipped = []
+    assert _obj.graft_objects(CLEAN, [_director_spec(donor_idx=7)], out_skipped=skipped) == CLEAN  # not carried
+    assert skipped == [7]
+
+
+def test_graft_keeps_director_when_its_loop_is_dropped():
+    s = _director_spec(donor_idx=7)
+    s["carry_tags"] = [0]                                    # init_only: the warp loop is dropped -> renders
+    g = _obj.graft_objects(CLEAN, [s])
+    assert g != CLEAN and EbScript.from_bytes(g).to_bytes() == g                 # grafted + valid
+
+
+def test_graft_keeps_clean_nonwarp_object():
+    g = _obj.graft_objects(CLEAN, [dict(_prop_spec())])                          # a normal prop -> unaffected
+    assert g != CLEAN and EbScript.from_bytes(g).to_bytes() == g
+
+
 def test_graft_grows_entry_table_past_the_template_ceiling():
     s = _prop_spec()
     specs = [{**s, "donor_idx": 100 + i} for i in range(14)]   # more than the blank field's 10 slots
@@ -238,3 +281,16 @@ def test_graft_field122_cask_renders_faithfully_not_a_player_clone():
     ops = {ins.op for f in eb.entry(back["donor_idx"]).funcs for ins in eb.instrs(f)}
     assert 0x2C not in ops                  # NO DefinePlayerCharacter (not a player clone)
     assert 2 not in [f.tag for f in eb.entry(back["donor_idx"]).funcs]   # the dangling interactive tag dropped
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_synth_fork_drops_the_dali_shop_director():
+    # #13b end to end on real data: the Dali Weapon Shop carries a cutscene WARP-director; a synth fork drops it.
+    from ff9mapkit import extract
+    specs = eventscan.scan_objects_verbatim(extract.extract_event_script("fbg_n06_vgdl_map103_dl_shp_0"))
+    carried = [s for s in specs if s.get("graft_safety") != "refuse"]
+    assert any(_obj._loop_warps(_obj.carry_bytes(s["entry_bytes"], s.get("carry_tags"))) for s in carried)  # present
+    skipped = []
+    _obj.graft_objects(CLEAN, [dict(s) for s in specs], out_skipped=skipped)
+    assert skipped                                          # the warp-director is dropped from the synth carry
+    assert len(skipped) < len(carried)                      # ...but the non-director NPCs still carry
