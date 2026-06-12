@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — World Hub: a playable journey selector (choice `warp` action + `[player] model=`), IN-GAME PROVEN (0.9.48)
+- The **World Hub** is a playable field that lets the player pick which **journey** (a complete arc = one or
+  more chained campaign slices) to play, then warps them in — NOT a worldmap (no engine fork), just a field +
+  a dialogue-choice menu + warps. overworld's lane (memory `project-ff9-world-hub`). Reuses the existing
+  `[[npc]]`+`[[choice]]` pipeline + two small general additions:
+  - **The choice `warp` action** (`content/event.warp` + `choice.option_body`): a `[[choice.options]]` row can
+    `warp = <field id>` (+ optional `set_scenario = N`). Grounded finding: a `Field` op transitions directly
+    from a **tag-3 talk handler** (14+ shipping fields do — the Dali innkeeper, the airship, Gargan Roo),
+    unlike a bare `Field` in Main_Init. The warp = `RunSoundCode(265,65535)` + `Field`; `warp` is last in the
+    option body (it transitions away). Byte-identical without it.
+  - **`[player] model=`** (`npc.set_player_model` + build wiring): re-skin a synthesized field's player avatar
+    to any model — the hub's stock Moogle (**220** `GEO_NPC_F0_MOG`, the save moogle), keeping
+    `DefinePlayerCharacter`. The field-side twin of `--swap-player`; free-roam-only.
+- `examples/world_hub/` — a self-contained 3-field scaffold (hub 4500 + journeys 4501/4502). `validate()` flags
+  a bad `warp`/`set_scenario`. 9 tests (`test_world_hub`).
+- ★ **IN-GAME PROVEN (2026-06-12):** F6→Warp 4500 — walk as the moogle, talk → the journey menu shows, pick →
+  warp into the destination (custom arrival dialogue), "Stay here" closes. Playtest fixes: stock moogle = 220
+  (not 199, a bat-winged variant); the text block must avoid **1073** (shadowed by the higher `FF9CustomMap`
+  folder). ★ Deploy gotcha (CLAUDE.md §3): `deploy_field`'s wholesale-snapshot revert RE-CLOBBERS a multi-field
+  text block back to the first-deployed value — verify the DictionaryPatch textids, or deploy as a campaign.
+- **Deferred follow-up now UNBLOCKED:** New-Game→hub uses master's new `tools/retarget_newgame_warp.py 4500`
+  (point the field-70 override at the hub). The `[[journey]]` sugar + generator ("hardcoded MVP → generator")
+  remains the next step.
+
 ### Added — campaign-scale New-Game capstone: boot directly into a forked verbatim CHAIN (0.9.47)
 - **`tools/retarget_newgame_warp.py <id>`** — point the field-70 New-Game override at any custom field id (the
   chain's entry), byte-patching its `Field()` literal in place via `content.verbatim.remap_fields`. Composes with

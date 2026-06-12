@@ -65,6 +65,30 @@ def reveal_object(slot: int) -> bytes:
     return opcodes.init_object(slot, 0)
 
 
+# RunSoundCode(265, 65535): the field-transition whoosh present byte-identically in EVERY real warp
+# (verified in the airship 455<->457, the Dali innkeeper 351->352, Gargan Roo 950->914 talk handlers).
+WARP_SOUND = (265, 65535)
+
+
+def warp(target: int) -> bytes:
+    """Body part: warp the player to ``Field(target)``. Grounded in real *talk-handler* warps -- a Field
+    op TRANSITIONS directly from an event / tag-3 _SpeakBTN context (unlike a bare Field in Main_Init,
+    which no-ops -- see memory project_ff9_field_warp_pattern); 14+ shipping fields warp the player from a
+    tag-3 handler this way (the Dali innkeeper, the airship, Gargan Roo...). Plays the transition sound,
+    then warps. The warp TRANSITIONS AWAY, so this MUST be the LAST part of a body (anything after is
+    unreachable). (The real warps also run a fade -- constant writes to the screen-fade vars + step ops;
+    omitted here as cosmetic polish. If the cut reads abrupt in-game, splice the proven fade tail.)"""
+    return opcodes.run_sound_code(*WARP_SOUND) + opcodes.field(int(target))
+
+
+def set_scenario(value: int) -> bytes:
+    """Body part: set the ScenarioCounter (the story beat) -- the save-backed gEventGlobal UInt16 @0.
+    Reuses :func:`ff9mapkit.content.startup.startup_body` (story_flags' lever) so an event/choice can
+    advance the beat (e.g. a hub journey-pick seeds the destination's beat before the warp)."""
+    from . import startup as _startup
+    return _startup.startup_body([], scenario=int(value))
+
+
 def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_CLASS,
                      requires_flag: int | None = None, requires_set: bool = True,
                      space_item: int | None = None) -> bytes:

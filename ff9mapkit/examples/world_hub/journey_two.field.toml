@@ -1,0 +1,19 @@
+# Journey destination #2 -- a TRIVIAL slice for the scaffold (proves the second warp target).
+[field]
+id = 4502
+name = "JOURNEY_TRENO"
+borrow_bg = "TRNO_MAP400_TR_GAT_0"   # Treno gate -- a distinct backdrop
+area = 20
+text_block = 33                      # unshadowed (not 1073)
+
+[camera]
+borrow = "camera_j2.bgx"
+
+[player]
+spawn = [1070, -21649]               # the real Treno-gate player spawn
+
+[[npc]]
+name = "Noble"
+pos = [1270, -21649]
+model = 220
+dialogue = "Welcome to the Treno journey, kupo!"

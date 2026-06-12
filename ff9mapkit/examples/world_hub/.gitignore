@@ -1,0 +1,6 @@
+# Provenance: the BG-borrow cameras are extracted from YOUR FF9 install (game-derived bytes) -- never
+# committed. The repo ships the .toml authoring intent + the README; you extract the cameras locally
+# (see README.md). Keep this dir clean of game data.
+*.bgx
+*.bgi.bytes
+*.eb.bytes

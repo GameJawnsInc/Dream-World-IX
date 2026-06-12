@@ -1,0 +1,25 @@
+# Journey destination #1 -- a TRIVIAL slice for the scaffold: it just proves the warp landed.
+# Replace with a real `import-chain --verbatim` slice (story_flags' lane) for a faithful journey;
+# add a [startup] block here to boot this journey's story beat on arrival (destination self-seed).
+[field]
+id = 4501
+name = "JOURNEY_BMV"
+borrow_bg = "BMVL_MAP530_BV_FR1_0"   # Black Mage Village -- a distinct backdrop so the warp is obvious
+area = 30
+text_block = 22                      # unshadowed (not 1073)
+
+[camera]
+borrow = "camera_j1.bgx"
+
+[player]
+spawn = [-1387, 6313]                # the real BMVL player spawn (a guaranteed-valid floor coord)
+
+[[npc]]
+name = "Greeter"
+pos = [-1200, 6313]
+model = 220
+dialogue = "Kupo! You arrived at the Black Mage Village journey!"
+
+# (A real journey would seed its beat here, e.g.:)
+# [startup]
+# scenario = 2600

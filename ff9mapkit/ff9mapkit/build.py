@@ -745,6 +745,12 @@ def validate(project: FieldProject) -> list[str]:
                 if "requires_flag" in o and "requires_flag_clear" in o:
                     problems.append(f"[[choice]] #{c} option {oi} can't have BOTH requires_flag and "
                                     f"requires_flag_clear -- pick one (shown when SET vs when CLEAR).")
+                if "warp" in o and not (isinstance(o["warp"], int) and o["warp"] > 0):
+                    problems.append(f"[[choice]] #{c} option {oi} warp {o['warp']!r} must be a field id "
+                                    f"(a positive int -- the World-Hub journey destination)")
+                if "set_scenario" in o and not (isinstance(o["set_scenario"], int) and 0 <= o["set_scenario"] <= 32767):
+                    problems.append(f"[[choice]] #{c} option {oi} set_scenario {o['set_scenario']!r} must be "
+                                    f"a ScenarioCounter value 0..32767")
         if isinstance(opts, list) and opts:
             n = len(opts)
             d = ch.get("default")
@@ -2334,6 +2340,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if "player" in project.raw and "spawn" in project.raw["player"]:
         sp = project.raw["player"]["spawn"]
         eb = _npc.set_player_spawn(eb, int(sp[0]), int(sp[1]))
+    # [player] model= : re-skin the player avatar (the World-Hub Moogle PC, or any model on a free-roam
+    # field). Resolved like an [[npc]] model (name/GEO/id -> movement clips via the Info Hub join). Movement
+    # clips only -- a scripted-gesture field would glitch (same caveat as --swap-player), so it's free-roam-only.
+    if "player" in project.raw and project.raw["player"].get("model") is not None:
+        pm = resolve_npc_model(project.raw["player"]["model"])
+        eb = _npc.set_player_model(eb, pm, _catalog.npc_anims(pm) or None)
 
     # encounter (+ the after-battle reinit it requires)
     if has_encounter:

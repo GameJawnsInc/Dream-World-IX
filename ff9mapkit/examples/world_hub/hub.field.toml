@@ -1,0 +1,62 @@
+# ============================================================================
+#  WORLD HUB -- a playable JOURNEY SELECTOR  (MVP scaffold; overworld's lane).
+#
+#  A "journey" = a complete playable arc (one or more chained campaign slices).
+#  The hub's only job: select -> (optionally seed) -> warp into the chosen
+#  journey's entry field. It is decoupled from journey internals -- it needs only
+#  {name, entry id, optional seed} per row. (memory: project-ff9-world-hub)
+#
+#  HOW IT WORKS: you walk as a Moogle; talk to Stiltzkin -> a dialogue-choice
+#  menu of journeys -> each row warps you in (content.event.warp: the proven
+#  talk-handler RunSoundCode + Field, grounded in the Dali innkeeper / airship).
+#  ONE-WAY: to switch journeys, start a New Game (which lands back here).
+#
+#  PLAYTEST (the loop): deploy all three fields (hub + the two journeys), then
+#  in-game F6 -> Warp -> 4500, talk to Stiltzkin, pick a journey, confirm you
+#  warp into the destination. (New Game -> hub is a follow-up: retarget the
+#  field-70 override to 4500 in the highest mod folder.)
+#
+#  PLACEMENT: spawn/NPC coords are the human's to confirm in-game (Hard-Constraint
+#  -- I can't see the game). The build's off-walkmesh lint catches gross errors;
+#  nudge if the moogle or Stiltzkin land off the floor.
+# ============================================================================
+
+[field]
+id = 4500
+name = "WORLD_HUB"
+borrow_bg = "GRGR_MAP420_GR_CEN_0"   # a real room as the backdrop (swap to ANY area>=10 field for theme)
+area = 21
+text_block = 8                       # a real MesDB id, NOT shadowed by a higher mod folder (1073 IS shadowed by
+                                     # FF9CustomMap -> wrong menu text). Pick one the deploy's shadow check says is free.
+
+[camera]
+borrow = "camera_hub.bgx"            # the borrowed field's real camera (extract it: see README). *.bgx is
+                                     # gitignored (game-derived) -- the repo ships intent, you extract bytes.
+
+[player]
+spawn = [404, 127]
+model = 220                          # walk the hub as the iconic Moogle (GEO_NPC_F0_MOG, the save moogle) -- [player] model=
+
+[[npc]]
+name = "Stiltzkin"
+pos = [480, 127]                     # the narrator moogle, beside the spawn (confirm on-floor in-game)
+model = 220                          # the same iconic moogle rig (GEO_NPC_F0_MOG)
+
+# The journey menu: each option warps to a journey's entry field. `set_scenario` (optional) seeds the beat
+# hub-side before the warp; a journey's DESTINATION may instead self-seed via its own [startup]/[party].
+[[choice]]
+npc = "Stiltzkin"
+prompt = "Kupo! Which journey will you take?"
+cancel = 2                           # B / cancel -> the last row ("Stay here") -> no warp
+
+[[choice.options]]
+text = "The Black Mage Village"
+warp = 4501                          # -> journey_one
+set_scenario = 2600                  # demo: assert a beat before warping (optional)
+
+[[choice.options]]
+text = "Treno, City of Nobles"
+warp = 4502                          # -> journey_two
+
+[[choice.options]]
+text = "Stay here, kupo..."          # no warp -- closes the menu

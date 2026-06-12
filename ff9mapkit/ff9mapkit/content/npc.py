@@ -188,3 +188,34 @@ def set_player_spawn(data, x: int, z: int, *, entry_index: int | None = None) ->
     abs_x = f0.abs_start + xo
     abs_z = f0.abs_start + zo
     return edit.patch_bytes(edit.patch_bytes(data, abs_x, pi16(x)), abs_z, pi16(z))
+
+
+def set_player_model(data, model_id: int, anims: dict | None = None, *,
+                     animset: int | None = None, entry_index: int | None = None) -> bytes:
+    """Re-skin the PLAYER's field avatar to ``model_id`` + its movement ``anims`` -- the `[player] model=`
+    option (walk an authored field as a Moogle / any model, the World-Hub PC). Patches the player entry's
+    Init ``SetModel`` + the 5 movement-animation setters in place (same byte-exact width as a swap), while
+    KEEPING ``DefinePlayerCharacter`` (it is still the player, just a different rig). This is the field-side
+    twin of ``playerswap.swap_player`` for a SYNTHESIZED field (vs a fork): the player here is the blank
+    field's Zidane, found unambiguously by :func:`_find_player_entry`.
+
+    ``anims`` = ``{stand, walk, run, left, right}`` (from :func:`ff9mapkit.catalog.npc_anims`); a missing key
+    keeps the cloned clip. Only MOVEMENT clips are swapped -- a scripted-gesture cutscene would still play
+    the donor rig's gesture clips (same caveat as ``--swap-player``); a hub field is free-roam, so clean.
+    Raises if the player Init has no ``SetModel`` to re-skin."""
+    eb = EbScript.from_bytes(data)
+    pe = entry_index if entry_index is not None else _find_player_entry(eb)
+    entry = eb.entry(pe)
+    f0, _base0, loc = _func0_locations(eb, entry)
+    if loc["model"] is None:
+        raise ValueError("player Init has no SetModel -- cannot set [player] model")
+    body0 = bytearray(data[f0.abs_start:f0.abs_end])
+    body0[loc["model"]:loc["model"] + 2] = pu16(int(model_id))
+    if animset is not None and loc["animset"] is not None:
+        body0[loc["animset"]] = int(animset) & 0xFF
+    if anims and loc["stand"] is not None:
+        for k, name in enumerate(ANIM_ORDER):
+            if name in anims and anims[name] is not None:
+                o = loc["stand"] + 4 * k
+                body0[o:o + 2] = pu16(int(anims[name]))
+    return edit.patch_bytes(data, f0.abs_start, bytes(body0))   # same length -> in-place
