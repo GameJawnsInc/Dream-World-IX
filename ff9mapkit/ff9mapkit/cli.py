@@ -315,6 +315,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
         # exactly 2 chars, so single-digit areas never resolve. The native path ships its own art at a remapped
         # area>=10 (seam-free + lit), so auto-route the default (borrow) path to native there -- this unblocks
         # forking the early-game fields (Alexandria area1, Cargo Ship area0) with a plain `import`.
+        if getattr(args, "neutralize_gestures", False) and not getattr(args, "swap_player", None):
+            print("--neutralize-gestures requires --swap-player (it rewrites the swapped rig's gestures)",
+                  file=sys.stderr)
+            return 2
         if getattr(args, "swap_player", None):
             from . import playerswap as _ps
             _ps.resolve_char(args.swap_player)   # fail fast on an unknown character (ValueError -> caught below)
@@ -348,7 +352,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
         if getattr(args, "swap_player", None):           # productionized Tier-A: walk as a different existing char
             from . import playerswap
             args._swapped_to, _ = playerswap.resolve_char(args.swap_player)
-            args._swap_gestures = extract.apply_player_swap(toml, args._swapped_to) or 0
+            args._swap_gestures = extract.apply_player_swap(
+                toml, args._swapped_to, neutralize=getattr(args, "neutralize_gestures", False)) or 0
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -364,10 +369,14 @@ def _cmd_import(args: argparse.Namespace) -> int:
         if getattr(args, "_swapped_to", None):
             print(f"  player : SWAPPED -> you walk as {args._swapped_to} (SetModel + movement anims patched; "
                   "party/menu state unchanged)")
-            if args._swap_gestures:
+            if args._swap_gestures and getattr(args, "neutralize_gestures", False):
+                print(f"  gesture: NEUTRALIZED {args._swap_gestures} scripted gesture(s) -> the rig's idle, so "
+                      f"{args._swapped_to} STANDS cleanly through the cutscene (it won't emote -- for story "
+                      "fidelity use a verbatim fork at the right beat). WaitAnimation timing left intact.")
+            elif args._swap_gestures:
                 print(f"  WARN   : the player plays {args._swap_gestures} scripted GESTURE(s) (RunAnimation) -- those "
                       f"reference the ORIGINAL rig and will glitch on {args._swapped_to} (only movement clips are "
-                      "swapped). This is a cutscene-heavy field; --swap-player is clean on free-roam fields.")
+                      "swapped). Add --neutralize-gestures to stand cleanly, or fork a free-roam field.")
         if auto_native_area is not None:
             print(f"  note   : auto-selected --native (source area {auto_native_area} < 10 black-screens via BG-borrow)")
     elif args.editable:
@@ -524,8 +533,13 @@ def _print_campaign_summary(plan, out_dir, *, verbatim=False):
             print(f"    {len(sk)} member(s) had no swappable player entry -- left as the donor's: " + " ".join(sorted(sk)))
         if gw:
             tot = sum(gw.values())
-            print(f"    WARN: {len(gw)} member(s) play {tot} scripted GESTURE(s) that will glitch on {swap} "
-                  f"(cutscene fields; only movement clips are swapped): " + " ".join(sorted(gw)))
+            if getattr(plan, "neutralized", False):
+                print(f"    NEUTRALIZED {tot} scripted gesture(s) across {len(gw)} member(s) -> {swap}'s idle "
+                      f"(stands cleanly through the cutscenes): " + " ".join(sorted(gw)))
+            else:
+                print(f"    WARN: {len(gw)} member(s) play {tot} scripted GESTURE(s) that will glitch on {swap} "
+                      f"(cutscene fields; only movement clips are swapped). Add --neutralize-gestures: "
+                      + " ".join(sorted(gw)))
     print(f"  wrote: {out_dir}/campaign.toml")
     print(f"Next: ff9mapkit build-all {out_dir}/campaign.toml")
 
@@ -609,6 +623,10 @@ def _cmd_add_field(args: argparse.Namespace) -> int:
 def _cmd_import_chain(args: argparse.Namespace) -> int:
     from pathlib import Path
     from . import chain, eventscan, extract
+    if getattr(args, "neutralize_gestures", False) and not getattr(args, "swap_player", None):
+        print("--neutralize-gestures requires --swap-player (it rewrites the swapped rig's gestures)",
+              file=sys.stderr)
+        return 2
     if getattr(args, "swap_player", None):       # validate the char + force verbatim BEFORE the (costly) walk
         from . import playerswap
         try:
@@ -661,7 +679,8 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
             plan = campaign.write_campaign(result, Path(args.out), id_base=id_base,
                         flag_base=args.flag_base, flags_per_field=args.flags_per_field,
                         name=cname, mod_folder=mod_folder, game=args.game, live_seams=args.live_seams,
-                        verbatim=args.verbatim, swap_player=getattr(args, "swap_player", None))
+                        verbatim=args.verbatim, swap_player=getattr(args, "swap_player", None),
+                        neutralize_gestures=getattr(args, "neutralize_gestures", False))
         except (RuntimeError, FileNotFoundError, ValueError) as e:
             print(str(e), file=sys.stderr)
             return 2
@@ -1399,6 +1418,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "entry); party/menu state is unchanged. CLEAN on free-roam fields; on a cutscene-heavy "
                          "field the player's scripted GESTURES glitch (warned) -- only movement clips are swapped. "
                          "(memory project-ff9-pc-party-system)")
+    im.add_argument("--neutralize-gestures", action="store_true",
+                    help="with --swap-player: rewrite the player's scripted cutscene GESTURES to the new rig's "
+                         "idle so it STANDS cleanly instead of glitching (the character won't emote -- for story "
+                         "fidelity use a verbatim fork at the right beat instead). Requires --swap-player.")
     im.add_argument("--atlas", action="store_true", help="also extract the raw atlas.png (BG-borrow mode only)")
     im.add_argument("--dialogue", action="store_true",
                     help="also append the real field's NPC dialogue as editable [[npc]] stubs (commented) "
@@ -1461,6 +1484,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "or id, e.g. a moogle 199). Swaps every member's player rig (SetModel + movement anims). "
                          "Implies --verbatim; party/menu unchanged; cutscene-gesture members warned. "
                          "(see import --swap-player)")
+    ic.add_argument("--neutralize-gestures", action="store_true",
+                    help="with --swap-player: stand cleanly through cutscene gestures across the chain "
+                         "(see import --neutralize-gestures). Requires --swap-player.")
     ic.set_defaults(func=_cmd_import_chain)
 
     ba = sub.add_parser("build-all", help="compile a campaign.toml (all member fields) into one Memoria mod (P3)")

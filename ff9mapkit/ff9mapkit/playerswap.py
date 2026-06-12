@@ -92,6 +92,17 @@ def _arg_off(ins, ai):
     return off
 
 
+def _put_arg(out: bytearray, ins, ai: int, value: int) -> None:
+    """Overwrite literal operand ``ai`` of ``ins`` in ``out`` with ``value`` (little-endian, same width).
+    Raises ``ValueError`` if ``value`` doesn't fit the operand's byte width. Shared by swap_player +
+    neutralize_gestures -- a same-width in-place patch never shifts offsets."""
+    w = argsize(ins.op, ai)
+    if int(value) >= (1 << (8 * w)):
+        raise ValueError("value %d does not fit arg %d (%d byte(s)) of op %#x" % (value, ai, w, ins.op))
+    o = ins.off + _arg_off(ins, ai)
+    out[o:o + w] = int(value).to_bytes(w, "little")
+
+
 def _has_setmodel(eb, p):
     init = eb.entry(p).func_by_tag(0)
     return init is not None and any(i.op == SETMODEL_OP for i in eb.instrs(init))
@@ -128,13 +139,26 @@ def swap_targets(eb):
             if eventscan._player_model(eb, p) == m and _has_setmodel(eb, p)]
 
 
+def _targets(eb, entry):
+    """Normalize the ``entry`` override to a list of player-entry indices: ``None`` -> :func:`swap_targets`,
+    a single int -> ``[int]``, an iterable -> ``list(it)``. Lets a caller PIN the target set computed on the
+    ORIGINAL bytes: ``swap_targets``/``leader_model`` key on the Init ``SetModel`` id, which ``swap_player``
+    MUTATES, so re-deriving the targets on the swapped bytes would drift to a different entry on a
+    Zidane-present multi-PC field (the gesture-neutralize-on-the-wrong-actor bug)."""
+    if entry is None:
+        return swap_targets(eb)
+    if isinstance(entry, int):
+        return [entry]
+    return list(entry)
+
+
 def scripted_gesture_ops(eb_bytes, *, entry=None) -> int:
     """How many scripted-gesture ops (``RunAnimation``/``RunAnimationEx``) the player entry plays. These
     reference the ORIGINAL rig's clips (the swap only repoints the 6 movement clips), so any count > 0 means
     ``--swap-player`` will glitch those gestures on the new model -- i.e. the field is a cutscene-heavy one
     where the swap is cosmetic-and-risky, not a clean free-roam swap. Used to WARN at swap time."""
     eb = EbScript.from_bytes(eb_bytes)
-    targets = [entry] if entry is not None else swap_targets(eb)
+    targets = _targets(eb, entry)
     return sum(1 for e in targets for f in eb.entry(e).funcs for i in eb.instrs(f) if i.op in RUN_ANIM_OPS)
 
 
@@ -146,30 +170,62 @@ def swap_player(eb_bytes, char, *, entry=None) -> bytes:
     patch that would overflow / corrupt the script."""
     _name, spec = resolve_char(char)
     eb = EbScript.from_bytes(eb_bytes)
-    targets = [entry] if entry is not None else swap_targets(eb)
+    targets = _targets(eb, entry)
     if not targets:
         raise NoSwappablePlayer("no player entry with a SetModel to swap")
     out = bytearray(eb_bytes)
-
-    def put(ins, ai, value):
-        w = argsize(ins.op, ai)
-        if int(value) >= (1 << (8 * w)):
-            raise ValueError("value %d does not fit arg %d (%d byte(s)) of op %#x" % (value, ai, w, ins.op))
-        o = ins.off + _arg_off(ins, ai)
-        out[o:o + w] = int(value).to_bytes(w, "little")
-
     for tgt in targets:
         for ins in eb.instrs(eb.entry(tgt).func_by_tag(0)):
             if any(ins.arg_is_expr):
                 continue
             if ins.op == SETMODEL_OP and ins.args:
-                put(ins, 0, spec["model"])
+                _put_arg(out, ins, 0, spec["model"])
                 if "eye" in spec and len(ins.args) >= 2:        # playables carry an eye-height; an arbitrary
-                    put(ins, 1, spec["eye"])                    # model keeps the field's (cosmetic dialog anchor)
+                    _put_arg(out, ins, 1, spec["eye"])          # model keeps the field's (cosmetic dialog anchor)
             elif ins.op in ANIM_OPS and ins.args:
-                put(ins, 0, spec.get(ANIM_OPS[ins.op], spec["idle"]))
+                _put_arg(out, ins, 0, spec.get(ANIM_OPS[ins.op], spec["idle"]))
 
     out = bytes(out)
     if EbScript.from_bytes(out).to_bytes() != out:                # the patch must not corrupt the structure
         raise ValueError("player swap produced a non-round-tripping .eb")
+    return out
+
+
+def neutralize_gestures(eb_bytes, char, *, entry=None) -> bytes:
+    """Make a SWAPPED player stand/idle cleanly through a cutscene instead of T-posing on its foreign gesture
+    clips. On every swap-target player entry (ALL funcs -- gestures live in the LOOP/talk funcs, never Init), it
+    rewrites each scripted ``RunAnimation`` (0x40) clip operand to the swapped rig's OWN idle clip, and repoints
+    any LOOP movement re-sets (``ANIM_OPS``: SetStand/Walk/... ) to the rig's matching clips. The paired
+    ``WaitAnimation``/``Wait``/``SetAnimationFlags`` are LEFT INTACT -- the rig's idle is an already-loaded valid
+    clip, so the wait completes normally (no hang; the donor clip would load a foreign-skeleton clip = the glitch).
+
+    Engine-grounded (Memoria ``DoEventCode``/``ProcessAnime``): RunAnimation is NAME-keyed via a global clip dict,
+    so the substitute idle (loaded by ``--swap-player``'s SetStandAnimation) gives a real frame count and clears
+    ``afExec`` at clip end. Pair with :func:`swap_player` (SAME char); run it on the swapped bytes. A same-width
+    2-byte patch (round-trip-checked). Raises :class:`NoSwappablePlayer` / ``ValueError`` like swap_player.
+
+    NOTE on ``RunAnimationEx`` (0xBD): it never targets the player in the surveyed corpus (its clip arg is at
+    index 1 with a separate object arg), so to avoid rewriting a foreign object's animation it is NOT touched;
+    the gesture WARN still flags it if a field ever has one."""
+    from . import eventscan
+    _name, spec = resolve_char(char)
+    eb = EbScript.from_bytes(eb_bytes)
+    targets = _targets(eb, entry)
+    if not targets:
+        raise NoSwappablePlayer("no player entry with a SetModel to neutralize gestures on")
+    out = bytearray(eb_bytes)
+    for tgt in targets:
+        if eventscan._player_model(eb, tgt) != spec["model"]:   # only an entry actually swapped to `char`:
+            continue                                            # never rewrite a foreign rig's gestures (drift/misuse guard)
+        for f in eb.entry(tgt).funcs:
+            for ins in eb.instrs(f):
+                if any(ins.arg_is_expr) or not ins.args:
+                    continue
+                if ins.op == 0x40:                              # RunAnimation: clip arg 0 -> the rig's idle
+                    _put_arg(out, ins, 0, spec["idle"])
+                elif ins.op in ANIM_OPS:                        # a LOOP movement re-set -> the rig's matching clip
+                    _put_arg(out, ins, 0, spec.get(ANIM_OPS[ins.op], spec["idle"]))
+    out = bytes(out)
+    if EbScript.from_bytes(out).to_bytes() != out:
+        raise ValueError("gesture neutralize produced a non-round-tripping .eb")
     return out

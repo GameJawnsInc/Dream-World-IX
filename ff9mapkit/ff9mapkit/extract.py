@@ -1292,12 +1292,14 @@ def _native_atlas(field: str, game=None, bundle=None):
     return (base or mod), ("base (TILESIZE MISMATCH -- art will garble)" if base else "none found")
 
 
-def apply_player_swap(toml_path, char):
+def apply_player_swap(toml_path, char, *, neutralize=False):
     """Swap the verbatim fork's player to ``char`` in place (patches the ``[verbatim_eb]`` sidecar `.eb`).
-    Shared by the single ``import --swap-player`` and the chain (every member). Returns the count of scripted
-    player GESTURES that will glitch on the new rig (:func:`playerswap.scripted_gesture_ops` -- the caller
-    warns), or ``None`` if the project has no verbatim sidecar to swap (a degraded / non-verbatim member).
-    Raises ``ValueError`` on an unknown char or a member with no swappable player entry."""
+    Shared by the single ``import --swap-player`` and the chain (every member). When ``neutralize`` is set,
+    also rewrites the player's scripted GESTURES to the rig's idle so a cutscene field stands cleanly instead
+    of glitching (:func:`playerswap.neutralize_gestures`). Returns the count of scripted player GESTURES (the
+    number that would glitch un-neutralized / were neutralized -- the caller phrases the message), or ``None``
+    if the project has no verbatim sidecar to swap (a degraded / non-verbatim member). Raises ``ValueError``
+    on an unknown char or a member with no swappable player entry."""
     import tomllib
     from . import playerswap
     toml_path = Path(toml_path)
@@ -1305,9 +1307,18 @@ def apply_player_swap(toml_path, char):
     if not vb or "bin" not in vb:
         return None                              # not a verbatim fork (e.g. a logic-only stub) -> nothing to swap
     binp = toml_path.parent / vb["bin"]
-    swapped = playerswap.swap_player(binp.read_bytes(), char)
+    from .eb import EbScript
+    original = binp.read_bytes()
+    # resolve the swap targets ONCE on the original bytes: swap_targets keys on the Init SetModel id, which
+    # swap_player MUTATES, so re-deriving on the swapped bytes drifts to a different entry on a Zidane-present
+    # multi-PC field (neutralizing the wrong actor). Pin the set and reuse it for every pass.
+    targets = playerswap.swap_targets(EbScript.from_bytes(original))
+    swapped = playerswap.swap_player(original, char, entry=targets)
+    n_gestures = playerswap.scripted_gesture_ops(swapped, entry=targets)
+    if neutralize:
+        swapped = playerswap.neutralize_gestures(swapped, char, entry=targets)
     binp.write_bytes(swapped)
-    return playerswap.scripted_gesture_ops(swapped)
+    return n_gestures
 
 
 def write_native_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,

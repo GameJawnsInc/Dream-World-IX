@@ -176,7 +176,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   `Cinematic` ops in the field-70 override (→ instant `Field(4003)`, no DLL, no `SkipIntros`). The companion
   overrides `EVT_ALEX1_AT_STREET_A` (id 100 → doors to 4003/4004/30100) + `EVT_ALEX1_TS_CARGO_0` (id 50) are the
   walk-through-Alexandria route (separate from the direct New-Game→4003 hop). → memory `project-ff9-new-game-entry`.
-- **Versions:** kit `0.9.39`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.41`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -962,6 +962,25 @@ Read these on demand — they hold the full technical detail this file only summ
   MERGE with the base (no "must define 15 sets" boot crash). `validate()` resolves every name; new `ModLayout`
   paths. 15 tests; clear of story_flags' compose lane (I ship the deltas, they compose). kit 0.9.40; 948 tests
   (15 new, atop overworld's list-fields 933).
+- **`--swap-player --neutralize-gestures` — stand cleanly through a cutscene (the option-#4 swap fix).** Makes a
+  swapped character STAND/idle through a cutscene field instead of T-posing on the donor rig's scripted gestures.
+  On every swap-target player entry it rewrites each `RunAnimation` (0x40) clip + LOOP movement re-sets to the
+  swapped rig's OWN idle, leaving `WaitAnimation`/`SetAnimationFlags` intact (timing preserved). ★ **Engine-grounded**
+  (a workflow read Memoria `DoEventCode`/`ProcessAnime`): RunAnimation is NAME-keyed via a global clip dict, so a
+  foreign donor clip loads a foreign-skeleton clip = the glitch; the rig's idle is already loaded (by the swap's
+  SetStandAnimation) so the paired `WaitAnimation` completes — no hang. NOP-ing was REJECTED (orphans the wait).
+  Cross-rig gesture REMAP stays infeasible (no shared vocabulary) — neutralize trades emoting for not-glitching;
+  for story fidelity use a verbatim fork at the right beat. `playerswap.neutralize_gestures` (reuses `_put_arg`);
+  `apply_player_swap(neutralize=)`; `write_campaign(neutralize_gestures=)`. ★ A 2-lens adversarial review caught a
+  BLOCKER: swap+neutralize ran as two passes each re-deriving `swap_targets()`, which keys on the SetModel id the
+  swap MUTATES → on Zidane-present multi-PC fields (87/668) it DRIFTED to a co-actor (neutralized the wrong entry +
+  corrupted a bystander). Fixed: resolve targets ONCE on the original bytes + reuse (the `entry=` override takes a
+  list) + a defensive model-match guard; field-500 regression test; chain summary no longer false-WARNs. ★ Surfaced
+  a PRE-EXISTING orthogonal issue (spawned as a task): `import` ships a DIFFERENT event script than
+  `fork-report`/`list-fields` analyze (field 100: import = Zidane multi-PC, eb_for_id = Vivi single-PC). Offline +
+  on-the-real-import-artifact proven (entry 12 Zidane→Steiner, all 24 gestures → idle); the in-game "stands cleanly"
+  check is the human step. Touches `playerswap.py`/`extract.py`/`cli.py`/`campaign.py`. kit 0.9.41; 951 tests. See
+  memory [[project-ff9-non-zidane-donors]].
 
 ---
 

@@ -188,7 +188,8 @@ def _collect_edges_seams(result, members_ids, new_id, name_of):
 
 def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, flags_per_field=64,
                    name: str, mod_folder: str, game=None, live_seams=False,
-                   entry_entrance=0, verbatim=False, swap_player=None) -> CampaignPlan:
+                   entry_entrance=0, verbatim=False, swap_player=None,
+                   neutralize_gestures=False) -> CampaignPlan:
     """Fork the walk into ``out_dir``: a per-member subdir each + a top-level campaign.toml. Returns the
     CampaignPlan. Members in area>=10 BG-borrow; area<10 members fork as a NATIVE scene (own atlas+.bgs, no
     .bgx -- seamless, no in-game export needed). Both are fully offline; a field with no usable background
@@ -237,7 +238,7 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
                 member_exits[real] = _meta.get("imported_content", {}).get("field_exits", [])
                 if swap_name:                            # play as one char across the chain (per-member swap)
                     try:
-                        n = extract.apply_player_swap(p, swap_name)
+                        n = extract.apply_player_swap(p, swap_name, neutralize=neutralize_gestures)
                         if n:
                             swap_gesture_warn[mname] = n
                     except playerswap.NoSwappablePlayer:
@@ -280,6 +281,7 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
     plan.swap_player = swap_name          # transient: --swap-player char applied to every member, + the
     plan.swap_gesture_warn = swap_gesture_warn   # members whose scripted gestures will glitch on the new rig,
     plan.swap_skipped = swap_skipped      # and members with no swappable player entry (left as the donor's)
+    plan.neutralized = bool(neutralize_gestures and swap_name)   # those gestures were rewritten to idle (won't glitch)
     (out / "campaign.toml").write_text(render_campaign_toml(plan), encoding="utf-8", newline="\n")
     return plan
 

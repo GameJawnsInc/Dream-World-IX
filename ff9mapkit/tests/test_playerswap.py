@@ -118,3 +118,58 @@ def test_scripted_gesture_ops_flags_cutscene_player_gestures():
     # the swap itself still succeeds (it only repoints movement clips); the gesture count is unchanged by it
     out = playerswap.swap_player(ALEX100, "steiner")
     assert playerswap.scripted_gesture_ops(out) == n
+
+
+def test_neutralize_gestures_rewrites_every_player_gesture_to_the_rig_idle():
+    # the cutscene-swap fix: after a swap, neutralize rewrites each RunAnimation (gesture) clip + every
+    # LOOP movement re-set (SetStandAnimation) to the swapped rig's OWN idle, so it STANDS cleanly.
+    swapped = playerswap.swap_player(ALEX100, "steiner")
+    neut = playerswap.neutralize_gestures(swapped, "steiner")
+    assert len(neut) == len(ALEX100)                          # same-length patch (no offset shift)
+    assert EbScript.from_bytes(neut).to_bytes() == neut       # valid, round-tripping .eb
+    idle = playerswap.CHARACTERS["steiner"]["idle"]           # 2001
+    eb = EbScript.from_bytes(neut)
+    run = [i.args[0] for t in playerswap.swap_targets(eb) for f in eb.entry(t).funcs
+           for i in eb.instrs(f) if i.op == 0x40 and i.args]
+    assert run and all(c == idle for c in run)                # every RunAnimation gesture -> the rig idle
+    stand = [i.args[0] for t in playerswap.swap_targets(eb) for f in eb.entry(t).funcs
+             for i in eb.instrs(f) if i.op == 0x33 and i.args]
+    assert all(c == idle for c in stand)                      # post-gesture rest poses -> the rig idle too
+
+
+def test_neutralize_leaves_wait_and_flag_ops_intact():
+    # the timing/blocking structure must be untouched (WaitAnimation 0x41 / SetAnimationFlags 0x3F), so the
+    # paired wait still completes on the rig's (real, loaded) idle clip -- no op count change, no hang.
+    swapped = playerswap.swap_player(ALEX100, "steiner")
+    neut = playerswap.neutralize_gestures(swapped, "steiner")
+    eb_a, eb_b = EbScript.from_bytes(swapped), EbScript.from_bytes(neut)
+    def _count(eb, op):
+        return sum(1 for t in playerswap.swap_targets(eb) for f in eb.entry(t).funcs
+                   for i in eb.instrs(f) if i.op == op)
+    for op in (0x40, 0x41, 0x3F):                             # RunAnimation, WaitAnimation, SetAnimationFlags
+        assert _count(eb_a, op) == _count(eb_b, op)           # no ops added or removed -- only clip args rewritten
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_neutralize_targets_the_swapped_entry_not_a_drifted_coactor():
+    # field 500 (Cargo Ship) is Zidane-present multi-PC: entry 9 = Zidane (the swap target), entry 10 = Vivi.
+    # swap_targets keys on the SetModel id, which swap_player MUTATES -- so re-resolving it AFTER the swap would
+    # DRIFT to entry 10 and neutralize the WRONG (Vivi) actor (the review's blocker). The fix pins the target set
+    # on the ORIGINAL bytes and reuses it; verify the swapped entry is neutralized + the bystander is untouched.
+    from ff9mapkit import extract, eventscan
+    data = extract.EventBundle(None).eb_for_id(500)
+    orig = EbScript.from_bytes(data)
+    targets = playerswap.swap_targets(orig)                   # pin on the original (== [9])
+    swapped = playerswap.swap_player(data, "steiner", entry=targets)
+    neut = playerswap.neutralize_gestures(swapped, "steiner", entry=targets)
+    ebn = EbScript.from_bytes(neut)
+    idle, model = playerswap.CHARACTERS["steiner"]["idle"], playerswap.CHARACTERS["steiner"]["model"]
+
+    def _runclips(eb, e):
+        return [i.args[0] for f in eb.entry(e).funcs for i in eb.instrs(f) if i.op == 0x40 and i.args]
+    for t in targets:                                         # the SWAPPED (Steiner) entry got neutralized
+        assert eventscan._player_model(ebn, t) == model
+        rc = _runclips(ebn, t)
+        assert rc and all(c == idle for c in rc)
+    assert _runclips(ebn, 10) == _runclips(orig, 10)          # the Vivi bystander is byte-for-byte untouched
+    assert eventscan._player_model(ebn, 10) == 8

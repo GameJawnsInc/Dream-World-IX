@@ -5,6 +5,29 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `--swap-player --neutralize-gestures`: stand cleanly through a cutscene (0.9.41)
+- `import <field> --swap-player <char> --neutralize-gestures` (also on `import-chain`) makes a swapped
+  character STAND/idle cleanly through a cutscene field instead of T-posing on the donor rig's scripted
+  gestures. On every swap-target player entry it rewrites each `RunAnimation` (0x40) clip — and any LOOP
+  movement re-set (`SetStandAnimation`/…) — to the swapped rig's OWN idle clip, leaving `WaitAnimation`/
+  `Wait`/`SetAnimationFlags` intact so timing is preserved. (The character won't *emote* — for story fidelity
+  use a verbatim fork at the right beat. Requires `--swap-player`.)
+- **Engine-grounded** (a workflow read Memoria's `DoEventCode`/`ProcessAnime`/`AnimationFactory`): RunAnimation
+  is NAME-keyed via one global clip dict, so a foreign donor gesture clip loads a foreign-skeleton clip = the
+  glitch; the swapped rig's idle is already loaded (by `--swap-player`'s SetStandAnimation), so substituting it
+  gives a real frame count and the paired `WaitAnimation` completes (no hang). NOP-ing was rejected (it orphans
+  the `WaitAnimation`). 0xBD (RunAnimationEx) is left untouched (never targets the player in 676 fields; its clip
+  arg sits behind an object selector). `playerswap.neutralize_gestures` (reuses the proven `_put_arg` patch);
+  `apply_player_swap(neutralize=)`; `write_campaign(neutralize_gestures=)`.
+- **A 2-lens adversarial review caught a blocker** (both lenses): `apply_player_swap` ran swap then neutralize
+  as two passes, each re-deriving `swap_targets()` — but `swap_player` mutates the SetModel id those target on,
+  so on Zidane-present multi-PC fields (87/668 = 13%) the second pass DRIFTED to a co-actor, neutralizing the
+  wrong entry AND corrupting a bystander. Fixed by resolving the target set ONCE on the original bytes and
+  reusing it (the `entry=` override now accepts a list), plus a defensive model-match guard in
+  `neutralize_gestures` (only rewrite an entry actually swapped to `char`). Field 500 (Cargo Ship) regression
+  test. The review also fixed a false "will glitch" WARN in the chain summary (now reports NEUTRALIZED). 6 tests
+  (3 offline + a field-500 + an install-gated). kit 0.9.41.
+
 ### Added — `list-fields --players` / `--non-zidane`: who you play as in each field (0.9.39)
 - `ff9mapkit list-fields --players` enriches the field list with **who you control** in each field, and
   `--non-zidane` (implies `--players`) narrows to fields where you play as **someone other than Zidane** —
