@@ -407,7 +407,8 @@ Goblin Punch` (power→1), the `back_attack` scene flag, and a guaranteed `drop_
 campaign-wide by-name channel + BP-only levers + scene flags in one fight). **Phase 5 — player-side CSVs**
 (`characterdelta.py`): `[[character]]`→BaseStats.csv (per-id partial) + `[[leveling]]`→Leveling.csv (WHOLE-FILE,
 read base 99 / patch / re-emit all 99); range-checked, provenance-clean, + the Leveling deploy shadow-guard; CLI
-`characters`. ★ Phases 2/3/4/5 each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
+`characters`. ★ **IN-GAME PROVEN** — a `[[character]]` boost of Vivi + `[party] add` on a New-Game field showed
+her tuned stats (40/80/90/45) in the status menu at a fresh New Game (BaseStats lands at the New-Game party build). ★ Phases 2/3/4/5 each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
 a boot-crash range bug + the cp1252 encoding; Phase 4: caught a `StatusSetId` over-range KeyNotFound crash, a
 malformed-toml traceback, + a silent dead-`Battle:` selector; Phase 5: caught a fixture provenance leak + a
 missing whole-file shadow-guard) → [[project-ff9-battle-tuning]],

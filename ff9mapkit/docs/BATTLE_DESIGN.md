@@ -451,7 +451,10 @@ and re-emit ALL 99; HP=`BonusHP·Str/50`, MP=`BonusMP·Mag/100`). Range-checked 
 `build`/`validate_field`/`deploy_field` + the deploy-time shadow guard (Leveling is whole-file like InitialItems);
 CLI `characters`. ★ A 4-lens adversarial review caught a provenance leak (a fixture row matched the install —
 de-leaked), the missing Leveling shadow guard (added), and a `[character]` vs `[[character]]` build/lint
-disagreement (normalized). 15 tests + real-install smoke. *In-game proof = the human step.* **Deferred (Phase 5b):**
+disagreement (normalized). 15 tests + real-install smoke. ★ **IN-GAME PROVEN (2026-06-12):** a `[[character]]`
+boost of Vivi (40/80/90/45) + `[party] add=["vivi"]` on a New-Game field → at a fresh New Game her status menu
+read Speed 40 / Str 80 / Mag 90 / Spr 45 (vanilla 16/12/24/19) — `[[character]]`→BaseStats.csv lands at the
+New-Game party build (Leveling shares the machinery; its in-game proof is a follow-up). **Deferred (Phase 5b):**
 `AbilityGems.csv` (needs a SupportAbility name table), `CharacterParameters.csv` (mostly menu/row), `Commands`/
 `CommandSets`. **Explicitly NOT `BattleParameters.csv`** (cosmetic only — model/anims).
 

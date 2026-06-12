@@ -72,7 +72,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   Leveling handling, the range guards, and the merge model, and caught: a **provenance leak** (a test fixture row
   was byte-identical to the real install — de-leaked), the **missing Leveling shadow guard** (added), and a
   single-table `[character]` vs `[[character]]` build/lint disagreement (now normalized). 15 tests + a real-install
-  smoke; *in-game proof (the tuned stats/curve) is the human step.*
+  smoke.
+- ★ **IN-GAME PROVEN (2026-06-12):** a `[[character]]` boost of Vivi (Dexterity/Strength/Magic/Will → 40/80/90/45)
+  seeded into the party (`[party] add = ["vivi"]`) on a New-Game landing field — at a **fresh New Game** her
+  status menu read **Speed 40 / Strength 80 / Magic 90 / Spirit 45** vs vanilla 16/12/24/19. So `[[character]]` →
+  `BaseStats.csv` lands at the New-Game party build. (Leveling shares the read-base/emit machinery + the
+  real-install smoke; its in-game proof is a follow-up.)
 
 ### Added — save-item editor #5 step 4b: encrypted MAIN-block gil write + dual-write (edit vanilla saves), IN-GAME PROVEN (0.9.56)
 - The editor can now write the **encrypted main AES block** of a `SavedData_ww.dat`, not just the Memoria extra
