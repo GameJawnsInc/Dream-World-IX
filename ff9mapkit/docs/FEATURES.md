@@ -72,7 +72,7 @@ codec/golden tests) with the full in-game pass still pending.
 | NPCs (presets or custom model + animations) | ✓ | [FORMAT](FORMAT.md) |
 | Custom dialogue (own `.mes` text, no base-game collision) | ✓ | [FORMAT](FORMAT.md) · [DIALOGUE](DIALOGUE.md) |
 | View / import real FF9 dialogue (decode `.eb` + `.mes` → "NPC → text") | ✓ | [DIALOGUE](DIALOGUE.md) |
-| Preview a real field's fork fidelity (`fork-report`) — roster vs interaction, story beats, suggested `[startup]` | ✓ | [FORK_REPORT](FORK_REPORT.md) |
+| Preview a real field's fork fidelity (`fork-report`) — player/roster/interaction/dialogue/items-treasure/party axes, story beats, suggested `[startup]` | ✓ | [FORK_REPORT](FORK_REPORT.md) |
 | Gateways (room-to-room exits, walk-out direction) | ✓ | [FORMAT](FORMAT.md) |
 | Random encounters (+ battle music, + after-battle reinit) | ✓ | [FORMAT](FORMAT.md) |
 | Events: chests / gil / messages / story flags (one-shot or repeatable) | ✓ | [FORMAT](FORMAT.md) |

@@ -253,3 +253,157 @@ def test_analyze_multipc_nonzidane_names_the_controlled_pc():
     assert rep.controlled_name == "Eiko"                 # NOT "Garnet" (entry 7 binds, not the first entry 3)
     out = FR.format_report(rep)
     assert "controls Eiko" in out and "--verbatim" in out
+
+
+# ---- the Items axis: treasure / gil / shops a verbatim fork reproduces (a plain fork DROPS) ----
+from ff9mapkit import data                                                     # noqa: E402
+from ff9mapkit.eb import edit, opcodes                                         # noqa: E402
+
+CLEAN = data.blank_field_bytes("us")
+
+
+def _entry(body):
+    """A minimal type-1 entry (one tag-0 function at fpos 4) carrying `body` -- the test-eventscan idiom."""
+    return bytes([1, 1]) + struct.pack("<HH", 0, 4) + body
+
+
+def test_item_label_regular_key_and_card():
+    assert FR.item_label(236) == "Potion"
+    assert FR.item_label(232) == "Sapphire"              # the gem, not a Potion (the 232 trap)
+    assert FR.item_label(0) == "Hammer"
+    assert FR.item_label(300) == "key item #44"          # id % 1000 in 256-511 = important/key space
+    assert FR.item_label(600) == "card #88"              # id % 1000 in 512-611 = Tetra Master card
+
+
+def test_item_label_pool_encoded_ids_match_the_engine():
+    # the event AddItem operand is POOL-encoded (id % 1000); these are real ids seen on vanilla fields.
+    assert FR.item_label(1010) == "item #1010"           # pool 1, %1000=10 -> extended regular (unnamed)
+    assert FR.item_label(31000) == "item #31000"         # field 358's "Received [ITEM=0]!" id (pool 31)
+    assert FR.item_label(2610) == "card #98"             # %1000=610 -> a card (field 805)
+    assert FR.item_label(3700) == "item #3700 (inert)"   # %1000=700 >= 612 -> engine no-op
+    assert FR.item_inert(3700) and not FR.item_inert(2610) and not FR.item_inert(238)
+
+
+def test_scan_item_ops_excludes_inert_grants():
+    # an AddItem whose id is an engine no-op (id % 1000 >= 612) grants nothing -> excluded from gives; a card is kept.
+    body = (opcodes.add_item(3700, 1)                    # inert (%1000=700) -> not a grant
+            + opcodes.add_item(2610, 1)                  # a card (%1000=610) -> a real grant
+            + opcodes.RETURN)
+    g = edit.append_entry(CLEAN, 10, _entry(body))
+    ops = FR.scan_item_ops(g)
+    assert ops["gives"] == [(2610, 1)]                   # 3700 excluded, 2610 kept
+
+
+def test_scan_item_ops_decodes_and_filters():
+    # AddItem grants, gil, and a shop are decoded; NoItem(255) is filtered, RemoveItem is counted not granted,
+    # and Menu(4,0) (SAVE) is NOT mistaken for a shop (only Menu(2,id) is).
+    body = (opcodes.add_item(236, 1)                     # Potion x1
+            + opcodes.add_item(237, 3)                   # Hi-Potion x3
+            + opcodes.add_item(255, 1)                   # NoItem -> filtered out
+            + opcodes.encode(0x49, 240, 1)               # RemoveItem(Phoenix Down) -> counted, not a give
+            + opcodes.add_gil(500) + opcodes.add_gil(250)
+            + opcodes.menu(2, 7)                         # opens shop #7
+            + opcodes.menu(4, 0)                         # the SAVE menu -> must NOT count as a shop
+            + opcodes.RETURN)
+    g = edit.append_entry(CLEAN, 10, _entry(body))
+    ops = FR.scan_item_ops(g)
+    assert ops["gives"] == [(236, 1), (237, 3)]          # sorted by id; NoItem filtered
+    assert ops["gil_max"] == 500 and ops["gil_any"] is True   # per-grant max (NOT summed to 750)
+    assert ops["shops"] == [7]                           # save menu excluded
+    assert ops["removes"] == 1
+    assert ops["var_give"] is False
+
+
+def test_scan_item_ops_flags_computed_item_id():
+    # an AddItem whose item id is an EXPRESSION (computed) can't be previewed -> var_give, not a give.
+    expr = b"\x7d\x00\x00\x7f"                            # a trivial valid expr operand: B_CONST 0 ; end (0x7F)
+    body = opcodes.encode(0x48, expr, 1, arg_flags=0b01) + opcodes.RETURN
+    g = edit.append_entry(CLEAN, 10, _entry(body))
+    ops = FR.scan_item_ops(g)
+    assert ops["var_give"] is True and ops["gives"] == []
+
+
+def test_scan_item_ops_does_not_sum_across_paths_or_show_overcap_gil():
+    # a field runs MUTUALLY-EXCLUSIVE gated paths, so the same chest's grant recurs. The preview must NOT sum:
+    # two identical grant sites = ONE Ether (count 1, not 2). And an AddGil literal above the 9,999,999 cap is a
+    # scripted sentinel (field 854's ~16.7M), so it is suppressed from gil_max but still flips gil_any.
+    one = opcodes.add_item(238, 1) + opcodes.add_gil(16776454)
+    g = edit.append_entry(CLEAN, 10, _entry(one + one + opcodes.RETURN))
+    ops = FR.scan_item_ops(g)
+    assert ops["gives"] == [(238, 1)]                    # distinct item; count NOT summed to 2
+    assert ops["gil_max"] == 0 and ops["gil_any"] is True  # over-cap literal -> no amount shown, but flagged
+
+
+def test_scan_item_ops_flags_computed_shop_id():
+    # Menu(2, <expr>) is a story-gated shop whose id is picked at runtime -> var_shop (not a concrete shop id).
+    expr = b"\x7d\x00\x00\x7f"                            # a trivial valid expr operand
+    body = opcodes.encode(0x75, 2, expr, arg_flags=0b10) + opcodes.RETURN  # Menu(menu_id=2, sub_id=<expr>)
+    g = edit.append_entry(CLEAN, 10, _entry(body))
+    ops = FR.scan_item_ops(g)
+    assert ops["var_shop"] is True and ops["shops"] == []
+
+
+def test_scan_item_ops_alex100_is_well_formed():
+    ops = FR.scan_item_ops(ALEX100)
+    assert set(ops) == {"gives", "gil_max", "gil_any", "shops", "removes", "var_give", "var_shop"}
+    assert isinstance(ops["gives"], list) and isinstance(ops["shops"], list) and isinstance(ops["gil_max"], int)
+
+
+def test_analyze_eb_items_axis_present_iff_content():
+    # the Items line renders exactly when the field grants something (ALEX100 -- whatever it contains).
+    rep = FR.analyze_eb(ALEX100, field_id=100, fbg_name="fbg_n01_alxt_map016_at_msa_0")
+    out = FR.format_report(rep)
+    out.encode("ascii")
+    has = bool(rep.item_gives or rep.item_var_give or rep.item_gil_any or rep.item_shops or rep.item_var_shop)
+    assert any(l.strip().startswith("Items") for l in out.splitlines()) == has
+
+
+def test_format_report_items_line_present_and_absent():
+    rep = FR.ForkReport(field_id=20, fbg_name="t", roster_class="static-roster")
+    rep.n_objects = rep.n_props = 1
+    rep.safety = {"clean": 1}
+    rep.item_gives = [(236, 1), (237, 3)]
+    rep.item_gil_max = 400
+    rep.item_gil_any = True
+    rep.item_shops = [7]
+    out = FR.format_report(rep)
+    out.encode("ascii")                                  # ASCII-safe for cp1252 consoles
+    line = next(l for l in out.splitlines() if l.strip().startswith("Items"))
+    assert "Potion" in line and "x3" in line             # Hi-Potion x3 (count shown only when != 1)
+    assert "up to 400 gil" in line and "shop(s) #7" in line
+    assert "DROPS them" in line and "ShopItems.csv" in line
+    # absent when the field grants nothing
+    rep.item_gives, rep.item_gil_max, rep.item_gil_any, rep.item_shops = [], 0, False, []
+    assert not any(l.strip().startswith("Items") for l in FR.format_report(rep).splitlines())
+
+
+def test_format_report_items_line_scripted_gil_when_overcap():
+    # gil present but no plausible amount (over-cap / computed) -> "gil (scripted)", not a bogus number.
+    rep = FR.ForkReport(field_id=21, fbg_name="u", roster_class="static-roster")
+    rep.n_objects = rep.n_talkable = 1
+    rep.safety = {"clean": 1}
+    rep.item_gil_any = True
+    out = FR.format_report(rep)
+    out.encode("ascii")
+    line = next(l for l in out.splitlines() if l.strip().startswith("Items"))
+    assert "gil (scripted)" in line and "up to" not in line
+
+
+def test_format_report_items_line_for_var_give_or_var_shop_only():
+    # the BUG fix: a field whose ONLY item op is computed (var_give / var_shop) must STILL render the Items line
+    # (the render guard previously omitted both, silently dropping a real signal the scanner detected).
+    rep = FR.ForkReport(field_id=22, fbg_name="v", roster_class="static-roster")
+    rep.n_objects = rep.n_talkable = 1
+    rep.safety = {"clean": 1}
+    rep.item_var_give = True
+    out = FR.format_report(rep)
+    out.encode("ascii")
+    assert any(l.strip().startswith("Items") for l in out.splitlines())
+    assert "computed-id item(s)" in out
+    # a var_shop-only field renders the story-gated-shop note + the base-CSV caveat
+    rep2 = FR.ForkReport(field_id=23, fbg_name="w", roster_class="static-roster")
+    rep2.n_objects = rep2.n_talkable = 1
+    rep2.safety = {"clean": 1}
+    rep2.item_var_shop = True
+    line = next(l for l in FR.format_report(rep2).splitlines() if l.strip().startswith("Items"))
+    assert "story-gated shop" in line and "ShopItems.csv" in line

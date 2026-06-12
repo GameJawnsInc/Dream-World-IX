@@ -31,9 +31,17 @@ separately:
   window) and how many lines. Their words render **wrong** unless the fork carries the text, so the report
   flags it before you fork: ship with `--carry-text` (remaps the windows) or `--verbatim` (ships the whole
   donor `.mes`). This is the preview of the build-side lint (FORK_FIDELITY.md #5).
+- **Items / treasure** — the item/gil grants + shops the field's `.eb` performs (`AddItem` / `AddGil` /
+  `Menu(2, id)`). These live **wholly in the `.eb`**, so a `--verbatim` fork RUNS them (carries them
+  byte-identically), but a plain/synthesize fork has **no item scanner**, so it **DROPS** every treasure +
+  shop. A shop's stock is also **parasitic on the base `ShopItems.csv`** (a fork can't change the inventory).
+  Item ids are pool-encoded (`id % 1000`: 0-255 regular, 256-511 key item, 512-611 card, ≥612 inert); a plain
+  0-255 regular item is named, the rest are classified but unnamed (the kit catalogs only the regular space).
+  Counts are **per-grant maxes, not summed** across the field's mutually-exclusive story branches.
 
-Plus: **story-gated doors**, the ScenarioCounter **beats the field gates content on**, a suggested
-`[startup] scenario` (the earliest gate — its natural "home" beat), and the `import` recipe.
+Plus: the controlled **Player** character(s), what a verbatim fork does to your **Party**, **story-gated
+doors**, the ScenarioCounter **beats the field gates content on**, a suggested `[startup] scenario` (the
+earliest gate — its natural "home" beat), and the `import` recipe.
 
 ## The verdict
 
@@ -51,6 +59,7 @@ fork-report: fbg_n06_vgdl_map103_dl_shp_0  (field 354, EVT_DALI_V_DL_SHP)
   Interactions  : 3 fully interactive, 1 render-only, 1 stub  (faithful carry = --graft-player-funcs --carry-text)
   Story gating  : 0 gated door(s); ScenarioCounter gates at 2600 (Dali) ... 11090 (Pandemonium)
   Home beat     : suggested [startup] scenario = 2600 "Dali" (the earliest gate -- adjust to the beat you're forking)
+  Items         : opens shop(s) #0  (--verbatim carries these; a plain/synthesize fork DROPS them; shop stock = base ShopItems.csv)
 
   Verdict: a STORY-EVENT field -- a fork is a high-fidelity diorama, not a faithful slice (rotating cast / cutscene actors)
 ```
@@ -72,4 +81,7 @@ It adds **no** carry/scanner logic — it reuses `eventscan.scan_objects_verbati
 classification), `eventscan.scan_gateway_entries` (story-gated doors), and the `flags` beat table
 (`SCENARIO_MILESTONES` / `nearest_milestone`). ScenarioCounter gates are found by scanning the bytecode for
 the comparison pattern `DC 00 7D <const> <cmp-op>` (a *write* uses `2C`/`3F` instead, so writes are excluded).
-The analysis (`forkreport.analyze_eb`) is pure over `.eb` bytes and unit-tested offline against a fixture.
+The Party axis (`scan_party_ops`) and Items axis (`scan_item_ops`) decode their ops straight off the kit's
+disassembler — `scan_item_ops` reads `AddItem`/`AddGil`/`Menu(2,id)` and classifies item ids by the engine's
+`id % 1000` pool rule (`ff9item.FF9Item_Add_Generic`). The analysis (`forkreport.analyze_eb`) is pure over
+`.eb` bytes and unit-tested offline against a fixture.

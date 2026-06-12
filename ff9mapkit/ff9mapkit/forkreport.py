@@ -8,6 +8,9 @@ Before you fork, this answers it. For any real field it reads the compiled ``.eb
   * **Interaction fidelity** -- per carried NPC, whether its talk handler PORTS (`graft_safety`): ``clean`` = fully
     interactive on the fork, ``init_only`` = renders but its talk is dropped (re-author it), ``refuse`` = a stub.
   * **Story gating** -- story-gated doors + the ScenarioCounter beats the field gates content on.
+  * **Items / treasure** -- the item/gil grants + shops the field's ``.eb`` performs (``AddItem`` / ``AddGil``
+    / ``Menu(2, id)``). A ``--verbatim`` fork RUNS these (carries them byte-identically); a plain/synthesize
+    fork has no item scanner, so it DROPS every treasure + shop. (memory ``project-ff9-items-equipment``.)
   * **Home beat** -- a suggested ``[startup] scenario`` (the author picks the beat -- they have the game knowledge).
 
 It is **read-only** and reuses the existing scanners (``eventscan.scan_objects_verbatim`` for the carry
@@ -170,6 +173,113 @@ def scan_party_ops(eb_bytes) -> dict:
     return {"adds": sorted(adds), "removes": sorted(removes), "reset": reset, "recruit": recruit, "menu": menu}
 
 
+# --- item / treasure / shop ops -----------------------------------------------------------------------
+# These live WHOLLY in the field `.eb`, so a `--verbatim` fork RUNS them (carries them byte-identically) but
+# a plain/synthesize fork DROPS them -- eventscan has no AddItem scanner, and there is no shop authoring. A
+# shop's `Menu(2, id)` carries too, but its STOCK comes from the base `ShopItems.csv` (a fork is parasitic on
+# it -- it can't change the inventory). The kit catalogs only the regular 0-255 item space, so a key/card id
+# gets a generic label. (memory project-ff9-items-equipment; opcodes AddItem/AddGil/Menu in eb/opcodes.py.)
+ADD_ITEM_OP = 0x48         # AddItem(item_id, count) -- the real-chest / reward opcode (item_id 2B, count 1B)
+REMOVE_ITEM_OP = 0x49      # RemoveItem(item_id, count)
+ADD_GIL_OP = 0xCE          # AddGil(amount) -- treasure gil (amount 3B, unsigned)
+REMOVE_GIL_OP = 0xCF       # RemoveGil(amount)
+MENU_OP = 0x75             # Menu(menu_id, sub_id); menu_id 2 = SHOP (sub_id = shop id). 1=name 4=save 5=chocograph
+SHOP_MENU_ID = 2
+NO_ITEM = 255              # the RegularItem empty sentinel -- not a real grant (filtered, like PARTY_NONE)
+GIL_CAP = 9_999_999        # the FF9 party-gil ceiling; a larger literal AddGil is a scripted sentinel, not treasure
+# The event `AddItem` operand is a POOL-ENCODED item id, classified by `id % 1000` (ff9item.FF9Item_Add_Generic):
+# 0-255 = regular item, 256-511 = important/key item, 512-611 = Tetra Master card, >= 612 = engine NO-OP (inert).
+# A plain regular item (the normal chest/reward) has raw id 0-255 (pool 0), so `items.name_of` names it directly;
+# higher pools (e.g. 31000, %1000=0) reference extended/modded regular ids the kit doesn't name. (project-ff9-items-equipment.)
+POOL = 1000
+REGULAR_MAX = 256          # id % 1000 < 256          -> regular item
+IMPORTANT_MAX = 512        # 256 <= id % 1000 < 512   -> important/key item
+CARD_MAX = 612             # 512 <= id % 1000 < 612   -> card;  id % 1000 >= 612 -> inert (no grant)
+
+
+def item_inert(item_id) -> bool:
+    """True if the engine treats this ``AddItem`` id as a NO-OP (``id % 1000 >= 612`` falls in no item pool, so
+    ``FF9Item_Add_Generic`` returns 0). Such ids grant nothing -> excluded from the preview's give list."""
+    return int(item_id) % POOL >= CARD_MAX
+
+
+def item_label(item_id) -> str:
+    """A friendly label for an ``AddItem`` id, faithful to the engine's ``id % 1000`` pool decode: the
+    ``RegularItem`` name for a plain 0-255 id (the normal treasure case), else a classified-but-unnamed
+    ``item #N`` (extended/modded regular) / ``key item #N`` / ``card #N`` (the kit catalogs only the regular
+    0-255 space -- project-ff9-items-equipment)."""
+    iid = int(item_id)
+    if 0 <= iid < REGULAR_MAX:                    # pool 0: the raw id IS the RegularItem id (names directly)
+        from . import items as _items
+        nm = _items.name_of(iid)
+        if nm is not None:
+            return nm
+    m = iid % POOL
+    if m < REGULAR_MAX:
+        return "item #%d" % iid                   # a regular item in a higher pool (extended / modded id space)
+    if m < IMPORTANT_MAX:
+        return "key item #%d" % (m - REGULAR_MAX)  # important/key item (a separate space the kit doesn't name)
+    if m < CARD_MAX:
+        return "card #%d" % (m - IMPORTANT_MAX)    # Tetra Master card
+    return "item #%d (inert)" % iid               # id % 1000 >= 612 -> engine no-op (shouldn't reach gives)
+
+
+def scan_item_ops(eb_bytes) -> dict:
+    """The item / gil / shop operations a field performs -- a ``--verbatim`` fork RUNS these, so they preview
+    the treasure + shops a fork reproduces (a plain/synthesize fork has NO item scanner, so it DROPS them all).
+    Returns ``{gives, gil_max, gil_any, shops, removes, var_give}``: ``gives`` = sorted distinct
+    ``(item_id, count)`` literal ``AddItem`` grants (NoItem filtered; ``count`` = the MAX single-grant amount,
+    ``None`` when computed); ``gil_max`` = the largest single PLAUSIBLE literal ``AddGil`` (<= ``GIL_CAP``);
+    ``gil_any`` = any ``AddGil`` at all (literal or computed); ``shops`` = sorted distinct ``Menu(2, id)`` shop
+    ids; ``removes`` = ``RemoveItem`` op count; ``var_give`` = any ``AddItem`` with a COMPUTED id; ``var_shop`` =
+    any ``Menu(2, <computed>)`` (a story-gated shop whose id is picked at runtime) -- both un-previewable.
+
+    IMPORTANT -- DON'T SUM across paths: a field's ``.eb`` runs many MUTUALLY-EXCLUSIVE story-gated branches,
+    so the same chest's ``AddItem``/``AddGil`` recurs across them. We report DISTINCT items (max single-grant
+    count, not a sum) and gil as a per-grant max -- summing wildly overcounts (field 854 grants Ether x1 on two
+    parallel paths, not x2; its ~16.7M-gil literal is a scripted sentinel above the 9,999,999 cap, so it is
+    suppressed from ``gil_max`` but still flips ``gil_any``)."""
+    data = bytes(eb_bytes)
+    eb = EbScript.from_bytes(data)
+    gives: dict = {}           # item_id -> max single-AddItem count (None once any occurrence has a computed count)
+    gil_max = 0                # largest single PLAUSIBLE literal AddGil (<= GIL_CAP)
+    gil_any = False            # any AddGil at all (literal or computed)
+    shops: set = set()
+    removes = 0
+    var_give = False
+    var_shop = False
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op == ADD_ITEM_OP:
+                    iid = ins.imm(0)
+                    if iid is None:                       # a computed item id -> can't say which item
+                        var_give = True
+                        continue
+                    if iid == NO_ITEM or item_inert(iid):  # NoItem / engine no-op (id % 1000 >= 612) -> no grant
+                        continue
+                    cnt = ins.imm(1)
+                    prev = gives.get(iid, 0)
+                    gives[iid] = None if (prev is None or cnt is None) else max(prev, cnt)
+                elif ins.op == REMOVE_ITEM_OP:
+                    removes += 1
+                elif ins.op == ADD_GIL_OP:
+                    gil_any = True
+                    amt = ins.imm(0)
+                    if amt is not None and amt <= GIL_CAP:
+                        gil_max = max(gil_max, amt)
+                elif ins.op == MENU_OP and ins.imm(0) == SHOP_MENU_ID:
+                    sid = ins.imm(1)
+                    if sid is not None:
+                        shops.add(sid)
+                    else:                                 # a story-gated shop (computed sub_id) -> can't name the id
+                        var_shop = True
+    return {"gives": sorted(gives.items()), "gil_max": gil_max, "gil_any": gil_any,
+            "shops": sorted(shops), "removes": removes, "var_give": var_give, "var_shop": var_shop}
+
+
 @dataclass
 class ForkReport:
     field_id: int
@@ -199,6 +309,13 @@ class ForkReport:
     party_reset: bool = False                            # SetPartyReserve -- rebuilds the recruitable roster (story reset)
     party_recruit: bool = False                          # SetCharacterData/JOIN -- a formal recruit (battle+menu init)
     party_menu: bool = False                             # opens the change-members MENU (moogle/save-point UI)
+    item_gives: list = _dc_field(default_factory=list)    # [(item_id, count)] distinct AddItem grants (count = max single)
+    item_gil_max: int = 0                                # largest single PLAUSIBLE literal AddGil (<= GIL_CAP)
+    item_gil_any: bool = False                           # any AddGil at all (literal or computed) -> treasure gil
+    item_shops: list = _dc_field(default_factory=list)    # distinct Menu(2, id) shop ids the field opens
+    item_removes: int = 0                                # RemoveItem op count
+    item_var_give: bool = False                          # an AddItem with a COMPUTED id (un-previewable)
+    item_var_shop: bool = False                          # a Menu(2, <computed>) -- a story-gated shop (id un-previewable)
     notes: list = _dc_field(default_factory=list)
 
 
@@ -365,6 +482,17 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
     rep.party_removes = [party_char_name(i) for i in party["removes"]]
     rep.party_reset, rep.party_recruit, rep.party_menu = party["reset"], party["recruit"], party["menu"]
 
+    # Item / treasure / shop ops the field runs (a verbatim fork carries them; a plain/synthesize fork DROPS
+    # them -- no item scanner). The shop STOCK is parasitic on the base ShopItems.csv (a fork can't change it).
+    itm = scan_item_ops(data)
+    rep.item_gives = itm["gives"]
+    rep.item_gil_max = itm["gil_max"]
+    rep.item_gil_any = itm["gil_any"]
+    rep.item_shops = itm["shops"]
+    rep.item_removes = itm["removes"]
+    rep.item_var_give = itm["var_give"]
+    rep.item_var_shop = itm["var_shop"]
+
     gates = scenario_gates(data)
     rep.sc_gates = [(v, _flags.nearest_milestone(v)) for v in gates]
     # earliest gate ~= when the field's story content first appears = its natural "home" beat. (A rotating
@@ -415,6 +543,34 @@ def _party_line(rep: ForkReport) -> str:
     return f"  Party         : {'; '.join(bits)}{tail}"
 
 
+def _items_line(rep: ForkReport) -> str:
+    """The 'Items' axis: the treasure / gil / shops the field grants. A --verbatim fork RUNS these (carries
+    them byte-identically); a plain/synthesize fork DROPS them (no item scanner). Empty when nothing is granted."""
+    if not (rep.item_gives or rep.item_var_give or rep.item_gil_any or rep.item_shops or rep.item_var_shop):
+        return ""
+    bits = []
+    if rep.item_gives:
+        shown = ", ".join(item_label(i) + (" x%d" % c if c not in (None, 1) else "")
+                          for i, c in rep.item_gives[:6])
+        more = f" +{len(rep.item_gives) - 6}" if len(rep.item_gives) > 6 else ""
+        bits.append(f"grants {shown}{more}")
+    if rep.item_var_give:
+        bits.append("computed-id item(s)")
+    if rep.item_gil_max:
+        bits.append(f"up to {rep.item_gil_max} gil")
+    elif rep.item_gil_any:
+        bits.append("gil (scripted)")
+    if rep.item_shops:
+        ids = ", ".join("#%d" % s for s in rep.item_shops[:6])
+        more = f" +{len(rep.item_shops) - 6}" if len(rep.item_shops) > 6 else ""
+        bits.append(f"opens shop(s) {ids}{more}" + (" + a story-gated shop" if rep.item_var_shop else ""))
+    elif rep.item_var_shop:
+        bits.append("opens a story-gated shop")
+    tail = "  (--verbatim carries these; a plain/synthesize fork DROPS them"
+    tail += "; shop stock = base ShopItems.csv)" if (rep.item_shops or rep.item_var_shop) else ")"
+    return f"  Items         : {'; '.join(bits)}{tail}"
+
+
 def format_report(rep: ForkReport) -> str:
     title = rep.fbg_name or f"field {rep.field_id}"
     lines = [f"fork-report: {title}  (field {rep.field_id}{', ' + rep.event_name if rep.event_name else ''})", ""]
@@ -456,6 +612,9 @@ def format_report(rep: ForkReport) -> str:
     party_line = _party_line(rep)
     if party_line:
         lines.append(party_line)
+    items_line = _items_line(rep)
+    if items_line:
+        lines.append(items_line)
     lines += ["", "  Verdict: " + _verdict_line(rep)]
     if rep.notes:
         lines.append("")

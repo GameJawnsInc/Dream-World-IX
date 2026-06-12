@@ -5,6 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `fork-report` Items / Treasure axis: preview the treasure, gil & shops a fork reproduces (0.9.32)
+The item-side companion to the Player / Roster / Interaction / Dialogue / Party axes — what a fork does to your
+**inventory**. Read-only; reuses the kit's disassembler (no new scanner of its own).
+
+- `forkreport.scan_item_ops` decodes the item ops a field's `.eb` runs: `AddItem` (`0x48`), `AddGil` (`0xCE`),
+  and shop opens `Menu(2, id)` (`0x75`). A `--verbatim` fork RUNS these byte-identically; a plain/synthesize
+  fork has **no item scanner**, so it **DROPS** every treasure + shop. A shop's stock is also parasitic on the
+  base `ShopItems.csv` (a fork can't change the inventory) — the line says so.
+- Item ids are classified by the engine's pool rule (`ff9item.FF9Item_Add_Generic`, `id % 1000`): 0-255 regular
+  (named via `items`), 256-511 key item, 512-611 Tetra Master card, `>= 612` **inert** (engine no-op → excluded).
+  A plain 0-255 regular id is named; higher pools are classified but unnamed.
+- Counts are **per-grant maxes, not summed** across the field's mutually-exclusive story branches (else an Ether
+  granted on two paths would read as "x2"); a gil literal above the 9,999,999 cap is suppressed as a scripted
+  sentinel ("gil (scripted)"). Computed-id grants/shops surface as "computed-id item(s)" / "opens a story-gated
+  shop" (the latter recovers 42 gated-shop fields incl. Dali inn 351 / Ice Cavern 300).
+- Validated by a 3-lens adversarial-review workflow (engine-fidelity / Python-correctness / scale over all 676
+  real fields): the decode is engine-exact, zero false positives; it caught a latent under-report (computed-id-only
+  grants/shops rendered nothing) that this lands fixed. 12 tests (`tests/test_forkreport.py`). `forkreport.py` only.
+- Recon context: the engine's full item/equipment data model is **CSV-moddable on stock Memoria**
+  (`StreamingAssets/Data/Items/*.csv`, no DLL rebuild) — see memory `project-ff9-items-equipment` + docs/FORK_REPORT.
+
 ### Added — `--swap-player` accepts ANY model (the field-side bridge to custom characters)
 - `--swap-player` (single `import` and `import-chain`) now takes a playable name OR **any registered model** —
   a `GEO_..` name or a numeric id (a moogle `199`, `GEO_NPC_F0_BMG`, …; `ff9mapkit models`). A playable uses

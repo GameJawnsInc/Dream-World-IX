@@ -819,6 +819,31 @@ Read these on demand — they hold the full technical detail this file only summ
   only entry-0/tag-0, but real `SetPartyReserve` lives in object Inits / tag-1 (only 2/111 reset fields keep it in
   Main_Init) → broadened to all non-empty entries' tag-0+tag-1 (catches 111/111). 12 tests (`tests/test_party.py`);
   883 suite. kit 0.9.31. *(In-game verification of a built `[party]` field is the human step.)*
+- **Items & equipment recon + `fork-report` Items/Treasure axis (`items_equipment` branch; memory
+  [[project-ff9-items-equipment]]).** First session of the branch: mapped the whole item/equipment surface. ★ The
+  headline finding — engine item/equip/shop **STAT data is fully CSV-moddable on STOCK Memoria, NO DLL**
+  (`<game>\StreamingAssets\Data\Items\*.csv` — Items/Weapons/Armors/Stats/ItemEffects/ShopItems/MixItems/Synthesis/
+  InitialItems — loaded via `AssetManager.EnumerateCsvFromLowToHigh`, merged by id low→high across mod folders →
+  partial-CSV delta overrides, the kit's existing data-patch surface; item NAMES = the `.mes` text channel, ordinal-
+  indexed). The KIT today knows item **NAMES ONLY** (`_itemdb.py` 0-255 from `RegularItem`; `items.py` resolver;
+  `give_item`/`holds=`/F6 cheat/catalog) — no effects/stats/shops/equipment. 3-layer data model (`ItemInfo` + FK→
+  `ItemAttack`/`ItemDefence`/`ItemEffect` + `ItemStats`); id bands wpn 0-87 / wrist 88-111 / helm 112-147 / body
+  148-191 / accy 192-223 / gem 224-235 / item 236-254; key items a SEPARATE space; equipment teaches abilities
+  (`AbilityIds`). Roadmap (all engine-independent): catalog-enrichment first, then reward/party-equip/shop authoring,
+  save-side item editor, item-data edit/mint. **Built lever (#fork-fidelity-aligned): `fork-report` Items/Treasure
+  axis** — `forkreport.scan_item_ops` decodes `AddItem`(0x48)/`AddGil`(0xCE)/`Menu(2,id)`(shop) off the disassembler
+  and reports the treasure/gil/shops a fork reproduces. A `--verbatim` fork RUNS these (byte-identical); a plain/
+  synthesize fork has NO item scanner → DROPS them all; shop STOCK is parasitic on the base `ShopItems.csv`. ★ Two
+  correctness traps caught by a real-field sweep + fixed: (1) **don't SUM grants across the field's mutually-exclusive
+  story branches** (Ether x1 on two paths ≠ x2; gil over the 9,999,999 cap is a scripted sentinel) → report distinct
+  items (per-grant max) + gil as a plausible per-grant max; (2) the event `AddItem` id is **pool-encoded** (`id % 1000`:
+  0-255 regular, 256-511 key item, 512-611 card, ≥612 engine **no-op** → excluded) per `ff9item.FF9Item_Add_Generic`
+  — a plain 0-255 id is named, higher pools classified-but-unnamed. An **adversarial-review workflow** (3 lenses:
+  engine-fidelity / Python-correctness / scale-risk over all 676 fields) confirmed the decode is engine-exact + found
+  zero false positives, and caught a latent under-report (a computed-id-only `AddItem`/`Menu(2,<expr>)` rendered
+  nothing) → fixed + the symmetric **gated-shop** surfacing added (`var_shop` → "opens a story-gated shop", recovers
+  42 fields incl. Dali inn 351 / Ice Cavern 300). Read-only (`forkreport.py` only, reuses the disasm; clear of
+  overworld's graft + story_flags' build lanes). kit 0.9.32; 897 tests (12 new, atop story_flags' [party] 885).
 
 ---
 
