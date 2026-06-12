@@ -387,7 +387,7 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - InfoHub authoring — place any model/prop/creature by name → [[project-ff9-infohub-authoring]]
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 
-**Latest:** kit 0.9.47, 1025 tests. Active: **battle TUNING / encounter authoring** (`battle_design`) — recon +
+**Latest:** kit 0.9.47, 1057 tests. Active: **battle TUNING / encounter authoring** (`battle_design`) — recon +
 Phase 0/1/2 (raw16 full codec + golden round-trip; `[scene]` combat-identity tuning by name; `battle-actions` /
 `battle-scene` catalogs; the **offline balance-lint** `scenelint.py`). ★ **Phase 1 IN-GAME PROVEN** (forked
 EF_R007 Goblin: auto-Protect icon + phys-def wall → ~1 dmg + 10 AP). ★ **Phase 2** lint validated by a 562-scene
