@@ -388,13 +388,14 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 - World Hub — a playable journey selector (choice `warp` action + `[player] model=` moogle PC); MVP scaffold IN-GAME PROVEN (talk→pick→warp) → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.48, 1069 tests. World-Hub scaffold IN-GAME PROVEN (the select→warp loop). Active: **battle TUNING / encounter authoring** (`battle_design`) — recon +
-Phase 0/1/2 (raw16 full codec + golden round-trip; `[scene]` combat-identity tuning by name; `battle-actions` /
-`battle-scene` catalogs; the **offline balance-lint** `scenelint.py`). ★ **Phase 1 IN-GAME PROVEN** (forked
-EF_R007 Goblin: auto-Protect icon + phys-def wall → ~1 dmg + 10 AP). ★ **Phase 2** lint validated by a 562-scene
-adversarial sweep (trustworthy default: 0 false-positive warns; turns-to-kill deferred — needs a party model) →
-[[project-ff9-battle-tuning]], `docs/BATTLE_DESIGN.md`. Next: Phase 3 (CSV-delta action/status authoring).
-Frontier: #13 (story-event director/roster on rotating-cast fields) — open.
+**Latest:** kit 0.9.49, 1082 tests. World-Hub scaffold IN-GAME PROVEN (the select→warp loop). Active: **battle
+TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3: raw16 full codec + golden round-trip;
+`[scene]` combat-identity tuning by name; `battle-actions` / `battle-scene` catalogs; the **offline balance-lint**
+`scenelint.py`; **`[[battle_action]]`/`[[status]]`** CSV-delta ability/status rebalancing. ★ **Phase 1 IN-GAME
+PROVEN** (forked EF_R007 Goblin: auto-Protect + phys-def wall + AP). ★ Phase 2 lint + Phase 3 CSV-delta each
+validated by a 3-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught a boot-crash range bug + the
+cp1252 encoding) → [[project-ff9-battle-tuning]], `docs/BATTLE_DESIGN.md`. Next: Phase 4 (`BattlePatch.txt`
+emitter — enemy attacks). Frontier: #13 (story-event director/roster on rotating-cast fields) — open.
 
 ---
 

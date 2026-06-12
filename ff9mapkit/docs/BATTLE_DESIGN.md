@@ -375,10 +375,25 @@ standalone `no_weakness` note (~29%, a normal design choice). DEFERRED (needs a 
 turns-to-kill / time-to-kill-a-PC estimator + the economy-curve-vs-zone check. 9 lint tests (incl. a
 normal-late-game-enemy-is-clean regression) + the real-donor sweep.
 
-### Phase 3 — CSV-delta ability + status authoring (the natural WIN vs HW)
-Read-modify-emit minimal `Actions.csv`/`StatusData.csv`/`StatusSets.csv` deltas via `ModLayout`, carrying the
-`#!` legends. A `[[battle_action]]`/`[[status]]` block. Composes campaign-wide. (Enemy attacks live in raw16,
-not Actions.csv → the enemy-attack analog is the Phase-4 BattlePatch emitter.)
+### Phase 3 — CSV-delta ability + status authoring (the natural WIN vs HW) ✅ DONE (kit 0.9.47)
+`battle/actiondelta.py` — `[[battle_action]]` (rebalance a shared ability: `power`/`element(s)`/`rate`/`mp`/
+`script`/`category`/`type`) and `[[status]]` (`tick`/`duration`) on a `field.toml`, emitted at the mod-write
+stage (`build._emit_battle_data` → `ModLayout.actions_csv`/`status_data_csv`). The engine merges these by
+**whole-ROW replacement** keyed on id, so to change one field we read the base row LIVE from the install,
+modify the named columns, and emit the complete row — preserving the base file's **`#!` option lines**
+(load-bearing: the engine parses by column POSITION and `#!` toggles optional columns). Mod-global (always-on,
+not new-game-scoped), aggregated across all fields, dup-id warned; `script` resolves a formula name (warns if
+it's not a stock scriptId — a new formula needs a `Memoria.Scripts.<Mod>.dll`). Provenance: the authored
+`field.toml` holds only the overrides; the emitted CSV is mod build-output (never committed). `deploy_field`
+ships the two CSVs reversibly. Offline `lint` does structural checks; name→id + value resolution happens at
+build (which has the install). (Enemy attacks live in raw16, not Actions.csv → the enemy-attack analog is the
+Phase-4 BattlePatch emitter.) ★ A 3-lens adversarial review (engine source + real CSVs) verified the merge +
+byte-preservation sound and caught three real bugs (fixed): the install CSVs are **cp1252** not UTF-8 (4 ability
+names carry a 0x92 apostrophe — `errors="replace"` corrupted them + blocked name lookup → read/write cp1252 +
+straighten curly apostrophes); narrow engine columns (elements/category/type = Byte, tick = Byte, duration =
+UInt16) were unguarded so an out-of-range value would **crash the game at boot** (`Byte.Parse` overflow →
+`ConfirmQuit`) → range-checked OFFLINE; a name that maps to several ids now raises "ambiguous — use the id". 14
+tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is the human step.*
 
 ### Phase 4 — `BattlePatch.txt` emitter for enemy/attack/scene tuning
 By-name/index `Battle:`/`AnyEnemyByName:`/`AnyAttackByName:`/`Pattern:`/`Scene:` blocks targeting

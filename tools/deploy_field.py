@@ -139,7 +139,9 @@ live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline
 csv_reverts = []
 for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, "InitialItems"),
                                  (tl.default_equipment_csv, live.default_equipment_csv, "DefaultEquipment"),
-                                 (tl.shop_items_csv, live.shop_items_csv, "ShopItems")):
+                                 (tl.shop_items_csv, live.shop_items_csv, "ShopItems"),
+                                 (tl.actions_csv, live.actions_csv, "Actions"),
+                                 (tl.status_data_csv, live.status_data_csv, "StatusData")):
     if not src_csv.exists():
         continue
     live_csv.parent.mkdir(parents=True, exist_ok=True)

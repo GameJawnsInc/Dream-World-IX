@@ -212,6 +212,18 @@ class ModLayout:
         partial delta (only the custom shops, ids >= 32) works; the base supplies shops 0-31."""
         return self.root / "StreamingAssets" / "Data" / "Items" / "ShopItems.csv"
 
+    @property
+    def actions_csv(self) -> Path:
+        """Shared player abilities (``Data/Battle/Actions.csv``). MERGED by id low->high (whole-row replace) ->
+        a partial delta (only the abilities you change) works; the base supplies the other 192 rows."""
+        return self.root / "StreamingAssets" / "Data" / "Battle" / "Actions.csv"
+
+    @property
+    def status_data_csv(self) -> Path:
+        """Status definitions (``Data/Battle/StatusData.csv``). MERGED by id low->high (whole-row replace) ->
+        a partial delta (only the statuses you change) works; the base supplies the other 33 rows."""
+        return self.root / "StreamingAssets" / "Data" / "Battle" / "StatusData.csv"
+
     def ensure_dirs(self, fbg_name: str | None = None, *, bbg: str | None = None,
                     langs: tuple[str, ...] = LANGS) -> None:
         """Create the directory skeleton a field (and/or battle-map) write needs."""

@@ -506,6 +506,14 @@ def validate(project: FieldProject) -> list[str]:
                         _items.resolve(eq[slot])
                     except (ValueError, TypeError) as e:
                         problems.append(f"[[equipment]] #{q} {slot}: {e}")
+    # [[battle_action]] / [[status]] -- mod-global CSV-delta rebalancing (structural lint; name->id + value
+    # resolution happens at build, which has the install to read the base row).
+    if project.raw.get("battle_action") or project.raw.get("status"):
+        from .battle import actiondelta as _adelta
+        for q, ba in enumerate(project.raw.get("battle_action", [])):
+            problems += [f"[[battle_action]] #{q}: {p}" for p in _adelta.validate_entry(ba, kind="battle_action")]
+        for q, st in enumerate(project.raw.get("status", [])):
+            problems += [f"[[status]] #{q}: {p}" for p in _adelta.validate_entry(st, kind="status")]
     for la in project.raw.get("ladder", []):
         if la.get("navigable"):                      # NAVIGABLE (FF9's real ladder mechanism, recreated)
             rungs = la.get("rungs")
@@ -2918,6 +2926,22 @@ def _field_name(project) -> str:
     return str((project.raw.get("field") or {}).get("name", "?"))
 
 
+def _emit_battle_data(projects, layout) -> list:
+    """Emit the mod-GLOBAL battle-data CSV deltas from every project's ``[[battle_action]]`` / ``[[status]]``
+    blocks -> ``Data/Battle/Actions.csv`` / ``StatusData.csv``. These are always-on global data (NOT
+    new-game/entry-restricted), so they aggregate across ALL fields in the build. Reads the base CSVs from the
+    install (whole-row replacement); raises BuildError if the install can't be read or an entry is invalid."""
+    actions = [a for p in projects for a in p.raw.get("battle_action", [])]
+    statuses = [s for p in projects for s in p.raw.get("status", [])]
+    if not actions and not statuses:
+        return []
+    from .battle import actiondelta as _adelta
+    try:
+        return _adelta.write_battle_data(layout, actions=actions, statuses=statuses)
+    except _adelta.ActionDeltaError as ex:
+        raise BuildError(str(ex))
+
+
 def _emit_start_state(projects, layout, entry_project=None) -> list:
     """Emit the mod-GLOBAL new-game CSV deltas ONCE into the mod root, from the ENTRY field's blocks:
     ``[start_inventory]`` -> ``Data/Items/InitialItems.csv`` (the FULL starting bag, highest-priority-wins) and
@@ -3019,6 +3043,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     # mod-global new-game starting state (CSV deltas, written once into the mod root -- not field bytes)
     start_warnings = _emit_start_state(projects, layout, entry_project)
     start_warnings += _emit_shops(projects, layout)
+    start_warnings += _emit_battle_data(projects, layout)
 
     layout.mod_description.write_text(
         "<Mod>\n"

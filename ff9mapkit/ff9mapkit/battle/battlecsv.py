@@ -116,7 +116,12 @@ def _read_csv(path) -> tuple:
     field, ignored by name access)."""
     cols: "dict | None" = None
     rows: list = []
-    for raw in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+    # cp1252 (the install's real encoding -- a few action names carry a 0x92 curly apostrophe; reading them as
+    # UTF-8 would mangle the name). Strip a stray UTF-8 BOM if one ever appears.
+    data = path.read_bytes()
+    if data.startswith(b"\xef\xbb\xbf"):
+        data = data[3:]
+    for raw in data.decode("cp1252", errors="replace").splitlines():
         s = raw.strip()
         if not s:
             continue
