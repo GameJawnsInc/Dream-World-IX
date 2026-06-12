@@ -176,3 +176,4 @@ backups/*opening-for-fmv*.txt
 # save-Moogle director sidecar (SE-derived: the donor field entry-0 tag-1 logic)
 ff9mapkit/**/*.savemoogle_director.bin
 *.savemoogle_director.bin
+ff9mapkit/docs/EDITABLE_CAMPAIGN_ART.md
