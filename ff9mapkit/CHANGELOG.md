@@ -83,6 +83,10 @@ armor  = "Genji Armor"                         # omitted slots (head/wrist/acces
   no game stat data is read or committed. Adversarially reviewed (3 lenses: engine-format / Python / provenance)
   — the partial `DefaultEquipment.csv` was confirmed to merge with the base (no "must define 15 sets" boot
   crash). 15 tests (`test_startstate.py` pure renderers + `test_build.py` emit/validate/lint).
+- The dev loop ships them: `deploy_campaign.py` already copied the whole mod (wholesale); `deploy_field.py` now
+  also deploys the two CSVs **reversibly** (it previously copied only the field's `.eb`/scene/`.mes`), so a
+  single-field test reflects them. Test: deploy → **relaunch** (the bag is read at New-Game init, not via F6
+  reload) → **New Game** → check the items/equipment menu (the bag/gear is set before you warp to the field).
 
 ### Added — `remove_item`: the symmetric take-item reward lever (0.9.36)
 `[[event]]` and `[[choice]]` rewards could `give_item` but not take one back. New `remove_item = [item, count]`

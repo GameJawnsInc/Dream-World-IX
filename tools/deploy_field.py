@@ -133,6 +133,27 @@ dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines(
       if ln.strip() and ln.split()[1:2] != [str(FID)]]
 dp.append(info["dictionary"][0])
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
+# New-game starting state: mod-GLOBAL CSV deltas, deployed only when the field carries [start_inventory] /
+# [[equipment]] (build_mod emits them into the temp mod). They're read at NEW-GAME init (independent of which
+# field you warp to), so a New Game reflects them wherever it lands. InitialItems.csv is highest-priority-wins.
+csv_reverts = []
+for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, "InitialItems"),
+                                 (tl.default_equipment_csv, live.default_equipment_csv, "DefaultEquipment")):
+    if not src_csv.exists():
+        continue
+    live_csv.parent.mkdir(parents=True, exist_ok=True)
+    had = live_csv.exists()
+    if had:
+        shutil.copyfile(live_csv, BK / f"{label}.csv.preDEPLOY.{STAMP}")
+    shutil.copyfile(src_csv, live_csv)
+    csv_reverts.append((label, str(live_csv), had))
+    print(f"  + {label}.csv (new-game starting bag/gear -- read at New Game)")
+csv_revert_code = ""
+for _label, _live, _had in csv_reverts:
+    if _had:
+        csv_revert_code += f'\nshutil.copyfile(BK/f"{_label}.csv.preDEPLOY.{{STAMP}}", Path(r"{_live}"))'
+    else:
+        csv_revert_code += f'\n_p = Path(r"{_live}")\nif _p.exists(): _p.unlink()'
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")
 
 revert = f'''#!/usr/bin/env python3
@@ -149,8 +170,8 @@ for L in LANGS:
     p=live.eb_path(L,"EVT_{name}.eb.bytes")
     if p.exists(): p.unlink()
     mb=BK/f"{{L}}-{text_block}.mes.preDEPLOY.{{STAMP}}"
-    if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block}))
-print("reverted: DictionaryPatch + dialogue restored; {name} removed.")
+    if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}
+print("reverted: DictionaryPatch + dialogue + start-state CSVs restored; {name} removed.")
 '''
 (OUT / f"revert_deploy_{FID}.py").write_text(revert, encoding="utf-8", newline="\n")    # per-id revert
 (OUT / "revert_deploy.py").write_text(revert, encoding="utf-8", newline="\n")            # generic = latest deploy
