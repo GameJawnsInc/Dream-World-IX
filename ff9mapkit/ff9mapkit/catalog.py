@@ -187,7 +187,7 @@ def animation_actions(name_or_id) -> list:
 NPC_SLOT_ACTION = {"stand": "idle", "walk": "walk", "run": "run", "left": "turn_l", "right": "turn_r"}
 
 
-def npc_anims(name_or_id) -> dict:
+def npc_anims(name_or_id, *, use_catalog: bool = True) -> dict:
     """``{stand, walk, run, left, right}`` animation ids to place a model as a field NPC -- the Info
     Hub's payoff: ANY model becomes ready to drop in.
 
@@ -196,7 +196,21 @@ def npc_anims(name_or_id) -> dict:
     so a slot never holds a foreign clip. For ``GEO_MAIN_F0_VIV`` this reproduces the built-in ``vivi``
     preset (by clip name). Returns ``{}`` for a model with no field gestures (a battle-only / effect
     model) -- give explicit ``anims`` for those.
-    """
+
+    For a model in the baked per-model catalog (:data:`ff9mapkit._npcparams.NPC_PARAMS` -- 156 GEO_NPC/MON
+    rigs), the REAL clips that rig uses as an NPC are returned verbatim (the most faithful set -- e.g. the
+    moogle's exact 2904/2927/2907/2923/2911, not the by-name join's near-miss). Off-catalog models (incl.
+    party GEO_MAIN, so the vivi preset stays) keep the gesture-name resolution below. ``use_catalog=False``
+    forces the by-NAME gesture resolution (used by the archetype-gallery completeness guard, which asks
+    "does this model auto-resolve by GESTURE NAME" -- a stricter bar than "has real clips in the catalog")."""
+    if use_catalog:
+        from ._npcparams import NPC_PARAMS
+        try:
+            mid = resolve_model(name_or_id)
+        except (ValueError, TypeError):              # not a known model -> fall through to by-name (-> {})
+            mid = None
+        if mid is not None and mid in NPC_PARAMS:
+            return dict(NPC_PARAMS[mid]["anims"])
     a = animations_for_model(name_or_id)
     if not a:
         return {}

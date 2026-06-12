@@ -17,6 +17,7 @@ from __future__ import annotations
 import struct
 
 from ..binutils import pi16, pu16
+from .._npcparams import NPC_PARAMS          # baked per-model NPC object params (animset/head-focus/size/clips)
 from ..eb import EbScript, edit, opcodes
 from ..eb.disasm import iter_code
 from . import region as _region
@@ -86,8 +87,14 @@ def _complete_anims(model, anims) -> dict:
 
 
 def _npc_object_params(model, animset):
-    """``(animset, head_focus, logical_size)`` for an NPC model -- confirmed moogle values, else defaults
-    (the per-model catalog fast-follow will source these faithfully for every model)."""
+    """``(animset, head_focus, logical_size)`` for an NPC model. The baked per-model catalog
+    (:data:`ff9mapkit._npcparams.NPC_PARAMS`, the real values 156 NPC/creature rigs use) is authoritative;
+    an explicit ``animset`` still wins. Off-catalog models fall back to the confirmed moogle set / safe
+    defaults."""
+    p = NPC_PARAMS.get(int(model))
+    if p:
+        av = int(animset) if animset is not None else p["animset"]
+        return av, p["head_focus"], p["logical_size"]
     is_moog = int(model) in MOOGLE_MODELS
     av = int(animset) if animset is not None else (MOOGLE_ANIMSET if is_moog else DEFAULT_ANIMSET)
     hf = MOOGLE_HEAD_FOCUS if is_moog else DEFAULT_HEAD_FOCUS
