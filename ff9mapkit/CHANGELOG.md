@@ -99,6 +99,24 @@ $ ff9mapkit items -f excalibur
   install-gated. Provenance + engine-fidelity + Python were adversarially reviewed (3 lenses). This is the
   read-only foundation the shop/reward/save-editor item pillars build on.
 
+### Added — seamless New-Game entry: `eb.edit.nop_cinematics` + `tools/skip_opening_fmv.py` (0.9.38)
+A spin-off from verifying how a New Game reaches a custom field (memory `project-ff9-new-game-entry`): the whole
+path is **engine-independent** (the only custom DLL is the F6 menu; `NewGame()` is stock `fldMapNo = 70`, and a
+mod **overrides field 70** `EVT_ALEX1_TS_OPENING` to `Field(4003)` after its opening movie). This adds the lever
+to make that entry **seamless**, all stock:
+- **`eb.edit.nop_cinematics(data, *, entry_index=0, func_tag=0, before_op=0x2B)`** — NOPs every `Cinematic`
+  (`0x28`, FMV-playback) op in a function up to the first `Field()` warp, **length-preserving** (in-place `0x00`
+  NOPs = engine-confirmed "do nothing", `DoEventCode` case `NOP`; no offsets shift, no jumps to fix). Returns
+  `(new_data, n_nopped)`; byte-identical when there are no cinematics.
+- **`tools/skip_opening_fmv.py`** — a dev-loop driver: auto-finds the live opening override across all language
+  folders (or takes explicit paths), backs each up (per-language backup name — fixed a same-second collision),
+  strips the pre-warp cinematics, `--dry-run` supported. Provenance-safe (operates on local/deployed `.eb`s; the
+  repo ships no SE bytes). In-game: drop the 2 cinematics in field 70's override → New Game lands in the target
+  field instantly, no FMV, no DLL, no `SkipIntros` (that's boot-only).
+- 1 test (`tests/test_eb.py::test_nop_cinematics_strips_only_pre_warp_fmv`): pins that only the pre-warp cinematic
+  is NOPed, the warp + post-warp cinematics survive, and the `.eb` still round-trips. *(In-game verification of
+  the instant New Game is the human step.)*
+
 ### Added — `fork-report` Items / Treasure axis: preview the treasure, gil & shops a fork reproduces (0.9.32)
 The item-side companion to the Player / Roster / Interaction / Dialogue / Party axes — what a fork does to your
 **inventory**. Read-only; reuses the kit's disassembler (no new scanner of its own).

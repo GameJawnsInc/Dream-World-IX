@@ -272,6 +272,36 @@ def find_instrs(eb: EbScript, op: int, *, entry_index: int = 0, func_tag: int | 
     return out
 
 
+CINEMATIC_OP = 0x28   # Cinematic(...) -- FMV / opening-movie playback
+FIELD_OP = 0x2B       # Field(dest) -- a field warp
+
+
+def nop_cinematics(data, *, entry_index: int = 0, func_tag: int = 0, before_op: int = FIELD_OP):
+    """NOP every ``Cinematic`` (``0x28``, FMV playback) instruction in a function, up to the first
+    ``before_op`` (default the first ``Field()`` warp, ``0x2B``). Length-preserving: each op is overwritten
+    in place with ``0x00`` NOPs (engine-confirmed "do nothing" -- ``DoEventCode`` case ``NOP``), so no offsets
+    shift and no jumps need fixing. Returns ``(new_data, n_nopped)``.
+
+    Used to strip the opening movie from an opening-field override (e.g. field 70 ``EVT_ALEX1_TS_OPENING``,
+    which plays 2 cinematics before warping to a custom field) so a New Game lands in the target field
+    *instantly* -- a pure-mod, engine-independent change. See memory ``project-ff9-new-game-entry``."""
+    src = _as_bytes(data)
+    eb = EbScript.from_bytes(src)
+    entry = eb.entry(entry_index)
+    func = entry.func_by_tag(func_tag) if entry is not None else None
+    if func is None:
+        return src, 0
+    ins = list(eb.instrs(func))
+    stop = next((x.off for x in ins if x.op == before_op), None)
+    out, n = src, 0
+    for i, x in enumerate(ins):
+        if x.op == CINEMATIC_OP and (stop is None or x.off < stop):
+            end = ins[i + 1].off if i + 1 < len(ins) else func.abs_end
+            out = nop_range(out, x.off, end - x.off)
+            n += 1
+    return out, n
+
+
 def find_wait(eb: EbScript, *, n: int | None = None, entry_index: int = 0,
               func_tag: int | None = 0, occurrence: int = 0) -> int:
     """Absolute offset of a ``Wait(n)`` filler (default: in Main_Init, entry 0 func tag 0).

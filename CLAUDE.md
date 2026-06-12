@@ -165,11 +165,18 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   FieldMaps holds only the test-slot scenes). **To actually play the hut, redeploy it from
   `release/`.** Registered fields: 4000 HUT_EXT, 4002 HUT_INT, **4003 = the shared test slot**
   (`deploy_field.py`, currently a CPMP ladder fork).
-- **Debug New-Game warp** jumps straight to **field 4003** (entrance 11) — NOT through
-  Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
-  (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
-  spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.37`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **New-Game → field 4003 is a MOD FIELD OVERRIDE, NOT a DLL edit** (verified 2026-06-12 by reading the
+  deployed DLL's IL + the mod `.eb`s). `EventEngine.NewGame()` in the deployed DLL is **stock** (`fldMapNo = 70`,
+  the opening-FMV field). The mod folder `FF9CustomMap` **overrides field 70** (`evt_alex1_ts_opening.eb` =
+  `EVT_ALEX1_TS_OPENING` = id 70): it keeps the opening, plays **2 `Cinematic`(0x28) ops** (the ~2 s "Garnet on
+  the boat" FMV), then warps `Field(4003)` instead of the stock `Field(50)`. So the whole New-Game-into-a-fork
+  path is **engine-independent** (stock Memoria + opening-field overrides); **the ONLY custom DLL is the F6
+  menu** — the old "Debug New-Game warp / s12 `fldMapNo` edit" framing was WRONG (the 3× `ldc.i4 4003` in the
+  DLL are benign id→string TABLE DATA, not redirect code). To make New Game **seamless**, drop the 2 pre-warp
+  `Cinematic` ops in the field-70 override (→ instant `Field(4003)`, no DLL, no `SkipIntros`). The companion
+  overrides `EVT_ALEX1_AT_STREET_A` (id 100 → doors to 4003/4004/30100) + `EVT_ALEX1_TS_CARGO_0` (id 50) are the
+  walk-through-Alexandria route (separate from the direct New-Game→4003 hop). → memory `project-ff9-new-game-entry`.
+- **Versions:** kit `0.9.38`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -818,7 +825,9 @@ Read these on demand — they hold the full technical detail this file only summ
   verbatim path FAILS CLOSED with a clear `BuildError` (shared `_field_load_inject`); (2) the wipe-warning scanned
   only entry-0/tag-0, but real `SetPartyReserve` lives in object Inits / tag-1 (only 2/111 reset fields keep it in
   Main_Init) → broadened to all non-empty entries' tag-0+tag-1 (catches 111/111). 12 tests (`tests/test_party.py`);
-  883 suite. kit 0.9.31. *(In-game verification of a built `[party]` field is the human step.)*
+  883 suite. kit 0.9.31. ★ **IN-GAME PROVEN (2026-06-11):** a Daguerreo-2F native fork + `[party] add =
+  ["steiner", "freya"]` → New Game → F6-Warp → the party menu shows all 3 (Zidane + Steiner + Freya) with
+  starting equipment. Tier B authoring is end-to-end proven.
 - **Items & equipment recon + `fork-report` Items/Treasure axis (`items_equipment` branch; memory
   [[project-ff9-items-equipment]]).** First session of the branch: mapped the whole item/equipment surface. ★ The
   headline finding — engine item/equip/shop **STAT data is fully CSV-moddable on STOCK Memoria, NO DLL**
@@ -905,6 +914,19 @@ Read these on demand — they hold the full technical detail this file only summ
   submarine field offered as a swap room), and story-event leakage — all fixed (the prefilter now gates on
   playable + static-roster). Read-only; `forkreport.py`/`extract.py`/`cli.py` only — clear of story_flags' build +
   the graft lanes. 12 tests. kit 0.9.37; 925 tests. See memory [[project-ff9-non-zidane-donors]].
+- **New-Game-entry mechanism NAILED + a seamless-entry lever (kit 0.9.38; memory `project-ff9-new-game-entry`).**
+  A deep playtest+decompile exercise corrected a load-bearing misconception (CLAUDE.md §5 + my own inference):
+  New-Game-into-a-custom-field is **NOT a DLL edit** — `EventEngine.NewGame()` in the deployed DLL is **stock**
+  (`fldMapNo = 70`, verified by reading the IL: `new Byte[2048]` → 3× `.Clear()` → `ldc.i4.s 70`), the 3× `ldc.i4
+  4003` in the DLL are benign id→string TABLE DATA, and the redirect is a **mod field-70 override**
+  (`evt_alex1_ts_opening` = `EVT_ALEX1_TS_OPENING` = id 70 → `Field(4003)` after 2 `Cinematic`(0x28) FMV ops).
+  So **the ONLY custom DLL is the F6 menu** (the user was right) and the whole New-Game-into-a-fork path is already
+  engine-independent. Diagnosed via a structured **4-playtest protocol + a frame-montage of the capture** (the
+  ~2 s "Garnet on the boat" is field-70's own FMV; `SkipIntros` is boot-only) + a no-decompiler **targeted IL
+  read** of the live DLL. Landed lever: **`eb.edit.nop_cinematics`** + **`tools/skip_opening_fmv.py`** strip the
+  pre-warp cinematics from the field-70 override → New Game lands in the target field instantly, pure-mod, no DLL.
+  Applied in-game (7 lang copies, backed up; in-game test = human step). Orthogonal to the lanes (a clean dev
+  tool); merged ahead of items_equipment's New-Game/equip-CSV work. 1 test; kit 0.9.38.
 
 ---
 

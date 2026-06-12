@@ -117,6 +117,27 @@ def test_find_wait_clean_base():
     assert edit.find_wait(eb, n=2, occurrence=0) == 458
 
 
+def test_nop_cinematics_strips_only_pre_warp_fmv():
+    """The opening-FMV skip (memory project-ff9-new-game-entry): NOP every Cinematic (0x28) before the first
+    Field() warp in Main_Init, length-preserving, leaving the warp + any post-warp cinematics untouched."""
+    raw = data.blank_field_bytes("us")
+    cin1 = bytes([0x28, 0x00, 0x01, 0x02, 0x03, 0x04])     # Cinematic, 6 bytes (before the warp)
+    fld = bytes([0x2B, 0x00, 0x0A, 0x00])                  # Field(10), 4 bytes
+    cin2 = bytes([0x28, 0x00, 0x05, 0x06, 0x07, 0x08])     # Cinematic AFTER the warp -> must be left alone
+    grown = edit.insert_in_function(raw, 0, 0, 0, cin1 + fld + cin2)
+    base = EbScript.from_bytes(grown).entry(0).func_by_tag(0).abs_start
+    assert grown[base:base + 6] == cin1 and grown[base + 6] == 0x2B and grown[base + 10:base + 16] == cin2
+
+    out, n = edit.nop_cinematics(grown)
+    assert n == 1                                          # only the cinematic BEFORE the first Field()
+    assert out[base:base + 6] == b"\x00" * 6               # pre-warp Cinematic NOPed in place (0x00 = "do nothing")
+    assert out[base + 6] == 0x2B                           # the Field() warp is untouched
+    assert out[base + 10:base + 16] == cin2                # the post-warp Cinematic is left alone
+    assert EbScript.from_bytes(out).to_bytes() == out      # still a valid, parseable .eb (no offset corruption)
+    # a field with no cinematics is returned unchanged (byte-identical)
+    assert edit.nop_cinematics(raw) == (raw, 0)
+
+
 def test_encoders_known_bytes():
     assert opcodes.init_region(4, 0) == bytes([0x08, 4, 0])
     assert opcodes.init_object(2, 0) == bytes([0x09, 2, 0])
