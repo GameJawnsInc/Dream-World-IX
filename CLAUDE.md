@@ -397,8 +397,10 @@ the `BattlePatch.txt` emitter** (`battlepatch.py`): `[[battle_patch]]` (scene-sc
 `[[battle_attack]]` (global by-name `AnyEnemyByName:`/`AnyAttackByName:` = the campaign-wide WIN) reaching the
 BP-only rate arrays / `BonusElement` / `MaxDamageLimit` / `WinCardRate`, the enemy ATTACK table, and scene flags
 **without re-packing raw16**; merged non-clobbering into a live `BattlePatch.txt` under `//` markers + the BGM
-block; CLI `battle-patch`. ★ **Phase 1 IN-GAME PROVEN** (forked EF_R007 Goblin: auto-Protect + phys-def wall +
-AP). ★ Phases 2/3/4 each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
+block; CLI `battle-patch`. ★ **Phases 1 & 4 IN-GAME PROVEN** on the forked EF_R007 Goblin (P1: auto-Protect +
+phys-def wall + AP; P4: a `[[battle_patch.attack]]` patched the enemy's normal attack by index — `power`+
+`status_set` both landed, the inflicted `StatusSets.csv` bundle showed in-game = the `AA_DATA` enemy-attack lever
+works by name). ★ Phases 2/3/4 each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
 a boot-crash range bug + the cp1252 encoding; Phase 4: caught a `StatusSetId` over-range KeyNotFound crash, a
 malformed-toml traceback, + a silent dead-`Battle:` selector) → [[project-ff9-battle-tuning]],
 `docs/BATTLE_DESIGN.md`. Next: Phase 5 (character/growth CSVs). Frontier: #13 (story-event director/roster on

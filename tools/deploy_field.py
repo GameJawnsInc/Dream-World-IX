@@ -189,7 +189,15 @@ from pathlib import Path
 sys.path.insert(0, r"{KIT}")
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 STAMP="{STAMP}"; BK=Path(r"{BK}"); live=ModLayout(find_game_path()/"{MOD_FOLDER}")
-shutil.copyfile(BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}", live.dictionary_patch)
+# surgical DictionaryPatch revert: drop only THIS id's line from the CURRENT live file (preserving any line
+# another tool -- e.g. deploy_battle's "BattleScene <sceneid>" registration -- added into the SAME mod folder
+# since this deploy), then restore this id's prior registration from the pre-deploy backup if it had one. A
+# wholesale snapshot-restore (the old behavior) re-clobbered those co-deployed lines -> a black screen.
+_dpkeep=[ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if ln.strip() and ln.split()[1:2]!=["{FID}"]]
+_dpbak=BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}"
+if _dpbak.exists():
+    _dpkeep+=[ln for ln in _dpbak.read_text(encoding="utf-8").splitlines() if ln.strip() and ln.split()[1:2]==["{FID}"]]
+live.dictionary_patch.write_text("\\n".join(_dpkeep)+"\\n", encoding="utf-8", newline="\\n")
 shutil.rmtree(live.fieldmap_dir("{FBG}"), ignore_errors=True)
 mc=live.mapconfig_path("EVT_{name}")
 if mc.exists(): mc.unlink()

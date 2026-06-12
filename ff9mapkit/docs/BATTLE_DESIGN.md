@@ -429,7 +429,12 @@ tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is t
   block tracebacked instead of raising `BattlePatchError` (the linter-never-traceback invariant); and the
   `scene` selector was unvalidated → a float/list/over-Int32 value silently emitted a DEAD `Battle:` line that
   the engine never matches (the whole block no-oping — the exact silent-drop class the module exists to
-  prevent). 23 tests; *in-game proof (the tuned scene behaves) is the human step.*
+  prevent). 23 tests. ★ **IN-GAME PROVEN (2026-06-12):** a `[[battle_patch.attack]]` on the forked EF_R007
+  Goblin patched the enemy's normal attack by index (`power`+`status_set`) and both landed — the attack inflicted
+  the authored `StatusSets.csv` bundle (the `AA_DATA` enemy-attack lever, untouchable before, works by name).
+  (Author note: `status_set` is a `StatusSetId` row — 16 = the Dispel bundle, Poison = 20.) Surfaced + fixed a
+  `deploy_field` wholesale-snapshot DictionaryPatch revert that clobbered a co-deployed `BattleScene`
+  registration (→ black screen); the revert is now surgical (drops only the field's own line).
 
 ### Phase 5 — character/growth CSV deltas
 `BaseStats.csv` (partial), `Leveling.csv` (**whole-file, 99 rows**), `AbilityGems.csv`, optionally

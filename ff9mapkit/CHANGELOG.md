@@ -128,7 +128,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `KeyNotFoundException` crash at command-build (capped at 38); a malformed (non-table/non-list) toml block
   tracebacked instead of raising `BattlePatchError`; and the `scene` selector was unvalidated → a
   float/list/over-Int32 value silently emitted a dead `Battle:` line the engine never matches (the whole block
-  no-oping). 23 tests (`test_battlepatch.py`); *in-game proof (the tuned scene behaves) is the human step.*
+  no-oping). 23 tests (`test_battlepatch.py`).
+- ★ **IN-GAME PROVEN (2026-06-12):** a `[[battle_patch.attack]]` on the forked EF_R007 Goblin (scene 30055,
+  `FF9CustomMap-bt`) patched the enemy's **normal attack** by index — `power = 30` (now lethal) + `status_set = 16`
+  — and both landed: the attack inflicted status-set 16, whose `StatusSets.csv` bundle (`AutoLife`, `Vanish`,
+  `Regen`, `Haste`, `Protect`, …) showed up exactly as authored (hit party members revived at 1 HP from AutoLife
+  and went invisible from Vanish). So the **enemy `AA_DATA` attack lever** (untouchable by the kit before) works
+  by name via BattlePatch. (Lesson for authors: `status_set` is a `StatusSetId` row — 16 = the Dispel bundle,
+  Poison = 20; pick the row you mean.)
+
+### Fixed — `deploy_field` DictionaryPatch revert is now surgical (was clobbering co-deployed registrations)
+- `deploy_field`'s generated revert restored the **whole** pre-deploy `DictionaryPatch.txt` snapshot, so when a
+  field and a battle scene share one mod folder (the battle-tuning loop: `deploy_battle` registers
+  `BattleScene <id>` into `FF9CustomMap-bt`, then `deploy_field` deploys the trigger field there), the field
+  deploy's pre-revert wiped the `BattleScene` line → the battle **black-screened** on entry. The revert now drops
+  only the field's own `FieldScene <id>` line from the *current* live file and restores that id's prior line from
+  the backup, preserving every co-deployed line. (Same wholesale-snapshot hazard the World Hub note flagged.)
 
 ### Added — World Hub: a playable journey selector (choice `warp` action + `[player] model=`), IN-GAME PROVEN (0.9.48)
 - The **World Hub** is a playable field that lets the player pick which **journey** (a complete arc = one or
