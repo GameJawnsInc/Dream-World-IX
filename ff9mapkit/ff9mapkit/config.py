@@ -206,6 +206,12 @@ class ModLayout:
         the engine -> a partial delta (only the characters you change) works."""
         return self.root / "StreamingAssets" / "Data" / "Characters" / "DefaultEquipment.csv"
 
+    @property
+    def shop_items_csv(self) -> Path:
+        """Custom shop inventories (``Data/Items/ShopItems.csv``). MERGED by id low->high by the engine -> a
+        partial delta (only the custom shops, ids >= 32) works; the base supplies shops 0-31."""
+        return self.root / "StreamingAssets" / "Data" / "Items" / "ShopItems.csv"
+
     def ensure_dirs(self, fbg_name: str | None = None, *, bbg: str | None = None,
                     langs: tuple[str, ...] = LANGS) -> None:
         """Create the directory skeleton a field (and/or battle-map) write needs."""

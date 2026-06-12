@@ -21,6 +21,52 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - No kit code changed — the four channels already existed; this is the **composition + the proof** (story_flags'
   composition lane). Engine facts verified by a 3-lens adversarial review against Memoria source.
 
+### Added — deploy-time shadow guard for the highest-wins `InitialItems.csv` (0.9.43)
+- A cross-branch handoff (story_flags' CSV-shadow lane): `deploystack` warned on a `.mes` text-block shadow but
+  not on an `InitialItems.csv` shadow. The starting bag is read **highest-priority-wins** (a whole-file win, not
+  a per-id merge like `ShopItems`/`DefaultEquipment`), so deploying it into a folder that a **higher**-priority
+  `FolderNames` folder also ships **silently drops it** — no error, the wrong bag loads.
+- New `deploystack.check_csv_shadow` (mirrors `check_text_block_shadow`): given the mod stack, it flags a
+  highest-wins CSV that a higher folder shadows, with a concrete fix (deploy to the highest folder / remove the
+  higher copy). `HIGHEST_WINS_CSVS` lists the one file that needs it (`InitialItems.csv`); the merged CSVs don't.
+  `tools/deploy_field.py` runs it for each highest-wins CSV it actually shipped, after the text-shadow guard
+  (and never breaks a deploy on an odd `Memoria.ini`). 5 tests. kit 0.9.43.
+
+### Added — `[[shop]]` — author a custom shop: inventory + opener (0.9.43)
+- A new `[[shop]]` block defines a shop the player can buy from — its **inventory** plus an **opener** — entirely
+  on stock Memoria (no DLL). The author-side complement to the `fork-report` Items/Treasure axis.
+- **Inventory** → a `StreamingAssets/Data/Items/ShopItems.csv` delta (`content/shop.py`
+  `render_shop_items`/`write_shop_items`), emitted once at the mod-write stage (`build._emit_shops`, alongside
+  the new-game CSVs). The engine **merges** shops by id over the base (which supplies shops 0-31), so the delta
+  lists only the custom shops; ids are `>= 32` (a `< 32` clash overrides a vanilla shop — warned) and `<= 255`
+  (the `Menu` sub-id byte). Item names/ids resolved via the kit's item table; duplicates within a shop collapse;
+  `NoItem` (255) dropped. Shops collect from **every** built field (not entry-restricted — they merge by id);
+  a duplicate id across the mod is warned (last-wins).
+- **Opener** → `Menu(2, id)` (`OpenShopMenu`; the `Menu(4, 0)` save-point family). Two shapes:
+  - **`[[npc]] opens_shop = N`** — talking to a shopkeeper NPC opens shop `N` (a vanilla 0-31 shop too); its
+    `dialogue` is the greeting shown first. Reuses `content/npc.py`'s `speak_body` slot (`shop_speak_body`).
+  - **`[[shop]] zone = [...]`** — a standalone press-to-interact region opens the shop (the save-point region
+    shape: `DisableMove; Menu(2, id); EnableMove`), `bubble` toggles the "!" prompt. `shop_region`/`inject_shop_regions`.
+- `validate()` checks the shop id type/range, a non-empty resolvable `sells`, the zone shape, and `opens_shop`
+  range. `_emit_shops` warns on a vanilla-id override, a duplicate id, and an `opens_shop` pointing at an
+  undefined custom shop. `ModLayout.shop_items_csv` is the new mod path.
+- Byte-identical when no `[[shop]]` is present (no region injected, no CSV written — the base shop file is not
+  clobbered). New module `content/shop.py`; touches `build.py` (inject + emit + validate) + `config.py`. 25 tests
+  (`tests/test_shop.py`); clear of story_flags' compose lane + overworld's forkreport lane. kit 0.9.43.
+- ★ A 3-lens adversarial-review workflow (engine-fidelity / Python-correctness / integration-at-scale) caught
+  defects the first pass missed, all fixed: **(blocker)** `tools/deploy_field.py` didn't ship the new
+  `ShopItems.csv` (the same selective-copy gap #3 had) — added to its reversible CSV-deploy loop, so the
+  edit→deploy→F6 loop actually carries shop stock; **(blocker)** an author `comment` was emitted verbatim as CSV
+  column 0, so a `;` corrupted the row (mis-parsed the Id) and a leading `#` made the engine skip the whole line
+  (the shop silently never loaded) — `shop.safe_comment` neutralizes `;`/newline/leading-`#` (the label is
+  cosmetic); **(bug)** an NPC with both a `[[choice]]` and `opens_shop` silently dropped the shop (the talk-body
+  `elif`) — now a `validate()` error; **(bug)** a `sells` that resolves entirely to `NoItem` passed validate then
+  built an empty shop — now caught post-resolution; **(smell)** `_emit_shops` made dup-id and vanilla-override
+  mutually exclusive (`if/elif`) and could crash on a malformed id (build skips `validate`) — both now independent,
+  and a bad id is skipped-with-warning not a crash; **(smell)** a verbatim fork silently dropped a synthesized
+  shop opener — now warned (the inventory CSV still ships). The cross-worktree same-id merge collision is noted
+  in FORMAT.md.
+
 ### Fixed — `import <id>` now means the FIELD ID, not a `map<NNN>` folder substring (0.9.42)
 - `import <field>` / `import-chain` resolved a token by **FBG-folder substring**, while `fork-report` /
   `list-fields` / `find-rooms` resolve a digit as a **field id** — so they targeted *different* fields for the

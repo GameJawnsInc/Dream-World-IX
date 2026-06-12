@@ -627,6 +627,56 @@ armor  = "Genji Armor"
 
 ---
 
+### `[[shop]]` — a custom shop (inventory + opener)
+
+Define a shop the player can buy from. A shop has two parts — its **inventory** (the items it stocks) and an
+**opener** (how the player opens it) — and both are engine-independent (stock Memoria, no DLL).
+
+```toml
+[[shop]]
+id = 40                                        # the shop slot (>= 32; 0-31 are the base game's shops)
+comment = "Hut Item Shop"                      # a label (optional; for the CSV + your own reference)
+sells = ["Potion", "Hi-Potion", "Phoenix Down", "Tent", "Ether"]   # the stock (item names or ids)
+
+# --- open it from a shopkeeper NPC (the authentic "talk to the merchant" UX) ---
+[[npc]]
+name = "Shopkeeper"
+pos = [0, -700]
+dialogue = "Welcome! Care to buy something?"   # an optional greeting shown before the shop opens
+opens_shop = 40
+
+# --- OR open it from a standalone press-region (walk up to a counter, no NPC) ---
+[[shop]]
+id = 41
+sells = ["Ether", "Tent"]
+zone = [[-400, -900], [400, -900], [400, -500], [-400, -500]]   # the press area
+bubble = true                                  # the floating "!" prompt (default true)
+```
+
+- **Inventory** → a `StreamingAssets/Data/Items/ShopItems.csv` delta, written once at build time. The engine
+  **merges** shops by id over the base file (which supplies shops 0-31), so the delta lists only your custom
+  shops. Items by name or id; duplicates within a shop collapse; the order you list is the order shown.
+- **Shop ids** are **`>= 32`** (0-31 are vanilla; a clash **overrides** that vanilla shop — allowed, but the
+  build warns). An id is also the `Menu` sub-id, so it is **`<= 255`**. Ids must be unique across the mod
+  (a duplicate is warned, last-wins — the engine's own merge rule). Shops may live on **any** field's
+  `field.toml` (unlike the entry-only new-game state) — they all collect into one `ShopItems.csv`. Because the
+  engine **merges** `ShopItems.csv` by id across stacked mod folders, two **worktrees** that both pick the same
+  custom id collide silently (the higher-priority folder wins) — give each worktree its own shop-id sub-band,
+  the way field-id bands are split.
+- **Opener** → `Menu(2, id)` (the same op family as the save point's `Menu(4, 0)`). Either:
+  - **`[[npc]] opens_shop = N`** — talking to that NPC opens shop `N`. `N` may be a **vanilla** shop (0-31)
+    too (e.g. open Dali's weapon shop). Its `dialogue`, if any, is the greeting shown first.
+  - **`[[shop]] zone = [...]`** — a press-to-interact region opens the shop (place a cosmetic
+    `[[npc]]`/`[[prop]]` merchant over it for the visual, like the save moogle). `bubble = false` hides the "!".
+- A `[[shop]]` with **neither** an `opens_shop` reference nor a `zone` still writes its inventory CSV — useful if
+  another field opens it — but nothing in-game opens it on its own.
+- **Scope:** the inventory CSV ships for **any** build (single field, campaign, or verbatim fork). The synthesized
+  **opener** (NPC/region) is injected on the **synthesize** path (like `[[savepoint]]`/`[[event]]`); a `--verbatim`
+  fork carries the donor's own logic, so wire the opener with the kit's blocks on a synthesized field.
+- **In-game only:** verify the shop opens and stocks the right items (the kit can't see the running game).
+
+---
+
 ## `[[choice]]` (optional, repeatable)
 
 A **dialogue choice** — pick from a menu and **branch** on the answer. This is the interaction /

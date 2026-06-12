@@ -42,6 +42,7 @@ from .content import region as _region
 from .content import party as _party
 from .content import reinit as _reinit
 from .content import savepoint as _savepoint
+from .content import shop as _shop
 from .content import startup as _startup
 from .content import text as _text
 from . import animations as _animations
@@ -592,6 +593,44 @@ def validate(project: FieldProject) -> list[str]:
         z = sp.get("zone", [])
         if len(z) not in (4, 5):
             problems.append(f"[[savepoint]] zone must have 4 or 5 points (the press area), got {len(z)}")
+    for i, sh in enumerate(project.raw.get("shop", [])):   # custom shop ([[shop]]: inventory CSV + opener)
+        sid = sh.get("id")
+        if not isinstance(sid, int) or isinstance(sid, bool):
+            problems.append(f"[[shop]] #{i} needs an integer id (the shop slot, >= {_shop.FIRST_CUSTOM_SHOP})")
+            continue
+        if not (0 <= sid <= _shop.MAX_SHOP_ID):
+            problems.append(f"[[shop]] id {sid} out of range 0..{_shop.MAX_SHOP_ID} "
+                            f"(it is also the Menu sub-id, a single byte)")
+        sells = sh.get("sells")
+        if not sells:
+            problems.append(f"[[shop]] id {sid} has no `sells` items (a shop needs an inventory)")
+        else:
+            resolved = []
+            for it in sells:
+                try:
+                    resolved.append(_items.resolve(it))
+                except (ValueError, IndexError, TypeError) as e:
+                    problems.append(f"[[shop]] id {sid} sells: {e}")
+            # all entries resolve to NoItem (255) -> shop_rows drops them -> an empty shop (validate's raw
+            # `not sells` check above passes a non-empty list of 255s). Catch it here, post-resolution.
+            if resolved and all(r == _shop.NO_ITEM for r in resolved):
+                problems.append(f"[[shop]] id {sid} sells only NoItem (255) -- a shop needs at least one real item")
+        z = sh.get("zone")
+        if z is not None and len(z) not in (4, 5):
+            problems.append(f"[[shop]] id {sid} zone must have 4 or 5 points (the press area), got {len(z)}")
+    choice_npcs = {ch["npc"] for ch in project.raw.get("choice", []) if "npc" in ch}
+    for i, n in enumerate(project.raw.get("npc", [])):     # a shopkeeper NPC ([[npc]] opens_shop = id)
+        os_ = n.get("opens_shop")
+        if os_ is None:
+            continue
+        if not isinstance(os_, int) or isinstance(os_, bool) or not (0 <= os_ <= _shop.MAX_SHOP_ID):
+            problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} opens_shop must be a shop id "
+                            f"0..{_shop.MAX_SHOP_ID}, got {os_!r}")
+        # both a [[choice]] AND opens_shop on one NPC: build's talk-body selection takes the choice and
+        # SILENTLY drops the shop opener (the `elif`). Flag it so the conflict isn't a hidden no-op.
+        if n.get("name") in choice_npcs:
+            problems.append(f"[[npc]] {n.get('name')!r} has both a [[choice]] and opens_shop -- only one talk "
+                            f"action is possible; the shop opener would be dropped (remove one)")
     for sm in project.raw.get("save_moogle", []):       # a carried (imported) save Moogle (docs/SAVEPOINT.md)
         if sm.get("carried"):                           # the cluster lives in the [[object]]/[[player_func]] blocks
             if not project.raw.get("object"):
@@ -1903,6 +1942,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                           for oi, o in enumerate(ch.get("options", []))]
             setup, _ = _choice.pre_choose(ch)
             sb = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup)
+        elif n.get("opens_shop") is not None:
+            # a shopkeeper: talk -> (optional greeting window ->) open the shop (Menu(2, id)). The greeting
+            # is this NPC's own `dialogue` line (txid assigned above); no dialogue -> straight to the shop.
+            sb = _shop.shop_speak_body(int(n["opens_shop"]),
+                                       greeting_txid=txid if n.get("dialogue") else None)
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
                              gate_flag=gf, gate_require_set=gs, intro=intro, speak_body=sb, **kwargs)
         if gf is not None:
@@ -2204,6 +2248,16 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         sps = [{"zone": _gw.quad_zone(sp["zone"]) if len(sp["zone"]) == 4 else sp["zone"],
                 "bubble": sp.get("bubble", True)} for sp in savepoints]
         eb, _ = _savepoint.inject_savepoints(eb, sps)
+
+    # shops: a [[shop]] with a `zone` mints a standalone press-region opener (Menu(2, id), the save-point
+    # shape). Shops opened from an NPC instead (via opens_shop) carry no zone and are skipped here; the
+    # inventory CSV is written mod-global at the build_mod stage. docs/FORMAT.md.
+    shops = [sh for sh in project.raw.get("shop", []) if sh.get("zone")]
+    if shops:
+        shs = [{"id": int(sh["id"]),
+                "zone": _gw.quad_zone(sh["zone"]) if len(sh["zone"]) == 4 else sh["zone"],
+                "bubble": sh.get("bubble", True)} for sh in shops]
+        eb, _ = _shop.inject_shop_regions(eb, shs)
 
     # player-function graft: carry the donor PLAYER funcs a carried object RunScripts onto the fork player,
     # so the interactions fire (the cask EXAMINE turn, the box gestures) -- docs/PLAYER_GRAFT.md. The tag
@@ -2812,6 +2866,16 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         verbatim_bytes = _field_load_inject("[[on_entry]]", project.name,
                                             lambda: _apply_on_entry(project, verbatim_bytes, oe_msg_txids,
                                             _FlagAlloc(getattr(project, "flag_base", None)), warnings=warnings))
+        # a [[shop]] OPENER (a standalone `zone` region, or an `[[npc]] opens_shop`) is synthesized in
+        # build_script, which the verbatim path bypasses -- so it is NOT injected here (the donor's own
+        # logic ships instead). The inventory CSV still ships (mod-write stage). Warn so it isn't a silent
+        # no-op; wire the opener on a synthesized field, or open the shop from the donor's own carried logic.
+        _shop_openers = ([s for s in project.raw.get("shop", []) if s.get("zone")]
+                         + [n for n in project.raw.get("npc", []) if n.get("opens_shop") is not None])
+        if _shop_openers:
+            warnings.append("[[shop]] opener (zone region / [[npc]] opens_shop) is NOT injected into a verbatim "
+                            "fork -- the donor's own .eb ships instead; the shop inventory CSV is still written. "
+                            "Author the opener on a synthesized field if you need it.")
     for lang in langs:
         if verbatim_bytes is not None:
             eb = verbatim_bytes
@@ -2884,6 +2948,44 @@ def _emit_start_state(projects, layout, entry_project=None) -> list:
     return warnings
 
 
+def _emit_shops(projects, layout) -> list:
+    """Emit the mod-GLOBAL custom-shop inventory delta (``Data/Items/ShopItems.csv``) from EVERY built field's
+    ``[[shop]]`` blocks. Unlike the new-game state, shops are NOT entry-restricted -- the engine merges them by
+    id, so any field may define its own shops; only their ids must be unique across the mod (a duplicate id is
+    warned + last-wins). No ``[[shop]]`` anywhere -> no file written (no base clobber). Returns warnings."""
+    warnings: list = []
+    shops, seen = [], {}
+    for p in projects:
+        for sh in p.raw.get("shop", []):
+            try:                                            # build doesn't run validate(); don't crash on a bad id
+                sid = int(sh["id"])
+            except (KeyError, TypeError, ValueError):
+                warnings.append(f"[[shop]] on {_field_name(p)} has a missing/invalid id {sh.get('id')!r} -- "
+                                f"skipped (run `ff9mapkit lint` for the precise error)")
+                continue
+            # the two checks are INDEPENDENT (a vanilla id defined twice is both a dup AND an override)
+            if sid in seen:
+                warnings.append(f"[[shop]] id {sid} is defined twice ({seen[sid]} and {_field_name(p)}) -- the "
+                                f"later one wins (the engine merges shops by id)")
+            if sid < _shop.FIRST_CUSTOM_SHOP:
+                warnings.append(f"[[shop]] id {sid} OVERRIDES vanilla shop {sid} (base shops are "
+                                f"0-{_shop.FIRST_CUSTOM_SHOP - 1}); use id >= {_shop.FIRST_CUSTOM_SHOP} for a net-new shop")
+            seen[sid] = _field_name(p)
+            shops.append(sh)
+    # a shopkeeper NPC (opens_shop) pointing at a CUSTOM id (>= 32) that no [[shop]] defines opens an empty
+    # shop -- usually a typo or a forgotten [[shop]] block. A vanilla id (0-31) is fine (it's in the base CSV).
+    for p in projects:
+        for n in p.raw.get("npc", []):
+            ref = n.get("opens_shop")
+            if isinstance(ref, int) and not isinstance(ref, bool) \
+                    and ref >= _shop.FIRST_CUSTOM_SHOP and ref not in seen:
+                warnings.append(f"[[npc]] {n.get('name', '?')!r} opens_shop = {ref}, but no [[shop]] defines "
+                                f"shop {ref} -- it will be empty (define a [[shop]] id = {ref})")
+    if shops:
+        _shop.write_shop_items(layout, shops)
+    return warnings
+
+
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
               langs=LANGS, entry_project=None) -> dict:
     """Build one or more fields into a mod at ``out_root``; write the registration files. ``entry_project``
@@ -2904,6 +3006,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
 
     # mod-global new-game starting state (CSV deltas, written once into the mod root -- not field bytes)
     start_warnings = _emit_start_state(projects, layout, entry_project)
+    start_warnings += _emit_shops(projects, layout)
 
     layout.mod_description.write_text(
         "<Mod>\n"

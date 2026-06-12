@@ -1035,6 +1035,34 @@ Read these on demand — they hold the full technical detail this file only summ
   code change — the four channels already existed; this is the composition + the proof). story_flags is the
   composition owner ([[project-ff9-branch-lanes]]). kit 0.9.43; 961 tests. → memory [[project-ff9-new-game-entry]],
   [[project-ff9-pc-party-system]].
+- **`[[shop]]` — author a custom shop: inventory + opener (`items_equipment` roadmap #4; kit 0.9.43; memory
+  [[project-ff9-items-equipment]]).** The author-side complement to the `fork-report` Items axis: a shop the
+  player can buy from, engine-independent (stock Memoria, no DLL). Two channels (like every item feature here):
+  **INVENTORY** → a `Data/Items/ShopItems.csv` delta (`content/shop.py`), emitted mod-global at
+  `build._emit_shops` — the engine MERGES shops by id (`ff9buy.LoadShopItems`/`EnumerateCsvFromLowToHigh`, the
+  base supplies 0-31 so the `>=32` guard passes), so a partial delta lists only the custom shops; shop ids are
+  **>= 32** (a `<32` clash OVERRIDES a vanilla shop — warned) and **<= 255** (the `Menu` sub-id byte); item names
+  resolved via the kit table, dup-within-a-shop collapsed, `NoItem` 255 dropped (it terminates the engine's
+  list), dup shop id across the mod = last-wins + warn. Shops are NOT entry-restricted (any field's `field.toml`,
+  unlike the new-game state). **OPENER** → `Menu(2, id)` (verified `EventService.FF9Menu_Command` case 2u →
+  `OpenShopMenu`; the `Menu(4,0)` save-point family): **`[[npc]] opens_shop = N`** (talk → shop; reuses npc
+  `speak_body`; N may be a vanilla 0-31 shop) OR **`[[shop]] zone = [...]`** (a standalone press-region, the
+  save-point shape `DisableMove; Menu(2,id); EnableMove`). `validate()` checks id range/type + resolvable
+  non-empty `sells` + zone shape + opens_shop range; `_emit_shops` warns on vanilla-override / dup-id /
+  dangling-opens_shop. Byte-identical when absent (no region, no CSV — the base shop file is not clobbered).
+  Provenance CLEAN (writes authored intent, reads no game stats). ★ Scope: the inventory CSV ships for ANY build
+  incl. verbatim; the synthesized OPENER is injected on the SYNTHESIZE path only (like savepoint/event/jump — a
+  verbatim fork carries the donor's own logic). `content/shop.py` + `build.py` + `config.py`; clear of
+  story_flags' compose lane + overworld's forkreport lane. ★ A 3-lens adversarial review (engine-fidelity /
+  python / integration-at-scale) caught real defects (all fixed): (blocker) **`deploy_field.py` didn't ship the
+  new `ShopItems.csv`** — the SAME selective-copy gap #3 had → added to its reversible CSV loop (the edit→deploy→F6
+  loop now carries shop stock; recurring lesson: `build`/`deploy` do NOT run `validate()`, so a new mod-global CSV
+  must be added to deploy_field's loop); (blocker) the author `comment` was CSV column 0 emitted verbatim → a `;`
+  corrupts the Id parse + a leading `#` makes CsvReader SKIP the whole line (shop silently never loads) →
+  `shop.safe_comment` neutralizes it; (bug) NPC with both `[[choice]]`+`opens_shop` → silent drop → validate
+  error; (bug) all-NoItem `sells` → empty shop → caught post-resolution; (smell) `_emit_shops` `if/elif` dup-vs-override
+  + crash-on-bad-id → independent `if`s + skip-with-warning; (smell) verbatim fork dropped a synthesized opener →
+  warned. 25 tests. kit 0.9.43; 991 tests. *In-game test (the shop opens + stocks the right items) is the human step.*
 
 ---
 

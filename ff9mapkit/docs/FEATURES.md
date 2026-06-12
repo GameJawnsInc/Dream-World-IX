@@ -82,6 +82,8 @@ codec/golden tests) with the full in-game pass still pending.
 | Save-persistent story flags (correct `gEventGlobal` scope) | ✓ | [FORMAT](FORMAT.md) |
 | Story-state author surface: `[startup]` asserts the beat on entry; `[[gateway]]` `set_scenario`/`set_flags` advances it on exit | ✓ | [FORK_FIDELITY](FORK_FIDELITY.md) |
 | Gated field-entry beats — `[[on_entry]]` fires a message / story write on load, once, only when `requires_scenario`/`requires_flag` match (re-author an entry cutscene for a synthesize fork) | ✓ | [FORMAT](FORMAT.md) |
+| New-game starting state — `[start_inventory]` (the full starting bag) + `[[equipment]]` (per-character default gear), as engine-independent CSV deltas | ✓ | [FORMAT](FORMAT.md) |
+| Custom shops — `[[shop]]` defines a shop's inventory (`ShopItems.csv` delta) + an opener (`[[npc]] opens_shop` or a standalone press-region); reward levers `give_item`/`remove_item`/`gil` | ✓ | [FORMAT](FORMAT.md) |
 | Wire a custom room into the real game world (entrance + exit) | ✓ | [PIPELINE](PIPELINE.md) |
 
 ## Front-ends (author however you like)

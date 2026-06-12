@@ -7,7 +7,8 @@ the shadow detection by stack order, the valid-alternative suggestions, and grac
 """
 from __future__ import annotations
 
-from ff9mapkit.deploystack import (parse_folder_names, check_text_block_shadow, shadow_warning)
+from ff9mapkit.deploystack import (parse_folder_names, check_text_block_shadow, shadow_warning,
+                                   check_csv_shadow, HIGHEST_WINS_CSVS)
 
 
 INI = '''[Mod]
@@ -83,3 +84,52 @@ def test_shadow_warning_text(tmp_path):
     w = shadow_warning(r)
     assert w and "TEXT SHADOWED" in w and "'A'" in w and "187" in w
     assert shadow_warning(check_text_block_shadow(g, "A", 1073)) is None   # clear -> no warning
+
+
+# ---- the highest-wins CSV (InitialItems.csv) shadow guard -------------------------------------
+INITIAL_ITEMS = HIGHEST_WINS_CSVS[0]   # "StreamingAssets/Data/Items/InitialItems.csv"
+
+
+def _mk_csv(game, folder, relpath):
+    p = game / folder / relpath.replace("/", "\\")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("236;5;# Potion\n", encoding="utf-8")
+
+
+def _csv_stack(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")   # FolderNames = A, B, C
+    return g
+
+
+def test_initial_items_shadowed_by_higher_folder(tmp_path):
+    g = _csv_stack(tmp_path)
+    _mk_csv(g, "A", INITIAL_ITEMS)                          # higher-priority folder also ships the bag
+    _mk_csv(g, "C", INITIAL_ITEMS)
+    w = check_csv_shadow(g, "C", INITIAL_ITEMS)
+    assert w and "SHADOWED" in w and "'A'" in w and "InitialItems.csv" in w
+
+
+def test_initial_items_not_shadowed_when_highest(tmp_path):
+    g = _csv_stack(tmp_path)
+    _mk_csv(g, "A", INITIAL_ITEMS)
+    assert check_csv_shadow(g, "A", INITIAL_ITEMS) is None  # nothing higher than A
+
+
+def test_initial_items_no_shadow_when_higher_lacks_it(tmp_path):
+    g = _csv_stack(tmp_path)
+    _mk_csv(g, "C", INITIAL_ITEMS)                          # only C ships it -> no higher copy
+    assert check_csv_shadow(g, "C", INITIAL_ITEMS) is None
+
+
+def test_csv_shadow_graceful_without_ini(tmp_path):
+    g = tmp_path / "bare"
+    g.mkdir()
+    assert check_csv_shadow(g, "C", INITIAL_ITEMS) is None  # no Memoria.ini -> empty stack, no false alarm
+
+
+def test_csv_shadow_target_not_in_stack(tmp_path):
+    g = _csv_stack(tmp_path)
+    _mk_csv(g, "A", INITIAL_ITEMS)
+    assert check_csv_shadow(g, "FF9CustomMap-zz", INITIAL_ITEMS) is None   # unlisted target -> nothing higher

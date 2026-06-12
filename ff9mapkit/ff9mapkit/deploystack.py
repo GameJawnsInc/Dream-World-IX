@@ -99,3 +99,35 @@ def shadow_warning(report: ShadowReport, mod_folder: str | None = None) -> str |
     return (f"TEXT SHADOWED: block {report.text_block} is also defined by '{report.shadowed_by}', which is "
             f"HIGHER priority than '{target}' in Memoria.ini FolderNames -- the engine will show "
             f"'{report.shadowed_by}'s text, not yours.{fix}")
+
+
+# Relative path (within a mod folder) of the one item CSV the engine reads HIGHEST-PRIORITY-WINS. The starting
+# bag is loaded via GetCsvWithHighestPriority -> a single folder's whole file wins; the others (ShopItems /
+# DefaultEquipment) MERGE low->high by id, so a stacked folder only collides per-id, not whole-file.
+HIGHEST_WINS_CSVS = ("StreamingAssets/Data/Items/InitialItems.csv",)
+
+
+def check_csv_shadow(game_dir, target_folder: str, csv_relpath: str,
+                     folder_names: list | None = None) -> str | None:
+    """Will a HIGHEST-PRIORITY-WINS CSV (``InitialItems.csv``) deployed into ``target_folder`` be SHADOWED by a
+    higher-priority mod folder that also ships it? Unlike a ``.mes`` (per-block) or a MERGED CSV (per-id), a
+    highest-wins WHOLE file is silently ignored if ANY higher folder ships its own copy -> the starting bag is
+    dropped with no error. Mirrors :func:`check_text_block_shadow`. Returns a one-line warning, or ``None`` when
+    clear / unreadable / the target isn't in the stack (no false alarm). The MERGED CSVs need no such check."""
+    game_dir = Path(game_dir)
+    order = folder_names
+    if order is None:
+        ini = game_dir / "Memoria.ini"
+        order = parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+    if target_folder not in order:
+        return None
+    higher = order[:order.index(target_folder)]
+    rel = csv_relpath.replace("\\", "/")
+    shadowed_by = next((f for f in higher if (game_dir / f / rel).is_file()), None)
+    if shadowed_by is None:
+        return None
+    name = rel.rsplit("/", 1)[-1]
+    return (f"{name} SHADOWED: '{shadowed_by}' is HIGHER priority than '{target_folder}' in Memoria.ini "
+            f"FolderNames and also ships {name}, which is read HIGHEST-PRIORITY-WINS -- the engine uses "
+            f"'{shadowed_by}'s {name}, not yours (your starting bag is silently dropped). Deploy to the "
+            f"highest-priority folder, or remove the higher folder's {name}.")

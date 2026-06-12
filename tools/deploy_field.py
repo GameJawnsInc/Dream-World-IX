@@ -133,12 +133,13 @@ dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines(
       if ln.strip() and ln.split()[1:2] != [str(FID)]]
 dp.append(info["dictionary"][0])
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
-# New-game starting state: mod-GLOBAL CSV deltas, deployed only when the field carries [start_inventory] /
-# [[equipment]] (build_mod emits them into the temp mod). They're read at NEW-GAME init (independent of which
-# field you warp to), so a New Game reflects them wherever it lands. InitialItems.csv is highest-priority-wins.
+# Item-data CSV deltas: mod-GLOBAL files build_mod emits when the field carries [start_inventory]/[[equipment]]
+# (the new-game starting bag/gear, read at NEW-GAME init) or [[shop]] (custom shop inventories, merged by id).
+# Deployed only when present, each reversibly (backup pre-existing / delete a newly-created one on revert).
 csv_reverts = []
 for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, "InitialItems"),
-                                 (tl.default_equipment_csv, live.default_equipment_csv, "DefaultEquipment")):
+                                 (tl.default_equipment_csv, live.default_equipment_csv, "DefaultEquipment"),
+                                 (tl.shop_items_csv, live.shop_items_csv, "ShopItems")):
     if not src_csv.exists():
         continue
     live_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -147,7 +148,7 @@ for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, 
         shutil.copyfile(live_csv, BK / f"{label}.csv.preDEPLOY.{STAMP}")
     shutil.copyfile(src_csv, live_csv)
     csv_reverts.append((label, str(live_csv), had))
-    print(f"  + {label}.csv (new-game starting bag/gear -- read at New Game)")
+    print(f"  + {label}.csv (item-data delta)")
 csv_revert_code = ""
 for _label, _live, _had in csv_reverts:
     if _had:
@@ -187,6 +188,20 @@ try:
         print(f"\n  !! {_warn}")
 except Exception:
     pass                                                   # a missing/odd Memoria.ini must never break a deploy
+
+# CSV-shadow guard: the starting bag (InitialItems.csv) is read HIGHEST-PRIORITY-WINS, so deploying it into a
+# folder a HIGHER-priority FolderNames folder also ships silently drops it. (ShopItems/DefaultEquipment MERGE,
+# so they don't whole-file-shadow.) Only check the ones this deploy actually shipped.
+try:
+    from ff9mapkit.deploystack import check_csv_shadow, HIGHEST_WINS_CSVS
+    for _label, _live, _had in csv_reverts:
+        for _rel in HIGHEST_WINS_CSVS:
+            if _rel.rsplit("/", 1)[-1].lower().startswith(_label.lower()):
+                _cw = check_csv_shadow(GAME, MOD_FOLDER, _rel)
+                if _cw:
+                    print(f"\n  !! {_cw}")
+except Exception:
+    pass
 
 print(f"\n=== Reach it in-game: F6 -> debug menu -> Warp to field {FID} "
       f"(or New Game, if the auto-warp targets {FID}). ===")
