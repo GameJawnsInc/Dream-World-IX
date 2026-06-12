@@ -46,13 +46,20 @@ PY
 
 ## Deploy + playtest the loop
 
-The three fields use distinct ids (4500/4501/4502 — EventDB is global), so deploy each:
+The three fields use distinct ids (4500/4501/4502 — EventDB is global), so deploy each. Run these **from
+the kit root** (`ff9mapkit/`) so `py -m ff9mapkit` picks up *this* checkout, not an editable install pointing
+at another worktree — `deploy_field.py` lives one level up at the repo root, hence `../tools/`:
 
 ```bash
-py tools/deploy_field.py examples/world_hub/hub.field.toml         --id 4500
-py tools/deploy_field.py examples/world_hub/journey_one.field.toml --id 4501
-py tools/deploy_field.py examples/world_hub/journey_two.field.toml --id 4502
+# from the kit root (ff9mapkit/)
+py ../tools/deploy_field.py examples/world_hub/hub.field.toml         --id 4500
+py ../tools/deploy_field.py examples/world_hub/journey_one.field.toml --id 4501
+py ../tools/deploy_field.py examples/world_hub/journey_two.field.toml --id 4502
 ```
+
+Deploying several fields into one mod folder can re-clobber their dialogue `text_block`s on the sequential
+reverts (the menu then shows the wrong text). If that happens, verify the `DictionaryPatch` textids in the
+mod folder afterward (see memory `project-ff9-text-block-shadow`).
 
 Then **relaunch once** (to register the three new ids), and in-game:
 
