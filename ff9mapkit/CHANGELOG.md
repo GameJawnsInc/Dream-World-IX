@@ -5,6 +5,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — save-item editor #5 step 3: the first real-save WRITE = gil (`items-set-gil`) (0.9.50)
+- **`save_items.set_gil(extra_path, gil, *, dry_run=True, backup=True)`** — write `40000_Common/gil` into a
+  Memoria EXTRA save file (the **load-authoritative** store — it overrides the encrypted main block on load,
+  memory `project-ff9-save-item-layout`). gil is a length-stable Int32 leaf (IntValue, tag 4), so this is the
+  smallest possible real-save mutation: the editor's FIRST write, and the falsifiable in-game **proof** that the
+  extra overrides the main block (write ONLY the extra — if the in-game gil changes to match, the extra wins).
+  Extra-only by design; the main-block mirror + items/equipment are step 4. Never touches `00001_time`.
+- **Two safety gates** (it writes a REAL save): (1) refuses to edit any file the SimpleJSON codec can't reproduce
+  byte-for-byte (guards an unhandled leaf); (2) asserts the edit is surgical — same length, only the gil's ≤4
+  contiguous value bytes move. The write is **atomic** (temp file + `os.replace`) and re-reads to **confirm** the
+  new gil; a **timestamped** `.bak.<ts>` backup is taken first (never clobbers a prior one, matching
+  `save.apply_story_edit`). **dry-run by default**; a no-op (gil already == requested) writes nothing even on apply.
+- **`save_items.resolve_extra(...)`** — target an extra file directly, or resolve one from a `SavedData_ww.dat`
+  container + 0-indexed `--slot`/`--save-no` (or `--autosave`; the two are mutually exclusive).
+- **CLI `items-set-gil <save> <gil> [--slot S --save-no N | --autosave] [--apply] [--no-backup]`** — dry-run
+  preview unless `--apply`. (`render_gil_write` shows the diff + the proof instructions.)
+- 14 new tests (37 in `test_save_items`), incl. a CLI-glue test + an install-gated real-save **dry-run** (no
+  write). ★ Offline-verified against the real save: `gil 500 → 9,999,999 (3 bytes)`, files untouched. The
+  in-game apply is a STOP-and-test point (human go-ahead). A 3-lens adversarial-verify workflow (engine-fidelity
+  / python-safety / integration) hardened it: atomic write, timestamped no-clobber backup, no-op short-circuit,
+  non-Class guard, `--save-no` message fix, gil=0 + CLI coverage.
+
 ### Added — World Hub: a playable journey selector (choice `warp` action + `[player] model=`), IN-GAME PROVEN (0.9.48)
 - The **World Hub** is a playable field that lets the player pick which **journey** (a complete arc = one or
   more chained campaign slices) to play, then warps them in — NOT a worldmap (no engine fork), just a field +

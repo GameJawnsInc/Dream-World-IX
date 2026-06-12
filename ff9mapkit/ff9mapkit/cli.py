@@ -971,6 +971,21 @@ def _cmd_items_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_items_set_gil(args: argparse.Namespace) -> int:
+    """Write a save's gil into the Memoria EXTRA file (the load-authoritative store) -- the #5 editor's first
+    real-save WRITE. Dry-run by default; --apply performs it (backup-guarded). Extra-only by design (the proof
+    that the extra overrides the encrypted main block); the main-block mirror is step 4."""
+    from . import save_items as SI
+    try:
+        extra = SI.resolve_extra(args.save, slot=args.slot, save=args.save_no, autosave=args.autosave)
+        rep = SI.set_gil(extra, args.gil, dry_run=not args.apply, backup=not args.no_backup)
+    except Exception as e:                                              # noqa: BLE001
+        print(f"could not set gil: {e}")
+        return 2
+    print(SI.render_gil_write(rep))
+    return 0
+
+
 def _cmd_flags_diff(args: argparse.Namespace) -> int:
     """Diff two saves' gEventGlobal story state (A -> B) -- what a beat / session wrote. Each arg reads the
     same forms as flags-inspect; with one save, --slot-a/--slot-b pick two slots (default: slot 0 -> slot 1)."""
@@ -1725,6 +1740,18 @@ def build_parser() -> argparse.ArgumentParser:
                         help="decode a save's items / equipment / gil (read-only; from the Memoria extra file)")
     ii.add_argument("save", help="path to SavedData_ww.dat (per slot) or a Memoria extra-save file")
     ii.set_defaults(func=_cmd_items_inspect)
+
+    sg = sub.add_parser("items-set-gil",
+                        help="write a save's gil into the Memoria extra file (dry-run unless --apply)")
+    sg.add_argument("save", help="a SavedData_ww_Memoria_*.dat extra file, OR a SavedData_ww.dat container "
+                                 "(then pass --slot/--save-no or --autosave)")
+    sg.add_argument("gil", type=int, help="the new gil value (0..9,999,999, the in-game cap)")
+    sg.add_argument("--slot", type=int, default=None, help="0-indexed slot (container only; menu shows it +1)")
+    sg.add_argument("--save-no", type=int, default=None, help="0-indexed save within the slot (container only)")
+    sg.add_argument("--autosave", action="store_true", help="edit the autosave (container only)")
+    sg.add_argument("--apply", action="store_true", help="actually write (default is a dry-run preview)")
+    sg.add_argument("--no-backup", action="store_true", help="skip writing the <file>.bak backup on --apply")
+    sg.set_defaults(func=_cmd_items_set_gil)
 
     fd = sub.add_parser("flags-diff",
                         help="diff two saves' story state (A -> B): what scenario/flags a beat changed")

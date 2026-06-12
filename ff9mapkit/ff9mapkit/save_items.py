@@ -12,6 +12,7 @@ half (dual-write extra + main, backup-guarded) lands in a later step; this is re
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
 
 from . import items as _items
@@ -21,6 +22,7 @@ from . import sjbinary as _sj
 NO_ITEM = 255                                              # the empty-slot / list-terminator sentinel
 EQUIP_SLOTS = ("weapon", "head", "wrist", "armor", "accessory")   # equip[] order (CharacterEquipment.cs)
 COMMON = "40000_Common"
+GIL_CAP = 9_999_999                                        # the in-game gil display cap (project-ff9-save-item-layout)
 
 
 @dataclass
@@ -29,6 +31,17 @@ class ItemReport:
     gil: int | None = None
     inventory: list = field(default_factory=list)         # [(id, name, count), ...]
     equipment: list = field(default_factory=list)         # [{"slot_no", "name", "equip": {slot: (id, name)|None}}]
+
+
+@dataclass
+class GilWriteReport:
+    """The outcome of a :func:`set_gil` call (dry-run or applied)."""
+    path: str
+    old_gil: int
+    new_gil: int
+    bytes_changed: int                                    # how many on-disk bytes the gil edit moves (<=4)
+    wrote: bool                                           # False = dry-run (nothing written)
+    backup_path: "str | None" = None
 
 
 # --- low-level reads off a parsed 40000_Common SJClass --------------------------------------------
@@ -127,6 +140,105 @@ def inspect(path) -> list:
     return out
 
 
+# --- write surface: gil (step 3 -- the first real-save WRITE, extra-only) -------------------------
+
+def resolve_extra(save_path, *, slot=None, save=None, autosave=False):
+    """Resolve the Memoria EXTRA-file path a write should target. If ``save_path`` is itself an extra file
+    (a SimpleJSON tree with ``40000_Common``), return it. If it's a ``SavedData_ww.dat`` container, compute the
+    extra path for ``--autosave`` or a 0-indexed ``(slot, save)`` -- 0-indexed to match the on-disk file name
+    ``SavedData_ww_Memoria_{slot}_{save}.dat`` (the in-game menu shows these 1-indexed). Raises with a clear
+    message if the target can't be identified or its extra file is absent."""
+    p = str(save_path)
+    if load_extra_common(p)[0] is not None:               # already a Memoria extra file
+        return p
+    if autosave and (slot is not None or save is not None):
+        raise ValueError("pass --autosave OR --slot/--save-no, not both")
+    if autosave:
+        block = 0
+    elif slot is not None and save is not None:
+        block = _save.block_index(int(slot), int(save))
+    else:
+        raise ValueError("to edit a SavedData_ww.dat container, pass --slot and --save-no (0-indexed) or "
+                         "--autosave; or pass a SavedData_ww_Memoria_*.dat extra file directly")
+    extra = _save.extra_file_path(p, block)
+    if extra is None:
+        raise ValueError(f"{p!r} is not a .dat save container or a Memoria extra file")
+    if not os.path.isfile(extra):
+        raise ValueError(f"no Memoria extra file for that slot: {extra}")
+    return extra
+
+
+def set_gil(extra_path, gil: int, *, dry_run: bool = True, backup: bool = True) -> GilWriteReport:
+    """Write ``40000_Common/gil`` in a Memoria EXTRA save file (the load-authoritative store -- memory
+    project-ff9-save-item-layout), preserving every other byte. gil is a length-stable Int32 leaf (IntValue,
+    tag 4), so this is the smallest possible real-save mutation: the #5 editor's FIRST write and the falsifiable
+    proof of "the extra overrides the encrypted main block on load" -- write ONLY the extra, and if the in-game
+    gil changes to match, the extra wins (the main block still holds the old value). The main-block mirror +
+    items/equipment land in step 4; this never touches the main block or ``00001_time``.
+
+    Safety (this writes a REAL save): re-serializes the WHOLE extra tree (siblings round-trip verbatim) but
+    (gate 1) FIRST asserts the codec reproduces the on-disk bytes EXACTLY -- aborting rather than writing a file
+    it can't reproduce (guards an unhandled tag / float culture-format) -- and (gate 2) asserts the new bytes
+    differ from the old ONLY within the gil leaf's 4-byte value (length-stable, <=4 contiguous bytes). The write
+    is ATOMIC (temp file + ``os.replace``, so the save is never half-written) and re-reads to CONFIRM the new
+    gil; a timestamped ``<path>.bak.<ts>`` backup is taken first (``backup=True``, never clobbers a prior one,
+    matching :func:`save.apply_story_edit`). ``dry_run`` by default (computes + verifies, writes nothing); a
+    no-op (gil already == requested) writes nothing even on apply. Returns a :class:`GilWriteReport`."""
+    if isinstance(gil, bool) or not isinstance(gil, int):
+        raise TypeError(f"gil must be an int (got {type(gil).__name__})")
+    if gil < 0 or gil > GIL_CAP:
+        raise ValueError(f"gil must be in [0, {GIL_CAP:,}] (the in-game cap); got {gil:,}")
+    try:
+        raw = open(extra_path, "rb").read()
+    except OSError as e:
+        raise ValueError(f"cannot read extra save file {extra_path!r}: {e}") from e
+    try:
+        root, trailing = _sj.loads(raw)
+    except (ValueError, IndexError) as e:
+        raise ValueError(f"{extra_path!r} is not a parseable Memoria extra save file: {e}") from e
+    # GATE 1: never edit a file we can't reproduce byte-for-byte (an unhandled leaf would corrupt it).
+    if _sj.dumps(root, trailing) != raw:
+        raise ValueError("refusing to edit: the SimpleJSON codec does not reproduce this file byte-for-byte "
+                         "(editing could corrupt it). Please report this save.")
+    common = _sj.get_path(root, COMMON)
+    if common is None:
+        raise ValueError(f"no {COMMON} module in {extra_path!r}")
+    if not isinstance(common, _sj.SJClass):               # a parseable-but-non-Class 40000_Common -> refuse cleanly
+        raise ValueError(f"{COMMON} is not a class node in {extra_path!r}; refusing to edit")
+    gnode = common.get("gil")
+    if not isinstance(gnode, _sj.SJData):
+        raise ValueError(f"no {COMMON}/gil leaf in {extra_path!r}")
+    if gnode.tag != _sj.INT:
+        raise ValueError(f"{COMMON}/gil is not an Int32 leaf (tag {gnode.tag}); refusing to edit")
+    old_gil = int(gnode.value)
+    common.set("gil", _sj.SJData(_sj.INT, gil))           # preserve the on-disk tag (INT) -> length-stable
+    new_bytes = _sj.dumps(root, trailing)
+    # GATE 2: the edit must be surgical -- same length, only the gil value's bytes move (<=4, contiguous).
+    if len(new_bytes) != len(raw):
+        raise AssertionError(f"gil write changed the file length ({len(raw)} -> {len(new_bytes)}); aborting")
+    diff = [i for i in range(len(raw)) if raw[i] != new_bytes[i]]
+    if old_gil != gil and (len(diff) > 4 or (diff and diff[-1] - diff[0] >= 4)):
+        raise AssertionError(f"gil write touched {len(diff)} non-contiguous bytes; aborting (expected <=4)")
+    backup_path = None
+    did_write = False
+    if not dry_run and old_gil != gil:                    # a no-op (gil already == old) writes NOTHING
+        if backup:                                        # timestamped, never clobbers a prior .bak (matches save.py)
+            backup_path = f"{extra_path}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
+            with open(backup_path, "wb") as fh:
+                fh.write(raw)                             # pristine original bytes
+        tmp = f"{extra_path}.tmp"                          # ATOMIC: write a sibling temp, then swap in via os.replace
+        with open(tmp, "wb") as fh:
+            fh.write(new_bytes)
+        os.replace(tmp, extra_path)                        # the real save is never observed half-written
+        check = load_extra_common(extra_path)[0]           # CONFIRM the write took (mirrors apply_story_edit's re-read)
+        cg = _sj.get_path(check, "gil") if check is not None else None
+        if cg is None or int(cg.value) != gil:
+            raise AssertionError(f"post-write check failed: gil did not read back as {gil:,}")
+        did_write = True
+    return GilWriteReport(path=str(extra_path), old_gil=old_gil, new_gil=gil,
+                          bytes_changed=len(diff), wrote=did_write, backup_path=backup_path)
+
+
 # --- rendering ------------------------------------------------------------------------------------
 
 def render_report(rep: "ItemReport | None") -> str:
@@ -141,4 +253,20 @@ def render_report(rep: "ItemReport | None") -> str:
     for pc in rep.equipment:
         worn = ", ".join(f"{slot}={pc['equip'][slot][1] or '?'}" for slot in EQUIP_SLOTS if pc["equip"].get(slot))
         lines.append(f"    {pc['name'] or '?':<10} {worn or '(nothing equipped)'}")
+    return "\n".join(lines)
+
+
+def render_gil_write(rep: GilWriteReport) -> str:
+    """A human-readable summary of a :func:`set_gil` outcome (dry-run preview or applied write)."""
+    if rep.old_gil == rep.new_gil:
+        return f"  Gil already {rep.new_gil:,} in {rep.path} -- nothing to change."
+    head = "WROTE" if rep.wrote else "DRY RUN -- would change"
+    lines = [f"  {head} gil {rep.old_gil:,} -> {rep.new_gil:,} in {rep.path} ({rep.bytes_changed} bytes)"]
+    if rep.wrote:
+        if rep.backup_path:
+            lines.append(f"  Backup: {rep.backup_path}")
+        lines.append("  Load this save in-game and check the gil -- if it now reads the new value, the extra "
+                     "file overrides the encrypted main block on load (the step-3 proof).")
+    else:
+        lines.append("  Re-run with --apply to write (a .bak backup is made first unless --no-backup).")
     return "\n".join(lines)
