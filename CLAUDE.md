@@ -48,9 +48,10 @@ verbatim fork carries it; the old "C# `NarrowMapList` cutscene" framing was a mi
 - **Back up before editing any game/engine file** → `backups/<file>.<timestamp>`. The base
   game + the user's install are the only source of truth if we corrupt something.
 - **One change per in-game test.** When a build breaks, we need to know which edit did it.
-- **Commit FREELY (local only) — the user likes commits. NOTHING PUBLIC** — no `git push`/remote, no PRs,
-  no PyPI, no forum/Discord posts. Local commits only. (Updated 2026-06-12: the old "commit only when asked"
-  gate is LIFTED — commit at natural stopping points; the no-public rule is unchanged. → `feedback-commit-freely`.)
+- **Commit FREELY — follow the FF-master merge discipline when hitting tested milestones. NOTHING PUBLIC** —
+  no `git push`/remote, no PRs, no PyPI, no forum/Discord posts. Local commits only. (Updated 2026-06-12: the
+  old "commit only when asked" gate is LIFTED — commit tested milestones via commit-on-feature-branch → FF
+  master (rebase-second); the no-public rule is unchanged. → `feedback-commit-freely`.)
 
 **I CAN own, end to end:** the field event script (`.eb` bytecode, authored in Python — no
 Hades Workshop), camera + walkmesh math, exits/gateways, triggers, flags, dialogue/text,
