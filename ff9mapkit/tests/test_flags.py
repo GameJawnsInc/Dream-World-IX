@@ -23,6 +23,22 @@ def test_bit_addressing_and_regions():
     assert not flags.is_safe_custom(16320)                    # choice scratch floor is out of band
 
 
+def test_chest_band_is_disjoint_from_engine_treasure_hunter_scoring():
+    """The chest registry band (8376-8511, bytes 1047-1063) is a SEPARATE region from the engine's
+    Treasure-Hunter scoring bytes (182-186 + 896-975). The kit must not conflate them: the chest band
+    is reserved on field-script (census) grounds, NOT because GetTreasureHunterPoints reads it."""
+    # TH scoring matches the engine method exactly (EventState.GetTreasureHunterPoints).
+    assert flags.TH_POINT_RANGES == [(896, 960, 1), (966, 975, 1), (182, 186, 2)]
+    # Those TH bytes are all BELOW the chest band's first byte (1047) -> the two regions never overlap.
+    th_bytes = {b for lo, hi, _ in flags.TH_POINT_RANGES for b in range(lo, hi + 1)}
+    chest_bytes = set(range(flags.CHEST_FLAG_LO >> 3, (flags.CHEST_FLAG_HI >> 3) + 1))
+    assert th_bytes.isdisjoint(chest_bytes)
+    assert max(th_bytes) < min(chest_bytes)
+    # The chest_opened region's provenance must NOT (re-)claim the engine TH method.
+    src = flags.bit_region(8400).source
+    assert "GetTreasureHunterPoints" not in src and "census" in src
+
+
 def test_scenario_milestones_and_eiko():
     assert flags.nearest_milestone(2510) == (2500, "Ice Cavern")
     assert flags.nearest_milestone(7200) == (7200, "Alexandria Castle")    # in-game-validated anchor

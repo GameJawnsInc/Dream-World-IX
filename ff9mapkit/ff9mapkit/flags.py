@@ -121,9 +121,14 @@ BIT_REGIONS = [
     BitRegion("worldmap_unlocks", 736, 823, "Worldmap/Navi cursor + location-unlock/first-visit bits "
               "(consumed by engine C#; mostly write-only on the field side).", True, "a/b",
               "ff9.cs:2259-2333; census"),
-    BitRegion("chest_opened", CHEST_FLAG_LO, CHEST_FLAG_HI, "Global treasure-chest 'opened' bitfield "
-              "(48 chest fields, every bit a 48-writer computed index -> per-chest identity is NOT static). "
-              "NEVER allocate here.", True, "a/b", "census; EventState.GetTreasureHunterPoints"),
+    BitRegion("chest_opened", CHEST_FLAG_LO, CHEST_FLAG_HI, "Treasure-chest field-script registry: a "
+              "byte-identical 130-entry dispatch block (WindowSync + set/gate a literal chest bit, branch) "
+              "emitted verbatim into ~48 chest-bearing fields (Ice Cavern, Burmecia Vault, Dali Storage, "
+              "Cleyra, Palace, ...) -- so the census sees all 48 as writers of every bit. The STOCK ENGINE "
+              "does NOT read this region: the Treasure-Hunter rank is scored from a SEPARATE region (bytes "
+              "182-186 + 896-975, see TH_POINT_RANGES). Reserved because real field logic gates/sets it; "
+              "NEVER allocate here.", True, "b",
+              "census (byte-identical block in ~48 chest fields; verified from .eb bytes -- engine does NOT score this band)"),
     BitRegion("choice_scratch", CHOICE_SCRATCH_FLOOR, CHOICE_SCRATCH_FLOOR + 15,
               "Choice-visibility mask scratch (kit MASK_SCRATCH_IDX); engine/kit-owned.", True, "a", "region.py:57"),
 ]

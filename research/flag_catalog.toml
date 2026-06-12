@@ -136,9 +136,9 @@ source = "EventState.cs:67-68"
 [[reserved]]
 name = "_RESERVED_chest_opened"
 location = "bits 8376-8511 (bytes 1047-1063)"
-meaning = "Global treasure-chest 'opened' bitfield (48 chest fields). THE band the campaign allocator must clear."
-tier = "a"
-source = "census; EventState.GetTreasureHunterPoints"
+meaning = "Treasure-chest field-script registry: a byte-identical 130-entry dispatch block in ~48 chest fields. The stock engine does NOT read it (the TH rank is scored from the SEPARATE _RESERVED_TH_* regions above). THE band the campaign allocator must clear."
+tier = "b"
+source = "census (byte-identical block in ~48 chest fields; NOT GetTreasureHunterPoints)"
 
 [[reserved]]
 name = "_LEGACY_ability_usage"

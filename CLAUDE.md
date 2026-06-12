@@ -766,6 +766,19 @@ Read these on demand — they hold the full technical detail this file only summ
   the Dali Inn "opens the change-members menu"; party-neutral fields (the Hangar) get no line (NONE filtered,
   deduped). Read-only (`forkreport.scan_party_ops`, reuses the disasm) — overworld's analysis lane; serves the
   PC/party goal (recipe in memory `project-ff9-pc-party-system`). 4 tests. kit 0.9.27; 867 tests.
+- **Modern-save safe-band AUDIT + chest-band provenance fix (`story_flags`; kit 0.9.28, offline, no behavior
+  change).** Audited the kit's custom-flag safe band (≥ bit **8512**) against the MODERN Memoria engine's
+  `gEventGlobal` usage: **CLEAN** — the engine's highest reads are the Treasure-Hunter rank (bytes 182-186 +
+  896-975), voice-acting (510-525), and scenario/words (≤207); the legacy ability-usage at byte 1100+ is
+  OLD-format-only (modern saves store it in a separate `gAbilityUsage` JSON field, `JsonParser.cs`
+  `ParseEventDataToJson if(!oldSaveFormat)`), so even 1100+ is free. User-confirmed in-game (set bit 8512
+  persisted). The audit surfaced + fixed a **provenance inaccuracy in the chest band 8376-8511**: verified from
+  real `.eb` bytes (fields 115/300/2203/407 + 44 more) that it's a **byte-identical 130-entry dispatch block**
+  compiled verbatim into ~48 chest fields (NOT a "runtime-computed index"), and that the **stock engine never
+  reads it** (the TH rank is the SEPARATE 182-186 + 896-975 region — the old `GetTreasureHunterPoints` citation
+  was wrong). The band stays real + reserved (48 fields read+write it); only the prose/citation changed in
+  `flags.py`/`build.py` + `research/STORY_FLAGS.md`/`make_catalog.py`/`flag_catalog.toml`, plus a regression test
+  asserting the chest band ⟂ the engine TH bytes. 868 suite. See memory [[project-ff9-story-flags]].
 
 ---
 

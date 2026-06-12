@@ -967,9 +967,9 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
             return
         if _flags.CHEST_FLAG_LO <= idx <= _flags.CHEST_FLAG_HI:
             out.append(f"{who} gates on flag {idx}, in the treasure-chest 'opened' bitfield (bits "
-                       f"{_flags.CHEST_FLAG_LO}-{_flags.CHEST_FLAG_HI}) -- those bits have no static "
-                       f"per-chest identity, so the gate is unreliable. Gate on a named [[flag]] instead. "
-                       f"(advisory)")
+                       f"{_flags.CHEST_FLAG_LO}-{_flags.CHEST_FLAG_HI}) -- those are real chest state set by "
+                       f"a shared dispatch block in ~48 fields, so gating on them couples your logic to FF9's "
+                       f"chest behavior. Gate on a named [[flag]] instead. (advisory)")
 
     for k, ev in enumerate(raw.get("event", [])):
         who = f"event {ev.get('name', '#' + str(k))!r}"

@@ -37,6 +37,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   party-MEMBERSHIP authoring — `B_PARTYADD` etc. — is a declarative block in story_flags' lane; here only the
   fork-transform half landed.)
 
+### Fixed — chest-band provenance: it is NOT the Treasure-Hunter scoring region (0.9.28)
+Tracked down whether the kit's reserved "treasure-chest 'opened' bitfield" (bits **8376–8511**, bytes
+1047–1063) is accurately attributed, after the modern-save safe-band audit flagged a possible conflation.
+Verified directly from real `.eb` bytes (fields 115/300/2203/407 + 44 more):
+- **The band IS real and correctly reserved** — ~48 chest-bearing fields (Ice Cavern, Burmecia Vault, Dali
+  Storage, Cleyra, Palace, …) genuinely read-gate *and* set these bits. Custom flags there WOULD corrupt
+  real chest state. `CHEST_FLAG_LO/HI`, the reservation, the lint, and `FIRST_SAFE_FLAG = 8512` are unchanged.
+- **But the `EventState.GetTreasureHunterPoints` citation was WRONG** — that engine method scores a *separate*
+  region (bytes **182–186 + 896–975**, already correct in `TH_POINT_RANGES`); the **stock engine never reads
+  8376–8511** at all (grep-confirmed; the only chest-band reference in the engine tree is the kit's own F6
+  debug-menu label). The chest band is justified by the field-script census alone.
+- **And "every bit a 48-writer computed index → identity not static" was a misread** — the 48-writers-per-bit
+  pattern comes from a **byte-identical 130-entry dispatch block** compiled verbatim into ~48 chest fields
+  (fields 115 vs 300 share the same SHA over the 130 `bit = 1` statements), each statement targeting a
+  *literal* bit index in a branch — a static block, not a runtime-computed index.
+
+No behavior change (band bounds, reservation, safe band, TH scoring all identical). Corrected the prose +
+citation in `flags.py` (the `chest_opened` region), the gate advisory in `build.py`, and the research record
+(`research/STORY_FLAGS.md`, `research/make_catalog.py`); added a regression test asserting the chest band and
+the engine TH-scoring bytes are disjoint and that the region no longer claims `GetTreasureHunterPoints`.
+
 ### Fixed — Story State console: B-slot dropdown + Memoria extra-save authority
 - The Diff tab's **"B slot" dropdown couldn't be clicked** — it was created with no menu items and only
   populated when a *second* file loaded. It now fills from the loaded save's slots (or the B file's) on every load.

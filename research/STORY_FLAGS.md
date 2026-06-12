@@ -99,8 +99,8 @@ single-source/uncertain.
 | **896–960** | — | **Treasure-Hunter "standard" region** — opened chests / searched icons / event items, **1 pt/bit** | Bit-packed Byte[65] | (a)+(b) | `EventState.cs:65-66`; FF Wiki |
 | **896–975** | ~7168–7807 | **The main dense story-flag heap** — every area writes here (327 distinct bits, ~140 fields). Overlaps the TH-standard scoring region. | Bit | (a)/(b) | `EventState.cs:65-68`; census |
 | **966–975** | — | **Treasure-Hunter "extra" region** — 1 pt/bit | Bit-packed Byte[10] | (a) | `EventState.cs:67-68` |
-| **1024–1045 / 1064–1079** | — | The chest bitfield viewed as **Byte arrays** (same physical bytes as bits 8376–8511 below) | Byte, 48 fields | (b) | census |
-| **1047–1063** | **8376–8511** | **TREASURE-CHEST "opened" block** — one global bitfield, 130 distinct bits, written by **48 chest fields** (e.g. 115, 300, 2203). Bits 8510/8511 = per-screen "any chest opened here" guard, gated by all 48. **★ This is the band the campaign allocator collides with.** | Bit (& Byte view) | (a)/(b) | census; `EventState.cs` GetTreasureHunterPoints |
+| **1024–1045 / 1064–1079** | — | Byte-addressed accesses near (not overlapping) the chest block, from the same 48-field dispatch routine | Byte, 48 fields | (b) | census |
+| **1047–1063** | **8376–8511** | **TREASURE-CHEST registry block** — a **byte-identical 130-entry dispatch block** (WindowSync + set/gate a literal chest bit, branch) emitted verbatim into **~48 chest fields** (e.g. 115, 300, 2203) → the census sees all 48 as writers of every bit. **★ The band the campaign allocator collides with.** ⚠ The stock engine does **NOT** read this region — the TH rank is scored from the **separate** bytes 182–186 + 896–975 above (`GetTreasureHunterPoints`); this band is reserved purely because real field logic gates/sets it. | Bit (& Byte view) | (b) | census (verified from `.eb` bytes; **NOT** GetTreasureHunterPoints) |
 | **1100–1291** | — | **Legacy** ability-usage counters (Byte[192], now moved to `gAbilityUsage` dict; bytes may be cleared) | Byte | (a) | `JsonParser.cs:539` |
 | **2040** | **16320–16335** | Choice-visibility scratch mask (`MASK_SCRATCH_IDX`); engine-reserved, transient | Global UInt16 | (a) | `region.py:57` |
 | **8512+** | **≥8512** | **CLEAR** — unused by any real field. The safe band for custom flags. | — | (a)/(b) | census (`bit_flag_max=8511`) |
@@ -411,9 +411,15 @@ label-accuracy / curation — + 2 research agents → synthesis). All landed in 
   hardcoded `EMinigame.MappingATEID` switch. So there is **no heap "ATE flag index" to name** (recorded in
   `flags.ATE_STATE_LOCATION`). The portable ATE-id table (0..82) could be ported from `MappingATEID` later, but
   it is not a flag dictionary.
-- **Open question #3 (per-chest bit identity) confirmed intractable from the static census:** every bit in the
-  8376–8511 chest band has *exactly 48 writers* → a computed index, not a per-chest-static bit. `flags.py`
-  correctly keeps the whole band reserved; mapping bit→chest would need a runtime trace.
+- **Open question #3 (per-chest bit identity) — re-examined 2026-06-11:** every bit in the 8376–8511 band has
+  *exactly 48 writers* **not** because of a runtime-computed index, but because a **byte-identical 130-entry
+  dispatch block** is compiled verbatim into ~48 chest fields (fields 115 vs 300 share the same SHA over the
+  130 `bit=N → 1` statements). Each statement targets a **literal** bit index inside a branch, so a per-bit
+  static identity (bit → a specific chest/item) is plausible — but enumerating bit→chest still needs a runtime
+  trace (the static census can't say which branch a given field reaches). `flags.py` correctly keeps the whole
+  band reserved (real field logic gates/sets it); the earlier "computed index / no static identity" and the
+  `GetTreasureHunterPoints` citation were both wrong — **the stock engine never reads this band** (TH rank =
+  separate bytes 182–186 + 896–975).
 - **Standing UNDERSTAND frontier:** the cluster names are "where these flags are written from" (dominant-writer
   inference), not a proven per-bit lore dictionary — the bulk of the ~1900 un-annotated heap bytes remain a
   per-flag-meaning gap.

@@ -36,7 +36,7 @@ RESERVED = [
     ("_RESERVED_TH_double", "bytes 182-186", "Treasure-Hunter 'double' scoring region (world-map Choco chests, 2 pts/bit).", "a", "EventState.cs:69-70"),
     ("_RESERVED_TH_standard", "bytes 896-960", "Treasure-Hunter 'standard' scoring region (opened chests/searched icons, 1 pt/bit). Overlaps the dense story-flag heap.", "a", "EventState.cs:65-66"),
     ("_RESERVED_TH_extra", "bytes 966-975", "Treasure-Hunter 'extra' scoring region (1 pt/bit).", "a", "EventState.cs:67-68"),
-    ("_RESERVED_chest_opened", "bits 8376-8511 (bytes 1047-1063)", "Global treasure-chest 'opened' bitfield (48 chest fields). THE band the campaign allocator must clear.", "a", "census; EventState.GetTreasureHunterPoints"),
+    ("_RESERVED_chest_opened", "bits 8376-8511 (bytes 1047-1063)", "Treasure-chest field-script registry: a byte-identical 130-entry dispatch block in ~48 chest fields. The stock engine does NOT read it (the TH rank is scored from the SEPARATE _RESERVED_TH_* regions above). THE band the campaign allocator must clear.", "b", "census (byte-identical block in ~48 chest fields; NOT GetTreasureHunterPoints)"),
     ("_LEGACY_ability_usage", "bytes 1100-1291", "Legacy ability-usage counters (now in gAbilityUsage dict; bytes may be cleared).", "a", "JsonParser.cs:539"),
     ("_RESERVED_choice_scratch", "byte 2040 (bits 16320+)", "Choice-visibility mask scratch (kit MASK_SCRATCH_IDX); engine-reserved.", "a", "region.py:57"),
 ]
