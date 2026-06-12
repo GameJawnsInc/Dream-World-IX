@@ -1,13 +1,16 @@
-"""Read a save's ITEMS / EQUIPMENT / GIL -- the #5 editor's READ surface (read-only).
+"""Read AND edit a save's ITEMS / EQUIPMENT / GIL -- the #5 editor surface.
 
-Reads the Memoria EXTRA file (``SavedData_ww_Memoria_{slot}_{save}.dat``) via the :mod:`sjbinary` codec and
-decodes ``40000_Common/{gil, items, players[].equip}`` into kit item names (:mod:`ff9mapkit.items`). The extra
-file is the **load-authoritative** store -- it overrides the encrypted main block on load (memory
-project-ff9-save-item-layout), so reading it shows what the game actually loads.
+Reads + writes the Memoria EXTRA file (``SavedData_ww_Memoria_{slot}_{save}.dat``) via the :mod:`sjbinary`
+codec, decoding/mutating ``40000_Common/{gil, items, players[].equip}`` by kit item name
+(:mod:`ff9mapkit.items`). The extra file is the **load-authoritative** store -- it overrides the encrypted main
+block on load (memory project-ff9-save-item-layout) -- so editing it changes what the game loads (proven
+in-game). The READ surface: :func:`inspect` / :func:`report_from_common`. The WRITE surface (all backup-guarded,
+``dry_run`` by default, with GATE 1 + a scoped-change check + atomic write + post-write confirm): :func:`set_gil`,
+:func:`set_item`, :func:`set_equip`. Writes are **EXTRA-ONLY by design** (the proven authoritative store); the
+encrypted main-block MIRROR (the fallback for vanilla/no-extra saves) is a still-pending later step.
 
 SEPARATE surface per [[project-ff9-branch-lanes]] rule 3: reuses :class:`save.FF9Save` + :mod:`sjbinary`; it
-does NOT touch :func:`save.apply_story_edit` / ``edit_story_state`` (story_flags' gEventGlobal core). The WRITE
-half (dual-write extra + main, backup-guarded) lands in a later step; this is read-only.
+does NOT touch :func:`save.apply_story_edit` / ``edit_story_state`` (story_flags' gEventGlobal core).
 """
 from __future__ import annotations
 
@@ -21,8 +24,17 @@ from . import sjbinary as _sj
 
 NO_ITEM = 255                                              # the empty-slot / list-terminator sentinel
 EQUIP_SLOTS = ("weapon", "head", "wrist", "armor", "accessory")   # equip[] order (CharacterEquipment.cs)
+_SLOT_ALIASES = {"body": "armor", "acc": "accessory"}      # friendly aliases for the slot names
 COMMON = "40000_Common"
 GIL_CAP = 9_999_999                                        # the in-game gil display cap (project-ff9-save-item-layout)
+ITEM_COUNT_CAP = 99                                        # the in-game per-stack count cap
+
+# CharacterId (Memoria.Data.Characters.CharacterId) -- the key of `players[].info.slot_no` in the save. The
+# equip array is keyed by THIS (not array index / EquipmentSetId, which diverges above 7). Names/ids only.
+CHARACTER_NAMES = {0: "Zidane", 1: "Vivi", 2: "Garnet", 3: "Steiner", 4: "Freya", 5: "Quina",
+                   6: "Eiko", 7: "Amarant", 8: "Cinna", 9: "Marcus", 10: "Blank", 11: "Beatrix"}
+_CHAR_BY_NAME = {v.lower(): k for k, v in CHARACTER_NAMES.items()}
+_CHAR_BY_NAME.update({"dagger": 2, "salamander": 7})       # Garnet's alias, Amarant's nickname
 
 
 @dataclass
@@ -41,6 +53,34 @@ class GilWriteReport:
     new_gil: int
     bytes_changed: int                                    # how many on-disk bytes the gil edit moves (<=4)
     wrote: bool                                           # False = dry-run (nothing written)
+    backup_path: "str | None" = None
+
+
+@dataclass
+class ItemWriteReport:
+    """The outcome of a :func:`set_item` call (dry-run or applied)."""
+    path: str
+    item_id: int
+    item_name: "str | None"
+    old_count: int
+    new_count: int
+    action: str                                           # "added" | "changed" | "removed" | "unchanged"
+    wrote: bool
+    backup_path: "str | None" = None
+
+
+@dataclass
+class EquipWriteReport:
+    """The outcome of a :func:`set_equip` call (dry-run or applied)."""
+    path: str
+    slot_no: int                                          # the CharacterId whose equip changed
+    character: "str | None"                               # its in-save name
+    slot: str                                             # one of EQUIP_SLOTS
+    old_id: int
+    old_name: "str | None"
+    new_id: int
+    new_name: "str | None"
+    wrote: bool
     backup_path: "str | None" = None
 
 
@@ -140,6 +180,105 @@ def inspect(path) -> list:
     return out
 
 
+# --- write surface: shared machinery (all extra-only, the load-authoritative store) ---------------
+
+def _atomic_write(extra_path, raw: bytes, new_bytes: bytes, *, backup: bool) -> "str | None":
+    """Backup-guarded ATOMIC overwrite of a Memoria extra save file. Writes a timestamped ``<path>.bak.<ts>``
+    from the PRISTINE ``raw`` first (never clobbers a prior backup -- matches :func:`save.apply_story_edit`),
+    then writes ``new_bytes`` to a sibling ``.tmp`` and ``os.replace``\\ s it in (so the real save is never
+    observed half-written). Returns the backup path (or None when ``backup`` is False)."""
+    backup_path = None
+    if backup:
+        backup_path = f"{extra_path}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
+        with open(backup_path, "wb") as fh:
+            fh.write(raw)
+    tmp = f"{extra_path}.tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(new_bytes)
+    os.replace(tmp, extra_path)
+    return backup_path
+
+
+def _load_for_edit(extra_path):
+    """Read + parse a Memoria extra file for editing: returns ``(raw, root, trailing, common)``. Runs GATE 1
+    (the codec must reproduce the on-disk bytes exactly -- else refuse, never risk a corrupt write) and the
+    ``40000_Common`` SJClass guards. Raises ValueError with a clear message on any problem."""
+    try:
+        raw = open(extra_path, "rb").read()
+    except OSError as e:
+        raise ValueError(f"cannot read extra save file {extra_path!r}: {e}") from e
+    try:
+        root, trailing = _sj.loads(raw)
+    except (ValueError, IndexError) as e:
+        raise ValueError(f"{extra_path!r} is not a parseable Memoria extra save file: {e}") from e
+    if _sj.dumps(root, trailing) != raw:                   # GATE 1
+        raise ValueError("refusing to edit: the SimpleJSON codec does not reproduce this file byte-for-byte "
+                         "(editing could corrupt it). Please report this save.")
+    common = _sj.get_path(root, COMMON)
+    if common is None:
+        raise ValueError(f"no {COMMON} module in {extra_path!r}")
+    if not isinstance(common, _sj.SJClass):
+        raise ValueError(f"{COMMON} is not a class node in {extra_path!r}; refusing to edit")
+    return raw, root, trailing, common
+
+
+def _assert_scoped(raw: bytes, root, trailing: bytes, allowed_prefixes):
+    """Re-serialize the (mutated) ``root`` and assert the change is SCOPED: every path where the new tree
+    differs from the pristine on-disk tree must lie under one of ``allowed_prefixes`` (tuples). Returns
+    ``(new_bytes, changed_paths)``. Aborts (AssertionError) if anything outside the allowed scope moved -- the
+    general analog of :func:`set_gil`'s byte-surgical gate, for variable-length (items) edits."""
+    new_bytes = _sj.dumps(root, trailing)
+    orig, _ = _sj.loads(raw)                               # pristine tree (GATE 1 proved this == on-disk)
+    changed = list(_sj.diff_paths(orig, root))
+    for p in changed:
+        if not any(p[:len(pre)] == tuple(pre) for pre in allowed_prefixes):
+            raise AssertionError(f"edit touched an unexpected path {p}; aborting (allowed: {allowed_prefixes})")
+    return new_bytes, changed
+
+
+def _resolve_slot(slot) -> int:
+    """An equip slot NAME (or alias) -> its index in :data:`EQUIP_SLOTS`. Raises ValueError on an unknown slot."""
+    s = str(slot).strip().lower()
+    s = _SLOT_ALIASES.get(s, s)
+    if s not in EQUIP_SLOTS:
+        raise ValueError(f"unknown equip slot {slot!r} (expected one of {', '.join(EQUIP_SLOTS)})")
+    return EQUIP_SLOTS.index(s)
+
+
+def _find_player(players, character):
+    """Find the ``players[]`` entry for ``character`` -- an int CharacterId (0-11, matched on ``info/slot_no``)
+    or a name (matched first against each entry's in-save ``name``, then against the canonical CharacterId
+    names/aliases). Returns ``(index, node, slot_no, name)``. Raises ValueError if absent."""
+    if not isinstance(players, _sj.SJArray):
+        raise ValueError(f"no {COMMON}/players array to equip")
+    entries = []
+    for i, p in enumerate(players):
+        sn = _sj.get_path(p, "info", "slot_no")
+        nm = _sj.get_path(p, "name")
+        entries.append((i, p, int(sn.value) if sn is not None else None, nm.value if nm is not None else None))
+    want_slot = None
+    if isinstance(character, bool):
+        raise ValueError("character cannot be a boolean")
+    if isinstance(character, int):
+        want_slot = character
+    else:
+        key = str(character).strip().lower()
+        if key.isdigit():                                  # a numeric CharacterId, e.g. the CLI's "6"
+            want_slot = int(key)
+        else:
+            for i, p, sn, nm in entries:                   # try the in-save name first (handles renamed PCs)
+                if nm is not None and nm.strip().lower() == key:
+                    return i, p, sn, nm
+            if key in _CHAR_BY_NAME:
+                want_slot = _CHAR_BY_NAME[key]
+    if want_slot is not None:
+        for i, p, sn, nm in entries:
+            if sn == want_slot:
+                return i, p, sn, nm
+    have = ", ".join(f"{nm or '?'}({sn})" for _, _, sn, nm in entries)
+    raise ValueError(f"no character {character!r} in this save (have: {have})")
+
+
 # --- write surface: gil (step 3 -- the first real-save WRITE, extra-only) -------------------------
 
 def resolve_extra(save_path, *, slot=None, save=None, autosave=False):
@@ -222,14 +361,7 @@ def set_gil(extra_path, gil: int, *, dry_run: bool = True, backup: bool = True) 
     backup_path = None
     did_write = False
     if not dry_run and old_gil != gil:                    # a no-op (gil already == old) writes NOTHING
-        if backup:                                        # timestamped, never clobbers a prior .bak (matches save.py)
-            backup_path = f"{extra_path}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
-            with open(backup_path, "wb") as fh:
-                fh.write(raw)                             # pristine original bytes
-        tmp = f"{extra_path}.tmp"                          # ATOMIC: write a sibling temp, then swap in via os.replace
-        with open(tmp, "wb") as fh:
-            fh.write(new_bytes)
-        os.replace(tmp, extra_path)                        # the real save is never observed half-written
+        backup_path = _atomic_write(extra_path, raw, new_bytes, backup=backup)
         check = load_extra_common(extra_path)[0]           # CONFIRM the write took (mirrors apply_story_edit's re-read)
         cg = _sj.get_path(check, "gil") if check is not None else None
         if cg is None or int(cg.value) != gil:
@@ -237,6 +369,104 @@ def set_gil(extra_path, gil: int, *, dry_run: bool = True, backup: bool = True) 
         did_write = True
     return GilWriteReport(path=str(extra_path), old_gil=old_gil, new_gil=gil,
                           bytes_changed=len(diff), wrote=did_write, backup_path=backup_path)
+
+
+# --- write surface: inventory + equipment (step 4a, extra-only) ------------------------------------
+
+def set_item(extra_path, item, count: int, *, dry_run: bool = True, backup: bool = True) -> ItemWriteReport:
+    """Set the inventory COUNT of ``item`` (a kit name or 0-254 id) in a Memoria EXTRA save file. ``count`` 0
+    REMOVES the stack; otherwise it's added (in ascending-id position, matching how the engine writes the bag)
+    or its count is updated. ``count`` is clamped to the in-game cap (99). The extra's ``40000_Common/items`` is
+    a variable ``[{id,count}]`` list of live stacks; the engine DROPS ``NoItem``/unknown ids on load, so only a
+    real id is written. Same safety as :func:`set_gil` but with a SCOPED-change check (only the ``items`` array
+    may move) instead of the byte-surgical one: GATE 1 + scoped diff + atomic write + a post-write re-read that
+    confirms the new count. ``dry_run`` by default; a no-op writes nothing. Returns an :class:`ItemWriteReport`."""
+    iid = _items.resolve(item)                             # name/id -> 0-255, validated (raises on unknown)
+    if iid == NO_ITEM:
+        raise ValueError("cannot add NoItem (255); pass count=0 to REMOVE an item instead")
+    if isinstance(count, bool) or not isinstance(count, int):
+        raise TypeError(f"count must be an int (got {type(count).__name__})")
+    if count < 0:
+        raise ValueError(f"count cannot be negative (got {count}); use 0 to remove")
+    count = min(count, ITEM_COUNT_CAP)                     # clamp to the in-game per-stack cap
+    raw, root, trailing, common = _load_for_edit(extra_path)
+    arr = common.get("items")
+    if not isinstance(arr, _sj.SJArray):
+        raise ValueError(f"no {COMMON}/items array in {extra_path!r}")
+    idx, old_count = None, 0
+    for i, e in enumerate(arr.items):                      # find the existing stack for this id (if any)
+        eid = _sj.get_path(e, "id")
+        if isinstance(e, _sj.SJClass) and eid is not None and int(eid.value) == iid:
+            cnode = _sj.get_path(e, "count")               # guard like read_inventory does (clean ValueError, not AttributeError)
+            if cnode is None:
+                raise ValueError(f"malformed {COMMON}/items entry for id {iid} (no count) in {extra_path!r}; "
+                                 "refusing to edit")
+            idx, old_count = i, int(cnode.value)
+            break
+    if count == 0:
+        action = "removed" if idx is not None else "unchanged"
+        if idx is not None:
+            del arr.items[idx]
+    elif idx is not None:
+        action = "unchanged" if count == old_count else "changed"
+        arr.items[idx].set("count", _sj.SJData(_sj.INT, count))   # preserve key order (id, count); INT tag
+    else:
+        action = "added"
+        entry = _sj.SJClass()                              # a new {id, count} stack, id-first (matches the engine)
+        entry.add("id", _sj.SJData(_sj.INT, iid))
+        entry.add("count", _sj.SJData(_sj.INT, count))
+        pos = next((i for i, e in enumerate(arr.items)
+                    if _sj.get_path(e, "id") is not None and int(_sj.get_path(e, "id").value) > iid), len(arr.items))
+        arr.items.insert(pos, entry)
+    new_bytes, changed = _assert_scoped(raw, root, trailing, [(COMMON, "items")])
+    backup_path, did_write = None, False
+    if not dry_run and changed:                            # `changed` empty => a true no-op => write nothing
+        backup_path = _atomic_write(extra_path, raw, new_bytes, backup=backup)
+        chk = read_inventory(load_extra_common(extra_path)[0])    # CONFIRM the write took
+        got = next((c for i, _, c in chk if i == iid), 0)
+        if got != count:
+            raise AssertionError(f"post-write check failed: {iid} count read back {got}, expected {count}")
+        did_write = True
+    return ItemWriteReport(path=str(extra_path), item_id=iid, item_name=_items.name_of(iid),
+                           old_count=old_count, new_count=count, action=action,
+                           wrote=did_write, backup_path=backup_path)
+
+
+def set_equip(extra_path, character, slot, item, *, dry_run: bool = True, backup: bool = True) -> EquipWriteReport:
+    """Set one equip ``slot`` (weapon/head/wrist/armor/accessory, + aliases body/acc) of one ``character`` (a
+    CharacterId 0-11, or a name -- the in-save name or a canonical one incl. dagger/salamander) in a Memoria
+    EXTRA save file. ``item`` is a kit name/id, or ``None``/255/"empty" to UNEQUIP. The save's
+    ``players[].equip`` is a 5-int array keyed by ``info/slot_no`` (CharacterId); the engine resets an unknown
+    id to NoItem on load, so only a real id (or 255) is written -- and it RECOMPUTES derived defence/affinity
+    from the equip, so we only touch the id. Length-stable INT edit, scoped to that one player's ``equip``.
+    GATE 1 + scoped diff + atomic write + a post-write re-read confirm; ``dry_run`` by default. Returns an
+    :class:`EquipWriteReport`."""
+    slot_idx = _resolve_slot(slot)
+    if item is None or (isinstance(item, str) and item.strip().lower() in ("none", "empty", "unequip", "")):
+        iid = NO_ITEM
+    else:
+        iid = _items.resolve(item)                         # 0-255 (255 also allowed = unequip)
+    raw, root, trailing, common = _load_for_edit(extra_path)
+    players = common.get("players")
+    pidx, pnode, slot_no, cname = _find_player(players, character)
+    eq = pnode.get("equip")
+    if not isinstance(eq, _sj.SJArray) or len(eq.items) < len(EQUIP_SLOTS):
+        raise ValueError(f"{cname or character}'s equip is not a 5-slot array; refusing to edit")
+    old_node = eq.items[slot_idx]
+    old_id = int(old_node.value) if isinstance(old_node, _sj.SJData) else NO_ITEM
+    eq.items[slot_idx] = _sj.SJData(_sj.INT, iid)          # length-stable; preserves the array shape
+    new_bytes, changed = _assert_scoped(raw, root, trailing, [(COMMON, "players", pidx, "equip")])
+    backup_path, did_write = None, False
+    if not dry_run and changed:
+        backup_path = _atomic_write(extra_path, raw, new_bytes, backup=backup)
+        chk = _sj.get_path(load_extra_common(extra_path)[0], "players", pidx, "equip")  # CONFIRM
+        if chk is None or int(chk.items[slot_idx].value) != iid:
+            raise AssertionError(f"post-write check failed: {cname} {EQUIP_SLOTS[slot_idx]} did not read back {iid}")
+        did_write = True
+    return EquipWriteReport(path=str(extra_path), slot_no=slot_no, character=cname, slot=EQUIP_SLOTS[slot_idx],
+                            old_id=old_id, old_name=(None if old_id == NO_ITEM else _items.name_of(old_id)),
+                            new_id=iid, new_name=(None if iid == NO_ITEM else _items.name_of(iid)),
+                            wrote=did_write, backup_path=backup_path)
 
 
 # --- rendering ------------------------------------------------------------------------------------
@@ -269,4 +499,34 @@ def render_gil_write(rep: GilWriteReport) -> str:
                      "file overrides the encrypted main block on load (the step-3 proof).")
     else:
         lines.append("  Re-run with --apply to write (a .bak backup is made first unless --no-backup).")
+    return "\n".join(lines)
+
+
+def render_item_write(rep: ItemWriteReport) -> str:
+    """A human-readable summary of a :func:`set_item` outcome."""
+    name = rep.item_name or f"id {rep.item_id}"
+    if rep.action == "unchanged":
+        return f"  {name} already x{rep.old_count} in {rep.path} -- nothing to change."
+    verb = {"added": f"add x{rep.new_count}", "changed": f"x{rep.old_count} -> x{rep.new_count}",
+            "removed": f"remove (was x{rep.old_count})"}[rep.action]
+    head = "WROTE" if rep.wrote else "DRY RUN -- would"
+    lines = [f"  {head} {verb} of {name} (id {rep.item_id}) in {rep.path}"]
+    lines.append(f"  Backup: {rep.backup_path}" if rep.backup_path else
+                 ("  (--no-backup: no backup written)" if rep.wrote else
+                  "  Re-run with --apply to write (a .bak backup is made first unless --no-backup)."))
+    return "\n".join(lines)
+
+
+def render_equip_write(rep: EquipWriteReport) -> str:
+    """A human-readable summary of a :func:`set_equip` outcome."""
+    old = rep.old_name or ("(empty)" if rep.old_id == NO_ITEM else f"id {rep.old_id}")
+    new = rep.new_name or ("(empty)" if rep.new_id == NO_ITEM else f"id {rep.new_id}")
+    who = f"{rep.character or '?'} (slot {rep.slot_no})"
+    if rep.old_id == rep.new_id:
+        return f"  {who} {rep.slot} already {new} in {rep.path} -- nothing to change."
+    head = "WROTE" if rep.wrote else "DRY RUN -- would set"
+    lines = [f"  {head} {who} {rep.slot}: {old} -> {new} in {rep.path}"]
+    lines.append(f"  Backup: {rep.backup_path}" if rep.backup_path else
+                 ("  (--no-backup: no backup written)" if rep.wrote else
+                  "  Re-run with --apply to write (a .bak backup is made first unless --no-backup)."))
     return "\n".join(lines)

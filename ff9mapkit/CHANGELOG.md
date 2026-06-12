@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — save-item editor #5 step 4a: inventory + equipment WRITES (`items-set-item`/`items-set-equip`) (0.9.52)
+- Extends the proven step-3 extra-file write path from gil to **items and equipment**, by name, same safety model.
+- **`save_items.set_item(extra, item, count)`** — set an item's inventory stack count (a kit name or 0-254 id).
+  `count` 0 REMOVES the stack; a new item inserts in **ascending-id position** (matching how the engine writes
+  the bag); count clamps to the in-game cap (99); `NoItem` is rejected (the engine discards it on load anyway).
+  The extra's `40000_Common/items` is a variable `[{id,count}]` list of live stacks.
+- **`save_items.set_equip(extra, character, slot, item)`** — set one of a character's five equip slots
+  (`weapon`/`head`/`wrist`/`armor`/`accessory`, + aliases `body`/`acc`). `character` = a **CharacterId** 0-11,
+  the in-save name, a canonical name, or an alias (`dagger`/`salamander`); `item` = a name/id, or
+  `empty`/`255`/`None` to unequip. The save's `players[].equip` is a 5-int array keyed by `info/slot_no`
+  (CharacterId); the engine resets an unknown id to `NoItem` and recomputes derived defence/affinity on load, so
+  only the id is written. Byte-grounded against `JsonParser.cs` (items write/load, equip write/load, player match).
+- **`sjbinary.diff_paths(a, b)`** — a generic tree-diff powering the new **scoped-change** check
+  (`_assert_scoped`): a variable-length edit (items add/remove) is verified to touch ONLY the allowed subtree
+  (the `items` array / one player's `equip`) — the general analog of the gil write's byte-surgical gate.
+- Shared `_atomic_write` (temp + `os.replace`, timestamped no-clobber backup) — `set_gil` refactored onto it too.
+- CLI **`items-set-item <save> <item> <count>`** / **`items-set-equip <save> <character> <slot> <item>`** (shared
+  save-target flags; dry-run unless `--apply`). Reports + renderers per write.
+- 32 new tests (66 in `test_save_items` + `test_sjbinary`); 1111 suite green. ★ Build caught + fixed a real bug
+  (the CLI passes `character` as a string, so a numeric CharacterId `"6"` failed — `_find_player` now treats
+  digit strings as CharacterIds). A 3-lens adversarial-verify workflow (engine-fidelity / python-safety /
+  integration) found 6 low-sev issues, all fixed (count-leaf guard, stale docstring, render + scoped-abort +
+  post-write-confirm + backup-assertion test coverage). ⏳ In-game apply (items/equip) is the next STOP-and-test.
+
 ### Added — save-item editor #5 step 3: the first real-save WRITE = gil (`items-set-gil`), IN-GAME PROVEN (0.9.50)
 - **`save_items.set_gil(extra_path, gil, *, dry_run=True, backup=True)`** — write `40000_Common/gil` into a
   Memoria EXTRA save file (the **load-authoritative** store — it overrides the encrypted main block on load,

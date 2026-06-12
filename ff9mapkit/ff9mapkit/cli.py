@@ -1032,6 +1032,34 @@ def _cmd_items_set_gil(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_items_set_item(args: argparse.Namespace) -> int:
+    """Set an item's inventory count in the Memoria EXTRA file (count 0 removes it). Dry-run unless --apply."""
+    from . import save_items as SI
+    try:
+        extra = SI.resolve_extra(args.save, slot=args.slot, save=args.save_no, autosave=args.autosave)
+        rep = SI.set_item(extra, args.item, args.count, dry_run=not args.apply, backup=not args.no_backup)
+    except Exception as e:                                              # noqa: BLE001
+        print(f"could not set item: {e}")
+        return 2
+    print(SI.render_item_write(rep))
+    return 0
+
+
+def _cmd_items_set_equip(args: argparse.Namespace) -> int:
+    """Set one equip slot of one character in the Memoria EXTRA file (item 'empty'/255 unequips). Dry-run
+    unless --apply."""
+    from . import save_items as SI
+    try:
+        extra = SI.resolve_extra(args.save, slot=args.slot, save=args.save_no, autosave=args.autosave)
+        rep = SI.set_equip(extra, args.character, args.equip_slot, args.item,
+                           dry_run=not args.apply, backup=not args.no_backup)
+    except Exception as e:                                              # noqa: BLE001
+        print(f"could not set equipment: {e}")
+        return 2
+    print(SI.render_equip_write(rep))
+    return 0
+
+
 def _cmd_flags_diff(args: argparse.Namespace) -> int:
     """Diff two saves' gEventGlobal story state (A -> B) -- what a beat / session wrote. Each arg reads the
     same forms as flags-inspect; with one save, --slot-a/--slot-b pick two slots (default: slot 0 -> slot 1)."""
@@ -1805,6 +1833,33 @@ def build_parser() -> argparse.ArgumentParser:
     sg.add_argument("--apply", action="store_true", help="actually write (default is a dry-run preview)")
     sg.add_argument("--no-backup", action="store_true", help="skip writing the <file>.bak backup on --apply")
     sg.set_defaults(func=_cmd_items_set_gil)
+
+    def _add_save_target(p):                                            # the shared save-target flags
+        p.add_argument("save", help="a SavedData_ww_Memoria_*.dat extra file, OR a SavedData_ww.dat container "
+                                    "(then pass --slot/--save-no or --autosave)")
+        p.add_argument("--slot", type=int, default=None, help="0-indexed slot (container only; menu shows it +1)")
+        p.add_argument("--save-no", type=int, default=None, help="0-indexed save within the slot (container only)")
+        p.add_argument("--autosave", action="store_true", help="edit the autosave (container only)")
+        p.add_argument("--apply", action="store_true", help="actually write (default is a dry-run preview)")
+        p.add_argument("--no-backup", action="store_true", help="skip the <file>.bak backup on --apply")
+
+    si = sub.add_parser("items-set-item",
+                        help="set an item's inventory count in the Memoria extra file (0 removes; dry-run "
+                             "unless --apply)")
+    _add_save_target(si)
+    si.add_argument("item", help="item name or 0-254 id (e.g. Potion, 'Phoenix Down', 236)")
+    si.add_argument("count", type=int, help="the new stack count (0 removes the item; clamps to 99)")
+    si.set_defaults(func=_cmd_items_set_item)
+
+    se = sub.add_parser("items-set-equip",
+                        help="set one equip slot of one character in the Memoria extra file (dry-run unless "
+                             "--apply)")
+    _add_save_target(se)
+    se.add_argument("character", help="CharacterId 0-11 or a name (Zidane..Beatrix, Dagger, Salamander)")
+    se.add_argument("equip_slot", metavar="slot", help="weapon | head | wrist | armor | accessory (aliases "
+                                                       "body, acc)")
+    se.add_argument("item", help="item name/id to equip, or 'empty'/255 to unequip")
+    se.set_defaults(func=_cmd_items_set_equip)
 
     fd = sub.add_parser("flags-diff",
                         help="diff two saves' story state (A -> B): what scenario/flags a beat changed")

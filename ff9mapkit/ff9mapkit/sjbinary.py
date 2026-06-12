@@ -256,3 +256,30 @@ def get_path(root, *keys):
         if node is None:
             return None
     return node
+
+
+def diff_paths(a, b, _prefix=()):
+    """Yield the path (a tuple of string keys / int indices) of every spot where trees ``a`` and ``b`` differ.
+    A *structural* difference -- a different node type, a different SJClass key list, or a different SJArray
+    length -- yields the path of the differing node ITSELF and does not recurse into it; otherwise recursion
+    continues and differing leaves yield their own path. Used to VERIFY a save edit is scoped: an edit may only
+    touch paths under a known prefix (e.g. ``("40000_Common","items")``); anything else changing => abort."""
+    if type(a) is not type(b):
+        yield _prefix
+        return
+    if isinstance(a, SJData):
+        if a.tag != b.tag or a.value != b.value:
+            yield _prefix
+    elif isinstance(a, SJArray):
+        if len(a.items) != len(b.items):
+            yield _prefix                                  # a length change => the array itself changed
+        else:
+            for i, (x, y) in enumerate(zip(a.items, b.items)):
+                yield from diff_paths(x, y, _prefix + (i,))
+    elif isinstance(a, SJClass):
+        if a.keys() != b.keys():
+            yield _prefix                                  # a key added/removed/reordered => the class changed
+        else:
+            for k, _ in a._items:
+                yield from diff_paths(a.get(k), b.get(k), _prefix + (k,))
+    # any other type: treated as equal (the tree only holds SJData/SJArray/SJClass)

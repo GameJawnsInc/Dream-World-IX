@@ -272,6 +272,175 @@ def test_cli_items_set_gil_glue(tmp_path, capsys):
     assert rc == 2 and "could not set gil" in capsys.readouterr().out  # bad path -> exit 2
 
 
+# ---- write surface: set_item (step 4a) -------------------------------------------------------
+def _inv(path):
+    return {i: c for i, _, c in SI.inspect(str(path))[0][1].inventory}
+
+
+def test_set_item_change_count(tmp_path):
+    path = _extra_file(tmp_path, common=_common(items=((236, 7), (28, 1))))
+    before = path.read_bytes()
+    rep = SI.set_item(str(path), "Potion", 99, dry_run=False)          # 236 = Potion
+    assert rep.action == "changed" and rep.old_count == 7 and rep.new_count == 99 and rep.wrote
+    assert _inv(path) == {236: 99, 28: 1}                              # only Potion changed
+    # an applied write makes one timestamped backup of the pristine bytes, and leaves no .tmp
+    baks = _baks(tmp_path, path)
+    assert len(baks) == 1 and open(baks[0], "rb").read() == before
+    assert rep.backup_path == baks[0] and not (tmp_path / (path.name + ".tmp")).exists()
+
+
+def test_set_item_malformed_entry_clean_error(tmp_path):
+    """A countless {id} stack yields a clean ValueError (not a raw AttributeError)."""
+    c = _common(items=())
+    bad = SJ.SJClass(); bad.add("id", _int(236))                       # no 'count' leaf
+    c.get("items").items.append(bad)
+    path = _extra_file(tmp_path, common=c)
+    with pytest.raises(ValueError, match="malformed"):
+        SI.set_item(str(path), "Potion", 5, dry_run=False)
+
+
+def test_set_item_add_keeps_ascending_id_order(tmp_path):
+    path = _extra_file(tmp_path, common=_common(items=((236, 7), (253, 1))))   # ids 236, 253
+    rep = SI.set_item(str(path), 240, 5, dry_run=False)                # insert id 240 between them
+    assert rep.action == "added" and rep.new_count == 5
+    ids = [i for i, _, _ in SI.inspect(str(path))[0][1].inventory]
+    assert ids == [236, 240, 253]                                     # inserted in ascending-id position
+
+
+def test_set_item_remove(tmp_path):
+    path = _extra_file(tmp_path, common=_common(items=((236, 7), (28, 1))))
+    rep = SI.set_item(str(path), "Potion", 0, dry_run=False)
+    assert rep.action == "removed" and rep.old_count == 7
+    assert _inv(path) == {28: 1}                                      # Potion gone, the rest intact
+
+
+def test_set_item_clamps_count_and_rejects_noitem(tmp_path):
+    path = _extra_file(tmp_path, common=_common(items=((236, 7),)))
+    rep = SI.set_item(str(path), "Potion", 9999, dry_run=False)        # clamp to 99
+    assert rep.new_count == 99 and _inv(path)[236] == 99
+    with pytest.raises(ValueError, match="NoItem"):
+        SI.set_item(str(path), 255, 1)
+    with pytest.raises(ValueError):                                    # negative count
+        SI.set_item(str(path), "Potion", -1)
+
+
+def test_set_item_dry_run_and_noop(tmp_path):
+    path = _extra_file(tmp_path, common=_common(items=((236, 7),)))
+    before = path.read_bytes()
+    rep = SI.set_item(str(path), "Potion", 50)                        # dry-run default
+    assert rep.wrote is False and path.read_bytes() == before and not _baks(tmp_path, path)
+    rep = SI.set_item(str(path), "Potion", 7, dry_run=False)          # no-op: already 7
+    assert rep.action == "unchanged" and rep.wrote is False and not _baks(tmp_path, path)
+
+
+def test_set_item_scoped_other_fields_untouched(tmp_path):
+    """An item edit leaves gil + equipment byte-identical (the scoped-change guard)."""
+    path = _extra_file(tmp_path, common=_common(gil=4242, items=((236, 7),),
+                                                players=(("Zidane", 0, [1, 112, 88, 149, 255]),)))
+    SI.set_item(str(path), "Ether", 3, dry_run=False)
+    rep = SI.inspect(str(path))[0][1]
+    assert rep.gil == 4242 and rep.equipment[0]["equip"]["weapon"] == (1, I.name_of(1))
+
+
+# ---- write surface: set_equip (step 4a) ------------------------------------------------------
+def test_set_equip_by_charid_and_name(tmp_path):
+    players = (("Zidane", 0, [1, 112, 88, 149, 255]), ("Vivi", 1, [70, 255, 255, 255, 255]))
+    path = _extra_file(tmp_path, common=_common(players=players))
+    rep = SI.set_equip(str(path), 0, "weapon", "MageMasher", dry_run=False)   # by CharacterId 0
+    assert rep.wrote and rep.slot_no == 0 and rep.character == "Zidane"
+    assert rep.old_name == I.name_of(1) and rep.new_id == I.resolve("MageMasher")
+    eq = {p["name"]: p["equip"] for p in SI.inspect(str(path))[0][1].equipment}
+    assert eq["Zidane"]["weapon"] == (I.resolve("MageMasher"), I.name_of(I.resolve("MageMasher")))
+    # by name + an alias, into the accessory slot
+    SI.set_equip(str(path), "vivi", "accessory", "Sapphire", dry_run=False)
+    eq = {p["name"]: p["equip"] for p in SI.inspect(str(path))[0][1].equipment}
+    assert eq["Vivi"]["accessory"][1] == "Sapphire"
+    # a DIGIT-STRING CharacterId (as the CLI passes it) resolves like the int
+    rep = SI.set_equip(str(path), "1", "head", "LeatherHat", dry_run=False)
+    assert rep.slot_no == 1 and rep.character == "Vivi"
+
+
+def test_set_equip_unequip(tmp_path):
+    path = _extra_file(tmp_path, common=_common(players=(("Zidane", 0, [1, 112, 88, 149, 200]),)))
+    rep = SI.set_equip(str(path), "Zidane", "accessory", "empty", dry_run=False)
+    assert rep.new_id == SI.NO_ITEM and rep.old_id == 200
+    assert SI.inspect(str(path))[0][1].equipment[0]["equip"]["accessory"] is None
+
+
+def test_set_equip_slot_alias_and_bad_inputs(tmp_path):
+    path = _extra_file(tmp_path, common=_common(players=(("Zidane", 0, [1, 112, 88, 149, 255]),)))
+    SI.set_equip(str(path), 0, "body", "BronzeArmor", dry_run=False)   # "body" alias -> armor slot
+    assert SI.inspect(str(path))[0][1].equipment[0]["equip"]["armor"][1] == "BronzeArmor"
+    with pytest.raises(ValueError, match="slot"):
+        SI.set_equip(str(path), 0, "ring", "Potion")                  # unknown slot
+    with pytest.raises(ValueError):                                    # no such character
+        SI.set_equip(str(path), 9, "weapon", "Dagger")
+
+
+def test_set_equip_noop_and_scoped(tmp_path):
+    path = _extra_file(tmp_path, common=_common(gil=4242, items=((236, 7),),
+                                                players=(("Zidane", 0, [1, 112, 88, 149, 255]),)))
+    rep = SI.set_equip(str(path), 0, "weapon", 1, dry_run=False)       # already Dagger(1) -> no-op
+    assert rep.old_id == rep.new_id == 1 and rep.wrote is False and not _baks(tmp_path, path)
+    SI.set_equip(str(path), 0, "head", "IronHelm", dry_run=False)      # a real change
+    rep2 = SI.inspect(str(path))[0][1]
+    assert rep2.gil == 4242 and rep2.inventory == [(236, I.name_of(236), 7)]   # gil + items untouched
+
+
+def test_cli_set_item_and_equip_glue(tmp_path, capsys):
+    from ff9mapkit import cli
+    import argparse
+    path = _extra_file(tmp_path, common=_common(items=((236, 7),),
+                                                players=(("Zidane", 0, [1, 112, 88, 149, 255]),)))
+    ns = argparse.Namespace(save=str(path), slot=None, save_no=None, autosave=False, apply=True, no_backup=True,
+                            item="Ether", count=3)
+    assert cli._cmd_items_set_item(ns) == 0 and _inv(path).get(I.resolve("Ether")) == 3
+    ns = argparse.Namespace(save=str(path), slot=None, save_no=None, autosave=False, apply=True, no_backup=True,
+                            character="Zidane", equip_slot="head", item="IronHelm")
+    assert cli._cmd_items_set_equip(ns) == 0
+    assert SI.inspect(str(path))[0][1].equipment[0]["equip"]["head"][1] == "IronHelm"
+
+
+# ---- write surface: the abort safety-nets (scoped-diff + post-write confirm) ------------------
+def test_set_item_aborts_on_out_of_scope_change(tmp_path, monkeypatch):
+    """If a mutation touches anything outside the allowed prefix, _assert_scoped aborts and nothing is written."""
+    path = _extra_file(tmp_path, common=_common(gil=500, items=((236, 7),)))
+    before = path.read_bytes()
+    monkeypatch.setattr(SI._sj, "diff_paths", lambda a, b: iter([("40000_Common", "gil")]))  # forge an out-of-scope diff
+    with pytest.raises(AssertionError, match="unexpected path"):
+        SI.set_item(str(path), "Potion", 99, dry_run=False)
+    assert path.read_bytes() == before and not _baks(tmp_path, path)
+
+
+def test_set_equip_post_write_confirm_failure(tmp_path, monkeypatch):
+    """If the post-write re-read disagrees with the requested value, set_equip raises (the last safety net)."""
+    path = _extra_file(tmp_path, common=_common(players=(("Zidane", 0, [1, 112, 88, 149, 255]),)))
+    monkeypatch.setattr(SI, "load_extra_common", lambda p: (None, None, b""))   # break the confirm re-read
+    with pytest.raises(AssertionError, match="post-write check failed"):
+        SI.set_equip(str(path), 0, "weapon", "IronSword", dry_run=False)
+
+
+# ---- rendering: the write-report formatters --------------------------------------------------
+def test_render_item_write_branches():
+    R = SI.ItemWriteReport
+    assert "DRY RUN -- would add x5 of Potion" in SI.render_item_write(
+        R("p", 236, "Potion", 0, 5, "added", False))
+    assert "WROTE x7 -> x99 of Potion" in SI.render_item_write(
+        R("p", 236, "Potion", 7, 99, "changed", True, "p.bak.X"))
+    assert "remove (was x7)" in SI.render_item_write(R("p", 236, "Potion", 7, 0, "removed", True, "p.bak.X"))
+    assert "already x7" in SI.render_item_write(R("p", 236, "Potion", 7, 7, "unchanged", False))
+    assert "--no-backup" in SI.render_item_write(R("p", 236, "Potion", 0, 5, "added", True, None))
+
+
+def test_render_equip_write_branches():
+    R = SI.EquipWriteReport
+    out = SI.render_equip_write(R("p", 0, "Zidane", "weapon", 1, "Dagger", 8, "MageMasher", True, "p.bak.X"))
+    assert "Zidane (slot 0) weapon: Dagger -> MageMasher" in out and "Backup:" in out
+    assert "-> (empty)" in SI.render_equip_write(R("p", 0, "Zidane", "accessory", 200, "GerminasBoots",
+                                                   255, None, True, "p.bak.X"))
+    assert "already" in SI.render_equip_write(R("p", 0, "Zidane", "weapon", 1, "Dagger", 1, "Dagger", False))
+
+
 # ---- install-gated: the real save ------------------------------------------------------------
 def _real_main_save():
     from ff9mapkit import save as S

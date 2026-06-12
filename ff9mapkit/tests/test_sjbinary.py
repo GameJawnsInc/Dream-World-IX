@@ -156,6 +156,44 @@ def test_unknown_tag_raises():
         SJ.loads(bad)
 
 
+# ---- diff_paths (the scoped-change verifier the editors rely on) ------------------------------
+def _tree(gil, items):
+    common = SJ.SJClass()
+    common.add("gil", SJ.SJData(SJ.INT, gil))
+    common.add("items", SJ.SJArray([_pair(i, c) for i, c in items]))
+    root = SJ.SJClass(); root.add("40000_Common", common)
+    return root
+
+
+def _pair(i, c):
+    p = SJ.SJClass(); p.add("id", SJ.SJData(SJ.INT, i)); p.add("count", SJ.SJData(SJ.INT, c)); return p
+
+
+def test_diff_paths_identical_is_empty():
+    assert list(SJ.diff_paths(_tree(500, [(236, 7)]), _tree(500, [(236, 7)]))) == []
+
+
+def test_diff_paths_leaf_change():
+    a, b = _tree(500, [(236, 7)]), _tree(999, [(236, 7)])
+    assert list(SJ.diff_paths(a, b)) == [("40000_Common", "gil")]
+
+
+def test_diff_paths_array_length_change_yields_array_path():
+    a, b = _tree(500, [(236, 7)]), _tree(500, [(236, 7), (240, 1)])     # added a stack
+    assert list(SJ.diff_paths(a, b)) == [("40000_Common", "items")]     # the array itself, not its children
+
+
+def test_diff_paths_in_place_count_change_descends():
+    a, b = _tree(500, [(236, 7)]), _tree(500, [(236, 99)])
+    assert list(SJ.diff_paths(a, b)) == [("40000_Common", "items", 0, "count")]
+
+
+def test_diff_paths_key_set_change_yields_class_path():
+    a = SJ.SJClass(); a.add("x", SJ.SJData(SJ.INT, 1))
+    b = SJ.SJClass(); b.add("x", SJ.SJData(SJ.INT, 1)); b.add("y", SJ.SJData(SJ.INT, 2))
+    assert list(SJ.diff_paths(a, b)) == [()]                            # the class node itself changed
+
+
 # ---- install-gated: the real extra file round-trips byte-identical -----------------------------
 def _real_extra_files():
     from ff9mapkit import save as S
