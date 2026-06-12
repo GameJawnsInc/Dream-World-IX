@@ -1107,14 +1107,20 @@ def _cmd_fork_report(args: argparse.Namespace) -> int:
 def _cmd_items(args: argparse.Namespace) -> int:
     """List FF9 item names + ids (use a name for `give_item = ["<name>", count]`)."""
     from . import items as I
+    from . import itemstats as S
     rows = [(i, n) for i, n in I.all_items() if n != "NoItem"]
     if args.filter:
         f = args.filter.lower()
         rows = [(i, n) for i, n in rows if f in n.lower()]
     print(f'{len(rows)} item(s). In an [[event]]/[[choice]] write  give_item = ["<name>", count]  '
           f"(or a numeric id).\n")
+    live = S.available()
     for i, n in rows:
-        print(f"  {i:>3}  {n}")
+        s = S.summary(i) if live else None
+        print(f"  {i:>3}  {n:<16}{'  ' + s if s else ''}")
+    if not live:
+        print("\n  (stat detail -- weapon power, armor defence, effects -- needs your FF9 install; "
+              "set FF9_GAME_PATH or run from the game dir.)")
     return 0
 
 

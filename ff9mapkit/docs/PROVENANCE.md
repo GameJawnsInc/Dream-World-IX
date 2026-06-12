@@ -65,6 +65,12 @@ no model geometry, animation binary, enemy roster, or stats (those live in your 
 They're committed so the `import` / `animations` / Info Hub (`models` / `scenes` / `catalog`) features
 work without a game install.
 
+**Item *stats* are the deliberate exception — read live, never committed.** The Info Hub item *detail*
+(weapon power, armor defence, equip bonuses, consumable effects, prices) is game DATA, not a label, so
+`itemstats.py` reads it **live from your own install** (`<install>/StreamingAssets/Data/Items/*.csv` —
+Memoria's editable item tables) and caches it in-memory. Nothing is baked into the repo or the wheel; if the
+install isn't reachable the Info Hub simply shows id + name. Only `_itemdb.py` (item **names**) stays committed.
+
 ## For maintainers
 
 `python -m ff9mapkit.data._regen_provenance` (run against a **vanilla** install) re‑authors the

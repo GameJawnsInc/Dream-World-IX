@@ -861,6 +861,25 @@ Read these on demand — they hold the full technical detail this file only summ
   report in `analyze()`; the pure `analyze_eb` is untouched (no camera → line omitted → fixtures byte-identical).
   Reuses `cam.pitch_deg`/`cam.decompose` (no new camera math). 4 tests; clear of story_flags' build + overworld's
   graft lanes. kit 0.9.34; 902 tests.
+- **Item stat/effect CATALOG enrichment — the Info Hub now shows what an item DOES (`items_equipment`; the
+  roadmap's recommended-first move).** `ff9mapkit items` + the Info Hub item detail were NAMES-ONLY; new
+  `itemstats.py` JOINS the five FF9 item-data CSVs (`Items` + FK→`Weapons`/`Armors`/`Stats`/`ItemEffects`) into
+  one `ItemStat` per id → weapon Atk+element, armor defence, equip stat bonuses + elemental affinity, consumable
+  use-effect, price, type/slot, who-can-equip, abilities taught. `summary()` (one-line) + `facts()` (detail);
+  element/category/type bitmasks decode to names. ★ **PROVENANCE-CORRECT (the load-bearing decision):** item
+  STATS are game DATA, so — unlike the committed names table `_itemdb.py` — they are **NEVER committed**;
+  `itemstats` reads them LIVE from the user's install (`<install>\StreamingAssets\Data\Items\*.csv` = Memoria's
+  editable item tables), caches in-memory, ships/commits nothing (PROVENANCE.md:63-64 = "names/ids only, no
+  stats"). Columns read from each CSV's `#`-legend (not hard-coded indices → survives the option-driven column
+  toggles). Degrades to id+name when the install is unreachable (Info Hub still works offline). Wired into
+  `infohub.py` (browse summary + detail facts) + the `items` CLI. 8 tests (pure decoders/parser/formatters +
+  graceful-degradation offline; the real join install-gated). Read-only foundation the shop/reward/save-editor
+  item pillars read from; clear of story_flags' compose lane + overworld's graft lane (see [[project-ff9-branch-lanes]]).
+  ★ A 3-lens adversarial review (provenance / engine-fidelity / Python) verified provenance CLEAN + the mappings
+  engine-exact, and caught the one real bug: status-only consumables (Phoenix Down/Antidote, Power 0, effect in
+  the `BattleStatus` mask) showed a misleading "use pow 0" -> now the `Status` mask is decoded + the effect line
+  is gated on meaningfulness ("effect status Death"; empty-effect accessories show none). kit 0.9.35; 913 tests
+  (11 new, atop overworld's Camera 902).
 
 ---
 

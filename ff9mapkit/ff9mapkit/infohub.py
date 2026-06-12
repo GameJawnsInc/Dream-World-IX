@@ -124,8 +124,9 @@ def _build_entries() -> list:
         friendly = by_model.get(m.name, [])
         extra = ("  -- " + ", ".join(friendly)) if friendly else ""
         out.append(Entry("model", m.name, m.name, f"{m.kind} model ({m.form}){extra}", m.id))
+    from . import itemstats as _istats                                # live stats from YOUR install (or None)
     for iid, nm in _cat.items():                                       # items
-        out.append(Entry("item", nm, None, f"item #{iid}", iid))
+        out.append(Entry("item", nm, None, _istats.summary(iid) or f"item #{iid}", iid))
     for nm, sid in _cat.battle_scenes():                              # battle scenes (encounters)
         out.append(Entry("scene", nm, None, f"battle scene #{sid}", sid))
     out += _storyflag_entries()                                       # FF9 story-flag registry (reference)
@@ -373,7 +374,8 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
             d.facts.append(("desc", dsc))
         return d
     if e.kind == "item":
-        d.facts = [("kind", "item"), ("id", str(e.ident))]
+        from . import itemstats as _istats                            # live stat join from YOUR install
+        d.facts = [("kind", "item"), ("id", str(e.ident))] + _istats.facts(e.ident)
         return d
     if e.kind == "scene":
         d.facts = [("kind", "battle scene"), ("id", str(e.ident))]

@@ -28,6 +28,35 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `playerswap.scripted_gesture_ops` (the same controlled-leader-targeted gesture count the swap + CLI warn use)
   — `.eb`-only, no new scanner. 1 test (`tests/test_forkreport.py`). kit 0.9.33.
 
+### Added — item stat/effect catalog: the Info Hub now shows what an item DOES (0.9.35)
+`ff9mapkit items` and the Info Hub item detail were names-only; they now surface **weapon power + element**,
+**armor defence**, **equip stat bonuses + elemental affinity**, the **consumable use-effect**, **price**,
+**type/slot**, **who can equip it**, and the **abilities it teaches**.
+
+```
+$ ff9mapkit items -f excalibur
+   28  Excalibur         weapon - Atk 77 Holy, 19000 gil
+   30  ExcaliburII       weapon - Atk 108 Holy, 39000 gil
+```
+
+- New `itemstats.py` JOINS the five FF9 item-data CSVs (`Items` + `Weapons`/`Armors`/`Stats`/`ItemEffects`,
+  keyed by the catalog's FKs) into one `ItemStat` per id, with `summary()` (one-line) + `facts()` (the detail
+  pane). Element/weapon-category/type bitmasks decode to names (`Fire`/`Holy`, `short-range/throw`, …).
+- **Provenance:** item STATS are game DATA, so — unlike the committed names table `_itemdb.py` — they are
+  **never committed**. `itemstats` reads them **live from YOUR install** (`<install>/StreamingAssets/Data/Items/
+  *.csv` — Memoria's editable item tables) and caches in-memory; the repo/wheel ship nothing. Column layout is
+  read from each CSV's `#`-legend (not hard-coded indices), so it survives Memoria's option-driven column
+  toggles. If the install isn't reachable, every accessor returns `None`/`[]` and the Info Hub degrades to
+  id+name (it still works offline). See docs/PROVENANCE.md.
+- Wired into `infohub.py` (browse summary + detail facts) and the `items` CLI; both degrade gracefully.
+- Consumable use-effects decode the `BattleStatus` mask (a cure/revive item like Phoenix Down has Power 0 and
+  acts entirely via the status set), so it shows `effect status Death` rather than a misleading `use pow 0`;
+  an all-zero effect row (a stat accessory with a dummy EffectId) shows no use-effect line at all.
+- 11 tests (`tests/test_itemstats.py`): pure decoders/parser/formatters + graceful-degradation run offline;
+  the real-value join (Dagger Atk 12, Excalibur Atk 77 Holy, Iron Helm M.Def 7, Potion/Phoenix-Down effects) is
+  install-gated. Provenance + engine-fidelity + Python were adversarially reviewed (3 lenses). This is the
+  read-only foundation the shop/reward/save-editor item pillars build on.
+
 ### Added — `fork-report` Items / Treasure axis: preview the treasure, gil & shops a fork reproduces (0.9.32)
 The item-side companion to the Player / Roster / Interaction / Dialogue / Party axes — what a fork does to your
 **inventory**. Read-only; reuses the kit's disassembler (no new scanner of its own).
