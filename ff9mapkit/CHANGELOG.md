@@ -22,7 +22,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - +9 tests (`test_forkreport`): the condition decode, the symbolic walk (dispatch chain / if-else / non-SC
   fall-through / backward-jump), and an install-gated Dali rotation assertion.
 
-### Added — save-item editor #5 step 4b: main-block EQUIPMENT (vanilla saves fully editable) (0.9.59)
+### Added — save-item editor #5 step 4b: main-block EQUIPMENT (vanilla saves fully editable), IN-GAME PROVEN (0.9.59)
 - The last deferred piece: a **vanilla (no-extra) save's EQUIPMENT** is now editable, completing the editor.
 - ★ **Layout finding (empirical):** the old format stores **9 player structs of 244 bytes**, each with a
   **5-BYTE equip array** `[weapon,head,wrist,armor,accessory]` at `MAIN_EQUIP_OFF=5784 + 244·old_slot` — verified
@@ -37,9 +37,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **`save_items.set_equip_in_save`** dual-write orchestrator (extra keyed by CharacterId/12, main by old-slot/9 —
   resolved independently); CLI `items-set-equip` on a container dual-writes; `render_equip_dual`. The **GUI** now
   enables the Equipment editor on vanilla slots (was refused).
-- A focused adversarial-verify workflow reviewed it. 18 new tests; 1172 suite green. ⏳ In-game proof of
-  main-block equip on a vanilla save = the next STOP-and-test. **With this, the #5 editor is essentially
-  complete** — only key/important items (the 2-bit `rareItems` bitfield) remain deferred.
+- A focused adversarial-verify workflow reviewed it (3 doc-staleness findings, all folded in). 18 new tests; 1172
+  suite green.
+- ★ **IN-GAME PROVEN (2026-06-12):** on the vanilla slot 1/save 1 — Steiner weapon→Excalibur + Ribbon accessory,
+  and **Quina (an active-party member at the SHARED old-slot 5) weapon→Gastro Fork showed in-game** (also proving
+  the shared slot-5 mapping correctly targets Quina, not Cinna). **The #5 save-item editor is now COMPLETE and
+  fully proven** — read+write gil/items/equipment on both the Memoria extra and the encrypted main block (vanilla
+  saves), via CLI and GUI. Only key/important items (the 2-bit `rareItems` bitfield) remain deferred.
 
 ### Added — save-item editor #5 step 4b cont.: main-block ITEMS + GUI vanilla-save editing, IN-GAME PROVEN (0.9.57)
 - Completes editing a **vanilla (no-extra) save** — now its **inventory** is editable too (gil landed in 0.9.56),
