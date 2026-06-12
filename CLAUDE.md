@@ -724,6 +724,25 @@ Read these on demand — they hold the full technical detail this file only summ
   as one call, with `dry_run` for Preview; `edit_story_state` stays the shared core with the CLI). Wired into
   the launcher (7 tools) + a Campaign-Editor tab (7 tabs). Closes the gap that `flags-diff`/`save-edit` were
   CLI-only. 3 save tests + a headless `--smoke`; 854 suite. kit 0.9.23.
+- **PC / party-control system MAPPED + PC-SWAP and PARTY-ADD proven IN-GAME (`.eb`-only, no DLL).** The
+  non-Zidane lane became a full map of FF9's player-control + party-membership system (memory
+  `project-ff9-pc-party-system`, via a 4-lens research workflow over the Memoria C# + bytes + the kit). Two
+  DECOUPLED mechanisms: **field control** (who you WALK as = the player entry's `SetModel` 0x2F + 6 movement
+  anim ids; `DefinePlayerCharacter` 0x2C binds control) vs **party state** (who's in the MENU/BATTLE =
+  `party.member[]`, mutated by **`B_PARTYADD`** expr op `0x6D` + a `CharacterOldIndex` Zidane0..Amarant7,
+  Beatrix8; `RemoveParty` 0xDD / `SetCharacterData` 0xFE / `SetPartyReserve` 0xB4 are statement ops already in
+  the kit optables). ★ **Both `.eb`-only tiers PROVEN IN-GAME via one-off byte-injection probes** (no kit
+  feature — overworld's probe lane): **(A) swap who you WALK as** — patched a forked Hangar (Zidane field
+  1357) player Init `SetModel`+6 anim ids to Steiner (same-length 2-byte patches) → you walk as **Steiner**,
+  animates cleanly, party menu stays Zidane; **(B) add a party member** — injected `partyadd(3=Steiner)`
+  (`05 C5 93 7D 03 00 6D 2C 7F`) into Main_Init via `edit.insert_in_function` on a clean no-party-ops base →
+  party menu shows **Zidane + Steiner** with valid starting equipment (the 12 PLAYER structs exist at boot).
+  FF9 renders only the LEADER in the field (no walking followers). **(C) a BRAND-NEW custom party member** =
+  the engine-fork frontier (CharacterId is a fixed DLL enum 0-11; `SetupPartyUID` can't bind a no-event-id
+  member; the save layout is fixed; `CharacterBuilder.Spawn` exists but is dormant). NEXT PHASE = an authoring
+  CAPABILITY (`import --swap-player <char>` = overworld's fork-transform lane; an `[[add_member]]`/`[party]`
+  declarative block = story_flags' `content/`+`build.py` lane) — coordinate before building. Probes are scratch
+  (uncommitted); this entry + the memory are the durable record.
 
 ---
 
