@@ -30,6 +30,37 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the count drops 91→89. Also hardened `player_label` (keep the non-Zidane flag when the binder name is blank)
   and surfaced the playable-vs-cutscene-driver split. 7 tests (4 pure + 3 install-gated). kit 0.9.39.
 
+### Added — `[start_inventory]` / `[[equipment]]`: new-game starting bag & default gear (0.9.40)
+Author what the player **starts a New Game with** — the starting inventory and each character's default
+equipment — as **engine-independent CSV deltas** (stock Memoria). This is the item/equip half of the
+New-Game-into-a-fork capstone; it composes with the scenario/party half (`[startup]`/`[party]`) and the
+seamless New-Game entry (`nop_cinematics`).
+
+```toml
+[start_inventory]                              # the FULL starting bag (REPLACES the base; highest-priority-wins)
+items = [["Potion", 20], ["Phoenix Down", 5], ["Tent", 3]]
+
+[[equipment]]                                  # a character's starting loadout (partial: only the chars you list)
+character = "steiner"
+weapon = "Excalibur"
+armor  = "Genji Armor"                         # omitted slots (head/wrist/accessory) start empty
+```
+
+- `content/inventory.py` renders the FULL `Data/Items/InitialItems.csv` (the engine reads it
+  **highest-priority-wins**, so it replaces the base bag; counts clamp to 99, dup ids sum) and
+  `content/equipment.py` renders a PARTIAL `Data/Characters/DefaultEquipment.csv` (the engine **merges** it
+  low→high over the base's 15 sets, so only the named characters change; each row is a complete loadout).
+  Character name→`EquipmentSetId` is a names/ids-only table (provenance-clean, like `_itemdb`).
+- Emitted at the **mod-write stage** (`build_mod`, alongside DictionaryPatch/BattlePatch via `ModLayout`),
+  not into any `.eb` — these are mod-global files. They live on the **entry field's** `field.toml` only; the
+  build **warns** if a block lands on a non-entry field (precise for a campaign via the entry member) and
+  surfaces the `InitialItems` highest-wins/shadow caveat. New-game-only scope (read once at new-game init).
+- `validate()` resolves every item + character name. New `ModLayout.initial_items_csv` / `default_equipment_csv`.
+- **Provenance:** the writers are deterministic from the author's `field.toml` + the committed name tables —
+  no game stat data is read or committed. Adversarially reviewed (3 lenses: engine-format / Python / provenance)
+  — the partial `DefaultEquipment.csv` was confirmed to merge with the base (no "must define 15 sets" boot
+  crash). 15 tests (`test_startstate.py` pure renderers + `test_build.py` emit/validate/lint).
+
 ### Added — `remove_item`: the symmetric take-item reward lever (0.9.36)
 `[[event]]` and `[[choice]]` rewards could `give_item` but not take one back. New `remove_item = [item, count]`
 (id or name) emits `RemoveItem` (`0x49`) — pair it with `give_item` for a **trade**, or use it alone to

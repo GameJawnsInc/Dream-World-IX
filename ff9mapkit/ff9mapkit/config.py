@@ -192,6 +192,20 @@ class ModLayout:
     def mes_path(self, lang: str, mes_id: int) -> Path:
         return self.text_field_dir(lang) / f"{mes_id}.mes"
 
+    # --- item / character DATA CSVs (mod-global; the engine merges/overrides them across FolderNames at
+    #     new-game). Written at the mod-write stage from the entry field's [start_inventory]/[equipment]. ---
+    @property
+    def initial_items_csv(self) -> Path:
+        """The new-game starting bag (``Data/Items/InitialItems.csv``). HIGHEST-priority-wins -> a mod must
+        write the FULL bag, and a stacked folder SHADOWS it (lint)."""
+        return self.root / "StreamingAssets" / "Data" / "Items" / "InitialItems.csv"
+
+    @property
+    def default_equipment_csv(self) -> Path:
+        """Per-character starting equipment (``Data/Characters/DefaultEquipment.csv``). MERGED low->high by
+        the engine -> a partial delta (only the characters you change) works."""
+        return self.root / "StreamingAssets" / "Data" / "Characters" / "DefaultEquipment.csv"
+
     def ensure_dirs(self, fbg_name: str | None = None, *, bbg: str | None = None,
                     langs: tuple[str, ...] = LANGS) -> None:
         """Create the directory skeleton a field (and/or battle-map) write needs."""

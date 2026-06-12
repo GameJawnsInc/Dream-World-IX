@@ -281,6 +281,95 @@ def test_event_remove_item_unknown_name_is_caught(tmp_path):
     assert any("remove_item" in x for x in validate(FieldProject.load(p)))
 
 
+STARTSTATE = """
+[field]
+id = 4003
+name = "ENTRYROOM"
+area = 11
+text_block = 1073
+
+[camera]
+pitch = 45
+
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+
+[player]
+spawn = [0, -300]
+
+[start_inventory]
+items = [["Potion", 20], ["Phoenix Down", 5], ["Potion", 5], ["Tent", 3]]
+
+[[equipment]]
+character = "steiner"
+weapon = "Excalibur"
+armor = "Genji Armor"
+
+[[equipment]]
+character = "vivi"
+weapon = "Mace of Zeus"
+"""
+
+
+def test_build_emits_start_state_csvs(tmp_path):
+    # [start_inventory]/[[equipment]] on the entry field -> mod-global CSVs in the mod root (not field bytes).
+    p = tmp_path / "entry.field.toml"
+    p.write_text(STARTSTATE, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    res = build_mod([FieldProject.load(p)], out)
+    L = ModLayout(out.resolve())
+    inv = L.initial_items_csv.read_text(encoding="utf-8")
+    assert "236;25;# Potion" in inv and "240;5;# PhoenixDown" in inv and "253;3;# Tent" in inv  # dup Potion summed
+    eqp = L.default_equipment_csv.read_text(encoding="utf-8")
+    assert "Steiner;3;28;" in eqp and "Vivi;1;78;" in eqp and "Zidane" not in eqp               # partial delta
+    # the highest-wins / shadow caveat is surfaced as a build warning
+    assert any("highest-priority-wins" in w.lower() or "shadow" in w.lower() for w in res["warnings"])
+
+
+def test_build_warns_global_block_on_multiple_fields(tmp_path):
+    a = STARTSTATE.replace('name = "ENTRYROOM"', 'name = "A"')
+    b = STARTSTATE.replace('name = "ENTRYROOM"', 'name = "B"').replace("id = 4003", "id = 4004")
+    pa, pb = tmp_path / "a.toml", tmp_path / "b.toml"
+    pa.write_text(a, encoding="utf-8")
+    pb.write_text(b, encoding="utf-8")
+    res = build_mod([FieldProject.load(pa), FieldProject.load(pb)], tmp_path / "mod2")
+    assert any("mod-GLOBAL" in w and "ENTRY" in w for w in res["warnings"])   # only the entry field should carry it
+
+
+def test_validate_catches_bad_start_state(tmp_path):
+    bad = (STARTSTATE.replace('["Phoenix Down", 5]', '["Notathing", 1]')
+           .replace('character = "vivi"', 'character = "nobody"'))
+    p = tmp_path / "bad.toml"
+    p.write_text(bad, encoding="utf-8")
+    probs = validate(FieldProject.load(p))
+    assert any("start_inventory" in x for x in probs) and any("equipment" in x for x in probs)
+
+
+def test_build_no_blocks_writes_no_start_state_csv(tmp_path):
+    # a field WITHOUT the blocks emits NO CSV (the mod stays byte-identical for existing fields)
+    plain = STARTSTATE[:STARTSTATE.index("[start_inventory]")]
+    p = tmp_path / "plain.toml"
+    p.write_text(plain, encoding="utf-8")
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out)
+    L = ModLayout(out.resolve())
+    assert not L.initial_items_csv.exists() and not L.default_equipment_csv.exists()
+
+
+def test_build_entry_project_flags_non_entry_block(tmp_path):
+    # the PRECISE (campaign) lint: a block on a NON-entry member is warned + ignored, nothing emitted
+    entry_txt = STARTSTATE[:STARTSTATE.index("[start_inventory]")].replace('name = "ENTRYROOM"', 'name = "ENTRY"')
+    other_txt = STARTSTATE.replace('name = "ENTRYROOM"', 'name = "OTHER"').replace("id = 4003", "id = 4004")
+    pe, po = tmp_path / "e.toml", tmp_path / "o.toml"
+    pe.write_text(entry_txt, encoding="utf-8")
+    po.write_text(other_txt, encoding="utf-8")
+    entry, other = FieldProject.load(pe), FieldProject.load(po)
+    res = build_mod([entry, other], tmp_path / "mod", entry_project=entry)
+    assert any("NON-entry" in w and "OTHER" in w for w in res["warnings"])
+    assert not ModLayout((tmp_path / "mod").resolve()).initial_items_csv.exists()   # non-entry block ignored
+
+
 STORY = """
 [field]
 id = 4003

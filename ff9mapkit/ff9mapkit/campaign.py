@@ -432,7 +432,10 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
 
     # each member's per-member flag_base was set on its FieldProject above; build_script's _FlagAlloc packs
     # that member's auto chest/event/cutscene/choice flags into its own disjoint block (no cross-field alias).
-    info = build_mod(projects, out, mod_name=plan.mod_folder, author=author, description=description)
+    # the entry member's project (by member index) -> precise non-entry lint for the mod-global new-game blocks
+    entry_project = next((projects[i] for i, m in enumerate(plan.members) if m.name == plan.entry_name), None)
+    info = build_mod(projects, out, mod_name=plan.mod_folder, author=author, description=description,
+                     entry_project=entry_project)
     info["plan"] = plan
     info["out"] = str(Path(out).resolve())
     info["warnings"] = list(lint_warnings) + list(info.get("warnings", []))

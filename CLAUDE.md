@@ -945,6 +945,23 @@ Read these on demand — they hold the full technical detail this file only summ
   `GEO_MAIN_*_ZDN`/`_ZDD` form, also correcting find-rooms + the Player axis; count 91→89). Read-only;
   `forkreport.py`/`cli.py`/`eventscan.py` — clear of build + graft lanes. 7 tests. kit 0.9.39; 933 tests. See
   memory [[project-ff9-non-zidane-donors]].
+- **`[start_inventory]` / `[[equipment]]` — new-game starting bag & default gear (`items_equipment` roadmap #3;
+  the New-Game-capstone SEAM, contract pinned with story_flags — memory [[project-ff9-branch-lanes]]).** Author
+  what the player STARTS A NEW GAME with, as engine-independent CSV deltas (stock Memoria): `[start_inventory]`
+  → the FULL `Data/Items/InitialItems.csv` (engine reads it HIGHEST-PRIORITY-WINS → replaces the base bag; counts
+  clamp 99, dup ids sum) via `content/inventory.py`; `[[equipment]]` → a PARTIAL `Data/Characters/DefaultEquipment.csv`
+  (engine MERGES low→high over the base's 15 sets → only named chars change; each row a complete loadout, omitted
+  slot = -1 empty) via `content/equipment.py` (char→`EquipmentSetId` is a names/ids-only table, provenance-clean).
+  ★ Per the PINNED handoff contract: blocks live on the ENTRY field's `field.toml` ONLY; EMITTED at the mod-write
+  stage (`build_mod._emit_start_state`, alongside DictionaryPatch/BattlePatch via `ModLayout` — NOT eb-synthesis;
+  these are mod-global files), fires once; lint-WARNS if a block lands on a non-entry field (PRECISE for a campaign
+  via the entry member, threaded through `build_mod(entry_project=)`), plus the InitialItems highest-wins/shadow
+  caveat. New-game-only scope (read once at new-game init); composes with story_flags' `[startup]`/`[party]` + the
+  seamless New-Game entry. ★ Adversarially reviewed (3 lenses): provenance CLEAN (writers deterministic from the
+  toml + committed name tables, no game stat data read/committed), and the partial DefaultEquipment confirmed to
+  MERGE with the base (no "must define 15 sets" boot crash). `validate()` resolves every name; new `ModLayout`
+  paths. 15 tests; clear of story_flags' compose lane (I ship the deltas, they compose). kit 0.9.40; 948 tests
+  (15 new, atop overworld's list-fields 933).
 
 ---
 

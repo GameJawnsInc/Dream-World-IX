@@ -592,6 +592,41 @@ remove = ["zidane"]            # optional: remove these (RemoveParty)
 
 ---
 
+### `[start_inventory]` / `[[equipment]]` — new-game starting bag & default gear
+
+Set what the player **starts a New Game with** — the starting inventory and each character's default
+equipment. Unlike `[startup]`/`[party]` (which are `.eb` field-load ops), these are emitted as **mod-global
+CSV deltas** at build time (`StreamingAssets/Data/Items/InitialItems.csv` + `…/Data/Characters/DefaultEquipment.csv`),
+engine-independent (stock Memoria). They're read **once at new-game init**, so they affect a true **New Game**
+only (not an F6 / campaign mid-game entry) and compose with story_flags' seamless New-Game entry + `[startup]`/`[party]`.
+
+```toml
+[start_inventory]                              # the FULL starting bag (REPLACES the base bag entirely)
+items = [["Potion", 20], ["Phoenix Down", 5], ["Tent", 3], ["Ether", 10]]
+
+[[equipment]]                                  # a character's starting loadout (partial: only the chars you list)
+character = "steiner"
+weapon = "Excalibur"
+head   = "Genji Helmet"
+armor  = "Genji Armor"
+# wrist / accessory omitted -> those slots start EMPTY
+```
+
+- These are **mod-global** (one per mod) — put them on the **ENTRY field's** `field.toml` only (the field New
+  Game lands in; for a chain, the entry member). The build **warns** if they land on more than one field.
+- **`[start_inventory]`** → `InitialItems.csv`, which the engine reads **highest-priority-wins** (not merged):
+  it **replaces the base starting bag**, so list the complete inventory. A stacked mod folder that also defines
+  `InitialItems.csv` would shadow it (the build warns). Items by name or id; counts clamp to 99; dup ids sum.
+- **`[[equipment]]`** → `DefaultEquipment.csv`, which the engine **merges** low→high: a partial delta overrides
+  only the characters you list (others keep the base game's). Each `[[equipment]]` is a character's COMPLETE
+  loadout — slots `weapon` / `head` / `wrist` / `armor` / `accessory` (name or id; **an omitted slot starts
+  empty** — the row replaces the whole default set, it's not a per-slot patch). Characters `zidane`..`beatrix`
+  + `marcus2`/`beatrix2`/`blank2`. Per-character gear is applied when a character joins, so it composes with
+  `[party]` (an added member arrives wearing its `[[equipment]]` gear).
+- **In-game only:** verify a real New Game starts with the right bag/gear (the kit can't see the running game).
+
+---
+
 ## `[[choice]]` (optional, repeatable)
 
 A **dialogue choice** — pick from a menu and **branch** on the answer. This is the interaction /

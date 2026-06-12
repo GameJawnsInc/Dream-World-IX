@@ -477,6 +477,34 @@ def validate(project: FieldProject) -> list[str]:
         for k in ("received", "require_space"):
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
+    # [start_inventory] / [[equipment]] -- new-game starting state (mod-global CSV deltas on the entry field)
+    si = project.raw.get("start_inventory")
+    if si is not None:
+        items_list = si.get("items") if isinstance(si, dict) else None
+        if not isinstance(items_list, list) or not items_list:
+            problems.append('[start_inventory] needs items = [["Potion", 10], ...] (the full starting bag)')
+        else:
+            for it in items_list:
+                try:
+                    _items.resolve(it[0] if isinstance(it, (list, tuple)) else it)
+                except (ValueError, IndexError, TypeError) as e:
+                    problems.append(f"[start_inventory] item: {e}")
+    if project.raw.get("equipment"):
+        from .content import equipment as _eqp
+        for q, eq in enumerate(project.raw["equipment"]):
+            if not isinstance(eq, dict):
+                problems.append(f"[[equipment]] #{q} must be a table (character = \"steiner\", weapon = ...)")
+                continue
+            try:
+                _eqp.resolve_set_id(eq.get("character"))
+            except (ValueError, TypeError) as e:
+                problems.append(f"[[equipment]] #{q}: {e}")
+            for slot in _eqp.SLOTS:
+                if slot in eq and str(eq[slot]).strip().lower() not in ("", "none", "-1"):
+                    try:
+                        _items.resolve(eq[slot])
+                    except (ValueError, TypeError) as e:
+                        problems.append(f"[[equipment]] #{q} {slot}: {e}")
     for la in project.raw.get("ladder", []):
         if la.get("navigable"):                      # NAVIGABLE (FF9's real ladder mechanism, recreated)
             rungs = la.get("rungs")
@@ -2810,9 +2838,56 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     return FieldResult(dict_line=dict_line, battle=battle, fbg=fbg, warnings=warnings)
 
 
+def _field_name(project) -> str:
+    return str((project.raw.get("field") or {}).get("name", "?"))
+
+
+def _emit_start_state(projects, layout, entry_project=None) -> list:
+    """Emit the mod-GLOBAL new-game CSV deltas ONCE into the mod root, from the ENTRY field's blocks:
+    ``[start_inventory]`` -> ``Data/Items/InitialItems.csv`` (the FULL starting bag, highest-priority-wins) and
+    ``[[equipment]]`` -> ``Data/Characters/DefaultEquipment.csv`` (a partial per-character delta, merged by the
+    engine). These are mod-global files (not field ``.eb`` bytes), so they're written at the mod-write stage,
+    not during eb-synthesis. Returns warnings (the non-entry-field lint + the shadow-hazard note).
+
+    ``entry_project`` (a campaign's entry member) makes the non-entry lint PRECISE: a block on ANY non-entry
+    member is warned + ignored, and the emit reads the entry member's block. For a single-field / plain build
+    (``entry_project`` None) the sole block-carrier IS the de-facto entry, and >1 carriers is warned."""
+    from .content import equipment as _eqp
+    from .content import inventory as _inv
+    warnings: list = []
+    inv_fields = [p for p in projects if p.raw.get("start_inventory")]
+    eqp_fields = [p for p in projects if p.raw.get("equipment")]
+
+    def _pick(fields, block):
+        """The authoritative carrier of a mod-GLOBAL block (exactly one), plus the non-entry/duplicate lint."""
+        if entry_project is not None:                       # campaign: precise -- only the entry member is authoritative
+            for p in fields:
+                if p is not entry_project:
+                    warnings.append(f"{block} is on a NON-entry field ({_field_name(p)}) -- it is mod-global; "
+                                    f"put it on the entry field ({_field_name(entry_project)}) only (ignored)")
+            return entry_project if entry_project in fields else None
+        if len(fields) > 1:                                 # plain build: the first block-carrier is the de-facto entry
+            warnings.append(f"{block} is mod-GLOBAL but is on {len(fields)} fields "
+                            f"({', '.join(_field_name(p) for p in fields)}) -- only the ENTRY field should carry "
+                            f"it; using {_field_name(fields[0])}, ignoring the rest")
+        return fields[0] if fields else None
+
+    inv_src = _pick(inv_fields, "[start_inventory]")
+    eqp_src = _pick(eqp_fields, "[[equipment]]")
+    if inv_src is not None:
+        _inv.write_initial_items(layout, inv_src.raw["start_inventory"].get("items", []))
+        warnings.append("[start_inventory] -> InitialItems.csv is HIGHEST-priority-wins: it REPLACES the base "
+                        "starting bag, a stacked mod folder's InitialItems.csv would SHADOW it, and it only "
+                        "affects a true New Game (not an F6/campaign mid-game entry)")
+    if eqp_src is not None:
+        _eqp.write_default_equipment(layout, eqp_src.raw["equipment"])
+    return warnings
+
+
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
-              langs=LANGS) -> dict:
-    """Build one or more fields into a mod at ``out_root``; write the registration files."""
+              langs=LANGS, entry_project=None) -> dict:
+    """Build one or more fields into a mod at ``out_root``; write the registration files. ``entry_project``
+    (a campaign's entry member) makes the mod-global new-game-state lint precise -- see :func:`_emit_start_state`."""
     layout = ModLayout(Path(out_root).resolve())
     results = [build_field(p, layout, langs=langs) for p in projects]
 
@@ -2827,6 +2902,9 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
             lines.append(f"Music: {mus}")
         layout.battle_patch.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
+    # mod-global new-game starting state (CSV deltas, written once into the mod root -- not field bytes)
+    start_warnings = _emit_start_state(projects, layout, entry_project)
+
     layout.mod_description.write_text(
         "<Mod>\n"
         f"    <Name>{mod_name}</Name>\n"
@@ -2839,4 +2917,4 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
 
     return {"root": str(layout.root), "fields": [r.fbg for r in results],
             "dictionary": [r.dict_line for r in results],
-            "warnings": [w for r in results for w in r.warnings]}
+            "warnings": [w for r in results for w in r.warnings] + start_warnings}
