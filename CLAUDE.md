@@ -169,7 +169,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.24`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.25`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -743,6 +743,16 @@ Read these on demand — they hold the full technical detail this file only summ
   CAPABILITY (`import --swap-player <char>` = overworld's fork-transform lane; an `[[add_member]]`/`[party]`
   declarative block = story_flags' `content/`+`build.py` lane) — coordinate before building. Probes are scratch
   (uncommitted); this entry + the memory are the durable record.
+- **`import --swap-player <char>` — Tier A productionized (walk as a different existing character).** The
+  in-game-proven player-swap probe is now a real fork-transform: `import <field> --swap-player steiner`
+  (zidane/vivi/steiner/garnet/freya/quina/eiko/amarant; aliases dagger, salamander) patches the player entry
+  Init `SetModel` + the movement anim ids to that rig (same-length width-aware byte patch). Implies `--verbatim`
+  (needs the donor's real player entry); party/menu state UNCHANGED (control vs party decoupled). The character
+  table is real data extracted from each char's home field (model + eye-height + movement clips). New module
+  `ff9mapkit/playerswap.py` (read-only transform) + `--swap-player` wired through `cli.py`; `.eb`-only, no DLL.
+  5 tests incl. a Vivi-field→Steiner round-trip + a swap-to-self identity check (proves the baked table matches
+  the game). Clear of story_flags' `content/`+`build.py` lane (the party-MEMBERSHIP authoring half stays theirs).
+  kit 0.9.25; 862 tests.
 
 ---
 

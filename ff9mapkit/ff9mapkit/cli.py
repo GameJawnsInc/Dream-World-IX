@@ -315,6 +315,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
         # exactly 2 chars, so single-digit areas never resolve. The native path ships its own art at a remapped
         # area>=10 (seam-free + lit), so auto-route the default (borrow) path to native there -- this unblocks
         # forking the early-game fields (Alexandria area1, Cargo Ship area0) with a plain `import`.
+        if getattr(args, "swap_player", None):
+            from . import playerswap as _ps
+            _ps.resolve_char(args.swap_player)   # fail fast on an unknown character (ValueError -> caught below)
+            args.verbatim = True                 # the swap patches the donor's player entry -> needs the verbatim .eb
         if args.verbatim:
             args.native = True            # --verbatim ships the native scene + the donor's WHOLE .eb
         auto_native_area = None
@@ -339,6 +343,13 @@ def _cmd_import(args: argparse.Namespace) -> int:
             meta, toml = extract.write_field_project(
                 args.field, Path(args.out), name=args.name, field_id=args.id,
                 game=args.game, want_atlas=args.atlas, graft_player_funcs=gpf, carry_text=ct, graft_savepoint=sm)
+        args._swapped_to = None
+        if getattr(args, "swap_player", None):           # productionized Tier-A: walk as a different existing char
+            import tomllib
+            from . import playerswap
+            args._swapped_to, _ = playerswap.resolve_char(args.swap_player)
+            binp = toml.parent / tomllib.loads(toml.read_text(encoding="utf-8"))["verbatim_eb"]["bin"]
+            binp.write_bytes(playerswap.swap_player(binp.read_bytes(), args._swapped_to))
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -351,6 +362,9 @@ def _cmd_import(args: argparse.Namespace) -> int:
             n_exits = len(meta.get("imported_content", {}).get("field_exits", []))
             print(f"  logic  : VERBATIM .eb -- ships the field's REAL event script whole ({n_exits} Field() exit(s); "
                   "add a [startup] block to boot a beat). The declarative blocks are not used in this mode.")
+        if getattr(args, "_swapped_to", None):
+            print(f"  player : SWAPPED -> you walk as {args._swapped_to} (SetModel + movement anims patched; "
+                  "party/menu state unchanged)")
         if auto_native_area is not None:
             print(f"  note   : auto-selected --native (source area {auto_native_area} < 10 black-screens via BG-borrow)")
     elif args.editable:
@@ -1299,6 +1313,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "(entry-0 + every object + every gateway, layout intact) instead of re-synthesizing -- "
                          "the field runs its own logic (story gating, rotating cast, real doors). Implies "
                          "--native; pair with a [startup] block to boot a chosen beat. (docs/FORK_FIDELITY.md)")
+    im.add_argument("--swap-player", metavar="CHAR", default=None,
+                    help="SWAP who you WALK as to a different existing character: zidane/vivi/steiner/garnet/"
+                         "freya/quina/eiko/amarant (aliases dagger, salamander). Patches the player entry's "
+                         "SetModel + movement anims to that rig. Implies --verbatim (needs the donor player "
+                         "entry); party/menu state is unchanged. (memory project-ff9-pc-party-system)")
     im.add_argument("--atlas", action="store_true", help="also extract the raw atlas.png (BG-borrow mode only)")
     im.add_argument("--dialogue", action="store_true",
                     help="also append the real field's NPC dialogue as editable [[npc]] stubs (commented) "

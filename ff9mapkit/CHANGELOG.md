@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `import --swap-player <char>`: walk as a different existing character (Tier A, productionized)
+- Fork a field and **swap who you walk as** to any existing playable — `import <field> --swap-player steiner`
+  (zidane/vivi/steiner/garnet/freya/quina/eiko/amarant; aliases dagger, salamander). It patches the player
+  entry's Init `SetModel` + the movement anim ids (idle/walk/run/turn-L/turn-R/idle-break) to that character's
+  rig — a same-length, width-aware byte patch (`playerswap.swap_player`). Implies `--verbatim` (it needs the
+  donor's real player entry in the shipped `.eb`); **party/menu state is unchanged** (field control and party
+  roster are decoupled). The character table is real data, EXTRACTED from each character's home field (model
+  id + eye-height + movement clips). ★ The productionized form of the **in-game-proven Tier-A probe** (walk as
+  Steiner in a Zidane field; memory `project-ff9-pc-party-system`). New module `ff9mapkit/playerswap.py`
+  (read-only transform) + the `--swap-player` flag wired through `cli.py` (forces verbatim, applies the swap to
+  the shipped sidecar `.eb`). `.eb`-only, no DLL. 5 offline tests (`tests/test_playerswap.py`) — incl. a Vivi
+  field→Steiner round-trip and a "swap to self is identity" check that proves the baked table matches the real
+  game. kit 0.9.25. (The complementary party-MEMBERSHIP authoring — `B_PARTYADD` etc. — is a declarative block
+  in story_flags' lane; here only the fork-transform half landed.)
+
 ### Fixed — Story State console: B-slot dropdown + Memoria extra-save authority
 - The Diff tab's **"B slot" dropdown couldn't be clicked** — it was created with no menu items and only
   populated when a *second* file loaded. It now fills from the loaded save's slots (or the B file's) on every load.
