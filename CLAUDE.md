@@ -387,10 +387,11 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 
 **Latest:** kit 0.9.45, 1015 tests. Active: **battle TUNING / encounter authoring** (`battle_design`) — recon +
-Phase 0/1 landed (raw16 full codec + golden round-trip; `[scene]` combat-identity tuning — element affinities /
-status masks / defences / AP by name; `battle-actions` + `battle-scene` catalogs), OFFLINE-proven, in-game next →
-[[project-ff9-battle-tuning]], `docs/BATTLE_DESIGN.md`. Frontier: #13 (story-event director/roster on
-rotating-cast fields) — open.
+Phase 0/1 (raw16 full codec + golden round-trip; `[scene]` combat-identity tuning — element affinities / status
+masks / defences / AP by name; `battle-actions` + `battle-scene` catalogs). ★ **Phase 1 IN-GAME PROVEN**
+(forked EF_R007 Goblin: auto-Protect icon + phys-def wall → ~1 dmg + 10 AP confirmed; element fields byte-verified,
+await a magic save) → [[project-ff9-battle-tuning]], `docs/BATTLE_DESIGN.md`. Next: Phase 2 (offline LINT suite).
+Frontier: #13 (story-event director/roster on rotating-cast fields) — open.
 
 ---
 
