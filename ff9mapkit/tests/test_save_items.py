@@ -441,6 +441,146 @@ def test_render_equip_write_branches():
     assert "already" in SI.render_equip_write(R("p", 0, "Zidane", "weapon", 1, "Dagger", 1, "Dagger", False))
 
 
+# ---- write surface: the encrypted MAIN block (step 4b) ---------------------------------------
+def _has_crypto():
+    try:
+        import Crypto  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _enc_container(tmp_path, block=1, gil=500, items=((236, 7), (238, 2)), magic=b"SAVE", last_live=False):
+    """A synthetic encrypted SavedData_ww.dat with one populated old-format block (SAVE magic + gil + items)."""
+    from Crypto.Cipher import AES
+    from ff9mapkit import save as SaveMod
+    key, iv = SaveMod._key_iv()
+    pt = bytearray(SaveMod.SAVE_BLOCK_SIZE)
+    pt[0:4] = magic
+    pt[SI.MAIN_GIL_OFF:SI.MAIN_GIL_OFF + 4] = int(gil).to_bytes(4, "little")
+    for k, (iid, cnt) in enumerate(items):
+        pt[SI.MAIN_ITEMS_OFF + 2 * k] = cnt
+        pt[SI.MAIN_ITEMS_OFF + 2 * k + 1] = iid
+    if last_live:                                          # make the last slot a live item (no padding tail)
+        pt[SI.MAIN_ITEMS_OFF + 2 * (SI.MAIN_ITEMS_N - 1)] = 5
+        pt[SI.MAIN_ITEMS_OFF + 2 * (SI.MAIN_ITEMS_N - 1) + 1] = 10
+    data = bytearray(SaveMod.BASE_SAVE_BLOCK_OFFSET + SaveMod.SAVE_BLOCK_SIZE * (block + 1))
+    lo = SaveMod.BASE_SAVE_BLOCK_OFFSET + SaveMod.SAVE_BLOCK_SIZE * block
+    data[lo:lo + SaveMod.SAVE_BLOCK_SIZE] = AES.new(key, AES.MODE_CBC, iv).encrypt(bytes(pt))
+    p = tmp_path / "SavedData_ww.dat"
+    p.write_bytes(bytes(data))
+    return str(p)
+
+
+def test_validate_main_block_unit():
+    pt = bytearray(8000)
+    pt[0:4] = b"SAVE"
+    pt[SI.MAIN_ITEMS_OFF], pt[SI.MAIN_ITEMS_OFF + 1] = 7, 236             # one live item; rest count 0 (padding)
+    SI.validate_main_block(pt)                                            # valid -> no raise
+    SI.validate_main_block(_with(pt, SI.MAIN_ITEMS_OFF + 8, [0, 196], [3, 238]))  # count==0 mid-list gap is ok
+    with pytest.raises(ValueError):                                       # an invalid live pair (count 200)
+        SI.validate_main_block(_with(pt, SI.MAIN_ITEMS_OFF + 4, [200, 10]))
+    with pytest.raises(ValueError):                                       # last slot live -> no padding tail
+        SI.validate_main_block(_with(pt, SI.MAIN_ITEMS_OFF + 2 * (SI.MAIN_ITEMS_N - 1), [5, 10]))
+    with pytest.raises(ValueError):                                       # no SAVE magic
+        SI.validate_main_block(_with(pt, 0, list(b"XXXX")))
+
+
+def _with(base, off, *patches):
+    b = bytearray(base)
+    cur = off
+    for p in patches:
+        b[cur:cur + len(p)] = bytes(p)
+        cur += len(p)
+    return b
+
+
+def test_read_main_inventory_collects_midlist_gaps():
+    pt = bytearray(8000)
+    pt[0:4] = b"SAVE"
+    for k, (cnt, iid) in enumerate([(7, 236), (0, 196), (2, 238)]):       # a count==0 gap in the middle
+        pt[SI.MAIN_ITEMS_OFF + 2 * k], pt[SI.MAIN_ITEMS_OFF + 2 * k + 1] = cnt, iid
+    inv = SI.read_main_inventory(pt)
+    assert (236, I.name_of(236), 7) in inv and (238, I.name_of(238), 2) in inv and len(inv) == 2
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_main_block_read_and_set_gil(tmp_path):
+    c = _enc_container(tmp_path, block=1, gil=500, items=((236, 7), (238, 2)))
+    assert SI.decode_main_block(c, 1).gil == 500
+    g = SI.set_main_gil(c, 1, 12345)                                      # dry-run default
+    assert g.wrote is False and g.old_gil == 500 and SI.decode_main_block(c, 1).gil == 500
+    g = SI.set_main_gil(c, 1, 12345, dry_run=False)                       # apply
+    assert g.wrote and g.bytes_changed == 4 and SI.decode_main_block(c, 1).gil == 12345
+    assert (236, I.name_of(236), 7) in SI.decode_main_block(c, 1).inventory   # items survived (only gil moved)
+    assert len(glob.glob(c + ".bak.*")) == 1 and g.backup_path == glob.glob(c + ".bak.*")[0]
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_main_block_refuses_bad_layout(tmp_path):
+    bad = _enc_container(tmp_path, block=1, gil=500, magic=b"XXXX")       # no SAVE magic
+    assert SI.decode_main_block(bad, 1) is None
+    with pytest.raises(ValueError):
+        SI.set_main_gil(bad, 1, 1, dry_run=False)
+    bad2 = _enc_container(tmp_path, block=1, last_live=True)              # no padding tail
+    with pytest.raises(ValueError):
+        SI.set_main_gil(bad2, 1, 1, dry_run=False)
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_main_block_set_gil_range_and_noop(tmp_path):
+    c = _enc_container(tmp_path, block=1, gil=777)
+    with pytest.raises(ValueError):
+        SI.set_main_gil(c, 1, SI.GIL_CAP + 1)
+    with pytest.raises(TypeError):
+        SI.set_main_gil(c, 1, True)
+    g = SI.set_main_gil(c, 1, 777, dry_run=False)                         # no-op (already 777)
+    assert g.wrote is False and not glob.glob(c + ".bak.*")
+
+
+def test_resolve_block_unit():
+    from ff9mapkit import save as SaveMod
+    assert SI._resolve_block(autosave=True) == 0
+    assert SI._resolve_block(slot=0, save=2) == SaveMod.block_index(0, 2)
+    with pytest.raises(ValueError):
+        SI._resolve_block()                                              # nothing specified
+    with pytest.raises(ValueError, match="not both"):
+        SI._resolve_block(slot=0, save=2, autosave=True)
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_gil_in_save_dual_write(tmp_path):
+    """A Memoria save: gil is written to BOTH the main block and the extra mirror."""
+    from ff9mapkit import save as SaveMod
+    c = _enc_container(tmp_path, block=1, gil=500, items=((236, 7),))
+    extra = SaveMod.extra_file_path(c, 1)                                 # block 1 -> _Memoria_0_0.dat
+    _extra_file(tmp_path, name=os.path.basename(extra), common=_common(gil=500))
+    res = SI.set_gil_in_save(c, 1, 4242, dry_run=False)
+    assert res["main"].wrote and res["extra"] is not None and res["extra"].wrote
+    assert SI.decode_main_block(c, 1).gil == 4242 and SI.inspect(extra)[0][1].gil == 4242
+    assert "[main block]" in SI.render_gil_dual(res) and "load-authoritative" in SI.render_gil_dual(res)
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_gil_in_save_no_extra_vanilla(tmp_path):
+    """A vanilla save (no extra): only the main block is written; the renderer says so."""
+    c = _enc_container(tmp_path, block=1, gil=500)
+    res = SI.set_gil_in_save(c, 1, 4242, dry_run=False)
+    assert res["main"].wrote and res["extra"] is None
+    assert SI.decode_main_block(c, 1).gil == 4242 and "vanilla save" in SI.render_gil_dual(res)
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_cli_set_gil_container_dual(tmp_path, capsys):
+    """The items-set-gil CLI on a container writes the main block (no-extra vanilla slot)."""
+    from ff9mapkit import cli
+    c = _enc_container(tmp_path, block=1, gil=500)
+    rc = cli._cmd_items_set_gil(_ns(save=c, gil=4242, slot=0, save_no=0))   # dry-run default
+    assert rc == 0 and "DRY RUN" in capsys.readouterr().out and SI.decode_main_block(c, 1).gil == 500
+    rc = cli._cmd_items_set_gil(_ns(save=c, gil=4242, slot=0, save_no=0, apply=True))
+    assert rc == 0 and SI.decode_main_block(c, 1).gil == 4242
+
+
 # ---- install-gated: the real save ------------------------------------------------------------
 def _real_main_save():
     from ff9mapkit import save as S

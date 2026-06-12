@@ -5,6 +5,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — save-item editor #5 step 4b: encrypted MAIN-block gil write + dual-write (edit vanilla saves), IN-GAME PROVEN (0.9.56)
+- The editor can now write the **encrypted main AES block** of a `SavedData_ww.dat`, not just the Memoria extra
+  file — so a **vanilla save with no Memoria extra is now editable**, and a Memoria save's main block is kept
+  consistent with its load-authoritative extra (a dual-write).
+- ★ **Layout finding (empirical, this install):** in the OLD save format the main block puts `40000_Common/gil`
+  at a **fixed** offset (5235, UInt32 LE) and the 256-pair `{count,id}` item array at 5239 — byte-stable across
+  saves at scenario 0→7200 and across Memoria *and* vanilla saves (the earlier "offsets shift" worry was about
+  the *modern extra* format). The two no-extra slots turned out to be **vanilla saves** (hence no extra), with
+  real mid-game gil/inventories editable via the main block.
+- **`save_items.set_main_gil(container, block, gil)`** — decrypt → edit gil → re-encrypt one block (AES-CBC
+  round-trips the untouched bytes), guarded by **`validate_main_block`** (refuses unless the 256-pair item array
+  parses cleanly at the expected offset — a wrong/foreign layout is rejected, not corrupted), atomic container
+  write, timestamped backup, post-write re-read confirm, dry-run default. Plus `read_main_gil`/`read_main_inventory`/
+  `decode_main_block` (read a slot's gil/inventory straight from the main block — what a no-extra slot needs).
+- **`save_items.set_gil_in_save(container, block, gil, mirror=True)`** — the dual-write orchestrator: writes the
+  main block AND mirrors to the extra when present (vanilla → main only). CLI **`items-set-gil`** on a container
+  now dual-writes (was extra-only); given an extra-save directly it still writes just that. `render_gil_dual`
+  shows both legs; `_resolve_block` factored out and shared with `resolve_extra`.
+- 16 new tests (synthetic encrypted containers via the save AES key); 1157 suite green. ★ **IN-GAME PROVEN
+  (2026-06-12):** set a vanilla save's (slot 1/save 1, no extra) gil 43,162 → 7,777,777 in the main block — the
+  whole container backed up, only block 1's ciphertext changed, other slots untouched — loaded in-game and the
+  gil showed 7,777,777 with the inventory intact. The encrypted-write path the extra-only editor couldn't reach.
+- Scope: gil first (the safe single-field win). Main-block **items** (the 256-pair array, structure now mapped)
+  and the GUI's no-extra-slot editing are the next 4b increment; main-block **equipment** (the old-format
+  9-player struct) is the deferred follow-up.
+
 ### Fixed — `deploy_campaign` wires New Game via the field-70 retarget, not the legacy field-100 hop (0.9.55)
 - `deploy_campaign --apply` now wires New Game by calling `tools/retarget_newgame_warp.py` (byte-patch the shared
   field-70 opening override's `Field()` literal → the chain's entry id: New Game → field 70 → `Field(entry)`)

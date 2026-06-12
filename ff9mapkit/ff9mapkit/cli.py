@@ -1018,17 +1018,22 @@ def _cmd_items_inspect(args: argparse.Namespace) -> int:
 
 
 def _cmd_items_set_gil(args: argparse.Namespace) -> int:
-    """Write a save's gil into the Memoria EXTRA file (the load-authoritative store) -- the #5 editor's first
-    real-save WRITE. Dry-run by default; --apply performs it (backup-guarded). Extra-only by design (the proof
-    that the extra overrides the encrypted main block); the main-block mirror is step 4."""
+    """Write a save's gil. Given a Memoria extra-save directly -> writes that extra (load-authoritative). Given a
+    SavedData_ww.dat container + a slot -> writes the encrypted MAIN block AND mirrors to the Memoria extra when
+    present (so a vanilla no-extra save is editable too). Dry-run by default; --apply performs it (backup-guarded)."""
     from . import save_items as SI
     try:
-        extra = SI.resolve_extra(args.save, slot=args.slot, save=args.save_no, autosave=args.autosave)
-        rep = SI.set_gil(extra, args.gil, dry_run=not args.apply, backup=not args.no_backup)
+        if SI.load_extra_common(args.save)[0] is not None:             # a Memoria extra-save directly
+            rep = SI.set_gil(args.save, args.gil, dry_run=not args.apply, backup=not args.no_backup)
+            print(SI.render_gil_write(rep))
+        else:                                                          # a SavedData_ww.dat container + slot
+            block = SI._resolve_block(slot=args.slot, save=args.save_no, autosave=args.autosave)
+            res = SI.set_gil_in_save(args.save, block, args.gil, dry_run=not args.apply,
+                                     backup=not args.no_backup)
+            print(SI.render_gil_dual(res))
     except Exception as e:                                              # noqa: BLE001
         print(f"could not set gil: {e}")
         return 2
-    print(SI.render_gil_write(rep))
     return 0
 
 
