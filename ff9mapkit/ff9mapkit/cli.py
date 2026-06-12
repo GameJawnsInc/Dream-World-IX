@@ -744,6 +744,8 @@ def _cmd_battle_list(args: argparse.Namespace) -> int:
 
 def _cmd_list_fields(args: argparse.Namespace) -> int:
     from . import extract
+    if args.players or args.non_zidane:
+        return _list_fields_with_players(args)
     try:
         rows = extract.list_fields(args.pattern, game=args.game)
     except (RuntimeError, FileNotFoundError) as e:
@@ -752,6 +754,37 @@ def _cmd_list_fields(args: argparse.Namespace) -> int:
     for folder, area, mapid in rows:
         print(f"  area {area:>2}  {mapid:<28}  ({folder})")
     print(f"{len(rows)} field(s)")
+    return 0
+
+
+def _list_fields_with_players(args: argparse.Namespace) -> int:
+    """`list-fields --players` / `--non-zidane`: enrich the list with WHO you control in each field
+    (id-centric -- an alternate event script on a shared background is its own row). Reads each .eb."""
+    _safe_console()
+    from . import forkreport as FR
+    if not args.pattern:
+        print("Resolving the controlled player across all fields (reads each .eb, ~30s)...", file=sys.stderr)
+    try:
+        rows, scanned = FR.field_players(game=args.game, pattern=args.pattern,
+                                         non_zidane_only=args.non_zidane)
+    except (RuntimeError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    for fp in rows:
+        label = fp.player + (" *" if fp.non_zidane else "")
+        print(f"  {fp.field_id:>5}  {label:<24}  {fp.fbg}")
+    nz = [fp for fp in rows if fp.non_zidane]
+    cast = sum(1 for fp in nz if fp.playable)
+    drivers = len(nz) - cast
+    scope = " non-Zidane" if args.non_zidane else ""
+    # break the non-Zidane rows into real playable-cast DONORS vs GEO cutscene-driver "players"
+    if nz:
+        bd = f"{cast} playable-cast donor(s)" + (f", {drivers} cutscene-driver model(s)" if drivers else "")
+        tail = (f"   (* = non-Zidane: {bd}; fork a donor via --verbatim --swap-player)"
+                if not args.non_zidane else f"   ({bd}; fork a donor via --verbatim --swap-player)")
+    else:
+        tail = ""
+    print(f"{len(rows)}{scope} field(s) of {scanned} scanned{tail}")
     return 0
 
 
@@ -1466,6 +1499,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")
     lf.add_argument("pattern", nargs="?", default=None, help="substring filter (e.g. alex, treno, grgr)")
+    lf.add_argument("--players", action="store_true",
+                    help="also show WHO you control in each field (reads each .eb; a full sweep is ~30s)")
+    lf.add_argument("--non-zidane", action="store_true",
+                    help="only fields you play as someone other than Zidane (the verbatim-fork donors; implies --players)")
     lf.set_defaults(func=_cmd_list_fields)
 
     bi = sub.add_parser("battle-import",

@@ -515,7 +515,10 @@ _OBJVAR_RE = re.compile(r"op78\((\d+),")  # B_OBJSPECA expression token: op78(ui
 
 # --- player-function graft (docs/PLAYER_GRAFT.md): carry the donor player funcs a carried object RunScripts ---
 RUN_MODEL_CODE_OP = 0x88     # RunModelCode(code, pack) -- the player Init's animation-pack loads
-ZIDANE_MODELS = frozenset((98, 93))   # the blank fork's player rig; a non-Zidane donor's clips won't match (532 too)
+# Every Zidane field-model FORM (GEO_MAIN_*_ZDN main/LOD F0-F5 + the ZDD disguise), so a Zidane field is not
+# misread as "non-Zidane" (was {98, 93} -> the ZDD/LOD forms leaked into the non-Zidane lists, e.g. field 401
+# "Zidane(ZDD)"). 93 = the blank custom-field placeholder rig (kept). A non-Zidane donor's clips won't match these.
+ZIDANE_MODELS = frozenset((93, 98, 203, 432, 532, 668, 669, 670))
 TEXT_OPS = frozenset((0x1F, 0x20, 0x95, 0x96))   # WindowSync/Async[Ex] -- references a .mes TXID the fork lacks
 ANIM_OPS = frozenset((0x33, 0x34, 0x40, 0x94))   # Set{Stand,Walk}Animation/RunAnimation/SetJumpAnimation: MODEL-keyed clips
 # --- STARTSEQ-helper closure (docs/OBJECT_CARRY.md S2 v1.5): a carried object launches a concurrent type-1

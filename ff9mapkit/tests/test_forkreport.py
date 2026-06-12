@@ -171,6 +171,49 @@ def test_format_room_table_ascii_and_empty():
     assert "no rooms matched" in empty
 
 
+# ---- "who do you play as" listing (list-fields --players / --non-zidane) ----
+def test_player_label_single_and_multi_pc():
+    z = FR.ForkReport(field_id=1); z.player_models = [(1, 98, "Zidane")]; z.non_zidane = False
+    assert FR.player_label(z) == ("Zidane", False)
+    v = FR.ForkReport(field_id=2); v.player_models = [(1, 8, "Vivi")]; v.non_zidane = True
+    assert FR.player_label(v) == ("Vivi", True)
+    # multi-PC with Zidane present -> control likely routes to the Zidane leader, NOT the first entry (Blank)
+    mz = FR.ForkReport(field_id=3); mz.player_models = [(1, 11, "Blank"), (2, 98, "Zidane")]
+    mz.multi_pc = True; mz.non_zidane = False
+    assert FR.player_label(mz) == ("Zidane +1", False)
+    # multi-PC with NO Zidane -> the computed binder name
+    mg = FR.ForkReport(field_id=4); mg.player_models = [(1, 185, "Garnet"), (2, 443, "Eiko")]
+    mg.multi_pc = True; mg.non_zidane = True; mg.controlled_name = "Eiko"
+    assert FR.player_label(mg) == ("Eiko +1", True)
+    assert FR.player_label(FR.ForkReport(field_id=5)) == ("(no player)", False)   # no DefinePlayerCharacter
+
+
+def test_player_label_multi_pc_keeps_nonzidane_flag_without_a_binder_name():
+    # regression: a no-Zidane multi-PC field with an EMPTY controlled_name must STAY non-Zidane (don't
+    # fall through to "Zidane +N"/False) -- decouples the display name from the classification.
+    r = FR.ForkReport(field_id=9); r.player_models = [(1, 185, "Garnet"), (2, 443, "Eiko")]
+    r.multi_pc = True; r.non_zidane = True; r.controlled_name = ""
+    label, nz = FR.player_label(r)
+    assert nz is True and label == "Garnet +1"                     # falls back to the first PC, keeps the flag
+
+
+def test_zidane_models_covers_every_zidane_field_form():
+    # regression for the review finding: the ZDD disguise (532) + ZDN LOD forms (203/432/668-670) were
+    # NOT in ZIDANE_MODELS, so Zidane fields (401 "Zidane(ZDD)", 3009) leaked into the non-Zidane lists.
+    from ff9mapkit import eventscan as es
+    from ff9mapkit._modeldb import MODELS
+    zidane_forms = {i for i, n in MODELS.items()
+                    if n.startswith("GEO_MAIN") and ("_ZDN" in n or "_ZDD" in n)}
+    assert zidane_forms and zidane_forms <= es.ZIDANE_MODELS       # every Zidane field model classifies Zidane
+
+
+def test_player_is_playable_distinguishes_cast_from_geo_drivers():
+    cast = FR.ForkReport(field_id=1); cast.player_models = [(1, 8, "Vivi")]
+    assert FR._player_is_playable(cast)
+    driver = FR.ForkReport(field_id=2); driver.player_models = [(1, 109, "GEO_SUB_F0_BLN")]
+    assert not FR._player_is_playable(driver)                      # a cutscene-driver model is not a swap donor
+
+
 # ---- the Party axis: what a verbatim fork does to your party ----
 def test_scan_party_ops_on_alex100_adds_vivi_and_resets():
     # ALEX100 (field 100) is the disc-1 opening: it strips the party and adds Vivi (CharacterOldIndex 1).
@@ -369,6 +412,36 @@ def test_find_rooms_ranks_the_anchor_first_among_known_fields():
     assert not ({650, 2151, 1357, 816} & set(out_ids))                # bad framings + the vehicle player excluded
     # the rendered table is console-safe and cites the room
     FR.format_room_table(sweep).encode("cp1252")
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_field_players_resolves_vivi_and_alternate_script_variants():
+    # id-centric: an alternate event script on a shared background is its OWN row -- so the Steiner
+    # `_b` variant (2050) surfaces next to its Zidane `_a` twin on the same map. Vivi street (100) is
+    # the in-game-proven non-Zidane case.
+    rows, scanned = FR.field_players(pattern="alxt")
+    assert scanned > 10
+    by_id = {fp.field_id: fp for fp in rows}
+    assert by_id[100].player == "Vivi" and by_id[100].non_zidane
+    assert "Steiner" in by_id[2050].player and by_id[2050].non_zidane
+    assert any(not fp.non_zidane and fp.player.startswith("Zidane") for fp in rows)  # disc-3 Zidane twin present
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_field_players_non_zidane_only_filters():
+    rows, scanned = FR.field_players(pattern="alxt", non_zidane_only=True)
+    assert rows and all(fp.non_zidane for fp in rows)
+    assert any(fp.field_id == 100 for fp in rows)                  # Vivi survives the filter
+    assert scanned > len(rows)                                     # the Zidane fields were filtered out
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_field_players_does_not_flag_zidane_disguise_form():
+    # field 401 (Desert Palace) plays as Zidane's ZDD disguise form (model 532) -- it must NOT be flagged
+    # non-Zidane (the review caught it leaking into --non-zidane as "Zidane(ZDD) *").
+    rows, _ = FR.field_players(pattern="udft")
+    by_id = {fp.field_id: fp for fp in rows}
+    assert 401 in by_id and not by_id[401].non_zidane
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

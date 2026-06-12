@@ -176,7 +176,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   `Cinematic` ops in the field-70 override (→ instant `Field(4003)`, no DLL, no `SkipIntros`). The companion
   overrides `EVT_ALEX1_AT_STREET_A` (id 100 → doors to 4003/4004/30100) + `EVT_ALEX1_TS_CARGO_0` (id 50) are the
   walk-through-Alexandria route (separate from the direct New-Game→4003 hop). → memory `project-ff9-new-game-entry`.
-- **Versions:** kit `0.9.38`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.39`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -927,6 +927,24 @@ Read these on demand — they hold the full technical detail this file only summ
   pre-warp cinematics from the field-70 override → New Game lands in the target field instantly, pure-mod, no DLL.
   Applied in-game (7 lang copies, backed up; in-game test = human step). Orthogonal to the lanes (a clean dev
   tool); merged ahead of items_equipment's New-Game/equip-CSV work. 1 test; kit 0.9.38.
+- **`list-fields --players` / `--non-zidane` — who you play as in each field (kit 0.9.39; the option-#3
+  enrichment).** `list-fields --players` annotates the field list with the controlled character; `--non-zidane`
+  narrows to the verbatim-fork DONORS (you play as someone other than Zidane), discoverable without forking each.
+  ★ **Id-centric** (a player is an `.eb` property), so an alternate event script on a shared background is its OWN
+  row — revealing non-Zidane variants the folder-centric `list-fields` hides (the Steiner `_b` scripts 2050-2053
+  next to their Zidane `_a` twins). The live `--non-zidane` sweep finds **89 of 675** — 53 playable-cast donors
+  (Steiner 19 / Garnet 18 / Vivi 10 / Eiko 4 / Freya, Amarant 1) + 36 cutscene-driver `GEO_SUB` "players" (the
+  footer splits them); fewer than the census's looser
+  178 because `non_zidane` uses the stricter, in-game-proven definition (non-Zidane only when NO Zidane is among
+  the PCs → excludes Zidane-present escape scenes where you actually control Zidane) = the honest "you really play
+  as someone else" set. `forkreport.field_players` (sweeps `ID_TO_FBG`, reuses `analyze_eb`'s player resolution,
+  one `EventBundle`) + `player_label` + `FieldPlayer` (with a `playable` flag); CLI `_list_fields_with_players`.
+  Plain `list-fields` unchanged + fast; a full sweep ~30s. ★ A 2-lens adversarial review caught a root-cause bug:
+  **`eventscan.ZIDANE_MODELS` was missing the ZDD disguise (532) + ZDN LOD forms (203/432/668-670)** → Zidane fields
+  leaked into the non-Zidane lists (field 401 = `Zidane(ZDD)`); fixed at the root (now covers every
+  `GEO_MAIN_*_ZDN`/`_ZDD` form, also correcting find-rooms + the Player axis; count 91→89). Read-only;
+  `forkreport.py`/`cli.py`/`eventscan.py` — clear of build + graft lanes. 7 tests. kit 0.9.39; 933 tests. See
+  memory [[project-ff9-non-zidane-donors]].
 
 ---
 

@@ -815,3 +815,75 @@ def format_room_table(sweep: RoomSweep) -> str:
     lines += ["", "  * = non-Zidane player (forks via --verbatim).  Fork a room:",
               "    ff9mapkit import <fbg> --verbatim --swap-player <char>"]
     return "\n".join(lines)
+
+
+# ============================================================================================
+# "Who do you play as" listing -- enrich a field list with the controlled player, so the
+# non-Zidane donors are discoverable WITHOUT forking each. Id-centric (a player is a property of
+# the .eb, so an alternate event script on a shared background is its OWN row -- more complete than
+# the folder-centric `list-fields`). Reuses analyze_eb's in-game-proven player resolution.
+# ============================================================================================
+@dataclass
+class FieldPlayer:
+    field_id: int
+    fbg: str
+    event_name: str
+    player: str                 # the compact "who you control" label
+    non_zidane: bool
+    multi_pc: bool
+    playable: bool = True        # the controlled model is a named cast member (vs a GEO_SUB cutscene-driver)
+
+
+def _player_is_playable(rep: ForkReport) -> bool:
+    """True if you control a named playable cast member (not a GEO_SUB/GEO_ACC cutscene-driver model).
+    Mirrors player_label's character choice so the flag matches the displayed name."""
+    if not rep.player_models:
+        return False
+    if rep.multi_pc:
+        if not rep.non_zidane:
+            return True                          # Zidane-present multi-PC -> you control Zidane (playable)
+        m = None
+        if rep.controlled_entry is not None:
+            m = next((mm for pe, mm, _ in rep.player_models if pe == rep.controlled_entry), None)
+        return (m if m is not None else rep.player_models[0][1]) in PLAYABLE_NAMES
+    return rep.player_models[0][1] in PLAYABLE_NAMES
+
+
+def player_label(rep: ForkReport) -> tuple:
+    """(compact 'who you control' label, is_non_zidane) for a browse/list view. For a Zidane-PRESENT
+    multi-PC field control most likely routes to the Zidane party-leader (not the first entry), so it
+    labels 'Zidane'; a no-Zidane multi-PC field names the computed binder (`controlled_name`)."""
+    if not rep.player_models:
+        return ("(no player)", False)
+    if rep.multi_pc:
+        co = len(rep.player_models) - 1
+        if rep.non_zidane:                                       # keep the flag even if the binder name is blank
+            name = rep.controlled_name or rep.player_models[0][2]
+            return (f"{name} +{co}", True)                       # the non-Zidane control binder
+        return (f"Zidane +{co}", False)                          # Zidane-present multi-PC: likely the leader
+    return (rep.player_models[0][2], rep.non_zidane)
+
+
+def field_players(*, game=None, pattern=None, non_zidane_only=False, bundle=None):
+    """Sweep fields and resolve WHO you control in each (the model behind ``DefinePlayerCharacter``).
+    Filter by an FBG substring (``pattern``) and/or ``non_zidane_only``. Returns ``(rows, scanned)``
+    (rows = FieldPlayer, sorted by fbg then id). Reuses analyze_eb (eb-only, ONE EventBundle). A full
+    no-pattern sweep reads ~675 scripts (~30s); a pattern narrows it. Read-only. Needs UnityPy."""
+    from .extract import EventBundle, ID_TO_FBG, ID_TO_EVT      # lazy: UnityPy only when used
+    b = bundle or EventBundle(game)
+    pat = pattern.lower() if pattern else None
+    rows = []
+    scanned = 0
+    for fid, fbg in sorted(ID_TO_FBG.items(), key=lambda kv: (kv[1], kv[0])):
+        if not _is_real_fbg(fbg):
+            continue
+        if pat and pat not in fbg.lower():
+            continue
+        scanned += 1
+        rep = analyze_eb(b.eb_for_id(fid), field_id=fid, fbg_name=fbg, event_name=ID_TO_EVT.get(fid, ""))
+        label, nz = player_label(rep)
+        if non_zidane_only and not nz:
+            continue
+        rows.append(FieldPlayer(fid, fbg, ID_TO_EVT.get(fid, "") or "", label, nz, rep.multi_pc,
+                                _player_is_playable(rep)))
+    return rows, scanned

@@ -5,6 +5,31 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `list-fields --players` / `--non-zidane`: who you play as in each field (0.9.39)
+- `ff9mapkit list-fields --players` enriches the field list with **who you control** in each field, and
+  `--non-zidane` (implies `--players`) narrows to fields where you play as **someone other than Zidane** —
+  the verbatim-fork donors — so they're discoverable without forking each one. e.g. `list-fields alxt
+  --players` shows field 100 = `Vivi *`, and the live `--non-zidane` sweep finds **89 of 675** — split in the
+  footer into **53 playable-cast donors** (Steiner 19, Garnet 18, Vivi 10, Eiko 4, Freya/Amarant 1) and 36
+  cutscene-driver `GEO_SUB` "players" (so you can tell a real swap donor from a scripted actor).
+- **Id-centric** (a player is a property of the `.eb`), so an alternate event script on a shared background
+  is its **own** row — revealing the non-Zidane variants folder-centric listing hides (the Steiner `_b`
+  scripts 2050–2053 surface next to their Zidane `_a` twins on the same map). The `non_zidane` flag uses the
+  in-game-proven, stricter definition (non-Zidane only when **no** Zidane is among the PCs), so it excludes
+  Zidane-present multi-PC escape scenes where you actually control Zidane — the honest "you really play as
+  someone else" set (which is why 91 < the census's looser 178).
+- New `forkreport.field_players` (sweeps `ID_TO_FBG`, reuses `analyze_eb`'s player resolution — one
+  `EventBundle`, eb-only) + `player_label` + the `FieldPlayer` dataclass (with a `playable` flag); the CLI
+  gained the two flags (`_list_fields_with_players`). Plain `list-fields` (no flags) is unchanged + fast. A
+  full no-pattern sweep is ~30s (a pattern narrows it). Read-only; `forkreport.py`/`cli.py` only — clear of
+  the build + graft lanes.
+- A 2-lens adversarial review caught a real classification bug (both lenses): **`eventscan.ZIDANE_MODELS` was
+  missing the ZDD disguise (532) + the ZDN LOD forms (203/432/668-670)**, so Zidane fields leaked into the
+  non-Zidane lists (field 401 literally listed as `Zidane(ZDD) *`). Fixed at the root (`ZIDANE_MODELS` now
+  covers every `GEO_MAIN_*_ZDN`/`_ZDD` form — which also corrects `find-rooms` + the fork-report Player axis);
+  the count drops 91→89. Also hardened `player_label` (keep the non-Zidane flag when the binder name is blank)
+  and surfaced the playable-vs-cutscene-driver split. 7 tests (4 pure + 3 install-gated). kit 0.9.39.
+
 ### Added — `remove_item`: the symmetric take-item reward lever (0.9.36)
 `[[event]]` and `[[choice]]` rewards could `give_item` but not take one back. New `remove_item = [item, count]`
 (id or name) emits `RemoveItem` (`0x49`) — pair it with `give_item` for a **trade**, or use it alone to
