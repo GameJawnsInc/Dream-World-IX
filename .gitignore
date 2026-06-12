@@ -106,6 +106,9 @@ backups/battle_predeploy.*/
 # tier-c MINT forked scene assets (the `scene/` dir battle-import --fork-scene writes: raw16/raw17 + eb/mes)
 *.raw16.bytes
 *.raw17.bytes
+# bare raw16/raw17 donor extracts (battle-tuning recon/dev scratch -- SE game data, never commit)
+*.raw16
+*.raw17
 **/scene/eb/*.eb.bytes
 **/scene/mes/*.mes
 
