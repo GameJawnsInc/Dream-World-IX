@@ -175,9 +175,23 @@ class StoryStateApp:
         ro = "" if any(b is not None for b in self.blocks) else \
             "  (read-only: editing needs the encrypted SavedData_ww.dat)"
         self.status.config(text=f"{len(self.reports)} populated save(s){ro}")
+        self._refresh_bslot_menu()                       # the Diff B-slot picker defaults to this save's slots
         if self.reports:
             self.lst.selection_set(0)
             self._on_select()
+
+    def _refresh_bslot_menu(self):
+        """Fill the Diff 'B slot' dropdown from the loaded B save (or, with no B file, this save's slots).
+        Without this the OptionMenu was created with no items, so it couldn't be clicked."""
+        reps = self.reports_b or self.reports
+        menu = self.bslot_menu["menu"]
+        menu.delete(0, "end")
+        for i, (label, rep) in enumerate(reps):
+            menu.add_command(label=f"{i}: {label} (SC {rep.scenario_counter})",
+                             command=lambda v=str(i): self.bslot.set(v))
+        valid = [str(i) for i in range(len(reps))]
+        if self.bslot.get() not in valid:
+            self.bslot.set(valid[0] if valid else "0")
 
     @staticmethod
     def _editable_blocks(path, n):
@@ -229,12 +243,7 @@ class StoryStateApp:
             self.reports_b = []
             self._render(self.diff_txt, f"Could not read save B:\n{path}\n\n{e}")
             return
-        menu = self.bslot_menu["menu"]
-        menu.delete(0, "end")
-        for i, (label, rep) in enumerate(self.reports_b):
-            menu.add_command(label=f"{i}: {label} (SC {rep.scenario_counter})",
-                             command=lambda v=str(i): self.bslot.set(v))
-        self.bslot.set("0")
+        self._refresh_bslot_menu()
         self.status.config(text=f"B: {len(self.reports_b)} populated save(s) — pick A (left) + a B slot, then Compare")
 
     def _compare(self):
@@ -318,7 +327,15 @@ class StoryStateApp:
         msg = ["APPLIED — your save was edited:"] + [f"  - {n}" for n in res["notes"]]
         msg += [f"  backed up -> {os.path.basename(b)}" for b in res["backups"]]
         if res["extra"]:
-            msg.append("  (Memoria extra-save patched too)")
+            # the Memoria extra-save is what the game LOADS (it overrides the main block), so this is the
+            # line that decides whether the edit shows in-game.
+            if res.get("extra_patched"):
+                msg.append("  [OK] Memoria extra-save patched + verified — this IS the gEventGlobal the game loads.")
+            else:
+                msg.append("  [WARN] a Memoria extra-save is present but could NOT be verified-patched — the "
+                           "game may still load the OLD value. Tell me; this needs a fix.")
+        else:
+            msg.append("  (no Memoria extra-save for this slot — the main save block governs)")
         msg.append("\nReload the save in-game to see it.")
         self._render(self.edit_txt, "\n".join(msg))
         self.status.config(text="save edited (backup written) — reload it in-game")

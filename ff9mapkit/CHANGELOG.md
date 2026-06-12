@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — Story State console: B-slot dropdown + Memoria extra-save authority
+- The Diff tab's **"B slot" dropdown couldn't be clicked** — it was created with no menu items and only
+  populated when a *second* file loaded. It now fills from the loaded save's slots (or the B file's) on every load.
+- **Memoria per-slot extra-save is now treated as authoritative** (the likely cause of "I set a flag but in-game
+  it's still 0"): Memoria writes a per-slot `SavedData_ww_Memoria_*.dat` holding the gEventGlobal it RESTORES
+  from on load, so the encrypted main block can be stale. `save.inspect` now reads the extra when present (and
+  tags the slot) so the console shows what the game *actually loads*; `save.apply_story_edit` re-reads the extra
+  after patching to **verify** the write took (`extra_patched`), and the GUI's Apply reports `[OK]` / `[WARN]`
+  so an edit that won't show in-game is no longer silent. 3 save tests; kit 0.9.24.
+
 ### Added — Story State GUI console (inspect / diff / EDIT a save's story state)
 - A new app `apps/ff9_storystate.pyw` (`StoryStateApp`) surfaces the story-flag pillar's save verbs in one
   window — the save-side companion to the Info Hub's story-flag *registry*: **Inspect** (each populated

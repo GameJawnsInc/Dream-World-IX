@@ -246,7 +246,16 @@ def inspect(path) -> "list[tuple[str, _flags.SaveReport]]":
         if blob is not None:
             return [("Memoria extra-save", _flags.decode_gEventGlobal(blob))]
         sv = FF9Save.load(p)                             # the encrypted container (needs pycryptodome)
-        out = [(_slot_label(s), _flags.decode_gEventGlobal(sv.gEventGlobal(s.block))) for s in sv.populated()]
+        out = []
+        for s in sv.populated():
+            # Memoria writes a per-slot extra file holding the AUTHORITATIVE gEventGlobal and RESTORES from
+            # it on LOAD -- so when it exists, THAT is the state the game uses (the main block is stale).
+            # Read it (and tag the slot) so inspect shows what the game actually loads, not the main block.
+            extra = extra_file_path(p, s.block)
+            eblob = read_extra_gEventGlobal(extra) if (extra and os.path.exists(extra)) else None
+            blob = eblob if eblob is not None else sv.gEventGlobal(s.block)
+            out.append((_slot_label(s) + (" · Memoria extra" if eblob is not None else ""),
+                        _flags.decode_gEventGlobal(blob)))
         if not out:
             raise ValueError("no populated save slots found in this file")
         return out
@@ -305,7 +314,7 @@ def apply_story_edit(path, *, block: int, scenario: int | None = None, set_flags
     geg = bytearray(src)
     notes = edit_story_state(geg, scenario=scenario, set_flags=set_flags, clear_flags=clear_flags)
     if not notes or dry_run:
-        return {"notes": notes, "extra": extra_exists, "backups": [], "written": False}
+        return {"notes": notes, "extra": extra_exists, "extra_patched": None, "backups": [], "written": False}
     sv.set_gEventGlobal(block, bytes(geg))
 
     def _bk(p):
@@ -316,8 +325,13 @@ def apply_story_edit(path, *, block: int, scenario: int | None = None, set_flags
 
     backups = [_bk(path)] if do_backup else []
     sv.write(path)
+    extra_patched = None
     if extra_exists:
         if do_backup:
             backups.append(_bk(extra))
-        patch_extra_gEventGlobal(extra, bytes(geg))
-    return {"notes": notes, "extra": extra_exists, "backups": backups, "written": True}
+        ok = patch_extra_gEventGlobal(extra, bytes(geg))
+        chk = read_extra_gEventGlobal(extra)             # re-read to CONFIRM: the extra is what the game LOADS,
+        extra_patched = bool(ok) and chk is not None and bytes(chk) == bytes(geg)   # so this must take or the
+    #                                                      edit won't show in-game even though the .dat changed
+    return {"notes": notes, "extra": extra_exists, "extra_patched": extra_patched,
+            "backups": backups, "written": True}

@@ -190,3 +190,39 @@ def test_apply_story_edit_noop_when_no_change(tmp_path):
     S.FF9Save(_make_save({1: _geg(6000)})).write(p)
     res = S.apply_story_edit(str(p), block=1)                               # no scenario / flags -> nothing to do
     assert res["notes"] == [] and res["written"] is False and res["backups"] == []
+
+
+def _write_extra(tmp_path, block, geg):
+    """A synthetic Memoria per-slot extra file next to a SavedData_ww.dat (binary around the gEventGlobal)."""
+    name = os.path.basename(S.extra_file_path(str(tmp_path / "SavedData_ww.dat"), block))
+    (tmp_path / name).write_bytes(b"\x00\x00\x00\x00k\x00" + base64.b64encode(bytes(geg)) + b"\x00\x00t")
+    return tmp_path / name
+
+
+def test_inspect_prefers_memoria_extra(tmp_path):
+    # the encrypted block says SC 6000, but the Memoria extra file (what the game LOADS) says SC 2500 ->
+    # inspect must report the extra's 2500 and tag the slot (else the console shows a value the game ignores)
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(6000)})).write(p)
+    _write_extra(tmp_path, 1, _geg(2500, (8520,)))                         # block 1 = slot 0 save 0
+    (label, rep), = S.inspect(str(p))
+    assert rep.scenario_counter == 2500 and "Memoria extra" in label
+    assert 8520 in rep.set_bits                                            # the extra's flag, not the main block's
+
+
+def test_apply_story_edit_patches_and_verifies_the_extra(tmp_path):
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(6000)})).write(p)
+    _write_extra(tmp_path, 1, _geg(6000))
+    res = S.apply_story_edit(str(p), block=1, scenario=2500, set_flags=(8520,))
+    assert res["written"] and res["extra"] is True and res["extra_patched"] is True   # the verify confirms it took
+    got = S.read_extra_gEventGlobal(S.extra_file_path(str(p), 1))           # the extra now holds the edit
+    assert got[0] | got[1] << 8 == 2500 and (got[1065] >> 0) & 1 == 1
+    assert S.inspect(str(p))[0][1].scenario_counter == 2500                # inspect (extra-preferred) agrees
+
+
+def test_apply_story_edit_no_extra_reports_none(tmp_path):
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(6000)})).write(p)                        # no extra file alongside
+    res = S.apply_story_edit(str(p), block=1, scenario=2500)
+    assert res["written"] and res["extra"] is False and res["extra_patched"] is None
