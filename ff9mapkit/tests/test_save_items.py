@@ -452,11 +452,14 @@ def _has_crypto():
 
 def _enc_container(tmp_path, block=1, gil=500, items=((236, 7), (238, 2)), magic=b"SAVE", last_live=False):
     """A synthetic encrypted SavedData_ww.dat with one populated old-format block (SAVE magic + gil + items)."""
+    import base64
     from Crypto.Cipher import AES
     from ff9mapkit import save as SaveMod
     key, iv = SaveMod._key_iv()
     pt = bytearray(SaveMod.SAVE_BLOCK_SIZE)
     pt[0:4] = magic
+    geg = bytearray(2048); geg[0], geg[1] = 6000 & 0xFF, 6000 >> 8        # so save.populated() recognises the block
+    b64 = base64.b64encode(bytes(geg)); pt[23:23 + len(b64)] = b64
     pt[SI.MAIN_GIL_OFF:SI.MAIN_GIL_OFF + 4] = int(gil).to_bytes(4, "little")
     for k, (iid, cnt) in enumerate(items):
         pt[SI.MAIN_ITEMS_OFF + 2 * k] = cnt
@@ -467,7 +470,10 @@ def _enc_container(tmp_path, block=1, gil=500, items=((236, 7), (238, 2)), magic
     data = bytearray(SaveMod.BASE_SAVE_BLOCK_OFFSET + SaveMod.SAVE_BLOCK_SIZE * (block + 1))
     lo = SaveMod.BASE_SAVE_BLOCK_OFFSET + SaveMod.SAVE_BLOCK_SIZE * block
     data[lo:lo + SaveMod.SAVE_BLOCK_SIZE] = AES.new(key, AES.MODE_CBC, iv).encrypt(bytes(pt))
-    p = tmp_path / "SavedData_ww.dat"
+    import pathlib
+    d = pathlib.Path(tmp_path)
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "SavedData_ww.dat"
     p.write_bytes(bytes(data))
     return str(p)
 
@@ -579,6 +585,82 @@ def test_cli_set_gil_container_dual(tmp_path, capsys):
     assert rc == 0 and "DRY RUN" in capsys.readouterr().out and SI.decode_main_block(c, 1).gil == 500
     rc = cli._cmd_items_set_gil(_ns(save=c, gil=4242, slot=0, save_no=0, apply=True))
     assert rc == 0 and SI.decode_main_block(c, 1).gil == 4242
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_item_change_add_remove(tmp_path):
+    c = _enc_container(tmp_path, block=1, gil=500, items=((236, 7), (238, 2)))
+    inv = lambda: {i: ct for i, _, ct in SI.decode_main_block(c, 1).inventory}
+    r = SI.set_main_item(c, 1, "Potion", 50, dry_run=False)              # change 236 7 -> 50
+    assert r.action == "changed" and r.wrote and inv()[236] == 50
+    r = SI.set_main_item(c, 1, "Elixir", 5, dry_run=False)               # add a new id
+    assert r.action == "added" and inv()[I.resolve("Elixir")] == 5
+    r = SI.set_main_item(c, 1, "Potion", 0, dry_run=False)               # remove
+    assert r.action == "removed" and 236 not in inv()
+    assert inv()[238] == 2                                               # the other item survived
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_item_scoped_gil_untouched(tmp_path):
+    c = _enc_container(tmp_path, block=1, gil=4242, items=((236, 7),))
+    SI.set_main_item(c, 1, "Ether", 3, dry_run=False)
+    assert SI.decode_main_block(c, 1).gil == 4242                        # gil byte-untouched by an item edit
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_item_clamps_and_rejects(tmp_path):
+    c = _enc_container(tmp_path, block=1, items=((236, 7),))
+    r = SI.set_main_item(c, 1, "Potion", 9999, dry_run=False)
+    assert r.new_count == 99
+    with pytest.raises(ValueError, match="NoItem"):
+        SI.set_main_item(c, 1, 255, 1)
+    with pytest.raises(ValueError):
+        SI.set_main_item(c, 1, "Potion", -1)
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_item_in_save_dual_and_cli(tmp_path, capsys):
+    from ff9mapkit import save as SaveMod, cli
+    c = _enc_container(tmp_path, block=1, gil=500, items=((236, 7),))
+    extra = SaveMod.extra_file_path(c, 1)
+    _extra_file(tmp_path, name=os.path.basename(extra), common=_common(items=((236, 7),)))
+    res = SI.set_item_in_save(c, 1, "Elixir", 4, dry_run=False)
+    assert res["main"].wrote and res["extra"].wrote
+    assert any(i == I.resolve("Elixir") for i, _, _ in SI.decode_main_block(c, 1).inventory)
+    assert any(i == I.resolve("Elixir") for i, _, _ in SI.inspect(extra)[0][1].inventory)
+    # CLI on a vanilla (no-extra) container edits the main block
+    c2 = _enc_container(tmp_path / "v", block=1, items=((236, 7),))
+    rc = cli._cmd_items_set_item(_ns2(save=c2, item="Tent", count=3, slot=0, save_no=0, apply=True))
+    assert rc == 0 and any(i == I.resolve("Tent") for i, _, _ in SI.decode_main_block(c2, 1).inventory)
+
+
+def _ns2(**kw):
+    import argparse
+    base = dict(save=None, item=None, count=0, slot=None, save_no=None, autosave=False, apply=False, no_backup=False)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_main_block_bad_block_is_value_error(tmp_path):
+    """An out-of-range / negative block is a clean ValueError, not a raw IndexError or a wrong-block read."""
+    c = _enc_container(tmp_path, block=1, gil=500)
+    with pytest.raises(ValueError):
+        SI.set_main_gil(c, 99, 1, dry_run=False)                          # past EOF
+    with pytest.raises(ValueError):
+        SI.set_main_gil(c, -1, 1, dry_run=False)                          # negative
+    with pytest.raises(ValueError):
+        SI.set_main_item(c, 99, "Potion", 1, dry_run=False)
+    assert SI.decode_main_block(c, 99) is None                            # decode of a bad block -> None
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_inspect_decodes_vanilla_main_block(tmp_path):
+    """inspect() on a no-extra container slot reads the MAIN block (was 'not yet supported')."""
+    c = _enc_container(tmp_path, block=1, gil=43162, items=((236, 68), (238, 2)))
+    reports = SI.inspect(c)
+    assert reports and any("main (vanilla)" in lbl and rep is not None and rep.gil == 43162
+                           for lbl, rep in reports)
 
 
 # ---- install-gated: the real save ------------------------------------------------------------

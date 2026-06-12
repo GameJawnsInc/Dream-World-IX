@@ -4,19 +4,20 @@
 Double-click to launch (windowless via pythonw), or:  py apps\\ff9_items.pyw
 
 The item/equip companion to the Story State console -- a SEPARATE surface (it touches only
-:mod:`ff9mapkit.save_items`, never the story-state core; project-ff9-branch-lanes rule 3). It reads + writes
-the Memoria EXTRA save file (``SavedData_ww_Memoria_*.dat``), the **load-authoritative** store that overrides
-the encrypted main block on load (proven in-game), so an edit here changes what the game loads -- no relaunch,
-just reload the save.
+:mod:`ff9mapkit.save_items`, never the story-state core; project-ff9-branch-lanes rule 3). It reads + edits both
+the Memoria EXTRA save file (``SavedData_ww_Memoria_*.dat``, the **load-authoritative** store) and the encrypted
+MAIN block, so an edit here changes what the game loads -- no relaunch, just reload the save.
 
   * Inspect -- the decoded gil / inventory / equipment of each populated slot (``save_items.inspect``).
   * Edit    -- set gil, set/remove an item by name, or change a character's equipment -- each PREVIEWable
                (dry-run) and Apply backup-guarded (a timestamped .bak is written first; the write is atomic and
-               re-read to confirm). Extra-only by design (the main-block mirror is a later step).
+               re-read to confirm). A Memoria slot DUAL-WRITES the main block + the extra mirror; a **vanilla
+               (no-extra) save edits its encrypted main block directly** (gil + items; equipment still needs an
+               extra -- main-block equip is a later step).
 
-Pick a SavedData_ww.dat (enumerates its populated slots' extra files; the container read needs pycryptodome)
-or a Memoria extra-save directly (no crypto). Provenance-clean: it touches only the user's own save, only on
-Apply. Standalone, or embedded as a tab.
+Pick a SavedData_ww.dat (enumerates its populated slots; the container read needs pycryptodome) or a Memoria
+extra-save directly (no crypto). Provenance-clean: it touches only the user's own save, only on Apply.
+Standalone, or embedded as a tab.
 """
 import os
 import sys
@@ -39,7 +40,7 @@ class ItemsApp:
     def __init__(self, parent):
         self.root = parent.winfo_toplevel()
         self.pal = apply_theme(self.root)
-        self.targets = []        # [(label, ItemReport|None, extra_path|None)] per populated slot
+        self.targets = []        # [{label, report: ItemReport|None, extra, container, block}] per populated slot
         self.path = ""
 
         top = ttk.Frame(parent, padding=6)
@@ -167,10 +168,11 @@ class ItemsApp:
             return
         self.path = path
         self.lst.delete(0, "end")
-        for label, _rep, _extra in self.targets:
-            self.lst.insert("end", label)
-        editable = sum(1 for _, _, x in self.targets if x is not None)
-        self.status.config(text=f"{len(self.targets)} populated save(s); {editable} editable (have an extra file)")
+        for t in self.targets:
+            self.lst.insert("end", t["label"])
+        editable = sum(1 for t in self.targets if t["report"] is not None)
+        self.status.config(text=f"{len(self.targets)} populated save(s); {editable} editable "
+                                "(gil + items; equipment needs a Memoria extra)")
         if self.targets:
             i = keep if (keep is not None and keep < len(self.targets)) else 0
             self.lst.selection_set(i)
@@ -178,19 +180,28 @@ class ItemsApp:
 
     @staticmethod
     def _resolve_targets(path):
-        """[(label, ItemReport|None, extra_path|None)] for ``path``. A Memoria extra-save -> one editable
-        target; a SavedData_ww.dat container -> one per populated slot, editable when its extra file exists."""
+        """A list of target dicts ``{label, report, extra, container, block}`` for ``path``. A Memoria extra-save
+        opens as one extra-only target (no container). A SavedData_ww.dat container yields one per populated slot:
+        a Memoria slot reads/edits its extra (dual-written with the main block); a VANILLA slot (no extra) reads
+        + edits the encrypted MAIN block directly. Gil + items are editable on every slot; equipment needs the
+        extra (main-block equip is a later step)."""
         common = _si.load_extra_common(path)[0]
         if common is not None:                            # a Memoria extra-save, opened directly
-            return [("Memoria extra-save", _si.report_from_common(common), path)]
+            return [{"label": "Memoria extra-save", "report": _si.report_from_common(common),
+                     "extra": path, "container": None, "block": None}]
         sv = _save.FF9Save.load(path)                     # the encrypted container (needs pycryptodome)
         out = []
         for s in sv.populated():
             extra = _save.extra_file_path(path, s.block)
-            c = _si.load_extra_common(extra)[0] if (extra and os.path.isfile(extra)) else None
-            lbl = _save._slot_label(s) + (" · extra" if c is not None else " · (no extra file)")
-            out.append((lbl, _si.report_from_common(c) if c is not None else None,
-                        extra if c is not None else None))
+            has_extra = bool(extra and os.path.isfile(extra))
+            if has_extra:
+                rep = _si.report_from_common(_si.load_extra_common(extra)[0])
+                lbl = _save._slot_label(s) + " · extra"
+            else:
+                rep = _si.decode_main_block(path, s.block)
+                lbl = _save._slot_label(s) + (" · main (vanilla)" if rep is not None else " · (unreadable)")
+            out.append({"label": lbl, "report": rep, "extra": extra if has_extra else None,
+                        "container": path, "block": s.block})
         if not out:
             raise ValueError("no populated save slots found in this file")
         return out
@@ -199,17 +210,17 @@ class ItemsApp:
         sel = self.lst.curselection()
         return sel[0] if sel else None
 
-    def _target_extra(self):
+    def _target(self):
         i = self._selected()
-        return self.targets[i][2] if (i is not None and i < len(self.targets)) else None
+        return self.targets[i] if (i is not None and i < len(self.targets)) else None
 
     def _on_select(self):
-        i = self._selected()
-        if i is None:
+        t = self._target()
+        if t is None:
             return
-        label, rep, extra = self.targets[i]
-        self._render(self.inspect_txt, f"{label}\n\n" + _si.render_report(rep))
-        # refresh the edit panel to this slot
+        rep, extra, container = t["report"], t["extra"], t["container"]
+        self._render(self.inspect_txt, f"{t['label']}\n\n" + _si.render_report(rep))
+        # refresh the equipment character dropdown (only Memoria-extra slots carry equipment)
         names = [pc["name"] or f"slot {pc['slot_no']}" for pc in (rep.equipment if rep else [])]
         menu = self.char_menu["menu"]
         menu.delete(0, "end")
@@ -217,33 +228,57 @@ class ItemsApp:
             menu.add_command(label=nm, command=lambda v=nm: self.char_var.set(v))
         if names and self.char_var.get() not in names:
             self.char_var.set(names[0])
-        if extra is None:
-            self.edit_target.config(text="Editing disabled — this slot has no Memoria extra file (the "
-                                         "load-authoritative store). The main-block edit is a later step.")
+        editable = rep is not None and (container is not None or extra is not None)
+        if not editable:
+            self.edit_target.config(text="Editing disabled — this slot could not be decoded.")
             self.gil_var.set("")
-        else:
-            self.edit_target.config(text=f"Editing: {label}.  Writes the extra file; a timestamped .bak is "
-                                         "made first. Reload the save in-game (no relaunch).")
-            self.gil_var.set(str(rep.gil) if (rep and rep.gil is not None) else "")
+        elif extra is None:                                # a vanilla save: gil + items via the main block
+            self.edit_target.config(text=f"Editing: {t['label']} (vanilla save — main block). Gil + items only; "
+                                         "equipment needs a Memoria extra. The whole save is backed up first.")
+            self.gil_var.set(str(rep.gil) if rep.gil is not None else "")
+        else:                                              # a Memoria save: gil/items dual-written, equip via extra
+            where = "the extra file" if container is None else "the main block + the extra mirror"
+            self.edit_target.config(text=f"Editing: {t['label']}. Writes {where}; a timestamped .bak is made "
+                                         "first. Reload the save in-game (no relaunch).")
+            self.gil_var.set(str(rep.gil) if rep.gil is not None else "")
+
+    @staticmethod
+    def _plan_gil(val, extra, container, block):
+        """(render, preview, do) for a gil edit -- dual-write (main + extra mirror) on a container slot
+        (handles a vanilla save), or extra-only on an extra-file-direct target."""
+        if container is not None:
+            return (_si.render_gil_dual, _si.set_gil_in_save(container, block, val, dry_run=True),
+                    lambda: _si.set_gil_in_save(container, block, val, dry_run=False))
+        return (_si.render_gil_write, _si.set_gil(extra, val, dry_run=True),
+                lambda: _si.set_gil(extra, val, dry_run=False))
+
+    @staticmethod
+    def _plan_item(item, cnt, extra, container, block):
+        if container is not None:
+            return (_si.render_item_dual, _si.set_item_in_save(container, block, item, cnt, dry_run=True),
+                    lambda: _si.set_item_in_save(container, block, item, cnt, dry_run=False))
+        return (_si.render_item_write, _si.set_item(extra, item, cnt, dry_run=True),
+                lambda: _si.set_item(extra, item, cnt, dry_run=False))
 
     # ----- edit (write the save) -----
     def _edit(self, kind, apply):
-        extra = self._target_extra()
-        if not extra:
-            self._out("Select an editable slot (one with a Memoria extra file) on the left first.")
+        t = self._target()
+        if t is None or t["report"] is None:
+            self._out("Select a decodable slot on the left first.")
             return
+        extra, container, block = t["extra"], t["container"], t["block"]
         try:
             if kind == "gil":
                 val = int(self.gil_var.get())
-                render = _si.render_gil_write
-                preview = _si.set_gil(extra, val, dry_run=True)
-                do = lambda: _si.set_gil(extra, val, dry_run=False)        # noqa: E731
+                render, preview, do = self._plan_gil(val, extra, container, block)
             elif kind == "item":
                 item, cnt = self.item_var.get().strip(), int(self.count_var.get())
-                render = _si.render_item_write
-                preview = _si.set_item(extra, item, cnt, dry_run=True)
-                do = lambda: _si.set_item(extra, item, cnt, dry_run=False)  # noqa: E731
+                render, preview, do = self._plan_item(item, cnt, extra, container, block)
             else:
+                if not extra:
+                    self._out("Equipment editing needs a Memoria extra file (main-block equip is a later step).\n"
+                              "This is a vanilla save — its gil and items are editable above.")
+                    return
                 char, slot, item = self.char_var.get(), self.slot_var.get(), self.eqitem_var.get().strip()
                 render = _si.render_equip_write
                 preview = _si.set_equip(extra, char, slot, item, dry_run=True)
@@ -307,7 +342,7 @@ def main():
 
         sp = _extra_save(gil=500)
         app._load(sp)
-        assert app.targets and app.targets[0][2] == sp, "extra-save opened + editable"
+        assert app.targets and app.targets[0]["extra"] == sp, "extra-save opened + editable"
         app._on_select()
         assert "Gil: 500" in app.inspect_txt.get("1.0", "end"), "inspect renders gil"
         # gil preview + apply
@@ -328,10 +363,42 @@ def main():
         app._edit("equip", True)
         eq = _si.inspect(sp)[0][1].equipment[0]["equip"]["weapon"]
         assert eq and eq[1] == "MageMasher", "equip applied"
-        # a backup was written for each apply
         baks = list(Path(sp).parent.glob(Path(sp).name + ".bak.*"))
         assert baks, "a .bak backup was written"
-        print(f"smoke ok: loaded {len(app.targets)} slot(s); gil/item/equip applied; {len(baks)} backup(s)")
+
+        # --- a VANILLA (no-extra) container: gil + items edit the MAIN block; equip is refused ---
+        vanilla_ok = "skipped (no pycryptodome)"
+        try:
+            import base64
+            from Crypto.Cipher import AES  # noqa: PLC0415
+            from ff9mapkit import save as SaveMod
+            key, iv = SaveMod._key_iv()
+            pt = bytearray(SaveMod.SAVE_BLOCK_SIZE); pt[0:4] = b"SAVE"
+            geg = bytearray(2048); geg[0], geg[1] = 6000 & 0xFF, 6000 >> 8     # so populated() recognises the block
+            b64 = base64.b64encode(bytes(geg)); pt[23:23 + len(b64)] = b64
+            pt[_si.MAIN_GIL_OFF:_si.MAIN_GIL_OFF + 4] = (500).to_bytes(4, "little")
+            pt[_si.MAIN_ITEMS_OFF], pt[_si.MAIN_ITEMS_OFF + 1] = 7, 236        # Potion x7; rest count-0 padding
+            data = bytearray(SaveMod.BASE_SAVE_BLOCK_OFFSET + SaveMod.SAVE_BLOCK_SIZE * 2)
+            lo = SaveMod.BASE_SAVE_BLOCK_OFFSET + SaveMod.SAVE_BLOCK_SIZE
+            data[lo:lo + SaveMod.SAVE_BLOCK_SIZE] = AES.new(key, AES.MODE_CBC, iv).encrypt(bytes(pt))
+            cdir = Path(tempfile.mkdtemp())
+            cont = cdir / "SavedData_ww.dat"; cont.write_bytes(bytes(data))
+            app._load(str(cont))
+            t = app.targets[0]
+            assert t["container"] and t["extra"] is None and "vanilla" in t["label"], "vanilla slot detected"
+            app.lst.selection_set(0); app._on_select()
+            app.gil_var.set("314159"); app._edit("gil", True)
+            assert _si.decode_main_block(str(cont), 1).gil == 314159, "main-block gil edited via GUI"
+            app.item_var.set("Ether"); app.count_var.set("4"); app._edit("item", True)
+            assert any(i == I.resolve("Ether") for i, _, _ in _si.decode_main_block(str(cont), 1).inventory), \
+                "main-block item added via GUI"
+            app.char_var.set("Zidane"); app.slot_var.set("weapon"); app.eqitem_var.set("MageMasher")
+            app._edit("equip", True)
+            assert "needs a Memoria extra" in app.edit_txt.get("1.0", "end"), "equip refused on a vanilla slot"
+            vanilla_ok = "main-block gil+item edited; equip refused"
+        except ImportError:
+            pass
+        print(f"smoke ok: extra slot gil/item/equip applied ({len(baks)} bak); vanilla {vanilla_ok}")
         root.destroy()
         return
     root.mainloop()

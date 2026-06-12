@@ -4,10 +4,13 @@ Reads + writes the Memoria EXTRA file (``SavedData_ww_Memoria_{slot}_{save}.dat`
 codec, decoding/mutating ``40000_Common/{gil, items, players[].equip}`` by kit item name
 (:mod:`ff9mapkit.items`). The extra file is the **load-authoritative** store -- it overrides the encrypted main
 block on load (memory project-ff9-save-item-layout) -- so editing it changes what the game loads (proven
-in-game). The READ surface: :func:`inspect` / :func:`report_from_common`. The WRITE surface (all backup-guarded,
-``dry_run`` by default, with GATE 1 + a scoped-change check + atomic write + post-write confirm): :func:`set_gil`,
-:func:`set_item`, :func:`set_equip`. Writes are **EXTRA-ONLY by design** (the proven authoritative store); the
-encrypted main-block MIRROR (the fallback for vanilla/no-extra saves) is a still-pending later step.
+in-game). The READ surface: :func:`inspect` / :func:`report_from_common` (extra) + :func:`decode_main_block`
+(the encrypted main block, for a no-extra save). The WRITE surface (all backup-guarded, ``dry_run`` by default,
+with a validation gate + a scoped-change check + atomic write + post-write confirm): :func:`set_gil`/
+:func:`set_item`/:func:`set_equip` on the extra; :func:`set_main_gil`/:func:`set_main_item` on the ENCRYPTED MAIN
+block (so a **vanilla no-extra save is editable** -- gil + items); and :func:`set_gil_in_save`/
+:func:`set_item_in_save`, which DUAL-WRITE the main block + the extra mirror (the extra stays load-authoritative).
+Main-block EQUIPMENT (the old-format 9-player struct) is the remaining deferred follow-up.
 
 SEPARATE surface per [[project-ff9-branch-lanes]] rule 3: reuses :class:`save.FF9Save` + :mod:`sjbinary`; it
 does NOT touch :func:`save.apply_story_edit` / ``edit_story_state`` (story_flags' gEventGlobal core).
@@ -164,17 +167,17 @@ def load_extra_common(extra_path):
 
 def inspect(path) -> list:
     """Decode a save's items/equipment/gil for VIEWING -- returns ``[(label, ItemReport), ...]``, one per
-    populated slot, read from the Memoria EXTRA file (what the game loads). Accepts a Memoria extra file
-    directly (plaintext, no crypto), OR the encrypted ``SavedData_ww.dat`` container (enumerates populated
-    slots via :meth:`save.FF9Save.populated` -- needs pycryptodome -- and reads each slot's extra file). A
-    populated slot with NO extra file is reported as ``None`` (the main-block decode is a later step). Raises
-    with a clear message if nothing decodes."""
+    populated slot. Accepts a Memoria extra file directly (plaintext, no crypto), OR the encrypted
+    ``SavedData_ww.dat`` container (enumerates populated slots via :meth:`save.FF9Save.populated` -- needs
+    pycryptodome). A Memoria slot reads its EXTRA (what the game loads); a VANILLA slot (no extra) reads the
+    encrypted MAIN block (:func:`decode_main_block` -- gil + inventory, no equipment). A slot that decodes to
+    neither is reported as ``None``. Raises with a clear message if nothing decodes."""
     p = str(path)
     # case 1: path IS a Memoria extra file (a plaintext SimpleJSON tree with 40000_Common)
     common, _, _ = load_extra_common(p)
     if common is not None:
         return [("Memoria extra-save", report_from_common(common))]
-    # case 2: the encrypted container -> per populated slot, read its extra file
+    # case 2: the encrypted container -> per populated slot, the extra (Memoria) or the main block (vanilla)
     sv = _save.FF9Save.load(p)
     out = []
     for s in sv.populated():
@@ -183,13 +186,15 @@ def inspect(path) -> list:
         if common is not None:
             out.append((_save._slot_label(s) + " · Memoria extra", report_from_common(common)))
         else:
-            out.append((_save._slot_label(s) + " · (no extra file -- main-block decode not yet supported)", None))
+            rep = decode_main_block(p, s.block)           # a vanilla slot -> read the main block
+            out.append((_save._slot_label(s) + (" · main (vanilla)" if rep is not None else " · (undecodable)"),
+                        rep))
     if not out:
         raise ValueError("no populated save slots found in this file")
     return out
 
 
-# --- write surface: shared machinery (all extra-only, the load-authoritative store) ---------------
+# --- write surface: shared machinery for the EXTRA writers (the load-authoritative store) ----------
 
 def _atomic_write(extra_path, raw: bytes, new_bytes: bytes, *, backup: bool) -> "str | None":
     """Backup-guarded ATOMIC overwrite of a Memoria extra save file. Writes a timestamped ``<path>.bak.<ts>``
@@ -326,8 +331,8 @@ def set_gil(extra_path, gil: int, *, dry_run: bool = True, backup: bool = True) 
     project-ff9-save-item-layout), preserving every other byte. gil is a length-stable Int32 leaf (IntValue,
     tag 4), so this is the smallest possible real-save mutation: the #5 editor's FIRST write and the falsifiable
     proof of "the extra overrides the encrypted main block on load" -- write ONLY the extra, and if the in-game
-    gil changes to match, the extra wins (the main block still holds the old value). The main-block mirror +
-    items/equipment land in step 4; this never touches the main block or ``00001_time``.
+    gil changes to match, the extra wins (the main block still holds the old value). This writes only the extra;
+    :func:`set_gil_in_save` dual-writes the main block too. Never touches ``00001_time``.
 
     Safety (this writes a REAL save): re-serializes the WHOLE extra tree (siblings round-trip verbatim) but
     (gate 1) FIRST asserts the codec reproduces the on-disk bytes EXACTLY -- aborting rather than writing a file
@@ -531,7 +536,10 @@ def decode_main_block(container, block):
     """Decrypt + decode the gil/inventory of one block of a ``SavedData_ww.dat`` container, or ``None`` if it's
     not a populated/old-format block. Needs pycryptodome (via :class:`save.FF9Save`)."""
     sv = _save.FF9Save.load(container)
-    pt = bytearray(sv._decrypt_block(block))
+    try:
+        pt = bytearray(_decrypt_main(sv, block))
+    except ValueError:
+        return None
     if pt[:4] != b"SAVE":
         return None
     try:
@@ -539,6 +547,17 @@ def decode_main_block(container, block):
     except ValueError:
         return None
     return main_report(pt)
+
+
+def _decrypt_main(sv, block: int) -> bytes:
+    """Decrypt save block ``block`` of ``sv`` (a :class:`save.FF9Save`), translating a bad block index into a
+    clean ValueError (the module's contract -- not a raw IndexError / a wrong block from a negative index)."""
+    if not isinstance(block, int) or isinstance(block, bool) or block < 0:
+        raise ValueError(f"block must be a non-negative int (got {block!r})")
+    try:
+        return sv._decrypt_block(block)
+    except IndexError as e:
+        raise ValueError(f"no save block {block} in this container ({e})") from e
 
 
 def set_main_gil(container, block: int, gil: int, *, dry_run: bool = True, backup: bool = True) -> GilWriteReport:
@@ -559,7 +578,7 @@ def set_main_gil(container, block: int, gil: int, *, dry_run: bool = True, backu
     except OSError as e:
         raise ValueError(f"cannot read save container {container!r}: {e}") from e
     sv = _save.FF9Save.load(container)
-    pt = bytearray(sv._decrypt_block(block))              # raises IndexError if the block is past EOF
+    pt = bytearray(_decrypt_main(sv, block))
     validate_main_block(pt)                               # GATE: refuse an unrecognised layout
     old = read_main_gil(pt)
     pt[MAIN_GIL_OFF:MAIN_GIL_OFF + 4] = int(gil).to_bytes(4, "little")
@@ -575,18 +594,98 @@ def set_main_gil(container, block: int, gil: int, *, dry_run: bool = True, backu
                           bytes_changed=4, wrote=did_write, backup_path=backup_path)
 
 
+def set_main_item(container, block: int, item, count: int, *, dry_run: bool = True,
+                  backup: bool = True) -> ItemWriteReport:
+    """Set an item's COUNT in the ENCRYPTED MAIN block's 256-pair item array (for editing a vanilla/no-extra
+    save). ``count`` 0 removes the stack (-> padding ``{0, 255}``, which loads cleanly); otherwise the count is
+    updated in place, or the item is added at the first free slot. ``count`` clamps to 99; ``NoItem`` rejected.
+    Same safety as :func:`set_main_gil`: ``validate_main_block`` gate, a scoped check that ONLY the item-array
+    bytes moved, atomic container write, timestamped backup, post-write re-read confirm, dry-run default."""
+    iid = _items.resolve(item)
+    if iid == NO_ITEM:
+        raise ValueError("cannot add NoItem (255); pass count=0 to REMOVE an item instead")
+    if isinstance(count, bool) or not isinstance(count, int):
+        raise TypeError(f"count must be an int (got {type(count).__name__})")
+    if count < 0:
+        raise ValueError(f"count cannot be negative (got {count}); use 0 to remove")
+    count = min(count, ITEM_COUNT_CAP)
+    try:
+        raw = open(container, "rb").read()
+    except OSError as e:
+        raise ValueError(f"cannot read save container {container!r}: {e}") from e
+    sv = _save.FF9Save.load(container)
+    orig_pt = bytes(_decrypt_main(sv, block))
+    pt = bytearray(orig_pt)
+    validate_main_block(pt)                               # GATE
+    idx, old_count = None, 0
+    for k in range(MAIN_ITEMS_N):                         # find the live stack for this id
+        c, i = pt[MAIN_ITEMS_OFF + 2 * k], pt[MAIN_ITEMS_OFF + 2 * k + 1]
+        if c >= 1 and i == iid:
+            idx, old_count = k, c
+            break
+    edited = idx                                          # the slot the edit touches (for a position-aware confirm)
+    if count == 0:
+        action = "removed" if idx is not None else "unchanged"
+        if idx is not None:
+            pt[MAIN_ITEMS_OFF + 2 * idx], pt[MAIN_ITEMS_OFF + 2 * idx + 1] = 0, NO_ITEM   # -> clean padding
+    elif idx is not None:
+        action = "unchanged" if count == old_count else "changed"
+        pt[MAIN_ITEMS_OFF + 2 * idx] = count             # keep id, update count
+    else:
+        action = "added"                                  # reserve the last slot as the padding terminator
+        edited = next((k for k in range(MAIN_ITEMS_N - 1) if pt[MAIN_ITEMS_OFF + 2 * k] == 0), None)
+        if edited is None:
+            raise ValueError("the inventory is full (255 stacks); cannot add another item")
+        pt[MAIN_ITEMS_OFF + 2 * edited], pt[MAIN_ITEMS_OFF + 2 * edited + 1] = count, iid
+    validate_main_block(pt)                               # still well-formed after the edit
+    diff = [k for k in range(len(pt)) if pt[k] != orig_pt[k]]   # SCOPED: only item-array bytes may move
+    if diff and (min(diff) < MAIN_ITEMS_OFF or max(diff) >= MAIN_ITEMS_OFF + 2 * MAIN_ITEMS_N):
+        raise AssertionError("main item edit touched bytes outside the item array; aborting")
+    backup_path, did_write = None, False
+    if not dry_run and diff:
+        sv._encrypt_block(block, bytes(pt))
+        backup_path = _atomic_write(container, raw, bytes(sv.data), backup=backup)
+        chk = bytearray(_decrypt_main(_save.FF9Save.load(container), block))   # CONFIRM the exact slot
+        gc, gi = chk[MAIN_ITEMS_OFF + 2 * edited], chk[MAIN_ITEMS_OFF + 2 * edited + 1]
+        ok = (gc == 0) if count == 0 else (gc == count and gi == iid)
+        if not ok:
+            raise AssertionError(f"post-write check failed: slot {edited} read back (count {gc}, id {gi})")
+        did_write = True
+    return ItemWriteReport(path=f"{container}#block{block}", item_id=iid, item_name=_items.name_of(iid),
+                           old_count=old_count, new_count=count, action=action,
+                           wrote=did_write, backup_path=backup_path)
+
+
 def set_gil_in_save(container, block: int, gil: int, *, dry_run: bool = True, backup: bool = True,
                     mirror: bool = True) -> dict:
     """Write gil into a whole save SLOT: the ENCRYPTED MAIN block AND (when ``mirror`` and it exists) the Memoria
     EXTRA file. For a no-extra (vanilla) save only the main block is written; for a Memoria save both are written
     so the load-authoritative extra and the main block stay consistent. Returns ``{"main": GilWriteReport,
-    "extra": GilWriteReport|None}``. Each leg is independently dry-run/backup-guarded by its own writer."""
-    main_rep = set_main_gil(container, block, gil, dry_run=dry_run, backup=backup)
+    "extra": GilWriteReport|None}``. Each leg is independently dry-run/backup-guarded by its own writer.
+
+    ★ The EXTRA (load-authoritative) leg is written FIRST: the legs aren't transactional across files, so if the
+    second (main) leg then fails, the extra already holds the new value -- the game shows the EDIT (correct), and
+    only the main-block fallback is left stale (recoverable from its ``.bak``). The reverse order would silently
+    show the OLD value in-game on a partial failure. An extra-leg failure raises before the main is touched."""
     extra_rep = None
-    if mirror:
+    if mirror:                                            # the EXTRA is load-authoritative -> write it FIRST
         extra = _save.extra_file_path(container, block)
         if extra and os.path.isfile(extra):
             extra_rep = set_gil(extra, gil, dry_run=dry_run, backup=backup)
+    main_rep = set_main_gil(container, block, gil, dry_run=dry_run, backup=backup)
+    return {"main": main_rep, "extra": extra_rep}
+
+
+def set_item_in_save(container, block: int, item, count: int, *, dry_run: bool = True, backup: bool = True,
+                     mirror: bool = True) -> dict:
+    """Set an item's count in a whole save SLOT: the ENCRYPTED MAIN block AND (when ``mirror`` + present) the
+    Memoria EXTRA. Vanilla save -> main only. Returns ``{"main": ItemWriteReport, "extra": ItemWriteReport|None}``."""
+    extra_rep = None
+    if mirror:                                            # the EXTRA is load-authoritative -> write it first
+        extra = _save.extra_file_path(container, block)
+        if extra and os.path.isfile(extra):
+            extra_rep = set_item(extra, item, count, dry_run=dry_run, backup=backup)
+    main_rep = set_main_item(container, block, item, count, dry_run=dry_run, backup=backup)
     return {"main": main_rep, "extra": extra_rep}
 
 
@@ -630,6 +729,18 @@ def render_gil_dual(res: dict) -> str:
     if res.get("extra") is not None:
         lines.append("  [Memoria extra -- the load-authoritative store]")
         lines += ["  " + ln for ln in render_gil_write(res["extra"]).splitlines()]
+    else:
+        lines.append("  (no Memoria extra for this slot -- a vanilla save; the main block governs in-game)")
+    return "\n".join(lines)
+
+
+def render_item_dual(res: dict) -> str:
+    """Render a :func:`set_item_in_save` outcome (the main block + the extra mirror)."""
+    lines = ["  [main block]"]
+    lines += ["  " + ln for ln in render_item_write(res["main"]).splitlines()]
+    if res.get("extra") is not None:
+        lines.append("  [Memoria extra -- the load-authoritative store]")
+        lines += ["  " + ln for ln in render_item_write(res["extra"]).splitlines()]
     else:
         lines.append("  (no Memoria extra for this slot -- a vanilla save; the main block governs in-game)")
     return "\n".join(lines)

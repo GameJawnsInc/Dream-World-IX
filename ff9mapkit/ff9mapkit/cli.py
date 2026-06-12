@@ -1038,15 +1038,22 @@ def _cmd_items_set_gil(args: argparse.Namespace) -> int:
 
 
 def _cmd_items_set_item(args: argparse.Namespace) -> int:
-    """Set an item's inventory count in the Memoria EXTRA file (count 0 removes it). Dry-run unless --apply."""
+    """Set an item's inventory count (count 0 removes it). On a container, dual-writes the MAIN block + the
+    Memoria extra mirror (so a vanilla no-extra save is editable too); on an extra-save directly, writes that.
+    Dry-run unless --apply."""
     from . import save_items as SI
     try:
-        extra = SI.resolve_extra(args.save, slot=args.slot, save=args.save_no, autosave=args.autosave)
-        rep = SI.set_item(extra, args.item, args.count, dry_run=not args.apply, backup=not args.no_backup)
+        if SI.load_extra_common(args.save)[0] is not None:             # a Memoria extra-save directly
+            rep = SI.set_item(args.save, args.item, args.count, dry_run=not args.apply, backup=not args.no_backup)
+            print(SI.render_item_write(rep))
+        else:                                                          # a SavedData_ww.dat container + slot
+            block = SI._resolve_block(slot=args.slot, save=args.save_no, autosave=args.autosave)
+            res = SI.set_item_in_save(args.save, block, args.item, args.count, dry_run=not args.apply,
+                                      backup=not args.no_backup)
+            print(SI.render_item_dual(res))
     except Exception as e:                                              # noqa: BLE001
         print(f"could not set item: {e}")
         return 2
-    print(SI.render_item_write(rep))
     return 0
 
 

@@ -5,6 +5,29 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — save-item editor #5 step 4b cont.: main-block ITEMS + GUI vanilla-save editing (0.9.57)
+- Completes editing a **vanilla (no-extra) save** — now its **inventory** is editable too (gil landed in 0.9.56),
+  via both the CLI and the GUI.
+- **`save_items.set_main_item(container, block, item, count)`** — set an item's count in the main block's 256-pair
+  array (count 0 removes → clean `{0,255}` padding; updates in place / adds at the first free slot, reserving the
+  last as the padding terminator; clamps 99; `NoItem` rejected). Same safety as `set_main_gil`: validate gate, a
+  **scoped byte-diff** that only item-array bytes may move, atomic write, timestamped backup, a **position-aware**
+  post-write confirm, dry-run default. Plus `read_main_inventory` (collects all live stacks, tolerating the
+  count==0 mid-list gaps FF9 leaves) + `main_report`.
+- **`save_items.set_item_in_save`** dual-write orchestrator (main + extra mirror). CLI `items-set-item` on a
+  container now dual-writes. `render_item_dual`.
+- **GUI (`apps/ff9_items.pyw`)** — refactored to dict targets carrying the container/block; a **vanilla slot is
+  now editable** (gil + items via the main block), a Memoria slot dual-writes, and equipment is correctly refused
+  on a vanilla slot (main-block equip is the deferred follow-up). `items-inspect` + `inspect()` now decode vanilla
+  slots too (were "not yet supported").
+- A 3-lens adversarial-verify workflow (crypto/engine · python-safety · integration/GUI) found 11 issues — all
+  folded in. The load-bearing one (a **bug**): the dual-write committed the main block before the load-
+  authoritative extra, so a failed extra leg would silently show the OLD value in-game → **now the extra (authoritative)
+  leg is written FIRST** (a partial failure leaves the visible value correct; documented). Also: reserve the last
+  item slot as the padding terminator; a clean ValueError (not IndexError / a wrong-block read) for a bad block
+  index; a position-aware post-write confirm; and the stale "extra-only / main mirror pending" docstrings refreshed.
+- 18 new tests (synthetic encrypted containers + the GUI `--smoke` vanilla path); suite green.
+
 ### Added — save-item editor #5 step 4b: encrypted MAIN-block gil write + dual-write (edit vanilla saves), IN-GAME PROVEN (0.9.56)
 - The editor can now write the **encrypted main AES block** of a `SavedData_ww.dat`, not just the Memoria extra
   file — so a **vanilla save with no Memoria extra is now editable**, and a Memoria save's main block is kept
