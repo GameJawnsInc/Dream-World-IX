@@ -435,6 +435,11 @@ tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is t
   (Author note: `status_set` is a `StatusSetId` row — 16 = the Dispel bundle, Poison = 20.) Surfaced + fixed a
   `deploy_field` wholesale-snapshot DictionaryPatch revert that clobbered a co-deployed `BattleScene`
   registration (→ black screen); the revert is now surgical (drops only the field's own line).
+  ★ **FULLY PROVEN (2026-06-12):** a follow-up confirmed EVERY Phase-4 channel in one fight — `AnyEnemyByName:
+  Goblin` (the Goblin started **Poisoned** via `initial_status`; "Goblin" is a real FF9 enemy → the same block
+  buffs real Goblin battles, the campaign-wide win), `AnyAttackByName: Goblin Punch` (neutered to **power 1**),
+  the `back_attack` **scene flag** (party started reversed), and a guaranteed `drop_rates` **Elixir**. So all
+  selectors + the BP-only rate arrays + scene flags are in-game proven.
 
 ### Phase 5 — character/growth CSV deltas
 `BaseStats.csv` (partial), `Leveling.csv` (**whole-file, 99 rows**), `AbilityGems.csv`, optionally

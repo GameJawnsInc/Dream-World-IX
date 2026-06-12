@@ -176,6 +176,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   and went invisible from Vanish). So the **enemy `AA_DATA` attack lever** (untouchable by the kit before) works
   by name via BattlePatch. (Lesson for authors: `status_set` is a `StatusSetId` row — 16 = the Dispel bundle,
   Poison = 20; pick the row you mean.)
+- ★ **FULLY PROVEN (2026-06-12):** a follow-up confirmed every Phase-4 channel in one fight — `AnyEnemyByName:
+  Goblin` (the Goblin started **Poisoned** via `initial_status`; since "Goblin" is a real FF9 enemy, that one
+  block also buffs real Goblin battles — the campaign-wide win over Hades Workshop), `AnyAttackByName: Goblin
+  Punch` (neutered to **power 1**), the `back_attack` **scene flag** (party started reversed), and a guaranteed
+  `drop_rates` **Elixir**. Every selector + the BP-only rate arrays + scene flags are now in-game proven.
 
 ### Fixed — `deploy_field` DictionaryPatch revert is now surgical (was clobbering co-deployed registrations)
 - `deploy_field`'s generated revert restored the **whole** pre-deploy `DictionaryPatch.txt` snapshot, so when a
