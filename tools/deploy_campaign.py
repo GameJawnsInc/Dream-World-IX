@@ -7,12 +7,16 @@ deploy_field's: ONE set-wide snapshot of the campaign mod folder + a WHOLESALE r
 (never a per-id DictionaryPatch merge -- that's the sibling-clobber bug CLAUDE.md §3 documents) + ONE
 ``revert_campaign.py`` that restores the snapshot.
 
-New-Game entry reuses the proven ``newgame_warp.py``: it patches the shared ``FF9CustomMap`` field-100 (+
-field-70 with --stock) overrides to route New Game -> field 70 -> field 100 (entrance 231) -> the campaign's
-entry field, so the player arrives WITH a party (NewGame() doesn't create one; field 100 does). The entry
-id is globally registered (every mod folder's DictionaryPatch is merged at launch), so the warp target lands
-even though it lives in a different folder than the warp. Because that warp edits FF9CustomMap (not the
-campaign's mod folder), ``revert_campaign.py`` undoes BOTH the folder snapshot AND the warp.
+New-Game entry uses the proven ``retarget_newgame_warp.py``: it byte-patches the shared ``FF9CustomMap``
+field-70 opening override (``evt_alex1_ts_opening``) so its ``Field()`` literal points straight at the
+campaign's entry id -- New Game -> field 70 -> Field(entry). (NewGame() is stock -> ``fldMapNo`` 70, so
+field 70 IS the real New-Game field; a self-seeding verbatim chain bakes its own party/beat via
+``[startup]``/``[party]``, so the old field-100 party-setup hop isn't needed -> memory
+``project-ff9-new-game-entry``. This SUPERSEDES the old field-100-hop ``newgame_warp.py``, whose injection
+site doesn't exist on every install.) The entry id is globally registered (every folder's DictionaryPatch
+merges at launch), so the target lands even though it lives in a different folder than the override. Because
+that retarget edits FF9CustomMap (not the campaign's mod folder), ``revert_campaign.py`` undoes BOTH the
+folder snapshot AND the retarget.
 
 Two productionization guards (the lessons from the Dali-chain session) run automatically:
   * NAME-COLLISION CHECK -- scene (``FBG_*``) and event (``EVT_*.eb.bytes``) files resolve BY NAME,
@@ -31,7 +35,7 @@ one relaunch) and PLAYTEST.
 
 Usage:
   py tools/deploy_campaign.py <campaign.toml>                 # dry-run (prints the plan + guards)
-  py tools/deploy_campaign.py <campaign.toml> --apply --stock # install + wire New Game (stock+F6 engine)
+  py tools/deploy_campaign.py <campaign.toml> --apply         # install + wire New Game (retarget field-70)
 """
 from __future__ import annotations
 
@@ -167,7 +171,7 @@ def main(argv=None) -> int:
     ap.add_argument("--mod-folder", dest="mod_folder", default=None,
                     help="Memoria mod folder to install into (default: .ff9deploy.toml / $FF9_MOD_FOLDER)")
     ap.add_argument("--entry", default=None, help="New-Game entry: member name, field id, or omit for the manifest entry")
-    ap.add_argument("--stock", action="store_true", help="add the field-70->field-100 hop (stock + F6 engine)")
+    ap.add_argument("--stock", action="store_true", help=argparse.SUPPRESS)  # deprecated/no-op (field-70 retarget is universal)
     ap.add_argument("--out-dist", dest="out_dist", default=None, help="where to stage the build (default: temp)")
     ap.add_argument("--allow-artless", action="store_true", dest="allow_artless",
                     help="install editable members that lack exported art (they render with NO background)")
@@ -182,6 +186,9 @@ def main(argv=None) -> int:
                     help="folder to promote start-state CSVs into (default: the highest Memoria.ini FolderNames folder)")
     ap.add_argument("--apply", action="store_true", help="ACTUALLY touch the game (default: dry-run, prints the plan)")
     args = ap.parse_args(argv)
+    if args.stock:
+        print("note: --stock is deprecated and ignored -- deploy_campaign now retargets the field-70 override "
+              "directly (New Game -> field 70 -> Field(entry)); there is no field-100 hop.", file=sys.stderr)
 
     target = Path(args.target)
     mod_folder = resolve_mod_folder(args.mod_folder)
@@ -223,8 +230,7 @@ def main(argv=None) -> int:
     print(f"campaign '{plan.name}'  ->  mod folder '{mod_folder}'  ({live_root})")
     print(f"  members: {len(plan.members)}  ids {member_ids[0]}..{member_ids[-1]}")
     print(f"  New Game entry: {entry_name} (field {entry_id})")
-    route = (f"New Game -> field 70 -> field 100 (entrance 231) -> field {entry_id}" if args.stock
-             else f"New Game (dev engine) -> field 100 (entrance 231) -> field {entry_id}")
+    route = f"New Game -> field 70 override -> Field({entry_id})  (direct retarget)"
     print(f"  route: {'(skipped --no-warp)' if args.no_warp else route}")
     print("  dist will contain:")
     for line in expected_dist_summary(plan):
@@ -306,18 +312,23 @@ def main(argv=None) -> int:
     shutil.copytree(dist_root, live_root)
     print(f"installed dist -> {live_root}  ({len(plan.members)} fields)")
 
-    # (5) New-Game wiring via the proven newgame_warp.py (patches the SHARED FF9CustomMap field-100/70
-    #     overrides; the entry id is globally registered so the warp lands). Reversible separately.
+    # (5) New-Game wiring via the proven retarget_newgame_warp.py: byte-patch the SHARED FF9CustomMap field-70
+    #     opening override's Field() literal -> the entry id (New Game -> field 70 -> Field(entry)). NewGame() is
+    #     stock -> fldMapNo 70, so field 70 IS the real entry; a self-seeding verbatim chain bakes its party/beat
+    #     via [startup]/[party], so no field-100 hop is needed (memory project-ff9-new-game-entry). This SUPERSEDES
+    #     the old newgame_warp.py, whose field-100 injection site doesn't exist on every install. Reversible
+    #     separately (revert_newgame_retarget.py); the entry id is globally registered so the warp lands.
     warp_revert = None
     if not args.no_warp:
-        cmd = [sys.executable, str(HERE / "newgame_warp.py"), str(entry_id)] + (["--stock"] if args.stock else [])
-        print(f"wiring New Game: {' '.join(cmd)}")
+        cmd = [sys.executable, str(HERE / "retarget_newgame_warp.py"), str(entry_id)]
+        print(f"wiring New Game: field-70 override -> Field({entry_id})")
         rc = subprocess.run(cmd, cwd=str(REPO)).returncode
         if rc != 0:
-            print("  WARNING: newgame_warp failed (FF9CustomMap field-100/70 overrides missing?). The campaign\n"
-                  "  is installed; wire New Game manually once those overrides exist, or reach fields via F6 Warp.")
+            print("  WARNING: retarget_newgame_warp failed (no field-70 override evt_alex1_ts_opening.eb.bytes in a\n"
+                  "  FolderNames folder?). The campaign is installed; wire New Game once that override exists, or\n"
+                  "  reach the chain via F6 -> Warp.")
         else:
-            wr = HERE / "scroll_out" / "revert_newgame_warp.py"
+            wr = HERE / "scroll_out" / "revert_newgame_retarget.py"
             warp_revert = wr if wr.is_file() else None
 
     # prepare the revert emitter up front: the campaign is already installed + wired, so a LATER partial failure
@@ -374,7 +385,7 @@ def main(argv=None) -> int:
     print("   FieldScene lines only register on a fresh launch (F6 Reload alone won't register a new id).")
     print(f"3. New Game now lands in {entry_name} (field {entry_id}).  F6 -> Warp reaches any member.")
     if not args.no_warp and warp_revert is not None:
-        print("   (New-Game route patched the SHARED FF9CustomMap field-100/70 overrides -- only one campaign")
+        print("   (New-Game route retargeted the SHARED FF9CustomMap field-70 override -- only one campaign")
         print("    can own New Game at a time; revert_campaign.py undoes it.)")
     if will_promote and csv_reverts:
         print(f"   (start-state CSVs were promoted to \"{highest}\" so the New-Game bag/gear win -- also a")

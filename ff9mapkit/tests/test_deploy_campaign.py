@@ -58,6 +58,15 @@ def test_render_revert_valid_and_complete(tmp_path):
     assert "runpy" not in no_warp                                    # no warp -> no warp-revert step
 
 
+def test_wires_newgame_via_retarget_not_legacy():
+    # New Game must be wired by RETARGETING the field-70 override (the proven, install-robust path), NOT the
+    # legacy field-100-hop newgame_warp.py whose injection site doesn't exist on every install.
+    src = (REPO / "tools" / "deploy_campaign.py").read_text(encoding="utf-8")
+    assert "retarget_newgame_warp.py" in src          # the field-70 direct retarget tool
+    assert "revert_newgame_retarget.py" in src        # ...and its revert is chained into revert_campaign.py
+    assert "revert_newgame_warp.py" not in src        # the legacy field-100-hop revert is gone
+
+
 def test_folder_order(tmp_path):
     g = tmp_path / "game"
     g.mkdir()

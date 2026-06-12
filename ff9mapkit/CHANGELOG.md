@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `deploy_campaign` wires New Game via the field-70 retarget, not the legacy field-100 hop (0.9.55)
+- `deploy_campaign --apply` now wires New Game by calling `tools/retarget_newgame_warp.py` (byte-patch the shared
+  field-70 opening override's `Field()` literal → the chain's entry id: New Game → field 70 → `Field(entry)`)
+  instead of the old `newgame_warp.py` field-100 hop, whose injection site (a `RunSoundCode` after the InitRegion
+  cluster) doesn't exist on every install — it **silently failed on the live install**, leaving New-Game wiring to
+  depend on a manual retarget. `NewGame()` is stock → `fldMapNo` 70, so field 70 IS the New-Game field; a
+  self-seeding verbatim chain bakes its party/beat via `[startup]`/`[party]`, so the field-100 party-setup hop isn't
+  needed (memory `project-ff9-new-game-entry`). `--stock` is now a deprecated no-op; `revert_campaign.py` chains the
+  retarget's revert. Surfaced by running the productionized `--apply` live (the warp step errored, the new guards
+  worked). +1 regression-guard test.
+
 ### Added — save-item editor #5 step 4c: the Item & Equipment GUI (`apps/ff9_items.pyw`), IN-GAME PROVEN (0.9.54)
 - A standalone tkinter app — the item/equip companion to the Story State console — to inspect + EDIT a save's
   gil, inventory and equipment by name, with a click. A **SEPARATE surface** (touches only `save_items`, never
