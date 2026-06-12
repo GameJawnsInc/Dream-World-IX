@@ -521,6 +521,18 @@ def validate(project: FieldProject) -> list[str]:
         problems += _bp.validate_blocks(project.raw.get("battle_patch", []),
                                         project.raw.get("battle_enemy", []),
                                         project.raw.get("battle_attack", []))
+    # [[character]] / [[leveling]] -- player-side balance CSV deltas (structural + range; name->id + base-row
+    # read happen at build, which has the install). BaseStats per-id partial; Leveling whole-file (99 rows).
+    if project.raw.get("character") or project.raw.get("leveling"):
+        from .battle import characterdelta as _cdelta
+        _chars = project.raw.get("character", [])
+        _levels = project.raw.get("leveling", [])
+        _chars = _chars if isinstance(_chars, list) else [_chars]      # never traceback on a malformed block
+        _levels = _levels if isinstance(_levels, list) else [_levels]
+        for q, c in enumerate(_chars):
+            problems += [f"[[character]] #{q}: {p}" for p in _cdelta.validate_character(c)]
+        for q, lv in enumerate(_levels):
+            problems += [f"[[leveling]] #{q}: {p}" for p in _cdelta.validate_leveling(lv)]
     for la in project.raw.get("ladder", []):
         if la.get("navigable"):                      # NAVIGABLE (FF9's real ladder mechanism, recreated)
             rungs = la.get("rungs")
@@ -2949,6 +2961,30 @@ def _emit_battle_data(projects, layout) -> list:
         raise BuildError(str(ex))
 
 
+def _emit_character_data(projects, layout) -> list:
+    """Emit the mod-GLOBAL player-side balance CSVs from every project's ``[[character]]`` (BaseStats.csv, per-id
+    partial delta) / ``[[leveling]]`` (Leveling.csv, WHOLE-FILE 99 rows) blocks. Always-on global data,
+    aggregated across ALL fields. Reads the base CSVs from the install; raises BuildError on a bad entry."""
+    # normalize a single-table [character]/[leveling] (a dict) to a one-element list, matching validate_field --
+    # so a `[character]` typo (vs the array-of-tables `[[character]]`) builds the same one entry the lint sees,
+    # instead of iterating the dict's KEYS into a misleading "must be a table (got str)" error.
+    def _blocks(key):
+        out = []
+        for p in projects:
+            b = p.raw.get(key, [])
+            out += b if isinstance(b, list) else [b]
+        return out
+    characters = _blocks("character")
+    levelings = _blocks("leveling")
+    if not characters and not levelings:
+        return []
+    from .battle import characterdelta as _cdelta
+    try:
+        return _cdelta.write_character_data(layout, characters=characters, levelings=levelings)
+    except _cdelta.CharacterDeltaError as ex:
+        raise BuildError(str(ex))
+
+
 def _emit_battle_patch(projects) -> tuple:
     """Aggregate every project's ``[[battle_patch]]`` (scene-scoped) + ``[[battle_enemy]]`` / ``[[battle_attack]]``
     (global by-name) blocks -> (battle_patch_lines, warnings). Mod-GLOBAL reflection patches (always-on, not
@@ -3072,6 +3108,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings = _emit_start_state(projects, layout, entry_project)
     start_warnings += _emit_shops(projects, layout)
     start_warnings += _emit_battle_data(projects, layout)
+    start_warnings += _emit_character_data(projects, layout)
     start_warnings += bp_warnings
 
     layout.mod_description.write_text(

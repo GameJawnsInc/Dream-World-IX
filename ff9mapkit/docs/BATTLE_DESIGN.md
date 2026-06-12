@@ -441,10 +441,19 @@ tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is t
   the `back_attack` **scene flag** (party started reversed), and a guaranteed `drop_rates` **Elixir**. So all
   selectors + the BP-only rate arrays + scene flags are in-game proven.
 
-### Phase 5 — character/growth CSV deltas
-`BaseStats.csv` (partial), `Leveling.csv` (**whole-file, 99 rows**), `AbilityGems.csv`, optionally
-`Commands/CommandSets`. Pairs with story_flags' `[party]`/`[startup]`. **Explicitly NOT `BattleParameters.csv`**
-(cosmetic only).
+### Phase 5 — character/growth CSV deltas ✅ DONE (kit 0.9.58)
+`battle/characterdelta.py` — the PLAYER side of balance (the `actiondelta` twin), read-live `Data/Characters`
+deltas: **`[[character]]` → BaseStats.csv** (`dexterity`/`strength`/`magic`/`will`/`gems` by name/0-11 id; per-id
+PARTIAL delta, `EnumerateCsvFromLowToHigh`) + **`[[leveling]]` → Leveling.csv** (`exp`/`bonus_hp`/`bonus_mp` by
+`level=1..99`; **WHOLE-FILE** — `GetCsvWithHighestPriority` + a ≥99-row gate, so we read the base 99 live, patch,
+and re-emit ALL 99; HP=`BonusHP·Str/50`, MP=`BonusMP·Mag/100`). Range-checked offline vs the real column types
+(Byte/UInt16/UInt32); `CharacterId` name table committed (the enum), stat values read live. Wired mod-global into
+`build`/`validate_field`/`deploy_field` + the deploy-time shadow guard (Leveling is whole-file like InitialItems);
+CLI `characters`. ★ A 4-lens adversarial review caught a provenance leak (a fixture row matched the install —
+de-leaked), the missing Leveling shadow guard (added), and a `[character]` vs `[[character]]` build/lint
+disagreement (normalized). 15 tests + real-install smoke. *In-game proof = the human step.* **Deferred (Phase 5b):**
+`AbilityGems.csv` (needs a SupportAbility name table), `CharacterParameters.csv` (mostly menu/row), `Commands`/
+`CommandSets`. **Explicitly NOT `BattleParameters.csv`** (cosmetic only — model/anims).
 
 ### Phase 6 — enemy-AI authoring (highest ceiling, hardest)
 Substrate exists (`EbScript` round-trips; `replace_function_body`/`add_function` byte-safe). Needs a

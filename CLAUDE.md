@@ -389,10 +389,10 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 - World Hub — a playable journey selector (choice `warp` action + `[player] model=` moogle PC); MVP scaffold IN-GAME PROVEN (talk→pick→warp) → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.55, 1153 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
+**Latest:** kit 0.9.58, 1177 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
 folder + ABORT on a cross-folder EVT/FBG name collision; wires New Game via the field-70 retarget, not the broken
 field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain. World-Hub scaffold IN-GAME PROVEN (the select→warp loop).
-Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4: raw16 full codec + golden
+Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4/5: raw16 full codec + golden
 round-trip; `[scene]` combat-identity tuning by name; `battle-actions` / `battle-scene` catalogs; the **offline
 balance-lint** `scenelint.py`; **`[[battle_action]]`/`[[status]]`** CSV-delta ability/status rebalancing; **Phase 4 —
 the `BattlePatch.txt` emitter** (`battlepatch.py`): `[[battle_patch]]` (scene-scoped) + `[[battle_enemy]]`/
@@ -404,14 +404,18 @@ phys-def wall + AP; P4: a `[[battle_patch.attack]]` patched the enemy's normal a
 `status_set` both landed, the inflicted `StatusSets.csv` bundle showed in-game = the `AA_DATA` enemy-attack lever
 works by name; FULLY PROVEN — a follow-up confirmed `AnyEnemyByName: Goblin` (started Poisoned), `AnyAttackByName:
 Goblin Punch` (power→1), the `back_attack` scene flag, and a guaranteed `drop_rates` Elixir, i.e. the
-campaign-wide by-name channel + BP-only levers + scene flags in one fight). ★ Phases 2/3/4 each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
+campaign-wide by-name channel + BP-only levers + scene flags in one fight). **Phase 5 — player-side CSVs**
+(`characterdelta.py`): `[[character]]`→BaseStats.csv (per-id partial) + `[[leveling]]`→Leveling.csv (WHOLE-FILE,
+read base 99 / patch / re-emit all 99); range-checked, provenance-clean, + the Leveling deploy shadow-guard; CLI
+`characters`. ★ Phases 2/3/4/5 each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
 a boot-crash range bug + the cp1252 encoding; Phase 4: caught a `StatusSetId` over-range KeyNotFound crash, a
-malformed-toml traceback, + a silent dead-`Battle:` selector) → [[project-ff9-battle-tuning]],
-`docs/BATTLE_DESIGN.md`. Next: Phase 5 (character/growth CSVs). Frontier: #13 (story-event director/roster on
-rotating-cast fields) — ★ **core PROVEN** (a `--verbatim` fork + `[startup]` shows a beat-correct rotating
-roster: forking Dali Weapon Shop 354 at SC 2600 vs 11090, the shopkeeper changed + an NPC appeared, in-game
-2026-06-12); narrowed to a roster-by-beat analyzer + synthesized-fork director classify/skip + multi-instance
-sub-bugs → [[project-ff9-fork-fidelity-worklist]].
+malformed-toml traceback, + a silent dead-`Battle:` selector; Phase 5: caught a fixture provenance leak + a
+missing whole-file shadow-guard) → [[project-ff9-battle-tuning]],
+`docs/BATTLE_DESIGN.md`. Next: Phase 6 (enemy-AI `.eb` authoring) or Phase 5b (AbilityGems/Commands CSVs).
+Frontier: #13 (story-event director/roster on rotating-cast fields) — ★ **core PROVEN** (a `--verbatim` fork +
+`[startup]` shows a beat-correct rotating roster: forking Dali Weapon Shop 354 at SC 2600 vs 11090, the shopkeeper
+changed + an NPC appeared, in-game 2026-06-12); narrowed to a roster-by-beat analyzer + synthesized-fork director
+classify/skip + multi-instance sub-bugs → [[project-ff9-fork-fidelity-worklist]].
 
 ---
 

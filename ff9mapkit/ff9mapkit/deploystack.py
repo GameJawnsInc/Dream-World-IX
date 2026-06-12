@@ -101,10 +101,13 @@ def shadow_warning(report: ShadowReport, mod_folder: str | None = None) -> str |
             f"'{report.shadowed_by}'s text, not yours.{fix}")
 
 
-# Relative path (within a mod folder) of the one item CSV the engine reads HIGHEST-PRIORITY-WINS. The starting
-# bag is loaded via GetCsvWithHighestPriority -> a single folder's whole file wins; the others (ShopItems /
-# DefaultEquipment) MERGE low->high by id, so a stacked folder only collides per-id, not whole-file.
-HIGHEST_WINS_CSVS = ("StreamingAssets/Data/Items/InitialItems.csv",)
+# Relative paths (within a mod folder) of the CSVs the engine reads HIGHEST-PRIORITY-WINS (whole-file): the
+# starting bag (GetCsvWithHighestPriority) and the 99-row growth curve (Leveling.csv, ff9level.cs:53). A single
+# folder's whole file wins outright -> a higher-priority stacked folder SHADOWS the lower one's copy entirely.
+# The other CSVs (ShopItems / DefaultEquipment / BaseStats / Actions / StatusData) MERGE low->high by id, so a
+# stacked folder only collides per-id, NOT whole-file -- they are deliberately NOT listed here.
+HIGHEST_WINS_CSVS = ("StreamingAssets/Data/Items/InitialItems.csv",
+                     "StreamingAssets/Data/Characters/Leveling.csv")
 
 
 def check_csv_shadow(game_dir, target_folder: str, csv_relpath: str,

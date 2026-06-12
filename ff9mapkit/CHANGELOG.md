@@ -33,6 +33,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   for gil AND items, via CLI + GUI.** The #5 editor is now functionally complete (extra: gil/items/equip; main
   block: gil/items); only main-block equipment + key items remain, both deferred.
 
+### Added — battle-tuning Phase 5: character/growth CSV deltas (`[[character]]` / `[[leveling]]`) (0.9.58)
+- **`battle/characterdelta.py`** — the PLAYER side of battle balance (the Phase-3 `actiondelta` twin for the
+  enemy/ability side), as `Data/Characters` CSV deltas read live from the install:
+  - `[[character]]` → **BaseStats.csv** (`dexterity`/`strength`/`magic`/`will`/`gems` by character name or 0-11
+    id) — a **per-id partial delta** (`EnumerateCsvFromLowToHigh`, `ff9level.cs:30`): only the changed characters
+    are emitted, the base supplies the other 11.
+  - `[[leveling]]` → **Leveling.csv** (`exp`/`bonus_hp`/`bonus_mp` by `level = 1..99`) — the 99-step growth curve.
+    The engine reads this **WHOLE-FILE** (`GetCsvWithHighestPriority`, `ff9level.cs:53`) and gates at ≥99 rows, so
+    a partial would *wipe* the curve → the emitter reads the base 99 rows live, patches the named levels, and
+    re-emits ALL 99 (HP grows `BonusHP·Strength/50`, MP `BonusMP·Magic/100`).
+- Range-checked offline against the real C# column types (Dex/Str/Mag/Will = Byte, Gems = UInt32, Exp = UInt32,
+  BonusHP/BonusMP = UInt16) so an out-of-range value fails the build, not the game's boot. The `CharacterId`
+  name→id table is the open-source Memoria enum (provenance-clean); stat **values are read live, never committed**.
+- Wired mod-global into `build` (`_emit_character_data`), offline lint into `validate_field`, both CSVs into
+  `deploy_field`'s reversible deploy, and **Leveling into the deploy-time shadow guard** (`deploystack`, whole-file
+  like `InitialItems`). CLI **`characters`** lists the live base stats (the tuning targets). `ModLayout` paths.
+- ★ A 4-lens adversarial review (engine source + the live CSVs) verified the column layout, the whole-file
+  Leveling handling, the range guards, and the merge model, and caught: a **provenance leak** (a test fixture row
+  was byte-identical to the real install — de-leaked), the **missing Leveling shadow guard** (added), and a
+  single-table `[character]` vs `[[character]]` build/lint disagreement (now normalized). 15 tests + a real-install
+  smoke; *in-game proof (the tuned stats/curve) is the human step.*
+
 ### Added — save-item editor #5 step 4b: encrypted MAIN-block gil write + dual-write (edit vanilla saves), IN-GAME PROVEN (0.9.56)
 - The editor can now write the **encrypted main AES block** of a `SavedData_ww.dat`, not just the Memoria extra
   file — so a **vanilla save with no Memoria extra is now editable**, and a Memoria save's main block is kept

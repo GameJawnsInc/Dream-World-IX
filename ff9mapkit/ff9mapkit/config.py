@@ -224,6 +224,18 @@ class ModLayout:
         a partial delta (only the statuses you change) works; the base supplies the other 33 rows."""
         return self.root / "StreamingAssets" / "Data" / "Battle" / "StatusData.csv"
 
+    @property
+    def base_stats_csv(self) -> Path:
+        """Per-character base combat stats (``Data/Characters/BaseStats.csv``). MERGED by CharacterId low->high
+        -> a partial delta (only the characters you change) works; the base supplies the other 11."""
+        return self.root / "StreamingAssets" / "Data" / "Characters" / "BaseStats.csv"
+
+    @property
+    def leveling_csv(self) -> Path:
+        """The 99-row growth curve (``Data/Characters/Leveling.csv``). HIGHEST-priority-wins (WHOLE-FILE, gated at
+        >=99 rows) -> a mod must emit the FULL 99-row file, and a stacked folder SHADOWS it (lint)."""
+        return self.root / "StreamingAssets" / "Data" / "Characters" / "Leveling.csv"
+
     def ensure_dirs(self, fbg_name: str | None = None, *, bbg: str | None = None,
                     langs: tuple[str, ...] = LANGS) -> None:
         """Create the directory skeleton a field (and/or battle-map) write needs."""

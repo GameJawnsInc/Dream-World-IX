@@ -791,6 +791,23 @@ def _cmd_battle_actions(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_characters(args: argparse.Namespace) -> int:
+    """List the playable characters' base combat stats (BaseStats.csv, read-live) -- the ``[[character]]``
+    targets. The player side of battle tuning; the growth curve = ``[[leveling]]`` (Leveling.csv)."""
+    _safe_console()
+    from .battle import characterdelta as CD
+    cat = CD.basestats_catalog(game=args.game)
+    if cat is None:
+        print("needs your FF9 install (StreamingAssets/Data/Characters/BaseStats.csv); set FF9_GAME_PATH "
+              "or run from the game dir.", file=sys.stderr)
+        return 2
+    for name, cid, stats in cat:
+        print(f"  {cid:>2}  {name:<10}  " + "  ".join(f"{s[:3].title()} {v}" for s, v in stats))
+    print(f"\n{len(cat)} characters -- the [[character]] targets (BaseStats.csv, partial per-id delta). The "
+          "99-step\ngrowth curve is Leveling.csv ([[leveling]] level = N, whole-file).")
+    return 0
+
+
 def _cmd_battle_patch(args: argparse.Namespace) -> int:
     """Preview the ``BattlePatch.txt`` a field.toml's ``[[battle_patch]]`` / ``[[battle_enemy]]`` /
     ``[[battle_attack]]`` blocks emit (offline, no install) -- or, with ``--fields``, the catalog of tunable
@@ -1780,6 +1797,10 @@ def build_parser() -> argparse.ArgumentParser:
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")
     bsc.add_argument("donor", help="battle scene name to inspect, e.g. EF_R007 (see `battle-list --scenes`)")
     bsc.set_defaults(func=_cmd_battle_scene)
+
+    ch = sub.add_parser("characters",
+                        help="list the playable characters' base stats (the [[character]] / [[leveling]] targets)")
+    ch.set_defaults(func=_cmd_characters)
 
     bp = sub.add_parser("battle-patch",
                         help="preview the BattlePatch.txt a field.toml emits (enemy/attack/scene tuning by name)")
