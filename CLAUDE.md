@@ -389,7 +389,7 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 - World Hub — a playable journey selector (choice `warp` action + `[player] model=` moogle PC); MVP scaffold IN-GAME PROVEN (talk→pick→warp) → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.60, 1195 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
+**Latest:** kit 0.9.61, 1200 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
 folder + ABORT on a cross-folder EVT/FBG name collision; wires New Game via the field-70 retarget, not the broken
 field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain. World-Hub scaffold IN-GAME PROVEN (the select→warp loop).
 Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4/5: raw16 full codec + golden
@@ -408,7 +408,9 @@ campaign-wide by-name channel + BP-only levers + scene flags in one fight). **Ph
 (`characterdelta.py`): `[[character]]`→BaseStats.csv (per-id partial) + `[[leveling]]`→Leveling.csv (WHOLE-FILE,
 read base 99 / patch / re-emit all 99); range-checked, provenance-clean, + the Leveling deploy shadow-guard; CLI
 `characters`. ★ **IN-GAME PROVEN** — a `[[character]]` boost of Vivi + `[party] add` on a New-Game field showed
-her tuned stats (40/80/90/45) in the status menu at a fresh New Game (BaseStats lands at the New-Game party build). ★ Phases 2/3/4/5 each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
+her tuned stats (40/80/90/45) in the status menu at a fresh New Game (BaseStats lands at the New-Game party build).
+**Phase 5b** (`[[ability_gem]]` → AbilityGems.csv): re-cost a support ability's gem requirement by name/id
+(committed SupportAbility table; `#! IncludeBoosted` preserved); CLI `ability-gems`. ★ Phases 2/3/4/5 each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
 a boot-crash range bug + the cp1252 encoding; Phase 4: caught a `StatusSetId` over-range KeyNotFound crash, a
 malformed-toml traceback, + a silent dead-`Battle:` selector; Phase 5: caught a fixture provenance leak + a
 missing whole-file shadow-guard) → [[project-ff9-battle-tuning]],

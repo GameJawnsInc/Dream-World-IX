@@ -808,6 +808,25 @@ def _cmd_characters(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ability_gems(args: argparse.Namespace) -> int:
+    """List the support abilities + their gem COSTS (AbilityGems.csv, read-live) -- the ``[[ability_gem]]``
+    targets. Re-costing a support ability is the build-economy balance lever."""
+    _safe_console()
+    from .battle import characterdelta as CD
+    cat = CD.ability_gems_catalog(game=args.game)
+    if cat is None:
+        print("needs your FF9 install (StreamingAssets/Data/Characters/Abilities/AbilityGems.csv); set "
+              "FF9_GAME_PATH or run from the game dir.", file=sys.stderr)
+        return 2
+    f = (args.filter or "").lower()
+    rows = [r for r in cat if not f or f in r[0].lower()]
+    for name, aid, gems in rows:
+        print(f"  {aid:>2}  {name:<16}  {gems:>3} gems")
+    print(f"\n{len(rows)} support abilities -- the [[ability_gem]] targets (AbilityGems.csv, partial per-id "
+          "delta).\n[[ability_gem]] ability = \"<name or id>\", gems = N (re-cost it; cheaper = stronger builds).")
+    return 0
+
+
 def _cmd_battle_patch(args: argparse.Namespace) -> int:
     """Preview the ``BattlePatch.txt`` a field.toml's ``[[battle_patch]]`` / ``[[battle_enemy]]`` /
     ``[[battle_attack]]`` blocks emit (offline, no install) -- or, with ``--fields``, the catalog of tunable
@@ -1807,6 +1826,11 @@ def build_parser() -> argparse.ArgumentParser:
     ch = sub.add_parser("characters",
                         help="list the playable characters' base stats (the [[character]] / [[leveling]] targets)")
     ch.set_defaults(func=_cmd_characters)
+
+    ag = sub.add_parser("ability-gems",
+                        help="list support abilities + gem costs (the [[ability_gem]] targets)")
+    ag.add_argument("-f", "--filter", help="only show abilities whose name contains this")
+    ag.set_defaults(func=_cmd_ability_gems)
 
     bp = sub.add_parser("battle-patch",
                         help="preview the BattlePatch.txt a field.toml emits (enemy/attack/scene tuning by name)")

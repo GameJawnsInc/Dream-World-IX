@@ -236,6 +236,12 @@ class ModLayout:
         >=99 rows) -> a mod must emit the FULL 99-row file, and a stacked folder SHADOWS it (lint)."""
         return self.root / "StreamingAssets" / "Data" / "Characters" / "Leveling.csv"
 
+    @property
+    def ability_gems_csv(self) -> Path:
+        """Support-ability gem COSTS (``Data/Characters/Abilities/AbilityGems.csv``). MERGED per-SupportAbility
+        low->high -> a partial delta (only the abilities you re-cost) works; the base supplies the other 63."""
+        return self.root / "StreamingAssets" / "Data" / "Characters" / "Abilities" / "AbilityGems.csv"
+
     def ensure_dirs(self, fbg_name: str | None = None, *, bbg: str | None = None,
                     langs: tuple[str, ...] = LANGS) -> None:
         """Create the directory skeleton a field (and/or battle-map) write needs."""

@@ -22,6 +22,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - +9 tests (`test_forkreport`): the condition decode, the symbolic walk (dispatch chain / if-else / non-SC
   fall-through / backward-jump), and an install-gated Dali rotation assertion.
 
+### Added — battle-tuning Phase 5b: support-ability gem-cost deltas (`[[ability_gem]]`) (0.9.61)
+- **`[[ability_gem]]` → `Data/Characters/Abilities/AbilityGems.csv`** (in `battle/characterdelta.py`) — re-cost a
+  support ability's gem requirement, the build-economy balance lever (cheaper Auto-Haste = stronger builds). A
+  per-SupportAbility **partial delta** (`EnumerateCsvFromLowToHigh`, `ff9abil.cs:409`): only the changed rows are
+  emitted, the base supplies the other 63. `ability` resolves a SupportAbility by name (the enum `AutoHaste`, the
+  CSV display `Auto-Haste`/`HP+10%`, or a 0-63 id) via a committed name table; `gems` sets `GemsCount`.
+- The **`#! IncludeBoosted`** option line + the Boosted column are preserved verbatim (load-bearing: the engine
+  parses Boosted only when that option is present). Range-checked offline; the SupportAbility name table is the
+  open-source Memoria enum (provenance-clean), gem **values read live, never committed**.
+- Wired mod-global into `build`/`validate_field`/`deploy_field`. CLI **`ability-gems`** lists the abilities +
+  live costs (the tuning targets; `-f` filter).
+- ★ A 3-lens adversarial review (engine source + the live 64-row CSV) verified the name table (64/64 vs the
+  enum), the `#! IncludeBoosted`/Boosted handling, the partial-merge + coverage gate, and provenance, and caught
+  one real gap: the CSV display name **"Odin's Sword"** (the only possessive) normalized to `odinssword` ≠ the
+  enum `OdinSword`→`odinsword`, so copying the catalog-printed name failed to resolve — aliased (now every one of
+  the 64 displayed names round-trips). 6 tests + a real-install smoke; *in-game proof is the human step.*
+
 ### Added — save-item editor #5 step 4b: main-block EQUIPMENT (vanilla saves fully editable), IN-GAME PROVEN (0.9.59)
 - The last deferred piece: a **vanilla (no-extra) save's EQUIPMENT** is now editable, completing the editor.
 - ★ **Layout finding (empirical):** the old format stores **9 player structs of 244 bytes**, each with a

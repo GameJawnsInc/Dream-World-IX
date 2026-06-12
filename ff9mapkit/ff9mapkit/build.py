@@ -521,18 +521,19 @@ def validate(project: FieldProject) -> list[str]:
         problems += _bp.validate_blocks(project.raw.get("battle_patch", []),
                                         project.raw.get("battle_enemy", []),
                                         project.raw.get("battle_attack", []))
-    # [[character]] / [[leveling]] -- player-side balance CSV deltas (structural + range; name->id + base-row
-    # read happen at build, which has the install). BaseStats per-id partial; Leveling whole-file (99 rows).
-    if project.raw.get("character") or project.raw.get("leveling"):
+    # [[character]] / [[leveling]] / [[ability_gem]] -- player-side balance CSV deltas (structural + range;
+    # name->id + base-row read happen at build, which has the install). BaseStats/AbilityGems per-id partial;
+    # Leveling whole-file (99 rows).
+    if project.raw.get("character") or project.raw.get("leveling") or project.raw.get("ability_gem"):
         from .battle import characterdelta as _cdelta
-        _chars = project.raw.get("character", [])
-        _levels = project.raw.get("leveling", [])
-        _chars = _chars if isinstance(_chars, list) else [_chars]      # never traceback on a malformed block
-        _levels = _levels if isinstance(_levels, list) else [_levels]
-        for q, c in enumerate(_chars):
+        def _aslist(v):
+            return v if isinstance(v, list) else [v]                   # never traceback on a malformed block
+        for q, c in enumerate(_aslist(project.raw.get("character", []))):
             problems += [f"[[character]] #{q}: {p}" for p in _cdelta.validate_character(c)]
-        for q, lv in enumerate(_levels):
+        for q, lv in enumerate(_aslist(project.raw.get("leveling", []))):
             problems += [f"[[leveling]] #{q}: {p}" for p in _cdelta.validate_leveling(lv)]
+        for q, ag in enumerate(_aslist(project.raw.get("ability_gem", []))):
+            problems += [f"[[ability_gem]] #{q}: {p}" for p in _cdelta.validate_ability_gem(ag)]
     for la in project.raw.get("ladder", []):
         if la.get("navigable"):                      # NAVIGABLE (FF9's real ladder mechanism, recreated)
             rungs = la.get("rungs")
@@ -2976,11 +2977,13 @@ def _emit_character_data(projects, layout) -> list:
         return out
     characters = _blocks("character")
     levelings = _blocks("leveling")
-    if not characters and not levelings:
+    ability_gems = _blocks("ability_gem")
+    if not characters and not levelings and not ability_gems:
         return []
     from .battle import characterdelta as _cdelta
     try:
-        return _cdelta.write_character_data(layout, characters=characters, levelings=levelings)
+        return _cdelta.write_character_data(layout, characters=characters, levelings=levelings,
+                                            ability_gems=ability_gems)
     except _cdelta.CharacterDeltaError as ex:
         raise BuildError(str(ex))
 

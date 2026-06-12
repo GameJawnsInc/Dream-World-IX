@@ -454,9 +454,13 @@ de-leaked), the missing Leveling shadow guard (added), and a `[character]` vs `[
 disagreement (normalized). 15 tests + real-install smoke. ★ **IN-GAME PROVEN (2026-06-12):** a `[[character]]`
 boost of Vivi (40/80/90/45) + `[party] add=["vivi"]` on a New-Game field → at a fresh New Game her status menu
 read Speed 40 / Str 80 / Mag 90 / Spr 45 (vanilla 16/12/24/19) — `[[character]]`→BaseStats.csv lands at the
-New-Game party build (Leveling shares the machinery; its in-game proof is a follow-up). **Deferred (Phase 5b):**
-`AbilityGems.csv` (needs a SupportAbility name table), `CharacterParameters.csv` (mostly menu/row), `Commands`/
-`CommandSets`. **Explicitly NOT `BattleParameters.csv`** (cosmetic only — model/anims).
+New-Game party build (Leveling shares the machinery; its in-game proof is a follow-up).
+**Phase 5b ✅ DONE (kit 0.9.61):** `[[ability_gem]]` → `AbilityGems.csv` (re-cost a support ability's gem
+requirement; per-SupportAbility partial delta, the build-economy lever). `ability` by enum/display name or 0-63
+id (committed SupportAbility name table); `#! IncludeBoosted` + the Boosted column preserved; CLI `ability-gems`.
+A 3-lens review verified the 64-name table + the Boosted handling + provenance, and aliased the one display name
+("Odin's Sword") whose possessive broke resolution. 6 tests. **Still deferred:** `CharacterParameters.csv`
+(mostly menu/row), `Commands`/`CommandSets`. **Explicitly NOT `BattleParameters.csv`** (cosmetic only — model/anims).
 
 ### Phase 6 — enemy-AI authoring (highest ceiling, hardest)
 Substrate exists (`EbScript` round-trips; `replace_function_body`/`add_function` byte-safe). Needs a

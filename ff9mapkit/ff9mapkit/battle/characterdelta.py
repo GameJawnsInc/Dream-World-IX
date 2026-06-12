@@ -29,8 +29,11 @@ the install.
 """
 from __future__ import annotations
 
+import re
+
 _U16 = 0xFFFF
 _U32 = 0xFFFFFFFF
+_I32 = 2 ** 31 - 1
 
 # committed CharacterId name->id (the open-source Memoria enum, CharacterId.cs: Zidane=0 .. Beatrix=11). The
 # 8-11 guests (Cinna/Marcus/Blank/Beatrix) are valid BaseStats ids too. Provenance-clean (enum names, no SE data).
@@ -57,6 +60,32 @@ LEVELING_FIELDS = {
     "bonus_mp": (2, _U16), "mp": (2, _U16),
 }
 _LEVEL_COUNT = 99
+
+# committed SupportAbility names by id (the open-source Memoria enum SupportAbility.cs: id 0-62 real, 63=Void
+# sentinel). Provenance-clean (enum names, no SE data). The CSV's Comment column ("Auto-Reflect") differs from
+# these enum names ("AutoReflect"), so we key by Id and match input by a normalized name (strip non-alphanumerics).
+_SA_NAMES = (
+    "AutoReflect", "AutoFloat", "AutoHaste", "AutoRegen", "AutoLife", "HP10", "HP20", "MP10", "MP20", "Accuracy",
+    "Distract", "LongReach", "MPAttack", "BirdKiller", "BugKiller", "StoneKiller", "UndeadKiller", "DragonKiller",
+    "DevilKiller", "BeastKiller", "ManEater", "HighJump", "MasterThief", "StealGil", "Healer", "AddStatus",
+    "GambleDefence", "Chemist", "PowerThrow", "PowerUp", "ReflectNull", "Reflectx2", "MagElemNull", "Concentrate",
+    "HalfMP", "HighTide", "Counter", "Cover", "ProtectGirls", "Eye4Eye", "BodyTemp", "Alert", "Initiative",
+    "LevelUp", "AbilityUp", "Millionaire", "FleeGil", "GuardianMog", "Insomniac", "Antibody", "BrightEyes",
+    "Loudmouth", "RestoreHP", "Jelly", "ReturnMagic", "AbsorbMP", "AutoPotion", "Locomotion", "ClearHeaded",
+    "Boost", "OdinSword", "Mug", "Bandit", "Void",
+)
+_MAX_SA_ID = len(_SA_NAMES) - 1   # 63 (Void)
+
+
+def _norm_sa(s) -> str:
+    return re.sub(r"[^0-9a-z]", "", str(s).lower())
+
+
+_SA_BY_NORM = {_norm_sa(n): i for i, n in enumerate(_SA_NAMES)}
+# id 60's CSV display Comment is "Odin's Sword" (possessive) -> normalizes to "odinssword" (the apostrophe-s adds
+# an extra 's'), differing from the enum "OdinSword" -> "odinsword". It is the ONLY one of 64 whose display name
+# diverges this way, so alias it -> a user copying the name the `ability-gems` catalog prints resolves correctly.
+_SA_BY_NORM.setdefault("odinssword", 60)
 
 
 class CharacterDeltaError(ValueError):
@@ -132,6 +161,29 @@ def basestats_catalog(game=None):
         stats = [(s, cells[cols[s]].strip()) for s in ("dexterity", "strength", "magic", "will", "gems")
                  if cols.get(s) is not None and cols[s] < len(cells)]
         out.append((name, cid, stats))
+    return sorted(out, key=lambda t: t[1])
+
+
+def ability_gems_catalog(game=None):
+    """``[(name, id, gems)...]`` per SupportAbility from the live AbilityGems.csv, or None if unreadable. The
+    name is the CSV's display Comment (e.g. ``Auto-Reflect``); ``[[ability_gem]]`` accepts that, the enum name
+    (``AutoReflect``), or the id."""
+    try:
+        _h, cols, rows = _read_csv(_csv_path("Abilities/AbilityGems.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError):
+        return None
+    if not cols or not rows:
+        return None
+    nidx, gem_col = cols.get("comment", 0), cols.get("gems", cols.get("gemscount", 2))
+    out = []
+    for cells in rows:
+        try:
+            aid = int(cells[cols["id"]].strip())
+        except (ValueError, IndexError, KeyError):
+            continue
+        name = cells[nidx].strip() if nidx < len(cells) else _SA_NAMES[aid] if aid <= _MAX_SA_ID else str(aid)
+        gems = cells[gem_col].strip() if gem_col < len(cells) else "?"
+        out.append((name, aid, gems))
     return sorted(out, key=lambda t: t[1])
 
 
@@ -242,12 +294,77 @@ def build_leveling_file(entries, *, game=None) -> tuple:
     return "\n".join(out) + "\n", warnings
 
 
+# ---- [[ability_gem]] -> AbilityGems.csv (per-SupportAbility PARTIAL delta; the gem-COST balance lever) -----
+def _resolve_sa_id(token):
+    if token is None or isinstance(token, bool):
+        raise CharacterDeltaError("[[ability_gem]] needs an 'ability' (a SupportAbility name or a 0-63 id)")
+    if isinstance(token, int) or (isinstance(token, str) and token.strip().lstrip("-").isdigit()):
+        aid = int(token)
+        if not 0 <= aid <= _MAX_SA_ID:
+            raise CharacterDeltaError(f"[[ability_gem]] id {aid} out of range (0-{_MAX_SA_ID})")
+        return aid
+    aid = _SA_BY_NORM.get(_norm_sa(token))
+    if aid is None:
+        raise CharacterDeltaError(f"[[ability_gem]] unknown ability {token!r} "
+                                  f"(a SupportAbility name like 'Auto-Haste'/'AutoHaste', or a 0-{_MAX_SA_ID} id)")
+    return aid
+
+
+def build_ability_gems_delta(entries, *, game=None) -> tuple:
+    """Read the base AbilityGems.csv + apply ``[[ability_gem]]`` entries -> (delta_text, warnings). A PARTIAL
+    delta keyed per-SupportAbility (``EnumerateCsvFromLowToHigh``, ff9abil.cs:409); only the changed rows are
+    emitted, the base supplies the other 63. The ``#! IncludeBoosted`` option + the Boosted column are preserved
+    verbatim in the header/rows (load-bearing: the engine parses Boosted only when that option is present)."""
+    try:
+        header, cols, rows = _read_csv(_csv_path("Abilities/AbilityGems.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"[[ability_gem]] needs your FF9 install to read the base AbilityGems.csv ({ex})")
+    if not cols or not rows:
+        raise CharacterDeltaError("could not parse the base AbilityGems.csv (no id-legend / no rows)")
+    if not isinstance(entries, list):
+        raise CharacterDeltaError("[[ability_gem]] must be a list of tables")
+    idx = cols["id"]
+    gem_col = cols.get("gems", cols.get("gemscount", 2))
+    by_id = {}
+    for cells in rows:
+        try:
+            by_id[int(cells[idx].strip())] = cells
+        except (ValueError, IndexError):
+            continue
+    warnings: list = []
+    changed: dict = {}
+    for n, e in enumerate(entries):
+        if not isinstance(e, dict):
+            raise CharacterDeltaError(f"[[ability_gem]] #{n} must be a table (got {type(e).__name__})")
+        aid = _resolve_sa_id(e.get("ability"))
+        if aid not in by_id:
+            raise CharacterDeltaError(f"[[ability_gem]] id {aid} is not in the base AbilityGems.csv")
+        if aid in changed:
+            warnings.append(f"[[ability_gem]] #{n} and #{changed[aid]} both target ability {aid} -- the later wins")
+        changed.setdefault(aid, n)
+        overrides = [k for k in e if k != "ability"]
+        if not overrides:
+            raise CharacterDeltaError(f"[[ability_gem]] {e.get('ability')!r} sets no fields (give gems = N)")
+        for k in overrides:
+            if k != "gems":
+                raise CharacterDeltaError(f"[[ability_gem]] {e.get('ability')!r}: unknown field {k!r} (known: gems)")
+            cells = by_id[aid]
+            if gem_col >= len(cells):
+                raise CharacterDeltaError(f"[[ability_gem]] id {aid}: base row has no gems column")
+            cells[gem_col] = _range(_to_int(e[k], f"{e.get('ability')} gems"), _I32,
+                                    f"[[ability_gem]] {e.get('ability')!r} gems")
+    note = "# ff9mapkit [[ability_gem]] -- a partial AbilityGems.csv delta (merged per-SupportAbility over the base)."
+    out = [note] + header + [";".join(by_id[a]) for a in sorted(changed)]
+    return "\n".join(out) + "\n", warnings
+
+
 # ---- mod-write stage -------------------------------------------------------------------------------------
-def write_character_data(layout, *, characters=None, levelings=None, game=None) -> list:
-    """Emit BaseStats.csv / Leveling.csv into ``layout`` (mod-write stage). Returns warnings. cp1252 + LF."""
+def write_character_data(layout, *, characters=None, levelings=None, ability_gems=None, game=None) -> list:
+    """Emit BaseStats.csv / Leveling.csv / AbilityGems.csv into ``layout`` (mod-write stage). cp1252 + LF."""
     warnings: list = []
     for entries, path, builder in ((characters, layout.base_stats_csv, build_basestats_delta),
-                                   (levelings, layout.leveling_csv, build_leveling_file)):
+                                   (levelings, layout.leveling_csv, build_leveling_file),
+                                   (ability_gems, layout.ability_gems_csv, build_ability_gems_delta)):
         if entries:
             text, w = builder(entries, game=game)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -307,6 +424,31 @@ def validate_leveling(entry) -> list:
             continue
         try:
             _range(_to_int(entry[k], k), spec[1], f"[[leveling]] {k}")
+        except CharacterDeltaError as ex:
+            problems.append(str(ex))
+    return problems
+
+
+def validate_ability_gem(entry) -> list:
+    problems: list = []
+    if not isinstance(entry, dict):
+        return ["[[ability_gem]] must be a table (ability = \"...\", gems = N)"]
+    ab = entry.get("ability")
+    if ab is None or isinstance(ab, bool):
+        problems.append("[[ability_gem]] needs an 'ability' (a SupportAbility name or a 0-63 id)")
+    elif not isinstance(ab, (int, str)):
+        problems.append(f"[[ability_gem]] ability must be a name or a 0-{_MAX_SA_ID} id (got {type(ab).__name__})")
+    elif isinstance(ab, str) and not ab.strip().lstrip("-").isdigit() and _norm_sa(ab) not in _SA_BY_NORM:
+        problems.append(f"[[ability_gem]] unknown ability {ab!r}")
+    overrides = [k for k in entry if k != "ability"]
+    if not overrides:
+        problems.append(f"[[ability_gem]] {entry.get('ability')!r} sets no fields (give gems = N)")
+    for k in overrides:
+        if k != "gems":
+            problems.append(f"[[ability_gem]] {entry.get('ability')!r}: unknown field {k!r} (known: gems)")
+            continue
+        try:
+            _range(_to_int(entry[k], k), _I32, f"[[ability_gem]] {entry.get('ability')!r} gems")
         except CharacterDeltaError as ex:
             problems.append(str(ex))
     return problems

@@ -25,12 +25,26 @@ _LEVELING = (
     "# UInt32;UInt16;UInt16\n"
     + "".join(f"{n * 100};{200 + n};{100 + n};# Level {n}\n" for n in range(1, 100))
 )
+# SYNTHETIC AbilityGems: deliberately-fake gem costs (77/88/66 -- real costs are single/low-double digits, so
+# these match NO real ability) + the open-source ENUM names as the Comment (not the SE display strings). The
+# Boosted column (4th) is empty here; the `#! IncludeBoosted` line is load-bearing (the engine parses Boosted
+# only when it is present). Provenance: the repo ships ZERO SE values; the emitter reads real costs live.
+_ABILITYGEMS = (
+    "#! IncludeBoosted\n"
+    "# Comment;Id;Gems;BoostedVersion(s)\n"
+    "# ;Int32;Int32;Int32[]\n"
+    "AutoReflect;0;77;\n"
+    "AutoHaste;2;88;\n"
+    "HP10;5;66;\n"
+)
 
 
 @pytest.fixture
 def base(tmp_path, monkeypatch):
     (tmp_path / "BaseStats.csv").write_bytes(_BASESTATS.encode("cp1252"))
     (tmp_path / "Leveling.csv").write_bytes(_LEVELING.encode("cp1252"))
+    (tmp_path / "Abilities").mkdir()
+    (tmp_path / "Abilities" / "AbilityGems.csv").write_bytes(_ABILITYGEMS.encode("cp1252"))
     monkeypatch.setattr(CD, "_csv_path", lambda name, game=None: tmp_path / name)
     return tmp_path
 
@@ -126,6 +140,55 @@ def test_leveling_short_base_raises(base, tmp_path):
         CD.build_leveling_file([{"level": 1, "exp": 1}])
 
 
+# ---- [[ability_gem]] -> AbilityGems.csv (partial, per-SupportAbility) --------------------------------
+def test_ability_gem_partial_delta(base):
+    text, warns = CD.build_ability_gems_delta([{"ability": "Auto-Haste", "gems": 4}])
+    assert not warns
+    assert "#! IncludeBoosted" in text                   # the load-bearing option line is preserved
+    assert "Auto-Reflect" not in text                    # partial delta -> only the changed row
+    _h, cols, rows = CD._read_csv(base / "Abilities" / "AbilityGems.csv")   # re-parse via the same reader
+    # the emitted delta's Auto-Haste row (id 2) has gems = 4, Boosted col preserved (empty)
+    p = base / "d.csv"; p.write_bytes(text.encode("cp1252"))
+    _h2, c2, r2 = CD._read_csv(p)
+    row = next(r for r in r2 if r[c2["id"]] == "2")
+    assert row[c2["gems"]] == "4" and row[c2["comment"]] == "AutoHaste"
+
+
+def test_ability_gem_name_forms_and_id(base):
+    for form in ("Auto-Haste", "AutoHaste", "auto haste", 2):   # CSV display / enum name / spaced / id all -> 2
+        text, _w = CD.build_ability_gems_delta([{"ability": form, "gems": 1}])
+        p = base / "d.csv"; p.write_bytes(text.encode("cp1252"))
+        _h, c, r = CD._read_csv(p)
+        assert any(row[c["id"]] == "2" for row in r), form
+
+
+def test_ability_gem_odins_sword_apostrophe():
+    # id 60's CSV display name "Odin's Sword" (the only possessive) must resolve in every form the catalog prints
+    for form in ("Odin's Sword", "Odin’s Sword", "OdinSword", "odin sword", 60, "60"):
+        assert CD._resolve_sa_id(form) == 60, form
+
+
+def test_ability_gem_errors(base):
+    with pytest.raises(CD.CharacterDeltaError, match="unknown ability"):
+        CD.build_ability_gems_delta([{"ability": "Megaflare", "gems": 1}])
+    with pytest.raises(CD.CharacterDeltaError, match="unknown field"):
+        CD.build_ability_gems_delta([{"ability": "HP10", "cost": 1}])
+    with pytest.raises(CD.CharacterDeltaError, match="sets no fields"):
+        CD.build_ability_gems_delta([{"ability": "HP10"}])
+    with pytest.raises(CD.CharacterDeltaError, match="out of range"):
+        CD.build_ability_gems_delta([{"ability": 99, "gems": 1}])      # id 99 > 63
+    with pytest.raises(CD.CharacterDeltaError):                         # non-dict element
+        CD.build_ability_gems_delta([5])
+
+
+def test_ability_gem_validate_offline():
+    assert CD.validate_ability_gem({"ability": "Megaflare", "gems": 1})      # unknown name
+    assert CD.validate_ability_gem({"gems": 1})                              # missing ability
+    assert CD.validate_ability_gem({"ability": "HP10"})                      # no fields
+    assert CD.validate_ability_gem({"ability": [1], "gems": 1})              # non-int/str ability
+    assert CD.validate_ability_gem({"ability": "Auto-Haste", "gems": 4}) == []
+
+
 # ---- offline validation + write + install-missing ---------------------------------------------------
 def test_validate_offline():
     assert CD.validate_character({"character": "Vivi", "strength": 300})   # range, no install
@@ -140,15 +203,18 @@ def test_validate_offline():
     assert CD.validate_leveling({"level": 5, "bonus_hp": 4000}) == []
 
 
-def test_write_character_data_emits_both(base, tmp_path):
+def test_write_character_data_emits_all_three(base, tmp_path):
     from ff9mapkit.config import ModLayout
     layout = ModLayout(tmp_path / "mod")
     CD.write_character_data(layout, characters=[{"character": "Vivi", "strength": 2}],
-                            levelings=[{"level": 10, "bonus_mp": 999}])
-    assert layout.base_stats_csv.is_file() and layout.leveling_csv.is_file()
+                            levelings=[{"level": 10, "bonus_mp": 999}],
+                            ability_gems=[{"ability": "HP10", "gems": 1}])
+    assert layout.base_stats_csv.is_file() and layout.leveling_csv.is_file() and layout.ability_gems_csv.is_file()
     assert "Vivi" in layout.base_stats_csv.read_text(encoding="cp1252")
     _h, _c, rows = CD._read_csv(layout.leveling_csv)
     assert len(rows) == 99 and rows[9][2] == "999"        # whole 99-row file written, level 10 patched
+    _h2, c2, r2 = CD._read_csv(layout.ability_gems_csv)
+    assert any(row[c2["id"]] == "5" and row[c2["gems"]] == "1" for row in r2)   # HP10 (id 5) re-costed
 
 
 def test_install_not_found_wraps(monkeypatch):

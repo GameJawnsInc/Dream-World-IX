@@ -143,7 +143,8 @@ for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, 
                                  (tl.actions_csv, live.actions_csv, "Actions"),
                                  (tl.status_data_csv, live.status_data_csv, "StatusData"),
                                  (tl.base_stats_csv, live.base_stats_csv, "BaseStats"),
-                                 (tl.leveling_csv, live.leveling_csv, "Leveling")):
+                                 (tl.leveling_csv, live.leveling_csv, "Leveling"),
+                                 (tl.ability_gems_csv, live.ability_gems_csv, "AbilityGems")):
     if not src_csv.exists():
         continue
     live_csv.parent.mkdir(parents=True, exist_ok=True)
