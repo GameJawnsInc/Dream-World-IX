@@ -169,7 +169,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.30`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.33`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -844,6 +844,13 @@ Read these on demand — they hold the full technical detail this file only summ
   nothing) → fixed + the symmetric **gated-shop** surfacing added (`var_shop` → "opens a story-gated shop", recovers
   42 fields incl. Dali inn 351 / Ice Cavern 300). Read-only (`forkreport.py` only, reuses the disasm; clear of
   overworld's graft + story_flags' build lanes). kit 0.9.32; 897 tests (12 new, atop story_flags' [party] 885).
+- **`fork-report` Player axis — swap-friendliness tag.** The Player line now ends with `swap-clean` (a free-roam
+  field — `--swap-player` is clean) or `swap: N gesture(s) glitch` (a cutscene field whose player plays N
+  scripted gestures that glitch on a swapped rig — only movement clips are swapped). The before-you-fork preview
+  of the swap-time `WARN`, for browsing/choosing a swap or demo target (field 1200 `ac_rst_x` = swap-clean + a
+  close 3/4 camera = a good visual-test room; Vivi field 100 = swap: 15 glitch). Reuses
+  `playerswap.scripted_gesture_ops` (the controlled-leader-targeted count). `.eb`-only, `forkreport.py` only.
+  kit 0.9.33; 898 tests.
 
 ---
 

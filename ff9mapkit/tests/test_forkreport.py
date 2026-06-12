@@ -77,6 +77,21 @@ def test_controlled_player_single_pc_is_the_one_entry():
     assert entry == 19 and conf == "high"
 
 
+def test_player_line_swap_friendliness_tag():
+    # the Player axis previews whether a field is a good --swap-player target: a CUTSCENE field's player
+    # gestures glitch on a swapped rig (ALEX100 = 15), a free-roam field is swap-clean.
+    rep = FR.analyze_eb(ALEX100, field_id=100, fbg_name="fbg_n01_alxt_map016_at_msa_0")
+    assert rep.swap_gesture_count > 0                         # the Vivi opening has scripted player gestures
+    line = next(l for l in FR.format_report(rep).splitlines() if l.strip().startswith("Player"))
+    assert "gesture(s) glitch" in line
+    # a free-roam field (no scripted player gestures) -> swap-clean
+    clean = FR.ForkReport(field_id=10, fbg_name="x")
+    clean.player_models = [(1, 98, "Zidane")]
+    clean.swap_gesture_count = 0
+    cl = next(l for l in FR.format_report(clean).splitlines() if l.strip().startswith("Player"))
+    assert "swap-clean" in cl
+
+
 # ---- the Party axis: what a verbatim fork does to your party ----
 def test_scan_party_ops_on_alex100_adds_vivi_and_resets():
     # ALEX100 (field 100) is the disc-1 opening: it strips the party and adds Vivi (CharacterOldIndex 1).

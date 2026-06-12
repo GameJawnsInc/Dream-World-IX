@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `fork-report` Player axis: swap-friendliness tag (is this a good `--swap-player` target?)
+- The Player line now ends with a swap-friendliness tag: **`swap-clean`** (a free-roam field — `--swap-player`
+  works cleanly) or **`swap: N gesture(s) glitch`** (a cutscene field whose player plays N scripted gestures
+  that would glitch on a swapped rig, since only movement clips are swapped). It's the *before-you-fork* preview
+  of the existing swap-time `WARN`, useful for browsing/choosing a swap or demo target (e.g. field 1200
+  `ac_rst_x` = `swap-clean`, a close 3/4 camera; the Vivi field 100 = `swap: 15 gesture(s) glitch`). Reuses
+  `playerswap.scripted_gesture_ops` (the same controlled-leader-targeted gesture count the swap + CLI warn use)
+  — `.eb`-only, no new scanner. 1 test (`tests/test_forkreport.py`). kit 0.9.33.
+
 ### Added — `fork-report` Items / Treasure axis: preview the treasure, gil & shops a fork reproduces (0.9.32)
 The item-side companion to the Player / Roster / Interaction / Dialogue / Party axes — what a fork does to your
 **inventory**. Read-only; reuses the kit's disassembler (no new scanner of its own).

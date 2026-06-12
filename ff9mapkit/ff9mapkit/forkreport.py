@@ -304,6 +304,7 @@ class ForkReport:
     controlled_entry: int | None = None                  # the entry the engine BINDS control to (multi-PC; controlled_player)
     controlled_name: str = ""                            # its character name
     control_confidence: str = "none"                     # 'high' | 'low' | 'none' (binder ambiguity)
+    swap_gesture_count: int = 0                           # scripted player GESTURES that would glitch on a --swap-player
     party_adds: list = _dc_field(default_factory=list)    # distinct CharacterOldIndex names the field ADDS (B_PARTYADD)
     party_removes: list = _dc_field(default_factory=list)  # distinct names it REMOVES (RemoveParty)
     party_reset: bool = False                            # SetPartyReserve -- rebuilds the recruitable roster (story reset)
@@ -446,6 +447,14 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
     rep.player_models = [(pe, _eventscan._player_model(eb, pe),
                           player_name(_eventscan._player_model(eb, pe))) for pe in pents]
     rep.multi_pc = len(pents) > 1
+    # swap-friendliness: how a `--swap-player` fares -- the scripted gestures on the entr(ies) the swap targets
+    # (the controlled-leader model). 0 = a clean free-roam swap; >0 = a cutscene field where those gestures
+    # glitch on the new rig (only movement clips are swapped). Reuses the same logic the swap + CLI WARN use.
+    from . import playerswap as _playerswap
+    try:
+        rep.swap_gesture_count = _playerswap.scripted_gesture_ops(data)
+    except Exception:                                    # never let the preview crash on a swap-edge field
+        rep.swap_gesture_count = 0
     models = [m for _, m, _ in rep.player_models if m is not None]
     zidane_present = any(m in _eventscan.ZIDANE_MODELS for m in models)
     if not rep.multi_pc:
@@ -588,7 +597,10 @@ def format_report(rep: ForkReport) -> str:
                 pc = f"{len(rep.player_models)} PCs: {names}  [MULTI-PC; likely Zidane party-leader]"
         else:
             pc = rep.player_models[0][2] + ("  [non-Zidane -> --verbatim]" if rep.non_zidane else "")
-        lines.append(f"  Player        : {pc}")
+        # swap-friendliness tag: is this a good `--swap-player` target? (the gestures glitch on a cutscene field)
+        swap = ("swap-clean" if rep.swap_gesture_count == 0
+                else f"swap: {rep.swap_gesture_count} gesture(s) glitch")
+        lines.append(f"  Player        : {pc}  ({swap})")
     s = rep.safety
     dirs = f"{len(rep.directors)} director(s)" if rep.directors else "0 directors"
     stack = f", {len(rep.stacked)} multi-instance" if rep.stacked else ""
