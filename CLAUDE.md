@@ -851,6 +851,16 @@ Read these on demand — they hold the full technical detail this file only summ
   close 3/4 camera = a good visual-test room; Vivi field 100 = swap: 15 glitch). Reuses
   `playerswap.scripted_gesture_ops` (the controlled-leader-targeted count). `.eb`-only, `forkreport.py` only.
   kit 0.9.33; 898 tests.
+- **`fork-report` Camera axis — the lens a fork plays through.** A new `Camera` line previews the framing:
+  `close`/`medium`/`wide` bucketed by horizontal FOV + the raw pitch/FOV, and flags `scrolling` / multi-camera
+  fields (field 1200 `ac_rst_x` = `close (FOV 29.5, pitch 28.8); 2 cameras`; Hangar 1357 = `wide (FOV 61.3, pitch
+  0)` — the "super far away" view; Vivi street 100 = `close (FOV 17.2); scrolling` — a tight lens that pans).
+  Pairs with the swap-friendliness tag: `swap-clean` + `close` = a good `--swap-player`/demo test room (vs a wide
+  shot where models are tiny). The camera is in the scene `.bgs` (not the `.eb`), so it needs the install — a new
+  read-only `extract.field_camera_info` (pitch/FOV/scrolling/count, no walkmesh/atlas extract) populates the
+  report in `analyze()`; the pure `analyze_eb` is untouched (no camera → line omitted → fixtures byte-identical).
+  Reuses `cam.pitch_deg`/`cam.decompose` (no new camera math). 4 tests; clear of story_flags' build + overworld's
+  graft lanes. kit 0.9.34; 902 tests.
 
 ---
 

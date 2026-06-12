@@ -92,6 +92,31 @@ def test_player_line_swap_friendliness_tag():
     assert "swap-clean" in cl
 
 
+# ---- the Camera axis: the lens the fork plays through (close/medium/wide) ----
+def test_camera_line_buckets_by_fov():
+    # FOV buckets the "zoom feel": a narrow FOV = an intimate close room, a wide FOV = an establishing shot.
+    close = FR.ForkReport(field_id=1, cam_pitch=38.0, cam_fov=29.5)
+    assert FR._camera_line(close).strip() == "Camera        : close (FOV 29.5 deg, pitch 38 deg)".strip()
+    med = FR.ForkReport(field_id=2, cam_pitch=30.0, cam_fov=45.0)
+    assert "medium" in FR._camera_line(med) and "FOV 45 deg" in FR._camera_line(med)
+    wide = FR.ForkReport(field_id=3, cam_pitch=42.0, cam_fov=61.3)
+    assert "wide" in FR._camera_line(wide)
+
+
+def test_camera_line_notes_scrolling_and_multicam():
+    rep = FR.ForkReport(field_id=4, cam_pitch=40.0, cam_fov=55.0, cam_scrolling=True, cam_count=3)
+    line = FR._camera_line(rep)
+    assert "scrolling" in line and "3 cameras" in line
+
+
+def test_camera_line_omitted_when_not_read():
+    # the pure .eb-only path (analyze_eb) never sets cam_pitch -> no Camera line (report stays .eb-faithful)
+    rep = FR.analyze_eb(ALEX100, field_id=100, fbg_name="fbg_n01_alxt_map016_at_msa_0")
+    assert rep.cam_pitch is None
+    assert FR._camera_line(rep) == ""
+    assert not any(l.strip().startswith("Camera") for l in FR.format_report(rep).splitlines())
+
+
 # ---- the Party axis: what a verbatim fork does to your party ----
 def test_scan_party_ops_on_alex100_adds_vivi_and_resets():
     # ALEX100 (field 100) is the disc-1 opening: it strips the party and adds Vivi (CharacterOldIndex 1).
@@ -256,6 +281,17 @@ def test_analyze_daguerreo_is_static_roster():
     # the #5 text axis: all 6 carried NPCs speak (36 lines) -> the report tells you to fork with --carry-text
     assert rep.n_speaking == 6 and rep.n_dialogue_lines == 36
     assert "6 NPC(s) speak 36 line(s)" in FR.format_report(rep)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_analyze_populates_camera_axis_from_the_scene():
+    # the Camera axis needs the install (it reads the scene .bgs, not the .eb). analyze() must fill it in;
+    # Daguerreo 2F is a real, non-scrolling field -> a sane pitch/FOV + a rendered Camera line.
+    rep = FR.analyze(2803)
+    assert rep.cam_pitch is not None and rep.cam_fov is not None
+    assert 0 < rep.cam_fov < 120 and rep.cam_count >= 1
+    line = next(l for l in FR.format_report(rep).splitlines() if l.strip().startswith("Camera"))
+    assert any(feel in line for feel in ("close", "medium", "wide")) and "pitch" in line
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

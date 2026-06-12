@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `fork-report` Camera axis: the lens a fork plays through (close / medium / wide)
+- A new **`Camera`** line previews how the field is framed: a **`close` / `medium` / `wide`** feel bucketed by
+  horizontal FOV, plus the raw `pitch`/`FOV`, and notes when the field is `scrolling` or has multiple cameras.
+  E.g. field 1200 `ac_rst_x` = `close (FOV 29.5 deg, pitch 28.8 deg); 2 cameras`, the Hangar 1357 =
+  `wide (FOV 61.3 deg, pitch 0 deg)` (the "super far away" view), Vivi's street 100 =
+  `close (FOV 17.2 deg, pitch 38.5 deg); scrolling` (a tight lens that pans).
+- Pairs with the Player swap-friendliness tag: **`swap-clean` + `close`** = a good `--swap-player` / demo test
+  room (the detail is actually visible), vs a `wide` establishing shot where models are tiny.
+- The camera lives in the scene `.bgs` (not the `.eb`), so it needs the install: a new read-only
+  `extract.field_camera_info` (pitch/FOV/scrolling/count — no walkmesh/atlas extraction) populates the report in
+  `forkreport.analyze()`. The pure `.eb`-only `analyze_eb` is untouched (no camera → the line is omitted), so the
+  fixture reports stay byte-identical. Reuses the existing `cam.pitch_deg` / `cam.decompose` (FOV) math; no new
+  camera code. 4 tests (`tests/test_forkreport.py`, incl. an install-gated render). kit 0.9.34.
+
 ### Added — `fork-report` Player axis: swap-friendliness tag (is this a good `--swap-player` target?)
 - The Player line now ends with a swap-friendliness tag: **`swap-clean`** (a free-roam field — `--swap-player`
   works cleanly) or **`swap: N gesture(s) glitch`** (a cutscene field whose player plays N scripted gestures

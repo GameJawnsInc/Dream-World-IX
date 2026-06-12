@@ -644,6 +644,30 @@ def find_field(field: str, game=None, bundle: str | None = None):
     return str(sa / bundle), folder, roles, env
 
 
+def field_camera_info(field: str, *, game=None, bundle: str | None = None) -> dict | None:
+    """A field's lens, read cheaply -- pitch/FOV/scrolling/camera-count from the scene `.bgs` ONLY (no
+    walkmesh/atlas extraction). Returns None if the install/scene can't be read (so callers degrade
+    gracefully). Read-only. Used by `fork-report` (the Camera axis) and reusable for a room finder."""
+    try:
+        _, _, roles, env = find_field(field, game=game, bundle=bundle)
+        if "bgs" not in roles:
+            return None
+        objs = {k: v for k, v in env.container.items()}
+        cams = bgs.parse_cameras(_raw_bytes(objs[roles["bgs"]].read()))
+        if not cams:
+            return None
+        c0 = cams[0]
+        fov = cam.decompose(c0)["fov_x_deg"]
+        return {
+            "pitch": round(cam.pitch_deg(c0), 1),
+            "fov": round(fov, 1) if fov else None,
+            "scrolling": bool(c0.range[0] > 384 or c0.range[1] > 448),
+            "count": len(cams),
+        }
+    except Exception:
+        return None
+
+
 def _pt_in_quad(px, pz, quad) -> bool:
     """True if (px, pz) is inside the convex polygon ``quad`` ([x, z] corners), top-down. Convex
     same-side-of-every-edge test (the trigger zones are convex quads, the IsInQuad norm)."""

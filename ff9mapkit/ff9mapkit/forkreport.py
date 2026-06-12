@@ -305,6 +305,10 @@ class ForkReport:
     controlled_name: str = ""                            # its character name
     control_confidence: str = "none"                     # 'high' | 'low' | 'none' (binder ambiguity)
     swap_gesture_count: int = 0                           # scripted player GESTURES that would glitch on a --swap-player
+    cam_pitch: float | None = None                       # camera downward pitch (deg); None = not read (.eb-only / no install)
+    cam_fov: float | None = None                         # horizontal FOV (deg) -> close/medium/wide feel
+    cam_scrolling: bool = False                           # a wide/scrolling field (range past one 384x448 screen)
+    cam_count: int = 0                                    # number of cameras (> 1 = a multi-camera field)
     party_adds: list = _dc_field(default_factory=list)    # distinct CharacterOldIndex names the field ADDS (B_PARTYADD)
     party_removes: list = _dc_field(default_factory=list)  # distinct names it REMOVES (RemoveParty)
     party_reset: bool = False                            # SetPartyReserve -- rebuilds the recruitable roster (story reset)
@@ -372,11 +376,18 @@ def resolve_field_id(token, *, game=None) -> int:
 def analyze(field_id: int, *, game=None, bundle=None) -> ForkReport:
     """Build the fidelity preview for a real field id. ``bundle`` (an ``extract.EventBundle``) is reused
     across calls when given; otherwise one is created. Read-only -- never touches the install's bytes."""
-    from .extract import EventBundle, ID_TO_FBG, ID_TO_EVT   # lazy: extraction deps (UnityPy) only when used
+    from .extract import EventBundle, ID_TO_FBG, ID_TO_EVT, field_camera_info  # lazy: UnityPy only when used
     b = bundle or EventBundle(game)
     data = b.eb_for_id(field_id)
-    return analyze_eb(data, field_id=field_id,
-                      fbg_name=ID_TO_FBG.get(field_id, ""), event_name=ID_TO_EVT.get(field_id, ""))
+    fbg = ID_TO_FBG.get(field_id, "")
+    rep = analyze_eb(data, field_id=field_id, fbg_name=fbg, event_name=ID_TO_EVT.get(field_id, ""))
+    # the Camera axis lives in the scene .bgs (not the .eb), so it needs the install -- populate it here,
+    # NOT in the pure analyze_eb (which stays .eb-only + fixture-testable). None -> the line is omitted.
+    ci = field_camera_info(fbg, game=game) if fbg else None
+    if ci:
+        rep.cam_pitch, rep.cam_fov = ci["pitch"], ci["fov"]
+        rep.cam_scrolling, rep.cam_count = ci["scrolling"], ci["count"]
+    return rep
 
 
 def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: str = "") -> ForkReport:
@@ -580,6 +591,30 @@ def _items_line(rep: ForkReport) -> str:
     return f"  Items         : {'; '.join(bits)}{tail}"
 
 
+def _camera_line(rep: ForkReport) -> str:
+    """The Camera axis: a close/medium/wide feel + the raw pitch/FOV (the lens the fork plays through).
+    Empty when the camera wasn't read (the pure .eb-only path / no install) -- so the report degrades."""
+    if rep.cam_pitch is None:
+        return ""
+    fov = rep.cam_fov
+    if fov is None:
+        feel = "unknown-fov"
+    elif fov < 35:
+        feel = "close"               # an intimate room (e.g. ac_rst_x ~29.5) -- a good --swap/demo test room
+    elif fov < 50:
+        feel = "medium"
+    else:
+        feel = "wide"                # an establishing/scrolling shot (e.g. the Hangar ~61) -- details are tiny
+    bits = ([f"FOV {fov:g} deg"] if fov is not None else []) + [f"pitch {rep.cam_pitch:g} deg"]
+    extra = []
+    if rep.cam_scrolling:
+        extra.append("scrolling")
+    if rep.cam_count > 1:
+        extra.append(f"{rep.cam_count} cameras")
+    tail = ("; " + ", ".join(extra)) if extra else ""
+    return f"  Camera        : {feel} ({', '.join(bits)}){tail}"
+
+
 def format_report(rep: ForkReport) -> str:
     title = rep.fbg_name or f"field {rep.field_id}"
     lines = [f"fork-report: {title}  (field {rep.field_id}{', ' + rep.event_name if rep.event_name else ''})", ""]
@@ -601,6 +636,9 @@ def format_report(rep: ForkReport) -> str:
         swap = ("swap-clean" if rep.swap_gesture_count == 0
                 else f"swap: {rep.swap_gesture_count} gesture(s) glitch")
         lines.append(f"  Player        : {pc}  ({swap})")
+    cam_line = _camera_line(rep)
+    if cam_line:
+        lines.append(cam_line)
     s = rep.safety
     dirs = f"{len(rep.directors)} director(s)" if rep.directors else "0 directors"
     stack = f", {len(rep.stacked)} multi-instance" if rep.stacked else ""
