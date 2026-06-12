@@ -1062,7 +1062,11 @@ Read these on demand — they hold the full technical detail this file only summ
   `shop.safe_comment` neutralizes it; (bug) NPC with both `[[choice]]`+`opens_shop` → silent drop → validate
   error; (bug) all-NoItem `sells` → empty shop → caught post-resolution; (smell) `_emit_shops` `if/elif` dup-vs-override
   + crash-on-bad-id → independent `if`s + skip-with-warning; (smell) verbatim fork dropped a synthesized opener →
-  warned. 25 tests. kit 0.9.43; 991 tests. *In-game test (the shop opens + stocks the right items) is the human step.*
+  warned. 25 tests. kit 0.9.43; 991 tests. ★ **IN-GAME PROVEN (2026-06-12):** F6-warp to slot 4003, BOTH openers
+  fire — a shopkeeper NPC (talk → shop 40) AND a standalone press-region counter (walk-up + action → shop 41) —
+  each stocks its authored custom inventory (incl. Excalibur / the weapon set), and a real PURCHASE (bought a
+  Mage Masher) DEDUCTED the gil + ADDED the item. The deploy also confirmed `deploy_field` now ships
+  `ShopItems.csv` (the gap fix). #4 DONE.
 
 ---
 

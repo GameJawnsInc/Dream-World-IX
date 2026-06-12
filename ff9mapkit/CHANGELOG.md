@@ -66,6 +66,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   and a bad id is skipped-with-warning not a crash; **(smell)** a verbatim fork silently dropped a synthesized
   shop opener — now warned (the inventory CSV still ships). The cross-worktree same-id merge collision is noted
   in FORMAT.md.
+- ★ **IN-GAME PROVEN (2026-06-12):** a test field (slot 4003) with both openers — a shopkeeper NPC (`opens_shop`)
+  and a standalone `zone` counter — opens shop 40 / shop 41 with their authored inventories, and a real purchase
+  (a Mage Masher) deducted gil + added the item. The deploy shipped `ShopItems.csv` (the gap fix confirmed).
 
 ### Fixed — `import <id>` now means the FIELD ID, not a `map<NNN>` folder substring (0.9.42)
 - `import <field>` / `import-chain` resolved a token by **FBG-folder substring**, while `fork-report` /
