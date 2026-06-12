@@ -11,6 +11,7 @@ Subcommands are wired up incrementally as the library lands:
     new       - scaffold a new field project directory                      (Phase 5)
     pack      - package a built mod for distribution                        (Phase 5)
     gen-hub   - generate a World-Hub field.toml from a journeys.toml registry (P6)
+    extract-field - cache a real field's camera+walkmesh into the gitignored workspace cache
     import    - fork a real FF9 field (BG-borrow, or --editable custom scene) (Tier 3)
     list-fields - list the real FF9 fields available to import              (Tier 3)
     battle-import - fork a real FF9 battle background (BBG) into an editable battle.toml (needs UnityPy)
@@ -295,11 +296,15 @@ def _cmd_new(args: argparse.Namespace) -> int:
 def _cmd_gen_hub(args: argparse.Namespace) -> int:
     """Generate a World-Hub field.toml from a journeys.toml registry. Pure codegen (no game install): it
     emits a BG-borrow hub field whose narrator menu warps to each journey's entry. Build/deploy the emitted
-    field.toml like any field (extract the borrowed camera first -- it's gitignored)."""
+    field.toml like any field. With --extract-camera the borrowed camera is cached for you (no manual step)."""
     from . import hub
+    if args.extract_camera and not _has_unitypy():
+        print("--extract-camera needs UnityPy (pip install UnityPy) + your FF9 install.", file=sys.stderr)
+        return 2
     try:
-        info = hub.generate(args.journeys, out_path=args.out)
-    except (OSError, ValueError) as e:        # HubError (a ValueError) + unreadable/parse errors
+        info = hub.generate(args.journeys, out_path=args.out, extract_camera=args.extract_camera,
+                            game=args.game, force=args.force)
+    except (OSError, ValueError, ConfigError) as e:    # HubError (a ValueError) + unreadable/parse/install errors
         print(str(e), file=sys.stderr)
         return 2
     spec = info["spec"]
@@ -309,9 +314,35 @@ def _cmd_gen_hub(args: argparse.Namespace) -> int:
         print(f"  {j.title!r} -> field {j.entry}{seed}")
     for w in info.get("warnings", []):
         print(f"warning: {w}", file=sys.stderr)
-    print(f"Next: extract the borrowed camera ({spec.camera}) from your install, then "
-          f"`ff9mapkit build {info['path']}` (or tools/deploy_field.py).")
+    ex = info.get("extracted")
+    if ex:
+        verb = "reused cached" if ex.get("cached") else "extracted"
+        print(f"camera: {verb} field {spec.borrow_field} -> {ex['camera']}")
+        print(f"Next: `ff9mapkit build {info['path']}` (or tools/deploy_field.py) -- the camera is wired up.")
+    else:
+        print(f"Next: extract the borrowed camera ({spec.camera}) -- e.g. "
+              f"`ff9mapkit extract-field <id>` or `gen-hub --extract-camera` -- then "
+              f"`ff9mapkit build {info['path']}` (or tools/deploy_field.py).")
     return 0
+
+
+def _cmd_extract_field(args: argparse.Namespace) -> int:
+    """Cache real FF9 fields' camera + walkmesh in the gitignored workspace cache, for reuse by BG-borrow
+    tomls / `gen-hub --extract-camera`. Needs the install + UnityPy."""
+    if not _has_unitypy():
+        print("extract-field needs UnityPy (pip install UnityPy) + your FF9 install.", file=sys.stderr)
+        return 2
+    from . import extract
+    rc = 0
+    for fid in args.ids:
+        try:
+            res = extract.cache_field(fid, game=args.game, force=args.force)
+        except (OSError, ValueError, ConfigError) as e:
+            print(f"field {fid}: {e}", file=sys.stderr)
+            rc = 1
+            continue
+        print(f"field {fid}: {'already cached' if res.get('cached') else 'extracted'} -> {res['camera']}")
+    return rc
 
 
 def _cmd_pack(args: argparse.Namespace) -> int:
@@ -1814,7 +1845,17 @@ def build_parser() -> argparse.ArgumentParser:
     gh.add_argument("journeys", help="path to a journeys.toml ([hub] + [[journey]] rows)")
     gh.add_argument("--out", default=None,
                     help="output field.toml (default: hub.field.toml beside the journeys.toml)")
+    gh.add_argument("--extract-camera", dest="extract_camera", action="store_true",
+                    help="pull the borrowed room's camera ([hub] borrow_field) into the workspace cache and "
+                         "wire the emitted toml to it (needs the install + UnityPy)")
+    gh.add_argument("--force", action="store_true", help="re-extract the camera even if already cached")
     gh.set_defaults(func=_cmd_gen_hub)
+
+    ef = sub.add_parser("extract-field", help="cache a real field's camera+walkmesh in the gitignored "
+                        "workspace cache (reused by BG-borrow tomls / gen-hub --extract-camera)")
+    ef.add_argument("ids", nargs="+", help="real field id(s) to cache (e.g. 950)")
+    ef.add_argument("--force", action="store_true", help="re-extract even if already cached")
+    ef.set_defaults(func=_cmd_extract_field)
 
     im = sub.add_parser("import", help="fork a REAL FF9 field into an editable field.toml (needs UnityPy)")
     im.add_argument("field", help="field name: full FBG, bare mapid, or a unique substring (e.g. grgr_map420)")

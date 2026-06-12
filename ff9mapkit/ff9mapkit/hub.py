@@ -43,6 +43,7 @@ Regenerate the hub after editing the registry (``ff9mapkit gen-hub journeys.toml
 
 from __future__ import annotations
 
+import os
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -85,6 +86,7 @@ class HubSpec:
     id: int
     area: int = DEFAULT_AREA
     borrow_bg: str = ""
+    borrow_field: "int | None" = None       # the real field id whose camera `gen-hub --extract-camera` pulls
     camera: str = DEFAULT_CAMERA
     text_block: int = DEFAULT_TEXT_BLOCK
     prompt: str = DEFAULT_PROMPT
@@ -141,6 +143,7 @@ def load_journeys(path) -> HubSpec:
         id=int(h["id"]),
         area=int(h.get("area", DEFAULT_AREA)),
         borrow_bg=str(h.get("borrow_bg", "")),
+        borrow_field=int(h["borrow_field"]) if h.get("borrow_field") is not None else None,
         camera=str(h.get("camera", DEFAULT_CAMERA)),
         text_block=int(h.get("text_block", DEFAULT_TEXT_BLOCK)),
         prompt=str(h.get("prompt", DEFAULT_PROMPT)),
@@ -175,7 +178,11 @@ def validate_hub(spec: HubSpec) -> "tuple[list, list]":
                       "custom [camera]/[walkmesh] by hand, then hand-author the field.toml).")
     if not spec.camera:
         errors.append("[hub] camera is required -- the borrowed room's .bgx (extract it from your install; "
-                      "it's gitignored, you supply the bytes).")
+                      "it's gitignored, you supply the bytes). Or set borrow_field = <id> and run "
+                      "`gen-hub --extract-camera` to cache it automatically.")
+    if spec.borrow_field is not None and not (isinstance(spec.borrow_field, int) and spec.borrow_field > 0):
+        errors.append(f"[hub] borrow_field {spec.borrow_field!r} must be a positive real field id (the room "
+                      f"whose camera --extract-camera pulls into the cache)")
     if not spec.journeys:
         errors.append("a hub needs at least one [[journey]] -- nothing to select")
 
@@ -278,19 +285,44 @@ def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
     return "\n".join(L)
 
 
-def generate(journeys_path, out_path=None) -> dict:
+def _relpath(target, start_dir) -> str:
+    """A forward-slash path from ``start_dir`` to ``target`` -- repo-relative (portable across clones/OSes),
+    falling back to absolute only across Windows drives."""
+    target, start_dir = Path(target).resolve(), Path(start_dir).resolve()
+    try:
+        return Path(os.path.relpath(target, start_dir)).as_posix()
+    except ValueError:                              # different drives on Windows -> can't relativize
+        return target.as_posix()
+
+
+def generate(journeys_path, out_path=None, *, extract_camera=False, game=None, force=False) -> dict:
     """Load a ``journeys.toml``, validate it, and emit the hub ``field.toml``. Returns a summary
-    ``{path, spec, warnings, journeys}``. Raises :class:`HubError` on a validation error. ``out_path``
-    defaults to ``hub.field.toml`` beside the registry (so it sits next to the borrowed ``camera`` file);
-    a directory ``out_path`` writes ``hub.field.toml`` inside it."""
+    ``{path, spec, warnings, journeys, extracted}``. Raises :class:`HubError` on a validation error.
+    ``out_path`` defaults to ``hub.field.toml`` beside the registry; a directory ``out_path`` writes
+    ``hub.field.toml`` inside it.
+
+    ``extract_camera`` (needs the install + UnityPy): pull the borrowed room's camera (``[hub]
+    borrow_field``) into the gitignored workspace cache once and point the emitted ``[camera] borrow`` at
+    that single central copy -- so ``gen-hub`` then build/deploy "just works", no manual extract step."""
     journeys_path = Path(journeys_path)
     spec = load_journeys(journeys_path)
     errors, warnings = validate_hub(spec)
     if errors:
         raise HubError("journeys.toml validation failed:\n  - " + "\n  - ".join(errors))
-    text = render_hub_field_toml(spec, source=journeys_path.name)
     out_path = Path(out_path) if out_path else (journeys_path.parent / "hub.field.toml")
     if out_path.is_dir():
         out_path = out_path / "hub.field.toml"
+
+    extracted = None
+    if extract_camera:
+        if not spec.borrow_field:
+            raise HubError("--extract-camera needs [hub] borrow_field = <real field id> (the room whose "
+                           "camera to extract; e.g. borrow_field = 950 for the example hub).")
+        from . import extract as _extract
+        extracted = _extract.cache_field(spec.borrow_field, game=game, force=force)
+        spec.camera = _relpath(extracted["camera"], out_path.parent)   # point at the ONE central cache copy
+
+    text = render_hub_field_toml(spec, source=journeys_path.name)
     out_path.write_text(text, encoding="utf-8", newline="\n")
-    return {"path": out_path, "spec": spec, "warnings": warnings, "journeys": len(spec.journeys)}
+    return {"path": out_path, "spec": spec, "warnings": warnings, "journeys": len(spec.journeys),
+            "extracted": extracted}

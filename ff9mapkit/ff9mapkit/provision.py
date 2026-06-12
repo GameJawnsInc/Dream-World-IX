@@ -53,6 +53,25 @@ def region_template_path() -> Path:
     return data_dir() / "region_template.bin"
 
 
+# ---- workspace cache for game-derived EXTRACTS (cameras / walkmeshes pulled from the user's install) ----
+# Distinct from data_dir() (the kit's BASE templates): this is where `extract-field` / `gen-hub
+# --extract-camera` drop a real field's camera.bgx + walkmesh.bgi so BG-borrow tomls reference ONE central,
+# gitignored copy instead of a .bgx sprinkled next to every project. Provenance unchanged: the repo ships
+# intent, you supply the bytes -- the whole cache is gitignored (.ff9mapkit-cache/), never committed.
+def cache_dir() -> Path:
+    """The workspace extract-cache root (gitignored). ``$FF9MAPKIT_DATA`` overrides (a writable dir for a
+    read-only wheel install / a shared cache); else the kit-root ``.ff9mapkit-cache/`` (reserved + ignored)."""
+    env = os.environ.get("FF9MAPKIT_DATA")
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parent.parent / ".ff9mapkit-cache"
+
+
+def field_cache_dir(field_id) -> Path:
+    """The cache subdir holding a real field's extracted assets (``camera.bgx`` / ``walkmesh.bgi``)."""
+    return cache_dir() / "fields" / str(field_id)
+
+
 # ---- copy/insert patch format ---------------------------------------------------------------------
 # A patch transforms a base field's bytes into one of our derived blobs. It is a list of ops:
 #   ["c", off, length]   copy ``length`` bytes from the SOURCE at ``off`` (references, not bytes)

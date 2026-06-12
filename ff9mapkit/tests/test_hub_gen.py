@@ -17,6 +17,16 @@ EXAMPLES = Path(__file__).parent.parent / "examples" / "world_hub"
 JOURNEYS = EXAMPLES / "journeys.toml"
 
 
+def _game_ready():
+    """True if the FF9 install + UnityPy are available (gates the camera-extraction tests)."""
+    try:
+        from ff9mapkit.extract import EventBundle
+        EventBundle()
+        return True
+    except Exception:
+        return False
+
+
 def _spec(**hub_over):
     """A minimal valid HubSpec (one journey), with per-test [hub] overrides."""
     base = dict(name="WORLD_HUB", id=4500, area=21, borrow_bg="GRGR_MAP420_GR_CEN_0",
@@ -200,3 +210,63 @@ def test_cli_gen_hub_validation_error_returns_2(tmp_path):
     reg.write_text('[hub]\nname="H"\nid=70\nborrow_bg="X"\ncamera="c.bgx"\n'
                    '[[journey]]\nname="a"\nentry=4501\n', encoding="utf-8")          # id 70 out of range
     assert main(["gen-hub", str(reg)]) == 2
+
+
+# ---- the centralized camera cache (--extract-camera / extract-field) ----
+def test_borrow_field_parsed_and_not_emitted():
+    spec = hub.load_journeys(JOURNEYS)
+    assert spec.borrow_field == 950
+    assert "borrow_field" not in hub.render_hub_field_toml(spec)   # hub metadata, NOT a field.toml key
+
+
+def test_validate_rejects_bad_borrow_field():
+    errors, _ = hub.validate_hub(_spec(borrow_field=-5))
+    assert any("borrow_field" in e for e in errors)
+    assert hub.validate_hub(_spec(borrow_field=950))[0] == []      # a valid id is clean
+
+
+def test_generate_extract_camera_without_borrow_field_raises(tmp_path):
+    reg = tmp_path / "j.toml"
+    reg.write_text('[hub]\nname="H"\nid=4500\nborrow_bg="X"\ncamera="c.bgx"\n'
+                   '[[journey]]\nname="a"\nentry=4501\n', encoding="utf-8")          # no borrow_field
+    with pytest.raises(hub.HubError):
+        hub.generate(reg, out_path=tmp_path / "o.field.toml", extract_camera=True)
+
+
+def test_cache_dir_resolution(tmp_path, monkeypatch):
+    from ff9mapkit import provision
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))
+    assert provision.cache_dir() == tmp_path
+    assert provision.field_cache_dir(950) == tmp_path / "fields" / "950"
+    monkeypatch.delenv("FF9MAPKIT_DATA", raising=False)
+    assert provision.cache_dir().name == ".ff9mapkit-cache"        # the gitignored kit-root default
+
+
+def test_relpath_is_forward_slash_repo_relative(tmp_path):
+    cam = tmp_path / "cache" / "fields" / "950" / "camera.bgx"
+    rp = hub._relpath(cam, tmp_path / "examples" / "world_hub")
+    assert rp == "../../cache/fields/950/camera.bgx" and "\\" not in rp
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_extract_camera_populates_cache_and_wires_toml(tmp_path, monkeypatch):
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path / "cache"))   # cache into tmp, not the real one
+    out = tmp_path / "hub.field.toml"
+    info = hub.generate(JOURNEYS, out_path=out, extract_camera=True)
+    ex = info["extracted"]
+    assert ex and ex["camera"].is_file()                           # the camera landed in the cache
+    assert ex["camera"].parent == (tmp_path / "cache" / "fields" / "950")
+    gen = tomllib.loads(out.read_text(encoding="utf-8"))
+    assert gen["camera"]["borrow"].endswith("camera.bgx")          # the emitted toml points at the cache copy
+    proj = build.FieldProject.load(out)
+    assert build.validate(proj) == []                              # resolves the cached camera -> clean
+    # second call reuses the cache (idempotent -- no re-extract)
+    assert hub.generate(JOURNEYS, out_path=out, extract_camera=True)["extracted"]["cached"] is True
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_cli_extract_field_caches(tmp_path, monkeypatch):
+    from ff9mapkit.cli import main
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path / "cache"))
+    assert main(["extract-field", "950"]) == 0
+    assert (tmp_path / "cache" / "fields" / "950" / "camera.bgx").is_file()

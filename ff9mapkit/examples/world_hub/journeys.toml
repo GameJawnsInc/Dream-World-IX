@@ -13,7 +13,8 @@ name      = "WORLD_HUB"
 id        = 4500
 borrow_bg = "GRGR_MAP420_GR_CEN_0"   # a real room as the backdrop (swap to ANY area>=10 field for theme)
 area      = 21
-camera    = "camera_hub.bgx"         # the borrowed room's camera (extract from your install; gitignored)
+borrow_field = 950                   # the real field this room IS -> `gen-hub --extract-camera` caches its camera
+camera    = "camera_hub.bgx"         # default camera path (overridden by --extract-camera to the cache copy)
 text_block = 8                       # a real MesDB id NOT shadowed by the higher FF9CustomMap folder (1073 IS)
 prompt    = "Kupo! Which journey will you take?"
 stay_text = "Stay here, kupo..."     # the trailing no-warp (cancel) row

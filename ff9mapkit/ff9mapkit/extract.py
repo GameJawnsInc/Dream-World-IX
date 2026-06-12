@@ -734,6 +734,26 @@ def _trigger_zones(field: str, game=None) -> list:
         return []
 
 
+def cache_field(field_id, *, game=None, force=False) -> dict:
+    """Extract a real field's camera + walkmesh into the WORKSPACE CACHE (gitignored), idempotently.
+
+    The centralized alternative to copying a ``.bgx`` next to every BG-borrow project: extract a room ONCE
+    into ``provision.field_cache_dir(field_id)`` and have any number of tomls reference that single copy.
+    Skips the extraction when the camera is already cached (unless ``force``). Returns
+    ``{dir, camera, walkmesh, cached}`` (``camera``/``walkmesh`` are Paths; ``walkmesh`` is None if absent).
+    Needs the install + UnityPy (lazily, via :func:`extract_field`)."""
+    from . import provision
+    dest = provision.field_cache_dir(field_id)
+    cam = dest / "camera.bgx"
+    wmp = dest / "walkmesh.bgi"
+    if cam.is_file() and not force:
+        return {"dir": dest, "camera": cam, "walkmesh": wmp if wmp.is_file() else None, "cached": True}
+    dest.mkdir(parents=True, exist_ok=True)
+    meta = extract_field(str(field_id), dest, game=game)
+    return {"dir": dest, "camera": cam, "walkmesh": wmp if wmp.is_file() else None, "cached": False,
+            "meta": meta}
+
+
 def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=False, avoid_zones=None) -> dict:
     """Extract a real field's camera + walkmesh (+ optional atlas) to `out_dir`; return metadata.
 

@@ -82,6 +82,24 @@ and warp menu) — then build/deploy it exactly as in the previous section. Add 
 generator validates the registry offline (id bands, dup names, the `text_block` 1073 shadow trap, menu
 paging) before emitting.
 
+### Let the generator fetch the camera for you
+
+The BG-borrow camera still has to come from *your* install, but you don't have to extract it by hand. Set
+`[hub] borrow_field = 950` in `journeys.toml` (the real field this room *is*) and add `--extract-camera`:
+
+```bash
+py -m ff9mapkit gen-hub examples/world_hub/journeys.toml --extract-camera --out examples/world_hub/hub.field.toml
+```
+
+That pulls field 950's camera into a **shared, gitignored workspace cache** (`.ff9mapkit-cache/fields/950/`,
+override with `$FF9MAPKIT_DATA`) and points the emitted `[camera] borrow` at that one copy — so `gen-hub`
+then build/deploy "just works", no manual step, and a second hub borrowing the same room reuses the cache.
+You can also pre-warm the cache for any field(s) directly:
+
+```bash
+py -m ff9mapkit extract-field 950          # -> .ff9mapkit-cache/fields/950/{camera.bgx, walkmesh.bgi}
+```
+
 ## What's a scaffold vs a real hub
 
 - **Scaffold (this):** trivial destinations, reached via F6 → Warp.
