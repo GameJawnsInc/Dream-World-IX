@@ -38,14 +38,17 @@ CHOICE_FLAG_BASE = 8200
 def option_body(opt: dict, reply_txid: int | None = None) -> bytes:
     """Compose ONE option's actions (the body run if the player picks it). Reuses the event action
     vocabulary so a choice option does exactly what an event does: an optional reply line, then
-    give item / gil, then set a story flag. Order: reply -> give_item -> gil -> set_flag (set_flag
-    last so anything reading it sees the final state)."""
+    give/take item, gil, then set a story flag. Order: reply -> give_item -> remove_item -> gil ->
+    set_flag (set_flag last so anything reading it sees the final state)."""
     parts = []
     if reply_txid is not None:
         parts.append(_event.message(reply_txid))
     if "give_item" in opt:
         gi = opt["give_item"]
         parts.append(_event.give_item(gi[0], int(gi[1]) if len(gi) > 1 else 1))   # gi[0] = id or name
+    if "remove_item" in opt:
+        ri = opt["remove_item"]
+        parts.append(_event.take_item(ri[0], int(ri[1]) if len(ri) > 1 else 1))   # symmetric: a trade option
     if "gil" in opt:
         parts.append(_event.give_gil(int(opt["gil"])))
     if "set_flag" in opt:

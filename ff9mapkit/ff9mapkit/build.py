@@ -465,13 +465,15 @@ def validate(project: FieldProject) -> list[str]:
         z = ev.get("zone", [])
         if len(z) not in (4, 5):
             problems.append(f"[[event]] zone must have 4 or 5 points (got {len(z)})")
-        if not any(k in ev for k in ("message", "give_item", "gil", "set_flag")):
-            problems.append("[[event]] needs at least one action (message / give_item / gil / set_flag)")
-        if "give_item" in ev:
-            try:
-                _items.resolve(ev["give_item"][0])
-            except (ValueError, IndexError, TypeError) as e:
-                problems.append(f"[[event]] give_item: {e}")
+        if not any(k in ev for k in ("message", "give_item", "remove_item", "gil", "set_flag")):
+            problems.append("[[event]] needs at least one action "
+                            "(message / give_item / remove_item / gil / set_flag)")
+        for k in ("give_item", "remove_item"):
+            if k in ev:
+                try:
+                    _items.resolve(ev[k][0])
+                except (ValueError, IndexError, TypeError) as e:
+                    problems.append(f"[[event]] {k}: {e}")
         for k in ("received", "require_space"):
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
@@ -663,15 +665,16 @@ def validate(project: FieldProject) -> list[str]:
             for oi, o in enumerate(opts):
                 if not str(o.get("text", "")).strip():
                     problems.append(f"[[choice]] #{c} option {oi} needs 'text' (the menu row)")
-                for key in ("give_item", "set_flag"):
+                for key in ("give_item", "remove_item", "set_flag"):
                     if key in o and (not isinstance(o[key], list) or len(o[key]) < 1):
                         problems.append(f"[[choice]] #{c} option {oi} {key} must be a list, "
                                         f"e.g. [\"Potion\", 1]")
-                if isinstance(o.get("give_item"), list) and o["give_item"]:
-                    try:
-                        _items.resolve(o["give_item"][0])
-                    except (ValueError, TypeError) as e:
-                        problems.append(f"[[choice]] #{c} option {oi} give_item: {e}")
+                for key in ("give_item", "remove_item"):
+                    if isinstance(o.get(key), list) and o[key]:
+                        try:
+                            _items.resolve(o[key][0])
+                        except (ValueError, TypeError) as e:
+                            problems.append(f"[[choice]] #{c} option {oi} {key}: {e}")
                 if "requires_flag" in o and "requires_flag_clear" in o:
                     problems.append(f"[[choice]] #{c} option {oi} can't have BOTH requires_flag and "
                                     f"requires_flag_clear -- pick one (shown when SET vs when CLEAR).")
@@ -1948,6 +1951,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             if "give_item" in ev:
                 gi = ev["give_item"]
                 parts.append(_event.give_item(item_id, int(gi[1]) if len(gi) > 1 else 1))
+            if "remove_item" in ev:                       # the symmetric take-item lever (a trade / consume)
+                ri = ev["remove_item"]
+                parts.append(_event.take_item(ri[0], int(ri[1]) if len(ri) > 1 else 1))
             if "gil" in ev:
                 parts.append(_event.give_gil(int(ev["gil"])))
             # Apply the EFFECTS (item/gil already above, now the flag) BEFORE the acknowledgement

@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `remove_item`: the symmetric take-item reward lever (0.9.36)
+`[[event]]` and `[[choice]]` rewards could `give_item` but not take one back. New `remove_item = [item, count]`
+(id or name) emits `RemoveItem` (`0x49`) — pair it with `give_item` for a **trade**, or use it alone to
+**consume a quest item**. (Giving equipment by name and the "Received X" box already worked for any item,
+incl. weapons/armor — this closes the one missing half.)
+
+```toml
+[[event]]                       # a trade: take a Dagger, give a Potion
+zone = [[300,-400],[700,-400],[700,-800],[300,-800]]
+remove_item = ["Dagger", 1]
+give_item   = ["Potion", 1]
+message     = "Traded!"
+```
+
+- New `opcodes.remove_item` (0x49) + `event.take_item` (name-resolved, like `give_item`); wired symmetrically
+  into the event + choice-option builders and `validate()` (a sole `remove_item` is a valid action; an unknown
+  name is caught). The engine clamps removal to what's held, so over-removing is safe.
+- 4 tests across `test_content` / `test_choice` / `test_build` (a trade event with both ops, a trade choice
+  option, a remove-only event validates + builds with `0x49`, and a bad name is rejected).
+
 ### Added — `fork-report` Camera axis: the lens a fork plays through (close / medium / wide)
 - A new **`Camera`** line previews how the field is framed: a **`close` / `medium` / `wide`** feel bucketed by
   horizontal FOV, plus the raw `pitch`/`FOV`, and notes when the field is `scrolling` or has multiple cameras.

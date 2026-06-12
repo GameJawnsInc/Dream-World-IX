@@ -34,8 +34,15 @@ def message(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:
 
 def give_item(item_id, count: int = 1) -> bytes:
     """Body part: AddItem(item, count). ``item_id`` may be a numeric id OR a name ("Potion") --
-    resolved via :mod:`ff9mapkit.items` so authors don't have to memorize ids."""
+    resolved via :mod:`ff9mapkit.items` so authors don't have to memorize ids. Works for ANY item,
+    including weapons/armor ("Excalibur") -- the engine renders the name in the "Received X" box."""
     return opcodes.add_item(_items.resolve(item_id), count)
+
+
+def take_item(item_id, count: int = 1) -> bytes:
+    """Body part: RemoveItem(item, count) -- the symmetric counterpart of :func:`give_item` (a trade,
+    a quest-item consume). ``item_id`` may be a numeric id OR a name; the engine clamps to what's held."""
+    return opcodes.remove_item(_items.resolve(item_id), count)
 
 
 def give_gil(amount: int) -> bytes:

@@ -448,7 +448,8 @@ once = false
 | `zone` | 4 convex `(x,z)` corners of the trigger region (place where the player walks). |
 | `message` | text shown in a dialogue window when triggered (added to the field's `.mes`). |
 | `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + the window pointer); see *Speaker names & the tail*. Usually omit `speaker` for an unsigned popup. |
-| `give_item` | `[item, count]` — `item` is an **id or a name** (`"Potion"`); `AddItem`. List names with `ff9mapkit items`. |
+| `give_item` | `[item, count]` — `item` is an **id or a name** (`"Potion"`, also weapons/armor like `"Excalibur"`); `AddItem`. List names + stats with `ff9mapkit items`. |
+| `remove_item` | `[item, count]` — **take** items from the bag (id or name); `RemoveItem`. The symmetric counterpart of `give_item` — pair the two for a **trade**, or use alone for a quest-item consume. |
 | `received` | *(give_item only)* `true` = show the canonical FF9 **item-get window** ("Received \<item\>!", window type 7) instead of a plain message — `SetTextVariable(0, item)` + `[ITEM=0]`. |
 | `require_space` | *(give_item only)* `true` = **chest behavior**: skip the whole event (and don't set the `once` flag, so it's retryable) if the bag is full — `if (GetItemCount(item) < 99) { … }`. |
 | `gil` | gil to give; **negative subtracts** (e.g. `gil = -100` charges 100). `AddGil` / `RemoveGil`. |
@@ -647,7 +648,7 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `options[].requires_flag` | *(optional)* hide this row **until** story flag N is set (flag-gated). |
 | `options[].requires_flag_clear` | *(optional)* hide this row **once** story flag N is set. |
 | `options[].reply` | optional line shown after the player picks it. |
-| `options[].give_item` / `gil` / `set_flag` | optional actions, same as `[[event]]` — `give_item = ["Potion", 1]` (id or name), `gil` negative charges, `set_flag` raises a story flag. |
+| `options[].give_item` / `remove_item` / `gil` / `set_flag` | optional actions, same as `[[event]]` — `give_item`/`remove_item = ["Potion", 1]` (id or name; a trade row gives one item and takes another), `gil` negative charges, `set_flag` raises a story flag. |
 
 **Pre-choose config (default / cancel / disable).** `default` sets the initially-highlighted row,
 `cancel` sets which row B/Cancel picks, and `options[].disabled = true` **removes** a row from the menu

@@ -327,6 +327,19 @@ def test_event_give_item_once_structure():
     assert 0x07 in _ops(eb, 0, 0)
 
 
+def test_event_remove_item_and_trade():
+    # remove_item is the symmetric take-item lever (RemoveItem 0x49); name-resolved like give_item.
+    assert event.take_item(236, 2) == opcodes.remove_item(236, 2)
+    assert event.take_item("Potion", 1) == opcodes.remove_item(236, 1)   # name -> id
+    ZONE = [(200, -300), (600, -300), (600, -700), (200, -700)]
+    body = event.take_item("Dagger", 1) + event.give_item("Potion", 1)   # a trade: Dagger -> Potion
+    out = event.inject_events(CLEAN, [{"zone": ZONE, "body": body, "once_flag": 201}])
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out
+    _, rng = _event_region(eb)
+    assert opcodes.remove_item(1, 1) in rng and opcodes.add_item(236, 1) in rng   # both ops emitted
+
+
 def test_event_sets_flag_before_message(tmp_path):
     # an event doesn't lock movement, so its flag must land on TRIGGER -- before the acknowledgement
     # message (not only when the player closes the window). Verify set_flag precedes the WindowSync.

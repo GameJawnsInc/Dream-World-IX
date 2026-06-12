@@ -880,6 +880,13 @@ Read these on demand — they hold the full technical detail this file only summ
   the `BattleStatus` mask) showed a misleading "use pow 0" -> now the `Status` mask is decoded + the effect line
   is gated on meaningfulness ("effect status Death"; empty-effect accessories show none). kit 0.9.35; 913 tests
   (11 new, atop overworld's Camera 902).
+- **`remove_item` — the symmetric take-item reward lever (`items_equipment`; reward ergonomics #2).** `[[event]]`/
+  `[[choice]]` could `give_item` but not take one; new `remove_item = [item, count]` (id or name) emits
+  `RemoveItem` (0x49) — pair with `give_item` for a TRADE, or alone to CONSUME a quest item. (give-by-name +
+  the "Received X" box already worked for ANY item incl. weapons/armor, so this closes the one missing half.)
+  `opcodes.remove_item` + `event.take_item` (name-resolved) wired symmetrically into the event + choice builders
+  + `validate()` (a sole `remove_item` is a valid action; an unknown name is caught; the engine clamps removal to
+  what's held). 4 tests; clear of story_flags' compose lane + overworld's forkreport lane. kit 0.9.36; 917 tests (4 new).
 
 ---
 

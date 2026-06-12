@@ -362,6 +362,13 @@ def add_item(item_id: int, count: int = 1) -> bytes:   # 0x48 (ITEM) argsize [2,
     return encode(0x48, item_id, count)
 
 
+def remove_item(item_id: int, count: int = 1) -> bytes:   # 0x49 (ITEMDELETE) argsize [2, 1]
+    """RemoveItem(item_id, count): take ``count`` of an item from the party inventory (the symmetric
+    counterpart of :func:`add_item` -- a trade / quest-item consume). The engine removes up to what's
+    held, so removing more than carried is a safe clamp, not an error."""
+    return encode(0x49, item_id, count)
+
+
 def set_text_variable(slot: int, value: int) -> bytes:   # 0x66 (MESVALUE) argsize [1, 2]
     """SetTextVariable(slot, value): set dialogue text-variable ``slot`` -> ``value`` (ETb.gMesValue).
     A ``[ITEM=slot]`` tag in the next window renders that value's item name, ``[VAR=slot]`` its number.

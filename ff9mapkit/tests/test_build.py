@@ -232,6 +232,55 @@ def test_event_field_validates_and_builds(tmp_path):
     assert sum(1 for e in eb.entries if not e.empty and e.type == 1 and e.func_by_tag(2)) == 2
 
 
+TRADE = """
+[field]
+id = 4003
+name = "TRADEROOM"
+area = 11
+text_block = 1073
+
+[camera]
+pitch = 45
+
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+
+[player]
+spawn = [0, -300]
+
+[[event]]                       # a trade: take a Dagger, give a Potion
+zone = [[300, -400], [700, -400], [700, -800], [300, -800]]
+remove_item = ["Dagger", 1]
+give_item = ["Potion", 1]
+message = "Traded!"
+
+[[event]]                       # a pure consume: take an Ore, no give (remove_item is a valid sole action)
+zone = [[-700, -400], [-300, -400], [-300, -800], [-700, -800]]
+remove_item = ["Ore", 2]
+once = false
+"""
+
+
+def test_event_remove_item_validates_and_builds(tmp_path):
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.eb.disasm import iter_code
+    p = tmp_path / "trade.field.toml"
+    p.write_text(TRADE, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []               # remove_item is a valid action (even alone)
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    eb = EbScript.from_bytes(ModLayout(out).eb_path("us", "EVT_TRADEROOM.eb.bytes").read_bytes())
+    ops = [i.op for e in eb.entries if not e.empty for f in e.funcs
+           for i in iter_code(eb.data, f.abs_start, f.abs_end)]
+    assert 0x49 in ops and 0x48 in ops                        # RemoveItem (the trade) + AddItem
+
+
+def test_event_remove_item_unknown_name_is_caught(tmp_path):
+    p = tmp_path / "bad.field.toml"
+    p.write_text(TRADE.replace('["Dagger", 1]', '["Notathing", 1]'), encoding="utf-8")
+    assert any("remove_item" in x for x in validate(FieldProject.load(p)))
+
+
 STORY = """
 [field]
 id = 4003

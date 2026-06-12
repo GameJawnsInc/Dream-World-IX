@@ -54,6 +54,13 @@ def test_option_body_empty_when_no_actions():
     assert choice.option_body({"text": "No"}, reply_txid=None) == b""
 
 
+def test_option_body_remove_item_trade():
+    # a trade option: give one item, take another (order: give_item -> remove_item per option_body)
+    out = choice.option_body({"give_item": ["Potion", 1], "remove_item": ["Dagger", 1]}, None)
+    assert out == event.give_item("Potion", 1) + event.take_item("Dagger", 1)
+    assert opcodes.remove_item(1, 1) in out
+
+
 def test_gil_is_signed_add_or_remove():
     # gil >= 0 -> AddGil (0xCE); gil < 0 -> RemoveGil (0xCF). A negative must NOT wrap to a huge add.
     assert event.give_gil(100) == opcodes.add_gil(100)
