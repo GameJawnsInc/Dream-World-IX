@@ -949,6 +949,23 @@ def _cmd_flags_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_items_inspect(args: argparse.Namespace) -> int:
+    """Decode + render a save's items / equipment / gil (read-only) from the Memoria extra file -- the
+    load-authoritative store. One report per populated slot of a SavedData_ww.dat, or one for a given extra."""
+    from . import save_items as SI
+    try:
+        reports = SI.inspect(args.save)
+    except Exception as e:                                              # noqa: BLE001
+        print(f"could not read items/equipment: {e}")
+        return 2
+    multi = len(reports) > 1
+    for i, (label, rep) in enumerate(reports):
+        if multi:
+            print(("\n" if i else "") + f"=== {label} ===")
+        print(SI.render_report(rep))
+    return 0
+
+
 def _cmd_flags_diff(args: argparse.Namespace) -> int:
     """Diff two saves' gEventGlobal story state (A -> B) -- what a beat / session wrote. Each arg reads the
     same forms as flags-inspect; with one save, --slot-a/--slot-b pick two slots (default: slot 0 -> slot 1)."""
@@ -1694,6 +1711,11 @@ def build_parser() -> argparse.ArgumentParser:
                                  "file / text, or a bare Base64 gEventGlobal blob")
     fi.add_argument("--all", action="store_true", help="also list the unmapped set bits")
     fi.set_defaults(func=_cmd_flags_inspect)
+
+    ii = sub.add_parser("items-inspect",
+                        help="decode a save's items / equipment / gil (read-only; from the Memoria extra file)")
+    ii.add_argument("save", help="path to SavedData_ww.dat (per slot) or a Memoria extra-save file")
+    ii.set_defaults(func=_cmd_items_inspect)
 
     fd = sub.add_parser("flags-diff",
                         help="diff two saves' story state (A -> B): what scenario/flags a beat changed")
