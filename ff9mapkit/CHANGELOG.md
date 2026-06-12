@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — save-item editor #5 step 4a: inventory + equipment WRITES (`items-set-item`/`items-set-equip`) (0.9.52)
+### Added — save-item editor #5 step 4a: inventory + equipment WRITES, IN-GAME PROVEN (`items-set-item`/`items-set-equip`) (0.9.52)
 - Extends the proven step-3 extra-file write path from gil to **items and equipment**, by name, same safety model.
 - **`save_items.set_item(extra, item, count)`** — set an item's inventory stack count (a kit name or 0-254 id).
   `count` 0 REMOVES the stack; a new item inserts in **ascending-id position** (matching how the engine writes
@@ -27,7 +27,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (the CLI passes `character` as a string, so a numeric CharacterId `"6"` failed — `_find_player` now treats
   digit strings as CharacterIds). A 3-lens adversarial-verify workflow (engine-fidelity / python-safety /
   integration) found 6 low-sev issues, all fixed (count-leaf guard, stale docstring, render + scoped-abort +
-  post-write-confirm + backup-assertion test coverage). ⏳ In-game apply (items/equip) is the next STOP-and-test.
+  post-write-confirm + backup-assertion test coverage).
+- ★ **IN-GAME PROVEN (2026-06-12):** applied to slot 1/save 3 — Potion 7→99, +5 Elixir (inserted at its ascending-id
+  position), Zidane weapon Dagger→Mage Masher — the main container untouched — loaded in-game and all three showed
+  correctly. The editor now writes **gil + items + equipment** to a real save, schema-faithful.
 
 ### Added — save-item editor #5 step 3: the first real-save WRITE = gil (`items-set-gil`), IN-GAME PROVEN (0.9.50)
 - **`save_items.set_gil(extra_path, gil, *, dry_run=True, backup=True)`** — write `40000_Common/gil` into a
