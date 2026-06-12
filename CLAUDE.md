@@ -142,7 +142,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   (`deploy_field.py`, currently a CPMP ladder fork).
 - **New-Game → field 4003 is a stock mod field-70 override, NOT a DLL edit** — the only custom DLL is the F6
   menu. The mechanism, the seamless-entry lever, and the starting-state capstone → [[project-ff9-new-game-entry]].
-- **Versions:** kit `0.9.44`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.45`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -348,6 +348,9 @@ Read these on demand — they hold the full technical detail this file only summ
   AES `SavedData_ww.dat` codec.
 - `project-ff9-jump-navigation` — navigable jumps = ladder mechanism minus the climb loop; the entry-table fix.
 - `project-ff9-battle-backgrounds` — custom 3D battle maps (all tiers) + the raw17 camera recipe.
+- `project-ff9-battle-tuning` — battle GAMEPLAY tuning (not backgrounds): the 4-channel model (raw16
+  `SB2_MON_PARM` / Data CSVs / battle `.eb` AI / field `.eb` wiring), the no-DLL boundary, the roadmap.
+  Full gap map = `docs/BATTLE_DESIGN.md`.
 - `project-ff9-infohub-authoring` — place any field model/prop/creature by NAME (archetypes/props/creatures);
   the model→animation join; the Info Hub catalog + viewer + debug arena.
 - `project-ff9-import-fidelity` — `import --editable` = a scaffold (faithful carry now exists separately).
@@ -383,7 +386,11 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - InfoHub authoring — place any model/prop/creature by name → [[project-ff9-infohub-authoring]]
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 
-**Latest:** kit 0.9.44, 998 tests. Frontier: #13 (story-event director/roster on rotating-cast fields) — open.
+**Latest:** kit 0.9.45, 1015 tests. Active: **battle TUNING / encounter authoring** (`battle_design`) — recon +
+Phase 0/1 landed (raw16 full codec + golden round-trip; `[scene]` combat-identity tuning — element affinities /
+status masks / defences / AP by name; `battle-actions` + `battle-scene` catalogs), OFFLINE-proven, in-game next →
+[[project-ff9-battle-tuning]], `docs/BATTLE_DESIGN.md`. Frontier: #13 (story-event director/roster on
+rotating-cast fields) — open.
 
 ---
 
