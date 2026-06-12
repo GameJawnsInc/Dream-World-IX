@@ -978,9 +978,14 @@ Read these on demand — they hold the full technical detail this file only summ
   list) + a defensive model-match guard; field-500 regression test; chain summary no longer false-WARNs. ★ Surfaced
   a PRE-EXISTING orthogonal issue (spawned as a task): `import` ships a DIFFERENT event script than
   `fork-report`/`list-fields` analyze (field 100: import = Zidane multi-PC, eb_for_id = Vivi single-PC). Offline +
-  on-the-real-import-artifact proven (entry 12 Zidane→Steiner, all 24 gestures → idle); the in-game "stands cleanly"
-  check is the human step. Touches `playerswap.py`/`extract.py`/`cli.py`/`campaign.py`. kit 0.9.41; 951 tests. See
-  memory [[project-ff9-non-zidane-donors]].
+  on-the-real-import-artifact proven (entry 12 Zidane->Steiner, all 24 gestures -> idle). ★ **IN-GAME PROVEN**
+  (Alexandria street alxt_map016 forked Vivi->Steiner, 15 gestures): Steiner stands in his idle cleanly through the
+  cutscene beats, no T-pose, scene flows normally. ★ The wait duration after neutralize is ENGINE-AUTOMATIC = the
+  SUBSTITUTE idle clip's own frame count (`GetCharAnimFrame` reads the loaded clip at runtime; `WaitAnimation` blocks
+  on `afExec` until `ProcessAnime` plays it out) -- NOT the original gesture's duration (the engine doesn't preserve
+  it); reads natural because the idle has a real length + the scene's macro-pacing is gated by dialogue windows /
+  fixed `Wait(N)` ops neutralize leaves intact. Touches `playerswap.py`/`extract.py`/`cli.py`/`campaign.py`. kit
+  0.9.41; 951 tests. See memory [[project-ff9-non-zidane-donors]].
 
 ---
 
