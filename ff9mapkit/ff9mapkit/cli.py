@@ -1104,6 +1104,22 @@ def _cmd_fork_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_find_rooms(args: argparse.Namespace) -> int:
+    """Sweep all fields for the best swap/demo TEST ROOMS (single-PC + swap-clean + a close 3/4 camera).
+    The 'where can I cleanly walk as a swapped character / see the model's detail?' verb -- a ~45s offline
+    sweep (a cheap .eb prefilter, then a camera read on the survivors)."""
+    _safe_console()
+    from . import forkreport as FR
+    print(f"Sweeping fields for swap/demo rooms (this takes ~45s)...", file=sys.stderr)
+    try:
+        sweep = FR.find_rooms(game=args.game, limit=args.limit, max_fov=args.max_fov)
+    except (RuntimeError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(FR.format_room_table(sweep))
+    return 0
+
+
 def _cmd_items(args: argparse.Namespace) -> int:
     """List FF9 item names + ids (use a name for `give_item = ["<name>", count]`)."""
     from . import items as I
@@ -1581,6 +1597,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="preview what a fork of a REAL field will/won't reproduce, offline (fidelity report)")
     fr.add_argument("field", help="real field id or FBG name (e.g. 354, dl_shp, lb_tmp) -- see `list-fields`")
     fr.set_defaults(func=_cmd_fork_report)
+
+    fdr = sub.add_parser("find-rooms",
+                         help="sweep ALL fields for the best swap/demo test rooms (single-PC + swap-clean + close camera)")
+    fdr.add_argument("--limit", type=int, default=20, help="max rooms to show (default 20)")
+    fdr.add_argument("--max-fov", type=float, default=45.0,
+                     help="upper FOV bound, degrees (default 45 = exclude wide establishing lenses; raise to widen)")
+    fdr.set_defaults(func=_cmd_find_rooms)
 
     xt = sub.add_parser("extract-templates",
                         help="regenerate the kit's base assets from YOUR FF9 install (ships no game data)")

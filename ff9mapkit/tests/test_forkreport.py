@@ -117,6 +117,60 @@ def test_camera_line_omitted_when_not_read():
     assert not any(l.strip().startswith("Camera") for l in FR.format_report(rep).splitlines())
 
 
+def test_camera_line_distant_label_for_telephoto():
+    # FF9 projection is orthographic-like, so a sub-10 "FOV" is zoomed FAR OUT (a telephoto), not close.
+    rep = FR.ForkReport(field_id=2151, cam_pitch=20.0, cam_fov=4.2)
+    assert "distant" in FR._camera_line(rep) and "close" not in FR._camera_line(rep)
+
+
+# ---- the room finder: best swap/demo test rooms (single-PC + swap-clean + a close 3/4 camera) ----
+def _room_rep(**kw):
+    rep = FR.ForkReport(field_id=kw.pop("fid", 1), fbg_name=kw.pop("fbg", "fbg_n01_x_map001_y_0"))
+    rep.player_models = [(1, 98, "Zidane")]
+    for k, v in kw.items():
+        setattr(rep, k, v)
+    return rep
+
+
+def test_room_score_accepts_a_close_3q_room_and_prefers_the_anchor():
+    anchor = _room_rep(cam_fov=29.5, cam_pitch=28.8, cam_range_h=336)   # field 1200 ac_rst_x (proven good)
+    s = FR.room_score(anchor)
+    assert s is not None and s < 2.0                                    # right on the 30/28 ideal
+    flatter = _room_rep(cam_fov=29.9, cam_pitch=15.5, cam_range_h=300)  # clean but flatter (less detail)
+    assert FR.room_score(flatter) > s                                  # the 3/4 anchor outranks the flat lens
+
+
+def test_room_score_rejects_telephoto_topdown_flat_distant_wide_and_cutscene():
+    assert FR.room_score(_room_rep(cam_fov=4.2, cam_pitch=20, cam_range_h=500)) is None     # telephoto (FOV floor)
+    assert FR.room_score(_room_rep(cam_fov=30, cam_pitch=66.7, cam_range_h=300)) is None    # near-top-down
+    assert FR.room_score(_room_rep(cam_fov=30, cam_pitch=-3.8, cam_range_h=300)) is None    # flat/side-on (no 3/4)
+    assert FR.room_score(_room_rep(cam_fov=30, cam_pitch=28, cam_range_h=592)) is None      # camera too far back
+    assert FR.room_score(_room_rep(cam_fov=61.3, cam_pitch=20, cam_range_h=224)) is None    # wide establishing lens
+    assert FR.room_score(_room_rep(cam_fov=30, cam_pitch=28, cam_range_h=300,
+                                   event_name="EVT_LIND3_CS_LB_LPF_0")) is None             # _CS_ cutscene field
+    assert FR.room_score(_room_rep(cam_fov=None, cam_pitch=None)) is None                   # no readable camera
+
+
+def test_room_score_scrolling_is_a_demerit_not_a_disqualifier():
+    base = FR.room_score(_room_rep(cam_fov=30, cam_pitch=28, cam_range_h=300))
+    scroll = FR.room_score(_room_rep(cam_fov=30, cam_pitch=28, cam_range_h=300, cam_scrolling=True))
+    assert scroll is not None and scroll > base                        # ranked lower, still a room
+
+
+def test_is_real_fbg_filters_placeholders():
+    assert FR._is_real_fbg("fbg_n02_alxc_map878a_ac_rst_x")
+    assert not FR._is_real_fbg("invalidfieldmapid") and not FR._is_real_fbg("")
+
+
+def test_format_room_table_ascii_and_empty():
+    a = _room_rep(fid=1200, fbg="fbg_n02_alxc_map878a_ac_rst_x", cam_fov=29.5, cam_pitch=28.8, cam_count=2)
+    out = FR.format_room_table(FR.RoomSweep(rooms=[a], scanned=675, swap_clean=109))
+    out.encode("cp1252")                                              # must be console-safe
+    assert "1200" in out and "ac_rst_x" in out and "1 room" in out and "2cam" in out
+    empty = FR.format_room_table(FR.RoomSweep(rooms=[], scanned=675, swap_clean=109))
+    assert "no rooms matched" in empty
+
+
 # ---- the Party axis: what a verbatim fork does to your party ----
 def test_scan_party_ops_on_alex100_adds_vivi_and_resets():
     # ALEX100 (field 100) is the disc-1 opening: it strips the party and adds Vivi (CharacterOldIndex 1).
@@ -292,6 +346,29 @@ def test_analyze_populates_camera_axis_from_the_scene():
     assert 0 < rep.cam_fov < 120 and rep.cam_count >= 1
     line = next(l for l in FR.format_report(rep).splitlines() if l.strip().startswith("Camera"))
     assert any(feel in line for feel in ("close", "medium", "wide")) and "pitch" in line
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_field_camera_info_exposes_range_and_analyze_populates_it():
+    from ff9mapkit import extract
+    ci = extract.field_camera_info("fbg_n02_alxc_map878a_ac_rst_x")    # the proven anchor (field 1200)
+    assert ci and ci.get("range_h", 0) > 0                             # the new range_h signal is exposed
+    rep = FR.analyze(1200)
+    assert rep.cam_range_h > 0                                         # analyze() carries it onto the report
+    assert FR.room_score(rep) is not None                             # 1200 is a genuine room (passes the gates)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_find_rooms_ranks_the_anchor_first_among_known_fields():
+    # scope the sweep to a handful so it's fast: the proven anchor 1200 vs known-bad donors
+    # (650 near-top-down, 2151 telephoto, 1357 wide Hangar, 816 a submarine vehicle "player").
+    # Only 1200 should survive, ranked #1.
+    sweep = FR.find_rooms(ids=[1200, 650, 2151, 1357, 816], limit=10)
+    out_ids = [r.field_id for r in sweep.rooms]
+    assert out_ids and out_ids[0] == 1200                             # the proven room is found + ranks best
+    assert not ({650, 2151, 1357, 816} & set(out_ids))                # bad framings + the vehicle player excluded
+    # the rendered table is console-safe and cites the room
+    FR.format_room_table(sweep).encode("cp1252")
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

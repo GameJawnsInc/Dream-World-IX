@@ -25,6 +25,28 @@ message     = "Traded!"
 - 4 tests across `test_content` / `test_choice` / `test_build` (a trade event with both ops, a trade choice
   option, a remove-only event validates + builds with `0x49`, and a bad name is rejected).
 
+### Added — `find-rooms`: sweep all fields for the best swap/demo test rooms
+- A new `ff9mapkit find-rooms` subcommand scans every forkable field and ranks the best **swap/demo test
+  rooms** — a place to walk as a `--swap-player` character or stage a visual test where the model's detail is
+  visible. The proven anchor field 1200 `ac_rst_x` ranks #1; the top results match the hand-verified clean
+  rooms (1911 Treno house, 310 Ice Cavern cafe, 3055 BMV weapon shop, …).
+- A "good room" is the AND of: single-PC + swap-clean + a PLAYABLE controller + a STATIC roster + a **close
+  3/4 single-screen camera**. The camera test is the subtle part: **FOV alone is NOT a detail proxy** — FF9's
+  projection is orthographic-like (k≈0.93, the camera-math invariant), so a sub-10° "FOV" is a far *telephoto*
+  (model is a speck), not a close shot. So the filter ANDs a bounded FOV (10–45°) **with** a 3/4 pitch band
+  (6–48°) **with** the camera's visible `range_height` (≤420; the key signal, now exposed from
+  `field_camera_info`) **with** a `_CS_` cutscene-name guard. Scrolling is a rank demerit, not a disqualifier.
+- Two-phase for speed (~45s over ~675 fields): a cheap `.eb`-only prefilter (one `EventBundle`, no per-field
+  scene load) keeps single-PC + swap-clean + static-roster + playable fields, then the expensive per-field
+  camera read runs ONLY on those ~75 survivors. `--limit` / `--max-fov`; `find_rooms(ids=…)` scopes the sweep.
+- New in `forkreport.py`: `find_rooms` / `room_score` / `RoomSweep` / `format_room_table` / `_is_real_fbg` +
+  the `ROOM_*` calibration constants. `extract.field_camera_info` now returns `range_w`/`range_h`;
+  `ForkReport` gains `cam_range_h`. The `_camera_line` Camera axis gained a `distant` label for sub-10° FOV
+  (a telephoto, not "close" — corrects the just-shipped axis). Grounded in a 676-field calibration sweep and
+  hardened by a 3-lens adversarial review (caught the missing low-pitch bound, the loose max-pitch, the
+  vehicle-player donor, and story-event leakage — all fixed). Read-only; `forkreport.py`/`extract.py`/`cli.py`
+  only. 12 tests (8 pure + 2 install-gated integration). kit 0.9.37.
+
 ### Added — `fork-report` Camera axis: the lens a fork plays through (close / medium / wide)
 - A new **`Camera`** line previews how the field is framed: a **`close` / `medium` / `wide`** feel bucketed by
   horizontal FOV, plus the raw `pitch`/`FOV`, and notes when the field is `scrolling` or has multiple cameras.

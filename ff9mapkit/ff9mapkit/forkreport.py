@@ -309,6 +309,7 @@ class ForkReport:
     cam_fov: float | None = None                         # horizontal FOV (deg) -> close/medium/wide feel
     cam_scrolling: bool = False                           # a wide/scrolling field (range past one 384x448 screen)
     cam_count: int = 0                                    # number of cameras (> 1 = a multi-camera field)
+    cam_range_h: int = 0                                  # camera visible height (screen units); the "how far back" signal
     party_adds: list = _dc_field(default_factory=list)    # distinct CharacterOldIndex names the field ADDS (B_PARTYADD)
     party_removes: list = _dc_field(default_factory=list)  # distinct names it REMOVES (RemoveParty)
     party_reset: bool = False                            # SetPartyReserve -- rebuilds the recruitable roster (story reset)
@@ -387,6 +388,7 @@ def analyze(field_id: int, *, game=None, bundle=None) -> ForkReport:
     if ci:
         rep.cam_pitch, rep.cam_fov = ci["pitch"], ci["fov"]
         rep.cam_scrolling, rep.cam_count = ci["scrolling"], ci["count"]
+        rep.cam_range_h = ci.get("range_h", 0)
     return rep
 
 
@@ -599,6 +601,9 @@ def _camera_line(rep: ForkReport) -> str:
     fov = rep.cam_fov
     if fov is None:
         feel = "unknown-fov"
+    elif fov < 10:
+        feel = "distant"             # a sub-10 "FOV" is a far telephoto (FF9 projection is orthographic-like,
+                                     # so a tiny FOV = zoomed FAR OUT, model is a speck) -- NOT an intimate room
     elif fov < 35:
         feel = "close"               # an intimate room (e.g. ac_rst_x ~29.5) -- a good --swap/demo test room
     elif fov < 50:
@@ -684,4 +689,129 @@ def format_report(rep: ForkReport) -> str:
         nm = _flags.nearest_milestone(rep.suggested_scenario)
         lines += ["    [startup]",
                   f"    scenario = {rep.suggested_scenario}" + (f"   # {nm[1]}" if nm else "")]
+    return "\n".join(lines)
+
+
+# ============================================================================================
+# Room finder -- sweep ALL forkable fields for the best swap/demo TEST ROOMS.
+#
+# A "good room" = a place to walk as a swapped character (`--swap-player`) or stage a visual test
+# where the model's DETAIL is actually visible. Grounded in a 676-field calibration sweep:
+# FOV ALONE is not a detail proxy (FF9's projection is orthographic-like, k~0.93 -- a tiny "FOV" is
+# zoomed FAR OUT, not close), so a room is the AND of (single-PC) + (swap-clean) + a CLOSE 3/4
+# single-screen camera = bounded FOV AND a 3/4 pitch band AND a near-one-screen RANGE AND not a
+# `_CS_` cutscene-staging field. Two-phase for speed (~45s): a cheap .eb-only prefilter, then the
+# expensive per-field camera read only on the survivors. (memory project-ff9-non-zidane-donors.)
+# ============================================================================================
+_REAL_FBG = re.compile(r"^fbg_n\d+_")
+
+# Calibration constants (validated against the sweep; the proven anchor is field 1200 ac_rst_x,
+# FOV 29.5 / pitch 28.8 / range_h 336). Good rooms cluster FOV ~22-42, pitch ~8-48, range_h 224-368.
+ROOM_MIN_FOV = 10.0       # below this is a degenerate telephoto/orthographic camera (model is a speck), not a room
+ROOM_MAX_FOV = 45.0       # above this is a wide establishing lens
+ROOM_MIN_PITCH = 6.0      # below this is a flat/side-on view (no 3/4 detail; the proven anchors sit >= 8.7)
+ROOM_MAX_PITCH = 48.0     # above this is near-top-down -- you see the head, not the face/body
+ROOM_MAX_RANGE_H = 420    # camera visible height; intimate rooms sit 224-368, distant/wide shots 448-592
+ROOM_IDEAL_FOV = 30.0     # the proven anchor sits here
+ROOM_IDEAL_PITCH = 28.0   # ...and pitch ~28 -- the classic 3/4 detail view
+ROOM_SCROLL_DEMERIT = 15.0  # a wide-pan field is not a tight single-screen stage (rank down, don't exclude)
+
+
+def _is_real_fbg(fbg: str) -> bool:
+    """True for a genuine field background name (fbg_nNN_...) -- filters placeholders like 'invalidfieldmapid'."""
+    return bool(_REAL_FBG.match(fbg or ""))
+
+
+def room_score(rep: ForkReport, *, max_fov: float = ROOM_MAX_FOV) -> float | None:
+    """A swap/demo test-room rank key (LOWER = tighter on the model), or None if ``rep`` fails a HARD
+    filter. Assumes ``rep`` already passed the .eb prefilter (single-PC + swap-clean) and has its camera
+    fields populated. FOV alone is not a detail proxy, so this ANDs FOV + pitch + the visible range + a
+    cutscene-name guard -- the combination the calibration sweep validated."""
+    fov, pitch, rh = rep.cam_fov, rep.cam_pitch, rep.cam_range_h
+    if fov is None or pitch is None:
+        return None                                       # no readable camera -> un-rankable
+    if "_CS_" in (rep.event_name or "").upper():
+        return None                                       # a cutscene-staging field, definitionally not a room
+    if not (ROOM_MIN_FOV <= fov <= max_fov):
+        return None                                       # degenerate telephoto / wide establishing lens
+    if not (ROOM_MIN_PITCH <= pitch <= ROOM_MAX_PITCH):
+        return None                                       # flat/side-on (no 3/4 detail) OR near-top-down
+    if rh and rh > ROOM_MAX_RANGE_H:
+        return None                                       # camera too far back (a distant/wide view)
+    key = abs(fov - ROOM_IDEAL_FOV) + 0.3 * abs(pitch - ROOM_IDEAL_PITCH)
+    if rep.cam_scrolling:
+        key += ROOM_SCROLL_DEMERIT
+    return key
+
+
+@dataclass
+class RoomSweep:
+    rooms: list = _dc_field(default_factory=list)         # list[ForkReport], best-first
+    scanned: int = 0                                      # real fields examined (cheap .eb pass)
+    swap_clean: int = 0                                   # passed the single-PC + swap-clean prefilter
+
+
+def find_rooms(*, game=None, limit: int = 20, max_fov: float = ROOM_MAX_FOV,
+               ids=None, bundle=None) -> RoomSweep:
+    """Sweep every forkable field and return the best swap/demo TEST ROOMS, best-first. Two-phase for
+    speed: a cheap .eb-only prefilter (ONE EventBundle, no per-field scene load) keeps single-PC +
+    swap-clean fields, then the expensive per-field camera read (``field_camera_info``) runs ONLY on those
+    survivors and scores them (``room_score``). Pass ``ids`` to restrict the sweep to a candidate set (also
+    keeps it fast). Read-only. Needs the install (reads the scene cameras)."""
+    from .extract import EventBundle, ID_TO_FBG, ID_TO_EVT, field_camera_info  # lazy: UnityPy only when used
+    b = bundle or EventBundle(game)
+    items = [(i, ID_TO_FBG.get(i, "")) for i in ids] if ids is not None else list(ID_TO_FBG.items())
+    # phase 1 (cheap, ~30s): the .eb-only filter -- a real field, a real single player, swap-clean.
+    survivors = []
+    scanned = 0
+    for fid, fbg in items:
+        if not _is_real_fbg(fbg):
+            continue
+        scanned += 1
+        rep = analyze_eb(b.eb_for_id(fid), field_id=fid, fbg_name=fbg, event_name=ID_TO_EVT.get(fid, ""))
+        # single-PC, swap-clean, a PLAYABLE controller (not a submarine/monster rig), and a STATIC roster
+        # (a story-event field rotates its cast/spawns by beat -> forks as a diorama, not a clean room).
+        if (rep.has_script and rep.player_models and not rep.multi_pc and rep.swap_gesture_count == 0
+                and rep.roster_class == "static-roster"
+                and rep.player_models[0][1] in PLAYABLE_NAMES):
+            survivors.append(rep)
+    # phase 2 (expensive, ~15s): read the camera ONLY for survivors, then hard-filter + score.
+    scored = []
+    for rep in survivors:
+        ci = field_camera_info(rep.fbg_name, game=game)
+        if not ci:
+            continue                                      # no readable scene -> skip (never rank a None camera)
+        rep.cam_pitch, rep.cam_fov = ci["pitch"], ci["fov"]
+        rep.cam_scrolling, rep.cam_count = ci["scrolling"], ci["count"]
+        rep.cam_range_h = ci.get("range_h", 0)
+        key = room_score(rep, max_fov=max_fov)
+        if key is not None:
+            scored.append((key, rep))
+    scored.sort(key=lambda kr: (kr[0], kr[1].field_id))
+    n = limit if (limit and limit > 0) else len(scored)   # a non-positive limit -> show all (never the slice bug)
+    return RoomSweep(rooms=[r for _, r in scored[:n]], scanned=scanned, swap_clean=len(survivors))
+
+
+def format_room_table(sweep: RoomSweep) -> str:
+    """Render a RoomSweep as a ranked ASCII table (cp1252-safe)."""
+    lines = ["swap/demo test rooms -- single-PC, swap-clean, a close 3/4 single-screen camera",
+             "(walk as a swapped character, or stage a visual test where the model's detail is visible)", ""]
+    if not sweep.rooms:
+        lines.append("  no rooms matched -- try a wider --max-fov, or --limit")
+        return "\n".join(lines)
+    lines.append(f"  {len(sweep.rooms)} room(s)  (swept {sweep.scanned} fields; "
+                 f"{sweep.swap_clean} single-PC + swap-clean). best-first:")
+    lines += ["", f"  {'#':>2}  {'field':>5}  {'fbg':<36}  {'player':<12}  camera"]
+    for i, rep in enumerate(sweep.rooms, 1):
+        fbg = (rep.fbg_name or "")[:36]
+        who = (rep.controlled_name or (rep.player_models[0][2] if rep.player_models else "?"))[:11]
+        if rep.non_zidane:
+            who += "*"
+        cam = (f"FOV {rep.cam_fov:g}, pitch {rep.cam_pitch:g}"
+               if rep.cam_fov is not None and rep.cam_pitch is not None else "(no camera)")
+        flags = (["scroll"] if rep.cam_scrolling else []) + ([f"{rep.cam_count}cam"] if rep.cam_count > 1 else [])
+        tail = ("  " + " ".join(flags)) if flags else ""
+        lines.append(f"  {i:>2}  {rep.field_id:>5}  {fbg:<36}  {who:<12}  {cam}{tail}")
+    lines += ["", "  * = non-Zidane player (forks via --verbatim).  Fork a room:",
+              "    ff9mapkit import <fbg> --verbatim --swap-player <char>"]
     return "\n".join(lines)

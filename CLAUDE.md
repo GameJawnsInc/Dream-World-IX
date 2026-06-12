@@ -169,7 +169,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.33`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.37`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -887,6 +887,24 @@ Read these on demand — they hold the full technical detail this file only summ
   `opcodes.remove_item` + `event.take_item` (name-resolved) wired symmetrically into the event + choice builders
   + `validate()` (a sole `remove_item` is a valid action; an unknown name is caught; the engine clamps removal to
   what's held). 4 tests; clear of story_flags' compose lane + overworld's forkreport lane. kit 0.9.36; 917 tests (4 new).
+- **`find-rooms` — sweep ALL fields for the best swap/demo TEST ROOMS (the option-#2 room finder; built via an
+  understand→implement→review workflow chain).** `ff9mapkit find-rooms` ranks every forkable field as a place to
+  walk as a `--swap-player` character / stage a visual test where the model's DETAIL is visible. The proven anchor
+  1200 `ac_rst_x` ranks #1; the top list matches the hand-verified clean rooms (1911 Treno, 310 IC cafe, 3055 BMV
+  shop…). ★ KEY FINDING (an **understand workflow** validated it against the real game, NOT guessed): **FOV alone is
+  NOT a detail proxy** — FF9's projection is orthographic-like (k≈0.93, the camera-math invariant), so a sub-10°
+  "FOV" is a far TELEPHOTO (model is a speck), not a close shot. So a "room" is the AND of single-PC + swap-clean +
+  PLAYABLE controller + STATIC roster + a close 3/4 camera = bounded FOV (10–45°) AND a 3/4 pitch band (6–48°) AND
+  the camera `range_height` ≤420 (the key signal, now exposed from `field_camera_info`) AND no `_CS_` cutscene tag;
+  scrolling is a rank demerit. Two-phase for speed (~45s/675 fields): a cheap `.eb`-only prefilter (one
+  `EventBundle`) → 75 survivors → the expensive per-field camera read only on those. `forkreport.find_rooms`/
+  `room_score`/`RoomSweep`/`format_room_table` + `ROOM_*` constants; `extract.field_camera_info` returns
+  `range_w/h`; `ForkReport.cam_range_h`; `_camera_line` gained a `distant` label for sub-10° FOV (corrects the
+  Camera axis). ★ A **3-lens adversarial review** caught 4 real bugs the suite missed — a missing low-pitch bound
+  (flat side-on rooms ranked too high), a too-loose max-pitch (top-down siblings), a VEHICLE-player donor (a
+  submarine field offered as a swap room), and story-event leakage — all fixed (the prefilter now gates on
+  playable + static-roster). Read-only; `forkreport.py`/`extract.py`/`cli.py` only — clear of story_flags' build +
+  the graft lanes. 12 tests. kit 0.9.37; 925 tests. See memory [[project-ff9-non-zidane-donors]].
 
 ---
 

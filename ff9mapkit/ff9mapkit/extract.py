@@ -663,6 +663,9 @@ def field_camera_info(field: str, *, game=None, bundle: str | None = None) -> di
             "fov": round(fov, 1) if fov else None,
             "scrolling": bool(c0.range[0] > 384 or c0.range[1] > 448),
             "count": len(cams),
+            # the camera's visible extent (screen units). range_h is the physically-meaningful "how far back"
+            # signal -- FF9's projection is orthographic-like (k~0.93) so FOV is a scale artifact, not a frustum.
+            "range_w": int(c0.range[0]), "range_h": int(c0.range[1]),
         }
     except Exception:
         return None
