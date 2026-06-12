@@ -188,7 +188,7 @@ def _collect_edges_seams(result, members_ids, new_id, name_of):
 
 def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, flags_per_field=64,
                    name: str, mod_folder: str, game=None, live_seams=False,
-                   entry_entrance=0, verbatim=False) -> CampaignPlan:
+                   entry_entrance=0, verbatim=False, swap_player=None) -> CampaignPlan:
     """Fork the walk into ``out_dir``: a per-member subdir each + a top-level campaign.toml. Returns the
     CampaignPlan. Members in area>=10 BG-borrow; area<10 members fork as a NATIVE scene (own atlas+.bgs, no
     .bgx -- seamless, no in-game export needed). Both are fully offline; a field with no usable background
@@ -208,9 +208,15 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
     if not members_ids:
         raise ValueError("no forkable fields in the walk -- nothing to fork (try a different seed/--zones)")
 
+    swap_name = None
+    if swap_player and verbatim:                             # the swap patches each member's verbatim donor .eb
+        from . import playerswap
+        swap_name, _ = playerswap.resolve_char(swap_player)  # fail fast on a bad char before forking the chain
     members = []
     member_exits: dict = {}                                  # real -> its donor .eb Field() dests (verbatim)
     degraded: list = []                                      # verbatim members that fell back to declarative
+    swap_gesture_warn: dict = {}                             # mname -> scripted-gesture count (will glitch on swap)
+    swap_skipped: list = []                                  # verbatim members with no swappable player entry
     for real in members_ids:
         folder = extract.ID_TO_FBG[real]
         area, _ = extract.parse_fbg_folder(folder)
@@ -229,6 +235,14 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
                                                         text_block=tb, game=game, id_remap=new_id,
                                                         live_seams=live_seams, verbatim=True)
                 member_exits[real] = _meta.get("imported_content", {}).get("field_exits", [])
+                if swap_name:                            # play as one char across the chain (per-member swap)
+                    try:
+                        n = extract.apply_player_swap(p, swap_name)
+                        if n:
+                            swap_gesture_warn[mname] = n
+                    except playerswap.NoSwappablePlayer:
+                        swap_skipped.append(mname)       # no swappable player entry (e.g. a cutscene member)
+                        # a real overflow/corruption ValueError is NOT caught here -> it propagates loudly
             elif mode == "borrow":
                 _meta, p = extract.write_field_project(folder, mdir, name=mname, field_id=new_id[real],
                                                        game=game, id_remap=new_id, live_seams=live_seams)
@@ -263,6 +277,9 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
                         flags_per_field=flags_per_field, entry_name=name_of[members_ids[0]],
                         entry_entrance=entry_entrance, members=members, edges=edges, seams=seams)
     plan.verbatim_degraded = degraded     # transient build-time signal (NOT persisted): verbatim members
+    plan.swap_player = swap_name          # transient: --swap-player char applied to every member, + the
+    plan.swap_gesture_warn = swap_gesture_warn   # members whose scripted gestures will glitch on the new rig,
+    plan.swap_skipped = swap_skipped      # and members with no swappable player entry (left as the donor's)
     (out / "campaign.toml").write_text(render_campaign_toml(plan), encoding="utf-8", newline="\n")
     return plan
 

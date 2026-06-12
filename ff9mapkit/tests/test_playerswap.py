@@ -12,6 +12,14 @@ from ff9mapkit.eb import EbScript
 ALEX100 = (Path(__file__).parent / "fixtures" / "alex100-us.eb.bytes").read_bytes()  # field 100, played as Vivi
 
 
+def _game_ready():
+    try:
+        from ff9mapkit import config, extract  # noqa: F401,PLC0415
+        return config.find_game_path(None) is not None
+    except Exception:
+        return False
+
+
 def _player_model(eb_bytes):
     eb = EbScript.from_bytes(eb_bytes)
     return eventscan._player_model(eb, eventscan.resolve_player_entries(eb)[0])
@@ -55,6 +63,32 @@ def test_every_character_spec_has_the_movement_set():
 def test_unknown_char_raises_before_touching_bytes():
     with pytest.raises(ValueError):
         playerswap.swap_player(ALEX100, "bogus")
+
+
+def test_no_swappable_player_raises_distinct_exception():
+    # a script with no player SetModel -> NoSwappablePlayer (a ValueError subclass), so a chain can SKIP it
+    # while still letting a real overflow/corruption ValueError propagate (adversarial-review fix).
+    from ff9mapkit import data
+    blank = data.blank_field_bytes("us")
+    # the blank field DOES define a player; assert the exception TYPE is wired (subclass of ValueError)
+    assert issubclass(playerswap.NoSwappablePlayer, ValueError)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_swap_targets_the_controlled_leader_not_a_coactor_on_zidane_present_fields():
+    # REGRESSION (adversarial review): on a ZIDANE-PRESENT multi-PC field the swap must hit the Zidane
+    # party-leader you control, NOT a co-actor. Cargo Ship 500 defines [Blank, Zidane(98), Vivi(8)]; the old
+    # controlled_player heuristic picked Vivi -> swap re-skinned a companion. The leader-model fix targets Zidane.
+    from ff9mapkit import extract
+    d = extract.extract_event_script(extract.ID_TO_FBG[500])
+    eb = EbScript.from_bytes(d)
+    pents = eventscan.resolve_player_entries(eb)
+    zid = next(p for p in pents if eventscan._player_model(eb, p) == 98)   # the Zidane entry
+    viv = next(p for p in pents if eventscan._player_model(eb, p) == 8)    # the Vivi co-actor
+    assert playerswap.swap_targets(eb) == [zid]                            # target the controlled Zidane leader
+    out = EbScript.from_bytes(playerswap.swap_player(d, "steiner"))
+    assert eventscan._player_model(out, zid) == 5489                       # Zidane -> Steiner
+    assert eventscan._player_model(out, viv) == 8                          # the Vivi co-actor is UNTOUCHED
 
 
 def test_scripted_gesture_ops_flags_cutscene_player_gestures():

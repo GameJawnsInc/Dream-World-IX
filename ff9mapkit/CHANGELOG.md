@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `import-chain --swap-player <char>`: play as one character across a whole forked region
+- `import-chain <seed> --swap-player steiner` swaps EVERY verbatim member's player rig, so you walk as the
+  chosen character across the whole forked slice (implies `--verbatim`; party/menu unchanged). Factored a
+  shared `extract.apply_player_swap(toml, char)` (the sidecar swap, used by both the single import and the
+  chain); `campaign.write_campaign(swap_player=…)` applies it per member + records `swap_gesture_warn`
+  (cutscene members whose gestures glitch) and `swap_skipped`; the CLI summary reports the swap.
+- ★ The swap-TARGET was fixed by an adversarial review (3-lens workflow) that the test suite missed: on a
+  **Zidane-present** multi-PC field, `controlled_player` mispredicts (control routes through the party SLOT to
+  the Zidane leader, not the last-`DefinePlayerCharacter` binder), so the swap was re-skinning a **co-actor**
+  (Vivi/Garnet) while you still controlled Zidane — **66 of 169** such fields (Cargo Ship 500, Dali Wheel 350…).
+  Now the swap targets the controlled-**leader model**: a Zidane field form (98/532) when present, else the
+  proven binder for the no-Zidane fixed-SID lane; it patches ALL entries matching that model (`playerswap.
+  leader_model` / `swap_targets`). Also: `controlled_player` downgrades to `low` confidence on a Zidane-present
+  field; `swap_player` raises a distinct `NoSwappablePlayer` (so a chain SKIPs a no-player member but a real
+  overflow/corruption ValueError still propagates loudly); the chain validates the char BEFORE the graph walk
+  (true fail-fast); the summary is qualified ("N verbatim member(s) swapped"). 3 tests incl. a Cargo-Ship
+  regression (swap hits Zidane, the Vivi co-actor untouched). kit 0.9.29.
+
 ### Added — `fork-report` Party axis: what a fork does to your party
 - `fork-report` now reports a **Party** line — the party-membership ops a field performs, which a `--verbatim`
   fork RUNS (a plain fork inherits your current party). It decodes the literal single-char `B_PARTYADD`

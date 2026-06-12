@@ -110,6 +110,12 @@ def controlled_player(eb):
     binder = max(pool, key=last_pos)
     multi_spawn = sum(1 for v in order if v == binder) > 1
     conf = "high" if (status[binder] == "uncond" and not multi_spawn) else "low"
+    # Zidane-present hedge: if a Zidane model is defined among the PCs but the crowned binder is NOT Zidane,
+    # control likely routes through the party slot to the Zidane leader (the last-0x2C binder is unreliable
+    # here -- the Cargo Ship mispredicts) -> downgrade so no caller treats the pick as certain.
+    if conf == "high" and _es._player_model(eb, binder) not in _es.ZIDANE_MODELS \
+            and any(_es._player_model(eb, p) in _es.ZIDANE_MODELS for p in pents):
+        conf = "low"
     return (binder, conf)
 
 

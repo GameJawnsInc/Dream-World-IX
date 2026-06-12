@@ -27,6 +27,12 @@ from .eb.disasm import argsize
 SETMODEL_OP = 0x2F
 ANIM_OPS = {0x33: "idle", 0x34: "walk", 0x35: "run", 0x7A: "left", 0x7B: "right", 0x52: "inactive"}
 RUN_ANIM_OPS = frozenset({0x40, 0xBD})   # RunAnimation / RunAnimationEx -- scripted gesture plays (rig-specific)
+ZIDANE_LEADER_MODELS = frozenset({98, 532})   # the controllable Zidane FIELD forms (ZDN + ZDD disguise)
+
+
+class NoSwappablePlayer(ValueError):
+    """No player entry has a ``SetModel`` to swap (a benign per-member skip in a chain). A subclass of
+    ValueError so existing handlers still catch it, but distinguishable from a real patch/corruption error."""
 
 # Canonical field player-Init values per playable, read from each character's home field (model, eye-height,
 # movement clips). idle/walk/run/left/right exist for all 8; ``inactive`` (the idle-break) only where the home
@@ -66,22 +72,40 @@ def _arg_off(ins, ai):
     return off
 
 
-def player_entry_to_swap(eb):
-    """The entry whose player to swap = the CONTROLLED one (:func:`forkreport.controlled_player`) when it has
-    a ``SetModel`` in its Init, else the first player entry that does. ``None`` if none has a ``SetModel``."""
+def _has_setmodel(eb, p):
+    init = eb.entry(p).func_by_tag(0)
+    return init is not None and any(i.op == SETMODEL_OP for i in eb.instrs(init))
+
+
+def leader_model(eb):
+    """The model of the character you actually CONTROL -- the swap target. On a ZIDANE-PRESENT field control
+    routes through the party SLOT to the Zidane party-leader, NOT the last-``DefinePlayerCharacter`` binder
+    (:func:`forkreport.controlled_player` mispredicts there -- it returns a co-actor on 66/169 such fields), so
+    target a Zidane field form (98/532) when one is defined. On a no-Zidane FIXED-SID field, use the proven
+    binder (Treno -> Garnet). Single-PC -> the one. Returns the model id, or ``None`` if no swappable entry."""
     from . import eventscan, forkreport
     pents = eventscan.resolve_player_entries(eb)
-    if not pents:
+    have = {p: eventscan._player_model(eb, p) for p in pents
+            if eventscan._player_model(eb, p) is not None and _has_setmodel(eb, p)}
+    if not have:
         return None
+    zid = [m for m in have.values() if m in ZIDANE_LEADER_MODELS]
+    if zid:
+        return zid[0]                                   # Zidane-present -> you control the Zidane party-leader
+    ctrl = forkreport.controlled_player(eb)[0]          # no Zidane -> the proven last-0x2C binder
+    return have.get(ctrl, next(iter(have.values())))
 
-    def has_setmodel(p):
-        init = eb.entry(p).func_by_tag(0)
-        return init is not None and any(i.op == SETMODEL_OP for i in eb.instrs(init))
 
-    ctrl = forkreport.controlled_player(eb)[0]
-    if ctrl is not None and has_setmodel(ctrl):
-        return ctrl
-    return next((p for p in pents if has_setmodel(p)), None)
+def swap_targets(eb):
+    """The player entries the swap patches = ALL entries whose Init ``SetModel`` == the controlled-leader model
+    (so a Zidane-present field hits the real leader -- not a companion -- and a duplicate leader entry is handled
+    too). Empty when no swappable entry exists."""
+    from . import eventscan
+    m = leader_model(eb)
+    if m is None:
+        return []
+    return [p for p in eventscan.resolve_player_entries(eb)
+            if eventscan._player_model(eb, p) == m and _has_setmodel(eb, p)]
 
 
 def scripted_gesture_ops(eb_bytes, *, entry=None) -> int:
@@ -90,24 +114,21 @@ def scripted_gesture_ops(eb_bytes, *, entry=None) -> int:
     ``--swap-player`` will glitch those gestures on the new model -- i.e. the field is a cutscene-heavy one
     where the swap is cosmetic-and-risky, not a clean free-roam swap. Used to WARN at swap time."""
     eb = EbScript.from_bytes(eb_bytes)
-    if entry is None:
-        entry = player_entry_to_swap(eb)
-    if entry is None:
-        return 0
-    return sum(1 for f in eb.entry(entry).funcs for i in eb.instrs(f) if i.op in RUN_ANIM_OPS)
+    targets = [entry] if entry is not None else swap_targets(eb)
+    return sum(1 for e in targets for f in eb.entry(e).funcs for i in eb.instrs(f) if i.op in RUN_ANIM_OPS)
 
 
 def swap_player(eb_bytes, char, *, entry=None) -> bytes:
-    """Patch the player entry's Init ``SetModel`` + movement anim ids to ``char``'s rig (same-length,
-    width-aware). ``entry`` defaults to the controlled player entry. Returns new ``.eb`` bytes
-    (round-trip-checked). Raises ``ValueError`` on an unknown char / no swappable player entry."""
+    """Patch the controlled-leader player entr(ies)' Init ``SetModel`` + movement anim ids to ``char``'s rig
+    (same-length, width-aware). ``entry`` overrides the target; otherwise ALL :func:`swap_targets` (every entry
+    matching the controlled-leader model) are patched. Returns new ``.eb`` bytes (round-trip-checked). Raises
+    :class:`NoSwappablePlayer` when no player entry has a ``SetModel``, ``ValueError`` on an unknown char or a
+    patch that would overflow / corrupt the script."""
     _name, spec = resolve_char(char)
     eb = EbScript.from_bytes(eb_bytes)
-    if entry is None:
-        entry = player_entry_to_swap(eb)
-    if entry is None:
-        raise ValueError("no player entry with a SetModel to swap")
-    init = eb.entry(entry).func_by_tag(0)
+    targets = [entry] if entry is not None else swap_targets(eb)
+    if not targets:
+        raise NoSwappablePlayer("no player entry with a SetModel to swap")
     out = bytearray(eb_bytes)
 
     def put(ins, ai, value):
@@ -117,14 +138,15 @@ def swap_player(eb_bytes, char, *, entry=None) -> bytes:
         o = ins.off + _arg_off(ins, ai)
         out[o:o + w] = int(value).to_bytes(w, "little")
 
-    for ins in eb.instrs(init):
-        if any(ins.arg_is_expr):
-            continue
-        if ins.op == SETMODEL_OP and len(ins.args) >= 2:
-            put(ins, 0, spec["model"])
-            put(ins, 1, spec["eye"])
-        elif ins.op in ANIM_OPS and ins.args:
-            put(ins, 0, spec.get(ANIM_OPS[ins.op], spec["idle"]))
+    for tgt in targets:
+        for ins in eb.instrs(eb.entry(tgt).func_by_tag(0)):
+            if any(ins.arg_is_expr):
+                continue
+            if ins.op == SETMODEL_OP and len(ins.args) >= 2:
+                put(ins, 0, spec["model"])
+                put(ins, 1, spec["eye"])
+            elif ins.op in ANIM_OPS and ins.args:
+                put(ins, 0, spec.get(ANIM_OPS[ins.op], spec["idle"]))
 
     out = bytes(out)
     if EbScript.from_bytes(out).to_bytes() != out:                # the patch must not corrupt the structure

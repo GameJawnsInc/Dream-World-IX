@@ -169,7 +169,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   Alexandria (the route-through-100 hop was abandoned because field 100 crashes). Field **100
   (Alexandria)** holds the door wiring + known debug-hack breakage (dead `Field(4004)` + a
   spawn inside a gateway zone) — off the New-Game path now; a real story entrance would rebuild it.
-- **Versions:** kit `0.9.27`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.29`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -779,6 +779,17 @@ Read these on demand — they hold the full technical detail this file only summ
   was wrong). The band stays real + reserved (48 fields read+write it); only the prose/citation changed in
   `flags.py`/`build.py` + `research/STORY_FLAGS.md`/`make_catalog.py`/`flag_catalog.toml`, plus a regression test
   asserting the chest band ⟂ the engine TH bytes. 868 suite. See memory [[project-ff9-story-flags]].
+- **`import-chain --swap-player` — play as one character across a forked region (+ an adversarial-review fix).**
+  `import-chain <seed> --swap-player steiner` swaps EVERY verbatim member's player rig (shared
+  `extract.apply_player_swap`; `write_campaign(swap_player=…)` per member). ★ An **adversarial review workflow**
+  (3 lenses) caught a real bug the test suite + my smoke missed: the swap TARGET via `controlled_player` reskinned
+  a CO-ACTOR on **Zidane-present** multi-PC fields (control routes through the party SLOT to the Zidane leader,
+  not the last-0x2C binder) — **66/169** fields (Cargo Ship 500 swapped Vivi, left Zidane). Fixed to swap by the
+  controlled-**leader model** (`playerswap.leader_model`/`swap_targets`: a Zidane form 98/532 when present, else
+  the proven no-Zidane binder; patch ALL entries matching it). Plus: `controlled_player` low-confidence on
+  Zidane-present, a distinct `NoSwappablePlayer` (chain skips a no-player member; real corruption ValueErrors
+  propagate), true fail-fast char validation, a qualified summary. Lesson: an adversarial review pays for itself
+  on chain features — same as the verbatim-chain capstone. kit 0.9.29; 870 tests.
 
 ---
 

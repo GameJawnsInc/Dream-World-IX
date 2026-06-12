@@ -1265,6 +1265,24 @@ def _native_atlas(field: str, game=None, bundle=None):
     return (base or mod), ("base (TILESIZE MISMATCH -- art will garble)" if base else "none found")
 
 
+def apply_player_swap(toml_path, char):
+    """Swap the verbatim fork's player to ``char`` in place (patches the ``[verbatim_eb]`` sidecar `.eb`).
+    Shared by the single ``import --swap-player`` and the chain (every member). Returns the count of scripted
+    player GESTURES that will glitch on the new rig (:func:`playerswap.scripted_gesture_ops` -- the caller
+    warns), or ``None`` if the project has no verbatim sidecar to swap (a degraded / non-verbatim member).
+    Raises ``ValueError`` on an unknown char or a member with no swappable player entry."""
+    import tomllib
+    from . import playerswap
+    toml_path = Path(toml_path)
+    vb = tomllib.loads(toml_path.read_text(encoding="utf-8")).get("verbatim_eb")
+    if not vb or "bin" not in vb:
+        return None                              # not a verbatim fork (e.g. a logic-only stub) -> nothing to swap
+    binp = toml_path.parent / vb["bin"]
+    swapped = playerswap.swap_player(binp.read_bytes(), char)
+    binp.write_bytes(swapped)
+    return playerswap.scripted_gesture_ops(swapped)
+
+
 def write_native_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                          text_block: int = 1073, game=None, bundle=None,
                          id_remap=None, live_seams=False, graft_player_funcs=False, carry_text=False,

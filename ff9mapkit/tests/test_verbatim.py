@@ -175,3 +175,29 @@ def test_import_chain_verbatim_wires_a_connected_slice(tmp_path):
     assert WHEEL not in _fields(inn_eb) and INN not in _fields(inn_eb)
     for seam in (352, 450):                                    # out-of-chain exits untouched (warp to live game)
         assert seam in _fields(inn_eb)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_chain_swap_player_swaps_every_member(tmp_path):
+    # import-chain --swap-player: every verbatim member's controlled player rig is swapped to the chosen
+    # character, so you play as that character across the whole chain; plan.swap_player records it.
+    from collections import OrderedDict
+
+    from ff9mapkit import build, campaign, eventscan
+    from ff9mapkit.chain import GraphResult
+
+    INN = 351
+    nodes = OrderedDict()
+    nodes[INN] = {"zone": "vgdl", "found": True, "hop": 0, "overworld_exits": [], "encounter": None,
+                  "music": None, "edges": []}
+    result = GraphResult(nodes=nodes, portals=[], seams=[], unforkable=[], seeds=[INN],
+                         allowed_zones={"vgdl"}, truncated=False, remaining=0,
+                         bounds={"max_hops": 20, "max_fields": 25, "zones": ["vgdl"],
+                                 "follow_scripted": False, "stop_at_zone_boundary": True})
+    plan = campaign.write_campaign(result, tmp_path, id_base=6000, name="DALI", mod_folder="FF9CustomMap-ow",
+                                   verbatim=True, swap_player="steiner")
+    assert plan.swap_player == "steiner"
+    proj = build.FieldProject.load(tmp_path / plan.members[0].toml_rel)
+    es = EbScript.from_bytes(_vb.verbatim_eb(proj))
+    models = [eventscan._player_model(es, p) for p in eventscan.resolve_player_entries(es)]
+    assert 5489 in models                                      # Steiner (model 5489) now among the player entries

@@ -346,13 +346,9 @@ def _cmd_import(args: argparse.Namespace) -> int:
         args._swapped_to = None
         args._swap_gestures = 0
         if getattr(args, "swap_player", None):           # productionized Tier-A: walk as a different existing char
-            import tomllib
             from . import playerswap
             args._swapped_to, _ = playerswap.resolve_char(args.swap_player)
-            binp = toml.parent / tomllib.loads(toml.read_text(encoding="utf-8"))["verbatim_eb"]["bin"]
-            swapped = playerswap.swap_player(binp.read_bytes(), args._swapped_to)
-            args._swap_gestures = playerswap.scripted_gesture_ops(swapped)
-            binp.write_bytes(swapped)
+            args._swap_gestures = extract.apply_player_swap(toml, args._swapped_to) or 0
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -518,6 +514,18 @@ def _print_campaign_summary(plan, out_dir, *, verbatim=False):
     if plain_export:
         print(f"  {len(plain_export)} member(s) NEED an in-game [Export] before deploy: "
               + " ".join(plain_export))
+    swap = getattr(plan, "swap_player", None)
+    if swap:                                      # --swap-player: walk as one char across the chain
+        gw = getattr(plan, "swap_gesture_warn", {}) or {}
+        sk = getattr(plan, "swap_skipped", []) or []
+        swapped_n = sum(1 for m in plan.members if m.name not in sk and m.name not in degraded)
+        print(f"  PLAYER SWAP: you walk as {swap} across the chain ({swapped_n} verbatim member(s) swapped).")
+        if sk:
+            print(f"    {len(sk)} member(s) had no swappable player entry -- left as the donor's: " + " ".join(sorted(sk)))
+        if gw:
+            tot = sum(gw.values())
+            print(f"    WARN: {len(gw)} member(s) play {tot} scripted GESTURE(s) that will glitch on {swap} "
+                  f"(cutscene fields; only movement clips are swapped): " + " ".join(sorted(gw)))
     print(f"  wrote: {out_dir}/campaign.toml")
     print(f"Next: ff9mapkit build-all {out_dir}/campaign.toml")
 
@@ -601,6 +609,14 @@ def _cmd_add_field(args: argparse.Namespace) -> int:
 def _cmd_import_chain(args: argparse.Namespace) -> int:
     from pathlib import Path
     from . import chain, eventscan, extract
+    if getattr(args, "swap_player", None):       # validate the char + force verbatim BEFORE the (costly) walk
+        from . import playerswap
+        try:
+            playerswap.resolve_char(args.swap_player)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        args.verbatim = True                     # the swap patches each member's donor player entry
     try:
         seeds = _resolve_chain_seeds(args.seed, game=args.game)
         bundle = extract.EventBundle(game=args.game)
@@ -640,12 +656,12 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
         id_base = args.id_base if args.id_base is not None else int(cfg.get("campaign_id_base", 6000))
         mod_folder = args.mod_folder or cfg.get("mod_folder") or "FF9CustomMap-ow"
         seed_zone = chain.zone_label(extract.ID_TO_FBG.get(seeds[0]))
-        cname = args.campaign_name or f"{seed_zone.upper()}_CAMPAIGN"
+        cname = args.campaign_name or f"{seed_zone.upper()}_CAMPAIGN"  # --swap-player validated at fn top (fail-fast)
         try:
             plan = campaign.write_campaign(result, Path(args.out), id_base=id_base,
                         flag_base=args.flag_base, flags_per_field=args.flags_per_field,
                         name=cname, mod_folder=mod_folder, game=args.game, live_seams=args.live_seams,
-                        verbatim=args.verbatim)
+                        verbatim=args.verbatim, swap_player=getattr(args, "swap_player", None))
         except (RuntimeError, FileNotFoundError, ValueError) as e:
             print(str(e), file=sys.stderr)
             return 2
@@ -1383,6 +1399,11 @@ def build_parser() -> argparse.ArgumentParser:
     ic.add_argument("--verbatim", action="store_true",
                     help="MOST FAITHFUL: fork every member NATIVE + VERBATIM (ship each donor's whole .eb + "
                          ".mes, run the real logic; in-chain doors retargeted to sibling forks)")
+    ic.add_argument("--swap-player", metavar="CHAR", default=None,
+                    help="play as a different existing character across the WHOLE chain: zidane/vivi/steiner/"
+                         "garnet/freya/quina/eiko/amarant (aliases dagger, salamander). Swaps every member's "
+                         "player rig (SetModel + movement anims). Implies --verbatim; party/menu unchanged; "
+                         "cutscene members with scripted player gestures are warned. (see import --swap-player)")
     ic.set_defaults(func=_cmd_import_chain)
 
     ba = sub.add_parser("build-all", help="compile a campaign.toml (all member fields) into one Memoria mod (P3)")
