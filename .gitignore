@@ -109,6 +109,8 @@ backups/battle_predeploy.*/
 # bare raw16/raw17 donor extracts (battle-tuning recon/dev scratch -- SE game data, never commit)
 *.raw16
 *.raw17
+# battle-tuning in-game-test scratch (forked SE scene assets + the trigger field copy) -- on disk only
+/battle_tests/
 **/scene/eb/*.eb.bytes
 **/scene/mes/*.mes
 
