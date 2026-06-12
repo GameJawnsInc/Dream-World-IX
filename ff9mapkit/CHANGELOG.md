@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — save-item editor #5 step 4c: the Item & Equipment GUI (`apps/ff9_items.pyw`) (0.9.54)
+### Added — save-item editor #5 step 4c: the Item & Equipment GUI (`apps/ff9_items.pyw`), IN-GAME PROVEN (0.9.54)
 - A standalone tkinter app — the item/equip companion to the Story State console — to inspect + EDIT a save's
   gil, inventory and equipment by name, with a click. A **SEPARATE surface** (touches only `save_items`, never
   the story-state core; project-ff9-branch-lanes rule 3), modelled on `ff9_storystate.pyw`'s conventions.
@@ -19,7 +19,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   dropdown is the five equip slots. After a write, the view refreshes against the just-written save.
 - Registered in the launcher (`ff9_studio.pyw`, now 8 tools). A `--smoke` headless self-test exercises the full
   load → gil/item/equip preview+apply → backup path (no display, no real save). ★ Logic also verified against
-  the real save's container (5 slots, 3 editable). ⏳ The visual GUI render is the next human playtest.
+  the real save's container (5 slots, 3 editable).
+- ★ **IN-GAME PROVEN (2026-06-12):** the GUI renders, lists the slots, inspects gil/inventory/equipment, and a
+  GUI-made equipment change showed up in-game. Also confirmed crash-safe under misuse: equipping a non-weapon
+  (Ore) into the weapon slot via save edit doesn't crash — the engine's equip-load net only checks the item
+  *exists* (not slot-appropriateness; that's a menu-only rule), so it loads and renders a fallback model.
 
 ### Added — `deploy_campaign` productionized: auto-promote start-state CSVs + a name-collision guard (0.9.53)
 - **Name-collision guard** — `tools/deploy_campaign.py` now checks, before install, whether any `EVT_*.eb.bytes`
