@@ -18,7 +18,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   single-region walkmesh → byte-identical** (the common case is untouched). +3 tests (`test_spawn`, incl. an
   install-gated Dali main-region assertion). This is part of the #13 (c) diorama tail.
 
-### Added — save-item editor: VANILLA (main-block) AP / ability editing (0.9.72)
+### Added — save-item editor: VANILLA (main-block) AP / ability editing, IN-GAME PROVEN (0.9.72)
 - The AP / ability-mastery editor now reaches **vanilla (no-extra) saves** too, via the encrypted main block's
   old-format `pa` array — completing AP across both save kinds (the 7→7b pattern, now 8→8b).
 - ★ **Layout finding (derived from the alpha-sorted SharedDataBytesStorage schema, empirically confirmed):** the
@@ -31,9 +31,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   index. + `read_main_abilities` + `main_report`/`ItemReport.abilities` (so `items-inspect` shows AP on vanilla
   slots) + **`set_ap_in_save`** dual-write (extra-first, vanilla → main only) + `render_ability_dual`. CLI
   `items-set-ap` on a container now dual-writes; GUI Abilities works on vanilla slots.
-- 5 new tests (synthetic container + install-gated by-name). Offline-validated on a temp copy of the real
-  container's vanilla block (single by-name `Sacrifice` 28→55, `all max` 21/48→48/48, scoped to only that block +
-  that slot's `pa`). **Awaiting the in-game proof.**
+- 5 new tests (synthetic container + install-gated by-name); 1336 suite green. Offline-validated on a temp copy
+  of the real container's vanilla block (single by-name `Sacrifice` 28→55, `all max` 21/48→48/48, scoped to only
+  that block + that slot's `pa`).
+- ★ **IN-GAME PROVEN (2026-06-13):** `items-set-ap … Zidane all max --slot 0 --save-no 0 --apply` on the VANILLA
+  slot 1/save 1 → loaded → Zidane's Ability menu showed every ability mastered (`21/48` → `48/48`). Note the old
+  format caps at **48** abilities/char (the modern Moguri `pa_extended` carries 50 — see 0.9.71); each `all` masters
+  everything that save's format can hold.
 
 ### Added — save-item editor: AP / ABILITY-MASTERY editing (the "AP unlocks" the user asked about), IN-GAME PROVEN (0.9.71)
 - A new editor for a character's **ability AP / mastery** — set the AP a character has earned toward an ability
