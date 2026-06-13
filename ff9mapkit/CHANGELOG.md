@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a fork no longer spawns the player in a walled-off walkmesh pocket (#13 c.1) (0.9.73)
+- `import` now keeps the auto-picked `[player] spawn` in the **main walkable region**. A real field's stored
+  spawn (`.bgi` charPos) is often a cutscene staging spot — for a shop it sits BEHIND the counter, a small
+  walkmesh component walled off from the customer area, so a fork stranded the player there with no way out
+  (found in-game forking the Dali shop). The spawn cascade now computes the walkmesh's connected components
+  (`BgiWalkmesh.tri_components()`, by triangle neighbour links) and restricts every spawn candidate to the
+  component with the most on-camera verts — so charPos is accepted only if it's in that main region, else the
+  fallback centroid is taken from it too.
+- ★ Offline-confirmed on the Dali shop: its walkmesh splits into a 21-tri customer area + a 7-tri behind-counter
+  pocket; the spawn moved from `(-489,-348)` (pocket) to `(83,209)` (the customer area). **No-op on a
+  single-region walkmesh → byte-identical** (the common case is untouched). +3 tests (`test_spawn`, incl. an
+  install-gated Dali main-region assertion). This is part of the #13 (c) diorama tail.
+
 ### Added — save-item editor: AP / ABILITY-MASTERY editing (the "AP unlocks" the user asked about), IN-GAME PROVEN (0.9.71)
 - A new editor for a character's **ability AP / mastery** — set the AP a character has earned toward an ability
   (so an active ability becomes permanently usable, or a support ability becomes equippable). Memoria-extra-only

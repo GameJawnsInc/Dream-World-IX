@@ -251,6 +251,28 @@ class BgiWalkmesh:
                     q.append(n)
         return {self.tris[t].floor_ndx for t in seen}
 
+    def tri_components(self) -> list:
+        """Connected components of triangles by neighbor links -- each a list of triangle indices. A walkmesh
+        that splits into >1 component has walled-off regions (e.g. a shop counter separating the customer area
+        from the behind-counter pocket); the largest on-screen component is the player's free-roam area, so a
+        fork should spawn there (not stranded in a pocket). Single-region walkmesh -> one component."""
+        seen, comps = set(), []
+        for s in range(len(self.tris)):
+            if s in seen:
+                continue
+            comp, q = [], deque([s])
+            while q:
+                t = q.popleft()
+                if t in seen or not (0 <= t < len(self.tris)):
+                    continue
+                seen.add(t)
+                comp.append(t)
+                for n in self.tris[t].nbr:
+                    if n >= 0:
+                        q.append(n)
+            comps.append(comp)
+        return comps
+
     # ---------------- seam extract / reconcile (the editable-multi-floor sidecar; WALKMESH_EDITING.md) ----------------
     def _tri_floor(self) -> dict:
         return {ti: fi for fi, fl in enumerate(self.floors) for ti in fl.tri_ndx_list}

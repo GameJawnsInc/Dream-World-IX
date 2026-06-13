@@ -765,16 +765,33 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     def _clear(px, pz):                                       # outside every exit/trigger polygon
         return not any(_pt_in_quad(px, pz, q) for q in trigger_zones)
     _cp = [(wm.charPos.x + ox, wm.charPos.z + oz), (wm.charPos.x, wm.charPos.z)]
-    _oncam_verts = [(px, pz) for px, pz in zip(wx, wz) if _oncam(px, pz)]
+    # c.1: on a SPLIT walkmesh (e.g. a shop counter walls the behind-counter pocket off from the customer
+    # area) keep the spawn in the MAIN region -- the connected walkmesh component with the most on-camera
+    # verts -- so a fork doesn't strand the player in a trapped pocket (the donor charPos is often that
+    # pocket: a cutscene staging spot). No-op on a single-region walkmesh -> byte-identical there.
+    _comps = wm.tri_components()
+    _multi = len(_comps) > 1
+    if _multi:
+        _oncam_idx = {i for i in range(len(wx)) if _oncam(wx[i], wz[i])}
+        _main_vtx = {vi for t in max(_comps, key=lambda c: len({vi for t in c for vi in wm.tris[t].vtx}
+                                                               & _oncam_idx)) for vi in wm.tris[t].vtx}
+        def _in_main(px, pz):                                 # the nearest walkmesh vert is in the main region
+            vi = min(range(len(wx)), key=lambda i: (wx[i] - px) ** 2 + (wz[i] - pz) ** 2)
+            return vi in _main_vtx
+    else:
+        def _in_main(px, pz):
+            return True
+    _oncam_verts = [(wx[i], wz[i]) for i in range(len(wx))
+                    if _oncam(wx[i], wz[i]) and (not _multi or i in _main_vtx)]
     _clear_oncam = [p for p in _oncam_verts if _clear(*p)]
-    _spawn = next((p for p in _cp if _inb(*p) and _oncam(*p) and _clear(*p)), None)
+    _spawn = next((p for p in _cp if _inb(*p) and _oncam(*p) and _clear(*p) and _in_main(*p)), None)
     if _spawn is None and _oncam_verts:                       # nearest-to-centre visible vert, clear if any
         mcx = sum(p[0] for p in _oncam_verts) / len(_oncam_verts)
         mcz = sum(p[1] for p in _oncam_verts) / len(_oncam_verts)
         pool = _clear_oncam or _oncam_verts
         _spawn = min(pool, key=lambda p: (p[0] - mcx) ** 2 + (p[1] - mcz) ** 2)
     if _spawn is None:                                        # no on-camera verts: in-bounds / centroid
-        _spawn = next((p for p in _cp if _inb(*p)), (sum(wx) / len(wx), sum(wz) / len(wz)))
+        _spawn = next((p for p in _cp if _inb(*p) and _in_main(*p)), (sum(wx) / len(wx), sum(wz) / len(wz)))
     _spawn = [round(_spawn[0]), round(_spawn[1])]
     meta = {
         "field": folder,

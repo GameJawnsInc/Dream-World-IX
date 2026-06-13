@@ -37,6 +37,29 @@ def test_scan_region_zones_recovers_trigger_quads():
     assert any(extract._pt_in_quad(-250, 2800, z) for z in zones)   # a point inside that door is caught
 
 
+# --- walkmesh connected-region split (c.1: don't strand the fork in a behind-counter pocket) ----------
+class _Tri:                                                       # a minimal Tri stand-in (tri_components reads .nbr)
+    def __init__(self, nbr):
+        self.nbr = nbr
+
+
+def test_tri_components_splits_disconnected_regions():
+    from ff9mapkit.scene.bgi import BgiWalkmesh
+    wm = BgiWalkmesh.__new__(BgiWalkmesh)                         # bare instance -- tri_components only reads .tris
+    # region A: tris 0<->1<->2 chained; region B: tris 3<->4; no link across (a wall, e.g. a shop counter)
+    wm.tris = [_Tri([1, -1, -1]), _Tri([0, 2, -1]), _Tri([1, -1, -1]),
+               _Tri([4, -1, -1]), _Tri([3, -1, -1])]
+    comps = sorted((sorted(c) for c in wm.tri_components()), key=len, reverse=True)
+    assert comps == [[0, 1, 2], [3, 4]]
+
+
+def test_tri_components_single_region_is_one_component():
+    from ff9mapkit.scene.bgi import BgiWalkmesh
+    wm = BgiWalkmesh.__new__(BgiWalkmesh)
+    wm.tris = [_Tri([1, -1, -1]), _Tri([0, 2, -1]), _Tri([1, -1, -1])]
+    assert len(wm.tri_components()) == 1                          # fully linked -> one component (filter is a no-op)
+
+
 # --- the cascade (full extract_field needs the game install) ------------------------------
 def _game_ready():
     try:
@@ -56,3 +79,22 @@ def test_forked_spawn_clears_every_trigger_zone(tmp_path):
     zones = eventscan.scan_region_zones(extract.extract_event_script(field))
     assert zones                                                   # the field does have trigger zones
     assert not any(extract._pt_in_quad(sx, sz, z) for z in zones)  # spawn is clear of all of them
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_forked_spawn_stays_in_the_main_region_not_a_pocket(tmp_path):
+    # the Dali Weapon Shop walkmesh splits into a customer area + a behind-counter pocket; the donor charPos
+    # sits in the pocket (the in-game "trapped behind the counter" trap). The spawn must land in the MAIN
+    # (largest on-screen) region, not the pocket.
+    from ff9mapkit.scene.bgi import BgiWalkmesh
+    field = "fbg_n06_vgdl_map103_dl_shp_0"
+    meta = extract.extract_field(field, tmp_path)
+    sx, sz = meta["player_start"]
+    wm = BgiWalkmesh.from_bytes((Path(tmp_path) / "walkmesh.bgi").read_bytes())
+    comps = wm.tri_components()
+    assert len(comps) > 1                                          # this field IS split (a counter wall)
+    wv = wm.world_verts()
+    wx, wz = [p[0] for p in wv], [p[2] for p in wv]
+    main_vtx = {vi for t in max(comps, key=len) for vi in wm.tris[t].vtx}
+    near = min(range(len(wx)), key=lambda i: (wx[i] - sx) ** 2 + (wz[i] - sz) ** 2)
+    assert near in main_vtx                                        # the spawn is in the customer area, not the pocket
