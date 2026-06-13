@@ -1189,6 +1189,17 @@ def _smoke(win):
     win.item_equip._on_slot()
     assert "4,321" in win.item_equip.inspect.toPlainText(), win.item_equip.inspect.toPlainText()[:120]
     assert win.item_equip.targets[0]["report"].gil == 4321
+    # the write path: stub the confirm gate -> Yes, Apply a gil edit, verify it landed + the slot stays
+    from .. import save_items as _si2
+    win.item_equip._confirm = lambda _detail: True
+    win.item_equip.gil_var.setText("99999")
+    win.item_equip._edit("gil", True)
+    assert _si2.inspect(str(esp))[0][1].gil == 99999, "gil Apply wrote the extra-save"
+    assert win.item_equip.slots.currentRow() == 0, "the edited slot stays selected after Apply"
+    win.item_equip._confirm = lambda _detail: False              # and a declined confirm does NOT write
+    win.item_equip.gil_var.setText("1")
+    win.item_equip._edit("gil", True)
+    assert _si2.inspect(str(esp))[0][1].gil == 99999, "a declined Apply leaves the save untouched"
 
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "

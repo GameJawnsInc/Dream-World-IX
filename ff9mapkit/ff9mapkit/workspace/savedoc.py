@@ -220,6 +220,13 @@ class StoryStateDoc(QWidget):
         self.diff_txt.setPlainText(f"A: {la}\nB: {lb}\n\n" + _flags.render_diff(_flags.diff_reports(ra, rb)))
 
     # ---- edit (write) ----
+    def _confirm(self, detail) -> bool:
+        """The Apply confirm gate (a method so the smoke can stub it). True == the user said Yes."""
+        return QMessageBox.question(
+            self, "Apply save edit?",
+            "This edits your REAL save (a timestamped .bak is written first):\n\n"
+            + detail + "\n\nProceed?") == QMessageBox.StandardButton.Yes
+
     def _parse_bits(self, s):
         return [_flags.resolve(t.strip(), {}) for t in (s or "").replace(";", ",").split(",") if t.strip()]
 
@@ -265,11 +272,8 @@ class StoryStateDoc(QWidget):
         if not preview["notes"]:
             self.edit_txt.setPlainText("Nothing to change.")
             return
-        ok = QMessageBox.question(
-            self, "Apply story-state edit?",
-            "This edits your REAL save (a .bak backup is written first):\n\n"
-            + "\n".join(preview["notes"]) + "\n\nProceed?")
-        if ok != QMessageBox.StandardButton.Yes:
+        if not self._confirm("\n".join(preview["notes"])):
+            self.edit_txt.setPlainText("Cancelled — nothing written.")
             return
         try:
             res = _save.apply_story_edit(self.path, block=blk, scenario=scenario,
@@ -381,6 +385,7 @@ class ItemEquipDoc(QWidget):
         self.stat_char_combo = QComboBox()
         self.stat_kind_combo = QComboBox()
         self.stat_kind_combo.addItems(self._STATS)
+        self.stat_kind_combo.setCurrentText("Strength")          # match the tkinter editor's default
         self.stat_val_var = QLineEdit("50")
         self.stat_val_var.setFixedWidth(48)
         self._section(lay, "Stats  (permanent: writes basis + the equipment bonus)",
@@ -494,14 +499,19 @@ class ItemEquipDoc(QWidget):
             self.gil_var.setText(str(rep.gil) if rep.gil is not None else "")
 
     # ---- edit (write) ----
+    def _confirm(self, detail) -> bool:
+        """The Apply confirm gate (a method so the smoke can stub it). True == the user said Yes."""
+        return QMessageBox.question(
+            self, "Apply save edit?",
+            "This edits your REAL save (a timestamped .bak is written first):\n\n"
+            + detail + "\n\nProceed?") == QMessageBox.StandardButton.Yes
+
     def _apply_plan(self, render, preview, do, apply):
         if not apply:
             self.edit_txt.setPlainText("PREVIEW (nothing written yet):\n" + render(preview))
             return
-        ok = QMessageBox.question(self, "Apply save edit?",
-                                  "This edits your REAL save (a timestamped .bak is written first):\n\n"
-                                  + render(preview) + "\n\nProceed?")
-        if ok != QMessageBox.StandardButton.Yes:
+        if not self._confirm(render(preview)):
+            self.edit_txt.setPlainText("Cancelled — nothing written.")
             return
         try:
             res = do()
