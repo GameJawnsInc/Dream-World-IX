@@ -677,11 +677,11 @@ bubble = true                                  # the floating "!" prompt (defaul
 
 ---
 
-## `[[weapon]]` / `[[armor]]` / `[[item]]` — tune EXISTING item stats (optional, repeatable)
+## `[[weapon]]` / `[[armor]]` / `[[item]]` / `[[equip_bonus]]` — tune EXISTING item stats (optional, repeatable)
 
-**Rebalance gear** — change a weapon's power, an armor's defence, or an item's price. A pure data patch (**no DLL**).
-Don't confuse these with the `[[equipment]]` *loadout* slots above: those say *who wears what at New Game*; these
-change *what the gear DOES*.
+**Rebalance gear** — change a weapon's power, an armor's defence, an item's price, or an item's **equip stat bonus**.
+A pure data patch (**no DLL**). Don't confuse these with the `[[equipment]]` *loadout* slots above: those say *who
+wears what at New Game*; these change *what the gear DOES*.
 
 ```toml
 [[weapon]]
@@ -700,20 +700,43 @@ m_eva = 0                   # M.Eva      ┘
 name = "Excalibur"          # any item (weapon/armor/consumable)
 price = 5000                # buy price  (0-9,999,999)
 sell = 2500                 # sell price (optional; otherwise unchanged)
+
+[[equip_bonus]]
+name = "Bone Wrist"         # any EQUIPPABLE item (weapon/wrist/head/body/accessory/gem)
+speed = 0                   # the 4 growth-stat bonuses (dex/str/mgc/wpr) ─┐ 0-255 each (Stats.csv);
+strength = 3                #   Speed=Dexterity, Spirit=Will                │ the input the level-up
+magic = 0                   #                                               │ stat-growth accumulator
+spirit = 0                  #                                              ─┘ reads (~32 levels = +1)
+attack_element = ["Fire"]   # STRENGTHEN your Fire attacks/magic (dmg boost) ─┐
+weak_element = ["Ice"]      # take extra damage from element(s)             │ element name list or a
+absorb_element = []         # absorb (heal from) element(s)                 │ 0-255 bitmask; set only
+half_element = []           # take half damage from element(s)             │ the ones you want
+guard_element = []          # nullify (immune to) element(s)               ─┘
 ```
 
-- **How it works:** each block emits a **partial CSV delta** into the mod (`Data/Items/{Weapons,Armors,Items}.csv`).
+- **How it works:** each block emits a **partial CSV delta** into the mod (`Data/Items/{Weapons,Armors,Items,Stats}.csv`).
   The engine **merges** these by id, **whole-row-wins** — so the kit reads the base row from **your install**, changes
   the one field, and writes the complete row back. **Needs a reachable FF9 install at build time** (it reads the base
   columns); without one the patch is skipped with a warning.
 - **Mod-global:** any field may tune any item — the deltas are collected across every built field, not tied to where
   the block sits. The same item tuned in two blocks **merges** (later overrides per field; a warning is emitted).
+- **`[[equip_bonus]]` and the shared `Empty` row:** an item's bonus lives in `Stats.csv`, keyed by its `BonusId` —
+  but **~100 items share the all-zero `Empty` row 0**, so editing that row would buff every other no-bonus item. The
+  kit detects this: an item with a **dedicated** bonus row (used by it alone) is edited **in place**; otherwise it
+  **mints a fresh `Stats.csv` row and repoints the item's `BonusId`** (in the same `Items.csv` delta as any `[[item]]`
+  price edit), isolating the change to that one item. The bonus shows immediately in the status menu on equip
+  (`elem = base + bonus`) and drives permanent level-up growth.
+  **★ Stacked folders:** the `Items.csv` repoint is per-id whole-row-merged across `FolderNames`, so a *higher*-priority
+  stacked mod folder that ships its own row for the same item shadows the repoint — the bonus then silently doesn't
+  apply (the minted `Stats.csv` row is orphaned). Deploy equip-bonus edits to your **highest-priority** folder (the
+  same rule as the new-game bag / custom shop ids).
 - **Values are clamped** to their range (stats 0-255, price 0-9,999,999). An unknown item name, the wrong type
-  (`[[weapon]]` on a non-weapon), or a bad element name is a **lint error** (`ff9mapkit lint`).
+  (`[[weapon]]` on a non-weapon, `[[equip_bonus]]` on a non-equippable), or a bad element name is a **lint error**
+  (`ff9mapkit lint`).
 - **★ RELAUNCH to apply:** item CSVs load once at game **startup** — F6 → Reload field will NOT pick up a stat
   change. Deploy, then relaunch.
-- **Deferred (a later follow-up):** weapon attack class/status-on-hit, equip stat *bonuses* + elemental affinity
-  (`Stats.csv`), consumable use-effects, who-can-equip, and minting **net-new** item ids (>254, needs a DLL).
+- **Deferred (a later follow-up):** weapon attack class/status-on-hit, consumable use-effects, who-can-equip, and
+  minting **net-new** item ids (>254, needs a DLL).
 
 ---
 

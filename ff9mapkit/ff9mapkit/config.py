@@ -231,6 +231,13 @@ class ModLayout:
         return self.root / "StreamingAssets" / "Data" / "Items" / "Items.csv"
 
     @property
+    def stats_csv(self) -> Path:
+        """Equip stat bonuses + elemental affinity (``Data/Items/Stats.csv`` = ItemStats, keyed by BonusId).
+        MERGED by id low->high (whole-row replace, ff9equip.cs:26) -> a partial delta works; new minted bonus
+        rows just add entries. The input the level-up stat-growth accumulator reads (ff9play.cs:302-305)."""
+        return self.root / "StreamingAssets" / "Data" / "Items" / "Stats.csv"
+
+    @property
     def actions_csv(self) -> Path:
         """Shared player abilities (``Data/Battle/Actions.csv``). MERGED by id low->high (whole-row replace) ->
         a partial delta (only the abilities you change) works; the base supplies the other 192 rows."""

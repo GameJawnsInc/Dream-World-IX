@@ -25,6 +25,19 @@ therefore need a reachable install (they degrade with a clear error otherwise).
     [[item]]
     name = "Excalibur"
     price = 5000
+
+* ``[[equip_bonus]]`` patches the item's ItemStats (``Stats.csv``: the equip stat bonuses ``speed`` / ``strength`` /
+  ``magic`` / ``spirit`` -- the input the engine's level-up accumulator reads, ``ff9play.cs:302-305`` -- plus the
+  elemental-affinity bitmasks ``attack_element`` / ``guard_element`` / ``absorb_element`` / ``half_element`` /
+  ``weak_element``), located via the item's ``BonusId`` in ``Items.csv``. ★ ``BonusId`` is SHARED: ~100 items point
+  at the all-zero ``Empty`` row 0, so a block on such an item can't edit row 0 in place (it would buff every other
+  no-bonus item) -- it MINTS a fresh ``Stats.csv`` row and repoints the item's ``BonusId`` in an ``Items.csv`` delta,
+  isolating the edit. An item whose ``BonusId`` is dedicated (used by it alone) is edited in place.
+
+    [[equip_bonus]]
+    name = "Bone Wrist"
+    strength = 3
+    weak_element = ["Fire"]
 """
 from __future__ import annotations
 
@@ -39,6 +52,20 @@ _ELEM_BY_NAME = {name.lower(): bit for bit, name in _itemstats.ELEMENTS}   # "fi
 _WEAPON_COLS = {"power": "Power", "elements": "Elements"}
 _ARMOR_COLS = {"p_def": "P.Def", "p_eva": "P.Eva", "m_def": "M.Def", "m_eva": "M.Eva"}
 _ITEM_COLS = {"price": "Price", "sell": "SellingPrice"}
+
+STAT_CAP = 255            # equip stat bonuses (dex/str/mgc/wpr) are Byte columns in Stats.csv (ItemStats.cs)
+# [[equip_bonus]] -> the ItemStats (Stats.csv) row of an EQUIPPABLE item: the 4 growth-stat bonuses (the input
+# the 32-level level-up accumulator reads, ff9play.cs:302-305) + the 5 elemental-affinity bitmask columns. Keys
+# map to the Stats.csv legend (★ Dexterity = FF9 "Speed", Will = FF9 "Spirit").
+_EQUIP_BONUS_STATS = {"speed": "Dexterity", "strength": "Strength", "magic": "Magic", "spirit": "Will"}
+# Keys 1:1 with the Stats.csv column names (so the emitted delta matches the file the user can inspect). Engine
+# meaning (ItemStats.cs raw[6..10] -> p_up_attr/def_attr): attack_element = STRENGTHENS attacks/magic of that
+# element (a damage boost while worn), NOT "adds the element on hit"; guard_element = NULLIFY (immune); the other
+# three = absorb (heal from) / take half / take extra damage. All are Byte element bitmasks.
+_EQUIP_BONUS_ELEMS = {"attack_element": "AttackElement", "guard_element": "GuardElement",
+                      "absorb_element": "AbsorbElement", "half_element": "HalfElement",
+                      "weak_element": "WeakElement"}
+EQUIP_BONUS_KEYS = (*_EQUIP_BONUS_STATS, *_EQUIP_BONUS_ELEMS)
 
 
 def encode_elements(names) -> int:
@@ -196,9 +223,11 @@ def build_armors_delta(items_text: str, armors_text: str, armors) -> "str | None
     return _emit(aheader, patched, "# ff9mapkit [[armor]] -- Armors.csv delta (merged by id, whole-row, over the base)")
 
 
-def build_items_delta(items_text: str, items) -> "str | None":
+def build_items_delta(items_text: str, items, *, bonusid_repoints=None) -> "str | None":
     """A partial ``Items.csv`` text from ``[[item]]`` blocks (keyed by item id directly). Each block: ``name`` +
-    any of ``price`` / ``sell``."""
+    any of ``price`` / ``sell``. ``bonusid_repoints`` ({item_id: new BonusId}) additionally repoints those items'
+    ``BonusId`` column (from :func:`build_equip_bonus_delta`'s mint path) -- BOTH channels compose on one row (the
+    engine merges whole-row, so price + a repointed BonusId must ship together in the same Items.csv row)."""
     header, cols, _idcol, rows = read_base_csv(items_text)
     patched: dict = {}
     for b in items:
@@ -209,9 +238,139 @@ def build_items_delta(items_text: str, items) -> "str | None":
         for idx, val in _edits_for(b, _ITEM_COLS, cols).items():
             base = _set_col(base, idx, val)
         patched[iid] = base
+    if bonusid_repoints:
+        bcol = cols.get("BonusId")
+        if bcol is None:
+            raise ValueError("this install's Items.csv has no BonusId column (can't repoint an equip bonus)")
+        for item_id, new_bonus in bonusid_repoints.items():
+            base = patched.get(item_id, rows.get(item_id))
+            if base is None:
+                raise ValueError(f"no Items.csv row for item id {item_id} (equip-bonus repoint)")
+            patched[item_id] = _set_col(base, bcol, new_bonus)
     if not patched:
         return None
     return _emit(header, patched, "# ff9mapkit [[item]] -- Items.csv delta (merged by id, whole-row, over the base)")
+
+
+# --- equip stat bonuses (Stats.csv / ItemStats) ---------------------------------------------------
+
+def _edits_for_bonus(block, scols) -> dict:
+    """{Stats.csv column index: new cell value} for an ``[[equip_bonus]]`` block (stat ints clamped 0-255;
+    element keys via :func:`encode_elements`)."""
+    edits = {}
+    for key, csv_col in _EQUIP_BONUS_STATS.items():
+        if key in block:
+            idx = scols.get(csv_col)
+            if idx is None:
+                raise ValueError(f"this install's Stats.csv has no {csv_col!r} column")
+            edits[idx] = _clamp_int(block[key], 0, STAT_CAP, key)
+    for key, csv_col in _EQUIP_BONUS_ELEMS.items():
+        if key in block:
+            idx = scols.get(csv_col)
+            if idx is None:
+                raise ValueError(f"this install's Stats.csv has no {csv_col!r} column")
+            edits[idx] = encode_elements(block[key])
+    return edits
+
+
+def _mint_comment(new_id: int, name) -> str:
+    """The Comment cell (col 0) of a kit-minted Stats.csv row. Sanitized: ``;`` would split into extra columns
+    (shifting the Id); a leading ``#`` would make CsvReader SKIP the whole line. The "Bonus NNNN # " prefix means
+    the cell never starts with ``#``, so the row always parses as data."""
+    safe = str(name).replace(";", ",").replace("\n", " ").replace("\r", " ").strip()
+    return f"Bonus {new_id:04d} # {safe} (ff9mapkit)"
+
+
+def _synthetic_stat_row(width: int, new_id: int, name, id_col: int) -> str:
+    """An all-zero Stats.csv row (for an item whose current BonusId is Empty/dangling -- nothing to seed from).
+    ``width`` must hold every edited column (>= the real header width, so a >11-column modded Stats.csv is safe)."""
+    parts = ["0"] * max(width, 11)
+    parts[0] = _mint_comment(new_id, name)
+    parts[id_col] = str(new_id)
+    return ";".join(parts)
+
+
+def build_equip_bonus_delta(items_text: str, stats_text: str, equip_bonuses):
+    """A partial ``Stats.csv`` text from ``[[equip_bonus]]`` blocks + the ``{item_id: new BonusId}`` repoints its
+    mint path needs in ``Items.csv``. Returns ``(stats_delta | None, repoints)``.
+
+    Each block: ``name`` (equippable item) + any of ``speed`` / ``strength`` / ``magic`` / ``spirit`` +
+    ``attack_element`` / ``guard_element`` / ``absorb_element`` / ``half_element`` / ``weak_element``. An item whose
+    ``BonusId`` is DEDICATED (used by it alone, and not the shared Empty row 0) is edited in place; otherwise a fresh
+    row is minted (seeded from the item's current bonus values so unchanged stats carry) and the item is repointed,
+    so the edit can NEVER leak onto another item that shared the row."""
+    _ih, icols, _iid_col, irows = read_base_csv(items_text)
+    sheader, scols, sid_col, srows = read_base_csv(stats_text)
+    bcol = icols.get("BonusId")
+    if bcol is None:
+        raise ValueError("this install's Items.csv has no BonusId column (can't tune equip bonuses)")
+    # How many items point at each BonusId -- only a row used by exactly ONE item (and not the shared row 0) is
+    # safe to edit in place; everything else mints a fresh row.
+    users: dict = {}
+    for row in irows.values():
+        parts = row.split(";")
+        try:
+            bid = int(parts[bcol].strip())
+        except (ValueError, IndexError):
+            continue
+        users[bid] = users.get(bid, 0) + 1
+    used_ids = {0} | set(srows) | set(users)              # include 0 so a mint NEVER lands on the Empty row
+    mint_next = max(used_ids) + 1
+    row_width = max((len(r.split(";")) for r in srows.values()), default=0)
+    row_width = max(row_width, len(scols), 11)            # a synthetic seed must hold every edited column
+
+    # Coalesce blocks per resolved item FIRST -- so two [[equip_bonus]] on the SAME item MERGE (later block wins
+    # per column) on BOTH the in-place and the mint path. (Without this, two blocks on a shared-row item would each
+    # mint a separate row, the last repoint would win, and the first block's edits would be silently lost + orphan a
+    # half-minted row.) first-seen order keeps the minted ids deterministic.
+    per_item: dict = {}
+    order: list = []
+    for b in equip_bonuses:
+        iid = _items.resolve(b["name"])
+        e = _edits_for_bonus(b, scols)
+        if not e:
+            continue
+        if iid not in per_item:
+            per_item[iid] = {"name": b["name"], "edits": {}}
+            order.append(iid)
+        per_item[iid]["edits"].update(e)
+
+    patched: dict = {}
+    repoints: dict = {}
+    for iid in order:
+        name = per_item[iid]["name"]
+        edits = per_item[iid]["edits"]
+        irow = irows.get(iid)
+        if irow is None:
+            raise ValueError(f"no Items.csv row for item id {iid} ({name})")
+        try:
+            cur = int(irow.split(";")[bcol].strip())
+        except (ValueError, IndexError):
+            cur = 0
+        dedicated = cur != 0 and cur in srows and users.get(cur, 0) == 1
+        if dedicated:
+            base = srows[cur]                             # 1:1 by definition, so touched once
+            for idx, val in edits.items():
+                base = _set_col(base, idx, val)
+            patched[cur] = base
+        else:
+            new_id = mint_next
+            mint_next += 1
+            seed = srows.get(cur)
+            if seed is None:
+                seed = _synthetic_stat_row(row_width, new_id, name, sid_col)
+            else:
+                seed = _set_col(seed, sid_col, new_id)
+                seed = _set_col(seed, 0, _mint_comment(new_id, name))
+            for idx, val in edits.items():
+                seed = _set_col(seed, idx, val)
+            patched[new_id] = seed
+            repoints[iid] = new_id
+    if not patched:
+        return None, {}
+    return (_emit(sheader, patched,
+                  "# ff9mapkit [[equip_bonus]] -- Stats.csv delta (ItemStats, merged by id, whole-row, over the base)"),
+            repoints)
 
 
 # --- write into the mod (reads the install's base CSVs) -------------------------------------------
@@ -235,24 +394,37 @@ def _read_text(path) -> str:
     return raw.decode(CSV_ENCODING, errors="replace")
 
 
-def write_item_data(layout, weapons=(), armors=(), items=(), *, game=None) -> None:
-    """Emit the ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` deltas into ``layout``'s mod root. Reads the base
-    rows from the install (raises a clear ValueError if it isn't reachable -- the deltas need the base columns)."""
-    if not (weapons or armors or items):
+def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), *, game=None) -> None:
+    """Emit the ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` / ``[[equip_bonus]]`` deltas into ``layout``'s mod
+    root. Reads the base rows from the install (raises a clear ValueError if it isn't reachable -- the deltas need
+    the base columns). An ``[[equip_bonus]]`` mint repoints an item's BonusId, so its Items.csv repoints merge into
+    the same Items.csv delta as any ``[[item]]`` price edits."""
+    if not (weapons or armors or items or equip_bonuses):
         return
     d = _base_dir(game)
     try:
         items_text = _read_text(d / "Items.csv")
     except OSError as e:
-        raise ValueError("item-data patches ([[weapon]]/[[armor]]/[[item]]) need your FF9 install to read the "
-                         f"base Items.csv columns -- couldn't read {d / 'Items.csv'}: {e}") from e
+        raise ValueError("item-data patches ([[weapon]]/[[armor]]/[[item]]/[[equip_bonus]]) need your FF9 install "
+                         f"to read the base Items.csv columns -- couldn't read {d / 'Items.csv'}: {e}") from e
+    repoints: dict = {}
+    stats_delta = None
+    if equip_bonuses:
+        try:
+            stats_text = _read_text(d / "Stats.csv")
+        except OSError as e:
+            raise ValueError("equip-bonus patches ([[equip_bonus]]) need your FF9 install to read the base "
+                             f"Stats.csv columns -- couldn't read {d / 'Stats.csv'}: {e}") from e
+        stats_delta, repoints = build_equip_bonus_delta(items_text, stats_text, equip_bonuses)
     plan = []
     if weapons:
         plan.append((layout.weapons_csv, build_weapons_delta(items_text, _read_text(d / "Weapons.csv"), weapons)))
     if armors:
         plan.append((layout.armors_csv, build_armors_delta(items_text, _read_text(d / "Armors.csv"), armors)))
-    if items:
-        plan.append((layout.items_csv, build_items_delta(items_text, items)))
+    if items or repoints:
+        plan.append((layout.items_csv, build_items_delta(items_text, items, bonusid_repoints=repoints)))
+    if stats_delta is not None:
+        plan.append((layout.stats_csv, stats_delta))
     for path, text in plan:
         if text is None:
             continue

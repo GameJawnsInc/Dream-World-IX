@@ -113,6 +113,12 @@ class ItemStat:
         return self.pdef is not None
 
     @property
+    def is_equippable(self) -> bool:
+        """True when the item occupies an equipment slot (weapon/wrist/head/body/accessory/gem) -- so an equip
+        stat bonus ([[equip_bonus]]) applies to it. A pure consumable (item/usable only) is not equippable."""
+        return any(t in ("weapon", "wrist", "head", "body", "accessory", "gem") for t in self.types)
+
+    @property
     def is_consumable(self) -> bool:
         """Has an effect row (an EffectId that joined) -- structural. A row can still be empty: use
         :attr:`has_use_effect` to decide whether there is anything worth SHOWING."""

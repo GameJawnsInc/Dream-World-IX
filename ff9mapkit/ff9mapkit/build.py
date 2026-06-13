@@ -694,6 +694,37 @@ def validate(project: FieldProject) -> list[str]:
                     problems.append(f"[[{kind}]] {nm!r} {k} must be an integer, got {v!r}")
                 elif v < 0:
                     problems.append(f"[[{kind}]] {nm!r} {k} cannot be negative")
+    # equip stat bonuses ([[equip_bonus]] -> Stats.csv/ItemStats): the level-up-growth + affinity lever. The item
+    # must resolve + be equippable (best-effort, needs the install); stats are non-negative ints, elements valid.
+    for i, b in enumerate(project.raw.get("equip_bonus", [])):
+        nm = b.get("name")
+        if nm is None:
+            problems.append(f"[[equip_bonus]] #{i} needs a `name` (the equippable item to tune)")
+            continue
+        try:
+            iid = _items.resolve(nm)
+        except ValueError as e:
+            problems.append(f"[[equip_bonus]] {nm!r}: {e}")
+            continue
+        set_keys = [k for k in _itemdata.EQUIP_BONUS_KEYS if k in b]
+        if not set_keys:
+            problems.append(f"[[equip_bonus]] {nm!r} sets no editable field "
+                            f"(one of {', '.join(_itemdata.EQUIP_BONUS_KEYS)})")
+        st = _itemstats.for_id(iid)                       # best-effort equippable check (needs the install)
+        if st is not None and not st.is_equippable:
+            problems.append(f"[[equip_bonus]] {nm!r} is not equippable -- a stat bonus only applies to "
+                            f"equipment (weapon/wrist/head/body/accessory/gem)")
+        for k in set_keys:
+            v = b[k]
+            if k in _itemdata._EQUIP_BONUS_ELEMS:
+                try:
+                    _itemdata.encode_elements(v)
+                except ValueError as e:
+                    problems.append(f"[[equip_bonus]] {nm!r} {k}: {e}")
+            elif isinstance(v, bool) or not isinstance(v, int):
+                problems.append(f"[[equip_bonus]] {nm!r} {k} must be an integer, got {v!r}")
+            elif v < 0:
+                problems.append(f"[[equip_bonus]] {nm!r} {k} cannot be negative")
     for sm in project.raw.get("save_moogle", []):       # a carried (imported) save Moogle (docs/SAVEPOINT.md)
         if sm.get("carried"):                           # the cluster lives in the [[object]]/[[player_func]] blocks
             if not project.raw.get("object"):
@@ -3137,14 +3168,14 @@ def _emit_shops(projects, layout) -> list:
 
 
 def _emit_item_data(projects, layout) -> list:
-    """Emit the mod-GLOBAL item-stat deltas (``Data/Items/{Weapons,Armors,Items}.csv``) from every built field's
-    ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` blocks. The engine merges these by id (whole-row), so any field
-    may tune any item; the same item tuned in several blocks merges (later overrides per field) -- warned for
-    visibility. Reads the install's base rows (a delta carries the full base row); no install -> warn + skip.
-    No blocks anywhere -> nothing written (no base clobber). Returns warnings."""
+    """Emit the mod-GLOBAL item-stat deltas (``Data/Items/{Weapons,Armors,Items,Stats}.csv``) from every built
+    field's ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` / ``[[equip_bonus]]`` blocks. The engine merges these by
+    id (whole-row), so any field may tune any item; the same item tuned in several blocks merges (later overrides
+    per field) -- warned for visibility. Reads the install's base rows (a delta carries the full base row); no
+    install -> warn + skip. No blocks anywhere -> nothing written (no base clobber). Returns warnings."""
     from .content import itemdata as _itemdata
     warnings: list = []
-    buckets = {"weapon": [], "armor": [], "item": []}
+    buckets = {"weapon": [], "armor": [], "item": [], "equip_bonus": []}
     seen: dict = {}
     for kind in buckets:
         for p in projects:
@@ -3163,7 +3194,8 @@ def _emit_item_data(projects, layout) -> list:
     if not any(buckets.values()):
         return warnings
     try:
-        _itemdata.write_item_data(layout, buckets["weapon"], buckets["armor"], buckets["item"])
+        _itemdata.write_item_data(layout, buckets["weapon"], buckets["armor"], buckets["item"],
+                                  buckets["equip_bonus"])
     except ValueError as e:                                # e.g. unknown item name / not-a-weapon / no install
         warnings.append(f"item-data patch skipped: {e}")
     return warnings
