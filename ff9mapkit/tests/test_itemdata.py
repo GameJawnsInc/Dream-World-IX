@@ -10,6 +10,7 @@ import pytest
 
 from ff9mapkit import items as _items
 from ff9mapkit import itemstats as _itemstats
+from ff9mapkit.battle import battlecsv as _battlecsv
 from ff9mapkit.content import itemdata as ID
 from ff9mapkit.build import FieldProject, validate, _emit_item_data
 from ff9mapkit.config import ModLayout
@@ -378,3 +379,148 @@ def test_emit_equip_bonus_writes_stats_and_repoint(tmp_path):
     _h2, icols, _i2, irows = ID.read_base_csv(layout.items_csv.read_text(encoding="cp1252"))
     mm_row = irows[MM].split(";")
     assert mm_row[icols["BonusId"]] != "0"
+
+
+# ==== quick-win column cluster: weapon category/status_index/rate + item equippable_by ======================
+# Faithful fixtures mirroring the real column layout (Weapons.csv: Category col 2, StatusIndex 3, Power 6,
+# Elements 7, Rate 8; Items.csv: the 12 Zidane..Beatrix equip-by-character Bit columns at the tail).
+WEAPONS_CSV_FULL = (
+    "#! IncludeHitSfx\n"
+    "# Comment;Id;Category;StatusIndex;Model;ScriptId;Power;Elements;Rate;Offset1;Offset2;HitSfx\n"
+    "# ;Int32;Byte;Int32;String;Int32;Int32;Byte;Int32;Int16;Int16;Byte\n"
+    f"Mage Masher;{MM};5;9;GEO_X;1;14;0;20;81;166;2\n"
+    f"Dagger;{DAGGER};5;0;GEO_Y;1;12;0;0;17;200;1\n"
+)
+ITEMS_CSV_EQUIP = (
+    "#! IncludeId\n"
+    "# Id;WeaponId;ArmorId;EffectId;Price;SellingPrice;"
+    "Zidane;Vivi;Garnet;Steiner;Freya;Quina;Eiko;Amarant;Cinna;Marcus;Blank;Beatrix\n"
+    "# Int32;Int32;Int32;Int32;UInt32;Int32;Bit;Bit;Bit;Bit;Bit;Bit;Bit;Bit;Bit;Bit;Bit;Bit\n"
+    f"{MM};{MM};-1;-1;500;250;1;0;0;0;0;0;0;0;0;0;0;0;# {MM} - Mage Masher\n"
+    f"{WRIST};-1;{WRIST};-1;130;65;1;1;1;1;1;1;1;1;0;0;0;0;# {WRIST} - Wrist\n"
+)
+
+
+# ---- encode_category / encode_characters codecs -----------------------------------------------
+def test_encode_category():
+    assert ID.encode_category(["short-range", "throw"]) == 5     # 1 | 4
+    assert ID.encode_category(["ShortRange"]) == 1               # loose name match (no hyphen, any case)
+    assert ID.encode_category(["offset"]) == 8 and ID.encode_category(["ofsdim"]) == 8   # bit-8 alias
+    assert ID.encode_category(4) == 4                            # in-range bitmask passes through
+    assert ID.encode_category(None) == 0 and ID.encode_category([]) == 0
+    for bad in (256, -1):                                        # Byte column -> a >255 int would crash weapon load
+        with pytest.raises(ValueError, match="range"):
+            ID.encode_category(bad)
+    with pytest.raises(ValueError, match="unknown weapon category"):
+        ID.encode_category(["Bogus"])
+    with pytest.raises(ValueError):
+        ID.encode_category(True)
+
+
+def test_encode_characters():
+    assert ID.encode_characters(["Vivi", "Garnet"]) == ["Vivi", "Garnet"]
+    assert ID.encode_characters(["vivi", "VIVI"]) == ["Vivi"]    # case-insensitive + de-duped
+    assert ID.encode_characters([]) == []
+    with pytest.raises(ValueError, match="unknown character"):
+        ID.encode_characters(["Nobody"])
+    with pytest.raises(ValueError, match="list of character names"):
+        ID.encode_characters("Vivi")                            # a bare string is not a list
+
+
+# ---- weapon delta: category / status_index / rate ---------------------------------------------
+def test_build_weapons_delta_category_status_rate():
+    d = ID.build_weapons_delta(
+        ITEMS_CSV, WEAPONS_CSV_FULL,
+        [{"name": "Dagger", "category": ["short-range", "throw"], "status_index": 9, "rate": 30}])
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    row = rows[DAGGER].split(";")
+    assert row[cols["Category"]] == "5" and row[cols["StatusIndex"]] == "9" and row[cols["Rate"]] == "30"
+    assert row[cols["Power"]] == "12"                           # untouched columns preserved
+
+
+def test_build_weapons_delta_clamps_rate():
+    d = ID.build_weapons_delta(ITEMS_CSV, WEAPONS_CSV_FULL, [{"name": "Dagger", "rate": 999}])
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    assert rows[DAGGER].split(";")[cols["Rate"]] == str(ID.RATE_CAP)   # 0-100 percent
+
+
+def test_build_weapons_delta_category_bitmask_int():
+    d = ID.build_weapons_delta(ITEMS_CSV, WEAPONS_CSV_FULL, [{"name": "Dagger", "category": 4}])
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    assert rows[DAGGER].split(";")[cols["Category"]] == "4"
+
+
+# ---- item delta: equippable_by (12-column rewrite) --------------------------------------------
+def test_build_items_delta_equippable_by():
+    # Mage Masher is Zidane-only -> equippable_by=["Vivi","Garnet"] sets exactly those (Zidane cleared)
+    d = ID.build_items_delta(ITEMS_CSV_EQUIP, [{"name": "Mage Masher", "equippable_by": ["Vivi", "Garnet"]}])
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    row = rows[MM].split(";")
+    assert row[cols["Vivi"]] == "1" and row[cols["Garnet"]] == "1"
+    assert row[cols["Zidane"]] == "0" and row[cols["Steiner"]] == "0"   # everyone unlisted -> 0 (full rewrite)
+
+
+def test_build_items_delta_equippable_by_only_no_price():
+    # an [[item]] block with ONLY equippable_by (no price/sell) still emits a row
+    d = ID.build_items_delta(ITEMS_CSV_EQUIP, [{"name": "Wrist", "equippable_by": ["Zidane"]}])
+    assert d is not None
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    row = rows[WRIST].split(";")
+    assert row[cols["Zidane"]] == "1" and row[cols["Vivi"]] == "0"      # the 8 mains collapsed to just Zidane
+
+
+def test_build_items_delta_equippable_and_price_merge():
+    # price + equippable_by compose on ONE Items.csv row (whole-row merge)
+    d = ID.build_items_delta(ITEMS_CSV_EQUIP, [{"name": "Mage Masher", "price": 1, "equippable_by": ["Steiner"]}])
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    row = rows[MM].split(";")
+    assert row[cols["Price"]] == "1" and row[cols["Steiner"]] == "1" and row[cols["Zidane"]] == "0"
+
+
+# ---- validate (quick-win cluster) -------------------------------------------------------------
+def test_validate_weapon_category_bad(tmp_path):
+    probs = validate(_proj(BASE + '\n[[weapon]]\nname = "Dagger"\ncategory = ["Bogus"]\n', tmp_path))
+    assert any("category:" in p and "Bogus" in p for p in probs)
+
+
+def test_validate_weapon_rate_negative(tmp_path):
+    probs = validate(_proj(BASE + '\n[[weapon]]\nname = "Dagger"\nrate = -5\n', tmp_path))
+    assert any("rate cannot be negative" in p for p in probs)
+
+
+def test_validate_item_equippable_by_bad(tmp_path):
+    probs = validate(_proj(BASE + '\n[[item]]\nname = "Potion"\nequippable_by = ["Nobody"]\n', tmp_path))
+    assert any("equippable_by:" in p and "Nobody" in p for p in probs)
+
+
+def test_validate_item_only_equippable_by_is_editable(tmp_path):
+    # equippable_by counts as an editable field -> no "sets no editable field" complaint (Wrist = equippable)
+    probs = validate(_proj(BASE + '\n[[item]]\nname = "Wrist"\nequippable_by = ["Vivi"]\n', tmp_path))
+    assert not any("sets no editable field" in p for p in probs)
+
+
+@pytest.mark.skipif(not _itemstats.available(), reason="the no-op equippability check needs the install's CSVs")
+def test_validate_item_equippable_by_noop_on_consumable(tmp_path):
+    # equippable_by on a non-equippable item (Potion) writes inert bits -> a best-effort "no effect" lint warning
+    probs = validate(_proj(BASE + '\n[[item]]\nname = "Potion"\nequippable_by = ["Vivi"]\n', tmp_path))
+    assert any("equippable_by has no effect" in p for p in probs)
+
+
+@pytest.mark.skipif(not _battlecsv.available(), reason="status_index range-guard needs Data/Battle/StatusSets.csv")
+def test_validate_weapon_status_index_out_of_range(tmp_path):
+    probs = validate(_proj(BASE + '\n[[weapon]]\nname = "Dagger"\nstatus_index = 999999\n', tmp_path))
+    assert any("status_index 999999 references no row" in p for p in probs)
+
+
+# ---- install-gated end-to-end (real Items.csv 12-column equip write) --------------------------
+@pytest.mark.skipif(not _itemstats.available(), reason="write_item_data reads the install's base Items.csv")
+def test_emit_item_data_equippable_by_install(tmp_path):
+    class P:
+        raw = {"item": [{"name": "Mage Masher", "equippable_by": ["Vivi", "Garnet"]}]}
+        path = tmp_path / "f.toml"
+    layout = ModLayout(tmp_path / "mod")
+    warns = _emit_item_data([P()], layout)
+    assert not [w for w in warns if "skipped" in w]
+    _h, cols, _idc, rows = ID.read_base_csv(layout.items_csv.read_text(encoding="cp1252"))
+    row = rows[MM].split(";")
+    assert row[cols["Vivi"]] == "1" and row[cols["Garnet"]] == "1" and row[cols["Zidane"]] == "0"

@@ -8,15 +8,20 @@ The base rows are read LIVE from the user's install (the same provenance-clean p
 -- so the kit commits NO game data; the delta is GENERATED at build time into the mod folder. Item-data patches
 therefore need a reachable install (they degrade with a clear error otherwise).
 
-* ``[[weapon]]`` patches the item's ItemAttack (``Weapons.csv``: ``Power`` / ``Elements``), located via the item's
-  ``WeaponId`` in ``Items.csv``.
+* ``[[weapon]]`` patches the item's ItemAttack (``Weapons.csv``: ``Power`` / ``Elements`` + ``category`` /
+  ``status_index`` / ``rate`` -- the weapon's class, the ``StatusSets.csv`` row it inflicts on hit, and that
+  status's percent chance), located via the item's ``WeaponId`` in ``Items.csv``.
 * ``[[armor]]`` patches its ItemDefence (``Armors.csv``: ``P.Def`` / ``P.Eva`` / ``M.Def`` / ``M.Eva``) via ``ArmorId``.
-* ``[[item]]`` patches its ItemInfo (``Items.csv``: ``Price`` / ``SellingPrice``) by item id directly.
+* ``[[item]]`` patches its ItemInfo (``Items.csv``: ``Price`` / ``SellingPrice`` + ``equippable_by`` -- the list of
+  characters who can equip it, which REWRITES the item's 12 equip-by-character bits) by item id directly.
 
     [[weapon]]
     name = "Mage Masher"
     power = 30
     elements = ["Fire"]
+    category = ["short-range", "throw"]   # weapon class (here: throwable)
+    status_index = 9                      # a StatusSets.csv row -> the status it can inflict on hit
+    rate = 30                             # 30% chance to inflict that status
 
     [[armor]]
     name = "Bronze Armor"
@@ -25,6 +30,7 @@ therefore need a reachable install (they degrade with a clear error otherwise).
     [[item]]
     name = "Excalibur"
     price = 5000
+    equippable_by = ["Vivi", "Garnet"]   # exactly these characters can equip it (replaces the current set)
 
 * ``[[equip_bonus]]`` patches the item's ItemStats (``Stats.csv``: the equip stat bonuses ``speed`` / ``strength`` /
   ``magic`` / ``spirit`` -- the input the engine's level-up accumulator reads, ``ff9play.cs:302-305`` -- plus the
@@ -46,12 +52,29 @@ from .. import itemstats as _itemstats
 
 POWER_CAP = 255           # weapon Power / armor defence are small byte-range values in practice
 PRICE_CAP = 9_999_999     # gil cap; a price above it is pointless (you can't hold that much gil)
+RATE_CAP = 100            # a weapon's status-infliction Rate is a 0-100 percent chance (the engine clamps all
+                          # accuracy to 100 -- BattleCalculator.cs; physical hit is fixed 100, so Rate ONLY gates
+                          # the on-hit status, applied from add_status[StatusIndex] -- SBattleCalculator.cs:188).
+STATUS_INDEX_CAP = 65535  # StatusIndex references a StatusSets.csv row; the REAL membership check is install-gated
+                          # in build.validate (an over-range id is a KeyNotFound crash, like the Phase-4 trap).
 _ELEM_BY_NAME = {name.lower(): bit for bit, name in _itemstats.ELEMENTS}   # "fire" -> 1, ...
 
+
+def _norm(s) -> str:
+    """Loose name key: lowercased, alphanumerics only -- so "short-range" / "ShortRange" / "short range" match."""
+    return "".join(ch for ch in str(s).strip().lower() if ch.isalnum())
+
+
+# WeaponCategory bits (Memoria.Data.WeaponCategory) by friendly name (+ the engine enum name "OfsDim" for bit 8).
+_CATEGORY_BY_NAME = {_norm(name): bit for bit, name in _itemstats.WEAPON_CATEGORY}
+_CATEGORY_BY_NAME["ofsdim"] = 8
+_CHAR_BY_NAME = {c.lower(): c for c in _itemstats.CHARS}   # equip-by-character names -> canonical CHARS
+
 # Which Items.csv FK column + which target CSV a block patches, and the editable {toml key: CSV column} maps.
-_WEAPON_COLS = {"power": "Power", "elements": "Elements"}
+_WEAPON_COLS = {"power": "Power", "elements": "Elements",
+                "category": "Category", "status_index": "StatusIndex", "rate": "Rate"}
 _ARMOR_COLS = {"p_def": "P.Def", "p_eva": "P.Eva", "m_def": "M.Def", "m_eva": "M.Eva"}
-_ITEM_COLS = {"price": "Price", "sell": "SellingPrice"}
+_ITEM_COLS = {"price": "Price", "sell": "SellingPrice"}    # equippable_by is handled separately (12-column rewrite)
 
 STAT_CAP = 255            # equip stat bonuses (dex/str/mgc/wpr) are Byte columns in Stats.csv (ItemStats.cs)
 # [[equip_bonus]] -> the ItemStats (Stats.csv) row of an EQUIPPABLE item: the 4 growth-stat bonuses (the input
@@ -90,6 +113,47 @@ def encode_elements(names) -> int:
             raise ValueError(f"unknown element {n!r} (one of {', '.join(nm for _, nm in _itemstats.ELEMENTS)})")
         mask |= bit
     return mask
+
+
+def encode_category(names) -> int:
+    """A list of weapon-category names (``short-range`` / ``long-range`` / ``throw`` / ``offset``) OR a 0-255
+    bitmask int -> the WeaponCategory byte. Raises ValueError on an unknown name / out-of-range value -- the
+    Category column is a ``CsvParser.Byte`` so a >255 int would OverflowException + HARD-QUIT at weapon load
+    (the same trap as ``elements``). ``throw`` makes the weapon eligible for Amarant's Throw command."""
+    if isinstance(names, bool):
+        raise ValueError("category must be a list of category names or a 0-255 bitmask, not a bool")
+    if isinstance(names, int):
+        if not 0 <= names <= 255:
+            raise ValueError(f"category bitmask {names} out of range 0..255")
+        return names
+    if names is None:
+        return 0
+    if not isinstance(names, (list, tuple)):
+        raise ValueError(f"category must be a list of category names (or a 0-255 bitmask), got {names!r}")
+    mask = 0
+    for n in names:
+        bit = _CATEGORY_BY_NAME.get(_norm(n))
+        if bit is None:
+            raise ValueError(f"unknown weapon category {n!r} "
+                             f"(one of {', '.join(nm for _, nm in _itemstats.WEAPON_CATEGORY)})")
+        mask |= bit
+    return mask
+
+
+def encode_characters(names) -> list:
+    """A list of party-character names -> the canonical :data:`itemstats.CHARS` subset (de-duped, validated).
+    Raises ValueError on a non-list or an unknown name. ``[[item]] equippable_by`` uses this to REWRITE the 12
+    equip-by-character bits of an item (the listed characters can equip it; everyone else cannot)."""
+    if not isinstance(names, (list, tuple)):
+        raise ValueError(f"equippable_by must be a list of character names (any of {', '.join(_itemstats.CHARS)})")
+    out: list = []
+    for n in names:
+        c = _CHAR_BY_NAME.get(str(n).strip().lower())
+        if c is None:
+            raise ValueError(f"unknown character {n!r} (one of {', '.join(_itemstats.CHARS)})")
+        if c not in out:
+            out.append(c)
+    return out
 
 
 def _clamp_int(value, lo, hi, what) -> int:
@@ -169,10 +233,29 @@ def _edits_for(block, col_map, cols) -> dict:
         v = block[key]
         if key == "elements":
             edits[idx] = encode_elements(v)
+        elif key == "category":
+            edits[idx] = encode_category(v)
         elif key in ("price", "sell"):
             edits[idx] = _clamp_int(v, 0, PRICE_CAP, key)
+        elif key == "status_index":
+            edits[idx] = _clamp_int(v, 0, STATUS_INDEX_CAP, key)
+        elif key == "rate":
+            edits[idx] = _clamp_int(v, 0, RATE_CAP, key)
         else:
             edits[idx] = _clamp_int(v, 0, POWER_CAP, key)
+    return edits
+
+
+def _equip_mask_edits(names, cols) -> dict:
+    """{Items.csv character-column index: 0/1} that REWRITES an item's 12 equip-by-character bits to exactly
+    ``names`` (each listed character -> 1, every other -> 0). Raises if the install's Items.csv lacks a column."""
+    wanted = set(encode_characters(names))
+    edits = {}
+    for ch in _itemstats.CHARS:
+        idx = cols.get(ch)
+        if idx is None:
+            raise ValueError(f"this install's Items.csv has no {ch!r} equip column")
+        edits[idx] = 1 if ch in wanted else 0
     return edits
 
 
@@ -225,9 +308,10 @@ def build_armors_delta(items_text: str, armors_text: str, armors) -> "str | None
 
 def build_items_delta(items_text: str, items, *, bonusid_repoints=None) -> "str | None":
     """A partial ``Items.csv`` text from ``[[item]]`` blocks (keyed by item id directly). Each block: ``name`` +
-    any of ``price`` / ``sell``. ``bonusid_repoints`` ({item_id: new BonusId}) additionally repoints those items'
-    ``BonusId`` column (from :func:`build_equip_bonus_delta`'s mint path) -- BOTH channels compose on one row (the
-    engine merges whole-row, so price + a repointed BonusId must ship together in the same Items.csv row)."""
+    any of ``price`` / ``sell`` / ``equippable_by`` (the latter REWRITES the item's 12 equip-by-character bits).
+    ``bonusid_repoints`` ({item_id: new BonusId}) additionally repoints those items' ``BonusId`` column (from
+    :func:`build_equip_bonus_delta`'s mint path) -- ALL channels compose on one row (the engine merges whole-row,
+    so price + equippable_by + a repointed BonusId must ship together in the same Items.csv row)."""
     header, cols, _idcol, rows = read_base_csv(items_text)
     patched: dict = {}
     for b in items:
@@ -237,6 +321,9 @@ def build_items_delta(items_text: str, items, *, bonusid_repoints=None) -> "str 
             raise ValueError(f"no Items.csv row for item id {iid} ({b['name']})")
         for idx, val in _edits_for(b, _ITEM_COLS, cols).items():
             base = _set_col(base, idx, val)
+        if "equippable_by" in b:
+            for idx, val in _equip_mask_edits(b["equippable_by"], cols).items():
+                base = _set_col(base, idx, val)
         patched[iid] = base
     if bonusid_repoints:
         bcol = cols.get("BonusId")

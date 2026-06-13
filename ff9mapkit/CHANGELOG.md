@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — quick-win item columns: weapon `category`/`status_index`/`rate` + item `equippable_by` (0.9.85)
+- Extends the `[[weapon]]`/`[[item]]` CSV-delta surface (`content/itemdata.py`) with four more stock-moddable,
+  no-DLL levers the kit previously only **read** for the Info Hub:
+  - **`[[weapon]] category`** — the weapon class (`short-range`/`long-range`/`throw`/`offset`, by name or a 0-255
+    `WeaponCategory` bitmask). Adding `throw` makes a weapon eligible for Amarant's Throw. (`Weapons.csv Category`, a Byte.)
+  - **`[[weapon]] status_index` + `rate`** — the on-hit status: `status_index` selects an existing `StatusSets.csv`
+    row (the `add_status[]` table the engine rolls — `SBattleCalculator.cs:188`); `rate` is its **0-100 percent** chance
+    (physical hit always lands at 100, so `rate` only gates the status).
+  - **`[[item]] equippable_by`** — a list of party-character names that **REWRITES** the item's 12 `Items.csv`
+    equip-by-character bits (exactly those can equip it; everyone else cleared). Composes whole-row with `price`/`sell`/BonusId.
+- Grounded byte-for-byte in the Memoria schema (`ItemAttack.cs` cols Category/StatusIndex/Rate, `ItemInfo.cs` 12-char
+  mask, `WeaponCategory`) + the real install CSVs. `category` clamps to a Byte and `rate` to 0-100 (overflow crashes the
+  loader / over-applies otherwise); `encode_category`/`encode_characters` validate names. `build.validate` lints bad
+  category/character names + an **out-of-range `status_index`** (a KeyNotFound battle-crash, like the Phase-4 trap),
+  range-guarded against the install's `Data/Battle/StatusSets.csv`. +15 tests (53 in test_itemdata; **1499** total).
+- Closes two deferred item-lane tails (weapon class/status-on-hit + who-can-equip). Still deferred: consumable
+  use-effects, synthesis recipes, the gear→ability list, item name/description text, net-new ids (>254, needs a DLL).
+- **Awaiting in-game proof** (per the no-see-the-game constraint).
+
 ### Added — lint warns on a verbatim-carried gated door's un-remappable window text (#11) (0.9.80)
 - A `[[gateway_carry]]` story-gated door is grafted verbatim, so if it opens its OWN window (e.g. "it's locked")
   the window keeps the DONOR txid — and the carry-text remap only touches `[[object]]`/`[[player_func]]` windows,

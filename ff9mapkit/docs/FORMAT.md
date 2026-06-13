@@ -688,6 +688,9 @@ wears what at New Game*; these change *what the gear DOES*.
 name = "Mage Masher"        # the item (a name or 0-254 id); must be a weapon
 power = 30                  # 0-255  (Weapons.csv Power)
 elements = ["Fire"]         # any of Fire/Ice/Thunder/Earth/Water/Wind/Holy/Dark (or a 0-255 bitmask)
+category = ["short-range", "throw"]   # weapon class: short-range/long-range/throw/offset (throw = Amarant-throwable)
+status_index = 9            # the StatusSets.csv row it inflicts on hit (an existing status-set id)
+rate = 30                   # 0-100 percent chance to inflict that status (physical hit itself is always 100)
 
 [[armor]]
 name = "Bronze Armor"       # must be an armor
@@ -700,6 +703,7 @@ m_eva = 0                   # M.Eva      ┘
 name = "Excalibur"          # any item (weapon/armor/consumable)
 price = 5000                # buy price  (0-9,999,999)
 sell = 2500                 # sell price (optional; otherwise unchanged)
+equippable_by = ["Steiner", "Beatrix"]   # REWRITE who can equip it (exactly these; everyone else cleared)
 
 [[equip_bonus]]
 name = "Bone Wrist"         # any EQUIPPABLE item (weapon/wrist/head/body/accessory/gem)
@@ -730,13 +734,22 @@ guard_element = []          # nullify (immune to) element(s)               ─�
   stacked mod folder that ships its own row for the same item shadows the repoint — the bonus then silently doesn't
   apply (the minted `Stats.csv` row is orphaned). Deploy equip-bonus edits to your **highest-priority** folder (the
   same rule as the new-game bag / custom shop ids).
-- **Values are clamped** to their range (stats 0-255, price 0-9,999,999). An unknown item name, the wrong type
-  (`[[weapon]]` on a non-weapon, `[[equip_bonus]]` on a non-equippable), or a bad element name is a **lint error**
-  (`ff9mapkit lint`).
+- **Weapon `category` / `status_index` / `rate`:** `category` is the weapon class (`short-range`/`long-range`/`throw`/
+  `offset`, by name or a 0-255 bitmask) — adding `throw` makes a weapon eligible for Amarant's **Throw**. `status_index`
+  is the **`StatusSets.csv` row** the weapon inflicts on a hit (an *existing* status-set id — it indexes the shared
+  battle status-set table, validated against your install), and `rate` is that status's **0-100 percent** chance (the
+  physical hit always lands at 100; `rate` only gates the on-hit status). An out-of-range `status_index` is a **lint
+  error** (it would be a KeyNotFound crash at battle).
+- **Item `equippable_by`:** a list of party-character names (`Zidane`/`Vivi`/`Garnet`/`Steiner`/`Freya`/`Quina`/`Eiko`/
+  `Amarant`/… incl. `Beatrix`) that **REWRITES** the item's 12 equip-by-character bits — *exactly* the listed
+  characters can equip it, everyone else is cleared (it's a replace, not an add). An unknown name is a lint error.
+- **Values are clamped** to their range (stats 0-255, price 0-9,999,999, rate 0-100). An unknown item name, the wrong
+  type (`[[weapon]]` on a non-weapon, `[[equip_bonus]]` on a non-equippable), a bad element/category/character name, or
+  an out-of-range `status_index` is a **lint error** (`ff9mapkit lint`).
 - **★ RELAUNCH to apply:** item CSVs load once at game **startup** — F6 → Reload field will NOT pick up a stat
   change. Deploy, then relaunch.
-- **Deferred (a later follow-up):** weapon attack class/status-on-hit, consumable use-effects, who-can-equip, and
-  minting **net-new** item ids (>254, needs a DLL).
+- **Deferred (a later follow-up):** consumable use-effects (`ItemEffects.csv` power/status), synthesis-shop recipes,
+  the gear→learnable-ability list, item name/description text, and minting **net-new** item ids (>254, needs a DLL).
 
 ---
 

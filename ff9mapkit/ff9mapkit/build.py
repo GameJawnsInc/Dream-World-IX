@@ -664,6 +664,10 @@ def validate(project: FieldProject) -> list[str]:
                             f"action is possible; the shop opener would be dropped (remove one)")
     # item-data tuning ([[weapon]]/[[armor]]/[[item]]: a partial CSV delta). The item must resolve + be the right
     # type (the type check is best-effort -- it needs the install's CSVs, like itemstats); values are range-checked.
+    from .battle import battlecsv as _battlecsv          # for the status_index -> StatusSets.csv range-guard
+    # NB: this reads the BASE install's Data/Battle/StatusSets.csv only (no folder stacking). The kit ships no
+    # StatusSets emitter, so the only way to reach a false positive is a hand-added stacked row (id >= 39).
+    _status_sets_ok = None                               # lazy: probed only when a [[weapon]] sets status_index
     for kind, col_map in (("weapon", _itemdata._WEAPON_COLS), ("armor", _itemdata._ARMOR_COLS),
                           ("item", _itemdata._ITEM_COLS)):
         for i, b in enumerate(project.raw.get(kind, [])):
@@ -677,8 +681,10 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"[[{kind}]] {nm!r}: {e}")
                 continue
             edited = [k for k in col_map if k in b]
-            if not edited:
-                problems.append(f"[[{kind}]] {nm!r} sets no editable field (one of {', '.join(col_map)})")
+            has_equip = kind == "item" and "equippable_by" in b   # [[item]] equippable_by rewrites the 12 char bits
+            if not edited and not has_equip:
+                fields = ", ".join(col_map) + ("/equippable_by" if kind == "item" else "")
+                problems.append(f"[[{kind}]] {nm!r} sets no editable field (one of {fields})")
             st = _itemstats.for_id(iid)                  # best-effort type check (needs the install)
             if st is not None and kind == "weapon" and not st.is_weapon:
                 problems.append(f"[[weapon]] {nm!r} is not a weapon (it has no weapon stats)")
@@ -691,10 +697,29 @@ def validate(project: FieldProject) -> list[str]:
                         _itemdata.encode_elements(v)
                     except ValueError as e:
                         problems.append(f"[[weapon]] {nm!r} elements: {e}")
+                elif k == "category":
+                    try:
+                        _itemdata.encode_category(v)
+                    except ValueError as e:
+                        problems.append(f"[[weapon]] {nm!r} category: {e}")
                 elif isinstance(v, bool) or not isinstance(v, int):
                     problems.append(f"[[{kind}]] {nm!r} {k} must be an integer, got {v!r}")
                 elif v < 0:
                     problems.append(f"[[{kind}]] {nm!r} {k} cannot be negative")
+                elif k == "status_index":
+                    if _status_sets_ok is None:          # only touch the install's battle CSVs if actually needed
+                        _status_sets_ok = _battlecsv.available()
+                    if _status_sets_ok and _battlecsv.status_set(v) is None:
+                        problems.append(f"[[weapon]] {nm!r} status_index {v} references no row in "
+                                        f"Data/Battle/StatusSets.csv (it indexes the status-set table)")
+            if has_equip:
+                if st is not None and not st.is_equippable:   # mirror the [[weapon]]/[[equip_bonus]] type guards
+                    problems.append(f"[[item]] {nm!r} equippable_by has no effect -- {nm!r} is not equipment "
+                                    f"(its equip-by-character bits are inert for a non-equippable item)")
+                try:
+                    _itemdata.encode_characters(b["equippable_by"])
+                except ValueError as e:
+                    problems.append(f"[[item]] {nm!r} equippable_by: {e}")
     # equip stat bonuses ([[equip_bonus]] -> Stats.csv/ItemStats): the level-up-growth + affinity lever. The item
     # must resolve + be equippable (best-effort, needs the install); stats are non-negative ints, elements valid.
     for i, b in enumerate(project.raw.get("equip_bonus", [])):
