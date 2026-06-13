@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — item-data tuning: `[[weapon]]` / `[[armor]]` / `[[item]]` (roadmap #6, the last items-lane item) (0.9.77)
+### Added — item-data tuning: `[[weapon]]` / `[[armor]]` / `[[item]]` (roadmap #6, the last items-lane item), IN-GAME PROVEN (0.9.77)
 - Tune EXISTING item stats via partial CSV deltas — **no DLL**. New `content/itemdata.py` + field.toml blocks:
   - `[[weapon]] name=… power=… elements=[…]` → a `Data/Items/Weapons.csv` delta (ItemAttack Power/Elements).
   - `[[armor]] name=… p_def=… p_eva=… m_def=… m_eva=…` → an `Armors.csv` delta (ItemDefence).
@@ -20,9 +20,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `weapons_csv`/`armors_csv`/`items_csv` + the deploy CSV loop (`deploy_field.py`, reversibly). `validate()`
   checks name-resolves / right-type (best-effort, needs the install) / editable-field-present / element names /
   non-negative values. Needs a RELAUNCH (item CSVs load at startup, not via F6).
-- 20 tests (synthetic-CSV builders, install-free, + install-gated end-to-end + validate). **Awaiting the in-game
-  proof.** Deferred to a follow-up: weapon Category/status, `Stats.csv` equip bonuses + affinity, consumable
-  effects, who-can-equip (`CharacterMask`), and minting net-new item ids (>255 — needs the `RegularItem` enum/DLL).
+- 22 tests (synthetic-CSV builders, install-free, + install-gated end-to-end + validate). ★ **IN-GAME PROVEN
+  (2026-06-13):** a `[[weapon]] name="Dagger" power=88` delta deployed to `FF9CustomMap` → relaunch → the equip
+  menu showed the Dagger's Attack jump (base 12 → 88), confirming the whole CSV-delta pipeline (build → emit →
+  deploy → merge → engine load) end-to-end. Deferred to a follow-up: weapon Category/status, `Stats.csv` equip
+  bonuses + affinity, consumable effects, who-can-equip (`CharacterMask`), and minting net-new item ids (>254 —
+  needs the `RegularItem` enum/DLL).
 
 ### Fixed — a synth fork no longer stacks a self-positioning NPC into a duplicate pair (#13 a) (0.9.76)
 - `scan_objects_verbatim` now **dedups InitObject sites by arg**. `InitObject(slot, arg)` addresses *instance*
