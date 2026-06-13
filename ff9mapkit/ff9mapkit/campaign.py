@@ -399,8 +399,34 @@ def validate_ids(plan: CampaignPlan):
         raise CampaignError(f"member ids out of range {sorted(set(bad))}: must be 4000-32767 (fldMapNo is Int16)")
 
 
+def apply_seed_blocks(raw: dict, blocks: dict) -> None:
+    """Merge story-flags capstone blocks (``startup`` / ``party`` / ``start_inventory`` / ``equipment``) into a
+    member's ``FieldProject.raw`` IN PLACE -- additive (scenario replaces, flags + party-adds union, the bag /
+    equipment lists replace). The journey assembler's seed lever (:func:`ff9mapkit.journey.seed_to_field_blocks`
+    produces ``blocks``): it seeds a journey's ENTRY member without rewriting its forked field.toml on disk, so
+    the fork stays clean and a re-deploy is idempotent. Empty ``blocks`` -> no mutation (byte-identical build)."""
+    if not blocks:
+        return
+    if "startup" in blocks:
+        su = raw.setdefault("startup", {})
+        if "scenario" in blocks["startup"]:
+            su["scenario"] = blocks["startup"]["scenario"]
+        if blocks["startup"].get("flags"):
+            su["flags"] = list(su.get("flags", [])) + list(blocks["startup"]["flags"])
+    if "party" in blocks:
+        add = list(raw.setdefault("party", {}).get("add", []))
+        for m in blocks["party"].get("add", []):
+            if m not in add:
+                add.append(m)
+        raw["party"]["add"] = add
+    if "start_inventory" in blocks:
+        raw["start_inventory"] = blocks["start_inventory"]
+    if "equipment" in blocks:
+        raw["equipment"] = blocks["equipment"]
+
+
 def build_campaign(campaign_path, out=None, *, author="", description="", allow_artless=False,
-                   flag_base=None) -> dict:
+                   flag_base=None, seed_blocks=None) -> dict:
     """Compile every member of a campaign.toml into ONE staged Memoria mod (DictionaryPatch + BattlePatch +
     ModDescription + per-field assets), reusing build.build_mod. Returns build_mod's dict + ``plan``/``out``.
     Does NOT deploy (P4). ``out`` defaults to ``<campaign-dir>/dist``.
@@ -408,7 +434,12 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     ``flag_base`` (the JOURNEY assembler's lever): override the campaign's own ``flag_base`` so the journey
     can hand each of its campaigns a NON-OVERLAPPING ``gEventGlobal`` flag window (two campaigns in one
     journey run together -- they must not clobber each other's bits; :mod:`ff9mapkit.journey`). Applied
-    before lint, so the per-member auto-flag blocks + the safe-band checks both use the override."""
+    before lint, so the per-member auto-flag blocks + the safe-band checks both use the override.
+
+    ``seed_blocks`` (the journey ``[journey.seed]`` capstone): a dict of ``startup``/``party``/
+    ``start_inventory``/``equipment`` blocks merged into the ENTRY member's project before build
+    (:func:`apply_seed_blocks`) -- so the journey boots at its seeded beat/party (the ``.eb`` channel) without
+    rewriting the forked entry field.toml. ``None`` -> no seeding."""
     from .build import FieldProject, build_mod
     campaign_path = Path(campaign_path)
     manifest_dir = campaign_path.parent
@@ -449,6 +480,8 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     # that member's auto chest/event/cutscene/choice flags into its own disjoint block (no cross-field alias).
     # the entry member's project (by member index) -> precise non-entry lint for the mod-global new-game blocks
     entry_project = next((projects[i] for i, m in enumerate(plan.members) if m.name == plan.entry_name), None)
+    if seed_blocks and entry_project is not None:        # the journey [journey.seed] capstone, on the entry only
+        apply_seed_blocks(entry_project.raw, seed_blocks)
     info = build_mod(projects, out, mod_name=plan.mod_folder, author=author, description=description,
                      entry_project=entry_project)
     info["plan"] = plan

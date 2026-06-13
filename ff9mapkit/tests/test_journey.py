@@ -523,6 +523,90 @@ def test_worldmap_warp_body_carries_field_and_entrance():
     assert b"\x04\x00" in body                                # entrance 4 (D8:2 i16)
 
 
+# ---- [journey.seed] capstone (scenario/party -> entry .eb; inventory/equipment -> global CSV) ----------
+def test_seed_to_field_blocks():
+    seed = journey.JourneySeed(scenario=2600, party=["Zidane", "Vivi", "Steiner"],
+                               raw={"scenario": 2600, "party": ["Zidane", "Vivi", "Steiner"],
+                                    "flags": [{"flag": 8512, "value": 1}],
+                                    "inventory": [["Potion", 5]],
+                                    "equipment": [{"character": "Vivi", "weapon": "Mage Masher"}]})
+    b = journey.seed_to_field_blocks(seed)
+    assert b["startup"]["scenario"] == 2600
+    assert b["startup"]["flags"] == [{"flag": 8512, "value": 1}]
+    assert b["party"] == {"add": ["Vivi", "Steiner"]}                 # Zidane dropped (New Game seeds slot 0)
+    assert b["start_inventory"] == {"items": [["Potion", 5]]}
+    assert b["equipment"] == [{"character": "Vivi", "weapon": "Mage Masher"}]
+
+
+def test_seed_to_field_blocks_empty():
+    assert journey.seed_to_field_blocks(journey.JourneySeed()) == {}
+    assert journey.seed_to_field_blocks(None) == {}
+
+
+def test_apply_seed_blocks_merges():
+    raw = {"field": {"id": 6000}, "party": {"add": ["Vivi"]}}
+    campaign.apply_seed_blocks(raw, {"startup": {"scenario": 2600}, "party": {"add": ["Vivi", "Steiner"]},
+                                     "start_inventory": {"items": [["Potion", 5]]}})
+    assert raw["startup"]["scenario"] == 2600
+    assert raw["party"]["add"] == ["Vivi", "Steiner"]                 # union, no duplicate
+    assert raw["start_inventory"] == {"items": [["Potion", 5]]}
+
+
+def test_apply_seed_blocks_empty_noop():
+    raw = {"field": {"id": 1}}
+    campaign.apply_seed_blocks(raw, {})
+    assert raw == {"field": {"id": 1}}
+
+
+def test_build_deploy_plan_seeds_only_entry(tmp_path):
+    _two_campaigns(tmp_path)                                          # ca (entry), cb
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["ca", "cb"]
+entry = { campaign = "ca", field = "A1" }
+[journey.seed]
+scenario = 1600
+party = ["Zidane", "Vivi"]
+[[journey.link]]
+from = { campaign = "ca", field = "A2" }
+to = { campaign = "cb", field = "B1" }
+""")
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
+    by = {s.folder: s for s in plan.campaign_steps}
+    assert by["ca"].seed_blocks["startup"]["scenario"] == 1600
+    assert by["ca"].seed_blocks["party"] == {"add": ["Vivi"]}
+    assert by["cb"].seed_blocks is None                              # non-entry campaign: no seed
+
+
+def test_lint_seed_inventory_warns(tmp_path):
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000)
+    p = _write_manifest(tmp_path, '[[journey]]\nid = "x"\ncampaigns = ["ca"]\n'
+                                  'entry = { campaign = "ca", field = "A1" }\n'
+                                  '[journey.seed]\ninventory = [["Potion", 5]]\n')
+    errors, warnings = journey.lint_manifest(journey.load_journeys(p))
+    assert errors == [] and any("MOD-GLOBAL New-Game CSVs" in w for w in warnings)
+
+
+def test_render_playbook_shows_seed_and_oneshot(tmp_path):
+    _two_campaigns(tmp_path)
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["ca", "cb"]
+entry = { campaign = "ca", field = "A1" }
+[journey.seed]
+scenario = 1600
+party = ["Zidane", "Vivi"]
+[[journey.link]]
+from = { campaign = "ca", field = "A2" }
+to = { campaign = "cb", field = "B1" }
+""")
+    book = journey.render_deploy_playbook(journey.load_journeys(p))
+    assert "--apply`" in book                                        # the one-shot is advertised
+    assert "SEED (via --apply): scenario=1600" in book               # the entry campaign line notes the seed
+
+
 def _game_ready():
     try:
         import UnityPy  # noqa: F401

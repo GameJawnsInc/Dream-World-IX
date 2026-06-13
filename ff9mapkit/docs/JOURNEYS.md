@@ -324,7 +324,20 @@ its own stacked mod folder at its disjoint flag window. After the playbook (depl
 be **re-run after any campaign re-deploy** (else the link patch is wiped — the symptom is landing in the real
 target id). The playbook warns this.
 
-**The assembler is COMPLETE.** Remaining is polish, not capability:
-- **Richer seed application** — `apply_link_rewrites` covers links; emitting `[journey.seed]` as the
-  story_flags capstone on the entry field + the start-state-CSV promotion is wired in `deploy_campaign`
-  already (reused per-campaign) but not yet driven from a single `deploy_journey --apply`.
+**The assembler is COMPLETE.** Both polish items below are now BUILT (kit 0.9.87, offline-proven; awaiting an
+in-game playtest of the one-shot path):
+- **`deploy_journey --apply` (one-shot)** — runs the whole playbook in order (each campaign `--no-warp` at its
+  flag window → the link rewrites → emit + deploy the hub → retarget New Game), capturing each sub-tool's own
+  revert into ONE reverse-order `tools/scroll_out/revert_journey.py`. Fail-closed: any sub-step non-zero
+  aborts after writing the partial revert. Ends by printing the manual FolderNames + relaunch steps (Hard
+  Constraint §2). `--apply-links` still runs only the link step (for re-applying after a campaign re-deploy).
+- **`[journey.seed]` capstone** — `journey.seed_to_field_blocks` translates the seed to the kit's
+  `[startup]`/`[party]`/`[start_inventory]`/`[[equipment]]` blocks; `campaign.build_campaign(seed_blocks=)` →
+  `apply_seed_blocks` merges them into the journey's ENTRY member in-memory before build (no forked-toml
+  rewrite). **scenario + party** bake into the entry fork's own `.eb` (per-journey-clean, no collision; party
+  drops Zidane). **inventory/equipment** map to the mod-GLOBAL New-Game CSVs (read once at New Game, SHARED
+  across a hub's journeys) → lint **warns** they're single-journey-only + shadowed under `--no-warp`; for
+  per-journey items use scripted `give_item` on the entry (the remaining follow-up).
+
+Remaining (a genuine follow-up, not blocking): **per-journey `give_item`** on the entry `.eb` so a
+multi-journey hub can give each journey its own starting bag/gear without the shared-CSV collision.

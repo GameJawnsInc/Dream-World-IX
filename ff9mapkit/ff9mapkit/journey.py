@@ -465,6 +465,13 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
     for pc in j.seed.party:
         if not isinstance(pc, str) or not pc.strip():
             errors.append(f"journey {j.id!r}: [journey.seed] party entries must be character names (got {pc!r})")
+    if j.seed.raw.get("inventory") is not None or j.seed.raw.get("start_inventory") is not None \
+            or j.seed.raw.get("equipment") is not None:
+        warnings.append(f"journey {j.id!r}: [journey.seed] inventory/equipment map to the MOD-GLOBAL New-Game "
+                        f"CSVs (read once at New Game, SHARED across every journey of the hub) -- clean only "
+                        f"for a single-journey hub, and shadowed under the campaigns' --no-warp deploy unless "
+                        f"promoted to the highest folder. For per-journey items prefer scripted give_item on "
+                        f"the entry (a follow-up). scenario/party seed cleanly (the entry fork's own .eb).")
 
 
 def _lint_chain_connectivity(j: Journey, errors: list, warnings: list) -> None:
@@ -582,6 +589,7 @@ class CampaignDeployStep:
     id_hi: int
     flag_base: int
     members: int
+    seed_blocks: "dict | None" = None    # the [journey.seed] capstone (entry campaign only; build_campaign seed=)
 
 
 @dataclass
@@ -620,6 +628,36 @@ class JourneyDeployPlan:
     links: list                  # [LinkRewrite]
     bare_entries: list           # [(journey_id, name, entry_id)]
     folder_conflicts: list       # [(mod_folder, folder_a, folder_b)] -- a wholesale-replace clobber
+
+
+def seed_to_field_blocks(seed: "JourneySeed | None") -> dict:
+    """Translate a ``[journey.seed]`` into the story_flags New-Game capstone blocks the build already consumes
+    (``startup`` / ``party`` / ``start_inventory`` / ``equipment``) -- NO new mechanism (docs/JOURNEYS.md §4.4).
+    Returns only the blocks the seed sets (empty seed -> ``{}``). ``scenario`` + ``party`` are the
+    **per-journey-clean** levers: they bake into the entry fork's OWN ``.eb`` (no cross-journey collision).
+    ``inventory`` / ``equipment`` map to the **mod-global** New-Game CSVs (`InitialItems`/`DefaultEquipment`,
+    read once at New Game, SHARED across a hub's journeys) -- clean only for a single-journey hub; for a
+    multi-journey hub prefer scripted ``give_item`` on the entry (a follow-up). Party drops ``Zidane`` (New
+    Game already seeds slot 0)."""
+    if seed is None or seed.is_empty:
+        return {}
+    blocks: dict = {}
+    startup: dict = {}
+    if seed.scenario is not None:
+        startup["scenario"] = seed.scenario
+    if seed.raw.get("flags"):
+        startup["flags"] = seed.raw["flags"]
+    if startup:
+        blocks["startup"] = startup
+    add = [p for p in seed.party if str(p).strip().lower() != "zidane"]
+    if add:
+        blocks["party"] = {"add": add}
+    inv = seed.raw.get("start_inventory", seed.raw.get("inventory"))
+    if inv is not None:
+        blocks["start_inventory"] = inv if isinstance(inv, dict) else {"items": inv}
+    if seed.raw.get("equipment") is not None:
+        blocks["equipment"] = seed.raw["equipment"]
+    return blocks
 
 
 def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: int) -> dict:
@@ -670,10 +708,11 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
             if folder not in done_folders:
                 ids = rj.campaign_ids[folder]
                 lo, _hi, _k = rj.flag_windows[folder]
+                seed_blocks = seed_to_field_blocks(j.seed) if folder == j.entry.campaign else {}
                 steps.append(CampaignDeployStep(
                     folder=folder, campaign_path=_campaign_path(manifest.root, folder),
                     mod_folder=plan.mod_folder, id_lo=min(ids), id_hi=max(ids), flag_base=lo,
-                    members=len(ids)))
+                    members=len(ids), seed_blocks=seed_blocks or None))
                 done_folders.add(folder)
                 prior = folder_seen.get(plan.mod_folder)
                 if prior is not None and prior != folder:
@@ -704,9 +743,15 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
     plan = build_deploy_plan(manifest)
     pre = (repo_rel.rstrip("/") + "/") if repo_rel else ""
     jref = journeys_ref or manifest.path.name
+    seeded = [s for s in plan.campaign_steps if s.seed_blocks]
     L = ["# === Journey deploy playbook (run from the repo root; apply + PLAYTEST each step in order) ===",
          "# Memoria.ini [Mod] FolderNames must STACK every folder below; the hub folder is HIGHEST.",
+         f"# ONE-SHOT: `py tools/deploy_journey.py {jref} --apply` runs every step below + seeds the entry + "
+         "writes ONE revert.",
+         ("# (the manual steps below do NOT apply [journey.seed] -- use --apply for a seeded journey)"
+          if seeded else ""),
          ""]
+    L = [x for i, x in enumerate(L) if x or i == len(L) - 1]   # drop the empty seeded-note line if absent
     if plan.folder_conflicts:
         L.append("# !! MOD-FOLDER CLOBBER -- these campaigns share a folder (deploy_campaign wholesale-replaces "
                  "it):")
@@ -716,9 +761,17 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
     L.append("# 1. Deploy each campaign into its own stacked folder, at its disjoint flag window (--no-warp: "
              "the hub owns New Game):")
     for s in plan.campaign_steps:
+        seed_note = ""
+        if s.seed_blocks:
+            bits = []
+            if s.seed_blocks.get("startup", {}).get("scenario") is not None:
+                bits.append(f"scenario={s.seed_blocks['startup']['scenario']}")
+            if s.seed_blocks.get("party", {}).get("add"):
+                bits.append(f"party+={s.seed_blocks['party']['add']}")
+            seed_note = f"   # SEED (via --apply): {', '.join(bits)}" if bits else "   # SEED (via --apply)"
         L.append(f"py tools/deploy_campaign.py {pre}{s.campaign_path.as_posix() if not pre else s.folder + '/campaign.toml'} "
                  f"--apply --no-warp --mod-folder {s.mod_folder} --flag-base {s.flag_base}"
-                 f"   # ids {s.id_lo}..{s.id_hi}")
+                 f"   # ids {s.id_lo}..{s.id_hi}{seed_note}")
     if not plan.campaign_steps:
         L.append("#   (no multi-campaign journeys -- all journeys are bare single fields, already deployed)")
     L.append("")
