@@ -5,6 +5,35 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[item_text]]`: an item's menu NAME + description text, no DLL (0.9.89)
+- Rename an item or rewrite its description — the text companion to the stat tuners (`[[item_effect]]` changes how
+  much a Potion *heals*; `[[item_text]]` changes the menu text that *says* so): `[[item_text]] name = "Potion"` +
+  `display_name = "Mega Potion"` and/or `description = "Restores 15 HP."` (at least one). Mod-global + repeatable.
+- **Channel = a drop-in `TextPatch.txt`** at the mod-folder root — the *same* per-folder patch-file mechanism the
+  kit already emits for `DictionaryPatch.txt` / `BattlePatch.txt` (read once per folder at
+  `DataPatchers.Initialize` → `TextPatcher.PatchTexts`). Each item becomes a `>DATABASE` find/replace gated by NCalc
+  on `Database == 'RegularItem' && EntryId == <id> && IsNameEntry/IsHelpEntry`. The kit writes **only your strings +
+  the resolved id** — it reads nothing from the bundles (fully provenance-clean, unlike the CSV deltas).
+- **Grounded in the Memoria source** (`TextPatcher.cs` + `FF9TextTool.cs:776-789`, both fully read): `SetItemName`
+  flags `IsNameEntry`; `SetItemHelpDesc` **and** `SetItemBattleDesc` BOTH flag `IsHelpEntry` → the menu-help and
+  in-battle descriptions are **inseparable** through this channel, so `description` sets both. Full-replace uses the
+  Multiline-immune `Find: \A[\s\S]*\z`; the emitter escapes `$`→`$$` (Regex.Replace group-ref) and carries real
+  newlines as `\n` (the engine reads the patch line-by-line, then converts `\n`→newline).
+- New `content/itemtext.py` (`render_block_lines` / `validate_blocks` / `merge_text_patch`) + `ModLayout.text_patch`
+  + `build._emit_item_text` (mod-global aggregate + dedup-warn) writing `TextPatch.txt` in `build_mod` +
+  `validate()` lint + `deploy_field.py` non-clobbering splice-under-`//`-markers (mirrors the `BattlePatch.txt`
+  merge) with revert + RELAUNCH note. `deploy_campaign` ships it for free (whole-dist copytree). 31 tests
+  (1530 total). FORMAT.md `[[item_text]]` section.
+- **Multi-lens adversarial review** (3 lenses × verify) folded 4 real findings: reject a *literal* backslash-`n`
+  (the engine rewrites `\n`→newline, so it can't be shown literally — fail offline, not in-game); reject `NoItem`
+  (255), mirroring the sibling `[[shop]]`/`[[synthesis]]` guards; key the cross-field dedup-warn on the **resolved
+  id** so name/id aliases of one item still warn; and reword the same-field-twice warning ("twice on X" vs the
+  misleading "in two fields (X and X)"). One finding refuted (first-error-only lint — intentionally mirrors
+  `battlepatch.validate_blocks`).
+- **Channel verified in source; awaits the in-game proof** (a renamed Potion shows the new name) — the last open
+  question is the patcher init-order, which `DataPatchers.Initialize` (in `AssetManager.DelayedInitialization`,
+  before text import) makes near-certain.
+
 ### Added — `[[item_effect]]`: tune a consumable's use-effect (ItemEffects.csv), no DLL (0.9.88, ★ IN-GAME PROVEN)
 - Tune what a **usable item** does: `[[item_effect]] name = "Potion"` + any of `power` (heal/damage, 0-9999) /
   `rate` (status chance, 0-100) / `element` / `status` (a `BattleStatus` mask by name, e.g. `["Poison"]`) /

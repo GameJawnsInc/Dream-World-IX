@@ -863,6 +863,11 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"[[item_effect]] {nm!r} {k} must be an integer, got {v!r}")
             elif v < 0:
                 problems.append(f"[[item_effect]] {nm!r} {k} cannot be negative")
+    # item NAME/DESCRIPTION text ([[item_text]] -> TextPatch.txt >DATABASE find/replace). The item must resolve
+    # (RegularItem space); at least one of display_name/description; strings only. All checks are install-free.
+    if project.raw.get("item_text"):
+        from .content import itemtext as _itemtext
+        problems += _itemtext.validate_blocks(project.raw.get("item_text", []))
     for sm in project.raw.get("save_moogle", []):       # a carried (imported) save Moogle (docs/SAVEPOINT.md)
         if sm.get("carried"):                           # the cluster lives in the [[object]]/[[player_func]] blocks
             if not project.raw.get("object"):
@@ -3405,6 +3410,43 @@ def _emit_item_data(projects, layout) -> list:
     return warnings
 
 
+def _emit_item_text(projects) -> tuple:
+    """Aggregate every built field's ``[[item_text]]`` blocks -> (text_patch_lines, warnings). Item text is a
+    mod-GLOBAL ``TextPatch.txt`` (``>DATABASE`` find/replace), so it aggregates across ALL built fields -- the
+    same model as ``[[battle_patch]]``. Pure/offline (the strings are the author's, the id resolves by name);
+    raises BuildError on a bad block. Returns ([], []) when no field carries one. Dedup-warns the same item's
+    name/description set twice (later wins, like the item-data CSV deltas)."""
+    from .content import itemtext as _itemtext
+    blocks = [b for p in projects for b in p.raw.get("item_text", [])]
+    if not blocks:
+        return [], []
+    warnings: list = []
+    seen: dict = {}
+    for p in projects:
+        for b in p.raw.get("item_text", []):
+            nm = b.get("name")
+            if nm is None:
+                continue                                   # render_block_lines raises the precise error below
+            try:                                           # key on the RESOLVED id so name/id aliases of the same
+                ident = _items.resolve(nm)                 # item collide (Hi-Potion vs "hi potion" vs 237); an
+            except (ValueError, TypeError):                # unresolvable name falls back to its raw form --
+                ident = str(nm).strip().lower()            # render_block_lines raises the precise error anyway
+            for key in ("display_name", "description"):
+                if b.get(key) is None:
+                    continue
+                sk = (ident, key)
+                prev = seen.get(sk)
+                if prev is not None:
+                    where = (f"twice on {prev}" if prev == _field_name(p)
+                             else f"in two fields ({prev} and {_field_name(p)})")
+                    warnings.append(f"[[item_text]] {nm!r} {key} is set {where} -- the later one wins")
+                seen[sk] = _field_name(p)
+    try:
+        return _itemtext.render_block_lines(blocks), warnings
+    except _itemtext.ItemTextError as ex:
+        raise BuildError(str(ex))
+
+
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
               langs=LANGS, entry_project=None) -> dict:
     """Build one or more fields into a mod at ``out_root``; write the registration files. ``entry_project``
@@ -3426,6 +3468,12 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     if bp_lines:
         layout.battle_patch.write_text("\n".join(bp_lines) + "\n", encoding="utf-8", newline="\n")
 
+    # TextPatch.txt = item NAME/DESCRIPTION overrides ([[item_text]] -> >DATABASE find/replace). Mod-global,
+    # same drop-in mechanism as the dictionary/battle patches; read once at startup -> a change needs a RELAUNCH.
+    text_lines, text_warnings = _emit_item_text(projects)
+    if text_lines:
+        layout.text_patch.write_text("\n".join(text_lines) + "\n", encoding="utf-8", newline="\n")
+
     # mod-global new-game starting state (CSV deltas, written once into the mod root -- not field bytes)
     start_warnings = _emit_start_state(projects, layout, entry_project)
     start_warnings += _emit_shops(projects, layout)
@@ -3434,6 +3482,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings += _emit_battle_data(projects, layout)
     start_warnings += _emit_character_data(projects, layout)
     start_warnings += bp_warnings
+    start_warnings += text_warnings
 
     layout.mod_description.write_text(
         "<Mod>\n"

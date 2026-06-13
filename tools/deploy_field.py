@@ -196,6 +196,29 @@ if _built_block or f"ff9mapkit field {FID}" in _live_bp_text:
                       else '\n_pb = live.battle_patch\nif _pb.exists(): _pb.unlink()')
     if _built_block:
         print(f"  + BattlePatch.txt (battle tuning + BGM, merged under field-{FID} markers; RELAUNCH to apply)")
+
+# TextPatch.txt: the field's item NAME/DESCRIPTION overrides ([[item_text]] -> >DATABASE find/replace).
+# Same non-clobbering splice-under-`//`-markers as BattlePatch (another field's item text + a stacked
+# worktree's lines survive) and reversible. The engine skips `//` lines; TextPatch is read once at
+# DataPatchers.Initialize (AssetManager bring-up) -> a text change needs a RELAUNCH (not just F6 Reload).
+from ff9mapkit.content import itemtext as _itxt
+_live_tp_text = live.text_patch.read_text(encoding="utf-8") if live.text_patch.exists() else ""
+_built_tp = ([ln for ln in tl.text_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
+             if tl.text_patch.exists() else [])
+tp_revert_code = ""
+if _built_tp or f"ff9mapkit field {FID}" in _live_tp_text:
+    _had_tp = live.text_patch.exists()
+    if _had_tp:
+        shutil.copyfile(live.text_patch, BK / f"TextPatch.txt.preDEPLOY.{STAMP}")
+    _merged_tp = _itxt.merge_text_patch(_live_tp_text, _built_tp, FID)
+    if _merged_tp:
+        live.text_patch.write_text(_merged_tp, encoding="utf-8", newline="\n")
+    elif live.text_patch.exists():
+        live.text_patch.unlink()
+    tp_revert_code = ('\nshutil.copyfile(BK/f"TextPatch.txt.preDEPLOY.{STAMP}", live.text_patch)' if _had_tp
+                      else '\n_pt = live.text_patch\nif _pt.exists(): _pt.unlink()')
+    if _built_tp:
+        print(f"  + TextPatch.txt (item name/desc, merged under field-{FID} markers; RELAUNCH to apply)")
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")
 
 revert = f'''#!/usr/bin/env python3
@@ -220,8 +243,8 @@ for L in LANGS:
     p=live.eb_path(L,"EVT_{name}.eb.bytes")
     if p.exists(): p.unlink()
     mb=BK/f"{{L}}-{text_block}.mes.preDEPLOY.{{STAMP}}"
-    if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}
-print("reverted: DictionaryPatch + dialogue + start-state CSVs + BattlePatch restored; {name} removed.")
+    if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}{tp_revert_code}
+print("reverted: DictionaryPatch + dialogue + start-state CSVs + BattlePatch + TextPatch restored; {name} removed.")
 '''
 (OUT / f"revert_deploy_{FID}.py").write_text(revert, encoding="utf-8", newline="\n")    # per-id revert
 (OUT / "revert_deploy.py").write_text(revert, encoding="utf-8", newline="\n")            # generic = latest deploy

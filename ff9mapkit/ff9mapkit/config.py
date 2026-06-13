@@ -116,6 +116,13 @@ class ModLayout:
         return self.root / "BattlePatch.txt"
 
     @property
+    def text_patch(self) -> Path:
+        """Item/ability/card NAME + DESCRIPTION overrides (``TextPatch.txt``, a ``>DATABASE`` find/replace
+        patch -- ``Memoria.TextPatcher``). A per-mod-folder drop-in like the dictionary/battle patches,
+        read once at ``DataPatchers.Initialize`` -> a text change needs a RELAUNCH (not F6 Reload)."""
+        return self.root / "TextPatch.txt"
+
+    @property
     def mod_description(self) -> Path:
         return self.root / "ModDescription.xml"
 

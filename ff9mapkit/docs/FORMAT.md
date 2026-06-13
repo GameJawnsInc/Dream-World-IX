@@ -822,8 +822,39 @@ for_dead = false            # usable on a KO'd target (Phoenix-Down style)
   error** (`ff9mapkit lint`).
 - **★ RELAUNCH to apply:** item CSVs load once at game **startup** — F6 → Reload field will NOT pick up a stat
   change. Deploy, then relaunch.
-- **Deferred (a later follow-up):** item name/description text (a per-language text-resource channel, not a CSV),
-  and minting **net-new** item ids (>254, needs a DLL).
+- **Item NAME / DESCRIPTION text** is its own block — see [`[[item_text]]`](#item_text) below (a text channel,
+  not a CSV: e.g. a retuned Potion's `[[item_effect]] power` changes how much it heals, while `[[item_text]]`
+  changes the menu text that *says* so).
+- **Deferred (a later follow-up):** minting **net-new** item ids (>254, needs a DLL).
+
+---
+
+## `[[item_text]]` — an item's menu NAME + description text (optional, repeatable)
+
+Rename an item or rewrite its description. This is the text companion to the `[[item_effect]]`/`[[weapon]]`/…
+stat tuners: those change what an item *does*, this changes what its menu name and help/battle text *say*.
+
+```toml
+[[item_text]]
+name = "Potion"                       # the item to retext (a name or id; the RegularItem space, 0-254)
+display_name = "Mega Potion"          # optional — the menu name
+description  = "Restores 15 HP."      # optional — the help + battle description (see the caveat below)
+# at least one of display_name / description is required.
+```
+
+- **Channel:** a drop-in **`TextPatch.txt`** at the mod-folder root (the same per-folder patch-file mechanism as
+  `DictionaryPatch.txt` / `BattlePatch.txt`), a `>DATABASE` find/replace gated by NCalc on the item id. The kit
+  writes **only your strings + the resolved id** — it reads nothing from the game bundles (fully provenance-clean).
+- **★ One description, not two:** the engine flags the menu-**help** desc and the in-battle desc **identically**
+  (`IsHelpEntry`), so `description` sets **both** — they cannot be targeted separately through this channel.
+- **Multi-line** descriptions are fine — a real newline in your string is carried as `\n` and rendered on multiple
+  lines. (A *literal* backslash-`n` in your text is a **lint error**: the engine reserves `\n` for a line break and
+  can't show it literally — use a real line break.)
+- **Scope:** normal items only (the `RegularItem` space, ids 0-254; `NoItem`/255 is rejected). **Key items** (a
+  separate `KeyItem` text database) and net-new item ids are not covered yet.
+- **Mod-global + repeatable:** any field may carry `[[item_text]]` blocks; they aggregate into one `TextPatch.txt`.
+  An unknown item name, or a block that sets neither field, is a **lint error** (`ff9mapkit lint`).
+- **★ RELAUNCH to apply:** `TextPatch.txt` is read once at engine startup (F6 → Reload field will NOT pick it up).
 
 ---
 
