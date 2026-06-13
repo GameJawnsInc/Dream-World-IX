@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import campaign as C
+from .. import save as _save
 from ..editor import breadcrumb as bc
 from ..editor import feedback as fb
 from ..editor import forms
@@ -32,7 +33,7 @@ from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import pick_palette
 from .forms_qt import build_form, pick_catalog, read
 from .mapview import CampaignMap
-from .savedoc import StoryStateDoc
+from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
@@ -211,8 +212,10 @@ class Workspace(QMainWindow):
         self._doc_placeholder("Select a field or an object on the left to edit it.")
         self.map = CampaignMap(self.pal, on_open=self._select_member)   # the campaign graph as a document
         self.tabs.addTab(self.map, "Map")
-        self.story_state = StoryStateDoc(self.pal)                       # the save STATE layer (5b)
+        self.story_state = StoryStateDoc(self.pal)                       # the save STATE layer (5b-i)
         self.tabs.addTab(self.story_state, "Story State")
+        self.item_equip = ItemEquipDoc(self.pal)                         # gil / inventory / equipment (5b-ii)
+        self.tabs.addTab(self.item_equip, "Item & Equip")
         split.addWidget(self.tabs)
 
         insp = QWidget()
@@ -296,9 +299,16 @@ class Workspace(QMainWindow):
             self.open_field(Path(f))
 
     def _open_save(self):
-        """Open the save STATE editor (gEventGlobal story state) -- a cross-cutting document, not a field."""
+        """Open a save into BOTH save documents (story state + item/equip) -- a cross-cutting document,
+        not a field. The two read different parts of the same file via different backends."""
+        f, _ = QFileDialog.getOpenFileName(self, "Open a save (SavedData_ww.dat / extra-save / JSON)",
+                                            _save.default_save_dir() or "",
+                                            "FF9 save (*.dat);;Save JSON / Base64 (*.json *.txt);;All files (*)")
+        if not f:
+            return
+        self.story_state.load(f)
+        self.item_equip.load(f)
         self.tabs.setCurrentWidget(self.story_state)
-        self.story_state.browse()
 
     def open_field(self, path) -> bool:
         """Open a STANDALONE field.toml (no campaign) -- the 'Loose field' mode, so any authored field
@@ -1151,11 +1161,40 @@ def _smoke(win):
     win.story_state.slots.setCurrentRow(0)
     win.story_state._on_slot()
     assert "Ice Cavern" in win.story_state.inspect.toPlainText(), "Inspect renders the beat name"
+    # 5b-ii: the Item & Equip save document inspects a Memoria extra-save (gil / items / equipment)
+    from .. import sjbinary as _sj
+    def _i(x):
+        return _sj.SJData(_sj.INT, x)
+    rootc = _sj.SJClass()
+    rootc.add("95000_Setting", _sj.SJClass())
+    common = _sj.SJClass()
+    pc = _sj.SJClass()
+    pc.add("name", _sj.SJData(_sj.VALUE, "Zidane"))
+    pinfo = _sj.SJClass()
+    pinfo.add("slot_no", _i(0))
+    pinfo.add("menu_type", _i(0))
+    pc.add("info", pinfo)
+    pc.add("equip", _sj.SJArray([_i(x) for x in (1, 112, 88, 149, 255)]))
+    common.add("players", _sj.SJArray([pc]))
+    common.add("gil", _i(4321))
+    item0 = _sj.SJClass()
+    item0.add("id", _i(236))
+    item0.add("count", _i(7))
+    common.add("items", _sj.SJArray([item0]))
+    rootc.add("40000_Common", common)
+    esp = d / "x_Memoria_0_2.dat"
+    esp.write_bytes(_sj.dumps(rootc))
+    assert win.item_equip.load(str(esp))
+    win.item_equip.slots.setCurrentRow(0)
+    win.item_equip._on_slot()
+    assert "4,321" in win.item_equip.inspect.toPlainText(), win.item_equip.inspect.toPlainText()[:120]
+    assert win.item_equip.targets[0]["report"].gil == 4321
 
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
-          f"catalog picker + Open Field (standalone authored) + Story State save doc (SC "
-          f"{win.story_state.reports[0][1].scenario_counter}), Problems dock ({nprob} campaign rows); QProcess wired")
+          f"catalog picker + Open Field (standalone authored) + Save docs (Story State SC "
+          f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
+          f"{win.item_equip.targets[0]['report'].gil}), Problems dock ({nprob} campaign rows); QProcess wired")
 
 
 def main(argv=None):
