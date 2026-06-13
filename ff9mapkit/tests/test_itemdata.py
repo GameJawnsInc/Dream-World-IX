@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from ff9mapkit import abilities as _abilities
 from ff9mapkit import items as _items
 from ff9mapkit import itemstats as _itemstats
 from ff9mapkit.battle import battlecsv as _battlecsv
@@ -524,3 +525,109 @@ def test_emit_item_data_equippable_by_install(tmp_path):
     _h, cols, _idc, rows = ID.read_base_csv(layout.items_csv.read_text(encoding="cp1252"))
     row = rows[MM].split(";")
     assert row[cols["Vivi"]] == "1" and row[cols["Garnet"]] == "1" and row[cols["Zidane"]] == "0"
+
+
+# ==== [[item]] teaches -- the abilities a piece of gear teaches (Items.csv AbilityIds) =====================
+# Items.csv WITH an AbilityIds column (a comma-list of AA:X/SA:X tokens inside ONE semicolon-cell).
+ITEMS_CSV_ABIL = (
+    "#! IncludeId\n"
+    "# Id;WeaponId;ArmorId;EffectId;Price;SellingPrice;AbilityIds\n"
+    "# Int32;Int32;Int32;Int32;UInt32;Int32;Ability[]\n"
+    f"{MM};{MM};-1;-1;500;250;AA:101;# {MM} - Mage Masher\n"
+    f"{DAGGER};{DAGGER};-1;-1;320;160;0;# {DAGGER} - Dagger\n"
+)
+
+
+def test_ability_tokens_tokens_and_clear():
+    # tokens/ids resolve mod-agnostically (no install); an empty list -> the "0" no-abilities sentinel
+    assert ID.ability_tokens(["AA:104", "SA:19"]) == "AA:104, SA:19"
+    assert ID.ability_tokens([211]) == "SA:19"            # the int abil_id for SA:19 (192 + 19) round-trips
+    assert ID.ability_tokens([]) == "0"
+
+
+def test_ability_tokens_dedup_and_errors():
+    assert ID.ability_tokens(["AA:104", "AA:104"]) == "AA:104"   # dups collapse, first-seen order
+    with pytest.raises(ValueError):
+        ID.ability_tokens(["AA:bogus"])
+    with pytest.raises(ValueError):
+        ID.ability_tokens("AA:104")                       # a bare string is not a list
+
+
+def test_build_items_delta_teaches_rewrites_abilityids():
+    # Dagger teaches nothing (0) -> teaching it AA:104 + SA:19 rewrites the AbilityIds cell (one ;-cell, commas ok)
+    d = ID.build_items_delta(ITEMS_CSV_ABIL, [{"name": "Dagger", "teaches": ["AA:104", "SA:19"]}])
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    row = rows[DAGGER].split(";")
+    assert row[cols["AbilityIds"]] == "AA:104, SA:19"
+
+
+def test_build_items_delta_teaches_clear():
+    d = ID.build_items_delta(ITEMS_CSV_ABIL, [{"name": "Mage Masher", "teaches": []}])
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    assert rows[MM].split(";")[cols["AbilityIds"]] == "0"   # AA:101 -> "0" (replace, not add)
+
+
+def test_build_items_delta_teaches_composes_with_price():
+    d = ID.build_items_delta(ITEMS_CSV_ABIL, [{"name": "Dagger", "price": 1, "teaches": ["AA:104"]}])
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    row = rows[DAGGER].split(";")
+    assert row[cols["Price"]] == "1" and row[cols["AbilityIds"]] == "AA:104"   # both on one row
+
+
+def test_validate_item_teaches_bad_token(tmp_path):
+    probs = validate(_proj(BASE + '\n[[item]]\nname = "Dagger"\nteaches = ["AA:nope"]\n', tmp_path))
+    assert any("teaches:" in p for p in probs)
+
+
+def test_validate_item_teaches_not_a_list(tmp_path):
+    probs = validate(_proj(BASE + '\n[[item]]\nname = "Dagger"\nteaches = "AA:104"\n', tmp_path))
+    assert any("teaches must be a list" in p for p in probs)
+
+
+def test_validate_item_only_teaches_is_editable(tmp_path):
+    # teaches counts as an editable field -> no "sets no editable field" complaint
+    probs = validate(_proj(BASE + '\n[[item]]\nname = "Dagger"\nteaches = ["AA:104"]\n', tmp_path))
+    assert not any("sets no editable field" in p for p in probs)
+
+
+@pytest.mark.skipif(not _abilities.available(), reason="resolving an ability NAME needs the install's pool CSVs")
+def test_validate_item_teaches_unknown_name(tmp_path):
+    probs = validate(_proj(BASE + '\n[[item]]\nname = "Dagger"\nteaches = ["Definitely Not An Ability"]\n', tmp_path))
+    assert any("teaches:" in p and "unknown ability" in p for p in probs)
+
+
+@pytest.mark.skipif(not _abilities.available(), reason="resolving an ability NAME needs the install's pool CSVs")
+def test_emit_item_data_teaches_by_name_install(tmp_path):
+    # a NAME ("Soul Blade") resolves to its token via the live pools and lands in the real Items.csv AbilityIds cell
+    class P:
+        raw = {"item": [{"name": "Dagger", "teaches": ["Soul Blade"]}]}
+        path = tmp_path / "f.toml"
+    layout = ModLayout(tmp_path / "mod")
+    warns = _emit_item_data([P()], layout)
+    assert not [w for w in warns if "skipped" in w]
+    _h, cols, _idc, rows = ID.read_base_csv(layout.items_csv.read_text(encoding="cp1252"))
+    assert rows[DAGGER].split(";")[cols["AbilityIds"]] == "AA:104"   # Soul Blade = action 104
+
+
+def test_is_token_classifies_malformed_tokens():
+    # review (medium): a token-SHAPED string (even malformed) is a token -> lint checks it WITHOUT the install
+    assert _abilities.is_token("AA:nope") and _abilities.is_token("SA:") and _abilities.is_token("AA:104")
+    assert _abilities.is_token(211) and _abilities.is_token("99")
+    assert not _abilities.is_token("Soul Blade")          # a NAME (no colon) needs the pools
+    with pytest.raises(ValueError):
+        _abilities.resolve(None, "AA:nope")               # token-shaped but malformed -> clear reject, no install
+
+
+def test_validate_teaches_bad_token_offline(tmp_path, monkeypatch):
+    # the gap the review caught: a malformed AA:/SA: token is flagged even with NO install (is_token routes it to
+    # resolve -> a build-blocking lint error, instead of being silently skipped offline)
+    monkeypatch.setattr(_abilities, "available", lambda *a, **k: False)
+    probs = validate(_proj(BASE + '\n[[item]]\nname = "Dagger"\nteaches = ["AA:nope"]\n', tmp_path))
+    assert any("teaches:" in p for p in probs)
+
+
+@pytest.mark.skipif(not _itemstats.available(), reason="the no-effect equippability check needs the install's CSVs")
+def test_validate_teaches_noop_on_consumable(tmp_path):
+    # mirror equippable_by: teaches on a non-equippable item (Potion) is inert -> a best-effort lint warning
+    probs = validate(_proj(BASE + '\n[[item]]\nname = "Potion"\nteaches = ["AA:104"]\n', tmp_path))
+    assert any("teaches has no effect" in p for p in probs)

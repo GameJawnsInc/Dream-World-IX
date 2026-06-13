@@ -85,6 +85,20 @@ def encode_token(token) -> int:
     raise ValueError(f"not an ability token: {token!r} (expected AA:X, SA:X, or a numeric abil_id)")
 
 
+def is_token(ability) -> bool:
+    """True if ``ability`` is token-SHAPED -- an ``AA:``/``SA:``-prefixed string or a numeric id (NOT a NAME) --
+    so it can be validated WITHOUT the install's name pools: :func:`resolve` / :func:`encode_token` either decode
+    it or REJECT it with a clear error, offline. A real ability name never contains a colon, so an ``AA:``/``SA:``
+    prefix is unambiguously a token -- even a malformed one (``AA:nope``), which ``resolve`` then rejects (so a
+    typo'd token is caught by lint with no install, not silently skipped)."""
+    if isinstance(ability, bool):
+        return False
+    if isinstance(ability, int):
+        return True
+    s = str(ability).strip()
+    return bool(re.match(r"(?:AA|SA):", s, re.IGNORECASE)) or bool(re.fullmatch(r"\d+", s))
+
+
 # --- best-effort name + AP-requirement, read live from the install's pool CSVs ---------------------
 
 @dataclass(frozen=True)
@@ -186,8 +200,8 @@ def resolve(menu_type, ability, game=None) -> int:
     if isinstance(ability, int):
         return encode_token(ability)
     s = str(ability).strip()
-    if re.fullmatch(r"(?:AA|SA):-?\d+|\d+", s, re.IGNORECASE):
-        return encode_token(s)
+    if re.match(r"(?:AA|SA):", s, re.IGNORECASE) or re.fullmatch(r"\d+", s):
+        return encode_token(s)                             # token-SHAPED -> decode, or raise a clear token error
     key = _norm(s)
     if menu_type is not None:
         for a in pool_for_preset(menu_type, game):

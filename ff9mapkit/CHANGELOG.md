@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[item]] teaches`: the abilities a piece of gear teaches (Items.csv AbilityIds), no DLL (0.9.87)
+- FF9's "learn abilities from equipment" core: `[[item]] teaches = ["Soul Blade", "Auto-Reflect"]` (ability **names**,
+  or explicit **`AA:`** active / **`SA:`** support tokens) **REWRITES** the item's `Items.csv` `AbilityIds` cell — the
+  character can use those abilities while the gear is equipped and masters them by earning AP. Rides the existing
+  whole-row `[[item]]` delta (composes with `price`/`sell`/`equippable_by`/BonusId-repoint on one row); `teaches = []`
+  clears it.
+- **Grounded in the Memoria source:** the `AbilityIds` cell is a **comma-list of `AA:X`/`SA:X` tokens inside one
+  semicolon-cell** (no delimiter clash), parsed by `CsvParser.AnyAbilityArray`/`AnyAbility` (`AA:` pooled `/192`,
+  `SA:` `/64 + 192`). Names resolve via the kit's existing provenance-clean `abilities` module (live-read of the
+  per-character pool CSVs — `AA` = Actions, `SA` = support), canonicalised to tokens via `decode_token(resolve(...))`.
+  The AP-to-master *cost* stays on the character pools (the battle/character lane), not the item.
+- `content/itemdata.ability_tokens` + the `[[item]]` delta wiring + `abilities.is_token` + `build.validate` (tokens
+  checked offline; a NAME only when the pools are reachable — no false positive offline). Base read LIVE in cp1252,
+  **no game data committed**. Multi-lens adversarially reviewed (0 blockers): folded a real offline-lint gap (a
+  token-SHAPED-but-malformed entry like `AA:nope` was misclassified as a name, so a no-install lint silently
+  skipped it — `is_token`/`resolve` now treat any `AA:`/`SA:` prefix as a token and reject a bad index offline) +
+  a non-equipment `teaches` no-op guard + the per-character-pool + ambiguous-name caveats in FORMAT.md. 13 tests
+  (1536 total). **★ Engine note:** a taught ability only takes effect for a character whose learnable pool already
+  contains it (`ff9feqp`/`BattleResultUI.AddAp` match `AbilityIds` against the wearer's pool). **Awaiting in-game proof.**
+
 ### Added — `[[synthesis]]`: custom synthesis shops (recipes + opener), no DLL (0.9.86, ★ IN-GAME PROVEN)
 - A **synthesis shop** combines ingredient items + gil into a new item. `[[synthesis]] shop = N` + `recipes = [{
   result, ingredients, price }, ...]` emits a `Data/Items/Synthesis.csv` (`FF9MIX_DATA`) delta; the opener is the

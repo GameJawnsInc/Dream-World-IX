@@ -744,6 +744,7 @@ name = "Excalibur"          # any item (weapon/armor/consumable)
 price = 5000                # buy price  (0-9,999,999)
 sell = 2500                 # sell price (optional; otherwise unchanged)
 equippable_by = ["Steiner", "Beatrix"]   # REWRITE who can equip it (exactly these; everyone else cleared)
+teaches = ["Soul Blade", "Auto-Reflect"] # REWRITE the abilities it teaches (names, or AA:X / SA:X tokens)
 
 [[equip_bonus]]
 name = "Bone Wrist"         # any EQUIPPABLE item (weapon/wrist/head/body/accessory/gem)
@@ -787,13 +788,26 @@ guard_element = []          # nullify (immune to) element(s)               ─�
 - **Item `equippable_by`:** a list of party-character names (`Zidane`/`Vivi`/`Garnet`/`Steiner`/`Freya`/`Quina`/`Eiko`/
   `Amarant`/… incl. `Beatrix`) that **REWRITES** the item's 12 equip-by-character bits — *exactly* the listed
   characters can equip it, everyone else is cleared (it's a replace, not an add). An unknown name is a lint error.
+- **Item `teaches`:** a list of abilities the gear teaches. Each entry is an ability **name** (`"Soul Blade"`,
+  `"Auto-Reflect"`) or an explicit **`AA:`** (active) / **`SA:`** (support) token — e.g. `["AA:104", "SA:0"]`. It
+  **REWRITES** the item's `AbilityIds` cell (a replace, not an add); `teaches = []` clears it. Names resolve against
+  your install's ability pools (run `ff9mapkit items --abilities` to list them); an unknown name or malformed token
+  is a lint error. (The AP *cost* to master each ability lives on the character pools — the battle/character lane.)
+  - **★ Per-character gate (engine):** a taught ability only takes effect for a character whose **own learnable
+    pool already contains it** — the engine matches each `AbilityIds` entry against the wearer's pool. An active
+    ability surfaces in that character's command list; a support ability activates only if its passive is in their
+    pool. Teaching an ability *outside* the wearer's pool writes the cell faithfully but is **silently inert**
+    in-game (so pick an ability the equipping character can already learn). The kit can't lint this — an item has
+    no single wearer.
+  - A few display names are ambiguous (currently only **"Auto-Life"**, which is both `AA:100` and `SA:4` and
+    resolves to the support form); use the explicit `AA:`/`SA:` token to pick a specific one.
 - **Values are clamped** to their range (stats 0-255, price 0-9,999,999, rate 0-100). An unknown item name, the wrong
-  type (`[[weapon]]` on a non-weapon, `[[equip_bonus]]` on a non-equippable), a bad element/category/character name, or
-  an out-of-range `status_index` is a **lint error** (`ff9mapkit lint`).
+  type (`[[weapon]]` on a non-weapon, `[[equip_bonus]]` on a non-equippable), a bad element/category/character/ability
+  name, or an out-of-range `status_index` is a **lint error** (`ff9mapkit lint`).
 - **★ RELAUNCH to apply:** item CSVs load once at game **startup** — F6 → Reload field will NOT pick up a stat
   change. Deploy, then relaunch.
-- **Deferred (a later follow-up):** consumable use-effects (`ItemEffects.csv` power/status), synthesis-shop recipes,
-  the gear→learnable-ability list, item name/description text, and minting **net-new** item ids (>254, needs a DLL).
+- **Deferred (a later follow-up):** consumable use-effects (`ItemEffects.csv` power/status), item name/description
+  text, and minting **net-new** item ids (>254, needs a DLL).
 
 ---
 

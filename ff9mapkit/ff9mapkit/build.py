@@ -47,6 +47,7 @@ from .content import shop as _shop
 from .content import synthesis as _synthesis
 from .content import startup as _startup
 from .content import text as _text
+from . import abilities as _abilities
 from . import animations as _animations
 from . import archetypes as _archetypes
 from . import prop_archetypes as _prop_archetypes
@@ -738,8 +739,9 @@ def validate(project: FieldProject) -> list[str]:
                 continue
             edited = [k for k in col_map if k in b]
             has_equip = kind == "item" and "equippable_by" in b   # [[item]] equippable_by rewrites the 12 char bits
-            if not edited and not has_equip:
-                fields = ", ".join(col_map) + ("/equippable_by" if kind == "item" else "")
+            has_teaches = kind == "item" and "teaches" in b       # [[item]] teaches rewrites the AbilityIds cell
+            if not edited and not has_equip and not has_teaches:
+                fields = ", ".join(col_map) + ("/equippable_by/teaches" if kind == "item" else "")
                 problems.append(f"[[{kind}]] {nm!r} sets no editable field (one of {fields})")
             st = _itemstats.for_id(iid)                  # best-effort type check (needs the install)
             if st is not None and kind == "weapon" and not st.is_weapon:
@@ -776,6 +778,21 @@ def validate(project: FieldProject) -> list[str]:
                     _itemdata.encode_characters(b["equippable_by"])
                 except ValueError as e:
                     problems.append(f"[[item]] {nm!r} equippable_by: {e}")
+            if has_teaches:                                   # [[item]] teaches -> the AbilityIds cell (AA:/SA: tokens)
+                if st is not None and not st.is_equippable:   # the engine reads AbilityIds only for EQUIPPED gear
+                    problems.append(f"[[item]] {nm!r} teaches has no effect -- {nm!r} is not equipment "
+                                    f"(the engine reads an item's taught abilities only while it is equipped)")
+                t = b["teaches"]
+                if not isinstance(t, (list, tuple)):
+                    problems.append(f"[[item]] {nm!r} teaches must be a list of ability names or AA:X / SA:X tokens")
+                else:
+                    for e in t:
+                        # a token/id resolves with no install; a NAME needs the live pools -> only check it then
+                        if _abilities.is_token(e) or _abilities.available():
+                            try:
+                                _abilities.resolve(None, e)
+                            except ValueError as ex:
+                                problems.append(f"[[item]] {nm!r} teaches: {ex}")
     # equip stat bonuses ([[equip_bonus]] -> Stats.csv/ItemStats): the level-up-growth + affinity lever. The item
     # must resolve + be equippable (best-effort, needs the install); stats are non-negative ints, elements valid.
     for i, b in enumerate(project.raw.get("equip_bonus", [])):

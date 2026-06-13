@@ -47,6 +47,7 @@ therefore need a reachable install (they degrade with a clear error otherwise).
 """
 from __future__ import annotations
 
+from .. import abilities as _abilities
 from .. import items as _items
 from .. import itemstats as _itemstats
 
@@ -259,6 +260,24 @@ def _equip_mask_edits(names, cols) -> dict:
     return edits
 
 
+def ability_tokens(entries) -> str:
+    """A list of ability NAMES / ``AA:X`` / ``SA:X`` tokens / numeric ids -> the ``Items.csv`` ``AbilityIds`` cell
+    text (``"AA:104, SA:19"``, or ``"0"`` for none -- the engine's no-abilities sentinel). Each entry is resolved
+    to its canonical token via :func:`abilities.resolve` + :func:`abilities.decode_token` (a NAME matched against
+    the live pools, a token/id decoded mod-agnostically); duplicates collapse, first-seen order kept. The cell is a
+    COMMA list inside one semicolon-cell, so the commas don't clash with the CSV's ``;`` delimiter -- the engine
+    reads it via ``CsvParser.AnyAbilityArray``. Raises ValueError on an unknown name / malformed token."""
+    if not isinstance(entries, (list, tuple)):
+        raise ValueError("teaches must be a list of ability names or AA:X / SA:X tokens")
+    seen, toks = set(), []
+    for e in entries:
+        tok = _abilities.decode_token(_abilities.resolve(None, e))   # name (global pool) / token / id -> token
+        if tok not in seen:
+            seen.add(tok)
+            toks.append(tok)
+    return ", ".join(toks) if toks else "0"
+
+
 # --- delta builders (text) ------------------------------------------------------------------------
 
 def _emit(header: str, rows_by_id: dict, banner: str) -> str:
@@ -308,10 +327,11 @@ def build_armors_delta(items_text: str, armors_text: str, armors) -> "str | None
 
 def build_items_delta(items_text: str, items, *, bonusid_repoints=None) -> "str | None":
     """A partial ``Items.csv`` text from ``[[item]]`` blocks (keyed by item id directly). Each block: ``name`` +
-    any of ``price`` / ``sell`` / ``equippable_by`` (the latter REWRITES the item's 12 equip-by-character bits).
-    ``bonusid_repoints`` ({item_id: new BonusId}) additionally repoints those items' ``BonusId`` column (from
-    :func:`build_equip_bonus_delta`'s mint path) -- ALL channels compose on one row (the engine merges whole-row,
-    so price + equippable_by + a repointed BonusId must ship together in the same Items.csv row)."""
+    any of ``price`` / ``sell`` / ``equippable_by`` (REWRITES the 12 equip-by-character bits) / ``teaches``
+    (REWRITES the ``AbilityIds`` cell -- the abilities the gear teaches). ``bonusid_repoints`` ({item_id: new
+    BonusId}) additionally repoints those items' ``BonusId`` column (from :func:`build_equip_bonus_delta`'s mint
+    path) -- ALL channels compose on one row (the engine merges whole-row, so price + equippable_by + teaches +
+    a repointed BonusId must ship together in the same Items.csv row)."""
     header, cols, _idcol, rows = read_base_csv(items_text)
     patched: dict = {}
     for b in items:
@@ -324,6 +344,11 @@ def build_items_delta(items_text: str, items, *, bonusid_repoints=None) -> "str 
         if "equippable_by" in b:
             for idx, val in _equip_mask_edits(b["equippable_by"], cols).items():
                 base = _set_col(base, idx, val)
+        if "teaches" in b:                                # REWRITE the AbilityIds cell (the abilities gear teaches)
+            aidx = cols.get("AbilityIds")
+            if aidx is None:
+                raise ValueError("this install's Items.csv has no AbilityIds column (can't set taught abilities)")
+            base = _set_col(base, aidx, ability_tokens(b["teaches"]))
         patched[iid] = base
     if bonusid_repoints:
         bcol = cols.get("BonusId")
