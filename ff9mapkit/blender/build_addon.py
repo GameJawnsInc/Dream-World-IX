@@ -11,6 +11,7 @@ from Disk (or drag-drop as an extension on 4.2+/5.x).
 
 from __future__ import annotations
 
+import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -23,8 +24,25 @@ SCENE = KIT / "scene"
 VENDORED = ("cam.py", "bgi.py", "bgx.py", "guide.py")   # guide imports PIL only lazily (render only)
 # extra vendored modules from elsewhere in the kit, as (source_path, vendor_filename) pairs:
 VENDORED_EXTRA = ((KIT / "battle" / "fbx.py", "battle_fbx.py"),)   # battle-map FBX emit/parse (pure)
-VERSION = "0.9.7"
+VERSION = "0.9.8"
 EXCLUDE_DIRS = {"__pycache__"}
+
+
+def sync_version() -> None:
+    """Force the SINGLE source of truth (VERSION) into BOTH blender_manifest.toml and __init__.py.
+
+    Blender's extension system keys the installed version on the MANIFEST -- if the zip name bumps but
+    the manifest doesn't, Blender sees the same version and may keep running the STALE installed code
+    (the 0.9.6-stuck bug). Rewriting both here means a build can never ship a version desync again."""
+    parts = tuple(int(x) for x in VERSION.split("."))
+    man = PKG / "blender_manifest.toml"
+    man.write_text(re.sub(r'(?m)^version = ".*"$', f'version = "{VERSION}"',
+                          man.read_text(encoding="utf-8")), encoding="utf-8", newline="\n")
+    init = PKG / "__init__.py"
+    init.write_text(re.sub(r'"version":\s*\(\d+,\s*\d+,\s*\d+\)',
+                           f'"version": ({parts[0]}, {parts[1]}, {parts[2]})',
+                           init.read_text(encoding="utf-8")), encoding="utf-8", newline="\n")
+    print(f"synced version -> {VERSION} (blender_manifest.toml + __init__.py)")
 
 
 def sync_vendor() -> None:
@@ -57,6 +75,7 @@ def package(out_dir: Path | None = None) -> Path:
 
 
 if __name__ == "__main__":
+    sync_version()
     sync_vendor()
     z = package()
     print(f"packaged add-on -> {z}")
