@@ -171,13 +171,25 @@ def _apply_journey(manifest, plan, args) -> int:
         print(f"Partial state is reversible: py {unified.relative_to(REPO).as_posix()}", file=sys.stderr)
         return 2
 
-    # (0) PRE-FLIGHT (NO game files touched): emit the hub -- auto-extracting its [hub] borrow_field camera --
-    #     and BUILD it offline. A missing camera / unbuildable hub must abort HERE, before any campaign or link
-    #     lands; it must never fail at step 3 after the campaigns + links are already deployed.
+    # (0) PRE-FLIGHT (NO game files touched): BUILD every campaign to its own dist + emit/build the hub, all
+    #     offline. ANY build failure (a member's missing art / a bad [[npc]] / an unbuildable hub) must abort
+    #     HERE, before a single campaign/link/hub is installed -- never mid-deploy with some campaigns already
+    #     live. The ENTRY campaign is seed-built (the [journey.seed] capstone merged into its entry member).
     import tempfile
     from ff9mapkit import build as B
     hub_toml = Path(args.hub_out) if args.hub_out else (manifest.path.parent / "hub.field.toml")
-    print("\n=== 0. pre-flight: emit + build-check the hub (no game files touched) ===")
+    print("\n=== 0. pre-flight: build every campaign + the hub offline (no game files touched) ===")
+    built: dict = {}                                      # folder -> prebuilt dist dir
+    for s in plan.campaign_steps:
+        dist = s.campaign_path.parent / "dist"
+        seednote = f" + seed {s.seed_blocks}" if s.seed_blocks else ""
+        print(f"  building {s.folder} (flag_base {s.flag_base}{seednote}) -> {dist}")
+        try:
+            C.build_campaign(s.campaign_path, out=dist, flag_base=s.flag_base, seed_blocks=s.seed_blocks)
+        except Exception as e:                            # CampaignError / BuildError / ... -- abort cleanly
+            print(f"\nABORT (no game files touched): campaign {s.folder} does not build -- {e}", file=sys.stderr)
+            return 2
+        built[s.folder] = dist
     try:
         info = J.generate_hub(manifest.path, out_path=hub_toml, extract_camera=True, game=game)
         with tempfile.TemporaryDirectory() as td:
@@ -188,25 +200,16 @@ def _apply_journey(manifest, plan, args) -> int:
             print("  Provision the hub camera: set [hub] borrow_field = <real field id> (auto-extracted via "
                   "UnityPy), or place the [hub] camera .bgx beside the journeys.toml.", file=sys.stderr)
         return 2
-    print(f"  hub OK -> {hub_toml}  (camera: {info['spec'].camera})")
+    print(f"  all {len(built)} campaign(s) + the hub build OK -> {hub_toml}  (camera: {info['spec'].camera})")
 
-    # (1) each campaign -> its own stacked folder (--no-warp); the ENTRY campaign is seed-built in-process
-    print("\n=== 1. campaigns ===")
+    # (1) INSTALL each prebuilt campaign dist -> its own stacked folder (--no-warp; the hub owns New Game).
+    #     The dists are already built (step 0) with their seed + flag_base baked in, so this only installs.
+    print("\n=== 1. install campaigns ===")
     for s in plan.campaign_steps:
-        if s.seed_blocks:                                 # seeded entry: build in-process, then install the dist
-            dist = s.campaign_path.parent / "dist"
-            print(f"  building {s.folder} with seed {s.seed_blocks} -> {dist}")
-            try:
-                C.build_campaign(s.campaign_path, out=dist, flag_base=s.flag_base, seed_blocks=s.seed_blocks)
-            except (C.CampaignError, ValueError) as e:
-                return _abort(f"seed-build of {s.folder} failed: {e}")
-            rc = _run([sys.executable, str(HERE / "deploy_campaign.py"), str(dist),
-                       "--apply", "--no-warp", "--mod-folder", s.mod_folder])
-        else:
-            rc = _run([sys.executable, str(HERE / "deploy_campaign.py"), str(s.campaign_path),
-                       "--apply", "--no-warp", "--mod-folder", s.mod_folder, "--flag-base", str(s.flag_base)])
+        rc = _run([sys.executable, str(HERE / "deploy_campaign.py"), str(built[s.folder]),
+                   "--apply", "--no-warp", "--mod-folder", s.mod_folder])
         if rc != 0:
-            return _abort(f"deploy_campaign for {s.folder} exited {rc}")
+            return _abort(f"deploy_campaign install for {s.folder} exited {rc}")
         cap = _capture("revert_campaign.py", f"revert_journey_campaign_{s.folder}.py")
         if cap:
             captured.append(cap)
