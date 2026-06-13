@@ -1775,3 +1775,112 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
     p.write_text(toml, encoding="utf-8", newline="\n")
     meta["field_toml"] = str(p)
     return meta, p
+
+
+def write_lightweight_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
+                              text_block: int = 1073, game=None, bundle=None):
+    """A LIGHTWEIGHT, Blender model-against project for a real field: camera.bgx + walkmesh (.bgi + a
+    reshapeable .obj, + links for multi-floor) + a composited ``background.png`` + a compact field.toml --
+    and NO per-depth layer split. This is the per-field unit of the whole-game ``import-all`` archive:
+    small + fast, enough to browse and to model markers/geometry against in Blender's *Import Field*.
+
+    UNIVERSAL across areas (unlike BG-borrow, which black-screens area<10): an area>=10 field gets a
+    buildable BG-borrow toml; an area<10 field gets a MODEL-AGAINST stub toml (you promote it with
+    ``import <field> --editable``/``--native`` to actually build/ship). To repaint per-depth layers or
+    reshape into a custom scene, re-run ``ff9mapkit import <field> --editable`` into the SAME folder."""
+    out = Path(out_dir)
+    meta = extract_field(field, out, game=game, bundle=bundle)        # camera.bgx + walkmesh.bgi
+    wm = bgi.BgiWalkmesh.from_bytes((out / "walkmesh.bgi").read_bytes())
+    (out / "walkmesh.obj").write_text(_world_walkmesh_obj_text(wm), encoding="utf-8", newline="\n")
+    if len(wm.floors) > 1:
+        _write_links_toml(wm, out / "walkmesh.links.toml")
+    try:                                                             # the model-against backdrop (no footprint)
+        compose_background(field, out / "background.png", game=game, bundle=bundle, draw_footprint=False)
+    except Exception:                                                # noqa: BLE001 - preview only, never fatal
+        pass
+    name = name or (meta["mapid"].split("_")[0] + "_FORK")
+    area = meta["area"]
+    borrowable = area >= MIN_CUSTOM_AREA
+    safe_area = area if borrowable else safe_custom_area(area)
+    wb = meta["walkmesh_bounds"]
+    x, z = meta["player_start"]
+    scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
+    note = ("" if borrowable else
+            f"# area {area} < 10: BG-borrow can't render it in-game (the engine's FBG_N<area> 2-char lookup), so\n"
+            f"# this is a MODEL-AGAINST stub. To build/ship, re-run `ff9mapkit import {field} --editable` (or --native).\n")
+    borrow_line = f'borrow_bg = "{meta["mapid"]}"\n' if borrowable else ""
+    wm_stanza = ('reference = "walkmesh.bgi"   # borrow: the engine uses the real field walkmesh (validation only)'
+                 if borrowable else 'bgi = "walkmesh.bgi"')
+    toml = (
+        f"# LIGHTWEIGHT model-against fork of {meta['field']} (area {area}) -- camera + walkmesh + a composited\n"
+        f"# background.png for Blender 'Import Field'. NOT a repaint project: promote with `--editable` to get\n"
+        f"# repaintable per-depth layers / reshape into a custom scene.  Walkmesh bounds: x {wb['x']} z {wb['z']}.\n"
+        f"{note}"
+        f"[field]\nid = {field_id}\nname = \"{name}\"\narea = {safe_area}\n{borrow_line}text_block = {text_block}\n\n"
+        f"[camera]\nborrow = \"camera.bgx\"\n{scroll}\n"
+        f"[walkmesh]\n{wm_stanza}\n\n"
+        f"[player]\nspawn = [{x}, {z}]\n\n"
+        f"{_content_section('', x, z)}"
+    )
+    p = out / f"{name}.field.toml"
+    p.write_text(toml, encoding="utf-8", newline="\n")
+    meta["field_toml"] = str(p)
+    return meta, p
+
+
+def _bulk_import(entries, *, editable=False, game=None, on_field=None) -> dict:
+    """Run the per-field writer over ``entries`` = [(token, dest_dir, label)], never raising on a single bad
+    field. ``editable`` picks the full custom-scene fork vs the lightweight model-against project.
+    ``on_field(k, total, label, dest|None, err|None)`` is an optional progress callback. Returns
+    {fields, failed:[(label, err)], total}."""
+    entries = list(entries)
+    total = len(entries)
+    n_fields = 0
+    failed = []
+    for k, (token, dest, label) in enumerate(entries):
+        try:
+            if editable:
+                write_editable_project(token, dest, game=game)
+            else:
+                write_lightweight_project(token, dest, game=game)
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            failed.append((str(label), str(e)))
+            if on_field:
+                on_field(k + 1, total, str(label), None, str(e))
+            continue
+        n_fields += 1
+        if on_field:
+            on_field(k + 1, total, str(label), str(dest), None)
+    return {"fields": n_fields, "failed": failed, "total": total}
+
+
+def import_all(out_root, *, game=None, pattern=None, editable=False, on_field=None) -> dict:
+    """Bulk-import EVERY real field (optionally filtered by ``pattern``) into a foldered Blender-ready
+    archive at ``<out_root>/<ZONE>/<FBG>/``, OFFLINE -- a quick whole-game source-of-truth to browse and
+    copy field folders out of. Lightweight by default (camera+walkmesh+background+toml); ``editable`` =
+    full repaintable custom scenes. The output is SE-derived art -- point ``out_root`` at a gitignored path."""
+    root = Path(out_root)
+    entries = []
+    for folder, _area, mapid in list_fields(pattern, game=game):
+        zone = mapid.split("_")[0]                                   # FBG zone token (ICCV, ALXT, ...)
+        entries.append((folder, root / zone / folder.upper(), folder))
+    return _bulk_import(entries, editable=editable, game=game, on_field=on_field)
+
+
+def import_campaign_fields(campaign_toml, out_root, *, game=None, editable=False, on_field=None) -> dict:
+    """Bulk-import the real fields a campaign forks (its members' ``source`` donors) into
+    ``<out_root>/<CAMPAIGN>/<MEMBER>/``, OFFLINE -- a campaign-foldered slice of the archive. See
+    :func:`import_all`."""
+    from . import campaign as _camp
+    plan = _camp.load_campaign(campaign_toml)
+    root = Path(out_root) / (plan.name or "CAMPAIGN")
+    entries = []
+    seen = set()
+    for m in plan.members:
+        if not m.real_id or m.real_id in seen:
+            continue
+        seen.add(m.real_id)
+        entries.append((str(m.real_id), root / m.name, m.name))
+    if not entries:
+        raise ValueError(f"{campaign_toml}: no member fields with a real `source` id to import")
+    return _bulk_import(entries, editable=editable, game=game, on_field=on_field)

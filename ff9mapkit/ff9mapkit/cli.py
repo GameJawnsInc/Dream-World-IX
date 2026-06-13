@@ -474,6 +474,43 @@ def _cmd_export_art(args: argparse.Namespace) -> int:
     return 0 if res["fields"] else 1
 
 
+def _cmd_import_all(args: argparse.Namespace) -> int:
+    """Bulk-import a foldered, Blender-ready archive of fields -- whole game (--all), a zone (--pattern),
+    or a campaign.toml. Lightweight model-against projects by default; --editable for repaintable scenes."""
+    if not _has_unitypy():
+        print("import-all needs UnityPy (pip install UnityPy) + your FF9 install.", file=sys.stderr)
+        return 2
+    from . import extract
+    _safe_console()
+
+    def progress(k, total, label, dest, err):
+        if err:
+            print(f"  [{k}/{total}] {label}: SKIP ({err})", file=sys.stderr)
+        else:
+            print(f"  [{k}/{total}] {label} -> {dest}")
+
+    try:
+        if args.target and str(args.target).lower().endswith(".toml"):
+            res = extract.import_campaign_fields(args.target, args.out, game=args.game,
+                                                 editable=args.editable, on_field=progress)
+        elif args.all or args.pattern:
+            res = extract.import_all(args.out, game=args.game, pattern=args.pattern,
+                                     editable=args.editable, on_field=progress)
+        else:
+            print("import-all: give a campaign.toml, or --all (optionally --pattern <zone>)", file=sys.stderr)
+            return 2
+    except (FileNotFoundError, ValueError, RuntimeError, ConfigError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    mode = "editable" if args.editable else "lightweight"
+    print(f"\nimported {res['fields']}/{res['total']} field(s) [{mode}] -> {args.out}")
+    if res["failed"]:
+        print(f"  {len(res['failed'])} field(s) skipped (no readable scene/art):", file=sys.stderr)
+        for lbl, err in res["failed"][:10]:
+            print(f"    {lbl}: {err}", file=sys.stderr)
+    return 0 if res["fields"] else 1
+
+
 def _cmd_pack(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .pack import pack_mod
@@ -2026,6 +2063,23 @@ def build_parser() -> argparse.ArgumentParser:
                          "--composite: each field -> <out>/<FBG>.png. For a gallery use --out reference/all-fields-export.")
     ea.add_argument("--no-atlas", action="store_true", help="(raw mode) don't also dump the source atlas.png")
     ea.set_defaults(func=_cmd_export_art)
+
+    iaa = sub.add_parser("import-all", help="bulk-import a foldered, Blender-ready archive of fields -- whole "
+                         "game / a zone / a campaign (lightweight by default; needs UnityPy)")
+    iaa.add_argument("target", nargs="?", default=None,
+                     help="a campaign.toml (fold its members under <out>/<CAMPAIGN>/<MEMBER>/). Omit and use "
+                          "--all / --pattern for the whole game.")
+    iaa.add_argument("--all", action="store_true", help="import every real field")
+    iaa.add_argument("--pattern", default=None,
+                     help="only fields whose FBG folder contains this substring (a zone, e.g. iccv / dali / trno)")
+    iaa.add_argument("--out", required=True,
+                     help="archive root. Whole game -> <out>/<ZONE>/<FBG>/; campaign -> <out>/<CAMPAIGN>/<MEMBER>/. "
+                          "Use a GITIGNORED path -- this is SE-derived art (e.g. reference/all-fields-import).")
+    iaa.add_argument("--editable", action="store_true",
+                     help="full editable custom scene per field (repaintable per-depth layers, reshapeable) "
+                          "instead of the lightweight model-against project -- bigger + slower, for art-modding "
+                          "a whole set at once. Default = lightweight; promote single fields with `import --editable`.")
+    iaa.set_defaults(func=_cmd_import_all)
 
     im = sub.add_parser("import", help="fork a REAL FF9 field into an editable field.toml (needs UnityPy)")
     im.add_argument("field", help="field name: full FBG, bare mapid, or a unique substring (e.g. grgr_map420)")

@@ -172,7 +172,10 @@ real gameplay and reproducible in Python (zero Hades Workshop):
   · **`ff9mapkit fork-report <field>`** previews fork fidelity BEFORE you fork (roster vs interaction
   axes, story-gated beats, suggested `[startup]`; clean static-roster vs story-event verdict — `forkreport.py`)
   (verbatim `.eb`-entry graft + player-func + lighting + per-language text). Blender "Import FF9 Field"
-  gives a visual fork→author loop.
+  gives a visual fork→author loop. **`ff9mapkit import-all`** bulk-imports a foldered, Blender-ready ARCHIVE
+  of the whole game (or a `--pattern` zone / a `campaign.toml`) into `<out>/<ZONE>/<FBG>/` — lightweight
+  model-against projects (camera+walkmesh+composite `background.png`) by default, `--editable` for the full
+  repaintable per-depth scenes; the quick on-disk source-of-truth you copy field folders out of.
 - **Battle backgrounds:** author custom 3D battle maps — texture reskin, loose-FBX geometry, a net-new
   fightable scene, or a wholly-original `BBG_B###`; tune the fight (stats/positions/rewards/spawn) and the
   camera (`battle.toml` + `battle-import`/`-build`; a separate pillar from fields, no DLL rebuild).

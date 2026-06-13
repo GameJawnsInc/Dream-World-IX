@@ -54,6 +54,7 @@ desktop.ini
 # fast ID/name lookup; the raw dump lives on disk only.
 reference/test2/
 reference/all-fields-export/
+reference/all-fields-import/
 
 # ── NOTE ───────────────────────────────────────────────────────────────
 # backups/ IS tracked on purpose (small text safety net). If you ever back

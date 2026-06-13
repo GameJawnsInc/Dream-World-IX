@@ -180,3 +180,36 @@ def test_export_writers_emit_layers_and_composite(tmp_path):
     assert png.is_file()
     w, h = Image.open(png).size
     assert (w, h) == tuple(comp["size"]) and w > 16 and h > 16
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_lightweight_project_is_blender_ready(tmp_path):
+    """write_lightweight_project emits a Blender 'Import Field'-ready folder (camera + walkmesh + composite
+    background + toml) with NO per-depth layer split (that's the editable project's job)."""
+    import tomllib
+    from ff9mapkit import extract
+    fdir = _first_exported_field()
+    if fdir is None:
+        pytest.skip("no exported field on disk")
+    meta, toml_p = extract.write_lightweight_project(fdir.name.lower(), tmp_path, game=None)
+    for f in ("camera.bgx", "walkmesh.bgi", "walkmesh.obj", "background.png"):
+        assert (tmp_path / f).is_file(), f
+    cfg = tomllib.loads(toml_p.read_text(encoding="utf-8"))
+    assert "field" in cfg and "camera" in cfg and "walkmesh" in cfg
+    assert not list(tmp_path.glob("layer_*.png"))            # lightweight = no per-depth split
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_all_folders_by_zone(tmp_path):
+    """import_all lands each field at <root>/<ZONE>/<FBG>/ with a Blender-ready project."""
+    from ff9mapkit import extract
+    rows = extract.list_fields(game=None)
+    if not rows:
+        pytest.skip("no fields in index")
+    folder, _area, mapid = rows[0]
+    zone = mapid.split("_")[0]
+    res = extract.import_all(tmp_path, pattern=folder, game=None)   # pattern = the exact FBG -> just it
+    assert res["fields"] >= 1
+    dest = tmp_path / zone / folder.upper()
+    assert (dest / "camera.bgx").is_file() and (dest / "walkmesh.bgi").is_file()
+    assert list(dest.glob("*.field.toml"))
