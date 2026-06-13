@@ -5,6 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — battle-tuning Phase 6b: same-length enemy-AI constant patches (`[[scene.ai_patch]]`) (0.9.64)
+- **`battle/aipatch.py`** — the first AI *authoring* step (read = Phase-6a `battle-ai`). An enemy's AI is the
+  per-scene `EVT_BATTLE_*.eb` bytecode; the safest edit is a *literal* one — change a numeric CONSTANT in place
+  (an HP threshold a phase-switch compares, the attack index a turn selects, a `Wait` count) **without moving any
+  byte**: no `fpos`/entry-table fixup, byte-accurate by construction (the eb-codec identity holds), like
+  `scene_data`'s surgical raw16 patch.
+- `constant_sites` locates every patchable numeric constant (command immediates + `B_CONST`/`B_CONST4` expression
+  literals) with its byte offset + width — a walk that **mirrors the proven `read_code`/`pretty_expr` byte-for-byte**
+  so a reported offset is exactly where the constant lives. `battle-ai <scene> --sites` prints them (224 on the
+  real EF_R007). `[[scene.ai_patch]]` (in `battle.toml`) cites `at = <offset>`, a required `old`-value guard (a
+  stale/wrong offset fails LOUD, never corrupts a byte), and `new` (must fit the same width). Applied to the forked
+  eb at build, per-language at the same offset (the bytecode is language-identical).
+- Reaches NUMERIC LITERALS only (the "same-length literal patch" tier); structural changes + an expression
+  assembler are Phase-6c. Read-the-AI-first is mandatory — you cite the offset the disassembler prints.
+- ★ A 3-lens adversarial review (site-walk fidelity vs the decoders · patch safety · build wiring) found and
+  fixed: a **3-byte (Int24) immediate** crashed the patcher with `KeyError` (the width map had only 1/2/4 → now a
+  generic little-endian width-N pack); a truncated/corrupt eb leaked a raw `IndexError` (now a clean
+  `AiPatchError`, mirroring the read path); and `B_CONST4` is **masked to 26 bits** in-engine so a too-large `new`
+  would silently change in-game (now per-site capped). The B_CONST signedness path was confirmed benign
+  (byte-faithful round-trip). 9 tests (`test_aipatch`) + a real-donor round-trip; *in-game proof is the human step.*
+
 ### Fixed — a synthesized fork no longer carries cutscene WARP-directors (#13b) (0.9.62)
 - A non-`--verbatim` fork's object carry (`content.object.graft_objects`) now SKIPS cutscene **warp-directors** —
   an object whose kept LOOP (tag 1) fires `Field()`. Carrying one re-fired its warp / cast-rotation at the fork's

@@ -121,6 +121,12 @@ def validate_battle(project: BattleProject) -> list[str]:
         elif "scene" in project.raw:                 # tune-the-fight overrides -> validate vs the raw16
             problems += _scene_data.validate_scene(
                 (sd / "dbfile0000.raw16.bytes").read_bytes(), project.raw["scene"])
+            ai_patches = project.raw["scene"].get("ai_patch") if isinstance(project.raw["scene"], dict) else None
+            if ai_patches:                           # Phase-6b AI constant patches -> validate vs the donor eb
+                from . import aipatch as _aipatch
+                eb0 = sd / "eb" / f"{LANGS[0]}.eb.bytes"
+                if eb0.is_file():
+                    problems += [f"[[scene.ai_patch]]: {p}" for p in _aipatch.validate_patches(eb0.read_bytes(), ai_patches)]
     return problems
 
 
@@ -218,6 +224,14 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
                 except ValueError as ex:
                     raise BattleBuildError(f"spawn composition needs a Main_Init re-author this donor "
                                            f"can't support: {ex}")
+            if scene_cfg and scene_cfg.get("ai_patch"):     # Phase-6b: same-length AI constant patches (eb).
+                from . import aipatch as _aipatch          # The bytecode is language-identical -> same offsets.
+                try:
+                    eb, ai_warns = _aipatch.apply_ai_patches(eb, scene_cfg["ai_patch"])
+                    if lang == LANGS[0]:
+                        warnings += ai_warns
+                except _aipatch.AiPatchError as ex:
+                    raise BattleBuildError(str(ex))
             eb_dst.write_bytes(eb)
             mes_dst = layout.battle_text_dir(lang) / f"{sid}.mes"
             mes_dst.parent.mkdir(parents=True, exist_ok=True)

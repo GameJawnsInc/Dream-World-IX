@@ -102,12 +102,29 @@ def disassemble_ai(eb_bytes: bytes) -> str:
     return "\n".join(lines)
 
 
-def analyze_scene(donor: str, game=None, lang: str = "us") -> str:
-    """Read a real battle scene's ``EVT_BATTLE_<donor>.eb`` LIVE from the install + disassemble its AI. ``donor``
-    is the scene name after ``EVT_BATTLE_`` (e.g. ``EF_R007``). Raises on a missing install/donor."""
+def _scene_eb(donor: str, game=None, lang: str = "us") -> bytes:
     from . import extract as _extract
     assets = _extract.read_scene_assets(donor, game=game)
     eb = assets.get("eb", {}).get(lang) or next((b for b in assets.get("eb", {}).values() if b), None)
     if not eb:
         raise FileNotFoundError(f"no EVT_BATTLE_{donor}.eb found for scene {donor!r}")
-    return f"# enemy AI of scene {donor} (EVT_BATTLE_{donor}, {lang})\n" + disassemble_ai(eb)
+    return eb
+
+
+def scene_ai_sites(donor: str, game=None, lang: str = "us") -> str:
+    """List a scene AI's patchable numeric constants (the ``[[scene.ai_patch]]`` targets): byte offset, width,
+    current value, context. Read-only -- the 'find the offset to patch' companion to the disassembly."""
+    from . import aipatch as _aipatch
+    sites = _aipatch.constant_sites(_scene_eb(donor, game=game, lang=lang))
+    lines = [f"# patchable AI constants of scene {donor} ({len(sites)} sites)",
+             f"# cite the offset in [[scene.ai_patch]] (at = <offset>, old = <value>, new = <same-width value>)"]
+    for s in sites:
+        lines.append(f"  at={s.offset:<6} {s.width}B  = {s.value:<8}  {s.where}")
+    return "\n".join(lines)
+
+
+def analyze_scene(donor: str, game=None, lang: str = "us") -> str:
+    """Read a real battle scene's ``EVT_BATTLE_<donor>.eb`` LIVE from the install + disassemble its AI. ``donor``
+    is the scene name after ``EVT_BATTLE_`` (e.g. ``EF_R007``). Raises on a missing install/donor."""
+    return (f"# enemy AI of scene {donor} (EVT_BATTLE_{donor}, {lang})\n"
+            + disassemble_ai(_scene_eb(donor, game=game, lang=lang)))

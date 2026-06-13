@@ -473,10 +473,17 @@ incl. a control-opcode overlay + annotated expressions). ★ The load-bearing pr
 test asserts `_decode_func_pretty`'s instruction offsets == the proven `read_code`'s across every AI function of a
 real donor, so the view can never desync. Reads the real EF_R007 Goblin AI cleanly. 10 tests; a 3-lens review
 (table vs `EBin.cs` / byte-walk / presenter+provenance) found only a low truncated-eb `IndexError` (guarded).
-**Next — Phase 6b:** same-length literal patches (retune an AI constant — an HP threshold, the attack index a
-turn selects — byte-safe, no fpos/entry-table fixup). **Phase 6c:** new branches (an **expression assembler** +
-length-changing `replace_function_body`/`add_function` edits + a **battle linter**: valid tags 1/6/7/9, Attack
-index `< AtkCount`). **Defer raw17 btlseq sequence authoring** (new codec + a coordinated raw16+eb+raw17 edit).
+**Phase 6b ✅ DONE (kit 0.9.64)** — **same-length AI constant patches** (`battle/aipatch.py`, the first authoring
+step). `constant_sites` locates every patchable numeric constant (command immediates + `B_CONST`/`B_CONST4` expr
+literals) with offset+width — a walk that mirrors `read_code`/`pretty_expr` byte-for-byte; `battle-ai --sites`
+prints them (224 on EF_R007). `[[scene.ai_patch]]` (in `battle.toml`) cites `at`/`old`/`new`: a same-length,
+old-value-GUARDED in-place edit (no `fpos`/entry-table fixup), applied per-language to the forked eb at build
+(bytecode is language-identical). ★ A 3-lens review found + fixed: a 3-byte (Int24) immediate `KeyError`
+(→ generic width-N pack), a truncated-eb `IndexError` (→ clean `AiPatchError`), and the `B_CONST4` 26-bit engine
+mask (→ per-site cap); the `B_CONST` signedness path is benign (byte-faithful). 9 tests. *In-game proof = human.*
+**Phase 6c:** new branches (an **expression assembler** + length-changing `replace_function_body`/`add_function`
+edits + a **battle linter**: valid tags 1/6/7/9, Attack index `< AtkCount`). **Defer raw17 btlseq sequence
+authoring** (new codec + a coordinated raw16+eb+raw17 edit).
 
 ---
 

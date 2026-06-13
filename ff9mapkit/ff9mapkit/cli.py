@@ -814,7 +814,8 @@ def _cmd_battle_ai(args: argparse.Namespace) -> int:
     _safe_console()
     from .battle import battleai as BA
     try:
-        print(BA.analyze_scene(args.donor, game=args.game))
+        print(BA.scene_ai_sites(args.donor, game=args.game) if args.sites
+              else BA.analyze_scene(args.donor, game=args.game))
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -1839,6 +1840,8 @@ def build_parser() -> argparse.ArgumentParser:
     bai = sub.add_parser("battle-ai",
                          help="disassemble a battle scene's enemy AI (EVT_BATTLE_<scene>.eb) -- read-only")
     bai.add_argument("donor", help="battle scene name, e.g. EF_R007 (see `battle-list --scenes`)")
+    bai.add_argument("--sites", action="store_true",
+                     help="list patchable AI constants (offset/value) for [[scene.ai_patch]] instead of the disasm")
     bai.set_defaults(func=_cmd_battle_ai)
 
     ch = sub.add_parser("characters",
