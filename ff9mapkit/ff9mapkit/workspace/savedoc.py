@@ -30,9 +30,10 @@ from .. import save_items as _si
 class StoryStateDoc(QWidget):
     """Inspect / Diff / EDIT a save's gEventGlobal story state (ScenarioCounter + story bits)."""
 
-    def __init__(self, palette):
+    def __init__(self, palette, output=None):
         super().__init__()
         self.pal = palette
+        self._output = output      # an output sink callable(text); None = an in-pane console (standalone)
         self.reports = []          # [(label, SaveReport)] for the loaded save (A)
         self.blocks = []           # editable block per report (None unless an encrypted .dat)
         self.path = ""
@@ -66,6 +67,13 @@ class StoryStateDoc(QWidget):
         self.status = QLabel("Open a SavedData_ww.dat (or a Memoria extra-save / save JSON) to inspect or edit.")
         self.status.setStyleSheet(f"color:{palette['muted']};")
         v.addWidget(self.status)
+
+    def _show_output(self, text):
+        """Preview/Apply console output -> the workspace's bottom panel when docked, else the in-pane box."""
+        if self._output is not None:
+            self._output(text)
+        elif getattr(self, "edit_txt", None) is not None:
+            self.edit_txt.setPlainText(text)
 
     # ---- view scaffolding ----
     def _build_diff(self):
@@ -119,9 +127,10 @@ class StoryStateDoc(QWidget):
         btns.addWidget(self.apply_btn)
         btns.addStretch(1)
         lay.addLayout(btns)
-        self.edit_txt = QPlainTextEdit()
-        self.edit_txt.setReadOnly(True)
-        lay.addWidget(self.edit_txt, 1)
+        if self._output is None:                 # standalone: an in-pane console; docked -> the bottom panel
+            self.edit_txt = QPlainTextEdit()
+            self.edit_txt.setReadOnly(True)
+            lay.addWidget(self.edit_txt, 1)
         return page
 
     # ---- loading (A) ----
@@ -248,15 +257,15 @@ class StoryStateDoc(QWidget):
             res = _save.apply_story_edit(self.path, block=blk, scenario=scenario,
                                          set_flags=setb, clear_flags=clrb, dry_run=True)
         except (ValueError, IndexError) as e:
-            self.edit_txt.setPlainText(f"Cannot apply:\n  {e}")
+            self._show_output(f"Cannot apply:\n  {e}")
             return
         if not res["notes"]:
-            self.edit_txt.setPlainText("Nothing to change — set a Scenario / Set flags / Clear flags.")
+            self._show_output("Nothing to change — set a Scenario / Set flags / Clear flags.")
             return
         body = "PREVIEW (nothing written yet):\n" + "\n".join(f"  - {n}" for n in res["notes"])
         if res["extra"]:
             body += "\n\n  (a Memoria extra-save is present and will be patched too)"
-        self.edit_txt.setPlainText(body)
+        self._show_output(body)
 
     def _apply(self):
         blk = self._target_block()
@@ -267,19 +276,19 @@ class StoryStateDoc(QWidget):
             preview = _save.apply_story_edit(self.path, block=blk, scenario=scenario,
                                              set_flags=setb, clear_flags=clrb, dry_run=True)
         except (ValueError, IndexError) as e:
-            self.edit_txt.setPlainText(f"Cannot apply:\n  {e}")
+            self._show_output(f"Cannot apply:\n  {e}")
             return
         if not preview["notes"]:
-            self.edit_txt.setPlainText("Nothing to change.")
+            self._show_output("Nothing to change.")
             return
         if not self._confirm("\n".join(preview["notes"])):
-            self.edit_txt.setPlainText("Cancelled — nothing written.")
+            self._show_output("Cancelled — nothing written.")
             return
         try:
             res = _save.apply_story_edit(self.path, block=blk, scenario=scenario,
                                          set_flags=setb, clear_flags=clrb)
         except Exception as e:                            # noqa: BLE001
-            self.edit_txt.setPlainText(f"Write failed:\n  {e}")
+            self._show_output(f"Write failed:\n  {e}")
             return
         msg = ["APPLIED — your save was edited:"] + [f"  - {n}" for n in res["notes"]]
         msg += [f"  backed up -> {os.path.basename(b)}" for b in res["backups"]]
@@ -290,7 +299,7 @@ class StoryStateDoc(QWidget):
         else:
             msg.append("  (no Memoria extra-save for this slot — the main save block governs)")
         msg.append("\nReload the save in-game to see it.")
-        self.edit_txt.setPlainText("\n".join(msg))
+        self._show_output("\n".join(msg))
         self.status.setText("save edited (backup written) — reload it in-game")
         self.load(self.path, select=self.slots.currentRow())   # refresh, KEEPING the edited slot selected
 
@@ -305,9 +314,10 @@ class ItemEquipDoc(QWidget):
 
     _STATS = ["Speed", "Strength", "Magic", "Spirit"]
 
-    def __init__(self, palette):
+    def __init__(self, palette, output=None):
         super().__init__()
         self.pal = palette
+        self._output = output      # an output sink callable(text); None = an in-pane console (standalone)
         self.targets = []          # [{label, report, extra, container, block}] per populated slot
         self.path = ""
 
@@ -336,6 +346,13 @@ class ItemEquipDoc(QWidget):
         self.status = QLabel("Open a save to read/edit gil, inventory, equipment, stats, abilities, key items.")
         self.status.setStyleSheet(f"color:{palette['muted']};")
         v.addWidget(self.status)
+
+    def _show_output(self, text):
+        """Preview/Apply console output -> the workspace's bottom panel when docked, else the in-pane box."""
+        if self._output is not None:
+            self._output(text)
+        elif getattr(self, "edit_txt", None) is not None:
+            self.edit_txt.setPlainText(text)
 
     # ---- edit UI ----
     def _section(self, parent_lay, title, widgets, buttons):
@@ -416,10 +433,11 @@ class ItemEquipDoc(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setWidget(page)
         ov.addWidget(scroll, 1)                            # the middle (sections) takes the stretch + scrolls
-        self.edit_txt = QPlainTextEdit()
-        self.edit_txt.setReadOnly(True)
-        self.edit_txt.setMinimumHeight(120)               # console pinned below the scroll -- always visible
-        ov.addWidget(self.edit_txt)
+        if self._output is None:                           # docked -> output goes to the workspace bottom panel,
+            self.edit_txt = QPlainTextEdit()               # so the sections reclaim the whole height; standalone
+            self.edit_txt.setReadOnly(True)                # keeps an in-pane console pinned below.
+            self.edit_txt.setMinimumHeight(120)
+            ov.addWidget(self.edit_txt)
         return outer
 
     # ---- loading ----
@@ -516,24 +534,24 @@ class ItemEquipDoc(QWidget):
 
     def _apply_plan(self, render, preview, do, apply):
         if not apply:
-            self.edit_txt.setPlainText("PREVIEW (nothing written yet):\n" + render(preview))
+            self._show_output("PREVIEW (nothing written yet):\n" + render(preview))
             return
         if not self._confirm(render(preview)):
-            self.edit_txt.setPlainText("Cancelled — nothing written.")
+            self._show_output("Cancelled — nothing written.")
             return
         try:
             res = do()
         except Exception as e:                            # noqa: BLE001
-            self.edit_txt.setPlainText(f"Write failed:\n  {e}")
+            self._show_output(f"Write failed:\n  {e}")
             return
-        self.edit_txt.setPlainText(render(res) + "\n\nReload the save in-game to see it (no relaunch needed).")
+        self._show_output(render(res) + "\n\nReload the save in-game to see it (no relaunch needed).")
         self.status.setText("save edited (backup written) — reload it in-game")
         self.load(self.path, select=self.slots.currentRow())
 
     def _edit(self, kind, apply):
         t = self._target()
         if t is None or t["report"] is None:
-            self.edit_txt.setPlainText("Select a decodable slot on the left first.")
+            self._show_output("Select a decodable slot on the left first.")
             return
         extra, container, block = t["extra"], t["container"], t["block"]
         try:
@@ -556,14 +574,14 @@ class ItemEquipDoc(QWidget):
                         else (_si.render_equip_write, _si.set_equip(extra, char, slot, item, dry_run=True),
                               lambda: _si.set_equip(extra, char, slot, item, dry_run=False)))
         except ValueError as e:
-            self.edit_txt.setPlainText(f"Cannot apply:\n  {e}")
+            self._show_output(f"Cannot apply:\n  {e}")
             return
         self._apply_plan(*trio, apply)
 
     def _edit_stat(self, apply):
         t = self._target()
         if t is None or t["report"] is None:
-            self.edit_txt.setPlainText("Select a decodable slot on the left first.")
+            self._show_output("Select a decodable slot on the left first.")
             return
         extra, container, block = t["extra"], t["container"], t["block"]
         char, stat = self.stat_char_combo.currentText(), self.stat_kind_combo.currentText()
@@ -576,17 +594,17 @@ class ItemEquipDoc(QWidget):
                 trio = (_si.render_stat_write, _si.set_stat_extra(extra, char, stat, val, dry_run=True),
                         lambda: _si.set_stat_extra(extra, char, stat, val, dry_run=False))
             else:
-                self.edit_txt.setPlainText("Select an editable slot first.")
+                self._show_output("Select an editable slot first.")
                 return
         except ValueError as e:
-            self.edit_txt.setPlainText(f"Cannot apply:\n  {e}")
+            self._show_output(f"Cannot apply:\n  {e}")
             return
         self._apply_plan(*trio, apply)
 
     def _edit_ap(self, apply):
         t = self._target()
         if t is None or t["report"] is None:
-            self.edit_txt.setPlainText("Select a decodable slot on the left first.")
+            self._show_output("Select a decodable slot on the left first.")
             return
         extra, container, block = t["extra"], t["container"], t["block"]
         char, ability, value = self.ap_char_combo.currentText(), self.ap_abil_var.text().strip(), self.ap_val_var.text().strip()
@@ -598,17 +616,17 @@ class ItemEquipDoc(QWidget):
                 trio = (_si.render_ability_write, _si.set_ap_extra(extra, char, ability, value, dry_run=True),
                         lambda: _si.set_ap_extra(extra, char, ability, value, dry_run=False))
             else:
-                self.edit_txt.setPlainText("Select an editable slot first.")
+                self._show_output("Select an editable slot first.")
                 return
         except (ValueError, TypeError) as e:
-            self.edit_txt.setPlainText(f"Cannot apply:\n  {e}")
+            self._show_output(f"Cannot apply:\n  {e}")
             return
         self._apply_plan(*trio, apply)
 
     def _edit_keyitem(self, apply, obtained):
         t = self._target()
         if t is None or t["report"] is None:
-            self.edit_txt.setPlainText("Select a decodable slot on the left first.")
+            self._show_output("Select a decodable slot on the left first.")
             return
         extra, container, block = t["extra"], t["container"], t["block"]
         name = self.ki_var.text().strip()
@@ -620,9 +638,9 @@ class ItemEquipDoc(QWidget):
                 trio = (_si.render_keyitem_write, _si.set_keyitem_extra(extra, name, obtained=obtained, dry_run=True),
                         lambda: _si.set_keyitem_extra(extra, name, obtained=obtained, dry_run=False))
             else:
-                self.edit_txt.setPlainText("Select an editable slot first.")
+                self._show_output("Select an editable slot first.")
                 return
         except ValueError as e:
-            self.edit_txt.setPlainText(f"Cannot apply:\n  {e}")
+            self._show_output(f"Cannot apply:\n  {e}")
             return
         self._apply_plan(*trio, apply)

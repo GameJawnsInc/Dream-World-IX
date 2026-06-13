@@ -212,9 +212,11 @@ class Workspace(QMainWindow):
         self._doc_placeholder("Select a field or an object on the left to edit it.")
         self.map = CampaignMap(self.pal, on_open=self._select_member)   # the campaign graph as a document
         self.tabs.addTab(self.map, "Map")
-        self.story_state = StoryStateDoc(self.pal)                       # the save STATE layer (5b-i)
+        # the save docs route their console output to the bottom Output panel when docked (so the doc body
+        # reclaims that height); standalone (output=None) they'd keep an in-pane console.
+        self.story_state = StoryStateDoc(self.pal, output=self._save_output)       # save STATE layer (5b-i)
         self.tabs.addTab(self.story_state, "Story State")
-        self.item_equip = ItemEquipDoc(self.pal)                         # gil / inventory / equipment (5b-ii)
+        self.item_equip = ItemEquipDoc(self.pal, output=self._save_output)         # gil/inventory/equip (5b-ii)
         self.tabs.addTab(self.item_equip, "Item & Equip")
         split.addWidget(self.tabs)
 
@@ -297,6 +299,12 @@ class Workspace(QMainWindow):
                                            "Field (*.field.toml);;TOML (*.toml);;All files (*)")
         if f:
             self.open_field(Path(f))
+
+    def _save_output(self, text):
+        """Sink for the docked save editors' Preview/Apply output -> the bottom Output panel (console's
+        natural home), so a docked save doc doesn't spend its body height on its own console box."""
+        self.output.setPlainText(text)
+        self.dock_tabs.setCurrentWidget(self.output)
 
     def _open_save(self):
         """Open a save into BOTH save documents (story state + item/equip) -- a cross-cutting document,
