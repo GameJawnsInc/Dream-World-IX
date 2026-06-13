@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — `[[synthesis]]`: custom synthesis shops (recipes + opener), no DLL (0.9.86)
+### Added — `[[synthesis]]`: custom synthesis shops (recipes + opener), no DLL (0.9.86, ★ IN-GAME PROVEN)
 - A **synthesis shop** combines ingredient items + gil into a new item. `[[synthesis]] shop = N` + `recipes = [{
   result, ingredients, price }, ...]` emits a `Data/Items/Synthesis.csv` (`FF9MIX_DATA`) delta; the opener is the
   **same `Menu(2, id)`** as a buy shop (reused verbatim from `content/shop.py` — NPC `opens_shop = N` or a standalone
@@ -21,7 +21,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `shop.inject_shop_regions`) + `ModLayout.synthesis_csv` + `config` + `deploy_field` reversible CSV loop +
   `_STARTUP_CSVS` (RELAUNCH note) + `validate()`. Multi-lens adversarially reviewed (0 blockers; folded a real
   `ConfigError`-escapes-the-build fix — also in the `itemdata` sibling — + lint type-guards for a scalar `zone` /
-  string `ingredients` + doc/message precision). 21 tests (1520 total). **Awaiting in-game proof.**
+  string `ingredients` + doc/message precision). 21 tests (1520 total).
+- **★ IN-GAME PROVEN (2026-06-13):** a custom synth shop (id 50, opened by a press-region `Menu(2, 50)` in a test
+  field) opened as a **Synthesis** shop and offered a **net-new** recipe (Mythril Dagger ← Mage Masher + Potion, 50
+  gil — not a vanilla combo); synthesizing it produced the item and deducted the ingredients + gil. Confirms the
+  minted `Synthesis.csv` recipe row + the buy-vs-synthesis routing (id 50 absent from `ShopItems.csv` → Synthesis).
 
 ### Added — quick-win item columns: weapon `category`/`status_index`/`rate` + item `equippable_by` (0.9.85, ★ IN-GAME PROVEN)
 - Extends the `[[weapon]]`/`[[item]]` CSV-delta surface (`content/itemdata.py`) with four more stock-moddable,
