@@ -1032,6 +1032,21 @@ def lint_logic(project: FieldProject) -> list[str]:
                            f"carry (donor txid {missing}) -- it will render WRONG/missing text in-game. Import "
                            f"with --carry-text (ships the donor's lines + remaps the windows), or author the line.")
 
+    # #11 (FORK_FIDELITY.md): a VERBATIM-carried story-gated door (a [[gateway_carry]] entry) may open its own
+    # window (e.g. "It's locked" -- 2 real fields: 352, 552). Its bytes ship verbatim, so the window keeps the
+    # DONOR txid -- and the carry-text remap only touches [[object]]/[[player_func]] windows, not gateway
+    # entries, so --carry-text can't fix it. Warn (don't silently ship wrong text); the faithful answer is
+    # --verbatim (it ships the whole donor .mes, so the donor txid resolves) or authoring the line.
+    for gc in raw.get("gateway_carry", []):
+        binref = gc.get("bin")
+        if not binref or not project.path(binref).is_file():
+            continue
+        shown = _entry_window_txids(project.path(binref).read_bytes())   # whole entry (grafted verbatim)
+        if shown:
+            out.append(f"[[gateway_carry]] {binref} (a story-gated door) shows its own dialogue (donor txid "
+                       f"{sorted(shown)}) that a carry-text fork can't remap -- it will render WRONG/missing text. "
+                       f"Use --verbatim (ships the whole donor .mes) or author the message.")
+
     # (a --verbatim fork now fires BOTH [startup] and [[on_entry]] -- state-advances AND narration messages
     # (the message is appended to the donor .mes above its txids, build._verbatim_on_entry_messages) -- so
     # there is no longer a verbatim-specific on_entry limitation to warn about.)

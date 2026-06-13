@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — lint warns on a verbatim-carried gated door's un-remappable window text (#11) (0.9.80)
+- A `[[gateway_carry]]` story-gated door is grafted verbatim, so if it opens its OWN window (e.g. "it's locked")
+  the window keeps the DONOR txid — and the carry-text remap only touches `[[object]]`/`[[player_func]]` windows,
+  so `--carry-text` can't fix it. `lint_logic` now decodes each carried gateway entry's windows and WARNS when
+  it shows donor text, pointing to `--verbatim` (which ships the whole donor `.mes`, so the txid resolves) or
+  authoring the line — instead of silently shipping wrong text. Only **2 real fields** (352, 552) hit this; the
+  full carry+remap of gateway-entry windows is deferred (low value). +2 tests. This clears the #11 interim.
+- **Docs:** `FORK_FIDELITY.md` trued up — #9 marked LANDED+PROVEN, #11 status, and a "small/orthogonal backlog
+  is CLEAR" summary (the rest is battle-pillar #6/#13, mitigated cosmetic #8, or `--verbatim`-covered #12).
+
 ### Changed — a synth fork now spawns at the donor's real main arrival, not a centroid guess (#9) (0.9.79, ★ IN-GAME PROVEN)
 - `extract_field`'s spawn cascade now PREFERS a real per-entrance ARRIVAL position (the player Init's
   `D9(0)/D9(4)` block, where the engine actually drops the player walking in a door) over the donor charPos
