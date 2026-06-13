@@ -141,7 +141,7 @@ def test_offline_path_matches_export_within_codec_noise():
         pytest.skip("no exported field on disk")
     res = extract._overlay_art(fdir.name.lower())
     assert res is not None
-    overlays, provider, factor, source = res
+    overlays, provider, factor, source, _atlas = res
     assert source == "offline"                                # the offline assembler, not the fallback
     worst = 0
     checked = 0

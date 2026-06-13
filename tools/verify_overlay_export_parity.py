@@ -95,7 +95,7 @@ def main() -> int:
             if res is None:
                 errors.append((folder, "_overlay_art returned None"))
                 continue
-            overlays, provider, factor, source = res
+            overlays, provider, factor, source, _atlas = res
         except Exception as e:           # noqa: BLE001
             errors.append((folder, repr(e)[:90]))
             continue

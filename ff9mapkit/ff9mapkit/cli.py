@@ -422,6 +422,50 @@ def _cmd_extract_field(args: argparse.Namespace) -> int:
     return rc
 
 
+def _cmd_export_art(args: argparse.Namespace) -> int:
+    """Assemble per-overlay background PNGs OFFLINE -- our own `[Export] Field=1`, no in-game hang.
+    Targets: one field, a campaign.toml (every member's donor field), or --all."""
+    if not _has_unitypy():
+        print("export-art needs UnityPy (pip install UnityPy) + your FF9 install.", file=sys.stderr)
+        return 2
+    from . import extract
+    _safe_console()
+    write_atlas = not args.no_atlas
+
+    def progress(k, total, folder, summ, err):
+        if err:
+            print(f"  [{k}/{total}] {folder}: SKIP ({err})", file=sys.stderr)
+        else:
+            tag = "" if summ["atlas"] else " (no atlas)"
+            print(f"  [{k}/{total}] {folder}: {summ['overlays']} overlays{tag}")
+
+    try:
+        if args.all:
+            res = extract.export_all_art(args.out, game=args.game, pattern=args.pattern,
+                                         write_atlas=write_atlas, on_field=progress)
+        elif args.target and str(args.target).lower().endswith(".toml"):
+            res = extract.export_campaign_art(args.target, args.out, game=args.game,
+                                              write_atlas=write_atlas, on_field=progress)
+        elif args.target:
+            summ = extract.export_field_art(args.target, args.out, game=args.game, write_atlas=write_atlas)
+            atxt = " + atlas.png" if summ["atlas"] else ""
+            print(f"{summ['folder']}: {summ['overlays']} overlays ({summ['source']}){atxt} -> {summ['dir']}")
+            return 0
+        else:
+            print("export-art: give a field, a campaign.toml, or --all", file=sys.stderr)
+            return 2
+    except (FileNotFoundError, ValueError, RuntimeError, ConfigError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    where = args.out or "<install>/StreamingAssets/FieldMaps"
+    print(f"\nexported {res['fields']}/{res['total']} field(s), {res['overlays']} overlays -> {where}")
+    if res["failed"]:
+        print(f"  {len(res['failed'])} field(s) skipped (no readable art):", file=sys.stderr)
+        for tok, err in res["failed"][:10]:
+            print(f"    {tok}: {err}", file=sys.stderr)
+    return 0 if res["fields"] else 1
+
+
 def _cmd_pack(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .pack import pack_mod
@@ -1955,6 +1999,21 @@ def build_parser() -> argparse.ArgumentParser:
     ef.add_argument("--force", action="store_true", help="re-extract even if already cached")
     ef.set_defaults(func=_cmd_extract_field)
 
+    ea = sub.add_parser("export-art", help="assemble a field's per-overlay background PNGs OFFLINE -- our own "
+                        "[Export] Field=1 (no in-game hang); needs UnityPy")
+    ea.add_argument("target", nargs="?", default=None,
+                    help="a field (FBG / mapid / unique substring), OR a campaign.toml (export every member's "
+                         "donor field). Omit with --all.")
+    ea.add_argument("--all", action="store_true",
+                    help="export EVERY real field (the full drop-in for the in-game startup dump)")
+    ea.add_argument("--pattern", default=None,
+                    help="with --all: only fields whose FBG folder contains this substring")
+    ea.add_argument("--out", default=None,
+                    help="output root (default: <install>/StreamingAssets/FieldMaps, the engine's own "
+                         "location -- a true drop-in); each field lands in <out>/<FBG>/")
+    ea.add_argument("--no-atlas", action="store_true", help="don't also dump the source atlas.png")
+    ea.set_defaults(func=_cmd_export_art)
+
     im = sub.add_parser("import", help="fork a REAL FF9 field into an editable field.toml (needs UnityPy)")
     im.add_argument("field", help="field name: full FBG, bare mapid, or a unique substring (e.g. grgr_map420)")
     im.add_argument("--out", default=".", help="project dir to write into (default: .)")
@@ -1963,7 +2022,7 @@ def build_parser() -> argparse.ArgumentParser:
     im.add_argument("--editable", action="store_true",
                     help="fork as a full editable CUSTOM SCENE (re-exported walkmesh + the real art split "
                          "into one repaintable layer per depth, occlusion preserved) instead of BG-borrow; "
-                         "needs the field exported in-game once via Memoria.ini [Export] Field=1")
+                         "art is assembled OFFLINE from the atlas now -- no in-game [Export] step needed")
     im.add_argument("--native", action="store_true",
                     help="fork as a NATIVE custom scene: ship the real atlas.png + .bgs (per-tile depth) + "
                          "custom walkmesh, NO .bgx -- renders via the engine's seamless native path (no tile "

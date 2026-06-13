@@ -897,12 +897,14 @@ def field_art_dir(field: str, game=None):
 
 
 def _overlay_art(field: str, game=None, bundle=None):
-    """``(overlays, provider, factor, source)`` for a field's background art -- OFFLINE-FIRST.
+    """``(overlays, provider, factor, source, atlas)`` for a field's background art -- OFFLINE-FIRST.
 
     ``overlays`` are the field's sprite-resolved overlays; ``provider(i)`` yields overlay ``i``'s
     ``Overlay{i}.png`` as a PIL RGBA image (or None); ``factor`` (= active TileSize // 16) is the
     overlay PNGs' pixels-per-tile -- the scale ``compose_background`` / ``extract_layers`` must crop
-    and place at; ``source`` is ``"offline"`` or ``"export"``. Returns None when no art is available.
+    and place at; ``source`` is ``"offline"`` or ``"export"``; ``atlas`` is the source atlas PIL image
+    on the offline path (for an `export-art` ``atlas.png`` dump), else None. Returns None when no art
+    is available.
 
     DEFAULT = assemble each overlay straight from the atlas the engine itself would render with (the
     highest-priority mod atlas -- Moguri -- else the base p0data atlas), via :mod:`scene.bgart`, so NO
@@ -936,7 +938,7 @@ def _overlay_art(field: str, game=None, bundle=None):
         _, overlays = bgs.parse_overlays(bgs_bytes)
         bgs.resolve_sprites(bgs_bytes, overlays, atlas_img.size[0], ts)
         imgs = bgart.assemble_overlays(atlas_img, overlays, ts)
-        return overlays, (lambda i, _m=imgs: _m.get(i)), factor, "offline"
+        return overlays, (lambda i, _m=imgs: _m.get(i)), factor, "offline", atlas_img
     art = field_art_dir(field, game)                         # FALLBACK: the on-disk [Export] dump
     if art is None:
         return None
@@ -946,7 +948,79 @@ def _overlay_art(field: str, game=None, bundle=None):
     def _disk(i, _art=art):
         p = _art / f"Overlay{i}.png"
         return Image.open(p).convert("RGBA") if p.is_file() else None
-    return overlays, _disk, factor, "export"
+    return overlays, _disk, factor, "export", None
+
+
+def export_field_art(field: str, out_dir=None, *, game=None, bundle=None, write_atlas=True) -> dict:
+    """Write a real field's per-overlay ``Overlay{i}.png`` (+ ``atlas.png``) to disk OFFLINE -- a drop-in
+    for ONE field's slice of Memoria's ``[Export] Field=1`` dump, with NO in-game step.
+
+    Assembles the overlays via :func:`_overlay_art` (offline-first) and writes them under
+    ``<out_dir>/<FBG-UPPER>/``. ``out_dir`` defaults to the install's ``StreamingAssets/FieldMaps`` so the
+    result lands exactly where the engine's own export would (a true drop-in). ``write_atlas`` also dumps
+    the source ``atlas.png`` (as the engine does). Returns a summary dict; raises ``FileNotFoundError`` if
+    the field has no readable art. NOTE: these PNGs are SE-derived ART -- keep them OUT of version control
+    (the kit's .gitignore already excludes field assets)."""
+    folder, _ = resolve_field(field, game)                   # canonical FBG folder -> the output dir name
+    res = _overlay_art(field, game=game, bundle=bundle)
+    if res is None:
+        raise FileNotFoundError(f"{folder}: no readable field art (atlas + on-disk export both unavailable)")
+    overlays, provider, _factor, source, atlas = res
+    base = Path(out_dir) if out_dir is not None else (
+        config.find_game_path(game) / "StreamingAssets" / "FieldMaps")
+    dest = base / folder.upper()
+    dest.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for i in range(len(overlays)):
+        im = provider(i)
+        if im is None:
+            continue
+        im.save(dest / f"Overlay{i}.png")
+        n += 1
+    wrote_atlas = bool(write_atlas and atlas is not None)
+    if wrote_atlas:
+        atlas.save(dest / "atlas.png")
+    return {"folder": folder, "dir": str(dest), "overlays": n, "atlas": wrote_atlas, "source": source}
+
+
+def _export_many(field_tokens, out_dir, *, game=None, write_atlas=True, on_field=None) -> dict:
+    """Export many fields' art, never raising on a single bad field. ``on_field(k, total, folder, summary,
+    err)`` is an optional progress callback. Returns {fields, overlays, failed:[(token, err)], total}."""
+    fields = list(field_tokens)
+    total = len(fields)
+    n_fields = n_overlays = 0
+    failed = []
+    for k, f in enumerate(fields):
+        try:
+            summ = export_field_art(f, out_dir, game=game, write_atlas=write_atlas)
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            failed.append((str(f), str(e)))
+            if on_field:
+                on_field(k + 1, total, str(f), None, str(e))
+            continue
+        n_fields += 1
+        n_overlays += summ["overlays"]
+        if on_field:
+            on_field(k + 1, total, summ["folder"], summ, None)
+    return {"fields": n_fields, "overlays": n_overlays, "failed": failed, "total": total}
+
+
+def export_campaign_art(campaign_toml, out_dir=None, *, game=None, write_atlas=True, on_field=None) -> dict:
+    """Export the per-overlay art for every REAL field a campaign forks (its members' ``source`` donor
+    fields), OFFLINE. Reads the campaign manifest; dedups shared donors. See :func:`export_field_art`."""
+    from . import campaign as _camp
+    plan = _camp.load_campaign(campaign_toml)
+    ids = sorted({m.real_id for m in plan.members if m.real_id})
+    if not ids:
+        raise ValueError(f"{campaign_toml}: no member fields with a real `source` id to export")
+    return _export_many((str(i) for i in ids), out_dir, game=game, write_atlas=write_atlas, on_field=on_field)
+
+
+def export_all_art(out_dir=None, *, game=None, pattern=None, write_atlas=True, on_field=None) -> dict:
+    """Export per-overlay art for EVERY real field (optionally filtered by ``pattern``), OFFLINE -- the full
+    drop-in for the in-game ``[Export] Field=1`` startup dump, without launching the game (or its hang)."""
+    fields = [folder for folder, _a, _m in list_fields(pattern, game=game)]
+    return _export_many(fields, out_dir, game=game, write_atlas=write_atlas, on_field=on_field)
 
 
 def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=None,
@@ -965,7 +1039,7 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
     res = _overlay_art(field, game=game, bundle=bundle)
     if res is None:
         return None
-    overlays, provider, factor, _src = res
+    overlays, provider, factor, _src, _atlas = res
     up = factor if upscale is None else upscale              # the overlay PNGs are `factor` px/tile
     from PIL import Image, ImageDraw  # noqa: PLC0415 - only the art path needs PIL
     _, _, roles, env = find_field(field, game=game, bundle=bundle)
@@ -1078,7 +1152,7 @@ def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=None,
     res = _overlay_art(field, game=game, bundle=bundle)
     if res is None:
         return None
-    overlays, provider, factor, _src = res
+    overlays, provider, factor, _src, _atlas = res
     up = factor if upscale is None else upscale              # the overlay PNGs are `factor` px/tile
     _, _, roles, env = find_field(field, game=game, bundle=bundle)
     bgs_bytes = _raw_bytes(env.container[roles["bgs"]].read())
