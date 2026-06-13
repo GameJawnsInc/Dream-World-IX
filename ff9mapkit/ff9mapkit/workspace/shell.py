@@ -1312,6 +1312,10 @@ def _smoke(win):
     assert prev_box and prev_box[0].toPlainText() == _dlg.wrap_preview(longnpc["dialogue"], 12), \
         (prev_box and prev_box[0].toPlainText())
     assert "\n" in prev_box[0].toPlainText(), "a long line pre-breaks in the preview"
+    # the overflow note is FIXED-height (always in the layout, not visibility-toggled) so flipping
+    # warn<->fits can't reflow/clip the preview box (the reported resize bug)
+    note = [lb for lb in prev_box[0].parent().findChildren(QLabel) if lb.maximumHeight() == 16]
+    assert note and note[0].minimumHeight() == 16, "the wrap-preview note is fixed-height (no reflow)"
 
     # Phase 4b: the cutscene + choice sub-editors mount over a doc with steps/options
     edoc = win._doc("IC_ENT")

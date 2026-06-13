@@ -45,9 +45,11 @@ def _wrap_preview_panel(line_edit, get_text, palette, wrap_width):
     box.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)     # show the kit's OWN break points, not Qt's
     box.setFixedHeight(74)
     pv.addWidget(box)
+    # The note is ALWAYS in the layout at a fixed height (it carries the warning OR a quiet "fits" line):
+    # toggling visibility would change the panel height and, inside the nested form/scroll, clip the
+    # fixed-height box on the way back. A constant-height panel can't reflow.
     note = QLabel("")
-    note.setWordWrap(True)
-    note.setVisible(False)
+    note.setFixedHeight(16)
     pv.addWidget(note)
 
     def refresh(*_):
@@ -57,7 +59,11 @@ def _wrap_preview_panel(line_edit, get_text, palette, wrap_width):
         if over:
             note.setText(f"⚠ {len(over)} line(s) may overflow the window — verify in-game.")
             note.setStyleSheet(f"color:{palette['warn']};font-size:11px;")
-        note.setVisible(bool(over))
+        elif txt:
+            note.setText("✓ fits the window")
+            note.setStyleSheet(f"color:{palette['muted']};font-size:11px;")
+        else:
+            note.setText("")
 
     line_edit.textChanged.connect(refresh)
     refresh()
