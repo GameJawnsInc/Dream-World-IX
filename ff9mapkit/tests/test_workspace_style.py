@@ -23,3 +23,11 @@ def test_qss_styles_the_core_widgets():
     css = style.qss(theme.LIGHT)
     for sel in ("QTreeWidget", "QTabBar::tab", "QPlainTextEdit", "QPushButton", "QScrollBar"):
         assert sel in css
+
+
+def test_qss_specifies_checked_indicators():
+    # once a stylesheet touches a QCheckBox/QRadioButton, Qt stops drawing the native checked dot -- so the
+    # CHECKED indicator must be explicitly styled or the selected state renders invisible (the Import bug).
+    css = style.qss(theme.DARK)
+    assert "QRadioButton::indicator" in css and "QCheckBox::indicator" in css
+    assert "::indicator:checked" in css

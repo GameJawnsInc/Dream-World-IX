@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QPushButton, QVBoxLayout, QWidget,
 )
 
@@ -93,12 +93,14 @@ class CatalogPicker(QDialog):
     """A modal Info-Hub catalog picker: search + a result list, returning the chosen entry NAME. Reuses
     the same ``infohub.browse`` spine as the tkinter editor's picker (archetype/creature/item/flag/...)."""
 
-    def __init__(self, parent, kinds, initial, plan, palette):
+    def __init__(self, parent, kinds, initial, plan, palette, *, browse=False, limit=300):
         super().__init__(parent)
-        self.setWindowTitle("Pick from the catalog")
+        self.setWindowTitle("Browse the catalog" if browse else "Pick from the catalog")
         self.resize(560, 460)
         self.kinds = kinds
         self.plan = plan
+        self.browse = browse                           # browse mode: "Use this" copies the name + stays open
+        self.limit = limit
         self.result = None
         self._entries = []
         lay = QVBoxLayout(self)
@@ -116,10 +118,10 @@ class CatalogPicker(QDialog):
         self.info.setStyleSheet(f"color:{palette['muted']};")
         lay.addWidget(self.info)
         bar = QHBoxLayout()
-        use = QPushButton("Use this")
+        use = QPushButton("Copy name" if browse else "Use this")
         use.setObjectName("accent")
         use.clicked.connect(self._ok)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton("Close" if browse else "Cancel")
         cancel.clicked.connect(self.reject)
         bar.addWidget(use)
         bar.addWidget(cancel)
@@ -130,7 +132,7 @@ class CatalogPicker(QDialog):
 
     def _refresh(self):
         try:
-            self._entries = infohub.browse(self.q.text(), kinds=self.kinds, limit=300,
+            self._entries = infohub.browse(self.q.text(), kinds=self.kinds, limit=self.limit,
                                            campaign_context=self.plan)
         except Exception:                              # noqa: BLE001 -- a catalog needing data we lack
             self._entries = []
@@ -138,7 +140,9 @@ class CatalogPicker(QDialog):
         for e in self._entries:
             self.lst.addItem(f"{e.name}    [{e.kind}]")
         where = f" in {', '.join(self.kinds)}" if self.kinds else ""
-        self.info.setText(f"{len(self._entries)} match(es){where}")
+        capped = self.limit is not None and len(self._entries) >= self.limit
+        note = " (capped — type to narrow)" if capped else ""
+        self.info.setText(f"{len(self._entries)} match(es){where}{note}")
 
     def _describe(self, row):
         if 0 <= row < len(self._entries):
@@ -149,9 +153,15 @@ class CatalogPicker(QDialog):
         row = self.lst.currentRow()
         if row < 0 and len(self._entries) == 1:
             row = 0
-        if 0 <= row < len(self._entries):
-            self.result = self._entries[row].name
-            self.accept()
+        if not (0 <= row < len(self._entries)):
+            return
+        e = self._entries[row]
+        if self.browse:                                # Info Hub browse: copy the name, keep browsing
+            QApplication.clipboard().setText(e.name)
+            self.info.setText(f"Copied “{e.name}” [{e.kind}] to the clipboard.")
+            return
+        self.result = e.name
+        self.accept()
 
 
 def pick_catalog(parent, catalog, initial, plan, palette):

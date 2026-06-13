@@ -29,6 +29,20 @@ _QSS = Template(
     QPushButton#accent:hover { background: $accent_hover; }
     QPushButton#accent:pressed { background: $accent_pressed; }
 
+    /* Indicators MUST be fully specified: once a stylesheet touches a QCheckBox/QRadioButton, Qt stops
+       drawing the native checked dot, so without this the selected state renders INVISIBLE. */
+    QCheckBox, QRadioButton { background: transparent; spacing: 7px; }
+    QCheckBox::indicator, QRadioButton::indicator {
+        width: 15px; height: 15px; border: 1px solid $border; background: $field;
+    }
+    QRadioButton::indicator { border-radius: 8px; }
+    QCheckBox::indicator { border-radius: 4px; }
+    QCheckBox::indicator:hover, QRadioButton::indicator:hover { border: 1px solid $accent; }
+    QCheckBox::indicator:checked, QRadioButton::indicator:checked {
+        background: $accent; border: 1px solid $accent;
+    }
+    QCheckBox::indicator:disabled, QRadioButton::indicator:disabled { border: 1px solid $muted; background: $bg; }
+
     QLineEdit {
         background: $field; color: $text; border: 1px solid $border; border-radius: 6px;
         padding: 6px 9px; selection-background-color: $accent; selection-color: $accent_fg;

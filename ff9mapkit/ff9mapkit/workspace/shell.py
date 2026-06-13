@@ -578,9 +578,11 @@ class Workspace(QMainWindow):
 
     def _open_catalog(self):
         """Browse the whole Info Hub catalog (models / archetypes / props / creatures / items / scenes /
-        fields) in one searchable picker -- the standalone Info Hub browser, folded into the Workspace."""
+        fields) in one searchable picker -- the standalone Info Hub browser, folded into the Workspace.
+        browse=True: 'Copy name' copies the selected entry + keeps the window open; no result cap (the
+        full ~2k-entry catalog, not the picker's 300)."""
         from .forms_qt import CatalogPicker
-        CatalogPicker(self, None, "", self.plan, self.pal).exec()
+        CatalogPicker(self, None, "", self.plan, self.pal, browse=True, limit=None).exec()
 
     # ---- the document editor (Phase 4) ----
     def _clear_doc(self):
@@ -1220,8 +1222,12 @@ def _smoke(win):
     from .forms_qt import CatalogPicker
     pk = CatalogPicker(win, ["archetype", "creature"], "vivi", win.plan, win.pal)
     assert "vivi" in [e.name for e in pk._entries], [e.name for e in pk._entries]
-    # the Info Hub browser (folded in): kinds=None searches the whole catalog; the command is indexed
-    assert CatalogPicker(win, None, "moogle", win.plan, win.pal)._entries, "all-catalog browse returns hits"
+    # the Info Hub browser (folded in): browse=True, no cap -> the FULL catalog (>300, not the picker cap)
+    brow = CatalogPicker(win, None, "", win.plan, win.pal, browse=True, limit=None)
+    assert len(brow._entries) > 300, f"uncapped browse should exceed the 300 picker cap, got {len(brow._entries)}"
+    brow.lst.setCurrentRow(0)
+    brow._ok()                                          # browse mode: copies the name + stays open (no accept)
+    assert brow.result is None and "Copied" in brow.info.text()
     assert "Browse catalog (Info Hub)" in [e[0] for e in win._command_index()]
 
     # Check surfaces the dangling GHOST edge as a problem
