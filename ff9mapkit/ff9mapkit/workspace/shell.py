@@ -189,6 +189,7 @@ class Workspace(QMainWindow):
         self.tree.setHeaderHidden(True)
         self.tree.itemSelectionChanged.connect(self._on_select)
         self.tree.itemExpanded.connect(self._on_expand)
+        self.tree.itemDoubleClicked.connect(self._on_tree_double)   # double-click = open (Editor / Map)
         split.addWidget(self.tree)
 
         self.tabs = QTabWidget()
@@ -313,6 +314,7 @@ class Workspace(QMainWindow):
         self._populate_field(name)
         self.statusBar().showMessage(f"{name} — standalone field — {path}")
         self._select_member(name)
+        self.tabs.setCurrentWidget(self.doc_scroll)   # a standalone field has no map -> show its Editor
         return True
 
     def _populate_field(self, name):
@@ -350,6 +352,7 @@ class Workspace(QMainWindow):
         self.map.render(g, entry)
         if entry:
             self._select_member(entry)
+        self.tabs.setCurrentWidget(self.map)       # open a campaign -> land on its Map (its overview)
         return True
 
     def _journey_label(self):
@@ -468,15 +471,20 @@ class Workspace(QMainWindow):
                                 field, obj_label, obj_key or ""))
         self._inspect(item, p, field)
         if field and getattr(self, "map", None) is not None:
-            self.map.highlight(field)              # keep the Map document in sync with the tree
-        if p and p[0] == "campaign":
-            self.tabs.setCurrentWidget(self.map)   # selecting the campaign root shows its map
+            self.map.highlight(field)              # keep the Map in sync, but DON'T steal the active tab
         if field_item is not None and p:
             member = self._payload(field_item)[1]
             if item is field_item:                 # the member row itself -> its Field form
                 self._open_editor(member, "field", "field")
             else:                                  # an object/group under it -> edit by its key
                 self._open_editor(member, p[0], p[2])
+
+    def _on_tree_double(self, item, _col=0):
+        """Double-click = explicit 'open': a field/object goes to the Editor, a campaign/journey root to
+        the Map. (Single-click only selects + highlights, so browsing the tree doesn't steal your tab.)"""
+        p = self._payload(item)
+        if p:
+            self.tabs.setCurrentWidget(self.map if p[0] in ("campaign", "journey") else self.doc_scroll)
 
     # ---- the document editor (Phase 4) ----
     def _clear_doc(self):
@@ -559,7 +567,8 @@ class Workspace(QMainWindow):
         save.clicked.connect(lambda _=False: handler())
         self.doc_host_lay.addWidget(save, alignment=Qt.AlignLeft)
         self.doc_host_lay.addStretch(1)
-        self.tabs.setCurrentWidget(self.doc_scroll)
+        # NB: mounting a form no longer steals the active tab -- single-click selection stays put
+        # (you reach the Editor via the tab or a double-click; see _on_tree_double).
 
     def _save(self):
         ctx = self._save_ctx
