@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a synth fork no longer stacks a self-positioning NPC into a duplicate pair (#13 a) (0.9.76)
+- `scan_objects_verbatim` now **dedups InitObject sites by arg**. `InitObject(slot, arg)` addresses *instance*
+  `arg`, so the same `(slot, arg)` emitted twice is one instance re-init'd — in the donor a beat **director**
+  fires just one of those sites per beat, but a SYNTH (non-`--verbatim`) fork has no director and would emit
+  them all, **stacking identical copies**. Found in-game forking the Dali Weapon Shop: `DAF` (a shop NPC that
+  hard-sets its own position via local `D9(0)/D9(4)`, ignoring the arg) is `InitObject`'d twice at arg 0 → a
+  stacked pair. The scan now carries it as **one** instance at its real self-set spot `(-226,-241)`.
+- Distinct args are a genuine row and are **kept** (field-122 `BBX`: a single entry offset per arg 128/129/130 —
+  it self-positions from a `D9` *base* it shifts by the arg, so the old `slot_count==1` self-position guard was
+  wrong; replaced by the arg-dedup, which is correct whether the object self-positions or inherits Main_Init D9).
+- No effect on `--verbatim` forks (they ship the whole `.eb`, bypassing the object graft). +2 tests (a pure
+  inject-then-arm round-trip; an install-gated end-to-end on the real Dali roster). Part of the #13 (c) tail.
+
 ### Performance — the test suite no longer re-reads the 68 MB event bundle on every install-gated call (0.9.75)
 - **Root-caused the "test suite takes 2 hours" report.** The full suite is healthy: **1348 passed in ~146s** serially.
   The 2-hour run was resource **contention** — while pytest (pinned to one core) ran, concurrent background work

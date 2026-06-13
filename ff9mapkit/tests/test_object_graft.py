@@ -294,3 +294,26 @@ def test_synth_fork_drops_the_dali_shop_director():
     _obj.graft_objects(CLEAN, [dict(s) for s in specs], out_skipped=skipped)
     assert skipped                                          # the warp-director is dropped from the synth carry
     assert len(skipped) < len(carried)                      # ...but the non-director NPCs still carry
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_synth_fork_collapses_the_dali_stacked_pair():
+    # #13a end to end on real data: the Dali Weapon Shop InitObjects DAF (a self-positioning shop NPC) TWICE
+    # at arg 0 -- the donor's beat director fires one site per beat, but a synth fork would emit both and
+    # stack identical copies. The scan must collapse it to ONE instance at its real self-set spot; every Dali
+    # NPC ends up single-instance (a clean static roster). Guard: the donor really does double-InitObject DAF.
+    from ff9mapkit import extract
+    eb = extract.extract_event_script("fbg_n06_vgdl_map103_dl_shp_0")
+    # the raw donor: count InitObject(slot) sites in Main_Init, to prove this test guards a real regression
+    es = EbScript.from_bytes(eb)
+    f0 = next(e for e in es.entries if not e.empty and e.index == 0).func_by_tag(0)
+    init_sites: dict = {}
+    for ins in es.instrs(f0):
+        if ins.op == eventscan.INIT_OBJECT_OP and ins.args and isinstance(ins.args[0], int):
+            init_sites[int(ins.args[0])] = init_sites.get(int(ins.args[0]), 0) + 1
+    specs = eventscan.scan_objects_verbatim(eb)
+    daf = next(s for s in specs if s["model"] == "GEO_NPC_F0_DAF")
+    assert init_sites.get(daf["donor_idx"], 0) >= 2         # the donor DOES double-init DAF (the bug's source)
+    assert len(daf["instances"]) == 1 and daf["instances"][0]["arg"] == 0   # ...collapsed to one
+    assert daf["self_positions"] and (daf["instances"][0]["x"], daf["instances"][0]["z"]) == (-226, -241)
+    assert all(len(s["instances"]) == 1 for s in specs)     # the whole Dali roster is single-instance now

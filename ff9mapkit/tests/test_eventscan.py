@@ -229,6 +229,25 @@ def test_scan_objects_verbatim_roundtrips_injected_prop_verbatim():
     assert s["self_positions"] is True and s["needs_d9"] == {}
 
 
+def test_scan_objects_verbatim_dedups_duplicate_arg_instances():
+    # #13(a): InitObject(slot, arg) addresses INSTANCE `arg`, so the same (slot, arg) emitted twice is one
+    # instance re-init'd -- the donor's beat director fires just one site per beat, but a synth fork (no
+    # director) would emit both and STACK identical copies (forking the Dali shop: DAF, InitObject'd twice
+    # at arg 0, rendered as a stacked pair). The scanner collapses duplicate-arg sites; DISTINCT args (a
+    # genuine row) are kept. Built from tested primitives: inject one prop, then arm extra InitObjects of it.
+    from ff9mapkit.content import object as _object, prop as _prop
+    eb = _prop.inject_prop(CLEAN, 120, -340, model=133, pose=1872, face=5)
+    slot = eventscan.scan_objects_verbatim(eb)[0]["donor_idx"]
+
+    dup = _object._arm(eb, slot, 0, {})                       # a SECOND InitObject, SAME arg 0 -> would stack
+    sd = eventscan.scan_objects_verbatim(dup)
+    assert len(sd) == 1 and [i["arg"] for i in sd[0]["instances"]] == [0]   # collapsed 2 -> 1
+
+    dist = _object._arm(eb, slot, 1, {})                      # a DISTINCT arg -> a real second instance
+    sx = eventscan.scan_objects_verbatim(dist)
+    assert len(sx) == 1 and sorted(i["arg"] for i in sx[0]["instances"]) == [0, 1]   # kept
+
+
 def test_scan_objects_verbatim_npc_is_talkable_and_clean():
     from ff9mapkit.content import npc as _npc
     eb = _npc.inject_npc(CLEAN, -80, 200, model=220, animset=50)

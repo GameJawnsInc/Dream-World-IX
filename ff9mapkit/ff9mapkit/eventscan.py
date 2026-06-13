@@ -908,7 +908,6 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
                 grouped[slot] = []
                 order.append(slot)
             grouped[slot].append((arg, dict(d9)))
-    slot_count = {s: len(v) for s, v in grouped.items()}
 
     # the recognised save-Moogle cluster (hidden Moogle + its hidden book/feather/tent props): carried as a
     # UNIT despite being script-hidden, so a forked field's save point comes along verbatim (docs/SAVEPOINT.md).
@@ -969,12 +968,23 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
         rd = info[slot]
         e = eb.entry(slot)
         insts = grouped[slot]
-        self_positions = rd["lit"] is not None or (0 in rd["local"] and 4 in rd["local"] and slot_count[slot] == 1)
-        instances = []
+        # An object SELF-POSITIONS when its own Init pins its placement -- a literal MoveInstantXZY, or
+        # local D9(0)/D9(4) sets (a fixed spot, OR a per-arg row's base that it offsets by the arg).
+        # Otherwise it inherits the D9 snapshot in force at its InitObject (carried as needs_d9).
+        self_positions = rd["lit"] is not None or (0 in rd["local"] and 4 in rd["local"])
+        # #13(a): collapse DUPLICATE-arg InitObjects. InitObject(slot, arg) addresses INSTANCE `arg`, so
+        # the same (slot, arg) emitted twice is one instance re-init'd -- the donor's beat director runs
+        # just one site per beat, but a synth fork (no director) would emit both and STACK identical
+        # copies (forking the Dali shop, DAF is InitObject'd twice at arg 0 -> a stacked pair). DISTINCT
+        # args are a genuine row (field-122 BBX: args 128/129/130, one entry offset per arg) and are kept.
+        instances, seen_args = [], set()
         for arg, snap in insts:
+            if arg in seen_args:
+                continue
+            seen_args.add(arg)
             if rd["lit"] is not None:
                 x, z = rd["lit"]
-            elif 0 in rd["local"] and 4 in rd["local"] and slot_count[slot] == 1:
+            elif self_positions:
                 x, z = rd["local"][0], rd["local"][4]
             elif 0 in snap and 4 in snap:
                 x, z = snap[0], snap[4]
