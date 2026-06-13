@@ -996,6 +996,8 @@ def validate(project: FieldProject) -> list[str]:
                             f"(auto-pop), got {ch.get('trigger')!r}")
         if not str(ch.get("prompt", "")).strip():
             problems.append(f"[[choice]] #{c} needs a 'prompt' (the question text)")
+        if "instant" in ch and not isinstance(ch["instant"], bool):
+            problems.append(f"[[choice]] #{c} instant must be true/false (pops the menu with no type-on)")
         opts = ch.get("options", [])
         if not isinstance(opts, list) or len(opts) < 2:
             problems.append(f"[[choice]] #{c} needs at least 2 options")
@@ -3077,6 +3079,8 @@ def collect_text(project: FieldProject):
         opts = [str(o.get("text", "")) for o in ch.get("options", [])]
         pre_tag = _choice.pre_choose(ch)[1]   # [PCHC]/[PCHM] config tag (default/cancel/disabled); "" if none
         prompt_line = pre_tag + q + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(opts)
+        if ch.get("instant"):                 # [IMME] = pop the menu fully drawn, no type-on (FF9 shop menus)
+            prompt_line += _text.CHOICE_IMME
         ch_prompt_pos[c] = _add_raw(prompt_line, ch.get("tail"))
         for oi, o in enumerate(ch.get("options", [])):
             if o.get("reply"):

@@ -302,6 +302,7 @@ def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
         f'npc = "{_q(spec.narrator)}"',
         f'prompt = "{_q(spec.prompt)}"',
         f"cancel = {cancel}                  # B / cancel -> the last row (no warp)",
+        "instant = true                  # pop the menu fully drawn ([IMME]) -- a selector, like FF9 shop menus",
         "",
     ]
     for j in spec.journeys:

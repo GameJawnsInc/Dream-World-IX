@@ -41,6 +41,11 @@ SPEAKER_SEP = ": "
 # choice entry's text is:  prompt + CHOICE_OPEN + ("\n" + CHOICE_INDENT).join(options).
 CHOICE_INDENT = "[MOVE=18,0]"
 CHOICE_OPEN = "\n[CHOO]" + CHOICE_INDENT
+# [IMME] = IMMEDIATE display: the window pops fully drawn with NO character-by-character type-on. FF9's own
+# shop/menu choices use it (e.g. the Treno Weapon Shop's "What can I do for you?" Buy/Sell menu ends in
+# [IMME]) so a SELECTOR feels instant, while story dialogue types out. Appended to a choice entry when the
+# [[choice]] sets `instant = true` (the World Hub journey menu turns it on).
+CHOICE_IMME = "[IMME]"
 
 
 def with_speaker(speaker, text: str) -> str:

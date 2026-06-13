@@ -54,6 +54,19 @@ def test_option_body_empty_when_no_actions():
     assert choice.option_body({"text": "No"}, reply_txid=None) == b""
 
 
+def test_instant_choice_appends_imme_tag(tmp_path):
+    # [[choice]] instant=true appends FF9's [IMME] tag so the menu pops fully drawn (no type-on), like the
+    # Treno Weapon Shop's "What can I do for you?" Buy/Sell menu. Default (no instant) stays byte-identical.
+    from ff9mapkit.build import FieldProject, collect_text
+    base = {"field": {"id": 4500, "name": "X"}, "npc": [{"name": "Narr"}],
+            "choice": [{"npc": "Narr", "prompt": "Pick?", "options": [{"text": "A"}, {"text": "B"}]}]}
+    mes_plain = collect_text(FieldProject(base, tmp_path))[0]
+    assert "[CHOO]" in mes_plain and "[IMME]" not in mes_plain        # default: types out, no [IMME]
+    base_i = {**base, "choice": [{**base["choice"][0], "instant": True}]}
+    mes_imme = collect_text(FieldProject(base_i, tmp_path))[0]
+    assert "[IMME]" in mes_imme and "[CHOO]" in mes_imme              # instant: [IMME] appended
+
+
 def test_option_body_remove_item_trade():
     # a trade option: give one item, take another (order: give_item -> remove_item per option_body)
     out = choice.option_body({"give_item": ["Potion", 1], "remove_item": ["Dagger", 1]}, None)
