@@ -185,11 +185,12 @@ def _all_instrs(eb):
 
 
 def test_compulsory_ate_narration_brackets_and_captions(tmp_path):
-    """A narration cutscene with `ate = true` builds the ATE(1)..ATE(0) HUD bracket around its body and
-    renders its `say` window with the winATE caption (mirrors field 1901's compulsory Eiko ATE)."""
+    """A narration cutscene with `ate = true` builds the ATE(6)..ATE(0) grey-unskippable HUD bracket around
+    its body and renders its `say` window with the winATE caption (the default = the real grey forced-ATE
+    look, field 956 / the Festival cluster; ate_mode = 1 is the opt-in quiet no-icon variant)."""
     eb = _build_eb(tmp_path, _CUTSCENE_ATE_TOML)
     ate_ops = [i for i in _all_instrs(eb) if i.op == 0xD7]
-    assert [i.imm(0) for i in ate_ops] == [1, 0]            # default mode 1 (Blue) arm, then disarm
+    assert [i.imm(0) for i in ate_ops] == [6, 0]            # default mode 6 (grey, force-show) arm, then disarm
     says = [i for i in _all_instrs(eb) if i.name == "WindowSync"]
     assert says and all(i.imm(1) == ate.WIN_ATE for i in says)   # the cutscene window is winATE-captioned
 

@@ -279,26 +279,27 @@ ATE: the kit brackets the cutscene body `ATE(mode) … ATE(0)` and renders its w
 both cutscene paths (narration entry + actor-in-NPC-loop choreography). So:
 ```toml
 [cutscene]
-ate = true                 # auto ATE: ATE(mode)…ATE(0) bracket + winATE caption windows
-# ate_mode = 6             # the GREY UNSKIPPABLE look (matches real forced ATEs — field 956 etc.)
+ate = true                 # GREY UNSKIPPABLE ATE (default ate_mode = 6): ATE(6)…ATE(0) + winATE caption windows
+# ate_mode = 1             # opt-in: the quiet no-icon variant (no HUD banner under the control-lock)
 steps = [ { say = "..." }, { wait = 30 } ]
 ```
-**Two real templates, pick the mode to match:**
-- **`ate_mode = 6` (grey, force-show) = the authentic UNSKIPPABLE ATE** — the real game's forced ATEs (956, the
-  Festival cluster) use mode 6: a grey, force-shown icon that renders *even under the control-lock*, marking a
-  scene the player can't skip. ★ Real `ATE(6)` reproduced in-game at slot 30010 (field 956). **Use this for a
-  forced/unskippable ATE.** *(Fidelity note: real mode-6 ATEs clear the grey icon — `ATE(0)` — just before the
-  `winATE` window, so the grey flashes during the fade-in; the kit currently keeps it armed across the whole body.
-  A structural refinement to mirror the fade-in exactly is a TODO.)*
-- **`ate_mode = 1` (default, Blue, no force)** — mode 1's render gate (`mode>0 && ((mode&4) || GetUserControl())`)
-  fails under a control-lock, so **no HUD icon shows** during the auto-cutscene; the player sees only the `winATE`
-  caption windows. ★ Confirmed in-game (slot 30008): captioned dialog, no prompt. A quieter "no-icon" auto-ATE.
+**Two real templates — the default is the grey unskippable one:**
+- **`ate_mode = 6` (grey, force-show) = the DEFAULT, the authentic UNSKIPPABLE ATE.** Real forced ATEs (956, the
+  Festival cluster) use mode 6: a grey, force-shown icon that renders *even under the control-lock*, driving the
+  bottom-left **"ACTIVE TIME EVENT"** HUD banner (`ActiveTimeEvent.cs`) — its grey "ATE" sprite blinks 1s on / 1s
+  off (`DisplayGrayATEText`) with **no** "Press SELECT" glyph. ★ **IN-GAME PROVEN** @30008 (the kit holds `ATE(6)`
+  armed across the whole body, so the grey banner blinks throughout the dialog — *more legible than real 956*,
+  which clears it behind a white fade-in; this matches what players remember). Real `ATE(6)` also reproduced
+  @30010 (field 956).
+- **`ate_mode = 1` (Blue, no force) = the opt-in quiet variant.** mode 1's render gate (`mode>0 && ((mode&4) ||
+  GetUserControl())`) fails under the control-lock, so **no HUD banner shows** — the player sees only the `winATE`
+  caption windows. ★ Also proven @30008 (before the mode-6 switch). Use it for a low-key auto-ATE.
 > **Avoid `ate_mode = 5`** (Blue + force): a force-shown *Blue* icon re-flashes the "Press SELECT" glyph (the Blue
 > display coroutine), wrongly inviting a button press during an auto-play — the artifact the first 30008 deploy
 > showed. Grey (6) suppresses that glyph; Blue (5) does not. Seen-state / the ATE80 trophy still register only on a
 > real field id — the fidelity wall below.
-*Remaining nice-to-haves:* default `[cutscene] ate=true` to mode 6 (pending the 30010 in-game confirm) + the
-fade-in structural match; disassembler QoL (name `ATE(mode)` modes, surface inline `op7A(9)` as `GetChoose`).
+*Remaining nice-to-haves:* disassembler QoL (name `ATE(mode)` modes, surface inline `op7A(9)` as `GetChoose`,
+annotate `op_0B` targets).
 
 **Cold-reproducing a REAL ATE in a fork — the ATE-AVAILABILITY WORD (★ IN-GAME PROVEN).** Every ATE hub's
 Main_Init arms the prompt only when a story-set **availability bitmask word** in `gEventGlobal` is nonzero — for

@@ -57,19 +57,22 @@ DEFAULT_WARMUP = 30     # frames (~1s @ 30fps); generous margin over the 16-fram
 #   * the body is bracketed `ATE(1) ... ATE(0)` (0xD7) -- the HUD-icon arm (real field 1901 uses mode 1).
 # TWO real templates for an auto-playing ATE (676-field byte sweep + the grey-unskippable re-classification,
 # docs/ATE_SYSTEM.md):
-#   * ate_mode = 6 (GREY + force-show) = the AUTHENTIC UNSKIPPABLE ATE -- the real game's forced ATEs (field 956,
-#     the Festival-of-the-Hunt cluster) use ATE(6): a grey, force-shown icon that renders even under the control-
-#     lock, marking a scene the player can't skip. The Gray display coroutine shows NO press glyph (unlike Blue).
-#   * ate_mode = 1 (Blue, no force, the default) = a quieter no-icon auto-ATE: mode 1's render gate
-#     (`mode>0 && ((mode&4) || GetUserControl())`) FAILS under the control-lock, so no HUD icon shows -- the winATE
-#     CAPTION window is the only marker (confirmed in-game @30008).
+#   * ate_mode = 6 (GREY + force-show) = the AUTHENTIC UNSKIPPABLE ATE and the DEFAULT -- the real game's forced
+#     ATEs (field 956, the Festival-of-the-Hunt cluster) use ATE(6): a grey, force-shown icon that renders even
+#     under the control-lock. It drives the bottom-left "ACTIVE TIME EVENT" HUD banner (ActiveTimeEvent.cs), whose
+#     grey "ATE" sprite blinks 1s on / 1s off (DisplayGrayATEText) and shows NO press glyph. ★ in-game proven @30008.
+#   * ate_mode = 1 (Blue, no force) = the opt-in quiet no-icon variant: mode 1's render gate
+#     (`mode>0 && ((mode&4) || GetUserControl())`) FAILS under the control-lock, so no HUD banner shows -- the
+#     winATE CAPTION window is the only marker (also proven @30008, before the mode-6 switch).
 # AVOID ate_mode = 5 (Blue + force): a force-shown Blue icon re-flashes the "Press SELECT" glyph (the Blue
 # coroutine), wrongly inviting a press during an auto-play. mode 2 is unused in the real game; the only grey is 6.
+# (NB the kit holds ATE(6) armed across the whole body so the grey banner blinks throughout -- more legible than
+# real 956, which clears it behind a white fade-in; this matches what players remember seeing.)
 # Seen-state + the ATE80 trophy register only on a REAL field id (MappingATEID keyed on fldMapNo/SC) -- the wall.
 # Mirrors `ate.WIN_ATE`; kept local to avoid importing the ate module (which imports choice -> region).
 ATE_CAPTION_FLAG = 64
-ATE_DEFAULT_MODE = 1     # ATE(mode) HUD arm. 1 = quiet no-icon auto-ATE (default); 6 = the authentic GREY
-                         # UNSKIPPABLE look (real forced ATEs). Avoid 5 (Blue force-show re-flashes the press glyph)
+ATE_DEFAULT_MODE = 6     # ATE(mode) HUD arm. 6 = the authentic GREY UNSKIPPABLE banner (default, in-game proven
+                         # @30008); 1 = opt-in quiet no-icon variant. Avoid 5 (Blue force-show re-flashes press glyph)
 
 
 def say(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:
