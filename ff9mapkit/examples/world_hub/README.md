@@ -34,10 +34,14 @@ optional seed}`; HOW a journey plays internally is the fork's own business.
   `Field()`s into that journey — grounded in real FF9 talk-handler warps (the Dali innkeeper, the airship).
 - **One-way** — to switch journeys, start a New Game, which lands you back on the hub (the field-70
   New-Game override now points at 4500 — `tools/retarget_newgame_warp.py 4500`, seamless, no FMV).
-- **Entry camera-settle** — `[camera] entry_settle = 45` (the generator emits it) holds the screen black for
-  ~1.5s on entry so the engine's smooth-camera follower settles *unseen*, then reveals the settled camera —
-  otherwise a warp-in into a borrowed room visibly eases the camera to rest (Memoria's `CameraStabilizer`
-  lerp). Engine-independent; tune the frame count or set `0` to disable.
+- **Camera on entry** — Memoria's smooth-camera follower (`CameraStabilizer`) eases the camera to the player
+  on *every* field load; you only notice it when the entry camera is far off, *and* there's no transition to
+  hide the settle. Every real way into the hub already has that transition: **New Game** comes through the
+  engine's start/field fade-to-black, and the journeys are verbatim forks with their own entrances — so the
+  settle happens behind black and you see it already at rest. The lone exception is the **F6 debug warp**, an
+  instant jump with no fade (a dev tool; players never use it). `[camera] entry_settle = N` (the generator
+  emits 45) adds a black hold that reinforces the settle behind the entry fade; set `0` to drop it. To test a
+  faded entry yourself, F6 → Warp **4502** (`hub_lobby.field.toml`) and walk through its door into the hub.
 
 ## Setup (provenance: you supply the game bytes)
 

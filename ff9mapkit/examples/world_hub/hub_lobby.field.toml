@@ -1,0 +1,27 @@
+# HUB LOBBY -- a TEST field whose only job is a REAL gateway (a normal FF9 door, with the engine's standard
+# fade-out -> load -> fade-in transition) INTO the World Hub (4500). Use it to check whether the real-game
+# transition fade hides the smooth-camera entry drift -- unlike the bare scripted choice-warp / New-Game warp
+# (which skip the fade, so you watch the camera settle). It BG-borrows the Treno gate: a DIFFERENT camera than
+# the hub's Gargan Roo, so the entry camera delta (and thus the drift, if unhidden) is large -- the worst case.
+#
+# Test: F6 -> Warp -> 4502, then walk NORTH (up) a step into the doorway -> you transition into the hub (4500)
+# via the standard fade. If the camera is already settled when the fade lifts, the fade hides it (the fix is to
+# give the hub/journey entries a real faded transition); if it still drifts after the fade, it doesn't.
+[field]
+id = 4502
+name = "HUB_LOBBY"
+borrow_bg = "TRNO_MAP400_TR_GAT_0"   # Treno gate -- a distinctly different camera from the hub backdrop
+area = 20
+text_block = 33                      # unshadowed (not 1073)
+
+[camera]
+borrow = "camera_j2.bgx"             # the Treno-gate camera (gitignored; extracted from the install)
+
+[player]
+spawn = [1070, -21649]               # the real Treno-gate player spawn (a guaranteed-valid floor coord)
+
+[[gateway]]
+name = "To the World Hub"
+to = 4500                            # a real door into the hub -> the engine's standard faded transition
+entrance = 0
+zone = [[1000, -21560], [1180, -21560], [1180, -21470], [1000, -21470]]   # just north of the spawn
