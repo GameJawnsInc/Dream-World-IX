@@ -48,8 +48,25 @@ PLAYER_UID = 250        # GetObjUID(250) resolves to the player's control charac
 DEFAULT_WARMUP = 30     # frames (~1s @ 30fps); generous margin over the 16-frame entry fade
 
 
+# A compulsory / auto-advance ATE (FF9's FORCED "Active Time Event" cutscene -- no menu, plays at a story
+# beat, e.g. field 1901's Eiko ATE) is an ordinary cutscene with two cosmetic ATE flourishes, both grounded
+# byte-for-byte in 1901 (`docs/ATE_SYSTEM.md` Flavor A):
+#   * its dialogue windows carry the winATE caption flag (64) -> the "Active Time Event" header. This flag
+#     is ALSO what makes the engine tag the closed dialog `isCompulsory` (ETb.ProcessATEDialog) -- the
+#     defining, engine-recognized marker of a compulsory ATE.
+#   * the body is bracketed `ATE(mode) ... ATE(0)` (0xD7) -- the blinking HUD prompt (1901: ATE(1)..ATE(0)).
+# NB the HUD blink draws only while the player has control OR mode has the force bit (&4, e.g. 5); during a
+# control-locked cutscene a plain mode 1 won't render the icon -- the winATE CAPTION is the always-visible
+# marker. Seen-state + the ATE80 trophy register only on a REAL field id (MappingATEID is keyed on
+# fldMapNo/ScenarioCounter), never on a custom id -- the documented fidelity wall. Mirrors `ate.WIN_ATE`;
+# kept local to avoid importing the ate module (which imports choice -> region).
+ATE_CAPTION_FLAG = 64
+ATE_DEFAULT_MODE = 1     # ATE(mode) for the HUD bracket: 1 = Blue/new (mirrors field 1901); 5 = force-show
+
+
 def say(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:
-    """Step: open a dialogue/narration window showing ``text_id`` (blocks until the player dismisses)."""
+    """Step: open a dialogue/narration window showing ``text_id`` (blocks until the player dismisses).
+    ``flags = 64`` (winATE) renders it with the "Active Time Event" caption (a compulsory-ATE window)."""
     return opcodes.window_sync(window, flags, text_id)
 
 
@@ -119,17 +136,19 @@ def actor_face(uid: int = PLAYER_UID, speed: int = 16) -> bytes:
     return opcodes.turn_toward_object(int(uid), int(speed))
 
 
-def compile_steps(steps, txids) -> bytes:
+def compile_steps(steps, txids, *, say_flags: int = 128) -> bytes:
     """Compile ordered cutscene step dicts to bytes. Handles global steps (``say`` / ``wait`` /
     ``set_flag``) and actor-context steps (``walk`` / ``path`` / ``teleport`` / ``animation`` /
     ``turn`` / ``face_player``). ``say`` steps consume ``txids`` (a list of resolved text ids) in order.
 
     Actor steps are only meaningful inside an ``actor`` cutscene (they act on the executing object);
-    :func:`ff9mapkit.build.validate` enforces that. Same encoders the round-trip tests cover."""
+    :func:`ff9mapkit.build.validate` enforces that. ``say_flags`` is the window flag for every ``say``
+    step -- pass ``ATE_CAPTION_FLAG`` (64) to render a compulsory ATE's windows with the ATE caption.
+    Same encoders the round-trip tests cover."""
     out, ti = [], 0
     for s in steps:
         if "say" in s:
-            out.append(say(txids[ti])); ti += 1
+            out.append(say(txids[ti], flags=say_flags)); ti += 1
         elif "wait" in s:
             out.append(wait(int(s["wait"])))
         elif "set_flag" in s:
@@ -163,7 +182,8 @@ def once_flag_for(cs: dict):
 
 
 def build_choreography(steps, txids, flag_idx: int, *, flag_class=CUTSCENE_FLAG_CLASS,
-                       warmup: int = DEFAULT_WARMUP) -> bytes:
+                       warmup: int = DEFAULT_WARMUP, ate_mode: int | None = None,
+                       say_flags: int = 128) -> bytes:
     """The gated choreography block, PREPENDED to the actor NPC's LOOP (tag 1) -- NOT its Init -- by
     :func:`ff9mapkit.content.npc.inject_npc`. Runs in the NPC's own context (so the actor steps target
     it) AND while the object is 'running' (engine state 1), where the engine ADVANCES animation frames.
@@ -173,11 +193,19 @@ def build_choreography(steps, txids, flag_idx: int, *, flag_class=CUTSCENE_FLAG_
     Shape: ``if (!flag) { DisableMove; Wait(warmup); <steps>; EnableMove; flag=1 }`` (no trailing RETURN
     -- the loop body + its RETURN follow). ALWAYS gated -- the loop runs every frame, so an ungated
     block would re-fire endlessly; the flag makes it run once per visit. The ``warmup`` Wait (after the
-    lock, so the player can't wander) lets the field's entry fade settle before the actor moves."""
+    lock, so the player can't wander) lets the field's entry fade settle before the actor moves.
+
+    ``ate_mode`` (not None) styles it as a compulsory ATE: brackets the steps ``ATE(mode) ... ATE(0)``
+    and (with ``say_flags=ATE_CAPTION_FLAG``) gives its windows the ATE caption -- mirrors field 1901."""
     inner = opcodes.DISABLE_MOVE
     if warmup > 0:
         inner += opcodes.wait(int(warmup))
-    inner += compile_steps(steps, txids) + opcodes.ENABLE_MOVE + _region.set_var(flag_class, flag_idx, 1)
+    if ate_mode is not None:
+        inner += opcodes.ate(int(ate_mode))                  # arm the blinking "Active Time Event" prompt
+    inner += compile_steps(steps, txids, say_flags=say_flags)
+    if ate_mode is not None:
+        inner += opcodes.ate(0)                              # disarm before control returns (1901 bracket)
+    inner += opcodes.ENABLE_MOVE + _region.set_var(flag_class, flag_idx, 1)
     return _region.if_block(_region.cond_not(flag_class, flag_idx), inner)
 
 
@@ -192,12 +220,21 @@ REORDER_WAIT = 2
 
 
 def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
-               reorder: int = REORDER_WAIT) -> bytes:
+               reorder: int = REORDER_WAIT, *, ate_mode: int | None = None) -> bytes:
     """The cutscene function body: a brief reorder ``Wait`` (so the lock outlives Main_Init's EnableMove)
     then ``DisableMove`` + the ordered ``steps`` + ``EnableMove``, all gated ``if (!once_flag) { ...;
-    once_flag = 1 }`` when ``once_flag`` is set (so it plays once)."""
+    once_flag = 1 }`` when ``once_flag`` is set (so it plays once).
+
+    ``ate_mode`` (not None) brackets the steps ``ATE(mode) ... ATE(0)`` -- a compulsory ATE's HUD prompt
+    (the winATE caption on its windows is set by the caller via ``compile_steps(say_flags=...)``)."""
     pre = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
-    inner = pre + opcodes.DISABLE_MOVE + b"".join(steps) + opcodes.ENABLE_MOVE
+    inner = pre + opcodes.DISABLE_MOVE
+    if ate_mode is not None:
+        inner += opcodes.ate(int(ate_mode))
+    inner += b"".join(steps)
+    if ate_mode is not None:
+        inner += opcodes.ate(0)
+    inner += opcodes.ENABLE_MOVE
     if once_flag is not None:
         inner += _region.set_var(flag_class, once_flag, 1)
         return _region.if_block(_region.cond_not(flag_class, once_flag), inner) + opcodes.RETURN
@@ -205,10 +242,12 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
 
 
 def inject_cutscene(data, steps, *, once_flag: int | None = None, flag_class=CUTSCENE_FLAG_CLASS,
-                    spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
+                    spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
+                    ate_mode: int | None = None) -> bytes:
     """Append a cutscene code entry (the sequence in :func:`build_body`) and run it on field load via
-    an ``InitCode`` (over a Wait filler, or inserted into Main_Init). Returns new .eb bytes."""
-    body = build_body(steps, once_flag, flag_class)
+    an ``InitCode`` (over a Wait filler, or inserted into Main_Init). Returns new .eb bytes.
+    ``ate_mode`` (not None) styles it as a compulsory ATE (the ``ATE(mode)`` HUD bracket)."""
+    body = build_body(steps, once_flag, flag_class, ate_mode=ate_mode)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     slot = EbScript.from_bytes(data).first_free_slot()
     out = edit.append_entry(data, slot, entry)

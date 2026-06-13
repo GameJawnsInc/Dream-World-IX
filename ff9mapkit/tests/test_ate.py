@@ -139,3 +139,97 @@ def test_no_ate_block_is_byte_identical(tmp_path):
     eb = EbScript.from_bytes(ModLayout(out).eb_path("us", "EVT_ATEROOM.eb.bytes").read_bytes())
     assert not [i for e in eb.entries if not e.empty for f in e.funcs
                 for i in eb.instrs(f) if i.op == 0xD7]      # no ATE opcode injected
+
+
+# --- Compulsory / auto-advance ATE (Flavor A, the FORCED no-menu cutscene -- field 1901's Eiko bracket).
+# A `[cutscene] ate = true` is an ordinary cutscene styled as a compulsory ATE: its body is bracketed
+# ATE(mode)..ATE(0) and its windows carry the winATE(64) caption. -------------------------------------
+
+from ff9mapkit.content import cutscene as _cs   # noqa: E402
+
+_CUTSCENE_ATE_TOML = """
+[field]
+id = 4003
+name = "ATEROOM"
+area = 11
+text_block = 1073
+[camera]
+pitch = 45
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+[player]
+spawn = [0, -300]
+[cutscene]
+ate = true
+steps = [
+  { say = "An Active Time Event." },
+  { wait = 30 },
+]
+"""
+
+
+def _build_eb(tmp_path, toml, name="ATEROOM"):
+    from ff9mapkit.build import FieldProject, build_mod, validate
+    from ff9mapkit.config import ModLayout
+    p = tmp_path / "c.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    proj = FieldProject.load(p)
+    assert validate(proj) == []
+    out = tmp_path / "mod"
+    build_mod([proj], out, mod_name="FF9CustomMap")
+    return EbScript.from_bytes(ModLayout(out).eb_path("us", f"EVT_{name}.eb.bytes").read_bytes())
+
+
+def _all_instrs(eb):
+    return [i for e in eb.entries if not e.empty for f in e.funcs for i in eb.instrs(f)]
+
+
+def test_compulsory_ate_narration_brackets_and_captions(tmp_path):
+    """A narration cutscene with `ate = true` builds the ATE(1)..ATE(0) HUD bracket around its body and
+    renders its `say` window with the winATE caption (mirrors field 1901's compulsory Eiko ATE)."""
+    eb = _build_eb(tmp_path, _CUTSCENE_ATE_TOML)
+    ate_ops = [i for i in _all_instrs(eb) if i.op == 0xD7]
+    assert [i.imm(0) for i in ate_ops] == [1, 0]            # default mode 1 (Blue) arm, then disarm
+    says = [i for i in _all_instrs(eb) if i.name == "WindowSync"]
+    assert says and all(i.imm(1) == ate.WIN_ATE for i in says)   # the cutscene window is winATE-captioned
+
+
+def test_compulsory_ate_mode_override(tmp_path):
+    """`ate_mode = 5` forces the HUD prompt to show even without user control (the &4 force bit)."""
+    eb = _build_eb(tmp_path, _CUTSCENE_ATE_TOML.replace("ate = true", "ate = true\nate_mode = 5"))
+    ate_ops = [i for i in _all_instrs(eb) if i.op == 0xD7]
+    assert [i.imm(0) for i in ate_ops] == [5, 0]
+
+
+def test_cutscene_without_ate_has_no_bracket_or_caption(tmp_path):
+    """Drop `ate = true` and the cutscene is a plain one: no 0xD7 op, ordinary (128) window caption."""
+    eb = _build_eb(tmp_path, _CUTSCENE_ATE_TOML.replace("ate = true\n", ""))
+    assert not [i for i in _all_instrs(eb) if i.op == 0xD7]       # no ATE bracket
+    says = [i for i in _all_instrs(eb) if i.name == "WindowSync"]
+    assert says and all(i.imm(1) == 128 for i in says)           # plain caption, not winATE
+
+
+def test_compulsory_ate_actor_path_brackets_and_captions():
+    """The ACTOR cutscene path (choreography spliced into an NPC's loop) brackets + captions the same way
+    -- asserted at the bytes level (no NPC-model build needed)."""
+    styled = _cs.build_choreography([{"say": 0}], [77], 8100, ate_mode=1,
+                                    say_flags=_cs.ATE_CAPTION_FLAG)
+    assert opcodes.ate(1) in styled and opcodes.ate(0) in styled
+    assert _cs.say(77, flags=_cs.ATE_CAPTION_FLAG) in styled      # winATE-captioned window
+    plain = _cs.build_choreography([{"say": 0}], [77], 8100)
+    assert opcodes.ate(1) not in plain and opcodes.ate(0) not in plain
+    assert _cs.say(77, flags=128) in plain                        # ordinary window
+
+
+def test_compulsory_ate_validation(tmp_path):
+    from ff9mapkit.build import FieldProject, validate
+
+    def problems(toml):
+        p = tmp_path / "v.field.toml"
+        p.write_text(toml, encoding="utf-8")
+        return validate(FieldProject.load(p))
+
+    assert any("ate_mode is set but ate is not true" in m
+               for m in problems(_CUTSCENE_ATE_TOML.replace("ate = true", "ate_mode = 5")))
+    assert any("must be an int 0..255" in m
+               for m in problems(_CUTSCENE_ATE_TOML.replace("ate = true", "ate = true\nate_mode = 999")))

@@ -1095,6 +1095,14 @@ def validate(project: FieldProject) -> list[str]:
                                 problems.append(f"[cutscene] step {k}: {e}")
         if actor is not None and actor not in {n.get("name") for n in project.raw.get("npc", [])}:
             problems.append(f"[cutscene] actor {actor!r} is not a defined [[npc]] name")
+        if "ate_mode" in cs and not cs.get("ate"):
+            problems.append("[cutscene] ate_mode is set but ate is not true -- set ate = true to style "
+                            "this cutscene as a compulsory ATE (or drop ate_mode).")
+        if cs.get("ate"):
+            m = cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)
+            if not isinstance(m, int) or isinstance(m, bool) or not (0 <= m <= 255):
+                problems.append(f"[cutscene] ate_mode {m!r} must be an int 0..255 "
+                                f"(1 = Blue/new, 2 = Gray/seen, 5 = force-show; ATE 0xD7 mode).")
     return problems
 
 
@@ -2196,6 +2204,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     cs_once_flag = None
     if cs and cs.get("once", True):
         cs_once_flag = int(cs["flag"]) if "flag" in cs else _auto.cutscene()
+    # compulsory / auto-advance ATE styling (no menu -- the forced flavor, e.g. field 1901): bracket the
+    # body ATE(mode)..ATE(0) + caption its windows winATE. `ate=true` -> mode 1 (Blue, mirrors 1901);
+    # `ate_mode` overrides (5 = force-show). See content/cutscene.py + docs/ATE_SYSTEM.md Flavor A.
+    cs_ate_mode = (int(cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)) if cs and cs.get("ate") else None)
+    cs_say_flags = _cutscene.ATE_CAPTION_FLAG if cs_ate_mode is not None else 128
     actor_choreo = None
     if cs_actor:
         actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs_actor), None)
@@ -2207,7 +2220,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             cs_fidx = _auto.cutscene()                     # campaign: pack into this member's block
         actor_choreo = _cutscene.build_choreography(
             steps, cutscene_txids, cs_fidx, flag_class=cs_fclass,
-            warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)))
+            warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
+            ate_mode=cs_ate_mode, say_flags=cs_say_flags)
 
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
     gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)
@@ -2439,8 +2453,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # standalone director code entry. Steps = say / wait / set_flag. An ACTOR cutscene was already
     # spliced into its NPC's Init above (actor_choreo), so it's skipped here.
     if cs and not cs_actor:
-        steps = [_cutscene.compile_steps(cs["steps"], cutscene_txids)]
-        eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag)
+        steps = [_cutscene.compile_steps(cs["steps"], cutscene_txids, say_flags=cs_say_flags)]
+        eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag, ate_mode=cs_ate_mode)
 
     # on-entry beats ([[on_entry]]): a gated, once field-load hook -- a narration message and/or a
     # story-state write (set_scenario / set_flags), fired the moment the player enters but ONLY when
