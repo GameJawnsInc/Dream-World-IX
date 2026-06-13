@@ -65,6 +65,20 @@ def _member_style(node) -> str:
     return "member"
 
 
+def _member_badge(node) -> str:
+    """A leading health glyph so a member's status is glanceable at the row's left edge (shape +
+    colour, not colour alone). Mirrors _member_style's precedence; the tag still colours it."""
+    if not node.reachable:
+        return "✕"          # unreachable -- no inbound door
+    if node.needs_export:
+        return "⚠"          # needs art / export
+    if node.is_entry:
+        return "◆"          # the campaign's entry field
+    if node.dead_end:
+        return "○"          # reachable but no way onward (dead-end)
+    return "•"              # a healthy interior field
+
+
 class Workspace:
     """The campaign IDE shell: a member navigator + graph (left) wrapping the three app tabs (right).
     Opening a campaign.toml populates the navigator; selecting a member (or one of its doors) opens the
@@ -250,7 +264,8 @@ class Workspace:
         for node in g.nodes:
             if self.tree.exists(node.name):           # dup name in a hand-edited manifest -> lint flags it;
                 continue                              # don't let a duplicate iid crash the navigator
-            self.tree.insert("", "end", iid=node.name, text=f"{node.name}{_member_tag(node)}",
+            self.tree.insert("", "end", iid=node.name,
+                             text=f"{_member_badge(node)} {node.name}{_member_tag(node)}",
                              tags=(_member_style(node),))
             for i, oe in enumerate(node.out_edges):   # live doors -> a click jumps to the target member
                 iid = f"@e:{node.name}:{i}"

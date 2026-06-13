@@ -36,6 +36,7 @@ from pathlib import Path
 
 KIT_ROOT = Path(__file__).resolve().parents[1]        # repo root (holds tools/, apps/, .ff9deploy.toml)
 sys.path.insert(0, str(KIT_ROOT))
+sys.path.insert(0, str(KIT_ROOT / "ff9mapkit"))       # THIS worktree's kit package shadows any editable install
 DEPLOY = KIT_ROOT / "tools" / "deploy_field.py"
 DEPLOY_CAMPAIGN = KIT_ROOT / "tools" / "deploy_campaign.py"
 DEPLOY_BATTLE = KIT_ROOT / "tools" / "deploy_battle.py"
@@ -47,6 +48,8 @@ NOWIN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 import tkinter as tk                                   # noqa: E402
 from tkinter import ttk, filedialog, messagebox, scrolledtext   # noqa: E402
 from ff9mapkit.editor.theme import apply_theme         # noqa: E402  (shared modern theme/palette)
+from ff9mapkit.editor import feedback as fb            # noqa: E402  (shared verdict + problems data layer)
+from ff9mapkit.editor.feedback import FeedbackPanel    # noqa: E402  (the banner + problems-list widget)
 
 
 def detect_game_mod():
@@ -206,8 +209,13 @@ class App:
         self.rev = ttk.Button(btns, text="Revert test field", command=self.on_revert)
         self.rev.pack(side="left", padx=8)
 
-        # --- log ---
-        self.log = scrolledtext.ScrolledText(parent, height=16, state="disabled", wrap="word",
+        # --- result surface: a verdict banner + a structured problems list (above the raw log) ---
+        self.feedback = FeedbackPanel(parent, self.pal)
+        self.feedback.frame.pack(fill="x")
+
+        # --- log (the full transcript / "details") ---
+        ttk.Label(parent, text="Details", foreground=self.pal["muted"]).pack(anchor="w", padx=10, pady=(2, 0))
+        self.log = scrolledtext.ScrolledText(parent, height=14, state="disabled", wrap="word",
                                              borderwidth=0, bg=self.pal["log_bg"], fg=self.pal["log_fg"])
         self.log.pack(fill="both", expand=True, **pad)
         self._write("Pick a .field.toml (one field), a campaign.toml (a chain), or a battle.toml "
@@ -226,6 +234,11 @@ class App:
 
     def post(self, msg):
         self.q.put(msg)
+
+    # ---- verdict banner (scheduled on the UI thread; safe to call from a worker) ----
+    def _verdict(self, verdict, problem_rows=()):
+        rows = list(problem_rows)
+        self.root.after(0, lambda: self.feedback.show(verdict, rows))
 
     def _drain(self):
         try:
@@ -380,6 +393,7 @@ class App:
 
     def _start(self, fn, *args):
         self._busy(True)
+        self.feedback.running()
         threading.Thread(target=fn, args=args, daemon=True).start()
 
     def _picked_file(self):
@@ -411,8 +425,12 @@ class App:
                 self.post("  warn   " + m)
             self.post("  OK -- no problems." if not (probs or lints)
                       else f"  {len(probs)} error(s), {len(lints)} warning(s)")
-        except Exception:
+            self._verdict(fb.classify(probs, lints, subject=f"Check {Path(field).name}",
+                                      clean_headline=f"{Path(field).name} -- no problems"),
+                          fb.problems(probs, lints))
+        except Exception as e:
             self.post("ERROR:\n" + traceback.format_exc())
+            self._verdict(fb.Verdict(fb.ERROR, "Check failed"), fb.problems([f"{type(e).__name__}: {e}"]))
         finally:
             self.root.after(0, lambda: self._busy(False))
 
@@ -428,8 +446,13 @@ class App:
                 self.post("  warn   " + m)
             self.post("  OK -- no problems." if not (errs or warns)
                       else f"  {len(errs)} error(s), {len(warns)} warning(s)")
-        except Exception:
+            self._verdict(fb.classify(errs, warns, subject=f"Campaign lint ({plan.name})",
+                                      clean_headline=f"{plan.name} -- no problems"),
+                          fb.problems(errs, warns))
+        except Exception as e:
             self.post("ERROR:\n" + traceback.format_exc())
+            self._verdict(fb.Verdict(fb.ERROR, "Campaign lint failed"),
+                          fb.problems([f"{type(e).__name__}: {e}"]))
         finally:
             self.root.after(0, lambda: self._busy(False))
 
@@ -449,8 +472,12 @@ class App:
             for m in probs:
                 self.post("  ERROR  " + m)
             self.post("  OK -- no problems." if not probs else f"  {len(probs)} problem(s)")
-        except Exception:
+            self._verdict(fb.classify(probs, [], subject=f"Check {Path(battle).name}",
+                                      clean_headline=kind), fb.problems(probs))
+        except Exception as e:
             self.post("ERROR:\n" + traceback.format_exc())
+            self._verdict(fb.Verdict(fb.ERROR, "Battle check failed"),
+                          fb.problems([f"{type(e).__name__}: {e}"]))
         finally:
             self.root.after(0, lambda: self._busy(False))
 
@@ -527,14 +554,20 @@ class App:
             probs = validate(p)
             if probs:
                 self.post("INVALID -- fix these:\n  - " + "\n  - ".join(probs))
+                self._verdict(fb.classify(probs, [], subject="Build"), fb.problems(probs))
                 return
             info = build_mod([p], out, mod_name="FF9CustomMap")
             self.post("OK:  " + info["dictionary"][0])
             for w in info["warnings"]:
                 self.post("  warning: " + w)
             self.post(f"done -> {out}")
-        except Exception:
+            self._verdict(fb.classify([], info["warnings"], subject="Build",
+                                      clean_headline=f"Built {Path(field).name}",
+                                      next_action=f"Written to {out}"),
+                          fb.problems([], info["warnings"]))
+        except Exception as e:
             self.post("ERROR:\n" + traceback.format_exc())
+            self._verdict(fb.Verdict(fb.ERROR, "Build failed"), fb.problems([f"{type(e).__name__}: {e}"]))
         finally:
             self.root.after(0, lambda: self._busy(False))
 
@@ -548,8 +581,15 @@ class App:
             for w in info.get("warnings", []):
                 self.post("  warning: " + w)
             self.post(f"done -> {info.get('out')}")
-        except Exception:
+            warns = info.get("warnings", [])
+            self._verdict(fb.classify([], warns, subject="Build campaign",
+                                      clean_headline=f"Built campaign {Path(path).name}",
+                                      next_action=f"Compiled to {info.get('out')}"),
+                          fb.problems([], warns))
+        except Exception as e:
             self.post("ERROR:\n" + traceback.format_exc())
+            self._verdict(fb.Verdict(fb.ERROR, "Build campaign failed"),
+                          fb.problems([f"{type(e).__name__}: {e}"]))
         finally:
             self.root.after(0, lambda: self._busy(False))
 
@@ -563,14 +603,19 @@ class App:
                 self.post(r.stdout)
             if r.returncode != 0:
                 self.post("ERROR (deploy failed):\n" + (r.stderr or "(no detail)"))
+                self._verdict(fb.Verdict(fb.ERROR, f"Deploy to test field {tid} failed"),
+                              fb.problems([r.stderr.strip() or "(no detail) -- see Details below"]))
                 return
             if tid == 4003:
-                self.post(">>> In-game: New Game -> walk to the hut door, or F6 -> Warp to field 4003.")
+                nexta = "In-game: New Game -> walk to the hut door, or F6 -> Warp to field 4003."
             else:
-                self.post(f">>> In-game: F6 -> Warp to field -> {tid}.  "
-                          "(First deploy of a NEW id? Relaunch the game once to register it.)")
-        except Exception:
+                nexta = (f"In-game: F6 -> Warp -> {tid}.  "
+                         "(First deploy of a NEW id? Relaunch the game once to register it.)")
+            self.post(">>> " + nexta)
+            self._verdict(fb.Verdict(fb.OK, f"Deployed to test field {tid} ({self.mod_folder})", nexta))
+        except Exception as e:
             self.post("ERROR:\n" + traceback.format_exc())
+            self._verdict(fb.Verdict(fb.ERROR, "Deploy failed"), fb.problems([f"{type(e).__name__}: {e}"]))
         finally:
             self.root.after(0, lambda: self._busy(False))
 
@@ -585,12 +630,19 @@ class App:
                 self.post(r.stdout)
             if r.returncode != 0:
                 self.post("ERROR (deploy failed):\n" + (r.stderr or "(no detail)"))
+                self._verdict(fb.Verdict(fb.ERROR, "Campaign deploy failed"),
+                              fb.problems([r.stderr.strip() or "(no detail) -- see Details below"]))
                 return
             ids = [m.new_id for m in self.plan.members]
             entry = self.plan.members[0].new_id if self.plan.members else (min(ids) if ids else "?")
-            self.post(f">>> Relaunch once (new DictionaryPatch), then F6 -> Warp -> {entry} to walk the chain.")
-        except Exception:
+            nexta = f"Relaunch once (new DictionaryPatch), then F6 -> Warp -> {entry} to walk the chain."
+            self.post(">>> " + nexta)
+            self._verdict(fb.Verdict(fb.OK, f"Deployed campaign '{self.plan.name}' -> {self.plan.mod_folder}",
+                                     nexta))
+        except Exception as e:
             self.post("ERROR:\n" + traceback.format_exc())
+            self._verdict(fb.Verdict(fb.ERROR, "Campaign deploy failed"),
+                          fb.problems([f"{type(e).__name__}: {e}"]))
         finally:
             self.root.after(0, lambda: self._busy(False))
 
@@ -607,9 +659,16 @@ class App:
                 self.post(r.stdout)
             if r.returncode != 0:
                 self.post("ERROR (deploy failed):\n" + (r.stderr or "(no detail)"))
+                self._verdict(fb.Verdict(fb.ERROR, "Battle deploy failed"),
+                              fb.problems([r.stderr.strip() or "(no detail) -- see Details below"]))
                 return
-        except Exception:
+            nexta = ("A minted scene or BattlePatch line needs one relaunch; "
+                     "a texture/FBX override loads on the next battle.")
+            self._verdict(fb.Verdict(fb.OK, f"Deployed battle map -> {self.mod_folder}", nexta))
+        except Exception as e:
             self.post("ERROR:\n" + traceback.format_exc())
+            self._verdict(fb.Verdict(fb.ERROR, "Battle deploy failed"),
+                          fb.problems([f"{type(e).__name__}: {e}"]))
         finally:
             self.root.after(0, lambda: self._busy(False))
 
@@ -627,6 +686,8 @@ class App:
                                    f"Restore the game to before the last {what} deploy?"):
             return
 
+        self.feedback.running(f"Reverting {what}…")
+
         def work():
             try:
                 self.post(f"\n--- revert {what} ---")
@@ -635,8 +696,15 @@ class App:
                 self.post(r.stdout or "")
                 if r.returncode != 0:
                     self.post("ERROR:\n" + (r.stderr or "(no detail)"))
-            except Exception:
+                    self._verdict(fb.Verdict(fb.ERROR, f"Revert {what} failed"),
+                                  fb.problems([r.stderr.strip() or "(no detail) -- see Details below"]))
+                else:
+                    self._verdict(fb.Verdict(fb.OK, f"Reverted the last {what} deploy",
+                                             "Relaunch the game to load the restored state."))
+            except Exception as e:
                 self.post("ERROR:\n" + traceback.format_exc())
+                self._verdict(fb.Verdict(fb.ERROR, f"Revert {what} failed"),
+                              fb.problems([f"{type(e).__name__}: {e}"]))
         threading.Thread(target=work, daemon=True).start()
 
 

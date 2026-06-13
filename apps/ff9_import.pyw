@@ -27,12 +27,15 @@ from pathlib import Path
 KIT_ROOT = Path(__file__).resolve().parents[1]            # repo root (holds apps/, tools/, ff9mapkit/)
 KIT = KIT_ROOT / "ff9mapkit"                              # the kit root (pyproject + the package) -- `-m` cwd
 sys.path.insert(0, str(KIT_ROOT))
+sys.path.insert(0, str(KIT))                             # THIS worktree's kit package shadows any editable install
 PYTHON = sys.executable
 NOWIN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 import tkinter as tk                                       # noqa: E402
 from tkinter import ttk, filedialog, messagebox, scrolledtext   # noqa: E402
 from ff9mapkit.editor.theme import apply_theme             # noqa: E402  (shared modern theme/palette)
+from ff9mapkit.editor import feedback as fb                # noqa: E402  (shared verdict data layer)
+from ff9mapkit.editor.feedback import FeedbackPanel        # noqa: E402  (the banner + problems-list widget)
 
 
 # --------------------------------------------------------------------------- pure arg builders (testable)
@@ -80,7 +83,10 @@ class App:
         nb.add(self.read_tab, text="Read & Inspect")
         self._build_read_tab(self.read_tab)
 
-        self.log = scrolledtext.ScrolledText(parent, height=15, state="disabled", wrap="word",
+        self.feedback = FeedbackPanel(parent, self.pal)         # verdict banner (+ problems) above the log
+        self.feedback.frame.pack(fill="x")
+        ttk.Label(parent, text="Details", foreground=self.pal["muted"]).pack(anchor="w", padx=10)
+        self.log = scrolledtext.ScrolledText(parent, height=13, state="disabled", wrap="word",
                                              borderwidth=0, bg=self.pal["log_bg"], fg=self.pal["log_fg"])
         self.log.pack(fill="both", expand=True, **pad)
         self._write("Pick a field on the Field tab (or Find it), Preview fidelity to see what a fork will "
@@ -218,6 +224,11 @@ class App:
     def post(self, msg):
         self.q.put(msg)
 
+    def _verdict(self, verdict, problem_rows=()):
+        """Show a verdict in the banner (scheduled on the UI thread; safe from a worker)."""
+        rows = list(problem_rows)
+        self.root.after(0, lambda: self.feedback.show(verdict, rows))
+
     def _drain(self):
         try:
             while True:
@@ -237,11 +248,14 @@ class App:
         for btn in self._buttons():
             btn.state(st)
 
-    def _run_kit(self, args, *, intro=None, done_hint=None):
-        """Shell out to `py -m ff9mapkit <args>` from the kit root and STREAM stdout/stderr into the log."""
+    def _run_kit(self, args, *, intro=None, done_hint=None, subject="", ok_next=""):
+        """Shell out to `py -m ff9mapkit <args>` from the kit root and STREAM stdout/stderr into the log.
+        ``subject``/``ok_next`` drive the verdict banner; the exit code decides ok-vs-failed (these
+        shell-outs have no structured error list, only a stream + a return code)."""
         if self.busy:
             return
         self._busy(True)
+        self.feedback.running(f"{subject}…" if subject else "Working…")
         if intro:
             self.post("\n" + intro)
         self.post("$ ff9mapkit " + " ".join(args) + "\n")
@@ -258,8 +272,15 @@ class App:
                     self.post(done_hint)
                 elif code != 0:
                     self.post(f"[exit {code}] -- see the output above. (Importing needs UnityPy + your FF9 install.)")
+                self._verdict(fb.from_returncode(
+                    code, subject=subject or "Command",
+                    ok_headline=f"{subject} -- done" if subject else "Done",
+                    ok_next=ok_next,
+                    fail_hint="See the Details below (importing needs UnityPy + your FF9 install)."))
             except Exception as e:                       # noqa: BLE001 -- surface any launch failure in the log
                 self.post(f"ERROR launching ff9mapkit: {type(e).__name__}: {e}")
+                self._verdict(fb.Verdict(fb.ERROR, f"{subject or 'Command'} -- failed to launch"),
+                              fb.problems([f"{type(e).__name__}: {e}"]))
             finally:
                 self.root.after(0, lambda: self._busy(False))
 
@@ -273,14 +294,15 @@ class App:
 
     def on_find(self):
         self._run_kit(["list-fields", self.field.get().strip()] if self.field.get().strip()
-                      else ["list-fields"], intro="Finding fields…")
+                      else ["list-fields"], intro="Finding fields…", subject="Find fields")
 
     def on_preview(self):
         field = self.field.get().strip()
         if not field:
             messagebox.showerror("No field", "Enter a real field id or name to preview its fork fidelity.")
             return
-        self._run_kit(["fork-report", field],
+        self._run_kit(["fork-report", field], subject="Fork preview",
+                      ok_next="Read the fidelity report below, then set the carry options and Import.",
                       intro=f"Previewing how faithfully {field} will fork (offline; no UnityPy needed)…")
 
     def on_import(self):
@@ -302,7 +324,9 @@ class App:
                            name=self.name.get().strip() or None, art=self.art.get(),
                            carry_npcs=self.carry_npcs.get(), carry_text=self.carry_text.get(),
                            dialogue_stubs=self.dialogue_stubs.get(), save_moogle=self.save_moogle.get())
-        self._run_kit(args, intro=f"Importing {field}… (reads p0data via UnityPy; this can take a moment)",
+        self._run_kit(args, subject=f"Import {field}",
+                      ok_next=f"Written to {out}. Open it in Build & Deploy to compile + deploy.",
+                      intro=f"Importing {field}… (reads p0data via UnityPy; this can take a moment)",
                       done_hint=f"\nDone. The field.toml is in {out}. Next: open it in Build & Deploy to "
                                 f"compile + deploy it (or add a [startup] block to assert its story beat).")
 
@@ -318,6 +342,7 @@ class App:
             messagebox.showerror("No field", "Enter a real field id or name to read its dialogue.")
             return
         self._run_kit(["dialogue-import", field, "--lang", self.dlg_lang.get()],
+                      subject="Read dialogue",
                       intro=f"Reading {field} dialogue ({self.dlg_lang.get()})…")
 
     def on_inspect_save(self):
@@ -325,18 +350,22 @@ class App:
         if not save:
             messagebox.showerror("No save", "Pick a save file to inspect.")
             return
-        self._run_kit(["flags-inspect", save], intro="Decoding the save's gEventGlobal…")
+        self._run_kit(["flags-inspect", save], subject="Inspect save",
+                      intro="Decoding the save's gEventGlobal…")
 
     def on_list_fields(self):
         flt = self.list_filter.get().strip()
-        self._run_kit(["list-fields", flt] if flt else ["list-fields"], intro="Listing real fields…")
+        self._run_kit(["list-fields", flt] if flt else ["list-fields"], subject="List fields",
+                      intro="Listing real fields…")
 
     def on_templates(self):
         if not messagebox.askyesno("Regenerate templates",
                                    "Rebuild the kit's base templates from your FF9 install? "
                                    "(Reads your install; writes only into the kit's data dir.)"):
             return
-        self._run_kit(["extract-templates"], intro="Regenerating base templates from your install…",
+        self._run_kit(["extract-templates"], subject="Regenerate templates",
+                      ok_next="Templates rebuilt from your install (ships no game data).",
+                      intro="Regenerating base templates from your install…",
                       done_hint="\nTemplates regenerated.")
 
 
