@@ -488,12 +488,13 @@ def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), *
     the same Items.csv delta as any ``[[item]]`` price edits."""
     if not (weapons or armors or items or equip_bonuses):
         return
-    d = _base_dir(game)
-    try:
+    from ..config import ConfigError                       # a RuntimeError (no resolvable install), NOT OSError --
+    try:                                                  # catch it too so build.py's `except ValueError` warns+skips
+        d = _base_dir(game)
         items_text = _read_text(d / "Items.csv")
-    except OSError as e:
+    except (OSError, ConfigError) as e:
         raise ValueError("item-data patches ([[weapon]]/[[armor]]/[[item]]/[[equip_bonus]]) need your FF9 install "
-                         f"to read the base Items.csv columns -- couldn't read {d / 'Items.csv'}: {e}") from e
+                         f"to read the base Items.csv columns: {e}") from e
     repoints: dict = {}
     stats_delta = None
     if equip_bonuses:

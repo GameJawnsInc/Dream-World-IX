@@ -44,6 +44,7 @@ from .content import reinit as _reinit
 from .content import entry_settle as _entry_settle
 from .content import savepoint as _savepoint
 from .content import shop as _shop
+from .content import synthesis as _synthesis
 from .content import startup as _startup
 from .content import text as _text
 from . import animations as _animations
@@ -649,6 +650,61 @@ def validate(project: FieldProject) -> list[str]:
         z = sh.get("zone")
         if z is not None and len(z) not in (4, 5):
             problems.append(f"[[shop]] id {sid} zone must have 4 or 5 points (the press area), got {len(z)}")
+    # custom synthesis shop ([[synthesis]]: a Synthesis.csv recipe delta + the same Menu(2, id) opener as a shop).
+    shop_ids_local = {sh["id"] for sh in project.raw.get("shop", [])
+                      if isinstance(sh.get("id"), int) and not isinstance(sh.get("id"), bool)}
+    for i, b in enumerate(project.raw.get("synthesis", [])):
+        sid = b.get("shop")
+        if not isinstance(sid, int) or isinstance(sid, bool):
+            problems.append(f"[[synthesis]] #{i} needs an integer `shop` id (the synth-shop slot, "
+                            f">= {_synthesis.FIRST_SYNTH_SHOP})")
+            continue
+        if not (_synthesis.FIRST_SYNTH_SHOP <= sid <= _synthesis.MAX_SHOP_ID):
+            problems.append(f"[[synthesis]] shop {sid} out of range {_synthesis.FIRST_SYNTH_SHOP}.."
+                            f"{_synthesis.MAX_SHOP_ID} -- ids 0-{_synthesis.FIRST_SYNTH_SHOP - 1} are base BUY "
+                            f"shops (in ShopItems.csv) and never open as Synthesis")
+        if sid in shop_ids_local:
+            problems.append(f"[[synthesis]] shop {sid} is also a [[shop]] id -- a shop id present in ShopItems.csv "
+                            f"opens as a BUY shop, so its synthesis recipes would not show (use a different id)")
+        recipes = b.get("recipes")
+        if not recipes:
+            problems.append(f"[[synthesis]] shop {sid} has no `recipes` (a synth shop needs at least one recipe)")
+        else:
+            for j, r in enumerate(recipes):
+                if not isinstance(r, dict):
+                    problems.append(f"[[synthesis]] shop {sid} recipe #{j} must be a table "
+                                    f"(result = ..., ingredients = [...], price = N)")
+                    continue
+                if "result" not in r:
+                    problems.append(f"[[synthesis]] shop {sid} recipe #{j} needs a `result` item")
+                else:
+                    try:
+                        if _items.resolve(r["result"]) == _synthesis.NO_ITEM:
+                            problems.append(f"[[synthesis]] shop {sid} recipe #{j} result is NoItem (255)")
+                    except (ValueError, IndexError, TypeError) as e:
+                        problems.append(f"[[synthesis]] shop {sid} recipe #{j} result: {e}")
+                ingr = r.get("ingredients")
+                if not ingr:
+                    problems.append(f"[[synthesis]] shop {sid} recipe #{j} needs `ingredients` (items consumed)")
+                elif not isinstance(ingr, (list, tuple)):   # a bare string iterates char-by-char -> guard first
+                    problems.append(f"[[synthesis]] shop {sid} recipe #{j} ingredients must be a list of items")
+                else:
+                    resolved = []
+                    for it in ingr:
+                        try:
+                            resolved.append(_items.resolve(it))
+                        except (ValueError, IndexError, TypeError) as e:
+                            problems.append(f"[[synthesis]] shop {sid} recipe #{j} ingredients: {e}")
+                    if resolved and all(x == _synthesis.NO_ITEM for x in resolved):
+                        problems.append(f"[[synthesis]] shop {sid} recipe #{j} ingredients are all NoItem (255)")
+                price = r.get("price", 0)
+                if isinstance(price, bool) or not isinstance(price, int):
+                    problems.append(f"[[synthesis]] shop {sid} recipe #{j} price must be an integer, got {price!r}")
+                elif price < 0:
+                    problems.append(f"[[synthesis]] shop {sid} recipe #{j} price cannot be negative")
+        z = b.get("zone")
+        if z is not None and (not isinstance(z, (list, tuple)) or len(z) not in (4, 5)):
+            problems.append(f"[[synthesis]] shop {sid} zone must have 4 or 5 points (the press area)")
     choice_npcs = {ch["npc"] for ch in project.raw.get("choice", []) if "npc" in ch}
     for i, n in enumerate(project.raw.get("npc", [])):     # a shopkeeper NPC ([[npc]] opens_shop = id)
         os_ = n.get("opens_shop")
@@ -2400,6 +2456,16 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 "bubble": sh.get("bubble", True)} for sh in shops]
         eb, _ = _shop.inject_shop_regions(eb, shs)
 
+    # synthesis: a [[synthesis]] with a `zone` mints the SAME Menu(2, id) press-region opener as a shop (the
+    # engine routes the id to the Synthesis UI because it isn't in ShopItems.csv). Recipes are written mod-global
+    # at build_mod. Synth shops opened from an NPC (opens_shop = the synth id) carry no zone and are skipped here.
+    synth_zones = [b for b in project.raw.get("synthesis", []) if b.get("zone")]
+    if synth_zones:
+        shs = [{"id": int(b["shop"]),
+                "zone": _gw.quad_zone(b["zone"]) if len(b["zone"]) == 4 else b["zone"],
+                "bubble": b.get("bubble", True)} for b in synth_zones]
+        eb, _ = _shop.inject_shop_regions(eb, shs)
+
     # player-function graft: carry the donor PLAYER funcs a carried object RunScripts onto the fork player,
     # so the interactions fire (the cask EXAMINE turn, the box gestures) -- docs/PLAYER_GRAFT.md. The tag
     # allocator is built AFTER the ladder/jump grafts above, so it sees their tags as used and the object
@@ -3034,11 +3100,12 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         # logic ships instead). The inventory CSV still ships (mod-write stage). Warn so it isn't a silent
         # no-op; wire the opener on a synthesized field, or open the shop from the donor's own carried logic.
         _shop_openers = ([s for s in project.raw.get("shop", []) if s.get("zone")]
+                         + [b for b in project.raw.get("synthesis", []) if b.get("zone")]
                          + [n for n in project.raw.get("npc", []) if n.get("opens_shop") is not None])
         if _shop_openers:
-            warnings.append("[[shop]] opener (zone region / [[npc]] opens_shop) is NOT injected into a verbatim "
-                            "fork -- the donor's own .eb ships instead; the shop inventory CSV is still written. "
-                            "Author the opener on a synthesized field if you need it.")
+            warnings.append("[[shop]]/[[synthesis]] opener (zone region / [[npc]] opens_shop) is NOT injected into "
+                            "a verbatim fork -- the donor's own .eb ships instead; the inventory/recipe CSV is still "
+                            "written. Author the opener on a synthesized field if you need it.")
     for lang in langs:
         if verbatim_bytes is not None:
             eb = verbatim_bytes
@@ -3196,16 +3263,55 @@ def _emit_shops(projects, layout) -> list:
             seen[sid] = _field_name(p)
             shops.append(sh)
     # a shopkeeper NPC (opens_shop) pointing at a CUSTOM id (>= 32) that no [[shop]] defines opens an empty
-    # shop -- usually a typo or a forgotten [[shop]] block. A vanilla id (0-31) is fine (it's in the base CSV).
+    # shop -- usually a typo or a forgotten [[shop]] block. A vanilla id (0-31) is fine (it's in the base CSV),
+    # and a [[synthesis]] shop id is fine too (opens_shop = a synth id opens the SYNTHESIS shop, not a buy shop).
+    synth_ids = {int(b["shop"]) for p in projects for b in p.raw.get("synthesis", [])
+                 if isinstance(b.get("shop"), int) and not isinstance(b.get("shop"), bool)}
     for p in projects:
         for n in p.raw.get("npc", []):
             ref = n.get("opens_shop")
             if isinstance(ref, int) and not isinstance(ref, bool) \
-                    and ref >= _shop.FIRST_CUSTOM_SHOP and ref not in seen:
-                warnings.append(f"[[npc]] {n.get('name', '?')!r} opens_shop = {ref}, but no [[shop]] defines "
-                                f"shop {ref} -- it will be empty (define a [[shop]] id = {ref})")
+                    and ref >= _shop.FIRST_CUSTOM_SHOP and ref not in seen and ref not in synth_ids:
+                warnings.append(f"[[npc]] {n.get('name', '?')!r} opens_shop = {ref}, but no [[shop]] or "
+                                f"[[synthesis]] defines shop {ref} -- it will be empty (define a [[shop]] id = {ref} "
+                                f"or a [[synthesis]] shop = {ref})")
     if shops:
         _shop.write_shop_items(layout, shops)
+    return warnings
+
+
+def _emit_synthesis(projects, layout) -> list:
+    """Emit the mod-GLOBAL synthesis-recipe delta (``Data/Items/Synthesis.csv``) from every built field's
+    ``[[synthesis]]`` blocks. Recipes are minted above the base max + merged by id, so any field may add its own.
+    A synth shop id (``Menu(2, id)``) must NOT also be a ``[[shop]]`` buy id -- an id present in ShopItems.csv
+    opens as a BUY shop, so the recipes would not show; warned. No ``[[synthesis]]`` anywhere -> no file written.
+    Reads the install's base ``Synthesis.csv``; no install -> warn + skip. Returns warnings."""
+    warnings: list = []
+    shop_ids = set()
+    for p in projects:
+        for sh in p.raw.get("shop", []):
+            try:
+                shop_ids.add(int(sh["id"]))
+            except (KeyError, TypeError, ValueError):
+                pass
+    blocks = []
+    for p in projects:
+        for b in p.raw.get("synthesis", []):
+            try:                                            # build doesn't run validate(); don't crash on a bad id
+                sid = int(b["shop"])
+            except (KeyError, TypeError, ValueError):
+                warnings.append(f"[[synthesis]] on {_field_name(p)} has a missing/invalid shop id "
+                                f"{b.get('shop')!r} -- skipped (run `ff9mapkit lint` for the precise error)")
+                continue
+            if sid in shop_ids:
+                warnings.append(f"[[synthesis]] shop {sid} is ALSO a [[shop]] buy id -- a shop id present in "
+                                f"ShopItems.csv opens as a BUY shop, so the recipes would NOT show (use a free id)")
+            blocks.append(b)
+    if blocks:
+        try:
+            _synthesis.write_synthesis(layout, blocks)
+        except ValueError as e:                             # e.g. no install to read the base Synthesis.csv
+            warnings.append(f"synthesis recipes skipped: {e}")
     return warnings
 
 
@@ -3267,6 +3373,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     # mod-global new-game starting state (CSV deltas, written once into the mod root -- not field bytes)
     start_warnings = _emit_start_state(projects, layout, entry_project)
     start_warnings += _emit_shops(projects, layout)
+    start_warnings += _emit_synthesis(projects, layout)
     start_warnings += _emit_item_data(projects, layout)
     start_warnings += _emit_battle_data(projects, layout)
     start_warnings += _emit_character_data(projects, layout)

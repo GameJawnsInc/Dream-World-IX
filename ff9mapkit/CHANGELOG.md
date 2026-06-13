@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[synthesis]]`: custom synthesis shops (recipes + opener), no DLL (0.9.86)
+- A **synthesis shop** combines ingredient items + gil into a new item. `[[synthesis]] shop = N` + `recipes = [{
+  result, ingredients, price }, ...]` emits a `Data/Items/Synthesis.csv` (`FF9MIX_DATA`) delta; the opener is the
+  **same `Menu(2, id)`** as a buy shop (reused verbatim from `content/shop.py` — NPC `opens_shop = N` or a standalone
+  `zone`). The one whole FF9 item-system the kit had **zero** support for (gap-audit's biggest hole).
+- **Grounded byte-for-byte in the Memoria source:** `Synthesis.csv` = `Comment;Id;Shops;Price;Result;Ingredients`
+  with `#! UseShopList` (so `Shops` parses as an `Int32[]`), **whole-row merge by Id** (`ff9mix.LoadSynthesis` via
+  `EnumerateCsvFromLowToHigh`) → the kit **mints recipe ids above the base max (63)** so a delta only *adds* recipes.
+  A shop id opens as **Synthesis iff it is absent from `ShopItems.csv`** (`ff9buy.FF9Buy_GetType`); a shop's recipes
+  are every row whose `Shops` contains the id (`ShopUI.InitializeMixList`). So the synth `shop` id must be `>= 32`,
+  `<= 255`, and **not** a `[[shop]]` buy id — the build **errors** on that collision (it would flip to a buy shop).
+- Ingredient duplicates are preserved (need N copies); `NoItem` dropped; base read LIVE in cp1252, **no game data
+  committed**. `content/synthesis.py` + `build._emit_synthesis` (mod-global) + the synth `zone` opener (reuses
+  `shop.inject_shop_regions`) + `ModLayout.synthesis_csv` + `config` + `deploy_field` reversible CSV loop +
+  `_STARTUP_CSVS` (RELAUNCH note) + `validate()`. Multi-lens adversarially reviewed (0 blockers; folded a real
+  `ConfigError`-escapes-the-build fix — also in the `itemdata` sibling — + lint type-guards for a scalar `zone` /
+  string `ingredients` + doc/message precision). 21 tests (1520 total). **Awaiting in-game proof.**
+
 ### Added — quick-win item columns: weapon `category`/`status_index`/`rate` + item `equippable_by` (0.9.85, ★ IN-GAME PROVEN)
 - Extends the `[[weapon]]`/`[[item]]` CSV-delta surface (`content/itemdata.py`) with four more stock-moddable,
   no-DLL levers the kit previously only **read** for the Info Hub:

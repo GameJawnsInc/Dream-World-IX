@@ -140,6 +140,7 @@ csv_reverts = []
 for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, "InitialItems"),
                                  (tl.default_equipment_csv, live.default_equipment_csv, "DefaultEquipment"),
                                  (tl.shop_items_csv, live.shop_items_csv, "ShopItems"),
+                                 (tl.synthesis_csv, live.synthesis_csv, "Synthesis"),
                                  (tl.weapons_csv, live.weapons_csv, "Weapons"),
                                  (tl.armors_csv, live.armors_csv, "Armors"),
                                  (tl.items_csv, live.items_csv, "Items"),
@@ -166,8 +167,8 @@ for _label, _live, _had in csv_reverts:
         csv_revert_code += f'\n_p = Path(r"{_live}")\nif _p.exists(): _p.unlink()'
 # These CSVs are read ONCE at engine startup (static ctors: ff9weap/ff9armor/ff9item) or at New-Game init -- F6
 # Reload re-reads only the field's .eb/.mes/scene/walkmesh, NOT item/stat data -> a change needs a RELAUNCH.
-_STARTUP_CSVS = {"Weapons", "Armors", "Items", "Stats", "InitialItems", "ShopItems", "DefaultEquipment",
-                 "Actions", "StatusData", "BaseStats", "Leveling", "AbilityGems"}
+_STARTUP_CSVS = {"Weapons", "Armors", "Items", "Stats", "InitialItems", "ShopItems", "Synthesis",
+                 "DefaultEquipment", "Actions", "StatusData", "BaseStats", "Leveling", "AbilityGems"}
 if any(_l in _STARTUP_CSVS for _l, _, _ in csv_reverts):
     print("  !! item/stat CSVs load at game startup (or New-Game init) -> RELAUNCH to apply (F6 Reload won't)")
 

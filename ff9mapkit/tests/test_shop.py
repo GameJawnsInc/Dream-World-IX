@@ -242,7 +242,7 @@ def test_emit_shops_dup_id_warns(tmp_path):
 def test_emit_shops_dangling_opens_shop_warns(tmp_path):
     toml = BASE + '\n[[npc]]\nname = "X"\npos = [0, -600]\nopens_shop = 99\n'
     warns = _emit_shops([_proj(toml, tmp_path)], ModLayout(tmp_path / "mod"))
-    assert any("no [[shop]] defines shop 99" in w for w in warns)
+    assert any("no [[shop]] or [[synthesis]] defines shop 99" in w for w in warns)
 
 
 def test_emit_shops_vanilla_opens_shop_ok(tmp_path):

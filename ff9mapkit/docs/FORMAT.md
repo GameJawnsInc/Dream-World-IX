@@ -677,6 +677,46 @@ bubble = true                                  # the floating "!" prompt (defaul
 
 ---
 
+### `[[synthesis]]` — a custom synthesis shop (recipes + opener)
+
+A **synthesis shop** combines ingredient items + gil into a new item (the Black-Mage-Village / Treno synthesist).
+Like `[[shop]]`, it's two parts — **recipes** (the data) and an **opener** — and both are stock-Memoria, no DLL.
+
+```toml
+[[synthesis]]
+shop = 40                                      # the synth-shop id (NOT a [[shop]] buy id; 32..255)
+recipes = [
+  { result = "Butterfly Sword", ingredients = ["Dagger", "Mage Masher"], price = 300 },
+  { result = "The Ogre",        ingredients = ["Mage Masher", "Mage Masher"], price = 700 },  # need 2 Mage Mashers
+]
+# open it from an NPC (opens_shop = the synth id) OR a standalone press-region:
+zone = [[-400, -900], [400, -900], [400, -500], [-400, -500]]
+```
+
+- **Recipes** → a `StreamingAssets/Data/Items/Synthesis.csv` delta. Each recipe = `result` (the item produced) +
+  `ingredients` (the items consumed — **duplicates matter**: `["Mage Masher", "Mage Masher"]` needs two) + `price`
+  (gil). The kit **mints** each recipe an id **above the base max** and the engine **merges** by id, so your delta
+  only **adds** recipes (never clobbers a vanilla one). A shop's recipes are every row whose synth-shop id matches,
+  so several `[[synthesis]]` blocks on the same `shop` combine.
+- **The synth-shop id** is what makes a shop a *synthesis* shop: the engine opens id `N` as Synthesis **iff `N` is
+  not in `ShopItems.csv`** (`ff9buy.FF9Buy_GetType`). So the `shop` id must be **`>= 32`** (0-31 are base buy
+  shops), **`<= 255`** (the `Menu` sub-id), and must **not** also be a `[[shop]]` id — a shop id present in
+  `ShopItems.csv` opens as a **buy** shop and your recipes won't show (the build **errors** on the collision
+  within a field, and **warns** when the two live on different fields). You *may* target a vanilla synth id
+  (32-39) to **add** a recipe to an existing synthesist.
+- **Opener** → the **same** `Menu(2, id)` as a buy shop (the engine decides buy-vs-synthesis from the id alone):
+  - **`[[npc]] opens_shop = 40`** — talk to the synthesist (works unchanged; `40` opens the synthesis shop because
+    it isn't a buy shop).
+  - **`[[synthesis]] zone = [...]`** — a standalone press-region (place a cosmetic merchant over it). `bubble = false`
+    hides the "!".
+- **Scope:** the recipe CSV ships for **any** build (incl. verbatim); the synthesized opener is injected on the
+  **synthesize** path only (a `--verbatim` fork carries the donor's own logic).
+- **★ RELAUNCH to apply:** `Synthesis.csv` loads once at startup (`ff9mix`) — F6 → Reload won't pick it up.
+- **Needs a reachable FF9 install at build time** (it reads the base `Synthesis.csv` header + recipe ids; the repo
+  commits no game data).
+
+---
+
 ## `[[weapon]]` / `[[armor]]` / `[[item]]` / `[[equip_bonus]]` — tune EXISTING item stats (optional, repeatable)
 
 **Rebalance gear** — change a weapon's power, an armor's defence, an item's price, or an item's **equip stat bonus**.

@@ -213,6 +213,14 @@ class ModLayout:
         return self.root / "StreamingAssets" / "Data" / "Items" / "ShopItems.csv"
 
     @property
+    def synthesis_csv(self) -> Path:
+        """Custom synthesis recipes (``Data/Items/Synthesis.csv`` = FF9MIX_DATA: Shops/Price/Result/Ingredients).
+        MERGED by id low->high (whole-row, ff9mix.LoadSynthesis) -> a partial delta works; the kit MINTS recipe
+        ids above the base max so it only ADDS recipes. A shop id opens as Synthesis iff it is absent from
+        ShopItems.csv (ff9buy.FF9Buy_GetType); a recipe shows at every shop id in its ``Shops`` list."""
+        return self.root / "StreamingAssets" / "Data" / "Items" / "Synthesis.csv"
+
+    @property
     def weapons_csv(self) -> Path:
         """Weapon combat data (``Data/Items/Weapons.csv``: Power/Elements/Category...). MERGED by id low->high
         (WHOLE-ROW replace) -> a partial delta (the base header + only the rows you tune) works."""
