@@ -1102,7 +1102,7 @@ def validate(project: FieldProject) -> list[str]:
             m = cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)
             if not isinstance(m, int) or isinstance(m, bool) or not (0 <= m <= 255):
                 problems.append(f"[cutscene] ate_mode {m!r} must be an int 0..255 "
-                                f"(1 = Blue/new, 2 = Gray/seen, 5 = force-show; ATE 0xD7 mode).")
+                                f"(1 = quiet no-icon auto-ATE, 6 = grey UNSKIPPABLE; ATE 0xD7 mode).")
     return problems
 
 

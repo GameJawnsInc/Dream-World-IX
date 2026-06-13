@@ -55,17 +55,21 @@ DEFAULT_WARMUP = 30     # frames (~1s @ 30fps); generous margin over the 16-fram
 #     is ALSO what makes the engine tag the closed dialog `isCompulsory` (ETb.ProcessATEDialog) -- the
 #     defining, engine-recognized marker of a compulsory ATE.
 #   * the body is bracketed `ATE(1) ... ATE(0)` (0xD7) -- the HUD-icon arm (real field 1901 uses mode 1).
-# THE FAITHFUL FORCED LOOK = NO HUD PROMPT. With mode 1 + no force bit, the icon's render gate
-# (`mode>0 && ((mode&4) || GetUserControl())`) FAILS under the cutscene's control-lock, so the "Press SELECT"
-# prompt never shows -- the winATE CAPTION window is the only on-screen ATE marker, exactly like real forced
-# ATEs (676-field byte sweep: forced ATEs arm mode 1; mode 2 is unused; mode 6 is a screen-transition fade,
-# NOT a grey ATE -- docs/ATE_SYSTEM.md). DON'T force-show: ate_mode=5 makes the Blue icon render AND its
-# display coroutine re-flashes the press glyph (a false "press me" during an auto-play). Seen-state + the
-# ATE80 trophy register only on a REAL field id (MappingATEID keyed on fldMapNo/SC) -- the fidelity wall.
+# TWO real templates for an auto-playing ATE (676-field byte sweep + the grey-unskippable re-classification,
+# docs/ATE_SYSTEM.md):
+#   * ate_mode = 6 (GREY + force-show) = the AUTHENTIC UNSKIPPABLE ATE -- the real game's forced ATEs (field 956,
+#     the Festival-of-the-Hunt cluster) use ATE(6): a grey, force-shown icon that renders even under the control-
+#     lock, marking a scene the player can't skip. The Gray display coroutine shows NO press glyph (unlike Blue).
+#   * ate_mode = 1 (Blue, no force, the default) = a quieter no-icon auto-ATE: mode 1's render gate
+#     (`mode>0 && ((mode&4) || GetUserControl())`) FAILS under the control-lock, so no HUD icon shows -- the winATE
+#     CAPTION window is the only marker (confirmed in-game @30008).
+# AVOID ate_mode = 5 (Blue + force): a force-shown Blue icon re-flashes the "Press SELECT" glyph (the Blue
+# coroutine), wrongly inviting a press during an auto-play. mode 2 is unused in the real game; the only grey is 6.
+# Seen-state + the ATE80 trophy register only on a REAL field id (MappingATEID keyed on fldMapNo/SC) -- the wall.
 # Mirrors `ate.WIN_ATE`; kept local to avoid importing the ate module (which imports choice -> region).
 ATE_CAPTION_FLAG = 64
-ATE_DEFAULT_MODE = 1     # ATE(mode) HUD arm: 1 = the byte-faithful forced value (field 1901; no prompt under
-                         # control-lock). The only canonical value -- do not force-show (5/6 are non-authentic)
+ATE_DEFAULT_MODE = 1     # ATE(mode) HUD arm. 1 = quiet no-icon auto-ATE (default); 6 = the authentic GREY
+                         # UNSKIPPABLE look (real forced ATEs). Avoid 5 (Blue force-show re-flashes the press glyph)
 
 
 def say(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:
