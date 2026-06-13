@@ -114,3 +114,28 @@ def test_golden_roundtrip_real_donor(donor):
     assert scene.typ_count >= 1
     assert all(m.hp > 0 and m.level > 0 and m.geo != 0 for m in scene.monsters)
     assert len(scene.attacks) == scene.atk_count
+
+
+# ----------------------------------------------------------------- install-gated: camera codec on a real donor
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+@pytest.mark.parametrize("donor", ["EF_R007"])
+def test_camera_codec_golden_roundtrip_real_donor(donor):
+    """The raw17 opening-camera codec (``camera_codec.parse_block`` <-> ``serialize_block`` /
+    ``splice_block``), asserted against a REAL donor raw17 -- the camera-codec analog of the raw16 golden
+    above. The synthetic test (``test_camera_codec_roundtrip`` in test_battle.py) only proves the offset
+    repack on a hand-built block; THIS proves the parse is truly lossless (every camera's flag-keyed
+    sub-blocks, the set-offset table, any abort/empty cameras) on actual Square-Enix bytes. Closes the
+    'tested only on SYNTHETIC raw17' gap (docs/BATTLE_DESIGN.md)."""
+    from ff9mapkit.battle import camera_codec, extract
+    try:
+        raw17 = extract.read_scene_assets(donor)["raw17"]
+    except (ValueError, KeyError, FileNotFoundError) as ex:
+        pytest.skip(f"donor {donor} not readable: {ex}")
+    cam_off, cams = camera_codec.parse_block(raw17)
+    # THE golden assertions: the parsed camera block re-serializes byte-identically to the donor's [camOffset:],
+    # and the production splice path reproduces the WHOLE raw17 file.
+    assert camera_codec.serialize_block(cams) == raw17[cam_off:]
+    assert camera_codec.splice_block(raw17, cams) == raw17
+    # and the parse is structurally sane (>= 1 camera; at least one carries an opening sequence)
+    assert len(cams) >= 1
+    assert any(cam["sequences"] for cam in cams)

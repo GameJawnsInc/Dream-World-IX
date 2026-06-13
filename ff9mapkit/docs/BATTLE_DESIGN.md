@@ -176,8 +176,70 @@ Darkness=128 — the **same 8-bit space** as the enemy Guard/Absorb/Half/Weak by
 ### (g) Battle BG / camera / BGM — already shipped (the battle-backgrounds pillar)
 
 FBX geometry + textures (true codec round-trip, `fbx.parse_fbx↔emit_fbx`), `BattleScene` mint (DP), opening
-camera nudge/sweep (raw17, `camera_data`/`camera_codec`), BGM (`BattlePatch Music: <akao song id>`). The raw17
-`btlseq` attack choreography is shipped **verbatim** (no codec → cannot author).
+camera nudge/sweep (raw17, `camera_data`/`camera_codec` — the camera codec is now **real-donor round-trip
+proven**: `test_battle_scene_codec.py::test_camera_codec_golden_roundtrip_real_donor` asserts
+`serialize_block(parse_block(raw17)) == raw17[camOffset:]` + `splice_block(raw17, …) == raw17` on `EF_R007`),
+BGM (`BattlePatch Music: <akao song id>`). The raw17 `btlseq` attack-choreography BODY is shipped **verbatim**
+— the *kit* has no codec for it yet, but it is **data-authorable without a DLL**; the old "cannot author" was
+wrong (see §2(h)).
+
+### (h) Attack SEQUENCES — `btlseq.raw17` + `Data/SpecialEffects/<ef>/*.seq` (choreography + a thin gameplay edge)
+
+> Engine-verified 2026-06-13 (a 10-agent workflow, all 3 load-bearing claims adversarially re-derived from
+> source at high confidence). Sequences are **mostly cinematic but NOT pure fluff**; they are **no-DLL within
+> the engine's fixed opcode vocabulary**; and they are **NOT a custom-model stepping-stone** (§8).
+
+**Two channels, both no-DLL whole-file overrides:**
+- **Binary `btlseq.raw17`** — the legacy interpreter is a hard-coded 34-entry delegate table `gSeqProg[]`
+  (`btlseq.cs:1223-1259`); opcodes `> table.Length` coerce to `0=End` (`btlseq.cs:196`). Loaded mod-folder-first
+  via `LoadBytes` (FolderHighToLow, `AssetManager.cs:634-666`) — drop a higher-priority `.raw17` and yours runs.
+- **Text `.seq`** (`Data/SpecialEffects/<ef>/Sequence.seq` + `PlayerSequence.seq`) — parsed by
+  `BattleActionThread`/`BattleActionCode` (compile-time command dict, `BattleActionCode.cs:46-89`; the parser
+  **silently skips** any unknown command, `BattleActionThread.cs:156-157`), run by `UnifiedBattleSequencer`.
+  Loaded mod-folder-first via `LoadString` (FolderHighToLow). A third lever: `BattleCommandInfo.SequenceFile` is
+  a `[PatchableField]` → `BattlePatch.txt` can repoint a named/indexed action at a custom `.seq` by reflection.
+
+**A new OPCODE / new command / changed semantics = DLL** (both vocabularies are compiled). Asset registration is
+**not** needed — sequences only *reference* pre-existing anim/VFX/SFX ids.
+
+**Two caveats:**
+- **The text `.seq` path is gated by `Configuration.Battle.SFXRework`** (default ON; forced on at Battle Speed
+  ≥3 — `BattleSection.cs:61`, `Access/Battle.cs:10`). With `SFXRework=0` the legacy binary runs and a
+  `.seq`-authored attack **silently no-ops** (`btl_vfx.cs:110`, `UnifiedBattleSequencer.cs:27`). So `.seq` is
+  **not** engine-independent the way the kit's shipped mods are — it depends on a user ini setting.
+- **Enemy choreography has no text channel** — `EnemySequence` is transpiled from the binary raw17 at runtime,
+  never re-read from a `.seq` (`UnifiedBattleSequencer.cs:111-113`). Authoring *enemy* attack sequences needs
+  the binary raw17 codec the kit lacks (or a `SequenceFile` BattlePatch override, which re-imposes the gate).
+
+**Gameplay levers a sequence DOES own** (it can't change the damage *math*, but it owns when/how-many/whether/
+against-whom it runs):
+- **Hit count = total damage (BOTH channels).** Each `Calc` (binary opcode `0x02`) / `EffectPoint Type=Effect`
+  (text) is an independent committed calc pass — `effect_counter++` → `CalcMain` → `btl_para.SetDamage` does a
+  real `CurrentHp -= damage` (`btlseq.cs:523-534`, `btl_para.cs:147-156`). Two `Calc`s on a surviving target =
+  two HP subtractions. **This is the one gameplay lever that works in the binary raw17 the kit already forks.**
+- **Effect gating** — omit `Calc` and *nothing* applies (a pure-visual attack; `scriptId 64` relies on this).
+- **(text path only) target re-scope** — `EffectPoint`'s `Char` arg (AllEnemies / RandomTarget / named /
+  NCalc `MatchingCondition`) redirects/expands the calc's targets (`UnifiedBattleSequencer.cs:971-987`). Legacy
+  raw17 cannot — `SeqExecCalc` filters strictly by the pre-set `cmd.tar_id` (`btlseq.cs:530`).
+- **(text path only) save-state side-channel** — `SetVariable` writes `cmd_status`/`btl_seq`/`gEventGlobal[Index]`
+  (the save-backed story-flag heap) straight from the sequence (`BattleActionCode.cs:694-700`). The binary
+  `gSeqProg` table has **no** such opcode.
+- `effect_counter` is read back by enemy AI ("multi-hit pattern changes", `btl_scrp.cs:758-759`).
+
+**Cannot change** (use raw16 / `AA_DATA` / `scriptId` / CSV / `.eb`): the damage formula or per-hit value,
+power/element/accuracy/status-set (bound from `AA_DATA`/`scriptId` *before* the sequence — `btlseq.cs:105-106`),
+stats/defences, AP/EXP/gil rewards, whether the attack costs an ATB turn / how AI selects it, and the
+single-vs-multi *command* designation + reflect routing (`cmd.tar_id`).
+
+**Kit status:** the OPENING-CAMERA half of raw17 is a true codec (now real-donor proven, above); the SEQUENCE
+BODY is **sliced-verbatim, never parsed** → the kit cannot yet author choreography. The body's format does
+**not** share the camera block's self-describing offset structure (flat single-byte opcodes, per-opcode variable
+operand widths, separate `seqOffset`/`animList` tables, the `+4` body skew — `btlseq.cs:1165-1218`), so the
+camera codec's offset machinery is **not** reusable; only the high-level "rebuild offsets on emit" pattern
+transfers. On-ramp (mirrors the proven `.eb` read→patch→author path): read-only `battle-seq` disassembler
+(transcribe `gSeqProg` + the `AdvanceSeqCode` width table) → same-length in-place patch (retime a `Wait`, swap
+a camera/anim id) → lossless parse↔repack codec (gated on a real-donor golden) → net-new sequence (assembler +
+a coordinated raw16 `AA_DATA` + `.eb` AI-by-`sub_no` + raw17 edit — the deferred "highest cost" tail, §8).
 
 ---
 
@@ -232,10 +294,10 @@ The status is **asymmetric**:
 | Asset | Byte-perfect round-trip today? | How | Methodology fit |
 |---|---|---|---|
 | **FBX battle-BG + PNG** | **YES, test-proven** | `fbx.parse_fbx ↔ emit_fbx` (`test_battle.py`) + in-game | **Fully satisfies** import→tweak→verify (the only lever that does) |
-| **raw17 opening camera** | **YES, true codec** | `camera_codec.parse_block ↔ serialize_block` (offset-table repack) | Satisfied **but tested only on SYNTHETIC raw17** — never asserted vs a real donor block |
+| **raw17 opening camera** | **YES, true codec — real-donor proven** | `camera_codec.parse_block ↔ serialize_block` (offset-table repack) | **Fully satisfies** import→tweak→verify: `splice_block(raw17, parse_block(raw17)[1]) == raw17` asserted on `EF_R007` (`test_battle_scene_codec.py`) |
 | **battle `.eb`** | **YES, general codec** | `EbScript.from_bytes(x).to_bytes()==x` on real donors | Container round-trips; **no AI-body authoring** beyond `rewrite_main_init` |
 | **raw16 (`SB2_MON_PARM`)** | **COPY-identity only** | `scene_data.py` byte-patches ~9 offsets; rest verbatim | Surgical = byte-accurate-by-construction for those 9; **no full parse↔repack codec** |
-| **raw17 btlseq (sequences)** | sliced-verbatim, **never parsed** | `camera_codec.py` splices `raw17[:camOffset]` | No codec → cannot author attack choreography |
+| **raw17 btlseq (sequences)** | sliced-verbatim, **never parsed** | `camera_codec.py` splices `raw17[:camOffset]` | KIT has no codec yet → can't *author* choreography; but the ENGINE permits **data authoring with no DLL** (§2(h)) — hit-count/effect-gating already work in the verbatim raw17 |
 | **`.mes`** | **copy only** | `shutil.copyfile` | Never parsed |
 | **Actions/Status/Character CSVs** | **no reader at all** | — | Absent — but a *partial delta* is inherently lossless on untouched rows |
 
@@ -528,8 +590,9 @@ raw16 "type"); the `Attack` (0x38) command lives in **tag 5**. **Defer raw17 btl
 - **raw16 tail provenance** — the post-`AtkCount` block is overwhelmingly zero and `ReadBattleScene` never
   reads it; confirm no other loader reads `dbfile0000.raw16` by a larger length before a re-emitter re-appends
   it.
-- **Camera codec on a real donor raw17** — `parse_block↔serialize_block` is synthetic-tested only; assert
-  `serialize_block(parse_block(raw17)) == raw17[camOffset:]` on `EF_R007`.
+- ~~**Camera codec on a real donor raw17**~~ — **RESOLVED 2026-06-13**: `splice_block(raw17, parse_block(raw17)[1])
+  == raw17` is asserted on `EF_R007` (`test_battle_scene_codec.py::test_camera_codec_golden_roundtrip_real_donor`,
+  install-gated). The opening-camera codec is lossless on real bytes; the SEQUENCE BODY remains un-parsed (§2(h)).
 - **Enemies do NOT pull from `Actions.csv`** — a tool editing `Actions.csv` to retune enemy moves mis-targets
   every enemy edit (enemy attacks = raw16 AA_DATA / BattlePatch only). (`btl_util.cs:353-354`)
 - **Category default bits / the vanilla `type` byte** — only the `CustomBattleFlagsMeaning=1` meanings are
