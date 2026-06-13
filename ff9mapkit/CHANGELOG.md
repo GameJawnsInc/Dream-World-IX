@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — save-item editor: AP / ABILITY-MASTERY editing (the "AP unlocks" the user asked about) (0.9.71)
+### Added — save-item editor: AP / ABILITY-MASTERY editing (the "AP unlocks" the user asked about), IN-GAME PROVEN (0.9.71)
 - A new editor for a character's **ability AP / mastery** — set the AP a character has earned toward an ability
   (so an active ability becomes permanently usable, or a support ability becomes equippable). Memoria-extra-only
   for now (a vanilla no-extra save's main-block AP is a follow-up, like the stat editor's 7→7b).
@@ -27,9 +27,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   crashing the whole report; a **duplicate** `pa_extended` id sets EVERY match (the engine loads the last) so the
   edit is deterministic; the bulk `all` summary classifies mastery from the resolved per-ability outcome and shows
   `changed/pool-total`.
-- New `abilities.py` tests + ability write tests (synthetic + install-gated real-save dry-run). Offline-validated
-  end-to-end on a temp copy of the real (Moguri) save (single + bulk apply, scoped, read-back). **Awaiting the
-  in-game proof.**
+- New `abilities.py` tests + ability write tests (synthetic + install-gated real-save dry-run); 1307 suite green.
+- ★ **IN-GAME PROVEN (2026-06-13):** `items-set-ap <save> Zidane all max --apply` on the real Moguri save →
+  loaded → Zidane's Ability menu showed **every ability mastered** (filled gem icons; 0/50 → 50/50). Confirms the
+  `pa_extended` AP write loads and masters in-game, names/tokens resolve on a modded pool, and the mod-robust
+  `max` force-master works.
 
 ### Added — save-item editor: vanilla (main-block) STAT editing + the GUI on vanilla slots, IN-GAME PROVEN (0.9.69)
 - The stat editor now reaches **vanilla (no-extra) saves** too, and the GUI's Stats control works on them —
