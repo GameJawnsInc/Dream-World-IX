@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — `[[item_text]]`: an item's menu NAME + description text, no DLL (0.9.89)
+### Added — `[[item_text]]`: an item's menu NAME + description text, no DLL (0.9.89, ★ IN-GAME PROVEN)
 - Rename an item or rewrite its description — the text companion to the stat tuners (`[[item_effect]]` changes how
   much a Potion *heals*; `[[item_text]]` changes the menu text that *says* so): `[[item_text]] name = "Potion"` +
   `display_name = "Mega Potion"` and/or `description = "Restores 15 HP."` (at least one). Mod-global + repeatable.
@@ -30,9 +30,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   id** so name/id aliases of one item still warn; and reword the same-field-twice warning ("twice on X" vs the
   misleading "in two fields (X and X)"). One finding refuted (first-error-only lint — intentionally mirrors
   `battlepatch.validate_blocks`).
-- **Channel verified in source; awaits the in-game proof** (a renamed Potion shows the new name) — the last open
-  question is the patcher init-order, which `DataPatchers.Initialize` (in `AssetManager.DelayedInitialization`,
-  before text import) makes near-certain.
+- **★ IN-GAME PROVEN (2026-06-13):** a `[[item_text]]` on the Potion (item 236) showed **"Mega Potion"** in the
+  Items menu with the help bubble **"Restores 15 HP."** — both the `display_name` (IsNameEntry) and the
+  `description` (IsHelpEntry, menu-help + battle) landed. This also settles the last open question: the patchers
+  ARE loaded before the item text is imported (`DataPatchers.Initialize` in `AssetManager.DelayedInitialization`
+  precedes the text-bundle import), so a startup-time `>DATABASE` patch applies. Pairs with the 0.9.88
+  `[[item_effect]]` proof (that made the Potion *heal* 15; this makes the menu *say* so) — a full no-DLL retune.
 
 ### Added — `[[item_effect]]`: tune a consumable's use-effect (ItemEffects.csv), no DLL (0.9.88, ★ IN-GAME PROVEN)
 - Tune what a **usable item** does: `[[item_effect]] name = "Potion"` + any of `power` (heal/damage, 0-9999) /
