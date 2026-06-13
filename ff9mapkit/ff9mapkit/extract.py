@@ -1092,12 +1092,18 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
 
     if draw_footprint and "bgi" in roles:
         wm = bgi.BgiWalkmesh.from_bytes(_raw_bytes(env.container[roles["bgi"]].read()))
-        wv = wm.world_verts()                          # vert + orgPos + per-floor floor.org
+        # Project in the engine's RENDER frame: the engine negates the walkmesh Y before the GTE
+        # (Memoria WalkMesh.cs:54), so flip Y here too. Without it a DEEP floor -- one whose .bgi
+        # floor.org is 0, leaving it ~thousands of units off the floor plane (e.g. CPMP field 1554's
+        # vine path) -- projects off the painting; near-plane floors were only ~20px off, masked by the
+        # Blender view-offset. world_verts stays pre-flip (the BUILD ships it verbatim and the engine
+        # applies its own flip), so the flip lives ONLY in this DISPLAY projection.
+        wv = [(x, -y, z) for (x, y, z) in wm.world_verts()]
         draw = ImageDraw.Draw(canvas, "RGBA")
         for t in wm.tris:
             pts = []
             for vi in t.vtx:
-                cx, cy = cam.to_canvas(wv[vi], c0)      # exact GTE projection, world frame
+                cx, cy = cam.to_canvas(wv[vi], c0)      # exact GTE projection, render frame
                 pts.append((cx * up, cy * up))
             draw.polygon(pts, fill=(90, 180, 255, 45), outline=(120, 225, 255, 160))
     canvas.save(out_path)
