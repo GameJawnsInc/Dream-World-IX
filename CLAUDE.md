@@ -142,7 +142,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   (`deploy_field.py`, currently a CPMP ladder fork).
 - **New-Game → field 4003 is a stock mod field-70 override, NOT a DLL edit** — the only custom DLL is the F6
   menu. The mechanism, the seamless-entry lever, and the starting-state capstone → [[project-ff9-new-game-entry]].
-- **Versions:** kit `0.9.73`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.9.75`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -389,7 +389,9 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 - World Hub — a playable journey selector (choice `warp` action + `[player] model=` moogle PC); MVP scaffold IN-GAME PROVEN (talk→pick→warp) → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.73, 1348 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
+**Latest:** kit 0.9.75, 1348 tests (suite ~146s serial / ~56s `-n 6` via pytest-xdist; an in-process static-bundle
+cache stops it re-reading the 68 MB event bundle per install-gated call — a "2-hour" run is contention, not a
+regression → [[project-ff9-test-suite-perf]]). `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
 folder + ABORT on a cross-folder EVT/FBG name collision; wires New Game via the field-70 retarget, not the broken
 field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain. World-Hub scaffold IN-GAME PROVEN (the select→warp loop).
 Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4/5: raw16 full codec + golden
