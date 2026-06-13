@@ -5,7 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Fixed — a fork no longer spawns the player in a walled-off walkmesh pocket (#13 c.1) (0.9.73)
+### Performance — the test suite no longer re-reads the 68 MB event bundle on every install-gated call (0.9.75)
+- **Root-caused the "test suite takes 2 hours" report.** The full suite is healthy: **1348 passed in ~146s** serially.
+  The 2-hour run was resource **contention** — while pytest (pinned to one core) ran, concurrent background work
+  hammered all cores AND re-read the large `p0data*.bin` bundles, thrashing the OS file cache so each of the
+  ~150 install-gated `UnityPy.load(p0data7)` calls became a *cold* 68 MB physical read instead of a warm one.
+- **Fix (hardens that failure mode):** `extract._load_env()` — a bounded-LRU in-process cache of the loaded
+  STATIC base-game bundles, keyed by absolute path. `extract_event_script` / `extract_mapconfig` /
+  `EventBundle` / `find_field` now reuse one parse of the hot event bundle instead of re-loading it per call
+  (~5x on that pattern; the cache holds exactly the bundles in flight, the hot one staying resident by recency).
+  Mirrors the existing `_load_mod_bundle` but kept SEPARATE — mod-folder bundles mutate on deploy, base bundles
+  never do. `build_field_index` (force-scan, disk-cached) and `_events_bundle` (one-time detection) are untouched.
+  This also speeds real CLI usage (a fork reads the event bundle for `.eb` + MapConfig). +2 tests.
+- **Parallelism (optional):** added `pytest-xdist` to the `dev` extra. `py -m pytest -n 6` runs the suite in
+  ~56s (2.6x) and stops a single pytest process being starved under load. ~6 workers beats `-n auto`/12 (66s) —
+  the install-gated tests are disk-bound on the shared bundles, so too many workers re-contend on I/O.
+
+### Fixed — a fork no longer spawns the player in a walled-off walkmesh pocket (#13 c.1) (0.9.73, ★ IN-GAME PROVEN 0.9.75)
 - `import` now keeps the auto-picked `[player] spawn` in the **main walkable region**. A real field's stored
   spawn (`.bgi` charPos) is often a cutscene staging spot — for a shop it sits BEHIND the counter, a small
   walkmesh component walled off from the customer area, so a fork stranded the player there with no way out
@@ -17,6 +33,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   pocket; the spawn moved from `(-489,-348)` (pocket) to `(83,209)` (the customer area). **No-op on a
   single-region walkmesh → byte-identical** (the common case is untouched). +3 tests (`test_spawn`, incl. an
   install-gated Dali main-region assertion). This is part of the #13 (c) diorama tail.
+- ★ **IN-GAME PROVEN** (fork deployed to scratch slot 4012): the player now spawns in the customer area, free to
+  walk and reach the exit — no longer trapped behind the counter.
 
 ### Added — save-item editor: VANILLA (main-block) AP / ability editing, IN-GAME PROVEN (0.9.72)
 - The AP / ability-mastery editor now reaches **vanilla (no-extra) saves** too, via the encrypted main block's

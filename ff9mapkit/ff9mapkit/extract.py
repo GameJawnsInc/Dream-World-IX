@@ -20,6 +20,7 @@ import glob
 import json
 import os
 import re
+from collections import OrderedDict
 from pathlib import Path
 
 from . import config
@@ -70,6 +71,32 @@ def _streaming_assets(game=None) -> Path:
 
 def _bundles(game=None):
     return sorted(glob.glob(str(_streaming_assets(game) / "p0data*.bin")))
+
+
+# In-process cache of loaded STATIC base-game bundles (read-only: StreamingAssets/p0dataN.bin never
+# change under us at runtime). Keyed by absolute path, bounded LRU -- so a long-lived process (the test
+# suite, the import-chain walk, a fork that reads the event bundle for .eb + MapConfig) loads the hot
+# 68 MB event bundle ONCE instead of re-reading it on every call. Re-reading it cold is exactly what
+# starves callers when other processes thrash the OS file cache. Mirrors _load_mod_bundle, but kept
+# SEPARATE: mod-folder bundles DO mutate on deploy, base-game bundles never do. The cap bounds memory
+# while the constantly-touched event bundle naturally stays resident (LRU recency keeps the hot one).
+_STREAM_ENV_CACHE: "OrderedDict[str, object]" = OrderedDict()
+_STREAM_ENV_CACHE_MAX = 8
+
+
+def _load_env(path):
+    """``UnityPy.load`` a static base-game bundle, memoized (bounded LRU) by absolute path. Read-only
+    base data ONLY -- never a mod-folder bundle (those mutate on deploy; use ``_load_mod_bundle``)."""
+    key = os.path.abspath(str(path))
+    env = _STREAM_ENV_CACHE.get(key)
+    if env is not None:
+        _STREAM_ENV_CACHE.move_to_end(key)
+        return env
+    env = _unitypy().load(key)
+    _STREAM_ENV_CACHE[key] = env
+    while len(_STREAM_ENV_CACHE) > _STREAM_ENV_CACHE_MAX:
+        _STREAM_ENV_CACHE.popitem(last=False)
+    return env
 
 
 # ---- field -> bundle index (built once, cached; so lookups don't rescan ~50 bundles) ----
@@ -206,8 +233,7 @@ def extract_event_script(field: str, *, game=None, lang: str = EVT_LANG):
         bundle = _events_bundle(game)
         if not bundle:
             return None
-        UnityPy = _unitypy()
-        env = UnityPy.load(str(_streaming_assets(game) / bundle))
+        env = _load_env(_streaming_assets(game) / bundle)
         want = f"eventbinary/field/{lang}/{evt}.eb".lower()
         for k, obj in env.container.items():
             kl = k.lower()
@@ -235,8 +261,7 @@ def extract_mapconfig(field: str, *, game=None):
         bundle = _events_bundle(game)
         if not bundle:
             return None
-        UnityPy = _unitypy()
-        env = UnityPy.load(str(_streaming_assets(game) / bundle))
+        env = _load_env(_streaming_assets(game) / bundle)
         want = f"commonasset/mapconfigdata/{evt}.bytes".lower()
         for k, obj in env.container.items():
             if want in k.lower():
@@ -261,13 +286,12 @@ class EventBundle:
     so the walk terminates that branch cleanly (same contract as ``extract_event_script``)."""
 
     def __init__(self, game=None, lang: str = EVT_LANG):
-        UnityPy = _unitypy()
         bundle = _events_bundle(game)
         if not bundle:
             raise RuntimeError(
                 "could not locate the field event bundle (eventbinary/field/...) in StreamingAssets/p0data*.bin")
         self.lang = lang
-        env = UnityPy.load(str(_streaming_assets(game) / bundle))
+        env = _load_env(_streaming_assets(game) / bundle)
         marker = f"eventbinary/field/{lang}/"     # container keys carry a leading path -> substring match
         self._by_evt = {}
         for k, obj in env.container.items():
@@ -624,12 +648,11 @@ def find_field(field: str, game=None, bundle: str | None = None):
     """Locate a field's bundle + container paths. Returns (bundle_path, folder, {role: key}, env).
 
     Uses the cached field index unless `bundle` (e.g. 'p0data141.bin') is given to short-circuit it."""
-    UnityPy = _unitypy()
     sa = _streaming_assets(game)
     folder = None
     if not bundle:
         folder, bundle = resolve_field(field, game)
-    env = UnityPy.load(str(sa / bundle))
+    env = _load_env(sa / bundle)
     if folder is None:                                  # explicit bundle: match within it
         want = re.sub(r"^fbg_n\d+_", "", field.strip().lower())
         folders = {m.group(1) for k in env.container

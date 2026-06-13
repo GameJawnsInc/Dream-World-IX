@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ff9mapkit"
-version = "0.9.74"
+version = "0.9.75"
 description = "Author novel custom field maps for Final Fantasy IX (Memoria engine) from a declarative TOML project file."
 readme = "README.md"
 requires-python = ">=3.11"          # tomllib is stdlib from 3.11
@@ -18,7 +18,11 @@ keywords = ["final-fantasy-ix", "ff9", "memoria", "modding", "field", "map"]
 dependencies = ["Pillow>=9.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+# pytest-xdist (`py -m pytest -n 6`) parallelizes the suite across cores. It's optional -- the suite
+# runs serially without it -- but recommended: it cuts wall-clock ~2.6x AND stops a single pytest
+# process from being starved 1-vs-N when other work hammers the box. ~6 workers beats `-n auto` here
+# (the install-gated tests are disk-bound on the shared p0data bundles, so too many workers re-contend).
+dev = ["pytest>=7", "pytest-xdist>=3"]
 # `ff9mapkit save-edit` (the RECREATE verb) reads/writes FF9's AES-encrypted save; pycryptodome is
 # imported lazily, so it's only needed for that command (and the save tests skip without it).
 save = ["pycryptodome>=3.10"]
