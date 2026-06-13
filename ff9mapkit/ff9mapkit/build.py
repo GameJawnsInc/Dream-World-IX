@@ -23,6 +23,7 @@ from dataclasses import dataclass, field as _dc_field
 from pathlib import Path
 
 from .config import LANGS, ModLayout, fbg_name
+from .content import ate as _ate
 from .content import camera as _camera
 from .content import choice as _choice
 from .content import cutscene as _cutscene
@@ -2068,6 +2069,25 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
     return _onentry.inject_on_entries(eb, hooks)
 
 
+def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto) -> bytes:
+    """Synthesize the field's ``[ate]`` block (an Active Time Event) into ``eb``: a SELECT-polling menu
+    code-entry (opened by the real ``usercontrol AND avail AND B_KEYON(SELECT)`` gate) + the Main_Init
+    wiring (the ``ATE(mode)`` prompt + the avail flag + ``InitCode``). Each menu row's body reuses the
+    choice action vocabulary (``reply`` line / ``warp`` to the cutscene field / ``set_flag`` / ...). The
+    ATE owns its OWN availability flag (default :data:`content.ate.ATE_FLAG_BASE`, override with
+    ``[ate] flag = N``), so the prompt is offered unconditionally -- no real-beat narrative state needed.
+    No ``[ate]`` (or no rows) -> ``eb`` unchanged (byte-identical). See ``docs/ATE_SYSTEM.md``."""
+    a = project.raw.get("ate")
+    if not isinstance(a, dict) or not a.get("options") or not ate_txids:
+        return eb
+    replies = ate_txids.get("replies", {})
+    opt_bodies = [_choice.option_body(o, replies.get(oi)) for oi, o in enumerate(a["options"])]
+    setup, _ = _choice.pre_choose(a)
+    avail_idx = int(a["flag"]) if "flag" in a else _ate.ATE_FLAG_BASE
+    mode = int(a.get("mode", _ate.MODE_BLUE))
+    return _ate.inject_ate(eb, ate_txids["prompt"], opt_bodies, avail_idx=avail_idx, mode=mode, setup=setup)
+
+
 def _verbatim_on_entry_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     """For a verbatim fork's ``[[on_entry]]`` narration MESSAGE hooks: give each message a txid ABOVE the
     donor `.mes`'s max (so it can't collide with the donor's index-txids) and the `.mes` lines to APPEND to
@@ -2108,13 +2128,15 @@ def _verbatim_on_entry_messages(project: FieldProject, langs) -> tuple[dict, dic
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None,
                  cutscene_txids: list | None = None, walkmesh=None,
-                 choice_txids: dict | None = None, on_entry_txids: dict | None = None) -> bytes:
+                 choice_txids: dict | None = None, on_entry_txids: dict | None = None,
+                 ate_txids: dict | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
     _auto = _FlagAlloc(getattr(project, "flag_base", None))
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
     choice_txids = choice_txids or {}
     on_entry_txids = on_entry_txids or {}
+    ate_txids = ate_txids or {}
     # a choice attached to an NPC (choice.npc == npc.name) replaces that NPC's talk with a branch.
     choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []))
                      if "npc" in ch}
@@ -2401,6 +2423,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # verbatim fork carries the real one in the donor .eb; docs/FORK_FIDELITY.md #10). Each hook is
     # a code entry armed by InitCode in Main_Init. Absent -> no injection (byte-identical).
     eb = _apply_on_entry(project, eb, on_entry_txids, _auto)
+
+    # [ate]: synthesize an Active Time Event -- the blinking "Active Time Event" prompt + a SELECT-opened
+    # winATE menu that branches to each row's body (a reply line / warp). A menu code-entry (the SELECT
+    # poll) + the ATE(mode)/avail-flag/InitCode wiring prepended to Main_Init. Absent -> byte-identical.
+    eb = _apply_ate(project, eb, ate_txids, _auto)
 
     # ladders: FF9's real ladder mechanism -- walk to the base ("!" prompt via tread Bubble) + press
     # action to climb (the region's action func RunScriptSyncs the player's climb function, which runs
@@ -3010,8 +3037,23 @@ def collect_text(project: FieldProject):
     for k, h in enumerate(project.raw.get("on_entry", [])):
         if isinstance(h, dict) and "message" in h:
             oe_pos[k] = _add(h, h["message"])
+    # the [ate] menu: ONE [CHOO] entry (prompt[CHOO]row0\nrow1...) like a choice, + per-option reply
+    # text. Added LAST so a field without [ate] keeps the previous layout byte-identical.
+    ate = project.raw.get("ate")
+    ate_prompt_pos, ate_reply_pos = None, {}
+    if isinstance(ate, dict) and ate.get("options"):
+        q = _text.with_speaker(ate.get("speaker"), ate.get("prompt", ""))
+        if wrap is not None:
+            q = _text.wrap_text(q, wrap)[0]
+        opts = [str(o.get("text", "")) for o in ate["options"]]
+        pre_tag = _choice.pre_choose(ate)[1]
+        ate_prompt_pos = _add_raw(pre_tag + q + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(opts),
+                                  ate.get("tail"))
+        for oi, o in enumerate(ate["options"]):
+            if o.get("reply"):
+                ate_reply_pos[oi] = _add(o, o["reply"])
     if not lines:
-        return "", {}, {}, [], {}, {}
+        return "", {}, {}, [], {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
@@ -3021,7 +3063,10 @@ def collect_text(project: FieldProject):
                                     for (cc, oi) in ch_reply_pos if cc == c}}
                     for c, p in ch_prompt_pos.items()}
     on_entry_txids = {k: mapping[p] for k, p in oe_pos.items()}
-    return body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids
+    ate_txids = ({"prompt": mapping[ate_prompt_pos],
+                  "replies": {oi: mapping[p] for oi, p in ate_reply_pos.items()}}
+                 if ate_prompt_pos is not None else {})
+    return body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids
 
 
 # --------------------------------------------------------------------------- the build
@@ -3135,7 +3180,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     # faithful text carry: the donor's referenced dialogue, shipped VERBATIM per language and APPENDED after
     # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
@@ -3184,7 +3229,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
-                              choice_txids=choice_txids, on_entry_txids=on_entry_txids)
+                              choice_txids=choice_txids, on_entry_txids=on_entry_txids,
+                              ate_txids=ate_txids)
             lang_body = mes_body
             if carry_plan:
                 from .content import textcarry as _textcarry

@@ -114,7 +114,7 @@ def test_absent_on_entry_adds_exactly_one_entry(tmp_path):
     eb_plain = EbScript.from_bytes(build_script(FieldProject.load(p1), "us", {}))
     p2 = tmp_path / "b.field.toml"; p2.write_text(ONE, encoding="utf-8")
     proj2 = FieldProject.load(p2)
-    _b, _n, _e, _c, _ch, oe = collect_text(proj2)
+    _b, _n, _e, _c, _ch, oe, _ = collect_text(proj2)
     eb_hooked = EbScript.from_bytes(build_script(proj2, "us", {}, on_entry_txids=oe))
     n_plain = sum(1 for e in eb_plain.entries if not e.empty)
     n_hooked = sum(1 for e in eb_hooked.entries if not e.empty)
@@ -124,7 +124,7 @@ def test_absent_on_entry_adds_exactly_one_entry(tmp_path):
 
 def test_on_entry_message_text_shares_the_mes_block(tmp_path):
     p = tmp_path / "f.field.toml"; p.write_text(ONE, encoding="utf-8")
-    body, _n, _e, _c, _ch, oe = collect_text(FieldProject.load(p))
+    body, _n, _e, _c, _ch, oe, _ = collect_text(FieldProject.load(p))
     assert "The town lies in ruins." in body
     assert oe == {0: 500}                                  # first (only) line -> base txid
 

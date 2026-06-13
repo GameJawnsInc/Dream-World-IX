@@ -82,3 +82,60 @@ def test_ate_main_init_wiring_runs_first():
     f0 = eb.entry(0).func_by_tag(0)
     first, _ = disasm.read_code(eb.data, f0.abs_start)
     assert first.name == "ATE"                              # the prompt is armed at the very top of Main_Init
+
+
+_ATE_TOML = """
+[field]
+id = 4003
+name = "ATEROOM"
+area = 11
+text_block = 1073
+[camera]
+pitch = 45
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+[player]
+spawn = [0, -300]
+[ate]
+prompt = "Active Time Event"
+mode = 5
+options = [
+  { text = "Watch A", reply = "You watched A." },
+  { text = "Watch B", reply = "You watched B." },
+  { text = "Leave" },
+]
+"""
+
+
+def test_declarative_ate_builds_into_field(tmp_path):
+    """The declarative [ate] block compiles end-to-end: collect_text allocates the menu prompt + reply
+    txids, and build_script arms the ATE(prompt) + a winATE(64) menu code-entry on a real field .eb."""
+    from ff9mapkit.build import FieldProject, build_mod, validate, collect_text
+    from ff9mapkit.config import ModLayout
+    p = tmp_path / "a.field.toml"
+    p.write_text(_ATE_TOML, encoding="utf-8")
+    proj = FieldProject.load(p)
+    assert validate(proj) == []
+    ate_txids = collect_text(proj)[6]                       # the new 7th return -> {prompt, replies}
+    assert "prompt" in ate_txids and len(ate_txids["replies"]) == 2   # 2 rows have a reply ("Leave" has none)
+    out = tmp_path / "mod"
+    build_mod([proj], out, mod_name="FF9CustomMap")
+    eb = EbScript.from_bytes(ModLayout(out).eb_path("us", "EVT_ATEROOM.eb.bytes").read_bytes())
+    assert list(eb.instrs(eb.entry(0).func_by_tag(0)))[0].name == "ATE"            # prompt armed first
+    ws = [i for e in eb.entries if not e.empty for f in e.funcs
+          for i in eb.instrs(f) if i.name == "WindowSync" and i.imm(1) == ate.WIN_ATE]
+    assert ws and ws[0].imm(2) == ate_txids["prompt"]       # the winATE menu points at the collected prompt txid
+
+
+def test_no_ate_block_is_byte_identical(tmp_path):
+    """A field WITHOUT [ate] builds byte-identical to before (the 7-tuple / _apply_ate are no-ops)."""
+    from ff9mapkit.build import FieldProject, build_mod
+    from ff9mapkit.config import ModLayout
+    base = _ATE_TOML.split("[ate]")[0]
+    p = tmp_path / "b.field.toml"
+    p.write_text(base, encoding="utf-8")
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    eb = EbScript.from_bytes(ModLayout(out).eb_path("us", "EVT_ATEROOM.eb.bytes").read_bytes())
+    assert not [i for e in eb.entries if not e.empty for f in e.funcs
+                for i in eb.instrs(f) if i.op == 0xD7]      # no ATE opcode injected

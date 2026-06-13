@@ -518,7 +518,7 @@ def project_dialogue(project) -> list:
     by running the unchanged :func:`build.collect_text` and parsing its ``.mes`` back, so it can never drift
     from the real build output."""
     from . import build as _build
-    mes_body, npc_txids, ev_txids, cs_txids, ch_txids, oe_txids = _build.collect_text(project)
+    mes_body, npc_txids, ev_txids, cs_txids, ch_txids, oe_txids, _ate_txids = _build.collect_text(project)
     mes = parse_mes(mes_body)
     raw = getattr(project, "raw", {}) or {}
     npcs, events = raw.get("npc", []), raw.get("event", [])

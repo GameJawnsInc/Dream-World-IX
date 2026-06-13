@@ -49,7 +49,7 @@ def _build_zone_choice(tmp_path, build, extra=""):
         '[[choice.options]]\ntext = "Yes"\nset_flag = [8001, 1]\n'
         '[[choice.options]]\ntext = "No"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    _, _, _, _, ctx, _ = build.collect_text(proj)
+    _, _, _, _, ctx, _, _ = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     return EbScript.from_bytes(eb), eb
 
@@ -123,7 +123,7 @@ def test_zone_choice_pre_choose_disabled_emits_pchm_and_mask(tmp_path):
         '[[choice.options]]\ntext = "B"\ndisabled = true\n'
         '[[choice.options]]\ntext = "C"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, _, _, ctx, _ = build.collect_text(proj)
+    mes, _, _, _, ctx, _, _ = build.collect_text(proj)
     assert "[PCHM=3,2]" in mes
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     assert opcodes.enable_dialog_choices(0b101, 0) in eb        # row 1 masked off, default 0
@@ -144,7 +144,7 @@ def test_zone_choice_flag_gated_builds_dynamic_mask_expression(tmp_path):
         '[[choice.options]]\ntext = "Use key"\nrequires_flag = 8001\n'
         '[[choice.options]]\ntext = "Leave"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, _, _, ctx, _ = build.collect_text(proj)
+    mes, _, _, _, ctx, _, _ = build.collect_text(proj)
     assert "[PCHM=3,2]" in mes
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     sc = region.MASK_SCRATCH_IDX
@@ -353,7 +353,7 @@ def test_event_sets_flag_before_message(tmp_path):
         '[[event]]\nname="key"\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\n'
         'message="Found it!"\nset_flag=[8001,1]\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    _, _, et, _, _, _ = build.collect_text(proj)
+    _, _, et, _, _, _, _ = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, event_txids=et)
     setflag = region.set_var(region.GLOB_BOOL, 8001, 1)
     msg = opcodes.window_sync(1, 128, et[0])
@@ -379,7 +379,7 @@ def test_event_received_window_and_space_check(tmp_path):
         '[[event]]\nname="chest"\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\n'
         'give_item=[236,1]\nreceived=true\nrequire_space=true\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, et, _, _, _ = build.collect_text(proj)
+    mes, _, et, _, _, _, _ = build.collect_text(proj)
     assert "Received [ITEM=0]!" in mes                              # canonical item-get text
     eb = build.build_script(proj, "us", {}, event_txids=et)
     assert opcodes.set_text_variable(0, 236) in eb                 # SetTextVariable(0, item)
