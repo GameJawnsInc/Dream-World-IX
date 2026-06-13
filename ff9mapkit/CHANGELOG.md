@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — `[[item_effect]]`: tune a consumable's use-effect (ItemEffects.csv), no DLL (0.9.88)
+### Added — `[[item_effect]]`: tune a consumable's use-effect (ItemEffects.csv), no DLL (0.9.88, ★ IN-GAME PROVEN)
 - Tune what a **usable item** does: `[[item_effect]] name = "Potion"` + any of `power` (heal/damage, 0-9999) /
   `rate` (status chance, 0-100) / `element` / `status` (a `BattleStatus` mask by name, e.g. `["Poison"]`) /
   `for_dead` (usable on a KO'd target). Emits an `ItemEffects.csv` (`ItemEffect`) delta — the item is located by its
@@ -22,7 +22,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   committed**. Multi-lens adversarially reviewed (0 blockers): folded a `UInt64` upper-bound guard on a raw
   `status` bitmask (an over-range mask would `OverflowException` + hard-quit at load) + relaxed the lint to match
   the engine (a gem/Tent with a use-effect is tunable, not just "Usable"-typed consumables). 14 tests (1547
-  total). **Awaiting in-game proof.**
+  total).
+- **★ IN-GAME PROVEN (2026-06-13):** Potion `power` retuned 10→1 → it healed **15 in combat** (`Power × 15`,
+  `BattleCalculator.CalcHpMagicRecovery`) and **10 out of combat** (the field's `× 10`), down from vanilla 150/100 —
+  a single `Power` edit scaling **every** use-context because both the battle script and the field item-use read
+  the same `ItemEffect.Power`. (The menu *description* still reads "150 HP" — that's the separate item-text channel.)
 
 ### Added — `[[item]] teaches`: the abilities a piece of gear teaches (Items.csv AbilityIds), no DLL (0.9.87, ★ IN-GAME PROVEN)
 - FF9's "learn abilities from equipment" core: `[[item]] teaches = ["Soul Blade", "Auto-Reflect"]` (ability **names**,
