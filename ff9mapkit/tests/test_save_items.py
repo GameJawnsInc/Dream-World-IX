@@ -735,6 +735,61 @@ def test_inspect_decodes_vanilla_main_block(tmp_path):
                            for lbl, rep in reports)
 
 
+# ---- growth stats (basis + bonus, extra) -----------------------------------------------------
+def _player_stats(name, slot_no, basis, bonus):
+    p = SJ.SJClass()
+    p.add("name", SJ.SJData(SJ.VALUE, name))
+    info = SJ.SJClass(); info.add("slot_no", _int(slot_no)); p.add("info", info)
+    p.add("equip", SJ.SJArray([_int(255)] * 5))
+    b = SJ.SJClass()
+    for k, v in zip(("dex", "str", "mgc", "wpr"), basis):
+        b.add(k, _int(v))
+    p.add("basis", b)
+    bo = SJ.SJClass()
+    for k, v in zip(("dex", "str", "mgc", "wpr"), bonus):
+        bo.add(k, _int(v))
+    p.add("bonus", bo)
+    return p
+
+
+def _common_stats():
+    c = SJ.SJClass()
+    c.add("players", SJ.SJArray([_player_stats("Zidane", 0, [24, 27, 23, 25], [5, 77, 45, 30]),
+                                 _player_stats("Vivi", 1, [17, 19, 31, 22], [3, 70, 79, 38])]))
+    c.add("gil", _int(500))
+    c.add("items", SJ.SJArray([_item(236, 7)]))
+    return c
+
+
+def test_new_bonus_for_formula():
+    # set Strength 27 (bonus 77) -> 99: new_bonus>>5 must satisfy base+new = 99 where base = 27-(77>>5)=25
+    nb = SI._new_bonus_for(99, 27, 77)
+    assert (nb >> 5) == 99 - (27 - (77 >> 5)) == 74 and nb == 74 << 5
+
+
+def test_set_stat_extra_writes_basis_and_bonus(tmp_path):
+    path = _extra_file(tmp_path, common=_common_stats())
+    rep = SI.set_stat_extra(str(path), "Zidane", "Strength", 99, dry_run=False)
+    assert rep.wrote and rep.stat == "Strength" and rep.old_value == 27 and rep.new_value == 99
+    common = SI.load_extra_common(str(path))[0]
+    st = {s["name"]: s["stats"] for s in SI.read_stats(common)}
+    assert st["Zidane"]["Strength"] == 99                                # basis (displayed) updated
+    bonus_str = int(SJ.get_path(common, "players", 0, "bonus", "str").value)
+    assert (bonus_str >> 5) == 74                                        # bonus accumulator set to hold 99
+    assert st["Vivi"]["Strength"] == 19                                  # other player untouched (scoped)
+
+
+def test_set_stat_caps_and_aliases(tmp_path):
+    path = _extra_file(tmp_path, common=_common_stats())
+    assert SI.set_stat_extra(str(path), "Zidane", "Speed", 99, dry_run=True).new_value == 50   # Speed caps at 50
+    assert SI.set_stat_extra(str(path), "Zidane", "spr", 99, dry_run=True).new_value == 50     # Spirit cap + alias
+    assert SI.set_stat_extra(str(path), "Zidane", "mag", 99, dry_run=True).new_value == 99     # Magic alias
+    with pytest.raises(ValueError):
+        SI.set_stat_extra(str(path), "Zidane", "luck", 10)                                     # no such stat
+    with pytest.raises(ValueError):
+        SI.set_stat_extra(str(path), "Zidane", "Strength", -1)
+
+
 # ---- key/important items (rareItemsEx, extra) ------------------------------------------------
 def _ki(iid, obtained, used):
     e = SJ.SJClass(); e.add("id", _int(iid))

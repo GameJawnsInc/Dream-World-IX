@@ -34,6 +34,22 @@ COMMON = "40000_Common"
 GIL_CAP = 9_999_999                                        # the in-game gil display cap (project-ff9-save-item-layout)
 ITEM_COUNT_CAP = 99                                        # the in-game per-stack count cap
 
+# The 4 growth stats (ff9level.cs): displayed = base + level*growth + (bonus>>5), capped per stat. `bonus` is the
+# hidden EQUIPMENT accumulator; `basis` is the displayed value (recomputed from bonus only at level-up). Editing a
+# save's `basis` (shows immediately) + `bonus` (holds it through level-ups) = a "set permanent stat" editor.
+STAT_CAPS = {"dex": 50, "str": 99, "mgc": 99, "wpr": 50}   # Speed / Strength / Magic / Spirit
+STAT_LABELS = {"dex": "Speed", "str": "Strength", "mgc": "Magic", "wpr": "Spirit"}
+_STAT_ALIASES = {"speed": "dex", "spd": "dex", "dex": "dex", "strength": "str", "str": "str",
+                 "magic": "mgc", "mag": "mgc", "mgc": "mgc",
+                 "spirit": "wpr", "spr": "wpr", "wpr": "wpr", "will": "wpr"}
+
+
+def _resolve_stat(stat) -> str:
+    s = _STAT_ALIASES.get(str(stat).strip().lower())
+    if s is None:
+        raise ValueError(f"unknown stat {stat!r} (Speed / Strength / Magic / Spirit)")
+    return s
+
 # --- encrypted MAIN-block (old-format) layout (step 4b) -------------------------------------------
 # The main AES block is a flat alpha-sorted typed stream. gil + the 256-pair item array sit at FIXED
 # offsets in the OLD save format -- empirically confirmed byte-stable across this install's saves at
@@ -72,6 +88,21 @@ class ItemReport:
     inventory: list = field(default_factory=list)         # [(id, name, count), ...]
     equipment: list = field(default_factory=list)         # [{"slot_no", "name", "equip": {slot: (id, name)|None}}]
     keyitems: list = field(default_factory=list)          # [(id, name, obtained, used), ...] (key/important items)
+
+
+@dataclass
+class StatWriteReport:
+    """The outcome of a :func:`set_stat_extra` / :func:`set_main_stat` call (dry-run or applied)."""
+    path: str
+    slot_no: int
+    character: "str | None"
+    stat: str                                             # in-game label (Speed/Strength/Magic/Spirit)
+    old_value: int                                        # old displayed (basis) value
+    new_value: int                                        # new displayed (basis) value
+    old_bonus: int
+    new_bonus: int
+    wrote: bool
+    backup_path: "str | None" = None
 
 
 @dataclass
@@ -542,6 +573,87 @@ def set_equip(extra_path, character, slot, item, *, dry_run: bool = True, backup
                             old_id=old_id, old_name=(None if old_id == NO_ITEM else _items.name_of(old_id)),
                             new_id=iid, new_name=(None if iid == NO_ITEM else _items.name_of(iid)),
                             wrote=did_write, backup_path=backup_path)
+
+
+def _new_bonus_for(target: int, old_basis: int, old_bonus: int) -> int:
+    """The `bonus` accumulator that makes the level-up recompute land on ``target`` at the current level:
+    ``basis = (base+level*growth) + (bonus>>5)`` and ``base+level*growth = old_basis - (old_bonus>>5)``, so
+    ``new_bonus = (target - old_basis + (old_bonus>>5)) << 5`` (the base/growth terms cancel -- no game data
+    needed). Clamped to a UInt16 [0, 65535] (the engine's bonus type)."""
+    return max(0, min(0xFFFF, (target - old_basis + (old_bonus >> 5)) << 5))
+
+
+def read_stats(common) -> list:
+    """``[{slot_no, name, stats: {Speed, Strength, Magic, Spirit}}, ...]`` -- each player's displayed (basis)
+    growth stats, from the extra. (basis is what the menu shows; bonus is the hidden accumulator.)"""
+    players = _sj.get_path(common, "players")
+    out = []
+    if players is None:
+        return out
+    for p in players:
+        basis = _sj.get_path(p, "basis")
+        if basis is None:
+            continue
+        stats = {STAT_LABELS[f]: (int(_sj.get_path(basis, f).value) if _sj.get_path(basis, f) is not None else None)
+                 for f in STAT_CAPS}
+        sn, nm = _sj.get_path(p, "info", "slot_no"), _sj.get_path(p, "name")
+        out.append({"slot_no": int(sn.value) if sn is not None else None,
+                    "name": nm.value if nm is not None else None, "stats": stats})
+    return out
+
+
+def set_stat_extra(extra_path, character, stat, target: int, *, dry_run: bool = True,
+                   backup: bool = True) -> StatWriteReport:
+    """Set a character's permanent growth STAT (Speed/Strength/Magic/Spirit) in a Memoria EXTRA save. Writes BOTH
+    ``players[].basis.<field>`` (the displayed value -- shows immediately) AND ``players[].bonus.<field>`` (the
+    hidden equipment accumulator -- so the level-up recompute holds the value; see :func:`_new_bonus_for`).
+    ``target`` clamps to the stat cap (Speed/Spirit 50, Strength/Magic 99). Scoped to that one player's
+    basis+bonus; GATE 1 + atomic write + backup + post-write confirm; dry-run default."""
+    field = _resolve_stat(stat)
+    if isinstance(target, bool) or not isinstance(target, int):
+        raise TypeError(f"target must be an int (got {type(target).__name__})")
+    if target < 0:
+        raise ValueError(f"target stat cannot be negative (got {target})")
+    target = min(target, STAT_CAPS[field])
+    raw, root, trailing, common = _load_for_edit(extra_path)
+    players = common.get("players")
+    pidx, pnode, slot_no, cname = _find_player(players, character)
+    basis, bonus = pnode.get("basis"), pnode.get("bonus")
+    if not isinstance(basis, _sj.SJClass) or not isinstance(bonus, _sj.SJClass):
+        raise ValueError(f"{cname or character} has no basis/bonus stats; refusing to edit")
+    bn, bo = basis.get(field), bonus.get(field)
+    if not isinstance(bn, _sj.SJData) or not isinstance(bo, _sj.SJData):
+        raise ValueError(f"{cname or character}'s {field} stat leaf is missing; refusing to edit")
+    old_basis, old_bonus = int(bn.value), int(bo.value)
+    new_bonus = _new_bonus_for(target, old_basis, old_bonus)
+    basis.set(field, _sj.SJData(_sj.INT, target))
+    bonus.set(field, _sj.SJData(_sj.INT, new_bonus))
+    new_bytes, changed = _assert_scoped(raw, root, trailing,
+                                        [(COMMON, "players", pidx, "basis"), (COMMON, "players", pidx, "bonus")])
+    backup_path, did_write = None, False
+    if not dry_run and changed:
+        backup_path = _atomic_write(extra_path, raw, new_bytes, backup=backup)
+        cb = _sj.get_path(load_extra_common(extra_path)[0], "players", pidx, "basis", field)   # CONFIRM
+        if cb is None or int(cb.value) != target:
+            raise AssertionError(f"post-write check failed: {cname} {field} basis read back {cb}, expected {target}")
+        did_write = True
+    return StatWriteReport(path=str(extra_path), slot_no=slot_no, character=cname, stat=STAT_LABELS[field],
+                           old_value=old_basis, new_value=target, old_bonus=old_bonus, new_bonus=new_bonus,
+                           wrote=did_write, backup_path=backup_path)
+
+
+def render_stat_write(rep: StatWriteReport) -> str:
+    """A human-readable summary of a :func:`set_stat_extra` / :func:`set_main_stat` outcome."""
+    who = rep.character or f"slot {rep.slot_no}"
+    if rep.old_value == rep.new_value and rep.wrote is False and rep.old_bonus == rep.new_bonus:
+        return f"  {who} {rep.stat} already {rep.new_value} in {rep.path} -- nothing to change."
+    head = "WROTE" if rep.wrote else "DRY RUN -- would set"
+    lines = [f"  {head} {who} {rep.stat}: {rep.old_value} -> {rep.new_value} in {rep.path} "
+             f"(bonus {rep.old_bonus} -> {rep.new_bonus})"]
+    lines.append(f"  Backup: {rep.backup_path}" if rep.backup_path else
+                 ("  (--no-backup: no backup written)" if rep.wrote else
+                  "  Re-run with --apply to write (a .bak backup is made first unless --no-backup)."))
+    return "\n".join(lines)
 
 
 def set_keyitem_extra(extra_path, keyitem, *, obtained: bool = True, used: bool = False,

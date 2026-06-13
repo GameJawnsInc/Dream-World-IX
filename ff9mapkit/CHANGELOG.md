@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — save-item editor: the equipment-driven STAT editor (`items-set-stat`) (0.9.68)
+- Edit a character's permanent growth stat — Speed / Strength / Magic / Spirit — the hidden "level up in stat
+  gear" system. ★ **Engine formula (`ff9level.cs`):** `displayed = base + level·growth + (bonus >> 5)`, capped per
+  stat (Speed/Spirit 50, Strength/Magic 99); `bonus` is the equipment accumulator, `basis` is the displayed
+  value (recomputed from `bonus` only at level-up; on LOAD the engine runs `FF9Play_Update`, not `_Build`).
+- **`save_items.set_stat_extra(extra, character, stat, target)`** — the "set target stat" model: writes BOTH
+  `players[].basis.<field>` (shows immediately) AND `players[].bonus.<field>` (holds the value through level-ups).
+  ★ The needed bonus comes from the **formula delta** — `new_bonus = (target − old_basis + (old_bonus>>5)) << 5` —
+  which cancels the base/growth terms, so **no game-data table is needed**. Scoped to that one player's
+  basis+bonus; GATE 1 + atomic + backup + post-write confirm + dry-run. + `read_stats` + `render_stat_write`.
+- CLI **`items-set-stat <save> <character> <stat> <value>`**; GUI gains a **Stats** control (who / stat / value →
+  Preview / Apply). 6 new tests.
+- Scope: extra-only (Memoria saves — the load-authoritative store). The vanilla **main-block** stat editor is a
+  follow-up — the offsets are already mapped (basis @ 5751, bonus @ 5759 UInt16, + 244·old-slot).
+
 ### Added — save-item editor: vanilla key items (main-block `rareItems`) + the GUI key-item control, IN-GAME PROVEN (0.9.66)
 - Completes key items: a **vanilla (no-extra) save's key items** are now editable, and the **GUI** gains a
   Key-items give/remove control — so the #5 editor covers **every data type on every save kind**.

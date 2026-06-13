@@ -142,6 +142,22 @@ class ItemsApp:
         ttk.Button(ef, text="Preview", command=lambda: self._edit("equip", False)).pack(side="left", padx=(8, 2))
         ttk.Button(ef, text="Apply", command=lambda: self._edit("equip", True)).pack(side="left")
 
+        # --- Stats (permanent growth: writes basis + the equipment bonus accumulator) ---
+        sf = ttk.LabelFrame(f, text="Stats  (permanent: writes basis + the equipment bonus)", padding=4)
+        sf.pack(fill="x", pady=2)
+        ttk.Label(sf, text="who:").pack(side="left")
+        self.stat_char_var = tk.StringVar()
+        self.stat_char_menu = ttk.OptionMenu(sf, self.stat_char_var, "")
+        self.stat_char_menu.pack(side="left", padx=4)
+        ttk.Label(sf, text="stat:").pack(side="left")
+        self.stat_kind_var = tk.StringVar(value="Strength")
+        ttk.OptionMenu(sf, self.stat_kind_var, "Strength", "Speed", "Strength", "Magic", "Spirit").pack(side="left", padx=4)
+        ttk.Label(sf, text="value:").pack(side="left")
+        self.stat_val_var = tk.StringVar(value="50")
+        ttk.Entry(sf, textvariable=self.stat_val_var, width=5).pack(side="left", padx=4)
+        ttk.Button(sf, text="Preview", command=lambda: self._edit_stat(False)).pack(side="left", padx=(8, 2))
+        ttk.Button(sf, text="Apply", command=lambda: self._edit_stat(True)).pack(side="left")
+
         # --- Key items ---
         kf = ttk.LabelFrame(f, text="Key items  (give / remove an important item by name)", padding=4)
         kf.pack(fill="x", pady=2)
@@ -230,14 +246,15 @@ class ItemsApp:
             return
         rep, extra, container = t["report"], t["extra"], t["container"]
         self._render(self.inspect_txt, f"{t['label']}\n\n" + _si.render_report(rep))
-        # refresh the equipment character dropdown (extra slots = 12 PCs; vanilla = the 9 old-format slots)
+        # refresh the character dropdowns (equip + stats) (extra slots = 12 PCs; vanilla = the 9 old-format slots)
         names = [pc["name"] or f"slot {pc['slot_no']}" for pc in (rep.equipment if rep else [])]
-        menu = self.char_menu["menu"]
-        menu.delete(0, "end")
-        for nm in names:
-            menu.add_command(label=nm, command=lambda v=nm: self.char_var.set(v))
-        if names and self.char_var.get() not in names:
-            self.char_var.set(names[0])
+        for var, menuw in ((self.char_var, self.char_menu), (self.stat_char_var, self.stat_char_menu)):
+            menu = menuw["menu"]
+            menu.delete(0, "end")
+            for nm in names:
+                menu.add_command(label=nm, command=lambda v=nm, vr=var: vr.set(v))
+            if names and var.get() not in names:
+                var.set(names[0])
         editable = rep is not None and (container is not None or extra is not None)
         if not editable:
             self.edit_target.config(text="Editing disabled — this slot could not be decoded.")
@@ -355,6 +372,42 @@ class ItemsApp:
         self.status.config(text="save edited (backup written) — reload it in-game")
         self._load(self.path, keep=self._selected())
 
+    def _edit_stat(self, apply):
+        """Set a character's permanent growth stat (basis + the equipment bonus). Extra-only for now (the vanilla
+        main-block stat editor is a follow-up)."""
+        t = self._target()
+        if t is None or t["report"] is None:
+            self._out("Select a decodable slot on the left first.")
+            return
+        extra = t["extra"]
+        if extra is None:
+            self._out("Stat editing needs a Memoria extra file (the vanilla main-block stat editor is a follow-up).\n"
+                      "This is a vanilla save — its gil/items/equipment/key-items are editable above.")
+            return
+        char, stat = self.stat_char_var.get(), self.stat_kind_var.get()
+        try:
+            val = int(self.stat_val_var.get())
+            preview = _si.set_stat_extra(extra, char, stat, val, dry_run=True)
+            do = lambda: _si.set_stat_extra(extra, char, stat, val, dry_run=False)  # noqa: E731
+        except ValueError as e:
+            self._out(f"Cannot apply:\n  {e}")
+            return
+        if not apply:
+            self._out("PREVIEW (nothing written yet):\n" + _si.render_stat_write(preview))
+            return
+        if not messagebox.askyesno("Apply save edit?",
+                                   "This edits your REAL save (a timestamped .bak is written first):\n\n"
+                                   + _si.render_stat_write(preview) + "\n\nProceed?"):
+            return
+        try:
+            res = do()
+        except Exception as e:                            # noqa: BLE001
+            self._out(f"Write failed:\n  {e}")
+            return
+        self._out(_si.render_stat_write(res) + "\n\nReload the save in-game to see it (no relaunch needed).")
+        self.status.config(text="save edited (backup written) — reload it in-game")
+        self._load(self.path, keep=self._selected())
+
 
 def main():
     smoke = "--smoke" in sys.argv
@@ -381,6 +434,14 @@ def main():
                 p = SJ.SJClass(); p.add("name", SJ.SJData(SJ.VALUE, nm))
                 info = SJ.SJClass(); info.add("slot_no", _int(sn)); p.add("info", info)
                 p.add("equip", SJ.SJArray([_int(x) for x in eq]))
+                basis = SJ.SJClass()
+                for k, v in (("dex", 24), ("str", 27), ("mgc", 23), ("wpr", 25)):
+                    basis.add(k, _int(v))
+                p.add("basis", basis)
+                bonus = SJ.SJClass()
+                for k, v in (("dex", 5), ("str", 77), ("mgc", 45), ("wpr", 30)):
+                    bonus.add(k, _int(v))
+                p.add("bonus", bonus)
                 players.items.append(p)
             common.add("players", players)
             common.add("gil", _int(gil))
@@ -416,6 +477,11 @@ def main():
         app._edit("equip", True)
         eq = _si.inspect(sp)[0][1].equipment[0]["equip"]["weapon"]
         assert eq and eq[1] == "MageMasher", "equip applied"
+        # stat: set Zidane Strength -> 99 (writes basis + bonus)
+        app.stat_char_var.set("Zidane"); app.stat_kind_var.set("Strength"); app.stat_val_var.set("99")
+        app._edit_stat(True)
+        st = {s["name"]: s["stats"] for s in _si.read_stats(_si.load_extra_common(sp)[0])}
+        assert st["Zidane"]["Strength"] == 99, "stat (basis) applied via GUI"
         baks = list(Path(sp).parent.glob(Path(sp).name + ".bak.*"))
         assert baks, "a .bak backup was written"
 
@@ -455,7 +521,7 @@ def main():
             vanilla_ok = "main-block gil+item+equip+keyitem edited"
         except ImportError:
             pass
-        print(f"smoke ok: extra slot gil/item/equip applied ({len(baks)} bak); vanilla {vanilla_ok}")
+        print(f"smoke ok: extra slot gil/item/equip/stat applied ({len(baks)} bak); vanilla {vanilla_ok}")
         root.destroy()
         return
     root.mainloop()
