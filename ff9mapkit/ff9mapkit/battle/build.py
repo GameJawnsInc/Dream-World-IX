@@ -121,12 +121,31 @@ def validate_battle(project: BattleProject) -> list[str]:
         elif "scene" in project.raw:                 # tune-the-fight overrides -> validate vs the raw16
             problems += _scene_data.validate_scene(
                 (sd / "dbfile0000.raw16.bytes").read_bytes(), project.raw["scene"])
-            ai_patches = project.raw["scene"].get("ai_patch") if isinstance(project.raw["scene"], dict) else None
-            if ai_patches:                           # Phase-6b AI constant patches -> validate vs the donor eb
-                from . import aipatch as _aipatch
-                eb0 = sd / "eb" / f"{LANGS[0]}.eb.bytes"
-                if eb0.is_file():
-                    problems += [f"[[scene.ai_patch]]: {p}" for p in _aipatch.validate_patches(eb0.read_bytes(), ai_patches)]
+            sc = project.raw["scene"] if isinstance(project.raw["scene"], dict) else {}
+            ai_patches, ai_funcs = sc.get("ai_patch"), sc.get("ai_function")
+            eb0 = sd / "eb" / f"{LANGS[0]}.eb.bytes"
+            if (ai_patches or ai_funcs) and eb0.is_file():   # Phase-6b/6c: validate + LINT the COMPOSED (shipped) eb
+                from . import aipatch as _aipatch, aiauthor as _aiauthor, ailint as _ailint
+                atk = None
+                try:                                 # the scene attack count enables the Attack-index lint check
+                    atk = _scene_data.parse_counts((sd / "dbfile0000.raw16.bytes").read_bytes())[2]
+                except Exception:                    # noqa: BLE001 -- optional
+                    atk = None
+                composed = eb0.read_bytes()
+                if ai_patches:                       # same-length first (its offsets stay valid), then length-changing
+                    problems += [f"[[scene.ai_patch]]: {p}" for p in _aipatch.validate_patches(composed, ai_patches)]
+                    try:
+                        composed, _ = _aipatch.apply_ai_patches(composed, ai_patches)
+                    except _aipatch.AiPatchError:    # the spec error is already reported by validate_patches
+                        pass
+                if ai_funcs:
+                    try:
+                        composed = _aiauthor.apply_ai_functions(composed, ai_funcs)
+                    except _aiauthor.AiAuthorError as ex:
+                        problems.append(f"[[scene.ai_function]]: {ex}")
+                # lint the FINAL composed bytecode -- EXACTLY what the per-lang build ships, so an ai_patch OR an
+                # ai_function that puts a jump / Attack index out of range (or a runaway branch) is caught offline.
+                problems += [f"[[scene.ai]] lint: {i}" for i in _ailint.lint_ai(composed, atk_count=atk)]
     return problems
 
 
@@ -231,6 +250,12 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
                     if lang == LANGS[0]:
                         warnings += ai_warns
                 except _aipatch.AiPatchError as ex:
+                    raise BattleBuildError(str(ex))
+            if scene_cfg and scene_cfg.get("ai_function"):  # Phase-6c-iii: add/replace AI functions (length-changing
+                from . import aiauthor as _aiauthor          # -> AFTER ai_patch so the patch offsets stayed valid).
+                try:
+                    eb = _aiauthor.apply_ai_functions(eb, scene_cfg["ai_function"])
+                except _aiauthor.AiAuthorError as ex:
                     raise BattleBuildError(str(ex))
             eb_dst.write_bytes(eb)
             mes_dst = layout.battle_text_dir(lang) / f"{sid}.mes"

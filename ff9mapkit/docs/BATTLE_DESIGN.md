@@ -499,9 +499,18 @@ byte-for-byte; `add_ai_function` re-parses with everything else byte-intact). �
 flow-TERMINATOR check (no per-function length bound in-engine → a RET-less branch runs off the function; now
 `aiauthor` requires `RET`/`TerminateEntry`) and a backward `JMP_IFNOT` (the engine reads its offset UNSIGNED, unlike
 `JMP`/`JMP_IF` → now rejected). 35 tests.
-**Phase 6c-iii (remaining):** a **battle linter** (valid AI tags 1/6/7/9, Attack index `< AtkCount`, reachable RET)
-+ the declarative `[[scene.ai_function]]` build surface. **Defer raw17 btlseq sequence authoring** (new codec + a
-coordinated raw16+eb+raw17 edit).
+**Phase 6c-iii ✅ DONE (kit 0.9.72)** — the enemy-AI **LINTER** (`battle/ailint.py`) + the declarative
+`[[scene.ai_function]]` build surface — the CAPSTONE. `lint_ai(eb, atk_count=)` runs SOUND offline checks (decode /
+jump bounds / **reachable RET** via a forward reachability walk / Attack-index `< atk_count`); ★ **a 562-scene sweep
+lints ALL shipping scenes CLEAN (0 false positives)**. CLI `battle-ai --lint`. `[[scene.ai_function]]`
+(`aiauthor.apply_ai_functions`) adds/replaces an AI function in `battle.toml`, spliced per-language at build AFTER
+`ai_patch`; the validate hook lints the COMPOSED (shipped) eb. ★ A 3-lens review (it re-ran the 562-sweep itself)
+fixed 4: a `JMP_IFNOT` decoded signed but read UNSIGNED in-engine (missed the backward-jump fault → now unsigned);
+the validate hook lit the un-patched donor not the composed eb (→ composes + lints the shipped bytes); an incomplete
+terminator set (`GameOver`/`STOP`/… also end dispatch → false-flagged, now widened + shared with `aiauthor`); and an
+out-of-range tag raising a raw `struct.error` (→ clean error). **Phase 6c COMPLETE** (read → tune → author →
+validate the whole enemy-AI stack, no DLL). **Defer raw17 btlseq sequence authoring** (new codec + a coordinated
+raw16+eb+raw17 edit).
 
 ---
 

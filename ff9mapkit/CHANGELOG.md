@@ -33,6 +33,31 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `pa_extended` AP write loads and masters in-game, names/tokens resolve on a modded pool, and the mod-robust
   `max` force-master works.
 
+### Added — battle-tuning Phase 6c-iii: the enemy-AI LINTER + the `[[scene.ai_function]]` build surface (0.9.72)
+- **`battle/ailint.py`** — the CAPSTONE of the battle-AI stack: validate a scene's enemy AI OFFLINE (the "I can't
+  see the game" superpower applied to AI). `lint_ai(eb, atk_count=)` runs SOUND checks — a shipping scene must lint
+  CLEAN: **decode** (every function decodes to its boundary), **jump bounds** (every relative jump lands on an
+  instruction inside its function), **reachable terminator** (a forward reachability walk flags a path that falls
+  through the END without a RET/terminator — trailing NOP padding after a RET/loop is correctly UNREACHABLE), and
+  **Attack index** (an immediate Attack operand `< the scene attack count`). ★ **Soundness proven by a 562-scene
+  sweep: ALL 562 shipping battle scenes lint CLEAN (0 false positives).** CLI **`battle-ai --lint <scene>`** (exit 1
+  on any issue).
+- **`battle/aiauthor.py` + `build.py`** — the declarative **`[[scene.ai_function]]`** surface: a `battle.toml` adds
+  or replaces an enemy-AI function (`entry` / `tag` / `source` / `replace`), assembled (6c-ii `cmdasm`) + spliced at
+  build, applied per-language AFTER `[[scene.ai_patch]]` (length-changing follows same-length). The build VALIDATE
+  hook now lints the **composed** (`ai_patch` + `ai_function`) eb — exactly what ships.
+- ★ A 3-lens adversarial review (it independently re-ran the 562-sweep) confirmed the design SOUND and found + fixed
+  four real defects: **(HIGH)** `_jump_target` decoded `JMP_IFNOT` (0x02) *signed*, but the engine reads it
+  **unsigned** (`beq`/`getUShortIP`, unlike `bra`/`bne`) — so the backward-`JMP_IFNOT` fault the linter promises to
+  catch was *missed*; now decoded unsigned (it lands out of bounds → flagged). **(MEDIUM)** the validate hook linted
+  the *un-patched* donor, not the composed eb the build ships → now composes `ai_patch`+`ai_function` and lints the
+  result (catches an `ai_patch` that repoints a jump/Attack-index out of range). **(LOW)** the terminator set
+  `{RET, TerminateEntry}` missed the engine's other `adFin()` path-enders (`GameOver` 0xF5, `STOP`, `Battle`, …) →
+  a branch ending in one was false-flagged; the set is widened and SHARED with `aiauthor`'s authoring guard so they
+  never drift. **(LOW)** an out-of-`u16`-range `tag` crashed with a raw `struct.error` → now a clean `AiAuthorError`.
+  44 tests (`test_ailint` + `test_aiauthor` + `test_cmdasm`). **Phase 6c COMPLETE** — the kit now reads, tunes,
+  authors, *and* validates the whole enemy-AI stack on stock Memoria.
+
 ### Added — save-item editor: vanilla (main-block) STAT editing + the GUI on vanilla slots, IN-GAME PROVEN (0.9.69)
 - The stat editor now reaches **vanilla (no-extra) saves** too, and the GUI's Stats control works on them —
   completing the stat editor across both save kinds (and the GUI across all five editors on every slot).

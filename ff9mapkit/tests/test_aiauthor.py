@@ -73,6 +73,46 @@ def test_branch_without_terminator_rejected():
                                  "SET({B_CURHP const(1) B_LT B_EXPR_END})")   # no terminating RET
 
 
+# ---- Phase-6c-iii: the [[scene.ai_function]] build surface --------------------------------------------
+_SPEC = [{"entry": 0, "tag": 6, "source": "SET({B_CURHP const(1) B_LT B_EXPR_END}); RET()"}]
+
+
+def test_apply_ai_functions_adds():
+    out = aiauthor.apply_ai_functions(_minimal_eb(opcodes.RETURN), _SPEC)
+    assert EbScript.from_bytes(out).entry(0).func_by_tag(6) is not None       # ';' source separator works
+
+
+def test_apply_ai_functions_replace():
+    eb = _minimal_eb(opcodes.set_model(1, 2) + opcodes.RETURN)
+    out = aiauthor.apply_ai_functions(eb, [{"entry": 0, "tag": 0, "source": "RET()", "replace": True}])
+    s = EbScript.from_bytes(out)
+    assert bytes(s.data[s.entry(0).func_by_tag(0).abs_start:s.entry(0).func_by_tag(0).abs_end]) == bytes((0x04,))
+
+
+def test_apply_ai_functions_bad_spec():
+    with pytest.raises(AiAuthorError, match="needs integer entry"):
+        aiauthor.apply_ai_functions(_minimal_eb(opcodes.RETURN), [{"tag": 6, "source": "RET()"}])
+    with pytest.raises(AiAuthorError, match="non-empty source"):
+        aiauthor.apply_ai_functions(_minimal_eb(opcodes.RETURN), [{"entry": 0, "tag": 6, "source": ""}])
+
+
+def test_validate_ai_functions_ok_and_lints():
+    assert aiauthor.validate_ai_functions(_minimal_eb(opcodes.RETURN), _SPEC) == []
+    # a non-terminating authored branch is caught (here by the add wrapper's RET guard, surfaced as a string)
+    bad = [{"entry": 0, "tag": 6, "source": "SET({B_CURHP const(1) B_LT B_EXPR_END})"}]
+    assert aiauthor.validate_ai_functions(_minimal_eb(opcodes.RETURN), bad)
+
+
+def test_tag_out_of_range_clean_error():
+    # review fix: an out-of-u16-range tag must surface a clean AiAuthorError, NOT a raw struct.error from eb.edit
+    for bad_tag in (70000, -1):
+        spec = [{"entry": 0, "tag": bad_tag, "source": "RET()"}]
+        with pytest.raises(AiAuthorError, match="out of range"):
+            aiauthor.apply_ai_functions(_minimal_eb(opcodes.RETURN), spec)
+        v = aiauthor.validate_ai_functions(_minimal_eb(opcodes.RETURN), spec)   # validate RETURNS, never raises
+        assert v and "out of range" in v[0]
+
+
 def test_add_ai_function_on_real_donor():
     # add a new AI phase to a SHIPPING enemy AI; assert it re-parses, the branch is present, and every OTHER
     # function + a later entry is byte-intact (the entry-table + fpos fixup didn't corrupt anything).

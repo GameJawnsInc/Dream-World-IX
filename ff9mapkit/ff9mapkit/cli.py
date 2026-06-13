@@ -838,6 +838,28 @@ def _cmd_battle_ai(args: argparse.Namespace) -> int:
     if not args.donor:
         print("a scene name is required (or use --asm / --asm-block to assemble AI source)", file=sys.stderr)
         return 2
+    if args.lint:                                           # Phase-6c-iii: lint a scene's enemy AI offline
+        from .battle import ailint, extract, scene_data
+        try:
+            eb = BA._scene_eb(args.donor, game=args.game)
+        except (RuntimeError, FileNotFoundError, ValueError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        atk = None
+        try:                                                # the scene's attack count enables the Attack-idx check
+            assets = extract.read_scene_assets(args.donor, game=args.game)
+            if assets.get("raw16"):
+                atk = scene_data.parse_counts(assets["raw16"])[2]
+        except Exception:                                   # noqa: BLE001 -- atk-count is optional
+            atk = None
+        issues = ailint.lint_ai(eb, atk_count=atk)
+        if not issues:
+            print(f"# {args.donor} AI: clean ({'no attack-idx check -- ' if atk is None else ''}no issues)")
+            return 0
+        print(f"# {args.donor} AI: {len(issues)} issue(s)")
+        for i in issues:
+            print(f"  {i}")
+        return 1
     try:
         print(BA.scene_ai_sites(args.donor, game=args.game) if args.sites
               else BA.analyze_scene(args.donor, game=args.game))
@@ -1958,6 +1980,9 @@ def build_parser() -> argparse.ArgumentParser:
     bai.add_argument("--asm-block", metavar="SRC", dest="asm_block",
                      help="assemble an AI COMMAND block -> its bytes + a re-disasm proof; ';' separates lines "
                           "(e.g. \"JMP_IF(end); SET({B_CURHP const(1) B_LT B_EXPR_END}); end:; RET()\") -- no scene")
+    bai.add_argument("--lint", action="store_true",
+                     help="lint the scene's enemy AI offline (decode / jump bounds / reachable RET / Attack-index "
+                          "range); exit 1 if any issue is found")
     bai.set_defaults(func=_cmd_battle_ai)
 
     ch = sub.add_parser("characters",

@@ -389,7 +389,7 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 - World Hub — a playable journey selector (choice `warp` action + `[player] model=` moogle PC); MVP scaffold IN-GAME PROVEN (talk→pick→warp) → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.70, 1299 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
+**Latest:** kit 0.9.72, 1345 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
 folder + ABORT on a cross-folder EVT/FBG name collision; wires New Game via the field-70 retarget, not the broken
 field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain. World-Hub scaffold IN-GAME PROVEN (the select→warp loop).
 Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4/5: raw16 full codec + golden
@@ -424,14 +424,21 @@ member-ptr). **Phase 6c-ii** — the enemy-AI **COMMAND assembler** (`eb/cmdasm.
 + resolves `label:`/symbolic jumps in two passes) + **branch insertion** (`battle/aiauthor.py`: `add_ai_function`/
 `replace_ai_function` splice an assembled branch via the existing byte-safe `eb.edit` fpos-fixup primitives — the
 first LENGTH-CHANGING AI edit), CLI `battle-ai --asm-block`; round-trip proven on the real EF_R007 AI (every
-instruction + function byte-for-byte; insertion re-parses everything-else-intact). ★ Phases 2/3/4/5/5b/6a/6b/6c-i/6c-ii each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
+instruction + function byte-for-byte; insertion re-parses everything-else-intact). **Phase 6c-iii** — the enemy-AI
+**LINTER** (`battle/ailint.py`: decode / jump-bounds / reachable-RET reachability walk / Attack-idx range — a
+**562-scene sweep lints ALL shipping scenes CLEAN**, the soundness proof; CLI `battle-ai --lint`) + the declarative
+**`[[scene.ai_function]]`** build surface (`aiauthor.apply_ai_functions`, spliced per-lang AFTER `ai_patch`; the
+validate hook lints the COMPOSED shipped eb) — **Phase 6c COMPLETE** (read→tune→author→validate the enemy-AI stack).
+★ Phases 2/3/4/5/5b/6a/6b/6c-i/6c-ii/6c-iii each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
 a boot-crash range bug + the cp1252 encoding; Phase 4: caught a `StatusSetId` over-range KeyNotFound crash, a
 malformed-toml traceback, + a silent dead-`Battle:` selector; Phase 5: caught a fixture provenance leak + a
 missing whole-file shadow-guard; 5b: an unresolvable display name; 6a: a truncated-eb crash; 6b: a 3-byte-immediate
 KeyError + the B_CONST4 26-bit mask; 6c-i: an `opXX` back-door that assembled a bare operand-byte → desync, fixed +
 `assemble()` now self-verifies its round trip as a library invariant; 6c-ii: a missing flow-terminator check
-[RET-less branch runs off the function] + a backward `JMP_IFNOT` the engine reads UNSIGNED) → [[project-ff9-battle-tuning]],
-`docs/BATTLE_DESIGN.md`. Next: Phase 6c-iii (a battle linter — valid AI tags / Attack-idx range / reachable RET — + the declarative `[[scene.ai_function]]` build surface).
+[RET-less branch runs off the function] + a backward `JMP_IFNOT` the engine reads UNSIGNED; 6c-iii: the linter
+decoded `JMP_IFNOT` signed not unsigned [missed the backward-jump fault] + the validate hook lit the un-patched
+donor not the composed eb) → [[project-ff9-battle-tuning]],
+`docs/BATTLE_DESIGN.md`. Next: Phase 6c is COMPLETE; the deferred tail is raw17 btlseq sequence authoring (new codec + a coordinated raw16+eb+raw17 edit).
 Frontier: #13 (story-event director/roster on rotating-cast fields) — ★ **core PROVEN** (a `--verbatim` fork +
 `[startup]` shows a beat-correct rotating roster: forking Dali Weapon Shop 354 at SC 2600 vs 11090, the shopkeeper
 changed + an NPC appeared, in-game 2026-06-12); the **roster-by-beat analyzer + the synth-fork director skip both
