@@ -109,6 +109,15 @@ MAIN_BASIS_OFF = 5751                                      # old-slot 0's basis.
 MAIN_BONUS_OFF = 5759                                      # old-slot 0's bonus.dex
 _BASIS_STAT_BYTE = {"dex": 0, "mgc": 5, "str": 6, "wpr": 7}   # Byte offset within basis
 _BONUS_STAT_OFF = {"dex": 0, "mgc": 2, "str": 4, "wpr": 6}    # UInt16 byte offset within bonus (alpha dex,mgc,str,wpr)
+# Ability AP in the old-format player struct. The struct (alpha-sorted SharedDataBytesStorage keys, base = basis
+# @5751) lays out basis(8) bonus(8) category(1) cur(8) defence(4) elem(4) equip(5,@5784) exp(4) info(6,@5793)
+# level(1) max(8) name(128) pa(48,@5936) sa(8,@5984) status trance web_bone -> the 244 stride, old-slot 8 ending
+# exactly at rareItems@7947. Empirically confirmed: a vanilla save's pa@5936 decodes to each char's base-pool AP
+# (Flee@40, Soul Blade@35, ...). pa[i] = AP earned for pool entry i (mastered when pa[i] >= the pool's AP req).
+MAIN_PA_OFF = 5936                                         # old-slot 0's pa[0]; old-slot k = +MAIN_PLAYER_STRIDE*k
+MAIN_PA_LEN = 48
+MAIN_SA_OFF = 5984                                         # old-slot 0's sa (2x UInt32 equipped-SA bitfield) -- read-only ref
+MAIN_MENU_TYPE_OFF = 5793                                  # old-slot 0's info.menu_type (the live CharacterPresetId per slot)
 
 # CharacterId (Memoria.Data.Characters.CharacterId) -- the key of `players[].info.slot_no` in the save. The
 # equip array is keyed by THIS (not array index / EquipmentSetId, which diverges above 7). Names/ids only.
@@ -1012,11 +1021,39 @@ def read_main_stats(pt) -> list:
     return out
 
 
+def read_main_abilities(pt) -> list:
+    """The 9 old-format players' ability AP from the main block's ``pa`` array (per old-slot, +244·k). ``pa[i]``
+    is the AP earned for the slot's CURRENT pool entry ``i`` (the live ``info.menu_type`` = CharacterPresetId);
+    mastered when ``pa[i] >= the pool's AP requirement``. Best-effort names/req via :mod:`ff9mapkit.abilities`
+    (the OLD format uses the live pool order, which on a vanilla save is the base pool -> names resolve). Same
+    shape as :func:`read_abilities`."""
+    out = []
+    for k in range(MAIN_PLAYERS_N):
+        base = MAIN_PA_OFF + MAIN_PLAYER_STRIDE * k
+        menu_type = pt[MAIN_MENU_TYPE_OFF + MAIN_PLAYER_STRIDE * k]
+        pool = _abilities.pool_for_preset(menu_type)
+        mastered, in_progress, total = [], [], 0
+        for i in range(MAIN_PA_LEN):
+            ab = pool[i] if i < len(pool) else None
+            if ab is None or ab.abil_id == 0:
+                continue
+            total += 1
+            cur, req = pt[base + i], ab.ap_req
+            if cur >= req if req else cur >= AP_CAP:
+                if cur > 0:
+                    mastered.append((ab.abil_id, ab.token, ab.name))
+            elif cur > 0:
+                in_progress.append((ab.abil_id, ab.token, ab.name, cur, req))
+        out.append({"slot_no": k, "name": OLD_SLOT_NAMES.get(k), "menu_type": menu_type,
+                    "total": total, "mastered": mastered, "in_progress": in_progress})
+    return out
+
+
 def main_report(pt) -> ItemReport:
-    """An :class:`ItemReport` for a decrypted main block (gil + inventory + equipment + key items + stats)."""
+    """An :class:`ItemReport` for a decrypted main block (gil + inventory + equipment + key items + stats + AP)."""
     return ItemReport(gil=read_main_gil(pt), inventory=read_main_inventory(pt),
                       equipment=read_main_equipment(pt), keyitems=read_main_keyitems(pt),
-                      stats=read_main_stats(pt))
+                      stats=read_main_stats(pt), abilities=read_main_abilities(pt))
 
 
 def decode_main_block(container, block):
@@ -1300,6 +1337,87 @@ def set_main_stat(container, block: int, character, stat, target: int, *, dry_ru
                            old_bonus=old_bonus, new_bonus=new_bonus, wrote=did_write, backup_path=backup_path)
 
 
+def set_main_ap(container, block: int, character, ability, value="master", *, dry_run: bool = True,
+                backup: bool = True) -> AbilityWriteReport:
+    """Set ability AP / mastery in the ENCRYPTED MAIN block's ``pa`` array (for a vanilla/no-extra save), the
+    main-block twin of :func:`set_ap_extra`. ``ability`` = a name / ``AA:X`` / ``SA:X`` / id / ``all``; ``value`` =
+    ``master`` / ``max`` / ``forget`` / a number. The OLD format keys AP by pool POSITION (not id), so a single
+    ability resolves to its index in the slot's live pool (``info.menu_type``); on a vanilla save that's the base
+    pool, so names resolve. ``all`` needs no pool order (sets every position) and is fully mod-safe. Validate gate
+    + scoped byte-diff (only this slot's 48 ``pa`` bytes move) + atomic + backup + post-write confirm + dry-run."""
+    old_slot = _resolve_old_slot(character)
+    try:
+        raw = open(container, "rb").read()
+    except OSError as e:
+        raise ValueError(f"cannot read save container {container!r}: {e}") from e
+    sv = _save.FF9Save.load(container)
+    orig_pt = bytes(_decrypt_main(sv, block))
+    pt = bytearray(orig_pt)
+    validate_main_block(pt)                               # GATE
+    base = MAIN_PA_OFF + MAIN_PLAYER_STRIDE * old_slot
+    menu_type = pt[MAIN_MENU_TYPE_OFF + MAIN_PLAYER_STRIDE * old_slot]
+    pool = _abilities.pool_for_preset(menu_type)
+    sslot = OLD_SLOT_NAMES.get(old_slot)
+
+    is_all = isinstance(ability, str) and ability.strip().lower() == "all"
+    if is_all:                                            # -------- every pool position --------
+        n = len(pool) if pool else MAIN_PA_LEN            # no pool (install unreachable) -> set all 48 (mod-safe)
+        n_changed, pool_total, n_master = 0, 0, 0
+        for i in range(min(n, MAIN_PA_LEN)):
+            ab = pool[i] if i < len(pool) else None
+            if ab is not None and ab.abil_id == 0:
+                continue
+            req = ab.ap_req if ab is not None else None
+            new_ap = _resolve_ap_value(value, req)
+            pool_total += 1
+            if pt[base + i] != new_ap:
+                pt[base + i] = new_ap
+                n_changed += 1
+            if (req and new_ap >= req) or (req is None and new_ap >= AP_CAP):
+                n_master += 1
+        abil_id, token, ability_name, old_ap, new_ap_rep, ap_req = -1, "all", None, 0, 0, None
+    else:                                                 # -------- a single ability (by pool index) --------
+        abil_id = _abilities.resolve(menu_type, ability)
+        idx = next((i for i, ab in enumerate(pool) if ab.abil_id == abil_id and i < MAIN_PA_LEN), None)
+        if idx is None:
+            have = ", ".join(ab.token for ab in pool[:MAIN_PA_LEN] if ab.abil_id != 0) or "(pool unavailable)"
+            raise ValueError(f"{sslot or character} has no ability {ability!r} ({_abilities.decode_token(abil_id)}) "
+                             f"in their (main-block) pool; the editor only changes abilities present.\n  present: {have}")
+        ap_req = pool[idx].ap_req
+        token, ability_name = pool[idx].token, pool[idx].name
+        old_ap, new_ap_rep = pt[base + idx], _resolve_ap_value(value, ap_req)
+        pt[base + idx] = new_ap_rep
+
+    diff = [k for k in range(len(pt)) if pt[k] != orig_pt[k]]   # SCOPED: only this slot's pa bytes
+    if diff and any(not (base <= k < base + MAIN_PA_LEN) for k in diff):
+        raise AssertionError("main AP edit touched bytes outside this slot's pa array; aborting")
+    backup_path, did_write = None, False
+    if not dry_run and diff:
+        sv._encrypt_block(block, bytes(pt))
+        backup_path = _atomic_write(container, raw, bytes(sv.data), backup=backup)
+        chk = bytearray(_decrypt_main(_save.FF9Save.load(container), block))   # CONFIRM
+        if bytes(chk[base:base + MAIN_PA_LEN]) != bytes(pt[base:base + MAIN_PA_LEN]):
+            raise AssertionError("post-write check failed: pa array read back wrong")
+        did_write = True
+    if is_all:
+        vl = str(value).strip().lower()
+        if _resolve_ap_value(value, None) == 0:
+            label, is_master = "forgot", False
+        elif pool_total and n_master == pool_total:
+            label, is_master = "mastered", True
+        else:
+            label, is_master = "set", False
+        return AbilityWriteReport(path=f"{container}#block{block}", slot_no=old_slot, character=sslot, abil_id=-1,
+                                  token="all", ability_name=None, old_ap=0, new_ap=0, ap_req=None, mastered=is_master,
+                                  action=label if n_changed else "unchanged", count=n_changed,
+                                  pool_total=pool_total, wrote=did_write, backup_path=backup_path)
+    mastered = (ap_req is not None and new_ap_rep >= ap_req) or (ap_req is None and new_ap_rep >= AP_CAP)
+    action = "unchanged" if old_ap == new_ap_rep else ("forgot" if new_ap_rep == 0 else ("mastered" if mastered else "changed"))
+    return AbilityWriteReport(path=f"{container}#block{block}", slot_no=old_slot, character=sslot, abil_id=abil_id,
+                              token=token, ability_name=ability_name, old_ap=old_ap, new_ap=new_ap_rep, ap_req=ap_req,
+                              mastered=mastered, action=action, count=1, wrote=did_write, backup_path=backup_path)
+
+
 def set_gil_in_save(container, block: int, gil: int, *, dry_run: bool = True, backup: bool = True,
                     mirror: bool = True) -> dict:
     """Write gil into a whole save SLOT: the ENCRYPTED MAIN block AND (when ``mirror`` and it exists) the Memoria
@@ -1375,6 +1493,22 @@ def set_stat_in_save(container, block: int, character, stat, target: int, *, dry
         if extra and os.path.isfile(extra):
             extra_rep = set_stat_extra(extra, character, stat, target, dry_run=dry_run, backup=backup)
     main_rep = set_main_stat(container, block, character, stat, target, dry_run=dry_run, backup=backup)
+    return {"main": main_rep, "extra": extra_rep}
+
+
+def set_ap_in_save(container, block: int, character, ability, value="master", *, dry_run: bool = True,
+                   backup: bool = True, mirror: bool = True) -> dict:
+    """Set ability AP / mastery in a whole save SLOT: the MAIN block's ``pa`` array AND (when ``mirror`` + present)
+    the Memoria EXTRA's ``pa_extended``. Vanilla -> main only. Returns ``{"main": AbilityWriteReport, "extra":
+    AbilityWriteReport|None}`` (extra written FIRST -- it's load-authoritative). ★ The extra keys AP by id (the
+    save's own pool = the source of truth) and the main by pool POSITION; on a modded (Moguri) Memoria save a
+    single-ability main leg may index a different slot, but the extra wins on load. ``all`` is exact on both."""
+    extra_rep = None
+    if mirror:                                            # the EXTRA is load-authoritative -> write it FIRST
+        extra = _save.extra_file_path(container, block)
+        if extra and os.path.isfile(extra):
+            extra_rep = set_ap_extra(extra, character, ability, value, dry_run=dry_run, backup=backup)
+    main_rep = set_main_ap(container, block, character, ability, value, dry_run=dry_run, backup=backup)
     return {"main": main_rep, "extra": extra_rep}
 
 
@@ -1492,6 +1626,18 @@ def render_stat_dual(res: dict) -> str:
     if res.get("extra") is not None:
         lines.append("  [Memoria extra -- the load-authoritative store]")
         lines += ["  " + ln for ln in render_stat_write(res["extra"]).splitlines()]
+    else:
+        lines.append("  (no Memoria extra for this slot -- a vanilla save; the main block governs in-game)")
+    return "\n".join(lines)
+
+
+def render_ability_dual(res: dict) -> str:
+    """Render a :func:`set_ap_in_save` outcome (the main block + the extra mirror)."""
+    lines = ["  [main block]"]
+    lines += ["  " + ln for ln in render_ability_write(res["main"]).splitlines()]
+    if res.get("extra") is not None:
+        lines.append("  [Memoria extra -- the load-authoritative store]")
+        lines += ["  " + ln for ln in render_ability_write(res["extra"]).splitlines()]
     else:
         lines.append("  (no Memoria extra for this slot -- a vanilla save; the main block governs in-game)")
     return "\n".join(lines)

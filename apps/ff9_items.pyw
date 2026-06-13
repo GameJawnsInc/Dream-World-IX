@@ -158,8 +158,8 @@ class ItemsApp:
         ttk.Button(sf, text="Preview", command=lambda: self._edit_stat(False)).pack(side="left", padx=(8, 2))
         ttk.Button(sf, text="Apply", command=lambda: self._edit_stat(True)).pack(side="left")
 
-        # --- Abilities (AP / mastery: writes pa_extended; Memoria saves only) ---
-        af = ttk.LabelFrame(f, text="Abilities  (AP / mastery — Memoria saves only)", padding=4)
+        # --- Abilities (AP / mastery: writes pa_extended / the main-block pa array) ---
+        af = ttk.LabelFrame(f, text="Abilities  (AP / mastery — ability name / AA:X / SA:X / id / all)", padding=4)
         af.pack(fill="x", pady=2)
         ttk.Label(af, text="who:").pack(side="left")
         self.ap_char_var = tk.StringVar()
@@ -431,37 +431,43 @@ class ItemsApp:
         self._load(self.path, keep=self._selected())
 
     def _edit_ap(self, apply):
-        """Set a character's ability AP / mastery (writes pa_extended). Memoria saves only -- a vanilla no-extra
-        slot has no pa_extended here (main-block AP is a follow-up). `ability` is a name / AA:X / SA:X / id /
-        'all'; the AP field is master / max / forget / a number."""
+        """Set a character's ability AP / mastery -- dual-write (main pa array + extra pa_extended mirror) on a
+        container slot (handles a vanilla save's main block), extra-only on an extra-file-direct target. `ability`
+        is a name / AA:X / SA:X / id / 'all'; the AP field is master / max / forget / a number."""
         t = self._target()
         if t is None or t["report"] is None:
             self._out("Select a decodable slot on the left first.")
             return
-        extra = t["extra"]
-        if extra is None:
-            self._out("AP / ability editing needs a Memoria save — this slot has no extra file (vanilla "
-                      "main-block AP is a follow-up).")
-            return
+        extra, container, block = t["extra"], t["container"], t["block"]
         char, ability, value = self.ap_char_var.get(), self.ap_abil_var.get().strip(), self.ap_val_var.get().strip()
         try:
-            preview = _si.set_ap_extra(extra, char, ability, value, dry_run=True)
+            if container is not None:
+                render = _si.render_ability_dual
+                preview = _si.set_ap_in_save(container, block, char, ability, value, dry_run=True)
+                do = lambda: _si.set_ap_in_save(container, block, char, ability, value, dry_run=False)  # noqa: E731
+            elif extra is not None:
+                render = _si.render_ability_write
+                preview = _si.set_ap_extra(extra, char, ability, value, dry_run=True)
+                do = lambda: _si.set_ap_extra(extra, char, ability, value, dry_run=False)  # noqa: E731
+            else:
+                self._out("Select an editable slot first.")
+                return
         except (ValueError, TypeError) as e:
             self._out(f"Cannot apply:\n  {e}")
             return
         if not apply:
-            self._out("PREVIEW (nothing written yet):\n" + _si.render_ability_write(preview))
+            self._out("PREVIEW (nothing written yet):\n" + render(preview))
             return
         if not messagebox.askyesno("Apply save edit?",
                                    "This edits your REAL save (a timestamped .bak is written first):\n\n"
-                                   + _si.render_ability_write(preview) + "\n\nProceed?"):
+                                   + render(preview) + "\n\nProceed?"):
             return
         try:
-            res = _si.set_ap_extra(extra, char, ability, value, dry_run=False)
+            res = do()
         except Exception as e:                            # noqa: BLE001
             self._out(f"Write failed:\n  {e}")
             return
-        self._out(_si.render_ability_write(res) + "\n\nReload the save in-game to see it (no relaunch needed).")
+        self._out(render(res) + "\n\nReload the save in-game to see it (no relaunch needed).")
         self.status.config(text="save edited (backup written) — reload it in-game")
         self._load(self.path, keep=self._selected())
 
@@ -590,10 +596,14 @@ def main():
             app._edit_stat(True)                                               # set a stat via the GUI (vanilla)
             zst = {s["name"]: s["stats"] for s in _si.decode_main_block(str(cont), 1).stats}
             assert zst["Zidane"]["Strength"] == 99, "main-block stat edited via GUI (vanilla)"
-            vanilla_ok = "main-block gil+item+equip+keyitem+stat edited"
+            app.ap_char_var.set("Zidane"); app.ap_abil_var.set("all"); app.ap_val_var.set("max")
+            app._edit_ap(True)                                                 # master all of Zidane (vanilla main pa)
+            zab = [a for a in _si.decode_main_block(str(cont), 1).abilities if a["slot_no"] == 0][0]
+            assert zab["mastered"], "main-block AP mastered via GUI (vanilla)"
+            vanilla_ok = "main-block gil+item+equip+keyitem+stat+ability edited"
         except ImportError:
             pass
-        print(f"smoke ok: extra slot gil/item/equip/stat/ability applied ({len(baks)} bak); vanilla {vanilla_ok}")
+        print(f"smoke ok: extra gil/item/equip/stat/ability applied ({len(baks)} bak); vanilla {vanilla_ok}")
         root.destroy()
         return
     root.mainloop()

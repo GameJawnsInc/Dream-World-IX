@@ -12,6 +12,7 @@ import pytest
 from ff9mapkit import sjbinary as SJ
 from ff9mapkit import save_items as SI
 from ff9mapkit import items as I
+from ff9mapkit import abilities as AB
 
 
 # ---- synthetic-tree builders ------------------------------------------------------------------
@@ -450,8 +451,10 @@ def _has_crypto():
         return False
 
 
-def _enc_container(tmp_path, block=1, gil=500, items=((236, 7), (238, 2)), magic=b"SAVE", last_live=False):
-    """A synthetic encrypted SavedData_ww.dat with one populated old-format block (SAVE magic + gil + items)."""
+def _enc_container(tmp_path, block=1, gil=500, items=((236, 7), (238, 2)), magic=b"SAVE", last_live=False,
+                   pa0=None, mt0=None):
+    """A synthetic encrypted SavedData_ww.dat with one populated old-format block (SAVE magic + gil + items).
+    ``pa0`` (a 48-byte iterable) seeds old-slot 0's pa array; ``mt0`` sets old-slot 0's info.menu_type."""
     import base64
     from Crypto.Cipher import AES
     from ff9mapkit import save as SaveMod
@@ -464,6 +467,10 @@ def _enc_container(tmp_path, block=1, gil=500, items=((236, 7), (238, 2)), magic
     for k, (iid, cnt) in enumerate(items):
         pt[SI.MAIN_ITEMS_OFF + 2 * k] = cnt
         pt[SI.MAIN_ITEMS_OFF + 2 * k + 1] = iid
+    if mt0 is not None:
+        pt[SI.MAIN_MENU_TYPE_OFF] = mt0
+    if pa0 is not None:
+        pt[SI.MAIN_PA_OFF:SI.MAIN_PA_OFF + len(list(pa0))] = bytes(pa0)
     if last_live:                                          # make the last slot a live item (no padding tail)
         pt[SI.MAIN_ITEMS_OFF + 2 * (SI.MAIN_ITEMS_N - 1)] = 5
         pt[SI.MAIN_ITEMS_OFF + 2 * (SI.MAIN_ITEMS_N - 1) + 1] = 10
@@ -1118,3 +1125,56 @@ def test_real_extra_set_ap_dry_run_scoped():
         rep = SI.set_ap_extra(extra, 0, "all", "max", dry_run=True)   # Zidane, every ability (computes + verifies)
         assert rep.wrote is False and rep.token == "all"
         assert open(extra, "rb").read() == before          # untouched
+
+
+# ---- AP / ability mastery in the MAIN block (vanilla saves) ----------------------------------
+def _read_pa(container, block, old_slot):
+    """The 48-byte pa array for an old-slot, decrypted from the main block."""
+    pt = bytearray(SI._decrypt_main(SI._save.FF9Save.load(container), block))
+    base = SI.MAIN_PA_OFF + SI.MAIN_PLAYER_STRIDE * old_slot
+    return list(pt[base:base + SI.MAIN_PA_LEN])
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_ap_all_max_sets_pa_and_is_scoped(tmp_path):
+    c = _enc_container(tmp_path, block=1, mt0=0)            # old-slot 0 = Zidane preset
+    r = SI.set_main_ap(c, 1, "Zidane", "all", "max", dry_run=False)
+    assert r.wrote and r.token == "all" and r.mastered and r.count == SI.MAIN_PA_LEN
+    assert _read_pa(c, 1, 0) == [255] * 48                  # every pa byte set
+    assert _read_pa(c, 1, 1) == [0] * 48                    # old-slot 1 untouched (scoped)
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_ap_forget_zeroes(tmp_path):
+    c = _enc_container(tmp_path, block=1, mt0=0, pa0=[40] * 48)
+    r = SI.set_main_ap(c, 1, "Zidane", "all", "forget", dry_run=False)
+    assert r.wrote and r.action == "forgot" and _read_pa(c, 1, 0) == [0] * 48
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_ap_dry_run_writes_nothing(tmp_path):
+    c = _enc_container(tmp_path, block=1, mt0=0)
+    before = open(c, "rb").read()
+    r = SI.set_main_ap(c, 1, "Zidane", "all", "max")       # dry_run defaults True
+    assert r.wrote is False and open(c, "rb").read() == before
+
+
+@pytest.mark.skipif(not _has_crypto() or not AB.available(),
+                    reason="needs pycryptodome + the FF9 install for the ability pool")
+def test_set_main_ap_single_by_name(tmp_path):
+    # Sacrifice = AA:106, Zidane pool index 5 (req 55). pa0 seeds it partial; master -> the exact req at index 5.
+    pa = [0] * 48; pa[5] = 28
+    c = _enc_container(tmp_path, block=1, mt0=0, pa0=pa)
+    r = SI.set_main_ap(c, 1, "Zidane", "Sacrifice", "master", dry_run=False)
+    assert r.wrote and r.token == "AA:106" and r.ability_name == "Sacrifice" and r.old_ap == 28
+    got = _read_pa(c, 1, 0)
+    assert got[5] == r.new_ap == r.ap_req and all(b == 0 for i, b in enumerate(got) if i != 5)
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_ap_in_save_vanilla_main_only(tmp_path):
+    c = _enc_container(tmp_path, block=1, mt0=0)
+    res = SI.set_ap_in_save(c, 1, "Zidane", "all", "max", dry_run=False)   # no extra -> main only
+    assert res["extra"] is None and res["main"].wrote
+    assert _read_pa(c, 1, 0) == [255] * 48
+    assert "main block" in SI.render_ability_dual(res) and "vanilla" in SI.render_ability_dual(res)

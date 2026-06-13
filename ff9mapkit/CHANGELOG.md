@@ -18,6 +18,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   single-region walkmesh → byte-identical** (the common case is untouched). +3 tests (`test_spawn`, incl. an
   install-gated Dali main-region assertion). This is part of the #13 (c) diorama tail.
 
+### Added — save-item editor: VANILLA (main-block) AP / ability editing (0.9.72)
+- The AP / ability-mastery editor now reaches **vanilla (no-extra) saves** too, via the encrypted main block's
+  old-format `pa` array — completing AP across both save kinds (the 7→7b pattern, now 8→8b).
+- ★ **Layout finding (derived from the alpha-sorted SharedDataBytesStorage schema, empirically confirmed):** the
+  244-byte old player struct (base `basis@5751`) lays out `…equip@5784 exp info@5793 level max name(128) pa@5936
+  sa@5984…`, old-slot 8 ending exactly at `rareItems@7947`. A vanilla save's `pa@5936` decodes to each char's
+  base-pool AP (Flee@40, Soul Blade@35, …), and the per-slot `info.menu_type@5793` gives the live preset. The
+  vanilla saves use the **vanilla pool order**, so by-name resolution is correct on them.
+- **`save_items.set_main_ap(container, block, character, ability, value)`** writes the `pa` byte(s) for one
+  old-slot — `all` (mod-safe, every position) or a single ability by name/`AA:X`/`SA:X`/id resolved to its pool
+  index. + `read_main_abilities` + `main_report`/`ItemReport.abilities` (so `items-inspect` shows AP on vanilla
+  slots) + **`set_ap_in_save`** dual-write (extra-first, vanilla → main only) + `render_ability_dual`. CLI
+  `items-set-ap` on a container now dual-writes; GUI Abilities works on vanilla slots.
+- 5 new tests (synthetic container + install-gated by-name). Offline-validated on a temp copy of the real
+  container's vanilla block (single by-name `Sacrifice` 28→55, `all max` 21/48→48/48, scoped to only that block +
+  that slot's `pa`). **Awaiting the in-game proof.**
+
 ### Added — save-item editor: AP / ABILITY-MASTERY editing (the "AP unlocks" the user asked about), IN-GAME PROVEN (0.9.71)
 - A new editor for a character's **ability AP / mastery** — set the AP a character has earned toward an ability
   (so an active ability becomes permanently usable, or a support ability becomes equippable). Memoria-extra-only
