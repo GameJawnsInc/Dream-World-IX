@@ -276,10 +276,14 @@ class Workspace:
                                    f"entry: {g.entry or '(none)'}{warn}")
         self.tree.delete(*self.tree.get_children())
         self._nav = {}
-        # journey > campaign roots, so the tree itself shows the hierarchy depth (members nest below)
-        self.tree.insert("", "end", iid="@journey", text=f"◆ {self._journey_label()}",
-                         tags=("root",), open=True)
-        self.tree.insert("@journey", "end", iid="@campaign", text=f"▣ {plan.name}",
+        # the campaign root is always real; a journey root sits above it ONLY when a real journey is
+        # defined (journeys.toml) -- otherwise the tree honestly shows campaign > field, no fabrication.
+        jlabel = self._journey_label()
+        camp_parent = ""
+        if jlabel:
+            self.tree.insert("", "end", iid="@journey", text=f"◆ {jlabel}", tags=("root",), open=True)
+            camp_parent = "@journey"
+        self.tree.insert(camp_parent, "end", iid="@campaign", text=f"▣ {plan.name}",
                          tags=("root",), open=True)
         for node in g.nodes:
             if self.tree.exists(node.name):           # dup name in a hand-edited manifest -> lint flags it;
@@ -365,10 +369,11 @@ class Workspace:
         return False
 
     # ---------------------------------------------------------------- breadcrumb
-    def _journey_label(self) -> str:
-        """The journey this campaign belongs to: a sibling journeys.toml entry whose `entry` id names one
-        of our members (forward-compat with the World Hub generator), else the campaign's project FOLDER
-        name as the arc it lives in."""
+    def _journey_label(self):
+        """The journey this campaign belongs to IF one is actually defined -- a sibling journeys.toml
+        entry whose `entry` id names one of our members (the World Hub generator's format). Returns None
+        when no real journey exists yet, so the breadcrumb/tree honestly show campaign > field > object
+        instead of fabricating a journey from the folder name."""
         try:
             import tomllib
             jt = self.campaign_path.parent / "journeys.toml"
@@ -382,7 +387,7 @@ class Workspace:
                     return journeys[0]["name"]
         except Exception:                             # noqa: BLE001 -- a missing/odd journeys.toml is fine
             pass
-        return (self.campaign_path.parent.name or "Project") if self.campaign_path else "Project"
+        return None                                   # no real journey yet -> the level simply isn't shown
 
     def _refresh_breadcrumb(self):
         self.crumb.set(breadcrumb.trail(self._journey_name, self._campaign_name,
@@ -666,12 +671,10 @@ def _smoke(ws):
     _appmod.messagebox.askyesnocancel = lambda *a, **k: (calls.append(1), False)[1]
 
     assert ws.open_campaign(d / "campaign.toml")
-    # members now nest under the journey > campaign roots (the tree shows the hierarchy depth)
-    assert list(ws.tree.get_children()) == ["@journey"]
-    assert list(ws.tree.get_children("@journey")) == ["@campaign"]
+    # no journeys.toml yet -> honest depth: a campaign root over the members, NO fabricated journey
+    assert list(ws.tree.get_children()) == ["@campaign"]
     assert list(ws.tree.get_children("@campaign")) == ["IC_ENT", "IC_COR", "IC_LOST"]
-    # the breadcrumb resolved journey > campaign > the auto-landed entry field
-    assert ws._campaign_name == "ICE" and ws._field_name == "IC_ENT"
+    assert ws._journey_name is None and ws._campaign_name == "ICE" and ws._field_name == "IC_ENT"
     assert ws.editor.doc is not None and ws.editor.doc.path == members_path(d, "IC_ENT")   # auto-land entry
     # the Dialogue tab shares the SAME FieldDoc as the Logic Editor (no divergence on edit)
     assert ws.dialogue.doc is ws.editor.doc
@@ -686,8 +689,16 @@ def _smoke(ws):
     ws._on_editor_select()
     assert ws._obj_key == "field" and ws._obj_label == "Field"
     _trail = breadcrumb.trail(ws._journey_name, ws._campaign_name, ws._field_name, ws._obj_label, ws._obj_key)
-    assert [c.level for c in _trail] == ["journey", "campaign", "field", "object"]
+    assert [c.level for c in _trail] == ["campaign", "field", "object"]   # 3 real levels, no journey yet
     ws._on_crumb(breadcrumb.Crumb(breadcrumb.CAMPAIGN, ws._campaign_name, "@campaign"))  # ancestor click is safe
+    # a real journeys.toml (the World Hub generator's format) lights up the 4th level
+    (d / "journeys.toml").write_text('[[journey]]\nname = "Frozen Trial"\nentry = 30100\n', encoding="utf-8")
+    assert ws._journey_label() == "Frozen Trial"
+    ws._populate(ws.plan)                                  # re-render with the journey now present
+    assert list(ws.tree.get_children()) == ["@journey"]
+    assert list(ws.tree.get_children("@journey")) == ["@campaign"]
+    (d / "journeys.toml").unlink()                         # back to no-journey for the rest of the flow
+    ws._populate(ws.plan)
     # the visual Map tab renders the same graph and highlights the auto-landed entry
     assert ws.graph._layout is not None and len(ws.graph._layout.nodes) == 3
     assert ws.graph._current == "IC_ENT"
@@ -734,7 +745,7 @@ def _smoke(ws):
     campaign.remove_flag(ws.plan, ws.campaign_path.parent, "boss_dead")
     assert campaign.load_campaign(ws.campaign_path).flags == []
     print(f"campaign editor smoke ok: {ws.nb.index('end')} tabs (incl. Dialogue, shared doc), 3 members, "
-          f"journey>campaign>field tree + breadcrumb (4 levels) + edge-nav + map-open + "
+          f"campaign>field tree + breadcrumb (3 levels; 4 with a journeys.toml) + edge-nav + map-open + "
           f"Check ({len(errors)} err) + dirty-gate + Phase-D add/rename/remove + shared-flags")
 
 
