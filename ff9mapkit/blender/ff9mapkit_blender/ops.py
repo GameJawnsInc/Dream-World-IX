@@ -1123,6 +1123,30 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         _apply_canvas_resolution(context, c0.range[0], c0.range[1])
         context.scene.camera = cam_obj
 
+        # Multi-camera fields: a real field can split its walkable area across SEVERAL cameras (the
+        # engine switches between them via SETCAM). The import historically posed only camera 0, so a
+        # field whose floor lives on camera 1+ rendered with the walkmesh off-frame (e.g. CYSW: cam0
+        # frames 0% of the main floor, cam1 frames 100%). Drop EVERY camera as its own Blender camera
+        # object so you can switch the active view camera (select it -> View > Cameras > Set Active
+        # Object as Camera, or Ctrl+Numpad0) and see the walkmesh framed by each real camera. cam0
+        # stays the scene's active camera. The extras are tagged with their ff9_cam index so the panel
+        # readout follows the selected one; an imported fork preserves the EXACT extracted camera.bgx on
+        # export (borrow / editable branches), so these view-only objects never alter the shipped field.
+        extra_cams = []                          # (obj, Cam) for cams[1:]; view-offset applied below
+        for stale in [o for o in context.scene.objects
+                      if o.type == "CAMERA" and o.name.startswith(CAMERA_NAME + "_")]:
+            sd = stale.data                      # clear extras from a previous higher-camera-count import
+            bpy.data.objects.remove(stale, do_unlink=True)
+            if sd and sd.users == 0:
+                bpy.data.cameras.remove(sd)
+        for i, ci in enumerate(cams[1:], start=1):
+            nm = f"{CAMERA_NAME}_{i:02d}"
+            co = bpy.data.objects.new(nm, bpy.data.cameras.new(nm))
+            context.scene.collection.objects.link(co)
+            co[CAM_KEY] = i
+            _pose_camera_from_ff9(co, ci, ci.range[0] > 384 or ci.range[1] > 448)
+            extra_cams.append((co, ci))
+
         # EDITABLE (--editable) fork = a custom scene with no borrow_bg. Load its per-depth art
         # ([[layers]]) as the camera backdrop + the field's layer list (with shaders) so you model
         # against the real room AND re-export keeps the occlusion + light/shadow blends intact.
@@ -1202,6 +1226,11 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             cam_obj.location.x -= D[0]
             cam_obj.location.y -= D[1]
             cam_obj.location.z -= D[2]
+            for co, ci in extra_cams:            # each camera gets its OWN nudge (different pose/pitch)
+                Di = bridge.walkmesh_view_offset(bgi_bytes, ci)
+                co.location.x -= Di[0]
+                co.location.y -= Di[1]
+                co.location.z -= Di[2]
 
         # Reframe (viewport-only) ONLY the bare no-art case: centre the camera on the walkmesh so the
         # footprint is readable. With an art backdrop, the view-offset above aligns it; keep the
@@ -1244,8 +1273,10 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         seam_note = (f" {n_seams} cross-floor seam(s) highlighted (FF9_Seams) -- don't move those edges."
                      if n_seams else "")
         loaded = ("  " + ", ".join(f"{v} {k}" for k, v in content.items()) + " loaded.") if content else ""
+        cam_note = (f" {len(cams)} cameras dropped (FF9_Camera + _01..); select one + View > Cameras > "
+                    f"Set Active Object as Camera to frame the floor by it." if len(cams) > 1 else "")
         self.report({"INFO"}, f"imported {p.borrow_bg or p.field_name}: camera + walkmesh loaded."
-                              f"{seam_note}{loaded} Add/edit markers, then Export Field.")
+                              f"{cam_note}{seam_note}{loaded} Add/edit markers, then Export Field.")
         return {"FINISHED"}
 
 
