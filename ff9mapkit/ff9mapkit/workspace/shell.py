@@ -130,6 +130,7 @@ class Workspace(QMainWindow):
         self.campaign_path = None
         self.member_paths = {}                     # member name -> field.toml path
         self.journey_name = None
+        self._loose = None                         # the open standalone field's name (loose mode), else None
         self._docs = {}                            # member name -> loaded FieldDoc (cached, edited in place)
         self._save_ctx = None                      # {member, key, spec, getters, single|kind, idx} for Save
         self.setWindowTitle("FF9 Map Kit — Workspace")
@@ -148,6 +149,9 @@ class Workspace(QMainWindow):
         act_open = QAction("Open Campaign…", self)
         act_open.triggered.connect(self.on_open_campaign)
         tb.addAction(act_open)
+        act_open_field = QAction("Open Field…", self)
+        act_open_field.triggered.connect(self.on_open_field)
+        tb.addAction(act_open_field)
         self.act_check = QAction("Check", self)
         self.act_check.triggered.connect(self.on_check)
         self.act_check.setEnabled(False)
@@ -247,9 +251,10 @@ class Workspace(QMainWindow):
         w.setReadOnly(True)
         w.setHtml(
             "<h2>FF9 Map Kit — Workspace</h2>"
-            "<p>The modern shell (Phase 3). <b>Open Campaign…</b> to load a <code>campaign.toml</code>; "
-            "the left tree shows <b>journey ▸ campaign ▸ field ▸ object</b>, the breadcrumb tracks where "
-            "you are, and <b>Check</b> fills the Problems dock.</p>"
+            "<p>The modern shell. <b>Open Campaign…</b> for a <code>campaign.toml</code>, or "
+            "<b>Open Field…</b> for a standalone <code>field.toml</code>; the left tree shows "
+            "<b>journey ▸ campaign ▸ field ▸ object</b>, the breadcrumb tracks where you are, and "
+            "<b>Check</b> fills the Problems dock.</p>"
             "<p style='color:gray'>The field editor forms mount here in Phase 4; this shell wraps the "
             "same backend as the tkinter apps.</p>")
         self.tabs.addTab(w, "Welcome")
@@ -272,6 +277,44 @@ class Workspace(QMainWindow):
         if f:
             self.open_campaign(Path(f))
 
+    def on_open_field(self):
+        f, _ = QFileDialog.getOpenFileName(self, "Open a field.toml", "",
+                                           "Field (*.field.toml);;TOML (*.toml);;All files (*)")
+        if f:
+            self.open_field(Path(f))
+
+    def open_field(self, path) -> bool:
+        """Open a STANDALONE field.toml (no campaign) -- the 'Loose field' mode, so any authored field
+        can be edited directly. Mirrors the tkinter editor opening a lone file."""
+        path = Path(path)
+        try:
+            doc = FieldDoc.load(path)
+        except Exception as e:                     # noqa: BLE001
+            self.statusBar().showMessage(f"Open failed: {e}")
+            return False
+        name = (doc.data.get("field", {}) or {}).get("name") or path.stem
+        self.plan = None
+        self.campaign_path = None
+        self.journey_name = None
+        self._loose = name
+        self.member_paths = {name: path.resolve()}
+        self._docs = {name: doc}
+        self.act_check.setEnabled(True)
+        self.act_lint_cli.setEnabled(False)       # lint-campaign is campaign-only
+        self._populate_field(name)
+        self.statusBar().showMessage(f"{name} — standalone field — {path}")
+        self._select_member(name)
+        return True
+
+    def _populate_field(self, name):
+        self.tree.clear()
+        self._member_items = {}
+        mi = self._mk("field", name, name, "•")
+        self.tree.addTopLevelItem(mi)
+        self._member_items[name] = mi
+        mi.addChild(self._mk("__lazy__", "loading…"))   # lazy object load on expand (same as a member)
+        mi.setExpanded(True)
+
     def open_campaign(self, path) -> bool:
         path = Path(path)
         try:
@@ -280,9 +323,11 @@ class Workspace(QMainWindow):
             self.statusBar().showMessage(f"Open failed: {e}")
             return False
         self.plan = plan
+        self._loose = None                         # leaving loose mode -> a real campaign is open
         self.campaign_path = path
         self.member_paths = {m.name: (path.parent / m.toml_rel).resolve() for m in plan.members}
         self.journey_name = self._journey_label()
+        self._docs = {}
         self.act_check.setEnabled(True)
         self.act_lint_cli.setEnabled(True)
         self._populate()
@@ -388,6 +433,8 @@ class Workspace(QMainWindow):
         if not items:
             return
         item = items[0]
+        if not self._commit_active():              # fold the leaving form into the doc; stay put on a bad value
+            return
         p = self._payload(item)
         field_item = self._ancestor_field(item)
         field = self._payload(field_item)[1] if field_item is not None else None
@@ -406,6 +453,7 @@ class Workspace(QMainWindow):
 
     # ---- the document editor (Phase 4) ----
     def _clear_doc(self):
+        self._save_ctx = None                      # the about-to-be-removed form is no longer the active one
         while self.doc_host_lay.count():
             it = self.doc_host_lay.takeAt(0)
             w = it.widget()
@@ -525,6 +573,54 @@ class Workspace(QMainWindow):
                 items[0].setData(0, _ROLE, ("object", entity["name"], key))
         return True
 
+    def _commit_active(self) -> bool:
+        """Fold the currently-mounted form back into the IN-MEMORY doc (NO disk write), so navigating to
+        another node doesn't silently lose edits (parity with the tkinter editor's _commit_active before
+        _show). Returns False (+ surfaces the error) on an invalid value so the caller can keep the user
+        on the form. Cutscene steps / choice options are already mutated live; this covers the header form."""
+        ctx = self._save_ctx
+        if not ctx:
+            return True
+        try:
+            entity = forms.build_entity(ctx["spec"], read(ctx["getters"]))
+        except ValueError as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Invalid value — fix it before leaving this form"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return False
+        doc = self._docs.get(ctx["member"])
+        if doc is None:
+            return True
+        if ctx["single"]:
+            target = doc.data.setdefault(ctx["section"], {})
+        else:
+            lst = doc.data.get(ctx["section"], []) or []
+            if ctx["idx"] is None or ctx["idx"] >= len(lst):
+                return True
+            target = lst[ctx["idx"]]
+        for f in ctx["spec"]:
+            target.pop(f.key, None)
+        target.update(entity)
+        return True
+
+    def _ensure_saved(self) -> bool:
+        """Commit the active form + write its doc to disk so Check validates the CURRENT edits, not stale
+        bytes (parity with the tkinter editor's _ensure_saved). Skips a protected file."""
+        if not self._commit_active():
+            return False
+        member = (self._save_ctx or {}).get("member") or self._loose
+        if not member or member not in self._docs:
+            return True
+        path = self.member_paths.get(member)
+        if path is None or protected_reason(path):
+            return True
+        try:
+            self._docs[member].save()
+        except Exception as e:                     # noqa: BLE001
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't save before Check"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return False
+        return True
+
     # ---- cutscene + choice sub-editors (Phase 4b) ----
     def _list_buttons(self, pairs):
         """A horizontal row of buttons from (label, callback) pairs, returned as a QWidget."""
@@ -624,6 +720,8 @@ class Workspace(QMainWindow):
         self.doc_host_lay.addWidget(body)
         reload_steps()
         on_type()
+        self._save_ctx = {"member": member, "key": "cutscene", "spec": forms.CUTSCENE_SPEC,
+                          "getters": getters, "single": True, "section": "cutscene", "idx": None}
         self._add_save(lambda: self._commit(member, "cutscene", forms.CUTSCENE_SPEC, getters, single=True))
 
     def _mount_choice(self, member, idx):
@@ -709,6 +807,8 @@ class Workspace(QMainWindow):
             [("Add new", add_new), ("Update", update_sel), ("Remove", remove),
              ("Up", lambda: move(-1)), ("Down", lambda: move(1))]))
         reload_opts(0 if ch["options"] else None)
+        self._save_ctx = {"member": member, "key": f"choice:{idx}", "spec": forms.CHOICE_SPEC,
+                          "getters": getters, "single": False, "section": "choice", "idx": idx}
         self._add_save(lambda: self._commit(member, "choice", forms.CHOICE_SPEC, getters,
                                             single=False, idx=idx, key=f"choice:{idx}"))
 
@@ -759,7 +859,11 @@ class Workspace(QMainWindow):
 
     # ---- check (in-process) + lint (QProcess) ----
     def on_check(self):
+        if not self._ensure_saved():               # validate the CURRENT edits, not stale on-disk bytes
+            return
         if self.plan is None:
+            if self._loose:
+                self._check_loose()
             return
         try:
             errs, warns = C.lint_campaign(self.plan, self.campaign_path.parent)
@@ -772,6 +876,19 @@ class Workspace(QMainWindow):
                       if not n.reachable or n.needs_export), None)
         if first:
             self._select_member(first)
+
+    def _check_loose(self):
+        """Validate + lint the open standalone field (no campaign), via the same build-layer checks the
+        tkinter editor uses."""
+        from ..build import FieldProject, lint_logic, validate
+        try:
+            p = FieldProject.load(self.member_paths[self._loose])
+            errs, warns = validate(p), lint_logic(p)
+        except Exception as e:                     # noqa: BLE001
+            errs, warns = [f"check failed: {e}"], []
+        v = fb.classify(errs, warns, subject=f"Check {self._loose}",
+                        clean_headline=f"{self._loose} — no problems")
+        self._show_problems(v, fb.problems(errs, warns))
 
     def _show_problems(self, verdict, problems):
         col = {fb.OK: self.pal["success"], fb.WARN: self.pal["warn"], fb.ERROR: self.pal["error"],
@@ -793,9 +910,12 @@ class Workspace(QMainWindow):
     def run_cli_lint(self):
         if self.campaign_path is None:
             return
+        if getattr(self, "proc", None) and self.proc.state() != QProcess.ProcessState.NotRunning:
+            return                                 # one lint at a time -- don't overwrite a running QProcess
         self.output.clear()
         self._show_problems(fb.Verdict(fb.RUNNING, "Linting via CLI…"), [])
         self.dock_tabs.setCurrentWidget(self.output)
+        self.act_lint_cli.setEnabled(False)
         self.proc = QProcess(self)
         self.proc.setProgram(sys.executable)
         self.proc.setArguments(["-m", "ff9mapkit", "lint-campaign", str(self.campaign_path)])
@@ -811,6 +931,7 @@ class Workspace(QMainWindow):
             self.output.appendPlainText(text)
 
     def _proc_done(self, code, _status):
+        self.act_lint_cli.setEnabled(self.campaign_path is not None)
         v = fb.from_returncode(code, subject="Lint (CLI)", ok_headline="Lint (CLI) — done",
                                fail_hint="See the Output tab.")
         self._show_problems(v, [])
@@ -865,6 +986,16 @@ def _smoke(win):
     win._save()
     saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
     assert saved["field"]["id"] == 30100 and saved["field"]["name"] == "IC_ENT", saved
+    # H1: commit-on-switch keeps uncommitted form edits (no Save) -- simulate a widget edit, then switch
+    win._open_editor("IC_ENT", "object", "npc:0")
+    win._save_ctx["getters"]["dialogue"] = lambda: "EDITED ON SWITCH"   # as if the user typed it
+    assert win._commit_active() is True                # what _on_select runs before mounting the next node
+    assert win._doc("IC_ENT").data["npc"][0]["dialogue"] == "EDITED ON SWITCH"
+    # H1: an INVALID value blocks the switch (returns False), mirroring tkinter's _commit_active
+    win._open_editor("IC_ENT", "field", "field")
+    win._save_ctx["getters"]["id"] = lambda: "not-a-number"
+    assert win._commit_active() is False
+    win._open_editor("IC_ENT", "field", "field")       # re-mount clears the simulated bad value
     # the Qt form renderer round-trips through build_entity (the SAME parser as the tkinter editor)
     sample = {"name": "Vivi", "preset": "vivi", "dialogue": "hi"}
     _w, _g = build_form(forms.NPC_SPEC, forms.entity_to_values(forms.NPC_SPEC, sample), win.pal)
@@ -889,9 +1020,29 @@ def _smoke(win):
     win.on_check()
     assert win.problems.count() >= 1
     assert any("GHOST" in win.problems.item(i).text() for i in range(win.problems.count()))
+    nprob = win.problems.count()
+
+    # Open Field: a STANDALONE authored field (cutscene + choice) -- no campaign needed
+    af = d / "AUTHORED.field.toml"
+    af.write_text('[field]\nid = 4321\nname = "AUTHORED"\narea = 11\n\n'
+                  '[cutscene]\nonce = true\n[[cutscene.steps]]\nsay = "Hi"\n\n'
+                  '[[choice]]\nnpc = "Vivi"\nprompt = "Well?"\n'
+                  '[[choice.options]]\ntext = "Yes"\n[[choice.options]]\ntext = "No"\n\n'
+                  '[[npc]]\nname = "Vivi"\npreset = "vivi"\n', encoding="utf-8")
+    assert win.open_field(af)
+    assert win.plan is None and win._loose == "AUTHORED"
+    lf = win.tree.topLevelItem(0)
+    assert win._payload(lf)[1] == "AUTHORED"
+    win.tree.expandItem(lf)
+    lgroups = [win._payload(lf.child(i))[1] for i in range(lf.childCount())]
+    assert "Cutscene" in lgroups and any(g.startswith("Choices") for g in lgroups), lgroups
+    win._open_editor("AUTHORED", "object", "cutscene")     # cutscene sub-editor over a loose field
+    win._open_editor("AUTHORED", "object", "choice:0")     # choice sub-editor over a loose field
+    win.on_check()                                          # loose validate+lint runs (no campaign, no crash)
+
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members), lazy objects, "
           f"breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + catalog "
-          f"picker, Problems dock ({win.problems.count()} rows); QProcess lint wired")
+          f"picker + Open Field (standalone authored), Problems dock ({nprob} campaign rows); QProcess wired")
 
 
 def main(argv=None):
