@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — item-data tuning: `[[weapon]]` / `[[armor]]` / `[[item]]` (roadmap #6, the last items-lane item) (0.9.77)
+- Tune EXISTING item stats via partial CSV deltas — **no DLL**. New `content/itemdata.py` + field.toml blocks:
+  - `[[weapon]] name=… power=… elements=[…]` → a `Data/Items/Weapons.csv` delta (ItemAttack Power/Elements).
+  - `[[armor]] name=… p_def=… p_eva=… m_def=… m_eva=…` → an `Armors.csv` delta (ItemDefence).
+  - `[[item]] name=… price=… sell=…` → an `Items.csv` delta (ItemInfo Price/SellingPrice).
+- ★ The engine MERGES these by id low→high **whole-row-wins** (`EnumerateCsvFromLowToHigh`), so a delta = the
+  base file's header block (verbatim, incl. the `#!` option flags) + only the patched rows, each COMPLETE. The
+  base rows are read LIVE from the user's install (cp1252, byte-preserving — apostrophes in weapon names
+  round-trip) and the delta is GENERATED at build time into the mod folder — the repo commits **no game data**
+  (the same provenance stance as `itemstats`). A `[[weapon]]` resolves the item → its `WeaponId` (via Items.csv)
+  → the Weapons.csv row; `[[armor]]` via `ArmorId`; `[[item]]` by item id directly.
+- Wired mod-global at the mod-write stage (`build._emit_item_data`, beside `_emit_shops`) + `ModLayout`
+  `weapons_csv`/`armors_csv`/`items_csv` + the deploy CSV loop (`deploy_field.py`, reversibly). `validate()`
+  checks name-resolves / right-type (best-effort, needs the install) / editable-field-present / element names /
+  non-negative values. Needs a RELAUNCH (item CSVs load at startup, not via F6).
+- 20 tests (synthetic-CSV builders, install-free, + install-gated end-to-end + validate). **Awaiting the in-game
+  proof.** Deferred to a follow-up: weapon Category/status, `Stats.csv` equip bonuses + affinity, consumable
+  effects, who-can-equip (`CharacterMask`), and minting net-new item ids (>255 — needs the `RegularItem` enum/DLL).
+
 ### Fixed — a synth fork no longer stacks a self-positioning NPC into a duplicate pair (#13 a) (0.9.76)
 - `scan_objects_verbatim` now **dedups InitObject sites by arg**. `InitObject(slot, arg)` addresses *instance*
   `arg`, so the same `(slot, arg)` emitted twice is one instance re-init'd — in the donor a beat **director**

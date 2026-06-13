@@ -52,6 +52,8 @@ from ._held_poses import HELD_POSES                  # (carrier_model, prop_mode
 from . import catalog as _catalog
 from . import flags as _flags
 from . import items as _items
+from . import itemstats as _itemstats
+from .content import itemdata as _itemdata
 from . import data as _data
 from .eb import EbScript, opcodes
 from .eb.disasm import iter_code
@@ -659,6 +661,39 @@ def validate(project: FieldProject) -> list[str]:
         if n.get("name") in choice_npcs:
             problems.append(f"[[npc]] {n.get('name')!r} has both a [[choice]] and opens_shop -- only one talk "
                             f"action is possible; the shop opener would be dropped (remove one)")
+    # item-data tuning ([[weapon]]/[[armor]]/[[item]]: a partial CSV delta). The item must resolve + be the right
+    # type (the type check is best-effort -- it needs the install's CSVs, like itemstats); values are range-checked.
+    for kind, col_map in (("weapon", _itemdata._WEAPON_COLS), ("armor", _itemdata._ARMOR_COLS),
+                          ("item", _itemdata._ITEM_COLS)):
+        for i, b in enumerate(project.raw.get(kind, [])):
+            nm = b.get("name")
+            if nm is None:
+                problems.append(f"[[{kind}]] #{i} needs a `name` (the item to tune)")
+                continue
+            try:
+                iid = _items.resolve(nm)
+            except ValueError as e:
+                problems.append(f"[[{kind}]] {nm!r}: {e}")
+                continue
+            edited = [k for k in col_map if k in b]
+            if not edited:
+                problems.append(f"[[{kind}]] {nm!r} sets no editable field (one of {', '.join(col_map)})")
+            st = _itemstats.for_id(iid)                  # best-effort type check (needs the install)
+            if st is not None and kind == "weapon" and not st.is_weapon:
+                problems.append(f"[[weapon]] {nm!r} is not a weapon (it has no weapon stats)")
+            if st is not None and kind == "armor" and not st.is_armor:
+                problems.append(f"[[armor]] {nm!r} is not an armor (it has no defence stats)")
+            for k in edited:
+                v = b[k]
+                if k == "elements":
+                    try:
+                        _itemdata.encode_elements(v)
+                    except ValueError as e:
+                        problems.append(f"[[weapon]] {nm!r} elements: {e}")
+                elif isinstance(v, bool) or not isinstance(v, int):
+                    problems.append(f"[[{kind}]] {nm!r} {k} must be an integer, got {v!r}")
+                elif v < 0:
+                    problems.append(f"[[{kind}]] {nm!r} {k} cannot be negative")
     for sm in project.raw.get("save_moogle", []):       # a carried (imported) save Moogle (docs/SAVEPOINT.md)
         if sm.get("carried"):                           # the cluster lives in the [[object]]/[[player_func]] blocks
             if not project.raw.get("object"):
@@ -3086,6 +3121,39 @@ def _emit_shops(projects, layout) -> list:
     return warnings
 
 
+def _emit_item_data(projects, layout) -> list:
+    """Emit the mod-GLOBAL item-stat deltas (``Data/Items/{Weapons,Armors,Items}.csv``) from every built field's
+    ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` blocks. The engine merges these by id (whole-row), so any field
+    may tune any item; the same item tuned in several blocks merges (later overrides per field) -- warned for
+    visibility. Reads the install's base rows (a delta carries the full base row); no install -> warn + skip.
+    No blocks anywhere -> nothing written (no base clobber). Returns warnings."""
+    from .content import itemdata as _itemdata
+    warnings: list = []
+    buckets = {"weapon": [], "armor": [], "item": []}
+    seen: dict = {}
+    for kind in buckets:
+        for p in projects:
+            for b in p.raw.get(kind, []):
+                nm = b.get("name")
+                if nm is None:
+                    warnings.append(f"[[{kind}]] on {_field_name(p)} has no name -- skipped "
+                                    f"(run `ff9mapkit lint` for the precise error)")
+                    continue
+                key = (kind, str(nm).strip().lower())
+                if key in seen:
+                    warnings.append(f"[[{kind}]] {nm!r} is tuned in two blocks ({seen[key]} and "
+                                    f"{_field_name(p)}) -- edits merge (later overrides per field)")
+                seen[key] = _field_name(p)
+                buckets[kind].append(b)
+    if not any(buckets.values()):
+        return warnings
+    try:
+        _itemdata.write_item_data(layout, buckets["weapon"], buckets["armor"], buckets["item"])
+    except ValueError as e:                                # e.g. unknown item name / not-a-weapon / no install
+        warnings.append(f"item-data patch skipped: {e}")
+    return warnings
+
+
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
               langs=LANGS, entry_project=None) -> dict:
     """Build one or more fields into a mod at ``out_root``; write the registration files. ``entry_project``
@@ -3110,6 +3178,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     # mod-global new-game starting state (CSV deltas, written once into the mod root -- not field bytes)
     start_warnings = _emit_start_state(projects, layout, entry_project)
     start_warnings += _emit_shops(projects, layout)
+    start_warnings += _emit_item_data(projects, layout)
     start_warnings += _emit_battle_data(projects, layout)
     start_warnings += _emit_character_data(projects, layout)
     start_warnings += bp_warnings

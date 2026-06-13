@@ -213,6 +213,24 @@ class ModLayout:
         return self.root / "StreamingAssets" / "Data" / "Items" / "ShopItems.csv"
 
     @property
+    def weapons_csv(self) -> Path:
+        """Weapon combat data (``Data/Items/Weapons.csv``: Power/Elements/Category...). MERGED by id low->high
+        (WHOLE-ROW replace) -> a partial delta (the base header + only the rows you tune) works."""
+        return self.root / "StreamingAssets" / "Data" / "Items" / "Weapons.csv"
+
+    @property
+    def armors_csv(self) -> Path:
+        """Armor defence data (``Data/Items/Armors.csv``: P.Def/P.Eva/M.Def/M.Eva). MERGED by id low->high
+        (whole-row replace) -> a partial delta works."""
+        return self.root / "StreamingAssets" / "Data" / "Items" / "Armors.csv"
+
+    @property
+    def items_csv(self) -> Path:
+        """Item info (``Data/Items/Items.csv``: Price/SellingPrice/equip...). MERGED by id low->high (whole-row
+        replace) -> a partial delta works. (NOT InitialItems.csv -- that's the new-game bag, highest-wins.)"""
+        return self.root / "StreamingAssets" / "Data" / "Items" / "Items.csv"
+
+    @property
     def actions_csv(self) -> Path:
         """Shared player abilities (``Data/Battle/Actions.csv``). MERGED by id low->high (whole-row replace) ->
         a partial delta (only the abilities you change) works; the base supplies the other 192 rows."""

@@ -183,3 +183,6 @@ ff9mapkit/**/*.savemoogle_director.bin
 *.savemoogle_director.bin
 ff9mapkit/docs/EDITABLE_CAMPAIGN_ART.md
 backups/
+
+# throwaway proof/scratch files (not committed)
+scratch/

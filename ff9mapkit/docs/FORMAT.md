@@ -677,6 +677,46 @@ bubble = true                                  # the floating "!" prompt (defaul
 
 ---
 
+## `[[weapon]]` / `[[armor]]` / `[[item]]` — tune EXISTING item stats (optional, repeatable)
+
+**Rebalance gear** — change a weapon's power, an armor's defence, or an item's price. A pure data patch (**no DLL**).
+Don't confuse these with the `[[equipment]]` *loadout* slots above: those say *who wears what at New Game*; these
+change *what the gear DOES*.
+
+```toml
+[[weapon]]
+name = "Mage Masher"        # the item (a name or 0-254 id); must be a weapon
+power = 30                  # 0-255  (Weapons.csv Power)
+elements = ["Fire"]         # any of Fire/Ice/Thunder/Earth/Water/Wind/Holy/Dark (or a 0-255 bitmask)
+
+[[armor]]
+name = "Bronze Armor"       # must be an armor
+p_def = 20                  # P.Def      ┐
+p_eva = 10                  # P.Eva      │ 0-255 each (Armors.csv); set only the ones you want
+m_def = 5                   # M.Def      │
+m_eva = 0                   # M.Eva      ┘
+
+[[item]]
+name = "Excalibur"          # any item (weapon/armor/consumable)
+price = 5000                # buy price  (0-9,999,999)
+sell = 2500                 # sell price (optional; otherwise unchanged)
+```
+
+- **How it works:** each block emits a **partial CSV delta** into the mod (`Data/Items/{Weapons,Armors,Items}.csv`).
+  The engine **merges** these by id, **whole-row-wins** — so the kit reads the base row from **your install**, changes
+  the one field, and writes the complete row back. **Needs a reachable FF9 install at build time** (it reads the base
+  columns); without one the patch is skipped with a warning.
+- **Mod-global:** any field may tune any item — the deltas are collected across every built field, not tied to where
+  the block sits. The same item tuned in two blocks **merges** (later overrides per field; a warning is emitted).
+- **Values are clamped** to their range (stats 0-255, price 0-9,999,999). An unknown item name, the wrong type
+  (`[[weapon]]` on a non-weapon), or a bad element name is a **lint error** (`ff9mapkit lint`).
+- **★ RELAUNCH to apply:** item CSVs load once at game **startup** — F6 → Reload field will NOT pick up a stat
+  change. Deploy, then relaunch.
+- **Deferred (a later follow-up):** weapon attack class/status-on-hit, equip stat *bonuses* + elemental affinity
+  (`Stats.csv`), consumable use-effects, who-can-equip, and minting **net-new** item ids (>254, needs a DLL).
+
+---
+
 ## `[[choice]]` (optional, repeatable)
 
 A **dialogue choice** — pick from a menu and **branch** on the answer. This is the interaction /
