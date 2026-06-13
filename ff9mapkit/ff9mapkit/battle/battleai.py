@@ -14,9 +14,27 @@ the donor bytes are read live from the install, never committed.
 """
 from __future__ import annotations
 
+import re as _re
+
 from ..eb import disasm as _disasm
+from ..eb._membertable import member_name as _member_name
 from ..eb._optables import OP_ARG_COUNT
 from ..eb.model import EbScript
+
+_RE_MEMBER = _re.compile(r"B_MEMBER\((\d+)\)")             # find B_MEMBER selectors in an instruction's operands
+
+
+def _member_annotation(operands) -> str:
+    """A trailing ``  # B_MEMBER 36=cur.hp ...`` comment naming the battle-unit members an instruction reads/writes
+    (display only -- the operand text itself stays the round-trippable raw form). '' when no named member is used."""
+    seen, named = set(), []
+    for op in operands:
+        for sel in _RE_MEMBER.findall(op):
+            n = int(sel)
+            nm = _member_name(n)
+            if nm and n not in seen:
+                seen.add(n); named.append(f"{n}={nm}")
+    return f"  # B_MEMBER {' '.join(named)}" if named else ""
 
 # Battle-AI function TAGS -> their role (the engine dispatches an enemy object's functions by these tags via
 # Request/RequestAction). Tag 0 = the entry's Init; the rest are AI phases. (project-ff9-battle-tuning §2b.)
@@ -96,7 +114,7 @@ def disassemble_ai(eb_bytes: bytes) -> str:
             end = min(f.abs_end, len(eb.data))           # a truncated/corrupt eb can claim a func past the buffer
             try:
                 for off, mn, operands in _decode_func_pretty(eb.data, f.abs_start, end):
-                    lines.append(f"    [{off}] {mn}({', '.join(operands)})")
+                    lines.append(f"    [{off}] {mn}({', '.join(operands)}){_member_annotation(operands)}")
             except IndexError:                            # malformed bytecode runs off the end -> a legible note,
                 lines.append(f"    <truncated/malformed bytecode -- decode stopped at offset {len(eb.data)}>")
     return "\n".join(lines)

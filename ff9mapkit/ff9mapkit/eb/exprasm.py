@@ -32,7 +32,7 @@ _RE_CONST4 = re.compile(r"^const4\((-?\d+)\)$")
 _RE_VAR = re.compile(r"^([A-Za-z]+)\.([A-Za-z0-9]+)\[(\d+)\]$")
 _RE_SYS = re.compile(r"^(B_SYSVAR|B_SYSLIST)\[(\d+)\]$")
 _RE_OBJ = re.compile(r"^obj\(uid=(\d+)\)\.f\[(\d+)\]$")
-_RE_MEMPTR = re.compile(r"^(B_MEMBER|B_PTR)\((\d+)\)$")
+_RE_MEMPTR = re.compile(r"^(B_MEMBER|B_PTR)\(([\w.]+)\)$")   # operand may be a number OR a member name (B_MEMBER)
 _RE_OPHEX = re.compile(r"^op([0-9A-Fa-f]{2})$")            # the disassembler's fallback for an UNNAMED operator byte
 
 # the operand-bearing tokens -- they MUST be written in their operand form (pretty_expr always does), never bare:
@@ -79,12 +79,22 @@ def assemble_token(tok: str) -> bytes:
         if not (0 <= uid <= 0xFF and 0 <= fld <= 0xFF):
             raise AssembleError(f"{tok}: uid/field out of range (0-255)")
         return bytes((0x78, uid, fld))
-    m = _RE_MEMPTR.match(tok)                               # B_MEMBER(i) / B_PTR(i) -- 1-byte operand
-    if m:
-        n = int(m.group(2))
+    m = _RE_MEMPTR.match(tok)                               # B_MEMBER(i) / B_PTR(i) -- 1-byte operand, a number OR
+    if m:                                                   # (for B_MEMBER) a field NAME -> the GetCharacterData id
+        op_name, raw = m.group(1), m.group(2)
+        if raw.lstrip("-").isdigit():
+            n = int(raw)
+        elif op_name == "B_MEMBER":
+            from ._membertable import member_selector
+            n = member_selector(raw)
+            if n is None:
+                raise AssembleError(f"{tok}: unknown member name {raw!r} (e.g. cur.hp, max.hp, cur.mp -- see "
+                                    f"_membertable.MEMBER_NAMES) -- or use the numeric selector")
+        else:
+            raise AssembleError(f"{tok}: B_PTR takes a numeric operand, not a name")
         if not 0 <= n <= 0xFF:
             raise AssembleError(f"{tok}: operand out of range (0-255)")
-        return bytes((0x29 if m.group(1) == "B_MEMBER" else 0x5F, n))
+        return bytes((0x29 if op_name == "B_MEMBER" else 0x5F, n))
     m = _RE_VAR.match(tok)                                  # Source.Type[index] -- the 0xC0 variable token
     if m:
         src_name, typ_name, idx = m.group(1), m.group(2), int(m.group(3))

@@ -109,6 +109,186 @@ def validate_ai_functions(eb_bytes: bytes, specs, *, atk_count: int | None = Non
     return [f"lint: {i}" for i in _ailint.lint_ai(out, atk_count=atk_count)]
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Phase-6c (productized): INSERT a branch into an existing function (the length-changing primitive made declarative)
+# + the HP-PHASE convenience that generates the branch. `ai_function` REPLACES a whole function; these SPLICE a
+# fragment into one -- the missing surface that the in-game-proven coin-flip / HP-phase branches needed by hand.
+# ---------------------------------------------------------------------------------------------------------------
+
+_VAR_RE = __import__("re").compile(r"^[A-Za-z]+\.[A-Za-z0-9]+\[\d+\]$")   # a Source.Type[i] variable token
+
+
+def _func_pretty(eb_bytes: bytes, entry_index: int, tag: int):
+    """(EbScript, Func, [(off, mnemonic, [operand_str]) ...]) for entry/tag -- the NAMED decode (battleai)."""
+    from .battleai import _decode_func_pretty
+    eb = _check_entry(eb_bytes, entry_index)
+    f = eb.entries[entry_index].func_by_tag(tag)
+    if f is None:
+        raise AiAuthorError(f"entry {entry_index} has no function tag {tag} ({AI_PHASE_TAGS.get(tag, '?')})")
+    instrs = list(_decode_func_pretty(eb.data, f.abs_start, min(f.abs_end, len(eb.data))))
+    return eb, f, instrs
+
+
+def _locate_insert(f, instrs, spec, n: int) -> int:
+    """Resolve a spec's locator to an ABSOLUTE byte offset inside function ``f``. Locators: ``before``/``after`` =
+    a command mnemonic (insert before / after the FIRST match), or ``at`` = a body offset (0 = prepend)."""
+    have = [k for k in ("before", "after", "at") if k in spec]
+    if len(have) != 1:
+        raise AiAuthorError(f"#{n} needs exactly one locator: before = \"<mnemonic>\" | after = \"<mnemonic>\" | "
+                            f"at = <body offset> (got {have or 'none'})")
+    boundaries = {off for off, _, _ in instrs}           # the instruction-start offsets = the only valid insert points
+    if "at" in spec:
+        try:
+            rel = int(spec["at"])
+        except (TypeError, ValueError):
+            raise AiAuthorError(f"#{n} at must be an integer body offset")
+        if not 0 <= rel < f.length:                      # f.length (the end) is NOT insertable -- see the append note
+            raise AiAuthorError(f"#{n} at = {rel} is outside the func body (0-{f.length - 1}); to add code at the "
+                                f"end, splice before the terminator (before = \"RET\"), not after it")
+        if f.abs_start + rel not in boundaries:          # mid-instruction insert would split an opcode -> corrupt
+            valid = sorted(o - f.abs_start for o in boundaries)
+            raise AiAuthorError(f"#{n} at = {rel} is not an instruction boundary (would split an instruction); "
+                                f"valid body offsets are {valid}")
+        return f.abs_start + rel
+    key = "before" if "before" in spec else "after"
+    mnem = spec[key]
+    offs = [off for off, mn, _ in instrs if mn == mnem]   # offsets of each instruction with that mnemonic
+    if not offs:
+        present = sorted({mn for _, mn, _ in instrs})
+        raise AiAuthorError(f"#{n} {key} = {mnem!r}: no such instruction in the function (has: {', '.join(present)})")
+    if key == "before":
+        return offs[0]
+    seq = [off for off, _, _ in instrs] + [f.abs_end]    # after: the byte AFTER the first match = the next instr's off
+    nxt = seq[seq.index(offs[0]) + 1]
+    if nxt == f.abs_end:                                 # the match is the LAST instruction -> would append past the
+        raise AiAuthorError(f"#{n} after = {mnem!r}: that is the function's LAST instruction; you cannot append "    # end
+                            f"after the final instruction -- splice before the terminator instead (before = ...)")
+    return nxt
+
+
+def apply_ai_inserts(eb_bytes: bytes, specs) -> bytes:
+    """Apply a list of ``[[scene.ai_insert]]`` specs IN ORDER. Each splices an assembled FRAGMENT into a function:
+    ``entry`` + ``tag`` (which function), a locator (``before``/``after`` = a command mnemonic, or ``at`` = a body
+    offset), and ``source`` (the `cmdasm` block -- a FRAGMENT, NOT required to end in RET; it flows into the rest of
+    the function). Splice = :func:`eb.edit.insert_in_function` (fpos fixup; it refuses if one of the function's own
+    jumps STRADDLES the insert point -- surfaced as a clean error). Length-changing -> run AFTER `ai_patch`."""
+    if not isinstance(specs, list):
+        raise AiAuthorError("[[scene.ai_insert]] must be a list of tables")
+    eb = eb_bytes
+    for n, spec in enumerate(specs, 1):
+        if not isinstance(spec, dict):
+            raise AiAuthorError(f"[[scene.ai_insert]] #{n} must be a table (got {type(spec).__name__})")
+        try:
+            entry, tag = int(spec["entry"]), int(spec["tag"])
+        except (KeyError, TypeError, ValueError):
+            raise AiAuthorError(f"[[scene.ai_insert]] #{n} needs integer entry + tag")
+        source = spec.get("source")
+        if not isinstance(source, str) or not source.strip():
+            raise AiAuthorError(f"[[scene.ai_insert]] #{n} needs a non-empty source string")
+        try:
+            body = cmdasm.assemble_block(source.replace(";", "\n"))
+        except cmdasm.CmdAsmError as ex:
+            raise AiAuthorError(f"[[scene.ai_insert]] #{n} source did not assemble: {ex}")
+        _eb, f, instrs = _func_pretty(eb, entry, tag)
+        abs_off = _locate_insert(f, instrs, spec, n)
+        try:
+            eb = _edit.insert_in_function(eb, entry, tag, abs_off - f.abs_start, body)
+        except ValueError as ex:                          # a straddling jump / bad offset from the splice primitive
+            raise AiAuthorError(f"[[scene.ai_insert]] #{n}: {ex}")
+    return eb
+
+
+def _gen_hp_phase(stat: str, below: float, then_atk: int, else_atk: int, var: str, n: int,
+                  atk_count: int | None = None) -> str:
+    """Generate the `cmdasm` source for a stat-threshold branch: when SELF ``stat`` < ``below`` of max, set the
+    attack-index var to ``then_atk``, else ``else_atk``. Uses the exact ``_E``/``B_PICK``/``B_COUNT`` extract idiom
+    56 shipping bosses use for 'cur vs fraction-of-max' (the ``_E`` ops bind the read target via the SysList)."""
+    pair = {"hp": ("cur.hp", "max.hp"), "mp": ("cur.mp", "max.mp"), "at": ("cur.at", "max.at")}.get(stat)
+    if pair is None:
+        raise AiAuthorError(f"[[scene.ai_phase]] #{n}: stat must be hp/mp/at (got {stat!r})")
+    if not 0.0 < below < 1.0:
+        raise AiAuthorError(f"[[scene.ai_phase]] #{n}: below must be a fraction 0<below<1 (e.g. 0.5 = half)")
+    div = round(1.0 / below)                              # the proven idiom is cur < max/DIV (a unit fraction)
+    if not 2 <= div <= 0xFFFF or abs(1.0 / div - below) > 1e-6:   # div is emitted as a 2-byte const(N) -> <= 0xFFFF
+        raise AiAuthorError(f"[[scene.ai_phase]] #{n}: below = {below} must be a unit fraction 1/N with 2<=N<=65535 "
+                            f"(0.5, 0.25, 0.2, …) to use the cur < max/N idiom")
+    # then/else index the scene's GLOBAL enemy_attack[] table. The offline lint CANNOT range-check it (the value is
+    # written into a variable, so the Attack operand is an expression, not an immediate) -- so guard it HERE when the
+    # scene's attack count is known, else fall back to the byte ceiling.
+    hi = (atk_count - 1) if atk_count else 0xFF
+    for nm, v in (("then", then_atk), ("else", else_atk)):
+        if not 0 <= v <= hi:
+            scope = f" (scene has {atk_count} attacks)" if atk_count else ""
+            raise AiAuthorError(f"[[scene.ai_phase]] #{n}: {nm} attack index {v} out of range (0-{hi}){scope}")
+    cur, mx = pair
+    return "\n".join([
+        f"SET({{B_SYSLIST[1] B_MEMBER({cur}) B_SYSLIST[1] B_MEMBER({mx}) B_PICK const({div}) B_DIV B_LT_E B_COUNT B_EXPR_END}})",
+        "JMP_IFNOT(L_phase_else)",
+        f"SET({{{var} const({then_atk}) B_LET B_EXPR_END}})",
+        "JMP(L_phase_done)",
+        "L_phase_else:",
+        f"SET({{{var} const({else_atk}) B_LET B_EXPR_END}})",
+        "L_phase_done:",
+    ])
+
+
+def _infer_attack_var(instrs, n: int) -> str:
+    """The variable an `Attack` command reads as its index, so the phase branch can override it. Requires exactly
+    one `Attack` whose operand is a single ``{ Source.Type[i] B_EXPR_END }`` expression."""
+    atks = [ops for _, mn, ops in instrs if mn == "Attack"]
+    if len(atks) != 1:
+        raise AiAuthorError(f"[[scene.ai_phase]] #{n}: the function must have exactly ONE Attack (found "
+                            f"{len(atks)}) -- use [[scene.ai_insert]] with an explicit source instead")
+    toks = atks[0][0].strip().strip("{}").split() if atks[0] else []
+    if len(toks) != 2 or toks[1] != "B_EXPR_END" or not _VAR_RE.match(toks[0]):
+        raise AiAuthorError(f"[[scene.ai_phase]] #{n}: the Attack must read a single variable (e.g. "
+                            f"Attack({{Instance.Byte[18] B_EXPR_END}})); this one is Attack({atks[0][0] if atks[0] else ''}) "
+                            f"-- use [[scene.ai_insert]] instead")
+    return toks[0]
+
+
+def apply_ai_phases(eb_bytes: bytes, specs, *, atk_count: int | None = None) -> bytes:
+    """Apply ``[[scene.ai_phase]]`` specs: a high-level "enrage below X% HP" surface that GENERATES an HP-threshold
+    branch and splices it before the function's `Attack`. Each spec: ``entry`` + ``tag``; ``stat`` (hp/mp/at,
+    default hp); ``below`` (unit fraction, default 0.5); ``then`` / ``else`` (the attack index below / above the
+    threshold). The attack-index variable is INFERRED from the function's `Attack`. Built on `apply_ai_inserts``.
+    ``atk_count`` (when known) range-checks then/else against the scene's attack table -- the one fault the composed
+    lint can't see, since the index flows through a runtime variable."""
+    if not isinstance(specs, list):
+        raise AiAuthorError("[[scene.ai_phase]] must be a list of tables")
+    eb = eb_bytes
+    for n, spec in enumerate(specs, 1):
+        if not isinstance(spec, dict):
+            raise AiAuthorError(f"[[scene.ai_phase]] #{n} must be a table (got {type(spec).__name__})")
+        try:
+            entry, tag = int(spec["entry"]), int(spec["tag"])
+            then_atk, else_atk = int(spec["then"]), int(spec["else"])
+            below = float(spec.get("below", 0.5))            # a non-numeric below -> a clean AiAuthorError, not a crash
+        except (KeyError, TypeError, ValueError):
+            raise AiAuthorError(f"[[scene.ai_phase]] #{n} needs integer entry, tag, then, else and a numeric below")
+        stat = str(spec.get("stat", "hp"))
+        _eb, _f, instrs = _func_pretty(eb, entry, tag)
+        var = _infer_attack_var(instrs, n)
+        source = _gen_hp_phase(stat, below, then_atk, else_atk, var, n, atk_count=atk_count)
+        eb = apply_ai_inserts(eb, [{"entry": entry, "tag": tag, "source": source, "before": "Attack"}])
+    return eb
+
+
+def validate_ai_edits(eb_bytes: bytes, *, inserts=None, phases=None, atk_count: int | None = None) -> list:
+    """Dry-run :func:`apply_ai_inserts` / :func:`apply_ai_phases` + LINT the composed result (for the build's offline
+    validate). Returns error strings (empty == ok) -- never raises on a bad spec (returns it as an error string)."""
+    from . import ailint as _ailint
+    out = eb_bytes
+    try:
+        if phases:
+            out = apply_ai_phases(out, phases, atk_count=atk_count)
+        if inserts:
+            out = apply_ai_inserts(out, inserts)
+    except AiAuthorError as ex:
+        return [str(ex)]
+    return [f"lint: {i}" for i in _ailint.lint_ai(out, atk_count=atk_count)]
+
+
 def _assemble(block_text: str) -> bytes:
     try:
         body = cmdasm.assemble_block(block_text)

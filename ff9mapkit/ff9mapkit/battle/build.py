@@ -123,9 +123,10 @@ def validate_battle(project: BattleProject) -> list[str]:
                 (sd / "dbfile0000.raw16.bytes").read_bytes(), project.raw["scene"])
             sc = project.raw["scene"] if isinstance(project.raw["scene"], dict) else {}
             ai_patches, ai_funcs = sc.get("ai_patch"), sc.get("ai_function")
+            ai_phases, ai_inserts = sc.get("ai_phase"), sc.get("ai_insert")
             eb0 = sd / "eb" / f"{LANGS[0]}.eb.bytes"
-            if (ai_patches or ai_funcs) and eb0.is_file():   # Phase-6b/6c: validate + LINT the COMPOSED (shipped) eb
-                from . import aipatch as _aipatch, aiauthor as _aiauthor, ailint as _ailint
+            if (ai_patches or ai_funcs or ai_phases or ai_inserts) and eb0.is_file():   # Phase-6b/6c: validate +
+                from . import aipatch as _aipatch, aiauthor as _aiauthor, ailint as _ailint   # LINT the COMPOSED eb
                 atk = None
                 try:                                 # the scene attack count enables the Attack-index lint check
                     atk = _scene_data.parse_counts((sd / "dbfile0000.raw16.bytes").read_bytes())[2]
@@ -143,8 +144,20 @@ def validate_battle(project: BattleProject) -> list[str]:
                         composed = _aiauthor.apply_ai_functions(composed, ai_funcs)
                     except _aiauthor.AiAuthorError as ex:
                         problems.append(f"[[scene.ai_function]]: {ex}")
-                # lint the FINAL composed bytecode -- EXACTLY what the per-lang build ships, so an ai_patch OR an
-                # ai_function that puts a jump / Attack index out of range (or a runaway branch) is caught offline.
+                # ai_phase / ai_insert (length-changing splices) compose + lint the SAME way the per-lang build ships
+                # (ai_phase gets atk_count so out-of-range then/else -- invisible to the composed lint -- is caught here)
+                if sc.get("ai_phase"):
+                    try:
+                        composed = _aiauthor.apply_ai_phases(composed, sc["ai_phase"], atk_count=atk)
+                    except _aiauthor.AiAuthorError as ex:
+                        problems.append(f"[[scene.ai_phase]]: {ex}")
+                if sc.get("ai_insert"):
+                    try:
+                        composed = _aiauthor.apply_ai_inserts(composed, sc["ai_insert"])
+                    except _aiauthor.AiAuthorError as ex:
+                        problems.append(f"[[scene.ai_insert]]: {ex}")
+                # lint the FINAL composed bytecode -- EXACTLY what the per-lang build ships, so an ai_patch / ai_function
+                # / ai_phase / ai_insert that puts a jump / Attack index out of range (or a runaway branch) is caught.
                 problems += [f"[[scene.ai]] lint: {i}" for i in _ailint.lint_ai(composed, atk_count=atk)]
     return problems
 
@@ -233,6 +246,10 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
         if scene_cfg and "monster_count" in scene_cfg:
             mc = raw16[9]                                          # pattern 0 MonsterCount (now uniform)
             slot_types = [raw16[8 + 8 + 12 * s] for s in range(mc)]
+        try:                                                      # the scene attack count -> ai_phase then/else guard
+            _atk_count = _scene_data.parse_counts(raw16)[2]
+        except Exception:                                         # noqa: BLE001 -- optional, falls back to the byte cap
+            _atk_count = None
         for lang in LANGS:
             eb_dst = layout.battle_eb_path(lang, name)
             eb_dst.parent.mkdir(parents=True, exist_ok=True)
@@ -251,10 +268,16 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
                         warnings += ai_warns
                 except _aipatch.AiPatchError as ex:
                     raise BattleBuildError(str(ex))
-            if scene_cfg and scene_cfg.get("ai_function"):  # Phase-6c-iii: add/replace AI functions (length-changing
-                from . import aiauthor as _aiauthor          # -> AFTER ai_patch so the patch offsets stayed valid).
+            if scene_cfg and (scene_cfg.get("ai_function") or scene_cfg.get("ai_phase")
+                              or scene_cfg.get("ai_insert")):   # Phase-6c: length-changing AI edits (AFTER ai_patch
+                from . import aiauthor as _aiauthor            # so the same-length patch offsets stayed valid).
                 try:
-                    eb = _aiauthor.apply_ai_functions(eb, scene_cfg["ai_function"])
+                    if scene_cfg.get("ai_function"):           # replace/add a WHOLE function
+                        eb = _aiauthor.apply_ai_functions(eb, scene_cfg["ai_function"])
+                    if scene_cfg.get("ai_phase"):              # generate + splice an HP-threshold phase branch
+                        eb = _aiauthor.apply_ai_phases(eb, scene_cfg["ai_phase"], atk_count=_atk_count)
+                    if scene_cfg.get("ai_insert"):             # splice an explicit branch fragment
+                        eb = _aiauthor.apply_ai_inserts(eb, scene_cfg["ai_insert"])
                 except _aiauthor.AiAuthorError as ex:
                     raise BattleBuildError(str(ex))
             eb_dst.write_bytes(eb)

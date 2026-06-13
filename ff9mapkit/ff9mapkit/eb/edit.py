@@ -229,8 +229,14 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
             if j.op in (0x01, 0x02, 0x03) and not j.arg_is_expr[0]:
                 raw = j.imm(0)
                 tgt = j.end + (raw - 0x10000 if raw >= 0x8000 else raw)
-                lo, hi = sorted((j.end, tgt))
-                if lo < abs_ins < hi:
+                # The insert keeps a relative jump valid only if BOTH its endpoints shift by the same amount, i.e.
+                # the jump and its target are on the same side of abs_ins (a boundary-aware test -- the old
+                # `min<abs_ins<max` was blind to an endpoint landing EXACTLY on abs_ins, silently corrupting a jump
+                # whose end or target coincides with the insert). The one exception is tgt == abs_ins: the jump then
+                # lands on the FIRST inserted instruction, which (the fragment having no terminator) flows on into
+                # the original target -- the intended "insert before instruction X" semantics for every path
+                # reaching X, so it is allowed.
+                if (j.off >= abs_ins) != (tgt >= abs_ins) and tgt != abs_ins:
                     raise ValueError(f"insert at {abs_ins} straddles jump {j.off}->{tgt} in func {func_tag}")
             elif j.op == 0x06:
                 raise ValueError(f"func {func_tag} has a jump table (0x06); mid-function insert "
