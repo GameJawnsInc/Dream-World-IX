@@ -26,18 +26,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   would silently change in-game (now per-site capped). The B_CONST signedness path was confirmed benign
   (byte-faithful round-trip). 9 tests (`test_aipatch`) + a real-donor round-trip; *in-game proof is the human step.*
 
-### Fixed — a synthesized fork no longer carries cutscene WARP-directors (#13b) (0.9.62)
+### Fixed — a synthesized fork no longer carries cutscene WARP-directors (#13b), IN-GAME PROVEN (0.9.62)
 - A non-`--verbatim` fork's object carry (`content.object.graft_objects`) now SKIPS cutscene **warp-directors** —
-  an object whose kept LOOP (tag 1) fires `Field()`. Carrying one re-fired its warp / cast-rotation at the fork's
-  asserted beat (the stacked-spawn / warp-out bug seen forking the Dali Weapon Shop: the empirical check showed
-  its director object was carried `graft_safety='clean'` with all 13 `Field()` ops in its loop). New
-  `object._loop_warps()`; `graft_objects(..., out_skipped=[])` collects the dropped directors' donor ids.
+  an object whose kept LOOP (tag 1) fires `Field()`. Carrying one renders it as a STACKED, DUPLICATE actor
+  (object-carry treated the director as a standing NPC) — the #13 stacked-spawn symptom — and its gated `Field()`
+  warps could fire if its phase advanced. Empirically the Dali Weapon Shop's director was carried
+  `graft_safety='clean'` with all 13 `Field()` ops in its loop. New `object._loop_warps()`;
+  `graft_objects(..., out_skipped=[])` collects the dropped directors' donor ids.
+- ★ **IN-GAME PROVEN (2026-06-12):** an A/B of synth Dali-shop forks (4012 = fixed, 4013 = a monkeypatched
+  buggy control that keeps the director) — the buggy fork shows **2 shopkeepers** (the real one + the director
+  rendered on top), the fixed fork shows **1**. (The warp itself didn't fire — the director's phase was idle at
+  the entered beat — so the observable harm is the stacked duplicate, the canonical #13 case.)
 - Deliberately NARROW (`Field()` only, checked on the carry_tags-filtered bytes): an `init_only` object whose loop
   was already dropped still renders, and phase-switch-only animated props + the save-Moogle (no LOOP `Field()`) are
   UNAFFECTED — the proven prop/save-point/player-graft carries keep working. `--verbatim` keeps directors whole.
 - This is #13's last code piece (after the roster-by-beat analyzer): a synth fork of a story-event field is now a
   clean static diorama instead of a stacked-cutscene mess. +6 tests (`test_object_graft`, incl. an install-gated
-  Dali assertion). Remaining #13 tail: the multi-instance self-positioned + per-door sub-bugs.
+  Dali assertion). Remaining #13 tail: the multi-instance self-positioned + per-door spawn sub-bugs (e.g. the
+  synth fork still spawns the player behind the shop counter — the donor's cutscene staging spot).
 
 ### Added — battle-tuning Phase 6a: the enemy-AI disassembler view (`battle-ai`) (0.9.63)
 - **`battle/battleai.py` + CLI `battle-ai <scene>`** — the read-only "see the enemy's AI" step (the foundation of

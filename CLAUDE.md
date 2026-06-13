@@ -425,9 +425,9 @@ KeyError + the B_CONST4 26-bit mask) → [[project-ff9-battle-tuning]],
 Frontier: #13 (story-event director/roster on rotating-cast fields) — ★ **core PROVEN** (a `--verbatim` fork +
 `[startup]` shows a beat-correct rotating roster: forking Dali Weapon Shop 354 at SC 2600 vs 11090, the shopkeeper
 changed + an NPC appeared, in-game 2026-06-12); the **roster-by-beat analyzer + the synth-fork director skip both
-LANDED** (offline beat→cast table via a symbolic Main_Init walk; and a non-`--verbatim` fork now DROPS cutscene
-warp-directors so it's a clean diorama, not a stacked-cutscene mess). Remaining tail: the multi-instance/per-door
-sub-bugs → [[project-ff9-fork-fidelity-worklist]].
+LANDED + IN-GAME PROVEN** (offline beat→cast table via a symbolic Main_Init walk; and a non-`--verbatim` fork now
+DROPS cutscene warp-directors — proven on the Dali shop: fixed fork = 1 shopkeeper, director-carried control = 2).
+Remaining tail: the multi-instance/per-door spawn sub-bugs → [[project-ff9-fork-fidelity-worklist]].
 
 ---
 
