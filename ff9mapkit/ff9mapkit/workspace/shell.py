@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QProcess
-from PySide6.QtGui import QAction, QBrush, QColor
+from PySide6.QtGui import QAction, QBrush, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
@@ -171,12 +171,12 @@ class Workspace(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(spacer.sizePolicy().Policy.Expanding, spacer.sizePolicy().Policy.Preferred)
         tb.addWidget(spacer)
-        search = QLineEdit()
+        search = QPushButton("⌕   Search content & commands   (Ctrl-K)")
         search.setObjectName("search")
-        search.setPlaceholderText("⌕  Ctrl-K — search content & commands  (coming soon)")
         search.setFixedWidth(320)
-        search.setEnabled(False)
+        search.clicked.connect(self._open_palette)
         tb.addWidget(search)
+        QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
 
     def _build_central(self):
         central = QWidget()
@@ -514,6 +514,48 @@ class Workspace(QMainWindow):
         p = self._payload(item)
         if p:
             self.tabs.setCurrentWidget(self.map if p[0] in ("campaign", "journey") else self.doc_scroll)
+
+    # ---- command palette (Ctrl-K) ----
+    def _command_index(self):
+        """The palette's entries: named commands + every navigable node currently in the tree (members
+        always; a field's objects once it's been expanded)."""
+        cmds = [
+            ("Open Campaign…", "command", self.on_open_campaign),
+            ("Open Field…", "command", self.on_open_field),
+            ("Open Save…", "command", self._open_save),
+            ("Check", "command", self.on_check),
+            ("Lint (CLI)", "command", self.run_cli_lint),
+            ("Go to Editor", "view", lambda: self.tabs.setCurrentWidget(self.doc_scroll)),
+            ("Go to Map", "view", lambda: self.tabs.setCurrentWidget(self.map)),
+            ("Go to Story State", "view", lambda: self.tabs.setCurrentWidget(self.story_state)),
+            ("Go to Item & Equip", "view", lambda: self.tabs.setCurrentWidget(self.item_equip)),
+        ]
+        content = []
+
+        def walk(item):
+            p = self._payload(item)
+            if p and p[0] in ("journey", "campaign", "field", "object", "group"):
+                content.append((self._palette_label(item, p), p[0], lambda it=item: self._goto_tree(it)))
+            for i in range(item.childCount()):
+                walk(item.child(i))
+        for i in range(self.tree.topLevelItemCount()):
+            walk(self.tree.topLevelItem(i))
+        return cmds + content
+
+    def _palette_label(self, item, p):
+        fa = self._ancestor_field(item)
+        if fa is not None and item is not fa:                # an object -> qualify it with its field
+            return f"{self._payload(fa)[1]} ▸ {p[1]}"
+        return p[1]
+
+    def _goto_tree(self, item):
+        self.tree.setCurrentItem(item)
+        self.tree.scrollToItem(item)
+        self._on_tree_double(item)                           # palette nav = explicit open -> switch tab
+
+    def _open_palette(self):
+        from .palette import CommandPalette
+        CommandPalette(self, self._command_index(), self.pal).exec()
 
     # ---- the document editor (Phase 4) ----
     def _clear_doc(self):
@@ -1073,6 +1115,19 @@ def _smoke(win):
     assert win.map._layout is not None and len(win.map._layout.nodes) == 3
     assert len(win.map._layout.edges) == 1
     assert win.map._scene.items()                       # the scene actually drew something
+    # 6a: the command palette indexes commands + content; fuzzy filter + run-to-navigate (campaign loaded)
+    from .palette import CommandPalette, fuzzy
+    assert fuzzy("opncmp", "open campaign…") and not fuzzy("zzz", "open campaign")
+    entries = win._command_index()
+    labels = [e[0] for e in entries]
+    assert "Open Campaign…" in labels and "IC_ENT" in labels, labels[:8]
+    pal = CommandPalette(win, entries, win.pal)
+    pal.q.setText("iccor")                              # subsequence -> IC_COR
+    assert any("IC_COR" in e[0] for e in pal._filtered), [e[0] for e in pal._filtered]
+    pal.q.setText("opncmp")                             # subsequence -> Open Campaign ranks first
+    assert pal._filtered and "Open Campaign" in pal._filtered[0][0], [e[0] for e in pal._filtered[:3]]
+    next(e for e in entries if e[0] == "IC_COR")[2]()   # run the content entry -> selects IC_COR in the tree
+    assert win._payload(win.tree.currentItem())[1] == "IC_COR"
     # lazy object load: expand IC_ENT -> it gains object groups (incl. the NPC we wrote)
     ent = camp.child(0)
     win.tree.expandItem(ent)
@@ -1213,7 +1268,7 @@ def _smoke(win):
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
           f"catalog picker + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
-          f"{win.item_equip.targets[0]['report'].gil}), Problems dock ({nprob} campaign rows); QProcess wired")
+          f"{win.item_equip.targets[0]['report'].gil}) + Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
 
 
 def main(argv=None):
