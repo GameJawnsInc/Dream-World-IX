@@ -92,6 +92,41 @@ def read_expr(raw: bytes, pos: int) -> tuple[str, int]:
     return "{" + " ".join(ops) + "}", pos
 
 
+def pretty_expr(raw: bytes, pos: int) -> tuple[str, int]:
+    """Decode an expression token stream to a HUMAN-READABLE form; returns (text, new_pos). Same byte-walk as
+    :func:`read_expr` but names each operator via the ``op_binary`` table and decodes a variable token into its
+    ``Source.Type[index]`` form (so a story-flag read shows as ``Global.Bit[8512]``, an enemy-HP read as
+    ``B_CURHP``). The read side of the battle-AI inspector; field scripts read the same way."""
+    from ._exprtable import expr_op_name, decode_var
+    out = []
+    while True:
+        o = raw[pos]; pos += 1
+        isconst = o in (0x7D, 0x7E)
+        isvar = o >= 0xC0 or o in (0x29, 0x5F, 0x78, 0x79, 0x7A)
+        if not isconst and not isvar:                       # a pure operator (no inline operand bytes)
+            out.append(expr_op_name(o))
+            if o == 0x7F:                                   # B_EXPR_END
+                break
+            continue
+        if o == 0x7E:                                       # B_CONST4 -- a 4-byte literal
+            v = raw[pos] | (raw[pos + 1] << 8) | (raw[pos + 2] << 16) | (raw[pos + 3] << 24); pos += 4
+            out.append(f"const({v})")
+        elif o == 0x7D:                                     # B_CONST -- a 2-byte literal
+            v = raw[pos] | (raw[pos + 1] << 8); pos += 2
+            out.append(f"const({v})")
+        elif o == 0x78:                                     # B_OBJSPECA -- obj-var read: uid (hi) + field (lo)
+            out.append(f"obj(uid={raw[pos]}).f[{raw[pos + 1]}]"); pos += 2
+        elif o in (0x79, 0x7A):                             # B_SYSLIST / B_SYSVAR -- 1-byte index
+            out.append(f"{expr_op_name(o)}[{raw[pos]}]"); pos += 1
+        elif o in (0x29, 0x5F):                             # B_MEMBER / B_PTR -- 1-byte operand
+            out.append(f"{expr_op_name(o)}({raw[pos]})"); pos += 1
+        elif o >= 0xE0:                                     # a long-index variable (2-byte index)
+            out.append(decode_var(o, raw[pos] | (raw[pos + 1] << 8))); pos += 2
+        else:                                               # a short-index variable (0xC0..0xDF, 1-byte index)
+            out.append(decode_var(o, raw[pos])); pos += 1
+    return "{" + " ".join(out) + "}", pos
+
+
 def read_code(raw: bytes, pos: int) -> tuple[Instr, int]:
     """Decode one instruction at *pos*; returns (Instr, new_pos)."""
     start = pos

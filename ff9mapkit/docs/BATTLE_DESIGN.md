@@ -462,12 +462,21 @@ A 3-lens review verified the 64-name table + the Boosted handling + provenance, 
 ("Odin's Sword") whose possessive broke resolution. 6 tests. **Still deferred:** `CharacterParameters.csv`
 (mostly menu/row), `Commands`/`CommandSets`. **Explicitly NOT `BattleParameters.csv`** (cosmetic only — model/anims).
 
-### Phase 6 — enemy-AI authoring (highest ceiling, hardest)
-Substrate exists (`EbScript` round-trips; `replace_function_body`/`add_function` byte-safe). Needs a
-**battle-opcode name/semantics layer** (SV_Target/SV_ model, `B_CURHP/SYSVAR` vocabulary), an **expression
-assembler**, and a **battle linter** (valid tags 1/6/7/9, Attack index `< AtkCount`). Stage: disassembler view →
-same-length literal patches → new branches. **Defer raw17 btlseq sequence authoring** (new codec + a
-coordinated raw16+eb+raw17 tri-file edit).
+### Phase 6 — enemy-AI authoring (highest ceiling, hardest). Staged: disassembler → same-length patch → new branch.
+**Phase 6a ✅ DONE (kit 0.9.62)** — the **disassembler VIEW** (read-only `battle-ai <scene>`, the import→SEE
+step). The battle `.eb` IS the field `.eb` container/interpreter, so the kit already round-trips + decodes it; 6a
+added the missing VOCABULARY: `eb/_exprtable.py` (the `op_binary` operator table, all 128, from `EBin.cs`) + the
+`0xC0+` variable-token decode (`Global.Bit[8512]` story-flags, `B_CURHP` enemy-HP); `eb/disasm.pretty_expr`
+(names an expression stream, mirroring `read_expr`'s byte-walk); `battle/battleai.py` (walks entry 0 = Main_Init
+spawn-binding, entries `1..TypCount` = per-type AI, functions by TAG [Main/Counter/ATB/Dying], with named commands
+incl. a control-opcode overlay + annotated expressions). ★ The load-bearing property = **byte-walk PARITY**: a
+test asserts `_decode_func_pretty`'s instruction offsets == the proven `read_code`'s across every AI function of a
+real donor, so the view can never desync. Reads the real EF_R007 Goblin AI cleanly. 10 tests; a 3-lens review
+(table vs `EBin.cs` / byte-walk / presenter+provenance) found only a low truncated-eb `IndexError` (guarded).
+**Next — Phase 6b:** same-length literal patches (retune an AI constant — an HP threshold, the attack index a
+turn selects — byte-safe, no fpos/entry-table fixup). **Phase 6c:** new branches (an **expression assembler** +
+length-changing `replace_function_body`/`add_function` edits + a **battle linter**: valid tags 1/6/7/9, Attack
+index `< AtkCount`). **Defer raw17 btlseq sequence authoring** (new codec + a coordinated raw16+eb+raw17 edit).
 
 ---
 

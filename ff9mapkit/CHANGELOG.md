@@ -18,6 +18,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   clean static diorama instead of a stacked-cutscene mess. +6 tests (`test_object_graft`, incl. an install-gated
   Dali assertion). Remaining #13 tail: the multi-instance self-positioned + per-door sub-bugs.
 
+### Added — battle-tuning Phase 6a: the enemy-AI disassembler view (`battle-ai`) (0.9.63)
+- **`battle/battleai.py` + CLI `battle-ai <scene>`** — the read-only "see the enemy's AI" step (the foundation of
+  Phase 6, per the doc's staging: disassembler → same-length patches → new branches). A battle scene's
+  `EVT_BATTLE_*.eb` is the same bytecode container + `EventEngine` interpreter as a field script, so the kit
+  already round-trips and decodes it — what was missing to *read* enemy AI is the vocabulary:
+  - **`eb/_exprtable.py`** — the `op_binary` expression-operator table (all 128 values, transcribed from the
+    open-source `EBin.cs`) + the variable-token decode: a `0xC0+` token → `Source.Type[index]` (so a story-flag
+    read shows as `Global.Bit[8512]` — the kit's `GLOB_BOOL` encoding — and an enemy-HP read as `B_CURHP`).
+  - **`eb/disasm.pretty_expr`** — names an expression token stream (`op{52}` → `B_CURHP`), mirroring the proven
+    `read_expr`'s byte-walk exactly.
+  - **`battleai.disassemble_ai`** — walks the eb: entry 0 = Main_Init (spawn/AI binding), entries `1..TypCount` =
+    per-enemy-type AI, functions by TAG (Main/Counter/ATB/Dying), each instruction with named commands
+    (`SET`/`JMP_IF`/`InitObject`/`BTLCMD`, incl. a control-opcode overlay `OP_NAMES` leaves unnamed) + annotated
+    expressions.
+- Read-only + offline; provenance-clean (only the open-source opcode/operator NAMES committed; donor bytes read
+  live, never committed). Already reads the real EF_R007 Goblin AI cleanly.
+- ★ The load-bearing property is **byte-walk parity**: a parity test asserts `_decode_func_pretty` yields the SAME
+  instruction offsets as the proven `read_code` across every AI function of a real donor — so the annotated view
+  can never mis-align. 10 tests (`test_battleai`), verified by a 3-lens adversarial review (table vs `EBin.cs`,
+  byte-walk fidelity, presenter/provenance) which found only a low truncated-eb `IndexError` (guarded — a legible
+  `<malformed>` note). *Authoring (Phase 6b: same-length constant patches) is next.*
+
 ### Added — fork-report ROSTER-BY-BEAT: which carried cast a story-event director spawns at each beat (#13) (0.9.60)
 - `fork-report` now prints a **Roster by beat** table for rotating-cast (story-event) fields: for each
   ScenarioCounter beat the field gates on (plus a scenario-zero baseline), the carried NPCs/actors the director

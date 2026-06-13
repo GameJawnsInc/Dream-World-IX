@@ -808,6 +808,19 @@ def _cmd_characters(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_battle_ai(args: argparse.Namespace) -> int:
+    """Disassemble a battle scene's enemy AI (EVT_BATTLE_<scene>.eb) -- the read-only 'see the enemy's AI' view:
+    Main_Init spawn-binding + per-type AI functions by tag, with named commands + annotated expressions."""
+    _safe_console()
+    from .battle import battleai as BA
+    try:
+        print(BA.analyze_scene(args.donor, game=args.game))
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return 0
+
+
 def _cmd_ability_gems(args: argparse.Namespace) -> int:
     """List the support abilities + their gem COSTS (AbilityGems.csv, read-live) -- the ``[[ability_gem]]``
     targets. Re-costing a support ability is the build-economy balance lever."""
@@ -1822,6 +1835,11 @@ def build_parser() -> argparse.ArgumentParser:
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")
     bsc.add_argument("donor", help="battle scene name to inspect, e.g. EF_R007 (see `battle-list --scenes`)")
     bsc.set_defaults(func=_cmd_battle_scene)
+
+    bai = sub.add_parser("battle-ai",
+                         help="disassemble a battle scene's enemy AI (EVT_BATTLE_<scene>.eb) -- read-only")
+    bai.add_argument("donor", help="battle scene name, e.g. EF_R007 (see `battle-list --scenes`)")
+    bai.set_defaults(func=_cmd_battle_ai)
 
     ch = sub.add_parser("characters",
                         help="list the playable characters' base stats (the [[character]] / [[leveling]] targets)")
