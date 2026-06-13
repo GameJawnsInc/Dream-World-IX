@@ -735,6 +735,61 @@ def test_inspect_decodes_vanilla_main_block(tmp_path):
                            for lbl, rep in reports)
 
 
+# ---- key/important items (rareItemsEx, extra) ------------------------------------------------
+def _ki(iid, obtained, used):
+    e = SJ.SJClass(); e.add("id", _int(iid))
+    e.add("obtained", SJ.SJData(SJ.VALUE, "True" if obtained else "False"))
+    e.add("used", SJ.SJData(SJ.VALUE, "True" if used else "False"))
+    return e
+
+
+def _common_ki(entries=((0, True, False), (4, True, True)), **kw):
+    c = _common(**kw)
+    c.add("rareItemsEx", SJ.SJArray([_ki(*e) for e in entries]))
+    return c
+
+
+def test_read_keyitems_parses_bool_strings():
+    common = _common_ki(entries=((0, True, False), (4, False, True)))
+    ki = {i: (ob, us) for i, _, ob, us in SI.read_keyitems(common)}
+    assert ki[0] == (True, False) and ki[4] == (False, True)             # "False" string -> False (not bool('False'))
+
+
+def test_set_keyitem_give_change_remove(tmp_path):
+    path = _extra_file(tmp_path, common=_common_ki(entries=((0, True, False),)))
+    held = lambda: {i: (ob, us) for i, _, ob, us in SI.inspect(str(path))[0][1].keyitems}
+    r = SI.set_keyitem_extra(str(path), 6, dry_run=False)                # give id 6 (obtained, not used)
+    assert r.action == "added" and r.wrote and held()[6] == (True, False)
+    r = SI.set_keyitem_extra(str(path), 6, obtained=True, used=True, dry_run=False)   # mark used
+    assert r.action == "changed" and held()[6] == (True, True)
+    r = SI.set_keyitem_extra(str(path), 6, obtained=False, used=False, dry_run=False)  # remove
+    assert r.action == "removed" and 6 not in held()
+    assert held()[0] == (True, False)                                    # the original entry untouched
+
+
+def test_set_keyitem_scoped_and_noop(tmp_path):
+    path = _extra_file(tmp_path, common=_common_ki(gil=4242, entries=((0, True, False),)))
+    SI.set_keyitem_extra(str(path), 0, obtained=True, used=False, dry_run=False)   # no-op (already that state)
+    assert not _baks(tmp_path, path)                                     # a no-op writes nothing
+    SI.set_keyitem_extra(str(path), 9, dry_run=False)                    # add id 9
+    rep = SI.inspect(str(path))[0][1]
+    assert rep.gil == 4242 and rep.inventory                            # gil + items untouched (scoped)
+
+
+def test_set_keyitem_ascending_insert(tmp_path):
+    path = _extra_file(tmp_path, common=_common_ki(entries=((0, True, False), (9, True, False))))
+    SI.set_keyitem_extra(str(path), 4, dry_run=False)
+    ids = [i for i, _, _, _ in SI.inspect(str(path))[0][1].keyitems]
+    assert ids == [0, 4, 9]                                              # inserted in ascending-id position
+
+
+def test_keyitems_resolve_by_id():
+    from ff9mapkit import keyitems as K
+    assert K.resolve(5) == 5                                             # numeric id passes through (no install needed)
+    with pytest.raises(ValueError):
+        K.resolve(999)
+
+
 # ---- install-gated: the real save ------------------------------------------------------------
 def _real_main_save():
     from ff9mapkit import save as S

@@ -1128,6 +1128,26 @@ def _cmd_items_set_equip(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_items_set_keyitem(args: argparse.Namespace) -> int:
+    """Give / remove a KEY (important) item by name in the Memoria EXTRA file. Default gives it (obtained);
+    --remove removes it, --used marks it used. Dry-run unless --apply. (Key items are extra-only for now; a
+    vanilla no-extra slot has no extra to write.)"""
+    from . import save_items as SI
+    try:
+        if SI.load_extra_common(args.save)[0] is not None:             # a Memoria extra-save directly
+            extra = args.save
+        else:                                                          # a container -> resolve the slot's extra
+            extra = SI.resolve_extra(args.save, slot=args.slot, save=args.save_no, autosave=args.autosave)
+        obtained = not args.remove and not args.not_obtained
+        rep = SI.set_keyitem_extra(extra, args.keyitem, obtained=obtained, used=args.used and not args.remove,
+                                   dry_run=not args.apply, backup=not args.no_backup)
+    except Exception as e:                                              # noqa: BLE001
+        print(f"could not set key item: {e}")
+        return 2
+    print(SI.render_keyitem_write(rep))
+    return 0
+
+
 def _cmd_flags_diff(args: argparse.Namespace) -> int:
     """Diff two saves' gEventGlobal story state (A -> B) -- what a beat / session wrote. Each arg reads the
     same forms as flags-inspect; with one save, --slot-a/--slot-b pick two slots (default: slot 0 -> slot 1)."""
@@ -1944,6 +1964,16 @@ def build_parser() -> argparse.ArgumentParser:
                                                        "body, acc)")
     se.add_argument("item", help="item name/id to equip, or 'empty'/255 to unequip")
     se.set_defaults(func=_cmd_items_set_equip)
+
+    sk = sub.add_parser("items-set-keyitem",
+                        help="give / remove a KEY (important) item by name in the Memoria extra file (dry-run "
+                             "unless --apply)")
+    _add_save_target(sk)
+    sk.add_argument("keyitem", help="key-item name (live from the install) or a 0-255 id")
+    sk.add_argument("--remove", action="store_true", help="remove the key item (clear obtained + used)")
+    sk.add_argument("--used", action="store_true", help="also mark it used (default: obtained, not used)")
+    sk.add_argument("--not-obtained", action="store_true", help="mark known-but-not-obtained (rare)")
+    sk.set_defaults(func=_cmd_items_set_keyitem)
 
     fd = sub.add_parser("flags-diff",
                         help="diff two saves' story state (A -> B): what scenario/flags a beat changed")

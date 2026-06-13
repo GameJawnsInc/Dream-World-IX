@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import items as _items
+from . import keyitems as _keyitems
 from . import save as _save
 from . import sjbinary as _sj
 
@@ -65,6 +66,20 @@ class ItemReport:
     gil: int | None = None
     inventory: list = field(default_factory=list)         # [(id, name, count), ...]
     equipment: list = field(default_factory=list)         # [{"slot_no", "name", "equip": {slot: (id, name)|None}}]
+    keyitems: list = field(default_factory=list)          # [(id, name, obtained, used), ...] (key/important items)
+
+
+@dataclass
+class KeyItemWriteReport:
+    """The outcome of a :func:`set_keyitem_extra` / :func:`set_main_keyitem` call (dry-run or applied)."""
+    path: str
+    item_id: int
+    item_name: "str | None"
+    obtained: bool
+    used: bool
+    action: str                                           # "added" | "changed" | "removed" | "unchanged"
+    wrote: bool
+    backup_path: "str | None" = None
 
 
 @dataclass
@@ -153,9 +168,35 @@ def read_equipment(common) -> list:
     return out
 
 
+def _sjbool(node) -> bool:
+    """A ``rareItemsEx`` ``obtained``/``used`` leaf -> bool. Stored as a VALUE string ``"True"``/``"False"`` (NOT
+    a Bool leaf), so ``bool(value)`` would be wrong (``bool("False")`` is True); compare the text."""
+    if node is None:
+        return False
+    v = node.value
+    return v if isinstance(v, bool) else str(v).strip().lower() == "true"
+
+
+def read_keyitems(common) -> list:
+    """``40000_Common/rareItemsEx`` -> ``[(id, name, obtained, used), ...]`` -- the key/important items the save
+    knows about (names via the live :mod:`ff9mapkit.keyitems` table, ``None`` if the install isn't reachable)."""
+    arr = _sj.get_path(common, "rareItemsEx")
+    out = []
+    if arr is None:
+        return out
+    for e in arr:
+        eid = _sj.get_path(e, "id")
+        if eid is None:
+            continue
+        i = int(eid.value)
+        out.append((i, _keyitems.name_of(i), _sjbool(_sj.get_path(e, "obtained")),
+                    _sjbool(_sj.get_path(e, "used"))))
+    return out
+
+
 def report_from_common(common) -> ItemReport:
     return ItemReport(gil=read_gil(common), inventory=read_inventory(common),
-                      equipment=read_equipment(common))
+                      equipment=read_equipment(common), keyitems=read_keyitems(common))
 
 
 # --- file-level helpers ---------------------------------------------------------------------------
@@ -498,6 +539,56 @@ def set_equip(extra_path, character, slot, item, *, dry_run: bool = True, backup
                             wrote=did_write, backup_path=backup_path)
 
 
+def set_keyitem_extra(extra_path, keyitem, *, obtained: bool = True, used: bool = False,
+                      dry_run: bool = True, backup: bool = True) -> KeyItemWriteReport:
+    """Set a KEY/important item's state in a Memoria EXTRA save's ``40000_Common/rareItemsEx`` list (each entry
+    ``{id, obtained, used}`` -- the bools are VALUE strings ``"True"``/``"False"``). ``obtained``/``used`` both
+    False REMOVES the entry (the engine only stores known key items); otherwise it's added (ascending-id) or
+    updated. ``keyitem`` is a name (live :mod:`keyitems` table) or a 0-255 id. Same safety as :func:`set_item`:
+    GATE 1 + a scoped-change check (only ``rareItemsEx`` moves) + atomic write + backup + post-write confirm +
+    dry-run default."""
+    iid = _keyitems.resolve(keyitem)
+    raw, root, trailing, common = _load_for_edit(extra_path)
+    arr = common.get("rareItemsEx")
+    if not isinstance(arr, _sj.SJArray):
+        raise ValueError(f"no {COMMON}/rareItemsEx in {extra_path!r} (an early save with no key items yet?)")
+    idx, old_ob, old_us = None, False, False
+    for i, e in enumerate(arr.items):
+        eid = _sj.get_path(e, "id")
+        if isinstance(e, _sj.SJClass) and eid is not None and int(eid.value) == iid:
+            idx, old_ob, old_us = i, _sjbool(_sj.get_path(e, "obtained")), _sjbool(_sj.get_path(e, "used"))
+            break
+    sb = lambda b: _sj.SJData(_sj.VALUE, "True" if b else "False")   # noqa: E731  (the engine's bool-as-string form)
+    if not obtained and not used:
+        action = "removed" if idx is not None else "unchanged"
+        if idx is not None:
+            del arr.items[idx]
+    elif idx is not None:
+        action = "unchanged" if (obtained, used) == (old_ob, old_us) else "changed"
+        arr.items[idx].set("obtained", sb(obtained))
+        arr.items[idx].set("used", sb(used))
+    else:
+        action = "added"
+        entry = _sj.SJClass()                              # id, obtained, used -- the engine's key order
+        entry.add("id", _sj.SJData(_sj.INT, iid))
+        entry.add("obtained", sb(obtained))
+        entry.add("used", sb(used))
+        pos = next((i for i, e in enumerate(arr.items)
+                    if _sj.get_path(e, "id") is not None and int(_sj.get_path(e, "id").value) > iid), len(arr.items))
+        arr.items.insert(pos, entry)
+    new_bytes, changed = _assert_scoped(raw, root, trailing, [(COMMON, "rareItemsEx")])
+    backup_path, did_write = None, False
+    if not dry_run and changed:
+        backup_path = _atomic_write(extra_path, raw, new_bytes, backup=backup)
+        chk = {i: (ob, us) for i, _, ob, us in read_keyitems(load_extra_common(extra_path)[0])}
+        got = chk.get(iid, (False, False))
+        if got != (obtained, used) and not (obtained is False and used is False and iid not in chk):
+            raise AssertionError(f"post-write check failed: key item {iid} read back {got}")
+        did_write = True
+    return KeyItemWriteReport(path=str(extra_path), item_id=iid, item_name=_keyitems.name_of(iid),
+                              obtained=obtained, used=used, action=action, wrote=did_write, backup_path=backup_path)
+
+
 # --- write surface: the encrypted MAIN block (step 4b -- edit no-extra/vanilla saves) -------------
 
 def validate_main_block(pt) -> None:
@@ -811,6 +902,25 @@ def render_report(rep: "ItemReport | None") -> str:
     for pc in rep.equipment:
         worn = ", ".join(f"{slot}={pc['equip'][slot][1] or '?'}" for slot in EQUIP_SLOTS if pc["equip"].get(slot))
         lines.append(f"    {pc['name'] or '?':<10} {worn or '(nothing equipped)'}")
+    if rep.keyitems:
+        held = [(i, n) for i, n, ob, us in rep.keyitems if ob]
+        lines.append(f"  Key items ({len(held)} held):")
+        lines.append("    " + ", ".join(n or f"id {i}" for i, n in held) if held else "    (none)")
+    return "\n".join(lines)
+
+
+def render_keyitem_write(rep: KeyItemWriteReport) -> str:
+    """A human-readable summary of a :func:`set_keyitem_extra` / :func:`set_main_keyitem` outcome."""
+    name = rep.item_name or f"key item id {rep.item_id}"
+    if rep.action == "unchanged":
+        return f"  {name} already obtained={rep.obtained} used={rep.used} in {rep.path} -- nothing to change."
+    verb = {"added": "give", "changed": "set", "removed": "remove"}[rep.action]
+    head = "WROTE" if rep.wrote else "DRY RUN -- would"
+    flags = "removed" if rep.action == "removed" else f"obtained={rep.obtained}, used={rep.used}"
+    lines = [f"  {head} {verb} key item {name} ({flags}) in {rep.path}"]
+    lines.append(f"  Backup: {rep.backup_path}" if rep.backup_path else
+                 ("  (--no-backup: no backup written)" if rep.wrote else
+                  "  Re-run with --apply to write (a .bak backup is made first unless --no-backup)."))
     return "\n".join(lines)
 
 

@@ -60,6 +60,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   can never mis-align. 10 tests (`test_battleai`), verified by a 3-lens adversarial review (table vs `EBin.cs`,
   byte-walk fidelity, presenter/provenance) which found only a low truncated-eb `IndexError` (guarded — a legible
   `<malformed>` note). *Authoring (Phase 6b: same-length constant patches) is next.*
+### Added — save-item editor #5 step 6: KEY/important items (`items-set-keyitem`), IN-GAME PROVEN (0.9.65)
+- The last data type: **give / remove a key (important) item by name** in a Memoria save. FF9 has no symbolic
+  enum for key items, so names are read **LIVE** from `<install>/StreamingAssets/Text/<lang>/KeyItems.strings`
+  (`"$keyNNNN" = "Name"`), cached in-memory, **shipping/committing nothing** — the same provenance-clean live
+  pattern as `itemstats`. New `ff9mapkit/keyitems.py` (`resolve`/`name_of`/`available`; 80 key items, ids 0-79).
+- **`save_items.set_keyitem_extra(extra, keyitem, *, obtained=True, used=False)`** — edit the extra's
+  `40000_Common/rareItemsEx` list (each entry `{id, obtained, used}`; ★ the bools are VALUE strings
+  `"True"`/`"False"`, NOT Bool leaves — `bool("False")` would be a bug, so the text is compared). Both flags False
+  removes the entry; otherwise add (ascending-id) / update. Same safety (GATE 1 + scoped-change check (only
+  `rareItemsEx` moves) + atomic + backup + post-write confirm + dry-run). `read_keyitems` + `ItemReport.keyitems`
+  + the inspect/render now show held key items; CLI **`items-set-keyitem <save> <name> [--remove] [--used]`**.
+- Scope: key items are EXTRA-only here (the load-authoritative store, Memoria saves). Main-block `rareItems`
+  (the 64-byte 2-bit bitfield, for vanilla saves) + a GUI key-item control are follow-ups. 7 new tests; 1200 green.
+- ★ **IN-GAME PROVEN (2026-06-12):** gave Falcon Claw to slot 1/save 3 (a Memoria save with 0 key items) → loaded
+  → it shows in the Key Items menu (gil/items untouched). **The #5 editor now covers every save data type** — gil,
+  regular items, equipment, and key items.
 
 ### Added — fork-report ROSTER-BY-BEAT: which carried cast a story-event director spawns at each beat (#13) (0.9.60)
 - `fork-report` now prints a **Roster by beat** table for rotating-cast (story-event) fields: for each
