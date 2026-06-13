@@ -26,7 +26,7 @@ from pathlib import Path
 from . import config
 from . import eventscan
 from ._fieldtable import FBG_TO_EVT
-from .scene import bgs, bgi, cam
+from .scene import bgart, bgs, bgi, cam
 
 
 def _unitypy():
@@ -887,45 +887,103 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
 
 def field_art_dir(field: str, game=None):
     """The folder where Memoria's `[Export] Field=1` dumped this field's per-overlay PNGs, or None
-    if it hasn't been exported in-game yet (StreamingAssets/FieldMaps/<FBG>/Overlay*.png)."""
+    if it hasn't been exported in-game yet (StreamingAssets/FieldMaps/<FBG>/Overlay*.png).
+
+    This is now only the FALLBACK source -- the art functions assemble the overlays OFFLINE from the
+    atlas by default (`_overlay_art` / scene.bgart), so they no longer require the in-game export."""
     folder, _ = resolve_field(field, game)
     d = config.find_game_path(game) / "StreamingAssets" / "FieldMaps" / folder.upper()
     return d if (d / "Overlay0.png").is_file() else None
 
 
-def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=4,
+def _overlay_art(field: str, game=None, bundle=None):
+    """``(overlays, provider, factor, source)`` for a field's background art -- OFFLINE-FIRST.
+
+    ``overlays`` are the field's sprite-resolved overlays; ``provider(i)`` yields overlay ``i``'s
+    ``Overlay{i}.png`` as a PIL RGBA image (or None); ``factor`` (= active TileSize // 16) is the
+    overlay PNGs' pixels-per-tile -- the scale ``compose_background`` / ``extract_layers`` must crop
+    and place at; ``source`` is ``"offline"`` or ``"export"``. Returns None when no art is available.
+
+    DEFAULT = assemble each overlay straight from the atlas the engine itself would render with (the
+    highest-priority mod atlas -- Moguri -- else the base p0data atlas), via :mod:`scene.bgart`, so NO
+    in-game ``[Export] Field=1`` is needed (it replaces the multi-minute startup dump). Falls back to
+    Memoria's on-disk export only if the atlas can't be read. Sprites are resolved against the CHOSEN
+    atlas width + active TileSize so the cells are correct (the legacy ``2048/40`` was valid only
+    because the old path cropped the pre-assembled export, never the atlas itself). The offline path is
+    proven byte-exact vs the engine's own ``atlas.png`` crop; a live install differs only by the sub-
+    2/255 codec noise of re-decoding a DXT-compressed atlas offline (imperceptible, geometry-identical)."""
+    import io  # noqa: PLC0415
+    from PIL import Image  # noqa: PLC0415 - only the art path needs PIL
+    try:
+        _, folder, roles, env = find_field(field, game=game, bundle=bundle)
+    except (FileNotFoundError, ValueError):
+        return None
+    if "bgs" not in roles:
+        return None
+    bgs_bytes = _raw_bytes(env.container[roles["bgs"]].read())
+    ts = _active_tilesize(game)
+    factor = ts // bgs.TILE
+    atlas_img = None
+    try:                                                     # the atlas AssetManager would load: mod, else base
+        mod = _mod_field_atlas(folder, game=game)
+        if mod is not None:
+            atlas_img = Image.open(io.BytesIO(mod)).convert("RGBA")
+        elif "atlas" in roles:
+            atlas_img = env.container[roles["atlas"]].read().image.convert("RGBA")
+    except Exception:                                        # noqa: BLE001 - unreadable atlas -> try the export
+        atlas_img = None
+    if atlas_img is not None:
+        _, overlays = bgs.parse_overlays(bgs_bytes)
+        bgs.resolve_sprites(bgs_bytes, overlays, atlas_img.size[0], ts)
+        imgs = bgart.assemble_overlays(atlas_img, overlays, ts)
+        return overlays, (lambda i, _m=imgs: _m.get(i)), factor, "offline"
+    art = field_art_dir(field, game)                         # FALLBACK: the on-disk [Export] dump
+    if art is None:
+        return None
+    _, overlays = bgs.parse_overlays(bgs_bytes)
+    bgs.resolve_sprites(bgs_bytes, overlays, 2048, 40)       # positions only -> the legacy params are fine here
+
+    def _disk(i, _art=art):
+        p = _art / f"Overlay{i}.png"
+        return Image.open(p).convert("RGBA") if p.is_file() else None
+    return overlays, _disk, factor, "export"
+
+
+def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=None,
                        draw_footprint=True):
     """Composite the field's OPAQUE base art into one background PNG, for the Blender backdrop.
 
-    Uses Memoria's engine-exported per-overlay PNGs (correct tile assembly) placed by the .bgs
-    overlay positions/depths; skips additive/subtractive light+shadow overlays (the "splotches").
-    When `draw_footprint` (default), also draws the walkable footprint -- the .bgi tris projected by
-    the EXACT GTE->canvas map (cam.to_canvas), with NO offset: the engine projects the raw walkmesh
-    frame directly, so this lands exactly where the player walks in-game. The walkmesh may extend
-    past the canvas edges (tunnels) -- that's correct, not a misalignment. Returns (w, h) or None
-    if the field hasn't been exported in-game yet."""
-    art = field_art_dir(field, game)
-    if art is None:
+    Assembles the field's per-overlay art OFFLINE from the atlas (`_overlay_art` / scene.bgart),
+    falling back to Memoria's `[Export] Field=1` dump if the atlas can't be read; places each overlay
+    by the .bgs overlay positions/depths and skips additive/subtractive light+shadow overlays (the
+    "splotches"). When `draw_footprint` (default), also draws the walkable footprint -- the .bgi tris
+    projected by the EXACT GTE->canvas map (cam.to_canvas), with NO offset: the engine projects the raw
+    walkmesh frame directly, so this lands exactly where the player walks in-game. The walkmesh may
+    extend past the canvas edges (tunnels) -- that's correct, not a misalignment. `upscale` defaults to
+    the active export factor (TileSize // 16) so placement matches the overlay PNGs' own pixels-per-tile;
+    pass a value only to force it. Returns (w, h), or None if the field has no readable art at all."""
+    res = _overlay_art(field, game=game, bundle=bundle)
+    if res is None:
         return None
+    overlays, provider, factor, _src = res
+    up = factor if upscale is None else upscale              # the overlay PNGs are `factor` px/tile
     from PIL import Image, ImageDraw  # noqa: PLC0415 - only the art path needs PIL
     _, _, roles, env = find_field(field, game=game, bundle=bundle)
     bgs_bytes = _raw_bytes(env.container[roles["bgs"]].read())
-    h, overlays = bgs.parse_overlays(bgs_bytes)
-    bgs.resolve_sprites(bgs_bytes, overlays, 2048, 40)        # atlas params irrelevant for positions
+    h = bgs.parse_header(bgs_bytes)
     sOrgX, sOrgY = h.bounds[2], h.bounds[3]
     c0 = bgs.parse_cameras(bgs_bytes)[0]
-    W, H = c0.range[0] * upscale, c0.range[1] * upscale
+    W, H = c0.range[0] * up, c0.range[1] * up
     canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     opaque = [(i, o) for i, o in enumerate(overlays) if o.sprites and o.sprites[0].trans == 0]
     opaque.sort(key=lambda io: -(io[1].curZ + io[1].orgZ))    # back (high depth) -> front
     for i, o in opaque:
-        png = art / f"Overlay{i}.png"
-        if not png.is_file():
+        im = provider(i)
+        if im is None:
             continue
-        im = Image.open(png).convert("RGBA")
         mnX = min(s.offX for s in o.sprites)
         mnY = min(s.offY for s in o.sprites)
-        canvas.alpha_composite(im, ((sOrgX + o.orgX + mnX) * upscale, (sOrgY + o.orgY + mnY) * upscale))
+        canvas.alpha_composite(im, ((sOrgX + o.orgX + mnX) * up, (sOrgY + o.orgY + mnY) * up))
 
     if draw_footprint and "bgi" in roles:
         wm = bgi.BgiWalkmesh.from_bytes(_raw_bytes(env.container[roles["bgi"]].read()))
@@ -935,7 +993,7 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
             pts = []
             for vi in t.vtx:
                 cx, cy = cam.to_canvas(wv[vi], c0)      # exact GTE projection, world frame
-                pts.append((cx * upscale, cy * upscale))
+                pts.append((cx * up, cy * up))
             draw.polygon(pts, fill=(90, 180, 255, 45), outline=(120, 225, 255, 160))
     canvas.save(out_path)
     return (W, H)
@@ -988,7 +1046,7 @@ def _depth_groups(overlays, sOrgX, sOrgY, sOrgZ, has_png, *, include_blend=True,
     return groups, skipped
 
 
-def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, include_blend=True,
+def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=None, include_blend=True,
                    depth_tolerance=8, max_layers=48, bleed=1):
     """Per-TILE-DEPTH art layers for an EDITABLE custom-scene fork that PRESERVES per-tile occlusion.
 
@@ -1002,32 +1060,40 @@ def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, in
     exporter, BGSCENE_DEF.cs:592), which drew the player UNDER any overlay whose nearest tile sat in
     front of him (the "Zidane under the boxes" bug).
 
-    Tiles are cropped from the engine's exported `Overlay{i}.png` (correct tile assembly) via
-    `bgs.tile_box`. `depth_tolerance` buckets nearby depths into one layer (1 = exact per-distinct-depth);
-    the default 8 keeps each smooth surface whole (real surfaces vary only a few depth units per tile)
-    while still splitting at the big depth jumps that actually occlude. `max_layers` then auto-coarsens
-    the tolerance until the count fits (default 48) -- a real field can split into HUNDREDS of distinct
-    tile depths (field 122 = 215 at tol 1), which both lags the load (one GameObject/texture per layer)
-    and multiplies tile-cut seams. `bleed` edge-extends opaque layers to hide the bilinear cut seams.
-    Tune `depth_tolerance` up for fewer layers (snappier load, coarser occlusion) or down for finer
-    occlusion. Returns None if the field hasn't been `[Export] Field=1`'d in-game yet (no per-overlay PNGs
-    on disk). `include_blend` (default) emits the additive/subtractive light+shadow overlays too.
+    Tiles are cropped from each overlay's `Overlay{i}.png`, which is now assembled OFFLINE from the
+    atlas (`_overlay_art` / scene.bgart -- no in-game `[Export] Field=1` needed), falling back to
+    Memoria's on-disk export dump only if the atlas can't be read. `bgs.tile_box` gives each tile's
+    crop. `depth_tolerance` buckets nearby depths into one layer (1 = exact per-distinct-depth); the
+    default 8 keeps each smooth surface whole (real surfaces vary only a few depth units per tile) while
+    still splitting at the big depth jumps that actually occlude. `max_layers` then auto-coarsens the
+    tolerance until the count fits (default 48) -- a real field can split into HUNDREDS of distinct tile
+    depths (field 122 = 215 at tol 1), which both lags the load (one GameObject/texture per layer) and
+    multiplies tile-cut seams. `bleed` edge-extends opaque layers to hide the bilinear cut seams. `upscale`
+    defaults to the active export factor (TileSize // 16) so the crop matches the overlay PNGs' own
+    pixels-per-tile; pass a value only to force it. Returns None only if the field has no readable art at
+    all. `include_blend` (default) emits the additive/subtractive light+shadow overlays too.
 
     Co-located tiles sharing a (depth-bucket, shader) merge into one layer (correct for a tiled plane,
     approximate for overlapping animation frames at the same depth -- a known v1 simplification)."""
-    art = field_art_dir(field, game)
-    if art is None:
+    res = _overlay_art(field, game=game, bundle=bundle)
+    if res is None:
         return None
-    from PIL import Image  # noqa: PLC0415 - only the art path needs PIL
+    overlays, provider, factor, _src = res
+    up = factor if upscale is None else upscale              # the overlay PNGs are `factor` px/tile
     _, _, roles, env = find_field(field, game=game, bundle=bundle)
     bgs_bytes = _raw_bytes(env.container[roles["bgs"]].read())
-    h, overlays = bgs.parse_overlays(bgs_bytes)
-    bgs.resolve_sprites(bgs_bytes, overlays, 2048, 40)        # atlas params irrelevant for off/depth
+    h = bgs.parse_header(bgs_bytes)
     sOrgX, sOrgY, sOrgZ = h.bounds[2], h.bounds[3], h.bounds[0]
     c0 = bgs.parse_cameras(bgs_bytes)[0]
 
+    _png_cache = {}
+    def _png(i):
+        if i not in _png_cache:
+            _png_cache[i] = provider(i)
+        return _png_cache[i]
+
     def _has_png(i):
-        return (art / f"Overlay{i}.png").is_file()
+        return _png(i) is not None
 
     tol = max(1, int(depth_tolerance))
     groups, skipped = _depth_groups(overlays, sOrgX, sOrgY, sOrgZ, _has_png,
@@ -1037,14 +1103,7 @@ def extract_layers(field: str, out_dir, *, game=None, bundle=None, upscale=4, in
         groups, skipped = _depth_groups(overlays, sOrgX, sOrgY, sOrgZ, _has_png,
                                         include_blend=include_blend, depth_tolerance=tol)
 
-    png_cache = {}
-    def _png(i):
-        im = png_cache.get(i)
-        if im is None:
-            im = png_cache[i] = Image.open(art / f"Overlay{i}.png").convert("RGBA")
-        return im
-
-    layers, blend = _render_depth_groups(groups, _png, out_dir, upscale=upscale, bleed=bleed)
+    layers, blend = _render_depth_groups(groups, _png, out_dir, upscale=up, bleed=bleed)
     return {"layers": layers, "blend_layers": blend, "skipped_blend_overlays": skipped,
             "range": list(c0.range), "depth_tolerance": tol,
             "tiles": sum(len(v) for v in groups.values())}
@@ -1182,9 +1241,10 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     world-frame builder + extract its art as per-DEPTH layers (occlusion preserved) + reuse its camera.
 
     Emits a custom-scene `field.toml` (NO borrow_bg) ready for `ff9mapkit build` and for repainting any
-    single `layer_*.png` / editing `walkmesh.obj`. Returns (metadata, field_toml_path). Requires the
-    field to have been `[Export] Field=1`'d in-game once (per-overlay PNGs on disk); raises RuntimeError
-    with guidance otherwise (use plain import for a BG-borrow fork that reuses the art as-is)."""
+    single `layer_*.png` / editing `walkmesh.obj`. Returns (metadata, field_toml_path). The art is now
+    assembled OFFLINE from the atlas (`extract_layers` / scene.bgart) -- no in-game `[Export] Field=1`
+    needed; raises RuntimeError only if the field has no readable atlas at all (use plain import for a
+    BG-borrow fork that reuses the art as-is)."""
     out = Path(out_dir)
     meta = extract_field(field, out, game=game, bundle=bundle)     # writes camera.bgx + walkmesh.bgi
     name = name or (meta["mapid"].split("_")[0] + "_EDIT")
@@ -1204,9 +1264,9 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     layers_info = extract_layers(field, out, game=game, bundle=bundle)
     if layers_info is None:
         raise RuntimeError(
-            f"{meta['field']}: editable art needs the field exported in-game once. Set Memoria.ini "
-            f"[Export] Enabled=1 + Field=1, visit the field, then retry -- OR use `ff9mapkit import "
-            f"{field}` (BG-borrow: reuses the real art as-is, no repaint).")
+            f"{meta['field']}: editable art needs a readable field atlas (assembled offline). The atlas "
+            f"couldn't be read from p0data -- OR use `ff9mapkit import {field}` (BG-borrow: reuses the "
+            f"real art as-is, no repaint).")
     layers = layers_info["layers"]
     meta["layers"] = len(layers)
     meta["blend_layers"] = layers_info["blend_layers"]
