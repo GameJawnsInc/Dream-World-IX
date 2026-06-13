@@ -447,8 +447,12 @@ changed + an NPC appeared, in-game 2026-06-12); the **roster-by-beat analyzer + 
 LANDED + IN-GAME PROVEN** (offline beat→cast table via a symbolic Main_Init walk; and a non-`--verbatim` fork now
 DROPS cutscene warp-directors — proven on the Dali shop: fixed fork = 1 shopkeeper, director-carried control = 2);
 and a fork's auto-spawn now stays in the **main walkmesh region** (not a walled-off behind-counter pocket — the
-Dali spawn moved out of the 7-tri pocket into the 21-tri customer area). Remaining tail: the multi-instance +
-per-door spawn sub-bugs → [[project-ff9-fork-fidelity-worklist]].
+Dali spawn moved out of the 7-tri pocket into the 21-tri customer area). ★ **#13 TAIL NOW CLOSED** (all in-game
+proven): (c.2) the synth fork dedups duplicate-arg `InitObject` sites so a self-positioning NPC no longer stacks
+into a duplicate pair; (#9) the synth default spawn now lands on the donor's **real main arrival** (where the
+engine drops you walking in — Dali centroid `(83,209)` → real entrance `(439,-122)`), and `fork-report`'s
+**Arrival** line flags per-DOOR fidelity, steering it to `--verbatim` (a synth fork can't reconstruct the
+per-door table — its gateways are retargeted). → [[project-ff9-fork-fidelity-worklist]].
 
 ---
 
