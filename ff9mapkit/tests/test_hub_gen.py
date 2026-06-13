@@ -30,7 +30,7 @@ def _game_ready():
 def _spec(**hub_over):
     """A minimal valid HubSpec (one journey), with per-test [hub] overrides."""
     base = dict(name="WORLD_HUB", id=4500, area=21, borrow_bg="GRGR_MAP420_GR_CEN_0",
-                camera="camera_hub.bgx", text_block=8,
+                camera="camera_hub.bgx", text_block=8, player_spawn=[404, 127], narrator_pos=[480, 127],
                 journeys=[hub.Journey("j1", "Journey One", 4501, 2600)])
     base.update(hub_over)
     return hub.HubSpec(**base)
@@ -167,6 +167,18 @@ def test_validate_rejects_missing_borrow_dup_names_bad_ids_and_scenario():
     no_j = _spec(journeys=[])
     errors, _ = hub.validate_hub(no_j)
     assert any("at least one [[journey]]" in e for e in errors)
+
+
+def test_validate_warns_narrator_overlaps_player_spawn():
+    # narrator_pos unset -> defaults to the player spawn -> the player spawns INSIDE the narrator
+    _, warnings = hub.validate_hub(_spec(player_spawn=[404, 127], narrator_pos=None))
+    assert any("INSIDE the narrator" in w for w in warnings)
+    # explicitly equal positions -> same warning
+    _, warnings = hub.validate_hub(_spec(player_spawn=[10, 20], narrator_pos=[10, 20]))
+    assert any("INSIDE the narrator" in w for w in warnings)
+    # distinct positions -> no overlap warning
+    _, warnings = hub.validate_hub(_spec(player_spawn=[404, 127], narrator_pos=[480, 127]))
+    assert not any("INSIDE the narrator" in w for w in warnings)
 
 
 def test_validate_warns_text_block_1073_and_paging():

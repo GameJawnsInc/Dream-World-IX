@@ -226,6 +226,13 @@ def validate_hub(spec: HubSpec) -> "tuple[list, list]":
             errors.append(f"[[journey]] {j.id!r}: set_scenario {j.set_scenario} out of range "
                           f"(0-{SCENARIO_MAX})")
 
+    spawn = spec.player_spawn or [0, 0]      # the narrator defaults to the player spawn -> they'd overlap
+    npos = spec.narrator_pos if spec.narrator_pos is not None else spawn
+    if list(npos) == list(spawn):
+        warnings.append(f"[hub] narrator_pos {list(npos)} == player_spawn (or unset) -- the player spawns "
+                        f"INSIDE the narrator. Set distinct player_spawn / narrator_pos a few units apart on "
+                        f"the walkmesh (e.g. player [404,127], narrator [480,127] for a Gargan Roo backdrop).")
+
     if spec.text_block == SHADOWED_TEXT_BLOCK:
         warnings.append(f"[hub] text_block {SHADOWED_TEXT_BLOCK} is SHADOWED by the FF9CustomMap folder in a "
                         f"stacked setup -- the menu shows that folder's text, not yours. Pick a distinct real "
