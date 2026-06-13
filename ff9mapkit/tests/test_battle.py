@@ -12,7 +12,7 @@ import struct
 import pytest
 
 from ff9mapkit.battle import camera_codec, camera_data, event_data, fbx, scene_data
-from ff9mapkit.battle.build import (BattleProject, _author_inb, _bbg_number, build_battle_mod,
+from ff9mapkit.battle.build import (BattleProject, _ai_entries, _author_inb, _bbg_number, build_battle_mod,
                                     validate_battle)
 from ff9mapkit.config import LANGS, ModLayout
 from ff9mapkit.eb.model import EbScript
@@ -346,6 +346,50 @@ def test_rewrite_main_init_missing_ai_entry_raises():
     eb = _battle_eb([(1, 0x80)], n_ai=1)                    # only entry 1 is an AI; type 1 would need entry 2
     with pytest.raises(ValueError):
         event_data.rewrite_main_init(eb, [1])
+
+
+def test_ai_entries_helper():
+    # the build/validate plumbing: [[scene.enemy]] -> per-slot AI-entry override list (None = default)
+    assert _ai_entries({"enemy": [{"slot": 0, "ai_entry": 2}]}, 1) == [2]
+    assert _ai_entries({"enemy": [{"slot": 1, "ai_entry": 2}]}, 2) == [None, 2]
+    assert _ai_entries({"enemy": [{"slot": 0, "type": 0}]}, 1) is None      # no ai_entry -> None (default binding)
+    with pytest.raises((TypeError, ValueError)):                            # a TOML array ai_entry -> a clean raise
+        _ai_entries({"enemy": [{"slot": 0, "ai_entry": [2]}]}, 1)           # (callers turn it into a problem, not a crash)
+
+
+def test_validate_ai_entry_without_monster_count(tmp_path):
+    _write_scene(tmp_path)                                                  # mint scene assets present
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B200"
+        fbx = "BBG_B013.fbx"
+        scene_id = 5502
+        scene_name = "KIT_ARENA"
+        [scene]
+        [[scene.enemy]]
+        slot = 0
+        ai_entry = 2
+    ''')
+    assert any("ai_entry has no effect" in p for p in validate_battle(proj))   # an orphaned override is surfaced
+
+
+def test_rewrite_main_init_ai_entry_override():
+    # the offset-entry-donor fix: pin the spawned enemy's AI entry explicitly instead of the generic 1+type
+    eb = _battle_eb([(2, 0x80)], n_ai=2)                    # entries 1 and 2 are both AIs
+    def inits(b):
+        s = EbScript.from_bytes(b)
+        return [(i.imm(0), i.imm(1)) for i in s.instrs(s.entry(0).func_by_tag(0)) if i.op == 0x09]
+    assert inits(event_data.rewrite_main_init(eb, [0], None)) == [(1, 0x80)]   # default: type 0 -> entry 1
+    assert inits(event_data.rewrite_main_init(eb, [0], [2])) == [(2, 0x80)]    # override: type 0 pinned to entry 2
+    assert inits(event_data.rewrite_main_init(eb, [0, 0], [2, None])) == [(2, 0x80), (1, 0x81)]   # None = default
+
+
+def test_rewrite_main_init_bad_ai_entry_raises():
+    eb = _battle_eb([(2, 0x80)], n_ai=2)                    # entries 0,1,2 exist; entry 9 does not
+    with pytest.raises(ValueError, match="ai_entry = 9 is not a valid"):
+        event_data.rewrite_main_init(eb, [0], [9])
+    with pytest.raises(ValueError, match="entry 0 is Main_Init"):   # ai_entry 0 = Main_Init itself (non-empty) -> reject
+        event_data.rewrite_main_init(eb, [0], [0])
 
 
 # --------------------------------------------------------------------- camera_data (in-place camera tweak)

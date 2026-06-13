@@ -91,6 +91,15 @@ class BattleProject:
         return (self.base_dir / rel).resolve()
 
 
+def _ai_entries(scene_cfg: dict, mc: int):
+    """``[[scene.enemy]]`` -> a per-slot AI-entry override list (parallel to the ``mc`` spawned slots; a None element
+    keeps ``rewrite_main_init``'s default ``1+type`` binding). Raises TypeError/ValueError on a non-int ``ai_entry``
+    (a TOML array/table etc) -- the callers turn that into a clean problem/BattleBuildError, never a raw traceback."""
+    by_slot = {int(e["slot"]): int(e["ai_entry"])
+               for e in scene_cfg.get("enemy", []) if isinstance(e, dict) and "ai_entry" in e and "slot" in e}
+    return [by_slot.get(s) for s in range(mc)] if by_slot else None
+
+
 def validate_battle(project: BattleProject) -> list[str]:
     """Return human-readable problems (empty => OK)."""
     problems: list[str] = []
@@ -125,6 +134,19 @@ def validate_battle(project: BattleProject) -> list[str]:
             ai_patches, ai_funcs = sc.get("ai_patch"), sc.get("ai_function")
             ai_phases, ai_inserts = sc.get("ai_phase"), sc.get("ai_insert")
             eb0 = sd / "eb" / f"{LANGS[0]}.eb.bytes"
+            has_ai_override = any(isinstance(e, dict) and "ai_entry" in e for e in sc.get("enemy", []))
+            if has_ai_override and sc.get("monster_count") is None:      # ai_entry only takes effect via the
+                problems.append("[[scene.enemy]] ai_entry has no effect without [scene] monster_count -- the "    # rebind
+                                "AI-binding override is applied only when monster_count re-authors Main_Init")
+            if sc.get("monster_count") is not None and eb0.is_file():   # dry-run the Main_Init AI-binding rebind so a
+                try:                                                    # bad ai_entry / non-standard donor is caught
+                    patched16, _ = _scene_data.apply_scene_edits(       # offline (it raises a clean BattleBuildError
+                        (sd / "dbfile0000.raw16.bytes").read_bytes(), sc)   # at build time, but validate is friendlier)
+                    mc = patched16[9]
+                    slot_types = [patched16[8 + 8 + 12 * s] for s in range(mc)]
+                    _event_data.rewrite_main_init(eb0.read_bytes(), slot_types, _ai_entries(sc, mc))
+                except (ValueError, TypeError, _scene_data.SceneEditError) as ex:   # TypeError: a non-int (list/table)
+                    problems.append(f"[[scene]] monster_count AI-binding: {ex}")    # ai_entry -> a clean problem, not a crash
             if (ai_patches or ai_funcs or ai_phases or ai_inserts) and eb0.is_file():   # Phase-6b/6c: validate +
                 from . import aipatch as _aipatch, aiauthor as _aiauthor, ailint as _ailint   # LINT the COMPOSED eb
                 atk = None
@@ -242,10 +264,11 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
         # spawn composition re-authors the eb's Main_Init to bind one enemy-AI object per spawned slot, so
         # the AI binding matches the (now-uniform) pattern -- this is what lets a mint EXCEED the donor's
         # natural enemy count without the player-model twitch. slot types come from the patched raw16.
-        slot_types = None
+        slot_types = ai_entries = None
         if scene_cfg and "monster_count" in scene_cfg:
             mc = raw16[9]                                          # pattern 0 MonsterCount (now uniform)
             slot_types = [raw16[8 + 8 + 12 * s] for s in range(mc)]
+            ai_entries = _ai_entries(scene_cfg, mc)               # explicit per-slot AI-entry overrides (validate-gated)
         try:                                                      # the scene attack count -> ai_phase then/else guard
             _atk_count = _scene_data.parse_counts(raw16)[2]
         except Exception:                                         # noqa: BLE001 -- optional, falls back to the byte cap
@@ -256,7 +279,7 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
             eb = (sd / "eb" / f"{lang}.eb.bytes").read_bytes()
             if slot_types is not None:
                 try:
-                    eb = _event_data.rewrite_main_init(eb, slot_types)
+                    eb = _event_data.rewrite_main_init(eb, slot_types, ai_entries)
                 except ValueError as ex:
                     raise BattleBuildError(f"spawn composition needs a Main_Init re-author this donor "
                                            f"can't support: {ex}")
