@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — `[[item]] teaches`: the abilities a piece of gear teaches (Items.csv AbilityIds), no DLL (0.9.87)
+### Added — `[[item]] teaches`: the abilities a piece of gear teaches (Items.csv AbilityIds), no DLL (0.9.87, ★ IN-GAME PROVEN)
 - FF9's "learn abilities from equipment" core: `[[item]] teaches = ["Soul Blade", "Auto-Reflect"]` (ability **names**,
   or explicit **`AA:`** active / **`SA:`** support tokens) **REWRITES** the item's `Items.csv` `AbilityIds` cell — the
   character can use those abilities while the gear is equipped and masters them by earning AP. Rides the existing
@@ -23,7 +23,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   skipped it — `is_token`/`resolve` now treat any `AA:`/`SA:` prefix as a token and reject a bad index offline) +
   a non-equipment `teaches` no-op guard + the per-character-pool + ambiguous-name caveats in FORMAT.md. 13 tests
   (1536 total). **★ Engine note:** a taught ability only takes effect for a character whose learnable pool already
-  contains it (`ff9feqp`/`BattleResultUI.AddAp` match `AbilityIds` against the wearer's pool). **Awaiting in-game proof.**
+  contains it (`ff9feqp`/`BattleResultUI.AddAp` match `AbilityIds` against the wearer's pool).
+- **★ IN-GAME PROVEN (2026-06-13):** `teaches = ["Soul Blade"]` on Mage Masher (vanilla teaches Detect/What's That)
+  → equipping it on Zidane made **Soul Blade** appear in his Skill command + Ability screen (Soul Blade is in
+  Zidane's pool); **unequipping removed it** — the falsifiable check confirming it's the item, not pre-mastery.
 
 ### Added — `[[synthesis]]`: custom synthesis shops (recipes + opener), no DLL (0.9.86, ★ IN-GAME PROVEN)
 - A **synthesis shop** combines ingredient items + gil into a new item. `[[synthesis]] shop = N` + `recipes = [{
