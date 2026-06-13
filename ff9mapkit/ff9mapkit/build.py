@@ -377,6 +377,13 @@ def _validate_on_entry(hooks, names: dict, problems: list) -> None:
                 problems.append(f"{label} requires_flag: {e}")
 
 
+def _zone_desc(z) -> str:
+    """A safe description of a zone's size for a lint message: the point count for a list/tuple, else the
+    Python type name -- so a scalar/string zone never throws a TypeError from ``len()`` inside the message
+    (the lint must surface a clean problem, never traceback on bad input)."""
+    return str(len(z)) if isinstance(z, (list, tuple)) else f"a {type(z).__name__}"
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
@@ -600,8 +607,8 @@ def validate(project: FieldProject) -> list[str]:
                                 'or climb = "<file>" (a real ladder\'s climb, from import)')
     for jp in project.raw.get("jump", []):              # navigable ledge/gap jumps (Ice Cavern style)
         z = jp.get("zone", [])
-        if len(z) not in (3, 4, 5):
-            problems.append(f"[[jump]] zone must have 3-5 points (the take-off trigger), got {len(z)}")
+        if not isinstance(z, (list, tuple)) or len(z) not in (3, 4, 5):   # a scalar zone would len()-crash the lint
+            problems.append(f"[[jump]] zone must have 3-5 points (the take-off trigger), got {_zone_desc(z)}")
         jb = jp.get("jump")
         if not jb:
             problems.append('[[jump]] needs jump = "<file>" (a real jump arc, from `ff9mapkit import`)')
@@ -624,8 +631,8 @@ def validate(project: FieldProject) -> list[str]:
         _validate_party(pty, problems)
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
-        if len(z) not in (4, 5):
-            problems.append(f"[[savepoint]] zone must have 4 or 5 points (the press area), got {len(z)}")
+        if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):     # a scalar zone would len()-crash the lint
+            problems.append(f"[[savepoint]] zone must have 4 or 5 points (the press area), got {_zone_desc(z)}")
     for i, sh in enumerate(project.raw.get("shop", [])):   # custom shop ([[shop]]: inventory CSV + opener)
         sid = sh.get("id")
         if not isinstance(sid, int) or isinstance(sid, bool):
@@ -637,6 +644,8 @@ def validate(project: FieldProject) -> list[str]:
         sells = sh.get("sells")
         if not sells:
             problems.append(f"[[shop]] id {sid} has no `sells` items (a shop needs an inventory)")
+        elif not isinstance(sells, (list, tuple)):          # a bare string iterates char-by-char -> guard first
+            problems.append(f"[[shop]] id {sid} sells must be a list of items (got {type(sells).__name__})")
         else:
             resolved = []
             for it in sells:
@@ -649,8 +658,8 @@ def validate(project: FieldProject) -> list[str]:
             if resolved and all(r == _shop.NO_ITEM for r in resolved):
                 problems.append(f"[[shop]] id {sid} sells only NoItem (255) -- a shop needs at least one real item")
         z = sh.get("zone")
-        if z is not None and len(z) not in (4, 5):
-            problems.append(f"[[shop]] id {sid} zone must have 4 or 5 points (the press area), got {len(z)}")
+        if z is not None and (not isinstance(z, (list, tuple)) or len(z) not in (4, 5)):
+            problems.append(f"[[shop]] id {sid} zone must have 4 or 5 points (the press area), got {_zone_desc(z)}")
     # custom synthesis shop ([[synthesis]]: a Synthesis.csv recipe delta + the same Menu(2, id) opener as a shop).
     shop_ids_local = {sh["id"] for sh in project.raw.get("shop", [])
                       if isinstance(sh.get("id"), int) and not isinstance(sh.get("id"), bool)}

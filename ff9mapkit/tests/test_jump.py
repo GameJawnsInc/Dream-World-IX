@@ -180,3 +180,17 @@ def test_validate_flags_bad_jump(tmp_path):
     probs = build.validate(build.FieldProject.load(p))
     assert any("[[jump]]" in x and "jump =" in x for x in probs)          # missing arc file
     assert any("[[jump]]" in x and "trigger" in x for x in probs)         # bad trigger
+
+
+def test_validate_scalar_zone_no_crash(tmp_path):
+    # a non-list zone must be a clean lint PROBLEM, never a TypeError from len()
+    from ff9mapkit import build
+    p = tmp_path / "bad.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "B"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[jump]]\nzone = 5\njump = "j0.bin"\n',
+        encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))
+    assert any("[[jump]] zone must have 3-5 points" in x for x in probs)

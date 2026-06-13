@@ -5,6 +5,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — scalar-`zone` / string-iterable lint guards on `[[shop]]` / `[[jump]]` / `[[savepoint]]` (0.9.90)
+- The `validate()` paths for `[[shop]]`, `[[jump]]`, and `[[savepoint]]` called `len(zone)` on the raw value, so a
+  scalar `zone = 5` raised an uncaught `TypeError` that aborted the whole lint with a traceback (instead of a clean
+  problem); and `[[shop]] sells = "Potion"` (a bare string) iterated char-by-char into per-character "unknown item
+  'P'/'o'…" noise. Added `isinstance(list/tuple)` guards (a new `_zone_desc` helper reports the point count or the
+  type, never `len()`-crashing in the message) — mirroring the same guards the synthesis review folded into
+  `[[synthesis]]`. The deferred sibling-hardening follow-up from that review, now closed. +4 tests.
+
 ### Added — `[[item_text]]`: an item's menu NAME + description text, no DLL (0.9.89, ★ IN-GAME PROVEN)
 - Rename an item or rewrite its description — the text companion to the stat tuners (`[[item_effect]]` changes how
   much a Potion *heals*; `[[item_text]]` changes the menu text that *says* so): `[[item_text]] name = "Potion"` +

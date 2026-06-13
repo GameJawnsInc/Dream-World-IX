@@ -180,6 +180,19 @@ def test_validate_bad_zone(tmp_path):
     assert any("zone must have 4 or 5" in m for m in probs)
 
 
+def test_validate_scalar_zone_no_crash(tmp_path):
+    # a non-list zone must be a clean lint PROBLEM, never a TypeError from len() (mirrors the synthesis guard)
+    probs = _problems(BASE + '\n[[shop]]\nid = 40\nsells = ["Potion"]\nzone = 5\n', tmp_path)
+    assert any("zone must have 4 or 5" in m for m in probs)
+
+
+def test_validate_string_sells_no_per_char_noise(tmp_path):
+    # a bare-string `sells` = one clean "must be a list", not per-character 'unknown item' noise
+    probs = _problems(BASE + '\n[[shop]]\nid = 40\nsells = "Potion"\n', tmp_path)
+    assert any("sells must be a list" in m for m in probs)
+    assert not any("unknown item 'P'" in m for m in probs)
+
+
 def test_validate_opens_shop_range(tmp_path):
     toml = BASE + '\n[[npc]]\nname = "X"\npos = [0, -600]\nopens_shop = 9999\n'
     assert any("opens_shop must be a shop id" in m for m in _problems(toml, tmp_path))

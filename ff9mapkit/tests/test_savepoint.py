@@ -132,3 +132,17 @@ def test_validate_flags_bad_savepoint_zone(tmp_path):
         encoding="utf-8")
     probs = build.validate(build.FieldProject.load(p))
     assert any("[[savepoint]]" in x and "4 or 5" in x for x in probs)
+
+
+def test_validate_scalar_zone_no_crash(tmp_path):
+    # a non-list zone must be a clean lint PROBLEM, never a TypeError from len()
+    from ff9mapkit import build
+    p = tmp_path / "bad.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "B"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[savepoint]]\nzone = 5\n',
+        encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))
+    assert any("[[savepoint]] zone must have 4 or 5 points" in x for x in probs)
