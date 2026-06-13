@@ -7,9 +7,10 @@
 > **multi-campaign assembler** (`campaigns` / `[[journey.link]]` / `[journey.seed]`) is **BUILT + ★ IN-GAME
 > PROVEN** (`ff9mapkit/journey.py` + `lint-journey`/`assemble-journey` + `tools/deploy_journey.py` —
 > load/resolve/lint/hub-emit + the deploy orchestration & playbook; see §9): a forked Ice Cavern → Ice
-> Cavern/Outside arc, the cavern-exit link warping campaign A's boundary into campaign B (2026-06-13). What
-> remains is the elided **world-map leg** (overworld-seam boundaries). overworld's to own. This doc is the
-> shared schema + the assembler's job list.
+> Cavern/Outside arc, the cavern boundary warping campaign A into campaign B (2026-06-13) — BOTH link
+> mechanisms now proven in-game: `field_remap` (a portal/scripted seam's `Field()` retargeted) AND
+> `worldmap_inject` (the elided **world-map leg** — an overworld `WorldMap` exit body-replaced with a
+> `Field()` warp). **The assembler is COMPLETE.** overworld's to own; this doc is the shared schema + job list.
 >
 > **Lane split (per `project-ff9-branch-lanes`):** overworld owns the World Hub + `gen-hub` + the assembler
 > + player-rig; story_flags owns scenario/party/flag + is the composition owner for starting-state/New-Game.
@@ -248,12 +249,12 @@ Then a minimal `journeys.toml` at the project root referencing both folders (§2
 
 ---
 
-## 9. Implementation status (overworld lane — assembler BUILT + ★ IN-GAME PROVEN; world-map leg remains)
+## 9. Implementation status (overworld lane — assembler COMPLETE + ★ IN-GAME PROVEN)
 
 `ff9mapkit/journey.py` + CLI `lint-journey` / `assemble-journey` + `tools/deploy_journey.py` implement the
-**assembler** — the §8 namespace guarantee, the hub fold-in, AND the deploy orchestration, fully
-unit-testable with no game install (`tests/test_journey.py`, 32 tests) and **proven in-game** (the Ice Cavern
-→ Outside arc, below). The only remaining piece is the elided-world-map-leg injection (overworld seams). The
+**assembler** — the §8 namespace guarantee, the hub fold-in, AND the deploy orchestration (both link modes:
+`field_remap` + `worldmap_inject`), fully unit-testable with no game install (`tests/test_journey.py`, 35
+tests) and **proven in-game** (the Ice Cavern → Outside arc, below — both link mechanisms). The
 schema is unified with overworld's proven single-field hub journeys.
 
 **The unified `journeys.toml`** — one file, `[hub]` (presentation, `ff9mapkit.hub`'s schema) + `[[journey]]`
@@ -278,21 +279,29 @@ optional `set_scenario`) **or** the *multi-campaign* shape from §2 (`campaigns`
 - `build_deploy_plan` / `render_deploy_playbook` / `apply_link_rewrites` (+ `build_campaign(flag_base=)`,
   `deploy_campaign.py --flag-base`, `tools/deploy_journey.py`) — the **deploy orchestration**: each campaign
   into its own stacked mod folder at its disjoint flag window (`--no-warp`; the hub owns New Game), each
-  cross-campaign link realized by byte-patching the boundary member's deployed `.eb` `Field(seam.to_real)` →
-  the next entry id (`content.verbatim.remap_fields`, all langs, revert-guarded), then the hub + New-Game
-  retarget. `deploy_journey.py` (dry-run) prints the ordered, copy-pasteable **playbook** of these
-  individually revert-guarded steps (apply + PLAYTEST each in order — "one change per in-game test"); its
-  `--apply-links` executes the one journey-unique step (the link `.eb` remaps). An **overworld** boundary
-  seam (exit-to-world-map, no `Field()` op) is detected as **not retargetable** and flagged.
+  cross-campaign link realized by byte-patching the boundary member's deployed `.eb` (all langs,
+  revert-guarded), then the hub + New-Game retarget. `deploy_journey.py` (dry-run) prints the ordered,
+  copy-pasteable **playbook** of these individually revert-guarded steps; its `--apply-links` executes the one
+  journey-unique step (the link `.eb` patches). **Two link modes** (`_seam_remap` picks):
+    * `field_remap` — a scripted/portal seam (one `Field(to_real)` op): `content.verbatim.remap_fields`
+      retargets it → the next entry, length-preserving.
+    * `worldmap_inject` — an **overworld** seam (exit-to-world-map: a `WorldMap` op, no field id, so nothing
+      to retarget): `eb.edit.replace_function_body` swaps the boundary's tag-2 walk-out region handler for the
+      proven field-109 gateway warp body (`Field(dst)` + arrival entrance), **reusing the region's existing
+      map-edge zone** — no new entry slot, no zone authoring, no double-exit. This is the **elided world-map
+      leg**: "leave to the world map" becomes "warp into the next campaign". A link `to.entrance` sets the
+      arrival entrance; a boundary with no onward seam (or several `Field()` targets) is `none` (not wired).
 
 **The §6 open decisions, resolved (overworld's call):**
 1. **Location** — project root, campaign folders **relative to the journeys.toml** (`manifest.root`). A
    single-campaign demo beside its `campaign.toml` also works (folders are relative either way).
 2. **Targets** — member **NAME** preferred (resolved to a global id at assemble); a raw id is accepted but
    lint **warns** (brittle to re-id).
-3. **Elided world-map leg** — a bare cross-campaign `Field()` warp (the link, realized at deploy time); no
-   interstitial field for now. The link `from` names the **boundary member** (key `field`, alias `seam`);
-   lint flags a source with no out-of-chain seam (nothing to retarget — the deploy injects a fresh warp).
+3. **Elided world-map leg** — a bare cross-campaign `Field()` warp, no interstitial field. ★ DONE +
+   IN-GAME PROVEN via `worldmap_inject` (body-replace the boundary's `WorldMap` walk-out region with a
+   `Field(dst)` warp, reusing its zone — *not* a separately-injected region, which would risk a double-exit).
+   The link `from` names the **boundary member** (key `field`, alias `seam`); a source with no onward seam at
+   all is flagged `none` (nothing to wire).
 4. **Seed** — `[journey.seed]` **IS** the story_flags capstone (the whole table is carried verbatim as
    `JourneySeed.raw`); no parallel mechanism. The hub also seeds `scenario` so the select path lands on the
    right beat.
@@ -303,16 +312,19 @@ optional `set_scenario`) **or** the *multi-campaign* shape from §2 (`campaigns`
 **★ IN-GAME PROVEN (2026-06-13):** a forked **Ice Cavern → Ice Cavern/Outside** arc — `import-chain 300
 --verbatim` (12 fields, 6200–6211) + `import-chain 312 --verbatim --max-fields 1` (1 field, 6300), each into
 its own stacked mod folder at its disjoint flag window. After the playbook (deploy both `--no-warp
---flag-base`, then `deploy_journey --apply-links`), walking out the cavern **exit** (`JICE_IC_XIT`, 6211)
-lands in the **forked** Outside (6300), not the real game — the cross-campaign link (the boundary's portal
-seam `Field(312)` retargeted → 6300) fires. ★ **Gotcha learned:** `deploy_campaign` wholesale-replaces a
-folder, so `--apply-links` must run **last** and be **re-run after any campaign re-deploy** (else the link
-patch is wiped — the symptom is landing in the real target id). The playbook now warns this.
+--flag-base`, then `deploy_journey --apply-links`), the cross-campaign link fires. BOTH link modes proven:
+- **`field_remap`** — walking out the cavern **exit** (`JICE_IC_XIT`, 6211, a portal seam) lands in the
+  **forked** Outside (6300): the boundary's `Field(312)` retargeted → 6300.
+- **`worldmap_inject` (the elided world-map leg)** — walking out the cavern **entrance**'s WORLD-MAP exit
+  (`JICE_IC_ENT`, 6200, a pure overworld seam — `WorldMap` op, no field id) lands in the forked Outside
+  (6300): its tag-2 walk-out region body-replaced with the proven `Field(6300)` warp, reusing the region's
+  own map-edge zone. So "leave to the world map" became "warp into the next campaign" (2026-06-13).
 
-**Remaining:**
-- **The elided world-map leg** (overworld seams) — a boundary that exits to the world map has no `Field()` to
-  retarget; wiring it needs a region-INJECTED warp at the exit trigger (the kit can't do a real overworld
-  leg). `build_deploy_plan` flags these as not-auto-wirable today; the injection is the next deploy feature.
+★ **Gotcha learned:** `deploy_campaign` wholesale-replaces a folder, so `--apply-links` must run **last** and
+be **re-run after any campaign re-deploy** (else the link patch is wiped — the symptom is landing in the real
+target id). The playbook warns this.
+
+**The assembler is COMPLETE.** Remaining is polish, not capability:
 - **Richer seed application** — `apply_link_rewrites` covers links; emitting `[journey.seed]` as the
   story_flags capstone on the entry field + the start-state-CSV promotion is wired in `deploy_campaign`
   already (reused per-campaign) but not yet driven from a single `deploy_journey --apply`.
