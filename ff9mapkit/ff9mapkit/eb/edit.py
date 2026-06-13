@@ -197,11 +197,18 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
     Unlike :func:`insert_bytes` (which only fixes the entry table), this ALSO fixes the intra-entry
     function-table ``fpos`` of every *other* function whose body starts at/after the insert point --
     the gap that makes a raw insert into a non-last function corrupt the later funcs. So that the
-    function's own relative jumps stay valid, the insert point must not be straddled by any of
-    ``func_tag``'s jumps (raised otherwise). Inserting right after a setup opcode and before the
-    function's tail (e.g. after the player's ``DefinePlayerCharacter``, before its ``EnableMove``
-    block) is safe: every tail jump and its target shift together. Used to place the ladder re-entry
-    spawn inside the player Init, exactly as field 706 does (no warm-up, no base-position flash)."""
+    function's own relative jumps stay valid, a MID-function insert point must not be straddled by any
+    of ``func_tag``'s jumps (raised otherwise; a 0x06 jump table can't be analysed, so a mid-function
+    insert into one is refused). Inserting right after a setup opcode and before the function's tail
+    (e.g. after the player's ``DefinePlayerCharacter``, before its ``EnableMove`` block) is safe: every
+    tail jump and its target shift together. Used to place the ladder re-entry spawn inside the player
+    Init, exactly as field 706 does (no warm-up, no base-position flash).
+
+    A **prepend** (``rel_off == 0``) is ALWAYS safe -- even on a function with a 0x06/0x0B scenario
+    jump table -- because the engine is uniformly IP-relative: moving the whole body wholesale keeps
+    every relative offset valid (both endpoints shift together), and nothing can sit between the new
+    start and a later target. This is the ``[startup]``/``activate`` path, and it now works on the ~11%
+    of fields whose Main_Init switches on the ScenarioCounter (e.g. the interactive-ATE hub field 206)."""
     eb = EbScript.from_bytes(data)
     f = eb.entry(entry_index).func_by_tag(func_tag)
     if f is None:
@@ -209,15 +216,25 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
     abs_ins = f.abs_start + rel_off
     if not (f.abs_start <= abs_ins < f.abs_end):
         raise ValueError(f"insert offset {rel_off} is outside func {func_tag} body")
-    for j in eb.instrs(f):                                  # the function's own relative jumps
-        if j.op in (0x01, 0x02, 0x03) and not j.arg_is_expr[0]:
-            raw = j.imm(0)
-            tgt = j.end + (raw - 0x10000 if raw >= 0x8000 else raw)
-            lo, hi = sorted((j.end, tgt))
-            if lo < abs_ins < hi:
-                raise ValueError(f"insert at {abs_ins} straddles jump {j.off}->{tgt} in func {func_tag}")
-        elif j.op == 0x06:
-            raise ValueError(f"func {func_tag} has a jump table (0x06); insert unsupported")
+    # A prepend at the function's very start (abs_ins == f.abs_start, i.e. rel_off == 0) can NEVER
+    # be straddled by the function's own control flow: the engine is uniformly IP-relative
+    # (``s1.ip += offset`` -- bra/beq/bne AND the 0x06/0x0B switch tables, EBin.cs), so moving the
+    # whole body wholesale preserves every relative offset (both endpoints shift together). Only a
+    # genuine MID-function insert can split a jump from its target, so the (best-effort) jump-safety
+    # analysis is needed only then. This is what lets [startup]/activate prepend onto the ~11% of
+    # fields whose Main_Init switches on the ScenarioCounter via a 0x06 jump table (e.g. field 206,
+    # the interactive-ATE hub) -- exactly the case inject_startup's docstring already promises is safe.
+    if abs_ins > f.abs_start:
+        for j in eb.instrs(f):                              # the function's own relative jumps
+            if j.op in (0x01, 0x02, 0x03) and not j.arg_is_expr[0]:
+                raw = j.imm(0)
+                tgt = j.end + (raw - 0x10000 if raw >= 0x8000 else raw)
+                lo, hi = sorted((j.end, tgt))
+                if lo < abs_ins < hi:
+                    raise ValueError(f"insert at {abs_ins} straddles jump {j.off}->{tgt} in func {func_tag}")
+            elif j.op == 0x06:
+                raise ValueError(f"func {func_tag} has a jump table (0x06); mid-function insert "
+                                 f"unsupported (a prepend at the function start IS supported)")
     out = bytearray(insert_bytes(data, abs_ins, bytes(ins)))   # grows entry + later entries; fpos NOT fixed
     so = ENTRY_TABLE_OFF + entry_index * ENTRY_SLOT_SIZE
     es = ENTRY_TABLE_OFF + u16(out, so)

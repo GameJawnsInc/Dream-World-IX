@@ -84,6 +84,27 @@ def test_startup_eb_parses_clean_after_inject(tmp_path):
         assert list(eb.instrs(reinit))
 
 
+def test_startup_prepends_onto_scenario_jump_table_main_init():
+    """[startup] must work on the ~11% of fields whose Main_Init switches on the ScenarioCounter via a 0x06
+    jump table (e.g. the interactive-ATE hub field 206). inject_startup PREPENDS the scenario-set ahead of the
+    switch -- IP-relative, so the table shifts intact -- and the field's own dispatch then routes to the
+    asserted beat. Regression for the old 'func 0 has a jump table (0x06); insert unsupported' refusal."""
+    import struct
+    from ff9mapkit.content import startup
+    code = (bytes([0x22, 0x00, 0x05])                                      # Wait(5)
+            + bytes([0x06, 0x02, 0x7A, 0x00, 0xD0, 0x07, 0x06, 0x00, 0xDD, 0x07, 0x08, 0x00])  # op_06, 2 cases
+            + bytes([0x00]))
+    entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + code          # type, funcCount=1, (tag0,fpos4), code
+    raw = (b"EV" + bytes([0x00, 1]) + bytes(0x2C - 4) + bytes(84)
+           + struct.pack("<HHBBH", 8, len(entry), 0, 0, 0) + entry)
+
+    out = startup.inject_startup(raw, presets=[], scenario=1900)           # used to raise on the 0x06
+    eb = EbScript.from_bytes(out)
+    body = _main_init_bytes(eb)
+    assert body.startswith(region.set_var(region.GLOB_UINT16, 0, 1900))    # the scenario-set runs first
+    assert any(i.op == 0x06 for i in eb.instrs(eb.entry(0).func_by_tag(0)))  # the switch table survives intact
+
+
 def test_startup_scenario_by_area_name(tmp_path):
     toml = BASE + '\n[startup]\nscenario = "Ice Cavern"\n'         # resolves to 2500 (a unique beat)
     body = _main_init_bytes(_build_eb(tmp_path, toml))

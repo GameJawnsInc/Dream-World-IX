@@ -180,8 +180,9 @@ shops. "No winATE menu" is true only of the ATE bracket region.)*
 ATE. The engine's `ProcessATEDialog → MappingATEID → ATE80Achievement` converts the **same** `SelectChoice` into
 a global ATE id **only** for the trophy; it does not pick or run the cutscene.
 
-*(The exact `op_0B` literals were reproduced in the synthesis pass but should be re-pulled from `p0data` before
-templating, since the provenance-clean repo doesn't ship field-206's `.eb`.)*
+*(Re-confirmed by direct disassembly of field 206's `.eb` extracted from the user's `p0data` (kit `disasm`):
+the exact `op_0B(0,1201,15,238,472,703,934)` and the `op_06(122, 1900→, 2005→, 2010→)` scenario dispatch in
+`Main_Init` are byte-verified — see §7 for the in-game test forks built from them.)*
 
 ---
 
@@ -231,22 +232,35 @@ register seen-state or count toward the trophy** — no `MappingATEID` switch ro
 either a **verbatim fork onto a *real* field id** (parasitic on the real `MappingATEID` row) or a **DLL
 `MappingATEID` extension** (outside the no-DLL boundary).
 
-**Smallest next in-game experiment:** `--verbatim` fork field 206 (or a smaller interactive-ATE field) onto a
-custom id, deploy via the test-slot loop, and confirm: (i) the HUD prompt blinks, (ii) SELECT opens the winATE
-menu with the real choice list, (iii) picking a row plays the chosen branch. **Predicted:** trigger + menu +
-cutscene work; the `AteCheck`/ATE80 "seen" mark does **not** fire — proving `.eb` fidelity *and* visibly
-demonstrating the engine-table gap.
+**In-game test forks — BUILT + DEPLOYED (awaiting playtest):**
+- **Compulsory flavor** — `--verbatim` fork of field 1901 (Eiko ATE), `[startup] scenario = 9400`, text block 741
+  (the donor's real mesID, unshadowed) → **slot 30006** (`FF9CustomMap-ate`). The `ATE(1)…ATE(0)` bracket runs in
+  `Main_Init`, so it auto-plays on warp-in.
+- **Interactive flavor** — `--verbatim` fork of field 206 (Prima Vista hub), `[startup] scenario = 1900` (the SC
+  the `op_06` routes to the `ATE(5)` + winATE menu), text block 40 → **slot 30007**. Confirm: (i) the HUD prompt
+  blinks, (ii) SELECT opens the winATE menu with the real choice list, (iii) picking a row plays the chosen branch.
+- **Predicted:** trigger + menu + cutscene work; the `AteCheck`/ATE80 "seen" mark does **not** fire (custom id has
+  no `MappingATEID` row) — proving `.eb` fidelity *and* visibly demonstrating the engine-table gap.
+
+> **Kit fix this session — `[startup]` now works on scenario-jump-table fields.** The interactive-ATE hubs
+> (field 206 and ~11% of fields) gate their content with a `0x06` jump table in `Main_Init`; `[startup]` must set
+> the ScenarioCounter *ahead* of it. The byte-inserter (`eb/edit.insert_in_function`) previously refused any
+> insert into a `0x06` function. Since the engine is uniformly IP-relative (`s1.ip += offset` for every jump,
+> incl. the switch tables, `EBin.cs`), a **prepend at the function start moves the whole body wholesale and can't
+> straddle anything** — so it's always safe. The inserter now allows the boundary prepend (mid-function inserts
+> into a `0x06` func are still refused). This is what let the field-206 fork build.
 
 ---
 
 ## 8. Open questions / needs in-game proof
 
-1. **`op_0B` literals for field 206** — mechanism confirmed; the exact jump-table byte layout should be
-   re-extracted from `p0data` (UnityPy) before templating.
+1. ~~**`op_0B` literals for field 206**~~ — **RESOLVED:** re-extracted from the user's `p0data` and byte-confirmed
+   (`op_0B(0,1201,15,238,472,703,934)` + the `op_06` SC dispatch).
 2. **`ATE(mode)` combos beyond `{0,1,2,5,6}`** — C# says "rest unknown"; `ProcessAIcon` masks suggest only `&3`
    (colour) and `&4` (force) matter, but unproven in-game.
-3. **In-game ATE-fork fidelity** — the §7 experiment is unrun. Does a custom-id verbatim fork's winATE menu render
-   and dispatch, and is the `AteCheck`/ATE80 non-registration confirmed (predicted, not observed)?
+3. **In-game ATE-fork fidelity** — forks are **deployed** (30006 compulsory, 30007 interactive) but **not yet
+   playtested**. Does a custom-id verbatim fork's winATE menu render and dispatch, and is the `AteCheck`/ATE80
+   non-registration confirmed (predicted, not observed)?
 4. **The `0x8000` high bit** on the ATE-menu `EnableDialogChoices` availability mask — exact role (grey vs hide vs
    gate menu rows) undocumented in the kit; needs a focused disasm pass.
 5. **The exact SELECT-poll idiom** (`B_KEYON` vs `B_KEY`) real ATE fields use — inferred, should be byte-quoted

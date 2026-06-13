@@ -138,6 +138,49 @@ def test_nop_cinematics_strips_only_pre_warp_fmv():
     assert edit.nop_cinematics(raw) == (raw, 0)
 
 
+def _eb_with_op06() -> bytes:
+    """A minimal, provenance-clean .eb whose Main_Init (entry 0, tag 0) holds a 0x06 scenario jump table.
+
+    Models the ~11% of real fields (e.g. field 206, the interactive-ATE hub) whose Main_Init switches on
+    the ScenarioCounter. Body: ``Wait(5)`` ; ``op_06`` count=2 (v0=122, (2000->+6), (2013->+8)) ; NOP."""
+    code = (bytes([0x22, 0x00, 0x05])                                  # Wait(5)
+            + bytes([0x06, 0x02, 0x7A, 0x00, 0xD0, 0x07, 0x06, 0x00, 0xDD, 0x07, 0x08, 0x00])  # op_06, 2 cases
+            + bytes([0x00]))                                          # NOP / fall-through
+    entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + code      # type, funcCount=1, (tag0, fpos=4), code
+    slot = struct.pack("<HHBBH", 8, len(entry), 0, 0, 0)              # off=8 (after the 1-slot table), size
+    return b"EV" + bytes([0x00, 1]) + bytes(0x2C - 4) + bytes(84) + slot + entry
+
+
+def test_prepend_into_jump_table_field_preserves_table():
+    """A prepend (insert_in_function at rel_off 0) onto a Main_Init with a 0x06 jump table must SUCCEED and
+    move the table wholesale -- the engine is uniformly IP-relative, so the case offsets stay valid. This is
+    the [startup]/activate path on scenario-switch fields (was wrongly refused: 'jump table (0x06)')."""
+    raw = _eb_with_op06()
+    eb0 = EbScript.from_bytes(raw)
+    f0 = eb0.entry(0).func_by_tag(0)
+    op06_before = next(i for i in eb0.instrs(f0) if i.op == 0x06)
+
+    ins = bytes([0x05, 0xDC, 0x00, 0x7D, 0x6C, 0x07, 0x2C, 0x7F])      # set ScenarioCounter (token 0xDC) = 1900
+    out = edit.insert_in_function(raw, 0, 0, 0, ins)
+
+    eb1 = EbScript.from_bytes(out)                                    # must re-parse (tables consistent)
+    f1 = eb1.entry(0).func_by_tag(0)
+    assert out[f1.abs_start:f1.abs_start + len(ins)] == ins           # prepended bytes run first
+    op06_after = next(i for i in eb1.instrs(f1) if i.op == 0x06)
+    assert op06_after.args == op06_before.args                        # case values/offsets BYTE-identical
+    assert op06_after.off == op06_before.off + len(ins)              # shifted by exactly the insert size
+    assert raw[f0.abs_start:] == out[f0.abs_start + len(ins):]        # original body is a clean wholesale shift
+    assert eb1.to_bytes() == out                                     # round-trips
+
+
+def test_mid_function_insert_into_jump_table_still_raises():
+    """A genuine MID-function insert into a 0x06 jump-table function is still refused (its case offsets can't
+    be analysed) -- only the boundary prepend is proven safe."""
+    raw = _eb_with_op06()
+    with pytest.raises(ValueError, match="jump table"):
+        edit.insert_in_function(raw, 0, 0, 3, bytes([0x00]))         # rel_off 3 = after Wait(5), before op_06
+
+
 def test_encoders_known_bytes():
     assert opcodes.init_region(4, 0) == bytes([0x08, 4, 0])
     assert opcodes.init_object(2, 0) == bytes([0x09, 2, 0])
