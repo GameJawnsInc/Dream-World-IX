@@ -374,7 +374,12 @@ def _cmd_assemble_journey(args: argparse.Namespace) -> int:
             if args.dry_run:
                 print("DRY-RUN -- no hub field.toml written. Drop --dry-run to emit it.")
                 return 0
-        info = journey.generate_hub(manifest.path, out_path=args.out)
+        if getattr(args, "extract_camera", False) and not _has_unitypy():
+            print("--extract-camera needs UnityPy (pip install UnityPy) + your FF9 install.", file=sys.stderr)
+            return 2
+        info = journey.generate_hub(manifest.path, out_path=args.out,
+                                    extract_camera=getattr(args, "extract_camera", False),
+                                    game=getattr(args, "game", None), force=getattr(args, "force", False))
     except (journey.JourneyError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -385,8 +390,16 @@ def _cmd_assemble_journey(args: argparse.Namespace) -> int:
         print(f"  {j.name!r} -> field {j.entry}{seed}")
     for w in info.get("warnings", []):
         print("warning: " + w, file=sys.stderr)
-    print(f"Next: build the hub (`ff9mapkit build {info['path']}` / tools/deploy_field.py) + deploy each "
-          f"campaign (tools/deploy_campaign.py --no-warp), then retarget New Game -> the hub.")
+    ex = info.get("extracted")
+    if ex:
+        print(f"camera: {'reused cached' if ex.get('cached') else 'extracted'} field {spec.borrow_field} "
+              f"-> {ex['camera']}  (the hub [camera] borrow is wired up)")
+    elif spec.borrow_field:
+        print(f"Next: extract the hub camera -- `ff9mapkit assemble-journey {args.journeys} --extract-camera` "
+              f"(or `ff9mapkit extract-field {spec.borrow_field}`) -- then build/deploy the hub.")
+    print(f"Then build + deploy the hub (`tools/deploy_field.py {info['path']}`) + each campaign "
+          f"(`tools/deploy_campaign.py --no-warp`); or run the whole journey with `tools/deploy_journey.py "
+          f"{args.journeys} --apply`.")
     return 0
 
 
@@ -1930,6 +1943,10 @@ def build_parser() -> argparse.ArgumentParser:
     aj.add_argument("--graph", action="store_true", help="print the resolved namespace before emitting")
     aj.add_argument("--dry-run", dest="dry_run", action="store_true",
                     help="lint + print the resolved plan, but DON'T write the hub field.toml")
+    aj.add_argument("--extract-camera", dest="extract_camera", action="store_true",
+                    help="pull the hub's [hub] borrow_field camera into the workspace cache + wire the emitted "
+                         "[camera] borrow to it (needs the install + UnityPy)")
+    aj.add_argument("--force", action="store_true", help="re-extract the camera even if already cached")
     aj.set_defaults(func=_cmd_assemble_journey)
 
     ef = sub.add_parser("extract-field", help="cache a real field's camera+walkmesh in the gitignored "

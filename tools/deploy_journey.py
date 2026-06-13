@@ -171,6 +171,25 @@ def _apply_journey(manifest, plan, args) -> int:
         print(f"Partial state is reversible: py {unified.relative_to(REPO).as_posix()}", file=sys.stderr)
         return 2
 
+    # (0) PRE-FLIGHT (NO game files touched): emit the hub -- auto-extracting its [hub] borrow_field camera --
+    #     and BUILD it offline. A missing camera / unbuildable hub must abort HERE, before any campaign or link
+    #     lands; it must never fail at step 3 after the campaigns + links are already deployed.
+    import tempfile
+    from ff9mapkit import build as B
+    hub_toml = Path(args.hub_out) if args.hub_out else (manifest.path.parent / "hub.field.toml")
+    print("\n=== 0. pre-flight: emit + build-check the hub (no game files touched) ===")
+    try:
+        info = J.generate_hub(manifest.path, out_path=hub_toml, extract_camera=True, game=game)
+        with tempfile.TemporaryDirectory() as td:
+            B.build_mod([B.FieldProject.load(hub_toml)], Path(td) / "mod", mod_name="preflight")
+    except Exception as e:                                # any emit/extract/build failure -> abort cleanly
+        print(f"\nABORT (no game files touched): the hub does not build -- {e}", file=sys.stderr)
+        if any(k in str(e).lower() for k in ("borrow", "camera", "scene", ".bgx")):
+            print("  Provision the hub camera: set [hub] borrow_field = <real field id> (auto-extracted via "
+                  "UnityPy), or place the [hub] camera .bgx beside the journeys.toml.", file=sys.stderr)
+        return 2
+    print(f"  hub OK -> {hub_toml}  (camera: {info['spec'].camera})")
+
     # (1) each campaign -> its own stacked folder (--no-warp); the ENTRY campaign is seed-built in-process
     print("\n=== 1. campaigns ===")
     for s in plan.campaign_steps:
@@ -202,14 +221,8 @@ def _apply_journey(manifest, plan, args) -> int:
     if not links_ok:
         return _abort("a cross-campaign link did not apply (see !! above)")
 
-    # (3) emit + deploy the hub field
+    # (3) deploy the hub field (already emitted + build-checked in pre-flight step 0)
     print("\n=== 3. hub ===")
-    hub_toml = Path(args.hub_out) if args.hub_out else (manifest.path.parent / "hub.field.toml")
-    try:
-        J.generate_hub(manifest.path, out_path=hub_toml)
-    except (J.JourneyError, ValueError) as e:
-        return _abort(f"hub emit failed: {e}")
-    print(f"  emitted hub -> {hub_toml}")
     rc = _run([sys.executable, str(HERE / "deploy_field.py"), str(hub_toml),
                "--id", str(plan.hub_field_id), "--mod-folder", highest])
     if rc != 0:

@@ -519,11 +519,16 @@ def manifest_to_hub_spec(manifest: JourneyManifest) -> "_hub.HubSpec":
     return _hub.hubspec_from_table(manifest.hub, hub_journeys)
 
 
-def generate_hub(journeys_path, out_path=None) -> dict:
+def generate_hub(journeys_path, out_path=None, *, extract_camera=False, game=None, force=False) -> dict:
     """Load a ``journeys.toml``, lint it, and emit the hub ``field.toml`` (resolving bare + multi-campaign
-    journeys alike). Returns ``{path, spec, errors, warnings}``. Raises :class:`JourneyError` on a lint error.
-    Pure offline codegen -- the existing build/deploy path then compiles the emitted hub field. (gen-hub is
-    the bare-only twin; this is the full assembler's hub step.)"""
+    journeys alike). Returns ``{path, spec, errors, warnings, extracted}``. Raises :class:`JourneyError` on a
+    lint error. The existing build/deploy path then compiles the emitted hub field. (gen-hub is the bare-only
+    twin; this is the full assembler's hub step.)
+
+    ``extract_camera`` (needs the install + UnityPy): auto-provision the hub's backdrop camera from ``[hub]
+    borrow_field`` into the gitignored workspace cache and point the emitted ``[camera] borrow`` at it -- so a
+    journey assemble/deploy "just works" without a manual extract step (the same lever as ``gen-hub
+    --extract-camera``)."""
     manifest = load_journeys(journeys_path)
     errors, warnings = lint_manifest(manifest)
     if errors:
@@ -535,9 +540,13 @@ def generate_hub(journeys_path, out_path=None) -> dict:
     out_path = Path(out_path) if out_path else (manifest.root / "hub.field.toml")
     if out_path.is_dir():
         out_path = out_path / "hub.field.toml"
+    extracted = None
+    if extract_camera:
+        extracted = _hub.extract_camera_into_spec(spec, out_path.parent, game=game, force=force)
     text = _hub.render_hub_field_toml(spec, source=manifest.path.name)
     out_path.write_text(text, encoding="utf-8", newline="\n")
-    return {"path": out_path, "spec": spec, "errors": errors, "warnings": list(warnings) + list(hwarn)}
+    return {"path": out_path, "spec": spec, "errors": errors, "warnings": list(warnings) + list(hwarn),
+            "extracted": extracted}
 
 
 # ---------------------------------------------------------------- read-only resolved view

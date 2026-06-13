@@ -333,7 +333,10 @@ in-game playtest of the one-shot path):
   so forcing it would hijack an existing hub (e.g. a live World Hub); reach the new hub via **F6 → Warp**, or
   pass `--wire-newgame` to opt into making it the New-Game landing. Ends by printing the manual FolderNames +
   relaunch steps (Hard Constraint §2). `--apply-links` still runs only the link step (re-apply after a
-  campaign re-deploy).
+  campaign re-deploy). **Pre-flight (step 0):** emit the hub + **auto-extract its `[hub] borrow_field`
+  camera** (`assemble-journey --extract-camera` / `generate_hub(extract_camera=)`) and build-check it
+  offline, so a missing camera aborts BEFORE any campaign is deployed — never mid-deploy after the campaigns
+  + links have landed.
 - **`[journey.seed]` capstone** — `journey.seed_to_field_blocks` translates the seed to the kit's
   `[startup]`/`[party]`/`[start_inventory]`/`[[equipment]]` blocks; `campaign.build_campaign(seed_blocks=)` →
   `apply_seed_blocks` merges them into the journey's ENTRY member in-memory before build (no forked-toml

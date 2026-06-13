@@ -320,6 +320,21 @@ def _relpath(target, start_dir) -> str:
         return target.as_posix()
 
 
+def extract_camera_into_spec(spec: HubSpec, out_dir, *, game=None, force=False) -> dict:
+    """Pull the ``[hub] borrow_field`` room's camera into the gitignored workspace cache and point
+    ``spec.camera`` at that ONE central copy (a repo-relative path from ``out_dir``). Returns the
+    ``extract.cache_field`` result. Shared by :func:`generate` (gen-hub) and the journey assembler's hub emit
+    (:func:`ff9mapkit.journey.generate_hub`) so both auto-provision the borrowed camera identically. Needs the
+    install + UnityPy."""
+    if not spec.borrow_field:
+        raise HubError("camera extraction needs [hub] borrow_field = <real field id> (the room whose camera "
+                       "to extract; e.g. borrow_field = 950). Or supply the [hub] camera .bgx yourself.")
+    from . import extract as _extract
+    extracted = _extract.cache_field(spec.borrow_field, game=game, force=force)
+    spec.camera = _relpath(extracted["camera"], Path(out_dir))   # point at the ONE central cache copy
+    return extracted
+
+
 def generate(journeys_path, out_path=None, *, extract_camera=False, game=None, force=False) -> dict:
     """Load a ``journeys.toml``, validate it, and emit the hub ``field.toml``. Returns a summary
     ``{path, spec, warnings, journeys, extracted}``. Raises :class:`HubError` on a validation error.
@@ -340,12 +355,7 @@ def generate(journeys_path, out_path=None, *, extract_camera=False, game=None, f
 
     extracted = None
     if extract_camera:
-        if not spec.borrow_field:
-            raise HubError("--extract-camera needs [hub] borrow_field = <real field id> (the room whose "
-                           "camera to extract; e.g. borrow_field = 950 for the example hub).")
-        from . import extract as _extract
-        extracted = _extract.cache_field(spec.borrow_field, game=game, force=force)
-        spec.camera = _relpath(extracted["camera"], out_path.parent)   # point at the ONE central cache copy
+        extracted = extract_camera_into_spec(spec, out_path.parent, game=game, force=force)
 
     text = render_hub_field_toml(spec, source=journeys_path.name)
     out_path.write_text(text, encoding="utf-8", newline="\n")
