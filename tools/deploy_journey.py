@@ -96,10 +96,17 @@ def main(argv=None) -> int:
         for r in results:
             if r["found"]:
                 any_found = True
-                print(f"  linked {r['eb']}: {r['remap']}  ({r['langs']} lang file(s))")
-            else:
-                print(f"  !! {r['eb']}: no Field({list(r['remap'])[0]}) found in the deployed .eb -- is the "
+                if r["mode"] == "worldmap_inject":
+                    print(f"  linked {r['eb']}: overworld exit -> Field({r['dst_id']}) region  "
+                          f"({r['regions']} region(s), {r['langs']} lang file(s))")
+                else:
+                    print(f"  linked {r['eb']}: {r['remap']}  ({r['langs']} lang file(s))")
+            elif r["mode"] == "worldmap_inject":
+                print(f"  !! {r['eb']}: no tag-2 WorldMap walk-out region found in the deployed .eb -- is the "
                       f"campaign deployed yet, and is the boundary a VERBATIM fork (ships its donor .eb)?")
+            else:
+                print(f"  !! {r['eb']}: no Field({list(r['remap'])[0] if r['remap'] else '?'}) found in the "
+                      f"deployed .eb -- is the campaign deployed, and the boundary a VERBATIM fork?")
         if any_found:
             out = HERE / "scroll_out"
             out.mkdir(exist_ok=True)

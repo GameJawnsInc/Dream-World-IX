@@ -144,7 +144,8 @@ to = { campaign = "ice_cavern", field = "IC_ENT" }
     assert rj.flag_windows["evil_forest"] == (FIRST_SAFE_FLAG, FIRST_SAFE_FLAG + 127, 64)
     assert rj.flag_windows["ice_cavern"] == (FIRST_SAFE_FLAG + 128, FIRST_SAFE_FLAG + 191, 32)
     assert rj.links == [{"src_campaign": "evil_forest", "src_field": "EVF_EXIT", "src_id": 6001,
-                         "dst_campaign": "ice_cavern", "dst_field": "IC_ENT", "dst_id": 6100}]
+                         "dst_campaign": "ice_cavern", "dst_field": "IC_ENT", "dst_id": 6100,
+                         "dst_entrance": 0}]
 
 
 def test_resolve_bare(tmp_path):
@@ -415,12 +416,14 @@ def test_build_deploy_plan(tmp_path):
     # the link is retargetable: remap the scripted seam target (652) -> the cavern entry (6100)
     assert len(plan.links) == 1
     lk = plan.links[0]
-    assert lk.retargetable and lk.remap == {652: 6100} and lk.eb_name == "EVT_EVF_EXIT"
+    assert lk.mode == "field_remap" and lk.retargetable and lk.remap == {652: 6100}
+    assert lk.eb_name == "EVT_EVF_EXIT"
     assert lk.src_mod_folder == "FF9CustomMap-evf" and lk.dst_id == 6100
 
 
-def test_deploy_plan_overworld_seam_not_retargetable(tmp_path):
-    # EVF_EXIT's only seam is overworld (no Field() op) -> the link can't be auto-wired
+def test_deploy_plan_overworld_seam_worldmap_inject(tmp_path):
+    # EVF_EXIT's only seam is overworld (no Field() op) -> the link is auto-wired by worldmap_inject
+    # (body-replace the walk-out region with a Field(dst) warp -- the elided world-map leg)
     _make_campaign(tmp_path, "evil_forest", members=["EVF_START", "EVF_EXIT"], id_base=6000, mod_folder="mf-a",
                    seams=[{"frm": "EVF_EXIT", "to_real": "WORLDMAP", "kind": "overworld", "note": "wm"}])
     _make_campaign(tmp_path, "ice_cavern", members=["IC_ENT"], id_base=6100, mod_folder="mf-b")
@@ -431,11 +434,30 @@ campaigns = ["evil_forest", "ice_cavern"]
 entry = { campaign = "evil_forest", field = "EVF_START" }
 [[journey.link]]
 from = { campaign = "evil_forest", field = "EVF_EXIT" }
-to = { campaign = "ice_cavern", field = "IC_ENT" }
+to = { campaign = "ice_cavern", field = "IC_ENT", entrance = 3 }
 """)
     plan = journey.build_deploy_plan(journey.load_journeys(p))
     lk = plan.links[0]
-    assert not lk.retargetable and lk.remap == {} and "overworld" in lk.note
+    assert lk.mode == "worldmap_inject" and lk.retargetable and lk.remap == {}
+    assert lk.dst_id == 6100 and lk.dst_entrance == 3 and "overworld" in lk.seam_kinds
+
+
+def test_deploy_plan_no_seam_not_retargetable(tmp_path):
+    # a boundary member with NO onward seam at all -> not auto-wirable
+    _make_campaign(tmp_path, "ca", members=["A1", "A2"], id_base=6000, mod_folder="mf-a")  # A2 has no seam
+    _make_campaign(tmp_path, "cb", members=["B1"], id_base=6100, mod_folder="mf-b")
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["ca", "cb"]
+entry = { campaign = "ca", field = "A1" }
+[[journey.link]]
+from = { campaign = "ca", field = "A2" }
+to = { campaign = "cb", field = "B1" }
+""")
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
+    lk = plan.links[0]
+    assert lk.mode == "none" and not lk.retargetable and "no onward seam" in lk.note
 
 
 def test_deploy_plan_folder_conflict(tmp_path):
@@ -478,7 +500,7 @@ def test_apply_link_rewrites(tmp_path, monkeypatch):
                         lambda data, remap: b"PATCHED" if remap == {652: 6100} else data)
     res = journey.apply_link_rewrites(plan, game, backup_dir=tmp_path / "bk")
     r = res[0]
-    assert r["found"] and r["langs"] == 2 and r["remap"] == {652: 6100}
+    assert r["found"] and r["mode"] == "field_remap" and r["langs"] == 2 and r["remap"] == {652: 6100}
     assert (ebdir / "EVT_EVF_EXIT.eb.bytes").read_bytes() == b"PATCHED"
     assert len(r["backups"]) == 2 and all(Path(bk).read_bytes().startswith(b"ORIG") for _, bk in r["backups"])
 
@@ -489,3 +511,68 @@ def test_build_campaign_flag_base_override(tmp_path):
     cpath = tmp_path / "ca" / "campaign.toml"
     with pytest.raises(campaign.CampaignError, match="safe floor|treasure-chest"):
         campaign.build_campaign(cpath, flag_base=8300)        # below FIRST_SAFE_FLAG -> lint error
+
+
+# ---- world-map leg: the worldmap_inject body-replace (the elided overworld seam) --------
+def test_worldmap_warp_body_carries_field_and_entrance():
+    # the replacement body (lifted from the proven gateway template's tag-2 warp) embeds Field(dst)+entrance
+    body = journey._worldmap_warp_body(6300, entrance=4)
+    assert isinstance(body, bytes) and len(body) > 0
+    # the gateway template's Field literal (REL_FIELD) + entrance (REL_ENTRANCE) sit inside the tag-2 body
+    assert b"\x9c\x18" in body                                # 6300 == 0x189C little-endian (the Field dst)
+    assert b"\x04\x00" in body                                # entrance 4 (D8:2 i16)
+
+
+def _game_ready():
+    try:
+        import UnityPy  # noqa: F401
+        from ff9mapkit import config
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_worldmap_inject_real_field_300(tmp_path):
+    # full worldmap_inject on the REAL Ice Cavern entrance (field 300, a pure overworld exit): its walk-out
+    # WorldMap region body is replaced with a Field(dst) warp, all langs, and the .eb stays well-formed.
+    from ff9mapkit import extract
+    from ff9mapkit.eb import EbScript
+    eb = extract.EventBundle().eb_for_id(300)
+    regions = journey._worldmap_region_funcs(eb)
+    assert regions, "field 300 should have a tag-2 WorldMap walk-out region"
+
+    # stage a fake 2-lang deploy of field 300 as the boundary member's EVT, behind an overworld-seam link
+    _make_campaign(tmp_path, "forest", members=["EVF_EXIT"], id_base=6000, mod_folder="mf-ow",
+                   seams=[{"frm": "EVF_EXIT", "to_real": "WORLDMAP", "kind": "overworld", "note": "wm"}])
+    _make_campaign(tmp_path, "cavern", members=["IC_ENT"], id_base=6300, mod_folder="mf-ic")
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["forest", "cavern"]
+entry = { campaign = "forest", field = "EVF_EXIT" }
+[[journey.link]]
+from = { campaign = "forest", field = "EVF_EXIT" }
+to = { campaign = "cavern", field = "IC_ENT" }
+""")
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
+    game = tmp_path / "game"
+    for lang in ("us", "jp"):
+        d = game / "mf-ow" / lang / "field"
+        d.mkdir(parents=True)
+        (d / "EVT_EVF_EXIT.eb.bytes").write_bytes(eb)
+    res = journey.apply_link_rewrites(plan, game, backup_dir=tmp_path / "bk")
+    r = res[0]
+    assert r["mode"] == "worldmap_inject" and r["found"] and r["langs"] == 2 and r["regions"] >= 1
+    # the patched .eb: the walk-out region now warps Field(6300) with NO WorldMap op left in it
+    out = (game / "mf-ow" / "us" / "field" / "EVT_EVF_EXIT.eb.bytes").read_bytes()
+    s = EbScript.from_bytes(out)
+    ei, tag = regions[0]
+    f = s.entry(ei).func_by_tag(tag)
+    ops = [(i.op, i.imm(0) if i.op in (0x2B, 0xB6) else None) for i in s.instrs(f)]
+    assert (0x2B, 6300) in ops and not any(op == 0xB6 for op, _ in ops)
+    # every entry still re-parses (entry table fixed up by replace_function_body)
+    for e in s.entries:
+        if not e.empty:
+            for fn in e.funcs:
+                list(s.instrs(fn))

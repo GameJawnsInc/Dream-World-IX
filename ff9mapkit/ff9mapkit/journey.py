@@ -84,6 +84,7 @@ class JourneyLink:
     src_campaign: str
     src_field: str            # the boundary member name (handoff schema: from.field, alias from.seam)
     dst: JourneyRef
+    dst_entrance: int = 0     # arrival entrance in the next campaign's entry field (to.entrance; default 0)
 
 
 @dataclass
@@ -180,8 +181,10 @@ def _link_from(raw: dict, jid: str) -> JourneyLink:
     src_field = frm.get("field", frm.get("seam"))
     if src_field is None:
         raise JourneyError(f"journey {jid!r}: link 'from' needs 'field' (the boundary member; alias 'seam')")
+    to = raw["to"]
+    entrance = int(to["entrance"]) if isinstance(to, dict) and "entrance" in to else 0
     return JourneyLink(src_campaign=str(frm["campaign"]), src_field=str(src_field),
-                       dst=_ref_from(raw["to"], what=f"journey {jid!r} link 'to'"))
+                       dst=_ref_from(to, what=f"journey {jid!r} link 'to'"), dst_entrance=entrance)
 
 
 def _seed_from(raw) -> JourneySeed:
@@ -311,7 +314,8 @@ def resolve_journey(journey: Journey, plans: dict) -> ResolvedJourney:
             "src_campaign": lk.src_campaign, "src_field": lk.src_field,
             "src_id": _member_id(src_plan, lk.src_field, what=f"journey {journey.id!r} link from"),
             "dst_campaign": lk.dst.campaign, "dst_field": lk.dst.field,
-            "dst_id": _member_id(dst_plan, lk.dst.field, what=f"journey {journey.id!r} link to")})
+            "dst_id": _member_id(dst_plan, lk.dst.field, what=f"journey {journey.id!r} link to"),
+            "dst_entrance": lk.dst_entrance})
     return ResolvedJourney(journey=journey, entry_id=entry_id, campaign_ids=campaign_ids,
                            flag_windows=flag_windows, flag_high=flag_high, links=links)
 
@@ -582,19 +586,25 @@ class CampaignDeployStep:
 
 @dataclass
 class LinkRewrite:
-    """A cross-campaign hand-off realized as a byte-patch: rewrite the boundary member's deployed ``.eb``
-    ``Field(seam.to_real)`` exit -> the next campaign's entry global id (``content.verbatim.remap_fields``,
-    length-preserving, all 7 langs). ``retargetable`` is False when the boundary has no ``Field()`` seam (an
-    overworld exit -- the elided world-map leg needs a region-injected warp, a future step) or is ambiguous."""
+    """A cross-campaign hand-off realized as a byte-patch on the boundary member's deployed ``.eb`` (every
+    language copy). ``mode`` picks how:
+      * ``field_remap`` -- rewrite ``Field(seam.to_real)`` -> ``dst_id`` in place (``remap``;
+        ``content.verbatim.remap_fields``, length-preserving). For a scripted/portal seam.
+      * ``worldmap_inject`` -- body-replace the boundary's walk-out region handler (the one running
+        ``WorldMap(loc)``) with a ``Field(dst_id)`` warp, reusing its existing map-edge zone (the elided
+        world-map leg). ``dst_entrance`` = the arrival entrance set on the warp.
+      * ``none`` -- not auto-wirable (no onward seam / ambiguous); ``retargetable`` is False."""
     src_campaign: str
     src_field: str
     src_id: int
     src_mod_folder: str
     eb_name: str                 # "EVT_<member>" -- the deployed .eb to patch (every lang copy)
-    remap: dict                  # {seam_to_real: dst_id}  (empty when not retargetable)
+    mode: str                    # "field_remap" | "worldmap_inject" | "none"
+    remap: dict                  # {seam_to_real: dst_id}  (field_remap only; empty otherwise)
     dst_campaign: str
     dst_field: str
     dst_id: int
+    dst_entrance: int
     seam_kinds: list
     retargetable: bool
     note: str = ""
@@ -612,22 +622,33 @@ class JourneyDeployPlan:
     folder_conflicts: list       # [(mod_folder, folder_a, folder_b)] -- a wholesale-replace clobber
 
 
-def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: int):
-    """Resolve a boundary member's onward seam into the ``Field()`` remap for a cross-campaign link. Returns
-    ``(remap, seam_kinds, retargetable, note)``. Exactly ONE int seam target -> ``{to_real: dst_id}``; none
-    (overworld-only) or several (ambiguous) -> empty remap + a note (not auto-wired)."""
+def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: int) -> dict:
+    """Resolve a boundary member's onward seam into the cross-campaign link MODE. Returns a dict
+    ``{mode, remap, kinds, retargetable, note}``:
+      * ``field_remap`` -- exactly ONE int seam target (a scripted/portal ``Field()`` exit): patch it to
+        ``dst_id`` in place (``content.verbatim.remap_fields``). The proven path.
+      * ``worldmap_inject`` -- NO ``Field()`` target but an OVERWORLD seam (the elided world-map leg): the
+        boundary exits to the world map via ``WorldMap(loc)`` (no field id to retarget), so we body-REPLACE
+        its walk-out region handler with a ``Field(dst_id)`` warp, reusing the region's existing map-edge
+        zone (``apply_link_rewrites``). Auto-wired.
+      * ``none`` -- no onward seam, or several ``Field()`` targets (ambiguous): not auto-wired."""
     g = _campaign.campaign_graph(src_plan)
     node = g.by_name.get(member_name)
     seams = node.seams if node else []
     kinds = sorted({s.get("kind") for s in seams if s.get("kind")})
     targets = sorted({s["to_real"] for s in seams if isinstance(s.get("to_real"), int)})
     if len(targets) == 1:
-        return {targets[0]: dst_id}, kinds, True, ""
-    if not targets:
-        return {}, kinds, False, ("no Field() seam on the boundary (overworld exit?) -- the elided world-map "
-                                  "leg needs a region-injected warp, not a Field() retarget (future step)")
-    return {}, kinds, False, (f"{len(targets)} Field() seam targets {targets} -- ambiguous; pick a "
-                              f"single-onward-seam boundary member, or split the boundary")
+        return {"mode": "field_remap", "remap": {targets[0]: dst_id}, "kinds": kinds,
+                "retargetable": True, "note": ""}
+    if len(targets) > 1:
+        return {"mode": "none", "remap": {}, "kinds": kinds, "retargetable": False,
+                "note": f"{len(targets)} Field() seam targets {targets} -- ambiguous; pick a "
+                        f"single-onward-seam boundary member, or split the boundary"}
+    if "overworld" in kinds:                     # no Field() target, but exits to the world map -> inject
+        return {"mode": "worldmap_inject", "remap": {}, "kinds": kinds, "retargetable": True,
+                "note": "overworld exit -- body-replace the walk-out region with Field(dst) (elided leg)"}
+    return {"mode": "none", "remap": {}, "kinds": kinds, "retargetable": False,
+            "note": "no onward seam on the boundary member -- nothing to retarget into the next campaign"}
 
 
 def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
@@ -660,12 +681,14 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
                 folder_seen.setdefault(plan.mod_folder, folder)
         for lk in rj.links:
             src_plan = plans[lk["src_campaign"]][0]
-            remap, kinds, ok, note = _seam_remap(src_plan, lk["src_field"], lk["dst_id"])
+            sr = _seam_remap(src_plan, lk["src_field"], lk["dst_id"])
             links.append(LinkRewrite(
                 src_campaign=lk["src_campaign"], src_field=lk["src_field"], src_id=lk["src_id"],
-                src_mod_folder=src_plan.mod_folder, eb_name=f"EVT_{lk['src_field']}", remap=remap,
+                src_mod_folder=src_plan.mod_folder, eb_name=f"EVT_{lk['src_field']}",
+                mode=sr["mode"], remap=sr["remap"],
                 dst_campaign=lk["dst_campaign"], dst_field=str(lk["dst_field"]), dst_id=lk["dst_id"],
-                seam_kinds=kinds, retargetable=ok, note=note))
+                dst_entrance=int(lk.get("dst_entrance", 0)),
+                seam_kinds=sr["kinds"], retargetable=sr["retargetable"], note=sr["note"]))
     hub_id = int(manifest.hub["id"]) if manifest.hub.get("id") is not None else None
     return JourneyDeployPlan(hub_field_id=hub_id, campaign_steps=steps, links=links,
                              bare_entries=bare, folder_conflicts=conflicts)
@@ -702,9 +725,13 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
     L.append("# 2. Wire the cross-campaign links (retarget each boundary .eb Field() exit -> the next entry):")
     wired = [lk for lk in plan.links if lk.retargetable]
     for lk in plan.links:
-        if lk.retargetable:
+        dst = f"[{lk.dst_campaign}/{lk.dst_field}]"
+        if lk.mode == "field_remap":
             L.append(f"#    {lk.src_campaign}/{lk.src_field} (EVT, field {lk.src_id})  Field({list(lk.remap)[0]}) "
-                     f"-> Field({lk.dst_id})  [{lk.dst_campaign}/{lk.dst_field}]")
+                     f"-> Field({lk.dst_id})  {dst}")
+        elif lk.mode == "worldmap_inject":
+            L.append(f"#    {lk.src_campaign}/{lk.src_field} (EVT, field {lk.src_id})  overworld exit "
+                     f"-> Field({lk.dst_id}) region  {dst}  (elided world-map leg)")
         else:
             L.append(f"#    !! {lk.src_campaign}/{lk.src_field} -> {lk.dst_campaign}/{lk.dst_field}: NOT "
                      f"auto-wired -- {lk.note}")
@@ -732,12 +759,63 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
     return "\n".join(L) + "\n"
 
 
+# The WorldMap opcode (an overworld exit). Its operand is a world-map LOCATION id (9000-9012), NOT a field
+# id -- so it can't be Field-retargeted; the elided world-map leg body-REPLACES the walk-out region instead.
+# (eb/_optables.py; ground-truthed against real fields 300/311/312.)
+_WORLDMAP_OP = 0xB6
+
+
+def _worldmap_warp_body(dst_id: int, entrance: int = 0) -> bytes:
+    """The proven walk-out region handler body that warps ``Field(dst_id)`` -- lifted from the in-game-proven
+    field-109 gateway template (:mod:`ff9mapkit.content.gateway`): its tag-2 (tread) func body, patched with
+    the destination field + arrival entrance. Spliced over a boundary field's WorldMap walk-out handler, it
+    reuses that region's existing map-edge zone (its tag-0 SetRegion is untouched), turning "leave to the
+    world map" into "warp into the next campaign" (the elided world-map leg)."""
+    import struct
+    from . import data
+    from .content import gateway
+    tpl = bytearray(data.region_template())
+    struct.pack_into("<H", tpl, gateway.REL_ENTRANCE, int(entrance) & 0xFFFF)
+    struct.pack_into("<H", tpl, gateway.REL_FIELD, int(dst_id) & 0xFFFF)
+    fc, fbase = tpl[1], 2
+    funcs = [(tpl[fbase + i * 4] | (tpl[fbase + i * 4 + 1] << 8),
+              tpl[fbase + i * 4 + 2] | (tpl[fbase + i * 4 + 3] << 8)) for i in range(fc)]
+    idx = next((i for i, (t, _) in enumerate(funcs) if t == 2), None)
+    if idx is None:                                # kit invariant: the template's warp lives in tag 2
+        raise JourneyError("gateway template has no tag-2 warp func (kit invariant broken)")
+    start = fbase + funcs[idx][1]
+    end = fbase + funcs[idx + 1][1] if idx + 1 < fc else len(tpl)
+    return bytes(tpl[start:end])
+
+
+def _worldmap_region_funcs(eb_bytes: bytes) -> list:
+    """The walk-out region handlers that run an overworld exit: ``(entry_idx, func_tag)`` for every tag-2
+    (tread) func containing a ``WorldMap`` op. These are the bodies the world-map-leg injection replaces with
+    a ``Field(dst)`` warp; their entry's tag-0 SetRegion (the map-edge zone) is left intact, so the player
+    crossing that same edge now warps into the next campaign instead of the world map."""
+    from .eb import EbScript
+    eb = EbScript.from_bytes(eb_bytes)
+    hits = []
+    for ei, e in enumerate(eb.entries):
+        if e.empty:
+            continue
+        for f in e.funcs:
+            if f.tag == 2 and any(i.op == _WORLDMAP_OP for i in eb.instrs(f)):
+                hits.append((ei, f.tag))
+    return hits
+
+
 def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, backup_dir=None) -> list:
     """Apply each retargetable :class:`LinkRewrite` to the boundary member's DEPLOYED ``.eb`` (every language
-    copy under ``<game>/<src_mod_folder>``) via ``content.verbatim.remap_fields`` -- the one journey-unique
-    in-game step. Returns a list of ``{eb, langs, remap, backups}`` results. ``dry_run`` reports without
-    writing. Backs up each patched file to ``backup_dir`` first (reversibility -- Hard Constraint §2)."""
+    copy under ``<game>/<src_mod_folder>``) -- the one journey-unique in-game step. Two modes:
+      * ``field_remap`` -- ``content.verbatim.remap_fields`` patches the ``Field(to_real)`` literal -> dst,
+        length-preserving.
+      * ``worldmap_inject`` -- ``eb.edit.replace_function_body`` swaps each WorldMap walk-out region handler
+        for the proven ``Field(dst)`` warp body (the elided world-map leg), reusing the region's zone.
+    Returns ``[{eb, mode, langs, regions, backups, found}]``. ``dry_run`` reports without writing; each
+    patched file is backed up to ``backup_dir`` first (reversibility -- Hard Constraint §2)."""
     from .content.verbatim import remap_fields
+    from .eb import edit as _edit
     game_root = Path(game_root)
     results = []
     for lk in plan.links:
@@ -745,11 +823,21 @@ def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, ba
             continue
         mod = game_root / lk.src_mod_folder
         ebs = sorted(mod.rglob(f"{lk.eb_name}.eb.bytes")) if mod.is_dir() else []
-        touched, backups = [], []
+        body = _worldmap_warp_body(lk.dst_id, lk.dst_entrance) if lk.mode == "worldmap_inject" else None
+        touched, backups, regions = [], [], 0
         for p in ebs:
-            data = p.read_bytes()
-            out = remap_fields(data, lk.remap)
-            if out == data:                       # the Field(to_real) wasn't present in this copy
+            blob = p.read_bytes()
+            if lk.mode == "field_remap":
+                out = remap_fields(blob, lk.remap)
+            elif lk.mode == "worldmap_inject":
+                out, n = blob, 0
+                for (ei, tag) in _worldmap_region_funcs(blob):   # slot indices are stable across replaces
+                    out = _edit.replace_function_body(out, ei, tag, body)
+                    n += 1
+                regions = n                                      # structural -> identical across langs
+            else:
+                out = blob
+            if out == blob:                       # nothing matched in this copy (wrong lang / no region)
                 continue
             if not dry_run:
                 if backup_dir:
@@ -757,11 +845,11 @@ def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, ba
                     # path-relative slug so per-lang copies (same filename, different dir) don't collide
                     rel = p.relative_to(mod).as_posix().replace("/", "_")
                     bk = Path(backup_dir) / f"{lk.src_mod_folder}_{rel}.preLINK"
-                    bk.write_bytes(data)
+                    bk.write_bytes(blob)
                     backups.append((str(p), str(bk)))
                 p.write_bytes(out)
             touched.append(str(p))
-        results.append({"eb": lk.eb_name, "remap": dict(lk.remap), "langs": len(touched),
-                        "files": touched, "backups": backups,
+        results.append({"eb": lk.eb_name, "mode": lk.mode, "remap": dict(lk.remap), "dst_id": lk.dst_id,
+                        "langs": len(touched), "regions": regions, "files": touched, "backups": backups,
                         "found": bool(touched)})
     return results
