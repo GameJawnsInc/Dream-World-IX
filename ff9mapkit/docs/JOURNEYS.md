@@ -4,11 +4,12 @@
 > (no change needed — the only `_journey_label` touch-point was never hit). **`gen-hub` is BUILT + shipped**
 > — the single-field / single-campaign form (a bare-int `entry` + a `[hub]` table + a hub-side
 > `set_scenario`); two journeys ship (Dali → field 4100, Treno → field 4501, both verbatim fields). The
-> **multi-campaign assembler** (`campaigns` / `[[journey.link]]` / `[journey.seed]`) is **BUILT**
-> (`ff9mapkit/journey.py` + `lint-journey`/`assemble-journey` + `tools/deploy_journey.py` — load/resolve/lint/
-> hub-emit + the deploy orchestration & playbook; see §9); what remains is an **in-game playtest** of a real
-> chained journey + the elided **world-map leg** (overworld seams). overworld's to own. This doc is the shared
-> schema + the assembler's job list.
+> **multi-campaign assembler** (`campaigns` / `[[journey.link]]` / `[journey.seed]`) is **BUILT + ★ IN-GAME
+> PROVEN** (`ff9mapkit/journey.py` + `lint-journey`/`assemble-journey` + `tools/deploy_journey.py` —
+> load/resolve/lint/hub-emit + the deploy orchestration & playbook; see §9): a forked Ice Cavern → Ice
+> Cavern/Outside arc, the cavern-exit link warping campaign A's boundary into campaign B (2026-06-13). What
+> remains is the elided **world-map leg** (overworld-seam boundaries). overworld's to own. This doc is the
+> shared schema + the assembler's job list.
 >
 > **Lane split (per `project-ff9-branch-lanes`):** overworld owns the World Hub + `gen-hub` + the assembler
 > + player-rig; story_flags owns scenario/party/flag + is the composition owner for starting-state/New-Game.
@@ -46,7 +47,7 @@ A `journeys.toml` is a **`[hub]` table** (how the selector field presents) plus 
 |---|---|---|---|
 | **Single field** | `entry = <field id>` (bare int) | one verbatim field (the shipped Dali 4100 / Treno 4501) | `gen-hub` — **BUILT** |
 | **Single campaign** | `entry = <field id>` of a member | one `campaign.toml` slice | `gen-hub` — **BUILT** |
-| **Multi-campaign arc** | `entry = { campaign, field }` + `campaigns = [...]` | chained campaigns | the **assembler** — BUILT (§9); in-game proof next |
+| **Multi-campaign arc** | `entry = { campaign, field }` + `campaigns = [...]` | chained campaigns | the **assembler** — BUILT + ★ IN-GAME PROVEN (§9) |
 
 ```toml
 # journeys.toml -- the World-Hub registry.  `ff9mapkit gen-hub journeys.toml` emits the selector field.
@@ -247,13 +248,13 @@ Then a minimal `journeys.toml` at the project root referencing both folders (§2
 
 ---
 
-## 9. Implementation status (overworld lane — assembler BUILT; in-game proof + the world-map leg remain)
+## 9. Implementation status (overworld lane — assembler BUILT + ★ IN-GAME PROVEN; world-map leg remains)
 
 `ff9mapkit/journey.py` + CLI `lint-journey` / `assemble-journey` + `tools/deploy_journey.py` implement the
 **assembler** — the §8 namespace guarantee, the hub fold-in, AND the deploy orchestration, fully
-unit-testable with no game install (`tests/test_journey.py`, 32 tests). What's left is the *in-game playtest*
-of a real chained journey (needs the campaigns forked) and the elided-world-map-leg injection (overworld
-seams — below). The schema is unified with overworld's proven single-field hub journeys.
+unit-testable with no game install (`tests/test_journey.py`, 32 tests) and **proven in-game** (the Ice Cavern
+→ Outside arc, below). The only remaining piece is the elided-world-map-leg injection (overworld seams). The
+schema is unified with overworld's proven single-field hub journeys.
 
 **The unified `journeys.toml`** — one file, `[hub]` (presentation, `ff9mapkit.hub`'s schema) + `[[journey]]`
 rows that are **either** a *bare* single-field journey (overworld's proven floor — `entry = <field id>`,
@@ -299,12 +300,16 @@ optional `set_scenario`) **or** the *multi-campaign* shape from §2 (`campaigns`
    stacks them via `FolderNames`. The hub owns the highest folder + New Game (`project-ff9-world-hub`).
 6. **Replay** — one-way; New Game switches journeys (confirmed).
 
+**★ IN-GAME PROVEN (2026-06-13):** a forked **Ice Cavern → Ice Cavern/Outside** arc — `import-chain 300
+--verbatim` (12 fields, 6200–6211) + `import-chain 312 --verbatim --max-fields 1` (1 field, 6300), each into
+its own stacked mod folder at its disjoint flag window. After the playbook (deploy both `--no-warp
+--flag-base`, then `deploy_journey --apply-links`), walking out the cavern **exit** (`JICE_IC_XIT`, 6211)
+lands in the **forked** Outside (6300), not the real game — the cross-campaign link (the boundary's portal
+seam `Field(312)` retargeted → 6300) fires. ★ **Gotcha learned:** `deploy_campaign` wholesale-replaces a
+folder, so `--apply-links` must run **last** and be **re-run after any campaign re-deploy** (else the link
+patch is wiped — the symptom is landing in the real target id). The playbook now warns this.
+
 **Remaining:**
-- **An in-game playtest of a real chained journey** — fork two clean *verbatim* campaigns connected by a
-  **scripted/portal** seam (so the link `.eb` retarget applies), run the `deploy_journey` playbook, and walk
-  it. **Prerequisite (§7): fork Evil Forest** (`import-chain` — a verbatim fork is offline, no `[Export]`).
-  NB the canonical Evil Forest → Ice Cavern boundary is an *overworld* seam (the world-map leg), which is the
-  unbuilt case below — so the *first* in-game proof should use a scripted-seam boundary.
 - **The elided world-map leg** (overworld seams) — a boundary that exits to the world map has no `Field()` to
   retarget; wiring it needs a region-INJECTED warp at the exit trigger (the kit can't do a real overworld
   leg). `build_deploy_plan` flags these as not-auto-wirable today; the injection is the next deploy feature.

@@ -710,6 +710,8 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
                      f"auto-wired -- {lk.note}")
     if wired:
         L.append(f"py tools/deploy_journey.py {jref} --apply-links")
+        L.append("#    !! run --apply-links LAST + re-run it after ANY campaign re-deploy: deploy_campaign "
+                 "wholesale-replaces a folder, which WIPES the link patch.")
     elif plan.links:
         L.append("#   (no auto-wirable links -- see the notes above)")
     else:
