@@ -845,6 +845,48 @@ def test_keyitems_resolve_by_id():
         K.resolve(999)
 
 
+def test_read_main_stats_unit():
+    pt = bytearray(9000)
+    # Zidane (old-slot 0) basis: dex@+0, mgc@+5, str@+6, wpr@+7
+    base = SI.MAIN_BASIS_OFF
+    pt[base + 0], pt[base + 5], pt[base + 6], pt[base + 7] = 24, 23, 27, 25
+    st = {s["name"]: s["stats"] for s in SI.read_main_stats(pt)}
+    assert st["Zidane"] == {"Speed": 24, "Strength": 27, "Magic": 23, "Spirit": 25}
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_stat_writes_basis_and_bonus(tmp_path):
+    c = _enc_container(tmp_path, block=1)
+    r = SI.set_main_stat(c, 1, "Zidane", "Strength", 99, dry_run=False)
+    assert r.wrote and r.stat == "Strength" and r.new_value == 99 and r.slot_no == 0
+    pt = bytearray(__import__("ff9mapkit.save", fromlist=["x"]).FF9Save.load(c)._decrypt_block(1))
+    bpos = SI.MAIN_BASIS_OFF + SI._BASIS_STAT_BYTE["str"]
+    opos = SI.MAIN_BONUS_OFF + SI._BONUS_STAT_OFF["str"]
+    assert pt[bpos] == 99 and (int.from_bytes(pt[opos:opos + 2], "little") >> 5) > 0   # basis + bonus both set
+    # Steiner (old-slot 3) is independent
+    r2 = SI.set_main_stat(c, 1, "Steiner", "Magic", 50, dry_run=False)
+    assert r2.slot_no == 3
+    st = {s["name"]: s["stats"] for s in SI.decode_main_block(c, 1).stats}
+    assert st["Zidane"]["Strength"] == 99 and st["Steiner"]["Magic"] == 50
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_stat_scoped(tmp_path):
+    c = _enc_container(tmp_path, block=1, gil=4242, items=((236, 7),))
+    SI.set_main_stat(c, 1, "Zidane", "Speed", 50, dry_run=False)
+    rep = SI.decode_main_block(c, 1)
+    assert rep.gil == 4242 and rep.inventory[0] == (236, I.name_of(236), 7)   # gil/items untouched (<=3 bytes moved)
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_stat_in_save_vanilla(tmp_path):
+    c = _enc_container(tmp_path / "sv", block=1)
+    res = SI.set_stat_in_save(c, 1, "Vivi", "Magic", 80, dry_run=False)
+    assert res["main"].wrote and res["extra"] is None                  # vanilla -> main only
+    st = {s["name"]: s["stats"] for s in SI.decode_main_block(c, 1).stats}
+    assert st["Vivi"]["Magic"] == 80
+
+
 def test_read_main_keyitems_unit():
     pt = bytearray(9000)
     # item 4 (byte 1, bits 0/1): obtained; item 7 (byte 1, bits 6/7): obtained+used

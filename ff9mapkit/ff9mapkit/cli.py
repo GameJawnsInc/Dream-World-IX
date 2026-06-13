@@ -1166,22 +1166,24 @@ def _cmd_items_set_keyitem(args: argparse.Namespace) -> int:
 
 
 def _cmd_items_set_stat(args: argparse.Namespace) -> int:
-    """Set a character's permanent growth stat (Speed/Strength/Magic/Spirit) to a target value in the Memoria
-    EXTRA file -- writes both the displayed `basis` and the hidden equipment `bonus` accumulator so the change
-    shows immediately AND holds through level-ups. Dry-run unless --apply. (Extra-only for now; the vanilla
-    main-block stat editor is a follow-up -- the offsets are mapped.)"""
+    """Set a character's permanent growth stat (Speed/Strength/Magic/Spirit) to a target value -- writes both the
+    displayed `basis` and the hidden equipment `bonus` accumulator so the change shows immediately AND holds
+    through level-ups. On a container, dual-writes the MAIN block + the Memoria extra mirror (vanilla saves
+    editable too); on an extra-save directly, writes that. Dry-run unless --apply."""
     from . import save_items as SI
     try:
         if SI.load_extra_common(args.save)[0] is not None:             # a Memoria extra-save directly
-            extra = args.save
-        else:                                                          # a container -> resolve the slot's extra
-            extra = SI.resolve_extra(args.save, slot=args.slot, save=args.save_no, autosave=args.autosave)
-        rep = SI.set_stat_extra(extra, args.character, args.stat, args.value,
-                                dry_run=not args.apply, backup=not args.no_backup)
+            rep = SI.set_stat_extra(args.save, args.character, args.stat, args.value,
+                                    dry_run=not args.apply, backup=not args.no_backup)
+            print(SI.render_stat_write(rep))
+        else:                                                          # a SavedData_ww.dat container + slot
+            block = SI._resolve_block(slot=args.slot, save=args.save_no, autosave=args.autosave)
+            res = SI.set_stat_in_save(args.save, block, args.character, args.stat, args.value,
+                                      dry_run=not args.apply, backup=not args.no_backup)
+            print(SI.render_stat_dual(res))
     except Exception as e:                                              # noqa: BLE001
         print(f"could not set stat: {e}")
         return 2
-    print(SI.render_stat_write(rep))
     return 0
 
 

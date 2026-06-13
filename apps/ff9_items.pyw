@@ -373,38 +373,43 @@ class ItemsApp:
         self._load(self.path, keep=self._selected())
 
     def _edit_stat(self, apply):
-        """Set a character's permanent growth stat (basis + the equipment bonus). Extra-only for now (the vanilla
-        main-block stat editor is a follow-up)."""
+        """Set a character's permanent growth stat (basis + the equipment bonus) -- dual-write on a container slot
+        (handles a vanilla save's main block), extra-only on an extra-file-direct target."""
         t = self._target()
         if t is None or t["report"] is None:
             self._out("Select a decodable slot on the left first.")
             return
-        extra = t["extra"]
-        if extra is None:
-            self._out("Stat editing needs a Memoria extra file (the vanilla main-block stat editor is a follow-up).\n"
-                      "This is a vanilla save — its gil/items/equipment/key-items are editable above.")
-            return
+        extra, container, block = t["extra"], t["container"], t["block"]
         char, stat = self.stat_char_var.get(), self.stat_kind_var.get()
         try:
             val = int(self.stat_val_var.get())
-            preview = _si.set_stat_extra(extra, char, stat, val, dry_run=True)
-            do = lambda: _si.set_stat_extra(extra, char, stat, val, dry_run=False)  # noqa: E731
+            if container is not None:
+                render = _si.render_stat_dual
+                preview = _si.set_stat_in_save(container, block, char, stat, val, dry_run=True)
+                do = lambda: _si.set_stat_in_save(container, block, char, stat, val, dry_run=False)  # noqa: E731
+            elif extra is not None:
+                render = _si.render_stat_write
+                preview = _si.set_stat_extra(extra, char, stat, val, dry_run=True)
+                do = lambda: _si.set_stat_extra(extra, char, stat, val, dry_run=False)  # noqa: E731
+            else:
+                self._out("Select an editable slot first.")
+                return
         except ValueError as e:
             self._out(f"Cannot apply:\n  {e}")
             return
         if not apply:
-            self._out("PREVIEW (nothing written yet):\n" + _si.render_stat_write(preview))
+            self._out("PREVIEW (nothing written yet):\n" + render(preview))
             return
         if not messagebox.askyesno("Apply save edit?",
                                    "This edits your REAL save (a timestamped .bak is written first):\n\n"
-                                   + _si.render_stat_write(preview) + "\n\nProceed?"):
+                                   + render(preview) + "\n\nProceed?"):
             return
         try:
             res = do()
         except Exception as e:                            # noqa: BLE001
             self._out(f"Write failed:\n  {e}")
             return
-        self._out(_si.render_stat_write(res) + "\n\nReload the save in-game to see it (no relaunch needed).")
+        self._out(render(res) + "\n\nReload the save in-game to see it (no relaunch needed).")
         self.status.config(text="save edited (backup written) — reload it in-game")
         self._load(self.path, keep=self._selected())
 
@@ -518,7 +523,11 @@ def main():
             app.ki_var.set("7"); app._edit_keyitem(True, True)                 # give key item id 7 via the GUI
             assert any(i == 7 for i, _, ob, us in _si.decode_main_block(str(cont), 1).keyitems if ob), \
                 "main-block key item given via GUI (vanilla)"
-            vanilla_ok = "main-block gil+item+equip+keyitem edited"
+            app.stat_char_var.set("Zidane"); app.stat_kind_var.set("Strength"); app.stat_val_var.set("99")
+            app._edit_stat(True)                                               # set a stat via the GUI (vanilla)
+            zst = {s["name"]: s["stats"] for s in _si.decode_main_block(str(cont), 1).stats}
+            assert zst["Zidane"]["Strength"] == 99, "main-block stat edited via GUI (vanilla)"
+            vanilla_ok = "main-block gil+item+equip+keyitem+stat edited"
         except ImportError:
             pass
         print(f"smoke ok: extra slot gil/item/equip/stat applied ({len(baks)} bak); vanilla {vanilla_ok}")

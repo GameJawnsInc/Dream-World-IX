@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — save-item editor: vanilla (main-block) STAT editing + the GUI on vanilla slots (0.9.69)
+- The stat editor now reaches **vanilla (no-extra) saves** too, and the GUI's Stats control works on them —
+  completing the stat editor across both save kinds (and the GUI across all five editors on every slot).
+- ★ **Layout finding (empirical, verified vs the extra on all 9 players):** the old-format player struct stores
+  `basis` (displayed, Bytes) at **5751** and `bonus` (the equipment accumulator, UInt16 LE) at **5759**, +244·old-slot;
+  per-stat byte offsets basis `{dex:0, mgc:5, str:6, wpr:7}`, bonus `{dex:0, mgc:2, str:4, wpr:6}`.
+- **`save_items.set_main_stat(container, block, character, stat, target)`** — writes the basis Byte + bonus UInt16
+  (same target-stat / formula-delta model as `set_stat_extra`), scoped to those ≤3 bytes, validate gate + atomic +
+  backup + confirm. + `read_main_stats` + `main_report`/`ItemReport.stats`. **`set_stat_in_save`** dual-write; CLI
+  `items-set-stat` on a container dual-writes; `render_stat_dual`. GUI `_edit_stat` now uses the container path.
+- 6 new tests. ⏳ In-game proof of a vanilla stat is the next STOP-and-test. With this, the #5 editor covers
+  gil/items/equipment/key-items/stats on BOTH Memoria and vanilla saves, via CLI and GUI.
+
 ### Added — save-item editor: the equipment-driven STAT editor (`items-set-stat`), IN-GAME PROVEN (0.9.68)
 - Edit a character's permanent growth stat — Speed / Strength / Magic / Spirit — the hidden "level up in stat
   gear" system. ★ **Engine formula (`ff9level.cs`):** `displayed = base + level·growth + (bonus >> 5)`, capped per

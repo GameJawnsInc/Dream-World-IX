@@ -72,6 +72,12 @@ _CHAR_TO_OLD_SLOT = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 11: 8,   # 
 # decode to sensible key-item sets). (FF9StateGlobal.Get/ParseRareItemByteFormat.)
 MAIN_RAREITEMS_OFF = 7947
 MAIN_RAREITEMS_LEN = 64
+# Per-player growth stats in the old-format player struct (basis Bytes, bonus UInt16 LE; +244*old_slot). Verified:
+# all 9 players' basis+bonus match the extra. Byte offsets within the struct (basis is alpha dex,[hp,mp],mgc,str,wpr):
+MAIN_BASIS_OFF = 5751                                      # old-slot 0's basis.dex
+MAIN_BONUS_OFF = 5759                                      # old-slot 0's bonus.dex
+_BASIS_STAT_BYTE = {"dex": 0, "mgc": 5, "str": 6, "wpr": 7}   # Byte offset within basis
+_BONUS_STAT_OFF = {"dex": 0, "mgc": 2, "str": 4, "wpr": 6}    # UInt16 byte offset within bonus (alpha dex,mgc,str,wpr)
 
 # CharacterId (Memoria.Data.Characters.CharacterId) -- the key of `players[].info.slot_no` in the save. The
 # equip array is keyed by THIS (not array index / EquipmentSetId, which diverges above 7). Names/ids only.
@@ -88,6 +94,7 @@ class ItemReport:
     inventory: list = field(default_factory=list)         # [(id, name, count), ...]
     equipment: list = field(default_factory=list)         # [{"slot_no", "name", "equip": {slot: (id, name)|None}}]
     keyitems: list = field(default_factory=list)          # [(id, name, obtained, used), ...] (key/important items)
+    stats: list = field(default_factory=list)             # [{"slot_no", "name", "stats": {Speed, Strength, ...}}]
 
 
 @dataclass
@@ -232,7 +239,8 @@ def read_keyitems(common) -> list:
 
 def report_from_common(common) -> ItemReport:
     return ItemReport(gil=read_gil(common), inventory=read_inventory(common),
-                      equipment=read_equipment(common), keyitems=read_keyitems(common))
+                      equipment=read_equipment(common), keyitems=read_keyitems(common),
+                      stats=read_stats(common))
 
 
 # --- file-level helpers ---------------------------------------------------------------------------
@@ -775,10 +783,22 @@ def read_main_keyitems(pt) -> list:
     return out
 
 
+def read_main_stats(pt) -> list:
+    """``[{slot_no, name, stats: {Speed, Strength, Magic, Spirit}}, ...]`` -- the 9 old-format players' displayed
+    (basis) growth stats from the main block."""
+    out = []
+    for k in range(MAIN_PLAYERS_N):
+        base = MAIN_BASIS_OFF + MAIN_PLAYER_STRIDE * k
+        stats = {STAT_LABELS[f]: pt[base + _BASIS_STAT_BYTE[f]] for f in STAT_CAPS}
+        out.append({"slot_no": k, "name": OLD_SLOT_NAMES.get(k), "stats": stats})
+    return out
+
+
 def main_report(pt) -> ItemReport:
-    """An :class:`ItemReport` for a decrypted main block (gil + inventory + the 9 players' equipment + key items)."""
+    """An :class:`ItemReport` for a decrypted main block (gil + inventory + equipment + key items + stats)."""
     return ItemReport(gil=read_main_gil(pt), inventory=read_main_inventory(pt),
-                      equipment=read_main_equipment(pt), keyitems=read_main_keyitems(pt))
+                      equipment=read_main_equipment(pt), keyitems=read_main_keyitems(pt),
+                      stats=read_main_stats(pt))
 
 
 def decode_main_block(container, block):
@@ -1018,6 +1038,50 @@ def set_main_keyitem(container, block: int, keyitem, *, obtained: bool = True, u
                               obtained=obtained, used=used, action=action, wrote=did_write, backup_path=backup_path)
 
 
+def set_main_stat(container, block: int, character, stat, target: int, *, dry_run: bool = True,
+                  backup: bool = True) -> StatWriteReport:
+    """Set a character's permanent growth STAT in the ENCRYPTED MAIN block (for a vanilla/no-extra save). Writes
+    the ``basis`` Byte (displayed) + the ``bonus`` UInt16 (the equipment accumulator) for that old-slot, same as
+    :func:`set_stat_extra`. ``target`` clamps to the stat cap. Validate gate + scoped byte-diff (only those <=3
+    bytes move) + atomic write + backup + post-write confirm + dry-run."""
+    field = _resolve_stat(stat)
+    if isinstance(target, bool) or not isinstance(target, int):
+        raise TypeError(f"target must be an int (got {type(target).__name__})")
+    if target < 0:
+        raise ValueError(f"target stat cannot be negative (got {target})")
+    target = min(target, STAT_CAPS[field])
+    old_slot = _resolve_old_slot(character)
+    try:
+        raw = open(container, "rb").read()
+    except OSError as e:
+        raise ValueError(f"cannot read save container {container!r}: {e}") from e
+    sv = _save.FF9Save.load(container)
+    orig_pt = bytes(_decrypt_main(sv, block))
+    pt = bytearray(orig_pt)
+    validate_main_block(pt)                               # GATE
+    bpos = MAIN_BASIS_OFF + MAIN_PLAYER_STRIDE * old_slot + _BASIS_STAT_BYTE[field]
+    opos = MAIN_BONUS_OFF + MAIN_PLAYER_STRIDE * old_slot + _BONUS_STAT_OFF[field]
+    old_basis = pt[bpos]
+    old_bonus = int.from_bytes(pt[opos:opos + 2], "little")
+    new_bonus = _new_bonus_for(target, old_basis, old_bonus)
+    pt[bpos] = target
+    pt[opos:opos + 2] = new_bonus.to_bytes(2, "little")
+    diff = [k for k in range(len(pt)) if pt[k] != orig_pt[k]]   # SCOPED: only the basis byte + the bonus UInt16
+    if diff and any(k not in (bpos, opos, opos + 1) for k in diff):
+        raise AssertionError(f"main stat edit touched bytes outside {field}'s basis/bonus; aborting")
+    backup_path, did_write = None, False
+    if not dry_run and diff:
+        sv._encrypt_block(block, bytes(pt))
+        backup_path = _atomic_write(container, raw, bytes(sv.data), backup=backup)
+        chk = bytearray(_decrypt_main(_save.FF9Save.load(container), block))   # CONFIRM
+        if chk[bpos] != target or int.from_bytes(chk[opos:opos + 2], "little") != new_bonus:
+            raise AssertionError(f"post-write check failed: {field} basis/bonus read back wrong")
+        did_write = True
+    return StatWriteReport(path=f"{container}#block{block}", slot_no=old_slot, character=OLD_SLOT_NAMES.get(old_slot),
+                           stat=STAT_LABELS[field], old_value=old_basis, new_value=target,
+                           old_bonus=old_bonus, new_bonus=new_bonus, wrote=did_write, backup_path=backup_path)
+
+
 def set_gil_in_save(container, block: int, gil: int, *, dry_run: bool = True, backup: bool = True,
                     mirror: bool = True) -> dict:
     """Write gil into a whole save SLOT: the ENCRYPTED MAIN block AND (when ``mirror`` and it exists) the Memoria
@@ -1079,6 +1143,20 @@ def set_keyitem_in_save(container, block: int, keyitem, *, obtained: bool = True
                                           dry_run=dry_run, backup=backup)
     main_rep = set_main_keyitem(container, block, keyitem, obtained=obtained, used=used,
                                 dry_run=dry_run, backup=backup)
+    return {"main": main_rep, "extra": extra_rep}
+
+
+def set_stat_in_save(container, block: int, character, stat, target: int, *, dry_run: bool = True,
+                     backup: bool = True, mirror: bool = True) -> dict:
+    """Set a growth stat in a whole save SLOT: the MAIN block (basis+bonus) AND (when ``mirror`` + present) the
+    Memoria EXTRA. Vanilla -> main only. Returns ``{"main": StatWriteReport, "extra": StatWriteReport|None}``
+    (extra written FIRST -- load-authoritative)."""
+    extra_rep = None
+    if mirror:
+        extra = _save.extra_file_path(container, block)
+        if extra and os.path.isfile(extra):
+            extra_rep = set_stat_extra(extra, character, stat, target, dry_run=dry_run, backup=backup)
+    main_rep = set_main_stat(container, block, character, stat, target, dry_run=dry_run, backup=backup)
     return {"main": main_rep, "extra": extra_rep}
 
 
@@ -1177,6 +1255,18 @@ def render_keyitem_dual(res: dict) -> str:
     if res.get("extra") is not None:
         lines.append("  [Memoria extra -- the load-authoritative store]")
         lines += ["  " + ln for ln in render_keyitem_write(res["extra"]).splitlines()]
+    else:
+        lines.append("  (no Memoria extra for this slot -- a vanilla save; the main block governs in-game)")
+    return "\n".join(lines)
+
+
+def render_stat_dual(res: dict) -> str:
+    """Render a :func:`set_stat_in_save` outcome (the main block + the extra mirror)."""
+    lines = ["  [main block]"]
+    lines += ["  " + ln for ln in render_stat_write(res["main"]).splitlines()]
+    if res.get("extra") is not None:
+        lines.append("  [Memoria extra -- the load-authoritative store]")
+        lines += ["  " + ln for ln in render_stat_write(res["extra"]).splitlines()]
     else:
         lines.append("  (no Memoria extra for this slot -- a vanilla save; the main block governs in-game)")
     return "\n".join(lines)
