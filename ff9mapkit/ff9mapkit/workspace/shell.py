@@ -18,7 +18,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
-    QApplication, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QApplication, QComboBox, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTabWidget,
     QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -29,7 +29,7 @@ from ..editor import feedback as fb
 from ..editor import forms
 from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import pick_palette
-from .forms_qt import build_form, read
+from .forms_qt import build_form, pick_catalog, read
 from .style import qss
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
@@ -369,7 +369,8 @@ class Workspace(QMainWindow):
             lst = data.get(key, []) or []
             grp = self._mk("group", f"{label} ({len(lst)})", key)
             for i, e in enumerate(lst):
-                grp.addChild(self._mk("object", e.get("name") or f"#{i}", f"{key}:{i}"))
+                lbl = forms.choice_summary(e) if key == "choice" else (e.get("name") or f"#{i}")
+                grp.addChild(self._mk("object", lbl, f"{key}:{i}"))
             member_item.addChild(grp)
 
     # ---- selection -> breadcrumb + inspector ----
@@ -436,6 +437,12 @@ class Workspace(QMainWindow):
             spec = _SECTION_SPEC[key]
             self._mount_form(member, key, spec, doc.data.get(key, {}) or {}, single=True, section=key)
             return
+        if key == "cutscene":                      # a single table + an ordered step list (sub-editor)
+            self._mount_cutscene(member)
+            return
+        if ":" in key and key.split(":")[0] == "choice":        # a choice + its options (sub-editor)
+            self._mount_choice(member, int(key.split(":")[1]))
+            return
         if ":" in key and key.split(":")[0] in _SECTION_SPEC:   # a list entity (npc:2, gateway:0, ...)
             k, idx = key.split(":")
             idx = int(idx)
@@ -444,70 +451,266 @@ class Workspace(QMainWindow):
                 self._mount_form(member, key, _SECTION_SPEC[k], lst[idx], single=False, section=k, idx=idx)
             return
         if kind == "group":                        # the list header (NPCs (n)) -- not directly editable yet
-            self._doc_placeholder(f"{key}: select one item under it to edit, or add new (coming soon).")
+            self._doc_placeholder(f"{key}: select one item under it to edit (adding new items is coming).")
             return
-        # cutscene / choice (list-in-list) -- a Phase-4b follow-up; the tkinter editor still handles them.
-        self._doc_placeholder(f"Editing '{key}' moves here in a follow-up. For now the tkinter Logic "
-                              "Editor handles cutscene steps and choice options.")
+        self._doc_placeholder(f"'{key}' isn't editable in the Workspace yet.")
 
-    def _mount_form(self, member, key, spec, entity, *, single, section, idx=None):
-        self._clear_doc()
-        title = QLabel(f"{member}  ·  {key}")
-        title.setStyleSheet("font-weight:600;font-size:15px;")
-        self.doc_host_lay.addWidget(title)
-        note = forms.SECTION_HELP.get(section)
+    def _pick(self, catalog, current):
+        """``build_form``'s picker: open the Qt catalog picker over the open campaign's context."""
+        return pick_catalog(self, catalog, current, self.plan, self.pal)
+
+    def _header(self, title, note=None):
+        lbl = QLabel(title)
+        lbl.setStyleSheet("font-weight:600;font-size:15px;")
+        self.doc_host_lay.addWidget(lbl)
         if note:
             h = QLabel(note)
             h.setWordWrap(True)
             h.setStyleSheet(f"color:{self.pal['muted']};")
             self.doc_host_lay.addWidget(h)
-        form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal)
+
+    def _mount_form(self, member, key, spec, entity, *, single, section, idx=None):
+        self._clear_doc()
+        self._header(f"{member}  ·  {key}", forms.SECTION_HELP.get(section))
+        form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal, pick=self._pick)
         self.doc_host_lay.addWidget(form)
-        save = QPushButton("Save")
-        save.setObjectName("accent")
-        save.clicked.connect(self._save)
-        self.doc_host_lay.addWidget(save, alignment=Qt.AlignLeft)
-        self.doc_host_lay.addStretch(1)
         self._save_ctx = {"member": member, "key": key, "spec": spec, "getters": getters,
                           "single": single, "section": section, "idx": idx}
+        self._add_save(self._save)
+
+    def _add_save(self, handler):
+        save = QPushButton("Save")
+        save.setObjectName("accent")
+        save.clicked.connect(lambda _=False: handler())
+        self.doc_host_lay.addWidget(save, alignment=Qt.AlignLeft)
+        self.doc_host_lay.addStretch(1)
         self.tabs.setCurrentWidget(self.doc_scroll)
 
     def _save(self):
         ctx = self._save_ctx
-        if not ctx:
-            return
+        if ctx:
+            self._commit(ctx["member"], ctx["section"], ctx["spec"], ctx["getters"],
+                         single=ctx["single"], idx=ctx["idx"], key=ctx["key"])
+
+    def _commit(self, member, section, spec, getters, *, single, idx=None, key=None) -> bool:
+        """Apply a form's values to the doc (clear the spec's keys, keep scene/unknown ones) + save.
+        Shared by the simple forms and the cutscene/choice sub-editors. Returns True on success."""
         try:
-            entity = forms.build_entity(ctx["spec"], read(ctx["getters"]))
+            entity = forms.build_entity(spec, read(getters))
         except ValueError as e:
-            self._show_problems(fb.Verdict(fb.ERROR, f"Invalid value — not saved"),
+            self._show_problems(fb.Verdict(fb.ERROR, "Invalid value — not saved"),
                                 [fb.Problem(fb.ERROR, str(e))])
-            return
-        doc = self._doc(ctx["member"])
-        if ctx["single"]:
-            target = doc.data.setdefault(ctx["section"], {})
-        else:
-            target = doc.data.get(ctx["section"], [])[ctx["idx"]]
-        reason = protected_reason(self.member_paths[ctx["member"]])   # don't overwrite a bundled/golden file
+            return False
+        reason = protected_reason(self.member_paths[member])      # don't overwrite a bundled/golden file
         if reason:
             self._show_problems(fb.Verdict(fb.ERROR, "Can't save here"),
                                 [fb.Problem(fb.ERROR, f"{reason}. Save a copy in a folder of your own.")])
-            return
-        for f in ctx["spec"]:                      # clear this spec's keys, keep any others (scene/unknown)
+            return False
+        doc = self._doc(member)
+        target = doc.data.setdefault(section, {}) if single else doc.data.get(section, [])[idx]
+        for f in spec:
             target.pop(f.key, None)
         target.update(entity)
         try:
             doc.save()
         except Exception as e:                     # noqa: BLE001
             self._show_problems(fb.Verdict(fb.ERROR, "Save failed"), [fb.Problem(fb.ERROR, str(e))])
-            return
-        self._show_problems(fb.Verdict(fb.OK, f"Saved {ctx['member']} · {ctx['key']}",
-                                       f"wrote {self.member_paths[ctx['member']].name}"), [])
-        # if a list entity's name changed, refresh the selected tree row + the breadcrumb
-        if not ctx["single"] and "name" in entity:
+            return False
+        self._show_problems(fb.Verdict(fb.OK, f"Saved {member} · {key or section}",
+                                       f"wrote {self.member_paths[member].name}"), [])
+        if not single and "name" in entity:        # a renamed list entity -> refresh its tree row
             items = self.tree.selectedItems()
             if items:
                 items[0].setText(0, entity["name"])
-                items[0].setData(0, _ROLE, ("object", entity["name"], ctx["key"]))
+                items[0].setData(0, _ROLE, ("object", entity["name"], key))
+        return True
+
+    # ---- cutscene + choice sub-editors (Phase 4b) ----
+    def _list_buttons(self, pairs):
+        """A horizontal row of buttons from (label, callback) pairs, returned as a QWidget."""
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        for label, cb in pairs:
+            b = QPushButton(label)
+            b.clicked.connect(lambda _=False, c=cb: c())
+            h.addWidget(b)
+        h.addStretch(1)
+        return w
+
+    def _mount_cutscene(self, member):
+        doc = self._doc(member)
+        cs = doc.data.setdefault("cutscene", {})
+        cs.setdefault("steps", [])
+        self._clear_doc()
+        self._header(f"{member}  ·  cutscene", forms.SECTION_HELP.get("cutscene"))
+        form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs),
+                                   self.pal, pick=self._pick)
+        self.doc_host_lay.addWidget(form)
+        self.doc_host_lay.addWidget(QLabel("Steps (run in order; control is locked):"))
+
+        body = QWidget()
+        row = QHBoxLayout(body)
+        row.setContentsMargins(0, 0, 0, 0)
+        steps_list = QListWidget()
+        row.addWidget(steps_list, 1)
+        side = QWidget()
+        sv = QVBoxLayout(side)
+        sv.setContentsMargins(0, 0, 0, 0)
+        type_combo = QComboBox()
+        for k in forms.STEP_KIND:
+            type_combo.addItem(forms.STEP_LABEL[k], k)
+        value_edit = QLineEdit()
+        hint = QLabel("")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+        sv.addWidget(QLabel("Type:"))
+        sv.addWidget(type_combo)
+        sv.addWidget(QLabel("Value:"))
+        sv.addWidget(value_edit)
+        sv.addWidget(hint)
+
+        def reload_steps(select=None):
+            steps_list.clear()
+            for st in cs["steps"]:
+                steps_list.addItem(forms.step_summary(st))
+            if select is not None and 0 <= select < steps_list.count():
+                steps_list.setCurrentRow(select)
+
+        def on_type(_i=0):
+            hint.setText(forms.STEP_HELP.get(type_combo.currentData(), ""))
+        type_combo.currentIndexChanged.connect(on_type)
+
+        def on_select(r):
+            if 0 <= r < len(cs["steps"]):
+                st = cs["steps"][r]
+                k = forms.step_key(st)
+                if k in forms.STEP_KIND:
+                    type_combo.setCurrentIndex(list(forms.STEP_KIND).index(k))
+                value_edit.setText(forms.step_value_text(st))
+        steps_list.currentRowChanged.connect(on_select)
+
+        def add_update():
+            try:
+                step = forms.make_step(type_combo.currentData(), value_edit.text())
+            except ValueError as e:
+                self._show_problems(fb.Verdict(fb.ERROR, "Bad step"), [fb.Problem(fb.ERROR, str(e))])
+                return
+            r = steps_list.currentRow()
+            if 0 <= r < len(cs["steps"]) and forms.step_key(cs["steps"][r]) == forms.step_key(step):
+                cs["steps"][r] = step
+            else:
+                cs["steps"].append(step)
+                r = len(cs["steps"]) - 1
+            reload_steps(r)
+
+        def remove():
+            r = steps_list.currentRow()
+            if 0 <= r < len(cs["steps"]):
+                cs["steps"].pop(r)
+                reload_steps()
+
+        def move(d):
+            r = steps_list.currentRow()
+            j = r + d
+            if 0 <= r < len(cs["steps"]) and 0 <= j < len(cs["steps"]):
+                cs["steps"][r], cs["steps"][j] = cs["steps"][j], cs["steps"][r]
+                reload_steps(j)
+
+        sv.addWidget(self._list_buttons([("Add / Update", add_update), ("Remove", remove),
+                                         ("Up", lambda: move(-1)), ("Down", lambda: move(1))]))
+        sv.addStretch(1)
+        row.addWidget(side)
+        self.doc_host_lay.addWidget(body)
+        reload_steps()
+        on_type()
+        self._add_save(lambda: self._commit(member, "cutscene", forms.CUTSCENE_SPEC, getters, single=True))
+
+    def _mount_choice(self, member, idx):
+        doc = self._doc(member)
+        lst = doc.data.get("choice", [])
+        if idx >= len(lst):
+            self._doc_placeholder("choice not found")
+            return
+        ch = lst[idx]
+        ch.setdefault("options", [])
+        self._clear_doc()
+        self._header(f"{member}  ·  choice[{idx}]", forms.SECTION_HELP.get("choice"))
+        form, getters = build_form(forms.CHOICE_SPEC, forms.entity_to_values(forms.CHOICE_SPEC, ch),
+                                   self.pal, pick=self._pick)
+        self.doc_host_lay.addWidget(form)
+        self.doc_host_lay.addWidget(QLabel("Options (top-to-bottom; Cancel/B picks the last):"))
+        opts_list = QListWidget()
+        self.doc_host_lay.addWidget(opts_list)
+        opt_host = QWidget()
+        opt_lay = QVBoxLayout(opt_host)
+        opt_lay.setContentsMargins(0, 0, 0, 0)
+        self.doc_host_lay.addWidget(opt_host)
+        st = {"getters": None}
+
+        def reload_opts(select=None):
+            opts_list.blockSignals(True)
+            opts_list.clear()
+            for o in ch["options"]:
+                opts_list.addItem(forms.option_summary(o))
+            opts_list.blockSignals(False)
+            if select is not None and 0 <= select < opts_list.count():
+                opts_list.setCurrentRow(select)
+
+        def show_opt(o):
+            while opt_lay.count():
+                w = opt_lay.takeAt(0).widget()
+                if w:
+                    w.deleteLater()
+            f, g = build_form(forms.CHOICE_OPTION_SPEC, forms.entity_to_values(forms.CHOICE_OPTION_SPEC, o),
+                              self.pal, pick=self._pick)
+            opt_lay.addWidget(f)
+            st["getters"] = g
+
+        def on_select(r):
+            if 0 <= r < len(ch["options"]):
+                show_opt(ch["options"][r])
+        opts_list.currentRowChanged.connect(on_select)
+
+        def add_new():
+            ch["options"].append({"text": "New"})
+            reload_opts(len(ch["options"]) - 1)
+
+        def update_sel():
+            r = opts_list.currentRow()
+            if not (0 <= r < len(ch["options"])) or not st["getters"]:
+                return
+            try:
+                opt = forms.build_entity(forms.CHOICE_OPTION_SPEC, read(st["getters"]))
+            except ValueError as e:
+                self._show_problems(fb.Verdict(fb.ERROR, "Bad option"), [fb.Problem(fb.ERROR, str(e))])
+                return
+            if not opt.get("text"):
+                self._show_problems(fb.Verdict(fb.ERROR, "Bad option"),
+                                    [fb.Problem(fb.ERROR, "An option needs text (the menu row shown).")])
+                return
+            ch["options"][r] = opt
+            reload_opts(r)
+
+        def remove():
+            r = opts_list.currentRow()
+            if 0 <= r < len(ch["options"]):
+                ch["options"].pop(r)
+                reload_opts()
+
+        def move(d):
+            r = opts_list.currentRow()
+            j = r + d
+            if 0 <= r < len(ch["options"]) and 0 <= j < len(ch["options"]):
+                ch["options"][r], ch["options"][j] = ch["options"][j], ch["options"][r]
+                reload_opts(j)
+
+        self.doc_host_lay.addWidget(self._list_buttons(
+            [("Add new", add_new), ("Update", update_sel), ("Remove", remove),
+             ("Up", lambda: move(-1)), ("Down", lambda: move(1))]))
+        reload_opts(0 if ch["options"] else None)
+        self._add_save(lambda: self._commit(member, "choice", forms.CHOICE_SPEC, getters,
+                                            single=False, idx=idx, key=f"choice:{idx}"))
 
     def _inspect(self, item, payload, field):
         if payload is None:
@@ -667,13 +870,28 @@ def _smoke(win):
     _w, _g = build_form(forms.NPC_SPEC, forms.entity_to_values(forms.NPC_SPEC, sample), win.pal)
     assert forms.build_entity(forms.NPC_SPEC, read(_g)) == sample, read(_g)
 
+    # Phase 4b: the cutscene + choice sub-editors mount over a doc with steps/options
+    edoc = win._doc("IC_ENT")
+    edoc.data["cutscene"] = {"once": True, "steps": [{"say": "Hello"}, {"wait": 30}]}
+    edoc.data["choice"] = [{"npc": "Guard", "prompt": "Well?", "options": [{"text": "Yes"}, {"text": "No"}]}]
+    win._mount_cutscene("IC_ENT")
+    step_lists = win.doc_host.findChildren(QListWidget)
+    assert step_lists and step_lists[0].count() == 2, "cutscene steps list shows both steps"
+    win._mount_choice("IC_ENT", 0)
+    opt_lists = win.doc_host.findChildren(QListWidget)
+    assert opt_lists and opt_lists[0].count() == 2, "choice options list shows both options"
+    # the catalog picker reuses the infohub spine (archetype search finds 'vivi') -- no exec(), just _refresh
+    from .forms_qt import CatalogPicker
+    pk = CatalogPicker(win, ["archetype", "creature"], "vivi", win.plan, win.pal)
+    assert "vivi" in [e.name for e in pk._entries], [e.name for e in pk._entries]
+
     # Check surfaces the dangling GHOST edge as a problem
     win.on_check()
     assert win.problems.count() >= 1
     assert any("GHOST" in win.problems.item(i).text() for i in range(win.problems.count()))
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members), lazy objects, "
-          f"breadcrumb, EDITOR forms (NPC+field save round-trip), Problems dock "
-          f"({win.problems.count()} rows); QProcess lint wired")
+          f"breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + catalog "
+          f"picker, Problems dock ({win.problems.count()} rows); QProcess lint wired")
 
 
 def main(argv=None):
