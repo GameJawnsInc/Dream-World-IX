@@ -5,14 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — quick-win item columns: weapon `category`/`status_index`/`rate` + item `equippable_by` (0.9.85)
+### Added — quick-win item columns: weapon `category`/`status_index`/`rate` + item `equippable_by` (0.9.85, ★ IN-GAME PROVEN)
 - Extends the `[[weapon]]`/`[[item]]` CSV-delta surface (`content/itemdata.py`) with four more stock-moddable,
   no-DLL levers the kit previously only **read** for the Info Hub:
   - **`[[weapon]] category`** — the weapon class (`short-range`/`long-range`/`throw`/`offset`, by name or a 0-255
     `WeaponCategory` bitmask). Adding `throw` makes a weapon eligible for Amarant's Throw. (`Weapons.csv Category`, a Byte.)
-  - **`[[weapon]] status_index` + `rate`** — the on-hit status: `status_index` selects an existing `StatusSets.csv`
-    row (the `add_status[]` table the engine rolls — `SBattleCalculator.cs:188`); `rate` is its **0-100 percent** chance
-    (physical hit always lands at 100, so `rate` only gates the status).
+  - **`[[weapon]] status_index` + `rate`** — the weapon's status effect: `status_index` selects an existing
+    `StatusSets.csv` row (the `add_status[]` table). In Memoria the live consumer is **Soul Blade** (Zidane's Skill,
+    for his thief-swords), which applies it directly; the normal-attack "Add Status" path is **dummied**
+    (`TryAddWeaponStatus` has no callers), so `rate` (0-100) only feeds custom NCalc formulas (`WeaponRate`).
   - **`[[item]] equippable_by`** — a list of party-character names that **REWRITES** the item's 12 `Items.csv`
     equip-by-character bits (exactly those can equip it; everyone else cleared). Composes whole-row with `price`/`sell`/BonusId.
 - Grounded byte-for-byte in the Memoria schema (`ItemAttack.cs` cols Category/StatusIndex/Rate, `ItemInfo.cs` 12-char
@@ -22,7 +23,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   range-guarded against the install's `Data/Battle/StatusSets.csv`. +15 tests (53 in test_itemdata; **1499** total).
 - Closes two deferred item-lane tails (weapon class/status-on-hit + who-can-equip). Still deferred: consumable
   use-effects, synthesis recipes, the gear→ability list, item name/description text, net-new ids (>254, needs a DLL).
-- **Awaiting in-game proof** (per the no-see-the-game constraint).
+- **★ IN-GAME PROVEN (2026-06-13):** `equippable_by = ["Zidane"]` on **Broadsword** (vanilla Steiner/Marcus/Blank
+  only) made it appear in Zidane's weapon-equip list. `status_index` on **The Ogre** (a Soul Blade thief-sword,
+  re-pointed from Blind to **Mini**, set 10) — using **Soul Blade** in battle visibly shrank the enemy (vs vanilla
+  Blind), confirming the on-hit status edit (the live route is Soul Blade, not a plain Attack — the latter is dummied;
+  a first test with Venom+Poison killed the weak enemy via DoT before the icon could be read). `category` verified
+  byte-correct in the deployed `Weapons.csv`. `FORMAT.md` documents the Soul Blade mechanic.
 
 ### Added — lint warns on a verbatim-carried gated door's un-remappable window text (#11) (0.9.80)
 - A `[[gateway_carry]]` story-gated door is grafted verbatim, so if it opens its OWN window (e.g. "it's locked")
