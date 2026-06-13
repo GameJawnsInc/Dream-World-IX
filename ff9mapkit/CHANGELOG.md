@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — save-item editor: the equipment-driven STAT editor (`items-set-stat`) (0.9.68)
+### Added — save-item editor: the equipment-driven STAT editor (`items-set-stat`), IN-GAME PROVEN (0.9.68)
 - Edit a character's permanent growth stat — Speed / Strength / Magic / Spirit — the hidden "level up in stat
   gear" system. ★ **Engine formula (`ff9level.cs`):** `displayed = base + level·growth + (bonus >> 5)`, capped per
   stat (Speed/Spirit 50, Strength/Magic 99); `bonus` is the equipment accumulator, `basis` is the displayed
@@ -19,6 +19,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   Preview / Apply). 6 new tests.
 - Scope: extra-only (Memoria saves — the load-authoritative store). The vanilla **main-block** stat editor is a
   follow-up — the offsets are already mapped (basis @ 5751, bonus @ 5759 UInt16, + 244·old-slot).
+- ★ **IN-GAME PROVEN (2026-06-13):** set Zidane's Strength 21 → 99 on slot 1/save 3 → loaded → the status menu
+  showed Strength 99 (Vivi + gil untouched). The displayed value + the bonus accumulator both set correctly.
 
 ### Added — save-item editor: vanilla key items (main-block `rareItems`) + the GUI key-item control, IN-GAME PROVEN (0.9.66)
 - Completes key items: a **vanilla (no-extra) save's key items** are now editable, and the **GUI** gains a
