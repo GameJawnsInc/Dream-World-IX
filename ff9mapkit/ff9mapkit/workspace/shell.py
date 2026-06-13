@@ -488,8 +488,10 @@ class Workspace(QMainWindow):
         member_item.addChild(self._mk("object", "Field", "field"))
         member_item.addChild(self._mk("object", "Camera (Blender)", "camera"))
         for key, label in _SINGLE:
-            if key in data:
-                member_item.addChild(self._mk("object", label, key))
+            it = self._mk("object", label, key)
+            if key not in data:                        # absent -> dim it (click to author; created on save)
+                it.setForeground(0, QBrush(QColor(self.pal["muted"])))
+            member_item.addChild(it)
         for key, label in _LISTS:
             lst = data.get(key, []) or []
             grp = self._mk("group", f"{label} ({len(lst)})", key)
@@ -773,6 +775,11 @@ class Workspace(QMainWindow):
                                 [fb.Problem(fb.ERROR, f"{reason}. Save a copy in a folder of your own.")])
             return False
         doc = self._doc(member)
+        if single and section not in doc.data and not entity:
+            # Saving an EMPTY, not-yet-created single section (e.g. an untouched Cutscene/Music) -> nothing
+            # to write; don't materialize an empty [section]. (Cutscene steps add via ensure_cs first.)
+            self._show_problems(fb.Verdict(fb.OK, f"{member} · {key or section} — nothing to save (empty)"), [])
+            return True
         target = doc.data.setdefault(section, {}) if single else doc.data.get(section, [])[idx]
         for f in spec:
             target.pop(f.key, None)
@@ -810,6 +817,8 @@ class Workspace(QMainWindow):
         if doc is None:
             return True
         if ctx["single"]:
+            if ctx["section"] not in doc.data and not entity:
+                return True                # untouched/empty new single section -> don't materialize it (dirty)
             target = doc.data.setdefault(ctx["section"], {})
         else:
             lst = doc.data.get(ctx["section"], []) or []
@@ -894,11 +903,21 @@ class Workspace(QMainWindow):
 
     def _mount_cutscene(self, member):
         doc = self._doc(member)
-        cs = doc.data.setdefault("cutscene", {})
-        cs.setdefault("steps", [])
+        # Don't materialize an empty [cutscene] just by BROWSING here -- that would mark the field dirty.
+        # Create it lazily: on the first added step (ensure_cs) or an explicit Save (_commit's guard).
+        def cs():
+            return doc.data.get("cutscene") or {}
+
+        def ensure_cs():
+            c = doc.data.setdefault("cutscene", {})    # materialize on a real edit (add a step)
+            c.setdefault("steps", [])
+            return c
+
+        def steps():
+            return cs().get("steps", [])
         self._clear_doc()
         self._header(f"{member}  ·  cutscene", forms.SECTION_HELP.get("cutscene"))
-        form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs),
+        form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member))
         self.doc_host_lay.addWidget(form)
         self.doc_host_lay.addWidget(QLabel("Steps (run in order; control is locked):"))
@@ -953,7 +972,7 @@ class Workspace(QMainWindow):
 
         def reload_steps(select=None):
             steps_list.clear()
-            for st in cs["steps"]:
+            for st in steps():
                 steps_list.addItem(forms.step_summary(st))
             if select is not None and 0 <= select < steps_list.count():
                 steps_list.setCurrentRow(select)
@@ -965,8 +984,9 @@ class Workspace(QMainWindow):
         on_type()                                  # initialise hint + the right value widget (default = say)
 
         def on_select(r):
-            if 0 <= r < len(cs["steps"]):
-                st = cs["steps"][r]
+            s = steps()
+            if 0 <= r < len(s):
+                st = s[r]
                 k = forms.step_key(st)
                 if k in forms.STEP_KIND:
                     type_combo.setCurrentIndex(list(forms.STEP_KIND).index(k))   # fires on_type -> swaps widget
@@ -979,25 +999,28 @@ class Workspace(QMainWindow):
             except ValueError as e:
                 self._show_problems(fb.Verdict(fb.ERROR, "Bad step"), [fb.Problem(fb.ERROR, str(e))])
                 return
+            st = ensure_cs()["steps"]                  # materialize [cutscene] now that there's real content
             r = steps_list.currentRow()
-            if 0 <= r < len(cs["steps"]) and forms.step_key(cs["steps"][r]) == forms.step_key(step):
-                cs["steps"][r] = step
+            if 0 <= r < len(st) and forms.step_key(st[r]) == forms.step_key(step):
+                st[r] = step
             else:
-                cs["steps"].append(step)
-                r = len(cs["steps"]) - 1
+                st.append(step)
+                r = len(st) - 1
             reload_steps(r)
 
         def remove():
+            s = steps()
             r = steps_list.currentRow()
-            if 0 <= r < len(cs["steps"]):
-                cs["steps"].pop(r)
+            if 0 <= r < len(s):
+                s.pop(r)
                 reload_steps()
 
         def move(d):
+            s = steps()
             r = steps_list.currentRow()
             j = r + d
-            if 0 <= r < len(cs["steps"]) and 0 <= j < len(cs["steps"]):
-                cs["steps"][r], cs["steps"][j] = cs["steps"][j], cs["steps"][r]
+            if 0 <= r < len(s) and 0 <= j < len(s):
+                s[r], s[j] = s[j], s[r]
                 reload_steps(j)
 
         sv.addWidget(self._list_buttons([("Add / Update", add_update), ("Remove", remove),
@@ -1289,6 +1312,15 @@ def _smoke(win):
     win.tree.expandItem(ent)
     groups = [win._payload(ent.child(i))[1] for i in range(ent.childCount())]
     assert any(g.startswith("NPCs") for g in groups), groups
+    # the single sections ALWAYS show (so an absent one is authorable) even though IC_ENT has none yet
+    assert {"Dialogue", "Encounter", "Music", "Cutscene"} <= set(groups), groups
+    # lazy: BROWSING an absent single must NOT materialize it (that would dirty the field). Only a real edit
+    # (add a cutscene step / Save a filled form) creates the [section].
+    assert "cutscene" not in win._doc("IC_ENT").data
+    win._open_editor("IC_ENT", "object", "cutscene")        # mount the empty cutscene editor
+    assert "cutscene" not in win._doc("IC_ENT").data, "mounting an absent Cutscene must not create it"
+    assert win._commit_active() is True                     # navigate-away folds the empty header...
+    assert "cutscene" not in win._doc("IC_ENT").data, "an empty Cutscene is not materialized on leave"
     # breadcrumb resolved campaign > field (no journey, no object yet)
     win.tree.setCurrentItem(ent)
     trail = bc.trail(win.journey_name, win.plan.name,
@@ -1361,14 +1393,15 @@ def _smoke(win):
     edoc.data["cutscene"] = {"once": True, "steps": [{"say": "Hello"}, {"wait": 30}]}
     edoc.data["choice"] = [{"npc": "Guard", "prompt": "Well?", "options": [{"text": "Yes"}, {"text": "No"}]}]
     win._mount_cutscene("IC_ENT")
+    # (any(...==2), not [0]: deleteLater'd widgets from earlier mounts linger without a running event loop)
     step_lists = win.doc_host.findChildren(QListWidget)
-    assert step_lists and step_lists[0].count() == 2, "cutscene steps list shows both steps"
+    assert any(lst.count() == 2 for lst in step_lists), "cutscene steps list shows both steps"
     # the cutscene 'say' step is dialogue -> a multi-line value box (default type is 'say')
     say_box = [p for p in win.doc_host.findChildren(QPlainTextEdit) if not p.isReadOnly()]
     assert say_box, "cutscene 'say' step has a multi-line value box"
     win._mount_choice("IC_ENT", 0)
     opt_lists = win.doc_host.findChildren(QListWidget)
-    assert opt_lists and opt_lists[0].count() == 2, "choice options list shows both options"
+    assert any(lst.count() == 2 for lst in opt_lists), "choice options list shows both options"
     # the catalog picker reuses the infohub spine (archetype search finds 'vivi') -- no exec(), just _refresh
     from .forms_qt import CatalogPicker
     pk = CatalogPicker(win, ["archetype", "creature"], "vivi", win.plan, win.pal)
