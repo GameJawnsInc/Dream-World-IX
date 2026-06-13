@@ -43,7 +43,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `--verbatim`, and the report now points there. (A bounded synth follow-up: use the donor's PRIMARY arrival as
   the default single spawn — a better default than the c.1 walkmesh-centroid — left for a separate in-game tick.)
 
-### Added — equip stat bonuses: `[[equip_bonus]]` → `Stats.csv` / ItemStats (the level-up-growth lever, full authorship) (0.9.81)
+### Added — equip stat bonuses: `[[equip_bonus]]` → `Stats.csv` / ItemStats (the level-up-growth lever, full authorship), IN-GAME PROVEN (0.9.81)
 - Tune an item's **equip stat bonus** + elemental affinity via a partial CSV delta — **no DLL**. New block in
   `content/itemdata.py`: `[[equip_bonus]] name=…` with `speed`/`strength`/`magic`/`spirit` (the 4 growth-stat
   bonuses = `Stats.csv` Dexterity/Strength/Magic/Will — the input the engine's level-up accumulator reads,
@@ -63,8 +63,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   mod-global (`build._emit_item_data` gained an `equip_bonus` bucket) + `ModLayout.stats_csv` + the `deploy_field`
   reversible CSV loop (+ the RELAUNCH `_STARTUP_CSVS` note) + `validate()` (name-resolves / equippable[best-effort]
   / sets a field / element-names / non-negative) + `ItemStat.is_equippable`. 16 new tests (38 in `test_itemdata`).
-  Offline-proven on the proof field (Bone Wrist edited in place str→50 + Mage Masher minted/repointed). **Roadmap
-  #1-6 remain complete; this is the deferred `Stats.csv` follow-up of #6.** RELAUNCH to apply (startup CSV).
+  ★ **IN-GAME PROVEN (2026-06-13):** Bone Wrist (id 91) equipped → **Strength +50** (in-place, dedicated row 4);
+  Mage Masher (id 2) equipped → **Magic +30** (mint id 176 + Items.csv `BonusId` repoint 0→176) — both confirmed
+  in the status menu. **Roadmap #1-6 remain complete; this is the deferred `Stats.csv` follow-up of #6, now
+  CLOSED.** RELAUNCH to apply (startup CSV).
 
 ### Added — item-data tuning: `[[weapon]]` / `[[armor]]` / `[[item]]` (roadmap #6, the last items-lane item), IN-GAME PROVEN (0.9.77)
 - Tune EXISTING item stats via partial CSV deltas — **no DLL**. New `content/itemdata.py` + field.toml blocks:
