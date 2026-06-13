@@ -77,6 +77,16 @@ def bubble(state: int) -> bytes:                               # 0x68 (BUBBLE) a
     return encode(0x68, state)
 
 
+def ate(mode: int) -> bytes:                                   # 0xD7 (AICON) argsize [1]
+    """ATE(mode): arm/hide the blinking on-field "Active Time Event / Press SELECT" prompt (engine
+    ``EIcon.SetAIcon`` -> ``sAIconMode``). ``mode`` bits: 0 = off/hide; ``&3 != 2`` = Blue (new),
+    ``&3 == 2`` = Gray (seen, dimmed); ``&4`` (e.g. 5) = FORCE-show (draw even without user control).
+    ``EIcon.ProcessAIcon`` only draws the icon when ``sAIconMode>0 && (mode&4 || GetUserControl())`` --
+    so an ATE on a free-roam HUB uses mode 1 (player has control), a cutscene field uses mode 5.
+    Verified ``d7 00 05`` = ATE(5) vs field 552/206. See docs/ATE_SYSTEM.md."""
+    return encode(0xD7, mode)
+
+
 def init_object(slot: int, arg: int = 0) -> bytes:  # 0x09
     return encode(0x09, slot, arg)
 

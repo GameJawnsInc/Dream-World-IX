@@ -82,7 +82,14 @@ T_GE = 0x1B           # B_GE '>='
 T_ANDAND = 0x27       # B_ANDAND '&&'
 T_OROR = 0x28         # B_OROR '||'
 T_KEY = 0x59          # B_KEY: pop a button-mask const, push (mask & held-inputs ? 1 : 0) -- HELD input
+T_KEYON = 0x4F        # B_KEYON: pop a button-mask const, push (mask & pressed-THIS-FRAME ? 1 : 0) -- the
+                      # press EDGE. The ATE "press SELECT" trigger (field 552 [11667]: `1 B_KEYON` with
+                      # SELECT=EventInput.Select=1u). Edge (not held) so one tap = one open.
 T_OBJVAR = 0x78       # B_OBJSPECA: read an object var -> 78 <uid> <field> (uid 255 = self)
+
+# Field-event input button masks (EventInput.cs): the const a B_KEY/B_KEYON token tests against.
+KEY_SELECT = 1        # EventInput.Select (1u) -- the ATE menu trigger
+KEY_START = 8         # EventInput.Start (8u)
 
 # A couple of useful system-variable codes (EventEngine.GetSysvar switch): 2 = usercontrol
 # (IsMovementEnabled), 9 = ETb.GetChoose() = the index the player picked in the last choice window.
@@ -189,6 +196,22 @@ def cond_sysvar_eq(code: int, value: int) -> bytes:
     With ``code`` = :data:`SYSVAR_CHOICE` (9) this is the dialogue-choice test: branch on which row the
     player picked in the preceding choice window (``ETb.GetChoose()``)."""
     return bytes([EXPR_OP]) + push_sysvar(code) + bytes([T_CONST]) + _i16(value) + bytes([T_EQ, T_END])
+
+
+def cond_ate_select(avail_class, avail_idx: int, select_mask: int = KEY_SELECT) -> bytes:
+    """The real ATE menu-open gate, byte-for-byte as field 552 [11667]:
+    ``if ( usercontrol==1  AND  <avail>==1  AND  B_KEYON(SELECT) )``.
+
+    RPN: ``usercontrol==1 , <avail>==1 , && , (SELECT B_KEYON) , &&``. Returns the full condition expr
+    (``EXPR_OP ... T_END``) for :func:`if_block`. ``<avail>`` is the author's own availability flag (set
+    in Main_Init alongside ``ATE(mode)``), so the menu opens ONLY while the ATE is offered and the player
+    taps SELECT this frame. Decoded from the Lindblum Main-St hub (Small-Town Knight ATE)."""
+    toks = (push_sysvar(SYSVAR_USERCONTROL) + bytes([T_CONST]) + _i16(1) + bytes([T_EQ])
+            + _push_var(avail_class, avail_idx) + bytes([T_CONST]) + _i16(1) + bytes([T_EQ])
+            + bytes([T_ANDAND])
+            + bytes([T_CONST]) + _i16(select_mask) + bytes([T_KEYON])
+            + bytes([T_ANDAND]))
+    return bytes([EXPR_OP]) + toks + bytes([T_END])
 
 
 # --- control flow ---
