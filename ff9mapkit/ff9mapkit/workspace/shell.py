@@ -31,6 +31,7 @@ from ..editor import forms
 from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import pick_palette
 from .forms_qt import build_form, pick_catalog, read
+from .mapview import CampaignMap
 from .style import qss
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
@@ -203,6 +204,8 @@ class Workspace(QMainWindow):
         self.doc_scroll.setWidget(self.doc_host)
         self.tabs.addTab(self.doc_scroll, "Editor")
         self._doc_placeholder("Select a field or an object on the left to edit it.")
+        self.map = CampaignMap(self.pal, on_open=self._select_member)   # the campaign graph as a document
+        self.tabs.addTab(self.map, "Map")
         split.addWidget(self.tabs)
 
         insp = QWidget()
@@ -304,6 +307,7 @@ class Workspace(QMainWindow):
         self.member_paths = {name: path.resolve()}
         self._docs = {name: doc}
         self._clean = {name: copy.deepcopy(doc.data)}
+        self.map.clear()                           # a standalone field has no campaign map
         self.act_check.setEnabled(True)
         self.act_lint_cli.setEnabled(False)       # lint-campaign is campaign-only
         self._populate_field(name)
@@ -343,6 +347,7 @@ class Workspace(QMainWindow):
             f"{plan.name} — {len(plan.members)} fields — mod folder {plan.mod_folder}")
         g = C.campaign_graph(plan)
         entry = g.entry or (plan.members[0].name if plan.members else None)
+        self.map.render(g, entry)
         if entry:
             self._select_member(entry)
         return True
@@ -462,6 +467,10 @@ class Workspace(QMainWindow):
         self.crumb.set(bc.trail(self.journey_name, self.plan.name if self.plan else None,
                                 field, obj_label, obj_key or ""))
         self._inspect(item, p, field)
+        if field and getattr(self, "map", None) is not None:
+            self.map.highlight(field)              # keep the Map document in sync with the tree
+        if p and p[0] == "campaign":
+            self.tabs.setCurrentWidget(self.map)   # selecting the campaign root shows its map
         if field_item is not None and p:
             member = self._payload(field_item)[1]
             if item is field_item:                 # the member row itself -> its Field form
@@ -1022,6 +1031,10 @@ def _smoke(win):
     assert win._payload(camp)[0] == "campaign"
     names = [win._payload(camp.child(i))[1] for i in range(camp.childCount())]
     assert names == ["IC_ENT", "IC_COR", "IC_LOST"], names
+    # the campaign Map document renders the same graph (compute_layout core) -- 3 nodes, 1 edge
+    assert win.map._layout is not None and len(win.map._layout.nodes) == 3
+    assert len(win.map._layout.edges) == 1
+    assert win.map._scene.items()                       # the scene actually drew something
     # lazy object load: expand IC_ENT -> it gains object groups (incl. the NPC we wrote)
     ent = camp.child(0)
     win.tree.expandItem(ent)
@@ -1089,6 +1102,7 @@ def _smoke(win):
                   '[[npc]]\nname = "Vivi"\npreset = "vivi"\n', encoding="utf-8")
     assert win.open_field(af)
     assert win.plan is None and win._loose == "AUTHORED"
+    assert win.map._layout is None                     # a loose field has no campaign map
     lf = win.tree.topLevelItem(0)
     assert win._payload(lf)[1] == "AUTHORED"
     win.tree.expandItem(lf)
@@ -1104,9 +1118,9 @@ def _smoke(win):
     win._open_editor("AUTHORED", "object", "choice:0")     # choice sub-editor over a loose field
     win.on_check()                                          # loose validate+lint runs (no campaign, no crash)
 
-    print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members), lazy objects, "
-          f"breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + catalog "
-          f"picker + Open Field (standalone authored), Problems dock ({nprob} campaign rows); QProcess wired")
+    print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
+          f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
+          f"catalog picker + Open Field (standalone authored), Problems dock ({nprob} campaign rows); QProcess wired")
 
 
 def main(argv=None):
