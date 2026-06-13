@@ -202,6 +202,28 @@ def test_compulsory_ate_mode_override(tmp_path):
     assert [i.imm(0) for i in ate_ops] == [5, 0]
 
 
+def test_compulsory_ate_then_warp_auto_returns(tmp_path):
+    """[cutscene] ate=true + then_warp=N ends the grey scene with Field(N) -- the auto-return real grey
+    ATEs use (956 -> Field(2054)). The chain primitive: a grey cutscene field warps back to its hub."""
+    eb = _build_eb(tmp_path, _CUTSCENE_ATE_TOML.replace("ate = true", "ate = true\nthen_warp = 30011"))
+    assert 30011 in [i.imm(0) for i in _all_instrs(eb) if i.op == 0x2B]   # Field(30011) warp back to the hub
+    assert [i.imm(0) for i in _all_instrs(eb) if i.op == 0xD7] == [6, 0]  # still the grey ATE(6) bracket
+
+
+def test_then_warp_validation(tmp_path):
+    from ff9mapkit.build import FieldProject, validate
+
+    def problems(toml):
+        p = tmp_path / "v.field.toml"
+        p.write_text(toml, encoding="utf-8")
+        return validate(FieldProject.load(p))
+
+    assert any("must be a field id" in m
+               for m in problems(_CUTSCENE_ATE_TOML.replace("ate = true", "ate = true\nthen_warp = 0")))
+    assert any("only supported on a narration cutscene" in m for m in
+               problems(_CUTSCENE_ATE_TOML.replace("ate = true", 'ate = true\nactor = "X"\nthen_warp = 30011')))
+
+
 def test_cutscene_without_ate_has_no_bracket_or_caption(tmp_path):
     """Drop `ate = true` and the cutscene is a plain one: no 0xD7 op, ordinary (128) window caption."""
     eb = _build_eb(tmp_path, _CUTSCENE_ATE_TOML.replace("ate = true\n", ""))

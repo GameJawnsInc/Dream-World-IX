@@ -30,6 +30,7 @@ import struct
 
 from ..eb import EbScript, edit, opcodes
 from . import region as _region
+from . import event as _event
 
 # Default flag for a "play once" cutscene: the SAVE-PERSISTENT Global bool (survives reloads), high in
 # gEventGlobal and clear of the event auto-once band (8000+).
@@ -231,13 +232,21 @@ REORDER_WAIT = 2
 
 
 def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
-               reorder: int = REORDER_WAIT, *, ate_mode: int | None = None) -> bytes:
+               reorder: int = REORDER_WAIT, *, ate_mode: int | None = None,
+               then_warp: int | None = None) -> bytes:
     """The cutscene function body: a brief reorder ``Wait`` (so the lock outlives Main_Init's EnableMove)
     then ``DisableMove`` + the ordered ``steps`` + ``EnableMove``, all gated ``if (!once_flag) { ...;
     once_flag = 1 }`` when ``once_flag`` is set (so it plays once).
 
     ``ate_mode`` (not None) brackets the steps ``ATE(mode) ... ATE(0)`` -- a compulsory ATE's HUD prompt
-    (the winATE caption on its windows is set by the caller via ``compile_steps(say_flags=...)``)."""
+    (the winATE caption on its windows is set by the caller via ``compile_steps(say_flags=...)``).
+
+    ``then_warp`` (a field id) makes the scene AUTO-RETURN: it ends with ``Field(then_warp)`` instead of
+    restoring control -- exactly how real grey ATEs end (field 956 -> ``Field(2054)``). The warp sits
+    OUTSIDE the once-gate so it ALWAYS fires (even on a re-entry that skips a once'd cutscene, the player
+    still warps back); it transitions away, so it's the last op (no ``EnableMove`` -- the destination's
+    Main_Init restores control). Field() transitions from this InitCode'd entry just like the World-Hub
+    menu-row warp does (same code-entry context -- NOT the Main_Init no-op case)."""
     pre = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
     inner = pre + opcodes.DISABLE_MOVE
     if ate_mode is not None:
@@ -245,20 +254,26 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
     inner += b"".join(steps)
     if ate_mode is not None:
         inner += opcodes.ate(0)
-    inner += opcodes.ENABLE_MOVE
+    if then_warp is None:
+        inner += opcodes.ENABLE_MOVE                      # restore control (a normal cutscene stays put)
     if once_flag is not None:
         inner += _region.set_var(flag_class, once_flag, 1)
-        return _region.if_block(_region.cond_not(flag_class, once_flag), inner) + opcodes.RETURN
-    return inner + opcodes.RETURN
+        body = _region.if_block(_region.cond_not(flag_class, once_flag), inner)
+    else:
+        body = inner
+    if then_warp is not None:
+        body += _event.warp(int(then_warp))               # AUTO-RETURN: transitions away, always fires
+    return body + opcodes.RETURN
 
 
 def inject_cutscene(data, steps, *, once_flag: int | None = None, flag_class=CUTSCENE_FLAG_CLASS,
                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
-                    ate_mode: int | None = None) -> bytes:
+                    ate_mode: int | None = None, then_warp: int | None = None) -> bytes:
     """Append a cutscene code entry (the sequence in :func:`build_body`) and run it on field load via
     an ``InitCode`` (over a Wait filler, or inserted into Main_Init). Returns new .eb bytes.
-    ``ate_mode`` (not None) styles it as a compulsory ATE (the ``ATE(mode)`` HUD bracket)."""
-    body = build_body(steps, once_flag, flag_class, ate_mode=ate_mode)
+    ``ate_mode`` (not None) styles it as a compulsory ATE (the ``ATE(mode)`` HUD bracket); ``then_warp``
+    (a field id) makes it auto-return with ``Field(then_warp)`` at the end."""
+    body = build_body(steps, once_flag, flag_class, ate_mode=ate_mode, then_warp=then_warp)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     slot = EbScript.from_bytes(data).first_free_slot()
     out = edit.append_entry(data, slot, entry)

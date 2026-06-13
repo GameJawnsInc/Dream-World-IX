@@ -1103,6 +1103,14 @@ def validate(project: FieldProject) -> list[str]:
             if not isinstance(m, int) or isinstance(m, bool) or not (0 <= m <= 255):
                 problems.append(f"[cutscene] ate_mode {m!r} must be an int 0..255 "
                                 f"(1 = quiet no-icon auto-ATE, 6 = grey UNSKIPPABLE; ATE 0xD7 mode).")
+        if "then_warp" in cs:
+            tw = cs["then_warp"]
+            if not (isinstance(tw, int) and not isinstance(tw, bool) and tw > 0):
+                problems.append(f"[cutscene] then_warp {tw!r} must be a field id (a positive int) -- the "
+                                f"field to auto-return to when the scene ends (Field warp).")
+            if actor is not None:
+                problems.append("[cutscene] then_warp is only supported on a narration cutscene (no actor) "
+                                "-- the actor path splices into an NPC loop, which doesn't take the end-warp.")
     return problems
 
 
@@ -2454,7 +2462,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # spliced into its NPC's Init above (actor_choreo), so it's skipped here.
     if cs and not cs_actor:
         steps = [_cutscene.compile_steps(cs["steps"], cutscene_txids, say_flags=cs_say_flags)]
-        eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag, ate_mode=cs_ate_mode)
+        then_warp = int(cs["then_warp"]) if cs.get("then_warp") else None
+        eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag, ate_mode=cs_ate_mode,
+                                       then_warp=then_warp)
 
     # on-entry beats ([[on_entry]]): a gated, once field-load hook -- a narration message and/or a
     # story-state write (set_scenario / set_flags), fired the moment the player enters but ONLY when
