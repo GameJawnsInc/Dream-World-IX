@@ -1198,6 +1198,26 @@ def _cmd_items_set_stat(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_items_set_ap(args: argparse.Namespace) -> int:
+    """Set the AP of a character's ability (so it's mastered / usable) in the Memoria EXTRA file. `ability` is a
+    name, an AA:X / SA:X token, a numeric abil_id, or 'all'; `value` is master / max / forget / a number. The
+    editor changes abilities ALREADY in the character's pool (the save is the source of truth). Extra-only for now
+    (a vanilla no-extra save's main-block AP is a follow-up). Dry-run unless --apply."""
+    from . import save_items as SI
+    try:
+        if SI.load_extra_common(args.save)[0] is not None:             # a Memoria extra-save directly
+            extra = args.save
+        else:                                                          # a SavedData_ww.dat container + slot
+            extra = SI.resolve_extra(args.save, slot=args.slot, save=args.save_no, autosave=args.autosave)
+        rep = SI.set_ap_extra(extra, args.character, args.ability, args.value,
+                              dry_run=not args.apply, backup=not args.no_backup)
+        print(SI.render_ability_write(rep))
+    except Exception as e:                                              # noqa: BLE001
+        print(f"could not set AP: {e}")
+        return 2
+    return 0
+
+
 def _cmd_flags_diff(args: argparse.Namespace) -> int:
     """Diff two saves' gEventGlobal story state (A -> B) -- what a beat / session wrote. Each arg reads the
     same forms as flags-inspect; with one save, --slot-a/--slot-b pick two slots (default: slot 0 -> slot 1)."""
@@ -1504,7 +1524,27 @@ def _cmd_find_rooms(args: argparse.Namespace) -> int:
 
 
 def _cmd_items(args: argparse.Namespace) -> int:
-    """List FF9 item names + ids (use a name for `give_item = ["<name>", count]`)."""
+    """List FF9 item names + ids (use a name for `give_item = ["<name>", count]`). With --abilities, list each
+    character's learnable abilities (name / AA:X-SA:X token / AP-to-master) for `items-set-ap` instead."""
+    if getattr(args, "abilities", False):
+        from . import abilities as AB
+        if not AB.available():
+            print("ability names need your FF9 install (set FF9_GAME_PATH or run from the game dir). You can "
+                  "still edit AP by AA:X / SA:X token or numeric id without it.")
+            return 0
+        want = args.filter.lower() if args.filter else None
+        for mt, pname in AB.PRESET_NAMES.items():
+            pool = [a for a in AB.pool_for_preset(mt) if a.abil_id != 0]
+            if not pool:
+                continue
+            shown = [a for a in pool if not want or want in (a.name or "").lower() or want in a.token.lower()]
+            if not shown:
+                continue
+            print(f"\n{pname} (preset {mt}):")
+            for a in shown:
+                print(f"  {a.token:<10} {a.ap_req:>4} AP  {a.name or '(unnamed)'}")
+        print("\n  Edit with:  items-set-ap <save> <character> <name|AA:X|SA:X|id|all> <master|max|forget|N>")
+        return 0
     from . import items as I
     from . import itemstats as S
     rows = [(i, n) for i, n in I.all_items() if n != "NoItem"]
@@ -1942,8 +1982,11 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("--ids", action="store_true", help="also print each gesture's numeric anim id")
     an.set_defaults(func=_cmd_animations)
 
-    it = sub.add_parser("items", help="list FF9 item names + ids (give_item by name)")
-    it.add_argument("-f", "--filter", help="only show items whose name contains this")
+    it = sub.add_parser("items", help="list FF9 item names + ids (give_item by name); --abilities lists "
+                                      "ability names for items-set-ap")
+    it.add_argument("-f", "--filter", help="only show items/abilities whose name (or token) contains this")
+    it.add_argument("--abilities", action="store_true",
+                    help="list each character's learnable abilities (name / AA:X-SA:X token / AP) instead of items")
     it.set_defaults(func=_cmd_items)
 
     ar = sub.add_parser("archetypes", help="list built-in NPC archetypes (place a common NPC by name)")
@@ -2039,6 +2082,15 @@ def build_parser() -> argparse.ArgumentParser:
     ss.add_argument("stat", help="Speed | Strength | Magic | Spirit")
     ss.add_argument("value", type=int, help="target value (Speed/Spirit cap 50, Strength/Magic cap 99)")
     ss.set_defaults(func=_cmd_items_set_stat)
+
+    sa = sub.add_parser("items-set-ap",
+                        help="set a character's ability AP / mastery in the Memoria extra file (dry-run unless "
+                             "--apply)")
+    _add_save_target(sa)
+    sa.add_argument("character", help="CharacterId 0-11 or a name (Zidane..Beatrix)")
+    sa.add_argument("ability", help="ability name, AA:X / SA:X token, numeric abil_id, or 'all'")
+    sa.add_argument("value", help="master | max | forget | a number (0-255)")
+    sa.set_defaults(func=_cmd_items_set_ap)
 
     fd = sub.add_parser("flags-diff",
                         help="diff two saves' story state (A -> B): what scenario/flags a beat changed")

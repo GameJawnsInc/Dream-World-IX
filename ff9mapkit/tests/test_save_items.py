@@ -964,3 +964,157 @@ def test_real_extra_set_gil_dry_run_surgical():
         rep = SI.set_gil(extra, 1, dry_run=True)           # value differs from the real 500 -> exercises a diff
         assert rep.wrote is False and rep.bytes_changed <= 4
         assert open(extra, "rb").read() == before          # untouched
+
+
+# ---- AP / ability mastery (pa_extended, extra) -----------------------------------------------
+def _player_abil(name, slot_no, menu_type, pa):
+    """A synthetic player with a `pa_extended` ability list. `pa` = [(abil_id, cur), ...]."""
+    p = SJ.SJClass()
+    p.add("name", SJ.SJData(SJ.VALUE, name))
+    info = SJ.SJClass(); info.add("slot_no", _int(slot_no)); info.add("menu_type", _int(menu_type))
+    p.add("info", info)
+    arr = SJ.SJArray()
+    for aid, cur in pa:
+        e = SJ.SJClass(); e.add("id", _int(aid)); e.add("cur", _int(cur)); arr.items.append(e)
+    p.add("pa_extended", arr)
+    return p
+
+
+def _common_abil(players=None):
+    c = SJ.SJClass()
+    if players is None:                                    # default: two players with modded (no-base) ids so the
+        players = [_player_abil("Zidane", 0, 0, [(192, 0), (193, 0), (26661, 0), (0, 0)]),   # tests are install-free
+                   _player_abil("Vivi", 1, 1, [(192, 50), (26658, 255)])]
+    c.add("players", SJ.SJArray(players))
+    c.add("gil", _int(500))
+    c.add("items", SJ.SJArray([_item(236, 7)]))
+    return c
+
+
+def test_read_abilities_classifies_mastered_and_in_progress():
+    # modded ids (no base AP req) -> mastered only at AP_CAP (255); void id 0 excluded from total
+    common = _common_abil(players=[_player_abil("X", 0, 0, [(26661, 255), (26658, 50), (0, 0)])])
+    ab = SI.read_abilities(common)[0]
+    assert ab["total"] == 2                                # id 0 (void) skipped
+    assert [t for _, t, _ in ab["mastered"]] == ["AA:20005"]       # 26661 at AP_CAP -> mastered
+    assert ab["in_progress"][0][:2] == (26658, "AA:20002") and ab["in_progress"][0][3] == 50
+
+
+def test_set_ap_extra_single_by_token(tmp_path):
+    path = _extra_file(tmp_path, common=_common_abil())
+    rep = SI.set_ap_extra(str(path), "Zidane", "SA:0", 10, dry_run=False)   # id 192 -> AP 10
+    assert rep.wrote and rep.abil_id == 192 and rep.token == "SA:0" and rep.new_ap == 10
+    common = SI.load_extra_common(str(path))[0]
+    assert int(SJ.get_path(common, "players", 0, "pa_extended", 0, "cur").value) == 10
+    # other player untouched (scoped)
+    assert int(SJ.get_path(common, "players", 1, "pa_extended", 0, "cur").value) == 50
+
+
+def test_set_ap_extra_master_max_forget(tmp_path):
+    path = _extra_file(tmp_path, common=_common_abil())
+    # "max" force-masters a modded id (unknown req -> AP_CAP)
+    r = SI.set_ap_extra(str(path), "Zidane", "AA:20005", "max", dry_run=False)   # id 26661
+    assert r.new_ap == SI.AP_CAP and r.mastered and r.action == "mastered"
+    # "forget" clears it
+    r = SI.set_ap_extra(str(path), "Zidane", "AA:20005", "forget", dry_run=False)
+    assert r.new_ap == 0 and r.action == "forgot"
+
+
+def test_set_ap_extra_clamps_and_rejects(tmp_path):
+    path = _extra_file(tmp_path, common=_common_abil())
+    assert SI.set_ap_extra(str(path), "Zidane", "SA:0", 9999, dry_run=True).new_ap == SI.AP_CAP   # clamp
+    with pytest.raises(ValueError):
+        SI.set_ap_extra(str(path), "Zidane", "SA:0", -1)
+    with pytest.raises(ValueError):
+        SI.set_ap_extra(str(path), "Zidane", "SA:0", "bogus")
+
+
+def test_set_ap_extra_ability_not_in_pool(tmp_path):
+    path = _extra_file(tmp_path, common=_common_abil())
+    with pytest.raises(ValueError) as e:
+        SI.set_ap_extra(str(path), "Zidane", "SA:63", "master")   # id 255, not in Zidane's synthetic pool
+    assert "no ability" in str(e.value) and "present" in str(e.value)
+
+
+def test_set_ap_extra_bulk_all(tmp_path):
+    path = _extra_file(tmp_path, common=_common_abil())
+    r = SI.set_ap_extra(str(path), "Zidane", "all", "max", dry_run=False)
+    assert r.token == "all" and r.action == "mastered" and r.count == 3 and r.pool_total == 3   # 3 non-void; id-0 skipped
+    common = SI.load_extra_common(str(path))[0]
+    curs = [int(SJ.get_path(common, "players", 0, "pa_extended", i, "cur").value) for i in range(4)]
+    assert curs == [SI.AP_CAP, SI.AP_CAP, SI.AP_CAP, 0]    # void id-0 slot left at 0
+    # forget-all zeroes them
+    r = SI.set_ap_extra(str(path), "Zidane", "all", "forget", dry_run=False)
+    assert r.action == "forgot" and r.count == 3
+
+
+def test_set_ap_extra_dry_run_writes_nothing(tmp_path):
+    path = _extra_file(tmp_path, common=_common_abil())
+    before = path.read_bytes()
+    rep = SI.set_ap_extra(str(path), "Zidane", "SA:0", "max")   # dry_run defaults True
+    assert rep.wrote is False and rep.backup_path is None
+    assert path.read_bytes() == before
+
+
+def test_render_ability_write_smoke():
+    rep = SI.AbilityWriteReport(path="p", slot_no=1, character="Vivi", abil_id=25, token="AA:25",
+                                ability_name="Fire", old_ap=0, new_ap=25, ap_req=25, mastered=True,
+                                action="mastered", count=1, wrote=False)
+    out = SI.render_ability_write(rep)
+    assert "Vivi" in out and "Fire" in out and "MASTERED" in out
+
+
+def _player_abil_no_menu_type(name, slot_no, pa):
+    """A player with pa_extended but NO info/menu_type (a malformed/foreign save -- review finding #1)."""
+    p = _player_abil(name, slot_no, 0, pa)
+    info = SJ.SJClass(); info.add("slot_no", _int(slot_no))   # rebuild info WITHOUT a menu_type key
+    p._items[p._idx["info"]] = ("info", info)
+    return p
+
+
+def test_abilities_no_menu_type_degrades_not_crash(tmp_path):
+    # a save with pa_extended but no menu_type must NOT crash read or write (finding #1) -- degrades to token/AP_CAP
+    common = _common_abil(players=[_player_abil_no_menu_type("X", 0, [(192, 0), (26661, 0)])])
+    path = _extra_file(tmp_path, common=common)
+    ab = SI.inspect(str(path))[0][1].abilities                # read path: no crash
+    assert ab and ab[0]["total"] == 2 and ab[0]["menu_type"] is None
+    r = SI.set_ap_extra(str(path), "X", "SA:0", "master", dry_run=False)   # write path: no crash
+    assert r.new_ap == SI.AP_CAP and r.mastered                # unknown req -> AP_CAP force-master
+
+
+def test_set_ap_extra_duplicate_ids_sets_all(tmp_path):
+    # the engine loads the LAST duplicate -> the editor must set EVERY match (finding #2)
+    common = _common_abil(players=[_player_abil("X", 0, 0, [(192, 11), (193, 0), (192, 22)])])
+    path = _extra_file(tmp_path, common=common)
+    r = SI.set_ap_extra(str(path), "X", "SA:0", 99, dry_run=False)         # id 192 appears twice
+    assert r.old_ap == 22                                      # reports the LAST (engine-effective) entry
+    cm = SI.load_extra_common(str(path))[0]
+    curs = [int(SJ.get_path(cm, "players", 0, "pa_extended", i, "cur").value) for i in (0, 2)]
+    assert curs == [99, 99]                                    # BOTH duplicate entries set
+
+
+def test_set_ap_extra_bulk_numeric_masters_labels_mastered(tmp_path):
+    # a bulk numeric value at the cap masters every ability -> action "mastered" (finding #3)
+    path = _extra_file(tmp_path, common=_common_abil(
+        players=[_player_abil("X", 0, 0, [(26661, 0), (26658, 0)])]))     # modded ids -> req None -> master at AP_CAP
+    r = SI.set_ap_extra(str(path), "X", "all", 255, dry_run=True)
+    assert r.action == "mastered" and r.mastered and r.pool_total == 2
+    r2 = SI.set_ap_extra(str(path), "X", "all", 10, dry_run=True)         # below the (None->AP_CAP) bar -> "set"
+    assert r2.action == "set" and not r2.mastered
+
+
+def test_render_ability_bulk_shows_count_over_total():
+    rep = SI.AbilityWriteReport(path="p", slot_no=0, character="Zidane", abil_id=-1, token="all",
+                                ability_name=None, old_ap=0, new_ap=0, ap_req=None, mastered=True,
+                                action="mastered", count=1, pool_total=2, wrote=True)
+    assert "1/2 of Zidane" in SI.render_ability_write(rep)     # change-count / pool-total (finding #4)
+
+
+@pytest.mark.skipif(not _real_extra_files(), reason="no real FF9 Memoria extra save on this machine")
+def test_real_extra_set_ap_dry_run_scoped():
+    """Dry-run set_ap against every real extra file: gate 1 passes, the scoped check holds, nothing is written."""
+    for extra in _real_extra_files():
+        before = open(extra, "rb").read()
+        rep = SI.set_ap_extra(extra, 0, "all", "max", dry_run=True)   # Zidane, every ability (computes + verifies)
+        assert rep.wrote is False and rep.token == "all"
+        assert open(extra, "rb").read() == before          # untouched

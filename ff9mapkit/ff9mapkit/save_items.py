@@ -22,6 +22,7 @@ import os
 import time
 from dataclasses import dataclass, field
 
+from . import abilities as _abilities
 from . import items as _items
 from . import keyitems as _keyitems
 from . import save as _save
@@ -49,6 +50,36 @@ def _resolve_stat(stat) -> str:
     if s is None:
         raise ValueError(f"unknown stat {stat!r} (Speed / Strength / Magic / Spirit)")
     return s
+
+# AP / ability mastery. The save stores each character's per-ability AP in `players[].pa_extended` as
+# `[{id, cur}]` (id = the global abil_id, cur = AP earned); an ability is MASTERED when cur >= its AP-to-master
+# requirement (ff9abil.FF9Abil_IsMaster). Mastering an active ability makes it permanently usable; mastering a
+# support ability makes it equippable. AP-to-master is always <= 255 (the old-format `pa` cell is a Byte), so
+# AP_CAP=255 is a safe "force-master" value when the exact requirement is unknown (a modded ability).
+AP_CAP = 255
+
+
+def _resolve_ap_value(value, ap_req) -> int:
+    """A CLI/API AP value -> the int to write. ``"master"``/``"learn"`` = the known AP requirement (or
+    :data:`AP_CAP` when unknown -- a safe overshoot that masters any ability); ``"max"``/``"full"`` = AP_CAP;
+    ``"forget"``/``"clear"`` = 0; an int is clamped to ``[0, AP_CAP]``."""
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("master", "learn"):
+            return ap_req if ap_req is not None else AP_CAP
+        if v in ("max", "full"):
+            return AP_CAP
+        if v in ("forget", "clear", "reset"):
+            return 0
+        if v.isdigit():
+            value = int(v)
+        else:
+            raise ValueError(f"unknown AP value {value!r} (a number 0-{AP_CAP}, or master / max / forget)")
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"AP value must be an int or master/max/forget (got {type(value).__name__})")
+    if value < 0:
+        raise ValueError(f"AP cannot be negative (got {value}); use 'forget' or 0 to un-learn")
+    return min(value, AP_CAP)
 
 # --- encrypted MAIN-block (old-format) layout (step 4b) -------------------------------------------
 # The main AES block is a flat alpha-sorted typed stream. gil + the 256-pair item array sit at FIXED
@@ -95,6 +126,27 @@ class ItemReport:
     equipment: list = field(default_factory=list)         # [{"slot_no", "name", "equip": {slot: (id, name)|None}}]
     keyitems: list = field(default_factory=list)          # [(id, name, obtained, used), ...] (key/important items)
     stats: list = field(default_factory=list)             # [{"slot_no", "name", "stats": {Speed, Strength, ...}}]
+    abilities: list = field(default_factory=list)         # [{"slot_no", "name", "total", "mastered", "in_progress"}]
+
+
+@dataclass
+class AbilityWriteReport:
+    """The outcome of a :func:`set_ap_extra` call (single ability or a bulk ``all`` edit; dry-run or applied)."""
+    path: str
+    slot_no: int
+    character: "str | None"
+    abil_id: int                                          # the global ability id (-1 for a bulk "all" edit)
+    token: str                                            # "AA:X" / "SA:X" (or "all")
+    ability_name: "str | None"
+    old_ap: int
+    new_ap: int
+    ap_req: "int | None"                                  # AP needed to master (None if a modded id, unknown)
+    mastered: bool                                        # new_ap masters it
+    action: str                                           # "changed" | "unchanged" | "mastered" | "forgot" | "set"
+    count: int                                            # # abilities CHANGED (1 single; N for "all")
+    wrote: bool
+    pool_total: int = 0                                   # non-void abilities in the pool (bulk "all" denominator)
+    backup_path: "str | None" = None
 
 
 @dataclass
@@ -237,10 +289,51 @@ def read_keyitems(common) -> list:
     return out
 
 
+def read_abilities(common) -> list:
+    """``40000_Common/players[]`` -> per-character ability state from ``pa_extended``:
+    ``[{slot_no, name, menu_type, total, mastered: [(abil_id, token, name)],
+       in_progress: [(abil_id, token, name, cur, ap_req)]}, ...]``. ``total`` counts non-void pool entries;
+    ``mastered`` = abilities whose AP meets the (best-effort) requirement; ``in_progress`` = partially learned.
+    Names + AP requirements are best-effort (live from the base pool CSVs via :mod:`ff9mapkit.abilities`); a
+    modded id with no base entry shows its ``AA:X``/``SA:X`` token and is judged mastered only at AP_CAP."""
+    players = _sj.get_path(common, "players")
+    out = []
+    if players is None:
+        return out
+    for p in players:
+        paext = _sj.get_path(p, "pa_extended")
+        if not isinstance(paext, _sj.SJArray):
+            continue
+        mt = _sj.get_path(p, "info", "menu_type")
+        menu_type = int(mt.value) if mt is not None else None
+        sn, nm = _sj.get_path(p, "info", "slot_no"), _sj.get_path(p, "name")
+        mastered, in_progress, total = [], [], 0
+        for e in paext:
+            eid, cnode = _sj.get_path(e, "id"), _sj.get_path(e, "cur")
+            if eid is None or cnode is None:
+                continue
+            abil_id, cur = int(eid.value), int(cnode.value)
+            if abil_id == 0:                              # a void pool slot
+                continue
+            total += 1
+            token = _abilities.decode_token(abil_id)
+            name = _abilities.name_of(abil_id, menu_type)
+            ap_req = _abilities.ap_required(menu_type, abil_id)
+            is_master = (ap_req is not None and cur >= ap_req) or (ap_req is None and cur >= AP_CAP)
+            if is_master:
+                mastered.append((abil_id, token, name))
+            elif cur > 0:
+                in_progress.append((abil_id, token, name, cur, ap_req))
+        out.append({"slot_no": int(sn.value) if sn is not None else None,
+                    "name": nm.value if nm is not None else None, "menu_type": menu_type,
+                    "total": total, "mastered": mastered, "in_progress": in_progress})
+    return out
+
+
 def report_from_common(common) -> ItemReport:
     return ItemReport(gil=read_gil(common), inventory=read_inventory(common),
                       equipment=read_equipment(common), keyitems=read_keyitems(common),
-                      stats=read_stats(common))
+                      stats=read_stats(common), abilities=read_abilities(common))
 
 
 # --- file-level helpers ---------------------------------------------------------------------------
@@ -658,6 +751,131 @@ def render_stat_write(rep: StatWriteReport) -> str:
     head = "WROTE" if rep.wrote else "DRY RUN -- would set"
     lines = [f"  {head} {who} {rep.stat}: {rep.old_value} -> {rep.new_value} in {rep.path} "
              f"(bonus {rep.old_bonus} -> {rep.new_bonus})"]
+    lines.append(f"  Backup: {rep.backup_path}" if rep.backup_path else
+                 ("  (--no-backup: no backup written)" if rep.wrote else
+                  "  Re-run with --apply to write (a .bak backup is made first unless --no-backup)."))
+    return "\n".join(lines)
+
+
+# --- write surface: AP / ability mastery (extra-only) ---------------------------------------------
+
+def _ap_entry_indices(paext, abil_id: int) -> list:
+    """Every ``pa_extended`` index whose ``id`` == ``abil_id``. Normally one, but a malformed save can hold a
+    duplicate id; the engine's load (JsonParser) resolves all of them to one ``pa`` slot, so the LAST entry wins.
+    The editor therefore sets EVERY match (and reports/confirms the last) so the result is engine-faithful."""
+    return [i for i, e in enumerate(paext.items)
+            if isinstance(e, _sj.SJClass) and _sj.get_path(e, "id") is not None
+            and int(_sj.get_path(e, "id").value) == abil_id]
+
+
+def set_ap_extra(extra_path, character, ability, value="master", *, dry_run: bool = True,
+                 backup: bool = True) -> AbilityWriteReport:
+    """Set the AP of one of ``character``'s learnable abilities -- or, when ``ability == "all"``, every ability
+    in their pool -- in a Memoria EXTRA save's ``players[].pa_extended``. ``value`` is ``"master"`` (set AP to
+    the requirement so it's learned/usable), ``"max"`` (AP_CAP, force-master even a modded ability), ``"forget"``
+    (0), or a number. ``ability`` is a NAME, an ``AA:X``/``SA:X`` token, or a numeric abil_id.
+
+    The editor only changes abilities ALREADY in the character's pool (the save's ``pa_extended`` is the source of
+    truth -- the game keys AP by pool entry, so an id the character doesn't have is meaningless). Same safety as
+    the other extra writers: GATE 1 + a scoped-change check (only that player's ``pa_extended`` may move) + atomic
+    write + backup + a post-write re-read + dry-run default."""
+    raw, root, trailing, common = _load_for_edit(extra_path)
+    players = common.get("players")
+    pidx, pnode, slot_no, cname = _find_player(players, character)
+    mt = _sj.get_path(pnode, "info", "menu_type")
+    menu_type = int(mt.value) if mt is not None else None
+    paext = pnode.get("pa_extended")
+    if not isinstance(paext, _sj.SJArray):
+        raise ValueError(f"{cname or character} has no pa_extended ability list; refusing to edit")
+    scope = [(COMMON, "players", pidx, "pa_extended")]
+
+    if isinstance(ability, str) and ability.strip().lower() == "all":   # -------- bulk: every ability --------
+        n_changed, pool_total, n_master = 0, 0, 0
+        for e in paext.items:
+            eid, cnode = _sj.get_path(e, "id"), _sj.get_path(e, "cur")
+            if not isinstance(e, _sj.SJClass) or eid is None or cnode is None:
+                continue
+            aid = int(eid.value)
+            if aid == 0:                                   # skip void pool slots
+                continue
+            pool_total += 1
+            ap_req = _abilities.ap_required(menu_type, aid)
+            new_ap = _resolve_ap_value(value, ap_req)
+            if int(cnode.value) != new_ap:
+                e.set("cur", _sj.SJData(_sj.INT, new_ap))
+                n_changed += 1
+            if (ap_req is not None and new_ap >= ap_req) or (ap_req is None and new_ap >= AP_CAP):
+                n_master += 1                              # outcome-based: count abilities the new AP masters
+        new_bytes, changed = _assert_scoped(raw, root, trailing, scope)
+        backup_path, did_write = None, False
+        if not dry_run and changed:
+            backup_path = _atomic_write(extra_path, raw, new_bytes, backup=backup)
+            chk = _sj.get_path(load_extra_common(extra_path)[0], "players", pidx, "pa_extended")   # CONFIRM
+            if chk is None or len(chk) != len(paext):
+                raise AssertionError("post-write check failed: pa_extended changed shape")
+            did_write = True
+        if _resolve_ap_value(value, None) == 0:            # the value zeroes every ability -> forget
+            label, is_master = "forgot", False
+        elif pool_total and n_master == pool_total:        # every non-void ability ends mastered
+            label, is_master = "mastered", True
+        else:
+            label, is_master = "set", False
+        return AbilityWriteReport(path=str(extra_path), slot_no=slot_no, character=cname, abil_id=-1, token="all",
+                                  ability_name=None, old_ap=0, new_ap=0, ap_req=None, mastered=is_master,
+                                  action=label if n_changed else "unchanged", count=n_changed,
+                                  pool_total=pool_total, wrote=did_write, backup_path=backup_path)
+
+    abil_id = _abilities.resolve(menu_type, ability)       # -------- a single ability --------
+    idxs = _ap_entry_indices(paext, abil_id)               # all matches (the engine loads the LAST -> set all)
+    if not idxs:
+        present = ", ".join(sorted({_abilities.decode_token(int(_sj.get_path(e, "id").value))
+                                    for e in paext.items if _sj.get_path(e, "id") is not None
+                                    and int(_sj.get_path(e, "id").value) != 0}))
+        raise ValueError(f"{cname or character} has no ability {ability!r} ({_abilities.decode_token(abil_id)}, "
+                         f"abil_id {abil_id}) in their pool; the editor only changes abilities already present.\n"
+                         f"  present: {present}")
+    cnode = _sj.get_path(paext.items[idxs[-1]], "cur")     # report/confirm from the LAST (= the engine-effective) one
+    if cnode is None:
+        raise ValueError(f"malformed pa_extended entry (no cur) for {ability!r}; refusing to edit")
+    old_ap = int(cnode.value)
+    ap_req = _abilities.ap_required(menu_type, abil_id)
+    new_ap = _resolve_ap_value(value, ap_req)
+    for i in idxs:                                         # set EVERY duplicate so the load is deterministic
+        if _sj.get_path(paext.items[i], "cur") is not None:
+            paext.items[i].set("cur", _sj.SJData(_sj.INT, new_ap))
+    new_bytes, changed = _assert_scoped(raw, root, trailing, scope)
+    backup_path, did_write = None, False
+    if not dry_run and changed:
+        backup_path = _atomic_write(extra_path, raw, new_bytes, backup=backup)
+        cc = _sj.get_path(load_extra_common(extra_path)[0], "players", pidx, "pa_extended", idxs[-1], "cur")   # CONFIRM
+        if cc is None or int(cc.value) != new_ap:
+            raise AssertionError(f"post-write check failed: {ability} AP read back {cc}, expected {new_ap}")
+        did_write = True
+    mastered = (ap_req is not None and new_ap >= ap_req) or (ap_req is None and new_ap >= AP_CAP)
+    action = "unchanged" if old_ap == new_ap else ("forgot" if new_ap == 0 else ("mastered" if mastered else "changed"))
+    return AbilityWriteReport(path=str(extra_path), slot_no=slot_no, character=cname, abil_id=abil_id,
+                              token=_abilities.decode_token(abil_id), ability_name=_abilities.name_of(abil_id, menu_type),
+                              old_ap=old_ap, new_ap=new_ap, ap_req=ap_req, mastered=mastered, action=action,
+                              count=1, wrote=did_write, backup_path=backup_path)
+
+
+def render_ability_write(rep: AbilityWriteReport) -> str:
+    """A human-readable summary of a :func:`set_ap_extra` outcome (single ability or a bulk ``all`` edit)."""
+    who = rep.character or f"slot {rep.slot_no}"
+    if rep.token == "all":                                # bulk
+        if rep.action == "unchanged":
+            return f"  {who}: every ability already at the target AP in {rep.path} -- nothing to change."
+        head = "WROTE" if rep.wrote else "DRY RUN -- would"
+        verb = {"forgot": "forget", "mastered": "master", "set": "set the AP of"}.get(rep.action, "change")
+        lines = [f"  {head} {verb} {rep.count}/{rep.pool_total} of {who}'s abilities in {rep.path}"]
+    else:                                                 # single ability
+        nm = rep.ability_name or rep.token
+        if rep.action == "unchanged":
+            return f"  {who}'s {nm} already at {rep.new_ap} AP in {rep.path} -- nothing to change."
+        head = "WROTE" if rep.wrote else "DRY RUN -- would set"
+        req = f"/{rep.ap_req}" if rep.ap_req is not None else ""
+        star = "  [MASTERED]" if rep.mastered else ""
+        lines = [f"  {head} {who}'s {nm} ({rep.token}): {rep.old_ap} -> {rep.new_ap}{req} AP in {rep.path}{star}"]
     lines.append(f"  Backup: {rep.backup_path}" if rep.backup_path else
                  ("  (--no-backup: no backup written)" if rep.wrote else
                   "  Re-run with --apply to write (a .bak backup is made first unless --no-backup)."))
@@ -1178,6 +1396,13 @@ def render_report(rep: "ItemReport | None") -> str:
         held = [(i, n) for i, n, ob, us in rep.keyitems if ob]
         lines.append(f"  Key items ({len(held)} held):")
         lines.append("    " + ", ".join(n or f"id {i}" for i, n in held) if held else "    (none)")
+    if rep.abilities:
+        lines.append("  Abilities (mastered / in pool):")
+        for pc in rep.abilities:
+            ms = ", ".join(n or t for _, t, n in pc["mastered"][:8])
+            more = f", +{len(pc['mastered']) - 8} more" if len(pc["mastered"]) > 8 else ""
+            lines.append(f"    {pc['name'] or '?':<10} {len(pc['mastered'])}/{pc['total']}"
+                         + (f"  ({ms}{more})" if ms else ""))
     return "\n".join(lines)
 
 

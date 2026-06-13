@@ -158,6 +158,22 @@ class ItemsApp:
         ttk.Button(sf, text="Preview", command=lambda: self._edit_stat(False)).pack(side="left", padx=(8, 2))
         ttk.Button(sf, text="Apply", command=lambda: self._edit_stat(True)).pack(side="left")
 
+        # --- Abilities (AP / mastery: writes pa_extended; Memoria saves only) ---
+        af = ttk.LabelFrame(f, text="Abilities  (AP / mastery — Memoria saves only)", padding=4)
+        af.pack(fill="x", pady=2)
+        ttk.Label(af, text="who:").pack(side="left")
+        self.ap_char_var = tk.StringVar()
+        self.ap_char_menu = ttk.OptionMenu(af, self.ap_char_var, "")
+        self.ap_char_menu.pack(side="left", padx=4)
+        ttk.Label(af, text="ability:").pack(side="left")
+        self.ap_abil_var = tk.StringVar(value="all")
+        ttk.Entry(af, textvariable=self.ap_abil_var, width=14).pack(side="left", padx=4)
+        ttk.Label(af, text="AP:").pack(side="left")
+        self.ap_val_var = tk.StringVar(value="master")
+        ttk.Entry(af, textvariable=self.ap_val_var, width=8).pack(side="left", padx=4)
+        ttk.Button(af, text="Preview", command=lambda: self._edit_ap(False)).pack(side="left", padx=(8, 2))
+        ttk.Button(af, text="Apply", command=lambda: self._edit_ap(True)).pack(side="left")
+
         # --- Key items ---
         kf = ttk.LabelFrame(f, text="Key items  (give / remove an important item by name)", padding=4)
         kf.pack(fill="x", pady=2)
@@ -248,7 +264,8 @@ class ItemsApp:
         self._render(self.inspect_txt, f"{t['label']}\n\n" + _si.render_report(rep))
         # refresh the character dropdowns (equip + stats) (extra slots = 12 PCs; vanilla = the 9 old-format slots)
         names = [pc["name"] or f"slot {pc['slot_no']}" for pc in (rep.equipment if rep else [])]
-        for var, menuw in ((self.char_var, self.char_menu), (self.stat_char_var, self.stat_char_menu)):
+        for var, menuw in ((self.char_var, self.char_menu), (self.stat_char_var, self.stat_char_menu),
+                           (self.ap_char_var, self.ap_char_menu)):
             menu = menuw["menu"]
             menu.delete(0, "end")
             for nm in names:
@@ -413,6 +430,41 @@ class ItemsApp:
         self.status.config(text="save edited (backup written) — reload it in-game")
         self._load(self.path, keep=self._selected())
 
+    def _edit_ap(self, apply):
+        """Set a character's ability AP / mastery (writes pa_extended). Memoria saves only -- a vanilla no-extra
+        slot has no pa_extended here (main-block AP is a follow-up). `ability` is a name / AA:X / SA:X / id /
+        'all'; the AP field is master / max / forget / a number."""
+        t = self._target()
+        if t is None or t["report"] is None:
+            self._out("Select a decodable slot on the left first.")
+            return
+        extra = t["extra"]
+        if extra is None:
+            self._out("AP / ability editing needs a Memoria save — this slot has no extra file (vanilla "
+                      "main-block AP is a follow-up).")
+            return
+        char, ability, value = self.ap_char_var.get(), self.ap_abil_var.get().strip(), self.ap_val_var.get().strip()
+        try:
+            preview = _si.set_ap_extra(extra, char, ability, value, dry_run=True)
+        except (ValueError, TypeError) as e:
+            self._out(f"Cannot apply:\n  {e}")
+            return
+        if not apply:
+            self._out("PREVIEW (nothing written yet):\n" + _si.render_ability_write(preview))
+            return
+        if not messagebox.askyesno("Apply save edit?",
+                                   "This edits your REAL save (a timestamped .bak is written first):\n\n"
+                                   + _si.render_ability_write(preview) + "\n\nProceed?"):
+            return
+        try:
+            res = _si.set_ap_extra(extra, char, ability, value, dry_run=False)
+        except Exception as e:                            # noqa: BLE001
+            self._out(f"Write failed:\n  {e}")
+            return
+        self._out(_si.render_ability_write(res) + "\n\nReload the save in-game to see it (no relaunch needed).")
+        self.status.config(text="save edited (backup written) — reload it in-game")
+        self._load(self.path, keep=self._selected())
+
 
 def main():
     smoke = "--smoke" in sys.argv
@@ -435,10 +487,16 @@ def main():
             root_c.add("95000_Setting", SJ.SJClass())
             common = SJ.SJClass()
             players = SJ.SJArray()
-            for nm, sn, eq in (("Zidane", 0, [1, 112, 88, 149, 255]), ("Vivi", 1, [70, 255, 255, 255, 255])):
+            for nm, sn, mt, eq in (("Zidane", 0, 0, [1, 112, 88, 149, 255]),
+                                   ("Vivi", 1, 1, [70, 255, 255, 255, 255])):
                 p = SJ.SJClass(); p.add("name", SJ.SJData(SJ.VALUE, nm))
-                info = SJ.SJClass(); info.add("slot_no", _int(sn)); p.add("info", info)
+                info = SJ.SJClass(); info.add("slot_no", _int(sn)); info.add("menu_type", _int(mt))
+                p.add("info", info)
                 p.add("equip", SJ.SJArray([_int(x) for x in eq]))
+                pa = SJ.SJArray()                          # a couple of abilities so the AP editor can be exercised
+                for aid, cur in ((192, 0), (193, 0)):
+                    e = SJ.SJClass(); e.add("id", _int(aid)); e.add("cur", _int(cur)); pa.items.append(e)
+                p.add("pa_extended", pa)
                 basis = SJ.SJClass()
                 for k, v in (("dex", 24), ("str", 27), ("mgc", 23), ("wpr", 25)):
                     basis.add(k, _int(v))
@@ -487,6 +545,11 @@ def main():
         app._edit_stat(True)
         st = {s["name"]: s["stats"] for s in _si.read_stats(_si.load_extra_common(sp)[0])}
         assert st["Zidane"]["Strength"] == 99, "stat (basis) applied via GUI"
+        # abilities: master ALL of Zidane (writes pa_extended)
+        app.ap_char_var.set("Zidane"); app.ap_abil_var.set("all"); app.ap_val_var.set("max")
+        app._edit_ap(True)
+        zab = [a for a in _si.read_abilities(_si.load_extra_common(sp)[0]) if a["name"] == "Zidane"][0]
+        assert len(zab["mastered"]) == 2, "abilities mastered via GUI"
         baks = list(Path(sp).parent.glob(Path(sp).name + ".bak.*"))
         assert baks, "a .bak backup was written"
 
@@ -530,7 +593,7 @@ def main():
             vanilla_ok = "main-block gil+item+equip+keyitem+stat edited"
         except ImportError:
             pass
-        print(f"smoke ok: extra slot gil/item/equip/stat applied ({len(baks)} bak); vanilla {vanilla_ok}")
+        print(f"smoke ok: extra slot gil/item/equip/stat/ability applied ({len(baks)} bak); vanilla {vanilla_ok}")
         root.destroy()
         return
     root.mainloop()

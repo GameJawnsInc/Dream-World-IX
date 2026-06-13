@@ -5,6 +5,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — save-item editor: AP / ABILITY-MASTERY editing (the "AP unlocks" the user asked about) (0.9.71)
+- A new editor for a character's **ability AP / mastery** — set the AP a character has earned toward an ability
+  (so an active ability becomes permanently usable, or a support ability becomes equippable). Memoria-extra-only
+  for now (a vanilla no-extra save's main-block AP is a follow-up, like the stat editor's 7→7b).
+- **`abilities.py`** (new, provenance-clean like `itemstats`/`keyitems` — ships nothing): the mod-agnostic
+  `AA:X`/`SA:X` ↔ integer `abil_id` codec (matches Memoria `CsvParser.AnyAbility`/`ff9abil` exactly, round-trips
+  even mod high-pool ids), plus a **best-effort** name + AP-to-master lookup read live from the install's
+  per-character pool CSVs (`Data/Characters/Abilities/<Preset>.csv`). A modded id with no base entry degrades to
+  its `AA:X`/`SA:X` token (no crash) — important because the user runs Moguri (custom ability pools).
+- **`save_items.set_ap_extra(character, ability, value)`** — `ability` = a name / `AA:X` / `SA:X` / numeric id /
+  `all`; `value` = `master` (the requirement, or AP_CAP=255 when unknown) / `max` / `forget` / a number. Edits
+  the EXTRA's `players[].pa_extended` (`{id,cur}`), keyed by `info/menu_type` = the `CharacterPresetId`. The save's
+  own `pa_extended` is the source of truth (the engine keys AP by pool entry), so it's correct on a modded save.
+  Same safety as every prior writer: GATE 1 + a scoped diff (only that player's `pa_extended` moves) + atomic +
+  post-write confirm + dry-run default + `.bak`. + `read_abilities` (mastered / in-progress, in `items-inspect`)
+  + `render_ability_write`. CLI **`items-set-ap`**; GUI **Abilities** section; **`items --abilities`** lists which
+  ability names resolve per character.
+- **Adversarial-review hardening** (a 3-lens engine-fidelity / python-safety / integration workflow, 4 findings,
+  all folded in + regression-tested): a save with `pa_extended` but no `menu_type` now degrades instead of
+  crashing the whole report; a **duplicate** `pa_extended` id sets EVERY match (the engine loads the last) so the
+  edit is deterministic; the bulk `all` summary classifies mastery from the resolved per-ability outcome and shows
+  `changed/pool-total`.
+- New `abilities.py` tests + ability write tests (synthetic + install-gated real-save dry-run). Offline-validated
+  end-to-end on a temp copy of the real (Moguri) save (single + bulk apply, scoped, read-back). **Awaiting the
+  in-game proof.**
+
 ### Added — save-item editor: vanilla (main-block) STAT editing + the GUI on vanilla slots, IN-GAME PROVEN (0.9.69)
 - The stat editor now reaches **vanilla (no-extra) saves** too, and the GUI's Stats control works on them —
   completing the stat editor across both save kinds (and the GUI across all five editors on every slot).
