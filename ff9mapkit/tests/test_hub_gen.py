@@ -53,7 +53,7 @@ def test_load_journeys_parses_the_example_registry():
     # The example points at REAL verbatim forks already deployed in stacked folders (not stubs):
     # Dali = the DALI_CAPSTONE chain entry (4100, FF9CustomMap-sf) seeded to its "waking up" beat;
     # Treno = a single-field verbatim fork of the Treno Pub (4501, FF9CustomMap-ow). Thin -- {entry,seed}.
-    assert [(j.name, j.title, j.entry, j.set_scenario) for j in spec.journeys] == [
+    assert [(j.id, j.name, j.entry, j.set_scenario) for j in spec.journeys] == [
         ("dali", "The Village of Dali", 4100, 2600),
         ("treno", "Treno, City of Nobles", 4501, 7550)]
 
@@ -63,8 +63,9 @@ def test_load_missing_hub_table_or_keys_raises(tmp_path):
         ('[[journey]]\nname="x"\nentry=4501\n', "no [hub] table"),
         ('[hub]\nid=4500\n', "missing hub.name"),
         ('[hub]\nname="H"\n', "missing hub.id"),
-        ('[hub]\nname="H"\nid=4500\n[[journey]]\nname="x"\n', "journey missing entry"),
-        ('[hub]\nname="H"\nid=4500\n[[journey]]\nentry=4501\n', "journey missing name"),
+        ('[hub]\nname="H"\nid=4500\n[[journey]]\nid="x"\n', "journey missing entry"),
+        ('[hub]\nname="H"\nid=4500\n[[journey]]\nentry=4501\n', "journey missing id"),
+        ('[hub]\nname="H"\nid=4500\n[[journey]]\nid="x"\ncampaigns=["c"]\n', "multi-campaign needs assembler"),
     ]
     for i, (toml, _why) in enumerate(cases):
         p = tmp_path / f"case{i}.toml"
@@ -73,12 +74,12 @@ def test_load_missing_hub_table_or_keys_raises(tmp_path):
             hub.load_journeys(p)
 
 
-def test_journey_title_defaults_to_humanized_name(tmp_path):
+def test_journey_name_defaults_to_humanized_id(tmp_path):
     p = tmp_path / "j.toml"
-    p.write_text('[hub]\nname="H"\nid=4500\nborrow_bg="X"\n[[journey]]\nname="black_mage_village"\nentry=4501\n',
+    p.write_text('[hub]\nname="H"\nid=4500\nborrow_bg="X"\n[[journey]]\nid="black_mage_village"\nentry=4501\n',
                  encoding="utf-8")
     spec = hub.load_journeys(p)
-    assert spec.journeys[0].title == "Black Mage Village"
+    assert spec.journeys[0].name == "Black Mage Village"
 
 
 # ---- render: the emitted field.toml loads + validates clean ----
@@ -186,14 +187,14 @@ def test_validate_warns_self_warp():
 def test_generate_writes_default_path_beside_registry(tmp_path):
     reg = tmp_path / "journeys.toml"
     reg.write_text('[hub]\nname="H"\nid=4500\nborrow_bg="X"\ncamera="c.bgx"\n'
-                   '[[journey]]\nname="a"\ntitle="A"\nentry=4501\n', encoding="utf-8")
+                   '[[journey]]\nid="a"\nname="A"\nentry=4501\n', encoding="utf-8")
     info = hub.generate(reg)
     assert info["path"] == tmp_path / "hub.field.toml" and info["path"].is_file()
 
 
 def test_generate_raises_on_validation_error(tmp_path):
     reg = tmp_path / "j.toml"
-    reg.write_text('[hub]\nname="H"\nid=4500\n[[journey]]\nname="a"\nentry=4501\n', encoding="utf-8")  # no borrow_bg
+    reg.write_text('[hub]\nname="H"\nid=4500\n[[journey]]\nid="a"\nentry=4501\n', encoding="utf-8")  # no borrow_bg
     with pytest.raises(hub.HubError):
         hub.generate(reg)
 
@@ -211,7 +212,7 @@ def test_cli_gen_hub_validation_error_returns_2(tmp_path):
     from ff9mapkit.cli import main
     reg = tmp_path / "j.toml"
     reg.write_text('[hub]\nname="H"\nid=70\nborrow_bg="X"\ncamera="c.bgx"\n'
-                   '[[journey]]\nname="a"\nentry=4501\n', encoding="utf-8")          # id 70 out of range
+                   '[[journey]]\nid="a"\nentry=4501\n', encoding="utf-8")          # id 70 out of range
     assert main(["gen-hub", str(reg)]) == 2
 
 
@@ -231,7 +232,7 @@ def test_validate_rejects_bad_borrow_field():
 def test_generate_extract_camera_without_borrow_field_raises(tmp_path):
     reg = tmp_path / "j.toml"
     reg.write_text('[hub]\nname="H"\nid=4500\nborrow_bg="X"\ncamera="c.bgx"\n'
-                   '[[journey]]\nname="a"\nentry=4501\n', encoding="utf-8")          # no borrow_field
+                   '[[journey]]\nid="a"\nentry=4501\n', encoding="utf-8")          # no borrow_field
     with pytest.raises(hub.HubError):
         hub.generate(reg, out_path=tmp_path / "o.field.toml", extract_camera=True)
 

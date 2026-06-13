@@ -130,19 +130,17 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   maps). Battle is NOT auto-paused while open (so Time-tab slow-mo persists on close) and NGUI input
   under the popup isn't blocked — keep the window top-left, off the battle command UI. **This SUPERSEDES
   the old single-key F6-reload / F10-reset hotkeys — do not refer to those as current.**
-- **Canonical demo content:** two painted "Vivi" hut rooms — **4000** exterior + **4002**
-  interior — door round-trip, a talking Vivi NPC, and an encounter. The clean packaged copy lives in
-  **`release/FF9CustomMap/`** (the known-good source), now **100% kit-authored** — the SE-derived
-  Alexandria field-100 door `.eb` was removed in the provenance cleanup (the field-100 path already
-  crashed / was off the New-Game route), so the demo is the two painted hut rooms.
-- **The live dev `FF9CustomMap` is a churned scratchpad** — test deploys overwrite/remove scene
-  folders, so the hut's `FBG_N11_HUT_*` scenes are frequently absent (they are right now;
-  FieldMaps holds only the test-slot scenes). **To actually play the hut, redeploy it from
-  `release/`.** Registered fields: 4000 HUT_EXT, 4002 HUT_INT, **4003 = the shared test slot**
-  (`deploy_field.py`, currently a CPMP ladder fork).
-- **New-Game → field 4003 is a stock mod field-70 override, NOT a DLL edit** — the only custom DLL is the F6
-  menu. The mechanism, the seamless-entry lever, and the starting-state capstone → [[project-ff9-new-game-entry]].
-- **Versions:** kit `0.9.75`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **The Vivi hut is RETIRED to offline build-oracle status.** The two painted hut rooms (**4000** ext +
+  **4002** int, the 100%-kit-authored copy in **`release/FF9CustomMap/`**) were the S0 "can we make ANY
+  custom field?" proof; their only remaining job is the **byte-exact golden test** (`examples/vivi-hut/` →
+  the provenance manifest SHA), which needs zero in-game upkeep. **Do NOT re-polish the hut in-game — the
+  in-game showcase is the World Hub + verbatim forks.** (The live dev `FF9CustomMap` is a churned scratchpad:
+  test deploys overwrite scene folders, so the hut's `FBG_N11_HUT_*` scenes are usually absent — redeploy
+  from `release/` to actually play it.) Registered: 4000 HUT_EXT, 4002 HUT_INT, **4003 = the shared test slot**.
+- **New Game lands via a stock mod field-70 override (`Field(<id>)`), NOT a DLL edit** — the only custom DLL
+  is the F6 menu. Currently retargeted to the **World Hub (4500)** (`tools/retarget_newgame_warp.py`),
+  seamless (no FMV). The mechanism + seamless-entry lever + starting-state capstone → [[project-ff9-new-game-entry]].
+- **Versions:** kit `0.9.81`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -387,13 +385,13 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - Campaign-scale New-Game capstone — New Game → a forked verbatim CHAIN that plays its real story (Dali: wake-up → Garnet rejoins @2640), beat/bag/gear seeded on the entry; `tools/retarget_newgame_warp.py` + `import-chain --name-prefix` (cross-worktree FBG/EVT namespace); `deploy_campaign` auto-promotes start-state CSVs to the highest folder + ABORTS on a cross-folder EVT/FBG name collision (`--allow-name-collision` to override) → [[project-ff9-new-game-entry]]
 - InfoHub authoring — place any model/prop/creature by name → [[project-ff9-infohub-authoring]]
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
-- World Hub — a playable journey selector (choice `warp` action + `[player] model=` moogle PC); MVP scaffold IN-GAME PROVEN (talk→pick→warp) → [[project-ff9-world-hub]]
+- World Hub — a playable journey selector (choice `warp` + `[player] model=` moogle PC): a `journeys.toml` → hub-field **generator** (`ff9mapkit gen-hub`; `docs/JOURNEYS.md` schema — `id`/`name`/`entry`/seed); New Game → hub (seamless); journeys warp into REAL verbatim forks (Dali 4100 + Treno-Pub 4501); an entry **camera-settle** (`[camera] entry_settle`) — the warp-in drift is an F6-debug-warp artifact, the shipped New-Game/gateway entries are clean. Multi-campaign journey **assembler** = the next overworld step (`docs/JOURNEYS.md` handoff) → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.75, 1348 tests (suite ~146s serial / ~56s `-n 6` via pytest-xdist; an in-process static-bundle
+**Latest:** kit 0.9.81, 1432 tests (suite ~146s serial / ~56s `-n 6` via pytest-xdist; an in-process static-bundle
 cache stops it re-reading the 68 MB event bundle per install-gated call — a "2-hour" run is contention, not a
 regression → [[project-ff9-test-suite-perf]]). `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
 folder + ABORT on a cross-folder EVT/FBG name collision; wires New Game via the field-70 retarget, not the broken
-field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain. World-Hub scaffold IN-GAME PROVEN (the select→warp loop).
+field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain. World-Hub: `gen-hub` generator + New Game → hub → REAL verbatim journeys (Dali 4100 + Treno-Pub 4501) + entry camera-settle — all IN-GAME PROVEN (the shipped entries are camera-clean; only the F6 debug warp drifts); the multi-campaign journey ASSEMBLER (`docs/JOURNEYS.md` handoff) is the next overworld step.
 Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4/5: raw16 full codec + golden
 round-trip; `[scene]` combat-identity tuning by name; `battle-actions` / `battle-scene` catalogs; the **offline
 balance-lint** `scenelint.py`; **`[[battle_action]]`/`[[status]]`** CSV-delta ability/status rebalancing; **Phase 4 —

@@ -2,7 +2,7 @@
 #  WORLD HUB registry -- the generator input for `ff9mapkit gen-hub`.
 #
 #  `ff9mapkit gen-hub journeys.toml` emits a hub.field.toml (the journey-selector
-#  field) from this small registry: per journey just {title, entry field id, seed}.
+#  field) from this small registry: per journey just {id, name, entry field id, seed}.
 #  Build/deploy the emitted field.toml like any field. (memory: project-ff9-world-hub)
 #
 #  REAL DESTINATIONS (2026-06-13): the journeys below warp into REAL forked slices
@@ -38,14 +38,16 @@ narrator_model = 212                 # Stiltzkin's ACTUAL rig (GEO_NPC_F3_MOG) -
                                      # white save-moogle). He even says "Maybe I'll go on a journey again." kupo
 narrator_pos   = [480, 127]
 
+# Schema = docs/JOURNEYS.md: `id` (stable slug) + `name` (pretty menu label). `entry = <field id>` is the
+# single-entry form gen-hub builds; multi-campaign arcs (campaigns/links/[journey.seed]) are the assembler's.
 [[journey]]
-name  = "dali"
-title = "The Village of Dali"
+id    = "dali"
+name  = "The Village of Dali"
 entry = 4100                         # DC_DL_ENT -- VERBATIM Dali entrance (FF9CustomMap-sf; real story + lines)
 set_scenario = 2600                  # "Waking up in Dali" -- the beat the verbatim logic expects (its own [startup])
 
 [[journey]]
-name  = "treno"
-title = "Treno, City of Nobles"
+id    = "treno"
+name  = "Treno, City of Nobles"
 entry = 4501                         # JOURNEY_TRENO -- VERBATIM Treno Pub fork (FF9CustomMap-ow; real NPCs/lines)
 set_scenario = 7550                  # "Treno" -- a sensible Treno-era beat (the field itself is beat-agnostic)

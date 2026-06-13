@@ -311,7 +311,7 @@ def _cmd_gen_hub(args: argparse.Namespace) -> int:
     print(f"generated hub '{spec.name}' (id {spec.id}, {info['journeys']} journey(s)) -> {info['path']}")
     for j in spec.journeys:
         seed = f", seed {j.set_scenario}" if j.set_scenario is not None else ""
-        print(f"  {j.title!r} -> field {j.entry}{seed}")
+        print(f"  {j.name!r} -> field {j.entry}{seed}")
     for w in info.get("warnings", []):
         print(f"warning: {w}", file=sys.stderr)
     ex = info.get("extracted")

@@ -32,8 +32,8 @@ whose options ``warp`` to each journey's entry, plus a trailing no-warp "stay" r
     narrator_pos   = [480, 127]
 
     [[journey]]
-    name  = "black_mage_village"
-    title = "The Black Mage Village" # the menu row label (default: humanized name)
+    id    = "black_mage_village"     # stable slug (hub-choice key + seed namespace; docs/JOURNEYS.md)
+    name  = "The Black Mage Village" # the menu row label (default: humanized id)
     entry = 4501                     # the journey's entry field id (the warp target)
     set_scenario = 2600              # optional: seed the beat hub-side before the warp
 
@@ -75,10 +75,13 @@ class HubError(ValueError):
 
 @dataclass
 class Journey:
-    """One row of the journey menu: a display ``title``, the ``entry`` field it warps into, and an optional
-    ``set_scenario`` seed applied hub-side before the warp. ``name`` is the stable token (comments/diffs)."""
+    """One row of the journey menu, in the ``docs/JOURNEYS.md`` schema: a stable ``id`` slug (the hub-choice
+    key + seed namespace), a pretty ``name`` (the menu label + the GUI breadcrumb), the ``entry`` field it
+    warps into, and an optional ``set_scenario`` seed applied hub-side before the warp. (A *multi-campaign*
+    journey -- ``campaigns`` / ``entry = {campaign, field}`` / ``[journey.seed]`` / ``[[journey.link]]`` --
+    is the future journey ASSEMBLER's job; gen-hub builds the single-entry form, ``entry = <field id>``.)"""
+    id: str
     name: str
-    title: str
     entry: int
     set_scenario: "int | None" = None
 
@@ -115,8 +118,9 @@ def _humanize(name: str) -> str:
 
 def load_journeys(path) -> HubSpec:
     """Parse a ``journeys.toml`` into a :class:`HubSpec`. Raises :class:`HubError` on a STRUCTURAL problem
-    (no ``[hub]`` table, a ``[[journey]]`` missing ``name``/``entry``); semantic checks (id band, dup names,
-    missing ``borrow_bg`` ...) are :func:`validate_hub`'s job so the CLI can print them all at once."""
+    (no ``[hub]`` table, a ``[[journey]]`` missing ``id``/``entry``, or a multi-campaign journey that needs the
+    assembler); semantic checks (id band, dup ids, missing ``borrow_bg`` ...) are :func:`validate_hub`'s job so
+    the CLI can print them all at once."""
     p = Path(path)
     with open(p, "rb") as fh:
         data = tomllib.load(fh)
@@ -130,15 +134,19 @@ def load_journeys(path) -> HubSpec:
 
     journeys = []
     for i, j in enumerate(data.get("journey", [])):
-        if "name" not in j:
-            raise HubError(f"[[journey]] #{i}: missing required key 'name'")
-        nm = str(j["name"])
+        if "campaigns" in j or isinstance(j.get("entry"), dict):
+            raise HubError(f"[[journey]] #{i}: a multi-campaign journey (campaigns / entry = {{campaign, "
+                           f"field}}) needs the journey ASSEMBLER (docs/JOURNEYS.md), not gen-hub. gen-hub "
+                           f"builds the single-entry form: entry = <field id>.")
+        if "id" not in j:
+            raise HubError(f"[[journey]] #{i}: missing required key 'id' (the stable slug; docs/JOURNEYS.md)")
+        jid = str(j["id"])
         if "entry" not in j:
-            raise HubError(f"[[journey]] {nm!r}: missing required key 'entry' (the journey's entry field id)")
+            raise HubError(f"[[journey]] {jid!r}: missing required key 'entry' (the journey's entry field id)")
         sc = j.get("set_scenario")
         journeys.append(Journey(
-            name=nm,
-            title=str(j.get("title") or _humanize(nm)),
+            id=jid,
+            name=str(j.get("name") or _humanize(jid)),
             entry=int(j["entry"]),
             set_scenario=int(sc) if sc is not None else None,
         ))
@@ -194,19 +202,19 @@ def validate_hub(spec: HubSpec) -> "tuple[list, list]":
 
     seen: set = set()
     for i, j in enumerate(spec.journeys):
-        if not j.name or not _NAME_RE.match(j.name):
-            errors.append(f"[[journey]] #{i}: name {j.name!r} must be a token (A-Z, 0-9, _)")
-        elif j.name in seen:
-            errors.append(f"[[journey]] name {j.name!r} is duplicated -- journey names must be unique")
-        seen.add(j.name)
+        if not j.id or not _NAME_RE.match(j.id):
+            errors.append(f"[[journey]] #{i}: id {j.id!r} must be a token (A-Z, 0-9, _) -- the stable slug")
+        elif j.id in seen:
+            errors.append(f"[[journey]] id {j.id!r} is duplicated -- journey ids must be unique")
+        seen.add(j.id)
         if not (isinstance(j.entry, int) and j.entry > 0):
-            errors.append(f"[[journey]] {j.name!r}: entry {j.entry!r} must be a positive field id "
+            errors.append(f"[[journey]] {j.id!r}: entry {j.entry!r} must be a positive field id "
                           f"(the warp destination)")
         elif j.entry == spec.id:
-            warnings.append(f"[[journey]] {j.name!r}: entry {j.entry} is the hub itself -- picking it warps "
+            warnings.append(f"[[journey]] {j.id!r}: entry {j.entry} is the hub itself -- picking it warps "
                             f"the hub onto itself")
         if j.set_scenario is not None and not (0 <= j.set_scenario <= SCENARIO_MAX):
-            errors.append(f"[[journey]] {j.name!r}: set_scenario {j.set_scenario} out of range "
+            errors.append(f"[[journey]] {j.id!r}: set_scenario {j.set_scenario} out of range "
                           f"(0-{SCENARIO_MAX})")
 
     if spec.text_block == SHADOWED_TEXT_BLOCK:
@@ -282,7 +290,7 @@ def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
     ]
     for j in spec.journeys:
         L.append("[[choice.options]]")
-        L.append(f'text = "{_q(j.title)}"')
+        L.append(f'text = "{_q(j.name)}"')
         L.append(f"warp = {j.entry}")
         if j.set_scenario is not None:
             L.append(f"set_scenario = {j.set_scenario}")

@@ -15,7 +15,7 @@ The hub is one field; its journeys warp into **real verbatim forks of actual FF9
 | **Treno** (journey 2) | 4501 / `FF9CustomMap-ow` | A **verbatim** (native) single-field fork of the **Treno Pub** (source field 1900, `TR_BAR`) — a clean, beat-agnostic field with 3 real NPCs + 17 real lines. Forked into `journey_treno/` and deployed to the 4501 slot; the hub seeds `scenario = 7550` ("Treno"). One door is a *live seam* back into the real game. |
 
 `journeys.toml` is the **generator input** — `ff9mapkit gen-hub journeys.toml` emits the `hub.field.toml`
-above (see *Generate the hub* below). The hub stays **thin**: per journey it knows only `{title, entry id,
+above (see *Generate the hub* below). The hub stays **thin**: per journey it knows only `{id, name, entry id,
 optional seed}`; HOW a journey plays internally is the fork's own business.
 
 > The two trivial stub fields `journey_one.field.toml` / `journey_two.field.toml` are the original
@@ -98,7 +98,7 @@ That's the full **select → seed → warp into real content** loop.
 
 Instead of hand-authoring `hub.field.toml`, describe the journeys in a small registry and let the kit emit
 the hub field — the **"hardcoded MVP → generator"** step. The hub stays *thin*: per journey just
-`{title, entry field id, optional seed}`.
+`{id, name, entry field id, optional seed}`.
 
 ```bash
 # from the kit root (ff9mapkit/)
