@@ -52,6 +52,15 @@ _SINGLES = ("field", "encounter", "music", "dialogue")
 _SINGLE = [("dialogue", "Dialogue"), ("encounter", "Encounter"), ("music", "Music"), ("cutscene", "Cutscene")]
 _LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("marker", "Markers"),
           ("choice", "Choices")]
+_LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "marker": "Marker", "choice": "Choice"}
+# the default new entity per list kind -- mirrors the tkinter editor's _add_entity (editor/app.py).
+_LIST_DEFAULTS = {
+    "npc": {"name": "NPC", "preset": "vivi", "dialogue": "..."},
+    "gateway": {"name": "door", "to": 100, "entrance": 0},
+    "event": {"name": "event", "message": "..."},
+    "marker": {"name": "spot", "pos": [0, 0]},
+    "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
+}
 _ROLE = Qt.UserRole                                # per-item payload: (kind, label, key)
 
 
@@ -631,10 +640,69 @@ class Workspace(QMainWindow):
             if idx < len(lst):
                 self._mount_form(member, key, _SECTION_SPEC[k], lst[idx], single=False, section=k, idx=idx)
             return
-        if kind == "group":                        # the list header (NPCs (n)) -- not directly editable yet
-            self._doc_placeholder(f"{key}: select one item under it to edit (adding new items is coming).")
+        if kind == "group" and key in _LIST_DEFAULTS:   # a list header (NPCs (n)) -> an Add button + count
+            self._mount_group(member, key)
             return
         self._doc_placeholder(f"'{key}' isn't editable in the Workspace yet.")
+
+    def _mount_group(self, member, kind):
+        """The list-header view: an 'Add <kind>' button + the count. (Selecting an item under it edits it;
+        this header is where you create a new one.)"""
+        self._clear_doc()
+        sing = _LIST_SINGULAR.get(kind, kind)
+        n = len(self._doc(member).data.get(kind, []) or [])
+        self._header(f"{member}  ·  {sing}s",
+                     f"{n} {sing.lower()}(s) on this field. Add a new one below, or pick an existing item "
+                     "in the tree to edit it.")
+        btn = QPushButton(f"➕  Add {sing}")
+        btn.setObjectName("accent")
+        btn.clicked.connect(lambda _=False: self._add_list_item(member, kind))
+        self.doc_host_lay.addWidget(btn, alignment=Qt.AlignLeft)
+        self.doc_host_lay.addStretch(1)
+
+    def _add_list_item(self, member, kind):
+        """Append a default entity to ``member``'s ``kind`` list, refresh the tree, and open the new item's
+        editor (so you land straight in the form to fill it in)."""
+        doc = self._doc(member)
+        lst = doc.data.setdefault(kind, [])
+        lst.append(copy.deepcopy(_LIST_DEFAULTS[kind]))
+        idx = len(lst) - 1
+        self.tree.blockSignals(True)                 # rebuild the object subtree without spurious selections
+        self._refresh_objects(member)
+        self.tree.blockSignals(False)
+        self._select_object(member, f"{kind}:{idx}")  # fires _on_select -> mounts the new item's form
+        self.tabs.setCurrentWidget(self.doc_scroll)   # adding is an explicit edit -> show the Editor
+
+    def _refresh_objects(self, member):
+        """Rebuild a member's object subtree in place (after an add) so the new item + updated count show."""
+        mi = getattr(self, "_member_items", {}).get(member)
+        if mi is None:
+            return
+        mi.takeChildren()
+        self._load_objects(mi)
+        mi.setExpanded(True)
+
+    def _object_item(self, member, key):
+        """The QTreeWidgetItem for object ``key`` (e.g. 'npc:2') under ``member``, or None (walks the
+        member's loaded object subtree). Used to locate a row by key -- never assume it's the selection."""
+        mi = getattr(self, "_member_items", {}).get(member)
+        if mi is None:
+            return None
+        stack = [mi.child(i) for i in range(mi.childCount())]
+        while stack:
+            it = stack.pop()
+            p = self._payload(it)
+            if p and p[0] == "object" and p[2] == key:
+                return it
+            stack += [it.child(i) for i in range(it.childCount())]
+        return None
+
+    def _select_object(self, member, key):
+        """Select the object node ``key`` (e.g. 'npc:2') under ``member``."""
+        it = self._object_item(member, key)
+        if it is not None:
+            self.tree.setCurrentItem(it)
+            self.tree.scrollToItem(it)
 
     def _pick(self, catalog, current):
         """``build_form``'s picker: open the Qt catalog picker over the open campaign's context."""
@@ -717,11 +785,11 @@ class Workspace(QMainWindow):
         self._mark_clean(member)
         self._show_problems(fb.Verdict(fb.OK, f"Saved {member} · {key or section}",
                                        f"wrote {self.member_paths[member].name}"), [])
-        if not single and "name" in entity:        # a renamed list entity -> refresh its tree row
-            items = self.tree.selectedItems()
-            if items:
-                items[0].setText(0, entity["name"])
-                items[0].setData(0, _ROLE, ("object", entity["name"], key))
+        if not single and "name" in entity:        # a renamed list entity -> refresh ITS tree row (located
+            it = self._object_item(member, key)     # by key, NOT the selection -- a save needn't be selected)
+            if it is not None:
+                it.setText(0, entity["name"])
+                it.setData(0, _ROLE, ("object", entity["name"], key))
         return True
 
     def _commit_active(self) -> bool:
@@ -1219,6 +1287,18 @@ def _smoke(win):
     win._save_ctx["getters"]["id"] = lambda: "not-a-number"
     assert win._commit_active() is False
     win._open_editor("IC_ENT", "field", "field")       # re-mount clears the simulated bad value
+    # ADD list items: the group header's Add button appends a default entity, refreshes the tree, and opens
+    # the new item's form (so authoring a brand-new NPC/gateway/choice works, not just editing existing ones)
+    nbefore = len(win._doc("IC_ENT").data.get("npc", []))
+    win._add_list_item("IC_ENT", "npc")
+    npcs = win._doc("IC_ENT").data["npc"]
+    assert len(npcs) == nbefore + 1 and npcs[-1]["name"] == "NPC", npcs
+    assert win._save_ctx["section"] == "npc" and win._save_ctx["idx"] == nbefore   # new item's form is mounted
+    assert win._payload(win.tree.currentItem()) == ("object", "NPC", f"npc:{nbefore}")   # tree refreshed+selected
+    win._add_list_item("IC_ENT", "gateway")            # a different list kind
+    assert win._doc("IC_ENT").data["gateway"][-1]["to"] == 100 and win._save_ctx["section"] == "gateway"
+    win._add_list_item("IC_ENT", "choice")             # a choice routes to the choice sub-editor
+    assert win._doc("IC_ENT").data["choice"][-1]["prompt"] == "What'll it be?"
     # the Qt form renderer round-trips through build_entity (the SAME parser as the tkinter editor)
     sample = {"name": "Vivi", "preset": "vivi", "dialogue": "hi"}
     _w, _g = build_form(forms.NPC_SPEC, forms.entity_to_values(forms.NPC_SPEC, sample), win.pal)
@@ -1377,8 +1457,8 @@ def _smoke(win):
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
           f"catalog picker + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
-          f"{win.item_equip.targets[0]['report'].gil}) + Build/Deploy + Import docs (argv-built) + Ctrl-K "
-          f"palette, Problems dock ({nprob} rows); QProcess wired")
+          f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + Build/Deploy "
+          f"+ Import docs (argv-built) + Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
 
 
 def main(argv=None):
