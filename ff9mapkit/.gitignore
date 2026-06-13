@@ -29,3 +29,6 @@ build/
 dist/
 ff9mapkit/blender/dist/
 _savescratch/
+
+# Showcase imports (live field + battle pulled for Blender demo -- not tracked)
+showcase_import/
