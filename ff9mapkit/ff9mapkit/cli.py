@@ -810,9 +810,23 @@ def _cmd_characters(args: argparse.Namespace) -> int:
 
 def _cmd_battle_ai(args: argparse.Namespace) -> int:
     """Disassemble a battle scene's enemy AI (EVT_BATTLE_<scene>.eb) -- the read-only 'see the enemy's AI' view:
-    Main_Init spawn-binding + per-type AI functions by tag, with named commands + annotated expressions."""
+    Main_Init spawn-binding + per-type AI functions by tag, with named commands + annotated expressions.
+    With ``--asm`` instead ASSEMBLES an expression (the disassembler's inverse) -> its bytes + a re-disasm proof."""
     _safe_console()
+    if args.asm is not None:                                # Phase-6c-i: assemble an AI expression -> bytes
+        from .eb import exprasm, disasm
+        try:
+            b = exprasm.assemble(args.asm)
+        except exprasm.AssembleError as e:
+            print(f"assemble error: {e}", file=sys.stderr)
+            return 2
+        back, _ = disasm.pretty_expr(b, 0)
+        print(f"bytes ({len(b)}): {b.hex(' ')}\nre-disasm: {back}")
+        return 0
     from .battle import battleai as BA
+    if not args.donor:
+        print("a scene name is required (or use --asm \"{ ... }\" to assemble an expression)", file=sys.stderr)
+        return 2
     try:
         print(BA.scene_ai_sites(args.donor, game=args.game) if args.sites
               else BA.analyze_scene(args.donor, game=args.game))
@@ -1862,9 +1876,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     bai = sub.add_parser("battle-ai",
                          help="disassemble a battle scene's enemy AI (EVT_BATTLE_<scene>.eb) -- read-only")
-    bai.add_argument("donor", help="battle scene name, e.g. EF_R007 (see `battle-list --scenes`)")
+    bai.add_argument("donor", nargs="?", help="battle scene name, e.g. EF_R007 (see `battle-list --scenes`)")
     bai.add_argument("--sites", action="store_true",
                      help="list patchable AI constants (offset/value) for [[scene.ai_patch]] instead of the disasm")
+    bai.add_argument("--asm", metavar="EXPR",
+                     help="assemble an AI expression (e.g. \"{B_CURHP const(50) B_LT B_EXPR_END}\") -> its bytes; "
+                          "the inverse of the disassembled expression form -- no scene needed")
     bai.set_defaults(func=_cmd_battle_ai)
 
     ch = sub.add_parser("characters",

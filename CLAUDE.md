@@ -389,7 +389,7 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
 - World Hub — a playable journey selector (choice `warp` action + `[player] model=` moogle PC); MVP scaffold IN-GAME PROVEN (talk→pick→warp) → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.64, 1224 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
+**Latest:** kit 0.9.67, 1268 tests. `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
 folder + ABORT on a cross-folder EVT/FBG name collision; wires New Game via the field-70 retarget, not the broken
 field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain. World-Hub scaffold IN-GAME PROVEN (the select→warp loop).
 Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4/5: raw16 full codec + golden
@@ -416,12 +416,17 @@ her tuned stats (40/80/90/45) in the status menu at a fresh New Game (BaseStats 
 AI by tag), proven by a byte-walk PARITY test vs `read_code`. **Phase 6b** — same-length AI constant patches
 (`battle/aipatch.py`): `constant_sites` locates every patchable literal (offset+width, mirroring the decoders),
 `battle-ai --sites` lists them, `[[scene.ai_patch]]` (battle.toml) does an `at`/`old`-guarded/`new` in-place edit
-(no fpos fixup; applied per-lang to the forked eb). ★ Phases 2/3/4/5/5b/6a/6b each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
+(no fpos fixup; applied per-lang to the forked eb). **Phase 6c-i** — the enemy-AI expression **ASSEMBLER**
+(`eb/exprasm.py`), the keystone of new-branch authoring: the exact INVERSE of the 6a disassembler
+(`assemble(pretty_expr(b)) == b` byte-for-byte, proven against the real EF_R007 AI), CLI `battle-ai --asm`; each
+token inverts a `pretty_expr` branch (op / `const`+`const4` / the `0xC0` minimal var encoding / sysvar / obj /
+member-ptr). ★ Phases 2/3/4/5/5b/6a/6b/6c-i each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
 a boot-crash range bug + the cp1252 encoding; Phase 4: caught a `StatusSetId` over-range KeyNotFound crash, a
 malformed-toml traceback, + a silent dead-`Battle:` selector; Phase 5: caught a fixture provenance leak + a
 missing whole-file shadow-guard; 5b: an unresolvable display name; 6a: a truncated-eb crash; 6b: a 3-byte-immediate
-KeyError + the B_CONST4 26-bit mask) → [[project-ff9-battle-tuning]],
-`docs/BATTLE_DESIGN.md`. Next: Phase 6c (new branches + expr assembler + battle linter).
+KeyError + the B_CONST4 26-bit mask; 6c-i: an `opXX` back-door that assembled a bare operand-byte → desync, fixed +
+`assemble()` now self-verifies its round trip as a library invariant) → [[project-ff9-battle-tuning]],
+`docs/BATTLE_DESIGN.md`. Next: Phase 6c (the command assembler + length-changing `add_function` branch insertion + a battle linter).
 Frontier: #13 (story-event director/roster on rotating-cast fields) — ★ **core PROVEN** (a `--verbatim` fork +
 `[startup]` shows a beat-correct rotating roster: forking Dali Weapon Shop 354 at SC 2600 vs 11090, the shopkeeper
 changed + an NPC appeared, in-game 2026-06-12); the **roster-by-beat analyzer + the synth-fork director skip both

@@ -481,9 +481,17 @@ old-value-GUARDED in-place edit (no `fpos`/entry-table fixup), applied per-langu
 (bytecode is language-identical). ★ A 3-lens review found + fixed: a 3-byte (Int24) immediate `KeyError`
 (→ generic width-N pack), a truncated-eb `IndexError` (→ clean `AiPatchError`), and the `B_CONST4` 26-bit engine
 mask (→ per-site cap); the `B_CONST` signedness path is benign (byte-faithful). 9 tests. *In-game proof = human.*
-**Phase 6c:** new branches (an **expression assembler** + length-changing `replace_function_body`/`add_function`
-edits + a **battle linter**: valid tags 1/6/7/9, Attack index `< AtkCount`). **Defer raw17 btlseq sequence
-authoring** (new codec + a coordinated raw16+eb+raw17 edit).
+**Phase 6c-i ✅ DONE (kit 0.9.67)** — the enemy-AI **expression ASSEMBLER** (`eb/exprasm.py`), the keystone of
+new-branch authoring: the exact inverse of the 6a disassembler. `assemble("{ B_CURHP const(50) B_LT B_EXPR_END }")`
+→ the RPN expression bytes the engine evaluates, round-trip-exact with `pretty_expr` (`assemble(pretty_expr(b))==b`
+byte-for-byte, proven against the real EF_R007 AI). Each token inverts a `pretty_expr` branch (op mnemonic / `const`
++ `const4` / the `0xC0` minimal var encoding / sysvar / obj / member-ptr). CLI `battle-ai --asm`. ★ A 3-lens review
+confirmed the byte-layout matches `EBin.cs` and fixed: an `opXX` back-door that assembled a bare operand-byte
+(→ desync; now `opXX` accepts only unnamed pure operators `<0xC0`), an unguarded re-disasm crash (→ `assemble()`
+**self-verifies** its own round trip as a library invariant), and silent const masking (→ range-checked). 35 tests.
+**Phase 6c (remaining):** the **command assembler** + length-changing `replace_function_body`/`add_function` branch
+insertion (entry-table/`fpos` fixup) + a **battle linter** (valid tags 1/6/7/9, Attack index `< AtkCount`). **Defer
+raw17 btlseq sequence authoring** (new codec + a coordinated raw16+eb+raw17 edit).
 
 ---
 

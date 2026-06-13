@@ -108,9 +108,9 @@ def pretty_expr(raw: bytes, pos: int) -> tuple[str, int]:
             if o == 0x7F:                                   # B_EXPR_END
                 break
             continue
-        if o == 0x7E:                                       # B_CONST4 -- a 4-byte literal
+        if o == 0x7E:                                       # B_CONST4 -- a 4-byte literal (distinct token so an
             v = raw[pos] | (raw[pos + 1] << 8) | (raw[pos + 2] << 16) | (raw[pos + 3] << 24); pos += 4
-            out.append(f"const({v})")
+            out.append(f"const4({v})")                       # assemble() can round-trip it back to B_CONST4)
         elif o == 0x7D:                                     # B_CONST -- a 2-byte literal
             v = raw[pos] | (raw[pos + 1] << 8); pos += 2
             out.append(f"const({v})")

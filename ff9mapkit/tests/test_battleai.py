@@ -36,8 +36,8 @@ def _px(b):
 def test_pretty_expr_operators_and_const():
     # B_CURHP, const(50), B_LT, B_EXPR_END  -> "is my current HP < 50 ?"
     assert _px([82, 0x7D, 50, 0, 24, 0x7F]) == "{B_CURHP const(50) B_LT B_EXPR_END}"
-    # a 4-byte const
-    assert _px([0x7E, 1, 0, 0, 0, 0x7F]) == "{const(1) B_EXPR_END}"
+    # a 4-byte const -- B_CONST4 prints distinctly as const4(N) (so exprasm.assemble round-trips it to 0x7E)
+    assert _px([0x7E, 1, 0, 0, 0, 0x7F]) == "{const4(1) B_EXPR_END}"
 
 
 def test_pretty_expr_variable_and_obj():

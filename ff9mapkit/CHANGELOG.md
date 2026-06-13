@@ -23,6 +23,36 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   shows in the Key Items menu (16 → 17), gil/equipment intact. **The #5 save-item editor is now 100% complete** —
   every data type (gil, items, equipment, key items) on every save kind (Memoria + vanilla), via CLI and GUI.
 
+### Added — battle-tuning Phase 6c-i: the enemy-AI EXPRESSION ASSEMBLER (`eb/exprasm.py`) (0.9.67)
+- **`eb/exprasm.py`** — the keystone of Phase-6c new-branch *authoring*: the exact **inverse of the Phase-6a
+  disassembler** (`disasm.pretty_expr`). Authoring new enemy-AI logic (a phase-switch condition, a counter
+  trigger) means writing the RPN **expression token stream** the engine evaluates; this `assemble()`s that stream
+  from the same readable `{ tok tok … }` form the disassembler prints. The load-bearing property is the **round
+  trip**: `assemble(pretty_expr(bytes)) == bytes` (byte-exact for canonical bytecode) and
+  `pretty_expr(assemble(text)) == text`.
+- Each token maps to one encoded token (the inverse of every `pretty_expr` branch): a bare op mnemonic
+  (`B_LT`/`B_CURHP`) → its `op_binary` byte; `const(N)` → `B_CONST` (0x7D + 2 LE bytes); `const4(N)` → `B_CONST4`
+  (0x7E + 4 LE bytes — `pretty_expr` now prints `const4(N)` distinctly so the round trip is exact); `Source.Type[i]`
+  → the `0xC0` variable token (the engine's *minimal* encoding: a 1-byte index, or the `0x20` long-bit + a 2-byte
+  LE index when `i > 0xFF`); `B_SYSVAR[i]`/`B_SYSLIST[i]`/`obj(uid=U).f[F]`/`B_MEMBER(i)`/`B_PTR(i)` → their
+  operand tokens; `B_EXPR_END` (0x7F) terminates. Provenance-clean (only the open-source op/enum **names**).
+- CLI **`battle-ai --asm "{ … }"`** assembles an expression → its bytes + a re-disassembly proof (no scene needed).
+- ★ A 3-lens adversarial review (round-trip inversion · engine fidelity vs `EBin.cs` · robustness/API) confirmed
+  the engine byte-layout matches `EBin.cs` exactly (var bits, long-index LE, `B_OBJSPECA` uid/field order, const
+  widths) and found + fixed: **(HIGH)** the `opXX` fallback was a back-door — a numeric `op7D`/`opC4` assembled to
+  a *bare* byte that desynced the stream and mis-executed in-engine; `assemble` now accepts `opXX` only for a
+  genuinely-unnamed pure-operator byte (`< 0xC0`, not in the op table) and rejects a named or variable byte with a
+  "write it by name / in operand form" message. **(LOW)** the CLI re-disasm dumped a raw `IndexError` traceback on
+  a non-re-parsing stream — `assemble()` now **self-verifies** (re-parses its own output, raising `AssembleError`
+  unless it consumes exactly every byte), making the round trip a *library-boundary invariant* (this also closes
+  the CLI crash and a mid-stream-`B_EXPR_END` edge). **(consistency)** `const`/`const4` now range-check (honoring
+  `assemble_token`'s docstring + matching the var/sysvar siblings + the 6b `B_CONST4` cap) instead of silently
+  masking a typo. The strongest test walks the **real EF_R007 AI** and asserts `assemble` reproduces the shipping
+  game's expression bytes byte-for-byte; + a 256-byte `opXX` sweep. The long-form-small-index and `0x80-0xBF`
+  divergences were reviewed and confirmed out-of-scope (the engine's own encoder never emits those). 35 tests
+  (`test_exprasm`). **Phase 6c next:** the command assembler + length-changing `add_function` branch insertion + a
+  battle linter (this assembler is the prerequisite).
+
 ### Added — battle-tuning Phase 6b: same-length enemy-AI constant patches (`[[scene.ai_patch]]`) (0.9.64)
 - **`battle/aipatch.py`** — the first AI *authoring* step (read = Phase-6a `battle-ai`). An enemy's AI is the
   per-scene `EVT_BATTLE_*.eb` bytecode; the safest edit is a *literal* one — change a numeric CONSTANT in place
