@@ -19,18 +19,27 @@ from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
     QApplication, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QPlainTextEdit, QPushButton, QSplitter, QTabWidget, QTextEdit,
-    QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QListWidgetItem, QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTabWidget,
+    QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .. import campaign as C
 from ..editor import breadcrumb as bc
 from ..editor import feedback as fb
-from ..editor.model import FieldDoc
+from ..editor import forms
+from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import pick_palette
+from .forms_qt import build_form, read
 from .style import qss
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
+
+# section key -> forms spec.  Single tables + the list-entity kinds the Qt editor can edit today.
+# (cutscene steps + choice options are list-in-list sub-editors -- a Phase-4b follow-up.)
+_SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "music": forms.MUSIC_SPEC,
+                 "dialogue": forms.DIALOGUE_SPEC, "npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC,
+                 "event": forms.EVENT_SPEC, "marker": forms.MARKER_SPEC}
+_SINGLES = ("field", "encounter", "music", "dialogue")
 
 # object groups inside a field.toml, mirroring the tkinter editor's tree (editor/app.py).
 _SINGLE = [("dialogue", "Dialogue"), ("encounter", "Encounter"), ("music", "Music"), ("cutscene", "Cutscene")]
@@ -121,6 +130,8 @@ class Workspace(QMainWindow):
         self.campaign_path = None
         self.member_paths = {}                     # member name -> field.toml path
         self.journey_name = None
+        self._docs = {}                            # member name -> loaded FieldDoc (cached, edited in place)
+        self._save_ctx = None                      # {member, key, spec, getters, single|kind, idx} for Save
         self.setWindowTitle("FF9 Map Kit — Workspace")
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
@@ -176,6 +187,16 @@ class Workspace(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self._welcome()
+        # the Editor tab: a scrollable host we refill with the selected node's form (Phase 4)
+        self.doc_scroll = QScrollArea()
+        self.doc_scroll.setWidgetResizable(True)
+        self.doc_host = QWidget()
+        self.doc_host_lay = QVBoxLayout(self.doc_host)
+        self.doc_host_lay.setContentsMargins(14, 14, 14, 14)
+        self.doc_host_lay.setSpacing(8)
+        self.doc_scroll.setWidget(self.doc_host)
+        self.tabs.addTab(self.doc_scroll, "Editor")
+        self._doc_placeholder("Select a field or an object on the left to edit it.")
         split.addWidget(self.tabs)
 
         insp = QWidget()
@@ -326,12 +347,16 @@ class Workspace(QMainWindow):
             item.takeChild(0)
             self._load_objects(item)
 
+    def _doc(self, member):
+        """The member's FieldDoc, loaded once and cached (the form edits this instance + saves it)."""
+        if member not in self._docs:
+            self._docs[member] = FieldDoc.load(self.member_paths[member])
+        return self._docs[member]
+
     def _load_objects(self, member_item):
         name = self._payload(member_item)[1]
-        path = self.member_paths.get(name)
         try:
-            doc = FieldDoc.load(path)
-            data = doc.data
+            data = self._doc(name).data
         except Exception as e:                     # noqa: BLE001
             member_item.addChild(self._mk("note", f"(could not load: {e})"))
             return
@@ -371,6 +396,118 @@ class Workspace(QMainWindow):
         self.crumb.set(bc.trail(self.journey_name, self.plan.name if self.plan else None,
                                 field, obj_label, obj_key or ""))
         self._inspect(item, p, field)
+        if field_item is not None and p:
+            member = self._payload(field_item)[1]
+            if item is field_item:                 # the member row itself -> its Field form
+                self._open_editor(member, "field", "field")
+            else:                                  # an object/group under it -> edit by its key
+                self._open_editor(member, p[0], p[2])
+
+    # ---- the document editor (Phase 4) ----
+    def _clear_doc(self):
+        while self.doc_host_lay.count():
+            it = self.doc_host_lay.takeAt(0)
+            w = it.widget()
+            if w:
+                w.deleteLater()
+
+    def _doc_placeholder(self, text):
+        self._clear_doc()
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setWordWrap(True)
+        self.doc_host_lay.addWidget(lbl)
+        self.doc_host_lay.addStretch(1)
+        self._save_ctx = None
+
+    def _open_editor(self, member, kind, key):
+        """Mount the form for the selected node into the Editor tab. ``kind`` is the item kind
+        ('field'|'object'|'group'|...); ``key`` is the section/object key ('field', 'npc:2', ...)."""
+        try:
+            doc = self._doc(member)
+        except Exception as e:                     # noqa: BLE001
+            self._doc_placeholder(f"Could not load {member}: {e}")
+            return
+        if key == "camera":
+            self._doc_placeholder("Camera / walkmesh / layers / positions are SPATIAL — author them in "
+                                  "Blender (FF9 Map Kit add-on). This shell owns the logic only.")
+            return
+        if key in _SINGLES:                        # a single table (field/encounter/music/dialogue)
+            spec = _SECTION_SPEC[key]
+            self._mount_form(member, key, spec, doc.data.get(key, {}) or {}, single=True, section=key)
+            return
+        if ":" in key and key.split(":")[0] in _SECTION_SPEC:   # a list entity (npc:2, gateway:0, ...)
+            k, idx = key.split(":")
+            idx = int(idx)
+            lst = doc.data.get(k, []) or []
+            if idx < len(lst):
+                self._mount_form(member, key, _SECTION_SPEC[k], lst[idx], single=False, section=k, idx=idx)
+            return
+        if kind == "group":                        # the list header (NPCs (n)) -- not directly editable yet
+            self._doc_placeholder(f"{key}: select one item under it to edit, or add new (coming soon).")
+            return
+        # cutscene / choice (list-in-list) -- a Phase-4b follow-up; the tkinter editor still handles them.
+        self._doc_placeholder(f"Editing '{key}' moves here in a follow-up. For now the tkinter Logic "
+                              "Editor handles cutscene steps and choice options.")
+
+    def _mount_form(self, member, key, spec, entity, *, single, section, idx=None):
+        self._clear_doc()
+        title = QLabel(f"{member}  ·  {key}")
+        title.setStyleSheet("font-weight:600;font-size:15px;")
+        self.doc_host_lay.addWidget(title)
+        note = forms.SECTION_HELP.get(section)
+        if note:
+            h = QLabel(note)
+            h.setWordWrap(True)
+            h.setStyleSheet(f"color:{self.pal['muted']};")
+            self.doc_host_lay.addWidget(h)
+        form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal)
+        self.doc_host_lay.addWidget(form)
+        save = QPushButton("Save")
+        save.setObjectName("accent")
+        save.clicked.connect(self._save)
+        self.doc_host_lay.addWidget(save, alignment=Qt.AlignLeft)
+        self.doc_host_lay.addStretch(1)
+        self._save_ctx = {"member": member, "key": key, "spec": spec, "getters": getters,
+                          "single": single, "section": section, "idx": idx}
+        self.tabs.setCurrentWidget(self.doc_scroll)
+
+    def _save(self):
+        ctx = self._save_ctx
+        if not ctx:
+            return
+        try:
+            entity = forms.build_entity(ctx["spec"], read(ctx["getters"]))
+        except ValueError as e:
+            self._show_problems(fb.Verdict(fb.ERROR, f"Invalid value — not saved"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return
+        doc = self._doc(ctx["member"])
+        if ctx["single"]:
+            target = doc.data.setdefault(ctx["section"], {})
+        else:
+            target = doc.data.get(ctx["section"], [])[ctx["idx"]]
+        reason = protected_reason(self.member_paths[ctx["member"]])   # don't overwrite a bundled/golden file
+        if reason:
+            self._show_problems(fb.Verdict(fb.ERROR, "Can't save here"),
+                                [fb.Problem(fb.ERROR, f"{reason}. Save a copy in a folder of your own.")])
+            return
+        for f in ctx["spec"]:                      # clear this spec's keys, keep any others (scene/unknown)
+            target.pop(f.key, None)
+        target.update(entity)
+        try:
+            doc.save()
+        except Exception as e:                     # noqa: BLE001
+            self._show_problems(fb.Verdict(fb.ERROR, "Save failed"), [fb.Problem(fb.ERROR, str(e))])
+            return
+        self._show_problems(fb.Verdict(fb.OK, f"Saved {ctx['member']} · {ctx['key']}",
+                                       f"wrote {self.member_paths[ctx['member']].name}"), [])
+        # if a list entity's name changed, refresh the selected tree row + the breadcrumb
+        if not ctx["single"] and "name" in entity:
+            items = self.tree.selectedItems()
+            if items:
+                items[0].setText(0, entity["name"])
+                items[0].setData(0, _ROLE, ("object", entity["name"], ctx["key"]))
 
     def _inspect(self, item, payload, field):
         if payload is None:
@@ -513,12 +650,30 @@ def _smoke(win):
     trail = bc.trail(win.journey_name, win.plan.name,
                      win._payload(win._ancestor_field(ent))[1], None, "")
     assert [c.level for c in trail] == ["campaign", "field"], trail
+    # Phase 4: the document editor -- open the NPC form, Save (round-trip), confirm it persisted to disk
+    import tomllib
+    win._open_editor("IC_ENT", "object", "npc:0")
+    assert win._save_ctx and win._save_ctx["section"] == "npc"
+    win._save()
+    saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
+    assert saved["npc"][0]["name"] == "Guard", saved
+    win._open_editor("IC_ENT", "field", "field")       # a single-table section
+    assert win._save_ctx["single"] and win._save_ctx["section"] == "field"
+    win._save()
+    saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
+    assert saved["field"]["id"] == 30100 and saved["field"]["name"] == "IC_ENT", saved
+    # the Qt form renderer round-trips through build_entity (the SAME parser as the tkinter editor)
+    sample = {"name": "Vivi", "preset": "vivi", "dialogue": "hi"}
+    _w, _g = build_form(forms.NPC_SPEC, forms.entity_to_values(forms.NPC_SPEC, sample), win.pal)
+    assert forms.build_entity(forms.NPC_SPEC, read(_g)) == sample, read(_g)
+
     # Check surfaces the dangling GHOST edge as a problem
     win.on_check()
     assert win.problems.count() >= 1
     assert any("GHOST" in win.problems.item(i).text() for i in range(win.problems.count()))
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members), lazy objects, "
-          f"breadcrumb, Problems dock ({win.problems.count()} rows); QProcess lint wired")
+          f"breadcrumb, EDITOR forms (NPC+field save round-trip), Problems dock "
+          f"({win.problems.count()} rows); QProcess lint wired")
 
 
 def main(argv=None):
