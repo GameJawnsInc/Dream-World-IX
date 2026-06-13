@@ -2455,6 +2455,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if "player" in project.raw and project.raw["player"].get("model") is not None:
         pm = resolve_npc_model(project.raw["player"]["model"])
         eb = _npc.set_player_model(eb, pm, _catalog.npc_anims(pm) or None)
+    # The blank player template carries a stale RunSoundCode(4616,912) sound-bank preload from its source
+    # field; that bank isn't loaded in a custom field, so it throws "Music Id 912 not found" every frame --
+    # a per-frame KeyNotFoundException = lag (seen on the hut, field 4000). Neutralise it on EVERY
+    # synthesized field's player (no-op if absent; animation is untouched -- only the offending sound op is
+    # NOP'd). See content.npc.neutralize_player_audio_cruft.
+    eb = _npc.neutralize_player_audio_cruft(eb)
 
     # encounter (+ the after-battle reinit it requires)
     if has_encounter:

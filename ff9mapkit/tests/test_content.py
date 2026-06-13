@@ -35,6 +35,7 @@ def test_hut_interior_reproduced_byte_exact():
     out = npc.inject_npc(CLEAN, 0, -700, preset="vivi", talk_text_id=500)
     out = npc.set_player_spawn(out, 0, -1350)
     out = gateway.inject_gateway(out, 4000, entrance=0, slot=3, zone=EXIT_ZONE)
+    out = npc.neutralize_player_audio_cruft(out)   # build_script's final player-cleanup step (kills the 912 lag)
     assert provision.sha256(out) == provision.load_manifest()["goldens"]["EVT_HUT_INT.eb.bytes/us"]
 
 

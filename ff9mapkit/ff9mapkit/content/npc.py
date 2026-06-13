@@ -308,3 +308,32 @@ def set_player_model(data, model_id: int, anims: dict | None = None, *,
     if int(model_id) in MOOGLE_MODELS and loc["headfocus"] is not None:
         body0[loc["headfocus"]:loc["headfocus"] + 2] = bytes(MOOGLE_HEAD_FOCUS)
     return edit.patch_bytes(data, f0.abs_start, bytes(body0))   # same length -> in-place
+
+
+# RunSoundCode(4616, 912): a sound/voice-bank PRELOAD the blank player template carries from its SOURCE
+# field. In a custom field that bank is never loaded, so the engine throws "Music Id 912 not found" each
+# time the loop sound retries -> a per-frame KeyNotFoundException = lag (seen on the hut, field 4000). The
+# model-pack RunModelCode ops alongside it do NOT throw (different subsystem), so they stay (the player
+# still animates) -- we neutralise only the offending sound op.
+PLAYER_STALE_SOUND = (0xC5, (4616, 912))   # (op, args) -- RunSoundCode(4616, 912)
+
+
+def neutralize_player_audio_cruft(data) -> bytes:
+    """NOP the stale ``RunSoundCode(4616, 912)`` preload ops in the PLAYER entry's Init (in-place, same
+    length). Removes the per-frame 'Music Id 912' exception spam every synthesized field's player inherits
+    from the blank template, without touching animation (the model-pack loads are kept). No-op if absent."""
+    op, want = PLAYER_STALE_SOUND
+    eb = EbScript.from_bytes(data)
+    try:
+        f0 = eb.entry(_find_player_entry(eb)).func_by_tag(0)
+    except ValueError:
+        return data if isinstance(data, bytes) else bytes(data)
+    if f0 is None:
+        return data if isinstance(data, bytes) else bytes(data)
+    out = bytearray(data)
+    instrs = list(eb.instrs(f0))
+    for k, ins in enumerate(instrs):
+        if ins.op == op and tuple(ins.args or ()) == want:
+            end = instrs[k + 1].off if k + 1 < len(instrs) else f0.abs_end
+            out[ins.off:end] = b"\x00" * (end - ins.off)        # NOP the whole op (op 0x00 = safe skip)
+    return bytes(out)

@@ -47,3 +47,28 @@ def test_synthesized_human_npc_uses_catalog_params():
     hf = list(next(i.args for i in eb.instrs(f0) if i.op == 0x8B))
     assert [model, animset] == [49, NPC_PARAMS[49]["animset"]]
     assert hf == list(NPC_PARAMS[49]["head_focus"])
+
+
+def _count_stale_sound(ebb):
+    eb = EbScript.from_bytes(ebb)
+    f0 = eb.entry(N._find_player_entry(eb)).func_by_tag(0)
+    return sum(1 for i in eb.instrs(f0) if i.op == 0xC5 and tuple(i.args or ()) == (4616, 912))
+
+
+def test_neutralize_player_audio_cruft_in_place():
+    blank = data.blank_field_bytes("us")
+    assert _count_stale_sound(blank) > 0                     # the blank template carries the stale preload
+    out = N.neutralize_player_audio_cruft(blank)
+    assert len(out) == len(blank)                            # in-place (same length)
+    assert EbScript.from_bytes(out).to_bytes() == out        # still valid
+    assert _count_stale_sound(out) == 0                      # the 'Music Id 912' spam ops are gone
+
+
+def test_built_synthesized_field_player_has_no_stale_sound(tmp_path):
+    # build_script neutralizes it, so EVERY synthesized field ships a clean player (no per-frame 912 lag)
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
+                 '[camera]\npitch=30\ndistance=900\nfov=40\n[player]\nspawn=[0,0]\n', encoding="utf-8")
+    eb = build.build_script(build.FieldProject.load(p), "us", {})
+    assert _count_stale_sound(eb) == 0
