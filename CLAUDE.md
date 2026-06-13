@@ -339,6 +339,9 @@ Read these on demand — they hold the full technical detail this file only summ
 - `project-ff9-novel-bg-pipeline` — painted-BG / overlay-depth / occlusion pipeline.
 - `project-ff9-gateway-regions` — region trigger mechanics + IsInQuad dead zones.
 - `project-ff9-encounters` — random battles + the after-battle Main_Reinit fix.
+- `project-ff9-ate-system` — Active Time Events: the "Press SELECT" optional cutscenes are almost all field-`.eb`
+  (GetChoose → `op_0B` jump table); engine does 3 things (blink opcode `AICON=0xD7` — NOT `BARATE`; `winATE=64`
+  flag; achievement-only `AteCheck` seen table). `--verbatim` carries them. Full teardown = `docs/ATE_SYSTEM.md`.
 - `project-ff9-memoria-build` — local engine build toolchain + auto-deploy + version-match.
 - `project-ff9-object-carry` — faithful NPC/prop carry: verbatim `.eb`-entry graft + player-func graft +
   text carry + the v1.5 STARTSEQ-helper closure; the cross-ref remap + the engine facts (tag 2 = push, etc.).
