@@ -4,3 +4,6 @@
 *.bgx
 *.bgi.bytes
 *.eb.bytes
+
+# Verbatim Treno fork = game-derived bytes (atlas/scene/.eb/.mes); regenerate via the import command in README.
+journey_treno/

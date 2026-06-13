@@ -6,22 +6,22 @@ in. A *journey* = a complete playable arc (one or more chained campaign slices).
 `{name, entry field id, optional seed}` per row. It is **NOT** a custom worldmap (no engine fork — just a
 field + a dialogue-choice menu + warps). See the deep notes in memory `project-ff9-world-hub`.
 
-The hub is one field; its journeys warp into **real forked slices that already live in stacked mod folders**:
+The hub is one field; its journeys warp into **real verbatim forks of actual FF9 fields** (real logic + lines):
 
 | What | Id / folder | Role |
 |---|---|---|
 | `hub.field.toml` | 4500 / `FF9CustomMap-ow` | The hub. Walk as a Moogle, talk to Stiltzkin → a journey menu. |
 | **Dali** (journey 1) | 4100 / `FF9CustomMap-sf` | A **verbatim** (native) fork — the *real* Dali story, real lines, real party-setup (story_flags' `DALI_CAPSTONE` chain, source field 359). The faithful flagship; the hub seeds `scenario = 2600` ("Waking up in Dali") before warping. |
-| **Ice Cavern** (journey 2) | 30100 / `FF9CustomMap-ow` | An **editable** `import-chain` fork — the real Ice Cavern geometry/camera to explore (re-authorable scaffold logic; overworld's `ICE_CAVERN` chain, source field 300). |
+| **Treno** (journey 2) | 4501 / `FF9CustomMap-ow` | A **verbatim** (native) single-field fork of the **Treno Pub** (source field 1900, `TR_BAR`) — a clean, beat-agnostic field with 3 real NPCs + 17 real lines. Forked into `journey_treno/` and deployed to the 4501 slot; the hub seeds `scenario = 7550` ("Treno"). One door is a *live seam* back into the real game. |
 
 `journeys.toml` is the **generator input** — `ff9mapkit gen-hub journeys.toml` emits the `hub.field.toml`
 above (see *Generate the hub* below). The hub stays **thin**: per journey it knows only `{title, entry id,
-optional seed}`; HOW a journey plays internally is the slice's own business.
+optional seed}`; HOW a journey plays internally is the fork's own business.
 
-> The two trivial stub fields `journey_one.field.toml` (4501) / `journey_two.field.toml` (4502) are the
-> original **zero-dependency scaffold** — they just prove the warp landed (a Moogle greets you), with no
-> forked chains to deploy. Point `journeys.toml`'s `entry` ids back at 4501/4502 if you want to demo the
-> select→warp loop without first deploying the real slices.
+> The two trivial stub fields `journey_one.field.toml` / `journey_two.field.toml` are the original
+> **zero-dependency scaffold** — they just prove the warp landed (a Moogle greets you), with no fork to
+> deploy. Point a `journeys.toml` `entry` at one of them (e.g. 4502) to demo the select→warp loop without
+> first deploying a real fork.
 
 ## How it works
 
@@ -38,8 +38,7 @@ optional seed}`; HOW a journey plays internally is the slice's own business.
 ## Setup (provenance: you supply the game bytes)
 
 The hub BG-borrows a real FF9 room, so it needs that room's **camera**, extracted from *your* install (the
-repo ships zero game data — `*.bgx` is gitignored here). The journey *destinations* (Dali 4100, Ice Cavern
-30100) carry their own art/scene, so you only extract the hub's camera:
+repo ships zero game data — `*.bgx` is gitignored here). Extract the hub camera:
 
 ```bash
 # from the kit root (ff9mapkit/)
@@ -47,27 +46,42 @@ py -m ff9mapkit extract-field 950   # -> .ff9mapkit-cache/fields/950/camera.bgx
 # (or copy it next to hub.field.toml as camera_hub.bgx — see `gen-hub --extract-camera` below)
 ```
 
-The two journey slices must be deployed somewhere in your stacked `FolderNames` (they already are in this
-project: the Dali `DALI_CAPSTONE` chain in `FF9CustomMap-sf`, the Ice Cavern chain in `FF9CustomMap-ow`).
-To fork your own, see *Scaffold → real hub* below.
+The **Treno** journey is a verbatim fork you generate from your install (the repo ships zero game bytes —
+`journey_treno/` is gitignored). Regenerate it once:
+
+```bash
+# from the kit root (ff9mapkit/) — ships the Treno Pub's real .eb + .mes + native scene
+py -m ff9mapkit import fbg_n20_trno_map417_tr_bar_0 --verbatim --out examples/world_hub/journey_treno \
+    --name JOURNEY_TRENO --id 4501
+# then set text_block = 22 in the emitted JOURNEY_TRENO.field.toml (1073 is shadowed by FF9CustomMap)
+```
+
+The **Dali** journey points at story_flags' `DALI_CAPSTONE` chain, already deployed in `FF9CustomMap-sf`. To
+fork your own multi-screen journey, see *Scaffold → real hub* below.
 
 ## Deploy + playtest the loop
 
-Only the **hub** needs deploying (its journey targets are already-registered ids in stacked folders). Run
-**from the kit root** (`ff9mapkit/`) so `py -m ff9mapkit` picks up *this* checkout, not an editable install
-pointing at another worktree — `deploy_field.py` lives one level up at the repo root, hence `../tools/`:
+Deploy the **Treno fork** and the **hub** (Dali is already deployed in `FF9CustomMap-sf`). Run **from the kit
+root** (`ff9mapkit/`) so `py -m ff9mapkit` picks up *this* checkout, not an editable install pointing at
+another worktree — `deploy_field.py` lives one level up at the repo root, hence `../tools/`:
 
 ```bash
 # from the kit root (ff9mapkit/)
+py ../tools/deploy_field.py examples/world_hub/journey_treno/JOURNEY_TRENO.field.toml --id 4501
 py ../tools/deploy_field.py examples/world_hub/hub.field.toml --id 4500
 ```
 
-Then in-game (relaunch once if 4500 is brand-new, else **F6 → Reload field** on 4500):
+> Deploying several fields into one folder churns the `DictionaryPatch` — each `deploy_field --id N` first
+> reverts N's prior deploy (a stale folder snapshot), which can drop a sibling's line (the *assets* survive).
+> After deploying both, verify the `DictionaryPatch` lists **both** 4500 and 4501; if not, add the missing
+> `FieldScene` line by hand (the assets are already on disk). See memory `project-ff9-text-block-shadow`.
+
+Then in-game (relaunch once if the ids are brand-new, else **F6 → Reload field**):
 
 1. **New Game** (lands on the hub), or **F6 → Warp → 4500**.
 2. You're a Moogle. Walk to **Stiltzkin** and talk.
-3. Pick **The Village of Dali** → you warp into the real verbatim Dali entrance (real lines/NPCs, seeded to
-   the "waking up" beat). Pick **The Ice Cavern** → you drop into the explorable cavern chain.
+3. Pick **The Village of Dali** → the real verbatim Dali entrance (real lines/NPCs, seeded to the "waking up"
+   beat). Pick **Treno, City of Nobles** → the Treno Pub (real NPCs + dialogue).
 4. **Stay here, kupo...** closes the menu without warping.
 
 That's the full **select → seed → warp into real content** loop.

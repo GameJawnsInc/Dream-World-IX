@@ -38,8 +38,9 @@ warp = 4100
 set_scenario = 2600
 
 [[choice.options]]
-text = "The Ice Cavern"
-warp = 30100
+text = "Treno, City of Nobles"
+warp = 4501
+set_scenario = 7550
 
 [[choice.options]]
 text = "Stay here, kupo..."   # no warp -- closes the menu

@@ -9,14 +9,15 @@
 #  already deployed in stacked mod folders -- NOT the trivial scaffold stubs (4501/4502).
 #  The hub stays THIN: it only needs each journey's {entry id, optional seed}; HOW a
 #  journey plays internally is the slice's own business (its own .eb/.mes/walkmesh).
-#    * Dali       -> field 4100  -- a VERBATIM (native) fork: the REAL Dali story, real
-#                    lines, real party-setup. story_flags' DALI_CAPSTONE chain, in
-#                    FF9CustomMap-sf (source field 359). The faithful flagship.
-#    * Ice Cavern -> field 30100 -- an EDITABLE import-chain fork: the real Ice Cavern
-#                    geometry/camera to explore (re-authorable scaffold logic).
-#                    overworld's ICE_CAVERN chain, in FF9CustomMap-ow (source field 300).
-#  Both ids are already registered in the live `Memoria.ini` FolderNames, so picking a
-#  journey `Field()`-warps straight into it -- only the HUB (4500) is (re)deployed.
+#    * Dali  -> field 4100 -- a VERBATIM (native) fork: the REAL Dali story, real lines,
+#               real party-setup. story_flags' DALI_CAPSTONE chain, in FF9CustomMap-sf
+#               (source field 359). The faithful flagship.
+#    * Treno -> field 4501 -- a VERBATIM (native) single-field fork of the Treno Pub
+#               (source field 1900, TR_BAR): a CLEAN beat-agnostic static-roster field --
+#               3 real NPCs + 17 real lines, real logic. Forked into examples/world_hub/
+#               journey_treno/ and deployed to the 4501 slot in FF9CustomMap-ow.
+#  Both destination ids are registered in the live `Memoria.ini` FolderNames, so picking a
+#  journey `Field()`-warps straight into it.
 # ============================================================================
 
 [hub]
@@ -44,6 +45,7 @@ entry = 4100                         # DC_DL_ENT -- VERBATIM Dali entrance (FF9C
 set_scenario = 2600                  # "Waking up in Dali" -- the beat the verbatim logic expects (its own [startup])
 
 [[journey]]
-name  = "ice_cavern"
-title = "The Ice Cavern"
-entry = 30100                        # IC_ENT -- EDITABLE Ice Cavern chain entry (FF9CustomMap-ow; real geometry)
+name  = "treno"
+title = "Treno, City of Nobles"
+entry = 4501                         # JOURNEY_TRENO -- VERBATIM Treno Pub fork (FF9CustomMap-ow; real NPCs/lines)
+set_scenario = 7550                  # "Treno" -- a sensible Treno-era beat (the field itself is beat-agnostic)
