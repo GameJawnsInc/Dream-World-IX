@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — save-item editor: vanilla (main-block) STAT editing + the GUI on vanilla slots (0.9.69)
+### Added — save-item editor: vanilla (main-block) STAT editing + the GUI on vanilla slots, IN-GAME PROVEN (0.9.69)
 - The stat editor now reaches **vanilla (no-extra) saves** too, and the GUI's Stats control works on them —
   completing the stat editor across both save kinds (and the GUI across all five editors on every slot).
 - ★ **Layout finding (empirical, verified vs the extra on all 9 players):** the old-format player struct stores
@@ -15,8 +15,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (same target-stat / formula-delta model as `set_stat_extra`), scoped to those ≤3 bytes, validate gate + atomic +
   backup + confirm. + `read_main_stats` + `main_report`/`ItemReport.stats`. **`set_stat_in_save`** dual-write; CLI
   `items-set-stat` on a container dual-writes; `render_stat_dual`. GUI `_edit_stat` now uses the container path.
-- 6 new tests. ⏳ In-game proof of a vanilla stat is the next STOP-and-test. With this, the #5 editor covers
-  gil/items/equipment/key-items/stats on BOTH Memoria and vanilla saves, via CLI and GUI.
+- 6 new tests. ★ **IN-GAME PROVEN (2026-06-13):** set Zidane's Strength 27 → 99 on the VANILLA slot 1/save 1's
+  main block → loaded → the status menu showed 99 (gil + key items + other slots untouched). **The #5 save-item
+  editor is now complete: gil/items/equipment/key-items/stats on BOTH Memoria and vanilla saves, via CLI and GUI.**
 
 ### Added — save-item editor: the equipment-driven STAT editor (`items-set-stat`), IN-GAME PROVEN (0.9.68)
 - Edit a character's permanent growth stat — Speed / Strength / Magic / Spirit — the hidden "level up in stat
