@@ -914,15 +914,42 @@ class Workspace(QMainWindow):
         type_combo = QComboBox()
         for k in forms.STEP_KIND:
             type_combo.addItem(forms.STEP_LABEL[k], k)
-        value_edit = QLineEdit()
+        # the 'say' step is dialogue -> a multi-line box (Enter / typed \n = an in-window line break);
+        # every other step is a short single value -> a line edit. Only one shows at a time.
+        value_line = QLineEdit()
+        value_text = QPlainTextEdit()
+        value_text.setTabChangesFocus(True)
+        value_text.setFixedHeight(64)
+        value_text.setToolTip("Line break: press Enter, or type \\n.   New window: type [PAGE].")
+        value_text.setVisible(False)
         hint = QLabel("")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
         sv.addWidget(QLabel("Type:"))
         sv.addWidget(type_combo)
         sv.addWidget(QLabel("Value:"))
-        sv.addWidget(value_edit)
+        sv.addWidget(value_line)
+        sv.addWidget(value_text)
         sv.addWidget(hint)
+
+        def is_say():
+            return type_combo.currentData() == "say"
+
+        def value_get():
+            return value_text.toPlainText().replace("\\n", "\n") if is_say() else value_line.text()
+
+        def value_set(s):
+            (value_text.setPlainText if is_say() else value_line.setText)(s)
+
+        def swap_value_widget():
+            """Show the multi-line box for 'say', the line edit otherwise; carry the typed text across."""
+            say = is_say()
+            if say and not value_text.isVisible():
+                value_text.setPlainText(value_line.text())
+            elif not say and value_text.isVisible():
+                value_line.setText(value_text.toPlainText().replace("\n", " "))
+            value_text.setVisible(say)
+            value_line.setVisible(not say)
 
         def reload_steps(select=None):
             steps_list.clear()
@@ -933,20 +960,22 @@ class Workspace(QMainWindow):
 
         def on_type(_i=0):
             hint.setText(forms.STEP_HELP.get(type_combo.currentData(), ""))
+            swap_value_widget()
         type_combo.currentIndexChanged.connect(on_type)
+        on_type()                                  # initialise hint + the right value widget (default = say)
 
         def on_select(r):
             if 0 <= r < len(cs["steps"]):
                 st = cs["steps"][r]
                 k = forms.step_key(st)
                 if k in forms.STEP_KIND:
-                    type_combo.setCurrentIndex(list(forms.STEP_KIND).index(k))
-                value_edit.setText(forms.step_value_text(st))
+                    type_combo.setCurrentIndex(list(forms.STEP_KIND).index(k))   # fires on_type -> swaps widget
+                value_set(forms.step_value_text(st))
         steps_list.currentRowChanged.connect(on_select)
 
         def add_update():
             try:
-                step = forms.make_step(type_combo.currentData(), value_edit.text())
+                step = forms.make_step(type_combo.currentData(), value_get())
             except ValueError as e:
                 self._show_problems(fb.Verdict(fb.ERROR, "Bad step"), [fb.Problem(fb.ERROR, str(e))])
                 return
@@ -1324,6 +1353,8 @@ def _smoke(win):
     assert _pg["dialogue"]() == "Line one\nLine two"                         # getter returns the real newline
     assert forms.build_entity(forms.NPC_SPEC, read(_pg))["dialogue"] == "Line one\nLine two"  # \n kept by build
     assert prev_box[0].toPlainText() == _dlg.wrap_preview("Line one\nLine two", 12)  # preview honors the break
+    edit_box[0].setPlainText("a\\nb")                                        # a typed LITERAL backslash-n...
+    assert _pg["dialogue"]() == "a\nb"                                       # ...is normalized to a real newline
 
     # Phase 4b: the cutscene + choice sub-editors mount over a doc with steps/options
     edoc = win._doc("IC_ENT")
@@ -1332,6 +1363,9 @@ def _smoke(win):
     win._mount_cutscene("IC_ENT")
     step_lists = win.doc_host.findChildren(QListWidget)
     assert step_lists and step_lists[0].count() == 2, "cutscene steps list shows both steps"
+    # the cutscene 'say' step is dialogue -> a multi-line value box (default type is 'say')
+    say_box = [p for p in win.doc_host.findChildren(QPlainTextEdit) if not p.isReadOnly()]
+    assert say_box, "cutscene 'say' step has a multi-line value box"
     win._mount_choice("IC_ENT", 0)
     opt_lists = win.doc_host.findChildren(QListWidget)
     assert opt_lists and opt_lists[0].count() == 2, "choice options list shows both options"

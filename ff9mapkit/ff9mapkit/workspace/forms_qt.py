@@ -110,13 +110,16 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         elif f.key in DIALOGUE_KEYS:
             # MULTI-LINE: dialogue carries explicit line breaks (Enter = a real \n, which is FF9's native
             # in-window line break; type [PAGE] for a new window). QLineEdit collapses newlines -> use a
-            # plain text box. toPlainText returns real \n, preserved through build_entity/TOML/.mes.
+            # plain text box. toPlainText returns real \n, preserved through build_entity/TOML/.mes. We ALSO
+            # accept a typed literal "\n" (two chars, a common habit) and normalize it to a real newline, so
+            # the preview, the saved .toml and the .mes all agree -- the getter does that normalization.
             te = QPlainTextEdit(str(values.get(f.key, "") or ""))
             te.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
             te.setTabChangesFocus(True)            # Tab -> next field (Enter is the line break, not Tab)
             te.setFixedHeight(72)                   # ~4 lines, like the old Dialogue Editor
-            te.setToolTip("Enter = a line break in the same window. Type [PAGE] for a new window.")
-            widget, getters[f.key], setter = te, te.toPlainText, te.setPlainText
+            te.setToolTip("Line break: press Enter, or type \\n.   New window: type [PAGE].")
+            widget, setter = te, te.setPlainText
+            getters[f.key] = lambda box=te: box.toPlainText().replace("\\n", "\n")
         else:
             le = QLineEdit(str(values.get(f.key, "") or ""))
             if f.catalog:
