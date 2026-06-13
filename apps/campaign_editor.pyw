@@ -30,6 +30,7 @@ from tkinter import ttk, filedialog, messagebox  # noqa: E402
 
 from ff9mapkit.editor import dialogs              # noqa: E402  (themed askstring/askinteger replacements)
 from ff9mapkit.editor import graphview            # noqa: E402  (the visual campaign map)
+from ff9mapkit.editor import breadcrumb           # noqa: E402  (the clickable journey>campaign>field>object path)
 
 
 def _load_app(filename, modname):
@@ -91,6 +92,12 @@ class Workspace:
         self.plan = None
         self._member_paths = {}                   # member name -> resolved field.toml path
         self._nav = {}                            # door/seam child iid -> target member name
+        # breadcrumb state -- the "you are here" path across journey > campaign > field > object
+        self._journey_name = self._campaign_name = self._field_name = self._obj_label = None
+        self._obj_key = ""
+
+        self.crumb = breadcrumb.Breadcrumb(root, palette, on_navigate=self._on_crumb)
+        self.crumb.frame.pack(fill="x", side="top")
 
         panes = ttk.PanedWindow(root, orient="horizontal")
         panes.pack(fill="both", expand=True)
@@ -127,7 +134,8 @@ class Workspace:
         self.tree.configure(yscrollcommand=tsb.set)
         self.tree.bind("<<TreeviewSelect>>", self._on_member_select)
         for tag, col in (("entry", palette["success"]), ("problem", palette["error"]),
-                         ("warn", palette["warn"]), ("door", palette["muted"])):
+                         ("warn", palette["warn"]), ("door", palette["muted"]),
+                         ("root", palette["accent"])):
             self.tree.tag_configure(tag, foreground=col)
         self.log = self._build_log(side)
 
@@ -137,6 +145,8 @@ class Workspace:
         self.ed_tab = ttk.Frame(self.nb)
         self.nb.add(self.ed_tab, text="Logic Editor")
         self.editor = EditorApp(self.ed_tab)
+        # a 2nd binding (the editor keeps its own) so the breadcrumb's OBJECT segment tracks the selection
+        self.editor.tree.bind("<<TreeviewSelect>>", self._on_editor_select, add="+")
         dl = _load_app("ff9_dialogue.pyw", "ff9_dialogue")   # the focused dialogue editor / stock-text viewer
         self.dlg_tab = ttk.Frame(self.nb)
         self.nb.add(self.dlg_tab, text="Dialogue")
@@ -227,6 +237,11 @@ class Workspace:
         self.campaign_path = path
         self.plan = plan
         self._member_paths = {m.name: (path.parent / m.toml_rel).resolve() for m in plan.members}
+        # seed the breadcrumb at journey > campaign; open_member fills in the field as the user navigates
+        self._journey_name, self._campaign_name = self._journey_label(), plan.name
+        self._field_name = self._obj_label = None
+        self._obj_key = ""
+        self._refresh_breadcrumb()
         self.editor.campaign_idmap = {m.new_id: m.name for m in plan.members}   # gateway annotations
         self.editor.campaign_plan = plan                                         # flag picker + name resolution
         self.dialogue.campaign_plan = plan                                       # same, for the Dialogue tab's picker
@@ -261,10 +276,15 @@ class Workspace:
                                    f"entry: {g.entry or '(none)'}{warn}")
         self.tree.delete(*self.tree.get_children())
         self._nav = {}
+        # journey > campaign roots, so the tree itself shows the hierarchy depth (members nest below)
+        self.tree.insert("", "end", iid="@journey", text=f"◆ {self._journey_label()}",
+                         tags=("root",), open=True)
+        self.tree.insert("@journey", "end", iid="@campaign", text=f"▣ {plan.name}",
+                         tags=("root",), open=True)
         for node in g.nodes:
             if self.tree.exists(node.name):           # dup name in a hand-edited manifest -> lint flags it;
                 continue                              # don't let a duplicate iid crash the navigator
-            self.tree.insert("", "end", iid=node.name,
+            self.tree.insert("@campaign", "end", iid=node.name,
                              text=f"{_member_badge(node)} {node.name}{_member_tag(node)}",
                              tags=(_member_style(node),))
             for i, oe in enumerate(node.out_edges):   # live doors -> a click jumps to the target member
@@ -330,6 +350,7 @@ class Workspace:
             self.dialogue.set_doc(self.editor.doc)    # and dodges the load-on-campaign-open double fire)
             self.nb.select(self.ed_tab)
             self._sync_graph(name)
+            self._enter_field(name)
             return True
         if not path.is_file():
             messagebox.showerror("Member not found",
@@ -339,8 +360,60 @@ class Workspace:
             self.dialogue.set_doc(self.editor.doc)    # both tabs now share the one FieldDoc
             self.nb.select(self.ed_tab)
             self._sync_graph(name)
+            self._enter_field(name)
             return True
         return False
+
+    # ---------------------------------------------------------------- breadcrumb
+    def _journey_label(self) -> str:
+        """The journey this campaign belongs to: a sibling journeys.toml entry whose `entry` id names one
+        of our members (forward-compat with the World Hub generator), else the campaign's project FOLDER
+        name as the arc it lives in."""
+        try:
+            import tomllib
+            jt = self.campaign_path.parent / "journeys.toml"
+            if jt.is_file():
+                journeys = tomllib.loads(jt.read_text(encoding="utf-8")).get("journey", [])
+                ids = {m.new_id for m in self.plan.members}
+                for j in journeys:
+                    if j.get("entry") in ids and j.get("name"):
+                        return j["name"]
+                if len(journeys) == 1 and journeys[0].get("name"):
+                    return journeys[0]["name"]
+        except Exception:                             # noqa: BLE001 -- a missing/odd journeys.toml is fine
+            pass
+        return (self.campaign_path.parent.name or "Project") if self.campaign_path else "Project"
+
+    def _refresh_breadcrumb(self):
+        self.crumb.set(breadcrumb.trail(self._journey_name, self._campaign_name,
+                                        self._field_name, self._obj_label, self._obj_key))
+
+    def _enter_field(self, name):
+        """Record that field `name` is now open (clears the object segment until one is selected)."""
+        self._field_name = name
+        self._obj_label = None
+        self._obj_key = ""
+        self._refresh_breadcrumb()
+
+    def _on_editor_select(self, _evt=None):
+        """Mirror the Logic Editor's selected object into the breadcrumb's OBJECT segment. A 2nd binding
+        on the editor tree (the editor keeps its own handler via add='+')."""
+        if self._field_name is None:
+            return
+        sel = self.editor.tree.selection()
+        if not sel:
+            return
+        self._obj_key = sel[0]
+        self._obj_label = self.editor.tree.item(sel[0], "text").replace("  (+)", "").strip()
+        self._refresh_breadcrumb()
+
+    def _on_crumb(self, crumb):
+        """Navigate when an ANCESTOR breadcrumb segment is clicked (the leaf is inert)."""
+        if crumb.level == breadcrumb.FIELD:
+            self.open_member(crumb.key)               # re-focus the editor on that field
+        elif crumb.key in ("@journey", "@campaign") and self.tree.exists(crumb.key):
+            self.tree.see(crumb.key)
+            self.tree.selection_set(crumb.key)        # harmless: _on_member_select ignores the roots
 
     # ---------------------------------------------------------------- check
     def on_check(self):
@@ -593,7 +666,12 @@ def _smoke(ws):
     _appmod.messagebox.askyesnocancel = lambda *a, **k: (calls.append(1), False)[1]
 
     assert ws.open_campaign(d / "campaign.toml")
-    assert list(ws.tree.get_children()) == ["IC_ENT", "IC_COR", "IC_LOST"]
+    # members now nest under the journey > campaign roots (the tree shows the hierarchy depth)
+    assert list(ws.tree.get_children()) == ["@journey"]
+    assert list(ws.tree.get_children("@journey")) == ["@campaign"]
+    assert list(ws.tree.get_children("@campaign")) == ["IC_ENT", "IC_COR", "IC_LOST"]
+    # the breadcrumb resolved journey > campaign > the auto-landed entry field
+    assert ws._campaign_name == "ICE" and ws._field_name == "IC_ENT"
     assert ws.editor.doc is not None and ws.editor.doc.path == members_path(d, "IC_ENT")   # auto-land entry
     # the Dialogue tab shares the SAME FieldDoc as the Logic Editor (no divergence on edit)
     assert ws.dialogue.doc is ws.editor.doc
@@ -603,6 +681,13 @@ def _smoke(ws):
     ws.nb.select(ws.ed_tab)
     ws._on_tab_changed()
     assert ws.editor.campaign_idmap == {30100: "IC_ENT", 30101: "IC_COR", 30102: "IC_LOST"}  # gateway hints
+    # breadcrumb: selecting an object in the Logic Editor fills the OBJECT segment -> all 4 levels resolve
+    ws.editor.tree.selection_set("field")
+    ws._on_editor_select()
+    assert ws._obj_key == "field" and ws._obj_label == "Field"
+    _trail = breadcrumb.trail(ws._journey_name, ws._campaign_name, ws._field_name, ws._obj_label, ws._obj_key)
+    assert [c.level for c in _trail] == ["journey", "campaign", "field", "object"]
+    ws._on_crumb(breadcrumb.Crumb(breadcrumb.CAMPAIGN, ws._campaign_name, "@campaign"))  # ancestor click is safe
     # the visual Map tab renders the same graph and highlights the auto-landed entry
     assert ws.graph._layout is not None and len(ws.graph._layout.nodes) == 3
     assert ws.graph._current == "IC_ENT"
@@ -631,16 +716,16 @@ def _smoke(ws):
     answers = iter(["WEST", ""])                                   # on_add_field: name, then source (blank)
     dialogs.ask_string = lambda *a, **k: next(answers, "")
     ws.on_add_field()
-    assert "WEST" in ws.tree.get_children() and (d / "WEST" / "west.field.toml").is_file()
+    assert "WEST" in ws.tree.get_children("@campaign") and (d / "WEST" / "west.field.toml").is_file()
     dialogs.ask_string = lambda *a, **k: "WESTWING"               # on_rename_field
     ws.tree.selection_set("WEST")
     ws.on_rename_field()
-    assert "WESTWING" in ws.tree.get_children() and "WEST" not in ws.tree.get_children()
+    assert "WESTWING" in ws.tree.get_children("@campaign") and "WEST" not in ws.tree.get_children("@campaign")
     assert (d / "WESTWING").is_dir() and not (d / "WEST").exists()
     _mb.askyesno = lambda *a, **k: True                            # on_remove_field (confirm)
     ws.tree.selection_set("WESTWING")
     ws.on_remove_field()
-    assert "WESTWING" not in ws.tree.get_children() and not (d / "WESTWING").exists()
+    assert "WESTWING" not in ws.tree.get_children("@campaign") and not (d / "WESTWING").exists()
     # F1: shared named flags -- the button is live and add/remove round-trip through campaign.toml
     assert str(ws.btn_flags["state"]) == "normal"
     f = campaign.add_flag(ws.plan, ws.campaign_path.parent, "boss_dead")
@@ -649,8 +734,8 @@ def _smoke(ws):
     campaign.remove_flag(ws.plan, ws.campaign_path.parent, "boss_dead")
     assert campaign.load_campaign(ws.campaign_path).flags == []
     print(f"campaign editor smoke ok: {ws.nb.index('end')} tabs (incl. Dialogue, shared doc), 3 members, "
-          f"tree+Map graph + edge-nav + map-open + Check ({len(errors)} err) + dirty-gate + "
-          f"Phase-D add/rename/remove + shared-flags")
+          f"journey>campaign>field tree + breadcrumb (4 levels) + edge-nav + map-open + "
+          f"Check ({len(errors)} err) + dirty-gate + Phase-D add/rename/remove + shared-flags")
 
 
 def members_path(d, name):
