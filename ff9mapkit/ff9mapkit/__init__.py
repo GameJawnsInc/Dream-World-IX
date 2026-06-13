@@ -15,4 +15,4 @@ Public surface is organized as:
   ff9mapkit.battle    — the battle.toml -> custom battle-background (BBG) builder (fork/edit/build a 3D battle map)
 """
 
-__version__ = "0.9.85"
+__version__ = "0.9.86"
