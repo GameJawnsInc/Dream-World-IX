@@ -316,6 +316,8 @@ class ForkReport:
     controlled_name: str = ""                            # its character name
     control_confidence: str = "none"                     # 'high' | 'low' | 'none' (binder ambiguity)
     swap_gesture_count: int = 0                           # scripted player GESTURES that would glitch on a --swap-player
+    arrival_spots: int = 0                                # distinct per-ENTRANCE player spawn points (#9); >1 = a synth
+    #   fork collapses them to one [player] spawn (loses per-door arrival) -- --verbatim ships the real table
     cam_pitch: float | None = None                       # camera downward pitch (deg); None = not read (.eb-only / no install)
     cam_fov: float | None = None                         # horizontal FOV (deg) -> close/medium/wide feel
     cam_scrolling: bool = False                           # a wide/scrolling field (range past one 384x448 screen)
@@ -621,6 +623,12 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
     rep.player_models = [(pe, _eventscan._player_model(eb, pe),
                           player_name(_eventscan._player_model(eb, pe))) for pe in pents]
     rep.multi_pc = len(pents) > 1
+    # #9 per-door spawn: a field that positions the player by ENTRANCE (reads D8:2, branches to N spots). A
+    # synth fork re-authors a single [player] spawn -> collapses the table; --verbatim ships the real Init.
+    try:
+        rep.arrival_spots = _eventscan.scan_player_arrivals(eb)["distinct"]
+    except Exception:                                    # a preview must never crash on an odd field
+        rep.arrival_spots = 0
     # swap-friendliness: how a `--swap-player` fares -- the scripted gestures on the entr(ies) the swap targets
     # (the controlled-leader model). 0 = a clean free-roam swap; >0 = a cutscene field where those gestures
     # glitch on the new rig (only movement clips are swapped). Reuses the same logic the swap + CLI WARN use.
@@ -807,6 +815,9 @@ def format_report(rep: ForkReport) -> str:
         swap = ("swap-clean" if rep.swap_gesture_count == 0
                 else f"swap: {rep.swap_gesture_count} gesture(s) glitch")
         lines.append(f"  Player        : {pc}  ({swap})")
+    if rep.arrival_spots > 1:
+        lines.append(f"  Arrival       : {rep.arrival_spots} per-door spawn points (#9) -- a SYNTH fork uses one "
+                     f"[player] spawn (you arrive at the same spot via every door); --verbatim ships the real table")
     cam_line = _camera_line(rep)
     if cam_line:
         lines.append(cam_line)

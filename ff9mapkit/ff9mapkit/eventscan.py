@@ -452,6 +452,9 @@ SHOW_MODEL_BIT = 1
 INIT_OBJECT_OP = 0x09      # InitObject(slot, arg) in Main_Init -- spawns/activates object `slot`
 SETVAR_EXPR_OP = 0x05      # an expression; `05 D9 idx 7D lo hi 2C 7F` = SetVar D9(idx)=const
 POS_VAR_CLASS = 0xD9       # the D9 var class CreateObject/MoveInstantXZY read for x/y/z
+ENTRANCE_VAR_CLASS = 0xD8  # the field-entrance var class (D8); idx 2 = the arrival entrance a warp sets
+ENTRANCE_VAR_IDX = 2       # the warp sets D8:2 just before Field(); the target reads it to position the player
+ASSIGN_TOK = 0x2C          # the expression assign token (`=`); its ABSENCE marks a bare var READ (a push)
 
 
 def _read_object_init(eb, init_func) -> dict:
@@ -1050,6 +1053,51 @@ def _player_model(eb, player_entry_index):
     """The model id the player entry's Init ``SetModel``s (the donor player rig), or None."""
     fi = eb.entry(player_entry_index).func_by_tag(0) if 0 <= player_entry_index < eb.entry_count else None
     return _read_object_init(eb, fi)["model"] if fi is not None else None
+
+
+def scan_player_arrivals(eb_bytes) -> dict:
+    """The player's per-ENTRANCE arrival table -- how a real field positions the player based on which door
+    they walked in through (#9). A warp sets the entrance var ``D8:2`` then ``Field()``; the target field's
+    player Init READS ``D8:2`` (a bare ``05 D8 02 7F`` push feeding a ``0x06`` switch) and branches to one
+    ``D9(0)/D9(4)/D9(6)`` (x/z/face) placement block per entrance.
+
+    Returns ``{reads_entrance, arrivals, distinct}``: ``arrivals`` = the ``(x, z, face)`` blocks in bytecode
+    order (``face`` may be None); ``distinct`` = the count of UNIQUE ``(x, z)`` spots. A ``--verbatim`` fork
+    ships this whole Init verbatim, so per-door arrival is FAITHFUL; a SYNTHESIZED fork re-authors the player
+    with a single ``[player] spawn``, collapsing the table -- so ``reads_entrance and distinct > 1`` is the #9
+    signal that a synth fork loses per-door spawn (``fork-report`` surfaces it; ``--verbatim`` preserves it).
+    Read-only; never raises on an odd field (returns the empty table)."""
+    try:
+        eb = eb_bytes if isinstance(eb_bytes, EbScript) else EbScript.from_bytes(eb_bytes)
+        pents = resolve_player_entries(eb)
+        init = eb.entry(pents[0]).func_by_tag(0) if pents else None
+        if init is None:
+            return {"reads_entrance": False, "arrivals": [], "distinct": 0}
+        reads_entrance = False
+        blocks, cur = [], {}
+        for ins in eb.instrs(init):
+            if ins.op != SETVAR_EXPR_OP:
+                continue
+            raw = eb.data[ins.off:ins.end]
+            # entrance READ: an expr mentioning D8:2 with NO assign token -- the bare push feeding the arrival
+            # switch. (The entrance WRITE `... D8 02 7D <i16> 2C 7F` is a gateway exit, not the player Init.)
+            if (len(raw) >= 4 and raw[1] == ENTRANCE_VAR_CLASS and raw[2] == ENTRANCE_VAR_IDX
+                    and ASSIGN_TOK not in raw):
+                reads_entrance = True
+            # an arrival block: `05 D9 idx 7D lo hi 2C 7F` const-sets; a new D9(0) opens the next block.
+            if len(raw) >= 8 and raw[1] == POS_VAR_CLASS and raw[3] == 0x7D and raw[6] == ASSIGN_TOK:
+                idx, val = raw[2], _s16(raw[4] | (raw[5] << 8))
+                if idx == 0 and cur:
+                    blocks.append(cur)
+                    cur = {}
+                cur[idx] = val
+        if cur:
+            blocks.append(cur)
+        arrivals = [(b[0], b[4], b.get(6)) for b in blocks if 0 in b and 4 in b]
+        distinct = len({(x, z) for x, z, _f in arrivals})
+        return {"reads_entrance": reads_entrance, "arrivals": arrivals, "distinct": distinct}
+    except (ValueError, IndexError, KeyError):
+        return {"reads_entrance": False, "arrivals": [], "distinct": 0}
 
 
 def _player_init_packs(eb, player_entries) -> list:

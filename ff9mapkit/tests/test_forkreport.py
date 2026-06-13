@@ -134,6 +134,16 @@ def test_analyze_eb_alex100_reports_vivi_as_a_non_zidane_player():
     assert "--verbatim" in cmd and "--graft-player-funcs" not in cmd
 
 
+def test_analyze_eb_alex100_reports_per_door_arrival_table():
+    # #9: Alexandria Main Street positions the player by which door they came in through (a multi-block D8:2
+    # arrival table). fork-report surfaces it as the per-door-spawn fidelity signal -- a SYNTH fork collapses
+    # it to one [player] spawn; --verbatim ships the real table. (Pure: the shipped ALEX100 fixture.)
+    rep = FR.analyze_eb(ALEX100, field_id=100, fbg_name="fbg_n01_alxt_map016_at_msa_0")
+    assert rep.arrival_spots >= 3                                  # several distinct door arrivals
+    out = FR.format_report(rep)
+    assert "Arrival" in out and "per-door spawn" in out and "--verbatim" in out
+
+
 def test_player_name_falls_back_to_geo_model_name():
     assert FR.player_name(8) == "Vivi" and FR.player_name(98) == "Zidane"
     assert FR.player_name(None) == "none"

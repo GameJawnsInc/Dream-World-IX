@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — fork-report flags per-door player spawn (#9) (0.9.78)
+- `eventscan.scan_player_arrivals(eb)` decodes a field's per-ENTRANCE arrival table: a warp sets the entrance
+  var `D8:2` then `Field()`, and the target's player Init reads `D8:2` (a bare `05 D8 02 7F` push feeding a
+  `0x06` switch) and branches to one `D9(0)/D9(4)/D9(6)` (x/z/face) block per entrance. Returns
+  `{reads_entrance, arrivals, distinct}` (read-only; never raises). Grounded in the engine (`EventEngine`
+  `JMP_SWITCHEX` 0x06) and verified across fields (Alexandria Main St = 4 blocks; Dali shop = 2 distinct spots).
+- `fork-report` gains an **Arrival** line when a field has >1 distinct spawn: it warns that a SYNTH fork
+  collapses the table to one `[player] spawn` (you arrive at the same spot via every door) and that `--verbatim`
+  ships the real table. This is the #9 fidelity signal — surfaced before you fork. +3 tests.
+- **Scope note (honest):** per-door spawn is FAITHFUL under `--verbatim` (it carries the whole player Init). A
+  synth fork can't meaningfully *reconstruct* the table because its gateways are RETARGETED — the donor's
+  entrance indices don't carry over to a fork's own doors. So the right answer for per-door fidelity is
+  `--verbatim`, and the report now points there. (A bounded synth follow-up: use the donor's PRIMARY arrival as
+  the default single spawn — a better default than the c.1 walkmesh-centroid — left for a separate in-game tick.)
+
 ### Added — item-data tuning: `[[weapon]]` / `[[armor]]` / `[[item]]` (roadmap #6, the last items-lane item), IN-GAME PROVEN (0.9.77)
 - Tune EXISTING item stats via partial CSV deltas — **no DLL**. New `content/itemdata.py` + field.toml blocks:
   - `[[weapon]] name=… power=… elements=[…]` → a `Data/Items/Weapons.csv` delta (ItemAttack Power/Elements).

@@ -157,6 +157,16 @@ def test_scan_objects_blank_field_has_none():
     assert eventscan.scan_objects(CLEAN) == []
 
 
+def test_scan_player_arrivals_blank_is_single_spot():
+    # #9 baseline: the blank field reads the entrance var (D8:2) but has ONE arrival -- a single spawn, so a
+    # synth fork loses nothing. The signal that a fork loses per-door arrival is distinct > 1, not the read.
+    a = eventscan.scan_player_arrivals(CLEAN)
+    assert a["reads_entrance"] is True
+    assert a["distinct"] == 1 and len(a["arrivals"]) == 1
+    x, z, _face = a["arrivals"][0]
+    assert isinstance(x, int) and isinstance(z, int)
+
+
 def _game_ready():
     try:
         import UnityPy  # noqa: F401
@@ -164,6 +174,19 @@ def _game_ready():
         return (config.find_game_path(None) / "StreamingAssets").is_dir()
     except Exception:
         return False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_scan_player_arrivals_recovers_the_per_entrance_table():
+    # #9: a real multi-entrance field positions the player by which door they came through. Alexandria Main
+    # Street (field 100) has a 4-block arrival table; the Dali Weapon Shop (354) maps its entrances to 2
+    # distinct spots. The scan recovers the per-door (x,z[,face]) placements a SYNTH fork would collapse.
+    from ff9mapkit import extract
+    a100 = eventscan.scan_player_arrivals(extract.extract_event_script("fbg_n01_alxt_map016_at_msa_0"))
+    assert a100["reads_entrance"] and a100["distinct"] >= 3            # several distinct door arrivals
+    assert all(isinstance(x, int) and isinstance(z, int) for x, z, _f in a100["arrivals"])
+    a354 = eventscan.scan_player_arrivals(extract.extract_event_script("fbg_n06_vgdl_map103_dl_shp_0"))
+    assert a354["distinct"] == 2                                       # two distinct shop arrival points
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
