@@ -26,6 +26,9 @@ dev = ["pytest>=7", "pytest-xdist>=3"]
 # `ff9mapkit save-edit` (the RECREATE verb) reads/writes FF9's AES-encrypted save; pycryptodome is
 # imported lazily, so it's only needed for that command (and the save tests skip without it).
 save = ["pycryptodome>=3.10"]
+# The modern PySide6 Workspace shell (apps/ff9_workspace.pyw, Phase 3 of the GUI makeover). Optional --
+# the tkinter apps/*.pyw suite is stdlib-only and unaffected; only the Qt shell needs this.
+gui = ["PySide6>=6.5"]
 
 [project.urls]
 Homepage = "https://github.com/"          # filled in when published

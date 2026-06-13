@@ -23,6 +23,7 @@ import tkinter as tk                                   # noqa: E402
 from tkinter import ttk                                # noqa: E402
 
 TOOLS = [
+    ("Workspace (new)", "ff9_workspace.pyw", "The modern PySide6 shell (Phase 3): ONE window -- journey > campaign > field > object tree, breadcrumb, inspector, Problems/Output dock. Needs PySide6."),
     ("Campaign Editor", "campaign_editor.pyw", "All-in-one: Logic Editor + Info Hub + Build & Deploy in one tabbed window."),
     ("FFIX Import", "ff9_import.pyw", "Bring content in from the real game: fork a field (Native art, carry NPCs/dialogue/save), read dialogue, inspect a save."),
     ("Build & Deploy", "ff9_build_gui.pyw", "Compile a field.toml and deploy it to the test slot or the game."),
