@@ -32,6 +32,7 @@ from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import pick_palette
 from .forms_qt import build_form, pick_catalog, read
 from .mapview import CampaignMap
+from .savedoc import StoryStateDoc
 from .style import qss
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
@@ -155,6 +156,9 @@ class Workspace(QMainWindow):
         act_open_field = QAction("Open Field…", self)
         act_open_field.triggered.connect(self.on_open_field)
         tb.addAction(act_open_field)
+        act_open_save = QAction("Open Save…", self)
+        act_open_save.triggered.connect(self._open_save)
+        tb.addAction(act_open_save)
         self.act_check = QAction("Check", self)
         self.act_check.triggered.connect(self.on_check)
         self.act_check.setEnabled(False)
@@ -207,6 +211,8 @@ class Workspace(QMainWindow):
         self._doc_placeholder("Select a field or an object on the left to edit it.")
         self.map = CampaignMap(self.pal, on_open=self._select_member)   # the campaign graph as a document
         self.tabs.addTab(self.map, "Map")
+        self.story_state = StoryStateDoc(self.pal)                       # the save STATE layer (5b)
+        self.tabs.addTab(self.story_state, "Story State")
         split.addWidget(self.tabs)
 
         insp = QWidget()
@@ -288,6 +294,11 @@ class Workspace(QMainWindow):
                                            "Field (*.field.toml);;TOML (*.toml);;All files (*)")
         if f:
             self.open_field(Path(f))
+
+    def _open_save(self):
+        """Open the save STATE editor (gEventGlobal story state) -- a cross-cutting document, not a field."""
+        self.tabs.setCurrentWidget(self.story_state)
+        self.story_state.browse()
 
     def open_field(self, path) -> bool:
         """Open a STANDALONE field.toml (no campaign) -- the 'Loose field' mode, so any authored field
@@ -1127,9 +1138,24 @@ def _smoke(win):
     win._open_editor("AUTHORED", "object", "choice:0")     # choice sub-editor over a loose field
     win.on_check()                                          # loose validate+lint runs (no campaign, no crash)
 
+    # 5b-i: the Story State save document inspects a crypto-free JSON save (gEventGlobal)
+    import base64 as _b64
+    import json as _json
+    g = bytearray(2048)
+    g[0], g[1] = 2500 & 0xFF, 2500 >> 8
+    g[8520 >> 3] |= 1 << (8520 & 7)
+    sj = d / "save.json"
+    sj.write_text(_json.dumps({"profile": {"gEventGlobal": _b64.b64encode(bytes(g)).decode()}}), encoding="utf-8")
+    assert win.story_state.load(str(sj))
+    assert win.story_state.reports and win.story_state.reports[0][1].scenario_counter == 2500
+    win.story_state.slots.setCurrentRow(0)
+    win.story_state._on_slot()
+    assert "Ice Cavern" in win.story_state.inspect.toPlainText(), "Inspect renders the beat name"
+
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
-          f"catalog picker + Open Field (standalone authored), Problems dock ({nprob} campaign rows); QProcess wired")
+          f"catalog picker + Open Field (standalone authored) + Story State save doc (SC "
+          f"{win.story_state.reports[0][1].scenario_counter}), Problems dock ({nprob} campaign rows); QProcess wired")
 
 
 def main(argv=None):
