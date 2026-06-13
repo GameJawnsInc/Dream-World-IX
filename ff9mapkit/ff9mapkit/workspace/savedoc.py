@@ -132,7 +132,7 @@ class StoryStateDoc(QWidget):
         if f:
             self.load(f)
 
-    def load(self, path) -> bool:
+    def load(self, path, select=0) -> bool:
         try:
             self.reports = _save.inspect(path)
         except Exception as e:                            # noqa: BLE001
@@ -154,7 +154,7 @@ class StoryStateDoc(QWidget):
         self.status.setText(f"{len(self.reports)} populated save(s){ro}")
         self._refresh_b_slots()
         if self.reports:
-            self.slots.setCurrentRow(0)
+            self.slots.setCurrentRow(select if 0 <= select < len(self.reports) else 0)
         return True
 
     @staticmethod
@@ -287,4 +287,4 @@ class StoryStateDoc(QWidget):
         msg.append("\nReload the save in-game to see it.")
         self.edit_txt.setPlainText("\n".join(msg))
         self.status.setText("save edited (backup written) — reload it in-game")
-        self.load(self.path)                              # refresh against the just-written save
+        self.load(self.path, select=self.slots.currentRow())   # refresh, KEEPING the edited slot selected
