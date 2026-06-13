@@ -5,7 +5,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — save-item editor: vanilla key items (main-block `rareItems`) + the GUI key-item control (0.9.66)
+### Added — save-item editor: vanilla key items (main-block `rareItems`) + the GUI key-item control, IN-GAME PROVEN (0.9.66)
 - Completes key items: a **vanilla (no-extra) save's key items** are now editable, and the **GUI** gains a
   Key-items give/remove control — so the #5 editor covers **every data type on every save kind**.
 - ★ **Layout finding (empirical):** the old-format main block holds key items in a **64-byte `rareItems`
@@ -19,6 +19,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (main `rareItems` + extra `rareItemsEx`); CLI `items-set-keyitem` on a container dual-writes; `render_keyitem_dual`.
 - **GUI** (`apps/ff9_items.pyw`): a "Key items" section (name → Preview / Give / Remove), dual-write on a
   container (handles vanilla), extra-only on an extra-save. 8 new tests.
+- ★ **IN-GAME PROVEN (2026-06-12):** gave Falcon Claw to the VANILLA slot 1/save 1's main block → loaded → it
+  shows in the Key Items menu (16 → 17), gil/equipment intact. **The #5 save-item editor is now 100% complete** —
+  every data type (gil, items, equipment, key items) on every save kind (Memoria + vanilla), via CLI and GUI.
 
 ### Added — battle-tuning Phase 6b: same-length enemy-AI constant patches (`[[scene.ai_patch]]`) (0.9.64)
 - **`battle/aipatch.py`** — the first AI *authoring* step (read = Phase-6a `battle-ai`). An enemy's AI is the
