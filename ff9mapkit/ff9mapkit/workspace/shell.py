@@ -11,6 +11,7 @@ Launch:  ``py apps/ff9_workspace.pyw``  (or ``py -m ff9mapkit.workspace.shell``)
 
 from __future__ import annotations
 
+import copy
 import os
 import sys
 from pathlib import Path
@@ -19,8 +20,8 @@ from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTabWidget,
-    QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
+    QTabWidget, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .. import campaign as C
@@ -132,6 +133,7 @@ class Workspace(QMainWindow):
         self.journey_name = None
         self._loose = None                         # the open standalone field's name (loose mode), else None
         self._docs = {}                            # member name -> loaded FieldDoc (cached, edited in place)
+        self._clean = {}                           # member name -> deepcopy(doc.data) at load/last-save (dirty baseline)
         self._save_ctx = None                      # {member, key, spec, getters, single|kind, idx} for Save
         self.setWindowTitle("FF9 Map Kit — Workspace")
         self.resize(1280, 820)
@@ -286,6 +288,8 @@ class Workspace(QMainWindow):
     def open_field(self, path) -> bool:
         """Open a STANDALONE field.toml (no campaign) -- the 'Loose field' mode, so any authored field
         can be edited directly. Mirrors the tkinter editor opening a lone file."""
+        if not self._maybe_prompt_unsaved():
+            return False
         path = Path(path)
         try:
             doc = FieldDoc.load(path)
@@ -299,6 +303,7 @@ class Workspace(QMainWindow):
         self._loose = name
         self.member_paths = {name: path.resolve()}
         self._docs = {name: doc}
+        self._clean = {name: copy.deepcopy(doc.data)}
         self.act_check.setEnabled(True)
         self.act_lint_cli.setEnabled(False)       # lint-campaign is campaign-only
         self._populate_field(name)
@@ -316,6 +321,8 @@ class Workspace(QMainWindow):
         mi.setExpanded(True)
 
     def open_campaign(self, path) -> bool:
+        if not self._maybe_prompt_unsaved():
+            return False
         path = Path(path)
         try:
             plan = C.load_campaign(path)
@@ -328,6 +335,7 @@ class Workspace(QMainWindow):
         self.member_paths = {m.name: (path.parent / m.toml_rel).resolve() for m in plan.members}
         self.journey_name = self._journey_label()
         self._docs = {}
+        self._clean = {}
         self.act_check.setEnabled(True)
         self.act_lint_cli.setEnabled(True)
         self._populate()
@@ -396,7 +404,17 @@ class Workspace(QMainWindow):
         """The member's FieldDoc, loaded once and cached (the form edits this instance + saves it)."""
         if member not in self._docs:
             self._docs[member] = FieldDoc.load(self.member_paths[member])
+            self._clean[member] = copy.deepcopy(self._docs[member].data)   # dirty baseline
         return self._docs[member]
+
+    def _mark_clean(self, member):
+        """Snapshot a member's doc as the saved baseline (so _dirty_members no longer flags it)."""
+        if member in self._docs:
+            self._clean[member] = copy.deepcopy(self._docs[member].data)
+
+    def _dirty_members(self):
+        """Cached members whose in-memory doc differs from its load/last-save baseline."""
+        return [m for m in self._docs if self._docs[m].data != self._clean.get(m)]
 
     def _load_objects(self, member_item):
         name = self._payload(member_item)[1]
@@ -564,6 +582,7 @@ class Workspace(QMainWindow):
         except Exception as e:                     # noqa: BLE001
             self._show_problems(fb.Verdict(fb.ERROR, "Save failed"), [fb.Problem(fb.ERROR, str(e))])
             return False
+        self._mark_clean(member)
         self._show_problems(fb.Verdict(fb.OK, f"Saved {member} · {key or section}",
                                        f"wrote {self.member_paths[member].name}"), [])
         if not single and "name" in entity:        # a renamed list entity -> refresh its tree row
@@ -619,7 +638,46 @@ class Workspace(QMainWindow):
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't save before Check"),
                                 [fb.Problem(fb.ERROR, str(e))])
             return False
+        self._mark_clean(member)
         return True
+
+    def _maybe_prompt_unsaved(self) -> bool:
+        """Before a file switch / window close: fold the active form in, and if any cached field has
+        unsaved edits, offer Save / Discard / Cancel. Returns False ONLY on Cancel (caller aborts).
+        Headless/offscreen never blocks (returns True)."""
+        self._commit_active()                      # the in-progress form's edits count toward dirty
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return True
+        dirty = self._dirty_members()
+        if not dirty:
+            return True
+        box = QMessageBox(self)
+        box.setWindowTitle("Unsaved changes")
+        box.setText(f"{len(dirty)} field(s) have unsaved changes: {', '.join(dirty)}.")
+        box.setInformativeText("Save them before continuing?")
+        box.setStandardButtons(QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
+                               | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Save)
+        choice = box.exec()
+        if choice == QMessageBox.StandardButton.Cancel:
+            return False
+        if choice == QMessageBox.StandardButton.Save:
+            for m in dirty:
+                path = self.member_paths.get(m)
+                if path is None or protected_reason(path):
+                    continue
+                try:
+                    self._docs[m].save()
+                    self._mark_clean(m)
+                except Exception:                  # noqa: BLE001 -- best-effort; a protected/locked file
+                    pass
+        return True
+
+    def closeEvent(self, event):                   # noqa: N802 (Qt override)
+        if self._maybe_prompt_unsaved():
+            event.accept()
+        else:
+            event.ignore()
 
     # ---- cutscene + choice sub-editors (Phase 4b) ----
     def _list_buttons(self, pairs):
@@ -1036,6 +1094,12 @@ def _smoke(win):
     win.tree.expandItem(lf)
     lgroups = [win._payload(lf.child(i))[1] for i in range(lf.childCount())]
     assert "Cutscene" in lgroups and any(g.startswith("Choices") for g in lgroups), lgroups
+    # L1: dirty tracking -- a fresh open is clean; an in-memory edit is detected; baseline clears it
+    assert win._dirty_members() == []
+    win._doc("AUTHORED").data.setdefault("field", {})["title"] = "Dirty!"
+    assert win._dirty_members() == ["AUTHORED"]
+    win._mark_clean("AUTHORED")
+    assert win._dirty_members() == []
     win._open_editor("AUTHORED", "object", "cutscene")     # cutscene sub-editor over a loose field
     win._open_editor("AUTHORED", "object", "choice:0")     # choice sub-editor over a loose field
     win.on_check()                                          # loose validate+lint runs (no campaign, no crash)
