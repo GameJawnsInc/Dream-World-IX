@@ -124,10 +124,10 @@ def test_hub_example_builds_with_moogle_pc_and_journey_warps(tmp_path):
         pe = npc._find_player_entry(eb)
         f0, _b, loc = npc._func0_locations(eb, eb.entry(pe))
         assert int.from_bytes(ebb[f0.abs_start + loc["model"]:f0.abs_start + loc["model"] + 2], "little") == 220
-        # the narrator menu warps to both journeys
+        # the narrator menu warps to both REAL journey destinations (Dali 4100 verbatim, Ice Cavern 30100)
         warps = sorted({i.imm(0) for e in eb.entries if not e.empty and e.func_by_tag(3)
                         for i in eb.instrs(e.func_by_tag(3)) if i.op == 0x2B and i.imm(0) is not None})
-        assert warps == [4501, 4502]
+        assert warps == [4100, 30100]
     finally:
         if cleanup and src.exists():
             src.unlink()

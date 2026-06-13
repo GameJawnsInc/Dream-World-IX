@@ -3,9 +3,20 @@
 #
 #  `ff9mapkit gen-hub journeys.toml` emits a hub.field.toml (the journey-selector
 #  field) from this small registry: per journey just {title, entry field id, seed}.
-#  The emitted hub is logically identical to the hand-authored hub.field.toml in
-#  this folder (the in-game-proven MVP) -- this is the "hardcoded MVP -> generator"
-#  step. Build/deploy the emitted field.toml like any field. (memory: project-ff9-world-hub)
+#  Build/deploy the emitted field.toml like any field. (memory: project-ff9-world-hub)
+#
+#  REAL DESTINATIONS (2026-06-13): the journeys below warp into REAL forked slices
+#  already deployed in stacked mod folders -- NOT the trivial scaffold stubs (4501/4502).
+#  The hub stays THIN: it only needs each journey's {entry id, optional seed}; HOW a
+#  journey plays internally is the slice's own business (its own .eb/.mes/walkmesh).
+#    * Dali       -> field 4100  -- a VERBATIM (native) fork: the REAL Dali story, real
+#                    lines, real party-setup. story_flags' DALI_CAPSTONE chain, in
+#                    FF9CustomMap-sf (source field 359). The faithful flagship.
+#    * Ice Cavern -> field 30100 -- an EDITABLE import-chain fork: the real Ice Cavern
+#                    geometry/camera to explore (re-authorable scaffold logic).
+#                    overworld's ICE_CAVERN chain, in FF9CustomMap-ow (source field 300).
+#  Both ids are already registered in the live `Memoria.ini` FolderNames, so picking a
+#  journey `Field()`-warps straight into it -- only the HUB (4500) is (re)deployed.
 # ============================================================================
 
 [hub]
@@ -27,12 +38,12 @@ narrator_model = 212                 # Stiltzkin's ACTUAL rig (GEO_NPC_F3_MOG) -
 narrator_pos   = [480, 127]
 
 [[journey]]
-name  = "black_mage_village"
-title = "The Black Mage Village"
-entry = 4501                         # -> journey_one
-set_scenario = 2600                  # demo: assert a beat before warping (optional)
+name  = "dali"
+title = "The Village of Dali"
+entry = 4100                         # DC_DL_ENT -- VERBATIM Dali entrance (FF9CustomMap-sf; real story + lines)
+set_scenario = 2600                  # "Waking up in Dali" -- the beat the verbatim logic expects (its own [startup])
 
 [[journey]]
-name  = "treno"
-title = "Treno, City of Nobles"
-entry = 4502                         # -> journey_two
+name  = "ice_cavern"
+title = "The Ice Cavern"
+entry = 30100                        # IC_ENT -- EDITABLE Ice Cavern chain entry (FF9CustomMap-ow; real geometry)

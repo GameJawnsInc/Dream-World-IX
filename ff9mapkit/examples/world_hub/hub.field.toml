@@ -33,13 +33,13 @@ prompt = "Kupo! Which journey will you take?"
 cancel = 2                  # B / cancel -> the last row (no warp)
 
 [[choice.options]]
-text = "The Black Mage Village"
-warp = 4501
+text = "The Village of Dali"
+warp = 4100
 set_scenario = 2600
 
 [[choice.options]]
-text = "Treno, City of Nobles"
-warp = 4502
+text = "The Ice Cavern"
+warp = 30100
 
 [[choice.options]]
 text = "Stay here, kupo..."   # no warp -- closes the menu

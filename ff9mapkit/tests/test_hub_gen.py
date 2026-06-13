@@ -50,9 +50,12 @@ def test_load_journeys_parses_the_example_registry():
     assert spec.name == "WORLD_HUB" and spec.id == 4500 and spec.area == 21
     assert spec.borrow_bg == "GRGR_MAP420_GR_CEN_0" and spec.text_block == 8
     assert spec.player_model == 220 and spec.narrator == "Stiltzkin"
+    # The example points at REAL forked slices already deployed in stacked folders (not stubs):
+    # Dali = a VERBATIM chain entry (4100, FF9CustomMap-sf) seeded to its "waking up" beat; Ice Cavern
+    # = an EDITABLE import-chain entry (30100, FF9CustomMap-ow). The hub stays thin -- {entry id, seed}.
     assert [(j.name, j.title, j.entry, j.set_scenario) for j in spec.journeys] == [
-        ("black_mage_village", "The Black Mage Village", 4501, 2600),
-        ("treno", "Treno, City of Nobles", 4502, None)]
+        ("dali", "The Village of Dali", 4100, 2600),
+        ("ice_cavern", "The Ice Cavern", 30100, None)]
 
 
 def test_load_missing_hub_table_or_keys_raises(tmp_path):
