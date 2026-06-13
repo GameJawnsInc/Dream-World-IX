@@ -355,12 +355,17 @@ class ItemEquipDoc(QWidget):
 
     def _build_edit(self):
         from PySide6.QtWidgets import QScrollArea
-        page = QWidget()
-        lay = QVBoxLayout(page)
+        outer = QWidget()
+        ov = QVBoxLayout(outer)
         self.edit_target = QLabel("(no save selected)")
         self.edit_target.setWordWrap(True)
         self.edit_target.setStyleSheet(f"color:{self.pal['muted']};")
-        lay.addWidget(self.edit_target)
+        ov.addWidget(self.edit_target)
+        # Only the edit SECTIONS scroll; the console (edit_txt) is pinned BELOW so Preview/Apply feedback
+        # is always visible even on a short window (the bug: a single scroll hid the console off-screen).
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(0, 0, 0, 0)
 
         self.gil_var = QLineEdit()
         self.gil_var.setFixedWidth(120)
@@ -406,13 +411,16 @@ class ItemEquipDoc(QWidget):
                        ("Give", lambda: self._edit_keyitem(True, True)),
                        ("Remove", lambda: self._edit_keyitem(True, False))])
 
-        self.edit_txt = QPlainTextEdit()
-        self.edit_txt.setReadOnly(True)
-        lay.addWidget(self.edit_txt, 1)
+        lay.addStretch(1)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(page)
-        return scroll
+        ov.addWidget(scroll, 1)                            # the middle (sections) takes the stretch + scrolls
+        self.edit_txt = QPlainTextEdit()
+        self.edit_txt.setReadOnly(True)
+        self.edit_txt.setMinimumHeight(120)               # console pinned below the scroll -- always visible
+        ov.addWidget(self.edit_txt)
+        return outer
 
     # ---- loading ----
     def browse(self):
