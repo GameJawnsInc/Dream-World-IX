@@ -57,6 +57,10 @@ DEFAULT_PROMPT = "Kupo! Which journey will you take?"
 DEFAULT_STAY = "Stay here, kupo..."
 DEFAULT_NARRATOR = "Stiltzkin"
 DEFAULT_CAMERA = "camera_hub.bgx"
+# Hold the screen black this many frames before the reveal fade so the engine's smooth-camera follower
+# settles UNSEEN (else warping into the hub visibly eases the camera to rest -- the borrowed room's camera
+# vs the warp-in delta). ~1.5s @ 30fps; engine-independent. Tune/disable (0) via [hub] entry_settle.
+DEFAULT_ENTRY_SETTLE = 45
 DEFAULT_TEXT_BLOCK = 1073
 SHADOWED_TEXT_BLOCK = 1073       # the block the higher-priority FF9CustomMap folder defines (shadows yours)
 PAGING_SOFT_MAX = 8              # journeys + the stay row beyond ~this need menu scrolling -- verify in-game
@@ -88,6 +92,7 @@ class HubSpec:
     borrow_bg: str = ""
     borrow_field: "int | None" = None       # the real field id whose camera `gen-hub --extract-camera` pulls
     camera: str = DEFAULT_CAMERA
+    entry_settle: int = DEFAULT_ENTRY_SETTLE      # frames the hub holds black on entry so the camera settles
     text_block: int = DEFAULT_TEXT_BLOCK
     prompt: str = DEFAULT_PROMPT
     stay_text: str = DEFAULT_STAY
@@ -145,6 +150,7 @@ def load_journeys(path) -> HubSpec:
         borrow_bg=str(h.get("borrow_bg", "")),
         borrow_field=int(h["borrow_field"]) if h.get("borrow_field") is not None else None,
         camera=str(h.get("camera", DEFAULT_CAMERA)),
+        entry_settle=int(h.get("entry_settle", DEFAULT_ENTRY_SETTLE)),
         text_block=int(h.get("text_block", DEFAULT_TEXT_BLOCK)),
         prompt=str(h.get("prompt", DEFAULT_PROMPT)),
         stay_text=str(h.get("stay_text", DEFAULT_STAY)),
@@ -254,6 +260,8 @@ def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
         "",
         "[camera]",
         f'borrow = "{_q(spec.camera)}"   # the borrowed room\'s camera (gitignored; extract from your install)',
+        *([f"entry_settle = {spec.entry_settle}   # hold black on entry so the camera settles unseen "
+           f"(no warp-in ease); 0 = off"] if spec.entry_settle else []),
         "",
         "[player]",
         f"spawn = [{spawn[0]}, {spawn[1]}]",

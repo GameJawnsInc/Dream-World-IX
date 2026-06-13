@@ -34,6 +34,10 @@ optional seed}`; HOW a journey plays internally is the fork's own business.
   `Field()`s into that journey — grounded in real FF9 talk-handler warps (the Dali innkeeper, the airship).
 - **One-way** — to switch journeys, start a New Game, which lands you back on the hub (the field-70
   New-Game override now points at 4500 — `tools/retarget_newgame_warp.py 4500`, seamless, no FMV).
+- **Entry camera-settle** — `[camera] entry_settle = 45` (the generator emits it) holds the screen black for
+  ~1.5s on entry so the engine's smooth-camera follower settles *unseen*, then reveals the settled camera —
+  otherwise a warp-in into a borrowed room visibly eases the camera to rest (Memoria's `CameraStabilizer`
+  lerp). Engine-independent; tune the frame count or set `0` to disable.
 
 ## Setup (provenance: you supply the game bytes)
 

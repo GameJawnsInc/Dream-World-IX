@@ -15,6 +15,7 @@ text_block = 8   # a real MesDB id NOT shadowed by a higher mod folder
 
 [camera]
 borrow = "camera_hub.bgx"   # the borrowed room's camera (gitignored; extract from your install)
+entry_settle = 45   # hold black on entry so the camera settles unseen (no warp-in ease); 0 = off
 
 [player]
 spawn = [404, 127]

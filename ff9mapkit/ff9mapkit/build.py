@@ -41,6 +41,7 @@ from .content import prop as _prop
 from .content import region as _region
 from .content import party as _party
 from .content import reinit as _reinit
+from .content import entry_settle as _entry_settle
 from .content import savepoint as _savepoint
 from .content import shop as _shop
 from .content import startup as _startup
@@ -2461,6 +2462,16 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # synthesized field's player (no-op if absent; animation is untouched -- only the offending sound op is
     # NOP'd). See content.npc.neutralize_player_audio_cruft.
     eb = _npc.neutralize_player_audio_cruft(eb)
+
+    # Entry camera-settle (opt-in): hold the screen black for N frames before Main_Init's reveal fade so the
+    # engine's per-frame smooth-camera follower (FieldMap.CenterCameraOnPlayer, scaled by Memoria.ini
+    # CameraStabilizer) converges UNSEEN -- else a large-delta warp-in (e.g. the World Hub via a New-Game/F6
+    # warp) visibly eases the camera to rest over a few seconds. Engine-independent (no DLL). [camera]
+    # entry_settle = <frames>; absent/0 = off (byte-identical). See content.entry_settle.
+    _cam = project.raw.get("camera")           # a single [camera] table; [[camera]] multicam is a list (skip)
+    _settle = _cam.get("entry_settle") if isinstance(_cam, dict) else None
+    if _settle:
+        eb = _entry_settle.add_entry_settle(eb, int(_settle))
 
     # encounter (+ the after-battle reinit it requires)
     if has_encounter:
