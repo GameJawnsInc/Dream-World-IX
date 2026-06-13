@@ -58,7 +58,15 @@ RATE_CAP = 100            # a weapon's status-infliction Rate is a 0-100 percent
                           # the on-hit status, applied from add_status[StatusIndex] -- SBattleCalculator.cs:188).
 STATUS_INDEX_CAP = 65535  # StatusIndex references a StatusSets.csv row; the REAL membership check is install-gated
                           # in build.validate (an over-range id is a KeyNotFound crash, like the Phase-4 trap).
+EFFECT_POWER_CAP = 9999   # a use-effect's Power = the heal/damage magnitude (the in-game HP cap)
 _ELEM_BY_NAME = {name.lower(): bit for bit, name in _itemstats.ELEMENTS}   # "fire" -> 1, ...
+_STATUS_BY_NAME = {name.lower(): bit for bit, name in _itemstats.STATUSES}  # "poison" -> 1<<16, ...
+# [[item_effect]] -> the ItemEffect (ItemEffects.csv) row of a USABLE item (located via its EffectId). The gameplay
+# knobs the kit tunes (ScriptId/AnimationId/Targets stay -- they ARE the effect's behavior/VFX): power = heal/damage
+# magnitude; rate = status chance; element; status (the BattleStatus mask inflicted OR cured -- the DIRECTION is the
+# effect's ScriptId, which we don't touch); for_dead = usable on a KO'd target (Phoenix-Down style).
+_EFFECT_INT_COLS = {"power": "Power", "rate": "Rate"}
+EFFECT_KEYS = ("power", "rate", "element", "status", "for_dead")
 
 
 def _norm(s) -> str:
@@ -155,6 +163,30 @@ def encode_characters(names) -> list:
         if c not in out:
             out.append(c)
     return out
+
+
+def encode_statuses(names) -> int:
+    """A list of status names (Poison/Silence/Death/...) OR a non-negative int -> the ``BattleStatus`` mask
+    (``UInt64``). Raises ValueError on an unknown name / negative / wrong type. Whether a use-effect INFLICTS or
+    CURES the masked statuses is the effect's ``ScriptId`` (which the kit doesn't touch), so this only sets WHICH
+    statuses the effect concerns."""
+    if isinstance(names, bool):
+        raise ValueError("status must be a list of status names or a non-negative bitmask, not a bool")
+    if isinstance(names, int):
+        if not 0 <= names < 2 ** 64:                      # Status is a UInt64 -> a >2^64-1 mask OverflowExceptions
+            raise ValueError(f"status bitmask {names} out of range 0..2**64-1 (a UInt64)")   # + HARD-QUITs at load
+        return names
+    if names is None:
+        return 0
+    if not isinstance(names, (list, tuple)):
+        raise ValueError(f"status must be a list of status names (or a bitmask int), got {names!r}")
+    mask = 0
+    for n in names:
+        bit = _STATUS_BY_NAME.get(str(n).strip().lower())
+        if bit is None:
+            raise ValueError(f"unknown status {n!r} (one of {', '.join(nm for _, nm in _itemstats.STATUSES)})")
+        mask |= bit
+    return mask
 
 
 def _clamp_int(value, lo, hi, what) -> int:
@@ -485,6 +517,70 @@ def build_equip_bonus_delta(items_text: str, stats_text: str, equip_bonuses):
             repoints)
 
 
+# --- consumable use-effects (ItemEffects.csv / ItemEffect) ----------------------------------------
+
+def _effect_edits(block, ecols) -> dict:
+    """{ItemEffects.csv column index: new cell value} for an ``[[item_effect]]`` block. ``power``/``rate`` clamped
+    ints; ``element`` via :func:`encode_elements` (a Byte); ``status`` via :func:`encode_statuses` (the BattleStatus
+    mask); ``for_dead`` -> the ``Dead`` bit (0/1)."""
+    edits = {}
+    for key, csv_col in _EFFECT_INT_COLS.items():
+        if key in block:
+            idx = ecols.get(csv_col)
+            if idx is None:
+                raise ValueError(f"this install's ItemEffects.csv has no {csv_col!r} column")
+            cap = EFFECT_POWER_CAP if key == "power" else RATE_CAP
+            edits[idx] = _clamp_int(block[key], 0, cap, key)
+    for key, csv_col, enc in (("element", "Element", encode_elements), ("status", "Status", encode_statuses)):
+        if key in block:
+            idx = ecols.get(csv_col)
+            if idx is None:
+                raise ValueError(f"this install's ItemEffects.csv has no {csv_col!r} column")
+            edits[idx] = enc(block[key])
+    if "for_dead" in block:
+        idx = ecols.get("Dead")
+        if idx is None:
+            raise ValueError("this install's ItemEffects.csv has no 'Dead' column")
+        edits[idx] = 1 if block["for_dead"] else 0
+    return edits
+
+
+def build_item_effects_delta(items_text: str, effects_text: str, item_effects) -> "str | None":
+    """A partial ``ItemEffects.csv`` text from ``[[item_effect]]`` blocks (or ``None`` if none patch). Each block:
+    ``name`` (a USABLE item) + any of ``power`` / ``rate`` / ``element`` / ``status`` / ``for_dead``. The item's
+    ``EffectId`` (from ``Items.csv``) locates its ItemEffect row, which is edited IN PLACE -- ``EffectId`` is 1:1
+    with a usable item (no shared ``Empty`` row, unlike ``BonusId``), so an in-place edit never leaks onto another
+    item. Whole-row merge by id (``ff9item.LoadItemEffects``), so the delta carries the base header (incl.
+    ``#! IncludeId``) verbatim + only the patched rows."""
+    _ih, icols, _iid, irows = read_base_csv(items_text)
+    eheader, ecols, _eidc, erows = read_base_csv(effects_text)
+    ecol = icols.get("EffectId")
+    if ecol is None:
+        raise ValueError("this install's Items.csv has no EffectId column (can't tune use-effects)")
+    patched: dict = {}
+    for b in item_effects:
+        iid = _items.resolve(b["name"])
+        irow = irows.get(iid)
+        if irow is None:
+            raise ValueError(f"no Items.csv row for item id {iid} ({b['name']})")
+        try:
+            eid = int(irow.split(";")[ecol].strip())
+        except (ValueError, IndexError):
+            eid = -1
+        if eid < 0:
+            raise ValueError(f"{_items.name_of(iid) or iid} has no use-effect (EffectId < 0 -- not a usable item)")
+        base = patched.get(eid, erows.get(eid))
+        if base is None:
+            raise ValueError(f"no ItemEffects.csv row for EffectId {eid} ({b['name']})")
+        for idx, val in _effect_edits(b, ecols).items():
+            base = _set_col(base, idx, val)
+        patched[eid] = base
+    if not patched:
+        return None
+    return _emit(eheader, patched,
+                 "# ff9mapkit [[item_effect]] -- ItemEffects.csv delta (merged by id, whole-row, over the base)")
+
+
 # --- write into the mod (reads the install's base CSVs) -------------------------------------------
 
 def _base_dir(game=None):
@@ -506,20 +602,20 @@ def _read_text(path) -> str:
     return raw.decode(CSV_ENCODING, errors="replace")
 
 
-def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), *, game=None) -> None:
-    """Emit the ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` / ``[[equip_bonus]]`` deltas into ``layout``'s mod
-    root. Reads the base rows from the install (raises a clear ValueError if it isn't reachable -- the deltas need
-    the base columns). An ``[[equip_bonus]]`` mint repoints an item's BonusId, so its Items.csv repoints merge into
-    the same Items.csv delta as any ``[[item]]`` price edits."""
-    if not (weapons or armors or items or equip_bonuses):
+def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), item_effects=(), *, game=None) -> None:
+    """Emit the ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` / ``[[equip_bonus]]`` / ``[[item_effect]]`` deltas into
+    ``layout``'s mod root. Reads the base rows from the install (raises a clear ValueError if it isn't reachable --
+    the deltas need the base columns). An ``[[equip_bonus]]`` mint repoints an item's BonusId, so its Items.csv
+    repoints merge into the same Items.csv delta as any ``[[item]]`` price edits."""
+    if not (weapons or armors or items or equip_bonuses or item_effects):
         return
     from ..config import ConfigError                       # a RuntimeError (no resolvable install), NOT OSError --
     try:                                                  # catch it too so build.py's `except ValueError` warns+skips
         d = _base_dir(game)
         items_text = _read_text(d / "Items.csv")
     except (OSError, ConfigError) as e:
-        raise ValueError("item-data patches ([[weapon]]/[[armor]]/[[item]]/[[equip_bonus]]) need your FF9 install "
-                         f"to read the base Items.csv columns: {e}") from e
+        raise ValueError("item-data patches ([[weapon]]/[[armor]]/[[item]]/[[equip_bonus]]/[[item_effect]]) need "
+                         f"your FF9 install to read the base Items.csv columns: {e}") from e
     repoints: dict = {}
     stats_delta = None
     if equip_bonuses:
@@ -538,6 +634,9 @@ def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), *
         plan.append((layout.items_csv, build_items_delta(items_text, items, bonusid_repoints=repoints)))
     if stats_delta is not None:
         plan.append((layout.stats_csv, stats_delta))
+    if item_effects:
+        plan.append((layout.item_effects_csv,
+                     build_item_effects_delta(items_text, _read_text(d / "ItemEffects.csv"), item_effects)))
     for path, text in plan:
         if text is None:
             continue

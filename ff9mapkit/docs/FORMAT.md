@@ -757,9 +757,17 @@ weak_element = ["Ice"]      # take extra damage from element(s)             │ 
 absorb_element = []         # absorb (heal from) element(s)                 │ 0-255 bitmask; set only
 half_element = []           # take half damage from element(s)             │ the ones you want
 guard_element = []          # nullify (immune to) element(s)               ─┘
+
+[[item_effect]]
+name = "Potion"             # any item with a use-effect (a consumable -- or a Tent / gem that has one)
+power = 300                 # the heal/damage magnitude (0-9999)
+rate = 100                  # status chance (0-100), where the effect rolls one
+element = []                # the effect's element (name list or a 0-255 bitmask)
+status = ["Poison"]         # the BattleStatus mask it concerns -- INFLICT or CURE follows the item's behaviour
+for_dead = false            # usable on a KO'd target (Phoenix-Down style)
 ```
 
-- **How it works:** each block emits a **partial CSV delta** into the mod (`Data/Items/{Weapons,Armors,Items,Stats}.csv`).
+- **How it works:** each block emits a **partial CSV delta** into the mod (`Data/Items/{Weapons,Armors,Items,Stats,ItemEffects}.csv`).
   The engine **merges** these by id, **whole-row-wins** — so the kit reads the base row from **your install**, changes
   the one field, and writes the complete row back. **Needs a reachable FF9 install at build time** (it reads the base
   columns); without one the patch is skipped with a warning.
@@ -801,13 +809,21 @@ guard_element = []          # nullify (immune to) element(s)               ─�
     no single wearer.
   - A few display names are ambiguous (currently only **"Auto-Life"**, which is both `AA:100` and `SA:4` and
     resolves to the support form); use the explicit `AA:`/`SA:` token to pick a specific one.
-- **Values are clamped** to their range (stats 0-255, price 0-9,999,999, rate 0-100). An unknown item name, the wrong
-  type (`[[weapon]]` on a non-weapon, `[[equip_bonus]]` on a non-equippable), a bad element/category/character/ability
-  name, or an out-of-range `status_index` is a **lint error** (`ff9mapkit lint`).
+- **`[[item_effect]]` — a usable item's use-effect:** tune what a **consumable** does (`ItemEffects.csv`): `power`
+  (heal/damage, 0-9999), `rate` (status chance, 0-100), `element`, `status` (a `BattleStatus` mask by name —
+  `["Poison", "Silence"]`), `for_dead` (usable on a KO'd target). The item is located by its `EffectId`, which is
+  **1:1** with a usable item (no shared `Empty` row — edited in place). The effect's **behaviour** (`ScriptId`, the
+  VFX, the target type) is left untouched, so `status` sets *which* statuses the effect concerns — whether it
+  **inflicts or cures** them follows that existing behaviour. Any item with a use-effect is fair game (consumables,
+  Tents, effect-bearing gems); a plain weapon/armor (no `EffectId`) is a lint error.
+- **Values are clamped** to their range (stats 0-255, price 0-9,999,999, rate 0-100, effect power 0-9999). An unknown
+  item name, the wrong type (`[[weapon]]` on a non-weapon, `[[equip_bonus]]` on a non-equippable, `[[item_effect]]` on
+  a non-usable), a bad element/category/character/ability/status name, or an out-of-range `status_index` is a **lint
+  error** (`ff9mapkit lint`).
 - **★ RELAUNCH to apply:** item CSVs load once at game **startup** — F6 → Reload field will NOT pick up a stat
   change. Deploy, then relaunch.
-- **Deferred (a later follow-up):** consumable use-effects (`ItemEffects.csv` power/status), item name/description
-  text, and minting **net-new** item ids (>254, needs a DLL).
+- **Deferred (a later follow-up):** item name/description text (a per-language text-resource channel, not a CSV),
+  and minting **net-new** item ids (>254, needs a DLL).
 
 ---
 

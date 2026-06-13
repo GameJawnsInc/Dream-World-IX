@@ -246,6 +246,14 @@ class ModLayout:
         return self.root / "StreamingAssets" / "Data" / "Items" / "Stats.csv"
 
     @property
+    def item_effects_csv(self) -> Path:
+        """Consumable use-effects (``Data/Items/ItemEffects.csv`` = ItemEffect, keyed by EffectId). MERGED by id
+        low->high (whole-row replace, ff9item.LoadItemEffects) -> a partial delta works; EffectId is 1:1 with a
+        usable item (no shared Empty row), so a row is edited in place. Power/Rate/Element/Status/Dead are the
+        gameplay knobs; the ScriptId (the behaviour) stays."""
+        return self.root / "StreamingAssets" / "Data" / "Items" / "ItemEffects.csv"
+
+    @property
     def actions_csv(self) -> Path:
         """Shared player abilities (``Data/Battle/Actions.csv``). MERGED by id low->high (whole-row replace) ->
         a partial delta (only the abilities you change) works; the base supplies the other 192 rows."""

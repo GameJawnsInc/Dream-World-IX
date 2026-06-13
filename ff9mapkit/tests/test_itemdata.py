@@ -631,3 +631,109 @@ def test_validate_teaches_noop_on_consumable(tmp_path):
     # mirror equippable_by: teaches on a non-equippable item (Potion) is inert -> a best-effort lint warning
     probs = validate(_proj(BASE + '\n[[item]]\nname = "Potion"\nteaches = ["AA:104"]\n', tmp_path))
     assert any("teaches has no effect" in p for p in probs)
+
+
+# ==== [[item_effect]] -- tune a USABLE item's use-effect (ItemEffects.csv) =================================
+# Items.csv WITH an EffectId column (Potion -> effect 5; Mage Masher -> -1, not usable) + an ItemEffects.csv.
+ITEMS_CSV_EFF = (
+    "#! IncludeId\n"
+    "# Id;WeaponId;ArmorId;EffectId;Price;SellingPrice\n"
+    "# Int32;Int32;Int32;Int32;UInt32;Int32\n"
+    f"{POTION};-1;-1;5;50;25;# {POTION} - Potion\n"
+    f"{MM};{MM};-1;-1;500;250;# {MM} - Mage Masher\n"
+)
+EFFECTS_CSV = (
+    "#! IncludeId\n"
+    "# Id;Targets;DefaultAlly;Display;AnimationId;Dead;DefaultDead;ScriptId;Power;Rate;Element;Status\n"
+    "# Int32;UInt8;Bit;UInt8;Int16;Bit;Bit;Int32;Int32;Int32;UInt8;UInt32\n"
+    "5;0;1;1;8;0;0;69;150;0;0;0;# 236 - Potion\n"
+)
+
+
+def test_encode_statuses():
+    assert ID.encode_statuses(["Poison"]) == (1 << 16)
+    assert ID.encode_statuses(["Poison", "Silence"]) == (1 << 16) | (1 << 3)
+    assert ID.encode_statuses(64) == 64 and ID.encode_statuses([]) == 0 and ID.encode_statuses(None) == 0
+    assert ID.encode_statuses(2 ** 64 - 1) == 2 ** 64 - 1   # a full UInt64 mask is valid (the engine parses UInt64)
+    with pytest.raises(ValueError):
+        ID.encode_statuses(["Bogus"])
+    with pytest.raises(ValueError, match="negative|range"):
+        ID.encode_statuses(-1)
+    with pytest.raises(ValueError, match="range"):           # review: a >2^64-1 mask would OverflowException at load
+        ID.encode_statuses(2 ** 64)
+    with pytest.raises(ValueError):
+        ID.encode_statuses(True)
+
+
+def test_build_item_effects_power_status_element_dead():
+    d = ID.build_item_effects_delta(ITEMS_CSV_EFF, EFFECTS_CSV,
+                                    [{"name": "Potion", "power": 999, "status": ["Poison"],
+                                      "element": ["Fire"], "for_dead": True}])
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    row = rows[5].split(";")
+    assert row[cols["Power"]] == "999" and row[cols["Status"]] == str(1 << 16)
+    assert row[cols["Element"]] == "1" and row[cols["Dead"]] == "1"
+    assert row[cols["ScriptId"]] == "69"                  # the effect's behaviour (ScriptId) is preserved
+
+
+def test_build_item_effects_clamps():
+    d = ID.build_item_effects_delta(ITEMS_CSV_EFF, EFFECTS_CSV,
+                                    [{"name": "Potion", "power": 99_999, "rate": 999}])
+    _h, cols, _idc, rows = ID.read_base_csv(d)
+    row = rows[5].split(";")
+    assert row[cols["Power"]] == str(ID.EFFECT_POWER_CAP) and row[cols["Rate"]] == str(ID.RATE_CAP)
+
+
+def test_build_item_effects_rejects_non_usable():
+    with pytest.raises(ValueError, match="no use-effect"):
+        ID.build_item_effects_delta(ITEMS_CSV_EFF, EFFECTS_CSV, [{"name": "Mage Masher", "power": 1}])
+
+
+def test_build_item_effects_in_place_only_patched():
+    d = ID.build_item_effects_delta(ITEMS_CSV_EFF, EFFECTS_CSV, [{"name": "Potion", "power": 1}])
+    data_rows = [ln for ln in d.splitlines() if ln and not ln.startswith("#")]
+    assert len(data_rows) == 1 and data_rows[0].startswith("5;")   # in place (id 5), no mint
+    assert "#! IncludeId" in d                            # header preserved (else Id would be position-derived)
+
+
+def test_build_item_effects_none_when_empty():
+    assert ID.build_item_effects_delta(ITEMS_CSV_EFF, EFFECTS_CSV, []) is None
+
+
+# ---- validate ([[item_effect]]) ---------------------------------------------------------------
+def test_validate_item_effect_no_name_and_no_field(tmp_path):
+    probs = validate(_proj(BASE + '\n[[item_effect]]\npower = 9\n\n[[item_effect]]\nname = "Potion"\n', tmp_path))
+    assert any("[[item_effect]] #0 needs a `name`" in p for p in probs)
+    assert any("sets no editable field" in p and "Potion" in p for p in probs)
+
+
+def test_validate_item_effect_bad_status_and_negative(tmp_path):
+    probs = validate(_proj(
+        BASE + '\n[[item_effect]]\nname = "Potion"\nstatus = ["Bogus"]\npower = -1\n', tmp_path))
+    assert any("status:" in p and "Bogus" in p for p in probs)
+    assert any("power cannot be negative" in p for p in probs)
+
+
+def test_validate_item_effect_for_dead_type(tmp_path):
+    probs = validate(_proj(BASE + '\n[[item_effect]]\nname = "Potion"\nfor_dead = 3\n', tmp_path))
+    assert any("for_dead must be true/false" in p for p in probs)
+
+
+@pytest.mark.skipif(not _itemstats.available(), reason="the use-effect check needs the install's item CSVs")
+def test_validate_item_effect_no_use_effect(tmp_path):
+    # a plain weapon (EffectId < 0) has no use-effect to tune -> lint error (a gem/Tent, which HAS one, is fine)
+    probs = validate(_proj(BASE + '\n[[item_effect]]\nname = "Mage Masher"\npower = 9\n', tmp_path))
+    assert any("has no use-effect to tune" in p for p in probs)
+
+
+@pytest.mark.skipif(not _itemstats.available(), reason="write_item_data reads the install's base ItemEffects.csv")
+def test_emit_item_effect_writes_delta(tmp_path):
+    class P:
+        raw = {"item_effect": [{"name": "Potion", "power": 777}]}
+        path = tmp_path / "f.toml"
+    layout = ModLayout(tmp_path / "mod")
+    warns = _emit_item_data([P()], layout)
+    assert not [w for w in warns if "skipped" in w]
+    assert layout.item_effects_csv.exists()
+    _h, cols, _idc, rows = ID.read_base_csv(layout.item_effects_csv.read_text(encoding="cp1252"))
+    assert any(r.split(";")[cols["Power"]] == "777" for r in rows.values())

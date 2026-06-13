@@ -824,6 +824,45 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"[[equip_bonus]] {nm!r} {k} must be an integer, got {v!r}")
             elif v < 0:
                 problems.append(f"[[equip_bonus]] {nm!r} {k} cannot be negative")
+    # consumable use-effects ([[item_effect]] -> ItemEffects.csv): tune what a Potion/Phoenix Down/etc. DOES. The
+    # item must resolve + be usable (best-effort, needs the install); power/rate non-neg ints, element/status valid.
+    for i, b in enumerate(project.raw.get("item_effect", [])):
+        nm = b.get("name")
+        if nm is None:
+            problems.append(f"[[item_effect]] #{i} needs a `name` (the usable item to tune)")
+            continue
+        try:
+            iid = _items.resolve(nm)
+        except ValueError as e:
+            problems.append(f"[[item_effect]] {nm!r}: {e}")
+            continue
+        set_keys = [k for k in _itemdata.EFFECT_KEYS if k in b]
+        if not set_keys:
+            problems.append(f"[[item_effect]] {nm!r} sets no editable field "
+                            f"(one of {', '.join(_itemdata.EFFECT_KEYS)})")
+        st = _itemstats.for_id(iid)                       # best-effort: does it HAVE a use-effect to tune? (install)
+        if st is not None and not st.is_consumable:
+            problems.append(f"[[item_effect]] {nm!r} has no use-effect to tune (EffectId < 0 -- e.g. a plain "
+                            f"weapon/armor; an item_effect applies to consumables, Tents, gems, etc.)")
+        for k in set_keys:
+            v = b[k]
+            if k == "element":
+                try:
+                    _itemdata.encode_elements(v)
+                except ValueError as e:
+                    problems.append(f"[[item_effect]] {nm!r} element: {e}")
+            elif k == "status":
+                try:
+                    _itemdata.encode_statuses(v)
+                except ValueError as e:
+                    problems.append(f"[[item_effect]] {nm!r} status: {e}")
+            elif k == "for_dead":
+                if not isinstance(v, bool):
+                    problems.append(f"[[item_effect]] {nm!r} for_dead must be true/false, got {v!r}")
+            elif isinstance(v, bool) or not isinstance(v, int):
+                problems.append(f"[[item_effect]] {nm!r} {k} must be an integer, got {v!r}")
+            elif v < 0:
+                problems.append(f"[[item_effect]] {nm!r} {k} cannot be negative")
     for sm in project.raw.get("save_moogle", []):       # a carried (imported) save Moogle (docs/SAVEPOINT.md)
         if sm.get("carried"):                           # the cluster lives in the [[object]]/[[player_func]] blocks
             if not project.raw.get("object"):
@@ -3333,14 +3372,14 @@ def _emit_synthesis(projects, layout) -> list:
 
 
 def _emit_item_data(projects, layout) -> list:
-    """Emit the mod-GLOBAL item-stat deltas (``Data/Items/{Weapons,Armors,Items,Stats}.csv``) from every built
-    field's ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` / ``[[equip_bonus]]`` blocks. The engine merges these by
-    id (whole-row), so any field may tune any item; the same item tuned in several blocks merges (later overrides
-    per field) -- warned for visibility. Reads the install's base rows (a delta carries the full base row); no
-    install -> warn + skip. No blocks anywhere -> nothing written (no base clobber). Returns warnings."""
+    """Emit the mod-GLOBAL item-stat deltas (``Data/Items/{Weapons,Armors,Items,Stats,ItemEffects}.csv``) from every
+    built field's ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` / ``[[equip_bonus]]`` / ``[[item_effect]]`` blocks.
+    The engine merges these by id (whole-row), so any field may tune any item; the same item tuned in several blocks
+    merges (later overrides per field) -- warned for visibility. Reads the install's base rows (a delta carries the
+    full base row); no install -> warn + skip. No blocks anywhere -> nothing written. Returns warnings."""
     from .content import itemdata as _itemdata
     warnings: list = []
-    buckets = {"weapon": [], "armor": [], "item": [], "equip_bonus": []}
+    buckets = {"weapon": [], "armor": [], "item": [], "equip_bonus": [], "item_effect": []}
     seen: dict = {}
     for kind in buckets:
         for p in projects:
@@ -3360,7 +3399,7 @@ def _emit_item_data(projects, layout) -> list:
         return warnings
     try:
         _itemdata.write_item_data(layout, buckets["weapon"], buckets["armor"], buckets["item"],
-                                  buckets["equip_bonus"])
+                                  buckets["equip_bonus"], buckets["item_effect"])
     except ValueError as e:                                # e.g. unknown item name / not-a-weapon / no install
         warnings.append(f"item-data patch skipped: {e}")
     return warnings

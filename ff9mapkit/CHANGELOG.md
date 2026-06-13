@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[item_effect]]`: tune a consumable's use-effect (ItemEffects.csv), no DLL (0.9.88)
+- Tune what a **usable item** does: `[[item_effect]] name = "Potion"` + any of `power` (heal/damage, 0-9999) /
+  `rate` (status chance, 0-100) / `element` / `status` (a `BattleStatus` mask by name, e.g. `["Poison"]`) /
+  `for_dead` (usable on a KO'd target). Emits an `ItemEffects.csv` (`ItemEffect`) delta — the item is located by its
+  `EffectId` and the row is edited **in place** (`EffectId` is **1:1** with a usable item — verified 32/32, no
+  shared `Empty` row, unlike `BonusId`). The effect's **behaviour** (`ScriptId`/VFX/target) is preserved, so
+  `status` only sets *which* statuses the effect concerns — inflict-vs-cure follows that existing `ScriptId`.
+- **Grounded in the Memoria source:** `ItemEffects.csv` = `Id;Targets;DefaultAlly;Display;AnimationId;Dead;
+  DefaultDead;ScriptId;Power;Rate;Element;Status` with `#! IncludeId`; whole-row merge by Id (`ff9item.LoadItemEffects`
+  via `EnumerateCsvFromLowToHigh`) → a partial delta carries the base header verbatim + only the patched rows.
+  `encode_statuses` maps status names → the `BattleStatus` UInt64 mask (the kit's existing `itemstats.STATUSES`).
+- New `[[item_effect]]` block in `content/itemdata` (+ `build_item_effects_delta`, `encode_statuses`) + the
+  `_emit_item_data` bucket + `write_item_data` param + `ModLayout.item_effects_csv` + `config` + `deploy_field`
+  reversible CSV loop + `_STARTUP_CSVS` (RELAUNCH) + `validate()`. Base read LIVE in cp1252, **no game data
+  committed**. Multi-lens adversarially reviewed (0 blockers): folded a `UInt64` upper-bound guard on a raw
+  `status` bitmask (an over-range mask would `OverflowException` + hard-quit at load) + relaxed the lint to match
+  the engine (a gem/Tent with a use-effect is tunable, not just "Usable"-typed consumables). 14 tests (1547
+  total). **Awaiting in-game proof.**
+
 ### Added — `[[item]] teaches`: the abilities a piece of gear teaches (Items.csv AbilityIds), no DLL (0.9.87, ★ IN-GAME PROVEN)
 - FF9's "learn abilities from equipment" core: `[[item]] teaches = ["Soul Blade", "Auto-Reflect"]` (ability **names**,
   or explicit **`AA:`** active / **`SA:`** support tokens) **REWRITES** the item's `Items.csv` `AbilityIds` cell — the
