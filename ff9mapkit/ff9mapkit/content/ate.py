@@ -58,16 +58,29 @@ def _build_entry(funcs, etype: int = 0) -> bytes:
     return bytes([etype, fc]) + bytes(table) + bytes(code)
 
 
+JMP_OP = 0x01   # the undocumented UNCONDITIONAL jump (op_01): target = instr.end + signed-i16 offset
+
+
 def menu_loop_body(prompt_txid: int, option_bodies, *, avail_idx: int, window: int = 1,
                    setup: bytes = b"") -> bytes:
-    """The menu entry's tag-1 LOOP body: the ATE select-gate wrapping the winATE choice menu, then RETURN.
+    """The menu entry's tag-1 LOOP body. It must POLL each frame, exactly as the real ATE menu does
+    (field 552 entry-7 tag-1)::
 
-    Each frame: if (usercontrol AND avail AND SELECT-pressed) open the ``flags=64`` choice window and run
-    the picked row's body. ``setup`` is the optional ``EnableDialogChoices`` pre-choose opcode (default /
-    cancel / hidden rows), from :func:`ff9mapkit.content.choice.pre_choose`."""
+        loop:  if ( usercontrol AND avail AND B_KEYON(SELECT) ) { winATE menu }
+               Wait(1)                 # yield a frame -> one poll per frame (not a busy-spin)
+               JMP loop                # op_01 unconditional jump back to the top; NO RETURN
+
+    The poller lives as long as the field is loaded (no terminate). ``setup`` is the optional
+    ``EnableDialogChoices`` pre-choose opcode (default / cancel / hidden rows), from
+    :func:`ff9mapkit.content.choice.pre_choose`.
+
+    NB the earlier ``if(gate){menu} + RETURN`` form ran ONCE right after ``InitCode`` and never polled
+    again -- so SELECT did nothing. The ``Wait(1)`` + ``op_01`` jump-back is what makes it a real loop."""
     menu = _choice.region_body(prompt_txid, option_bodies, window=window, flags=WIN_ATE, setup=setup)
     gate = _region.cond_ate_select(_region.GLOB_BOOL, avail_idx)
-    return _region.if_block(gate, menu) + opcodes.RETURN
+    body = _region.if_block(gate, menu) + opcodes.wait(1)
+    back = -(len(body) + 3)                          # op_01 is 3 bytes; jump back to the loop top (offset 0)
+    return body + bytes([JMP_OP]) + struct.pack("<h", back)
 
 
 def menu_entry(prompt_txid: int, option_bodies, *, avail_idx: int, window: int = 1,
