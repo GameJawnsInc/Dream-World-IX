@@ -746,8 +746,9 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
     seeded = [s for s in plan.campaign_steps if s.seed_blocks]
     L = ["# === Journey deploy playbook (run from the repo root; apply + PLAYTEST each step in order) ===",
          "# Memoria.ini [Mod] FolderNames must STACK every folder below; the hub folder is HIGHEST.",
-         f"# ONE-SHOT: `py tools/deploy_journey.py {jref} --apply` runs every step below + seeds the entry + "
-         "writes ONE revert.",
+         f"# ONE-SHOT: `py tools/deploy_journey.py {jref} --apply` runs steps 1-3 (campaigns + links + hub) + "
+         "seeds the entry + writes ONE revert. New Game is NOT touched (reach the hub via F6; add "
+         "--wire-newgame to opt in).",
          ("# (the manual steps below do NOT apply [journey.seed] -- use --apply for a seeded journey)"
           if seeded else ""),
          ""]
@@ -797,12 +798,13 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
     else:
         L.append("#   (no cross-campaign links)")
     L.append("")
-    L.append("# 3. Emit + deploy the hub field, then point New Game at it:")
+    L.append("# 3. Emit + deploy the hub field (reach it via F6 -> Warp; New Game stays untouched):")
     L.append(f"py -m ff9mapkit assemble-journey {jref} --out {hub_toml}")
     if plan.hub_field_id is not None:
         L.append(f"py tools/deploy_field.py {hub_toml} --id {plan.hub_field_id}   "
                  f"# --mod-folder <the highest stacked folder>")
-        L.append(f"py tools/retarget_newgame_warp.py {plan.hub_field_id}   # New Game -> the hub")
+        L.append(f"# OPTIONAL (SINGLE-OWNER -- replaces your current New-Game landing, e.g. a live World Hub):")
+        L.append(f"py tools/retarget_newgame_warp.py {plan.hub_field_id}   # New Game -> THIS hub")
     L.append("")
     if plan.bare_entries:
         L.append("# Bare single-field journeys (already deployed elsewhere -- the hub just warps to them):")

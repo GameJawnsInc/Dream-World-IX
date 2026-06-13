@@ -326,11 +326,14 @@ target id). The playbook warns this.
 
 **The assembler is COMPLETE.** Both polish items below are now BUILT (kit 0.9.87, offline-proven; awaiting an
 in-game playtest of the one-shot path):
-- **`deploy_journey --apply` (one-shot)** — runs the whole playbook in order (each campaign `--no-warp` at its
-  flag window → the link rewrites → emit + deploy the hub → retarget New Game), capturing each sub-tool's own
-  revert into ONE reverse-order `tools/scroll_out/revert_journey.py`. Fail-closed: any sub-step non-zero
-  aborts after writing the partial revert. Ends by printing the manual FolderNames + relaunch steps (Hard
-  Constraint §2). `--apply-links` still runs only the link step (for re-applying after a campaign re-deploy).
+- **`deploy_journey --apply` (one-shot)** — runs the playbook in order (each campaign `--no-warp` at its
+  flag window → the link rewrites → emit + deploy the hub field), capturing each sub-tool's own revert into
+  ONE reverse-order `tools/scroll_out/revert_journey.py`. Fail-closed: any sub-step non-zero aborts after
+  writing the partial revert. **New Game is NOT touched by default** — the field-70 override is SINGLE-OWNER,
+  so forcing it would hijack an existing hub (e.g. a live World Hub); reach the new hub via **F6 → Warp**, or
+  pass `--wire-newgame` to opt into making it the New-Game landing. Ends by printing the manual FolderNames +
+  relaunch steps (Hard Constraint §2). `--apply-links` still runs only the link step (re-apply after a
+  campaign re-deploy).
 - **`[journey.seed]` capstone** — `journey.seed_to_field_blocks` translates the seed to the kit's
   `[startup]`/`[party]`/`[start_inventory]`/`[[equipment]]` blocks; `campaign.build_campaign(seed_blocks=)` →
   `apply_seed_blocks` merges them into the journey's ENTRY member in-memory before build (no forked-toml
