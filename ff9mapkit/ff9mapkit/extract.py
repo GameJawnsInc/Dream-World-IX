@@ -983,44 +983,75 @@ def export_field_art(field: str, out_dir=None, *, game=None, bundle=None, write_
     return {"folder": folder, "dir": str(dest), "overlays": n, "atlas": wrote_atlas, "source": source}
 
 
-def _export_many(field_tokens, out_dir, *, game=None, write_atlas=True, on_field=None) -> dict:
-    """Export many fields' art, never raising on a single bad field. ``on_field(k, total, folder, summary,
-    err)`` is an optional progress callback. Returns {fields, overlays, failed:[(token, err)], total}."""
+def export_field_composite(field: str, out_dir=None, *, game=None, bundle=None) -> dict:
+    """Write ONE composited background PNG for a field -- the browsable "glimpse" artifact (clean opaque
+    art, walkmesh footprint OFF), vs :func:`export_field_art`'s per-overlay layers. Lands FLAT at
+    ``<out_dir>/<FBG-UPPER>.png`` so a whole-game export is a single scrollable folder. Returns a summary;
+    raises ``FileNotFoundError`` if the field has no readable art."""
+    folder, _ = resolve_field(field, game)
+    base = Path(out_dir) if out_dir is not None else (
+        config.find_game_path(game) / "StreamingAssets" / "FieldMaps")
+    base.mkdir(parents=True, exist_ok=True)
+    out_path = base / f"{folder.upper()}.png"
+    dims = compose_background(field, out_path, game=game, bundle=bundle, draw_footprint=False)
+    if dims is None:
+        raise FileNotFoundError(f"{folder}: no readable field art (atlas + on-disk export both unavailable)")
+    return {"folder": folder, "path": str(out_path), "size": list(dims)}
+
+
+def _per_field_export(write_atlas: bool, composite: bool):
+    """The per-field writer for :func:`_export_many` -- a composited PNG (glimpse) or per-overlay layers."""
+    if composite:
+        return lambda tok, out, game: export_field_composite(tok, out, game=game)
+    return lambda tok, out, game: export_field_art(tok, out, game=game, write_atlas=write_atlas)
+
+
+def _export_many(field_tokens, out_dir, *, game=None, per_field=None, on_field=None) -> dict:
+    """Run ``per_field(token, out_dir, game) -> summary`` over many fields, never raising on a single bad
+    one. ``on_field(k, total, folder, summary, err)`` is an optional progress callback. Returns
+    {fields, units, failed:[(token, err)], total} (``units`` = total overlays in raw mode, 1/field in
+    composite mode -- ``summary['overlays']`` or 1)."""
     fields = list(field_tokens)
     total = len(fields)
-    n_fields = n_overlays = 0
+    n_fields = units = 0
     failed = []
     for k, f in enumerate(fields):
         try:
-            summ = export_field_art(f, out_dir, game=game, write_atlas=write_atlas)
+            summ = per_field(f, out_dir, game)
         except (FileNotFoundError, ValueError, RuntimeError) as e:
             failed.append((str(f), str(e)))
             if on_field:
                 on_field(k + 1, total, str(f), None, str(e))
             continue
         n_fields += 1
-        n_overlays += summ["overlays"]
+        units += summ.get("overlays", 1)
         if on_field:
             on_field(k + 1, total, summ["folder"], summ, None)
-    return {"fields": n_fields, "overlays": n_overlays, "failed": failed, "total": total}
+    return {"fields": n_fields, "units": units, "failed": failed, "total": total}
 
 
-def export_campaign_art(campaign_toml, out_dir=None, *, game=None, write_atlas=True, on_field=None) -> dict:
-    """Export the per-overlay art for every REAL field a campaign forks (its members' ``source`` donor
-    fields), OFFLINE. Reads the campaign manifest; dedups shared donors. See :func:`export_field_art`."""
+def export_campaign_art(campaign_toml, out_dir=None, *, game=None, write_atlas=True, composite=False,
+                        on_field=None) -> dict:
+    """Export the art for every REAL field a campaign forks (its members' ``source`` donor fields), OFFLINE.
+    Reads the campaign manifest; dedups shared donors. ``composite`` = one glimpse PNG/field (else per-overlay
+    layers). See :func:`export_field_art` / :func:`export_field_composite`."""
     from . import campaign as _camp
     plan = _camp.load_campaign(campaign_toml)
     ids = sorted({m.real_id for m in plan.members if m.real_id})
     if not ids:
         raise ValueError(f"{campaign_toml}: no member fields with a real `source` id to export")
-    return _export_many((str(i) for i in ids), out_dir, game=game, write_atlas=write_atlas, on_field=on_field)
+    return _export_many((str(i) for i in ids), out_dir, game=game,
+                        per_field=_per_field_export(write_atlas, composite), on_field=on_field)
 
 
-def export_all_art(out_dir=None, *, game=None, pattern=None, write_atlas=True, on_field=None) -> dict:
-    """Export per-overlay art for EVERY real field (optionally filtered by ``pattern``), OFFLINE -- the full
-    drop-in for the in-game ``[Export] Field=1`` startup dump, without launching the game (or its hang)."""
+def export_all_art(out_dir=None, *, game=None, pattern=None, write_atlas=True, composite=False,
+                   on_field=None) -> dict:
+    """Export art for EVERY real field (optionally filtered by ``pattern``), OFFLINE -- the full drop-in for
+    the in-game ``[Export] Field=1`` startup dump, without launching the game (or its hang). ``composite`` =
+    a one-PNG-per-field browsable gallery (the "full-journey glimpse") instead of per-overlay layers."""
     fields = [folder for folder, _a, _m in list_fields(pattern, game=game)]
-    return _export_many(fields, out_dir, game=game, write_atlas=write_atlas, on_field=on_field)
+    return _export_many(fields, out_dir, game=game,
+                        per_field=_per_field_export(write_atlas, composite), on_field=on_field)
 
 
 def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=None,

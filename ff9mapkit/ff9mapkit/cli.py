@@ -431,10 +431,13 @@ def _cmd_export_art(args: argparse.Namespace) -> int:
     from . import extract
     _safe_console()
     write_atlas = not args.no_atlas
+    comp = args.composite
 
     def progress(k, total, folder, summ, err):
         if err:
             print(f"  [{k}/{total}] {folder}: SKIP ({err})", file=sys.stderr)
+        elif comp:
+            print(f"  [{k}/{total}] {folder}: {summ['size'][0]}x{summ['size'][1]}")
         else:
             tag = "" if summ["atlas"] else " (no atlas)"
             print(f"  [{k}/{total}] {folder}: {summ['overlays']} overlays{tag}")
@@ -442,14 +445,18 @@ def _cmd_export_art(args: argparse.Namespace) -> int:
     try:
         if args.all:
             res = extract.export_all_art(args.out, game=args.game, pattern=args.pattern,
-                                         write_atlas=write_atlas, on_field=progress)
+                                         write_atlas=write_atlas, composite=comp, on_field=progress)
         elif args.target and str(args.target).lower().endswith(".toml"):
             res = extract.export_campaign_art(args.target, args.out, game=args.game,
-                                              write_atlas=write_atlas, on_field=progress)
+                                              write_atlas=write_atlas, composite=comp, on_field=progress)
         elif args.target:
-            summ = extract.export_field_art(args.target, args.out, game=args.game, write_atlas=write_atlas)
-            atxt = " + atlas.png" if summ["atlas"] else ""
-            print(f"{summ['folder']}: {summ['overlays']} overlays ({summ['source']}){atxt} -> {summ['dir']}")
+            if comp:
+                summ = extract.export_field_composite(args.target, args.out, game=args.game)
+                print(f"{summ['folder']}: {summ['size'][0]}x{summ['size'][1]} background -> {summ['path']}")
+            else:
+                summ = extract.export_field_art(args.target, args.out, game=args.game, write_atlas=write_atlas)
+                atxt = " + atlas.png" if summ["atlas"] else ""
+                print(f"{summ['folder']}: {summ['overlays']} overlays ({summ['source']}){atxt} -> {summ['dir']}")
             return 0
         else:
             print("export-art: give a field, a campaign.toml, or --all", file=sys.stderr)
@@ -458,7 +465,8 @@ def _cmd_export_art(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
     where = args.out or "<install>/StreamingAssets/FieldMaps"
-    print(f"\nexported {res['fields']}/{res['total']} field(s), {res['overlays']} overlays -> {where}")
+    unit = "background PNG(s)" if comp else "overlays"
+    print(f"\nexported {res['fields']}/{res['total']} field(s), {res['units']} {unit} -> {where}")
     if res["failed"]:
         print(f"  {len(res['failed'])} field(s) skipped (no readable art):", file=sys.stderr)
         for tok, err in res["failed"][:10]:
@@ -2007,11 +2015,16 @@ def build_parser() -> argparse.ArgumentParser:
     ea.add_argument("--all", action="store_true",
                     help="export EVERY real field (the full drop-in for the in-game startup dump)")
     ea.add_argument("--pattern", default=None,
-                    help="with --all: only fields whose FBG folder contains this substring")
+                    help="with --all: only fields whose FBG folder contains this substring (e.g. a zone: dali, iccv)")
+    ea.add_argument("--composite", action="store_true",
+                    help="write ONE composited background PNG per field (clean opaque art, no walkmesh "
+                         "footprint) into a FLAT folder -- a browsable whole-game gallery to scroll through "
+                         "while planning journeys, instead of the raw per-overlay layers")
     ea.add_argument("--out", default=None,
                     help="output root (default: <install>/StreamingAssets/FieldMaps, the engine's own "
-                         "location -- a true drop-in); each field lands in <out>/<FBG>/")
-    ea.add_argument("--no-atlas", action="store_true", help="don't also dump the source atlas.png")
+                         "location -- a true drop-in). Raw: each field -> <out>/<FBG>/Overlay{i}.png; "
+                         "--composite: each field -> <out>/<FBG>.png. For a gallery use --out reference/all-fields-export.")
+    ea.add_argument("--no-atlas", action="store_true", help="(raw mode) don't also dump the source atlas.png")
     ea.set_defaults(func=_cmd_export_art)
 
     im = sub.add_parser("import", help="fork a REAL FF9 field into an editable field.toml (needs UnityPy)")

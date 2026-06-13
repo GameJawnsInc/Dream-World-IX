@@ -157,3 +157,26 @@ def test_offline_path_matches_export_within_codec_noise():
         checked += 1
     assert checked > 0
     assert worst <= 16, f"{fdir.name}: offline vs export max per-channel delta {worst} > 16"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_export_writers_emit_layers_and_composite(tmp_path):
+    """export_field_art writes per-overlay Overlay{i}.png (+ atlas.png); export_field_composite writes
+    ONE flat <FBG>.png. Both produce real, non-trivial images for a resolvable field."""
+    from PIL import Image
+    from ff9mapkit import extract
+    fdir = _first_exported_field()
+    if fdir is None:
+        pytest.skip("no exported field on disk")
+    tok = fdir.name.lower()
+    # raw per-overlay layers + atlas
+    raw = extract.export_field_art(tok, tmp_path / "raw", game=None)
+    assert raw["overlays"] > 0 and raw["atlas"]
+    dest = tmp_path / "raw" / raw["folder"].upper()
+    assert (dest / "Overlay0.png").is_file() and (dest / "atlas.png").is_file()
+    # composite glimpse: one flat <FBG>.png, viewable size
+    comp = extract.export_field_composite(tok, tmp_path / "gallery", game=None)
+    png = tmp_path / "gallery" / f"{comp['folder'].upper()}.png"
+    assert png.is_file()
+    w, h = Image.open(png).size
+    assert (w, h) == tuple(comp["size"]) and w > 16 and h > 16
