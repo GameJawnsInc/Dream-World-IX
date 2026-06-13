@@ -110,7 +110,7 @@ def main(argv=None) -> int:
 
     # --- dry-run: the playbook ---
     hub_out = args.hub_out or str((jpath.parent / "hub.field.toml"))
-    print(J.render_deploy_playbook(manifest, hub_toml=hub_out))
+    print(J.render_deploy_playbook(manifest, hub_toml=hub_out, journeys_ref=args.journeys))
     print("DRY-RUN -- no game files touched. Run the playbook steps above (apply + PLAYTEST each in order).")
     print("This tool's --apply-links executes step 2 (the link .eb remaps); the rest use their own drivers.")
     return 0

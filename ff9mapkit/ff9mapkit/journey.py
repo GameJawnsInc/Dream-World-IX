@@ -672,13 +672,15 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
 
 
 def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.field.toml>",
-                           repo_rel: str = "") -> str:
+                           repo_rel: str = "", journeys_ref: "str | None" = None) -> str:
     """The ordered, copy-pasteable command sequence to deploy a journeys manifest in-game, built from the
     deploy plan. Each step is an EXISTING, individually revert-guarded tool (so the human applies + playtests
     incrementally -- "one change per in-game test"); the only journey-unique step is the link `.eb` remap
-    (``deploy_journey.py --apply-links``). PURE text (no game touched). ``repo_rel`` prefixes campaign paths."""
+    (``deploy_journey.py --apply-links``). PURE text (no game touched). ``repo_rel`` prefixes campaign paths;
+    ``journeys_ref`` is the manifest path as the human will type it (default: its bare name)."""
     plan = build_deploy_plan(manifest)
     pre = (repo_rel.rstrip("/") + "/") if repo_rel else ""
+    jref = journeys_ref or manifest.path.name
     L = ["# === Journey deploy playbook (run from the repo root; apply + PLAYTEST each step in order) ===",
          "# Memoria.ini [Mod] FolderNames must STACK every folder below; the hub folder is HIGHEST.",
          ""]
@@ -707,14 +709,14 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
             L.append(f"#    !! {lk.src_campaign}/{lk.src_field} -> {lk.dst_campaign}/{lk.dst_field}: NOT "
                      f"auto-wired -- {lk.note}")
     if wired:
-        L.append(f"py tools/deploy_journey.py {pre}{manifest.path.name} --apply-links")
+        L.append(f"py tools/deploy_journey.py {jref} --apply-links")
     elif plan.links:
         L.append("#   (no auto-wirable links -- see the notes above)")
     else:
         L.append("#   (no cross-campaign links)")
     L.append("")
     L.append("# 3. Emit + deploy the hub field, then point New Game at it:")
-    L.append(f"py -m ff9mapkit assemble-journey {pre}{manifest.path.name} --out {hub_toml}")
+    L.append(f"py -m ff9mapkit assemble-journey {jref} --out {hub_toml}")
     if plan.hub_field_id is not None:
         L.append(f"py tools/deploy_field.py {hub_toml} --id {plan.hub_field_id}   "
                  f"# --mod-folder <the highest stacked folder>")
