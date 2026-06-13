@@ -4,8 +4,10 @@
 > (no change needed — the only `_journey_label` touch-point was never hit). **`gen-hub` is BUILT + shipped**
 > — the single-field / single-campaign form (a bare-int `entry` + a `[hub]` table + a hub-side
 > `set_scenario`); two journeys ship (Dali → field 4100, Treno → field 4501, both verbatim fields). The
-> **multi-campaign assembler** (`campaigns` / `[[journey.link]]` / `[journey.seed]`) remains **UNBUILT** —
-> overworld's to own. This doc is the shared schema + the assembler's job list.
+> **multi-campaign assembler** (`campaigns` / `[[journey.link]]` / `[journey.seed]`)'s **OFFLINE CORE is now
+> BUILT** (`ff9mapkit/journey.py` + `lint-journey`/`assemble-journey` — load/resolve/lint/hub-emit; see §9);
+> only the in-game **deploy** step (`deploy_journey`) remains. overworld's to own. This doc is the shared
+> schema + the assembler's job list.
 >
 > **Lane split (per `project-ff9-branch-lanes`):** overworld owns the World Hub + `gen-hub` + the assembler
 > + player-rig; story_flags owns scenario/party/flag + is the composition owner for starting-state/New-Game.
@@ -43,7 +45,7 @@ A `journeys.toml` is a **`[hub]` table** (how the selector field presents) plus 
 |---|---|---|---|
 | **Single field** | `entry = <field id>` (bare int) | one verbatim field (the shipped Dali 4100 / Treno 4501) | `gen-hub` — **BUILT** |
 | **Single campaign** | `entry = <field id>` of a member | one `campaign.toml` slice | `gen-hub` — **BUILT** |
-| **Multi-campaign arc** | `entry = { campaign, field }` + `campaigns = [...]` | chained campaigns | the **assembler** — UNBUILT |
+| **Multi-campaign arc** | `entry = { campaign, field }` + `campaigns = [...]` | chained campaigns | the **assembler** — offline core BUILT (§9); deploy next |
 
 ```toml
 # journeys.toml -- the World-Hub registry.  `ff9mapkit gen-hub journeys.toml` emits the selector field.
@@ -72,7 +74,7 @@ name  = "The Village of Dali"          # the pretty menu label
 entry = 4100                           # a FIELD ID -- warp straight here (a verbatim fork OR a campaign entry)
 set_scenario = 2600                    # HUB-SIDE beat, set on the row right before the warp (gen-hub uses this)
 
-# --- the multi-campaign ARC form (assembler, UNBUILT): campaigns + links + a destination-side seed ---
+# --- the multi-campaign ARC form (assembler offline core BUILT; deploy next): campaigns + links + a seed ---
 [[journey]]
 id        = "escape_ice"
 name      = "Escape to the Ice Cavern"
@@ -124,12 +126,17 @@ unbuilt arc form. Keep it a pure, tk-free loader (mirror `campaign.load_campaign
 
 ---
 
-## 4. The assembler's responsibilities (overworld lane — UNBUILT)
+## 4. The assembler's responsibilities (overworld lane — offline core BUILT; deploy next; see §9)
 
 > The **single-field / single-campaign** path is already shipped by **`gen-hub`** (it reads `[hub]` + each
 > `[[journey]]`'s bare-int `entry` + hub-side `set_scenario` and emits the selector field). This section is
 > the **multi-campaign assembler** — the part that turns `campaigns = [...]` + `[[journey.link]]` +
 > `[journey.seed]` into a deployable chained arc.
+>
+> **Status (2026-06-13):** the OFFLINE half of this list is BUILT in `ff9mapkit/journey.py` (#1 id-band
+> disjointness — validated globally; #2 flag-window assignment — computed; #3 link *resolution* of src/dst →
+> global ids; #5 hub emit; #7 the full journey lint). The IN-GAME half remains as `deploy_journey` (#3 the
+> actual `.eb` warp *rewrite*, #4 seed application + CSV promotion, #6 deploy orchestration). Detail in §9.
 
 A `build_journey(journey, out)` / `deploy_journey(...)` that orchestrates the existing per-campaign tools.
 The hard parts are **global-namespace** ones (EventDB/SceneData are global — distinct ids required even
@@ -197,12 +204,14 @@ shows one campaign at a time; a multi-campaign tree is a nav enhancement, not re
 - **Seed layers** — confirmed **two**: `set_scenario` (hub-side, gen-hub) + `[journey.seed]` (destination
   capstone, assembler). story_flags stays the single composition owner of the capstone.
 
-**Still open (the multi-campaign assembler):**
-- **The elided world-map leg** — is forest→cavern a bare `Field()` warp, or a tiny interstitial field
-  (a black "…" transition / a save point)? The kit can't do a real overworld leg.
-- **One mod folder per journey, or shared?** Distinct ids are required regardless; the shipped journeys
-  already **stack** (FF9CustomMap-sf / -ow) — decide whether an arc gets its own `mod_folder`.
-- **Replay / one-way** — switching journeys is New Game today (`project-ff9-world-hub`); confirm for arcs.
+**Resolved by the assembler's offline core (2026-06-13; full rationale in §9):**
+- **The elided world-map leg** — a bare cross-campaign `Field()` warp (the `[[journey.link]]`, realized at
+  deploy time); no interstitial field for now. The link `from` names the boundary member (`field`, alias
+  `seam`); lint flags a source with no out-of-chain seam.
+- **One mod folder per journey, or shared?** Each campaign keeps its own `mod_folder` (from its
+  `campaign.toml`); the assembler stacks them via `FolderNames` (as the shipped -sf / -ow journeys do). The
+  hub owns the highest folder + New Game.
+- **Replay / one-way** — one-way; New Game switches journeys (confirmed).
 
 ---
 
