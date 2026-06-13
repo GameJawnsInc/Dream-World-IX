@@ -430,7 +430,7 @@ instruction + function byte-for-byte; insertion re-parses everything-else-intact
 **LINTER** (`battle/ailint.py`: decode / jump-bounds / reachable-RET reachability walk / Attack-idx range — a
 **562-scene sweep lints ALL shipping scenes CLEAN**, the soundness proof; CLI `battle-ai --lint`) + the declarative
 **`[[scene.ai_function]]`** build surface (`aiauthor.apply_ai_functions`, spliced per-lang AFTER `ai_patch`; the
-validate hook lints the COMPOSED shipped eb) — **Phase 6c COMPLETE** (read→tune→author→validate the enemy-AI stack).
+validate hook lints the COMPOSED shipped eb) — **Phase 6c COMPLETE + ★ IN-GAME PROVEN (2026-06-13)**: a `[[scene.ai_function]]` RET-ing the forked Goblin's tag-5 attack routine (`battle_tests/bt_goblin`) made it stand idle (Phase-4 Poison then killed it). Dispatch model = an enemy turn → tag 7 (ATB); the spawned enemy's ENTRY is bound by Main_Init's `InitObject` (Goblin → entry 2, NOT the labelled "type 0"); the `Attack` cmd lives in **tag 5** → [[project-ff9-battle-tuning]].
 ★ Phases 2/3/4/5/5b/6a/6b/6c-i/6c-ii/6c-iii each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
 a boot-crash range bug + the cp1252 encoding; Phase 4: caught a `StatusSetId` over-range KeyNotFound crash, a
 malformed-toml traceback, + a silent dead-`Battle:` selector; Phase 5: caught a fixture provenance leak + a

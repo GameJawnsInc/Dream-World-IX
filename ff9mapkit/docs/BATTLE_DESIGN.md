@@ -509,8 +509,12 @@ fixed 4: a `JMP_IFNOT` decoded signed but read UNSIGNED in-engine (missed the ba
 the validate hook lit the un-patched donor not the composed eb (→ composes + lints the shipped bytes); an incomplete
 terminator set (`GameOver`/`STOP`/… also end dispatch → false-flagged, now widened + shared with `aiauthor`); and an
 out-of-range tag raising a raw `struct.error` (→ clean error). **Phase 6c COMPLETE** (read → tune → author →
-validate the whole enemy-AI stack, no DLL). **Defer raw17 btlseq sequence authoring** (new codec + a coordinated
-raw16+eb+raw17 edit).
+validate the whole enemy-AI stack, no DLL). ★ **IN-GAME PROVEN (2026-06-13):** a `[[scene.ai_function]]` RET-ing the
+forked Goblin's **tag-5 attack routine** (`battle_tests/bt_goblin`, scene 30055) made it stand idle in real battle
+(Phase-4 Poison then finished it). Dispatch model learned: an enemy turn dispatches to **tag 7 (ATB)**; the spawned
+enemy's AI ENTRY is bound by Main_Init's `InitObject(<entry>,…)` (the Goblin binds to **entry 2**, decoupled from the
+raw16 "type"); the `Attack` (0x38) command lives in **tag 5**. **Defer raw17 btlseq sequence authoring** (new codec
++ a coordinated raw16+eb+raw17 edit).
 
 ---
 
