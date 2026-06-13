@@ -116,41 +116,16 @@ def _humanize(name: str) -> str:
     return " ".join(w.capitalize() for w in str(name).replace("_", " ").split()) or str(name)
 
 
-def load_journeys(path) -> HubSpec:
-    """Parse a ``journeys.toml`` into a :class:`HubSpec`. Raises :class:`HubError` on a STRUCTURAL problem
-    (no ``[hub]`` table, a ``[[journey]]`` missing ``id``/``entry``, or a multi-campaign journey that needs the
-    assembler); semantic checks (id band, dup ids, missing ``borrow_bg`` ...) are :func:`validate_hub`'s job so
-    the CLI can print them all at once."""
-    p = Path(path)
-    with open(p, "rb") as fh:
-        data = tomllib.load(fh)
-    if "hub" not in data:
-        raise HubError(f"{p}: not a journeys manifest (no [hub] table)")
-    h = data["hub"]
+def hubspec_from_table(h: dict, journeys: "list[Journey]") -> HubSpec:
+    """Build a :class:`HubSpec` from a parsed ``[hub]`` table + a resolved journey list. The single source
+    of truth for the ``[hub]`` presentation schema -- both :func:`load_journeys` (gen-hub's single-entry
+    rows) and the multi-campaign journey assembler (:mod:`ff9mapkit.journey`, which resolves campaign entries
+    to global ids before calling here) construct their HubSpec through this. Raises :class:`HubError` on a
+    missing required key; semantic checks stay in :func:`validate_hub`."""
     if "name" not in h:
         raise HubError("[hub] missing required key 'name' (becomes EVT_<name>.eb / FBG_N<area>_<name>)")
     if "id" not in h:
         raise HubError("[hub] missing required key 'id' (the hub field id, >= 4000)")
-
-    journeys = []
-    for i, j in enumerate(data.get("journey", [])):
-        if "campaigns" in j or isinstance(j.get("entry"), dict):
-            raise HubError(f"[[journey]] #{i}: a multi-campaign journey (campaigns / entry = {{campaign, "
-                           f"field}}) needs the journey ASSEMBLER (docs/JOURNEYS.md), not gen-hub. gen-hub "
-                           f"builds the single-entry form: entry = <field id>.")
-        if "id" not in j:
-            raise HubError(f"[[journey]] #{i}: missing required key 'id' (the stable slug; docs/JOURNEYS.md)")
-        jid = str(j["id"])
-        if "entry" not in j:
-            raise HubError(f"[[journey]] {jid!r}: missing required key 'entry' (the journey's entry field id)")
-        sc = j.get("set_scenario")
-        journeys.append(Journey(
-            id=jid,
-            name=str(j.get("name") or _humanize(jid)),
-            entry=int(j["entry"]),
-            set_scenario=int(sc) if sc is not None else None,
-        ))
-
     return HubSpec(
         name=str(h["name"]),
         id=int(h["id"]),
@@ -169,6 +144,40 @@ def load_journeys(path) -> HubSpec:
         narrator_pos=list(h["narrator_pos"]) if "narrator_pos" in h else None,
         journeys=journeys,
     )
+
+
+def load_journeys(path) -> HubSpec:
+    """Parse a ``journeys.toml`` into a :class:`HubSpec`. Raises :class:`HubError` on a STRUCTURAL problem
+    (no ``[hub]`` table, a ``[[journey]]`` missing ``id``/``entry``, or a multi-campaign journey that needs the
+    assembler); semantic checks (id band, dup ids, missing ``borrow_bg`` ...) are :func:`validate_hub`'s job so
+    the CLI can print them all at once."""
+    p = Path(path)
+    with open(p, "rb") as fh:
+        data = tomllib.load(fh)
+    if "hub" not in data:
+        raise HubError(f"{p}: not a journeys manifest (no [hub] table)")
+
+    journeys = []
+    for i, j in enumerate(data.get("journey", [])):
+        if "campaigns" in j or isinstance(j.get("entry"), dict):
+            raise HubError(f"[[journey]] #{i}: a multi-campaign journey (campaigns / entry = {{campaign, "
+                           f"field}}) needs the journey ASSEMBLER (`ff9mapkit assemble-journey`, "
+                           f"docs/JOURNEYS.md), not gen-hub. gen-hub builds the single-entry form: "
+                           f"entry = <field id>.")
+        if "id" not in j:
+            raise HubError(f"[[journey]] #{i}: missing required key 'id' (the stable slug; docs/JOURNEYS.md)")
+        jid = str(j["id"])
+        if "entry" not in j:
+            raise HubError(f"[[journey]] {jid!r}: missing required key 'entry' (the journey's entry field id)")
+        sc = j.get("set_scenario")
+        journeys.append(Journey(
+            id=jid,
+            name=str(j.get("name") or _humanize(jid)),
+            entry=int(j["entry"]),
+            set_scenario=int(sc) if sc is not None else None,
+        ))
+
+    return hubspec_from_table(data["hub"], journeys)
 
 
 def validate_hub(spec: HubSpec) -> "tuple[list, list]":

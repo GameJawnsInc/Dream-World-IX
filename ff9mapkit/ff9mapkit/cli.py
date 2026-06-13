@@ -11,6 +11,8 @@ Subcommands are wired up incrementally as the library lands:
     new       - scaffold a new field project directory                      (Phase 5)
     pack      - package a built mod for distribution                        (Phase 5)
     gen-hub   - generate a World-Hub field.toml from a journeys.toml registry (P6)
+    lint-journey     - validate a multi-campaign journeys.toml (id/flag disjointness, links resolve)
+    assemble-journey - lint + emit the World-Hub field for bare AND multi-campaign journeys
     extract-field - cache a real field's camera+walkmesh into the gitignored workspace cache
     import    - fork a real FF9 field (BG-borrow, or --editable custom scene) (Tier 3)
     list-fields - list the real FF9 fields available to import              (Tier 3)
@@ -323,6 +325,68 @@ def _cmd_gen_hub(args: argparse.Namespace) -> int:
         print(f"Next: extract the borrowed camera ({spec.camera}) -- e.g. "
               f"`ff9mapkit extract-field <id>` or `gen-hub --extract-camera` -- then "
               f"`ff9mapkit build {info['path']}` (or tools/deploy_field.py).")
+    return 0
+
+
+def _cmd_lint_journey(args: argparse.Namespace) -> int:
+    """Validate a multi-campaign journeys.toml offline: campaigns exist + parse, the GLOBAL id-disjointness
+    guarantee (every campaign of every journey + bare entries share one EventDB namespace), flag windows fit,
+    links resolve to real members + boundaries, entries valid, seeds in range. Pure (no game install)."""
+    from . import journey
+    try:
+        manifest = journey.load_journeys(args.journeys)
+        errors, warnings = journey.lint_manifest(manifest)
+    except (journey.JourneyError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if getattr(args, "graph", False):
+        print(journey.render_journey_plan(manifest))
+    for w in warnings:
+        print("warning: " + w, file=sys.stderr)
+    for e in errors:
+        print("error: " + e, file=sys.stderr)
+    n = len(manifest.journeys)
+    if errors:
+        print(f"journeys '{manifest.path.name}': FAILED -- {len(errors)} error(s), {len(warnings)} warning(s)",
+              file=sys.stderr)
+        return 2
+    print(f"journeys '{manifest.path.name}' OK -- {n} journey(s), {len(warnings)} warning(s)")
+    return 0
+
+
+def _cmd_assemble_journey(args: argparse.Namespace) -> int:
+    """Assemble a multi-campaign journeys.toml: lint it (the namespace guarantee), then emit the World-Hub
+    field.toml resolving BOTH bare single-field and multi-campaign journeys (gen-hub handles only the bare
+    form). Pure offline codegen -- build/deploy the emitted hub like any field; the per-campaign deploy +
+    cross-campaign link wiring is the in-game step (tools/deploy_campaign.py per member, then the hub)."""
+    from . import journey
+    try:
+        manifest = journey.load_journeys(args.journeys)
+        if getattr(args, "graph", False) or args.dry_run:
+            errors, warnings = journey.lint_manifest(manifest)
+            for w in warnings:
+                print("warning: " + w, file=sys.stderr)
+            if errors:
+                for e in errors:
+                    print("error: " + e, file=sys.stderr)
+                return 2
+            print(journey.render_journey_plan(manifest))
+            if args.dry_run:
+                print("DRY-RUN -- no hub field.toml written. Drop --dry-run to emit it.")
+                return 0
+        info = journey.generate_hub(manifest.path, out_path=args.out)
+    except (journey.JourneyError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    spec = info["spec"]
+    print(f"assembled hub '{spec.name}' (id {spec.id}, {len(spec.journeys)} journey(s)) -> {info['path']}")
+    for j in spec.journeys:
+        seed = f", seed {j.set_scenario}" if j.set_scenario is not None else ""
+        print(f"  {j.name!r} -> field {j.entry}{seed}")
+    for w in info.get("warnings", []):
+        print("warning: " + w, file=sys.stderr)
+    print(f"Next: build the hub (`ff9mapkit build {info['path']}` / tools/deploy_field.py) + deploy each "
+          f"campaign (tools/deploy_campaign.py --no-warp), then retarget New Game -> the hub.")
     return 0
 
 
@@ -1850,6 +1914,23 @@ def build_parser() -> argparse.ArgumentParser:
                          "wire the emitted toml to it (needs the install + UnityPy)")
     gh.add_argument("--force", action="store_true", help="re-extract the camera even if already cached")
     gh.set_defaults(func=_cmd_gen_hub)
+
+    lj = sub.add_parser("lint-journey", help="validate a multi-campaign journeys.toml offline (id/flag "
+                        "disjointness, links resolve, entries valid) -- the assembler's namespace guarantee")
+    lj.add_argument("journeys", help="path to a journeys.toml ([hub] + [[journey]] rows, bare or multi-campaign)")
+    lj.add_argument("--graph", action="store_true",
+                    help="also print the resolved namespace (entry ids, campaign id bands, flag windows, links)")
+    lj.set_defaults(func=_cmd_lint_journey)
+
+    aj = sub.add_parser("assemble-journey", help="assemble a multi-campaign journeys.toml: lint + emit the "
+                        "World-Hub field.toml (resolves BOTH bare and multi-campaign journeys)")
+    aj.add_argument("journeys", help="path to a journeys.toml ([hub] + [[journey]] rows)")
+    aj.add_argument("--out", default=None,
+                    help="output hub field.toml (default: hub.field.toml beside the journeys.toml)")
+    aj.add_argument("--graph", action="store_true", help="print the resolved namespace before emitting")
+    aj.add_argument("--dry-run", dest="dry_run", action="store_true",
+                    help="lint + print the resolved plan, but DON'T write the hub field.toml")
+    aj.set_defaults(func=_cmd_assemble_journey)
 
     ef = sub.add_parser("extract-field", help="cache a real field's camera+walkmesh in the gitignored "
                         "workspace cache (reused by BG-borrow tomls / gen-hub --extract-camera)")

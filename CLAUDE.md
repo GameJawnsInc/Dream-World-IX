@@ -385,13 +385,24 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - Campaign-scale New-Game capstone — New Game → a forked verbatim CHAIN that plays its real story (Dali: wake-up → Garnet rejoins @2640), beat/bag/gear seeded on the entry; `tools/retarget_newgame_warp.py` + `import-chain --name-prefix` (cross-worktree FBG/EVT namespace); `deploy_campaign` auto-promotes start-state CSVs to the highest folder + ABORTS on a cross-folder EVT/FBG name collision (`--allow-name-collision` to override) → [[project-ff9-new-game-entry]]
 - InfoHub authoring — place any model/prop/creature by name → [[project-ff9-infohub-authoring]]
 - `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
-- World Hub — a playable journey selector (choice `warp` + `[player] model=` moogle PC): a `journeys.toml` → hub-field **generator** (`ff9mapkit gen-hub`; `docs/JOURNEYS.md` schema — `id`/`name`/`entry`/seed); New Game → hub (seamless); journeys warp into REAL verbatim forks (Dali 4100 + Treno-Pub 4501); an entry **camera-settle** (`[camera] entry_settle`) — the warp-in drift is an F6-debug-warp artifact, the shipped New-Game/gateway entries are clean. Multi-campaign journey **assembler** = the next overworld step (`docs/JOURNEYS.md` handoff) → [[project-ff9-world-hub]]
+- World Hub — a playable journey selector (choice `warp` + `[player] model=` moogle PC): a `journeys.toml` → hub-field **generator** (`ff9mapkit gen-hub`; `docs/JOURNEYS.md` schema — `id`/`name`/`entry`/seed); New Game → hub (seamless); journeys warp into REAL verbatim forks (Dali 4100 + Treno-Pub 4501); an entry **camera-settle** (`[camera] entry_settle`) — the warp-in drift is an F6-debug-warp artifact, the shipped New-Game/gateway entries are clean. → [[project-ff9-world-hub]]
+- Multi-campaign journey **assembler** (`ff9mapkit/journey.py`; CLI `lint-journey`/`assemble-journey`) — the OFFLINE CORE built: one unified `journeys.toml` (`[hub]` + bare `entry=<id>` OR multi-campaign `campaigns`/`entry={campaign,field}`/`[journey.seed]`/`[[journey.link]]` rows); resolves member NAMEs → global ids, assigns disjoint flag windows, and lints the GLOBAL id-disjointness guarantee across every campaign of every journey (the §8 "whole job"); folds `hub.render_hub_field_toml` in so one renderer serves bare + multi. The in-game **deploy orchestration** (`deploy_journey`: per-campaign deploy at each band + link `.eb` retarget + hub + New-Game wire) is the next step. → [[project-ff9-world-hub]]
 
-**Latest:** kit 0.9.81, 1432 tests (suite ~146s serial / ~56s `-n 6` via pytest-xdist; an in-process static-bundle
+**Latest:** kit 0.9.82, 1476 tests (suite ~146s serial / ~54s `-n 6` via pytest-xdist; an in-process static-bundle
 cache stops it re-reading the 68 MB event bundle per install-gated call — a "2-hour" run is contention, not a
-regression → [[project-ff9-test-suite-perf]]). `deploy_campaign` productionized (auto-promote start-state CSVs to the highest
-folder + ABORT on a cross-folder EVT/FBG name collision; wires New Game via the field-70 retarget, not the broken
-field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain. World-Hub: `gen-hub` generator + New Game → hub → REAL verbatim journeys (Dali 4100 + Treno-Pub 4501) + entry camera-settle — all IN-GAME PROVEN (the shipped entries are camera-clean; only the F6 debug warp drifts); the multi-campaign journey ASSEMBLER (`docs/JOURNEYS.md` handoff) is the next overworld step.
+regression → [[project-ff9-test-suite-perf]]). **Multi-campaign journey ASSEMBLER — offline core built** (`ff9mapkit/journey.py`
++ CLI `lint-journey`/`assemble-journey`; 26 tests): one unified `journeys.toml` (`[hub]` + bare `entry=<id>` OR
+multi-campaign `campaigns`/`entry={campaign,field}`/`[journey.seed]`/`[[journey.link]]`); `load_journeys`/`resolve_journey`
+(member NAMEs → global ids, disjoint flag windows)/`lint_manifest` (the §8 GLOBAL id-disjointness guarantee across every
+campaign of every journey — one EventDB namespace, all registered at launch)/`manifest_to_hub_spec`+`generate_hub` (folds
+`hub.render_hub_field_toml` so ONE renderer serves bare + multi; `hub.hubspec_from_table` extracted). Open §6 decisions
+resolved in `docs/JOURNEYS.md §9` (NAMEs preferred; link `from.field`/alias `seam`; `[journey.seed]` IS the story_flags
+capstone; one-way). Next = the in-game `deploy_journey` (per-campaign deploy at each band + link `.eb` retarget + hub +
+New-Game wire; needs Evil Forest forked). Before this: `deploy_campaign` productionized (auto-promote start-state CSVs to
+the highest folder + ABORT on a cross-folder EVT/FBG name collision; wires New Game via the field-70 retarget, not the
+broken field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain.
+World-Hub: `gen-hub` generator + New Game → hub → REAL verbatim journeys (Dali 4100 + Treno-Pub 4501) + entry
+camera-settle — all IN-GAME PROVEN (the shipped entries are camera-clean; only the F6 debug warp drifts).
 Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4/5: raw16 full codec + golden
 round-trip; `[scene]` combat-identity tuning by name; `battle-actions` / `battle-scene` catalogs; the **offline
 balance-lint** `scenelint.py`; **`[[battle_action]]`/`[[status]]`** CSV-delta ability/status rebalancing; **Phase 4 —

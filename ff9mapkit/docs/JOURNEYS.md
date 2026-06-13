@@ -232,3 +232,56 @@ Then a minimal `journeys.toml` at the project root referencing both folders (§2
 
 (handoff authored from editor_gui; ship/merge per the FF-master discipline. Related: `project-ff9-world-hub`,
 `project-ff9-new-game-entry`, `project-ff9-branch-lanes`, `project-ff9-worldmap-feasibility`.)
+
+---
+
+## 9. Implementation status (overworld lane — the OFFLINE CORE is BUILT)
+
+`ff9mapkit/journey.py` + CLI `lint-journey` / `assemble-journey` implement the **offline assembler core** —
+the §8 namespace guarantee, fully unit-testable with no game install (`tests/test_journey.py`, 26 tests).
+The in-game **deploy orchestration** (build each campaign at its band, realize each link as a live warp,
+deploy the hub, wire New Game) is the remaining step — scoped below, deferred because it's human-playtested
+(Hard Constraint §2). The schema is unified with overworld's proven single-field hub journeys.
+
+**The unified `journeys.toml`** — one file, `[hub]` (presentation, `ff9mapkit.hub`'s schema) + `[[journey]]`
+rows that are **either** a *bare* single-field journey (overworld's proven floor — `entry = <field id>`,
+optional `set_scenario`) **or** the *multi-campaign* shape from §2 (`campaigns` / `entry = {campaign, field}`
+/ `[journey.seed]` / `[[journey.link]]`). `gen-hub` builds **only** the bare rows (rejects multi-campaign);
+`assemble-journey` resolves **both** (a bare row = the degenerate zero-campaign journey) and folds
+`hub.render_hub_field_toml` in as its hub-emit step — one renderer, both paths.
+
+**Built (offline, no game):**
+- `load_journeys` — pure tk-free loader (mirrors `campaign.load_campaign`): `JourneyManifest{hub, journeys}`,
+  `Journey{id, name, campaigns, entry: JourneyRef, seed: JourneySeed, links: [JourneyLink], set_scenario}`.
+- `resolve_journey` / `load_campaign_plans` — resolve entry/link member names → **global field ids**, assign
+  each campaign a **disjoint flag window** (laid end-to-end from `FIRST_SAFE_FLAG`).
+- `lint_manifest` — **the namespace guarantee**: every referenced campaign exists + parses + passes
+  `lint_campaign`; **global id-disjointness** across every campaign of every journey + bare entries (one
+  EventDB/SceneData namespace — all registered at launch, so a collision is a hard launch failure regardless
+  of which journey is picked); per-journey flag windows fit below `CHOICE_SCRATCH_FLOOR`; links resolve to
+  real members + flag a non-boundary source; chain connectivity; entry valid; seed range-checked.
+- `manifest_to_hub_spec` / `generate_hub` — emit the hub field.toml for bare + multi-campaign journeys.
+- `render_journey_plan` — the read-only resolved view (`lint-journey --graph`).
+
+**The §6 open decisions, resolved (overworld's call):**
+1. **Location** — project root, campaign folders **relative to the journeys.toml** (`manifest.root`). A
+   single-campaign demo beside its `campaign.toml` also works (folders are relative either way).
+2. **Targets** — member **NAME** preferred (resolved to a global id at assemble); a raw id is accepted but
+   lint **warns** (brittle to re-id).
+3. **Elided world-map leg** — a bare cross-campaign `Field()` warp (the link, realized at deploy time); no
+   interstitial field for now. The link `from` names the **boundary member** (key `field`, alias `seam`);
+   lint flags a source with no out-of-chain seam (nothing to retarget — the deploy injects a fresh warp).
+4. **Seed** — `[journey.seed]` **IS** the story_flags capstone (the whole table is carried verbatim as
+   `JourneySeed.raw`); no parallel mechanism. The hub also seeds `scenario` so the select path lands on the
+   right beat.
+5. **Mod folders** — each campaign keeps its own `mod_folder` (from its `campaign.toml`); the assembler
+   stacks them via `FolderNames`. The hub owns the highest folder + New Game (`project-ff9-world-hub`).
+6. **Replay** — one-way; New Game switches journeys (confirmed).
+
+**Remaining — the in-game deploy step (`deploy_journey`, next):** per-campaign `deploy_campaign --no-warp`
+at each disjoint band (applying the assigned `flag_base` via a `build_campaign` override); realize each link
+by byte-patching the boundary member's `.eb` `Field()` exit → the next campaign's entry global id (reuse
+`gateway.graft_gateway_entry` / `retarget_newgame_warp`'s 0x2B scanner); emit + deploy the hub; seed the
+entry field (the story_flags capstone) + promote start-state CSVs to the highest folder; retarget New Game
+→ the hub. Each is human-playtested. **Prerequisite (§7): fork Evil Forest** (`import-chain`) for the worked
+two-campaign example (Ice Cavern exists).
