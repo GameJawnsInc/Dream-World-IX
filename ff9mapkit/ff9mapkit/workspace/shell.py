@@ -1308,7 +1308,7 @@ def _smoke(win):
     from PySide6.QtWidgets import QPlainTextEdit as _PTE
     longnpc = {"name": "Vivi", "dialogue": "this is a fairly long dialogue line that must wrap"}
     pw, _pg = build_form(forms.NPC_SPEC, forms.entity_to_values(forms.NPC_SPEC, longnpc), win.pal, wrap_width=12)
-    prev_box = pw.findChildren(_PTE)
+    prev_box = [pte for pte in pw.findChildren(_PTE) if pte.isReadOnly()]    # the PREVIEW (read-only) box
     assert prev_box and prev_box[0].toPlainText() == _dlg.wrap_preview(longnpc["dialogue"], 12), \
         (prev_box and prev_box[0].toPlainText())
     assert "\n" in prev_box[0].toPlainText(), "a long line pre-breaks in the preview"
@@ -1316,6 +1316,14 @@ def _smoke(win):
     # warn<->fits can't reflow/clip the preview box (the reported resize bug)
     note = [lb for lb in prev_box[0].parent().findChildren(QLabel) if lb.maximumHeight() == 16]
     assert note and note[0].minimumHeight() == 16, "the wrap-preview note is fixed-height (no reflow)"
+    # MULTI-LINE dialogue: the EDITABLE dialogue widget is a QPlainTextEdit that holds real newlines, and
+    # an interior \n survives build_entity (only edges are stripped) -> FF9's native in-window line break
+    edit_box = [pte for pte in pw.findChildren(_PTE) if not pte.isReadOnly()]
+    assert edit_box, "the dialogue field is a multi-line text box (not a single-line edit)"
+    edit_box[0].setPlainText("Line one\nLine two")
+    assert _pg["dialogue"]() == "Line one\nLine two"                         # getter returns the real newline
+    assert forms.build_entity(forms.NPC_SPEC, read(_pg))["dialogue"] == "Line one\nLine two"  # \n kept by build
+    assert prev_box[0].toPlainText() == _dlg.wrap_preview("Line one\nLine two", 12)  # preview honors the break
 
     # Phase 4b: the cutscene + choice sub-editors mount over a doc with steps/options
     edoc = win._doc("IC_ENT")

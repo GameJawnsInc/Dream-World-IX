@@ -107,6 +107,16 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             combo.addItems(list(forms.PRESETS))
             combo.setCurrentText(str(values.get(f.key, "") or ""))
             widget, getters[f.key], setter = combo, combo.currentText, combo.setCurrentText
+        elif f.key in DIALOGUE_KEYS:
+            # MULTI-LINE: dialogue carries explicit line breaks (Enter = a real \n, which is FF9's native
+            # in-window line break; type [PAGE] for a new window). QLineEdit collapses newlines -> use a
+            # plain text box. toPlainText returns real \n, preserved through build_entity/TOML/.mes.
+            te = QPlainTextEdit(str(values.get(f.key, "") or ""))
+            te.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+            te.setTabChangesFocus(True)            # Tab -> next field (Enter is the line break, not Tab)
+            te.setFixedHeight(72)                   # ~4 lines, like the old Dialogue Editor
+            te.setToolTip("Enter = a line break in the same window. Type [PAGE] for a new window.")
+            widget, getters[f.key], setter = te, te.toPlainText, te.setPlainText
         else:
             le = QLineEdit(str(values.get(f.key, "") or ""))
             if f.catalog:

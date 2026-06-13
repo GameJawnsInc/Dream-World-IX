@@ -160,6 +160,24 @@ def test_marker_and_dialogue_specs_round_trip():
     assert forms.build_entity(forms.DIALOGUE_SPEC, forms.entity_to_values(forms.DIALOGUE_SPEC, d)) == d
 
 
+def test_dialogue_preserves_interior_newlines_through_build_and_toml():
+    # Multi-line dialogue: an interior \n is FF9's native in-window line break. build_entity must keep it
+    # (it strips only leading/trailing whitespace, never interior breaks), and the doc's TOML serializer
+    # must round-trip it losslessly -- so a line authored in the multi-line widget survives to the .mes.
+    import tomllib
+
+    from ff9mapkit.editor import model
+    e = forms.build_entity(forms.NPC_SPEC, {"name": "Vivi", "dialogue": "Line one\nLine two\nLine three"})
+    assert e["dialogue"] == "Line one\nLine two\nLine three"          # interior \n preserved by build_entity
+    back = tomllib.loads(model.dumps({"npc": [e]}))
+    assert back["npc"][0]["dialogue"] == "Line one\nLine two\nLine three"   # and by the TOML write+read
+    # edges ARE trimmed (a stray leading space / trailing blank line is dropped); interior is untouched
+    assert forms.build_entity(forms.NPC_SPEC, {"name": "V", "dialogue": "  A\nB  \n"})["dialogue"] == "A\nB"
+    # the same holds for the other on-screen-text fields (message / prompt / reply)
+    assert forms.build_entity(forms.EVENT_SPEC, {"name": "e", "message": "a\nb"})["message"] == "a\nb"
+    assert forms.build_entity(forms.CHOICE_OPTION_SPEC, {"text": "x", "reply": "a\nb"})["reply"] == "a\nb"
+
+
 def test_section_help_present_for_all_sections():
     for key in ("field", "camera", "dialogue", "encounter", "music", "cutscene",
                 "npc", "gateway", "event", "marker"):
