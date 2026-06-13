@@ -1,0 +1,107 @@
+# Items & equipment — the cumulative no-DLL showcase (see README.md for the full walkthrough + recreate steps).
+#
+# This ONE field.toml exercises EVERY item/equipment lever the kit ships, each a pure data patch (no engine
+# DLL): weapon stats/elements/class/status, armor defence, item price, who-can-equip, taught abilities, equip
+# stat bonuses, a custom synthesis shop, a consumable's use-effect, and an item's NAME + DESCRIPTION text.
+# Most blocks are mod-GLOBAL (they ship CSV / TextPatch deltas into the mod folder) — you do NOT need to visit
+# field 4003 for them; the field is just the delivery vehicle (+ it hosts the synthesis press-shop).
+#
+# Recreate the demo:
+#   ff9mapkit lint examples/items-equipment/items_equipment.field.toml
+#   py tools/deploy_field.py examples/items-equipment/items_equipment.field.toml --id 4003
+#   # then RELAUNCH (item CSVs + TextPatch.txt load once at startup; F6 Reload won't apply them)
+# Revert it:  py tools/scroll_out/revert_deploy_4003.py   (restores the base CSVs + removes TextPatch.txt)
+
+[field]
+id = 4003
+name = "ITEMTEST"
+area = 11               # BG-borrow a real field's art (area >= 10); no PNGs needed for this demo
+text_block = 1073
+
+[camera]
+pitch = 45
+
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+
+[player]
+spawn = [0, -300]
+
+# --- weapon combat data (Weapons.csv / ItemAttack): power, elements, class, status-on-hit ---
+[[weapon]]
+name = "Mage Masher"
+power = 99            # base 14 -> 99 (equip it on Zidane: his Attack jumps)
+elements = ["Fire"]  # base none -> Fire-elemental
+
+[[weapon]]
+name = "Dagger"
+power = 88            # base 12 -> 88 (Zidane's starting weapon, in case you don't have Mage Masher)
+
+[[weapon]]
+name = "The Ogre"    # a SOUL BLADE weapon (Zidane's thief-sword; it teaches Soul Blade = AA:104, script 46)
+status_index = 10    # StatusSets row 10 = Mini (the enemy visibly SHRINKS -- non-lethal, so the enemy survives and
+                     #   you can clearly see it). Vanilla The Ogre's Soul Blade inflicts BLIND (set 14) -> Mini = proof.
+                     #   (Set 3 = Venom+Poison also worked, but its damage-over-time can kill a weak enemy before you
+                     #    read the icon -- which is what looked like "battle over instantly".)
+rate = 100           # Soul Blade applies the status DIRECTLY (ignores rate); the normal-attack Add-Status path is
+                     #   dummied in this Memoria build, so a plain Attack never rolls a weapon's status.
+category = ["short-range", "throw"]   # weapon class round-trips (The Ogre is a thrown thief-sword)
+
+# --- armor defence (Armors.csv / ItemDefence) ---
+[[armor]]
+name = "Bronze Armor"
+p_def = 50           # a beefy chestpiece
+
+# --- item info (Items.csv): price + the abilities a piece of gear TEACHES while equipped ---
+[[item]]
+name = "Mage Masher"
+price = 1            # and dirt cheap to buy
+teaches = ["Soul Blade"]   # vanilla teaches Detect/What's That -> now Soul Blade (AA:104, IS in Zidane's pool);
+                           #   F6-give + equip on Zidane -> Soul Blade appears in his Skill command (unequip -> gone)
+
+# --- equippable_by: REWRITE who can equip an item (the 12 Items.csv character bits) ---
+[[item]]
+name = "Broadsword"          # vanilla: Steiner/Marcus/Blank only (a knight's sword Zidane can't touch)
+equippable_by = ["Zidane"]   # now Zidane-ONLY -> F6 give Broadsword, open Zidane's WEAPON equip list: it appears
+
+# --- equip stat bonuses (Stats.csv / ItemStats): the level-up-growth + affinity lever ---
+# The bonus shows IMMEDIATELY in the status menu when equipped (elem = base + equip bonus), and it's the input
+# the level-up accumulator reads (~32 levels per point of permanent growth).
+[[equip_bonus]]
+name = "Bone Wrist"   # item 91, a DEDICATED bonus row (id 4) -> edited IN PLACE
+strength = 50         # equip it on Zidane: Strength jumps +50 in the status screen
+weak_element = ["Fire"]
+
+[[equip_bonus]]
+name = "Mage Masher"  # BonusId 0 (shared Empty) -> MINTS a fresh Stats row + repoints its Items.csv BonusId
+magic = 30            # equipping the Mage Masher now also grants +30 Magic (isolated to it, not every no-bonus item)
+
+# --- a custom SYNTHESIS shop (Synthesis.csv recipe delta + a press-region opener) ---
+# Shop 50 isn't in ShopItems.csv (only 0-31 are), so Menu(2,50) opens it as a SYNTHESIS shop. Warp to field 4003
+# (F6 -> Warp -> 4003), walk into the back of the room ("!" appears) and press: the synth shop opens with these 2
+# recipes. The first is NOT a vanilla recipe (Mythril Dagger from Mage Masher + Potion) -> proof it's the kit's.
+[[synthesis]]
+shop = 50
+recipes = [
+  { result = "Mythril Dagger", ingredients = ["Mage Masher", "Potion"], price = 50 },   # custom (not vanilla)
+  { result = "The Ogre",       ingredients = ["Mage Masher", "Mage Masher"], price = 100 },
+]
+zone = [[-800, -350], [800, -350], [800, -800], [-800, -800]]   # press area in the back half of the room
+bubble = true
+
+# --- a consumable use-effect (ItemEffects.csv): tune what a Potion DOES ---
+# The heal is Power x 15 (BattleCalculator.CalcHpMagicRecovery: HpDamage = AttackPower x Attack, Attack=15).
+# Vanilla Potion Power=10 -> heals 150. Power=1 -> heals exactly 15 (flat, below any maxHP -> shows precisely).
+[[item_effect]]
+name = "Potion"
+power = 1
+
+# --- item NAME + DESCRIPTION text (TextPatch.txt >DATABASE find/replace): make the menu MATCH the retune ---
+# Pairs with the [[item_effect]] above: that made the Potion heal 15, this makes its menu text SAY so. After a
+# RELAUNCH (TextPatch.txt loads once at startup -- F6 won't), open the item menu / use-in-battle target list:
+# the Potion now reads "Mega Potion" and "Restores 15 HP." -- proof the text channel works. (description sets
+# BOTH the menu-help and the in-battle description -- the engine flags them identically.)
+[[item_text]]
+name = "Potion"
+display_name = "Mega Potion"
+description = "Restores 15 HP."
