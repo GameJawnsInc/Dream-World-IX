@@ -790,6 +790,44 @@ def test_keyitems_resolve_by_id():
         K.resolve(999)
 
 
+def test_read_main_keyitems_unit():
+    pt = bytearray(9000)
+    # item 4 (byte 1, bits 0/1): obtained; item 7 (byte 1, bits 6/7): obtained+used
+    pt[SI.MAIN_RAREITEMS_OFF + 1] = 0b11000001
+    ki = {i: (ob, us) for i, _, ob, us in SI.read_main_keyitems(pt)}
+    assert ki == {4: (True, False), 7: (True, True)}                    # 2-bit codec: byte b -> items 4b..4b+3
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_keyitem_give_change_remove(tmp_path):
+    c = _enc_container(tmp_path, block=1)
+    held = lambda: {i for i, _, ob, us in SI.decode_main_block(c, 1).keyitems if ob}
+    assert 4 not in held()
+    r = SI.set_main_keyitem(c, 1, 4, dry_run=False)                     # give id 4
+    assert r.action == "added" and r.wrote and 4 in held()
+    r = SI.set_main_keyitem(c, 1, 4, obtained=True, used=True, dry_run=False)
+    assert r.action == "changed"
+    assert {i: (ob, us) for i, _, ob, us in SI.decode_main_block(c, 1).keyitems}[4] == (True, True)
+    r = SI.set_main_keyitem(c, 1, 4, obtained=False, used=False, dry_run=False)
+    assert r.action == "removed" and 4 not in held()
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_main_keyitem_scoped(tmp_path):
+    c = _enc_container(tmp_path, block=1, gil=4242, items=((236, 7),))
+    SI.set_main_keyitem(c, 1, 6, dry_run=False)
+    rep = SI.decode_main_block(c, 1)
+    assert rep.gil == 4242 and rep.inventory[0] == (236, I.name_of(236), 7)   # gil/items untouched (one byte moved)
+
+
+@pytest.mark.skipif(not _has_crypto(), reason="needs pycryptodome")
+def test_set_keyitem_in_save_vanilla(tmp_path):
+    c = _enc_container(tmp_path / "kv", block=1)
+    res = SI.set_keyitem_in_save(c, 1, 9, dry_run=False)
+    assert res["main"].wrote and res["extra"] is None                  # vanilla -> main only
+    assert any(i == 9 for i, _, ob, us in SI.decode_main_block(c, 1).keyitems if ob)
+
+
 # ---- install-gated: the real save ------------------------------------------------------------
 def _real_main_save():
     from ff9mapkit import save as S

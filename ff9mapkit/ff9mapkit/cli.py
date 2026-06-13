@@ -1129,22 +1129,25 @@ def _cmd_items_set_equip(args: argparse.Namespace) -> int:
 
 
 def _cmd_items_set_keyitem(args: argparse.Namespace) -> int:
-    """Give / remove a KEY (important) item by name in the Memoria EXTRA file. Default gives it (obtained);
-    --remove removes it, --used marks it used. Dry-run unless --apply. (Key items are extra-only for now; a
-    vanilla no-extra slot has no extra to write.)"""
+    """Give / remove a KEY (important) item by name. On a container, dual-writes the MAIN block's rareItems +
+    the Memoria extra's rareItemsEx (so a vanilla no-extra save is editable too); on an extra-save directly,
+    writes that. Default gives it (obtained); --remove removes it, --used marks it used. Dry-run unless --apply."""
     from . import save_items as SI
     try:
-        if SI.load_extra_common(args.save)[0] is not None:             # a Memoria extra-save directly
-            extra = args.save
-        else:                                                          # a container -> resolve the slot's extra
-            extra = SI.resolve_extra(args.save, slot=args.slot, save=args.save_no, autosave=args.autosave)
         obtained = not args.remove and not args.not_obtained
-        rep = SI.set_keyitem_extra(extra, args.keyitem, obtained=obtained, used=args.used and not args.remove,
-                                   dry_run=not args.apply, backup=not args.no_backup)
+        used = args.used and not args.remove
+        if SI.load_extra_common(args.save)[0] is not None:             # a Memoria extra-save directly
+            rep = SI.set_keyitem_extra(args.save, args.keyitem, obtained=obtained, used=used,
+                                       dry_run=not args.apply, backup=not args.no_backup)
+            print(SI.render_keyitem_write(rep))
+        else:                                                          # a SavedData_ww.dat container + slot
+            block = SI._resolve_block(slot=args.slot, save=args.save_no, autosave=args.autosave)
+            res = SI.set_keyitem_in_save(args.save, block, args.keyitem, obtained=obtained, used=used,
+                                         dry_run=not args.apply, backup=not args.no_backup)
+            print(SI.render_keyitem_dual(res))
     except Exception as e:                                              # noqa: BLE001
         print(f"could not set key item: {e}")
         return 2
-    print(SI.render_keyitem_write(rep))
     return 0
 
 

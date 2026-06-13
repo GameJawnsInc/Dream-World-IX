@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — save-item editor: vanilla key items (main-block `rareItems`) + the GUI key-item control (0.9.66)
+- Completes key items: a **vanilla (no-extra) save's key items** are now editable, and the **GUI** gains a
+  Key-items give/remove control — so the #5 editor covers **every data type on every save kind**.
+- ★ **Layout finding (empirical):** the old-format main block holds key items in a **64-byte `rareItems`
+  bitfield at offset 7947** — 2 bits per item (obtained at the even bit, used at odd), 256 items (item `j` →
+  byte `7947 + j//4`, shift `(j%4)*2`). Verified byte-stable: the vanilla blocks decode to sensible key-item
+  sets (16 / 21 items). (The probe memory's "rareItems@7947 was WRONG" was a save with zero key bytes there —
+  the *offset* is right.)
+- **`save_items.set_main_keyitem(container, block, keyitem, *, obtained, used)`** — flips exactly the item's 2
+  bits (validate gate · scoped byte-diff: only that byte moves · atomic · backup · position-aware confirm ·
+  dry-run). + `read_main_keyitems` + `main_report` now carries key items. **`set_keyitem_in_save`** dual-write
+  (main `rareItems` + extra `rareItemsEx`); CLI `items-set-keyitem` on a container dual-writes; `render_keyitem_dual`.
+- **GUI** (`apps/ff9_items.pyw`): a "Key items" section (name → Preview / Give / Remove), dual-write on a
+  container (handles vanilla), extra-only on an extra-save. 8 new tests.
+
 ### Added — battle-tuning Phase 6b: same-length enemy-AI constant patches (`[[scene.ai_patch]]`) (0.9.64)
 - **`battle/aipatch.py`** — the first AI *authoring* step (read = Phase-6a `battle-ai`). An enemy's AI is the
   per-scene `EVT_BATTLE_*.eb` bytecode; the safest edit is a *literal* one — change a numeric CONSTANT in place

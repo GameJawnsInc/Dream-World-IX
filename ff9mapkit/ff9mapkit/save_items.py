@@ -51,6 +51,11 @@ OLD_SLOT_NAMES = {0: "Zidane", 1: "Vivi", 2: "Garnet", 3: "Steiner", 4: "Freya",
                   5: "Quina", 6: "Eiko", 7: "Amarant", 8: "Beatrix"}        # old-slot -> primary character
 _CHAR_TO_OLD_SLOT = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 11: 8,   # CharacterId -> old-slot
                      8: 5, 9: 6, 10: 7}                                       # Cinna/Marcus/Blank share 5/6/7
+# Key items: a 64-byte bitfield, 2 bits per item (obtained at even bit, used at odd) -> 256 items. Item j is at
+# byte MAIN_RAREITEMS_OFF + j//4, bits (j%4)*2 (obtained) / +1 (used). Empirically byte-stable (vanilla saves
+# decode to sensible key-item sets). (FF9StateGlobal.Get/ParseRareItemByteFormat.)
+MAIN_RAREITEMS_OFF = 7947
+MAIN_RAREITEMS_LEN = 64
 
 # CharacterId (Memoria.Data.Characters.CharacterId) -- the key of `players[].info.slot_no` in the save. The
 # equip array is keyed by THIS (not array index / EquipmentSetId, which diverges above 7). Names/ids only.
@@ -644,10 +649,24 @@ def read_main_equipment(pt) -> list:
     return out
 
 
+def read_main_keyitems(pt) -> list:
+    """``[(id, name, obtained, used), ...]`` from the main block's 64-byte 2-bit ``rareItems`` bitfield (only the
+    items with either bit set)."""
+    out = []
+    for b in range(MAIN_RAREITEMS_LEN):
+        bv = pt[MAIN_RAREITEMS_OFF + b]
+        for k in range(4):
+            ob, us = bool(bv & (1 << (k * 2))), bool(bv & (1 << (k * 2 + 1)))
+            if ob or us:
+                j = b * 4 + k
+                out.append((j, _keyitems.name_of(j), ob, us))
+    return out
+
+
 def main_report(pt) -> ItemReport:
-    """An :class:`ItemReport` for a decrypted main block (gil + inventory + the 9 old-format players' equipment)."""
+    """An :class:`ItemReport` for a decrypted main block (gil + inventory + the 9 players' equipment + key items)."""
     return ItemReport(gil=read_main_gil(pt), inventory=read_main_inventory(pt),
-                      equipment=read_main_equipment(pt))
+                      equipment=read_main_equipment(pt), keyitems=read_main_keyitems(pt))
 
 
 def decode_main_block(container, block):
@@ -840,6 +859,53 @@ def set_main_equip(container, block: int, character, slot, item, *, dry_run: boo
                             wrote=did_write, backup_path=backup_path)
 
 
+def set_main_keyitem(container, block: int, keyitem, *, obtained: bool = True, used: bool = False,
+                     dry_run: bool = True, backup: bool = True) -> KeyItemWriteReport:
+    """Set a KEY item's state in the ENCRYPTED MAIN block's 64-byte 2-bit ``rareItems`` bitfield (for a
+    vanilla/no-extra save). Flips exactly the 2 bits for ``keyitem`` (a name / 0-255 id). Same safety as the
+    other main writers: ``validate_main_block`` gate, a scoped byte-diff (only that one byte moves), atomic
+    write, timestamped backup, post-write confirm, dry-run default."""
+    iid = _keyitems.resolve(keyitem)
+    try:
+        raw = open(container, "rb").read()
+    except OSError as e:
+        raise ValueError(f"cannot read save container {container!r}: {e}") from e
+    sv = _save.FF9Save.load(container)
+    orig_pt = bytes(_decrypt_main(sv, block))
+    pt = bytearray(orig_pt)
+    validate_main_block(pt)                               # GATE (gil/items confirm the old-format layout)
+    pos = MAIN_RAREITEMS_OFF + iid // 4
+    shift = (iid % 4) * 2
+    old = pt[pos]
+    old_ob, old_us = bool(old & (1 << shift)), bool(old & (1 << (shift + 1)))
+    nv = old & ~(0b11 << shift)                           # clear this item's 2 bits, then set per request
+    if obtained:
+        nv |= 1 << shift
+    if used:
+        nv |= 1 << (shift + 1)
+    pt[pos] = nv
+    if not obtained and not used:
+        action = "removed" if (old_ob or old_us) else "unchanged"
+    elif (obtained, used) == (old_ob, old_us):
+        action = "unchanged"
+    else:
+        action = "changed" if (old_ob or old_us) else "added"
+    diff = [k for k in range(len(pt)) if pt[k] != orig_pt[k]]   # SCOPED: only that one bitfield byte may move
+    if diff and diff != [pos]:
+        raise AssertionError("main key-item edit touched bytes other than its rareItems byte; aborting")
+    backup_path, did_write = None, False
+    if not dry_run and diff:
+        sv._encrypt_block(block, bytes(pt))
+        backup_path = _atomic_write(container, raw, bytes(sv.data), backup=backup)
+        chk = bytearray(_decrypt_main(_save.FF9Save.load(container), block))   # CONFIRM the 2 bits
+        cv = chk[pos]
+        if (bool(cv & (1 << shift)), bool(cv & (1 << (shift + 1)))) != (obtained, used):
+            raise AssertionError(f"post-write check failed: key item {iid} bits read back wrong")
+        did_write = True
+    return KeyItemWriteReport(path=f"{container}#block{block}", item_id=iid, item_name=_keyitems.name_of(iid),
+                              obtained=obtained, used=used, action=action, wrote=did_write, backup_path=backup_path)
+
+
 def set_gil_in_save(container, block: int, gil: int, *, dry_run: bool = True, backup: bool = True,
                     mirror: bool = True) -> dict:
     """Write gil into a whole save SLOT: the ENCRYPTED MAIN block AND (when ``mirror`` and it exists) the Memoria
@@ -885,6 +951,22 @@ def set_equip_in_save(container, block: int, character, slot, item, *, dry_run: 
         if extra and os.path.isfile(extra):
             extra_rep = set_equip(extra, character, slot, item, dry_run=dry_run, backup=backup)
     main_rep = set_main_equip(container, block, character, slot, item, dry_run=dry_run, backup=backup)
+    return {"main": main_rep, "extra": extra_rep}
+
+
+def set_keyitem_in_save(container, block: int, keyitem, *, obtained: bool = True, used: bool = False,
+                        dry_run: bool = True, backup: bool = True, mirror: bool = True) -> dict:
+    """Set a key item in a whole save SLOT: the MAIN block's ``rareItems`` bitfield AND (when ``mirror`` +
+    present) the Memoria EXTRA's ``rareItemsEx``. Vanilla -> main only. Returns ``{"main": KeyItemWriteReport,
+    "extra": KeyItemWriteReport|None}`` (extra written FIRST -- it's load-authoritative)."""
+    extra_rep = None
+    if mirror:
+        extra = _save.extra_file_path(container, block)
+        if extra and os.path.isfile(extra):
+            extra_rep = set_keyitem_extra(extra, keyitem, obtained=obtained, used=used,
+                                          dry_run=dry_run, backup=backup)
+    main_rep = set_main_keyitem(container, block, keyitem, obtained=obtained, used=used,
+                                dry_run=dry_run, backup=backup)
     return {"main": main_rep, "extra": extra_rep}
 
 
@@ -971,6 +1053,18 @@ def render_equip_dual(res: dict) -> str:
     if res.get("extra") is not None:
         lines.append("  [Memoria extra -- the load-authoritative store]")
         lines += ["  " + ln for ln in render_equip_write(res["extra"]).splitlines()]
+    else:
+        lines.append("  (no Memoria extra for this slot -- a vanilla save; the main block governs in-game)")
+    return "\n".join(lines)
+
+
+def render_keyitem_dual(res: dict) -> str:
+    """Render a :func:`set_keyitem_in_save` outcome (the main block + the extra mirror)."""
+    lines = ["  [main block]"]
+    lines += ["  " + ln for ln in render_keyitem_write(res["main"]).splitlines()]
+    if res.get("extra") is not None:
+        lines.append("  [Memoria extra -- the load-authoritative store]")
+        lines += ["  " + ln for ln in render_keyitem_write(res["extra"]).splitlines()]
     else:
         lines.append("  (no Memoria extra for this slot -- a vanilla save; the main block governs in-game)")
     return "\n".join(lines)

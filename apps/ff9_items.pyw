@@ -142,6 +142,16 @@ class ItemsApp:
         ttk.Button(ef, text="Preview", command=lambda: self._edit("equip", False)).pack(side="left", padx=(8, 2))
         ttk.Button(ef, text="Apply", command=lambda: self._edit("equip", True)).pack(side="left")
 
+        # --- Key items ---
+        kf = ttk.LabelFrame(f, text="Key items  (give / remove an important item by name)", padding=4)
+        kf.pack(fill="x", pady=2)
+        ttk.Label(kf, text="name/id:").pack(side="left")
+        self.ki_var = tk.StringVar()
+        ttk.Entry(kf, textvariable=self.ki_var, width=18).pack(side="left", padx=4)
+        ttk.Button(kf, text="Preview", command=lambda: self._edit_keyitem(False, True)).pack(side="left", padx=(8, 2))
+        ttk.Button(kf, text="Give", command=lambda: self._edit_keyitem(True, True)).pack(side="left", padx=2)
+        ttk.Button(kf, text="Remove", command=lambda: self._edit_keyitem(True, False)).pack(side="left")
+
         self.edit_txt = self._text(f)
         self.edit_txt.pack(fill="both", expand=True, pady=(4, 0))
 
@@ -305,6 +315,46 @@ class ItemsApp:
         self.status.config(text="save edited (backup written) — reload it in-game")
         self._load(self.path, keep=self._selected())      # refresh inspect against the just-written save
 
+    def _edit_keyitem(self, apply, obtained):
+        """Give (obtained=True) / remove (obtained=False) a key item -- dual-write on a container slot (handles
+        a vanilla save's main-block rareItems), or extra-only on an extra-file-direct target."""
+        t = self._target()
+        if t is None or t["report"] is None:
+            self._out("Select a decodable slot on the left first.")
+            return
+        extra, container, block = t["extra"], t["container"], t["block"]
+        name = self.ki_var.get().strip()
+        try:
+            if container is not None:
+                render = _si.render_keyitem_dual
+                preview = _si.set_keyitem_in_save(container, block, name, obtained=obtained, dry_run=True)
+                do = lambda: _si.set_keyitem_in_save(container, block, name, obtained=obtained, dry_run=False)  # noqa: E731
+            elif extra is not None:
+                render = _si.render_keyitem_write
+                preview = _si.set_keyitem_extra(extra, name, obtained=obtained, dry_run=True)
+                do = lambda: _si.set_keyitem_extra(extra, name, obtained=obtained, dry_run=False)  # noqa: E731
+            else:
+                self._out("Select an editable slot first.")
+                return
+        except ValueError as e:
+            self._out(f"Cannot apply:\n  {e}")
+            return
+        if not apply:
+            self._out("PREVIEW (nothing written yet):\n" + render(preview))
+            return
+        if not messagebox.askyesno("Apply save edit?",
+                                   "This edits your REAL save (a timestamped .bak is written first):\n\n"
+                                   + render(preview) + "\n\nProceed?"):
+            return
+        try:
+            res = do()
+        except Exception as e:                            # noqa: BLE001
+            self._out(f"Write failed:\n  {e}")
+            return
+        self._out(render(res) + "\n\nReload the save in-game to see it (no relaunch needed).")
+        self.status.config(text="save edited (backup written) — reload it in-game")
+        self._load(self.path, keep=self._selected())
+
 
 def main():
     smoke = "--smoke" in sys.argv
@@ -399,7 +449,10 @@ def main():
             app._edit("equip", True)
             zeq = _si.decode_main_block(str(cont), 1).equipment[0]["equip"]["weapon"]
             assert zeq and zeq[1] == "MageMasher", "main-block equip edited via GUI (vanilla)"
-            vanilla_ok = "main-block gil+item+equip edited"
+            app.ki_var.set("7"); app._edit_keyitem(True, True)                 # give key item id 7 via the GUI
+            assert any(i == 7 for i, _, ob, us in _si.decode_main_block(str(cont), 1).keyitems if ob), \
+                "main-block key item given via GUI (vanilla)"
+            vanilla_ok = "main-block gil+item+equip+keyitem edited"
         except ImportError:
             pass
         print(f"smoke ok: extra slot gil/item/equip applied ({len(baks)} bak); vanilla {vanilla_ok}")
