@@ -31,12 +31,15 @@ from ..editor import feedback as fb
 from ..editor import forms
 from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import pick_palette
+from .builddoc import BuildDoc
 from .forms_qt import build_form, pick_catalog, read
+from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
+REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
 
 # section key -> forms spec.  Single tables + the list-entity kinds the Qt editor can edit today.
 # (cutscene steps + choice options are list-in-list sub-editors -- a Phase-4b follow-up.)
@@ -168,6 +171,9 @@ class Workspace(QMainWindow):
         self.act_lint_cli.triggered.connect(self.run_cli_lint)
         self.act_lint_cli.setEnabled(False)
         tb.addAction(self.act_lint_cli)
+        act_hub = QAction("Info Hub", self)
+        act_hub.triggered.connect(self._open_catalog)
+        tb.addAction(act_hub)
         spacer = QWidget()
         spacer.setSizePolicy(spacer.sizePolicy().Policy.Expanding, spacer.sizePolicy().Policy.Preferred)
         tb.addWidget(spacer)
@@ -218,6 +224,12 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.story_state, "Story State")
         self.item_equip = ItemEquipDoc(self.pal, output=self._save_output)         # gil/inventory/equip (5b-ii)
         self.tabs.addTab(self.item_equip, "Item & Equip")
+        # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
+        # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
+        self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems)
+        self.tabs.addTab(self.build_deploy, "Build & Deploy")
+        self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems)
+        self.tabs.addTab(self.import_field, "Import")
         split.addWidget(self.tabs)
 
         insp = QWidget()
@@ -272,8 +284,10 @@ class Workspace(QMainWindow):
             "<b>Open Field…</b> for a standalone <code>field.toml</code>; the left tree shows "
             "<b>journey ▸ campaign ▸ field ▸ object</b>, the breadcrumb tracks where you are, and "
             "<b>Check</b> fills the Problems dock.</p>"
-            "<p style='color:gray'>The field editor forms mount here in Phase 4; this shell wraps the "
-            "same backend as the tkinter apps.</p>")
+            "<p>One window, every tool: <b>Editor</b> (fields, NPCs, gateways, cutscenes, choices) · "
+            "<b>Map</b> · <b>Story State</b> + <b>Item &amp; Equip</b> save editors · <b>Build &amp; "
+            "Deploy</b> · <b>Import</b> (fork a real field). Press <b>Ctrl-K</b> to jump anywhere.</p>"
+            "<p style='color:gray'>This shell wraps the same tk-free backends the kit's CLI uses.</p>")
         self.tabs.addTab(w, "Welcome")
 
     # ---- item helpers ----
@@ -338,6 +352,7 @@ class Workspace(QMainWindow):
         self._docs = {name: doc}
         self._clean = {name: copy.deepcopy(doc.data)}
         self.map.clear()                           # a standalone field has no campaign map
+        self.build_deploy.set_target(path)         # pre-aim Build & Deploy at the open field
         self.act_check.setEnabled(True)
         self.act_lint_cli.setEnabled(False)       # lint-campaign is campaign-only
         self._populate_field(name)
@@ -371,6 +386,7 @@ class Workspace(QMainWindow):
         self.journey_name = self._journey_label()
         self._docs = {}
         self._clean = {}
+        self.build_deploy.set_target(path)         # pre-aim Build & Deploy at the open campaign
         self.act_check.setEnabled(True)
         self.act_lint_cli.setEnabled(True)
         self._populate()
@@ -525,10 +541,13 @@ class Workspace(QMainWindow):
             ("Open Save…", "command", self._open_save),
             ("Check", "command", self.on_check),
             ("Lint (CLI)", "command", self.run_cli_lint),
+            ("Browse catalog (Info Hub)", "command", self._open_catalog),
             ("Go to Editor", "view", lambda: self.tabs.setCurrentWidget(self.doc_scroll)),
             ("Go to Map", "view", lambda: self.tabs.setCurrentWidget(self.map)),
             ("Go to Story State", "view", lambda: self.tabs.setCurrentWidget(self.story_state)),
             ("Go to Item & Equip", "view", lambda: self.tabs.setCurrentWidget(self.item_equip)),
+            ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
+            ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
         ]
         content = []
 
@@ -556,6 +575,12 @@ class Workspace(QMainWindow):
     def _open_palette(self):
         from .palette import CommandPalette
         CommandPalette(self, self._command_index(), self.pal).exec()
+
+    def _open_catalog(self):
+        """Browse the whole Info Hub catalog (models / archetypes / props / creatures / items / scenes /
+        fields) in one searchable picker -- the standalone Info Hub browser, folded into the Workspace."""
+        from .forms_qt import CatalogPicker
+        CatalogPicker(self, None, "", self.plan, self.pal).exec()
 
     # ---- the document editor (Phase 4) ----
     def _clear_doc(self):
@@ -1054,23 +1079,35 @@ class Workspace(QMainWindow):
             self.problems.addItem(it)
         self.dock_tabs.setCurrentWidget(self.problems_page)
 
-    def run_cli_lint(self):
-        if self.campaign_path is None:
-            return
+    def run_job(self, argv, *, cwd=None, subject="Job", ok_headline=None, ok_next="",
+                fail_hint="See the Output tab.", on_finished=None):
+        """Run ONE streaming subprocess job (lint / build / deploy / import): stream its stdout into the
+        Output panel, then post a returncode verdict to Problems. ``argv[0]`` is the program. Returns
+        ``False`` (and starts nothing) if a job is already running, else ``True``; ``on_finished(code)``
+        fires after the verdict. The shell owns the single QProcess + the console plumbing -- the Build /
+        Import docs only build the argv (the Qt analogue of the tkinter apps' thread+queue)."""
         if getattr(self, "proc", None) and self.proc.state() != QProcess.ProcessState.NotRunning:
-            return                                 # one lint at a time -- don't overwrite a running QProcess
+            return False
+        self._job = (subject, ok_headline, ok_next, fail_hint, on_finished)
         self.output.clear()
-        self._show_problems(fb.Verdict(fb.RUNNING, "Linting via CLI…"), [])
+        self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
         self.dock_tabs.setCurrentWidget(self.output)
         self.act_lint_cli.setEnabled(False)
         self.proc = QProcess(self)
-        self.proc.setProgram(sys.executable)
-        self.proc.setArguments(["-m", "ff9mapkit", "lint-campaign", str(self.campaign_path)])
-        self.proc.setWorkingDirectory(str(KIT))
+        self.proc.setProgram(str(argv[0]))
+        self.proc.setArguments([str(a) for a in argv[1:]])
+        self.proc.setWorkingDirectory(str(cwd or KIT))
         self.proc.setProcessChannelMode(QProcess.MergedChannels)
         self.proc.readyReadStandardOutput.connect(self._drain_proc)
         self.proc.finished.connect(self._proc_done)
         self.proc.start()
+        return True
+
+    def run_cli_lint(self):
+        if self.campaign_path is None:
+            return
+        self.run_job([sys.executable, "-m", "ff9mapkit", "lint-campaign", str(self.campaign_path)],
+                     cwd=KIT, subject="Lint (CLI)", ok_headline="Lint (CLI) — done")
 
     def _drain_proc(self):
         text = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace").rstrip()
@@ -1079,9 +1116,13 @@ class Workspace(QMainWindow):
 
     def _proc_done(self, code, _status):
         self.act_lint_cli.setEnabled(self.campaign_path is not None)
-        v = fb.from_returncode(code, subject="Lint (CLI)", ok_headline="Lint (CLI) — done",
-                               fail_hint="See the Output tab.")
+        subject, ok_headline, ok_next, fail_hint, on_finished = getattr(
+            self, "_job", ("Job", None, "", "See the Output tab.", None))
+        v = fb.from_returncode(code, subject=subject, ok_headline=ok_headline, ok_next=ok_next,
+                               fail_hint=fail_hint)
         self._show_problems(v, [])
+        if on_finished:
+            on_finished(code)
 
 
 # --------------------------------------------------------------------------- entry point + smoke
@@ -1179,6 +1220,9 @@ def _smoke(win):
     from .forms_qt import CatalogPicker
     pk = CatalogPicker(win, ["archetype", "creature"], "vivi", win.plan, win.pal)
     assert "vivi" in [e.name for e in pk._entries], [e.name for e in pk._entries]
+    # the Info Hub browser (folded in): kinds=None searches the whole catalog; the command is indexed
+    assert CatalogPicker(win, None, "moogle", win.plan, win.pal)._entries, "all-catalog browse returns hits"
+    assert "Browse catalog (Info Hub)" in [e[0] for e in win._command_index()]
 
     # Check surfaces the dangling GHOST edge as a problem
     win.on_check()
@@ -1264,11 +1308,46 @@ def _smoke(win):
     win.item_equip._edit("gil", True)
     assert _si2.inspect(str(esp))[0][1].gil == 99999, "a declined Apply leaves the save untouched"
 
+    # 6b: Build & Deploy + Import documents -- argv-building + in-process Check (no real subprocess launched)
+    assert win.tabs.indexOf(win.build_deploy) >= 0 and win.tabs.indexOf(win.import_field) >= 0
+    bd = win.build_deploy
+    launched = []
+    bd._run = lambda argv, **kw: (launched.append(list(map(str, argv))) or True)   # capture, don't launch
+    bd._confirm = lambda *a: True
+    bd.set_target(d / "campaign.toml")                           # auto-detect -> campaign kind
+    assert bd.kind == "campaign" and bd.plan is not None
+    bd._check_campaign(str(d / "campaign.toml"))                 # in-process Check -> Problems (dangling GHOST)
+    assert any("GHOST" in win.problems.item(i).text() for i in range(win.problems.count()))
+    bd.rb_camp_deploy.setChecked(True)
+    bd.on_go()
+    assert launched and any("deploy_campaign.py" in a for a in launched[-1]), launched[-1]
+    bd.set_target(d / "IC_ENT" / "IC_ENT.field.toml")           # auto-detect -> field kind, id from [field]
+    assert bd.kind == "field" and bd.field_id == 30100
+    bd.rb_test.setChecked(True)
+    bd.on_go()
+    assert any("deploy_field.py" in a for a in launched[-1]), launched[-1]
+    bd._check_field(str(d / "IC_ENT" / "IC_ENT.field.toml"))    # in-process field Check (no crash)
+
+    imp = win.import_field
+    icap = []
+    imp._run = lambda argv, **kw: (icap.append(list(map(str, argv))) or True)
+    imp.field.setText("100")
+    imp.art_borrow.setChecked(True)
+    imp.carry_npcs.setChecked(False)
+    imp.carry_text.setChecked(False)
+    imp.fid.setText("4003")
+    imp.out.setText(str(d / "imp_out"))                          # a temp out folder (don't touch the repo)
+    imp.on_import()
+    assert icap[-1][:4] == [sys.executable, "-m", "ff9mapkit", "import"] and icap[-1][4] == "100", icap[-1]
+    imp.on_find()
+    assert "list-fields" in icap[-1], icap[-1]
+
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
           f"catalog picker + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
-          f"{win.item_equip.targets[0]['report'].gil}) + Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
+          f"{win.item_equip.targets[0]['report'].gil}) + Build/Deploy + Import docs (argv-built) + Ctrl-K "
+          f"palette, Problems dock ({nprob} rows); QProcess wired")
 
 
 def main(argv=None):
