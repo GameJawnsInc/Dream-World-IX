@@ -91,14 +91,45 @@ if (sAIconMode > 0 && ((sAIconMode & 4) > 0 || GetUserControl())) {
   2-second blink coroutines. `FieldHUD.OnATEClick` (`FieldHUD.cs:313-316`) is a **dead NGUI passthrough** (zero
   C# callers) that only re-enables the Blue sprite — it does **not** open the menu.
 
-### `ATE(mode)` arg semantics (confirmed values `{0,1,2,5,6}`; C# comment says "rest unknown")
+### `ATE(mode)` arg semantics — what the engine masks DO vs what the game actually USES
 
-| `mode` | Effect | Mask logic |
-|---|---|---|
-| `0` | off / hide | `mode==0` early-hide in `SetAIcon` |
-| `1` | show **Blue** (new) | `(mode&3)!=2` |
-| `2` or `6` | blink **Gray** (seen) | `(mode&3)==2` |
-| `\|4` (e.g. `5`) | **force-show**, ignore user-control | `(mode&4)>0` gate |
+**Engine mask logic** (`EIcon.ProcessAIcon`): colour = `(mode&3)` (`==2`→Gray, else Blue); render gate =
+`mode>0 && ((mode&4) || GetUserControl())` (so `&4` = force-show under control-lock). By the masks alone:
+
+| `mode` | Mask effect |
+|---|---|
+| `0` | off / hide (`SetAIcon` early-out) |
+| `1` | Blue, shows only with user control | `(mode&3)!=2`, no force |
+| `2` | Gray, shows only with user control | `(mode&3)==2`, no force |
+| `5` (`1\|4`) | Blue, **force-show** | `(mode&4)>0` |
+| `6` (`2\|4`) | Gray, **force-show** | `(mode&3)==2 & (mode&4)>0` |
+
+**★ But the REAL bytes tell a different story (676-field sweep of the user's install — `forced-ate-fidelity`
+workflow, 2026-06-13).** Mode histogram across all fields: **`{1: 473, 0: 358, 6: 45, 5: 1}`** — and crucially:
+
+- **Mode 2 NEVER appears.** The "Gray = seen" convention via `ATE(2)` is *not used anywhere* in FF9. ATE icons
+  are only ever **Blue** (mode 1) when rendered.
+- **Mode 6 is NOT a grey forced ATE — it's a screen/area-transition fade.** Every one of the 45 sites is the
+  signature `ATE(6) → Wait(45) → white FadeFilter(6,24,…,255,255,255) → ATE(0)`, usually right after a
+  `PreloadField` inside a `DisableMenu` lock (a same-area door/transition). Reusing opcode `0xD7`, but it is the
+  transition-icon/fade state, **not** an optional-cutscene ATE. **Do not author a forced ATE as mode 6.**
+- **Mode 5 appears exactly ONCE** — field 206 entry-0 tag-1, the rotating Press-SELECT hub opening its menu
+  window (flanked by `winATE(64)` windows + an `ATE(0)`). It is *the* interactive-menu-open op.
+- **Real forced ATEs use mode 1**, armed in `Main_Init` *while control is still locked*. Per the render gate,
+  mode 1 + no control = **the icon does NOT render**, so a forced ATE shows **no HUD prompt** during its
+  auto-cutscene — the `winATE(64)` caption window is its only on-screen marker. **This is why the press-prompt
+  the user expected to be absent IS absent in the real game.**
+
+> **The press-glyph mechanics** (`ActiveTimeEvent.cs`): the on-field icon widget owns the "Press SELECT" glyph
+> (`PressSelectSprite`), gated by colour — the **Blue** display coroutine (`DisplayBlueATEText`) cycles it ON
+> (~2s/2s), so a *visible* Blue icon always flashes "Press SELECT"; the **Gray** coroutine never calls
+> `SetSpriteVisibility`, so a Gray icon shows no press glyph. Force-showing a Blue ATE (mode 5) therefore wrongly
+> invites a button press during an auto-play — which is exactly the artifact a mode-5 test produced.
+
+> **The real forced-vs-interactive discriminator is STRUCTURAL, not the mode byte** (both arm with mode 1): a
+> *forced* ATE auto-runs its cutscene body under a `DisableMove..EnableMove` lock with **no** `winATE` menu window
+> in its arming entry (field 1901: arm in Main_Init, body in entry-1 under lock); an *interactive* hub opens a
+> `winATE(64)` menu (the mode-5 op in 206) and branches on the player's `SELECT`.
 
 ---
 
@@ -236,19 +267,24 @@ row reuses the `content.choice` action vocab (`reply`/`warp`/`set_flag`/…).
 
 **The compulsory / auto-advance flavor — BUILT (`[cutscene] ate = true`).** Flavor A (the FORCED no-menu ATE,
 field 1901's Eiko bracket) is an ordinary cutscene styled as an ATE: the kit brackets the cutscene body
-`ATE(mode) … ATE(0)` (the blinking HUD prompt, default `mode = 1` Blue, mirroring 1901; `ate_mode = 5` force-shows)
-and renders its windows with the `winATE(64)` caption — which is *also* what makes the engine tag the closed dialog
-`isCompulsory` (`ETb.ProcessATEDialog`). Works on both cutscene paths (narration entry + actor-in-NPC-loop
-choreography). So:
+`ATE(1) … ATE(0)` (the **byte-faithful** arm value — field 1901 uses mode 1) and renders its windows with the
+`winATE(64)` caption — which is *also* what makes the engine tag the closed dialog `isCompulsory`
+(`ETb.ProcessATEDialog`). Works on both cutscene paths (narration entry + actor-in-NPC-loop choreography). So:
 ```toml
 [cutscene]
-ate = true                 # style this auto-cutscene as a compulsory ATE (winATE caption + ATE(1)…ATE(0) bracket)
-# ate_mode = 5             # optional: force-show the HUD prompt even without user control (the &4 bit)
+ate = true                 # compulsory ATE: ATE(1)…ATE(0) bracket + winATE caption windows (matches field 1901)
 steps = [ { say = "..." }, { wait = 30 } ]
 ```
-*(Caveat: a plain `mode 1` HUD blink only draws while the player has control; during a control-locked cutscene the
-winATE CAPTION is the always-visible marker — use `ate_mode = 5` if you want the icon up. And seen-state/the ATE80
-trophy still register only on a real field id — the fidelity wall below.)*
+**The faithful forced look = NO HUD prompt during the auto-cutscene.** With mode 1 and no force bit, the icon's
+render gate (`mode>0 && ((mode&4) || GetUserControl())`) fails under the cutscene's control-lock, so the "Press
+SELECT" prompt **does not show** — exactly as in real forced ATEs (the player sees only the `winATE` caption
+windows). ★ **In-game confirmed 2026-06-13** (slot 30008): the captioned dialog plays with no press-prompt.
+> **Do NOT force-show a forced ATE.** `ate_mode` is exposed but the only canonical value is `1`. Force-showing
+> (`ate_mode = 5`, the `&4` bit) makes the **Blue** icon render under the lock, and the Blue display coroutine
+> *always* re-flashes the "Press SELECT" glyph — which wrongly invites a button press during an auto-play (the
+> exact artifact the first 30008 deploy showed). And `ate_mode = 6` is **not** a grey ATE — in real data mode 6 is
+> a screen-transition fade (see §1). So leave `ate_mode` at the default. Seen-state / the ATE80 trophy still
+> register only on a real field id — the fidelity wall below.
 *Remaining nice-to-haves:* disassembler QoL (name `ATE(mode)` modes, surface inline `op7A(9)` as `GetChoose`,
 annotate `op_0B` targets).
 

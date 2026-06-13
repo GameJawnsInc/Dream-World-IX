@@ -54,14 +54,18 @@ DEFAULT_WARMUP = 30     # frames (~1s @ 30fps); generous margin over the 16-fram
 #   * its dialogue windows carry the winATE caption flag (64) -> the "Active Time Event" header. This flag
 #     is ALSO what makes the engine tag the closed dialog `isCompulsory` (ETb.ProcessATEDialog) -- the
 #     defining, engine-recognized marker of a compulsory ATE.
-#   * the body is bracketed `ATE(mode) ... ATE(0)` (0xD7) -- the blinking HUD prompt (1901: ATE(1)..ATE(0)).
-# NB the HUD blink draws only while the player has control OR mode has the force bit (&4, e.g. 5); during a
-# control-locked cutscene a plain mode 1 won't render the icon -- the winATE CAPTION is the always-visible
-# marker. Seen-state + the ATE80 trophy register only on a REAL field id (MappingATEID is keyed on
-# fldMapNo/ScenarioCounter), never on a custom id -- the documented fidelity wall. Mirrors `ate.WIN_ATE`;
-# kept local to avoid importing the ate module (which imports choice -> region).
+#   * the body is bracketed `ATE(1) ... ATE(0)` (0xD7) -- the HUD-icon arm (real field 1901 uses mode 1).
+# THE FAITHFUL FORCED LOOK = NO HUD PROMPT. With mode 1 + no force bit, the icon's render gate
+# (`mode>0 && ((mode&4) || GetUserControl())`) FAILS under the cutscene's control-lock, so the "Press SELECT"
+# prompt never shows -- the winATE CAPTION window is the only on-screen ATE marker, exactly like real forced
+# ATEs (676-field byte sweep: forced ATEs arm mode 1; mode 2 is unused; mode 6 is a screen-transition fade,
+# NOT a grey ATE -- docs/ATE_SYSTEM.md). DON'T force-show: ate_mode=5 makes the Blue icon render AND its
+# display coroutine re-flashes the press glyph (a false "press me" during an auto-play). Seen-state + the
+# ATE80 trophy register only on a REAL field id (MappingATEID keyed on fldMapNo/SC) -- the fidelity wall.
+# Mirrors `ate.WIN_ATE`; kept local to avoid importing the ate module (which imports choice -> region).
 ATE_CAPTION_FLAG = 64
-ATE_DEFAULT_MODE = 1     # ATE(mode) for the HUD bracket: 1 = Blue/new (mirrors field 1901); 5 = force-show
+ATE_DEFAULT_MODE = 1     # ATE(mode) HUD arm: 1 = the byte-faithful forced value (field 1901; no prompt under
+                         # control-lock). The only canonical value -- do not force-show (5/6 are non-authentic)
 
 
 def say(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:
