@@ -23,29 +23,37 @@ from ..eb import edit
 
 SCENARIO_BYTE = 0          # ScenarioCounter = the save-backed UInt16 at gEventGlobal byte 0 (token 0xDC)
 SCENARIO_MAX = 32767       # set_var packs a signed int16; every real beat (<= 12000) fits with margin
+WORD_BYTE_MAX = 2046       # a UInt16 word at byte N spans gEventGlobal[N..N+1]; the heap is 2048 bytes
+WORD_VALUE_MAX = 0xFFFF
 
 
-def startup_body(presets, scenario=None) -> bytes:
+def startup_body(presets, scenario=None, words=()) -> bytes:
     """The Main_Init preset sequence (the bare bytecode, no entry/return wrapper -- it is prepended INTO
-    Main_Init). ``scenario`` (int, or None) sets the ScenarioCounter; ``presets`` is an iterable of
-    ``(bit_index, value)`` pairs (value truthy -> set the bit, falsy -> clear it). Returns ``b""`` when
-    there is nothing to preset (so the caller stays byte-identical to a field with no ``[startup]``)."""
+    Main_Init). ``scenario`` (int, or None) sets the ScenarioCounter; ``words`` is an iterable of
+    ``(byte_index, value)`` pairs that set the save-backed UInt16 at ``gEventGlobal[byte_index]`` to
+    ``value`` (a 16-bit word -- the lever for things the scenario counter doesn't cover, e.g. the
+    **ATE-availability bitmask at byte 236**: which ATEs a real field offers; see docs/ATE_SYSTEM.md);
+    ``presets`` is an iterable of ``(bit_index, value)`` story-bit pairs (truthy -> set, falsy -> clear).
+    Words are written before bits, so a ``flags`` entry can still refine a single bit of a seeded word.
+    Returns ``b""`` when there is nothing to preset (so a field with no ``[startup]`` stays byte-identical)."""
     out = b""
     if scenario is not None:
         out += _region.set_var(_region.GLOB_UINT16, SCENARIO_BYTE, int(scenario))
+    for byte_idx, value in words:
+        out += _region.set_var(_region.GLOB_UINT16, int(byte_idx), int(value) & WORD_VALUE_MAX)
     for idx, val in presets:
         out += _region.set_var(_region.GLOB_BOOL, int(idx), 1 if val else 0)
     return out
 
 
-def inject_startup(eb, presets, scenario=None) -> bytes:
+def inject_startup(eb, presets, scenario=None, words=()) -> bytes:
     """Prepend the preset sequence to **Main_Init** (entry 0, tag 0) so it runs first at field load.
 
     Byte-safe: inserting at function offset 0 can never be straddled by one of the function's own jumps,
     and :func:`ff9mapkit.eb.edit.insert_in_function` fixes every entry/func table offset. A no-op (returns
     the input bytes unchanged) when there is nothing to preset -- so a field without ``[startup]`` builds
     byte-for-byte as before."""
-    body = startup_body(presets, scenario)
+    body = startup_body(presets, scenario, words)
     if not body:
         return bytes(eb) if isinstance(eb, (bytes, bytearray)) else eb.to_bytes()
     return edit.insert_in_function(eb, 0, 0, 0, body)

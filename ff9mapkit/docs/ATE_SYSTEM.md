@@ -233,6 +233,26 @@ row reuses the `content.choice` action vocab (`reply`/`warp`/`set_flag`/…).
 *Remaining nice-to-haves:* a `type="compulsory"` flavor (the `ATE(1)…ATE(0)` bracket, mirrors field 1901);
 disassembler QoL (name `ATE(mode)` modes, surface inline `op7A(9)` as `GetChoose`, annotate `op_0B` targets).
 
+**Cold-reproducing a REAL ATE in a fork — the ATE-AVAILABILITY WORD (★ IN-GAME PROVEN).** Every ATE hub's
+Main_Init arms the prompt only when a story-set **availability bitmask word** in `gEventGlobal` is nonzero — for
+Evil Forest (200) and Lindblum (550/552) it's the **UInt16 at byte 236** (`opDC(236)`; field 552 Main_Init
+`[965] word236 != 0` → `[976] ATE(1)`, else the disarm `ATE(0)`). The game sets bits as ATEs unlock, AND the field
+copies it into the menu's `EnableDialogChoices` mask (552 `[995] opD8(241) = opDC(236)`), so **each bit = one
+offered ATE row**. A cold fork boots with word236 = 0 → disarm → SELECT does nothing. **THIS — not the scenario
+counter — is why scenario-only forks of Lindblum/Dali showed no ATE.**
+
+Seed it and the field arms its OWN ATE (the internal avail vars `opD0(238)`/`opC5(152)` are set BY the arm branch,
+not by a prior cutscene). `opDC(N)` reads the UInt16 at *byte* N, so it's a `[startup] words` write:
+```toml
+[startup]
+scenario = 3115                          # the content beat (Lindblum pre-festival; field 552 exits if SC < 3115)
+words = [{byte = 236, value = 0x0F}]     # bits 0-3 = the 4 first-visit Lindblum ATEs (each bit = one menu row)
+```
+★ In-game proven: a `--verbatim` Lindblum-552 fork with this seed boots straight into the real Small-Town Knight
+ATE menu, no cutscenes replayed. (Avail-word differs per region — 200/550/552 = byte 236; 1850 = 489/490/3905;
+Dali-350 + 1600 need several; find a field's word via the `find-clean-ate` analysis.) Low-level equivalent:
+`[startup] flags` setting the word's bits (flag `N*8+bit` = byte N bit `bit`; e.g. flag 1888 = byte 236 bit 0).
+
 **The fidelity wall (document in `FORK_FIDELITY.md`, don't fight):** ATE **trigger/menu/cutscene** = `.eb`-faithful
 via `--verbatim`. But **seen-state (`AteCheck`) + the ATE80 trophy** come from C# `MappingATEID`, **keyed on real
 `fldLocNo`/`fldMapNo`/`ScenarioCounter`**. So an authored/forked ATE on a **custom field id (≥4000) will NOT
@@ -240,15 +260,16 @@ register seen-state or count toward the trophy** — no `MappingATEID` switch ro
 either a **verbatim fork onto a *real* field id** (parasitic on the real `MappingATEID` row) or a **DLL
 `MappingATEID` extension** (outside the no-DLL boundary).
 
-**In-game test forks — BUILT + DEPLOYED (awaiting playtest):**
-- **Compulsory flavor** — `--verbatim` fork of field 1901 (Eiko ATE), `[startup] scenario = 9400`, text block 741
-  (the donor's real mesID, unshadowed) → **slot 30006** (`FF9CustomMap-ate`). The `ATE(1)…ATE(0)` bracket runs in
-  `Main_Init`, so it auto-plays on warp-in.
-- **Interactive flavor** — `--verbatim` fork of field 206 (Prima Vista hub), `[startup] scenario = 1900` (the SC
-  the `op_06` routes to the `ATE(5)` + winATE menu), text block 40 → **slot 30007**. Confirm: (i) the HUD prompt
-  blinks, (ii) SELECT opens the winATE menu with the real choice list, (iii) picking a row plays the chosen branch.
-- **Predicted:** trigger + menu + cutscene work; the `AteCheck`/ATE80 "seen" mark does **not** fire (custom id has
-  no `MappingATEID` row) — proving `.eb` fidelity *and* visibly demonstrating the engine-table gap.
+**In-game proven (2026-06-13):**
+- **Synthesized ATE** — a `[ate]` block on a custom field (`FF9CustomMap-ate` **slot 30007**): the "Active Time
+  Event" prompt → SELECT → a `winATE` menu (3 authored rows) → pick shows the row's text. No carried logic.
+- **Cold-reproduced REAL ATE** — a `--verbatim` Lindblum-552 fork, `[startup] scenario = 3115` + `words =
+  [{byte = 236, value = 0x0F}]`, text block 276 → **slot 30006**: boots straight into the real **Small-Town Knight**
+  ATE menu (4 real rows, real text, centered real window). The avail-word seed is the whole trick.
+- The earlier compulsory (1901 Eiko) / interactive (206) `--verbatim` forks confirmed `--verbatim` *carries* the
+  bytes but a cold scenario-only fork doesn't *arm* — that's the avail-word, now solved (above).
+- Not yet observed: the `AteCheck`/ATE80 "seen" mark does **not** fire on a custom id (no `MappingATEID` row) — the
+  documented engine-table gap.
 
 > **Kit fix this session — `[startup]` now works on scenario-jump-table fields.** The interactive-ATE hubs
 > (field 206 and ~11% of fields) gate their content with a `0x06` jump table in `Main_Init`; `[startup]` must set
