@@ -370,23 +370,29 @@ class Workspace:
 
     # ---------------------------------------------------------------- breadcrumb
     def _journey_label(self):
-        """The journey this campaign belongs to IF one is actually defined -- a sibling journeys.toml
-        entry whose `entry` id names one of our members (the World Hub generator's format). Returns None
-        when no real journey exists yet, so the breadcrumb/tree honestly show campaign > field > object
-        instead of fabricating a journey from the folder name."""
-        try:
-            import tomllib
-            jt = self.campaign_path.parent / "journeys.toml"
-            if jt.is_file():
-                journeys = tomllib.loads(jt.read_text(encoding="utf-8")).get("journey", [])
-                ids = {m.new_id for m in self.plan.members}
-                for j in journeys:
-                    if j.get("entry") in ids and j.get("name"):
+        """The journey this campaign belongs to IF one is defined. Reads a journeys.toml BESIDE the
+        campaign OR at the project root one level up (the World Hub generator's format -- docs/JOURNEYS.md).
+        A journey MATCHES when this campaign's FOLDER NAME is in its `campaigns` list (a multi-campaign arc)
+        OR its `entry` field id names one of our members (a single-campaign journey). Returns None otherwise,
+        so the breadcrumb/tree honestly show campaign > field > object instead of fabricating a journey.
+        DISPLAY ONLY -- authoring journeys is the overworld / World-Hub lane."""
+        if not self.campaign_path:
+            return None
+        folder = self.campaign_path.parent.name
+        ids = {m.new_id for m in self.plan.members}
+        seen = set()
+        for jt in (self.campaign_path.parent / "journeys.toml",
+                   self.campaign_path.parent.parent / "journeys.toml"):
+            if jt in seen or not jt.is_file():
+                continue
+            seen.add(jt)
+            try:
+                import tomllib
+                for j in tomllib.loads(jt.read_text(encoding="utf-8")).get("journey", []):
+                    if j.get("name") and (folder in j.get("campaigns", []) or j.get("entry") in ids):
                         return j["name"]
-                if len(journeys) == 1 and journeys[0].get("name"):
-                    return journeys[0]["name"]
-        except Exception:                             # noqa: BLE001 -- a missing/odd journeys.toml is fine
-            pass
+            except Exception:                         # noqa: BLE001 -- a missing/odd journeys.toml is fine
+                continue
         return None                                   # no real journey yet -> the level simply isn't shown
 
     def _refresh_breadcrumb(self):
@@ -691,12 +697,17 @@ def _smoke(ws):
     _trail = breadcrumb.trail(ws._journey_name, ws._campaign_name, ws._field_name, ws._obj_label, ws._obj_key)
     assert [c.level for c in _trail] == ["campaign", "field", "object"]   # 3 real levels, no journey yet
     ws._on_crumb(breadcrumb.Crumb(breadcrumb.CAMPAIGN, ws._campaign_name, "@campaign"))  # ancestor click is safe
-    # a real journeys.toml (the World Hub generator's format) lights up the 4th level
+    # a real journeys.toml (the World Hub generator's format) lights up the 4th level -- two match modes:
+    # (1) single-campaign journey, matched by an entry field id naming one of our members
     (d / "journeys.toml").write_text('[[journey]]\nname = "Frozen Trial"\nentry = 30100\n', encoding="utf-8")
     assert ws._journey_label() == "Frozen Trial"
     ws._populate(ws.plan)                                  # re-render with the journey now present
     assert list(ws.tree.get_children()) == ["@journey"]
     assert list(ws.tree.get_children("@journey")) == ["@campaign"]
+    # (2) multi-campaign arc, matched by this campaign's folder name in the journey's `campaigns` list
+    (d / "journeys.toml").write_text(f'[[journey]]\nname = "Escape"\ncampaigns = ["{d.name}"]\n',
+                                     encoding="utf-8")
+    assert ws._journey_label() == "Escape"
     (d / "journeys.toml").unlink()                         # back to no-journey for the rest of the flow
     ws._populate(ws.plan)
     # the visual Map tab renders the same graph and highlights the auto-landed entry
