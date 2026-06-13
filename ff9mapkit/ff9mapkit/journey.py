@@ -562,3 +562,202 @@ def render_journey_plan(manifest: JourneyManifest) -> str:
             out.append(f"    party: {', '.join(j.seed.party)}")
         out.append("")
     return "\n".join(out).rstrip() + "\n"
+
+
+# ---------------------------------------------------------------- the deploy plan (the in-game step's brain)
+@dataclass
+class CampaignDeployStep:
+    """One campaign's deploy parameters within a journey: WHERE it installs (its own stacked ``mod_folder``,
+    from its campaign.toml), its id band, and the journey-assigned disjoint ``flag_base`` (passed to
+    ``build_campaign(flag_base=)`` so its bits don't clobber a sibling campaign's). Each campaign needs its
+    OWN folder -- ``deploy_campaign`` WHOLESALE-replaces a folder, so two campaigns sharing one would clobber."""
+    folder: str
+    campaign_path: Path
+    mod_folder: str
+    id_lo: int
+    id_hi: int
+    flag_base: int
+    members: int
+
+
+@dataclass
+class LinkRewrite:
+    """A cross-campaign hand-off realized as a byte-patch: rewrite the boundary member's deployed ``.eb``
+    ``Field(seam.to_real)`` exit -> the next campaign's entry global id (``content.verbatim.remap_fields``,
+    length-preserving, all 7 langs). ``retargetable`` is False when the boundary has no ``Field()`` seam (an
+    overworld exit -- the elided world-map leg needs a region-injected warp, a future step) or is ambiguous."""
+    src_campaign: str
+    src_field: str
+    src_id: int
+    src_mod_folder: str
+    eb_name: str                 # "EVT_<member>" -- the deployed .eb to patch (every lang copy)
+    remap: dict                  # {seam_to_real: dst_id}  (empty when not retargetable)
+    dst_campaign: str
+    dst_field: str
+    dst_id: int
+    seam_kinds: list
+    retargetable: bool
+    note: str = ""
+
+
+@dataclass
+class JourneyDeployPlan:
+    """The whole manifest's in-game deploy, derived offline: each multi-campaign journey's campaign steps +
+    link rewrites, the bare journeys (already-deployed -- the hub just points at them), the hub field id (New
+    Game's target), and any mod-folder clobber conflict. Consumed by ``tools/deploy_journey.py``."""
+    hub_field_id: "int | None"
+    campaign_steps: list         # [CampaignDeployStep]  (deduped across journeys, by folder)
+    links: list                  # [LinkRewrite]
+    bare_entries: list           # [(journey_id, name, entry_id)]
+    folder_conflicts: list       # [(mod_folder, folder_a, folder_b)] -- a wholesale-replace clobber
+
+
+def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: int):
+    """Resolve a boundary member's onward seam into the ``Field()`` remap for a cross-campaign link. Returns
+    ``(remap, seam_kinds, retargetable, note)``. Exactly ONE int seam target -> ``{to_real: dst_id}``; none
+    (overworld-only) or several (ambiguous) -> empty remap + a note (not auto-wired)."""
+    g = _campaign.campaign_graph(src_plan)
+    node = g.by_name.get(member_name)
+    seams = node.seams if node else []
+    kinds = sorted({s.get("kind") for s in seams if s.get("kind")})
+    targets = sorted({s["to_real"] for s in seams if isinstance(s.get("to_real"), int)})
+    if len(targets) == 1:
+        return {targets[0]: dst_id}, kinds, True, ""
+    if not targets:
+        return {}, kinds, False, ("no Field() seam on the boundary (overworld exit?) -- the elided world-map "
+                                  "leg needs a region-injected warp, not a Field() retarget (future step)")
+    return {}, kinds, False, (f"{len(targets)} Field() seam targets {targets} -- ambiguous; pick a "
+                              f"single-onward-seam boundary member, or split the boundary")
+
+
+def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
+    """Resolve the whole manifest into its in-game deploy plan (PURE over the manifest + campaign plans; no
+    game install). Lint first (:func:`lint_manifest`) -- this assumes a clean manifest. Each multi-campaign
+    journey contributes its campaigns (each at its disjoint flag window, into its own mod folder) + link
+    rewrites; bare journeys are recorded as already-deployed hub targets."""
+    plans = load_campaign_plans(manifest)
+    steps, links, bare, conflicts = [], [], [], []
+    folder_seen: dict = {}                       # mod_folder -> the campaign folder that claimed it
+    done_folders: set = set()                    # campaign folders already turned into a step (dedup)
+    for j in manifest.journeys:
+        if j.is_bare:
+            bare.append((j.id, j.name, int(j.entry.field)))
+            continue
+        rj = resolve_journey(j, plans)
+        for folder in j.campaigns:
+            plan, _ = plans[folder]
+            if folder not in done_folders:
+                ids = rj.campaign_ids[folder]
+                lo, _hi, _k = rj.flag_windows[folder]
+                steps.append(CampaignDeployStep(
+                    folder=folder, campaign_path=_campaign_path(manifest.root, folder),
+                    mod_folder=plan.mod_folder, id_lo=min(ids), id_hi=max(ids), flag_base=lo,
+                    members=len(ids)))
+                done_folders.add(folder)
+                prior = folder_seen.get(plan.mod_folder)
+                if prior is not None and prior != folder:
+                    conflicts.append((plan.mod_folder, prior, folder))
+                folder_seen.setdefault(plan.mod_folder, folder)
+        for lk in rj.links:
+            src_plan = plans[lk["src_campaign"]][0]
+            remap, kinds, ok, note = _seam_remap(src_plan, lk["src_field"], lk["dst_id"])
+            links.append(LinkRewrite(
+                src_campaign=lk["src_campaign"], src_field=lk["src_field"], src_id=lk["src_id"],
+                src_mod_folder=src_plan.mod_folder, eb_name=f"EVT_{lk['src_field']}", remap=remap,
+                dst_campaign=lk["dst_campaign"], dst_field=str(lk["dst_field"]), dst_id=lk["dst_id"],
+                seam_kinds=kinds, retargetable=ok, note=note))
+    hub_id = int(manifest.hub["id"]) if manifest.hub.get("id") is not None else None
+    return JourneyDeployPlan(hub_field_id=hub_id, campaign_steps=steps, links=links,
+                             bare_entries=bare, folder_conflicts=conflicts)
+
+
+def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.field.toml>",
+                           repo_rel: str = "") -> str:
+    """The ordered, copy-pasteable command sequence to deploy a journeys manifest in-game, built from the
+    deploy plan. Each step is an EXISTING, individually revert-guarded tool (so the human applies + playtests
+    incrementally -- "one change per in-game test"); the only journey-unique step is the link `.eb` remap
+    (``deploy_journey.py --apply-links``). PURE text (no game touched). ``repo_rel`` prefixes campaign paths."""
+    plan = build_deploy_plan(manifest)
+    pre = (repo_rel.rstrip("/") + "/") if repo_rel else ""
+    L = ["# === Journey deploy playbook (run from the repo root; apply + PLAYTEST each step in order) ===",
+         "# Memoria.ini [Mod] FolderNames must STACK every folder below; the hub folder is HIGHEST.",
+         ""]
+    if plan.folder_conflicts:
+        L.append("# !! MOD-FOLDER CLOBBER -- these campaigns share a folder (deploy_campaign wholesale-replaces "
+                 "it):")
+        for mf, a, b in plan.folder_conflicts:
+            L.append(f"#    {a!r} and {b!r} both -> {mf!r}. Give each campaign its OWN mod_folder.")
+        L.append("")
+    L.append("# 1. Deploy each campaign into its own stacked folder, at its disjoint flag window (--no-warp: "
+             "the hub owns New Game):")
+    for s in plan.campaign_steps:
+        L.append(f"py tools/deploy_campaign.py {pre}{s.campaign_path.as_posix() if not pre else s.folder + '/campaign.toml'} "
+                 f"--apply --no-warp --mod-folder {s.mod_folder} --flag-base {s.flag_base}"
+                 f"   # ids {s.id_lo}..{s.id_hi}")
+    if not plan.campaign_steps:
+        L.append("#   (no multi-campaign journeys -- all journeys are bare single fields, already deployed)")
+    L.append("")
+    L.append("# 2. Wire the cross-campaign links (retarget each boundary .eb Field() exit -> the next entry):")
+    wired = [lk for lk in plan.links if lk.retargetable]
+    for lk in plan.links:
+        if lk.retargetable:
+            L.append(f"#    {lk.src_campaign}/{lk.src_field} (EVT, field {lk.src_id})  Field({list(lk.remap)[0]}) "
+                     f"-> Field({lk.dst_id})  [{lk.dst_campaign}/{lk.dst_field}]")
+        else:
+            L.append(f"#    !! {lk.src_campaign}/{lk.src_field} -> {lk.dst_campaign}/{lk.dst_field}: NOT "
+                     f"auto-wired -- {lk.note}")
+    if wired:
+        L.append(f"py tools/deploy_journey.py {pre}{manifest.path.name} --apply-links")
+    elif plan.links:
+        L.append("#   (no auto-wirable links -- see the notes above)")
+    else:
+        L.append("#   (no cross-campaign links)")
+    L.append("")
+    L.append("# 3. Emit + deploy the hub field, then point New Game at it:")
+    L.append(f"py -m ff9mapkit assemble-journey {pre}{manifest.path.name} --out {hub_toml}")
+    if plan.hub_field_id is not None:
+        L.append(f"py tools/deploy_field.py {hub_toml} --id {plan.hub_field_id}   "
+                 f"# --mod-folder <the highest stacked folder>")
+        L.append(f"py tools/retarget_newgame_warp.py {plan.hub_field_id}   # New Game -> the hub")
+    L.append("")
+    if plan.bare_entries:
+        L.append("# Bare single-field journeys (already deployed elsewhere -- the hub just warps to them):")
+        for jid, name, eid in plan.bare_entries:
+            L.append(f"#    {name!r} [{jid}] -> field {eid}")
+    L.append("# Then RELAUNCH once (new ids register on a fresh launch) and PLAYTEST.")
+    return "\n".join(L) + "\n"
+
+
+def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, backup_dir=None) -> list:
+    """Apply each retargetable :class:`LinkRewrite` to the boundary member's DEPLOYED ``.eb`` (every language
+    copy under ``<game>/<src_mod_folder>``) via ``content.verbatim.remap_fields`` -- the one journey-unique
+    in-game step. Returns a list of ``{eb, langs, remap, backups}`` results. ``dry_run`` reports without
+    writing. Backs up each patched file to ``backup_dir`` first (reversibility -- Hard Constraint §2)."""
+    from .content.verbatim import remap_fields
+    game_root = Path(game_root)
+    results = []
+    for lk in plan.links:
+        if not lk.retargetable:
+            continue
+        mod = game_root / lk.src_mod_folder
+        ebs = sorted(mod.rglob(f"{lk.eb_name}.eb.bytes")) if mod.is_dir() else []
+        touched, backups = [], []
+        for p in ebs:
+            data = p.read_bytes()
+            out = remap_fields(data, lk.remap)
+            if out == data:                       # the Field(to_real) wasn't present in this copy
+                continue
+            if not dry_run:
+                if backup_dir:
+                    Path(backup_dir).mkdir(parents=True, exist_ok=True)
+                    # path-relative slug so per-lang copies (same filename, different dir) don't collide
+                    rel = p.relative_to(mod).as_posix().replace("/", "_")
+                    bk = Path(backup_dir) / f"{lk.src_mod_folder}_{rel}.preLINK"
+                    bk.write_bytes(data)
+                    backups.append((str(p), str(bk)))
+                p.write_bytes(out)
+            touched.append(str(p))
+        results.append({"eb": lk.eb_name, "remap": dict(lk.remap), "langs": len(touched),
+                        "files": touched, "backups": backups,
+                        "found": bool(touched)})
+    return results

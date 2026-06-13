@@ -179,6 +179,9 @@ def main(argv=None) -> int:
     ap.add_argument("--allow-name-collision", action="store_true", dest="allow_name_collision",
                     help="install even when EVT/FBG names collide with another FolderNames folder (default: ABORT; "
                          "the proper fix is to re-fork with `import-chain --name-prefix <TAG>`)")
+    ap.add_argument("--flag-base", type=int, default=None, dest="flag_base",
+                    help="override the campaign's flag_base (the JOURNEY assembler hands each of a journey's "
+                         "campaigns a disjoint gEventGlobal flag window; see ff9mapkit.journey / deploy_journey.py)")
     ap.add_argument("--no-promote-csv", action="store_true", dest="no_promote_csv",
                     help="do NOT promote the entry field's start-state CSVs (InitialItems/DefaultEquipment/ShopItems) "
                          "to the highest FolderNames folder (default: promote when this campaign claims New Game)")
@@ -272,7 +275,7 @@ def main(argv=None) -> int:
         dist_root = prebuilt_dist
     else:
         out = Path(args.out_dist) if args.out_dist else (target.parent / "dist")
-        info = C.build_campaign(target, out=out, allow_artless=args.allow_artless)
+        info = C.build_campaign(target, out=out, allow_artless=args.allow_artless, flag_base=args.flag_base)
         dist_root = Path(info["out"])
         for w in info["warnings"]:
             print("  warn:", w)

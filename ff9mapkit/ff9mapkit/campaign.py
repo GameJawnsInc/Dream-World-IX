@@ -399,14 +399,22 @@ def validate_ids(plan: CampaignPlan):
         raise CampaignError(f"member ids out of range {sorted(set(bad))}: must be 4000-32767 (fldMapNo is Int16)")
 
 
-def build_campaign(campaign_path, out=None, *, author="", description="", allow_artless=False) -> dict:
+def build_campaign(campaign_path, out=None, *, author="", description="", allow_artless=False,
+                   flag_base=None) -> dict:
     """Compile every member of a campaign.toml into ONE staged Memoria mod (DictionaryPatch + BattlePatch +
     ModDescription + per-field assets), reusing build.build_mod. Returns build_mod's dict + ``plan``/``out``.
-    Does NOT deploy (P4). ``out`` defaults to ``<campaign-dir>/dist``."""
+    Does NOT deploy (P4). ``out`` defaults to ``<campaign-dir>/dist``.
+
+    ``flag_base`` (the JOURNEY assembler's lever): override the campaign's own ``flag_base`` so the journey
+    can hand each of its campaigns a NON-OVERLAPPING ``gEventGlobal`` flag window (two campaigns in one
+    journey run together -- they must not clobber each other's bits; :mod:`ff9mapkit.journey`). Applied
+    before lint, so the per-member auto-flag blocks + the safe-band checks both use the override."""
     from .build import FieldProject, build_mod
     campaign_path = Path(campaign_path)
     manifest_dir = campaign_path.parent
     plan = load_campaign(campaign_path)
+    if flag_base is not None:                              # journey-assigned disjoint flag window
+        plan.flag_base = int(flag_base)
     lint_errors, lint_warnings = lint_campaign(plan, manifest_dir)
     if lint_errors:
         raise CampaignError("campaign lint failed:\n  - " + "\n  - ".join(lint_errors))

@@ -4,9 +4,10 @@
 > (no change needed — the only `_journey_label` touch-point was never hit). **`gen-hub` is BUILT + shipped**
 > — the single-field / single-campaign form (a bare-int `entry` + a `[hub]` table + a hub-side
 > `set_scenario`); two journeys ship (Dali → field 4100, Treno → field 4501, both verbatim fields). The
-> **multi-campaign assembler** (`campaigns` / `[[journey.link]]` / `[journey.seed]`)'s **OFFLINE CORE is now
-> BUILT** (`ff9mapkit/journey.py` + `lint-journey`/`assemble-journey` — load/resolve/lint/hub-emit; see §9);
-> only the in-game **deploy** step (`deploy_journey`) remains. overworld's to own. This doc is the shared
+> **multi-campaign assembler** (`campaigns` / `[[journey.link]]` / `[journey.seed]`) is **BUILT**
+> (`ff9mapkit/journey.py` + `lint-journey`/`assemble-journey` + `tools/deploy_journey.py` — load/resolve/lint/
+> hub-emit + the deploy orchestration & playbook; see §9); what remains is an **in-game playtest** of a real
+> chained journey + the elided **world-map leg** (overworld seams). overworld's to own. This doc is the shared
 > schema + the assembler's job list.
 >
 > **Lane split (per `project-ff9-branch-lanes`):** overworld owns the World Hub + `gen-hub` + the assembler
@@ -45,7 +46,7 @@ A `journeys.toml` is a **`[hub]` table** (how the selector field presents) plus 
 |---|---|---|---|
 | **Single field** | `entry = <field id>` (bare int) | one verbatim field (the shipped Dali 4100 / Treno 4501) | `gen-hub` — **BUILT** |
 | **Single campaign** | `entry = <field id>` of a member | one `campaign.toml` slice | `gen-hub` — **BUILT** |
-| **Multi-campaign arc** | `entry = { campaign, field }` + `campaigns = [...]` | chained campaigns | the **assembler** — offline core BUILT (§9); deploy next |
+| **Multi-campaign arc** | `entry = { campaign, field }` + `campaigns = [...]` | chained campaigns | the **assembler** — BUILT (§9); in-game proof next |
 
 ```toml
 # journeys.toml -- the World-Hub registry.  `ff9mapkit gen-hub journeys.toml` emits the selector field.
@@ -126,17 +127,19 @@ unbuilt arc form. Keep it a pure, tk-free loader (mirror `campaign.load_campaign
 
 ---
 
-## 4. The assembler's responsibilities (overworld lane — offline core BUILT; deploy next; see §9)
+## 4. The assembler's responsibilities (overworld lane — BUILT; in-game proof + world-map leg remain; see §9)
 
 > The **single-field / single-campaign** path is already shipped by **`gen-hub`** (it reads `[hub]` + each
 > `[[journey]]`'s bare-int `entry` + hub-side `set_scenario` and emits the selector field). This section is
 > the **multi-campaign assembler** — the part that turns `campaigns = [...]` + `[[journey.link]]` +
 > `[journey.seed]` into a deployable chained arc.
 >
-> **Status (2026-06-13):** the OFFLINE half of this list is BUILT in `ff9mapkit/journey.py` (#1 id-band
-> disjointness — validated globally; #2 flag-window assignment — computed; #3 link *resolution* of src/dst →
-> global ids; #5 hub emit; #7 the full journey lint). The IN-GAME half remains as `deploy_journey` (#3 the
-> actual `.eb` warp *rewrite*, #4 seed application + CSV promotion, #6 deploy orchestration). Detail in §9.
+> **Status (2026-06-13):** BUILT in `ff9mapkit/journey.py` + `tools/deploy_journey.py` — #1 id-band
+> disjointness (validated globally), #2 flag-window assignment (`build_campaign(flag_base=)` /
+> `deploy_campaign --flag-base`), #3 link `.eb` retarget (`apply_link_rewrites`; overworld seams flagged as
+> the world-map leg, below), #5 hub emit, #6 deploy orchestration + the `deploy_journey` playbook, #7 the full
+> journey lint. #4 (seed/CSV promotion) is reused from `deploy_campaign`. Remaining = an in-game playtest of a
+> real chained journey + the overworld-seam (world-map-leg) injection. Detail in §9.
 
 A `build_journey(journey, out)` / `deploy_journey(...)` that orchestrates the existing per-campaign tools.
 The hard parts are **global-namespace** ones (EventDB/SceneData are global — distinct ids required even
@@ -244,13 +247,13 @@ Then a minimal `journeys.toml` at the project root referencing both folders (§2
 
 ---
 
-## 9. Implementation status (overworld lane — the OFFLINE CORE is BUILT)
+## 9. Implementation status (overworld lane — assembler BUILT; in-game proof + the world-map leg remain)
 
-`ff9mapkit/journey.py` + CLI `lint-journey` / `assemble-journey` implement the **offline assembler core** —
-the §8 namespace guarantee, fully unit-testable with no game install (`tests/test_journey.py`, 26 tests).
-The in-game **deploy orchestration** (build each campaign at its band, realize each link as a live warp,
-deploy the hub, wire New Game) is the remaining step — scoped below, deferred because it's human-playtested
-(Hard Constraint §2). The schema is unified with overworld's proven single-field hub journeys.
+`ff9mapkit/journey.py` + CLI `lint-journey` / `assemble-journey` + `tools/deploy_journey.py` implement the
+**assembler** — the §8 namespace guarantee, the hub fold-in, AND the deploy orchestration, fully
+unit-testable with no game install (`tests/test_journey.py`, 32 tests). What's left is the *in-game playtest*
+of a real chained journey (needs the campaigns forked) and the elided-world-map-leg injection (overworld
+seams — below). The schema is unified with overworld's proven single-field hub journeys.
 
 **The unified `journeys.toml`** — one file, `[hub]` (presentation, `ff9mapkit.hub`'s schema) + `[[journey]]`
 rows that are **either** a *bare* single-field journey (overworld's proven floor — `entry = <field id>`,
@@ -271,6 +274,15 @@ optional `set_scenario`) **or** the *multi-campaign* shape from §2 (`campaigns`
   real members + flag a non-boundary source; chain connectivity; entry valid; seed range-checked.
 - `manifest_to_hub_spec` / `generate_hub` — emit the hub field.toml for bare + multi-campaign journeys.
 - `render_journey_plan` — the read-only resolved view (`lint-journey --graph`).
+- `build_deploy_plan` / `render_deploy_playbook` / `apply_link_rewrites` (+ `build_campaign(flag_base=)`,
+  `deploy_campaign.py --flag-base`, `tools/deploy_journey.py`) — the **deploy orchestration**: each campaign
+  into its own stacked mod folder at its disjoint flag window (`--no-warp`; the hub owns New Game), each
+  cross-campaign link realized by byte-patching the boundary member's deployed `.eb` `Field(seam.to_real)` →
+  the next entry id (`content.verbatim.remap_fields`, all langs, revert-guarded), then the hub + New-Game
+  retarget. `deploy_journey.py` (dry-run) prints the ordered, copy-pasteable **playbook** of these
+  individually revert-guarded steps (apply + PLAYTEST each in order — "one change per in-game test"); its
+  `--apply-links` executes the one journey-unique step (the link `.eb` remaps). An **overworld** boundary
+  seam (exit-to-world-map, no `Field()` op) is detected as **not retargetable** and flagged.
 
 **The §6 open decisions, resolved (overworld's call):**
 1. **Location** — project root, campaign folders **relative to the journeys.toml** (`manifest.root`). A
@@ -287,10 +299,15 @@ optional `set_scenario`) **or** the *multi-campaign* shape from §2 (`campaigns`
    stacks them via `FolderNames`. The hub owns the highest folder + New Game (`project-ff9-world-hub`).
 6. **Replay** — one-way; New Game switches journeys (confirmed).
 
-**Remaining — the in-game deploy step (`deploy_journey`, next):** per-campaign `deploy_campaign --no-warp`
-at each disjoint band (applying the assigned `flag_base` via a `build_campaign` override); realize each link
-by byte-patching the boundary member's `.eb` `Field()` exit → the next campaign's entry global id (reuse
-`gateway.graft_gateway_entry` / `retarget_newgame_warp`'s 0x2B scanner); emit + deploy the hub; seed the
-entry field (the story_flags capstone) + promote start-state CSVs to the highest folder; retarget New Game
-→ the hub. Each is human-playtested. **Prerequisite (§7): fork Evil Forest** (`import-chain`) for the worked
-two-campaign example (Ice Cavern exists).
+**Remaining:**
+- **An in-game playtest of a real chained journey** — fork two clean *verbatim* campaigns connected by a
+  **scripted/portal** seam (so the link `.eb` retarget applies), run the `deploy_journey` playbook, and walk
+  it. **Prerequisite (§7): fork Evil Forest** (`import-chain` — a verbatim fork is offline, no `[Export]`).
+  NB the canonical Evil Forest → Ice Cavern boundary is an *overworld* seam (the world-map leg), which is the
+  unbuilt case below — so the *first* in-game proof should use a scripted-seam boundary.
+- **The elided world-map leg** (overworld seams) — a boundary that exits to the world map has no `Field()` to
+  retarget; wiring it needs a region-INJECTED warp at the exit trigger (the kit can't do a real overworld
+  leg). `build_deploy_plan` flags these as not-auto-wirable today; the injection is the next deploy feature.
+- **Richer seed application** — `apply_link_rewrites` covers links; emitting `[journey.seed]` as the
+  story_flags capstone on the entry field + the start-state-CSV promotion is wired in `deploy_campaign`
+  already (reused per-campaign) but not yet driven from a single `deploy_journey --apply`.

@@ -6,6 +6,7 @@ the hub fold-in are exercised with NO game install. The deploy ORCHESTRATION (bu
 band, wire links, deploy the hub) is the in-game step and is not tested here."""
 
 import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -372,3 +373,119 @@ to = { campaign = "cb", field = "B1" }
 """)
     text = journey.render_journey_plan(journey.load_journeys(p))
     assert "The Arc" in text and "ca" in text and "link" in text and "6100" in text
+
+
+# ---- the in-game deploy plan (offline brain) --------------------------------------------
+def _escape_ice(tmp_path, *, forest_seam_real=652, forest_mod="FF9CustomMap-evf",
+                cavern_mod="FF9CustomMap-ic"):
+    """A 2-campaign journey whose forest boundary (EVF_EXIT) has a SCRIPTED seam to a real id (retargetable)."""
+    _make_campaign(tmp_path, "evil_forest", members=["EVF_START", "EVF_EXIT"], id_base=6000,
+                   mod_folder=forest_mod,
+                   seams=[{"frm": "EVF_EXIT", "to_real": forest_seam_real, "kind": "scripted",
+                           "note": "trigger:escape"}])
+    _make_campaign(tmp_path, "ice_cavern", members=["IC_ENT", "IC_DEEP"], id_base=6100, mod_folder=cavern_mod)
+    return _write_manifest(tmp_path, """
+[[journey]]
+id = "treno"
+name = "Treno"
+entry = 4501
+
+[[journey]]
+id = "escape_ice"
+name = "Escape to the Ice Cavern"
+campaigns = ["evil_forest", "ice_cavern"]
+entry = { campaign = "evil_forest", field = "EVF_START" }
+[[journey.link]]
+from = { campaign = "evil_forest", field = "EVF_EXIT" }
+to = { campaign = "ice_cavern", field = "IC_ENT" }
+""")
+
+
+def test_build_deploy_plan(tmp_path):
+    p = _escape_ice(tmp_path)
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
+    assert plan.hub_field_id == 4500
+    assert plan.bare_entries == [("treno", "Treno", 4501)]
+    assert plan.folder_conflicts == []
+    # two campaign steps, distinct folders, disjoint flag windows
+    by = {s.folder: s for s in plan.campaign_steps}
+    assert by["evil_forest"].mod_folder == "FF9CustomMap-evf" and by["evil_forest"].flag_base == FIRST_SAFE_FLAG
+    assert by["ice_cavern"].mod_folder == "FF9CustomMap-ic" and by["ice_cavern"].flag_base == FIRST_SAFE_FLAG + 128
+    assert (by["evil_forest"].id_lo, by["evil_forest"].id_hi) == (6000, 6001)
+    # the link is retargetable: remap the scripted seam target (652) -> the cavern entry (6100)
+    assert len(plan.links) == 1
+    lk = plan.links[0]
+    assert lk.retargetable and lk.remap == {652: 6100} and lk.eb_name == "EVT_EVF_EXIT"
+    assert lk.src_mod_folder == "FF9CustomMap-evf" and lk.dst_id == 6100
+
+
+def test_deploy_plan_overworld_seam_not_retargetable(tmp_path):
+    # EVF_EXIT's only seam is overworld (no Field() op) -> the link can't be auto-wired
+    _make_campaign(tmp_path, "evil_forest", members=["EVF_START", "EVF_EXIT"], id_base=6000, mod_folder="mf-a",
+                   seams=[{"frm": "EVF_EXIT", "to_real": "WORLDMAP", "kind": "overworld", "note": "wm"}])
+    _make_campaign(tmp_path, "ice_cavern", members=["IC_ENT"], id_base=6100, mod_folder="mf-b")
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["evil_forest", "ice_cavern"]
+entry = { campaign = "evil_forest", field = "EVF_START" }
+[[journey.link]]
+from = { campaign = "evil_forest", field = "EVF_EXIT" }
+to = { campaign = "ice_cavern", field = "IC_ENT" }
+""")
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
+    lk = plan.links[0]
+    assert not lk.retargetable and lk.remap == {} and "overworld" in lk.note
+
+
+def test_deploy_plan_folder_conflict(tmp_path):
+    # two campaigns sharing a mod_folder -> deploy_campaign would wholesale-clobber one
+    _make_campaign(tmp_path, "evil_forest", members=["EVF_START"], id_base=6000, mod_folder="shared")
+    _make_campaign(tmp_path, "ice_cavern", members=["IC_ENT"], id_base=6100, mod_folder="shared")
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["evil_forest", "ice_cavern"]
+entry = { campaign = "evil_forest", field = "EVF_START" }
+""")
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
+    assert plan.folder_conflicts and plan.folder_conflicts[0][0] == "shared"
+
+
+def test_render_deploy_playbook(tmp_path):
+    p = _escape_ice(tmp_path)
+    book = journey.render_deploy_playbook(journey.load_journeys(p), hub_toml="hub.field.toml")
+    assert "deploy_campaign.py" in book and "--flag-base 8512" in book and "--flag-base 8640" in book
+    assert "--no-warp" in book and "--mod-folder FF9CustomMap-evf" in book
+    assert "deploy_journey.py" in book and "--apply-links" in book      # the link step
+    assert "Field(652) -> Field(6100)" in book
+    assert "retarget_newgame_warp.py 4500" in book                      # New Game -> hub
+    assert "'Treno' [treno] -> field 4501" in book                      # bare journey noted
+
+
+def test_apply_link_rewrites(tmp_path, monkeypatch):
+    from ff9mapkit.content import verbatim
+    p = _escape_ice(tmp_path)
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
+    # fake the deployed boundary .eb (2 langs) under <game>/<mod_folder>
+    game = tmp_path / "game"
+    ebdir = game / "FF9CustomMap-evf" / "US" / "field"
+    ebdir.mkdir(parents=True)
+    (ebdir / "EVT_EVF_EXIT.eb.bytes").write_bytes(b"ORIG-US")
+    (game / "FF9CustomMap-evf" / "JP" / "field").mkdir(parents=True)
+    (game / "FF9CustomMap-evf" / "JP" / "field" / "EVT_EVF_EXIT.eb.bytes").write_bytes(b"ORIG-JP")
+    monkeypatch.setattr(verbatim, "remap_fields",
+                        lambda data, remap: b"PATCHED" if remap == {652: 6100} else data)
+    res = journey.apply_link_rewrites(plan, game, backup_dir=tmp_path / "bk")
+    r = res[0]
+    assert r["found"] and r["langs"] == 2 and r["remap"] == {652: 6100}
+    assert (ebdir / "EVT_EVF_EXIT.eb.bytes").read_bytes() == b"PATCHED"
+    assert len(r["backups"]) == 2 and all(Path(bk).read_bytes().startswith(b"ORIG") for _, bk in r["backups"])
+
+
+def test_build_campaign_flag_base_override(tmp_path):
+    # the override reaches lint BEFORE build: an unsafe base fails the safe-band check (proves it applied)
+    _make_campaign(tmp_path, "ca", members=["A1", "A2"], id_base=6000)
+    cpath = tmp_path / "ca" / "campaign.toml"
+    with pytest.raises(campaign.CampaignError, match="safe floor|treasure-chest"):
+        campaign.build_campaign(cpath, flag_base=8300)        # below FIRST_SAFE_FLAG -> lint error
