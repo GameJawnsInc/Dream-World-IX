@@ -36,6 +36,31 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - ★ **IN-GAME PROVEN (2026-06-13):** set Zidane's Strength 21 → 99 on slot 1/save 3 → loaded → the status menu
   showed Strength 99 (Vivi + gil untouched). The displayed value + the bonus accumulator both set correctly.
 
+### Added — battle-tuning Phase 6c-ii: the enemy-AI COMMAND assembler + branch insertion (0.9.70)
+- **`eb/cmdasm.py`** — assembles a whole INSTRUCTION (and a BLOCK of them), the next step after 6c-i's expression
+  assembler: the body of a NEW enemy-AI branch. It mirrors `disasm.read_code`'s byte-walk step for step (the `0xFF`
+  extended page, the `argFlag` byte for `op >= 0x10`, the forced-expr `SET`=0x05, the stream-read operand count for
+  the variable ops 0x06/0x0B/0x0D + the count-prefixed 0x29), so it reproduces the exact bytes `read_code` decoded.
+  Expression operands (`{ … }`) go through 6c-i's `exprasm.assemble`; immediates are LE of the opcode's `argsize`.
+- **`assemble_block`** adds the authoring layer: `label:` lines + symbolic jump targets (`JMP done`,
+  `JMP_IF {expr} loop`) resolved in a two-pass walk to the relative offset the engine reads (instruction sizes are
+  known up front — a jump immediate is always 2 bytes — so offsets precede the targets).
+- **`battle/aiauthor.py`** — the bridge: `add_ai_function` / `replace_ai_function` assemble a branch and splice it
+  into a forked battle `.eb` via the EXISTING byte-safe length-changing primitives (`eb.edit.add_function` grows the
+  func table + fixes every `fpos` and later-entry offset; `replace_function_body` swaps a body of any length). The
+  first LENGTH-CHANGING AI edit. CLI **`battle-ai --asm-block`** previews a block → bytes + a re-disasm proof.
+- ★ A 3-lens adversarial review (decode inversion · block/jump layout · insertion safety) confirmed the layout math
+  and the relative-jump survival of the splice, and found + fixed two real defects: **(HIGH)** the engine has *no
+  per-function length bound*, so a branch that doesn't end in a flow terminator runs the IP off into adjacent
+  bytecode at runtime — `aiauthor` now REQUIRES the body to end in `RET` (0x04) or `TerminateEntry` (0x1C);
+  **(MEDIUM)** the engine reads `JMP_IFNOT` (0x02, `beq`) offset **unsigned** while `JMP`/`JMP_IF` (`bra`/`bne`) are
+  signed, so a *backward* `JMP_IFNOT` would execute as a ~64KB forward jump — now rejected with a clear error.
+  Plus a bracket-imbalance guard in the operand splitter. The strongest test walks the **real EF_R007 AI** and
+  asserts every instruction *and* every function assembles back byte-for-byte, and that `add_ai_function` on the
+  shipping Goblin AI re-parses with every other function + later entry byte-intact. 35 tests
+  (`test_cmdasm` + `test_aiauthor`). **Phase 6c next (6c-iii):** a battle linter (valid AI tags, an Attack index in
+  range, a reachable RET) + the declarative `[[scene.ai_function]]` build surface.
+
 ### Added — save-item editor: vanilla key items (main-block `rareItems`) + the GUI key-item control, IN-GAME PROVEN (0.9.66)
 - Completes key items: a **vanilla (no-extra) save's key items** are now editable, and the **GUI** gains a
   Key-items give/remove control — so the #5 editor covers **every data type on every save kind**.

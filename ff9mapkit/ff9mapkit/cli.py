@@ -824,8 +824,19 @@ def _cmd_battle_ai(args: argparse.Namespace) -> int:
         print(f"bytes ({len(b)}): {b.hex(' ')}\nre-disasm: {back}")
         return 0
     from .battle import battleai as BA
+    if args.asm_block is not None:                          # Phase-6c-ii: assemble a COMMAND block -> bytes
+        from .eb import cmdasm
+        try:
+            b = cmdasm.assemble_block(args.asm_block.replace(";", "\n"))   # ';' separates lines for a 1-line arg
+        except cmdasm.CmdAsmError as e:
+            print(f"assemble error: {e}", file=sys.stderr)
+            return 2
+        print(f"bytes ({len(b)}): {b.hex(' ')}")
+        for off, mn, ops in BA._decode_func_pretty(b, 0, len(b)):   # the re-disassembly proof
+            print(f"  [{off}] {mn}({', '.join(ops)})")
+        return 0
     if not args.donor:
-        print("a scene name is required (or use --asm \"{ ... }\" to assemble an expression)", file=sys.stderr)
+        print("a scene name is required (or use --asm / --asm-block to assemble AI source)", file=sys.stderr)
         return 2
     try:
         print(BA.scene_ai_sites(args.donor, game=args.game) if args.sites
@@ -1904,6 +1915,9 @@ def build_parser() -> argparse.ArgumentParser:
     bai.add_argument("--asm", metavar="EXPR",
                      help="assemble an AI expression (e.g. \"{B_CURHP const(50) B_LT B_EXPR_END}\") -> its bytes; "
                           "the inverse of the disassembled expression form -- no scene needed")
+    bai.add_argument("--asm-block", metavar="SRC", dest="asm_block",
+                     help="assemble an AI COMMAND block -> its bytes + a re-disasm proof; ';' separates lines "
+                          "(e.g. \"JMP_IF(end); SET({B_CURHP const(1) B_LT B_EXPR_END}); end:; RET()\") -- no scene")
     bai.set_defaults(func=_cmd_battle_ai)
 
     ch = sub.add_parser("characters",

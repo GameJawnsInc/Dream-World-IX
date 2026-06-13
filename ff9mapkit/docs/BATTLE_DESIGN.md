@@ -489,9 +489,19 @@ byte-for-byte, proven against the real EF_R007 AI). Each token inverts a `pretty
 confirmed the byte-layout matches `EBin.cs` and fixed: an `opXX` back-door that assembled a bare operand-byte
 (→ desync; now `opXX` accepts only unnamed pure operators `<0xC0`), an unguarded re-disasm crash (→ `assemble()`
 **self-verifies** its own round trip as a library invariant), and silent const masking (→ range-checked). 35 tests.
-**Phase 6c (remaining):** the **command assembler** + length-changing `replace_function_body`/`add_function` branch
-insertion (entry-table/`fpos` fixup) + a **battle linter** (valid tags 1/6/7/9, Attack index `< AtkCount`). **Defer
-raw17 btlseq sequence authoring** (new codec + a coordinated raw16+eb+raw17 edit).
+**Phase 6c-ii ✅ DONE (kit 0.9.70)** — the enemy-AI **COMMAND assembler** (`eb/cmdasm.py`) + **branch insertion**
+(`battle/aiauthor.py`), the first LENGTH-CHANGING AI edit. `assemble_instruction`/`assemble_block` mirror
+`read_code`'s byte-walk (argFlag, forced-`SET`, the variable-count ops, the `0xFF` page), so they reproduce its
+exact bytes; `assemble_block` resolves `label:`/symbolic jumps in two passes. `add_ai_function`/`replace_ai_function`
+splice the assembled branch into a forked eb via the existing byte-safe `eb.edit` primitives (entry-table + `fpos`
+fixup). CLI `battle-ai --asm-block`. Round-trip proven on the real EF_R007 AI (every instruction + every function
+byte-for-byte; `add_ai_function` re-parses with everything else byte-intact). ★ A 3-lens review fixed: a missing
+flow-TERMINATOR check (no per-function length bound in-engine → a RET-less branch runs off the function; now
+`aiauthor` requires `RET`/`TerminateEntry`) and a backward `JMP_IFNOT` (the engine reads its offset UNSIGNED, unlike
+`JMP`/`JMP_IF` → now rejected). 35 tests.
+**Phase 6c-iii (remaining):** a **battle linter** (valid AI tags 1/6/7/9, Attack index `< AtkCount`, reachable RET)
++ the declarative `[[scene.ai_function]]` build surface. **Defer raw17 btlseq sequence authoring** (new codec + a
+coordinated raw16+eb+raw17 edit).
 
 ---
 
