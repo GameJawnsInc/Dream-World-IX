@@ -153,6 +153,18 @@ def ff9_verts_to_blender(ff9_verts):
     return [tuple(cam.mv(M_BF, list(v))) for v in ff9_verts]
 
 
+def flip_walkmesh_y(ff9_verts):
+    """Negate the walkmesh Y -- converts between the .bgi BUILD frame (vert+orgPos+floor.org, what the
+    walkmesh ships to the engine in) and the engine RENDER frame (the engine negates the walkmesh Y
+    before the GTE -- Memoria WalkMesh.cs:54 -- so the kit must too, else a DEEP floor whose .bgi
+    floor.org is 0 projects far off the painting; near-plane floors were only ~20px off, masked by the
+    view-offset fit). It is its OWN INVERSE, so the same call serves the import flip (build->render, for
+    aligning the displayed mesh to the real-art backdrop) and the export un-flip (render->build, so the
+    shipped .obj/.bgi is byte-identical and the engine re-applies its own flip). A flat floor (y=0) is a
+    no-op, so authored novel rooms are unaffected."""
+    return [(x, -y, z) for (x, y, z) in ff9_verts]
+
+
 def _blender_pixel(P_bl, b, res, off=(0.0, 0.0, 0.0)):
     """Blender's pinhole projection (sensor_fit=HORIZONTAL) of a Blender-world point -> (px,py)."""
     L, R, f, sw = b["location"], b["rotation"], b["lens"], b["sensor_width"]
@@ -176,7 +188,7 @@ def walkmesh_view_offset(bgi_bytes, c):
     floor verts by coordinate descent. (GLGV head-on -> ~+42 height; tilted cams -> height+depth.)"""
     import statistics
     wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
-    wv = wm.world_verts()
+    wv = flip_walkmesh_y(wm.world_verts())                   # engine RENDER frame (matches the imported mesh)
     med = statistics.median([v.y for v in wm.verts])         # main walkable surface
     floor = [wv[i] for i, v in enumerate(wm.verts) if abs(v.y - med) < 60]
     if not floor:
@@ -249,7 +261,10 @@ def bgi_walkmesh_to_blender(bgi_bytes, world=False):
     walkmeshes are already world, so the default leaves them untouched. The mesh may extend past the
     screen edges (tunnels) -- that's correct."""
     wm = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
-    ff9 = wm.world_verts() if world else [(v.x, v.y, v.z) for v in wm.verts]
+    # world=True (imported real field): DISPLAY in the engine RENDER frame so the mesh aligns with the
+    # real-art backdrop (the imported camera reproduces the engine's projection, which flips the walkmesh
+    # Y). Export un-flips symmetrically (mesh_to_ff9_obj / mesh_to_bgi_bytes) so the build is byte-exact.
+    ff9 = flip_walkmesh_y(wm.world_verts()) if world else [(v.x, v.y, v.z) for v in wm.verts]
     faces = [tuple(t.vtx) for t in wm.tris]
     return ff9_verts_to_blender(ff9), faces
 
@@ -730,7 +745,7 @@ def mesh_to_ff9_obj(world_verts, tri_faces, floor_ids=None):
     group per floor so ``ff9mapkit build`` (load_obj_floors) reconstructs the floors. A single floor
     or ``floor_ids=None`` writes a flat face list, unchanged.
     """
-    fv = blender_verts_to_ff9(world_verts)
+    fv = flip_walkmesh_y(blender_verts_to_ff9(world_verts))   # render->build (inverse of the import flip)
     lines = ["# ff9mapkit walkmesh (FF9 world coords; y=0 floor)"]
     for (x, y, z) in fv:
         lines.append(f"v {x:.4f} {y:.4f} {z:.4f}")
@@ -756,7 +771,7 @@ def mesh_to_bgi_bytes(world_verts, tri_faces, floor_ids=None):
     Distinct per-face ``floor_ids`` => a multi-floor WORLD-frame walkmesh (bgi.build, org=0, every
     floor.org=0 -- the verts render verbatim); a single floor uses the flat builder.
     """
-    fv = blender_verts_to_ff9(world_verts)
+    fv = flip_walkmesh_y(blender_verts_to_ff9(world_verts))   # render->build (inverse of the import flip)
     if floor_ids and len(set(floor_ids)) > 1:
         return bgi.build(fv, list(tri_faces), floor_ids=list(floor_ids)).to_bytes()
     return bgi.build_flat(fv, list(tri_faces)).to_bytes()
