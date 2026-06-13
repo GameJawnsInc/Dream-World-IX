@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — a synth fork now spawns at the donor's real main arrival, not a centroid guess (#9) (0.9.79)
+- `extract_field`'s spawn cascade now PREFERS a real per-entrance ARRIVAL position (the player Init's
+  `D9(0)/D9(4)` block, where the engine actually drops the player walking in a door) over the donor charPos
+  (often a cutscene staging spot) or the c.1 walkmesh-centroid. Among the arrivals valid for the fork (in-bounds,
+  on-camera, clear of every trigger zone, in the main walkmesh region) it takes the one nearest the visible
+  centroid — the natural main-entrance landing, and FAITHFUL (a coordinate the real field uses). The Dali shop
+  fork now spawns at its real entrance `(439,-122)` instead of the centroid `(83,209)`.
+- Falls through to the exact c.1 charPos→centroid cascade when no arrival qualifies (a single-spawn field, a
+  frame mismatch, or all arrivals off-screen/gated) → **byte-identical** there, so c.1 (in-game proven) and the
+  blank/hut paths are preserved. A synth fork still can't reconstruct the per-DOOR table (its gateways are
+  retargeted — that's `--verbatim`'s job), but the DEFAULT landing now matches the real field. +1 test.
+
 ### Added — fork-report flags per-door player spawn (#9) (0.9.78)
 - `eventscan.scan_player_arrivals(eb)` decodes a field's per-ENTRANCE arrival table: a warp sets the entrance
   var `D8:2` then `Field()`, and the target's player Init reads `D8:2` (a bare `05 D8 02 7F` push feeding a

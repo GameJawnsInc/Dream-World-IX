@@ -807,10 +807,32 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     _oncam_verts = [(wx[i], wz[i]) for i in range(len(wx))
                     if _oncam(wx[i], wz[i]) and (not _multi or i in _main_vtx)]
     _clear_oncam = [p for p in _oncam_verts if _clear(*p)]
-    _spawn = next((p for p in _cp if _inb(*p) and _oncam(*p) and _clear(*p) and _in_main(*p)), None)
-    if _spawn is None and _oncam_verts:                       # nearest-to-centre visible vert, clear if any
+    mcx = mcz = None
+    if _oncam_verts:                                          # the visible centroid (the on-screen "middle")
         mcx = sum(p[0] for p in _oncam_verts) / len(_oncam_verts)
         mcz = sum(p[1] for p in _oncam_verts) / len(_oncam_verts)
+    # #9 spawn: prefer a REAL per-entrance ARRIVAL -- where the engine actually spawns the player walking in a
+    # door -- over the donor charPos (often a cutscene staging spot) or a synthetic centroid. The player Init's
+    # D9(0)/D9(4) arrival blocks are world coords in the same frame as the walkmesh; among those valid HERE
+    # (in-bounds, on-camera, clear of triggers, in the main region) take the one nearest the visible centroid:
+    # the natural main-entrance spawn, and FAITHFUL (a coord the game uses). Falls through to the c.1 charPos/
+    # centroid cascade when none qualifies (a single-spawn field, a frame mismatch, all arrivals off-screen/gated)
+    # -> byte-identical there. A synth fork can't reconstruct the per-DOOR table (gateways are retargeted), but
+    # the default landing now matches the real field's main arrival instead of a centroid guess.
+    _arrivals = []
+    try:
+        _aeb = extract_event_script(field, game=game)
+        if _aeb:
+            _arrivals = [(ax, az) for ax, az, _f in eventscan.scan_player_arrivals(_aeb)["arrivals"]]
+    except Exception:                                         # a missing/odd script just disables the preference
+        _arrivals = []
+    _valid_arr = [p for p in _arrivals if _inb(*p) and _oncam(*p) and _clear(*p) and _in_main(*p)]
+    _spawn = None
+    if _valid_arr and mcx is not None:                       # the real arrival nearest the visible centre
+        _spawn = min(_valid_arr, key=lambda p: (p[0] - mcx) ** 2 + (p[1] - mcz) ** 2)
+    if _spawn is None:                                        # c.1: a trustworthy charPos (clear + in-main)
+        _spawn = next((p for p in _cp if _inb(*p) and _oncam(*p) and _clear(*p) and _in_main(*p)), None)
+    if _spawn is None and _oncam_verts:                       # nearest-to-centre visible vert, clear if any
         pool = _clear_oncam or _oncam_verts
         _spawn = min(pool, key=lambda p: (p[0] - mcx) ** 2 + (p[1] - mcz) ** 2)
     if _spawn is None:                                        # no on-camera verts: in-bounds / centroid

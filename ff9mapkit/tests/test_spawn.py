@@ -98,3 +98,18 @@ def test_forked_spawn_stays_in_the_main_region_not_a_pocket(tmp_path):
     main_vtx = {vi for t in max(comps, key=len) for vi in wm.tris[t].vtx}
     near = min(range(len(wx)), key=lambda i: (wx[i] - sx) ** 2 + (wz[i] - sz) ** 2)
     assert near in main_vtx                                        # the spawn is in the customer area, not the pocket
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_forked_spawn_prefers_a_real_donor_arrival(tmp_path):
+    # #9 follow-up: the fork spawns where the engine ACTUALLY puts the player walking in (a real per-entrance
+    # arrival block), not the donor charPos (a staging spot) or a synthetic centroid. The Dali shop arrival
+    # nearest the visible centre is (439,-122); the chosen spawn must equal one of the donor's real arrivals.
+    field = "fbg_n06_vgdl_map103_dl_shp_0"
+    meta = extract.extract_field(field, tmp_path)
+    arrivals = {(round(x), round(z)) for x, z, _f in
+                eventscan.scan_player_arrivals(extract.extract_event_script(field))["arrivals"]}
+    assert tuple(meta["player_start"]) in arrivals               # the spawn IS a real game arrival point
+    zones = eventscan.scan_region_zones(extract.extract_event_script(field))
+    sx, sz = meta["player_start"]
+    assert not any(extract._pt_in_quad(sx, sz, z) for z in zones)  # ...and still clears every trigger (no instant-warp)
