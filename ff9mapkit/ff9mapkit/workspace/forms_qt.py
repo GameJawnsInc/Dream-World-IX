@@ -16,19 +16,62 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QPushButton, QVBoxLayout, QWidget,
+    QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
+from .. import dialogue as _dlg
 from .. import infohub
+from ..content.text import DEFAULT_WRAP_WIDTH
 from ..editor import forms
 
+# Fields whose value is a line shown in an FF9 text window -> they get a live wrap-preview (FF9 never
+# auto-wraps, so the kit pre-breaks long lines; this shows exactly where). Keys match editor.forms specs.
+DIALOGUE_KEYS = {"dialogue", "message", "prompt", "reply"}
 
-def build_form(spec, values: dict, palette: dict, pick=None):
+
+def _wrap_preview_panel(line_edit, get_text, palette, wrap_width):
+    """A read-only pane under a dialogue field: how the line breaks on the FF9 screen, live as you type.
+    Reuses the exact build-time wrapper (:func:`..dialogue.wrap_preview`). ``wrap_width`` None = the field
+    set ``[dialogue] wrap = false`` (author wraps by hand) -> show the text raw, no preview break."""
+    panel = QWidget()
+    pv = QVBoxLayout(panel)
+    pv.setContentsMargins(0, 3, 0, 0)
+    pv.setSpacing(2)
+    cap = QLabel("On-screen preview — how it wraps in the FF9 window:")
+    cap.setStyleSheet(f"color:{palette['muted']};font-size:11px;")
+    pv.addWidget(cap)
+    box = QPlainTextEdit()
+    box.setReadOnly(True)
+    box.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)     # show the kit's OWN break points, not Qt's
+    box.setFixedHeight(74)
+    pv.addWidget(box)
+    note = QLabel("")
+    note.setWordWrap(True)
+    note.setVisible(False)
+    pv.addWidget(note)
+
+    def refresh(*_):
+        txt = get_text() or ""
+        box.setPlainText((_dlg.wrap_preview(txt, wrap_width) if wrap_width is not None else txt) or "(empty)")
+        over = _dlg.overflow(txt, wrap_width) if (txt and wrap_width is not None) else []
+        if over:
+            note.setText(f"⚠ {len(over)} line(s) may overflow the window — verify in-game.")
+            note.setStyleSheet(f"color:{palette['warn']};font-size:11px;")
+        note.setVisible(bool(over))
+
+    line_edit.textChanged.connect(refresh)
+    refresh()
+    return panel
+
+
+def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_WRAP_WIDTH):
     """Return ``(widget, getters)`` for ``spec`` + flat ``values`` (from ``forms.entity_to_values``).
 
     ``getters`` maps each field key to a 0-arg callable returning the widget's current value. ``pick``
     (optional) is ``pick(catalog: str, current: str) -> str | None``; when given, catalog-backed fields
-    get a "Browse…" button that calls it and writes the chosen name back into the widget."""
+    get a "Browse…" button that calls it and writes the chosen name back into the widget. Dialogue-bearing
+    fields (:data:`DIALOGUE_KEYS`) get a live FF9-window wrap preview at ``wrap_width`` (None = wrapping off
+    for this field -> show the line raw)."""
     w = QWidget()
     lay = QFormLayout(w)
     lay.setLabelAlignment(Qt.AlignRight | Qt.AlignTop)
@@ -78,6 +121,8 @@ def build_form(spec, values: dict, palette: dict, pick=None):
             hint.setWordWrap(True)
             hint.setStyleSheet(f"color:{palette['muted']};font-size:11px;")
             v.addWidget(hint)
+        if f.key in DIALOGUE_KEYS and hasattr(widget, "textChanged"):
+            v.addWidget(_wrap_preview_panel(widget, getters[f.key], palette, wrap_width))
         label = QLabel(f.label + ":")
         label.setStyleSheet("font-weight:500;")
         lay.addRow(label, box)

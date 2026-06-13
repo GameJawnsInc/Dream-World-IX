@@ -650,10 +650,26 @@ class Workspace(QMainWindow):
             h.setStyleSheet(f"color:{self.pal['muted']};")
             self.doc_host_lay.addWidget(h)
 
+    def _wrap_width(self, member):
+        """The FF9-window wrap width for this field's dialogue preview, from its ``[dialogue] wrap`` (a
+        number, default 28), or None when ``wrap = false`` (author wraps by hand -> preview shows raw)."""
+        from ..content.text import DEFAULT_WRAP_WIDTH
+        doc = self._docs.get(member)
+        w = (doc.data.get("dialogue", {}) or {}).get("wrap") if doc else None
+        if w is False:
+            return None
+        if w is None:
+            return DEFAULT_WRAP_WIDTH
+        try:
+            return float(w)
+        except (TypeError, ValueError):
+            return DEFAULT_WRAP_WIDTH
+
     def _mount_form(self, member, key, spec, entity, *, single, section, idx=None):
         self._clear_doc()
         self._header(f"{member}  ·  {key}", forms.SECTION_HELP.get(section))
-        form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal, pick=self._pick)
+        form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal, pick=self._pick,
+                                   wrap_width=self._wrap_width(member))
         self.doc_host_lay.addWidget(form)
         self._save_ctx = {"member": member, "key": key, "spec": spec, "getters": getters,
                           "single": single, "section": section, "idx": idx}
@@ -815,7 +831,7 @@ class Workspace(QMainWindow):
         self._clear_doc()
         self._header(f"{member}  ·  cutscene", forms.SECTION_HELP.get("cutscene"))
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs),
-                                   self.pal, pick=self._pick)
+                                   self.pal, pick=self._pick, wrap_width=self._wrap_width(member))
         self.doc_host_lay.addWidget(form)
         self.doc_host_lay.addWidget(QLabel("Steps (run in order; control is locked):"))
 
@@ -909,7 +925,7 @@ class Workspace(QMainWindow):
         self._clear_doc()
         self._header(f"{member}  ·  choice[{idx}]", forms.SECTION_HELP.get("choice"))
         form, getters = build_form(forms.CHOICE_SPEC, forms.entity_to_values(forms.CHOICE_SPEC, ch),
-                                   self.pal, pick=self._pick)
+                                   self.pal, pick=self._pick, wrap_width=self._wrap_width(member))
         self.doc_host_lay.addWidget(form)
         self.doc_host_lay.addWidget(QLabel("Options (top-to-bottom; Cancel/B picks the last):"))
         opts_list = QListWidget()
@@ -935,7 +951,7 @@ class Workspace(QMainWindow):
                 if w:
                     w.deleteLater()
             f, g = build_form(forms.CHOICE_OPTION_SPEC, forms.entity_to_values(forms.CHOICE_OPTION_SPEC, o),
-                              self.pal, pick=self._pick)
+                              self.pal, pick=self._pick, wrap_width=self._wrap_width(member))
             opt_lay.addWidget(f)
             st["getters"] = g
 
@@ -1207,6 +1223,15 @@ def _smoke(win):
     sample = {"name": "Vivi", "preset": "vivi", "dialogue": "hi"}
     _w, _g = build_form(forms.NPC_SPEC, forms.entity_to_values(forms.NPC_SPEC, sample), win.pal)
     assert forms.build_entity(forms.NPC_SPEC, read(_g)) == sample, read(_g)
+    # the live dialogue wrap-preview: an NPC's dialogue field renders the kit's FF9-window break points
+    from .. import dialogue as _dlg
+    from PySide6.QtWidgets import QPlainTextEdit as _PTE
+    longnpc = {"name": "Vivi", "dialogue": "this is a fairly long dialogue line that must wrap"}
+    pw, _pg = build_form(forms.NPC_SPEC, forms.entity_to_values(forms.NPC_SPEC, longnpc), win.pal, wrap_width=12)
+    prev_box = pw.findChildren(_PTE)
+    assert prev_box and prev_box[0].toPlainText() == _dlg.wrap_preview(longnpc["dialogue"], 12), \
+        (prev_box and prev_box[0].toPlainText())
+    assert "\n" in prev_box[0].toPlainText(), "a long line pre-breaks in the preview"
 
     # Phase 4b: the cutscene + choice sub-editors mount over a doc with steps/options
     edoc = win._doc("IC_ENT")
