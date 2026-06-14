@@ -138,8 +138,10 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   test deploys overwrite scene folders, so the hut's `FBG_N11_HUT_*` scenes are usually absent — redeploy
   from `release/` to actually play it.) Registered: 4000 HUT_EXT, 4002 HUT_INT, **4003 = the shared test slot**.
 - **New Game lands via a stock mod field-70 override (`Field(<id>)`), NOT a DLL edit** — the only custom DLL
-  is the F6 menu. Currently retargeted to the **World Hub (4500)** (`tools/retarget_newgame_warp.py`),
-  seamless (no FMV). The mechanism + seamless-entry lever + starting-state capstone → [[project-ff9-new-game-entry]].
+  is the F6 menu. Currently retargeted to the **Mognet Central journey hub (4600)** (`tools/retarget_newgame_warp.py`
+  4600, 2026-06-14; was the old World Hub 4500). The field-70 opening's own fade-out is preserved, so New Game
+  fades to black → Field(4600) (seamless, no FMV). The mechanism + seamless-entry lever + starting-state
+  capstone → [[project-ff9-new-game-entry]].
 - **Versions:** kit `0.9.81`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
