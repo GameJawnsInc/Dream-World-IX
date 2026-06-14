@@ -757,6 +757,11 @@ def validate(project: FieldProject) -> list[str]:
             problems += [f"[[character_param]] #{q}: {p}" for p in _cdelta.validate_character_param(cp)]
         for q, cs in enumerate(_aslist2(project.raw.get("command_set", []))):
             problems += [f"[[command_set]] #{q}: {p}" for p in _cdelta.validate_command_set(cs)]
+    if project.raw.get("learn"):
+        from .battle import characterdelta as _cdelta
+        for q, ln in enumerate(project.raw.get("learn") if isinstance(project.raw.get("learn"), list)
+                               else [project.raw.get("learn")]):
+            problems += [f"[[learn]] #{q}: {p}" for p in _cdelta.validate_learn(ln)]
     if project.raw.get("ability_feature"):                        # [[ability_feature]] -> AbilityFeatures.txt (the
         from .battle import abilityfeatures as _af                # ability-effect DSL; structural -- AA-by-name id
         problems += _af.validate_blocks(project.raw.get("ability_feature", []))   # resolution defers to build)
@@ -3688,13 +3693,14 @@ def _emit_character_data(projects, layout) -> list:
     ability_gems = _blocks("ability_gem")
     character_params = _blocks("character_param")
     command_sets = _blocks("command_set")
-    if not (characters or levelings or ability_gems or character_params or command_sets):
+    learns = _blocks("learn")
+    if not (characters or levelings or ability_gems or character_params or command_sets or learns):
         return []
     from .battle import characterdelta as _cdelta
     try:
         return _cdelta.write_character_data(layout, characters=characters, levelings=levelings,
                                             ability_gems=ability_gems, character_params=character_params,
-                                            command_sets=command_sets)
+                                            command_sets=command_sets, learns=learns)
     except _cdelta.CharacterDeltaError as ex:
         raise BuildError(str(ex))
 

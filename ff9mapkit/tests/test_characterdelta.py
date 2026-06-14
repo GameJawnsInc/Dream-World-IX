@@ -58,6 +58,18 @@ _COMMANDSETS = (
 )
 
 
+# SYNTHETIC learn list (col0 = ability token, col1 = AP, + a comment cell) -- the real per-preset format.
+_VIVI_LEARN = (
+    "# This file contains a set of learnable Vivi's abilities.\n"
+    "# Use 0 for a void ability, AA:X for active abilities and SA:X for passive abilities.\n"
+    "# Id;AP\n"
+    "# Ability;Int32\n"
+    "AA:25;25;# Fire\n"
+    "AA:26;30;# Fira\n"
+    "SA:2;0;# Auto-Haste\n"
+)
+
+
 @pytest.fixture
 def base(tmp_path, monkeypatch):
     (tmp_path / "BaseStats.csv").write_bytes(_BASESTATS.encode("cp1252"))
@@ -66,6 +78,7 @@ def base(tmp_path, monkeypatch):
     (tmp_path / "CommandSets.csv").write_bytes(_COMMANDSETS.encode("cp1252"))
     (tmp_path / "Abilities").mkdir()
     (tmp_path / "Abilities" / "AbilityGems.csv").write_bytes(_ABILITYGEMS.encode("cp1252"))
+    (tmp_path / "Abilities" / "Vivi.csv").write_bytes(_VIVI_LEARN.encode("cp1252"))
     monkeypatch.setattr(CD, "_csv_path", lambda name, game=None: tmp_path / name)
     return tmp_path
 
@@ -303,3 +316,36 @@ def test_command_set_range_preset_and_validate(base):
         CD.build_command_set_delta([{"preset": "Cinna", "attack": 1}])        # ambiguous preset
     assert CD.validate_command_set({"preset": "Vivi", "ability1": 8}) == []
     assert any("ambiguous" in p for p in CD.validate_command_set({"preset": "Marcus", "attack": 1}))
+
+
+# ---- [[learn]] -> Abilities/<Preset>.csv (WHOLE-FILE per preset) ----
+def test_learn_override_append_remove(base):
+    text, warns = CD.build_learn_file(
+        "Vivi",
+        [{"ability": "AA:25", "ap": 99},                       # override an existing token's AP
+         {"ability": "Auto-Haste"},                            # an SA NAME -> SA:2 (exists) -> AP 0 default
+         {"ability": "SA:36", "ap": 50, "name": "Counter"}],   # a NEW token -> append
+        ["AA:26"], game=None)                                  # remove Fira
+    assert any("WHOLE-FILE" in w for w in warns)
+    _h, _c, rows = _reparse(base, text)
+    by_tok = {r[0]: r for r in rows}
+    assert by_tok["AA:25"][1] == "99" and by_tok["AA:25"][2] == "# Fire"    # AP overridden, comment kept
+    assert "AA:26" not in by_tok                                            # removed
+    assert by_tok["SA:2"][1] == "0"                                         # Auto-Haste -> SA:2
+    assert by_tok["SA:36"][1] == "50" and by_tok["SA:36"][2] == "# Counter"  # appended new w/ name comment
+
+
+def test_learn_token_forms_and_ranges(base):
+    assert CD._resolve_learn_token("0") == "0" and CD._resolve_learn_token("AA:25") == "AA:25"
+    assert CD._resolve_learn_token("Auto-Haste") == "SA:2"                  # SA name (committed table)
+    with pytest.raises(CD.CharacterDeltaError):
+        CD._resolve_learn_token("AA:999")                                  # AA out of range
+    with pytest.raises(CD.CharacterDeltaError):
+        CD.build_learn_file("Vivi", [{"ability": "AA:25", "ap": -1}], [], game=None)   # AP < 0
+
+
+def test_learn_preset_ambiguous_and_validate(base):
+    with pytest.raises(CD.CharacterDeltaError):
+        CD._group_learns([{"preset": "Cinna", "ability": []}])             # ambiguous guest preset
+    assert CD.validate_learn({"preset": "Vivi", "ability": [{"ability": "AA:25", "ap": 5}]}) == []
+    assert any("ambiguous" in p for p in CD.validate_learn({"preset": "Marcus"}))

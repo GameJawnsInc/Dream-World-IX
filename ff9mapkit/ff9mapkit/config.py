@@ -314,6 +314,12 @@ class ModLayout:
         low->high -> a partial delta (only the abilities you re-cost) works; the base supplies the other 63."""
         return self.root / "StreamingAssets" / "Data" / "Characters" / "Abilities" / "AbilityGems.csv"
 
+    def abilities_csv(self, preset_name: str) -> Path:
+        """A per-preset learn list (``Data/Characters/Abilities/<CharacterPresetId>.csv``, e.g. ``Vivi.csv``).
+        WHOLE-FILE highest-priority-wins -> the kit re-emits the complete list. A METHOD (not a property): the
+        Abilities learn lists are a FILE SET (one per preset), like ``battle_eb_path(lang, scene)``."""
+        return self.root / "StreamingAssets" / "Data" / "Characters" / "Abilities" / f"{preset_name}.csv"
+
     @property
     def ability_features_txt(self) -> Path:
         """The ability-EFFECT DSL (``Data/Characters/Abilities/AbilityFeatures.txt``). MERGED per-ability

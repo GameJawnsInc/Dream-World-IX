@@ -166,6 +166,24 @@ for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, 
     shutil.copyfile(src_csv, live_csv)
     csv_reverts.append((label, str(live_csv), had))
     print(f"  + {label}{ext} (data delta)")
+# [[learn]] -> per-preset Abilities/<Name>.csv (a FILE SET, one whole file per touched preset). Walk the staging
+# Abilities dir; each preset file gets its own reversible backup/restore (joins csv_reverts).
+_PRESET_STEMS = {"Zidane", "Vivi", "Garnet", "Steiner", "Freya", "Quina", "Eiko", "Amarant", "Cinna1", "Cinna2",
+                 "Marcus1", "Marcus2", "Blank1", "Blank2", "Beatrix1", "Beatrix2", "StageZidane", "StageCinna",
+                 "StageMarcus", "StageBlank"}
+_abil_dir = tl.abilities_csv("Zidane").parent
+if _abil_dir.is_dir():
+    for _f in sorted(_abil_dir.glob("*.csv")):
+        if _f.stem not in _PRESET_STEMS:                     # skip AbilityGems (handled in the main loop above)
+            continue
+        _live_f = live.abilities_csv(_f.stem)
+        _live_f.parent.mkdir(parents=True, exist_ok=True)
+        _had = _live_f.exists()
+        if _had:
+            shutil.copyfile(_live_f, BK / f"{_f.stem}.csv.preDEPLOY.{STAMP}")
+        shutil.copyfile(_f, _live_f)
+        csv_reverts.append((_f.stem, str(_live_f), _had))
+        print(f"  + Abilities/{_f.stem}.csv (learn list)")
 csv_revert_code = ""
 for _label, _live, _had in csv_reverts:
     _ext = Path(_live).suffix                             # backup keeps the real extension (.csv / .txt)

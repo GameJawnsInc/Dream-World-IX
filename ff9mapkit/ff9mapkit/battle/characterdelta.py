@@ -515,10 +515,131 @@ def build_command_set_delta(entries, *, game=None) -> tuple:
     return "\n".join([note] + header + [";".join(by_id[c]) for c in sorted(changed)]) + "\n", warnings
 
 
+# ---- [[learn]] -> Abilities/<Preset>.csv (WHOLE-FILE per preset; the ability-progression curve) -------------
+def _resolve_learn_token(token, *, game=None) -> str:
+    """An ability -> the canonical Abilities-CSV cell. Forms: ``0`` / ``AA:n`` / ``SA:n`` (passthrough + range);
+    an SA NAME -> ``SA:id`` (committed table); an active-ability NAME -> ``AA:id`` (live Actions.csv, needs install)."""
+    if token is None or isinstance(token, bool):
+        raise CharacterDeltaError("[[learn.ability]] needs an 'ability' (0, AA:n, SA:n, or a name)")
+    s = str(token).strip()
+    if s == "0":
+        return "0"
+    up = s.upper()
+    if up.startswith(("AA:", "SA:")):
+        n = _to_int(up[3:], f"[[learn]] {up[:2]}")
+        vmax = 191 if up.startswith("AA:") else _MAX_SA_ID
+        if not 0 <= n <= vmax:
+            raise CharacterDeltaError(f"[[learn]] {up[:3]}{n} out of range (0-{vmax})")
+        return f"{up[:3]}{n}"
+    said = _SA_BY_NORM.get(_norm_sa(s))                      # an SA name (committed) -> SA:id
+    if said is not None:
+        return f"SA:{said}"
+    from . import actiondelta as _ad                        # else an active-ability name -> AA:id (live Actions.csv)
+    try:
+        _o, _l, cols, rows = _ad._read_raw(_ad._csv_path("Actions.csv", game))
+        aid = _ad._resolve_id(s, rows, _ad._name_index(rows, cols), kind="learn.ability", max_id=191)
+    except _ad.ActionDeltaError as ex:
+        raise CharacterDeltaError(f"[[learn.ability]] {ex}")
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"[[learn.ability]] {s!r}: an active-ability name needs the install to resolve "
+                                  f"via Actions.csv ({ex})")
+    return f"AA:{aid}"
+
+
+def _group_learns(learns):
+    """``[[learn]]`` blocks -> ``{preset_name: {abilities:[...], removes:[...]}}`` (blocks for the same preset MERGE)."""
+    grouped: dict = {}
+    for n, e in enumerate(learns if isinstance(learns, list) else [learns]):
+        if not isinstance(e, dict):
+            raise CharacterDeltaError(f"[[learn]] #{n} must be a table (got {type(e).__name__})")
+        _pid, pname = _resolve_preset(e.get("preset"), "[[learn]]")
+        g = grouped.setdefault(pname, {"abilities": [], "removes": []})
+        abil = e.get("ability", [])
+        g["abilities"] += abil if isinstance(abil, list) else [abil]
+        rem = e.get("remove", [])
+        g["removes"] += rem if isinstance(rem, list) else [rem]
+    return grouped
+
+
+def build_learn_file(preset_name, abilities, removes, *, game=None) -> tuple:
+    """Read Abilities/<preset_name>.csv + apply the learn edits -> (WHOLE-FILE text, warnings). Override an
+    existing token's AP, append a new token, drop a removed token, re-emit ALL rows (the whole file replaces the
+    base, highest-priority-wins). Rows are ``<token>;<ap>;# <name>``."""
+    try:
+        header, _cols, rows = _read_csv(_csv_path(f"Abilities/{preset_name}.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"[[learn]] preset {preset_name}: can't read Abilities/{preset_name}.csv -- "
+                                  f"presets 0-15 must exist; Stage* (16-19) have no base file ({ex})")
+    by_token: dict = {}
+    order: list = []
+    for cells in rows:
+        tok = cells[0].strip() if cells else ""
+        if tok and tok not in by_token:
+            by_token[tok] = [c.strip() for c in cells]
+            order.append(tok)
+    warnings: list = []
+    for r in removes or []:                                  # drop removed tokens
+        tok = _resolve_learn_token(r, game=game)
+        if tok in by_token:
+            del by_token[tok]
+            order.remove(tok)
+        else:
+            warnings.append(f"[[learn]] {preset_name}: remove {r!r} ({tok}) is not in the base list -- ignored")
+    for ab in abilities or []:                               # override AP / append new
+        if not isinstance(ab, dict):
+            raise CharacterDeltaError(f"[[learn]] {preset_name}: each [[learn.ability]] must be a table")
+        tok = _resolve_learn_token(ab.get("ability"), game=game)
+        ap = _to_int(ab.get("ap", 0), f"[[learn]] {preset_name} {tok} ap")
+        if not 0 <= ap <= _U32:
+            raise CharacterDeltaError(f"[[learn]] {preset_name} {tok}: ap {ap} out of range (0-{_U32})")
+        if tok in by_token:
+            cells = by_token[tok]
+            while len(cells) < 2:
+                cells.append("0")
+            cells[1] = str(ap)
+        else:
+            name = str(ab.get("name", "")).strip()
+            by_token[tok] = [tok, str(ap), f"# {name}" if name else f"# {tok}"]
+            order.append(tok)
+    note = f"# ff9mapkit [[learn]] -- the COMPLETE {preset_name} learn list (whole-file; highest-priority-wins)."
+    warnings.append(f"[[learn]] -> Abilities/{preset_name}.csv is WHOLE-FILE: it REPLACES the entire learn list, "
+                    f"and a stacked higher-priority mod folder's {preset_name}.csv would SHADOW it")
+    return "\n".join([note] + header + [";".join(by_token[t]) for t in order]) + "\n", warnings
+
+
+def validate_learn(entry) -> list:
+    """Offline structural problems for ``[[learn]]`` (empty => OK). Token FORMS (0/AA:/SA:/SA-name) check offline;
+    an active-ability NAME defers to build (it needs the install's Actions.csv)."""
+    if not isinstance(entry, dict):
+        return ["[[learn]] must be a table (preset = \"...\", [[learn.ability]] blocks)"]
+    problems: list = []
+    try:
+        _resolve_preset(entry.get("preset"), "[[learn]]")
+    except CharacterDeltaError as ex:
+        problems.append(str(ex))
+    abil = entry.get("ability", [])
+    abil = abil if isinstance(abil, list) else [abil]
+    if not abil and not entry.get("remove"):
+        problems.append("[[learn]] sets nothing (add a [[learn.ability]] block or remove = [...])")
+    for ab in abil:
+        if not isinstance(ab, dict) or ab.get("ability") is None:
+            problems.append("[[learn.ability]] needs an 'ability' (0, AA:n, SA:n, or a name)")
+            continue
+        s = str(ab.get("ability")).strip().upper()
+        if s == "0" or s.startswith(("AA:", "SA:")) or _SA_BY_NORM.get(_norm_sa(s)) is not None:
+            try:
+                _resolve_learn_token(ab.get("ability"))      # offline-resolvable form -> check the range now
+            except CharacterDeltaError as ex:
+                problems.append(str(ex))
+        # else: an active-ability name -> resolution (+ presence) deferred to build (needs the install)
+    return problems
+
+
 # ---- mod-write stage -------------------------------------------------------------------------------------
 def write_character_data(layout, *, characters=None, levelings=None, ability_gems=None, character_params=None,
-                         command_sets=None, game=None) -> list:
-    """Emit BaseStats / Leveling / AbilityGems / CharacterParameters / CommandSets into ``layout``. cp1252 + LF."""
+                         command_sets=None, learns=None, game=None) -> list:
+    """Emit BaseStats / Leveling / AbilityGems / CharacterParameters / CommandSets (per-id deltas) + the per-preset
+    Abilities/<Name>.csv learn lists into ``layout``. cp1252 + LF."""
     warnings: list = []
     for entries, path, builder in ((characters, layout.base_stats_csv, build_basestats_delta),
                                    (levelings, layout.leveling_csv, build_leveling_file),
@@ -529,6 +650,13 @@ def write_character_data(layout, *, characters=None, levelings=None, ability_gem
             text, w = builder(entries, game=game)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="cp1252", errors="replace", newline="\n")
+            warnings += w
+    if learns:                                              # the learn lists are a FILE SET (one whole file per preset)
+        for pname, g in _group_learns(learns).items():
+            text, w = build_learn_file(pname, g["abilities"], g["removes"], game=game)
+            p = layout.abilities_csv(pname)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text, encoding="cp1252", errors="replace", newline="\n")
             warnings += w
     return warnings
 

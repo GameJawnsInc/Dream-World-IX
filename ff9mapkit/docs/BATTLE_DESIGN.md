@@ -165,7 +165,7 @@ Darkness=128 — the **same 8-bit space** as the enemy Guard/Absorb/Half/Weak by
 | **Leveling** (Exp / BonusHP / BonusMP) | 99-step growth curve; `HP=BonusHP*Str/50`, `MP=BonusMP*Mag/100` | CSV (**whole-file**, 99 rows) | `Leveling.csv` → `ff9level.cs:53` (`GetCsvWithHighestPriority`) | No | **done** (`[[leveling]]`, whole-file 99-row re-emit) |
 | CharacterParameters | row / category / menu-preset / equip-set | CSV (partial, 0-11) | `CharacterParameters.csv` → `ff9play.cs` | No | **done** (`[[character_param]]` row/category/menu_type/equip_set; fixed-index cols) |
 | Commands / CommandSets | battle-menu definitions + per-char layout | CSV (partial) | `CharacterCommands.cs` (0-44 / 0-19) | No | **partial** — CommandSets done (`[[command_set]]` re-points a preset's menu slots to existing command ids); Commands (command DEFINITIONS) deferred (cross-ref into Actions/abilities) |
-| Abilities/`<Name>.csv` | learn list + AP cost | CSV (**whole-file per preset**) | `ff9abil.cs:432` (`GetCsvWithHighestPriority`) | No | **absent** |
+| Abilities/`<Name>.csv` | learn list + AP cost | CSV (**whole-file per preset**) | `ff9abil.cs:432` (`GetCsvWithHighestPriority`) | No | **done** (`[[learn]]` preset + `[[learn.ability]]` ability/ap + `remove` → whole-file per-preset re-emit; AA/SA tokens or names) |
 | AbilityGems | support-ability stone costs | CSV (partial, 0-63) | `AbilityGems.csv` → `ff9abil.cs:409` | No | **done** (`[[ability_gem]]`, `characterdelta`) |
 | AbilityFeatures.txt | the SA/AA effect DSL (Auto-Haste, killers, MP+20%…) | text (`>SA/>AA/>CMD`, `+`=cumulate) | `ff9abil.cs:448-534` | No | **absent** |
 | DefaultEquipment / InitialItems | starting gear + bag | CSV | `content/equipment.py` / `content/inventory.py` | No | **done** (items_equipment) |
