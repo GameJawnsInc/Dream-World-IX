@@ -336,13 +336,75 @@ def validate_status_sets(entries) -> list:
     return []
 
 
-def write_battle_data(layout, *, actions=None, statuses=None, status_sets=None, game=None) -> list:
-    """Emit the Actions.csv / StatusData.csv / StatusSets.csv deltas into ``layout`` (mod-write stage). Returns
-    warnings. Written cp1252 (byte-faithful with the base) + LF; the engine's StreamReader.ReadLine is EOL-agnostic."""
+def _ability_list(value, ctx) -> str:
+    """A list of active-ability ids (0-191, or ``"AA:n"`` tokens) -> the ``AA:n, AA:n`` Ability[] cell."""
+    if value is None:
+        return ""
+    out = []
+    for a in (value if isinstance(value, list) else [value]):
+        if isinstance(a, str) and a.strip().upper().startswith("AA:"):
+            a = a.strip()[3:]
+        aid = _to_int(a, ctx)
+        if not 0 <= aid <= _ACTION_MAX_ID:
+            raise ActionDeltaError(f"{ctx}: ability id {aid} out of range (0-{_ACTION_MAX_ID})")
+        out.append(f"AA:{aid}")
+    return ", ".join(out)
+
+
+def build_magic_sword_sets(entries, *, game=None) -> tuple:
+    """``[[magic_sword_set]]`` -> a partial ``MagicSwordSets.csv`` (Steiner+Vivi-style combo unlocks): a
+    Supporter's BaseAbilities unlock the Beneficiary's UnlockedAbilities, unless a blocking status is present.
+    Per-id partial merge (``LoadMagicSwordSets`` via ``EnumerateCsvFromLowToHigh``) -> emits ONLY the author's
+    rows (no base read; offline + provenance-clean). Row ``Id;Sup;Ben;AA[];AA[];Status[];Status[]``."""
+    from . import characterdelta as _cd
+    note = ("# ff9mapkit [[magic_sword_set]] -- a partial MagicSwordSets.csv (merged per-id over the base). The "
+            "Supporter's base_abilities unlock the Beneficiary's unlocked_abilities (e.g. Vivi's Black Magic -> "
+            "Steiner's Magic Sword), unless a blocking status is on the supporter/beneficiary.")
+    lines, warnings, seen = [note, "#! IncludeStatusBlockers"], [], {}
+    for n, e in enumerate(entries if isinstance(entries, list) else [entries]):
+        ctx = f"[[magic_sword_set]] #{n}"
+        if not isinstance(e, dict):
+            raise ActionDeltaError(f"{ctx} must be a table")
+        sid = _to_int(e.get("id"), f"{ctx} id")
+        if not 0 <= sid <= _STATUS_SET_MAX_ID:
+            raise ActionDeltaError(f"{ctx}: id {sid} out of range (0-{_STATUS_SET_MAX_ID})")
+        if sid in seen:
+            warnings.append(f"{ctx}: id {sid} already set by #{seen[sid]} -- the later wins")
+        seen[sid] = n
+        try:
+            sup, ben = _cd._resolve_char_id(e.get("supporter")), _cd._resolve_char_id(e.get("beneficiary"))
+        except _cd.CharacterDeltaError as ex:
+            raise ActionDeltaError(f"{ctx} (supporter/beneficiary): {str(ex).split(': ', 1)[-1]}")
+        base = _ability_list(e.get("base_abilities"), f"{ctx} base_abilities")
+        unlocked = _ability_list(e.get("unlocked_abilities"), f"{ctx} unlocked_abilities")
+        try:
+            sup_b = battlecsv.encode_status_list(e.get("supporter_blocking_status"))
+            ben_b = battlecsv.encode_status_list(e.get("beneficiary_blocking_status"))
+        except (ValueError, TypeError) as ex:
+            raise ActionDeltaError(f"{ctx}: {ex}")
+        cmt = re.sub(r"[;\r\n]+", " ", str(e.get("name", f"magic sword set {sid}"))).strip() or f"set {sid}"
+        lines.append(f"{sid};{sup};{ben};{base};{unlocked};{sup_b};{ben_b};# {cmt}")
+    return "\n".join(lines) + "\n", warnings
+
+
+def validate_magic_sword_sets(entries) -> list:
+    """Offline structural + range problems for ``[[magic_sword_set]]`` (empty => OK)."""
+    try:
+        build_magic_sword_sets(entries)
+    except ActionDeltaError as ex:
+        return [str(ex)]
+    return []
+
+
+def write_battle_data(layout, *, actions=None, statuses=None, status_sets=None, magic_sword_sets=None,
+                      game=None) -> list:
+    """Emit the Actions / StatusData / StatusSets / MagicSwordSets CSV deltas into ``layout`` (mod-write stage).
+    Returns warnings. Written cp1252 (byte-faithful with the base) + LF; the engine StreamReader is EOL-agnostic."""
     warnings: list = []
     for entries, path, builder in ((actions, layout.actions_csv, build_actions_delta),
                                    (statuses, layout.status_data_csv, build_status_delta),
-                                   (status_sets, layout.status_sets_csv, build_status_sets)):
+                                   (status_sets, layout.status_sets_csv, build_status_sets),
+                                   (magic_sword_sets, layout.magic_sword_sets_csv, build_magic_sword_sets)):
         if entries:
             text, w = builder(entries, game=game)
             path.parent.mkdir(parents=True, exist_ok=True)

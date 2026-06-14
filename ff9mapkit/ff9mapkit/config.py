@@ -279,6 +279,12 @@ class ModLayout:
         return self.root / "StreamingAssets" / "Data" / "Battle" / "StatusSets.csv"
 
     @property
+    def magic_sword_sets_csv(self) -> Path:
+        """Combo-unlock sets (``Data/Battle/MagicSwordSets.csv``): a Supporter's abilities unlock a Beneficiary's
+        (Vivi -> Steiner's Magic Sword). MERGED by id low->high -> a partial (only the author's sets) works."""
+        return self.root / "StreamingAssets" / "Data" / "Battle" / "MagicSwordSets.csv"
+
+    @property
     def base_stats_csv(self) -> Path:
         """Per-character base combat stats (``Data/Characters/BaseStats.csv``). MERGED by CharacterId low->high
         -> a partial delta (only the characters you change) works; the base supplies the other 11."""

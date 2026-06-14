@@ -217,3 +217,23 @@ def test_status_set_range_dupe_and_sanitize():
 def test_validate_status_sets():
     assert AD.validate_status_sets([{"id": 39, "statuses": ["Haste"]}]) == []
     assert AD.validate_status_sets([{"id": 99999, "statuses": []}])        # out of range -> a problem
+
+
+# ---- [[magic_sword_set]] -> MagicSwordSets.csv (Steiner+Vivi-style combo unlocks; partial emit) ----
+def test_magic_sword_set_emits_row():
+    text, warns = AD.build_magic_sword_sets([{
+        "id": 1, "name": "Magic Sword", "supporter": "Vivi", "beneficiary": "Steiner",
+        "base_abilities": [25, "AA:26"], "unlocked_abilities": [50],
+        "supporter_blocking_status": ["Silence"], "beneficiary_blocking_status": ["Sleep", "Mini"]}])
+    assert "#! IncludeStatusBlockers" in text and not warns
+    assert "1;1;3;AA:25, AA:26;AA:50;Silence(3);Sleep(17), Mini(28);# Magic Sword" in text   # vs the real base
+
+
+def test_magic_sword_set_minimal_and_ranges():
+    text, _w = AD.build_magic_sword_sets([{"id": 0, "supporter": 1, "beneficiary": 3}])
+    assert "0;1;3;;;;;# magic sword set 0" in text                       # empty ability/status lists
+    with pytest.raises(AD.ActionDeltaError):
+        AD.build_magic_sword_sets([{"id": 0, "supporter": "Vivi", "beneficiary": "Steiner", "base_abilities": [999]}])
+    with pytest.raises(AD.ActionDeltaError):
+        AD.build_magic_sword_sets([{"id": 0, "supporter": "Nope", "beneficiary": "Steiner"}])
+    assert AD.validate_magic_sword_sets([{"id": 0, "supporter": 1, "beneficiary": 3}]) == []

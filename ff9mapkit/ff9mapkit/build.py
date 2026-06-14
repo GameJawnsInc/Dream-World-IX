@@ -725,6 +725,10 @@ def validate(project: FieldProject) -> list[str]:
     if project.raw.get("status_set"):                                # [[status_set]] -> StatusSets.csv (the bundles
         from .battle import actiondelta as _adelta                   # status_index points at; offline, no base read)
         problems += [f"[[status_set]]: {p}" for p in _adelta.validate_status_sets(project.raw.get("status_set"))]
+    if project.raw.get("magic_sword_set"):                           # [[magic_sword_set]] -> MagicSwordSets.csv
+        from .battle import actiondelta as _adelta                   # (combo unlocks; offline, no base read)
+        problems += [f"[[magic_sword_set]]: {p}"
+                     for p in _adelta.validate_magic_sword_sets(project.raw.get("magic_sword_set"))]
     # [[battle_patch]] / [[battle_enemy]] / [[battle_attack]] -- the BattlePatch.txt by-name enemy/attack/scene
     # tuner (structural + range/encoder/selector checks; all install-free since names/ids are the author's).
     if project.raw.get("battle_patch") or project.raw.get("battle_enemy") or project.raw.get("battle_attack"):
@@ -3647,11 +3651,13 @@ def _emit_battle_data(projects, layout) -> list:
     actions = [a for p in projects for a in p.raw.get("battle_action", [])]
     statuses = [s for p in projects for s in p.raw.get("status", [])]
     status_sets = [b for p in projects for b in (p.raw.get("status_set", []) or [])]
-    if not actions and not statuses and not status_sets:
+    magic_sword_sets = [b for p in projects for b in (p.raw.get("magic_sword_set", []) or [])]
+    if not actions and not statuses and not status_sets and not magic_sword_sets:
         return []
     from .battle import actiondelta as _adelta
     try:
-        return _adelta.write_battle_data(layout, actions=actions, statuses=statuses, status_sets=status_sets)
+        return _adelta.write_battle_data(layout, actions=actions, statuses=statuses, status_sets=status_sets,
+                                         magic_sword_sets=magic_sword_sets)
     except _adelta.ActionDeltaError as ex:
         raise BuildError(str(ex))
 

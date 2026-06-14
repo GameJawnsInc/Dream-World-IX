@@ -149,6 +149,7 @@ for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, 
                                  (tl.actions_csv, live.actions_csv, "Actions"),
                                  (tl.status_data_csv, live.status_data_csv, "StatusData"),
                                  (tl.status_sets_csv, live.status_sets_csv, "StatusSets"),
+                                 (tl.magic_sword_sets_csv, live.magic_sword_sets_csv, "MagicSwordSets"),
                                  (tl.base_stats_csv, live.base_stats_csv, "BaseStats"),
                                  (tl.leveling_csv, live.leveling_csv, "Leveling"),
                                  (tl.ability_gems_csv, live.ability_gems_csv, "AbilityGems"),
@@ -174,7 +175,7 @@ for _label, _live, _had in csv_reverts:
 # Reload re-reads only the field's .eb/.mes/scene/walkmesh, NOT item/stat data -> a change needs a RELAUNCH.
 _STARTUP_CSVS = {"Weapons", "Armors", "Items", "Stats", "ItemEffects", "InitialItems", "ShopItems", "Synthesis",
                  "DefaultEquipment", "Actions", "StatusData", "StatusSets", "BaseStats", "Leveling", "AbilityGems",
-                 "AbilityFeatures"}
+                 "AbilityFeatures", "MagicSwordSets"}
 if any(_l in _STARTUP_CSVS for _l, _, _ in csv_reverts):
     print("  !! item/stat CSVs load at game startup (or New-Game init) -> RELAUNCH to apply (F6 Reload won't)")
 
