@@ -1,0 +1,27 @@
+diff --git a/Assembly-CSharp/Global/Field/Map/NarrowMapList.cs b/Assembly-CSharp/Global/Field/Map/NarrowMapList.cs
+index 0e252abd..3aad665b 100644
+--- a/Assembly-CSharp/Global/Field/Map/NarrowMapList.cs
++++ b/Assembly-CSharp/Global/Field/Map/NarrowMapList.cs
+@@ -38,6 +38,22 @@ public static class NarrowMapList
+             if (entry[0] == mapId)
+                 return entry[1];
+ 
++        // ff9mapkit fix: custom/forked field ids aren't in MapWidthList, so they fell through to
++        // 500 ("wide enough") and a narrow borrowed BG (e.g. 320px) was treated as widescreen --
++        // the field camera rendered full-width and off-screen party members drew over the side
++        // bars. Fall back to the loaded BG's actual width so narrow-map detection works for forks
++        // too. Real ids never reach here (their hand-tuned entries win above).
++        if (mapId == FF9StateSystem.Common.FF9.fldMapNo)
++        {
++            try
++            {
++                BGCAM_DEF cam = PersistenSingleton<EventEngine>.Instance?.fieldmap?.GetCurrentBgCamera();
++                if (cam != null && cam.w > 0)
++                    return cam.w;
++            }
++            catch { /* scene not loaded yet -> use the default below */ }
++        }
++
+         return 500;
+     }
+ 
