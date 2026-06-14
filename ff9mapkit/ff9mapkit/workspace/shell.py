@@ -117,6 +117,19 @@ def _snip(s, n=44) -> str:
     return s if len(s) <= n else s[:n - 1] + "…"
 
 
+def _coord_like(s) -> bool:
+    """True if a string looks like ``"x, z"`` coordinates rather than an entity NAME -- so a cutscene
+    ``walk = "100, -800"`` isn't mistaken for a (missing) marker reference."""
+    parts = [p.strip() for p in str(s).split(",")]
+    if len(parts) != 2:
+        return False
+    try:
+        float(parts[0]); float(parts[1])
+        return True
+    except ValueError:
+        return False
+
+
 class BreadcrumbBar(QWidget):
     """A one-line clickable path built from :func:`..editor.breadcrumb.trail`. ``on_nav(crumb)`` fires
     when an ancestor segment is clicked (the leaf is inert)."""
@@ -180,6 +193,7 @@ class Workspace(QMainWindow):
         self._clean = {}                           # member name -> deepcopy(doc.data) at load/last-save (dirty baseline)
         self._touched = set()                      # members with in-progress (typed-but-uncommitted) edits
         self._name_valid = {}                      # (catalog, value) -> bool, memoized (the catalogs are static)
+        self._scene_names = {}                     # member -> (mtime, npc names, marker names) from the scene.toml
         self._active_save = None                   # the mounted form's Save handler (Ctrl-S target)
         self._save_btn = None                      # the mounted form's Save button (greys when clean)
         self._reset_btn = None                     # the mounted form's Reset button (revert to last save)
@@ -1934,7 +1948,7 @@ class Workspace(QMainWindow):
             lines.append(f"field id: {(doc.data.get('field') or {}).get('id')}")
         if doc is not None:
             lines.append(self._rollup(doc.data))
-            nbad = self._count_node_problems(doc.data)  # field-level health badge (cheap per-node predicates)
+            nbad = self._count_node_problems(name)      # field-level health badge (cheap per-node predicates)
             if nbad:
                 lines.append(f'<span style="color:{self.pal["warn"]};">⚠ {nbad} object(s) with issues — '
                              f'select one to see</span>')
@@ -2021,9 +2035,9 @@ class Workspace(QMainWindow):
             e = lst[idx]
             if not isinstance(e, dict):                 # a malformed inline entry (e.g. npc = ["foo"])
                 return head + [f'<span style="color:{self.pal["warn"]};">⚠ malformed entry (not a table)</span>']
-            return head + self._inspect_entity(section, e) + self._node_problems(section, e, doc.data)
+            return head + self._inspect_entity(section, e) + self._node_problems(section, e, member)
         data = doc.data.get(key)                        # a single section
-        return head + self._inspect_single(key, data) + self._node_problems(key, data or {}, doc.data)
+        return head + self._inspect_single(key, data) + self._node_problems(key, data or {}, member)
 
     def _inspect_entity(self, section, e):
         m = self._muted
@@ -2127,13 +2141,55 @@ class Workspace(QMainWindow):
         self._name_valid[key] = ok
         return ok
 
-    def _node_problems(self, kind, obj, doc_data):
+    def _scene_entity_names(self, member):
+        """``(npc names, marker names)`` from the sibling ``<stem>.scene.toml`` (the Blender-owned spatial
+        file -- entity lists are SPLIT field/scene by name, so an NPC/marker can be scene-ONLY). Cached by
+        the file's mtime so a Blender re-export is picked up; a missing sibling -> empty (uncached)."""
+        path = self.member_paths.get(member)
+        if not path:
+            return frozenset(), frozenset()
+        name = Path(path).name                              # <x>.field.toml -> <x>.scene.toml (build's convention)
+        stem = name[:-len(".field.toml")] if name.endswith(".field.toml") else Path(path).stem
+        sib = Path(path).parent / f"{stem}.scene.toml"
+        try:
+            mtime = sib.stat().st_mtime
+        except OSError:
+            return frozenset(), frozenset()                 # no sibling -> don't cache (a later export is seen)
+        cached = self._scene_names.get(member)
+        if cached and cached[0] == mtime:
+            return cached[1], cached[2]
+        try:
+            import tomllib
+            sd = tomllib.loads(sib.read_text(encoding="utf-8"))
+        except Exception:                                   # noqa: BLE001 -- a malformed scene -> no names
+            sd = {}
+        npc = frozenset(n.get("name") for n in (sd.get("npc", []) or [])
+                        if isinstance(n, dict) and n.get("name"))
+        mk = frozenset(n.get("name") for n in (sd.get("marker", []) or [])
+                       if isinstance(n, dict) and n.get("name"))
+        self._scene_names[member] = (mtime, npc, mk)
+        return npc, mk
+
+    def _field_entity_names(self, member):
+        """``{'npc': set, 'marker': set}`` of entity NAMES for a field, MERGED from its live field.toml
+        (doc.data) AND its sibling scene.toml -- so a choice/cutscene reference to a scene-placed NPC/marker
+        isn't falsely flagged (the false positive that got these checks dropped in Tier-3)."""
+        doc = self._safe_doc(member)
+        data = doc.data if doc else {}
+        s_npc, s_mk = self._scene_entity_names(member)
+
+        def field(sec):
+            return {n.get("name") for n in (data.get(sec, []) or []) if isinstance(n, dict) and n.get("name")}
+        return {"npc": field("npc") | s_npc, "marker": field("marker") | s_mk}
+
+    def _node_problems(self, kind, obj, member):
         """Per-node problems computed DIRECTLY from the kit's pure predicates, MIRRORING what the build
         actually accepts (so the Inspector never contradicts Check): an unknown archetype/preset (or, when
         no archetype, an unknown GEO model NAME -- a raw model id passes); an unknown give/remove item; a
-        NON-NUMERIC battle scene (the build does int(scene)); a set_flag into a reserved gEventGlobal bit.
-        The geometric/structural lint (off-walkmesh, seams, dialogue overflow) stays with Check. Never
-        raises. Returns colored ⚠ lines."""
+        NON-NUMERIC battle scene (the build does int(scene)); a set_flag into a reserved gEventGlobal bit;
+        and a choice/cutscene reference to an NPC/marker that exists in NEITHER the field.toml NOR the
+        sibling scene.toml. The geometric/structural lint (off-walkmesh, seams, dialogue overflow) stays
+        with Check. Never raises. Returns colored ⚠ lines."""
         if not isinstance(obj, dict):
             return []
         out = []
@@ -2168,20 +2224,45 @@ class Workspace(QMainWindow):
                 if sc is not None and not ((isinstance(sc, int) and not isinstance(sc, bool))
                                            or (isinstance(sc, str) and sc.strip().lstrip("-").isdigit())):
                     warn(f"battle scene must be a numeric id (got '{sc}')")
+            elif kind == "choice":
+                ref = obj.get("npc")                       # talk-triggered: must name an existing NPC
+                if isinstance(ref, str) and ref.strip() and ref not in self._field_entity_names(member)["npc"]:
+                    warn(f"no NPC named '{ref}' in this field")
+            elif kind == "cutscene":
+                seen = self._field_entity_names(member)
+                actor = obj.get("actor")               # build: an actor must be a defined [[npc]] (build.py:1112)
+                if isinstance(actor, str) and actor.strip() and actor not in seen["npc"]:
+                    warn(f"no NPC named '{actor}' for the actor")
+                # a walk/teleport string target resolves against markers + NPCs + player/spawn (build's
+                # _resolve_point registry; a leading @ is optional, a [x, z] list / "x, z" coords pass).
+                targets = seen["marker"] | seen["npc"] | {"player", "spawn"}
+                for st in (obj.get("steps", []) or []):
+                    if not isinstance(st, dict):
+                        continue
+                    for skey in ("walk", "teleport"):
+                        tgt = st.get(skey)
+                        if isinstance(tgt, str) and tgt.strip() and not _coord_like(tgt):
+                            nm = tgt.strip()
+                            nm = nm[1:] if nm.startswith("@") else nm
+                            if nm not in targets:
+                                warn(f"{skey} target '{tgt}' isn't a marker/NPC in this field")
         except Exception:                              # noqa: BLE001 -- a predicate quirk must never break inspect
             return out
         return out
 
-    def _count_node_problems(self, data):
-        """How many objects in a field have a per-node problem (the field-level health badge). Only the kinds
-        _node_problems actually checks (npc / event / encounter) -- cheap + memoized."""
+    def _count_node_problems(self, member):
+        """How many objects in a field have a per-node problem (the field-level health badge) -- cheap +
+        memoized over npc/event/choice + the encounter/cutscene singles."""
+        doc = self._safe_doc(member)
+        data = doc.data if doc else {}
         n = 0
-        for section in ("npc", "event"):
+        for section in ("npc", "event", "choice"):
             for e in (data.get(section, []) or []):
-                if isinstance(e, dict) and self._node_problems(section, e, data):
+                if isinstance(e, dict) and self._node_problems(section, e, member):
                     n += 1
-        if data.get("encounter") and self._node_problems("encounter", data["encounter"], data):
-            n += 1
+        for single in ("encounter", "cutscene"):
+            if data.get(single) and self._node_problems(single, data[single], member):
+                n += 1
         return n
 
     def _resolve_dest(self, to):
@@ -2546,20 +2627,38 @@ def _smoke(win):
     win._select_object("IC_ENT", "gateway:2")          # to=99999 -> neither a member nor a real field
     assert "not in this campaign" in win.insp_body.text(), win.insp_body.text()
     # TIER-3: per-node validation from pure predicates, MIRRORING the build (so the Inspector never
-    # contradicts Check). A VALID npc (vivi) is clean; an unknown archetype warns.
-    assert win._node_problems("npc", {"preset": "vivi"}, pdoc.data) == [], "a known archetype is clean"
-    assert win._node_problems("npc", {"preset": "vivvi"}, pdoc.data), "an unknown archetype warns"
+    # contradicts Check). A VALID npc (vivi) is clean; an unknown archetype warns. (3rd arg = the member.)
+    assert win._node_problems("npc", {"preset": "vivi"}, "IC_ENT") == [], "a known archetype is clean"
+    assert win._node_problems("npc", {"preset": "vivvi"}, "IC_ENT"), "an unknown archetype warns"
     # a raw model id passes (resolve_npc_model accepts raw ints); model is IGNORED when a preset is set
-    assert win._node_problems("npc", {"model": 999999}, pdoc.data) == [], "a raw model id passes (build accepts it)"
-    assert win._node_problems("npc", {"preset": "vivi", "model": 999999}, pdoc.data) == [], "model ignored w/ preset"
-    assert win._node_problems("event", {"give_item": ["NoSuchItem", 1]}, pdoc.data), "an unknown give_item warns"
-    assert win._node_problems("event", {"remove_item": ["NoSuchItem", 1]}, pdoc.data), "an unknown remove_item warns"
+    assert win._node_problems("npc", {"model": 999999}, "IC_ENT") == [], "a raw model id passes (build accepts it)"
+    assert win._node_problems("npc", {"preset": "vivi", "model": 999999}, "IC_ENT") == [], "model ignored w/ preset"
+    assert win._node_problems("event", {"give_item": ["NoSuchItem", 1]}, "IC_ENT"), "an unknown give_item warns"
+    assert win._node_problems("event", {"remove_item": ["NoSuchItem", 1]}, "IC_ENT"), "an unknown remove_item warns"
     from ..flags import CHEST_FLAG_LO as _CFLO
-    assert win._node_problems("event", {"set_flag": [_CFLO, 1]}, pdoc.data), "a reserved set_flag bit warns"
-    assert win._node_problems("event", {"set_flag": [8520, 1]}, pdoc.data) == [], "a safe-band flag is clean"
+    assert win._node_problems("event", {"set_flag": [_CFLO, 1]}, "IC_ENT"), "a reserved set_flag bit warns"
+    assert win._node_problems("event", {"set_flag": [8520, 1]}, "IC_ENT") == [], "a safe-band flag is clean"
     # the build does int(scene): a non-numeric scene can't build -> warn; a numeric id passes
-    assert win._node_problems("encounter", {"scene": "NoSuchScene"}, pdoc.data), "a non-numeric scene warns"
-    assert win._node_problems("encounter", {"scene": 67}, pdoc.data) == [], "a numeric scene id passes"
+    assert win._node_problems("encounter", {"scene": "NoSuchScene"}, "IC_ENT"), "a non-numeric scene warns"
+    assert win._node_problems("encounter", {"scene": 67}, "IC_ENT") == [], "a numeric scene id passes"
+    # SCENE.TOML-AWARE reference checks: a choice/cutscene reference resolves against BOTH the field.toml
+    # NPCs/markers AND the sibling scene.toml (Blender-owned) -- so a scene-placed entity isn't falsely flagged.
+    pdoc.data["npc"].append({"name": "Ref", "preset": "vivi"})       # a field.toml NPC
+    (d / "IC_ENT" / "IC_ENT.scene.toml").write_text(                 # a scene-ONLY NPC + marker
+        '[[npc]]\nname = "SceneGuy"\n[[marker]]\nname = "spot1"\n', encoding="utf-8")
+    assert win._node_problems("choice", {"npc": "Ref"}, "IC_ENT") == [], "a field.toml NPC reference is clean"
+    assert win._node_problems("choice", {"npc": "SceneGuy"}, "IC_ENT") == [], "a scene.toml NPC reference is clean"
+    assert win._node_problems("choice", {"npc": "Nope"}, "IC_ENT"), "a missing NPC reference warns"
+    assert win._node_problems("cutscene", {"actor": "SceneGuy"}, "IC_ENT") == [], "a scene.toml actor is clean"
+    assert win._node_problems("cutscene", {"actor": "Ghost"}, "IC_ENT"), "a missing actor warns"
+    assert win._node_problems("cutscene", {"steps": [{"walk": "spot1"}]}, "IC_ENT") == [], "a scene marker walk is clean"
+    # a walk/teleport target resolves against markers + NPCs + player/spawn (matching the build's _resolve_point)
+    assert win._node_problems("cutscene", {"steps": [{"walk": "Ref"}]}, "IC_ENT") == [], "a walk to an NPC is clean"
+    assert win._node_problems("cutscene", {"steps": [{"teleport": "@player"}]}, "IC_ENT") == [], "@player target clean"
+    assert win._node_problems("cutscene", {"steps": [{"walk": "nomarker"}]}, "IC_ENT"), "an unknown walk target warns"
+    assert win._node_problems("cutscene", {"steps": [{"walk": "10, -20"}]}, "IC_ENT") == [], "coords aren't a name ref"
+    (d / "IC_ENT" / "IC_ENT.scene.toml").unlink()                    # clean up the scene sibling
+    pdoc.data["npc"].pop()                                           # drop the Ref NPC
     # a malformed inline entry (a bare string where a table is expected) inspects safely, no crash
     pdoc.data.setdefault("npc", []).append("not-a-table")
     ml = win._inspect_object("IC_ENT", f"npc:{len(pdoc.data['npc']) - 1}")
@@ -2572,7 +2671,7 @@ def _smoke(win):
     win.tree.blockSignals(False)
     win._select_object("IC_ENT", f"npc:{len(pdoc.data['npc']) - 1}")
     assert "unknown archetype" in win.insp_body.text(), win.insp_body.text()
-    assert win._count_node_problems(pdoc.data) >= 1
+    assert win._count_node_problems("IC_ENT") >= 1
     win.tree.setCurrentItem(win._member_items["IC_ENT"])
     assert "object(s) with issues" in win.insp_body.text(), win.insp_body.text()
     pdoc.data["npc"].pop()                             # drop the Typo probe
