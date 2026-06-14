@@ -218,8 +218,8 @@ def _import_content(context, field_cfg, scene_cfg):
     for n in bridge.merge_import_entities(field_cfg, scene_cfg, "npc"):
         nm = n.get("name") or "NPC"
         if n.get("pos") and ("npc", nm) not in existing:
-            add_empty("npc", nm, n["pos"][0], n["pos"][1],
-                      {"ff9_preset": n.get("preset"), "ff9_dialogue": n.get("dialogue")})
+            # marker = spatial only (model + position); dialogue stays in the field.toml logic file
+            add_empty("npc", nm, n["pos"][0], n["pos"][1], {"ff9_preset": n.get("preset")})
             made["npc"] = made.get("npc", 0) + 1
     for m in bridge.merge_import_entities(field_cfg, scene_cfg, "marker"):
         nm = m.get("name") or "waypoint"
@@ -822,13 +822,13 @@ def _collect_markers(context):
         if mk == "spawn":
             spawn = bridge.marker_floor_pos(obj.matrix_world.translation)
         elif mk == "npc":
+            # spatial only: name + model + position. Dialogue/logic is authored in the field.toml
+            # (the logic side), joined to this marker by name -- the Blender add-on never carries it.
             n = {"pos": bridge.marker_floor_pos(obj.matrix_world.translation)}
             if obj.get("ff9_name"):
                 n["name"] = obj["ff9_name"]
             if obj.get("ff9_preset"):
                 n["preset"] = obj["ff9_preset"]
-            if obj.get("ff9_dialogue"):
-                n["dialogue"] = obj["ff9_dialogue"]
             npcs.append(n)
         elif mk == "gateway" and obj.type == "MESH":
             zone = _zone_corners(obj)
@@ -880,8 +880,9 @@ def _collect_waypoints(context):
 class FF9MK_OT_add_npc(bpy.types.Operator):
     bl_idname = "ff9mk.add_npc"
     bl_label = "Add NPC"
-    bl_description = ("Drop an NPC marker (Empty) at the 3D cursor on the floor. Edit its model + "
-                      "dialogue in Object Properties > Custom Properties (ff9_preset / ff9_dialogue)")
+    bl_description = ("Drop an NPC marker (Empty) at the 3D cursor on the floor. Pick its model with "
+                      "ff9_preset in Object Properties > Custom Properties; its dialogue/logic is "
+                      "authored in the field.toml (the logic side), joined to this marker by name")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -892,9 +893,9 @@ class FF9MK_OT_add_npc(bpy.types.Operator):
         e[MARKER_KEY] = "npc"
         e["ff9_name"] = "NPC"
         e["ff9_preset"] = "vivi"
-        e["ff9_dialogue"] = "Hello."
         _link_active(context, e)
-        self.report({"INFO"}, f"added NPC '{e.name}' — set ff9_preset / ff9_dialogue in Custom Properties")
+        self.report({"INFO"}, f"added NPC '{e.name}' — set its model (ff9_preset) in Custom Properties; "
+                              "author its dialogue/logic in the field.toml (joined by name)")
         return {"FINISHED"}
 
 

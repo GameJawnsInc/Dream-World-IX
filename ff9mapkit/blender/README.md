@@ -69,10 +69,12 @@ Background Art → Content → Export**. A typical pass:
    over.
 7. **Place content (optional)** — in the **Content** box (NPC / Gateway / Spawn buttons drop markers
    at the 3D cursor on the floor; select a marker to edit its props inline in the panel):
-   - *NPC* drops an Empty (`FF9_NPC`). Move it where the NPC stands; set its model + line via
-     `ff9_preset` (e.g. `vivi`) and `ff9_dialogue` (also editable in **Object Properties → Custom
-     Properties**). For a non-preset model, delete `ff9_preset` and add `ff9_model` / `ff9_animset`
-     / `ff9_anims` in the TOML after export.
+   - *NPC* drops an Empty (`FF9_NPC`). Move it where the NPC stands; set its model with `ff9_preset`
+     (e.g. `vivi`; also editable in **Object Properties → Custom Properties**). For a non-preset model,
+     delete `ff9_preset` and add `ff9_model` / `ff9_animset` / `ff9_anims` in the TOML after export.
+     The NPC's **dialogue/logic is authored in the `<name>.field.toml`** (the logic side), joined to
+     this marker by name — Blender is the spatial side and carries no dialogue. The scaffolded
+     field.toml includes a `dialogue = "..."` line per NPC; it's optional (a silent NPC just drops it).
    - *Gateway* drops a wire quad (`FF9_Gateway`) — move/scale it over the exit on the floor, and set
      `ff9_to` (destination field id) + `ff9_entrance`. The player walks out across the quad's first
      edge, so orient that edge toward where they should step out.

@@ -121,9 +121,10 @@ class FF9MK_PT_panel(bpy.types.Panel):
         if mk == "npc":
             col = box.column(align=True)
             col.label(text=f"{ao.name} (move to position)")
-            for key in ("ff9_name", "ff9_preset", "ff9_dialogue"):
+            for key in ("ff9_name", "ff9_preset"):
                 if key in ao:
                     col.prop(ao, f'["{key}"]', text=key[4:])
+            col.label(text="dialogue/logic: author in the field.toml (joined by name)", icon="INFO")
         elif mk == "gateway":
             col = box.column(align=True)
             col.label(text=f"{ao.name} (move/scale over the exit)")
