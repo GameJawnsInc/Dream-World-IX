@@ -66,6 +66,8 @@ _LIST_DEFAULTS = {
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
 }
 _ROLE = Qt.UserRole                                # per-item payload: (kind, label, key)
+_DETAIL = Qt.UserRole + 1                           # read-only decoded detail (logic-map nodes): list[str]
+_LOGIC_KINDS = ("logic_root", "logic_entry", "logic_node")   # read-only logic-map nodes (not editable)
 
 
 def _badge(node) -> str:
@@ -1032,11 +1034,78 @@ class Workspace(QMainWindow):
     # ---- lazy object load ----
     def _on_expand(self, item):
         kind = (self._payload(item) or (None,))[0]
-        if kind != "field":
+        if kind == "field":
+            if item.childCount() == 1 and (self._payload(item.child(0)) or (None,))[0] == "__lazy__":
+                item.takeChild(0)
+                self._load_objects(item)
+        elif kind == "logic_root":
+            if item.childCount() == 1 and (self._payload(item.child(0)) or (None,))[0] == "__lazy_logic__":
+                item.takeChild(0)
+                self._load_logic_map(item)
+
+    def _load_logic_map(self, grp):
+        """Populate a verbatim member's 'Script' group with a READ-ONLY logic map of its shipped ``.eb``:
+        every entry/routine, the resolved call graph, and the dialogue/item/flag effects each routine
+        performs (logic_map.build_logic_map). Built from the member's LOCAL ``verbatim_eb.bin`` -- no game
+        install needed. The legible view of the entanglement the declarative editor can't express."""
+        field_item = self._ancestor_field(grp)
+        if field_item is None:
             return
-        if item.childCount() == 1 and (self._payload(item.child(0)) or (None,))[0] == "__lazy__":
-            item.takeChild(0)
-            self._load_objects(item)
+        name = self._payload(field_item)[1]
+        try:
+            from .. import logic_map as LM
+            spec = (self._doc(name).data.get("verbatim_eb") or {})
+            base = Path(self.member_paths[name]).parent
+            eb = (base / spec["bin"]).read_bytes()
+            entries = None
+            tj = spec.get("text")
+            if tj and (base / tj).exists():
+                import json
+                from .. import dialogue as _d
+                blocks = json.loads((base / tj).read_text(encoding="utf-8"))
+                body = blocks.get("us") or next(iter(blocks.values()), None) if isinstance(blocks, dict) else None
+                if body:
+                    entries = _d.parse_mes(body)
+            lm = LM.build_logic_map(eb, entries=entries)
+        except Exception as e:                          # noqa: BLE001
+            grp.addChild(self._mk("note", f"(could not build logic map: {e})"))
+            return
+        grp.setData(0, _DETAIL, [
+            f"{len([x for x in lm.entries if x.role != 'empty'])} entries, {len(lm.nodes)} routines",
+            self._muted("a read-only view of the shipped .eb — edit it in place (Phase 2), not here"),
+            self._muted("'?' marks a target chosen at runtime (computed / dynamic-caller) — unresolvable offline")])
+        from .. import logic_map as LM
+        by_entry = {}
+        for n in lm.nodes:
+            by_entry.setdefault(n.entry, []).append(n)
+        shown = 0
+        for e in lm.entries:
+            if e.role == "empty":
+                continue
+            nodes = [n for n in by_entry.get(e.index, []) if not n.empty]
+            if not nodes and e.role in ("logic",):       # a contentless region/seq entry -> skip the clutter
+                continue
+            model = f"  {e.model_name or ('model ' + str(e.model_id))}" if e.model_id is not None else ""
+            ehdr = self._mk("logic_entry", f"entry {e.index}: {e.role}{model}", f"logic_e:{e.index}")
+            ehdr.setData(0, _DETAIL, [_esc(s) for s in self._logic_entry_detail(e)])
+            for n in nodes:
+                rn = self._mk("logic_node", f"{n.kind} / tag {n.tag}", f"logic_n:{e.index}:{n.tag}")
+                rn.setData(0, _DETAIL, [_esc(s) for s in LM._fmt_node_lines(n, indent="")] or [self._muted("—")])
+                ehdr.addChild(rn)
+            grp.addChild(ehdr)
+            shown += 1
+        if not shown:
+            grp.addChild(self._mk("note", "(no script content decoded)"))
+
+    @staticmethod
+    def _logic_entry_detail(e):
+        out = [f"role: {e.role}"]
+        if e.model_id is not None:
+            out.append(f"model: {e.model_name or e.model_id}")
+        if e.role not in ("main", "player"):
+            out.append(f"spawned: {e.spawns}x" if e.spawns else "defined, not spawned")
+        out.append(f"functions (tags): {', '.join(str(t) for t in e.tags) or '—'}")
+        return out
 
     def _doc(self, member):
         """The member's FieldDoc, loaded once and cached (the form edits this instance + saves it)."""
@@ -1142,6 +1211,14 @@ class Workspace(QMainWindow):
                 lbl = forms.choice_summary(e) if key == "choice" else (e.get("name") or f"#{i}")
                 grp.addChild(self._mk("object", lbl, f"{key}:{i}"))
             member_item.addChild(grp)
+        if data.get("verbatim_eb"):                    # a VERBATIM fork: the lists above are empty BY DESIGN --
+            # the real content lives in the shipped .eb. Badge the row + add a read-only logic-map subtree.
+            member_item.setText(0, member_item.text(0).split("  · ")[0] + "  · verbatim")
+            member_item.setToolTip(0, "verbatim fork — ships the donor's whole .eb; the lists above are empty by "
+                                      "design. Expand 'Script (verbatim .eb)' for its real content (read-only).")
+            grp = self._mk("logic_root", "Script (verbatim .eb)", "logic")
+            grp.addChild(self._mk("__lazy_logic__", "loading…"))
+            member_item.addChild(grp)
 
     # ---- selection -> breadcrumb + inspector ----
     def _ancestor_field(self, item):
@@ -1180,8 +1257,9 @@ class Workspace(QMainWindow):
             member = self._payload(field_item)[1]
             if item is field_item:                 # the member row itself -> its Field form
                 self._open_editor(member, "field", "field")
-            else:                                  # an object/group under it -> edit by its key
+            elif p[0] not in _LOGIC_KINDS:         # an object/group under it -> edit by its key
                 self._open_editor(member, p[0], p[2])
+            #                                        (logic-map nodes are READ-ONLY -> inspector only, no form)
 
     def _on_select_journey(self, item, p):
         """JOURNEY-mode selection: a journey/root row shows the plan overview; a campaign row prompts to open
@@ -2233,6 +2311,10 @@ class Workspace(QMainWindow):
         self.insp_title.setText(label)
         self.insp_body.setToolTip("")                       # full path (if any) goes on hover, not inline
         self._inspect_path = None
+        if kind in _LOGIC_KINDS:                            # a read-only logic-map node -> show its decoded detail
+            detail = item.data(0, _DETAIL) or []
+            self.insp_body.setText("<br>".join(detail) if detail else self._muted("— (no decoded detail)"))
+            return
         try:                                                # a single bad node must never blank/break the panel
             lines = self._inspect_build(kind, key, field)
         except Exception:                                   # noqa: BLE001
@@ -2272,6 +2354,9 @@ class Workspace(QMainWindow):
             lines.append(f"field id: {(doc.data.get('field') or {}).get('id')}")
         if doc is not None:
             lines.append(self._rollup(doc.data))
+            if doc.data.get("verbatim_eb"):             # explain the empty rollup BEFORE it confuses (the orig. Q)
+                lines.append(self._muted("verbatim fork — content is in the shipped .eb, not these lists; "
+                                         "see 'Script (verbatim .eb)'"))
             nbad = self._count_node_problems(name)      # field-level health badge (cheap per-node predicates)
             if nbad:
                 lines.append(f'<span style="color:{self.pal["warn"]};">⚠ {nbad} object(s) with issues — '
@@ -3500,6 +3585,41 @@ def _smoke(win):
     assert win.open_field(af) and win.manifest is None, "a standalone field leaves journey mode"
     assert "Open Journey…" in [e[0] for e in win._command_index()]
 
+    # PHASE 0 -- VERBATIM logic-map surfacing: a [verbatim_eb] member badges its row, shows a read-only
+    # "Script" subtree (built from the LOCAL .bin -- no install), and the field rollup explains the empty lists.
+    vb_ok = False
+    _fix = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "alex100-us.eb.bytes"
+    if _fix.exists():                                       # needs the extracted fixture (skipped on a clean clone)
+        vd = Path(tempfile.mkdtemp())
+        vmem = [C.Member(100, 30100, "ALEXFORK", "borrow", 11, "", "ALEXFORK/ALEXFORK.field.toml", False)]
+        vplan = C.CampaignPlan(name="VB", mod_folder="M", id_base=30100, flag_base=C.FIRST_SAFE_FLAG,
+                               flags_per_field=64, entry_name="ALEXFORK", entry_entrance=0,
+                               members=vmem, edges=[], seams=[])
+        (vd / "campaign.toml").write_text(C.render_campaign_toml(vplan), encoding="utf-8")
+        (vd / "ALEXFORK").mkdir(parents=True, exist_ok=True)
+        (vd / "ALEXFORK" / "ALEXFORK.field.toml").write_text(
+            '[field]\nid = 30100\nname = "ALEXFORK"\narea = 11\n\n'
+            '[verbatim_eb]\nbin = "ALEXFORK.verbatim_eb.bin"\n', encoding="utf-8")
+        (vd / "ALEXFORK" / "ALEXFORK.verbatim_eb.bin").write_bytes(_fix.read_bytes())
+        assert win.open_campaign(vd / "campaign.toml")
+        vitem = win.tree.topLevelItem(0).child(0)
+        win.tree.expandItem(vitem)                          # lazy _load_objects -> badge + Script group
+        assert "· verbatim" in vitem.text(0), vitem.text(0)
+        sgrp = next(vitem.child(i) for i in range(vitem.childCount())
+                    if win._payload(vitem.child(i))[0] == "logic_root")
+        win.tree.expandItem(sgrp)                           # lazy _load_logic_map from the local .bin
+        ekinds = [win._payload(sgrp.child(i))[0] for i in range(sgrp.childCount())]
+        assert ekinds and all(k in ("logic_entry", "note") for k in ekinds), ekinds
+        eitem = next(sgrp.child(i) for i in range(sgrp.childCount())
+                     if win._payload(sgrp.child(i))[0] == "logic_entry")
+        assert eitem.childCount() >= 1, "the entry has decoded routines"
+        rnode = eitem.child(0)
+        win.tree.setCurrentItem(rnode)                      # read-only inspect: detail shown, NO form mounted
+        assert win._payload(rnode)[0] == "logic_node" and win.insp_body.text(), "routine detail in the inspector"
+        win.tree.setCurrentItem(vitem)
+        assert "verbatim fork" in win.insp_body.text(), win.insp_body.text()
+        vb_ok = True
+
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
           f"catalog picker + Open Field (standalone authored) + Save docs (Story State SC "
@@ -3508,7 +3628,8 @@ def _smoke(win):
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
-          f"(open/lint/overview/drill-in) + Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
+          f"(open/lint/overview/drill-in) + VERBATIM logic-map subtree ({'shown' if vb_ok else 'fixture-skipped'}) "
+          f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
 
 
 def main(argv=None):
