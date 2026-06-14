@@ -100,6 +100,27 @@ def _ai_entries(scene_cfg: dict, mc: int):
     return [by_slot.get(s) for s in range(mc)] if by_slot else None
 
 
+def _resolve_reskins(scene_cfg: dict, *, game=None):
+    """Resolve any ``[[scene.enemy]]`` re-skin (``model =`` / ``model_scene =``) to a REAL donor monster block,
+    injecting it as ``_reskin_block`` so ``scene_data.apply_scene_edits`` transplants it. Returns
+    (scene_cfg-or-copy, warnings). Install-gated, but ONLY enemies WITH a re-skin trigger the read -- a
+    re-skin-free scene is returned untouched (so non-re-skin builds/tests never touch the install)."""
+    from . import reskin as _reskin
+    enemies = scene_cfg.get("enemy") or []
+    resolved, warns, touched = [], [], False
+    for e in enemies:
+        spec = _reskin.reskin_spec(e) if isinstance(e, dict) else None
+        if spec is not None:
+            block, prov = _reskin.resolve_donor_block(spec, game=game)
+            e = dict(e, _reskin_block=block)
+            warns.append(f"slot {e.get('slot')}: re-skinned BODY to {prov} -- idle/damage/death use the new "
+                         f"model, but ATTACK animations stay the target enemy's (a full re-skin would also "
+                         f"need the donor's raw17 btlseq + AA_DATA)")
+            touched = True
+        resolved.append(e)
+    return (dict(scene_cfg, enemy=resolved), warns) if touched else (scene_cfg, [])
+
+
 def validate_battle(project: BattleProject) -> list[str]:
     """Return human-readable problems (empty => OK)."""
     problems: list[str] = []
@@ -131,6 +152,13 @@ def validate_battle(project: BattleProject) -> list[str]:
             problems += _scene_data.validate_scene(
                 (sd / "dbfile0000.raw16.bytes").read_bytes(), project.raw["scene"])
             sc = project.raw["scene"] if isinstance(project.raw["scene"], dict) else {}
+            from . import reskin as _reskin           # re-skin SHAPE check (model vs model_scene); install-free
+            for e in sc.get("enemy", []):             # (the donor read/name resolution happens at build -- needs the install)
+                if isinstance(e, dict) and any(e.get(k) is not None for k in ("model", "model_scene", "model_type")):
+                    try:
+                        _reskin.reskin_spec(e)
+                    except _scene_data.SceneEditError as ex:
+                        problems.append(str(ex))
             ai_patches, ai_funcs = sc.get("ai_patch"), sc.get("ai_function")
             ai_phases, ai_inserts = sc.get("ai_phase"), sc.get("ai_insert")
             eb0 = sd / "eb" / f"{LANGS[0]}.eb.bytes"
@@ -202,7 +230,7 @@ class BattleResult:
     lint: list = field(default_factory=list)       # list[scenelint.Finding] -- offline balance notes
 
 
-def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
+def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> BattleResult:
     problems = validate_battle(project)
     if problems:
         raise BattleBuildError("battle.toml problems:\n  " + "\n  ".join(problems))
@@ -233,6 +261,11 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
         scene_cfg = project.raw.get("scene") if isinstance(project.raw.get("scene"), dict) else None
         raw16 = (sd / "dbfile0000.raw16.bytes").read_bytes()
         if scene_cfg:                                # tune the fight (positions/stats/rewards/camera selector)
+            try:                                     # re-skin: resolve donor model blocks (install I/O) first
+                scene_cfg, reskin_warns = _resolve_reskins(scene_cfg, game=game)
+            except _scene_data.SceneEditError as ex:
+                raise BattleBuildError(f"re-skin: {ex}")
+            warnings += reskin_warns
             raw16, scene_warns = _scene_data.apply_scene_edits(raw16, scene_cfg)
             warnings += scene_warns
         (scene_out / "dbfile0000.raw16.bytes").write_bytes(raw16)
@@ -325,11 +358,13 @@ def build_battlemap(project: BattleProject, layout: ModLayout) -> BattleResult:
                         written=written, lint=lint)
 
 
-def build_battle_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="") -> dict:
-    """Build battle map(s) into a mod at ``out_root``; write/append the registration files."""
+def build_battle_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="", game=None) -> dict:
+    """Build battle map(s) into a mod at ``out_root``; write/append the registration files. ``game`` (an FF9
+    install dir) is only consulted by an enemy re-skin (`[[scene.enemy]] model =`), which reads a donor model
+    block live from the install; None = the default resolution ($FF9_GAME_PATH / config / common Steam paths)."""
     layout = ModLayout(Path(out_root).resolve())
     layout.root.mkdir(parents=True, exist_ok=True)
-    results = [build_battlemap(p, layout) for p in projects]
+    results = [build_battlemap(p, layout, game=game) for p in projects]
 
     dlines = [r.dict_line for r in results if r.dict_line]
     if dlines:

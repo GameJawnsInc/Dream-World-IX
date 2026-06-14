@@ -950,7 +950,7 @@ def _cmd_battle_build(args: argparse.Namespace) -> int:
         return 2
     try:
         info = build_battle_mod(projects, Path(args.out), mod_name=args.mod_name,
-                                author=args.author, description=args.description)
+                                author=args.author, description=args.description, game=args.game)
     except (BattleBuildError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2321,6 +2321,9 @@ def build_parser() -> argparse.ArgumentParser:
     bb.add_argument("--mod-name", default="FF9CustomMap", help="mod name / InstallationPath")
     bb.add_argument("--author", default="", help="mod author")
     bb.add_argument("--description", default="", help="mod description")
+    bb.add_argument("--game", default=None,
+                    help="FF9 install dir (only needed for an enemy re-skin `[[scene.enemy]] model =`, which "
+                         "reads a donor model from the install; default: $FF9_GAME_PATH / common Steam paths)")
     bb.set_defaults(func=_cmd_battle_build)
 
     bl = sub.add_parser("battle-list",

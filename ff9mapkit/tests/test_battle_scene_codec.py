@@ -139,3 +139,37 @@ def test_camera_codec_golden_roundtrip_real_donor(donor):
     # and the parse is structurally sane (>= 1 camera; at least one carries an opening sequence)
     assert len(cams) >= 1
     assert any(cam["sequences"] for cam in cams)
+
+
+# ----------------------------------------------------------------- install-gated: enemy re-skin transplant
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+def test_reskin_scan_finds_real_enemy_by_geo():
+    """The name-form donor scan against REAL bytes: a geo that an EF_R007 enemy uses is found by
+    ``_scan_for_geo`` (so ``model = \"<name>\"`` always transplants a real, shipped block)."""
+    from ff9mapkit.battle import extract, reskin
+    raw16 = extract.read_scene_assets("EF_R007")["raw16"]
+    geo = scene_codec.parse_scene(raw16).monsters[0].geo
+    found = reskin._scan_for_geo(geo)
+    assert found is not None, f"no battle enemy uses geo {geo}?"
+    _scene_name, t, donor_raw16 = found
+    assert scene_codec.parse_scene(donor_raw16).monsters[t].geo == geo
+
+
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+def test_reskin_transplant_real_donor():
+    """End-to-end on real bytes: transplant another scene's enemy model into EF_R007 type 0 -> the model+anim
+    fields come from the donor, the gameplay fields stay EF_R007's, and the result is a valid scene."""
+    from ff9mapkit.battle import extract, reskin, scene_data
+    base = scene_codec.parse_scene(extract.read_scene_assets("EF_R007")["raw16"])
+    raw16 = extract.read_scene_assets("EF_R007")["raw16"]
+    donor_scene = next(n for n in extract.list_battle_scenes() if n != "EF_R007")
+    donor_block, _prov = reskin.resolve_donor_block({"scene": donor_scene, "type": 0})
+    donor_mon = scene_codec.parse_scene(extract.read_scene_assets(donor_scene)["raw16"]).monsters[0]
+    out, _w = scene_data.apply_scene_edits(raw16, {"enemy": [{"slot": 0, "_reskin_block": donor_block}]})
+    res = scene_codec.parse_scene(out)
+    t0, base0 = res.monsters[0], base.monsters[0]
+    # model + animation transplanted from the donor
+    assert (t0.geo, t0.mot, t0.mesh, t0.radius) == (donor_mon.geo, donor_mon.mot, donor_mon.mesh, donor_mon.radius)
+    # gameplay kept from EF_R007 (NOT the donor's)
+    assert (t0.hp, t0.level, t0.weak_element, t0.win_card) == (base0.hp, base0.level, base0.weak_element, base0.win_card)
+    assert scene_codec.serialize_scene(res) == out          # still a valid, round-tripping scene

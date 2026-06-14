@@ -50,6 +50,33 @@ _MON_INT_MAX = {"<H": 0xFFFF, "<B": 0xFF}
 _MON_ELEM_FIELDS = {"null": 60, "absorb": 61, "half": 62, "weak": 63}
 _MON_STATUS_FIELDS = {"resist_status": 0, "auto_status": 4, "initial_status": 8}
 
+# RE-SKIN: the (offset, length) byte ranges of the MODEL + display fields, copied VERBATIM from a real donor
+# enemy so a forked enemy's BODY looks like a different creature while keeping its own gameplay. The appearance
+# is a self-consistent group: Geo (the model), Mot[6] (six GLOBAL animation ids = the IDLE/DAMAGE/DEATH motions,
+# `BattleUnit.cs:858-878`; the engine resolves them to THAT model's clips, `btl_init.cs:240`/`:521-522`, and a
+# clip that doesn't belong to the loaded model FREEZES the battle), Mesh[2], Radius (-> radius_collision,
+# `btl_init.cs:68`; model-size-attached -- the Geo table only sets radius_effect/height, so Radius@28 is LIVE,
+# keep it), plus the model-ATTACHED cosmetics (bone[4], die/start SFX, status-icon bones + offsets, shadow
+# bones + offsets). Swapping Geo alone leaves the OLD model's Mot ids -> wrong/missing clips, so a re-skin
+# transplants the WHOLE block. The GAMEPLAY fields (status/hp/mp/rewards/stats/elements/level/category/defences/
+# blue_magic/win_card) are deliberately OUTSIDE these ranges -- they stay the target's.
+#
+# SCOPE -- this is a BODY re-skin, NOT a full one. The per-ATTACK animation is driven by the donor scene's raw17
+# btlseq (keyed by Konran@78, the per-type AnmOfsList selector, `btlseq.cs:1150-1151`), which is intentionally
+# NOT copied -- so a re-skinned enemy ATTACKS with the target's animation on the new body (cosmetic-but-wrong,
+# no crash). DO NOT add Konran@78 or MesCnt@79 (the message-count cursor) to these ranges: both are raw17/text
+# linkage tied to the TARGET scene; copying them would desync attack-anim indexing / battle text. Flags@48
+# (incl. die_atk/die_dmg, which pick the death-anim path) also stays the target's -- it carries gameplay bits.
+_RESKIN_RANGES = (
+    (28, 20),    # Radius(2) Geo(2) Mot[6](12) Mesh[2](4)  -- the model + its 6 idle/damage/death anim ids
+    (72, 6),     # Bone[4](4) DieSfx(2)
+    (80, 18),    # IconBone[6] IconY[6] IconZ[6]           -- status-icon attach (bone indices are model-specific)
+    (98, 6),     # StartSfx(2) ShadowX(2) ShadowZ(2)
+    (104, 1),    # ShadowBone   (NOT WinCard@105 -- a reward)
+    (106, 4),    # ShadowOfsX(2) ShadowOfsZ(2)
+    (110, 1),    # ShadowBone2  (NOT Pad0@111)
+)
+
 
 class SceneEditError(ValueError):
     pass
@@ -64,6 +91,28 @@ def parse_counts(raw16: bytes):
 
 def _mon_base(patcount: int) -> int:
     return _HDR + _PAT * patcount
+
+
+def mon_block(raw16: bytes, type_no: int) -> bytes:
+    """The verbatim 116-byte SB2_MON_PARM block for enemy ``type_no`` -- the SOURCE of a re-skin transplant
+    (read from a real donor scene). Raises if ``type_no`` is out of range or the block is truncated."""
+    patcount, typcount, _atk = parse_counts(raw16)
+    if not 0 <= type_no < typcount:
+        raise SceneEditError(f"donor type {type_no} out of range (the donor scene has {typcount} type(s))")
+    base = _mon_base(patcount) + _MON * type_no
+    if len(raw16) < base + _MON:
+        raise SceneEditError("donor raw16 truncated -- can't read the monster block")
+    return bytes(raw16[base:base + _MON])
+
+
+def _apply_reskin_block(b: bytearray, mon_off: int, donor_block: bytes, slot=None) -> None:
+    """Copy the :data:`_RESKIN_RANGES` (model + display fields) from a real donor's 116-byte monster block
+    into the target type's block at ``mon_off`` -- the model swap. The gameplay fields are left untouched."""
+    if len(donor_block) != _MON:
+        where = f"slot {slot}: " if slot is not None else ""
+        raise SceneEditError(f"{where}re-skin donor block is {len(donor_block)} bytes, expected {_MON}")
+    for off, ln in _RESKIN_RANGES:
+        b[mon_off + off:mon_off + off + ln] = donor_block[off:off + ln]
 
 
 def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
@@ -139,16 +188,19 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
         slot = int(e["slot"])
         stat_keys = [k for k in e if k in _MON_FIELDS or k in _MON_ELEM_FIELDS
                      or k in _MON_STATUS_FIELDS or k in ("drop", "steal")]
-        if not stat_keys:
+        reskin_block = e.get("_reskin_block")              # a resolved real-donor block (build injects it)
+        if not stat_keys and reskin_block is None:
             continue
         type_no = b[rep + _PUT * slot]
         if type_no in tuned_types and tuned_types[type_no] != slot:
             warnings.append(f"slots {tuned_types[type_no]} and {slot} share enemy type {type_no}; "
-                            f"their stats/rewards are the SAME data -- slot {slot} wins")
+                            f"their stats/model are the SAME data -- slot {slot} wins")
         tuned_types.setdefault(type_no, slot)
         if type_no >= typcount:
             raise SceneEditError(f"slot {slot} references type {type_no} >= TypCount {typcount}")
         mon_off = mon_base + _MON * type_no
+        if reskin_block is not None:                       # re-skin: transplant the donor's model+display block
+            _apply_reskin_block(b, mon_off, reskin_block, slot)
         for k in stat_keys:
             if k in _MON_FIELDS:
                 off, fmt = _MON_FIELDS[k]
