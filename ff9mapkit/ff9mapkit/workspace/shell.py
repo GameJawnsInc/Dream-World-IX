@@ -155,7 +155,8 @@ class Workspace(QMainWindow):
         self.setWindowTitle("FF9 Map Kit — Workspace")
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
-        self._dot_icon = self._make_dot_icon(pal["accent"])   # the unsaved-changes dot (coloured, not text)
+        self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
+        self._root_items = []                                 # campaign/journey roots (roll-up dot target)
         self._build_toolbar()
         self._build_central()
         self._build_dock()
@@ -383,6 +384,7 @@ class Workspace(QMainWindow):
     def _populate_field(self, name):
         self.tree.clear()
         self._member_items = {}
+        self._root_items = []                      # loose mode: the member IS the top-level (it gets its own dot)
         mi = self._mk("field", name, name, "•")
         self.tree.addTopLevelItem(mi)
         self._member_items[name] = mi
@@ -443,6 +445,7 @@ class Workspace(QMainWindow):
 
     def _populate(self):
         self.tree.clear()
+        self._root_items = []
         g = C.campaign_graph(self.plan)
         parent = self.tree
         if self.journey_name:
@@ -451,10 +454,12 @@ class Workspace(QMainWindow):
             self.tree.addTopLevelItem(jr)
             jr.setExpanded(True)
             parent = jr
+            self._root_items.append(jr)
         camp = self._mk("campaign", self.plan.name, "@campaign", "▣")
         camp.setForeground(0, QBrush(QColor(self.pal["accent"])))
         (parent.addChild(camp) if isinstance(parent, QTreeWidgetItem) else self.tree.addTopLevelItem(camp))
         camp.setExpanded(True)
+        self._root_items.append(camp)
         self._member_items = {}
         for node in g.nodes:
             mi = self._mk("field", node.name, node.name, _badge(node))
@@ -542,12 +547,17 @@ class Workspace(QMainWindow):
         return QIcon(pm)
 
     def _refresh_dirty_marks(self):
-        """Show the coloured unsaved-dot icon on each member row that has unsaved changes (committed or
-        in-progress); clear it otherwise."""
+        """Show the amber unsaved-dot icon on each member row with unsaved changes (committed or
+        in-progress); roll it up to the campaign/journey root and the window title so unsaved work is
+        visible even when the member rows are collapsed or scrolled away."""
         unsaved = self._unsaved()
         blank = QIcon()
         for name, mi in getattr(self, "_member_items", {}).items():
             mi.setIcon(0, self._dot_icon if name in unsaved else blank)
+        any_unsaved = bool(unsaved)
+        for root in getattr(self, "_root_items", []):
+            root.setIcon(0, self._dot_icon if any_unsaved else blank)
+        self.setWindowTitle("FF9 Map Kit — Workspace" + ("  •" if any_unsaved else ""))
 
     def _load_objects(self, member_item):
         name = self._payload(member_item)[1]
@@ -1600,8 +1610,12 @@ def _smoke(win):
     assert mi_ic.icon(0).isNull(), "a clean member shows no unsaved-dot icon"
     win._touch("IC_ENT")
     assert not mi_ic.icon(0).isNull(), "an edited member shows the unsaved-dot icon"
+    # roll-up: the campaign root + the window title also reflect unsaved work (visible when collapsed)
+    assert win._root_items and not win._root_items[0].icon(0).isNull(), "the campaign root rolls up the dot"
+    assert win.windowTitle().endswith("•"), "the window title marks unsaved work"
     win._mark_clean("IC_ENT")
     assert mi_ic.icon(0).isNull(), "saving clears the unsaved-dot icon"
+    assert win._root_items[0].icon(0).isNull() and not win.windowTitle().endswith("•"), "root + title clear"
     # (2) reverting a value to its original clears the in-progress dot (no save needed)
     win._open_editor("IC_ENT", "field", "field")
     id_w = win._save_ctx["getters"]["id"].__self__     # the id QLineEdit behind the field form
