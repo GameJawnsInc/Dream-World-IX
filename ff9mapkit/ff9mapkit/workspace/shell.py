@@ -176,6 +176,10 @@ class Workspace(QMainWindow):
         act_open_save = QAction("Open Save…", self)
         act_open_save.triggered.connect(self._open_save)
         tb.addAction(act_open_save)
+        self.act_save_all = QAction("Save All", self)
+        self.act_save_all.setToolTip("Save every field with unsaved changes (Ctrl-Shift-S)")
+        self.act_save_all.triggered.connect(self._save_all)
+        tb.addAction(self.act_save_all)
         self.act_check = QAction("Check", self)
         self.act_check.triggered.connect(self.on_check)
         self.act_check.setEnabled(False)
@@ -197,6 +201,7 @@ class Workspace(QMainWindow):
         tb.addWidget(search)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self._save_shortcut)
+        QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
 
     def _build_central(self):
         central = QWidget()
@@ -636,6 +641,7 @@ class Workspace(QMainWindow):
             ("Check", "command", self.on_check),
             ("Lint (CLI)", "command", self.run_cli_lint),
             ("Browse catalog (Info Hub)", "command", self._open_catalog),
+            ("Save All fields", "command", self._save_all),
             ("Go to Editor", "view", lambda: self.tabs.setCurrentWidget(self.doc_scroll)),
             ("Go to Map", "view", lambda: self.tabs.setCurrentWidget(self.map)),
             ("Go to Story State", "view", lambda: self.tabs.setCurrentWidget(self.story_state)),
@@ -682,6 +688,26 @@ class Workspace(QMainWindow):
         """Ctrl-S: save the mounted form (the same as clicking its Save button)."""
         if self._active_save is not None:
             self._active_save()
+
+    def _save_all(self):
+        """Ctrl-Shift-S / Save All: fold the active form in, then write every field with unsaved changes."""
+        self._commit_active()                      # the in-progress form counts as unsaved
+        saved = 0
+        for m in list(self._dirty_members()):
+            path = self.member_paths.get(m)
+            if path is None or protected_reason(path):
+                continue
+            try:
+                self._docs[m].save()
+            except Exception:                      # noqa: BLE001 -- best-effort; skip a locked/protected file
+                continue
+            self._mark_clean(m)                    # clears the dot + the touch for m
+            saved += 1
+        self._refresh_dirty_marks()
+        left = self._dirty_members()
+        if saved or left:
+            note = f"Saved {saved} field(s)" + (f"; {len(left)} could not be written" if left else "")
+            self._show_problems(fb.Verdict(fb.WARN if left else fb.OK, note), [])
 
     # ---- the document editor (Phase 4) ----
     def _clear_doc(self):
@@ -1629,6 +1655,16 @@ def _smoke(win):
     win._active_save = lambda: saved_calls.append(True)
     win._save_shortcut()
     assert saved_calls, "Ctrl-S runs the active form's Save handler"
+    # (3b) Save All writes every dirty field + clears the dots
+    import tomllib as _tl_sa
+    win._save_ctx = None                               # no active form to fold over the direct edit
+    win._doc("IC_ENT").data.setdefault("field", {})["area"] = 12
+    assert "IC_ENT" in win._dirty_members()
+    win._save_all()
+    assert "IC_ENT" not in win._dirty_members() and win._member_items["IC_ENT"].icon(0).isNull(), \
+        "Save All wrote the field + cleared its dot"
+    assert _tl_sa.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))["field"]["area"] == 12
+    assert "Save All fields" in [e[0] for e in win._command_index()]
     # (4) live validation: a bad value flags its field (validate() returns the invalid count); also proves
     # the hint is parented before setVisible (no parentless top-level flash -- the build-time flicker fix)
     from PySide6.QtWidgets import QLineEdit as _QLE2
