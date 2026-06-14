@@ -12,12 +12,13 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..ed7e54cd
+index 00000000..19194b75
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,661 @@
+@@ -0,0 +1,704 @@
 +using System;
 +using System.Collections.Generic;
++using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
 +using Memoria.Data;
 +using UnityEngine;
 +
@@ -54,6 +55,17 @@ index 00000000..ed7e54cd
 +    private String _gilText = "10000";
 +    private Byte[] _snapshot;                // saved gEventGlobal (flag snapshot/restore)
 +    private String _status = "";
++
++    // Deferred FADED warp: a bare F6 Field() warp transitions with the source field still drawn, so the
++    // destination loads in the clear and you SEE its smooth-camera ease onto the spawn (the "warp-in drift"
++    // that made debug warps look broken next to the clean shipping entry). Real gateways + the New-Game
++    // field-70 entry fade to BLACK first, so the destination loads black and its reveal + [camera]
++    // entry_settle hide the settle. So the F6 warp now does the same: fade out, wait for it, THEN change map.
++    private const Int32 WarpFadeFrames = 24;     // FF9Wipe fade-out duration (matches the gateway FadeFilter)
++    private const Single WarpFadeWait = 0.9f;    // seconds to let the fade finish before the map change
++    private Int32 _pendingWarpMap = -1;          // >= 0 while a faded warp is in flight
++    private Single _pendingWarpTimer;
++    private Boolean _pendingWarpReset;
 +
 +    private const Int32 WinId = 0x4F9DEB;
 +    private static readonly String[] Tabs = { "Warp", "Move", "Cheats", "Flags", "Time" };
@@ -119,6 +131,7 @@ index 00000000..ed7e54cd
 +
 +    private void Update()
 +    {
++        ServicePendingWarp();                    // drive the deferred faded warp (fade out -> map change)
 +        // While the menu is open, RIGHT-CLICK the field to copy the world (x, z) under the cursor (to
 +        // the clipboard + the Move tab boxes) -- handy for placing NPCs/zones/spawns in a field.toml.
 +        if (_open && Input.GetMouseButtonDown(1))
@@ -310,12 +323,14 @@ index 00000000..ed7e54cd
 +        {
 +            if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.FieldHUD)
 +                return false;
-+            if (resetFlags)
-+                ClearFlagState();
++            // Lock control + start the fade-to-black NOW; the actual map change fires from Update once the
++            // fade has finished (so the destination loads black, like a gateway). The flag reset (if any)
++            // also defers to the trigger so it lands with the reload, not a frame early.
 +            PersistenSingleton<EventEngine>.Instance.SetUserControl(false);
-+            PersistenSingleton<EventEngine>.Instance.SetNextMap(mapNo);
-+            FF9StateSystem.Field.FF9Field.loc.map.nextMode = 1;
-+            PersistenSingleton<FF9StateSystem>.Instance.attr |= 8u;
++            SceneDirector.FF9Wipe_FadeOutEx(WarpFadeFrames);
++            _pendingWarpMap = mapNo;
++            _pendingWarpReset = resetFlags;
++            _pendingWarpTimer = WarpFadeWait;
 +            _open = false;
 +            return true;
 +        }
@@ -323,6 +338,34 @@ index 00000000..ed7e54cd
 +        {
 +            _status = "warp failed: " + err.Message;
 +            return false;
++        }
++    }
++
++    // Fire the deferred map change after the fade-out has run. ServiceFade (ticked by HonoluluFieldMain
++    // while the field is still active) drives the wipe to black during this wait; SetNextMap then transitions
++    // with the screen already black -- identical to the eb Field-op path a gateway uses.
++    private void ServicePendingWarp()
++    {
++        if (_pendingWarpMap < 0)
++            return;
++        _pendingWarpTimer -= Time.deltaTime;
++        if (_pendingWarpTimer > 0f)
++            return;
++        Int32 mapNo = _pendingWarpMap;
++        _pendingWarpMap = -1;
++        try
++        {
++            if (_pendingWarpReset)
++                ClearFlagState();
++            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++            ee.SetUserControl(false);
++            ee.SetNextMap(mapNo);
++            FF9StateSystem.Field.FF9Field.loc.map.nextMode = 1;
++            PersistenSingleton<FF9StateSystem>.Instance.attr |= 8u;
++        }
++        catch (Exception err)
++        {
++            _status = "warp failed: " + err.Message;
 +        }
 +    }
 +
