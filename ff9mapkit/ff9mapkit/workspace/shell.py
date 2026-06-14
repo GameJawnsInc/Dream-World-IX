@@ -23,8 +23,8 @@ from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
-    QPushButton, QScrollArea, QSplitter, QTabWidget, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem,
-    QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QSplitter, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .. import campaign as C
@@ -115,6 +115,51 @@ def _snip(s, n=44) -> str:
     """A one-line, length-capped preview of a value (Inspector dialogue/message snippets)."""
     s = str(s).replace("\n", " ").strip()
     return s if len(s) <= n else s[:n - 1] + "…"
+
+
+def _toml_str(s) -> str:
+    """Escape a value for a double-quoted TOML string (the New-Journey template's hub name)."""
+    return str(s).replace("\\", "\\\\").replace('"', '\\"')
+
+
+# A COMMENTED onboarding template for New Journey -- the journeys.toml schema is the hardest of the three to
+# author by hand, so the "new" action is really teach-by-template. __HUB_NAME__ is replaced (not str.format --
+# the multi-campaign example has literal { } braces). Loads + lints as-is (a valid [hub] + a bare [[journey]]).
+_JOURNEY_TEMPLATE = '''\
+# -----------------------------------------------------------------------------
+#  A JOURNEY = one playable arc the World Hub selects + warps into. This file is
+#  the project FRONT DOOR: it indexes each journey's campaigns and how they chain.
+#  Fork the campaigns FIRST (`ff9mapkit import-chain <seed> --out <folder>`), then
+#  list them here. Full schema: docs/JOURNEYS.md.   Open it via Journey > Open.
+# -----------------------------------------------------------------------------
+
+[hub]
+name = "__HUB_NAME__"      # the World-Hub field's display name
+id = 4600                  # the hub field id (custom band, >= 4000)
+borrow_bg = "N11_HUT"      # a real field whose art the hub reuses (see `ff9mapkit list-fields`)
+
+# -- A BARE journey: the hub warps straight into ONE field (a real or forked id). --
+[[journey]]
+id = "intro"               # a stable slug -- the hub-choice key (A-Z, 0-9, _)
+name = "Intro"             # the label shown on the hub menu
+entry = 4100               # the field id the hub warps into  (CHANGE ME)
+# set_scenario = 7006      # optional: seed this story beat before warping in
+
+# -- A MULTI-CAMPAIGN journey: chains forked campaigns end-to-end. Uncomment + edit: --
+# [[journey]]
+# id = "main_arc"
+# name = "The Main Arc"
+# campaigns = ["dali", "dali_outside"]              # campaign FOLDERS beside this file (fork them first)
+# entry = { campaign = "dali", field = "WAKEUP" }   # land inside the first campaign (a member NAME)
+#
+# [[journey.link]]                                  # one per boundary (N campaigns -> N-1 links)
+# from = { campaign = "dali", field = "EXIT" }      # the boundary member you leave from
+# to = { campaign = "dali_outside", field = "ARRIVAL", entrance = 0 }
+#
+# [journey.seed]                                    # the New-Game starting state (the story_flags capstone)
+# scenario = 2600
+# party = ["Zidane", "Vivi"]
+'''
 
 
 def _coord_like(s) -> bool:
@@ -221,28 +266,21 @@ class Workspace(QMainWindow):
         tb = QToolBar()
         tb.setMovable(False)
         self.addToolBar(tb)
-        act_new_field = QAction("New Field…", self)
-        act_new_field.setToolTip("Scaffold a new standalone field project + open it (Ctrl-N)")
-        act_new_field.triggered.connect(self.on_new_field)
-        tb.addAction(act_new_field)
-        act_new_campaign = QAction("New Campaign…", self)
-        act_new_campaign.setToolTip("Create an empty campaign + open it; add rooms from the campaign root "
-                                    "(Ctrl-Shift-N)")
-        act_new_campaign.triggered.connect(self.on_new_campaign)
-        tb.addAction(act_new_campaign)
+        # Project-file ops consolidated into 3 hierarchy dropdowns (Field / Campaign / Journey), each New +
+        # Open. The keyboard shortcuts (below) are independent of the menus, so the keys still work directly.
+        self._field_btn = self._menu_button(tb, "Field", "Create or open a standalone field", [
+            ("New Field…   (Ctrl-N)", self.on_new_field),
+            ("Open Field…", self.on_open_field)])
+        self._campaign_btn = self._menu_button(tb, "Campaign", "Create or open a campaign (a chain of fields)", [
+            ("New Campaign…   (Ctrl-Shift-N)", self.on_new_campaign),
+            ("Open Campaign…", self.on_open_campaign)])
+        self._journey_btn = self._menu_button(tb, "Journey", "Create or open a journey (the whole arc — the "
+                                              "project front door)", [
+            ("New Journey…   (commented template)", self.on_new_journey),
+            ("Open Journey…", self.on_open_journey)])
         tb.addSeparator()
-        act_open_journey = QAction("Open Journey…", self)
-        act_open_journey.setToolTip("Open a journeys.toml — the whole arc (hub + campaigns + links); lint it "
-                                    "and drill into any campaign to edit")
-        act_open_journey.triggered.connect(self.on_open_journey)
-        tb.addAction(act_open_journey)
-        act_open = QAction("Open Campaign…", self)
-        act_open.triggered.connect(self.on_open_campaign)
-        tb.addAction(act_open)
-        act_open_field = QAction("Open Field…", self)
-        act_open_field.triggered.connect(self.on_open_field)
-        tb.addAction(act_open_field)
         act_open_save = QAction("Open Save…", self)
+        act_open_save.setToolTip("Open a game save to edit story state / items / equipment")
         act_open_save.triggered.connect(self._open_save)
         tb.addAction(act_open_save)
         tb.addSeparator()
@@ -294,6 +332,20 @@ class Workspace(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.on_new_campaign)
         QShortcut(QKeySequence("Ctrl+Z"), self, activated=self._undo_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self._redo_shortcut)
+
+    def _menu_button(self, tb, text, tooltip, items):
+        """A toolbar DROPDOWN button: ``text ▾`` opening a menu of (label, callback) items. Returns the
+        QToolButton. Used to fold New/Open into one button per hierarchy level (Field/Campaign/Journey)."""
+        btn = QToolButton()
+        btn.setText(text)
+        btn.setToolTip(tooltip)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(btn)
+        for label, cb in items:
+            menu.addAction(label, cb)
+        btn.setMenu(menu)
+        tb.addWidget(btn)
+        return btn
 
     def _build_central(self):
         central = QWidget()
@@ -680,6 +732,47 @@ class Workspace(QMainWindow):
                                id_base=int(idb.text() or 4000))
         except (ValueError, C.CampaignError, OSError) as e:
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't create the campaign"),
+                                [fb.Problem(fb.ERROR, str(e))])
+
+    def _new_journey(self, name, dest):
+        """Write a COMMENTED onboarding journeys.toml (the schema is the hardest to author by hand) + open it.
+        Returns the journeys.toml path. Raises ValueError on an empty name or an existing manifest."""
+        name = str(name).strip()
+        if not name:
+            raise ValueError("a hub / journey name is required")
+        dest = Path(dest)
+        jpath = dest / "journeys.toml"
+        if jpath.exists():
+            raise ValueError(f"a journeys.toml already exists in {dest} — choose another folder")
+        dest.mkdir(parents=True, exist_ok=True)
+        jpath.write_text(_JOURNEY_TEMPLATE.replace("__HUB_NAME__", _toml_str(name)),
+                         encoding="utf-8", newline="\n")
+        self._last_new_dir = str(dest)
+        self.open_journey(jpath)
+        return jpath
+
+    def on_new_journey(self):
+        """New Journey… dialog -> scaffold a commented journeys.toml template + open it."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("New journey")
+        form = QFormLayout(dlg)
+        name = QLineEdit()
+        name.setPlaceholderText("My Hub")
+        dest = QLineEdit(self._default_new_dest())
+        form.addRow("Hub name", name)
+        form.addRow("Folder", self._dir_row(dest, "Choose a folder for the journeys.toml"))
+        note = QLabel("Writes a <b>commented template</b> (a [hub], a bare journey, and a multi-campaign "
+                      "example) you fill in, then opens it. List campaign folders you've already forked.")
+        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setWordWrap(True)
+        form.addRow(note)
+        form.addRow(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self._new_journey(name.text(), dest.text().strip() or self._default_new_dest())
+        except (ValueError, OSError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't create the journey"),
                                 [fb.Problem(fb.ERROR, str(e))])
 
     def _add_field_to_campaign(self, name, *, source=None):
@@ -1086,6 +1179,7 @@ class Workspace(QMainWindow):
         cmds = [
             ("New Field…", "command", self.on_new_field),
             ("New Campaign…", "command", self.on_new_campaign),
+            ("New Journey…", "command", self.on_new_journey),
             ("Open Journey…", "command", self.on_open_journey),
             ("Open Campaign…", "command", self.on_open_campaign),
             ("Open Field…", "command", self.on_open_field),
@@ -3278,6 +3372,23 @@ def _smoke(win):
     plabels = [e[0] for e in win._command_index()]
     assert {"New Field…", "New Campaign…", "Add field to campaign…"} <= set(plabels), plabels
     _newcamp_members = len(win.plan.members)               # captured for the summary (journey mode clears win.plan)
+    # New Journey writes a COMMENTED onboarding template journeys.toml + opens it (journey mode)
+    jnew = win._new_journey("My Hub", d / "jnew")
+    assert jnew.exists() and win.manifest is not None and win.journey_name == "My Hub"
+    jtext = jnew.read_text(encoding="utf-8")
+    assert "[hub]" in jtext and "[[journey]]" in jtext and "import-chain" in jtext, "the template teaches the schema"
+    try:                                                   # clobber guard: an existing manifest is refused
+        win._new_journey("Again", d / "jnew")
+        assert False, "an existing journeys.toml should be refused"
+    except ValueError:
+        pass
+    assert "New Journey…" in [e[0] for e in win._command_index()]
+    # the toolbar folds New/Open into 3 hierarchy DROPDOWNS (Field / Campaign / Journey), each with both actions
+    for btn, want in ((win._field_btn, ("New Field", "Open Field")),
+                      (win._campaign_btn, ("New Campaign", "Open Campaign")),
+                      (win._journey_btn, ("New Journey", "Open Journey"))):
+        acts = [a.text() for a in btn.menu().actions()]
+        assert all(any(lbl in a for a in acts) for lbl in want), (btn.text(), acts)
 
     # JOURNEY MODE: open a journeys.toml as the FRONT DOOR (load + lint + tree + overview + drill into a campaign)
     jdir = d / "jtest"

@@ -38,3 +38,9 @@ def test_qss_specifies_checked_indicators():
     css = style.qss(theme.DARK)
     assert "QRadioButton::indicator" in css and "QCheckBox::indicator" in css
     assert "::indicator:checked" in css
+
+
+def test_qss_styles_dropdown_menus():
+    # the toolbar Field/Campaign/Journey buttons open QMenus -- they must be themed (selected item = accent)
+    css = style.qss(theme.DARK)
+    assert "QMenu" in css and "QMenu::item:selected" in css

@@ -74,6 +74,12 @@ _QSS = Template(
         font-family: "Cascadia Code", "Consolas", monospace; font-size: 12px; padding: 6px;
     }
 
+    /* dropdown menus (the toolbar Field / Campaign / Journey buttons) */
+    QMenu { background: $surface; border: 1px solid $border; border-radius: 6px; padding: 4px; }
+    QMenu::item { padding: 6px 22px; border-radius: 4px; }
+    QMenu::item:selected { background: $accent; color: $accent_fg; }
+    QMenu::separator { height: 1px; background: $border; margin: 4px 6px; }
+
     QDockWidget { color: $muted; }
     QDockWidget::title { background: $surface; padding: 6px 9px; border-bottom: 1px solid $border; }
 
