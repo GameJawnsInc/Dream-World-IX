@@ -220,7 +220,11 @@ def main(argv=None) -> int:
     will_promote = (not args.no_promote_csv) and (not args.no_warp) and (highest != mod_folder)
 
     # --- lint (offline; aborts on structural errors) ---
-    errors, warnings = C.lint_campaign(plan, target.parent if not _is_dist_dir(target) else target.parent.parent)
+    # Member field.tomls resolve relative to the campaign-manifest dir, which is target.parent in BOTH cases:
+    # target is either the campaign.toml itself (its parent is the campaign dir) or a prebuilt dist whose
+    # SIBLING campaign.toml is at target.parent (line above). (Was target.parent.parent for a dist -- a bug
+    # that looked one dir too high, so a prebuilt-dist install couldn't find any member.)
+    errors, warnings = C.lint_campaign(plan, target.parent)
     for w in warnings:
         print("  warn:", w)
     if errors:
