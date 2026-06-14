@@ -16,7 +16,7 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QProcess
+from PySide6.QtCore import Qt, QProcess, QSize
 from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
@@ -152,6 +152,7 @@ class Workspace(QMainWindow):
         self._touched = set()                      # members with in-progress (typed-but-uncommitted) edits
         self._active_save = None                   # the mounted form's Save handler (Ctrl-S target)
         self._save_btn = None                      # the mounted form's Save button (greys when clean)
+        self._reset_btn = None                     # the mounted form's Reset button (revert to last save)
         self._save_ctx = None                      # {member, key, spec, getters, single|kind, idx} for Save
         self.setWindowTitle("FF9 Map Kit — Workspace")
         self.resize(1280, 820)
@@ -218,6 +219,8 @@ class Workspace(QMainWindow):
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self.tree.setUniformRowHeights(True)        # the unsaved-dot icon must NOT change a row's height
+        self.tree.setIconSize(QSize(12, 12))        # ...so the tree doesn't jump when a dot appears/clears
         self.tree.itemSelectionChanged.connect(self._on_select)
         self.tree.itemExpanded.connect(self._on_expand)
         self.tree.itemDoubleClicked.connect(self._on_tree_double)   # double-click = open (Editor / Map)
@@ -268,6 +271,11 @@ class Workspace(QMainWindow):
         self.insp_body = QLabel("Select something on the left.")
         self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
         self.insp_body.setWordWrap(True)
+        self.insp_body.setTextFormat(Qt.TextFormat.RichText)        # the file line is a copy-to-clipboard link
+        self.insp_body.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse
+                                               | Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.insp_body.linkActivated.connect(self._copy_inspect_path)
+        self._inspect_path = None
         self.insp_body.setStyleSheet(f"color:{self.pal['muted']};")
         self.insp_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         iv.addWidget(self.insp_title)
@@ -547,13 +555,13 @@ class Workspace(QMainWindow):
     def _make_dot_icon(color):
         """A small filled circle QIcon in ``color`` -- the unsaved-changes dot (coloured independently of
         the row text, drawn at the row's icon slot)."""
-        pm = QPixmap(10, 10)
+        pm = QPixmap(12, 12)                        # matches the tree iconSize so it isn't scaled/blurred
         pm.fill(QColor(0, 0, 0, 0))
         p = QPainter(pm)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(color))
-        p.drawEllipse(1, 1, 8, 8)
+        p.drawEllipse(2, 2, 8, 8)
         p.end()
         return QIcon(pm)
 
@@ -730,15 +738,43 @@ class Workspace(QMainWindow):
             self.tabs.setTabText(idx, "Editor" + (f" — {suffix}" if suffix else ""))
 
     def _refresh_save_button(self):
-        """Enable the mounted form's Save button only when its field has something to save (clean -> grey)."""
-        btn = getattr(self, "_save_btn", None)
-        if btn is not None and self._save_ctx:
-            btn.setEnabled(self._save_ctx.get("member") in self._unsaved())
+        """Enable the mounted form's Save + Reset only when its field has something to save (clean -> grey)."""
+        if not self._save_ctx:
+            return
+        enabled = self._save_ctx.get("member") in self._unsaved()
+        for btn in (getattr(self, "_save_btn", None), getattr(self, "_reset_btn", None)):
+            if btn is not None:
+                btn.setEnabled(enabled)
+
+    def _reset_active(self):
+        """Reset = the opposite of Save: discard this form's unsaved edits by restoring its section/entity
+        from the saved baseline, then re-mount it. (Greyed when there's nothing to reset.)"""
+        ctx = self._save_ctx
+        if not ctx:
+            return
+        member, section, key = ctx["member"], ctx["section"], ctx["key"]
+        clean = self._clean.get(member, {})
+        doc = self._doc(member)
+        if ctx["single"]:
+            if section in clean:
+                doc.data[section] = copy.deepcopy(clean[section])
+            else:
+                doc.data.pop(section, None)                    # it didn't exist at last save -> drop it
+        else:
+            idx = ctx["idx"]
+            base = clean.get(section, [])
+            cur = doc.data.get(section, [])
+            if idx is not None and idx < len(base) and idx < len(cur):
+                cur[idx] = copy.deepcopy(base[idx])
+        self._touched.discard(member)
+        self._open_editor(member, "object", key)              # re-mount from the restored data
+        self._refresh_dirty_marks()
 
     def _clear_doc(self):
         self._save_ctx = None                      # the about-to-be-removed form is no longer the active one
         self._active_save = None                   # ...and Ctrl-S has nothing to save until a form mounts
         self._save_btn = None
+        self._reset_btn = None
         while self.doc_host_lay.count():
             it = self.doc_host_lay.takeAt(0)
             w = it.widget()
@@ -995,6 +1031,11 @@ class Workspace(QMainWindow):
         save.clicked.connect(lambda _=False: handler())
         row.addWidget(save)
         self._save_btn = save                                  # so it can grey out when there's nothing to save
+        reset = QPushButton("Reset")
+        reset.setToolTip("Discard this form's unsaved changes (revert to the last save)")
+        reset.clicked.connect(lambda _=False: self._reset_active())
+        row.addWidget(reset)
+        self._reset_btn = reset
         if delete is not None:                                 # (label, callback) -> a Delete/Remove button
             db = QPushButton(delete[0])
             db.clicked.connect(lambda _=False, cb=delete[1]: cb())
@@ -1398,21 +1439,32 @@ class Workspace(QMainWindow):
                        ("Delete choice", lambda: self._delete_object(member, "choice", single=False,
                                                                      idx=idx, label="choice")))
 
+    def _copy_inspect_path(self, _href):
+        """Click the inspector's file link -> copy the full path to the clipboard (with a status note)."""
+        if self._inspect_path:
+            QApplication.clipboard().setText(self._inspect_path)
+            self.statusBar().showMessage(f"Copied path: {self._inspect_path}", 4000)
+
     def _inspect(self, item, payload, field):
         if payload is None:
             return
         kind, label, key = payload
         self.insp_title.setText(label)
         self.insp_body.setToolTip("")                       # full path (if any) goes on hover, not inline
+        self._inspect_path = None
         lines = []
         if kind == "field" and self.plan is not None:
             m = next((m for m in self.plan.members if m.name == label), None)
             if m:
                 path = self.member_paths.get(label)
-                lines = [f"field id: {m.new_id}", f"source: real field {m.real_id}", f"mode: {m.mode}",
-                         f"file: {Path(path).name if path else '(unknown)'}"]
+                lines = [f"field id: {m.new_id}", f"source: real field {m.real_id}", f"mode: {m.mode}"]
                 if path:
+                    self._inspect_path = str(path)
                     self.insp_body.setToolTip(str(path))    # a long absolute path mustn't force the panel wide
+                    lines.append(f'<a href="copy" style="color:{self.pal["accent"]};text-decoration:none;">'
+                                 f'file: {Path(path).name}  ⧉ copy</a>')
+                else:
+                    lines.append("file: (unknown)")
         elif kind == "campaign" and self.plan is not None:
             g = C.campaign_graph(self.plan)
             lines = [f"{len(self.plan.members)} fields", f"entry: {g.entry or '(none)'}",
@@ -1423,7 +1475,7 @@ class Workspace(QMainWindow):
                      "authoring is the overworld / World-Hub lane"]
         elif field:
             lines = [f"in field: {field}", f"kind: {kind}"]
-        self.insp_body.setText("\n".join(lines) if lines else "—")
+        self.insp_body.setText("<br>".join(lines) if lines else "—")
 
     def _select_member(self, name):
         mi = getattr(self, "_member_items", {}).get(name)
@@ -1710,12 +1762,17 @@ def _smoke(win):
     win.tree.setCurrentItem(win._root_items[0])
     win._open_current_tree_item()
     assert win.tabs.currentWidget() is win.map, "Enter on the campaign root opens the Map"
-    # (a2) the inspector shows the FILE NAME inline; the full path is on the tooltip (so it can't balloon)
+    # (a2) the inspector shows the FILE NAME inline as a copy-to-clipboard link; the full path is on the
+    # tooltip + copied on click (so a long absolute path can't balloon the panel)
     win.tree.setCurrentItem(win._member_items["IC_ENT"])
     mp = str(win.member_paths["IC_ENT"])
-    assert "file: IC_ENT.field.toml" in win.insp_body.text(), win.insp_body.text()
+    assert "file: IC_ENT.field.toml" in win.insp_body.text() and 'href="copy"' in win.insp_body.text()
     assert mp not in win.insp_body.text(), "the full path is not shown inline"
-    assert win.insp_body.toolTip() == mp, "the full path is on the hover tooltip"
+    assert win.insp_body.toolTip() == mp and win._inspect_path == mp
+    win._copy_inspect_path("copy")
+    assert QApplication.clipboard().text() == mp, "the file link copies the full path"
+    # the unsaved-dot icon must not resize tree rows (uniform height + small icon -> no jump on save)
+    assert win.tree.uniformRowHeights() and win.tree.iconSize() == QSize(12, 12)
     # (b) the Editor tab reflects what's open; placeholder resets it
     et = lambda: win.tabs.tabText(win.tabs.indexOf(win.doc_scroll))
     win._open_editor("IC_ENT", "field", "field")
@@ -1732,6 +1789,21 @@ def _smoke(win):
     assert win._save_btn.isEnabled(), "Save enables when there are unsaved changes"
     win._mark_clean("IC_ENT")
     assert not win._save_btn.isEnabled(), "Save greys again after saving"
+    # (c2) Reset (opposite of Save): greyed when clean; reverts the form's unsaved edits to the last save
+    win._mark_clean("IC_ENT")
+    win._open_editor("IC_ENT", "field", "field")
+    assert win._reset_btn is not None and not win._reset_btn.isEnabled(), "Reset is greyed on a clean form"
+    saved_id = win._doc("IC_ENT").data["field"]["id"]
+    win._save_ctx["getters"]["id"].__self__.setText("999777")   # a widget edit -> touched -> Reset enables
+    assert win._reset_btn.isEnabled() and "IC_ENT" in win._touched
+    win._reset_active()
+    assert win._save_ctx["getters"]["id"]() == str(saved_id), "Reset re-mounted with the saved id"
+    assert "IC_ENT" not in win._touched, "Reset cleared the in-progress flag"
+    win._mark_clean("IC_ENT")                          # reset a COMMITTED-but-unsaved (in-doc) change too
+    win._doc("IC_ENT").data["field"]["area"] = 99
+    win._open_editor("IC_ENT", "field", "field")
+    win._reset_active()
+    assert win._doc("IC_ENT").data["field"]["area"] != 99, "Reset reverted the committed-unsaved change"
     # (4) live validation: a bad value flags its field (validate() returns the invalid count); also proves
     # the hint is parented before setVisible (no parentless top-level flash -- the build-time flicker fix)
     from PySide6.QtWidgets import QLineEdit as _QLE2
