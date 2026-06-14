@@ -130,6 +130,133 @@ Plus the verbatim save-moogle carry (P1–P6.1) and the verbatim `.eb`+`.mes` fo
 Extraction of *which* flags a real prior field set on exit remains a separate, later, eventscan-touching task —
 the author asserts the beat for now (they have the game knowledge — cf. `feedback_trust_user_game_knowledge`).
 
+## The carry decision — bring-in vs drop vs impossible (fork-mode taxonomy)
+
+> A cross-dimension consolidation (12-dimension `fork-content-taxonomy` workflow, 2026-06-14: classify → adversarial
+> challenge → synthesize; every "impossible/should-not" call was challenged, and the corrections are folded in —
+> claims a challenger refuted are NOT carried forward; two were re-verified against live code before landing here).
+> It reframes the "Solved vs worklist" split above into the question an author actually faces per content type:
+> **do I carry this, drop it, or accept it as lost?** The entry-camera `entry_settle` dig is what surfaced the
+> need — it isn't a fidelity *bug*, it's the band-aid for one genuinely-impossible item, and telling that apart
+> from "donor identity I should drop" is the whole point.
+
+### The governing principle
+
+**The taxonomy is fork-MODE-relative, and one engine fact decides almost every call: is the behavior owned by the
+field's `.eb`/`.mes` bytes, or by an engine table keyed on the donor's real `fldMapNo`/FBG-name?**
+
+- **Donor-IDENTITY content** (area-title card, scenario cutscene roster, the donor's lines, its doors, its player
+  rig, its encounter table/BGM) is **`.eb`/`.mes`-owned** → **BROUGHT-IN under `--verbatim`** ("BE this field" — you
+  ship the whole `.eb`+`.mes` and want exactly this) and **DROP under BG-borrow / repurpose** ("reuse the room" — the
+  hub borrows Mognet's room but is NOT Mognet). NATIVE-SYNTH sits between: faithful *physical* layer + carried
+  objects/text where graftable, but **re-synthesized logic that boots at scenario-zero** — it keeps the diorama and
+  drops the narrative *machinery* (warp-directors, rotating roster).
+- **IMPOSSIBLE is the residual no mode can reconstruct on stock Memoria**, and it is *narrow*: almost entirely
+  **engine tables keyed on the real `fldMapNo`/FBG-name** that a minted id (≥4000) is simply absent from, with **no
+  `.eb` opcode reach**. For each, a dev-only DLL patch *would* solve it (the proven-but-unshipped `s23` narrow-map
+  patch is the template) but is **declined to keep the shipped mod engine-independent**.
+- **One genuinely-hard NON-engine residual: copy-only perspective geometry** — ladder climb-arcs, jump parabolas,
+  the save-Moogle pop-out coords are hand-tuned to the donor camera and can only be *copied* (verbatim carry), never
+  generated from scratch. Not an engine wall; a from-scratch *authoring* ceiling.
+
+**Decision shortcut:** `.eb`/`.mes`-owned → flips by mode (verbatim keeps, repurpose drops). Keyed on a real
+`fldMapNo`/FBG-name engine table → mode-independent and IMPOSSIBLE on a mint.
+
+### The author's decision rule
+
+Pick the fork's PURPOSE first; the mode and the carry/drop list follow.
+
+1. **Faithful replica ("be this field") → `--verbatim`.** Carry everything (`.eb`+`.mes` whole, only `Field()`
+   retargeted). Then: **assert the beat** with `[startup] scenario=N` (a verbatim fork still boots scenario-zero —
+   `gEventGlobal` is the save blob, not in the `.eb`; this is what makes the carried directors/roster/gated-doors/
+   area-title behave). **Keep the donor id IN-PLACE** iff you need a real-`fldMapNo`-gated engine behavior
+   (narrow-map masking, Chocobo live-HUD, ATE trophy) — otherwise accept those as lost on the mint.
+2. **Reuse-the-room ("new purpose") → plain `import` (BG-borrow) or the hub generator.** Carry no donor-identity by
+   default: **suppress** the area-title (`hide_area_title`), author your own `[[npc]]`/`[[choice]]` dialogue and
+   `[player] model=`, emit no donor `[encounter]`/`[music]`, let the synth director-skip drop warp-directors. Author
+   the new graph (your `[[gateway]]`, retargeted exits, a synth `Menu(4,0)` save point). **Add `entry_settle`** (a
+   thin synthesized Main_Init reveals immediately — the black-hold is the *faithful* answer, the same convergence-
+   behind-black the real game uses). Single-owner discipline: the HUB owns field-70; per-journey items via scripted
+   `give_item`, not the global CSVs; accept `Leveling.csv` as a global default.
+3. **Faithful diorama, re-synthesized logic → `import --native --graft-player-funcs --carry-text`.** Room contents
+   without its story machine. **Fall back to `--verbatim`** when the field has a moving platform/lift (no synth
+   tile-motion injector), a non-Zidane player (synth refuses the anim-bearing rig), or per-door arrival that matters.
+
+### IMPOSSIBLE on stock Memoria — the genuine engine residuals
+
+All keyed on the real `fldMapNo`/FBG-name or a fixed compile-time structure with no `.eb` reach. A dev-only DLL patch
+would fix each; all declined (the only sanctioned custom DLL is the dev-only F6 menu; `s23` narrow-map is the
+proven-but-deliberately-unshipped template).
+
+| # | Residual | Why engine-blocked | Stock band-aid |
+|---|----------|--------------------|----------------|
+| 1 | **Entry-camera ease elimination** | `SmoothCamDelay`/`SmoothCamActive` engine internals; player binds AFTER the snap window; `SmoothCamExcludeMaps` is a hardcoded real-id set (`FieldMap.cs:2532`); no `.eb` op re-arms it. **Universal across all synth modes** — verbatim only *hides* it behind a long real entry sequence. | `entry_settle` black-hold (faithful, not a kludge) + source-side `WARP_FADE`. Runtime `CameraStabilizer` is per-user (`Memoria.ini`) → a baked `Wait` can't adapt; offline default-stabilizer estimator is UNBUILT-not-impossible. |
+| 2 | **ATE seen-state + ATE80 trophy** on a custom id | `EMinigame.MappingATEID` is a hardcoded if/else on real `fldMapNo` → −1 for ≥4000; `AteCheck` lives on `AchievementState`, not `gEventGlobal`. The ATE itself *plays* fine (verbatim / `[ate]`); only the bookkeeping is lost. | Fork in-place on the real id (in tension with verbatim's normal ≥4000 mint). |
+| 3 | **Narrow-map letterbox masking** on a mint | `NarrowMapList.MapWidth` is a hardcoded `fldMapNo` table (ids ≤3100) → mint falls to `return 500` = not-narrow; the `ConditionalForceNarrow` escape ALSO requires a real-id match (`RestrictedWidthScenesList`). | Fork in-place (keeps `fldMapNo`); `s23` patch proven 2026-06-14, NOT shipped. → `project-ff9-narrow-map-fork-letterbox`. |
+| 4 | **Chocobo live dig-HUD** on a minted fork of 2950–2952 | `EventHUD.cs:384` gates the live timer HUD on literal `fldMapNo==2950\|\|2951\|\|2952`. (The *instruction popup* is `FieldZoneId==945`-keyed → reachable via `--text-block 945`; only the live HUD is id-locked.) | Fork in-place on 2950–2952. |
+| 5 | **Field-70 FMV + ~12 per-actor anim tweaks** on a mint | `FieldMapActor.cs` has `fldMapNo`-keyed per-actor tweaks; FMV bound to the real id. *Generalizes:* any real-`fldMapNo`-gated engine behavior is lost on a mint. | Retarget the stock field-70 override rather than mint FMV behavior. |
+| 6 | **A brand-NEW FMV slot** (beyond FMV000–060) + paired audio | `MBG.MBGDiscTable` is a fixed `static readonly` jagged array `MBG.Seek` indexes directly — no `.eb` reach; `.akb` audio is name-keyed (doubly blocked). | Reuse/repoint an existing slot (`fmv-swap` proven on FMV000); the `.bytes` layer is open. |
+| 7 | **Per-fork BBG/tuning on a REUSED vanilla scene** | scene→BBG resolves `Info.BattleBackground ?? MapModel[...]`; `BattleBackground` is the `[PatchableField]` override point but still **per-scene-id global**, no per-field dimension; `raw16`/`raw17` are per-scene-id whole-file. | **Unnecessary**: MINT a fresh scene (`battle-import --fork-scene`) → its own BBG + tuning on stock. |
+| 8 | **A brand-NEW custom playable member** (13th+ in menu/battle/save) | `CharacterId` is a fixed 0–11 compile-time enum; fixed-layout save (`PLAYER[9]`); `SetupPartyUID` can't bind a no-event-id member. The hard frontier. | None for a true new member (reskin a slot or add existing cast). |
+
+Two residuals are **not engine-fixable at all** (no DLL helps): **cross-rig gesture remap** (0/15 of a Vivi
+cutscene's clips have a Steiner equivalent in the global `AnimationDB` — a DLL can't invent artist-authored clips)
+and **from-scratch perspective-correct arcs/pop-out** (hand-tuned coords, copy-only). The faithful answer to both is
+`--verbatim` with the original rig.
+
+### SHOULD-NOT — donor identity to DROP on a reuse (flips to BROUGHT-IN under verbatim)
+
+The genuinely-new category. Each is correct-and-wanted under `--verbatim` (the fork BE-comes the field) and wrong
+under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
+
+- **Area-title card** ("Mognet Central"/"Ice Cavern") — donor-identity name overlays. HANDLED: `[field]
+  hide_area_title=true` → `content/areatitle.hide` prepends `ShowTile(i,0)`; hub auto-emits. In-game proven (hub 4600).
+  ⚠ **Also leaks into a `--native` synth fork** that keeps the donor-FBG-derived MAPID (`FieldMap.HasAreaTitle` is
+  FBG-NAME-keyed, not id-keyed) — the current framing treats this as BG-borrow-only; confirm + apply the same hide.
+- **Scenario cutscene roster / warp-directors carried as standing NPCs** — HANDLED on synth (`_loop_warps` drops any
+  LOOP firing `Field()`; 2-shopkeeper→1 proven) and BG-borrow (carries no `.eb`). ⚠ The destructive synth-drop keys
+  on `Field()` (0x2B) ONLY — **deliberately narrow** (spares animated props + the save-Moogle puppet, per worklist
+  #13b); a pure *phase-switch* rotation director (no warp) slips it and is caught only *incidentally* by the #13
+  arg-dedup + roster analyzer. (The advisory `forkreport._is_director` is correctly *wider* — 0x2B OR 0x06. The
+  asymmetry is by design: advisory-wide, destructive-narrow.)
+- **Donor talk dialogue / choice prompts** as the room's words — opt-in + import-only, so a plain import ships none.
+- **Donor player identity** (you-become-Vivi) in a hub — plain import carries no player `.eb`; the hub declares its
+  own `[player] model=` Moogle. (And `--swap-player --neutralize-gestures` trades a cutscene rig's emoting for
+  not-glitching when reusing a cutscene field for free-roam.)
+- **Donor exit destinations pointing back into the live game** — `verbatim.remap_fields` retargets in-chain `Field()`
+  (0x2B), leaves out-of-chain as commented live seams. ⚠ A WorldMap (0xB6) lift/gateway exit needs the SEPARATE
+  `worldmap_inject` path — any "retarget the exits in a chain" guidance must name BOTH link modes.
+- **Donor party-reset on entry** (`SetPartyReserve` 0xB4) overwriting an authored `[party]` — surfaced (advisory
+  `party.field_resets_party`, verbatim path), not stripped.
+- **Per-fork single-owner globals** — field-70 New-Game ownership (a non-hub slice must not hijack it; `deploy_journey`
+  refuses New Game unless `--wire-newgame`), per-journey items baked into global `InitialItems`/`DefaultEquipment` CSVs
+  (`lint_manifest` warns → scripted `give_item`), per-fork character GROWTH (`Leveling.csv` is whole-file
+  highest-wins, single-owner — the *curve* is authorable on stock; making it differ *per-fork* is the same
+  single-owner-global limit as items, so accept the global default).
+- **Per-door D8:2 arrival table** — NOTE: this is really an **UNBUILT fidelity gap, not donor-identity-to-drop**.
+  Carrying it would be *more* faithful; synth collapses to one spawn only because multi-branch player-Init authoring
+  (decode + entrance-write + SWITCHEX-emit — all primitives the kit already has) isn't wired. `--verbatim` carries it.
+
+### Audit corrections & doc-refresh items (verified against live code 2026-06-14)
+
+- **`[startup]`/`[party]`/`[[on_entry]]` on a 0x06-jump-table donor WORKS** — a prepend (`rel_off==0`) is exempt from
+  the jump-table refusal (`eb/edit.py:227`, the check only fires on a *mid-function* insert; docstring cites field
+  206). The `build.py:2062` `_field_load_inject` BuildError docstring + message still name "field 100 … can't yet
+  shift past" — **STALE**; the prepend path handles jump-table donors, the guard now only nets a hypothetical
+  mid-function field-load insert. (Refresh the prose.)
+- **Battle BGM (#6) is overstated as "minted scene plays silent."** The `Battle:`/`Music:` BattlePatch channel is
+  WIRED and keys on the battle *scene id* (which a fork keeps), so the donor's exact battle song reproduces when set.
+  The true residual: `extract` doesn't auto-prefill the donor song → `battle_music` defaults to `0` (Battle Theme)
+  (`build.py:3335`). Downgrade #6 to "auto-detect the donor battle song," not "silent."
+- **Daguerreo-class engine walkmesh hotfix is lost even under verbatim at a remapped id** — `mapNo==2803`
+  `BGI_triSetActive` (and ~a dozen siblings: Treno 900, Evil Forest 262, … in `DoEventCode.cs`) never fires on a mint;
+  the `.eb` `RunScript` carries but the engine half doesn't. The walkmesh-STATE half is reproducible via the real
+  `.eb` ops `BGIACTIVET (0x9A)`/`BGIACTIVEF (0xCB)` (already in `_optables.py`) — an UNBUILT splice, not engine-blocked.
+  Refines #14's "verbatim is the answer" with a caveat.
+- **Mognet/Chocobo-Paradise world-map alternate-form STATE (bits 815/814) is BROUGHT-IN** — `WorldConfiguration.cs`
+  `UsePlaceAlternateForm` is a pure `gEventGlobal` byte read (NOT id-gated), so `[startup] flags=[{flag=815}]`
+  reproduces it; only the achievement-WRITE paths (`DigUpKupo fldMapNo==1421`, ATE80) are id-blocked.
+
 ## Docs to refresh (flagged by the audit)
 
 - `project_ff9_object_carry.md` — stale test counts (cites 628/726; current baseline **765**); save-point
