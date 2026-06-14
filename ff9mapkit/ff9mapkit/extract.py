@@ -1377,6 +1377,15 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
                   f"# NOTE: source area {meta['area']} < 10 black-screens via the engine's FBG_N<area> "
                   f"lookup, so this\n# custom scene uses area {safe_area} (it ships its own art -- the "
                   f"source area is just a folder key).\n")
+    # A MULTI-camera field paints a different region per camera (BGOVERLAY_DEF.camNdx). An editable fork
+    # resolves ONE camera from its single [camera] block and doesn't reconstruct the per-camera switch
+    # zones, so it captures CAMERA 0 ONLY -- cameras 1+ and their art are dropped. --verbatim keeps the
+    # real .eb's camera switching + all cameras' art (the faithful multi-camera path).
+    multicam_note = ("" if meta.get("cameras", 1) <= 1 else
+                     f"# WARNING: {meta['field']} is MULTI-CAMERA ({meta['cameras']} cameras); an editable fork\n"
+                     f"# captures CAMERA 0 ONLY (switch zones for cameras 1+ aren't reconstructed, so their\n"
+                     f"# walkmesh regions + art are dropped). For a faithful multi-camera fork use:\n"
+                     f"#   ff9mapkit import {field} --verbatim\n")
     wm = bgi.BgiWalkmesh.from_bytes((out / "walkmesh.bgi").read_bytes())
     nfloors = len(wm.floors)
     (out / "walkmesh.obj").write_text(_world_walkmesh_obj_text(wm), encoding="utf-8", newline="\n")
@@ -1438,7 +1447,7 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f"# Repaint any layer_*.png, reshape walkmesh.obj, add content -- then:  ff9mapkit build {name}.field.toml\n"
         f"# Camera: pitch {cm['pitch_deg']} deg, FOV {cm['fov_deg']} deg, range {cm['range'][0]}x{cm['range'][1]}"
         f"{' (SCROLLING)' if meta['scrolling'] else ''}.  Walkmesh bounds: x {wb['x']}  z {wb['z']}.\n"
-        f"{remap_note}\n"
+        f"{remap_note}{multicam_note}\n"
         f"[field]\n"
         f"id = {field_id}\n"
         f'name = "{name}"\n'
