@@ -106,8 +106,12 @@ def shadow_warning(report: ShadowReport, mod_folder: str | None = None) -> str |
 # folder's whole file wins outright -> a higher-priority stacked folder SHADOWS the lower one's copy entirely.
 # The other CSVs (ShopItems / DefaultEquipment / BaseStats / Actions / StatusData) MERGE low->high by id, so a
 # stacked folder only collides per-id, NOT whole-file -- they are deliberately NOT listed here.
+_PRESET_STEMS = ("Zidane", "Vivi", "Garnet", "Steiner", "Freya", "Quina", "Eiko", "Amarant", "Cinna1", "Cinna2",
+                 "Marcus1", "Marcus2", "Blank1", "Blank2", "Beatrix1", "Beatrix2", "StageZidane", "StageCinna",
+                 "StageMarcus", "StageBlank")
 HIGHEST_WINS_CSVS = ("StreamingAssets/Data/Items/InitialItems.csv",
-                     "StreamingAssets/Data/Characters/Leveling.csv")
+                     "StreamingAssets/Data/Characters/Leveling.csv",
+                     *(f"StreamingAssets/Data/Characters/Abilities/{s}.csv" for s in _PRESET_STEMS))  # [[learn]] lists
 
 
 def check_csv_shadow(game_dir, target_folder: str, csv_relpath: str,

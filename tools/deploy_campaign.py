@@ -373,10 +373,23 @@ def main(argv=None) -> int:
     #       shared, like the New-Game warp). Source = the dist CSVs just installed into live_root.
     if will_promote:
         src_l, dst_l = ModLayout(live_root), ModLayout(game / highest)
+        # InitialItems + Leveling + the per-preset learn lists are read HIGHEST-PRIORITY-WINS (whole-file), so a
+        # campaign in a non-highest folder would be SHADOWED unless promoted; DefaultEquipment/ShopItems merge but
+        # promoting guarantees this campaign's rows win.
+        _PRESET_STEMS = {"Zidane", "Vivi", "Garnet", "Steiner", "Freya", "Quina", "Eiko", "Amarant", "Cinna1",
+                         "Cinna2", "Marcus1", "Marcus2", "Blank1", "Blank2", "Beatrix1", "Beatrix2", "StageZidane",
+                         "StageCinna", "StageMarcus", "StageBlank"}
+        _promote = [(src_l.initial_items_csv, dst_l.initial_items_csv, "InitialItems"),
+                    (src_l.default_equipment_csv, dst_l.default_equipment_csv, "DefaultEquipment"),
+                    (src_l.shop_items_csv, dst_l.shop_items_csv, "ShopItems"),
+                    (src_l.leveling_csv, dst_l.leveling_csv, "Leveling")]
+        _abil = src_l.abilities_csv("Zidane").parent           # the per-preset learn lists (a FILE SET)
+        if _abil.is_dir():
+            for _f in sorted(_abil.glob("*.csv")):
+                if _f.stem in _PRESET_STEMS:
+                    _promote.append((_f, dst_l.abilities_csv(_f.stem), _f.stem))
         try:
-            for src_csv, dst_csv, label in ((src_l.initial_items_csv, dst_l.initial_items_csv, "InitialItems"),
-                                            (src_l.default_equipment_csv, dst_l.default_equipment_csv, "DefaultEquipment"),
-                                            (src_l.shop_items_csv, dst_l.shop_items_csv, "ShopItems")):
+            for src_csv, dst_csv, label in _promote:
                 if not src_csv.exists():
                     continue
                 dst_csv.parent.mkdir(parents=True, exist_ok=True)

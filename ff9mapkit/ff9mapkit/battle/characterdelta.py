@@ -411,9 +411,9 @@ def _encode_param(value, kind, vmax, key) -> str:
         if ";" in s:
             raise CharacterDeltaError(f"{key}: a String value can't contain ';' (the CSV delimiter)")
         return s
-    if kind == "preset" and isinstance(value, str) and not value.strip().lstrip("-").isdigit():
-        return str(_range(_resolve_preset(value, key)[0], vmax, key))
-    return str(_range(_to_int(value, key), vmax, key))
+    if kind == "preset":
+        return str(_resolve_preset(value, key)[0])         # a CharacterPresetId: bounded to 0-19 (name OR id), NOT
+    return str(_range(_to_int(value, key), vmax, key))     # 0-255 -- a 20-254 menu_type crashes at battle entry
 
 
 def build_character_params_delta(entries, *, game=None) -> tuple:
@@ -590,8 +590,8 @@ def build_learn_file(preset_name, abilities, removes, *, game=None) -> tuple:
             raise CharacterDeltaError(f"[[learn]] {preset_name}: each [[learn.ability]] must be a table")
         tok = _resolve_learn_token(ab.get("ability"), game=game)
         ap = _to_int(ab.get("ap", 0), f"[[learn]] {preset_name} {tok} ap")
-        if not 0 <= ap <= _U32:
-            raise CharacterDeltaError(f"[[learn]] {preset_name} {tok}: ap {ap} out of range (0-{_U32})")
+        if not 0 <= ap <= _I32:                            # CharacterAbility.Ap is Int32 (CsvParser.Int32), NOT UInt32
+            raise CharacterDeltaError(f"[[learn]] {preset_name} {tok}: ap {ap} out of range (0-{_I32})")
         if tok in by_token:
             cells = by_token[tok]
             while len(cells) < 2:

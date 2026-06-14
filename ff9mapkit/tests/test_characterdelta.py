@@ -349,3 +349,18 @@ def test_learn_preset_ambiguous_and_validate(base):
         CD._group_learns([{"preset": "Cinna", "ability": []}])             # ambiguous guest preset
     assert CD.validate_learn({"preset": "Vivi", "ability": [{"ability": "AA:25", "ap": 5}]}) == []
     assert any("ambiguous" in p for p in CD.validate_learn({"preset": "Marcus"}))
+
+
+def test_character_param_menu_type_bounded_to_preset_range(base):
+    # a numeric menu_type/preset must be a CharacterPresetId 0-19, NOT 0-255 (20-254 crashes at battle entry)
+    with pytest.raises(CD.CharacterDeltaError):
+        CD.build_character_params_delta([{"character": "Vivi", "menu_type": 99}])
+    assert any("range" in p for p in CD.validate_character_param({"character": "Vivi", "preset": 50}))
+    text, _w = CD.build_character_params_delta([{"character": "Vivi", "menu_type": 3}])   # valid 0-19 still works
+    assert next(r for r in _reparse(base, text)[2] if r[0] == "1")[4] == "3"
+
+
+def test_learn_ap_is_int32_bounded(base):
+    CD.build_learn_file("Vivi", [{"ability": "AA:25", "ap": 2_000_000_000}], [], game=None)        # Int32 ok
+    with pytest.raises(CD.CharacterDeltaError):
+        CD.build_learn_file("Vivi", [{"ability": "AA:25", "ap": 3_000_000_000}], [], game=None)    # > Int32 max
