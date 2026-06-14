@@ -97,11 +97,15 @@ def test_build_validate_rejects_malformed_toggles(tmp_path):
     assert any("walkmesh_tri_toggles" in x for x in problems)   # state 2 is not 0|1
 
 
-# --- fork-report -----------------------------------------------------------------------------------------
-def test_fork_report_flags_walkmesh_hotfix():
+# --- fork-report (lost-on-mint, of which the walkmesh hotfix is one entry) -------------------------------
+def _lost_labels(eb, fid):
+    return [lbl for lbl, _ in forkreport.analyze_eb(eb, field_id=fid).lost_on_mint]
+
+
+def test_fork_report_lost_on_mint_includes_walkmesh():
     eb = data.blank_field_bytes("us")
-    assert forkreport.analyze_eb(eb, field_id=2356).walkmesh_hotfix == "auto"     # load-time, reproduced
-    assert forkreport.analyze_eb(eb, field_id=2803).walkmesh_hotfix == "lost"     # dynamic, fork-in-place
-    assert forkreport.analyze_eb(eb, field_id=0).walkmesh_hotfix == ""            # no hotfix (fixture)
+    assert "walkmesh hotfix" in _lost_labels(eb, 2356)     # load-time, auto-reproduced
+    assert "walkmesh hotfix" in _lost_labels(eb, 2803)     # dynamic, fork-in-place
+    assert forkreport.analyze_eb(eb, field_id=0).lost_on_mint == []   # fixture id -> nothing
     txt = forkreport.format_report(forkreport.analyze_eb(eb, field_id=2803))
-    assert "Walkmesh fix" in txt and "LOST on a mint" in txt
+    assert "Lost on mint" in txt and "walkmesh hotfix" in txt

@@ -335,9 +335,11 @@ class ForkReport:
     item_removes: int = 0                                # RemoveItem op count
     item_var_give: bool = False                          # an AddItem with a COMPUTED id (un-previewable)
     item_var_shop: bool = False                          # a Menu(2, <computed>) -- a story-gated shop (id un-previewable)
-    walkmesh_hotfix: str = ""                             # an engine walkmesh hotfix (BGI_triSetActive by real
-    #   fldMapNo) the fork would lose on a custom id: "" none | "auto" reproduced | "lost" fork-in-place needed
-    walkmesh_hotfix_note: str = ""                        # the human description (catalog `note`)
+    lost_on_mint: list = _dc_field(default_factory=list)  # [(label, detail)] -- USER-VISIBLE engine behaviors
+    #   keyed on the real fldMapNo that a fork loses on its custom id (walkmesh hotfix / narrow-map letterbox /
+    #   Chocobo HUD / intro FMV). The "impossible" axis of the taxonomy, per field (idgated.lost_on_mint).
+    area_title: tuple = None                              # (startOvr, endOvr) if the field has an area-title
+    #   CARD -- donor identity SHOWN on --verbatim, dropped/auto-hidden on a synth (BG-borrow/native) fork
     notes: list = _dc_field(default_factory=list)
 
 
@@ -555,6 +557,11 @@ def analyze(field_id: int, *, game=None, bundle=None) -> ForkReport:
         rep.cam_pitch, rep.cam_fov = ci["pitch"], ci["fov"]
         rep.cam_scrolling, rep.cam_count = ci["scrolling"], ci["count"]
         rep.cam_range_h = ci.get("range_h", 0)
+    # the area-title CARD is keyed on the scene name (manifest in resources.assets), so it needs the install too.
+    # ID_TO_FBG is lowercase; the manifest keys are the real (UPPER) scene names -> match on upper.
+    if fbg:
+        from . import areatitle as _at
+        rep.area_title = _at.title_range(fbg.upper(), game=game)
     return rep
 
 
@@ -708,13 +715,11 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
                          f"a fork shows one beat (pick it with [startup] scenario)")
     if rep.stacked:
         rep.notes.append(f"{len(rep.stacked)} object(s) are multi-instanced -- watch for one-spot stacking")
-    # engine walkmesh hotfix (BGI_triSetActive keyed on the real fldMapNo) the fork loses on a custom id --
-    # the "real-fldMapNo-gated engine behavior lost on a mint" residual, walkmesh dimension (walkmesh_hotfixes)
-    from . import walkmesh_hotfixes as _wh
-    _h = _wh.info(field_id)
-    if _h is not None:
-        rep.walkmesh_hotfix = "auto" if _h.auto else "lost"
-        rep.walkmesh_hotfix_note = _h.note
+    # LOST ON A MINT: every user-visible engine behavior keyed on the real fldMapNo a fork loses on its custom
+    # id (walkmesh hotfix / narrow-map letterbox / Chocobo HUD / intro FMV) -- the taxonomy's "impossible" axis,
+    # per field. Pure baked data (no install), so it's fine on the install-free analyze_eb path.
+    from . import idgated as _idg
+    rep.lost_on_mint = _idg.lost_on_mint(field_id)
     return rep
 
 
@@ -831,12 +836,15 @@ def format_report(rep: ForkReport) -> str:
     cam_line = _camera_line(rep)
     if cam_line:
         lines.append(cam_line)
-    if rep.walkmesh_hotfix == "auto":
-        lines.append("  Walkmesh fix  : a load-time engine walkmesh hotfix applies here -- AUTO-reproduced on "
-                     "fork (import emits [field] walkmesh_tri_toggles)")
-    elif rep.walkmesh_hotfix == "lost":
-        lines.append("  Walkmesh fix  : an engine walkmesh hotfix (keyed on the real field id) is LOST on a "
-                     "mint -- fork IN-PLACE on the real id for faithful walkmesh, or accept it")
+    if rep.area_title:
+        a, b = rep.area_title
+        lines.append(f"  Area title    : this field shows an area-title CARD (overlays {a}-{b}) -- donor identity: "
+                     f"kept on --verbatim (real show+fade), auto-hidden on a synth/BG-borrow fork (DROP on reuse)")
+    if rep.lost_on_mint:
+        lines.append("  Lost on mint  : engine behavior(s) keyed on the real field id a fork loses on a custom id "
+                     "(fork IN-PLACE to keep, unless noted auto-reproduced):")
+        for label, detail in rep.lost_on_mint:
+            lines.append(f"      - {label}: {detail}")
     s = rep.safety
     dirs = f"{len(rep.directors)} director(s)" if rep.directors else "0 directors"
     stack = f", {len(rep.stacked)} multi-instance" if rep.stacked else ""
