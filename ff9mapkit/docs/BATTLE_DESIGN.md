@@ -163,8 +163,8 @@ Darkness=128 — the **same 8-bit space** as the enemy Guard/Absorb/Half/Weak by
 |---|---|---|---|---|---|
 | **BaseStats** (Dex/Str/Mag/Will/Gems) | the real per-char combat stats | CSV (partial, 0-11) | `BaseStats.csv` → `ff9level.cs` | No | **done** (`[[character]]`, `characterdelta`) |
 | **Leveling** (Exp / BonusHP / BonusMP) | 99-step growth curve; `HP=BonusHP*Str/50`, `MP=BonusMP*Mag/100` | CSV (**whole-file**, 99 rows) | `Leveling.csv` → `ff9level.cs:53` (`GetCsvWithHighestPriority`) | No | **done** (`[[leveling]]`, whole-file 99-row re-emit) |
-| CharacterParameters | row / category / menu-preset / equip-set | CSV (partial, 0-11) | `CharacterParameters.csv` → `ff9play.cs` | No | **absent** |
-| Commands / CommandSets | battle-menu definitions + per-char layout | CSV (partial) | `CharacterCommands.cs` (0-44 / 0-19) | No | **absent** |
+| CharacterParameters | row / category / menu-preset / equip-set | CSV (partial, 0-11) | `CharacterParameters.csv` → `ff9play.cs` | No | **done** (`[[character_param]]` row/category/menu_type/equip_set; fixed-index cols) |
+| Commands / CommandSets | battle-menu definitions + per-char layout | CSV (partial) | `CharacterCommands.cs` (0-44 / 0-19) | No | **partial** — CommandSets done (`[[command_set]]` re-points a preset's menu slots to existing command ids); Commands (command DEFINITIONS) deferred (cross-ref into Actions/abilities) |
 | Abilities/`<Name>.csv` | learn list + AP cost | CSV (**whole-file per preset**) | `ff9abil.cs:432` (`GetCsvWithHighestPriority`) | No | **absent** |
 | AbilityGems | support-ability stone costs | CSV (partial, 0-63) | `AbilityGems.csv` → `ff9abil.cs:409` | No | **done** (`[[ability_gem]]`, `characterdelta`) |
 | AbilityFeatures.txt | the SA/AA effect DSL (Auto-Haste, killers, MP+20%…) | text (`>SA/>AA/>CMD`, `+`=cumulate) | `ff9abil.cs:448-534` | No | **absent** |

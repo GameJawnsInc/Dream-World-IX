@@ -39,10 +39,31 @@ _ABILITYGEMS = (
 )
 
 
+# SYNTHETIC CharacterParameters (8 cols, ALL Byte despite the legend "Int32;Boolean") + a comment cell.
+_CHARPARAMS = (
+    "# This file contains character parameters.\n"
+    "# Id;DefaultRow;DefaultWinPose;DefaultCategory;DefaultMenuType;DefaultEquipmentSet;SerialNumberFormula;NameKeyword\n"
+    "# Int32;Boolean;Byte;Byte;Byte;Byte;String;String\n"
+    "0;0;0;1;0;0;1;ZIDANE;# Zidane\n"
+    "1;0;1;5;1;1;2;VIVI;# Vivi\n"
+)
+# SYNTHETIC CommandSets (Id + 12 slots), TAB-PADDED like the real file (to prove the strip) + a colliding
+# Attack(Trance) legend name (proves we index by fixed position, not the legend).
+_COMMANDSETS = (
+    "#! IncludeId\n#! IncludeFullSet\n"
+    "# Id;Attack;Defend;Ability1;Ability2;Item;Change;Attack(Trance);Defend(Trance);Ability1(Trance);"
+    "Ability2(Trance);Item(Trance);Change(Trance)\n"
+    "0;1;2;3;4;5;6;1;2;3;4;5;6;# Zidane\n"
+    "1\t;1\t;2\t;30\t;31\t;5\t;6\t;1\t;2\t;30\t;31\t;5\t;6\t;# Vivi\n"
+)
+
+
 @pytest.fixture
 def base(tmp_path, monkeypatch):
     (tmp_path / "BaseStats.csv").write_bytes(_BASESTATS.encode("cp1252"))
     (tmp_path / "Leveling.csv").write_bytes(_LEVELING.encode("cp1252"))
+    (tmp_path / "CharacterParameters.csv").write_bytes(_CHARPARAMS.encode("cp1252"))
+    (tmp_path / "CommandSets.csv").write_bytes(_COMMANDSETS.encode("cp1252"))
     (tmp_path / "Abilities").mkdir()
     (tmp_path / "Abilities" / "AbilityGems.csv").write_bytes(_ABILITYGEMS.encode("cp1252"))
     monkeypatch.setattr(CD, "_csv_path", lambda name, game=None: tmp_path / name)
@@ -242,3 +263,43 @@ def test_build_emit_character_data_wiring():
     # no blocks -> no contribution; a bad block -> BuildError (not a raw crash). (Uses no install: validation
     # of the wiring path only; the SimpleNamespace carries the raw dict like a FieldProject.)
     assert build._emit_character_data([SimpleNamespace(raw={})], layout=None) == []
+
+
+# ---- [[character_param]] -> CharacterParameters.csv (partial, FIXED-INDEX cols) ----
+def test_character_param_partial_fixed_index(base):
+    text, _w = CD.build_character_params_delta(
+        [{"character": "Vivi", "row": 1, "menu_type": "Steiner", "category": 18}])
+    _h, _c, rows = _reparse(base, text)
+    vivi = next(r for r in rows if r[0] == "1")
+    assert vivi[1] == "1" and vivi[3] == "18" and vivi[4] == "3"        # row / category / menu_type(Steiner=3)
+    assert vivi[2] == "1" and vivi[7] == "VIVI"                         # untouched cols verbatim
+    assert not any(r[0] == "0" for r in rows)                          # Zidane not emitted (partial)
+
+
+def test_character_param_string_and_range(base):
+    text, _w = CD.build_character_params_delta([{"character": "Vivi", "serial_formula": "1 + 2"}])
+    assert next(r for r in _reparse(base, text)[2] if r[0] == "1")[6] == "1 + 2"   # String passthrough
+    with pytest.raises(CD.CharacterDeltaError):
+        CD.build_character_params_delta([{"character": "Vivi", "serial_formula": "a;b"}])    # ';' illegal in a String
+    with pytest.raises(CD.CharacterDeltaError):
+        CD.build_character_params_delta([{"character": "Vivi", "row": 256}])                 # Byte over-range
+    assert CD.validate_character_param({"character": "Vivi", "row": 256})                    # over-range -> a problem
+
+
+# ---- [[command_set]] -> CommandSets.csv (partial, tab-stripped, fixed-index slots) ----
+def test_command_set_repoints_slots_strips_tabs(base):
+    text, _w = CD.build_command_set_delta([{"preset": "Vivi", "ability1": 8, "ability2": 30}])
+    _h, _c, rows = _reparse(base, text)
+    vivi = next(r for r in rows if r[0] == "1")
+    assert "\t" not in text                                            # tab-padding stripped on emit
+    assert vivi[3] == "8" and vivi[4] == "30"                          # ability1 / ability2 by FIXED index
+    assert vivi[1] == "1"                                              # attack slot untouched
+
+
+def test_command_set_range_preset_and_validate(base):
+    with pytest.raises(CD.CharacterDeltaError):
+        CD.build_command_set_delta([{"preset": "Vivi", "ability1": 50}])      # > 47
+    with pytest.raises(CD.CharacterDeltaError):
+        CD.build_command_set_delta([{"preset": "Cinna", "attack": 1}])        # ambiguous preset
+    assert CD.validate_command_set({"preset": "Vivi", "ability1": 8}) == []
+    assert any("ambiguous" in p for p in CD.validate_command_set({"preset": "Marcus", "attack": 1}))

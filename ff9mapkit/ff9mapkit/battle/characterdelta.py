@@ -358,19 +358,226 @@ def build_ability_gems_delta(entries, *, game=None) -> tuple:
     return "\n".join(out) + "\n", warnings
 
 
+# ---- CharacterPresetId 0-19 (the per-preset Abilities/<Name>.csv learn files + the CommandSets/menu_type key) -
+# DISTINCT from CHARACTER_IDS (0-11): guests split into two preset slots (Cinna1/2 etc.), and the canonical enum
+# NAME is the filename. Committed open-source names (CharacterPresetId.cs); provenance-clean.
+_PRESET_NAMES = ("Zidane", "Vivi", "Garnet", "Steiner", "Freya", "Quina", "Eiko", "Amarant",
+                 "Cinna1", "Cinna2", "Marcus1", "Marcus2", "Blank1", "Blank2", "Beatrix1", "Beatrix2",
+                 "StageZidane", "StageCinna", "StageMarcus", "StageBlank")
+PRESET_IDS = {n.lower(): i for i, n in enumerate(_PRESET_NAMES)}
+_MAX_PRESET_ID = len(_PRESET_NAMES) - 1
+_AMBIGUOUS_PRESETS = {"cinna": ("Cinna1", "Cinna2"), "marcus": ("Marcus1", "Marcus2"),
+                      "blank": ("Blank1", "Blank2"), "beatrix": ("Beatrix1", "Beatrix2")}
+
+
+def _resolve_preset(token, ctx="[[learn]]"):
+    """A CharacterPresetId name or 0-19 id -> (id, canonical_name). Bare Cinna/Marcus/Blank/Beatrix = ambiguous."""
+    if token is None or isinstance(token, bool):
+        raise CharacterDeltaError(f"{ctx} needs a 'preset' (a CharacterPresetId name or a 0-{_MAX_PRESET_ID} id)")
+    if isinstance(token, int) or (isinstance(token, str) and token.strip().lstrip("-").isdigit()):
+        pid = int(token)
+        if not 0 <= pid <= _MAX_PRESET_ID:
+            raise CharacterDeltaError(f"{ctx} preset id {pid} out of range (0-{_MAX_PRESET_ID})")
+        return pid, _PRESET_NAMES[pid]
+    key = str(token).strip().lower()
+    if key in _AMBIGUOUS_PRESETS:
+        raise CharacterDeltaError(f"{ctx} preset {token!r} is ambiguous -- use {' or '.join(_AMBIGUOUS_PRESETS[key])}")
+    pid = PRESET_IDS.get(key)
+    if pid is None:
+        raise CharacterDeltaError(f"{ctx} unknown preset {token!r} (a CharacterPresetId name or 0-{_MAX_PRESET_ID} id)")
+    return pid, _PRESET_NAMES[pid]
+
+
+# ---- [[character_param]] -> CharacterParameters.csv (PARTIAL per-id; FIXED-INDEX cols -- legend names are stale) -
+# All numerics are CsvParser.Byte (0-255; the legend type row "Int32;Boolean" is a LIE). Cols 6/7 are Strings.
+CHARACTER_PARAM_FIELDS = {
+    "row": (1, "int", 0xFF), "win_pose": (2, "int", 0xFF), "category": (3, "int", 0xFF),
+    "menu_type": (4, "preset", 0xFF), "preset": (4, "preset", 0xFF),
+    "equipment_set": (5, "int", 0xFF), "equip_set": (5, "int", 0xFF),
+    "serial_formula": (6, "str", 0), "name_keyword": (7, "str", 0),
+}
+
+
+def _resolve_char_id_as(token, ctx):
+    try:
+        return _resolve_char_id(token)
+    except CharacterDeltaError as ex:
+        raise CharacterDeltaError(str(ex).replace("[[character]]", ctx, 1))
+
+
+def _encode_param(value, kind, vmax, key) -> str:
+    if kind == "str":
+        s = str(value)
+        if ";" in s:
+            raise CharacterDeltaError(f"{key}: a String value can't contain ';' (the CSV delimiter)")
+        return s
+    if kind == "preset" and isinstance(value, str) and not value.strip().lstrip("-").isdigit():
+        return str(_range(_resolve_preset(value, key)[0], vmax, key))
+    return str(_range(_to_int(value, key), vmax, key))
+
+
+def build_character_params_delta(entries, *, game=None) -> tuple:
+    """Read CharacterParameters.csv + apply ``[[character_param]]`` -> (partial delta, warnings). PER-id (0-11):
+    only the changed rows are emitted; the base supplies the rest. Columns are written by FIXED INDEX."""
+    try:
+        header, cols, rows = _read_csv(_csv_path("CharacterParameters.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"[[character_param]] needs your FF9 install to read CharacterParameters.csv ({ex})")
+    if not rows:
+        raise CharacterDeltaError("could not parse the base CharacterParameters.csv (no rows)")
+    if not isinstance(entries, list):
+        raise CharacterDeltaError("[[character_param]] must be a list of tables")
+    idx = cols.get("id", 0)                                  # Id is col 0 (the legend may not name it)
+    by_id, warnings, changed = {}, [], {}
+    for cells in rows:
+        try:
+            by_id[int(cells[idx].strip())] = cells
+        except (ValueError, IndexError):
+            continue
+    for n, e in enumerate(entries):
+        if not isinstance(e, dict):
+            raise CharacterDeltaError(f"[[character_param]] #{n} must be a table (got {type(e).__name__})")
+        cid = _resolve_char_id_as(e.get("character"), "[[character_param]]")
+        if cid not in by_id:
+            raise CharacterDeltaError(f"[[character_param]] id {cid} is not in the base CharacterParameters.csv")
+        if cid in changed:
+            warnings.append(f"[[character_param]] #{n} and #{changed[cid]} both target id {cid} -- the later wins")
+        changed.setdefault(cid, n)
+        cells = by_id[cid]
+        for k, v in e.items():
+            if k == "character":
+                continue
+            spec = CHARACTER_PARAM_FIELDS.get(k)
+            if spec is None:
+                raise CharacterDeltaError(f"[[character_param]] {e.get('character')!r}: unknown field {k!r} "
+                                          f"(known: {', '.join(sorted(CHARACTER_PARAM_FIELDS))})")
+            ci, kind, vmax = spec
+            if ci >= len(cells):
+                raise CharacterDeltaError(f"[[character_param]] id {cid}: base row has no column index {ci}")
+            cells[ci] = _encode_param(v, kind, vmax, f"[[character_param]] {e.get('character')!r} {k}")
+    note = "# ff9mapkit [[character_param]] -- a partial CharacterParameters.csv delta (merged per-CharacterId)."
+    return "\n".join([note] + header + [";".join(by_id[c]) for c in sorted(changed)]) + "\n", warnings
+
+
+# ---- [[command_set]] -> CommandSets.csv (PARTIAL per-preset; tab-padded -> strip + index slots by position) ----
+COMMANDSET_SLOTS = {
+    "attack": 1, "defend": 2, "ability1": 3, "ability2": 4, "item": 5, "change": 6,
+    "attack_trance": 7, "defend_trance": 8, "ability1_trance": 9, "ability2_trance": 10,
+    "item_trance": 11, "change_trance": 12,
+}
+_MAX_COMMAND_ID = 47           # BattleCommandId slot value; >=48 = system/boundary
+
+
+def build_command_set_delta(entries, *, game=None) -> tuple:
+    """Read CommandSets.csv + apply ``[[command_set]]`` -> (partial delta, warnings). PER-preset (0-19): re-point
+    a character's battle-menu command SLOTS to existing BattleCommandIds (e.g. give Vivi a different ability
+    command). The file is tab-padded + its legend collides Attack(Trance), so slots are written by FIXED INDEX
+    and every emitted cell is stripped clean."""
+    try:
+        header, cols, rows = _read_csv(_csv_path("CommandSets.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"[[command_set]] needs your FF9 install to read CommandSets.csv ({ex})")
+    if not rows:
+        raise CharacterDeltaError("could not parse the base CommandSets.csv (no rows)")
+    if not isinstance(entries, list):
+        raise CharacterDeltaError("[[command_set]] must be a list of tables")
+    idx = cols.get("id", 0)
+    by_id, warnings, changed = {}, [], {}
+    for cells in rows:
+        try:
+            by_id[int(cells[idx].strip())] = [c.strip() for c in cells]   # strip the tab-padding
+        except (ValueError, IndexError):
+            continue
+    for n, e in enumerate(entries):
+        if not isinstance(e, dict):
+            raise CharacterDeltaError(f"[[command_set]] #{n} must be a table (got {type(e).__name__})")
+        pid, pname = _resolve_preset(e.get("preset"), "[[command_set]]")
+        if pid not in by_id:
+            raise CharacterDeltaError(f"[[command_set]] preset {pname} (id {pid}) is not in the base CommandSets.csv")
+        if pid in changed:
+            warnings.append(f"[[command_set]] #{n} and #{changed[pid]} both target preset {pname} -- the later wins")
+        changed.setdefault(pid, n)
+        cells = by_id[pid]
+        for k, v in e.items():
+            if k == "preset":
+                continue
+            slot = COMMANDSET_SLOTS.get(k)
+            if slot is None:
+                raise CharacterDeltaError(f"[[command_set]] {pname}: unknown slot {k!r} "
+                                          f"(known: {', '.join(sorted(COMMANDSET_SLOTS))})")
+            if slot >= len(cells):
+                raise CharacterDeltaError(f"[[command_set]] {pname}: base row has no slot index {slot}")
+            cid = _to_int(v, f"[[command_set]] {pname} {k}")
+            if not 0 <= cid <= _MAX_COMMAND_ID:
+                raise CharacterDeltaError(f"[[command_set]] {pname} {k}={cid} out of range (0-{_MAX_COMMAND_ID})")
+            cells[slot] = str(cid)
+    note = "# ff9mapkit [[command_set]] -- a partial CommandSets.csv delta (merged per-preset over the base)."
+    return "\n".join([note] + header + [";".join(by_id[c]) for c in sorted(changed)]) + "\n", warnings
+
+
 # ---- mod-write stage -------------------------------------------------------------------------------------
-def write_character_data(layout, *, characters=None, levelings=None, ability_gems=None, game=None) -> list:
-    """Emit BaseStats.csv / Leveling.csv / AbilityGems.csv into ``layout`` (mod-write stage). cp1252 + LF."""
+def write_character_data(layout, *, characters=None, levelings=None, ability_gems=None, character_params=None,
+                         command_sets=None, game=None) -> list:
+    """Emit BaseStats / Leveling / AbilityGems / CharacterParameters / CommandSets into ``layout``. cp1252 + LF."""
     warnings: list = []
     for entries, path, builder in ((characters, layout.base_stats_csv, build_basestats_delta),
                                    (levelings, layout.leveling_csv, build_leveling_file),
-                                   (ability_gems, layout.ability_gems_csv, build_ability_gems_delta)):
+                                   (ability_gems, layout.ability_gems_csv, build_ability_gems_delta),
+                                   (character_params, layout.character_parameters_csv, build_character_params_delta),
+                                   (command_sets, layout.command_sets_csv, build_command_set_delta)):
         if entries:
             text, w = builder(entries, game=game)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="cp1252", errors="replace", newline="\n")
             warnings += w
     return warnings
+
+
+def validate_character_param(entry) -> list:
+    """Offline structural problems for ``[[character_param]]`` (empty => OK; field resolution at build)."""
+    if not isinstance(entry, dict):
+        return ["[[character_param]] must be a table (character = \"...\", a field = value)"]
+    problems = []
+    if entry.get("character") is None:
+        problems.append("[[character_param]] needs a 'character' (a name or a 0-11 id)")
+    overrides = [k for k in entry if k != "character"]
+    if not overrides:
+        problems.append("[[character_param]] sets no fields (e.g. row = 1, menu_type = \"Steiner\")")
+    for k in overrides:
+        if k not in CHARACTER_PARAM_FIELDS:
+            problems.append(f"[[character_param]]: unknown field {k!r} (known: {', '.join(sorted(CHARACTER_PARAM_FIELDS))})")
+            continue
+        ci, kind, vmax = CHARACTER_PARAM_FIELDS[k]
+        try:
+            _encode_param(entry[k], kind, vmax, f"[[character_param]] {k}")
+        except CharacterDeltaError as ex:
+            problems.append(str(ex))
+    return problems
+
+
+def validate_command_set(entry) -> list:
+    """Offline structural problems for ``[[command_set]]`` (empty => OK)."""
+    if not isinstance(entry, dict):
+        return ["[[command_set]] must be a table (preset = \"...\", a slot = command id)"]
+    problems = []
+    try:
+        _resolve_preset(entry.get("preset"), "[[command_set]]")
+    except CharacterDeltaError as ex:
+        problems.append(str(ex))
+    overrides = [k for k in entry if k != "preset"]
+    if not overrides:
+        problems.append("[[command_set]] sets no slots (e.g. ability1 = 8)")
+    for k in overrides:
+        if k not in COMMANDSET_SLOTS:
+            problems.append(f"[[command_set]]: unknown slot {k!r} (known: {', '.join(sorted(COMMANDSET_SLOTS))})")
+            continue
+        try:
+            cid = _to_int(entry[k], f"[[command_set]] {k}")
+            if not 0 <= cid <= _MAX_COMMAND_ID:
+                problems.append(f"[[command_set]] {k}={cid} out of range (0-{_MAX_COMMAND_ID})")
+        except CharacterDeltaError as ex:
+            problems.append(str(ex))
+    return problems
 
 
 # ---- offline (no-install) structural + range validation --------------------------------------------------

@@ -291,6 +291,18 @@ class ModLayout:
         return self.root / "StreamingAssets" / "Data" / "Characters" / "BaseStats.csv"
 
     @property
+    def character_parameters_csv(self) -> Path:
+        """Per-character identity (``Data/Characters/CharacterParameters.csv``): row / category / menu-preset /
+        equip-set. MERGED by CharacterId low->high -> a partial delta works (the base supplies the rest)."""
+        return self.root / "StreamingAssets" / "Data" / "Characters" / "CharacterParameters.csv"
+
+    @property
+    def command_sets_csv(self) -> Path:
+        """Per-character battle-menu command LAYOUTS (``Data/Characters/CommandSets.csv``), keyed by preset 0-19.
+        MERGED low->high -> a partial delta (only the presets you re-point) works."""
+        return self.root / "StreamingAssets" / "Data" / "Characters" / "CommandSets.csv"
+
+    @property
     def leveling_csv(self) -> Path:
         """The 99-row growth curve (``Data/Characters/Leveling.csv``). HIGHEST-priority-wins (WHOLE-FILE, gated at
         >=99 rows) -> a mod must emit the FULL 99-row file, and a stacked folder SHADOWS it (lint)."""

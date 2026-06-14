@@ -749,6 +749,14 @@ def validate(project: FieldProject) -> list[str]:
             problems += [f"[[leveling]] #{q}: {p}" for p in _cdelta.validate_leveling(lv)]
         for q, ag in enumerate(_aslist(project.raw.get("ability_gem", []))):
             problems += [f"[[ability_gem]] #{q}: {p}" for p in _cdelta.validate_ability_gem(ag)]
+    if project.raw.get("character_param") or project.raw.get("command_set"):
+        from .battle import characterdelta as _cdelta
+        def _aslist2(v):
+            return v if isinstance(v, list) else [v]
+        for q, cp in enumerate(_aslist2(project.raw.get("character_param", []))):
+            problems += [f"[[character_param]] #{q}: {p}" for p in _cdelta.validate_character_param(cp)]
+        for q, cs in enumerate(_aslist2(project.raw.get("command_set", []))):
+            problems += [f"[[command_set]] #{q}: {p}" for p in _cdelta.validate_command_set(cs)]
     if project.raw.get("ability_feature"):                        # [[ability_feature]] -> AbilityFeatures.txt (the
         from .battle import abilityfeatures as _af                # ability-effect DSL; structural -- AA-by-name id
         problems += _af.validate_blocks(project.raw.get("ability_feature", []))   # resolution defers to build)
@@ -3678,12 +3686,15 @@ def _emit_character_data(projects, layout) -> list:
     characters = _blocks("character")
     levelings = _blocks("leveling")
     ability_gems = _blocks("ability_gem")
-    if not characters and not levelings and not ability_gems:
+    character_params = _blocks("character_param")
+    command_sets = _blocks("command_set")
+    if not (characters or levelings or ability_gems or character_params or command_sets):
         return []
     from .battle import characterdelta as _cdelta
     try:
         return _cdelta.write_character_data(layout, characters=characters, levelings=levelings,
-                                            ability_gems=ability_gems)
+                                            ability_gems=ability_gems, character_params=character_params,
+                                            command_sets=command_sets)
     except _cdelta.CharacterDeltaError as ex:
         raise BuildError(str(ex))
 
