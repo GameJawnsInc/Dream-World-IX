@@ -13,10 +13,13 @@ like the tkinter editor's picker) so the two stay in lockstep.
 
 from __future__ import annotations
 
+import collections
+import html
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
+    QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from .. import dialogue as _dlg
@@ -284,3 +287,194 @@ def pick_catalog(parent, catalog, initial, plan, palette):
     dlg = CatalogPicker(parent, kinds, initial, plan, palette)
     dlg.exec()
     return dlg.result
+
+
+# friendly section names for the Info Hub library sidebar (one per catalog 'kind').
+_KIND_LABEL = {
+    "field": "Campaign fields", "flag": "Campaign flags",
+    "archetype": "Archetypes", "creature": "Creatures", "composite": "Composites",
+    "prop": "Props", "model": "Models", "item": "Items", "scene": "Battle scenes",
+    "storyflag": "Story flags",
+}
+# sidebar order: the open campaign's OWN content first, then the static catalogs (in infohub.KINDS order).
+_LIBRARY_ORDER = ("field", "flag") + infohub.KINDS
+
+
+def _esc(s) -> str:
+    return html.escape(str(s))
+
+
+class CatalogLibrary(QDialog):
+    """The Info Hub as a SECTIONED LIBRARY (replacing the all-in-one browse list). Three columns: a category
+    sidebar with per-kind counts, a per-section searchable result list, and a rich DETAIL pane built from
+    ``infohub.detail`` -- facts, animations, the movement set, composite parts, model aliases, and a ready
+    ``field.toml`` snippet -- the data the flat browser computed and then threw away. Browse-only: 'Copy
+    name' / 'Copy snippet' put text on the clipboard; nothing is returned (the in-form picker stays
+    :class:`CatalogPicker`)."""
+
+    def __init__(self, parent, plan, palette):
+        super().__init__(parent)
+        self.setWindowTitle("Info Hub — catalog library")
+        self.resize(900, 580)
+        self.plan = plan
+        self.pal = palette
+        self._entries = []
+        self._kind = None                                  # the selected section's kind (None = All)
+        self._cat_kinds = []                               # sidebar row -> kind (or None for 'All')
+
+        root = QHBoxLayout(self)
+        split = QSplitter(Qt.Horizontal)
+        root.addWidget(split)
+
+        self.cats = QListWidget()                          # col 1: category sidebar (kinds + counts)
+        self.cats.setMaximumWidth(200)
+        self.cats.currentRowChanged.connect(self._on_category)
+        split.addWidget(self.cats)
+
+        mid = QWidget()                                    # col 2: search + result list
+        mv = QVBoxLayout(mid)
+        mv.setContentsMargins(0, 0, 0, 0)
+        self.q = QLineEdit()
+        self.q.setPlaceholderText("Search…")
+        self.q.textChanged.connect(self._refresh_list)
+        mv.addWidget(self.q)
+        self.lst = QListWidget()
+        self.lst.currentRowChanged.connect(self._describe)
+        self.lst.itemDoubleClicked.connect(lambda _i: self._copy_name())
+        mv.addWidget(self.lst, 1)
+        self.count = QLabel("")
+        self.count.setStyleSheet(f"color:{palette['muted']};")
+        self.count.setWordWrap(True)
+        mv.addWidget(self.count)
+        split.addWidget(mid)
+
+        right = QWidget()                                  # col 3: rich detail pane + copy buttons
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(0, 0, 0, 0)
+        self.detail = QTextEdit()
+        self.detail.setReadOnly(True)
+        # the app's global QSS renders QTextEdit as a monospace CONSOLE; the detail pane is PROSE -> give it a
+        # readable proportional font on the normal surface (the snippet <pre> stays monospace by its tag).
+        self.detail.setStyleSheet(
+            f"QTextEdit {{ font-family:'Segoe UI'; font-size:13px; background:{palette['surface']}; "
+            f"color:{palette['text']}; border:1px solid {palette['border']}; border-radius:8px; padding:8px; }}")
+        rv.addWidget(self.detail, 1)
+        bar = QHBoxLayout()
+        cn = QPushButton("Copy name")
+        cn.setObjectName("accent")
+        cn.clicked.connect(self._copy_name)
+        cs = QPushButton("Copy snippet")
+        cs.setToolTip("Copy a ready-to-paste field.toml block for this entry")
+        cs.clicked.connect(self._copy_snippet)
+        close = QPushButton("Close")
+        close.clicked.connect(self.reject)
+        bar.addWidget(cn)
+        bar.addWidget(cs)
+        bar.addStretch(1)
+        bar.addWidget(close)
+        rv.addLayout(bar)
+        split.addWidget(right)
+
+        split.setSizes([190, 320, 390])
+        self._build_categories()
+        self.cats.setCurrentRow(0)                         # land on 'All'
+        self.q.setFocus()
+
+    def _build_categories(self):
+        """One browse over the cached catalogs -> per-kind counts -> the sidebar sections (only non-empty
+        kinds; the campaign's own field/flag sections appear only when a campaign is open)."""
+        try:
+            allent = infohub.browse("", kinds=None, limit=None, campaign_context=self.plan)
+        except Exception:                                  # noqa: BLE001 -- a catalog needing data we lack
+            allent = []
+        counts = collections.Counter(e.kind for e in allent)
+        self._cat_kinds = [None]
+        self.cats.addItem(f"All  ({len(allent)})")
+        for k in _LIBRARY_ORDER:
+            if counts.get(k):
+                self.cats.addItem(f"{_KIND_LABEL.get(k, k)}  ({counts[k]})")
+                self._cat_kinds.append(k)
+
+    def _on_category(self, row):
+        if 0 <= row < len(self._cat_kinds):
+            self._kind = self._cat_kinds[row]
+            where = "all sections" if self._kind is None else _KIND_LABEL.get(self._kind, self._kind).lower()
+            self.q.setPlaceholderText(f"Search {where}…")
+            self._refresh_list()
+
+    def _refresh_list(self):
+        kinds = None if self._kind is None else [self._kind]
+        try:
+            self._entries = infohub.browse(self.q.text(), kinds=kinds, limit=None, campaign_context=self.plan)
+        except Exception:                                  # noqa: BLE001
+            self._entries = []
+        self.lst.clear()
+        for e in self._entries:
+            self.lst.addItem(f"{e.name}    [{e.kind}]" if self._kind is None else e.name)
+        sect = "all sections" if self._kind is None else _KIND_LABEL.get(self._kind, self._kind)
+        self.count.setText(f"{len(self._entries)} in {sect}")
+        if self._entries:
+            self.lst.setCurrentRow(0)
+        else:
+            self.detail.setHtml("")
+
+    def _current(self):
+        r = self.lst.currentRow()
+        return self._entries[r] if 0 <= r < len(self._entries) else None
+
+    def _describe(self, _row=0):
+        e = self._current()
+        if e is None:
+            self.detail.setHtml("")
+            return
+        try:
+            d = infohub.detail(e, campaign_context=self.plan)
+        except Exception:                                  # noqa: BLE001 -- degrade to the one-line summary
+            self.detail.setHtml(f"<b>{_esc(e.name)}</b> [{_esc(e.kind)}]<br>{_esc(e.summary)}")
+            return
+        self.detail.setHtml(self._render(d))
+
+    def _render(self, d) -> str:
+        muted = self.pal["muted"]
+        h = [f'<div style="font-size:15px;"><b>{_esc(d.name)}</b> '
+             f'<span style="color:{muted};">[{_esc(d.kind)}]</span></div>']
+        if d.facts:
+            h.append('<table cellspacing="0" cellpadding="2" style="margin-top:6px;">')
+            for label, val in d.facts:
+                h.append(f'<tr><td style="color:{muted};vertical-align:top;">{_esc(label)}</td>'
+                         f'<td>&nbsp;&nbsp;{_esc(val)}</td></tr>')
+            h.append('</table>')
+        if d.movement:
+            mv = ", ".join(f"{k} #{v}" for k, v in d.movement.items())
+            h.append(f'<p><b>Movement</b><br><span style="color:{muted};">{_esc(mv)}</span></p>')
+        if d.anims:
+            an = ", ".join(f"{a} #{i}" for a, i in d.anims)
+            h.append(f'<p><b>Animations ({len(d.anims)})</b><br>'
+                     f'<span style="color:{muted};">{_esc(an)}</span></p>')
+        if d.parts:
+            pr = "<br>".join(f"{_esc(nm)} (pose {_esc(p)}) @ ({_esc(dx)}, {_esc(dz)})"
+                             for nm, p, dx, dz in d.parts)
+            h.append(f'<p><b>Parts</b><br><span style="color:{muted};">{pr}</span></p>')
+        if d.aliases:
+            h.append(f'<p><b>Also on this model</b><br>'
+                     f'<span style="color:{muted};">{_esc(", ".join(d.aliases))}</span></p>')
+        if d.locations:
+            loc = ", ".join(f"{nm} ({fid})" for fid, nm in d.locations[:24])
+            h.append(f'<p><b>Appears in</b><br><span style="color:{muted};">{_esc(loc)}</span></p>')
+        if d.snippet:
+            h.append(f'<p style="margin-top:8px;"><b>Use it</b></p>'
+                     f'<pre style="background:{self.pal["surface_btn"]};padding:6px;'
+                     f'border-radius:4px;white-space:pre-wrap;">{_esc(d.snippet)}</pre>')
+        return "".join(h)
+
+    def _copy_name(self):
+        e = self._current()
+        if e is not None:
+            QApplication.clipboard().setText(e.name)
+            self.count.setText(f"Copied “{e.name}” to the clipboard.")
+
+    def _copy_snippet(self):
+        e = self._current()
+        if e is not None:
+            QApplication.clipboard().setText(infohub.snippet(e))
+            self.count.setText(f"Copied the {e.kind} snippet for “{e.name}”.")

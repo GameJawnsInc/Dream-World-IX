@@ -930,12 +930,12 @@ class Workspace(QMainWindow):
         CommandPalette(self, self._command_index(), self.pal).exec()
 
     def _open_catalog(self):
-        """Browse the whole Info Hub catalog (models / archetypes / props / creatures / items / scenes /
-        fields) in one searchable picker -- the standalone Info Hub browser, folded into the Workspace.
-        browse=True: 'Copy name' copies the selected entry + keeps the window open; no result cap (the
-        full ~2k-entry catalog, not the picker's 300)."""
-        from .forms_qt import CatalogPicker
-        CatalogPicker(self, None, "", self.plan, self.pal, browse=True, limit=None).exec()
+        """Open the Info Hub as a SECTIONED LIBRARY (`CatalogLibrary`): a category sidebar with counts, a
+        per-section searchable list, and a rich detail pane (facts/animations/movement/parts/aliases + a
+        ready field.toml snippet). Replaces the old all-in-one flat browse list; the in-form picker stays
+        `CatalogPicker`."""
+        from .forms_qt import CatalogLibrary
+        CatalogLibrary(self, self.plan, self.pal).exec()
 
     def _save_shortcut(self):
         """Ctrl-S: save the mounted form (the same as clicking its Save button)."""
@@ -2273,12 +2273,47 @@ def _smoke(win):
     from .forms_qt import CatalogPicker
     pk = CatalogPicker(win, ["archetype", "creature"], "vivi", win.plan, win.pal)
     assert "vivi" in [e.name for e in pk._entries], [e.name for e in pk._entries]
-    # the Info Hub browser (folded in): browse=True, no cap -> the FULL catalog (>300, not the picker cap)
-    brow = CatalogPicker(win, None, "", win.plan, win.pal, browse=True, limit=None)
-    assert len(brow._entries) > 300, f"uncapped browse should exceed the 300 picker cap, got {len(brow._entries)}"
-    brow.lst.setCurrentRow(0)
-    brow._ok()                                          # browse mode: copies the name + stays open (no accept)
-    assert brow.result is None and "Copied" in brow.info.text()
+    # the Info Hub LIBRARY (sectioned, replacing the all-in-one flat browse): a category sidebar with
+    # counts, a per-section searchable list, and a rich detail pane (infohub.detail, not just the summary)
+    from .forms_qt import CatalogLibrary
+    lib = CatalogLibrary(win, win.plan, win.pal)
+    cat_labels = [lib.cats.item(i).text() for i in range(lib.cats.count())]
+    assert cat_labels[0].startswith("All  ("), cat_labels
+    assert any(l.startswith("Archetypes") for l in cat_labels) and any(l.startswith("Items") for l in cat_labels)
+    assert any(l.startswith("Campaign fields") for l in cat_labels), "campaign sections show when one is open"
+    # row 0 = 'All' -> the whole catalog (the old >300 floor; no cap)
+    assert lib._kind is None and len(lib._entries) > 300, len(lib._entries)
+    # selecting the Archetypes section filters to that ONE kind; the search box narrows WITHIN it
+    arch = next(i for i in range(lib.cats.count()) if lib.cats.item(i).text().startswith("Archetypes"))
+    lib.cats.setCurrentRow(arch)
+    assert lib._entries and all(e.kind == "archetype" for e in lib._entries), "a section is one kind"
+    nfull = len(lib._entries)
+    lib.q.setText("vivi")
+    assert lib._entries and len(lib._entries) < nfull and any(e.name == "vivi" for e in lib._entries)
+    # the detail pane renders the RICH record (facts + animations), not just the one-line summary
+    lib.lst.setCurrentRow(next(i for i, e in enumerate(lib._entries) if e.name == "vivi"))
+    dt = lib.detail.toPlainText().lower()
+    assert "vivi" in dt and "model" in dt and "anim" in dt, dt[:200]
+    # Copy name + Copy snippet reach the clipboard (snippet = a ready [[npc]] block)
+    lib._copy_name()
+    assert QApplication.clipboard().text() == "vivi"
+    lib._copy_snippet()
+    snip = QApplication.clipboard().text()
+    assert "[[npc]]" in snip and "vivi" in snip, snip
+    # the detail pane renders EVERY kind without error (item stats / storyflag registry / a campaign field)
+    for sect_label in ("Items", "Story flags", "Campaign fields"):
+        srow = next((i for i in range(lib.cats.count()) if lib.cats.item(i).text().startswith(sect_label)), None)
+        if srow is None:
+            continue
+        lib.cats.setCurrentRow(srow)
+        if lib._entries:
+            lib.lst.setCurrentRow(0)
+            assert lib.detail.toPlainText().strip(), f"{sect_label} detail rendered empty"
+    # with NO campaign open: the campaign-own sections are absent, the static catalogs remain
+    lib2 = CatalogLibrary(win, None, win.pal)
+    nolabels = [lib2.cats.item(i).text() for i in range(lib2.cats.count())]
+    assert not any(l.startswith("Campaign") for l in nolabels), nolabels
+    assert any(l.startswith("Archetypes") for l in nolabels) and lib2.cats.count() >= 5, nolabels
     assert "Browse catalog (Info Hub)" in [e[0] for e in win._command_index()]
 
     # Check surfaces the dangling GHOST edge as a problem
@@ -2550,8 +2585,8 @@ def _smoke(win):
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
           f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
-          f"({len(win.plan.members)} blank members) + Build/Deploy + Import docs (argv-built) + Ctrl-K "
-          f"palette, Problems dock ({nprob} rows); QProcess wired")
+          f"({len(win.plan.members)} blank members) + Build/Deploy + Import docs (argv-built) + Info Hub "
+          f"LIBRARY (sectioned + detail pane) + Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
 
 
 def main(argv=None):
