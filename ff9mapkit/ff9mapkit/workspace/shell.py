@@ -179,6 +179,7 @@ class Workspace(QMainWindow):
         self._docs = {}                            # member name -> loaded FieldDoc (cached, edited in place)
         self._clean = {}                           # member name -> deepcopy(doc.data) at load/last-save (dirty baseline)
         self._touched = set()                      # members with in-progress (typed-but-uncommitted) edits
+        self._name_valid = {}                      # (catalog, value) -> bool, memoized (the catalogs are static)
         self._active_save = None                   # the mounted form's Save handler (Ctrl-S target)
         self._save_btn = None                      # the mounted form's Save button (greys when clean)
         self._reset_btn = None                     # the mounted form's Reset button (revert to last save)
@@ -1933,6 +1934,10 @@ class Workspace(QMainWindow):
             lines.append(f"field id: {(doc.data.get('field') or {}).get('id')}")
         if doc is not None:
             lines.append(self._rollup(doc.data))
+            nbad = self._count_node_problems(doc.data)  # field-level health badge (cheap per-node predicates)
+            if nbad:
+                lines.append(f'<span style="color:{self.pal["warn"]};">⚠ {nbad} object(s) with issues — '
+                             f'select one to see</span>')
         if self.plan is not None:
             lines += self._field_xrefs(name)
         path = self.member_paths.get(name)
@@ -2011,8 +2016,14 @@ class Workspace(QMainWindow):
             section, idx = key.split(":")
             lst = doc.data.get(section, []) or []
             idx = int(idx)
-            return head + (self._inspect_entity(section, lst[idx]) if idx < len(lst) else [])
-        return head + self._inspect_single(key, doc.data.get(key))   # a single section
+            if idx >= len(lst):
+                return head
+            e = lst[idx]
+            if not isinstance(e, dict):                 # a malformed inline entry (e.g. npc = ["foo"])
+                return head + [f'<span style="color:{self.pal["warn"]};">⚠ malformed entry (not a table)</span>']
+            return head + self._inspect_entity(section, e) + self._node_problems(section, e, doc.data)
+        data = doc.data.get(key)                        # a single section
+        return head + self._inspect_single(key, data) + self._node_problems(key, data or {}, doc.data)
 
     def _inspect_entity(self, section, e):
         m = self._muted
@@ -2086,6 +2097,92 @@ class Workspace(QMainWindow):
                 out.append(self._muted(f"first: {_esc(forms.step_summary(steps[0]))}"))
             return out
         return [self._muted(f"{_esc(k)}: {_esc(_snip(v))}") for k, v in (data or {}).items()]
+
+    # ---- Tier-3: cheap, EXACT per-node validation (the inline lint signal) ----
+    def _name_ok(self, cat, value):
+        """Memoized 'is this catalog value valid?', MIRRORING the build's own resolvers so the Inspector and
+        Check agree. The catalogs are STATIC, so (cat, value) -> bool never changes in-session and is cached
+        forever -- this bounds the resolvers' near-miss difflib cost to once per distinct value (the field
+        health badge re-scans every object on each tree click). On any predicate error -> True (don't cry wolf)."""
+        key = (cat, value if isinstance(value, (str, int, float)) else repr(value))
+        if key in self._name_valid:
+            return self._name_valid[key]
+        ok = True
+        try:
+            from .. import archetypes, catalog, items
+            if cat == "archetype":                         # build: archetypes.resolve ONLY (a GEO name errors too)
+                try:
+                    archetypes.resolve(value)
+                except ValueError:
+                    ok = False
+            elif cat == "model":                           # a GEO model NAME (a raw int id passes the build)
+                ok = catalog.model(value) is not None
+            elif cat == "item":
+                try:
+                    items.resolve(value)
+                except (ValueError, TypeError):
+                    ok = False
+        except Exception:                                  # noqa: BLE001 -- predicate import/quirk: stay silent
+            ok = True
+        self._name_valid[key] = ok
+        return ok
+
+    def _node_problems(self, kind, obj, doc_data):
+        """Per-node problems computed DIRECTLY from the kit's pure predicates, MIRRORING what the build
+        actually accepts (so the Inspector never contradicts Check): an unknown archetype/preset (or, when
+        no archetype, an unknown GEO model NAME -- a raw model id passes); an unknown give/remove item; a
+        NON-NUMERIC battle scene (the build does int(scene)); a set_flag into a reserved gEventGlobal bit.
+        The geometric/structural lint (off-walkmesh, seams, dialogue overflow) stays with Check. Never
+        raises. Returns colored ⚠ lines."""
+        if not isinstance(obj, dict):
+            return []
+        out = []
+        warn = lambda msg: out.append(f'<span style="color:{self.pal["warn"]};">⚠ {_esc(msg)}</span>')  # noqa: E731
+        try:
+            if kind == "npc":
+                arch = obj.get("archetype") or obj.get("preset")
+                if arch is not None and not isinstance(arch, bool):
+                    if not self._name_ok("archetype", arch):
+                        warn(f"unknown archetype '{arch}'")
+                else:                                      # model is used ONLY when there's no archetype/preset
+                    mid = obj.get("model")
+                    if isinstance(mid, str) and mid.strip() and not mid.strip().isdigit() \
+                            and not self._name_ok("model", mid):    # a raw int id passes (the build accepts it)
+                        warn(f"unknown model '{mid}'")
+            elif kind == "event":
+                for fld in ("give_item", "remove_item"):
+                    v = obj.get(fld)
+                    if v:
+                        it = v[0] if isinstance(v, (list, tuple)) and v else v
+                        if not self._name_ok("item", it):
+                            warn(f"unknown item '{it}'")
+                sf = obj.get("set_flag")
+                if isinstance(sf, (list, tuple)) and sf:
+                    f0 = sf[0]
+                    if (isinstance(f0, int) and not isinstance(f0, bool)) or (isinstance(f0, str) and f0.isdigit()):
+                        from .. import flags
+                        if flags.is_reserved(int(f0)):
+                            warn(f"set_flag writes a reserved bit ({f0})")
+            elif kind == "encounter":
+                sc = obj.get("scene")
+                if sc is not None and not ((isinstance(sc, int) and not isinstance(sc, bool))
+                                           or (isinstance(sc, str) and sc.strip().lstrip("-").isdigit())):
+                    warn(f"battle scene must be a numeric id (got '{sc}')")
+        except Exception:                              # noqa: BLE001 -- a predicate quirk must never break inspect
+            return out
+        return out
+
+    def _count_node_problems(self, data):
+        """How many objects in a field have a per-node problem (the field-level health badge). Only the kinds
+        _node_problems actually checks (npc / event / encounter) -- cheap + memoized."""
+        n = 0
+        for section in ("npc", "event"):
+            for e in (data.get(section, []) or []):
+                if isinstance(e, dict) and self._node_problems(section, e, data):
+                    n += 1
+        if data.get("encounter") and self._node_problems("encounter", data["encounter"], data):
+            n += 1
+        return n
 
     def _resolve_dest(self, to):
         """A gateway's destination id -> (display html, broken?). A campaign member -> a clickable name; a
@@ -2448,6 +2545,37 @@ def _smoke(win):
     assert "goto:" not in gr.split("gateway")[-1], "a real-field destination is plain text, not a member link"
     win._select_object("IC_ENT", "gateway:2")          # to=99999 -> neither a member nor a real field
     assert "not in this campaign" in win.insp_body.text(), win.insp_body.text()
+    # TIER-3: per-node validation from pure predicates, MIRRORING the build (so the Inspector never
+    # contradicts Check). A VALID npc (vivi) is clean; an unknown archetype warns.
+    assert win._node_problems("npc", {"preset": "vivi"}, pdoc.data) == [], "a known archetype is clean"
+    assert win._node_problems("npc", {"preset": "vivvi"}, pdoc.data), "an unknown archetype warns"
+    # a raw model id passes (resolve_npc_model accepts raw ints); model is IGNORED when a preset is set
+    assert win._node_problems("npc", {"model": 999999}, pdoc.data) == [], "a raw model id passes (build accepts it)"
+    assert win._node_problems("npc", {"preset": "vivi", "model": 999999}, pdoc.data) == [], "model ignored w/ preset"
+    assert win._node_problems("event", {"give_item": ["NoSuchItem", 1]}, pdoc.data), "an unknown give_item warns"
+    assert win._node_problems("event", {"remove_item": ["NoSuchItem", 1]}, pdoc.data), "an unknown remove_item warns"
+    from ..flags import CHEST_FLAG_LO as _CFLO
+    assert win._node_problems("event", {"set_flag": [_CFLO, 1]}, pdoc.data), "a reserved set_flag bit warns"
+    assert win._node_problems("event", {"set_flag": [8520, 1]}, pdoc.data) == [], "a safe-band flag is clean"
+    # the build does int(scene): a non-numeric scene can't build -> warn; a numeric id passes
+    assert win._node_problems("encounter", {"scene": "NoSuchScene"}, pdoc.data), "a non-numeric scene warns"
+    assert win._node_problems("encounter", {"scene": 67}, pdoc.data) == [], "a numeric scene id passes"
+    # a malformed inline entry (a bare string where a table is expected) inspects safely, no crash
+    pdoc.data.setdefault("npc", []).append("not-a-table")
+    ml = win._inspect_object("IC_ENT", f"npc:{len(pdoc.data['npc']) - 1}")
+    assert any("malformed" in s for s in ml), ml
+    pdoc.data["npc"].pop()
+    # the per-node warning surfaces in the live Inspector body, and the field rolls up a health badge
+    pdoc.data["npc"].append({"name": "Typo", "preset": "vivvi"})
+    win.tree.blockSignals(True)
+    win._refresh_objects("IC_ENT")
+    win.tree.blockSignals(False)
+    win._select_object("IC_ENT", f"npc:{len(pdoc.data['npc']) - 1}")
+    assert "unknown archetype" in win.insp_body.text(), win.insp_body.text()
+    assert win._count_node_problems(pdoc.data) >= 1
+    win.tree.setCurrentItem(win._member_items["IC_ENT"])
+    assert "object(s) with issues" in win.insp_body.text(), win.insp_body.text()
+    pdoc.data["npc"].pop()                             # drop the Typo probe
     pdoc.data["npc"].pop()                             # clean up the probes (and re-baseline)
     pdoc.data.pop("gateway", None)
     win.tree.blockSignals(True)
