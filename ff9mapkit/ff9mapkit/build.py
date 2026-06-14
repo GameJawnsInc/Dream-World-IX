@@ -742,6 +742,9 @@ def validate(project: FieldProject) -> list[str]:
             problems += [f"[[leveling]] #{q}: {p}" for p in _cdelta.validate_leveling(lv)]
         for q, ag in enumerate(_aslist(project.raw.get("ability_gem", []))):
             problems += [f"[[ability_gem]] #{q}: {p}" for p in _cdelta.validate_ability_gem(ag)]
+    if project.raw.get("ability_feature"):                        # [[ability_feature]] -> AbilityFeatures.txt (the
+        from .battle import abilityfeatures as _af                # ability-effect DSL; structural -- AA-by-name id
+        problems += _af.validate_blocks(project.raw.get("ability_feature", []))   # resolution defers to build)
     for la in project.raw.get("ladder", []):
         if la.get("navigable"):                      # NAVIGABLE (FF9's real ladder mechanism, recreated)
             rungs = la.get("rungs")
@@ -3675,6 +3678,20 @@ def _emit_character_data(projects, layout) -> list:
         raise BuildError(str(ex))
 
 
+def _emit_ability_features(projects, layout) -> list:
+    """Emit the mod-GLOBAL ``AbilityFeatures.txt`` from every project's ``[[ability_feature]]`` blocks (the
+    no-DLL ability-effect DSL). Always-on global data, aggregated across ALL fields; a PARTIAL file (only the
+    changed abilities) merged per-ability over the base. Raises BuildError on a bad block."""
+    from .battle import abilityfeatures as _af
+    feats = [b for p in projects for b in _af._as_list(p.raw.get("ability_feature"))]   # tolerate a single [ability_feature] table (dict)
+    if not feats:
+        return []
+    try:
+        return _af.write_ability_features(layout, feats)          # game defaults to the configured install
+    except _af.AbilityFeatureError as ex:
+        raise BuildError(str(ex))
+
+
 def _emit_battle_patch(projects) -> tuple:
     """Aggregate every project's ``[[battle_patch]]`` (scene-scoped) + ``[[battle_enemy]]`` / ``[[battle_attack]]``
     (global by-name) blocks -> (battle_patch_lines, warnings). Mod-GLOBAL reflection patches (always-on, not
@@ -3917,6 +3934,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings += _emit_item_data(projects, layout)
     start_warnings += _emit_battle_data(projects, layout)
     start_warnings += _emit_character_data(projects, layout)
+    start_warnings += _emit_ability_features(projects, layout)
     start_warnings += bp_warnings
     start_warnings += text_warnings
 

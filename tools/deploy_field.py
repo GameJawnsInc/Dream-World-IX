@@ -150,26 +150,30 @@ for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, 
                                  (tl.status_data_csv, live.status_data_csv, "StatusData"),
                                  (tl.base_stats_csv, live.base_stats_csv, "BaseStats"),
                                  (tl.leveling_csv, live.leveling_csv, "Leveling"),
-                                 (tl.ability_gems_csv, live.ability_gems_csv, "AbilityGems")):
+                                 (tl.ability_gems_csv, live.ability_gems_csv, "AbilityGems"),
+                                 (tl.ability_features_txt, live.ability_features_txt, "AbilityFeatures")):
     if not src_csv.exists():
         continue
+    ext = src_csv.suffix                                  # .csv for the deltas; .txt for AbilityFeatures
     live_csv.parent.mkdir(parents=True, exist_ok=True)
     had = live_csv.exists()
     if had:
-        shutil.copyfile(live_csv, BK / f"{label}.csv.preDEPLOY.{STAMP}")
+        shutil.copyfile(live_csv, BK / f"{label}{ext}.preDEPLOY.{STAMP}")
     shutil.copyfile(src_csv, live_csv)
     csv_reverts.append((label, str(live_csv), had))
-    print(f"  + {label}.csv (item-data delta)")
+    print(f"  + {label}{ext} (data delta)")
 csv_revert_code = ""
 for _label, _live, _had in csv_reverts:
+    _ext = Path(_live).suffix                             # backup keeps the real extension (.csv / .txt)
     if _had:
-        csv_revert_code += f'\nshutil.copyfile(BK/f"{_label}.csv.preDEPLOY.{{STAMP}}", Path(r"{_live}"))'
+        csv_revert_code += f'\nshutil.copyfile(BK/f"{_label}{_ext}.preDEPLOY.{{STAMP}}", Path(r"{_live}"))'
     else:
         csv_revert_code += f'\n_p = Path(r"{_live}")\nif _p.exists(): _p.unlink()'
 # These CSVs are read ONCE at engine startup (static ctors: ff9weap/ff9armor/ff9item) or at New-Game init -- F6
 # Reload re-reads only the field's .eb/.mes/scene/walkmesh, NOT item/stat data -> a change needs a RELAUNCH.
 _STARTUP_CSVS = {"Weapons", "Armors", "Items", "Stats", "ItemEffects", "InitialItems", "ShopItems", "Synthesis",
-                 "DefaultEquipment", "Actions", "StatusData", "BaseStats", "Leveling", "AbilityGems"}
+                 "DefaultEquipment", "Actions", "StatusData", "BaseStats", "Leveling", "AbilityGems",
+                 "AbilityFeatures"}
 if any(_l in _STARTUP_CSVS for _l, _, _ in csv_reverts):
     print("  !! item/stat CSVs load at game startup (or New-Game init) -> RELAUNCH to apply (F6 Reload won't)")
 

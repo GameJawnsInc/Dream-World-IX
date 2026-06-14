@@ -1109,6 +1109,47 @@ def _cmd_ability_gems(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ability_features(args: argparse.Namespace) -> int:
+    """Preview the ``AbilityFeatures.txt`` a field.toml's ``[[ability_feature]]`` blocks emit (the no-DLL
+    ability-EFFECT DSL: SA/AA/CMD), or ``--tags`` for the per-kind ``[code=...]`` tag + SA-name reference. The
+    actual file is written + deployed (reversibly) by build/deploy_field; RELAUNCH to apply (startup-loaded)."""
+    _safe_console()
+    from pathlib import Path
+    from .battle import abilityfeatures as AF
+    from .battle import characterdelta as CD
+    if args.tags or not args.toml:
+        print("Supporting abilities (>SA, id 0-63) -- the [[ability_feature]] kind=\"SA\" targets:")
+        names = CD._SA_NAMES
+        for r in range(0, len(names), 4):
+            print("  " + "".join(f"{i:>2} {names[i]:<15}" for i in range(r, min(r + 4, len(names)))))
+        print("\n>SA feature types (the first token of a body line):\n  " + " / ".join(AF._SA_FEATURE_KW))
+        print("\n>AA  [code=...] tags:  " + "  ".join(sorted(AF._AA_TAGS)))
+        print(">CMD [code=...] tags:  " + "  ".join(sorted(AF._CMD_TAGS)))
+        print("\n[[ability_feature]] kind=\"SA\"|\"AA\"|\"CMD\"  ability=\"<name/id>\"  cumulate=true  "
+              "features=\"\"\"...\"\"\"")
+        print("  >AA ability = an Actions.csv id 0-191 (or a name, resolved at build); >CMD = an int command id.")
+        return 0
+    import tomllib
+    try:
+        raw = tomllib.loads(Path(args.toml).read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f"failed to read {args.toml}: {e}", file=sys.stderr)
+        return 2
+    feats = raw.get("ability_feature")
+    if not feats:
+        print("no [[ability_feature]] blocks in this toml.", file=sys.stderr)
+        return 0
+    try:
+        lines, warnings = AF.build_lines(feats, game=args.game)
+    except AF.AbilityFeatureError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print("\n".join(lines))
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    return 0
+
+
 def _cmd_battle_patch(args: argparse.Namespace) -> int:
     """Preview the ``BattlePatch.txt`` a field.toml's ``[[battle_patch]]`` / ``[[battle_enemy]]`` /
     ``[[battle_attack]]`` blocks emit (offline, no install) -- or, with ``--fields``, the catalog of tunable
@@ -2369,6 +2410,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="list support abilities + gem costs (the [[ability_gem]] targets)")
     ag.add_argument("-f", "--filter", help="only show abilities whose name contains this")
     ag.set_defaults(func=_cmd_ability_gems)
+
+    afp = sub.add_parser("ability-features",
+                         help="preview the AbilityFeatures.txt a field.toml emits (SA/AA/CMD ability-effect DSL)")
+    afp.add_argument("toml", nargs="?", default=None, help="field.toml to preview (omit for the tag/name reference)")
+    afp.add_argument("--tags", action="store_true", help="list the SA names + the legal [code=...] tags per kind")
+    afp.add_argument("--game", default=None, help="FF9 install dir (only needed to resolve an >AA ability by NAME)")
+    afp.set_defaults(func=_cmd_ability_features)
 
     bp = sub.add_parser("battle-patch",
                         help="preview the BattlePatch.txt a field.toml emits (enemy/attack/scene tuning by name)")
