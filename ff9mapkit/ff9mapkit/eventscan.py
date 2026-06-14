@@ -510,6 +510,36 @@ INIT_OPS = (0x09, 0x07, 0x08)        # the uid arg defaults to the slot when it 
 RUNSCRIPT_OPS = (0x10, 0x12, 0x14)   # carry a (uid, tag) -- the tag is the player function the object calls
 UID_PLAYER, UID_SELF = 250, 255
 PARTY_UIDS = (251, 252, 253, 254)
+
+
+def resolve_uid(uid, current_entry, player_entries=(), entry_count=0):
+    """The engine's ``GetObjUID`` convention, in ONE place -- an object's uid defaults to its ENTRY INDEX,
+    with reserved high ids for self / the player / party slots (engine-verified ``EventEngine.cs``: uid 0
+    resolves to the object whose ``obj.uid == 0``, which defaults to entry index 0 = Main_Init). Returns
+    ``(kind, targets)`` where ``targets`` is the entry index(es) a call could dispatch into (empty when it
+    can't be resolved offline -- party / unknown):
+
+      255            -> ('self',   [current_entry])
+      250 or a PC    -> ('player', [player_entries...])   # 182 fields define >1 DefinePlayerCharacter
+      251-254        -> ('party',  [])
+      0              -> ('main',   [0])                    # Main_Init shared logic
+      0 < uid < N    -> ('object', [uid])
+      anything else  -> ('unknown', [])
+
+    The single source of truth for the convention otherwise re-derived in ``forkreport._explain_call`` and
+    (with a graft-specific taxonomy) ``_classify_ref`` / ``_savepoint_cluster``."""
+    pents = tuple(player_entries)
+    if uid == UID_SELF:
+        return ("self", [current_entry])
+    if uid == UID_PLAYER or uid in pents:
+        return ("player", list(pents))
+    if uid in PARTY_UIDS:
+        return ("party", [])
+    if uid == 0:
+        return ("main", [0])
+    if 0 <= uid < entry_count:
+        return ("object", [uid])
+    return ("unknown", [])
 FORK_PLAYER_TAGS = frozenset((0, 1))  # a blank fork's player (Zidane) defines only Init+Loop -- a carried
 #                                       object that RunScripts a player tag >= 2 dangles (softlock); that
 #                                       interaction can only be lit up by a later donor-player-script graft.

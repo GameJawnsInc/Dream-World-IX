@@ -1159,19 +1159,18 @@ def _resolve_line(entries, txid, *, width=72) -> str:
 
 def _explain_call(eb, current_entry, uid, tag, pents):
     """Label a ``RunScript(uid, tag)`` in English + the entry index(es) to INLINE its body from.
-    uid 255 = self, 250 / a player entry = the player, 0 = Main_Init shared logic (obj.uid defaults to
-    the entry index -> uid 0 is entry 0), 251-254 = a party slot, else = the object at that entry."""
-    if uid == 255:
-        return f"runs its own routine #{tag}", [current_entry]
-    if uid == 250 or uid in pents:
-        return f"directs the player (sequence #{tag})", list(pents)
-    if 251 <= uid <= 254:
-        return f"calls a party member (routine #{tag})", []
-    if uid == 0:
-        return f"runs shared field logic (Main_Init routine #{tag})", [0]
-    if 0 <= uid < eb.entry_count:
-        return f"drives object #{uid} (routine #{tag})", [uid]
-    return f"calls uid {uid} (routine #{tag})", []
+    The uid->entry convention lives in :func:`eventscan.resolve_uid` (the single source of truth); this is
+    the English-label layer over it."""
+    from . import eventscan
+    kind, targets = eventscan.resolve_uid(uid, current_entry, pents, eb.entry_count)
+    label = {
+        "self": f"runs its own routine #{tag}",
+        "player": f"directs the player (sequence #{tag})",
+        "party": f"calls a party member (routine #{tag})",
+        "main": f"runs shared field logic (Main_Init routine #{tag})",
+        "object": f"drives object #{uid} (routine #{tag})",
+    }.get(kind, f"calls uid {uid} (routine #{tag})")
+    return label, targets
 
 
 def _trace_interaction(eb, entry_idx, tag, entries, *, depth, visited, steps, pents):

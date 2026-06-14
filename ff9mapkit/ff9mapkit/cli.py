@@ -1765,6 +1765,27 @@ def _cmd_fork_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_logic_map(args: argparse.Namespace) -> int:
+    """Build a read-only LOGIC MAP of a real field's whole ``.eb`` -- every entry/routine, the resolved call
+    graph (RunScript edges), and the dialogue/item/flag side-effects each routine performs. The legible,
+    inspectable VIEW of a verbatim fork (whose declarative blocks are empty by design)."""
+    _safe_console()
+    from . import forkreport as FR
+    from . import logic_map as LM
+    try:
+        fid = FR.resolve_field_id(args.field, game=args.game)
+        lm = LM.logic_map(fid, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if getattr(args, "json", False):
+        import json
+        print(json.dumps(LM.to_dict(lm), indent=2))
+    else:
+        print(LM.format_logic_map(lm))
+    return 0
+
+
 def _cmd_find_rooms(args: argparse.Namespace) -> int:
     """Sweep all fields for the best swap/demo TEST ROOMS (single-PC + swap-clean + a close 3/4 camera).
     The 'where can I cleanly walk as a swapped character / see the model's detail?' verb -- a ~45s offline
@@ -2499,6 +2520,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="decode each NPC's talk routine into readable English (dialogue + items + the funcs "
                          "it runs) -- shows WHY a render-only NPC needs --verbatim")
     fr.set_defaults(func=_cmd_fork_report)
+
+    lmp = sub.add_parser("logic-map",
+                         help="read-only legible map of a REAL field's whole .eb (entries/routines, the resolved "
+                              "call graph, dialogue/item/flag effects) -- the inspectable view of a verbatim fork")
+    lmp.add_argument("field", help="real field id or FBG name (e.g. 354, dl_shp) -- see `list-fields`")
+    lmp.add_argument("--json", action="store_true",
+                     help="emit the map as JSON (the generated [view]) instead of the readable transcript")
+    lmp.set_defaults(func=_cmd_logic_map)
 
     fdr = sub.add_parser("find-rooms",
                          help="sweep ALL fields for the best swap/demo test rooms (single-PC + swap-clean + close camera)")
