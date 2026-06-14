@@ -93,8 +93,10 @@ Category, AddStatusNo, MP, Type` (8×u8) + `Vfx2` u16 + `Name` u16. **Power/Elem
 (0-255).** The raw17 `btlseq` binds which attack indices belong to which monster (`EnemyGetAttackList` →
 `GetEnemyIndexOfSequence`); the AI `.eb` selects among them. Tunable via raw16 byte-patch OR
 `BattlePatch.txt`'s `Attack`/`AnyAttackByName` token (reflection on `AA_DATA`/`BTL_REF` `[PatchableField]`s,
-`DataPatchers.cs:114-130`). **Kit: absent** (`scene_data.py` computes the monster base but never reaches the
-attack block).
+`DataPatchers.cs:114-130`). **Kit: done via BattlePatch** — `[[battle_attack]]` (global `AnyAttackByName:`) /
+`[[battle_patch.attack]]` (scene-scoped) reach the `AA_DATA`/`BTL_REF` attack table by name or index
+(`battlepatch.ATTACK_FIELDS`: power/elements/rate/script/mp/category/type/status_set). `[scene]` (raw16) still
+does NOT reach it (`scene_data` stops at the monster blocks).
 
 ### (a″) Formation / pattern — `SB2_PATTERN` + `SB2_PUT` (raw16)
 
@@ -102,26 +104,30 @@ attack block).
 |---|---|---|---|---|---|
 | MonsterCount | # active enemies (engine cap 4) | raw16 only | `pattern+1 u8` | No | **done** |
 | Camera | which camera index | raw16 / BP | `pattern+2 u8` | No | **done** |
-| pattern Rate | spawn-rate weight of this formation | raw16 / BP | `pattern+0 u8` | No | **absent** |
-| **pattern AP** | the **gameplay-effective** AP reward (whole, undivided) | raw16 / BP | `pattern+4 u32`; consumed `btlseq.cs:475` | No | **absent** |
+| pattern Rate | spawn-rate weight of this formation | raw16 / BP | `pattern+0 u8` | No | **done via BP** (`[[battle_patch.pattern]] rate`); raw16/`[scene]` still absent |
+| **pattern AP** | the **gameplay-effective** AP reward (whole, undivided) | raw16 / BP | `pattern+4 u32`; consumed `btlseq.cs:475` | No | **done** (raw16 `[scene] ap` → every pattern+4; + BP `[[battle_patch.pattern]] ap`) |
 | SB2_PUT type/x/y/z/rot | per-slot enemy type + placement | raw16 | `pattern+8 + 12*j`: `TypeNo@0 Flags@1 X@4 Y@6 Z@8 Rot@10` | No | **done** |
 
 ### (a‴) Scene-wide rules — `SB2_HEAD.Flags` / `BTL_SCENE_INFO`
 
 `SpecialStart`(preemptive) / `BackAttack` / `Runaway`(can-escape) / `NoGameOver` / `NoExp` / `WinPose` /
 `NoMagical` / `ReverseAttack` / `FixedCamera1/2` / `AfterEvent` — decoded from `header.Flags @4 u16`
-(`BTL_SCENE.cs:214-230`), all `[PatchableField]` on `BTL_SCENE_INFO` → BP (Scene token) or raw16. **Kit: absent.**
+(`BTL_SCENE.cs:214-230`), all `[PatchableField]` on `BTL_SCENE_INFO`. **Kit: done via the BattlePatch SCENE token**
+— `[[battle_patch]] scene = <id>` + any boolean: `special_start`/`preemptive`, `back_attack`, `runaway`/`can_escape`,
+`no_game_over`, `no_exp`, `win_pose`, `no_magical`, `reverse_attack`, `fixed_camera1`/`fixed_camera2`, `after_event`
+(`battlepatch.SCENE_FLAGS`, validated + CLI `battle-patch`). The raw16 byte-patch of `SB2_HEAD.Flags @4` is NOT
+implemented — the raw16 `flags` key targets the per-enemy MON Flags @48, a separate lever.
 
 ### (b) Enemy AI — `EVT_BATTLE_*.eb`
 
 | Lever | Controls | Channel | Location | DLL? | Kit |
 |---|---|---|---|---|---|
-| Spawn / AI binding | `InitObject(1+type, 0x80+slot)` per slot | eb | `event_data.rewrite_main_init`; `EventEngine.cs:560-571` | No | **partial** (only this) |
-| Attack select | which scene attack (0..AtkCount-1) on the ATB turn | eb | `BTLCMD 0x38` (`DoEventCode.cs:1198`); often an expression into a working var | No | **absent** |
-| AI thresholds / branches | HP%/MP/status/phase conditions | eb | expr ops `B_CURHP=82 / B_MAXHP=83 / B_CURMP=110 / B_SYSVAR=122 / B_SYSLIST=121` → `btl_scrp.GetCharacterData` | No | **absent** |
-| Counter / dying / phase / call-help | new AI branches by tag | eb | tags via `Request/RequestAction`: tag 1 main loop, **tag 6 counter, tag 7 ATB, tag 9 dying** | No | **absent** |
-| Instant special | fire a raw17 seq without an ATB turn | eb | `AttackSpecial 0xE5` | No | **absent** |
-| Forced / scripted battle | start a specific scene on a trigger | eb | `Battle 0x2A` / `BattleEx 0x8C` | No | **absent** |
+| Spawn / AI binding | `InitObject(1+type, 0x80+slot)` per slot | eb | `event_data.rewrite_main_init`; `EventEngine.cs:560-571` | No | **done** (`[scene] monster_count` → one InitObject/slot; `[[scene.enemy]] ai_entry = N` overrides the `1+type` bind for offset-entry donors) |
+| Attack select | which scene attack (0..AtkCount-1) on the ATB turn | eb | `BTLCMD 0x38` (`DoEventCode.cs:1198`); often an expression into a working var | No | **done** (`[[scene.ai_function]]`/`[[scene.ai_insert]]` author an `Attack({…})`; `[[scene.ai_patch]]` retunes the index in place; `[[scene.ai_phase]]` overrides the attack-index var) |
+| AI thresholds / branches | HP%/MP/status/phase conditions | eb | expr ops `B_CURHP=82 / B_MAXHP=83 / B_CURMP=110 / B_SYSVAR=122 / B_SYSLIST=121` → `btl_scrp.GetCharacterData` | No | **done** (`[[scene.ai_phase]]` generates the in-game-proven `cur<max/N` HP-threshold branch; `[[scene.ai_insert]]` authors arbitrary `JMP_IF {expr}` branches) |
+| Counter / dying / phase / call-help | new AI branches by tag | eb | tags via `Request/RequestAction`: tag 1 main loop, **tag 6 counter, tag 7 ATB, tag 9 dying** | No | **done** (`[[scene.ai_function]]` adds/replaces a function by tag — counter/ATB/dying/main — the length-changing primitive, lint-gated) |
+| Instant special | fire a raw17 seq without an ATB turn | eb | `AttackSpecial 0xE5` | No | **done (authorable)** (`cmdasm` emits `AttackSpecial(…)` from any `ai_function`/`ai_insert`; not separately in-game-proven) |
+| Forced / scripted battle | start a specific scene on a trigger | eb | `Battle 0x2A` / `BattleEx 0x8C` | No | **absent** (AI-eb scope) — scripted/forced battles are a FIELD-eb concern (`[encounter]`, a proven field pillar), misfiled here |
 
 ### (c) Shared actions / abilities — `Data/Battle/Actions.csv` (player-side)
 
@@ -131,10 +137,10 @@ Header (`Actions.csv:5`):
 
 | Lever | Controls | Channel | Location | DLL? | Kit |
 |---|---|---|---|---|---|
-| power / elements / rate / mp | damage / element / hit-or-status% / MP cost | CSV | cols 12/13/14/16 → `BTL_REF`/`AA_DATA` (`BattleActionEntry.cs:13-45`) | No | **absent** |
-| **scriptId** | which battle-calc formula runs | CSV (re-point) **/ DLL (new)** | col 11 → `ScriptsLoader.GetBattleScript` (`ScriptsLoader.cs:215-223`) | re-point **No** / new formula **Yes** (`Memoria.Scripts.<Mod>.dll`) | **absent** |
-| category / type | physical/magic/reflectable/contact/weapon-props/crit bits | CSV | cols 15/17 (`type 0x8/0x10/0x20` only when `CustomBattleFlagsMeaning=1`) | No | **absent** |
-| statusIndex (AddStatusNo) | which `StatusSets.csv` row it inflicts/cures | CSV | col 16 → `StatusSetId` | No | **absent** |
+| power / elements / rate / mp | damage / element / hit-or-status% / MP cost | CSV | cols 12/13/14/16 → `BTL_REF`/`AA_DATA` (`BattleActionEntry.cs:13-45`) | No | **done** (`[[battle_action]] power/element/rate/mp`, `actiondelta`) |
+| **scriptId** | which battle-calc formula runs | CSV (re-point) **/ DLL (new)** | col 11 → `ScriptsLoader.GetBattleScript` (`ScriptsLoader.cs:215-223`) | re-point **No** / new formula **Yes** (`Memoria.Scripts.<Mod>.dll`) | **done (re-point)** (`[[battle_action]] script` resolves the formula catalog; a NEW formula still needs the `.dll`) |
+| category / type | physical/magic/reflectable/contact/weapon-props/crit bits | CSV | cols 15/17 (`type 0x8/0x10/0x20` only when `CustomBattleFlagsMeaning=1`) | No | **done** (`[[battle_action]] category/type`) |
+| statusIndex (AddStatusNo) | which `StatusSets.csv` row it inflicts/cures | CSV | col 16 → `StatusSetId` | No | **absent in this channel** (no `[[battle_action]] statusIndex`); reachable via `[[battle_attack]] status_set` (BP by-name) |
 | targets / menuWindow / camera / vfx | targeting + cursor display + VFX ids | CSV | cols 3-10 | No | **absent** |
 
 Elements bitmask (`EffectElement.cs:8-16`): Fire=1, Cold=2, Thunder=4, Earth=8, Aqua=16, Wind=32, Holy=64,
@@ -144,9 +150,9 @@ Darkness=128 — the **same 8-bit space** as the enemy Guard/Absorb/Half/Weak by
 
 | Lever | Controls | Channel | Location | DLL? | Kit |
 |---|---|---|---|---|---|
-| OprCount (tick) / ContiCount (duration) | how punishing each ailment is (0/0 = permanent) | CSV | `StatusData.csv` → `btl_stat.cs` | No | **absent** |
+| OprCount (tick) / ContiCount (duration) | how punishing each ailment is (0/0 = permanent) | CSV | `StatusData.csv` → `btl_stat.cs` | No | **done** (`[[status]] tick/duration`, `actiondelta`) |
 | ClearOnApply / ImmunityProvided | what a status clears / blocks | CSV | `BattleStatusDataEntry.cs:29-70` | No | **absent** |
-| StatusSets (bundles) | the named multi-status groups actions apply | CSV | `StatusSets.csv` (`#! UnshiftStatuses`); ids ≥39 | No | **absent** |
+| StatusSets (bundles) | the named multi-status groups actions apply | CSV | `StatusSets.csv` (`#! UnshiftStatuses`); ids ≥39 | No | **absent** for authoring (read-only catalog only — no emitter) |
 | MagicSwordSets | Steiner+Vivi combo unlocks | CSV | `MagicSwordSets.csv` | No | **absent** |
 
 `StatusData` requires ids 0-32 post-merge (`FF9BattleDB.cs:88`).
@@ -155,12 +161,12 @@ Darkness=128 — the **same 8-bit space** as the enemy Guard/Absorb/Half/Weak by
 
 | Lever | Controls | Channel | Location | DLL? | Kit |
 |---|---|---|---|---|---|
-| **BaseStats** (Dex/Str/Mag/Will/Gems) | the real per-char combat stats | CSV (partial, 0-11) | `BaseStats.csv` → `ff9level.cs` | No | **absent** |
-| **Leveling** (Exp / BonusHP / BonusMP) | 99-step growth curve; `HP=BonusHP*Str/50`, `MP=BonusMP*Mag/100` | CSV (**whole-file**, 99 rows) | `Leveling.csv` → `ff9level.cs:53` (`GetCsvWithHighestPriority`) | No | **absent** |
+| **BaseStats** (Dex/Str/Mag/Will/Gems) | the real per-char combat stats | CSV (partial, 0-11) | `BaseStats.csv` → `ff9level.cs` | No | **done** (`[[character]]`, `characterdelta`) |
+| **Leveling** (Exp / BonusHP / BonusMP) | 99-step growth curve; `HP=BonusHP*Str/50`, `MP=BonusMP*Mag/100` | CSV (**whole-file**, 99 rows) | `Leveling.csv` → `ff9level.cs:53` (`GetCsvWithHighestPriority`) | No | **done** (`[[leveling]]`, whole-file 99-row re-emit) |
 | CharacterParameters | row / category / menu-preset / equip-set | CSV (partial, 0-11) | `CharacterParameters.csv` → `ff9play.cs` | No | **absent** |
 | Commands / CommandSets | battle-menu definitions + per-char layout | CSV (partial) | `CharacterCommands.cs` (0-44 / 0-19) | No | **absent** |
 | Abilities/`<Name>.csv` | learn list + AP cost | CSV (**whole-file per preset**) | `ff9abil.cs:432` (`GetCsvWithHighestPriority`) | No | **absent** |
-| AbilityGems | support-ability stone costs | CSV (partial, 0-63) | `AbilityGems.csv` → `ff9abil.cs:409` | No | **absent** |
+| AbilityGems | support-ability stone costs | CSV (partial, 0-63) | `AbilityGems.csv` → `ff9abil.cs:409` | No | **done** (`[[ability_gem]]`, `characterdelta`) |
 | AbilityFeatures.txt | the SA/AA effect DSL (Auto-Haste, killers, MP+20%…) | text (`>SA/>AA/>CMD`, `+`=cumulate) | `ff9abil.cs:448-534` | No | **absent** |
 | DefaultEquipment / InitialItems | starting gear + bag | CSV | `content/equipment.py` / `content/inventory.py` | No | **done** (items_equipment) |
 | BattleParameters | **COSMETIC ONLY** — model + 34 anim ids + bones | CSV (partial, 0-18) | `btl_mot.cs` | No | absent (don't confuse w/ BaseStats) |
@@ -297,28 +303,27 @@ The status is **asymmetric**:
 |---|---|---|---|
 | **FBX battle-BG + PNG** | **YES, test-proven** | `fbx.parse_fbx ↔ emit_fbx` (`test_battle.py`) + in-game | **Fully satisfies** import→tweak→verify (the only lever that does) |
 | **raw17 opening camera** | **YES, true codec — real-donor proven** | `camera_codec.parse_block ↔ serialize_block` (offset-table repack) | **Fully satisfies** import→tweak→verify: `splice_block(raw17, parse_block(raw17)[1]) == raw17` asserted on `EF_R007` (`test_battle_scene_codec.py`) |
-| **battle `.eb`** | **YES, general codec** | `EbScript.from_bytes(x).to_bytes()==x` on real donors | Container round-trips; **no AI-body authoring** beyond `rewrite_main_init` |
-| **raw16 (`SB2_MON_PARM`)** | **COPY-identity only** | `scene_data.py` byte-patches ~9 offsets; rest verbatim | Surgical = byte-accurate-by-construction for those 9; **no full parse↔repack codec** |
+| **battle `.eb`** | **YES, general codec** | `EbScript.from_bytes(x).to_bytes()==x` on real donors | Container round-trips; **full enemy-AI authoring ships** (`ai_function`/`ai_phase`/`ai_insert`/`ai_patch`, Phase 6c) beyond `rewrite_main_init` |
+| **raw16 (`SB2_MON_PARM`)** | **YES, full codec — real-donor proven** | `scene_codec.parse_scene ↔ serialize_scene` (golden round-trip incl. the engine-ignored tail, `EF_R007`) | **Fully satisfies** import→tweak→verify; `scene_data` stays surgical for individual field edits |
 | **raw17 btlseq (sequences)** | sliced-verbatim, **never parsed** | `camera_codec.py` splices `raw17[:camOffset]` | KIT has no codec yet → can't *author* choreography; but the ENGINE permits **data authoring with no DLL** (§2(h)) — hit-count/effect-gating already work in the verbatim raw17 |
 | **`.mes`** | **copy only** | `shutil.copyfile` | Never parsed |
-| **Actions/Status/Character CSVs** | **no reader at all** | — | Absent — but a *partial delta* is inherently lossless on untouched rows |
+| **Actions/Status/Character CSVs** | **delta emitters ship** | `actiondelta`/`characterdelta` live-read the install base CSVs + emit partial deltas (Phase 3/5/5b) | Partial deltas non-destructive by design (lossless on untouched rows) |
 
-**Honest framing:** with no `[scene]` overrides a forked→built `raw16/raw17/eb/mes` is byte-identical to the
-donor — but by **passthrough copy**, not a parse→emit codec. The methodology's "parse a real X → re-emit →
-prove ==" is genuinely proven **only for the FBX**; the gameplay assets rely on **never touching bytes they
-don't understand**.
+**Honest framing:** the methodology's "parse a real X → re-emit → prove ==" is now codec-proven on real donors
+for the **FBX**, the **raw17 opening camera**, the **raw16 scene** (incl. the engine-ignored tail), and the
+**battle `.eb`** container. The remaining passthrough-copy assets are the **raw17 btlseq sequence body** (no codec
+yet) and the **`.mes`**; the CSV levers ship as non-destructive partial deltas.
 
-**What each new lever needs first:**
-- **raw16 affinity/status/defence/AP fields** → trivial: extend `_MON_FIELDS` with the verified offsets (all
-  fixed-width scalars, identical `struct.pack_into` pattern). **No new codec.** Gate: a **real-donor golden
-  round-trip test** (`import EF_R007 raw16 → parse → re-serialize → assert == original`), **capturing the
-  engine-ignored tail verbatim** (a naive re-emitter that stops at body-end *truncates* — `EF_R007` 652→448).
-- **Actions/Status/Character CSV deltas** → a read-live + delta-emit module mirroring `itemstats.py`; partial
-  deltas are non-destructive by design; must carry `#!` legends.
-- **Enemy AI bodies** → the container round-trips, so it's an **emitter/vocabulary** task (battle opcode names
-  + SV_ model + an expression assembler), not a parser task.
-- **raw17 btlseq + a new attack id** → needs a btlseq codec (camera-codec's offset-table repack proves it's
-  feasible). Highest cost, lowest priority.
+**What each new lever needs first** (most are now SHIPPED — the list is nearly drained):
+- ~~raw16 affinity/status/defence/AP fields~~ — **SHIPPED** (`scene_data`/`battlepatch`; the whole per-enemy
+  table is covered, §2(a), gated by the `EF_R007` raw16 golden round-trip).
+- ~~Actions/Status/Character CSV deltas~~ — **SHIPPED** (`actiondelta`/`characterdelta`, Phase 3/5/5b; live-read
+  the base CSVs, partial deltas, `#!` legends carried).
+- ~~Enemy AI bodies~~ — **SHIPPED** (Phase 6c: `exprasm`/`cmdasm`/`aiauthor`/`ailint` + the declarative
+  `[[scene.ai_*]]` surfaces).
+- **raw17 btlseq + a new attack SEQUENCE** → the ONE remaining gap: needs a btlseq codec (camera-codec's
+  offset-table repack proves it's feasible) + a coordinated raw16(`AA_DATA`)+eb+raw17 edit. Highest cost, lowest
+  priority. → §2(h).
 
 ---
 
@@ -584,14 +589,15 @@ raw16 "type"); the `Attack` (0x38) command lives in **tag 5**. **Defer raw17 btl
 
 ## 9. Open questions & risks
 
-- **`Configuration.Mod.MergeScripts` default** — gates whether two mods' `.eb` edits to the same battle merge
-  or whole-file-clobber. Check the live `Memoria.ini [Mod]`.
+- ~~**`Configuration.Mod.MergeScripts` default**~~ — **RESOLVED**: default **false** (`ModSection.cs:20`; live
+  `Memoria.ini [Mod]` = 0), so a battle `.eb` whole-file-clobbers (highest folder wins) — mod-folder priority is
+  the operative rule; no per-`.eb` binary merge to reason about.
 - **In-game smoke test a sparse partial `Actions.csv`/`StatusData.csv`** — the merge accepts it in theory (base
   supplies the rest), but the coverage gates + per-file `#!` reset make an in-game check mandatory before
   shipping a delta emitter.
-- **raw16 tail provenance** — the post-`AtkCount` block is overwhelmingly zero and `ReadBattleScene` never
-  reads it; confirm no other loader reads `dbfile0000.raw16` by a larger length before a re-emitter re-appends
-  it.
+- ~~**raw16 tail provenance**~~ — **RESOLVED**: `scene_codec` captures + re-appends the post-`AtkCount` tail
+  verbatim (`scene_codec.py:289/306`); the golden round-trip `serialize_scene(parse_scene(EF_R007)) == raw16`
+  asserts byte-identity INCLUDING the tail (`test_battle_scene_codec.py`).
 - ~~**Camera codec on a real donor raw17**~~ — **RESOLVED 2026-06-13**: `splice_block(raw17, parse_block(raw17)[1])
   == raw17` is asserted on `EF_R007` (`test_battle_scene_codec.py::test_camera_codec_golden_roundtrip_real_donor`,
   install-gated). The opening-camera codec is lossless on real bytes; the SEQUENCE BODY remains un-parsed (§2(h)).
