@@ -262,14 +262,15 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   1753/1606/1900/1455) which key on runtime position/sid/story-var state, so they're **flagged** by `fork-report`
   ("Walkmesh fix: lost on a mint → fork in-place") rather than auto-applied. Refines #14's "verbatim is the answer":
   even a verbatim fork at a remapped id loses these; the load-time subset is now reproduced, the dynamic ones steer
-  to fork-in-place. ⚠ **Deployed + byte-correct, but the toggle's standalone effect is UNPROVEN** (2026-06-14):
-  the only tested load-time field (Gulug 2356, tris 78/79/80 @ world ~(−418,1675)) is a **confounded**
-  demonstrator — the patch coincides with a 3D treasure-chest prop (entry 5, `GEO_ACC_F0_TBX` at (−426,1664))
-  whose `CreateObject` registers walkmesh collision (`BGI_charSetActive`, DoEventCode.cs:286), so the spot is
-  blocked by the *chest* whether or not the toggle fires. The toggle only adds something where these tris extend
-  beyond the chest's collision radius — needs an object-free hotfix field (or an A/B with the prop removed) to
-  isolate. (Lessons: the engine's "Red Dragon bursting through wall" comment names the *room*, not the tris' job;
-  and a co-located created object can mask a walkmesh hotfix — don't claim "proven" from a confounded spot.)
+  to fork-in-place. ★ **IN-GAME PROVEN by A/B (2026-06-14, Gulug 2356):** two identical native forks — id 30003
+  *with* the toggle, id 30004 *without* — teleporting to the deactivated-patch EDGE (−543,1667), ~120u from the
+  chest (beyond its collision reach), is **STUCK with the toggle and FREE without it**. So the prepended
+  `EnablePathTriangle` is what blocks that floor, not the co-located treasure-chest prop (entry 5,
+  `GEO_ACC_F0_TBX` @ (−426,1664)); the patch extends ~120u around the chest, so it blocks *more* than the chest's
+  collision — the hotfix is not redundant. (Lessons learned the hard way: the engine's "Red Dragon bursting
+  through wall" comment names the *room*, not the tris' job; a co-located created object's `CreateObject` registers
+  walkmesh collision (`BGI_charSetActive`) and can mask the toggle at the patch *center* — isolate it at the edge,
+  and don't claim "proven" without the A/B.)
 - **Mognet/Chocobo-Paradise world-map alternate-form STATE (bits 815/814) is BROUGHT-IN** — `WorldConfiguration.cs`
   `UsePlaceAlternateForm` is a pure `gEventGlobal` byte read (NOT id-gated), so `[startup] flags=[{flag=815}]`
   reproduces it; only the achievement-WRITE paths (`DigUpKupo fldMapNo==1421`, ATE80) are id-blocked.

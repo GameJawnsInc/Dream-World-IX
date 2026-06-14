@@ -63,14 +63,14 @@ class Hotfix:
 _HOTFIXES = {
     # --- LOAD-TIME (unconditional at field load; AUTO-reproduced) -------------------------------------------
     2356: Hotfix(2356, "Gulug/Room (the Red-Dragon-wall room)", "load_time",
-                 "At field load the engine deactivates 3 floor triangles (world ~(-418,1675)). The engine "
-                 "comment '(Red Dragon bursting through wall)' names the ROOM (field 2356), not these tris' job. "
-                 "★ CONFOUNDED demonstrator (in-game 2026-06-14): the patch coincides with a 3D treasure-chest "
-                 "prop (entry 5, GEO_ACC_F0_TBX) at (-426,1664) whose CreateObject registers walkmesh collision "
-                 "(BGI_charSetActive) -- so the spot is blocked by the CHEST regardless of the toggle, and 2356 "
-                 "cannot ISOLATE the toggle's effect. The toggle (correctly deployed) only matters where these "
-                 "tris extend beyond the chest's collision radius -- UNPROVEN. Pick an object-free hotfix field "
-                 "(or an A/B) to prove the toggle in isolation.",
+                 "At field load the engine deactivates 3 floor triangles around a 3D treasure-chest prop (entry "
+                 "5, GEO_ACC_F0_TBX @ (-426,1664)). The engine comment '(Red Dragon bursting through wall)' names "
+                 "the ROOM (field 2356), not these tris' job. ★ IN-GAME PROVEN by A/B (2026-06-14): teleporting "
+                 "to the patch EDGE (-543,1667) -- ~120u from the chest, beyond its collision -- is STUCK with the "
+                 "toggle (id 30003) and FREE without it (id 30004), so the toggle (not the chest) blocks that "
+                 "floor. The patch extends ~120u around the chest, so it blocks more than the chest's collision "
+                 "alone -- the hotfix is NOT redundant. (Confound to avoid: the tri-78 CENTER (39u) coincides "
+                 "with the chest collision; test the edge.)",
                  "FieldMap.cs:112-117", toggles=((78, 0), (79, 0), (80, 0)), tris=(78, 79, 80)),
     2161: Hotfix(2161, "L. Castle/Guest Room (disc 3)", "load_time",
                  "At field load the engine deactivates one triangle (a disc-3 room-layout block). Unconditional.",
