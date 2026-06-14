@@ -151,6 +151,7 @@ class Workspace(QMainWindow):
         self._clean = {}                           # member name -> deepcopy(doc.data) at load/last-save (dirty baseline)
         self._touched = set()                      # members with in-progress (typed-but-uncommitted) edits
         self._active_save = None                   # the mounted form's Save handler (Ctrl-S target)
+        self._save_btn = None                      # the mounted form's Save button (greys when clean)
         self._save_ctx = None                      # {member, key, spec, getters, single|kind, idx} for Save
         self.setWindowTitle("FF9 Map Kit — Workspace")
         self.resize(1280, 820)
@@ -224,6 +225,9 @@ class Workspace(QMainWindow):
         self.tree.customContextMenuRequested.connect(self._tree_menu)
         del_sc = QShortcut(QKeySequence(Qt.Key_Delete), self.tree, activated=self._delete_selected)
         del_sc.setContext(Qt.ShortcutContext.WidgetShortcut)        # Delete only when the tree has focus
+        for _ekey in (Qt.Key_Return, Qt.Key_Enter):                 # Enter = open (parity with double-click)
+            esc = QShortcut(QKeySequence(_ekey), self.tree, activated=self._open_current_tree_item)
+            esc.setContext(Qt.ShortcutContext.WidgetShortcut)
         split.addWidget(self.tree)
 
         self.tabs = QTabWidget()
@@ -563,6 +567,7 @@ class Workspace(QMainWindow):
         for root in getattr(self, "_root_items", []):
             root.setIcon(0, self._dot_icon if any_unsaved else blank)
         self.setWindowTitle("FF9 Map Kit — Workspace" + ("  •" if any_unsaved else ""))
+        self._refresh_save_button()
 
     def _load_objects(self, member_item):
         name = self._payload(member_item)[1]
@@ -629,6 +634,12 @@ class Workspace(QMainWindow):
         p = self._payload(item)
         if p:
             self.tabs.setCurrentWidget(self.map if p[0] in ("campaign", "journey") else self.doc_scroll)
+
+    def _open_current_tree_item(self):
+        """Enter on the focused tree row = open it (the keyboard equivalent of a double-click)."""
+        item = self.tree.currentItem()
+        if item is not None:
+            self._on_tree_double(item)
 
     # ---- command palette (Ctrl-K) ----
     def _command_index(self):
@@ -710,9 +721,22 @@ class Workspace(QMainWindow):
             self._show_problems(fb.Verdict(fb.WARN if left else fb.OK, note), [])
 
     # ---- the document editor (Phase 4) ----
+    def _set_editor_tab(self, suffix=None):
+        """Title the Editor tab with what's open (e.g. 'Editor — Vivi'), or plain 'Editor' when empty."""
+        idx = self.tabs.indexOf(self.doc_scroll)
+        if idx >= 0:
+            self.tabs.setTabText(idx, "Editor" + (f" — {suffix}" if suffix else ""))
+
+    def _refresh_save_button(self):
+        """Enable the mounted form's Save button only when its field has something to save (clean -> grey)."""
+        btn = getattr(self, "_save_btn", None)
+        if btn is not None and self._save_ctx:
+            btn.setEnabled(self._save_ctx.get("member") in self._unsaved())
+
     def _clear_doc(self):
         self._save_ctx = None                      # the about-to-be-removed form is no longer the active one
         self._active_save = None                   # ...and Ctrl-S has nothing to save until a form mounts
+        self._save_btn = None
         while self.doc_host_lay.count():
             it = self.doc_host_lay.takeAt(0)
             w = it.widget()
@@ -721,6 +745,7 @@ class Workspace(QMainWindow):
 
     def _doc_placeholder(self, text):
         self._clear_doc()
+        self._set_editor_tab(None)
         lbl = QLabel(text)
         lbl.setStyleSheet(f"color:{self.pal['muted']};")
         lbl.setWordWrap(True)
@@ -942,6 +967,8 @@ class Workspace(QMainWindow):
     def _mount_form(self, member, key, spec, entity, *, single, section, idx=None):
         self._clear_doc()
         self._header(f"{member}  ·  {key}", forms.SECTION_HELP.get(section))
+        tab = (entity.get("name") if not single else None) or _LIST_SINGULAR.get(section) or section.title()
+        self._set_editor_tab(str(tab)[:24])
         form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal, pick=self._pick,
                                    wrap_width=self._wrap_width(member), on_change=lambda m=member: self._on_form_change(m))
         self.doc_host_lay.addWidget(form)
@@ -965,6 +992,7 @@ class Workspace(QMainWindow):
         save.setObjectName("accent")
         save.clicked.connect(lambda _=False: handler())
         row.addWidget(save)
+        self._save_btn = save                                  # so it can grey out when there's nothing to save
         if delete is not None:                                 # (label, callback) -> a Delete/Remove button
             db = QPushButton(delete[0])
             db.clicked.connect(lambda _=False, cb=delete[1]: cb())
@@ -974,6 +1002,7 @@ class Workspace(QMainWindow):
         holder.setLayout(row)
         self.doc_host_lay.addWidget(holder)
         self.doc_host_lay.addStretch(1)
+        self._refresh_save_button()                            # initial enabled/grey state
         # NB: mounting a form no longer steals the active tab -- single-click selection stays put
         # (you reach the Editor via the tab or a double-click; see _on_tree_double).
 
@@ -1144,6 +1173,7 @@ class Workspace(QMainWindow):
             return cs().get("steps", [])
         self._clear_doc()
         self._header(f"{member}  ·  cutscene", forms.SECTION_HELP.get("cutscene"))
+        self._set_editor_tab("Cutscene")
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
                                    on_change=lambda m=member: self._on_form_change(m))
@@ -1279,6 +1309,7 @@ class Workspace(QMainWindow):
         ch.setdefault("options", [])
         self._clear_doc()
         self._header(f"{member}  ·  choice[{idx}]", forms.SECTION_HELP.get("choice"))
+        self._set_editor_tab(f"Choice {idx + 1}")
         form, getters = build_form(forms.CHOICE_SPEC, forms.entity_to_values(forms.CHOICE_SPEC, ch),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
                                    on_change=lambda m=member: self._on_form_change(m))
@@ -1665,6 +1696,30 @@ def _smoke(win):
         "Save All wrote the field + cleared its dot"
     assert _tl_sa.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))["field"]["area"] == 12
     assert "Save All fields" in [e[0] for e in win._command_index()]
+    # small wins -- (a) Enter on a tree row opens it (Editor for a field, Map for the campaign root)
+    win.tabs.setCurrentWidget(win.map)
+    win.tree.setCurrentItem(win._member_items["IC_ENT"])
+    win._open_current_tree_item()
+    assert win.tabs.currentWidget() is win.doc_scroll, "Enter on a field opens the Editor"
+    win.tree.setCurrentItem(win._root_items[0])
+    win._open_current_tree_item()
+    assert win.tabs.currentWidget() is win.map, "Enter on the campaign root opens the Map"
+    # (b) the Editor tab reflects what's open; placeholder resets it
+    et = lambda: win.tabs.tabText(win.tabs.indexOf(win.doc_scroll))
+    win._open_editor("IC_ENT", "field", "field")
+    assert et() == "Editor — Field", et()
+    win._open_editor("IC_ENT", "object", "cutscene")
+    assert et() == "Editor — Cutscene", et()
+    win._doc_placeholder("nothing")
+    assert et() == "Editor", "placeholder resets the Editor tab title"
+    # (c) the Save button greys out when there's nothing to save, enables on edit
+    win._mark_clean("IC_ENT")
+    win._open_editor("IC_ENT", "field", "field")
+    assert win._save_btn is not None and not win._save_btn.isEnabled(), "Save is greyed on a clean form"
+    win._touch("IC_ENT")
+    assert win._save_btn.isEnabled(), "Save enables when there are unsaved changes"
+    win._mark_clean("IC_ENT")
+    assert not win._save_btn.isEnabled(), "Save greys again after saving"
     # (4) live validation: a bad value flags its field (validate() returns the invalid count); also proves
     # the hint is parented before setVisible (no parentless top-level flash -- the build-time flicker fix)
     from PySide6.QtWidgets import QLineEdit as _QLE2
