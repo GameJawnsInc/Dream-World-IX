@@ -342,8 +342,11 @@ in-game playtest of the one-shot path):
   `apply_seed_blocks` merges them into the journey's ENTRY member in-memory before build (no forked-toml
   rewrite). **scenario + party** bake into the entry fork's own `.eb` (per-journey-clean, no collision; party
   drops Zidane). **inventory/equipment** map to the mod-GLOBAL New-Game CSVs (read once at New Game, SHARED
-  across a hub's journeys) → lint **warns** they're single-journey-only + shadowed under `--no-warp`; for
-  per-journey items use scripted `give_item` on the entry (the remaining follow-up).
-
-Remaining (a genuine follow-up, not blocking): **per-journey `give_item`** on the entry `.eb` so a
-multi-journey hub can give each journey its own starting bag/gear without the shared-CSV collision.
+  across a hub's journeys) → lint **warns** they're single-journey-only + shadowed under `--no-warp`.
+- **Per-journey starting items — DONE (scripted, no global collision):** add an `[[on_entry]]` block to the
+  journey's ENTRY member field.toml: `items = [["Potion", 5], ["Tent", 1]]`, `gil = 200`, `flag = <N>`
+  (an explicit once-flag in the entry campaign's window). It bakes `give_item`/`give_gil` into the entry
+  fork's own `.eb`, **once-gated** (given exactly once per save) and optionally `requires_scenario`-gated —
+  so each journey gets its own bag/gil with zero cross-journey leak (unlike the mod-global CSV). Equipment
+  (auto-equip) has no scripted op yet → a follow-up; items + gil are the proven path
+  (`content.onentry.on_entry_body` `item_pairs`/`gil`; `build._apply_on_entry`).

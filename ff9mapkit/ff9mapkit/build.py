@@ -377,10 +377,24 @@ def _validate_on_entry(hooks, names: dict, problems: list) -> None:
         if not isinstance(h, dict):
             problems.append(f"{label} must be a table")
             continue
-        if not any(k in h for k in ("message", "set_scenario", "set_flags")):
-            problems.append(f"{label} does nothing -- give it a message, set_scenario, and/or set_flags")
+        if not any(k in h for k in ("message", "set_scenario", "set_flags", "items", "gil")):
+            problems.append(f"{label} does nothing -- give it a message, set_scenario, set_flags, items, "
+                            f"and/or gil")
         if "message" in h and not isinstance(h["message"], str):
             problems.append(f"{label} message must be a string")
+        # per-entry starting items/gil (scripted give, once-gated -- the per-journey bag, NOT the global CSV)
+        if "items" in h:
+            its = h["items"]
+            if not isinstance(its, list) or not its:
+                problems.append(f'{label} items must be a non-empty list [["Potion", 5], ...]')
+            else:
+                for it in its:
+                    try:
+                        _items.resolve(it[0] if isinstance(it, (list, tuple)) else it)
+                    except (ValueError, IndexError, TypeError) as e:
+                        problems.append(f"{label} items: {e}")
+        if "gil" in h and (isinstance(h["gil"], bool) or not isinstance(h["gil"], int)):
+            problems.append(f"{label} gil must be an integer (positive adds, negative subtracts)")
         _validate_story_writes(h, label, names, problems,
                                scenario_key="set_scenario", flags_key="set_flags")
         rs = h.get("requires_scenario")
@@ -2106,8 +2120,12 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
                 warnings.append(f"[[on_entry]] #{k}: narration message dropped in a verbatim fork (the donor "
                                 f".mes ships verbatim, with no slot for authored text); the gated state-advance "
                                 f"still fires.")
+        item_pairs = [(it[0] if isinstance(it, (list, tuple)) else it,
+                       int(it[1]) if isinstance(it, (list, tuple)) and len(it) > 1 else 1)
+                      for it in h.get("items", [])]
         hooks.append({"message_txid": txid, "set_flag_pairs": pairs,
-                      "scenario": sc, "once_flag": once_flag, "requires_flag": rf,
+                      "scenario": sc, "item_pairs": item_pairs, "gil": h.get("gil"),
+                      "once_flag": once_flag, "requires_flag": rf,
                       "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc})
     return _onentry.inject_on_entries(eb, hooks)
 

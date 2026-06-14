@@ -470,8 +470,10 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
         warnings.append(f"journey {j.id!r}: [journey.seed] inventory/equipment map to the MOD-GLOBAL New-Game "
                         f"CSVs (read once at New Game, SHARED across every journey of the hub) -- clean only "
                         f"for a single-journey hub, and shadowed under the campaigns' --no-warp deploy unless "
-                        f"promoted to the highest folder. For per-journey items prefer scripted give_item on "
-                        f"the entry (a follow-up). scenario/party seed cleanly (the entry fork's own .eb).")
+                        f"promoted to the highest folder. For PER-JOURNEY items, add an `[[on_entry]] "
+                        f"items = [[\"Potion\", 5]] gil = 200 flag = <N>` block to the entry member's "
+                        f"field.toml -- scripted, once-gated, baked into the entry fork's own .eb (no global "
+                        f"leak). scenario/party already seed cleanly that way.")
 
 
 def _lint_chain_connectivity(j: Journey, errors: list, warnings: list) -> None:

@@ -91,6 +91,43 @@ def test_on_entry_no_once_flag_omits_once_block():
     assert region.set_var(region.GLOB_BOOL, 8520, 1) in body
 
 
+def test_on_entry_body_gives_items_and_gil_once():
+    # per-entry starting bag: give_item + gil, INSIDE the once-block (the per-journey scripted seed, not
+    # the mod-global New-Game CSV that a whole hub shares).
+    from ff9mapkit.content import event
+    body = onentry.on_entry_body(item_pairs=[("Potion", 5), ("Phoenix Down", 2)], gil=150, once_flag=8300)
+    assert event.give_item("Potion", 5) in body and event.give_item("Phoenix Down", 2) in body
+    assert event.give_gil(150) in body
+    # the gives sit INSIDE the once-gate (after the once-flag write), so they fire exactly once per save
+    assert body.index(region.set_var(region.GLOB_BOOL, 8300, 1)) < body.index(event.give_item("Potion", 5))
+    assert region.cond_not(region.GLOB_BOOL, 8300) in body
+    # items-only (no message) -> no control-lock dance
+    from ff9mapkit.eb import opcodes
+    assert opcodes.DISABLE_MOVE not in body
+
+
+def test_build_on_entry_items(tmp_path):
+    from ff9mapkit.content import event
+    toml = BASE + '\n[[on_entry]]\nitems = [["Potion", 5], ["Tent", 1]]\ngil = 200\nflag = 8520\n'
+    eb = _build_eb(tmp_path, toml)
+    assert event.give_item("Potion", 5) in eb.data and event.give_item("Tent", 1) in eb.data
+    assert event.give_gil(200) in eb.data and _eb_parses(eb)
+
+
+def test_on_entry_items_only_is_valid(tmp_path):
+    # an items-only hook is a real action -> NOT "does nothing"
+    p = tmp_path / "f.field.toml"
+    p.write_text(BASE + '\n[[on_entry]]\nitems = [["Elixir", 1]]\nflag = 8520\n', encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+
+
+def test_on_entry_items_bad_name_caught(tmp_path):
+    p = tmp_path / "f.field.toml"
+    p.write_text(BASE + '\n[[on_entry]]\nitems = [["Notarealitem", 1]]\nflag = 8520\n', encoding="utf-8")
+    probs = validate(FieldProject.load(p))
+    assert any("items" in x for x in probs)
+
+
 # --------------------------------------------------------------- end-to-end build ---
 
 ONE = BASE + '\n[[on_entry]]\nmessage = "The town lies in ruins."\nset_scenario = 2700\n'

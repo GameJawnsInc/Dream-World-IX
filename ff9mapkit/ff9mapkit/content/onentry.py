@@ -51,6 +51,7 @@ def scenario_gate(value: int) -> bytes:
 
 
 def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenario: int | None = None,
+                  item_pairs=(), gil: int | None = None,
                   once_flag: int | None = None, requires_flag: int | None = None,
                   requires_set: bool = True, requires_scenario: int | None = None) -> bytes:
     """The bytecode for ONE on-entry hook (no entry/return wrapper beyond the trailing ``RETURN``).
@@ -64,6 +65,7 @@ def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenari
             [Wait(2); DisableMove]                 # only when there's a message (lock outlives Main_Init's EnableMove)
             [WindowSync(message_txid)]             # the narration beat
             <set_scenario>; <set_flags...>         # the story-state advance
+            <give_item...>; <give_gil>             # per-entry starting bag/gil (scripted, not the global CSV)
             [EnableMove]
         }
         return
@@ -82,6 +84,15 @@ def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenari
         writes += _region.set_var(_region.GLOB_UINT16, _startup.SCENARIO_BYTE, int(scenario))
     for idx, val in set_flag_pairs:
         writes += _region.set_var(_region.GLOB_BOOL, int(idx), 1 if val else 0)
+    # Per-entry STARTING ITEMS (a journey's per-destination bag/gil, scripted -- not the mod-GLOBAL
+    # New-Game CSV that a whole hub shares). They sit inside the once-block, so they're given exactly
+    # ONCE per save (the once-flag dedups), and behind the optional requires_scenario beat gate.
+    if item_pairs or gil is not None:
+        from . import event as _event
+        for item_id, count in item_pairs:
+            writes += _event.give_item(item_id, int(count))
+        if gil is not None:
+            writes += _event.give_gil(int(gil))
 
     actions = (opcodes.window_sync(1, 128, int(message_txid)) if message_txid is not None else b"") + writes
     if message_txid is not None:
