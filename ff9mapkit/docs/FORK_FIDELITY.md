@@ -262,7 +262,11 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   1753/1606/1900/1455) which key on runtime position/sid/story-var state, so they're **flagged** by `fork-report`
   ("Walkmesh fix: lost on a mint → fork in-place") rather than auto-applied. Refines #14's "verbatim is the answer":
   even a verbatim fork at a remapped id loses these; the load-time subset is now reproduced, the dynamic ones steer
-  to fork-in-place. *(In-game: confirm a fork of Gulug 2356 / L.Castle 2161 keeps the blocked tris.)*
+  to fork-in-place. ★ **IN-GAME CONFIRMED (2026-06-14, Gulug 2356)**: a native fork's tris 78/79/80 (a painted
+  CHEST's footprint at world ~(−418,1675)) are non-walkable in the fork — and since the carried prop has no
+  collision and the shipped `.bgi` ships those tris *active*, the prepended `EnablePathTriangle` toggle is what
+  blocks them. (Lesson: the engine's "Red Dragon bursting through wall" comment names the *room*, not the tris'
+  job — they block a painted chest; trust the user's game knowledge over the source comment.)
 - **Mognet/Chocobo-Paradise world-map alternate-form STATE (bits 815/814) is BROUGHT-IN** — `WorldConfiguration.cs`
   `UsePlaceAlternateForm` is a pure `gEventGlobal` byte read (NOT id-gated), so `[startup] flags=[{flag=815}]`
   reproduces it; only the achievement-WRITE paths (`DigUpKupo fldMapNo==1421`, ATE80) are id-blocked.
