@@ -273,6 +273,12 @@ class ModLayout:
         return self.root / "StreamingAssets" / "Data" / "Battle" / "StatusData.csv"
 
     @property
+    def status_sets_csv(self) -> Path:
+        """Named multi-status BUNDLES (``Data/Battle/StatusSets.csv``) an action's ``status_index`` points at.
+        MERGED by id low->high -> a partial works (ids 0-38 are the base sets; use >=39 for a custom one)."""
+        return self.root / "StreamingAssets" / "Data" / "Battle" / "StatusSets.csv"
+
+    @property
     def base_stats_csv(self) -> Path:
         """Per-character base combat stats (``Data/Characters/BaseStats.csv``). MERGED by CharacterId low->high
         -> a partial delta (only the characters you change) works; the base supplies the other 11."""

@@ -152,7 +152,7 @@ Darkness=128 — the **same 8-bit space** as the enemy Guard/Absorb/Half/Weak by
 |---|---|---|---|---|---|
 | OprCount (tick) / ContiCount (duration) | how punishing each ailment is (0/0 = permanent) | CSV | `StatusData.csv` → `btl_stat.cs` | No | **done** (`[[status]] tick/duration`, `actiondelta`) |
 | ClearOnApply / ImmunityProvided | what a status clears / blocks | CSV | `BattleStatusDataEntry.cs:29-70` | No | **done** (`[[status]] clear_on_apply`/`immunity_provided`, BattleStatus lists) |
-| StatusSets (bundles) | the named multi-status groups actions apply | CSV | `StatusSets.csv` (`#! UnshiftStatuses`); ids ≥39 | No | **absent** for authoring (read-only catalog only — no emitter) |
+| StatusSets (bundles) | the named multi-status groups actions apply | CSV | `StatusSets.csv` (`#! UnshiftStatuses`); ids ≥39 | No | **done** (`[[status_set]]` id/name/statuses → a partial StatusSets.csv merged per-id; ids 0-38 base, ≥39 custom — `status_index` points at one) |
 | MagicSwordSets | Steiner+Vivi combo unlocks | CSV | `MagicSwordSets.csv` | No | **absent** |
 
 `StatusData` requires ids 0-32 post-merge (`FF9BattleDB.cs:88`).

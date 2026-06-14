@@ -722,6 +722,9 @@ def validate(project: FieldProject) -> list[str]:
             problems += [f"[[battle_action]] #{q}: {p}" for p in _adelta.validate_entry(ba, kind="battle_action")]
         for q, st in enumerate(project.raw.get("status", [])):
             problems += [f"[[status]] #{q}: {p}" for p in _adelta.validate_entry(st, kind="status")]
+    if project.raw.get("status_set"):                                # [[status_set]] -> StatusSets.csv (the bundles
+        from .battle import actiondelta as _adelta                   # status_index points at; offline, no base read)
+        problems += [f"[[status_set]]: {p}" for p in _adelta.validate_status_sets(project.raw.get("status_set"))]
     # [[battle_patch]] / [[battle_enemy]] / [[battle_attack]] -- the BattlePatch.txt by-name enemy/attack/scene
     # tuner (structural + range/encoder/selector checks; all install-free since names/ids are the author's).
     if project.raw.get("battle_patch") or project.raw.get("battle_enemy") or project.raw.get("battle_attack"):
@@ -3643,11 +3646,12 @@ def _emit_battle_data(projects, layout) -> list:
     install (whole-row replacement); raises BuildError if the install can't be read or an entry is invalid."""
     actions = [a for p in projects for a in p.raw.get("battle_action", [])]
     statuses = [s for p in projects for s in p.raw.get("status", [])]
-    if not actions and not statuses:
+    status_sets = [b for p in projects for b in (p.raw.get("status_set", []) or [])]
+    if not actions and not statuses and not status_sets:
         return []
     from .battle import actiondelta as _adelta
     try:
-        return _adelta.write_battle_data(layout, actions=actions, statuses=statuses)
+        return _adelta.write_battle_data(layout, actions=actions, statuses=statuses, status_sets=status_sets)
     except _adelta.ActionDeltaError as ex:
         raise BuildError(str(ex))
 

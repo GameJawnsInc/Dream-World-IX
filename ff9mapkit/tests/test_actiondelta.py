@@ -189,3 +189,31 @@ def test_status_clear_none_empties_the_cell(base):
     assert rows[16][cols["clearonapply"]] == ""
     with pytest.raises(AD.ActionDeltaError):
         AD.build_status_delta([{"status": "Poison", "clear_on_apply": ["Nope"]}])
+
+
+# ---- [[status_set]] -> StatusSets.csv (the bundles status_index points at; partial emit, no base read) ----
+def test_status_set_emits_partial_row():
+    text, warns = AD.build_status_sets([{"id": 39, "name": "Doom + Slow", "statuses": ["Doom", "Slow"]}])
+    assert "#! UnshiftStatuses" in text and not warns
+    assert "Doom + Slow;39;Doom(27), Slow(20);# Doom + Slow" in text       # the real Name(idx) list format
+
+
+def test_status_set_empty_statuses_default_name():
+    text, _w = AD.build_status_sets([{"id": 40, "statuses": "none"}])
+    assert "Set 40;40;;# Set 40" in text                                   # empty list + default name
+
+
+def test_status_set_range_dupe_and_sanitize():
+    with pytest.raises(AD.ActionDeltaError):
+        AD.build_status_sets([{"id": 99999, "statuses": []}])              # > cap
+    with pytest.raises(AD.ActionDeltaError):
+        AD.build_status_sets([{"id": 39, "statuses": ["Nope"]}])           # unknown status
+    _t, warns = AD.build_status_sets([{"id": 39, "statuses": []}, {"id": 39, "statuses": ["Haste"]}])
+    assert any("already set" in w for w in warns)                          # dupe id warns
+    text, _w = AD.build_status_sets([{"id": 41, "name": "a;b\nc", "statuses": []}])
+    assert "a b c;41" in text                                              # ; and newlines sanitized
+
+
+def test_validate_status_sets():
+    assert AD.validate_status_sets([{"id": 39, "statuses": ["Haste"]}]) == []
+    assert AD.validate_status_sets([{"id": 99999, "statuses": []}])        # out of range -> a problem

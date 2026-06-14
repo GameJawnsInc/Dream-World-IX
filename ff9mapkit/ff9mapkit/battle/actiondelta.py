@@ -31,6 +31,8 @@ and emit at the mod-write stage. See ``docs/BATTLE_DESIGN.md`` Phase 3.
 """
 from __future__ import annotations
 
+import re
+
 from . import battlecsv
 
 _I32 = 2 ** 31 - 1
@@ -65,6 +67,8 @@ STATUS_FIELDS = {
 }
 _ACTION_MAX_ID = 191
 _STATUS_MAX_ID = 32
+_STATUS_SET_MAX_ID = 65535     # StatusSetId is Int32; 0-38 are the base sets, >=39 = custom (the band an action's
+#                                status_index points at). Cap generously -- catches a typo, never the real type.
 
 
 class ActionDeltaError(ValueError):
@@ -294,12 +298,51 @@ def build_status_delta(entries, *, game=None) -> tuple:
                   note=note, game=game)
 
 
-def write_battle_data(layout, *, actions=None, statuses=None, game=None) -> list:
-    """Emit the Actions.csv / StatusData.csv deltas into ``layout`` (mod-write stage). Returns warnings.
-    Written cp1252 (byte-faithful with the base) + LF; the engine's StreamReader.ReadLine is EOL-agnostic."""
+def build_status_sets(entries, *, game=None) -> tuple:
+    """``[[status_set]]`` -> a partial ``StatusSets.csv`` (the named multi-status BUNDLES an action's
+    ``status_index`` points at). Emits ONLY the author's rows -- the engine merges low->high BY ID
+    (``FF9BattleDB.LoadStatusSets``), so no base read is needed (fully offline + provenance-clean). Row format
+    ``Name;Id;StatusList`` with ``#! UnshiftStatuses`` (the ``Name(idx)`` status list, reusing the StatusData
+    encoder). Returns (text, warnings)."""
+    note = ("# ff9mapkit [[status_set]] -- a partial StatusSets.csv (merged per-id over the base; ids 0-38 are "
+            "the base sets, use >=39 for a custom one). An action points at a set via its `status_index`.")
+    lines, warnings, seen = [note, "#! UnshiftStatuses"], [], {}
+    for n, e in enumerate(entries if isinstance(entries, list) else [entries]):
+        ctx = f"[[status_set]] #{n}"
+        if not isinstance(e, dict):
+            raise ActionDeltaError(f"{ctx} must be a table")
+        sid = _to_int(e.get("id"), f"{ctx} id")
+        if not 0 <= sid <= _STATUS_SET_MAX_ID:
+            raise ActionDeltaError(f"{ctx}: id {sid} out of range (0-{_STATUS_SET_MAX_ID}; 0-38 = base sets, "
+                                   f">=39 = custom)")
+        if sid in seen:
+            warnings.append(f"{ctx}: id {sid} already set by #{seen[sid]} -- the later wins")
+        seen[sid] = n
+        name = re.sub(r"[;\r\n]+", " ", str(e.get("name", f"Set {sid}"))).strip() or f"Set {sid}"
+        try:
+            statuses = battlecsv.encode_status_list(e.get("statuses"))
+        except (ValueError, TypeError) as ex:
+            raise ActionDeltaError(f"{ctx}: {ex}")
+        lines.append(f"{name};{sid};{statuses};# {name}")
+    return "\n".join(lines) + "\n", warnings
+
+
+def validate_status_sets(entries) -> list:
+    """Offline structural + range problems for ``[[status_set]]`` (empty => OK)."""
+    try:
+        build_status_sets(entries)
+    except ActionDeltaError as ex:
+        return [str(ex)]
+    return []
+
+
+def write_battle_data(layout, *, actions=None, statuses=None, status_sets=None, game=None) -> list:
+    """Emit the Actions.csv / StatusData.csv / StatusSets.csv deltas into ``layout`` (mod-write stage). Returns
+    warnings. Written cp1252 (byte-faithful with the base) + LF; the engine's StreamReader.ReadLine is EOL-agnostic."""
     warnings: list = []
     for entries, path, builder in ((actions, layout.actions_csv, build_actions_delta),
-                                   (statuses, layout.status_data_csv, build_status_delta)):
+                                   (statuses, layout.status_data_csv, build_status_delta),
+                                   (status_sets, layout.status_sets_csv, build_status_sets)):
         if entries:
             text, w = builder(entries, game=game)
             path.parent.mkdir(parents=True, exist_ok=True)
