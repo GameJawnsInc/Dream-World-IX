@@ -62,7 +62,7 @@ Background Art → Content → Export**. A typical pass:
 5. **Load the art to model against** (*Background Art* box) — *Add Layer* loads a painted PNG as a
    camera background image and records it in the field's `[[layers]]`; *Clear* removes them. Smaller
    `z` previews in **front** (occlusion check), larger behind. View through the FF9 camera
-   (Numpad 0) so the backdrop lines up with the frame.
+   (*View ▸ Cameras ▸ Active Camera*, or Numpad 0) so the backdrop lines up with the frame.
 6. **Model the walkmesh** — edit `FF9_Walkmesh` (stay on z=0 for a flat floor) into the walkable
    area, against the loaded backdrop. Keep it selected in the **Walkmesh** field. If you re-pose the
    camera, *Reset Walkmesh to Floor* snaps it back to a flat quad on the new floor frame to start
@@ -130,6 +130,17 @@ Instead of starting from a blank plane, **Import Field** loads a project produce
   reshape stays connected) — **no character offset** (a forked real field is already in the engine
   frame). `ff9mapkit build` it exactly as above. This matches the CLI `import --editable` output, so
   a Blender re-export and a CLI build produce the same field.
+
+**Multi-camera fields** (a field that cuts between camera angles — streets, plazas, the Crystal
+World). Import drops **every** camera as its own object (`FF9_Camera`, `FF9_Camera_01`, …), each
+posed and framing the walkmesh region *it* covers — so a floor that lives on camera 1 is no longer
+off-screen. A lightweight import also ships each camera's **own painted backdrop**
+(`background_cam01.png`, …), attached to that camera. To inspect one: select it in the Outliner and
+click **View Selected Camera** (Camera box) — it sets that camera active, looks through it, and
+matches the render resolution to *its* range (one global resolution can't frame cameras of
+different aspect, so switch with this rather than the View menu). Note: repainting a multi-camera
+field via `--editable` captures **camera 0 only** (the fork warns); for a faithful multi-camera
+fork use `ff9mapkit import <field> --verbatim` (it keeps the real camera switching + all art).
 
 ## Reshape a battle map (3D)
 
