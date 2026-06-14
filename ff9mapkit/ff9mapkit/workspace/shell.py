@@ -21,10 +21,10 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QProcess, QSize
 from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QFormLayout, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
-    QPushButton, QScrollArea, QSplitter, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QFormLayout,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
+    QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTextEdit,
+    QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .. import campaign as C
@@ -122,44 +122,45 @@ def _toml_str(s) -> str:
     return str(s).replace("\\", "\\\\").replace('"', '\\"')
 
 
-# A COMMENTED onboarding template for New Journey -- the journeys.toml schema is the hardest of the three to
-# author by hand, so the "new" action is really teach-by-template. __HUB_NAME__ is replaced (not str.format --
-# the multi-campaign example has literal { } braces). Loads + lints as-is (a valid [hub] + a bare [[journey]]).
-_JOURNEY_TEMPLATE = '''\
-# -----------------------------------------------------------------------------
-#  A JOURNEY = one playable arc the World Hub selects + warps into. This file is
-#  the project FRONT DOOR: it indexes each journey's campaigns and how they chain.
-#  Fork the campaigns FIRST (`ff9mapkit import-chain <seed> --out <folder>`), then
-#  list them here. Full schema: docs/JOURNEYS.md.   Open it via Journey > Open.
-# -----------------------------------------------------------------------------
-
-[hub]
-name = "__HUB_NAME__"      # the World-Hub field's display name
-id = 4600                  # the hub field id (custom band, >= 4000)
-borrow_bg = "N11_HUT"      # a real field whose art the hub reuses (see `ff9mapkit list-fields`)
-
-# -- A BARE journey: the hub warps straight into ONE field (a real or forked id). --
-[[journey]]
-id = "intro"               # a stable slug -- the hub-choice key (A-Z, 0-9, _)
-name = "Intro"             # the label shown on the hub menu
-entry = 4100               # the field id the hub warps into  (CHANGE ME)
-# set_scenario = 7006      # optional: seed this story beat before warping in
-
-# -- A MULTI-CAMPAIGN journey: chains forked campaigns end-to-end. Uncomment + edit: --
-# [[journey]]
-# id = "main_arc"
-# name = "The Main Arc"
-# campaigns = ["dali", "dali_outside"]              # campaign FOLDERS beside this file (fork them first)
-# entry = { campaign = "dali", field = "WAKEUP" }   # land inside the first campaign (a member NAME)
-#
-# [[journey.link]]                                  # one per boundary (N campaigns -> N-1 links)
-# from = { campaign = "dali", field = "EXIT" }      # the boundary member you leave from
-# to = { campaign = "dali_outside", field = "ARRIVAL", entrance = 0 }
-#
-# [journey.seed]                                    # the New-Game starting state (the story_flags capstone)
-# scenario = 2600
-# party = ["Zidane", "Vivi"]
-'''
+def _render_journey_toml(*, hub_name, hub_id, borrow_bg, jid, jname, kind="bare", entry=4100,
+                         scenario=None, campaigns=None) -> str:
+    """Render a New-Journey journeys.toml from the dialog's choices. ``kind='bare'`` -> a COMPLETE,
+    ready-to-build file (the hub warps to one field). ``kind='multi'`` -> the hub + first journey filled in,
+    with a placeholder entry + a commented links/seed block (those need member names from forked campaigns).
+    Always loads (the schema is valid); a multi template's missing campaign folders surface as a helpful
+    'fork the campaigns first' note in the overview/lint -- onboarding, not a crash."""
+    L = ["# A JOURNEY = one playable arc the World Hub selects + warps into. The hub is a small BG-borrow",
+         "# field that shows a menu; each journey seeds its story state and warps in. docs/JOURNEYS.md.",
+         "",
+         "[hub]",
+         f'name = "{_toml_str(hub_name)}"      # the World-Hub field\'s display name',
+         f"id = {int(hub_id)}                  # the hub field id (custom band, >= 4000)",
+         f'borrow_bg = "{_toml_str(borrow_bg)}"   # a real field whose art the hub reuses (`ff9mapkit list-fields`)',
+         "",
+         "[[journey]]",
+         f'id = "{_toml_str(jid)}"           # a stable slug -- the hub-choice key (A-Z, 0-9, _)',
+         f'name = "{_toml_str(jname)}"       # the label shown on the hub menu']
+    if kind == "bare":
+        L.append(f"entry = {int(entry)}              # the field id the hub warps straight into")
+        if scenario is not None:
+            L.append(f"set_scenario = {int(scenario)}        # seed this story beat before warping in")
+    else:
+        folders = [f for f in (campaigns or []) if f] or ["campaign_folder"]
+        clist = ", ".join(f'"{_toml_str(f)}"' for f in folders)
+        L += [f"campaigns = [{clist}]   # campaign FOLDERS beside this file (fork them first: import-chain)",
+              f'entry = {{ campaign = "{_toml_str(folders[0])}", field = "ENTRY_MEMBER" }}   '
+              "# CHANGE: the member you start in",
+              "",
+              "# One link per campaign boundary (N campaigns -> N-1 links). Uncomment + fill in the members:",
+              "# [[journey.link]]",
+              f'# from = {{ campaign = "{_toml_str(folders[0])}", field = "BOUNDARY_MEMBER" }}',
+              '# to = { campaign = "NEXT_FOLDER", field = "ARRIVAL_MEMBER", entrance = 0 }',
+              "",
+              "# The New-Game starting state (the story_flags capstone). Uncomment + edit:",
+              "# [journey.seed]",
+              "# scenario = 2600",
+              '# party = ["Zidane", "Vivi"]']
+    return "\n".join(L) + "\n"
 
 
 def _coord_like(s) -> bool:
@@ -734,9 +735,11 @@ class Workspace(QMainWindow):
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't create the campaign"),
                                 [fb.Problem(fb.ERROR, str(e))])
 
-    def _new_journey(self, name, dest):
-        """Write a COMMENTED onboarding journeys.toml (the schema is the hardest to author by hand) + open it.
-        Returns the journeys.toml path. Raises ValueError on an empty name or an existing manifest."""
+    def _new_journey(self, name, dest, *, kind="bare", hub_id=4600, borrow_bg="N11_HUT", jid="intro",
+                     jname="Intro", entry=4100, scenario=None, campaigns=None):
+        """Write a journeys.toml from the New-Journey choices (`_render_journey_toml`) + open it. ``kind='bare'``
+        = a complete file; ``kind='multi'`` = hub + first journey filled in, links/seed left to fill. Returns
+        the path. Raises ValueError on an empty name or an existing manifest."""
         name = str(name).strip()
         if not name:
             raise ValueError("a hub / journey name is required")
@@ -745,32 +748,89 @@ class Workspace(QMainWindow):
         if jpath.exists():
             raise ValueError(f"a journeys.toml already exists in {dest} — choose another folder")
         dest.mkdir(parents=True, exist_ok=True)
-        jpath.write_text(_JOURNEY_TEMPLATE.replace("__HUB_NAME__", _toml_str(name)),
+        jpath.write_text(_render_journey_toml(hub_name=name, hub_id=hub_id, borrow_bg=borrow_bg or "N11_HUT",
+                                              jid=jid or "intro", jname=jname or "Intro", kind=kind,
+                                              entry=entry, scenario=scenario, campaigns=campaigns),
                          encoding="utf-8", newline="\n")
         self._last_new_dir = str(dest)
         self.open_journey(jpath)
         return jpath
 
     def on_new_journey(self):
-        """New Journey… dialog -> scaffold a commented journeys.toml template + open it."""
+        """New Journey… dialog: pick Bare vs Multi-campaign + the hub / first-journey values, so the generated
+        journeys.toml has REAL values (not placeholders) and the dialog itself shows what a journey IS."""
         dlg = QDialog(self)
         dlg.setWindowTitle("New journey")
         form = QFormLayout(dlg)
+        bare_rb = QRadioButton("Bare — the hub warps straight to ONE field")
+        multi_rb = QRadioButton("Multi-campaign arc — chain forked campaigns")
+        bare_rb.setChecked(True)
+        grp = QButtonGroup(dlg)
+        grp.addButton(bare_rb)
+        grp.addButton(multi_rb)
+        trow = QWidget()
+        tl = QVBoxLayout(trow)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.addWidget(bare_rb)
+        tl.addWidget(multi_rb)
+        form.addRow("Type", trow)
         name = QLineEdit()
         name.setPlaceholderText("My Hub")
         dest = QLineEdit(self._default_new_dest())
+        hub_id = QLineEdit("4600")
+        borrow = QLineEdit("N11_HUT")
+        jid = QLineEdit("intro")
+        jname = QLineEdit("Intro")
         form.addRow("Hub name", name)
         form.addRow("Folder", self._dir_row(dest, "Choose a folder for the journeys.toml"))
-        note = QLabel("Writes a <b>commented template</b> (a [hub], a bare journey, and a multi-campaign "
-                      "example) you fill in, then opens it. List campaign folders you've already forked.")
+        form.addRow("Hub field id", hub_id)
+        form.addRow("Hub art (borrow a real field)", borrow)
+        form.addRow("First journey id", jid)
+        form.addRow("First journey name", jname)
+        entry = QLineEdit("4100")
+        scenario = QLineEdit()
+        scenario.setPlaceholderText("optional story beat")
+        campaigns = QLineEdit()
+        campaigns.setPlaceholderText("dali, dali_outside   (folders you've forked)")
+        bare_panel, bl = QWidget(), None
+        bl = QFormLayout(bare_panel)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.addRow("Entry field id", entry)
+        bl.addRow("Scenario", scenario)
+        multi_panel = QWidget()
+        ml = QFormLayout(multi_panel)
+        ml.setContentsMargins(0, 0, 0, 0)
+        ml.addRow("Campaign folders", campaigns)
+        stack = QStackedWidget()
+        stack.addWidget(bare_panel)
+        stack.addWidget(multi_panel)
+        form.addRow(stack)
+        note = QLabel()
         note.setStyleSheet(f"color:{self.pal['muted']};")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
+
+        def _toggle():
+            bare = bare_rb.isChecked()
+            stack.setCurrentIndex(0 if bare else 1)
+            note.setText("A <b>complete</b>, ready-to-build journeys.toml — the hub menu warps straight to "
+                         "your entry field." if bare else
+                         "Fork the campaigns first (<code>ff9mapkit import-chain</code>). This writes the hub "
+                         "+ journey with the entry/links/seed <b>left to fill in</b> against your members.")
+        bare_rb.toggled.connect(_toggle)
+        _toggle()
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
+        kind = "bare" if bare_rb.isChecked() else "multi"
         try:
-            self._new_journey(name.text(), dest.text().strip() or self._default_new_dest())
+            self._new_journey(
+                name.text(), dest.text().strip() or self._default_new_dest(), kind=kind,
+                hub_id=int(hub_id.text() or 4600), borrow_bg=borrow.text().strip() or "N11_HUT",
+                jid=jid.text().strip() or "intro", jname=jname.text().strip() or "Intro",
+                entry=int(entry.text() or 4100),
+                scenario=int(scenario.text()) if (kind == "bare" and scenario.text().strip()) else None,
+                campaigns=[c.strip() for c in campaigns.text().split(",") if c.strip()] if kind == "multi" else None)
         except (ValueError, OSError) as e:
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't create the journey"),
                                 [fb.Problem(fb.ERROR, str(e))])
@@ -3372,11 +3432,17 @@ def _smoke(win):
     plabels = [e[0] for e in win._command_index()]
     assert {"New Field…", "New Campaign…", "Add field to campaign…"} <= set(plabels), plabels
     _newcamp_members = len(win.plan.members)               # captured for the summary (journey mode clears win.plan)
-    # New Journey writes a COMMENTED onboarding template journeys.toml + opens it (journey mode)
-    jnew = win._new_journey("My Hub", d / "jnew")
-    assert jnew.exists() and win.manifest is not None and win.journey_name == "My Hub"
-    jtext = jnew.read_text(encoding="utf-8")
-    assert "[hub]" in jtext and "[[journey]]" in jtext and "import-chain" in jtext, "the template teaches the schema"
+    # New Journey -- BARE = a COMPLETE ready file (hub warps to one field); MULTI = hub + journey with the
+    # entry/links/seed left to fill in. Both open into journey mode; the dialog's choices become real values.
+    jbare = win._new_journey("My Hub", d / "jnew", kind="bare", hub_id=4600, entry=4100)
+    assert jbare.exists() and win.manifest is not None and win.journey_name == "My Hub"
+    bt = jbare.read_text(encoding="utf-8")
+    assert "[hub]" in bt and 'id = "intro"' in bt and "entry = 4100" in bt and "campaigns" not in bt, bt
+    jmulti = win._new_journey("Arc Hub", d / "jmulti", kind="multi", campaigns=["dali", "outside"])
+    assert jmulti.exists() and win.manifest is not None and win.journey_name == "Arc Hub"
+    mt = jmulti.read_text(encoding="utf-8")
+    assert 'campaigns = ["dali", "outside"]' in mt and 'campaign = "dali"' in mt, mt
+    assert "[[journey.link]]" in mt and "import-chain" in mt, "the multi file shows the links + the fork-first step"
     try:                                                   # clobber guard: an existing manifest is refused
         win._new_journey("Again", d / "jnew")
         assert False, "an existing journeys.toml should be refused"
