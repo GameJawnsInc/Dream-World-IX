@@ -57,6 +57,21 @@ def test_build_wires_hide_area_title_from_field_block(tmp_path):
     assert ops2[0] != (SHOWTILE, [46, 0])
 
 
+def test_native_synth_fork_suppresses_verbatim_keeps():
+    # a synth (non-verbatim) native/editable fork of an area-title room would show the card STATICALLY
+    # (no donor .eb to fade it) -> auto-emit hide_area_title; a verbatim fork carries the real fade -> keep.
+    from ff9mapkit.extract import _area_title_hide_lines
+    from ff9mapkit import areatitle
+    mognet = {"area": 56, "mapid": "MGNT_MAP810_MN_MOG_0"}
+    assert _area_title_hide_lines(mognet, verbatim=True) == ""        # verbatim: donor .eb owns the show+fade
+    assert _area_title_hide_lines(None) == ""                         # no meta -> nothing
+    if not areatitle._manifest(None):
+        pytest.skip("area-title manifest not reachable (no install / UnityPy)")
+    out = _area_title_hide_lines(mognet)                              # synth native fork of Mognet Central
+    assert "hide_area_title = true" in out and "area_title_overlays = [46, 47]" in out
+    assert _area_title_hide_lines({"area": 99, "mapid": "NOT_A_REAL_FIELD_0"}) == ""     # a no-title room
+
+
 def test_manifest_reader_overlay_ranges():
     # needs the user's install (resources.assets via UnityPy) -- skip if unreachable.
     from ff9mapkit import areatitle

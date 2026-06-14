@@ -1425,6 +1425,28 @@ def _walkmesh_hotfix_line(field) -> str:
             f"# (engine BGI_triSetActive keyed on real fldMapNo {h.field_id} is lost on a custom id; {h.source})\n")
 
 
+def _area_title_hide_lines(meta, *, verbatim=False) -> str:
+    """For a SYNTH (non-verbatim) native/editable fork of an AREA-TITLE field, auto-emit ``hide_area_title``
+    + the overlay range so the inherited title card doesn't sit STATIC. The title overlays are active-by-
+    default in the donor scene the fork ships; a synth fork has no donor ``.eb`` to run the show+fade, so the
+    card would just sit there claiming to be that place (the same leak the World Hub's BG-borrow hit). A
+    ``--verbatim`` fork CARRIES the donor ``.eb``'s scenario-gated show+fade, so it is left alone (the title is
+    correct + wanted there). ``""`` when the field has no area title / the manifest is unreachable (offline).
+    Reuses the proven hub mechanism (``content.areatitle`` via the ``[field] hide_area_title`` build hook)."""
+    if verbatim or not meta:
+        return ""
+    from . import areatitle as _at
+    fbg = f"FBG_N{int(meta['area']):02d}_{meta['mapid']}"
+    rng = _at.title_range(fbg)
+    if not rng:
+        return ""
+    s, e = rng
+    return (f"# this synth fork borrows an area-title room ({fbg}); with no donor .eb to fade the card it would\n"
+            f"# sit STATIC, so hide it (use --verbatim to keep the real, scenario-gated show+fade instead):\n"
+            f"hide_area_title = true\n"
+            f"area_title_overlays = [{s}, {e}]\n")
+
+
 def write_editable_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                            text_block: int = 1073, game=None, bundle=None,
                            id_remap=None, live_seams=False, graft_player_funcs=False, carry_text=False,
@@ -1524,7 +1546,8 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f'name = "{name}"\n'
         f"area = {safe_area}\n"
         f"text_block = {text_block}\n"
-        f"{_walkmesh_hotfix_line(field)}\n"
+        f"{_walkmesh_hotfix_line(field)}"
+        f"{_area_title_hide_lines(meta)}\n"
         f"[camera]\n"
         f'borrow = "camera.bgx"\n'
         f"{control_line}"
@@ -1782,6 +1805,7 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         f"area = {safe_area}\n"
         f"text_block = {text_block}\n"
         f"{_walkmesh_hotfix_line(field)}"
+        f"{_area_title_hide_lines(meta, verbatim=verbatim)}"
         f'bgs = "scene.bgs.bytes"   # NATIVE scene (per-tile depth) -> seamless render, NO .bgx / no tile seams\n'
         f'atlas = "atlas.png"\n'
         + ('mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights + shadows) for 3D models\n'
