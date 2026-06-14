@@ -2233,19 +2233,27 @@ class Workspace(QMainWindow):
                 actor = obj.get("actor")               # build: an actor must be a defined [[npc]] (build.py:1112)
                 if isinstance(actor, str) and actor.strip() and actor not in seen["npc"]:
                     warn(f"no NPC named '{actor}' for the actor")
-                # a walk/teleport string target resolves against markers + NPCs + player/spawn (build's
-                # _resolve_point registry; a leading @ is optional, a [x, z] list / "x, z" coords pass).
+                # a movement target resolves against markers + NPCs + player/spawn (build's _resolve_point
+                # registry; a leading @ is optional, a [x, z] list / "x, z" coords pass). Applies to a single
+                # walk/teleport target AND every string waypoint of a path route (build.py:1097-1111).
                 targets = seen["marker"] | seen["npc"] | {"player", "spawn"}
+
+                def bad_target(tgt):
+                    if not (isinstance(tgt, str) and tgt.strip()) or _coord_like(tgt):
+                        return False                   # a coord [x,z] / "x, z" or a non-string passes
+                    nm = tgt.strip()
+                    return (nm[1:] if nm.startswith("@") else nm) not in targets
+
                 for st in (obj.get("steps", []) or []):
                     if not isinstance(st, dict):
                         continue
-                    for skey in ("walk", "teleport"):
-                        tgt = st.get(skey)
-                        if isinstance(tgt, str) and tgt.strip() and not _coord_like(tgt):
-                            nm = tgt.strip()
-                            nm = nm[1:] if nm.startswith("@") else nm
-                            if nm not in targets:
-                                warn(f"{skey} target '{tgt}' isn't a marker/NPC in this field")
+                    for skey in ("walk", "teleport"):   # a single movement target
+                        if bad_target(st.get(skey)):
+                            warn(f"{skey} target '{st[skey]}' isn't a marker/NPC in this field")
+                    if isinstance(st.get("path"), list):    # a route: every string waypoint resolves too
+                        for elem in st["path"]:
+                            if bad_target(elem):
+                                warn(f"path waypoint '{elem}' isn't a marker/NPC in this field")
         except Exception:                              # noqa: BLE001 -- a predicate quirk must never break inspect
             return out
         return out
@@ -2657,6 +2665,10 @@ def _smoke(win):
     assert win._node_problems("cutscene", {"steps": [{"teleport": "@player"}]}, "IC_ENT") == [], "@player target clean"
     assert win._node_problems("cutscene", {"steps": [{"walk": "nomarker"}]}, "IC_ENT"), "an unknown walk target warns"
     assert win._node_problems("cutscene", {"steps": [{"walk": "10, -20"}]}, "IC_ENT") == [], "coords aren't a name ref"
+    # a 'path' route validates EACH string waypoint the same way (mirrors build.py:1103); coord elems pass
+    assert win._node_problems("cutscene", {"steps": [{"path": ["spot1", "Ref", [10, -20]]}]}, "IC_ENT") == [], \
+        "a path of known waypoints + coords is clean"
+    assert win._node_problems("cutscene", {"steps": [{"path": ["spot1", "sopt2"]}]}, "IC_ENT"), "a typo'd waypoint warns"
     (d / "IC_ENT" / "IC_ENT.scene.toml").unlink()                    # clean up the scene sibling
     pdoc.data["npc"].pop()                                           # drop the Ref NPC
     # a malformed inline entry (a bare string where a table is expected) inspects safely, no crash
