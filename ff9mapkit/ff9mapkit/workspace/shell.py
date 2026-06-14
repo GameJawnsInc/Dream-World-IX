@@ -684,9 +684,9 @@ class Workspace(QMainWindow):
         self._load_objects(mi)
         mi.setExpanded(True)
 
-    def _object_item(self, member, key):
-        """The QTreeWidgetItem for object ``key`` (e.g. 'npc:2') under ``member``, or None (walks the
-        member's loaded object subtree). Used to locate a row by key -- never assume it's the selection."""
+    def _object_item(self, member, key, kind="object"):
+        """The QTreeWidgetItem of ``kind`` ('object'|'group') with ``key`` under ``member``, or None (walks
+        the member's loaded subtree). Locates a row by key -- never assume it's the selection."""
         mi = getattr(self, "_member_items", {}).get(member)
         if mi is None:
             return None
@@ -694,7 +694,7 @@ class Workspace(QMainWindow):
         while stack:
             it = stack.pop()
             p = self._payload(it)
-            if p and p[0] == "object" and p[2] == key:
+            if p and p[0] == kind and p[2] == key:
                 return it
             stack += [it.child(i) for i in range(it.childCount())]
         return None
@@ -705,6 +705,51 @@ class Workspace(QMainWindow):
         if it is not None:
             self.tree.setCurrentItem(it)
             self.tree.scrollToItem(it)
+
+    def _confirm(self, title, text):
+        """A yes/no confirm (the smoke stubs this). Destructive actions gate on it."""
+        return QMessageBox.question(self, title, text) == QMessageBox.StandardButton.Yes
+
+    def _delete_object(self, member, section, *, single, idx=None, label="item"):
+        """Remove a list entity (``single=False``, by ``idx``) or a whole single section (``single=True``)
+        from ``member``, write the file, refresh the tree, and land on the parent group/section."""
+        if not self._confirm(f"Delete {label}",
+                             f"Delete this {label} from {member}? This writes {self.member_paths[member].name}."):
+            return
+        reason = protected_reason(self.member_paths[member])      # don't delete out of a bundled/golden file
+        if reason:
+            self._show_problems(fb.Verdict(fb.ERROR, "Can't delete here"),
+                                [fb.Problem(fb.ERROR, f"{reason}. Edit a copy in a folder of your own.")])
+            return
+        doc = self._doc(member)
+        if single:
+            doc.data.pop(section, None)
+        else:
+            lst = doc.data.get(section, [])
+            if idx is None or idx >= len(lst):
+                return
+            lst.pop(idx)
+            if not lst:
+                doc.data.pop(section, None)                        # drop an emptied list (no bare [[npc]])
+        try:
+            doc.save()
+        except Exception as e:                                     # noqa: BLE001
+            self._show_problems(fb.Verdict(fb.ERROR, "Delete failed"), [fb.Problem(fb.ERROR, str(e))])
+            return
+        self._mark_clean(member)
+        self._save_ctx = None                                     # the deleted thing's form is gone
+        self.tree.blockSignals(True)
+        self._refresh_objects(member)
+        self.tree.blockSignals(False)
+        # land on the parent: the list's group (updated count) or the single's (now-dim) section node
+        node = self._object_item(member, section, kind="group") if not single \
+            else self._object_item(member, section)
+        if node is not None:
+            self.tree.setCurrentItem(node)                        # fires _on_select -> mounts that view
+        else:
+            self._doc_placeholder(f"Deleted {label}.")
+        self._show_problems(fb.Verdict(fb.OK, f"Deleted {label} from {member}",
+                                       f"wrote {self.member_paths[member].name}"), [])
 
     def _pick(self, catalog, current):
         """``build_form``'s picker: open the Qt catalog picker over the open campaign's context."""
@@ -743,13 +788,31 @@ class Workspace(QMainWindow):
         self.doc_host_lay.addWidget(form)
         self._save_ctx = {"member": member, "key": key, "spec": spec, "getters": getters,
                           "single": single, "section": section, "idx": idx}
-        self._add_save(self._save)
+        delete = None
+        if not single:                                         # a list entity (npc/gateway/event/marker)
+            lbl = _LIST_SINGULAR.get(section, section)
+            delete = (f"Delete {lbl}",
+                      lambda: self._delete_object(member, section, single=False, idx=idx, label=lbl))
+        elif section != "field" and section in self._doc(member).data:   # an OPTIONAL single that exists
+            delete = (f"Remove {section}",
+                      lambda: self._delete_object(member, section, single=True, label=section))
+        self._add_save(self._save, delete)
 
-    def _add_save(self, handler):
+    def _add_save(self, handler, delete=None):
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
         save = QPushButton("Save")
         save.setObjectName("accent")
         save.clicked.connect(lambda _=False: handler())
-        self.doc_host_lay.addWidget(save, alignment=Qt.AlignLeft)
+        row.addWidget(save)
+        if delete is not None:                                 # (label, callback) -> a Delete/Remove button
+            db = QPushButton(delete[0])
+            db.clicked.connect(lambda _=False, cb=delete[1]: cb())
+            row.addWidget(db)
+        row.addStretch(1)
+        holder = QWidget()
+        holder.setLayout(row)
+        self.doc_host_lay.addWidget(holder)
         self.doc_host_lay.addStretch(1)
         # NB: mounting a form no longer steals the active tab -- single-click selection stays put
         # (you reach the Editor via the tab or a double-click; see _on_tree_double).
@@ -1032,7 +1095,11 @@ class Workspace(QMainWindow):
         on_type()
         self._save_ctx = {"member": member, "key": "cutscene", "spec": forms.CUTSCENE_SPEC,
                           "getters": getters, "single": True, "section": "cutscene", "idx": None}
-        self._add_save(lambda: self._commit(member, "cutscene", forms.CUTSCENE_SPEC, getters, single=True))
+        delete = (("Remove cutscene", lambda: self._delete_object(member, "cutscene", single=True,
+                                                                  label="cutscene"))
+                  if "cutscene" in doc.data else None)         # only when it actually exists (lazy)
+        self._add_save(
+            lambda: self._commit(member, "cutscene", forms.CUTSCENE_SPEC, getters, single=True), delete)
 
     def _mount_choice(self, member, idx):
         doc = self._doc(member)
@@ -1120,7 +1187,9 @@ class Workspace(QMainWindow):
         self._save_ctx = {"member": member, "key": f"choice:{idx}", "spec": forms.CHOICE_SPEC,
                           "getters": getters, "single": False, "section": "choice", "idx": idx}
         self._add_save(lambda: self._commit(member, "choice", forms.CHOICE_SPEC, getters,
-                                            single=False, idx=idx, key=f"choice:{idx}"))
+                                            single=False, idx=idx, key=f"choice:{idx}"),
+                       ("Delete choice", lambda: self._delete_object(member, "choice", single=False,
+                                                                     idx=idx, label="choice")))
 
     def _inspect(self, item, payload, field):
         if payload is None:
@@ -1360,6 +1429,19 @@ def _smoke(win):
     assert win._doc("IC_ENT").data["gateway"][-1]["to"] == 100 and win._save_ctx["section"] == "gateway"
     win._add_list_item("IC_ENT", "choice")             # a choice routes to the choice sub-editor
     assert win._doc("IC_ENT").data["choice"][-1]["prompt"] == "What'll it be?"
+    # DELETE a list entity: removes it, writes the file, refreshes the tree, lands on the group
+    win._confirm = lambda *a: True                     # stub the destructive confirm (headless)
+    n_after_add = len(win._doc("IC_ENT").data["npc"])
+    win._delete_object("IC_ENT", "npc", single=False, idx=n_after_add - 1, label="NPC")
+    assert len(win._doc("IC_ENT").data["npc"]) == n_after_add - 1, "the NPC was removed"
+    assert win._payload(win.tree.currentItem())[0] == "group"            # landed on the NPCs group
+    win._delete_object("IC_ENT", "gateway", single=False, idx=0, label="Gateway")
+    assert "gateway" not in win._doc("IC_ENT").data, "an emptied list drops its key"
+    win._confirm = lambda *a: False                    # a declined confirm deletes nothing
+    keep = len(win._doc("IC_ENT").data["npc"])
+    win._delete_object("IC_ENT", "npc", single=False, idx=0, label="NPC")
+    assert len(win._doc("IC_ENT").data["npc"]) == keep, "a declined delete leaves the list intact"
+    win._confirm = lambda *a: True
     # the Qt form renderer round-trips through build_entity (the SAME parser as the tkinter editor)
     sample = {"name": "Vivi", "preset": "vivi", "dialogue": "hi"}
     _w, _g = build_form(forms.NPC_SPEC, forms.entity_to_values(forms.NPC_SPEC, sample), win.pal)
