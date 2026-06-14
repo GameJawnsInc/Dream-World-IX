@@ -158,7 +158,8 @@ class Workspace(QMainWindow):
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
         self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
-        self._root_items = []                                 # campaign/journey roots (roll-up dot target)
+        self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon for clean rows,
+        self._root_items = []                                 # so toggling the dot never resizes/shifts a row
         self._build_toolbar()
         self._build_central()
         self._build_dock()
@@ -409,6 +410,7 @@ class Workspace(QMainWindow):
         self._member_items[name] = mi
         mi.addChild(self._mk("__lazy__", "loading…"))   # lazy object load on expand (same as a member)
         mi.setExpanded(True)
+        self._refresh_dirty_marks()                     # reserve the icon slot from the first paint
 
     def open_campaign(self, path) -> bool:
         if not self._maybe_prompt_unsaved():
@@ -488,6 +490,7 @@ class Workspace(QMainWindow):
             camp.addChild(mi)
             self._member_items[node.name] = mi
             mi.addChild(self._mk("__lazy__", "loading…"))   # placeholder -> lazy object load on expand
+        self._refresh_dirty_marks()                         # reserve the icon slot from the first paint
 
     # ---- lazy object load ----
     def _on_expand(self, item):
@@ -553,16 +556,18 @@ class Workspace(QMainWindow):
 
     @staticmethod
     def _make_dot_icon(color):
-        """A small filled circle QIcon in ``color`` -- the unsaved-changes dot (coloured independently of
-        the row text, drawn at the row's icon slot)."""
+        """A 12px QIcon: a filled circle in ``color`` (the unsaved dot), or a TRANSPARENT same-size icon
+        when ``color`` is None -- a non-null blank icon still reserves the row's icon slot, so swapping it
+        for the dot never resizes or horizontally shifts the row."""
         pm = QPixmap(12, 12)                        # matches the tree iconSize so it isn't scaled/blurred
         pm.fill(QColor(0, 0, 0, 0))
-        p = QPainter(pm)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(color))
-        p.drawEllipse(2, 2, 8, 8)
-        p.end()
+        if color is not None:
+            p = QPainter(pm)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(color))
+            p.drawEllipse(2, 2, 8, 8)
+            p.end()
         return QIcon(pm)
 
     def _refresh_dirty_marks(self):
@@ -570,12 +575,11 @@ class Workspace(QMainWindow):
         in-progress); roll it up to the campaign/journey root and the window title so unsaved work is
         visible even when the member rows are collapsed or scrolled away."""
         unsaved = self._unsaved()
-        blank = QIcon()
         for name, mi in getattr(self, "_member_items", {}).items():
-            mi.setIcon(0, self._dot_icon if name in unsaved else blank)
+            mi.setIcon(0, self._dot_icon if name in unsaved else self._blank_icon)
         any_unsaved = bool(unsaved)
         for root in getattr(self, "_root_items", []):
-            root.setIcon(0, self._dot_icon if any_unsaved else blank)
+            root.setIcon(0, self._dot_icon if any_unsaved else self._blank_icon)
         self.setWindowTitle("FF9 Map Kit — Workspace" + ("  •" if any_unsaved else ""))
         self._refresh_save_button()
 
@@ -1719,18 +1723,20 @@ def _smoke(win):
     win.tree.setCurrentItem(ent_item)                                   # select the NPC, then press Delete
     win._delete_selected()
     assert len(win._doc("IC_ENT").data.get("npc", [])) == before_del - 1, "the Delete key removed the NPC"
-    # EDITING POLISH -- (1) unsaved-dot icon: touching a member dots its tree row; saving clears it
+    # EDITING POLISH -- (1) unsaved-dot icon: touching a member dots its tree row; saving clears it. Clean
+    # rows carry a TRANSPARENT same-size icon (not a null one) so the dot never resizes/shifts the row.
+    is_dot = lambda it: it.icon(0).cacheKey() == win._dot_icon.cacheKey()        # noqa: E731
     win._mark_clean("IC_ENT")                          # known-clean baseline
     mi_ic = win._member_items["IC_ENT"]
-    assert mi_ic.icon(0).isNull(), "a clean member shows no unsaved-dot icon"
+    assert not mi_ic.icon(0).isNull() and not is_dot(mi_ic), "a clean member reserves the slot (blank icon)"
     win._touch("IC_ENT")
-    assert not mi_ic.icon(0).isNull(), "an edited member shows the unsaved-dot icon"
+    assert is_dot(mi_ic), "an edited member shows the unsaved-dot icon"
     # roll-up: the campaign root + the window title also reflect unsaved work (visible when collapsed)
-    assert win._root_items and not win._root_items[0].icon(0).isNull(), "the campaign root rolls up the dot"
+    assert win._root_items and is_dot(win._root_items[0]), "the campaign root rolls up the dot"
     assert win.windowTitle().endswith("•"), "the window title marks unsaved work"
     win._mark_clean("IC_ENT")
-    assert mi_ic.icon(0).isNull(), "saving clears the unsaved-dot icon"
-    assert win._root_items[0].icon(0).isNull() and not win.windowTitle().endswith("•"), "root + title clear"
+    assert not is_dot(mi_ic), "saving clears the unsaved-dot (back to the blank icon)"
+    assert not is_dot(win._root_items[0]) and not win.windowTitle().endswith("•"), "root + title clear"
     # (2) reverting a value to its original clears the in-progress dot (no save needed)
     win._open_editor("IC_ENT", "field", "field")
     id_w = win._save_ctx["getters"]["id"].__self__     # the id QLineEdit behind the field form
@@ -1750,7 +1756,7 @@ def _smoke(win):
     win._doc("IC_ENT").data.setdefault("field", {})["area"] = 12
     assert "IC_ENT" in win._dirty_members()
     win._save_all()
-    assert "IC_ENT" not in win._dirty_members() and win._member_items["IC_ENT"].icon(0).isNull(), \
+    assert "IC_ENT" not in win._dirty_members() and not is_dot(win._member_items["IC_ENT"]), \
         "Save All wrote the field + cleared its dot"
     assert _tl_sa.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))["field"]["area"] == 12
     assert "Save All fields" in [e[0] for e in win._command_index()]
