@@ -134,10 +134,11 @@ FF9 has **two real ATE flavors**, and they ARE distinguished by the mode byte:
 > `SetSpriteVisibility`, so a Gray icon shows no press glyph. Force-showing a Blue ATE (mode 5) therefore wrongly
 > invites a button press during an auto-play — which is exactly the artifact a mode-5 test produced.
 
-> **The real forced-vs-interactive discriminator is STRUCTURAL, not the mode byte** (both arm with mode 1): a
-> *forced* ATE auto-runs its cutscene body under a `DisableMove..EnableMove` lock with **no** `winATE` menu window
-> in its arming entry (field 1901: arm in Main_Init, body in entry-1 under lock); an *interactive* hub opens a
-> `winATE(64)` menu (the mode-5 op in 206) and branches on the player's `SELECT`.
+> **The forced-vs-interactive discriminator IS the mode byte** (corrected — an earlier draft here guessed it was
+> "structural, both mode 1"): `mode 1` = Blue/OPTIONAL (a Press-SELECT menu hub — arm in `Main_Init`, the
+> `winATE(64)` menu in a later entry; e.g. 1901 Eiko, 552 Lindblum, 206), `mode 6` = Gray/FORCED (auto-plays under
+> a `DisableMove..EnableMove` lock, no menu, grey HUD banner; e.g. 956 Gargant). **Field 1901 is a mode-1 OPTIONAL
+> hub, NOT forced** — the earlier read saw only its `Main_Init` arm and missed the entry-1 Eiko menu.
 
 ---
 
@@ -191,17 +192,19 @@ node (`JsonParser.cs:1632-1635` save / `:1720-1726` load). The kit already docum
 Encoding: `0xD7` + a 1-byte argFlag (`0x00` = immediate) + one 1-byte operand ⇒ **`d7 00 mm` decodes to
 `ATE(mm)`** (3-byte instruction).
 
-### Flavor A — Compulsory / auto ATE (plays at a scenario beat, no menu)
-**Field 1901 `EVT_TRENO2_TR_BHE_0` (Eiko ATE)**:
-```
-[688] ATE(0)   ; d7 00 00 — hide icon while a prior scene runs
-[804] ATE(1)   ; d7 00 01 — ENABLE icon (Blue/new); this beat's ATE
- ...           ;            the cutscene plays as ordinary event code
-[873] ATE(0)   ; d7 00 00 — disable once consumed
-```
-The `ATE(1) → ATE(0)` enable/disable **bracket**, with no `GetChoose`+`op_0B` menu wired to those ops.
-*(Caveat: field 1901 contains unrelated flag-64 windows + `op_0B` + `GetChoose` elsewhere — Treno town dialogue/
-shops. "No winATE menu" is true only of the ATE bracket region.)*
+### Flavor A — Compulsory / auto ATE (grey, unskippable, no menu)
+The real forced flavor is **mode 6 (Gray + force-show)**: the field brackets its cutscene body `ATE(6) … ATE(0)`
+and plays it under a `DisableMove..EnableMove` lock with a `winATE(64)` caption and NO menu — the bottom-left grey
+"ACTIVE TIME EVENT" banner blinks throughout (`ActiveTimeEvent.cs`). 45 real fields do this; e.g. **field 956
+(Gargant)**, reproduced in-game as a `--verbatim` fork (§7, slot 30010, armed by `[startup] scenario = 7006`).
+
+> **Correction (2026-06-13).** An earlier draft put **field 1901 `EVT_TRENO2_TR_BHE_0` (Eiko)** here as the
+> "compulsory, no menu" anchor. That was wrong — 1901 is a **mode-1 OPTIONAL Press-SELECT menu hub** (Flavor B):
+> the **Eiko ATE menu** (a `winATE` list + `GetChoose` + `op_0B` jump table, in the body entry). The earlier
+> teardown looked only at 1901's `Main_Init` ATE(1) arm (the `[804] ATE(1) … [873] ATE(0)` bracket) and misread
+> "no menu = forced"; the menu lives in the body entry like every hub, and the `op_0B`/`GetChoose` it dismissed as
+> "unrelated Treno shops" IS that Eiko menu. (The intermediate guesses `mode 6 = transition fade` and "no real
+> field forces a winATE cutscene" were also wrong — see §4: mode 6 is the grey unskippable, 45 real fields.)
 
 ### Flavor B — Interactive "Press SELECT → pick one" menu (the canonical hub)
 **Field 206 `EVT_DOWNSHIP_BT_FRT_0` (Prima Vista crash site)**:
@@ -242,8 +245,9 @@ the exact `op_0B(0,1201,15,238,472,703,934)` and the `op_06(122, 1900→, 2005�
   (`collect_text` → `_apply_ate`). `tests/test_ate.py`. *(The `0x8000` high bit on the field-100
   `EnableDialogChoices` mask is still unexplained — not needed by the synth path.)*
   **Both ATE flavors are now authorable:** the interactive menu above (`[ate]`) AND the **compulsory /
-  auto-advance** flavor (`[cutscene] ate = true` — the `ATE(mode)…ATE(0)` bracket + `winATE` caption,
-  mirroring field 1901; `content/cutscene.py`). Offline-proven (`tests/test_ate.py`); not yet playtested.
+  auto-advance** flavor (`[cutscene] ate = true` — the `ATE(mode)…ATE(0)` bracket + `winATE` caption, mirroring
+  the real grey **mode-6** fields like 956 Gargant — NOT field 1901, which is an optional menu hub;
+  `content/cutscene.py`). Offline-proven (`tests/test_ate.py`); not yet playtested.
 - **Disassembler under-naming gaps (quality-of-life):** `ATE(mode)` prints the raw int (no Blue/Gray/force
   meaning); `op_0B` shows raw with no branch-target annotation; inline `op7A(9)` isn't surfaced as
   `GetChoose`/`B_SYSVAR(9)`.
@@ -334,8 +338,9 @@ either a **verbatim fork onto a *real* field id** (parasitic on the real `Mappin
 - **Cold-reproduced REAL ATE** — a `--verbatim` Lindblum-552 fork, `[startup] scenario = 3115` + `words =
   [{byte = 236, value = 0x0F}]`, text block 276 → **slot 30006**: boots straight into the real **Small-Town Knight**
   ATE menu (4 real rows, real text, centered real window). The avail-word seed is the whole trick.
-- The earlier compulsory (1901 Eiko) / interactive (206) `--verbatim` forks confirmed `--verbatim` *carries* the
-  bytes but a cold scenario-only fork doesn't *arm* — that's the avail-word, now solved (above).
+- The earlier `--verbatim` forks of two real menu hubs (1901 Eiko, 206 Prima Vista — both mode-1 OPTIONAL, not
+  compulsory) confirmed `--verbatim` *carries* the bytes but a cold scenario-only fork doesn't *arm* — that's the
+  avail-word, now solved (above).
 - Not yet observed: the `AteCheck`/ATE80 "seen" mark does **not** fire on a custom id (no `MappingATEID` row) — the
   documented engine-table gap.
 
