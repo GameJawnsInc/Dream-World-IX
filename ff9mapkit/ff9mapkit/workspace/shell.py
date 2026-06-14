@@ -20,7 +20,7 @@ from PySide6.QtCore import Qt, QProcess
 from PySide6.QtGui import QAction, QBrush, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
+    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
     QTabWidget, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -210,6 +210,10 @@ class Workspace(QMainWindow):
         self.tree.itemSelectionChanged.connect(self._on_select)
         self.tree.itemExpanded.connect(self._on_expand)
         self.tree.itemDoubleClicked.connect(self._on_tree_double)   # double-click = open (Editor / Map)
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)        # right-click = Add / Delete / Remove
+        self.tree.customContextMenuRequested.connect(self._tree_menu)
+        del_sc = QShortcut(QKeySequence(Qt.Key_Delete), self.tree, activated=self._delete_selected)
+        del_sc.setContext(Qt.ShortcutContext.WidgetShortcut)        # Delete only when the tree has focus
         split.addWidget(self.tree)
 
         self.tabs = QTabWidget()
@@ -661,6 +665,49 @@ class Workspace(QMainWindow):
         btn.clicked.connect(lambda _=False: self._add_list_item(member, kind))
         self.doc_host_lay.addWidget(btn, alignment=Qt.AlignLeft)
         self.doc_host_lay.addStretch(1)
+
+    # ---- tree right-click / Delete-key: Add to a group, Delete an entity, Remove a single section ----
+    def _context_actions(self, item):
+        """``[(label, callback), ...]`` for a right-click / Delete on a tree node: add to a list group,
+        delete a list entity, or remove an existing single section. Empty for field / camera / an absent
+        single (nothing to do there)."""
+        p = self._payload(item)
+        fa = self._ancestor_field(item)
+        if not p or fa is None:
+            return []
+        kind, _label, key = p
+        member = self._payload(fa)[1]
+        if kind == "group" and key in _LIST_DEFAULTS:                        # NPCs (n) -> Add NPC
+            sing = _LIST_SINGULAR.get(key, key)
+            return [(f"Add {sing}", lambda: self._add_list_item(member, key))]
+        if kind == "object" and ":" in key:                                  # npc:2 / choice:0 -> Delete
+            section, idx = key.split(":")
+            sing = _LIST_SINGULAR.get(section, section)
+            return [(f"Delete {sing}",
+                     lambda: self._delete_object(member, section, single=False, idx=int(idx), label=sing))]
+        if kind == "object" and key in dict(_SINGLE) and key in self._doc(member).data:  # an existing single
+            return [(f"Remove {key}", lambda: self._delete_object(member, key, single=True, label=key))]
+        return []
+
+    def _tree_menu(self, pos):
+        item = self.tree.itemAt(pos)
+        actions = self._context_actions(item) if item is not None else []
+        if not actions:
+            return
+        menu = QMenu(self)
+        for label, cb in actions:
+            menu.addAction(label, cb)
+        menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _delete_selected(self):
+        """Delete-key on the focused tree: run the selected node's Delete/Remove action (if any)."""
+        item = self.tree.currentItem()
+        if item is None:
+            return
+        for label, cb in self._context_actions(item):
+            if label.startswith(("Delete", "Remove")):
+                cb()
+                return
 
     def _add_list_item(self, member, kind):
         """Append a default entity to ``member``'s ``kind`` list, refresh the tree, and open the new item's
@@ -1442,6 +1489,20 @@ def _smoke(win):
     win._delete_object("IC_ENT", "npc", single=False, idx=0, label="NPC")
     assert len(win._doc("IC_ENT").data["npc"]) == keep, "a declined delete leaves the list intact"
     win._confirm = lambda *a: True
+    # tree right-click / Delete-key context actions: Add on a group, Delete on an entity, Remove a single
+    grp = win._object_item("IC_ENT", "npc", kind="group")
+    assert [lb for lb, _ in win._context_actions(grp)] == ["Add NPC"], win._context_actions(grp)
+    ent_item = win._object_item("IC_ENT", "npc:0")
+    assert ent_item and win._context_actions(ent_item)[0][0] == "Delete NPC"
+    cs_item = win._object_item("IC_ENT", "cutscene")                     # the (always-shown) Cutscene node
+    assert win._context_actions(cs_item) == []                           # absent single -> nothing to remove
+    win._doc("IC_ENT").data["cutscene"] = {"steps": [{"say": "x"}]}      # ...but an EXISTING single is removable
+    assert win._context_actions(cs_item)[0][0] == "Remove cutscene"
+    win._doc("IC_ENT").data.pop("cutscene", None)                        # clean up (Phase 4b sets it fresh)
+    before_del = len(win._doc("IC_ENT").data.get("npc", []))
+    win.tree.setCurrentItem(ent_item)                                   # select the NPC, then press Delete
+    win._delete_selected()
+    assert len(win._doc("IC_ENT").data.get("npc", [])) == before_del - 1, "the Delete key removed the NPC"
     # the Qt form renderer round-trips through build_entity (the SAME parser as the tkinter editor)
     sample = {"name": "Vivi", "preset": "vivi", "dialogue": "hi"}
     _w, _g = build_form(forms.NPC_SPEC, forms.entity_to_values(forms.NPC_SPEC, sample), win.pal)
