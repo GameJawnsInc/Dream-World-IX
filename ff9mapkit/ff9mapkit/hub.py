@@ -326,6 +326,23 @@ def _ambient_npc_block(n: dict, idx: int) -> list:
     return out
 
 
+def _area_title_lines(spec) -> list:
+    """Emit the area-title autohide when the hub BG-borrows a real AREA-TITLE room (Ice Cavern, Mognet
+    Central, ...): that room's localized title overlay is Active by default and the synthesized hub has no
+    donor ``.eb`` to retire it, so it would sit there statically claiming to be that place. Resolve the
+    overlay range OFFLINE (areatitle manifest) so the build needn't re-read resources.assets. Best-effort:
+    degrade to nothing if the manifest is unreachable (a non-area-title borrow returns nothing anyway)."""
+    try:
+        from . import areatitle
+        rng = areatitle.title_range(f"FBG_N{int(spec.area):02d}_{spec.borrow_bg}")
+    except Exception:
+        rng = None
+    if not rng:
+        return []
+    return [f"hide_area_title = true            # borrows an area-title room but isn't that place --",
+            f"area_title_overlays = [{rng[0]}, {rng[1]}]    # hide its title card (mapLocalizeAreaTitle.txt)"]
+
+
 def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
     """The hub ``field.toml`` text -- valid TOML the existing build/deploy path compiles. Mirrors the proven
     hand-authored ``examples/world_hub/hub.field.toml`` shape (BG-borrow + Moogle PC + narrator + the journey
@@ -349,6 +366,7 @@ def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
         f'borrow_bg = "{_q(spec.borrow_bg)}"   # a real room as the backdrop (area >= 10)',
         f"area = {spec.area}",
         f"text_block = {spec.text_block}   # a real MesDB id NOT shadowed by a higher mod folder",
+        *_area_title_lines(spec),
         "",
         "[camera]",
         f'borrow = "{_q(spec.camera)}"   # the borrowed room\'s camera (gitignored; extract from your install)',

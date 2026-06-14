@@ -2730,6 +2730,23 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if _settle:
         eb = _entry_settle.add_entry_settle(eb, int(_settle))
 
+    # Area-title autohide (opt-in): a synthesized field that BG-borrows a real "area-title" room (Ice
+    # Cavern, Mognet Central, ...) inherits that room's localized title OVERLAY -- which is Active by
+    # default, and with no donor .eb to retire it, sits there statically claiming to be that place. The
+    # World Hub borrows Mognet Central's room but is NOT Mognet Central, so `[field] hide_area_title = true`
+    # hides those overlays from frame 1 (ShowTile off). The overlay range comes from `area_title_overlays`
+    # (resolved at gen time, so the build never re-reads the 590 MB resources.assets); falls back to a live
+    # manifest lookup keyed on the borrowed FBG. No-op if the borrow has no area title. See content.areatitle.
+    if project.field.get("hide_area_title"):
+        _ov = project.field.get("area_title_overlays")
+        if not _ov and project.field.get("borrow_bg"):
+            from . import areatitle as _at
+            _rng = _at.title_range(f"FBG_N{int(project.field.get('area', 0)):02d}_{project.field['borrow_bg']}")
+            _ov = list(_rng) if _rng else None
+        if _ov:
+            from .content import areatitle as _ati
+            eb = _ati.hide(eb, min(_ov), max(_ov))
+
     # encounter (+ the after-battle reinit it requires)
     if has_encounter:
         e = project.raw["encounter"]
