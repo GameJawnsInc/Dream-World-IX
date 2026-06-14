@@ -16,6 +16,7 @@ Subcommands are wired up incrementally as the library lands:
     extract-field - cache a real field's camera+walkmesh into the gitignored workspace cache
     import    - fork a real FF9 field (BG-borrow, or --editable custom scene) (Tier 3)
     list-fields - list the real FF9 fields available to import              (Tier 3)
+    find-field  - resolve a field id / name / FBG substring -> id + friendly name + archive folder
     battle-import - fork a real FF9 battle background (BBG) into an editable battle.toml (needs UnityPy)
     battle-build  - compile a battle.toml into a Memoria mod (custom 3D battle map; stock engine)
     battle-list   - list the real FF9 battle backgrounds available to fork
@@ -1223,6 +1224,19 @@ def _cmd_list_fields(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_find_field(args: argparse.Namespace) -> int:
+    from . import extract
+    rows = extract.find_fields(args.query, archive_dir=args.archive)
+    if not rows:
+        print(f"no field matches {args.query!r}", file=sys.stderr)
+        return 1
+    for r in rows:
+        label = r["name"] or r["evt"] or r["fbg"]        # friendly HW name, else EVT name, else FBG
+        loc = f"  {r['folder']}" if r["folder"] else ""
+        print(f"{r['id']:>5}  {label:<30}  {r['fbg']}{loc}")
+    return 0
+
+
 def _list_fields_with_players(args: argparse.Namespace) -> int:
     """`list-fields --players` / `--non-zidane`: enrich the list with WHO you control in each field
     (id-centric -- an alternate event script on a shared background is its own row). Reads each .eb."""
@@ -2224,6 +2238,15 @@ def build_parser() -> argparse.ArgumentParser:
     lf.add_argument("--non-zidane", action="store_true",
                     help="only fields you play as someone other than Zidane (the verbatim-fork donors; implies --players)")
     lf.set_defaults(func=_cmd_list_fields)
+
+    ff = sub.add_parser("find-field",
+                        help="resolve a field id / name / FBG substring -> id + friendly name + archive folder")
+    ff.add_argument("query", help="a field id (exact match), or an FBG/EVT/friendly-name substring "
+                                  "(e.g. 2934, cysw, \"Cargo Room\")")
+    ff.add_argument("--archive", default=None,
+                    help="an import-all archive dir to show each match's folder "
+                         "(default: reference/all-fields-import if present). Pure lookup needs no install.")
+    ff.set_defaults(func=_cmd_find_field)
 
     bi = sub.add_parser("battle-import",
                         help="fork a REAL FF9 battle background (BBG) into an editable battle.toml (needs UnityPy)")

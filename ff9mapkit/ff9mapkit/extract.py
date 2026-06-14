@@ -180,6 +180,59 @@ def list_fields(pattern=None, game=None):
     return out
 
 
+def _repo_root() -> Path:
+    """Repo root (…/ff9mapkit/ff9mapkit/extract.py -> repo) -- to locate the user-local reference data
+    (the HW manifest + the import-all archive). Both are gitignored, so callers degrade if absent."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _manifest_field_names() -> dict:
+    """{field_id: friendly name} from the (gitignored, user-local) HW `reference/field-manifest.tsv`, or
+    {} if it isn't present. col2 = id, col3 = name (e.g. 'Memoria/Outside')."""
+    p = _repo_root() / "reference" / "field-manifest.tsv"
+    names: dict = {}
+    if p.exists():
+        for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 3 and parts[1].isdigit():
+                names.setdefault(int(parts[1]), parts[2])
+    return names
+
+
+def _archive_folder_index(archive_dir=None) -> dict:
+    """{UPPER-FBG: folder path} for an `import-all` archive (default `reference/all-fields-import`), or {}
+    if that dir is absent -- so find_fields can show where a field was imported without requiring it."""
+    base = Path(archive_dir) if archive_dir else (_repo_root() / "reference" / "all-fields-import")
+    if not base.is_dir():
+        return {}
+    return {p.name.upper(): str(p) for p in base.glob("*/*") if p.is_dir()}
+
+
+def find_fields(query, *, archive_dir=None) -> list:
+    """Resolve a field id / name / FBG-or-EVT substring -> the matching real fields: a list of
+    {id, fbg, evt, name, folder} dicts sorted by id. A DIGIT query is an EXACT id match; otherwise a
+    case-insensitive substring over id / FBG folder / EVT name / friendly name. `name` is the friendly
+    HW-manifest name when the manifest is present (else ''); `folder` is the field's subdir under the
+    import-all archive when present (else None). PURE table lookup (the in-package FBG_TO_EVT) -- no
+    install / UnityPy needed; the manifest name + archive folder are best-effort extras."""
+    from ._fieldtable import FBG_TO_EVT
+    q = str(query).strip()
+    by_id = q.isdigit()
+    qid = int(q) if by_id else None
+    ql = q.lower()
+    names = _manifest_field_names()
+    folders = _archive_folder_index(archive_dir)
+    rows = []
+    for fbg, (fid, evt) in FBG_TO_EVT.items():
+        name = names.get(fid, "")
+        hit = (fid == qid) if by_id else (ql in f"{fid} {fbg} {evt} {name}".lower())
+        if hit:
+            rows.append({"id": fid, "fbg": fbg, "evt": evt, "name": name,
+                         "folder": folders.get(fbg.upper())})
+    rows.sort(key=lambda r: r["id"])
+    return rows
+
+
 # ---- event script (.eb) extraction: fork a field WITH its gateways/music/encounters -----
 EVT_LANG = "us"                       # event binaries are per-language; the bytecode we scan is identical
 _EVENTS_BUNDLE_CACHE = ".ff9mapkit-events-bundle.txt"
