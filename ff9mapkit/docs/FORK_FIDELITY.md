@@ -211,8 +211,11 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
 
 - **Area-title card** ("Mognet Central"/"Ice Cavern") — donor-identity name overlays. HANDLED: `[field]
   hide_area_title=true` → `content/areatitle.hide` prepends `ShowTile(i,0)`; hub auto-emits. In-game proven (hub 4600).
-  ⚠ **Also leaks into a `--native` synth fork** that keeps the donor-FBG-derived MAPID (`FieldMap.HasAreaTitle` is
-  FBG-NAME-keyed, not id-keyed) — the current framing treats this as BG-borrow-only; confirm + apply the same hide.
+  ✅ **Now also auto-suppressed on a `--native`/`--editable` synth fork** (kit 0.9.97): the leak isn't BG-borrow-only
+  — the title is keyed on the scene `mapName` (`FieldMapLocalizeAreaTitle.GetInfo`) and active-by-default, so a synth
+  fork ships the donor scene's overlays with no donor `.eb` to fade them (static card). `import --native`/`--editable`
+  of an area-title field auto-emits `hide_area_title` + `area_title_overlays` (via `areatitle.title_range`);
+  **`--verbatim` is left untouched** (it carries the donor `.eb`'s real scenario-gated show+fade — title wanted there).
 - **Scenario cutscene roster / warp-directors carried as standing NPCs** — HANDLED on synth (`_loop_warps` drops any
   LOOP firing `Field()`; 2-shopkeeper→1 proven) and BG-borrow (carries no `.eb`). ⚠ The destructive synth-drop keys
   on `Field()` (0x2B) ONLY — **deliberately narrow** (spares animated props + the save-Moogle puppet, per worklist
@@ -248,11 +251,18 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   WIRED and keys on the battle *scene id* (which a fork keeps), so the donor's exact battle song reproduces when set.
   The true residual: `extract` doesn't auto-prefill the donor song → `battle_music` defaults to `0` (Battle Theme)
   (`build.py:3335`). Downgrade #6 to "auto-detect the donor battle song," not "silent."
-- **Daguerreo-class engine walkmesh hotfix is lost even under verbatim at a remapped id** — `mapNo==2803`
-  `BGI_triSetActive` (and ~a dozen siblings: Treno 900, Evil Forest 262, … in `DoEventCode.cs`) never fires on a mint;
-  the `.eb` `RunScript` carries but the engine half doesn't. The walkmesh-STATE half is reproducible via the real
-  `.eb` ops `BGIACTIVET (0x9A)`/`BGIACTIVEF (0xCB)` (already in `_optables.py`) — an UNBUILT splice, not engine-blocked.
-  Refines #14's "verbatim is the answer" with a caveat.
+- **✅ LANDED — engine walkmesh hotfixes lost on a mint (`walkmesh_hotfixes.py` + `content/walkmesh_hotfix.py`,
+  kit 0.9.97).** A handful of fields rely on a hardcoded `BGI_triSetActive` keyed on the real `fldMapNo` (toggles a
+  walkmesh triangle's walkable bit); a fork runs at a custom id, so the `mapNo==<real id>` guard is false and the
+  hotfix never fires. The catalog classifies all ~11 fields (from `FieldMap.cs` / `DoEventCode.cs` /
+  `turnOffTriManually.cs`) into two classes: **LOAD-TIME unconditional** (Gulug 2356, L.Castle 2161, I.Castle 2507) →
+  **AUTO-reproduced** — `import` emits `[field] walkmesh_tri_toggles` and the build prepends `EnablePathTriangle(tri,
+  state)` (opcode 0x9A == the engine's `BGI_triSetActive`) to Main_Init (the `.bgi` stays byte-verbatim); and
+  **EVENT-CODE / DYNAMIC** (Daguerreo 2803 — tracks `gEventGlobal` var 761060 — Treno 900, Dali 450, Fossil Roo 1421,
+  1753/1606/1900/1455) which key on runtime position/sid/story-var state, so they're **flagged** by `fork-report`
+  ("Walkmesh fix: lost on a mint → fork in-place") rather than auto-applied. Refines #14's "verbatim is the answer":
+  even a verbatim fork at a remapped id loses these; the load-time subset is now reproduced, the dynamic ones steer
+  to fork-in-place. *(In-game: confirm a fork of Gulug 2356 / L.Castle 2161 keeps the blocked tris.)*
 - **Mognet/Chocobo-Paradise world-map alternate-form STATE (bits 815/814) is BROUGHT-IN** — `WorldConfiguration.cs`
   `UsePlaceAlternateForm` is a pure `gEventGlobal` byte read (NOT id-gated), so `[startup] flags=[{flag=815}]`
   reproduces it; only the achievement-WRITE paths (`DigUpKupo fldMapNo==1421`, ATE80) are id-blocked.
