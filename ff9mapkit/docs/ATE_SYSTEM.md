@@ -247,7 +247,8 @@ the exact `op_0B(0,1201,15,238,472,703,934)` and the `op_06(122, 1900→, 2005�
   **Both ATE flavors are now authorable:** the interactive menu above (`[ate]`) AND the **compulsory /
   auto-advance** flavor (`[cutscene] ate = true` — the `ATE(mode)…ATE(0)` bracket + `winATE` caption, mirroring
   the real grey **mode-6** fields like 956 Gargant — NOT field 1901, which is an optional menu hub;
-  `content/cutscene.py`). Offline-proven (`tests/test_ate.py`); not yet playtested.
+  `content/cutscene.py`). Offline-proven (`tests/test_ate.py`) + ★ IN-GAME PROVEN @30008 (the grey banner
+  auto-plays, no press-prompt).
 - **Disassembler under-naming gaps (quality-of-life):** `ATE(mode)` prints the raw int (no Blue/Gray/force
   meaning); `op_0B` shows raw with no branch-target annotation; inline `op7A(9)` isn't surfaced as
   `GetChoose`/`B_SYSVAR(9)`.
@@ -358,11 +359,13 @@ either a **verbatim fork onto a *real* field id** (parasitic on the real `Mappin
 
 1. ~~**`op_0B` literals for field 206**~~ — **RESOLVED:** re-extracted from the user's `p0data` and byte-confirmed
    (`op_0B(0,1201,15,238,472,703,934)` + the `op_06` SC dispatch).
-2. **`ATE(mode)` combos beyond `{0,1,2,5,6}`** — C# says "rest unknown"; `ProcessAIcon` masks suggest only `&3`
-   (colour) and `&4` (force) matter, but unproven in-game.
-3. **In-game ATE-fork fidelity** — forks are **deployed** (30006 compulsory, 30007 interactive) but **not yet
-   playtested**. Does a custom-id verbatim fork's winATE menu render and dispatch, and is the `AteCheck`/ATE80
-   non-registration confirmed (predicted, not observed)?
+2. **`ATE(mode)` combos** — the common modes are now ★ IN-GAME PROVEN (mode 1 Blue @30007; mode 6 Gray+force
+   @30008/30010), confirming `&3` (colour) + `&4` (force). C# still says the rest is "unknown"; exotic combos
+   beyond `{0,1,5,6}` remain untested.
+3. **In-game ATE-fork fidelity** — ★ RESOLVED for render/dispatch: verbatim forks' winATE menus render + dispatch
+   on a custom id (real Eiko menu @30009, real grey-unskippable Gargant-956 @30010, synth menu @30007,
+   Small-Town-Knight @30006). Residual: the `AteCheck`/ATE80 "seen" trophy is predicted NOT to register on a
+   custom id (no `MappingATEID` row) — a non-event, not yet directly observed.
 4. **The `0x8000` high bit** on the ATE-menu `EnableDialogChoices` availability mask — exact role (grey vs hide vs
    gate menu rows) undocumented in the kit; needs a focused disasm pass.
 5. **The exact SELECT-poll idiom** (`B_KEYON` vs `B_KEY`) real ATE fields use — inferred, should be byte-quoted
