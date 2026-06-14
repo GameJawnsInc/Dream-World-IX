@@ -2309,6 +2309,11 @@ def _smoke(win):
         if lib._entries:
             lib.lst.setCurrentRow(0)
             assert lib.detail.toPlainText().strip(), f"{sect_label} detail rendered empty"
+    # the Help button's glossary explains every section (so 'archetype' etc. is self-explanatory in-app)
+    from .forms_qt import _hub_help_html
+    hh = _hub_help_html()
+    assert "Archetypes" in hh and "[[npc]] archetype" in hh and "Props" in hh and "Copy snippet" in hh, hh[:120]
+    assert hasattr(lib, "_show_help")
     # with NO campaign open: the campaign-own sections are absent, the static catalogs remain
     lib2 = CatalogLibrary(win, None, win.pal)
     nolabels = [lib2.cats.item(i).text() for i in range(lib2.cats.count())]

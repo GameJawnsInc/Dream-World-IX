@@ -304,6 +304,41 @@ def _esc(s) -> str:
     return html.escape(str(s))
 
 
+# one-line glossary per catalog kind -- the Info Hub Help button (so 'archetype' etc. is self-explanatory).
+_HUB_HELP = {
+    "archetype": "named, NPC-ready character types (the playable cast + NPC types). Place with "
+                 "<code>[[npc]] archetype = \"name\"</code> — the model + its animations/movement resolve for you.",
+    "creature": "<code>GEO_MON</code> monster field objects (also placed as an NPC, by name).",
+    "composite": "multi-part set pieces — several models posed together as one object.",
+    "prop": "single static set-dressing (chests, signs, barrels). Place with <code>[[prop]] prop = \"name\"</code>.",
+    "model": "the raw GEO models by their engine name — the lowest level, no animation join.",
+    "item": "item / equipment names (+ stats read from your install).",
+    "scene": "battle encounter scenes, by id.",
+    "storyflag": "FF9's built-in story-state registry — named engine vars, scenario beats, reserved bit regions.",
+    "field": "the fields in the OPEN campaign (this section shows only when a campaign is loaded).",
+    "flag": "the named story flags in the OPEN campaign.",
+}
+
+
+def _hub_help_html() -> str:
+    """The Info Hub help text: a one-line intro, the per-section glossary (static catalogs first, the
+    campaign-only sections last), and how Copy name / Copy snippet are used."""
+    order = list(infohub.KINDS) + ["field", "flag"]
+    rows = "".join(f'<p style="margin:4px 0;"><b>{_KIND_LABEL.get(k, k)}</b> — {_HUB_HELP[k]}</p>'
+                   for k in order if k in _HUB_HELP)
+    return (
+        "<div style=\"font-family:'Segoe UI';\">"
+        '<div style="font-size:15px;"><b>Info Hub — the catalog</b></div>'
+        "<p>Everything you can place in a field or reference by <b>name</b>, grouped into sections. Pick a "
+        "section on the left, search within it, and select an entry to see its details on the right.</p>"
+        '<p style="font-size:14px;"><b>Sections</b></p>' + rows +
+        '<p style="font-size:14px;"><b>Using an entry</b></p>'
+        "<p><b>Copy name</b> — paste into a form's catalog field (an NPC's <code>archetype</code>, a prop's "
+        "<code>prop</code>, …).</p>"
+        "<p><b>Copy snippet</b> — paste a ready-to-edit <code>field.toml</code> block straight into a field.</p>"
+        "</div>")
+
+
 class CatalogLibrary(QDialog):
     """The Info Hub as a SECTIONED LIBRARY (replacing the all-in-one browse list). Three columns: a category
     sidebar with per-kind counts, a per-section searchable result list, and a rich DETAIL pane built from
@@ -366,11 +401,16 @@ class CatalogLibrary(QDialog):
         cs = QPushButton("Copy snippet")
         cs.setToolTip("Copy a ready-to-paste field.toml block for this entry")
         cs.clicked.connect(self._copy_snippet)
+        helpb = QPushButton("?")
+        helpb.setToolTip("What's in the Info Hub? (glossary + how to use it)")
+        helpb.setFixedWidth(32)
+        helpb.clicked.connect(self._show_help)
         close = QPushButton("Close")
         close.clicked.connect(self.reject)
         bar.addWidget(cn)
         bar.addWidget(cs)
         bar.addStretch(1)
+        bar.addWidget(helpb)
         bar.addWidget(close)
         rv.addLayout(bar)
         split.addWidget(right)
@@ -478,3 +518,26 @@ class CatalogLibrary(QDialog):
         if e is not None:
             QApplication.clipboard().setText(infohub.snippet(e))
             self.count.setText(f"Copied the {e.kind} snippet for “{e.name}”.")
+
+    def _show_help(self):
+        """A small modal glossary: what each section is (archetype vs creature vs model vs prop …) and how
+        Copy name / Copy snippet are used."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Info Hub — help")
+        dlg.resize(470, 540)
+        v = QVBoxLayout(dlg)
+        body = QTextEdit()
+        body.setReadOnly(True)
+        body.setStyleSheet(
+            f"QTextEdit {{ font-family:'Segoe UI'; font-size:13px; background:{self.pal['surface']}; "
+            f"color:{self.pal['text']}; border:1px solid {self.pal['border']}; border-radius:8px; padding:10px; }}")
+        body.setHtml(_hub_help_html())
+        v.addWidget(body, 1)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        ok = QPushButton("Got it")
+        ok.setObjectName("accent")
+        ok.clicked.connect(dlg.accept)
+        row.addWidget(ok)
+        v.addLayout(row)
+        dlg.exec()
