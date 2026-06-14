@@ -11,6 +11,7 @@ Launch:  ``py apps/ff9_workspace.pyw``  (or ``py -m ff9mapkit.workspace.shell``)
 
 from __future__ import annotations
 
+import collections
 import copy
 import os
 import sys
@@ -99,6 +100,12 @@ def _field_token(name) -> str:
     return name
 
 
+# One undo step = a member's whole doc.data BEFORE and AFTER an edit, plus the tree node to re-show.
+# (Snapshot-of-the-document, not a per-op delta -- simple + always-correct for a small TOML tree.)
+_UndoRec = collections.namedtuple("_UndoRec", "member before after label focus")
+UNDO_LIMIT = 100                                   # cap the history so a long session can't grow unbounded
+
+
 class BreadcrumbBar(QWidget):
     """A one-line clickable path built from :func:`..editor.breadcrumb.trail`. ``on_nav(crumb)`` fires
     when an ancestor segment is clicked (the leaf is inert)."""
@@ -165,6 +172,9 @@ class Workspace(QMainWindow):
         self._save_btn = None                      # the mounted form's Save button (greys when clean)
         self._reset_btn = None                     # the mounted form's Reset button (revert to last save)
         self._save_ctx = None                      # {member, key, spec, getters, single|kind, idx} for Save
+        self._undo_stack = []                      # [_UndoRec] -- applied edits (Ctrl-Z pops the last)
+        self._redo_stack = []                      # [_UndoRec] -- undone edits (Ctrl-Shift-Z re-applies)
+        self._undo_base = {}                       # member -> deepcopy(doc.data) at the last checkpoint
         self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
         self.setWindowTitle("FF9 Map Kit — Workspace")
         self.resize(1280, 820)
@@ -201,6 +211,17 @@ class Workspace(QMainWindow):
         act_open_save = QAction("Open Save…", self)
         act_open_save.triggered.connect(self._open_save)
         tb.addAction(act_open_save)
+        tb.addSeparator()
+        self.act_undo = QAction("Undo", self)
+        self.act_undo.setToolTip("Undo (Ctrl+Z)")
+        self.act_undo.setEnabled(False)
+        self.act_undo.triggered.connect(self._undo)             # the toolbar button is always app-level undo
+        tb.addAction(self.act_undo)
+        self.act_redo = QAction("Redo", self)
+        self.act_redo.setToolTip("Redo (Ctrl+Shift+Z)")
+        self.act_redo.setEnabled(False)
+        self.act_redo.triggered.connect(self._redo)
+        tb.addAction(self.act_redo)
         self.act_save_all = QAction("Save All", self)
         self.act_save_all.setToolTip("Save every field with unsaved changes (Ctrl-Shift-S)")
         self.act_save_all.triggered.connect(self._save_all)
@@ -229,6 +250,8 @@ class Workspace(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=self.on_new_field)
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.on_new_campaign)
+        QShortcut(QKeySequence("Ctrl+Z"), self, activated=self._undo_shortcut)
+        QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self._redo_shortcut)
 
     def _build_central(self):
         central = QWidget()
@@ -349,7 +372,8 @@ class Workspace(QMainWindow):
             "are, and <b>Check</b> fills the Problems dock.</p>"
             "<p>One window, every tool: <b>Editor</b> (fields, NPCs, gateways, cutscenes, choices) · "
             "<b>Map</b> · <b>Story State</b> + <b>Item &amp; Equip</b> save editors · <b>Build &amp; "
-            "Deploy</b> · <b>Import</b> (fork a real field). Press <b>Ctrl-K</b> to jump anywhere.</p>"
+            "Deploy</b> · <b>Import</b> (fork a real field). Press <b>Ctrl-K</b> to jump anywhere; "
+            "<b>Ctrl-Z</b> / <b>Ctrl-Shift-Z</b> undo &amp; redo your edits.</p>"
             "<p style='color:gray'>This shell wraps the same tk-free backends the kit's CLI uses.</p>")
         self.tabs.addTab(w, "Welcome")
 
@@ -585,6 +609,8 @@ class Workspace(QMainWindow):
         self._docs = {name: doc}
         self._clean = {name: copy.deepcopy(doc.data)}
         self._touched = set()                      # fresh open -> nothing in-progress
+        self._reset_history()                      # a different file -> drop the old undo history
+        self._seed_undo_base(name)
         self.map.clear()                           # a standalone field has no campaign map
         self.build_deploy.set_target(path)         # pre-aim Build & Deploy at the open field
         self.act_check.setEnabled(True)
@@ -624,6 +650,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._reset_history()                      # a different campaign -> drop the old undo history
         self.build_deploy.set_target(path)         # pre-aim Build & Deploy at the open campaign
         self.act_check.setEnabled(True)
         self.act_lint_cli.setEnabled(True)
@@ -700,6 +727,7 @@ class Workspace(QMainWindow):
         if member not in self._docs:
             self._docs[member] = FieldDoc.load(self.member_paths[member])
             self._clean[member] = copy.deepcopy(self._docs[member].data)   # dirty baseline
+            self._seed_undo_base(member)                                   # undo-history baseline (loaded state)
         return self._docs[member]
 
     def _mark_clean(self, member):
@@ -814,7 +842,7 @@ class Workspace(QMainWindow):
         if not items:
             return
         item = items[0]
-        if not self._commit_active():              # fold the leaving form into the doc; stay put on a bad value
+        if not self._commit_active_ck():           # fold + checkpoint the leaving form; stay put on a bad value
             return
         self._touched &= set(self._dirty_members())   # reconcile: a touched-but-reverted member is clean now
         self._refresh_dirty_marks()
@@ -862,6 +890,8 @@ class Workspace(QMainWindow):
             ("Check", "command", self.on_check),
             ("Lint (CLI)", "command", self.run_cli_lint),
             ("Browse catalog (Info Hub)", "command", self._open_catalog),
+            ("Undo", "command", self._undo),
+            ("Redo", "command", self._redo),
             ("Save All fields", "command", self._save_all),
             ("Go to Editor", "view", lambda: self.tabs.setCurrentWidget(self.doc_scroll)),
             ("Go to Map", "view", lambda: self.tabs.setCurrentWidget(self.map)),
@@ -912,9 +942,154 @@ class Workspace(QMainWindow):
         if self._active_save is not None:
             self._active_save()
 
+    # ---- undo / redo (a per-field document history) ----
+    # The model: each member's doc.data is the editing buffer; _undo_base[member] tracks its state as of the
+    # last checkpoint. _checkpoint() diffs the buffer against that base and, on a real change, records one
+    # _UndoRec (before/after whole-doc snapshots) + advances the base. Undo/redo rewrite the buffer IN MEMORY
+    # only (never disk) -- the restored buffer is dirty-tracked vs _clean like any edit, so Save persists it.
+    # In-field typing undo stays with the focused QLineEdit/QPlainTextEdit (see _undo_shortcut); this app-level
+    # history covers COMMITTED edits (a folded form, an add/delete/reset, a cutscene/choice step).
+    def _checkpoint(self, member, label, focus):
+        """Record an undo step if ``member``'s doc changed since its last checkpoint; advance the baseline."""
+        if member not in self._docs:
+            return
+        cur = self._docs[member].data
+        base = self._undo_base.get(member)
+        if base is None:                              # first sight of this member -> seed the baseline, no step
+            self._undo_base[member] = copy.deepcopy(cur)
+            return
+        if base == cur:
+            return                                    # no real change (a viewed-but-unedited form folds to a no-op)
+        snap = copy.deepcopy(cur)
+        self._undo_stack.append(_UndoRec(member, base, snap, label, focus))
+        self._undo_base[member] = snap
+        if len(self._undo_stack) > UNDO_LIMIT:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()                      # a fresh edit invalidates the redo branch
+        self._refresh_undo_actions()
+
+    def _seed_undo_base(self, member):
+        """Seed a member's history baseline at its loaded state (so the FIRST edit is recordable)."""
+        if member in self._docs:
+            self._undo_base[member] = copy.deepcopy(self._docs[member].data)
+
+    def _reset_history(self):
+        """Drop all undo/redo history + baselines (on opening a different campaign/field)."""
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._undo_base.clear()
+        self._refresh_undo_actions()
+
+    def _commit_active_ck(self) -> bool:
+        """``_commit_active`` + checkpoint the leaving form's edit (the nav / save / close boundary). Returns
+        ``_commit_active``'s bool so callers still abort a switch on an invalid value."""
+        prev = self._save_ctx
+        if not self._commit_active():
+            return False
+        if prev:
+            self._checkpoint(prev["member"], f"edit {prev['section']}", prev["key"])
+        return True
+
+    def _undo_shortcut(self):
+        """Ctrl-Z: let a focused text widget undo its own typing first; otherwise undo a committed edit."""
+        if not self._delegate_text_history(redo=False):
+            self._undo()
+
+    def _redo_shortcut(self):
+        if not self._delegate_text_history(redo=True):
+            self._redo()
+
+    @staticmethod
+    def _delegate_text_history(redo) -> bool:
+        """If an EDITABLE text widget is focused AND has in-field history, route Ctrl-Z/Ctrl-Shift-Z to IT (so
+        per-keystroke undo inside a field keeps working) and return True; else False (do app-level undo).
+        A READ-ONLY box (the Output console / a wrap-preview / a save Inspect pane) is never an editing buffer
+        -- setReadOnly doesn't disable its document's undo, so delegating there would wipe its shown text."""
+        w = QApplication.focusWidget()
+        if not isinstance(w, (QLineEdit, QPlainTextEdit, QTextEdit)) or w.isReadOnly():
+            return False
+        if isinstance(w, QLineEdit):
+            avail = w.isRedoAvailable() if redo else w.isUndoAvailable()
+        else:
+            d = w.document()
+            avail = d.isRedoAvailable() if redo else d.isUndoAvailable()
+        if avail:
+            (w.redo if redo else w.undo)()
+            return True
+        return False
+
+    def _undo(self):
+        if not self._commit_active_ck():           # fold+checkpoint any pending edit FIRST (its own step) so a
+            return                                 # typed-but-uncommitted change isn't lost; abort on a bad value
+        if not self._undo_stack:
+            return
+        rec = self._undo_stack.pop()
+        self._redo_stack.append(rec)
+        self._apply_history(rec.member, rec.before, rec.focus, f"Undo {rec.label}")
+
+    def _redo(self):
+        if not self._commit_active_ck():           # (a pending edit is a divergence -> it commits + clears redo)
+            return
+        if not self._redo_stack:
+            return
+        rec = self._redo_stack.pop()
+        self._undo_stack.append(rec)
+        self._apply_history(rec.member, rec.after, rec.focus, f"Redo {rec.label}")
+
+    def _apply_history(self, member, data, focus, note):
+        """Restore ``member``'s buffer to ``data`` (a whole-doc snapshot), refresh its tree + re-show the
+        edited node. In-memory only -- the restored buffer is dirty-tracked vs the saved baseline."""
+        if member not in self._docs:                  # the campaign/field was closed -> the snapshot is stale
+            self.statusBar().showMessage(f"{note} — {member} is no longer open", 4000)
+            self._refresh_undo_actions()
+            return
+        self._docs[member].data = copy.deepcopy(data)
+        self._undo_base[member] = copy.deepcopy(data)   # the next edit diffs against the restored state
+        self._touched.discard(member)
+        self._clear_doc()                             # drop the stale form BEFORE refreshing (no spurious fold)
+        if member in getattr(self, "_member_items", {}):
+            self.tree.blockSignals(True)
+            self._refresh_objects(member)             # rebuild object rows (an add/delete changed them)
+            self.tree.blockSignals(False)
+        self._refresh_dirty_marks()
+        self._refresh_undo_actions()
+        self._goto_focus(member, focus)               # select + mount the edited node from restored data
+        self.statusBar().showMessage(note, 3000)
+
+    def _goto_focus(self, member, key):
+        """Select + mount the node ``(member, key)`` after an undo/redo (falls back to the member row)."""
+        node = None
+        if key and ":" in key:                        # a list entity (npc:2) or a choice (choice:0)
+            node = self._object_item(member, key, kind="object")
+        elif key in dict(_SINGLE):                    # a single section node (dialogue/encounter/music/cutscene)
+            node = self._object_item(member, key, kind="object")
+        elif key in _LIST_DEFAULTS:                   # a list header (npc/gateway/...) -> its group row
+            node = self._object_item(member, key, kind="group")
+        if node is None:                              # field/camera/loose/deleted-entity -> the member row
+            node = getattr(self, "_member_items", {}).get(member)
+        if node is None:
+            self._doc_placeholder("Change applied.")
+            return
+        self.tabs.setCurrentWidget(self.doc_scroll)
+        if self.tree.currentItem() is node:
+            self._on_select()                         # selection unchanged -> mount manually (no signal fires)
+        else:
+            self.tree.setCurrentItem(node)            # selection change -> _on_select mounts it
+
+    def _refresh_undo_actions(self):
+        """Enable/disable + label the toolbar Undo/Redo from the stacks (shows the next op's name)."""
+        u = self._undo_stack[-1].label if self._undo_stack else None
+        r = self._redo_stack[-1].label if self._redo_stack else None
+        if getattr(self, "act_undo", None) is not None:
+            self.act_undo.setEnabled(bool(u))
+            self.act_undo.setToolTip(f"Undo {u} (Ctrl+Z)" if u else "Undo (Ctrl+Z)")
+        if getattr(self, "act_redo", None) is not None:
+            self.act_redo.setEnabled(bool(r))
+            self.act_redo.setToolTip(f"Redo {r} (Ctrl+Shift+Z)" if r else "Redo (Ctrl+Shift+Z)")
+
     def _save_all(self):
         """Ctrl-Shift-S / Save All: fold the active form in, then write every field with unsaved changes."""
-        self._commit_active()                      # the in-progress form counts as unsaved
+        self._commit_active_ck()                   # the in-progress form counts as unsaved (+ checkpoint it)
         saved = 0
         for m in list(self._dirty_members()):
             path = self.member_paths.get(m)
@@ -969,6 +1144,7 @@ class Workspace(QMainWindow):
             if idx is not None and idx < len(base) and idx < len(cur):
                 cur[idx] = copy.deepcopy(base[idx])
         self._touched.discard(member)
+        self._checkpoint(member, f"reset {section}", key)     # a Reset is itself an undoable change
         self._open_editor(member, "object", key)              # re-mount from the restored data
         self._refresh_dirty_marks()
 
@@ -1032,6 +1208,7 @@ class Workspace(QMainWindow):
         this header is where you create a new one.)"""
         self._clear_doc()
         sing = _LIST_SINGULAR.get(kind, kind)
+        self._set_editor_tab(f"{sing}s")            # so the tab reflects the group, not the prior leaf's name
         n = len(self._doc(member).data.get(kind, []) or [])
         self._header(f"{member}  ·  {sing}s",
                      f"{n} {sing.lower()}(s) on this field. Add a new one below, or pick an existing item "
@@ -1090,16 +1267,19 @@ class Workspace(QMainWindow):
     def _add_list_item(self, member, kind):
         """Append a default entity to ``member``'s ``kind`` list, refresh the tree, and open the new item's
         editor (so you land straight in the form to fill it in)."""
+        if not self._commit_active_ck():             # fold+checkpoint any pending edit first (its own step);
+            return                                   # an invalid open form blocks adding (fix it first)
         doc = self._doc(member)
         lst = doc.data.setdefault(kind, [])
         lst.append(copy.deepcopy(_LIST_DEFAULTS[kind]))
         idx = len(lst) - 1
+        self._touch(member)                           # the new default entity is an unsaved change
+        self._checkpoint(member, f"add {_LIST_SINGULAR.get(kind, kind)}", f"{kind}:{idx}")  # the add = one step
         self.tree.blockSignals(True)                 # rebuild the object subtree without spurious selections
         self._refresh_objects(member)
         self.tree.blockSignals(False)
-        self._select_object(member, f"{kind}:{idx}")  # fires _on_select -> mounts the new item's form
+        self._select_object(member, f"{kind}:{idx}")  # fires _on_select -> mounts the new item's form (no-op fold)
         self.tabs.setCurrentWidget(self.doc_scroll)   # adding is an explicit edit -> show the Editor
-        self._touch(member)                           # the new default entity is an unsaved change
 
     def _refresh_objects(self, member):
         """Rebuild a member's object subtree in place (after an add) so the new item + updated count show."""
@@ -1163,6 +1343,7 @@ class Workspace(QMainWindow):
             self._show_problems(fb.Verdict(fb.ERROR, "Delete failed"), [fb.Problem(fb.ERROR, str(e))])
             return
         self._mark_clean(member)
+        self._checkpoint(member, f"delete {label}", section)      # the delete is one undo step
         self._save_ctx = None                                     # the deleted thing's form is gone
         self.tree.blockSignals(True)
         self._refresh_objects(member)
@@ -1289,6 +1470,7 @@ class Workspace(QMainWindow):
             self._show_problems(fb.Verdict(fb.ERROR, "Save failed"), [fb.Problem(fb.ERROR, str(e))])
             return False
         self._mark_clean(member)
+        self._checkpoint(member, f"edit {key or section}", key or section)   # the saved fold is one undo step
         self._show_problems(fb.Verdict(fb.OK, f"Saved {member} · {key or section}",
                                        f"wrote {self.member_paths[member].name}"), [])
         if not single and "name" in entity:        # a renamed list entity -> refresh ITS tree row (located
@@ -1336,7 +1518,7 @@ class Workspace(QMainWindow):
     def _ensure_saved(self) -> bool:
         """Commit the active form + write its doc to disk so Check validates the CURRENT edits, not stale
         bytes (parity with the tkinter editor's _ensure_saved). Skips a protected file."""
-        if not self._commit_active():
+        if not self._commit_active_ck():
             return False
         member = (self._save_ctx or {}).get("member") or self._loose
         if not member or member not in self._docs:
@@ -1357,7 +1539,7 @@ class Workspace(QMainWindow):
         """Before a file switch / window close: fold the active form in, and if any cached field has
         unsaved edits, offer Save / Discard / Cancel. Returns False ONLY on Cancel (caller aborts).
         Headless/offscreen never blocks (returns True)."""
-        self._commit_active()                      # the in-progress form's edits count toward dirty
+        self._commit_active_ck()                   # the in-progress form's edits count toward dirty (+ checkpoint)
         if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
             return True
         dirty = self._dirty_members()
@@ -1513,6 +1695,7 @@ class Workspace(QMainWindow):
                 r = len(st) - 1
             reload_steps(r)
             self._touch(member)
+            self._checkpoint(member, "edit cutscene step", "cutscene")
 
         def remove():
             s = steps()
@@ -1521,6 +1704,7 @@ class Workspace(QMainWindow):
                 s.pop(r)
                 reload_steps()
                 self._touch(member)
+                self._checkpoint(member, "remove cutscene step", "cutscene")
 
         def move(d):
             s = steps()
@@ -1530,6 +1714,7 @@ class Workspace(QMainWindow):
                 s[r], s[j] = s[j], s[r]
                 reload_steps(j)
                 self._touch(member)
+                self._checkpoint(member, "reorder cutscene steps", "cutscene")
 
         sv.addWidget(self._list_buttons([("Add / Update", add_update), ("Remove", remove),
                                          ("Up", lambda: move(-1)), ("Down", lambda: move(1))]))
@@ -1553,7 +1738,13 @@ class Workspace(QMainWindow):
             self._doc_placeholder("choice not found")
             return
         ch = lst[idx]
-        ch.setdefault("options", [])
+        # Don't materialize an empty `options` just by BROWSING -- that would dirty the field with no edit
+        # (mirrors _mount_cutscene's ensure_cs). Read via opts(); the closures that mutate call ensure_opts().
+        def opts():
+            return ch.get("options") or []
+
+        def ensure_opts():
+            return ch.setdefault("options", [])
         self._clear_doc()
         self._header(f"{member}  ·  choice[{idx}]", forms.SECTION_HELP.get("choice"))
         self._set_editor_tab(f"Choice {idx + 1}")
@@ -1573,7 +1764,7 @@ class Workspace(QMainWindow):
         def reload_opts(select=None):
             opts_list.blockSignals(True)
             opts_list.clear()
-            for o in ch["options"]:
+            for o in opts():
                 opts_list.addItem(forms.option_summary(o))
             opts_list.blockSignals(False)
             if select is not None and 0 <= select < opts_list.count():
@@ -1591,18 +1782,19 @@ class Workspace(QMainWindow):
             st["getters"] = g
 
         def on_select(r):
-            if 0 <= r < len(ch["options"]):
-                show_opt(ch["options"][r])
+            if 0 <= r < len(opts()):
+                show_opt(opts()[r])
         opts_list.currentRowChanged.connect(on_select)
 
         def add_new():
-            ch["options"].append({"text": "New"})
-            reload_opts(len(ch["options"]) - 1)
+            ensure_opts().append({"text": "New"})
+            reload_opts(len(opts()) - 1)
             self._touch(member)
+            self._checkpoint(member, "add choice option", f"choice:{idx}")
 
         def update_sel():
             r = opts_list.currentRow()
-            if not (0 <= r < len(ch["options"])) or not st["getters"]:
+            if not (0 <= r < len(opts())) or not st["getters"]:
                 return
             try:
                 opt = forms.build_entity(forms.CHOICE_OPTION_SPEC, read(st["getters"]))
@@ -1613,29 +1805,33 @@ class Workspace(QMainWindow):
                 self._show_problems(fb.Verdict(fb.ERROR, "Bad option"),
                                     [fb.Problem(fb.ERROR, "An option needs text (the menu row shown).")])
                 return
-            ch["options"][r] = opt
+            ensure_opts()[r] = opt
             reload_opts(r)
             self._touch(member)
+            self._checkpoint(member, "edit choice option", f"choice:{idx}")
 
         def remove():
             r = opts_list.currentRow()
-            if 0 <= r < len(ch["options"]):
-                ch["options"].pop(r)
+            if 0 <= r < len(opts()):
+                ensure_opts().pop(r)
                 reload_opts()
                 self._touch(member)
+                self._checkpoint(member, "remove choice option", f"choice:{idx}")
 
         def move(d):
             r = opts_list.currentRow()
             j = r + d
-            if 0 <= r < len(ch["options"]) and 0 <= j < len(ch["options"]):
-                ch["options"][r], ch["options"][j] = ch["options"][j], ch["options"][r]
+            o = opts()
+            if 0 <= r < len(o) and 0 <= j < len(o):
+                o[r], o[j] = o[j], o[r]
                 reload_opts(j)
                 self._touch(member)
+                self._checkpoint(member, "reorder choice options", f"choice:{idx}")
 
         self.doc_host_lay.addWidget(self._list_buttons(
             [("Add new", add_new), ("Update", update_sel), ("Remove", remove),
              ("Up", lambda: move(-1)), ("Down", lambda: move(1))]))
-        reload_opts(0 if ch["options"] else None)
+        reload_opts(0 if opts() else None)
         self._save_ctx = {"member": member, "key": f"choice:{idx}", "spec": forms.CHOICE_SPEC,
                           "getters": getters, "single": False, "section": "choice", "idx": idx}
         self._add_save(lambda: self._commit(member, "choice", forms.CHOICE_SPEC, getters,
@@ -2213,6 +2409,94 @@ def _smoke(win):
     imp.on_find()
     assert "list-fields" in icap[-1], icap[-1]
 
+    # UNDO / REDO -- a fresh loose field gives a clean history to exercise the stacks
+    uf = d / "UNDOTEST.field.toml"
+    uf.write_text('[field]\nid = 4700\nname = "U1"\narea = 11\n\n'
+                  '[[npc]]\nname = "Aaa"\npreset = "vivi"\n[[npc]]\nname = "Bbb"\npreset = "vivi"\n',
+                  encoding="utf-8")
+    assert win.open_field(uf)
+    assert win._undo_stack == [] and win._redo_stack == [], "a fresh open clears the undo history"
+    assert not win.act_undo.isEnabled() and not win.act_redo.isEnabled()
+    ulabels = [e[0] for e in win._command_index()]
+    assert "Undo" in ulabels and "Redo" in ulabels, ulabels
+    # (1) edit a form value + cross the nav/save boundary -> one undo step; undo reverts, redo re-applies
+    win._open_editor("U1", "field", "field")
+    idw = win._save_ctx["getters"]["id"].__self__                  # the id QLineEdit behind the field form
+    assert idw.text() == "4700"
+    idw.setText("4999")
+    assert win._commit_active_ck() is True                         # the nav/save boundary folds + checkpoints
+    assert win._doc("U1").data["field"]["id"] == 4999 and len(win._undo_stack) == 1
+    assert win.act_undo.isEnabled() and win.act_undo.toolTip().startswith("Undo edit field")
+    win._undo()
+    assert win._doc("U1").data["field"]["id"] == 4700, "undo reverted the field id"
+    assert win._redo_stack and win.act_redo.isEnabled() and not win.act_undo.isEnabled()
+    win._redo()
+    assert win._doc("U1").data["field"]["id"] == 4999 and not win._redo_stack, "redo re-applied the id"
+    # (1b) review fix: a PENDING (uncommitted) form edit is folded into history by Undo, not silently lost
+    win._open_editor("U1", "field", "field")
+    win._save_ctx["getters"]["id"].__self__.setText("4321")       # typed, NOT committed (no nav/save)
+    win._undo()                                                   # Undo commits the pending edit, then undoes it
+    assert win._doc("U1").data["field"]["id"] == 4999, "Undo reverted the just-typed (uncommitted) id"
+    win._redo()
+    assert win._doc("U1").data["field"]["id"] == 4321, "the folded pending edit is recoverable via Redo"
+    win._undo()                                                   # leave the id back at 4999 for the next steps
+    assert win._doc("U1").data["field"]["id"] == 4999
+    # (2) add an entity -> undo removes it, redo re-adds (the structural ops are checkpointed)
+    n0 = len(win._doc("U1").data["npc"])
+    win._add_list_item("U1", "npc")
+    assert len(win._doc("U1").data["npc"]) == n0 + 1
+    win._undo()
+    assert len(win._doc("U1").data.get("npc", [])) == n0, "undo removed the added NPC"
+    win._redo()
+    assert len(win._doc("U1").data["npc"]) == n0 + 1, "redo restored the added NPC"
+    # (3) delete an entity -> undo restores it (a delete writes disk + marks clean; undo makes it dirty again)
+    win._confirm = lambda *a: True
+    nd = len(win._doc("U1").data["npc"])
+    win._delete_object("U1", "npc", single=False, idx=nd - 1, label="NPC")
+    assert len(win._doc("U1").data["npc"]) == nd - 1
+    win._undo()
+    assert len(win._doc("U1").data["npc"]) == nd, "undo restored the deleted NPC"
+    assert "U1" in win._dirty_members(), "an undone delete is dirty vs the saved file (Save persists it)"
+    # (4) redo INVALIDATION: a fresh edit after an undo clears the redo branch
+    assert win._redo_stack, "the undone delete is redoable"
+    win._add_list_item("U1", "marker")                            # a NEW edit...
+    assert win._redo_stack == [], "a new edit invalidates the redo branch"
+    # (5) a cutscene STEP add records an undo step (the live sub-editor closures are checkpointed too)
+    win._mount_cutscene("U1")
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QComboBox as _QCB, QPushButton as _QPB
+    QApplication.instance().sendPostedEvents(None, QEvent.Type.DeferredDelete)   # drop earlier mounts' stale widgets
+    combo = next(c for c in win.doc_host.findChildren(_QCB)
+                 if any(c.itemData(i) == "say" for i in range(c.count())))
+    combo.setCurrentIndex(next(i for i in range(combo.count()) if combo.itemData(i) == "say"))
+    vbox = next(p for p in win.doc_host.findChildren(QPlainTextEdit)
+                if not p.isReadOnly() and "Line break" in p.toolTip())
+    vbox.setPlainText("A cutscene line")
+    nU = len(win._undo_stack)
+    next(b for b in win.doc_host.findChildren(_QPB) if b.text() == "Add / Update").click()
+    assert win._doc("U1").data.get("cutscene", {}).get("steps"), "the cutscene step was added"
+    assert len(win._undo_stack) == nU + 1, "adding a cutscene step recorded an undo step"
+    win._undo()
+    assert not win._doc("U1").data.get("cutscene", {}).get("steps", []), "undo removed the cutscene step"
+    # (6) closed-member guard: applying history for a no-longer-open member is a graceful no-op (no crash)
+    win._apply_history("GONE", {"field": {}}, "field", "Undo x")
+    # (7) focus-aware shortcut: with no text widget focused, Ctrl-Z routes to app-level undo; and the
+    # read-only console/preview boxes that the delegate must REFUSE (else Ctrl-Z wipes their shown text)
+    assert win._delegate_text_history(redo=False) is False
+    assert win.output.isReadOnly(), "the Output console is read-only -> _delegate_text_history must skip it"
+    # review fix: a list-group header retitles the Editor tab (no stale prior-leaf name)
+    et = lambda: win.tabs.tabText(win.tabs.indexOf(win.doc_scroll))                       # noqa: E731
+    win._open_editor("U1", "group", "npc")
+    assert et() == "Editor — NPCs", et()
+    # review fix: viewing a [[choice]] with NO `options` key must not materialize it (dirty-on-view)
+    win._doc("U1").data["choice"] = [{"npc": "Z", "prompt": "Hm?"}]
+    win._mark_clean("U1")
+    win._mount_choice("U1", 0)
+    assert "options" not in win._doc("U1").data["choice"][0], "viewing a choice must not inject options"
+    assert "U1" not in win._dirty_members(), "viewing an options-less choice did not dirty the field"
+    win._doc("U1").data.pop("choice", None)
+    win._mark_clean("U1")
+
     # CREATE NEW (the pure actions; the dialogs are modal so the smoke drives the actions directly) --
     # New Field scaffolds a standalone project + opens it (loose mode)
     nf = win._new_field("NEWROOM", d, field_id=4555, area=12, pitch=40)
@@ -2264,9 +2548,10 @@ def _smoke(win):
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
           f"catalog picker + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
-          f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + New "
-          f"Field/Campaign + Add-field ({len(win.plan.members)} blank members) + Build/Deploy + Import "
-          f"docs (argv-built) + Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
+          f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
+          f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
+          f"({len(win.plan.members)} blank members) + Build/Deploy + Import docs (argv-built) + Ctrl-K "
+          f"palette, Problems dock ({nprob} rows); QProcess wired")
 
 
 def main(argv=None):
