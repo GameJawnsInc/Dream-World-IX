@@ -262,11 +262,14 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   1753/1606/1900/1455) which key on runtime position/sid/story-var state, so they're **flagged** by `fork-report`
   ("Walkmesh fix: lost on a mint → fork in-place") rather than auto-applied. Refines #14's "verbatim is the answer":
   even a verbatim fork at a remapped id loses these; the load-time subset is now reproduced, the dynamic ones steer
-  to fork-in-place. ★ **IN-GAME CONFIRMED (2026-06-14, Gulug 2356)**: a native fork's tris 78/79/80 (a painted
-  CHEST's footprint at world ~(−418,1675)) are non-walkable in the fork — and since the carried prop has no
-  collision and the shipped `.bgi` ships those tris *active*, the prepended `EnablePathTriangle` toggle is what
-  blocks them. (Lesson: the engine's "Red Dragon bursting through wall" comment names the *room*, not the tris'
-  job — they block a painted chest; trust the user's game knowledge over the source comment.)
+  to fork-in-place. ⚠ **Deployed + byte-correct, but the toggle's standalone effect is UNPROVEN** (2026-06-14):
+  the only tested load-time field (Gulug 2356, tris 78/79/80 @ world ~(−418,1675)) is a **confounded**
+  demonstrator — the patch coincides with a 3D treasure-chest prop (entry 5, `GEO_ACC_F0_TBX` at (−426,1664))
+  whose `CreateObject` registers walkmesh collision (`BGI_charSetActive`, DoEventCode.cs:286), so the spot is
+  blocked by the *chest* whether or not the toggle fires. The toggle only adds something where these tris extend
+  beyond the chest's collision radius — needs an object-free hotfix field (or an A/B with the prop removed) to
+  isolate. (Lessons: the engine's "Red Dragon bursting through wall" comment names the *room*, not the tris' job;
+  and a co-located created object can mask a walkmesh hotfix — don't claim "proven" from a confounded spot.)
 - **Mognet/Chocobo-Paradise world-map alternate-form STATE (bits 815/814) is BROUGHT-IN** — `WorldConfiguration.cs`
   `UsePlaceAlternateForm` is a pure `gEventGlobal` byte read (NOT id-gated), so `[startup] flags=[{flag=815}]`
   reproduces it; only the achievement-WRITE paths (`DigUpKupo fldMapNo==1421`, ATE80) are id-blocked.

@@ -63,12 +63,14 @@ class Hotfix:
 _HOTFIXES = {
     # --- LOAD-TIME (unconditional at field load; AUTO-reproduced) -------------------------------------------
     2356: Hotfix(2356, "Gulug/Room (the Red-Dragon-wall room)", "load_time",
-                 "At field load the engine deactivates 3 floor triangles so the player walks AROUND a painted "
-                 "obstacle, not onto it. ★ IN-GAME (2026-06-14): the blocked patch (world ~(-418,1675)) is a "
-                 "painted CHEST's footprint -- the engine comment '(Red Dragon bursting through wall)' names the "
-                 "ROOM (field 2356), not these tris' job. Unconditional -- reproduced by deactivating the same "
-                 "tris at load (proven: the fork's spot is non-walkable; the carried prop has no collision and "
-                 "the shipped .bgi ships these tris active, so the toggle is what blocks it).",
+                 "At field load the engine deactivates 3 floor triangles (world ~(-418,1675)). The engine "
+                 "comment '(Red Dragon bursting through wall)' names the ROOM (field 2356), not these tris' job. "
+                 "★ CONFOUNDED demonstrator (in-game 2026-06-14): the patch coincides with a 3D treasure-chest "
+                 "prop (entry 5, GEO_ACC_F0_TBX) at (-426,1664) whose CreateObject registers walkmesh collision "
+                 "(BGI_charSetActive) -- so the spot is blocked by the CHEST regardless of the toggle, and 2356 "
+                 "cannot ISOLATE the toggle's effect. The toggle (correctly deployed) only matters where these "
+                 "tris extend beyond the chest's collision radius -- UNPROVEN. Pick an object-free hotfix field "
+                 "(or an A/B) to prove the toggle in isolation.",
                  "FieldMap.cs:112-117", toggles=((78, 0), (79, 0), (80, 0)), tris=(78, 79, 80)),
     2161: Hotfix(2161, "L. Castle/Guest Room (disc 3)", "load_time",
                  "At field load the engine deactivates one triangle (a disc-3 room-layout block). Unconditional.",
