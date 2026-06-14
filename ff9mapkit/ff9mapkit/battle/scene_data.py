@@ -50,6 +50,14 @@ _MON_INT_MAX = {"<H": 0xFFFF, "<B": 0xFF}
 _MON_ELEM_FIELDS = {"null": 60, "absorb": 61, "half": 62, "weak": 63}
 _MON_STATUS_FIELDS = {"resist_status": 0, "auto_status": 4, "initial_status": 8}
 
+# Per-enemy MON flags (SB2_MON_PARM.Flags @48, u16 = ENEMY_INFO.flags) -- raw16-ONLY (not a [PatchableField], so
+# BattlePatch can't reach it; this is the one enemy-identity gap the BP surface leaves). Named bits from
+# ENEMY.cs:37-39: die_atk/die_dmg pick the death-animation path; non_dying_boss = the enemy SURVIVES HP=0 (a
+# scripted boss can't be killed by normal damage). The author value is a list of NAMES or a raw int (the high
+# bits are read by some enemies' AI .eb, so a raw int passes them through).
+_MON_FLAGS_OFF = 48
+_MON_FLAG_NAMES = {"die_atk": 1, "die_dmg": 2, "non_dying_boss": 4}
+
 # RE-SKIN: the (offset, length) byte ranges of the MODEL + display fields, copied VERBATIM from a real donor
 # enemy so a forked enemy's BODY looks like a different creature while keeping its own gameplay. The appearance
 # is a self-consistent group: Geo (the model), Mot[6] (six GLOBAL animation ids = the IDLE/DAMAGE/DEATH motions,
@@ -188,7 +196,7 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
     for e in enemies:
         slot = int(e["slot"])
         stat_keys = [k for k in e if k in _MON_FIELDS or k in _MON_ELEM_FIELDS
-                     or k in _MON_STATUS_FIELDS or k in ("drop", "steal")]
+                     or k in _MON_STATUS_FIELDS or k in ("drop", "steal", "flags")]
         reskin_block = e.get("_reskin_block")              # a resolved real-donor block (build injects it)
         if not stat_keys and reskin_block is None:
             continue
@@ -223,6 +231,8 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
                 except ValueError as ex:
                     raise SceneEditError(f"slot {slot} {k}: {ex}")
                 struct.pack_into("<I", b, mon_off + _MON_STATUS_FIELDS[k], v & 0xFFFFFFFF)
+            elif k == "flags":                             # per-enemy MON flags @48 (non_dying_boss / die_*)
+                struct.pack_into("<H", b, mon_off + _MON_FLAGS_OFF, _encode_flags(e[k], slot))
             else:  # drop / steal: 4 item slots (id/name; 255 = none)
                 base = mon_off + (20 if k == "drop" else 24)
                 for i, iid in enumerate(_resolve_items(e[k], slot, k)):
@@ -259,6 +269,29 @@ def _edit_placement(b: bytearray, pat_off: int, e: dict, typcount: int) -> None:
         struct.pack_into("<h", b, put_off + 6, _clamp_i16(int(e["y"])))
     if "rot" in e:
         struct.pack_into("<h", b, put_off + 10, _clamp_i16(int(e["rot"])))
+
+
+def _encode_flags(value, slot) -> int:
+    """A ``[[scene.enemy]] flags`` value -> a u16. Accepts a list of NAMES (``_MON_FLAG_NAMES``, OR'd), a single
+    name, or a raw int (passes the unnamed high bits through to the enemy's AI)."""
+    if isinstance(value, bool):
+        raise SceneEditError(f"slot {slot} flags can't be a boolean")
+    if isinstance(value, int):
+        if not 0 <= value <= 0xFFFF:
+            raise SceneEditError(f"slot {slot} flags {value} out of range (0-65535)")
+        return value
+    names = [value] if isinstance(value, str) else value
+    if not isinstance(names, list):
+        raise SceneEditError(f"slot {slot} flags must be a name / list of names {sorted(_MON_FLAG_NAMES)} "
+                             f"or a raw int")
+    bits = 0
+    for nm in names:
+        key = str(nm).strip().lower()
+        if key not in _MON_FLAG_NAMES:
+            raise SceneEditError(f"slot {slot} unknown enemy flag {nm!r}; known: {sorted(_MON_FLAG_NAMES)} "
+                                 f"(or pass a raw int)")
+        bits |= _MON_FLAG_NAMES[key]
+    return bits
 
 
 def _clamp_i16(v: int) -> int:

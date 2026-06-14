@@ -56,31 +56,33 @@ against the `BTL_SCENE.cs:53-122` read order + an empirical `EF_R007` parse. On 
 | MaxHP / MaxMP | health / mana pool (turns-to-kill) | raw16 / BP | `@12 u16` / `@14 u16` | No | **done** |
 | WinGil / WinExp | gil + EXP reward | raw16 / BP | `@16 u16` / `@18 u16` | No | **done** |
 | WinItems[4] / StealItems[4] | 4 drop / 4 steal item ids (255=none) | raw16 / BP | `@20` / `@24`, 4×u8 | No | **done** (ids) |
-| **WinItemRates[4] / StealItemRates[4]** | drop/steal **odds** | **BP only** | not in raw16; `[PatchableField]` arrays, defaults `{256,96,32,1}` / `{256,64,16,1}` (`SB2_MON_PARM.cs:53-60`) | No | **absent** |
+| **WinItemRates[4] / StealItemRates[4]** | drop/steal **odds** | **BP only** | not in raw16; `[PatchableField]` arrays, defaults `{256,96,32,1}` / `{256,64,16,1}` (`SB2_MON_PARM.cs:53-60`) | No | **done** (BP `drop_rates`/`steal_rates`) |
 | Radius / Geo / Mot[6] / Mesh[2] | collision + **model + 6 anim ids** (re-skin to a stock monster) | **raw16 only** | `@28 u16`, `@30 i16`, `@32` 6×u16, `@44` 2×u16 | No | **done (BODY re-skin, ★ in-game proven)** — `[[scene.enemy]] model=`/`model_scene=` transplants a real donor enemy's model block (`reskin.py`); the new model's idle/damage/death play (Mot-driven), but the ATTACK anim stays the target's (raw17-bound, retargeted onto the new mesh, `AnimationFactory.cs:60`) → build WARNS. Proven: a Goblin→Fang re-skin idled as a quadruped Fang but attacked Goblin-like |
-| Flags | per-enemy MON flags | **raw16 only** | `@48 u16` | No | **absent** |
-| AP (per-type) | type AP (note: the gameplay AP is the *pattern* AP) | **raw16 only** | `@50 u16` (not `[PatchableField]`) | No | **absent** |
+| Flags | per-enemy MON flags (die_atk/die_dmg/**non_dying_boss** = survives HP=0) | **raw16 only** | `@48 u16` | No | **done** (`[[scene.enemy]] flags`; names or raw int) |
+| AP (per-type) | type AP (note: the gameplay AP is the *pattern* AP) | **raw16 only** | `@50 u16` (not `[PatchableField]`) | No | **n/a** — inert for rewards; the gameplay AP = the pattern AP (`[scene] ap`, **done**) |
 | Speed / Strength / Magic / Spirit | the 4 core battle stats | raw16 / BP | `@52/@53/@54/@55` u8 | No | **done** |
 | (pad/trans/cur_capa/max_capa) | trance/capacity — inert for enemies | — | `@56-59` | — | pass-through |
-| **GuardElement / AbsorbElement / HalfElement / WeakElement** | per-element immune / absorb / halve / weak | raw16 / BP | `@60/@61/@62/@63` u8 bitmask | No | **absent** |
-| **BonusElement** | element the enemy's OWN attacks are imbued with | **BP only** | not in raw16; `[PatchableField]` (`SB2_MON_PARM.cs:85`) | No | **absent** |
+| **GuardElement / AbsorbElement / HalfElement / WeakElement** | per-element immune / absorb / halve / weak | raw16 / BP | `@60/@61/@62/@63` u8 bitmask | No | **done** (`[scene]` `null`/`absorb`/`half`/`weak`, by name; + BP) |
+| **BonusElement** | element the enemy's OWN attacks are imbued with | **BP only** | not in raw16; `[PatchableField]` (`SB2_MON_PARM.cs:85`) | No | **done** (BP `bonus_element`) |
 | Level | level (variance, magic resist, steal, Level-N spells) | raw16 / BP | `@64 u8` | No | **done** |
-| Category | race / killer / flight / undead / death-react | raw16 / BP | `@65 u8` | No | **absent** |
-| HitRate | enemy physical accuracy | raw16 / BP | `@66 u8` | No | **absent** |
-| **PhysicalDefence / PhysicalEvade / MagicalDefence / MagicalEvade** | the 4 defences | raw16 / BP | `@67/@68/@69/@70` u8 | No | **absent** |
-| BlueMagic | Quina Eat / learn id | raw16 / BP | `@71 u8` | No | **absent** |
-| **ResistStatus / AutoStatus / InitialStatus** | immune / permanent / starting statuses (32-bit `BattleStatus` masks) | raw16 / BP | `@0/@4/@8` u32 LE | No | **absent** |
-| WinCard | Tetra Master card drop | raw16 / BP | `@105 u8`; rate = `DefaultWinCardRate=32` constant | No | **absent** |
-| **MaxDamageLimit / MaxMpDamageLimit** | per-enemy >9999 break-damage-limit | **BP only** | not in raw16; `[PatchableField]`, default `FF9PLAY_DAMAGE_MAX` (`SB2_MON_PARM.cs:20-21`) | No | **absent** |
-| Bone/SFX/Shadow/Icon/Konran/MesCnt | cosmetics / SFX / message count | raw16 only | `@72-114` | No | **absent** |
+| Category | race / killer / flight / undead / death-react | raw16 / BP | `@65 u8` | No | **done** (`[scene] category` + BP) |
+| HitRate | enemy physical accuracy | raw16 / BP | `@66 u8` | No | **done** (`[scene] hit_rate` + BP) |
+| **PhysicalDefence / PhysicalEvade / MagicalDefence / MagicalEvade** | the 4 defences | raw16 / BP | `@67/@68/@69/@70` u8 | No | **done** (`[scene]` phys/mag def+evade; + BP) |
+| BlueMagic | Quina Eat / learn id | raw16 / BP | `@71 u8` | No | **done** (`[scene] blue_magic` + BP) |
+| **ResistStatus / AutoStatus / InitialStatus** | immune / permanent / starting statuses (32-bit `BattleStatus` masks) | raw16 / BP | `@0/@4/@8` u32 LE | No | **done** (`[scene]` resist/auto/initial_status, by name; + BP) |
+| WinCard | Tetra Master card drop | raw16 / BP | `@105 u8`; rate = `DefaultWinCardRate=32` constant | No | **done** (`[scene] win_card`; + BP `win_card_rate`) |
+| **MaxDamageLimit / MaxMpDamageLimit** | per-enemy >9999 break-damage-limit | **BP only** | not in raw16; `[PatchableField]`, default `FF9PLAY_DAMAGE_MAX` (`SB2_MON_PARM.cs:20-21`) | No | **done** (BP `max_damage_limit`/`max_mp_damage_limit`) |
+| Bone/SFX/Shadow/Icon/Konran/MesCnt | cosmetics / SFX / message count | raw16 only | `@72-114` | No | **partial** — carried as a BLOCK by the re-skin transplant (`reskin.py`); not individually tunable (Konran/MesCnt deliberately NOT carried — raw17/text linkage) |
 
 > **`[PatchableField]` = "by-name without re-packing":** the status masks, all 5 element bytes, Level,
 > Category, HitRate, all 4 def/evade, BlueMagic, gil/EXP/drop/steal + the rate arrays + MaxDamageLimit all
 > carry `[Memoria.PatchableFieldAttribute]` (`SB2_MON_PARM.cs:33-109`), so `BattlePatch.txt` sets them by
 > FieldInfo name (`DataPatchers.cs:99-113`). A few `[PatchableField]`s (WinItemRates/StealItemRates,
 > BonusElement, MaxDamageLimit) are **not in the raw16 disk layout at all** → reachable ONLY via BattlePatch.
-> **NOT patchable** (raw16-byte-only): `AP@50`, `Flags@48`, the model wiring (`Radius/Geo/Mot/Mesh`), all
-> cosmetics, and `MonsterCount` (commented out, `SB2_PATTERN.cs:16`).
+> **Not `[PatchableField]`** (so unreachable by BattlePatch — but the kit reaches them by **raw16 byte-patch**
+> via `[scene]`/`[[scene.enemy]]`): `Flags@48` (`flags` lever) + the model wiring (`Radius/Geo/Mot/Mesh`, the
+> re-skin). Genuinely inert / not exposed: `AP@50` (per-type; the gameplay AP is the *pattern* AP), the
+> individual cosmetics, and `MonsterCount` (commented out, `SB2_PATTERN.cs:16`; the kit sets it directly anyway).
 
 ### (a′) Per-enemy ATTACK table — `AA_DATA[]` at the raw16 TAIL
 

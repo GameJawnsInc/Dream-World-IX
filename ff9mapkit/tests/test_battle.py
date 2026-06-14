@@ -565,6 +565,26 @@ def test_scene_edits_masks_accept_raw_int():
     assert struct.unpack_from("<I", out, mon0 + 0)[0] == (1 << 19)
 
 
+def test_scene_edits_enemy_flags():
+    raw, mon0 = _raw16(), 8 + 56                                # type-0 block; Flags @48
+    out, warns = scene_data.apply_scene_edits(raw, {"enemy": [
+        {"slot": 0, "flags": ["non_dying_boss", "die_dmg"]}]})  # names OR'd
+    assert not warns and struct.unpack_from("<H", out, mon0 + 48)[0] == 4 | 2
+    out2, _ = scene_data.apply_scene_edits(raw, {"enemy": [{"slot": 0, "flags": "non_dying_boss"}]})
+    assert struct.unpack_from("<H", out2, mon0 + 48)[0] == 4    # a single name
+    out3, _ = scene_data.apply_scene_edits(raw, {"enemy": [{"slot": 0, "flags": 0x0105}]})
+    assert struct.unpack_from("<H", out3, mon0 + 48)[0] == 0x0105   # raw int passes high bits to the AI
+    diff = [i for i in range(len(raw)) if raw[i] != out2[i]]
+    assert diff == [mon0 + 48]                                  # only the Flags low byte changed (4 -> @48)
+
+
+def test_scene_edits_bad_flags():
+    assert any("flag" in p for p in
+               scene_data.validate_scene(_raw16(), {"enemy": [{"slot": 0, "flags": ["nope"]}]}))
+    assert any("65535" in p for p in
+               scene_data.validate_scene(_raw16(), {"enemy": [{"slot": 0, "flags": 99999}]}))
+
+
 def test_scene_edits_bad_element_and_status_names():
     assert any("element" in p for p in
                scene_data.validate_scene(_raw16(), {"enemy": [{"slot": 0, "weak": ["Nope"]}]}))
