@@ -28,6 +28,9 @@ _QSS = Template(
     QPushButton#accent { background: $accent; color: $accent_fg; border: 1px solid $accent; }
     QPushButton#accent:hover { background: $accent_hover; }
     QPushButton#accent:pressed { background: $accent_pressed; }
+    /* a disabled accent button (e.g. Save with nothing to save) must grey out -- the #accent id
+       selector otherwise out-ranks the generic :disabled rule and would stay blue. */
+    QPushButton#accent:disabled { background: $surface_btn; color: $muted; border: 1px solid $border; }
 
     /* Indicators MUST be fully specified: once a stylesheet touches a QCheckBox/QRadioButton, Qt stops
        drawing the native checked dot, so without this the selected state renders INVISIBLE. */

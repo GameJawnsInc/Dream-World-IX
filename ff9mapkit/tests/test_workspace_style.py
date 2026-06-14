@@ -25,6 +25,13 @@ def test_qss_styles_the_core_widgets():
         assert sel in css
 
 
+def test_qss_greys_a_disabled_accent_button():
+    # a disabled accent button (Save with nothing to save) must override the #accent blue -- the id
+    # selector out-ranks the generic :disabled rule, so it needs its own #accent:disabled.
+    css = style.qss(theme.DARK)
+    assert "QPushButton#accent:disabled" in css
+
+
 def test_qss_specifies_checked_indicators():
     # once a stylesheet touches a QCheckBox/QRadioButton, Qt stops drawing the native checked dot -- so the
     # CHECKED indicator must be explicitly styled or the selected state renders invisible (the Import bug).

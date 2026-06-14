@@ -260,11 +260,13 @@ class Workspace(QMainWindow):
         split.addWidget(self.tabs)
 
         insp = QWidget()
+        insp.setMaximumWidth(420)                   # an info panel -- cap it so long content can't balloon it
         iv = QVBoxLayout(insp)
         iv.setContentsMargins(10, 10, 10, 10)
         self.insp_title = QLabel("Inspector")
         self.insp_title.setStyleSheet("font-weight:600;")
         self.insp_body = QLabel("Select something on the left.")
+        self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
         self.insp_body.setWordWrap(True)
         self.insp_body.setStyleSheet(f"color:{self.pal['muted']};")
         self.insp_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
@@ -1401,12 +1403,16 @@ class Workspace(QMainWindow):
             return
         kind, label, key = payload
         self.insp_title.setText(label)
+        self.insp_body.setToolTip("")                       # full path (if any) goes on hover, not inline
         lines = []
         if kind == "field" and self.plan is not None:
             m = next((m for m in self.plan.members if m.name == label), None)
             if m:
+                path = self.member_paths.get(label)
                 lines = [f"field id: {m.new_id}", f"source: real field {m.real_id}", f"mode: {m.mode}",
-                         f"toml: {self.member_paths.get(label)}"]
+                         f"file: {Path(path).name if path else '(unknown)'}"]
+                if path:
+                    self.insp_body.setToolTip(str(path))    # a long absolute path mustn't force the panel wide
         elif kind == "campaign" and self.plan is not None:
             g = C.campaign_graph(self.plan)
             lines = [f"{len(self.plan.members)} fields", f"entry: {g.entry or '(none)'}",
@@ -1704,6 +1710,12 @@ def _smoke(win):
     win.tree.setCurrentItem(win._root_items[0])
     win._open_current_tree_item()
     assert win.tabs.currentWidget() is win.map, "Enter on the campaign root opens the Map"
+    # (a2) the inspector shows the FILE NAME inline; the full path is on the tooltip (so it can't balloon)
+    win.tree.setCurrentItem(win._member_items["IC_ENT"])
+    mp = str(win.member_paths["IC_ENT"])
+    assert "file: IC_ENT.field.toml" in win.insp_body.text(), win.insp_body.text()
+    assert mp not in win.insp_body.text(), "the full path is not shown inline"
+    assert win.insp_body.toolTip() == mp, "the full path is on the hover tooltip"
     # (b) the Editor tab reflects what's open; placeholder resets it
     et = lambda: win.tabs.tabText(win.tabs.indexOf(win.doc_scroll))
     win._open_editor("IC_ENT", "field", "field")
