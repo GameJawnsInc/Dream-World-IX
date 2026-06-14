@@ -19,9 +19,10 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QProcess, QSize
 from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
-    QTabWidget, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QFormLayout, QHBoxLayout,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
+    QPushButton, QScrollArea, QSplitter, QTabWidget, QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 from .. import campaign as C
@@ -29,6 +30,7 @@ from .. import save as _save
 from ..editor import breadcrumb as bc
 from ..editor import feedback as fb
 from ..editor import forms
+from ..editor import jobs
 from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import pick_palette
 from .builddoc import BuildDoc
@@ -86,6 +88,15 @@ def _health(node, pal):
     if node.is_entry:
         return pal["success"]
     return None
+
+
+def _field_token(name) -> str:
+    """A field/member NAME -> a clean on-disk token (it becomes a subdir + ``EVT_<name>``/``FBG`` ids), or
+    raise ValueError. Mirrors :func:`..campaign._validate_member_name` but raises the GUI's ValueError."""
+    name = str(name).strip()
+    if not name or name in (".", "..") or any(c in name for c in "/\\"):
+        raise ValueError(f"invalid name {name!r} — use letters/digits/underscores, no path separators")
+    return name
 
 
 class BreadcrumbBar(QWidget):
@@ -154,6 +165,7 @@ class Workspace(QMainWindow):
         self._save_btn = None                      # the mounted form's Save button (greys when clean)
         self._reset_btn = None                     # the mounted form's Reset button (revert to last save)
         self._save_ctx = None                      # {member, key, spec, getters, single|kind, idx} for Save
+        self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
         self.setWindowTitle("FF9 Map Kit — Workspace")
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
@@ -170,6 +182,16 @@ class Workspace(QMainWindow):
         tb = QToolBar()
         tb.setMovable(False)
         self.addToolBar(tb)
+        act_new_field = QAction("New Field…", self)
+        act_new_field.setToolTip("Scaffold a new standalone field project + open it (Ctrl-N)")
+        act_new_field.triggered.connect(self.on_new_field)
+        tb.addAction(act_new_field)
+        act_new_campaign = QAction("New Campaign…", self)
+        act_new_campaign.setToolTip("Create an empty campaign + open it; add rooms from the campaign root "
+                                    "(Ctrl-Shift-N)")
+        act_new_campaign.triggered.connect(self.on_new_campaign)
+        tb.addAction(act_new_campaign)
+        tb.addSeparator()
         act_open = QAction("Open Campaign…", self)
         act_open.triggered.connect(self.on_open_campaign)
         tb.addAction(act_open)
@@ -205,6 +227,8 @@ class Workspace(QMainWindow):
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self._save_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=self.on_new_field)
+        QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.on_new_campaign)
 
     def _build_central(self):
         central = QWidget()
@@ -318,10 +342,11 @@ class Workspace(QMainWindow):
         w.setReadOnly(True)
         w.setHtml(
             "<h2>FF9 Map Kit — Workspace</h2>"
-            "<p>The modern shell. <b>Open Campaign…</b> for a <code>campaign.toml</code>, or "
-            "<b>Open Field…</b> for a standalone <code>field.toml</code>; the left tree shows "
-            "<b>journey ▸ campaign ▸ field ▸ object</b>, the breadcrumb tracks where you are, and "
-            "<b>Check</b> fills the Problems dock.</p>"
+            "<p>The modern shell. <b>New Field…</b> (Ctrl-N) scaffolds a fresh walkable room and "
+            "<b>New Campaign…</b> (Ctrl-Shift-N) starts an empty arc — or <b>Open Campaign…</b> / "
+            "<b>Open Field…</b> an existing <code>campaign.toml</code> / <code>field.toml</code>. The "
+            "left tree shows <b>journey ▸ campaign ▸ field ▸ object</b>, the breadcrumb tracks where you "
+            "are, and <b>Check</b> fills the Problems dock.</p>"
             "<p>One window, every tool: <b>Editor</b> (fields, NPCs, gateways, cutscenes, choices) · "
             "<b>Map</b> · <b>Story State</b> + <b>Item &amp; Equip</b> save editors · <b>Build &amp; "
             "Deploy</b> · <b>Import</b> (fork a real field). Press <b>Ctrl-K</b> to jump anywhere.</p>"
@@ -351,6 +376,175 @@ class Workspace(QMainWindow):
                                            "Field (*.field.toml);;TOML (*.toml);;All files (*)")
         if f:
             self.open_field(Path(f))
+
+    # ---- create new (field / campaign / member) ----
+    def _default_new_dest(self) -> str:
+        """The folder the New pickers start in (the last one chosen, else the repo root)."""
+        return getattr(self, "_last_new_dir", None) or str(REPO)
+
+    def _pick_dir(self, line_edit, caption):
+        d = QFileDialog.getExistingDirectory(self, caption, line_edit.text().strip() or self._default_new_dest())
+        if d:
+            line_edit.setText(d)
+            self._last_new_dir = d
+
+    def _dir_row(self, line_edit, caption):
+        """A folder QLineEdit + a Browse… button, as one row widget (for the New dialogs)."""
+        row = QWidget()
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(line_edit, 1)
+        b = QPushButton("Browse…")
+        b.clicked.connect(lambda _=False: self._pick_dir(line_edit, caption))
+        h.addWidget(b)
+        return row
+
+    @staticmethod
+    def _ok_cancel(dlg):
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        return bb
+
+    def _new_field(self, name, dest, *, field_id=None, area=11, pitch=48.0, title=None):
+        """Scaffold a standalone field project (``pack.new_project`` -- placeholder art, walkable) and open
+        it. Returns the new field.toml path. Raises ValueError on a bad name or an existing project."""
+        from .. import pack
+        name = _field_token(name)
+        area = int(area)
+        if area < 10:
+            raise ValueError(f"area must be ≥ 10 (got {area}) — single-digit areas black-screen (CLAUDE.md §7)")
+        if field_id is not None and not (4000 <= int(field_id) <= 32767):
+            raise ValueError(f"field id {field_id} out of the custom band 4000–32767 (real ids are locked)")
+        proj_dir = Path(dest) / name
+        fpath = proj_dir / f"{name.lower()}.field.toml"
+        if fpath.exists():
+            raise ValueError(f"{fpath.name} already exists in {proj_dir} — pick a new name or folder")
+        pack.new_project(name, dest, field_id=field_id, area=area, pitch=float(pitch),
+                         title=(title or None))
+        self._last_new_dir = str(dest)
+        self.open_field(fpath)
+        return fpath
+
+    def on_new_field(self):
+        """New Field… dialog -> scaffold + open a standalone field.toml."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("New field")
+        form = QFormLayout(dlg)
+        name = QLineEdit()
+        name.setPlaceholderText("MY_ROOM")
+        dest = QLineEdit(self._default_new_dest())
+        fid = QLineEdit()
+        fid.setPlaceholderText("auto (suggested)")
+        area = QLineEdit("11")
+        pitch = QLineEdit("48")
+        form.addRow("Name", name)
+        form.addRow("Destination", self._dir_row(dest, "Choose where to scaffold the field"))
+        form.addRow("Field id", fid)
+        form.addRow("Area (≥10)", area)
+        form.addRow("Camera pitch", pitch)
+        note = QLabel("A new walkable room with PLACEHOLDER art is created under "
+                      "<dest>/<NAME>/ and opened. Repaint the layers + author it here.")
+        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setWordWrap(True)
+        form.addRow(note)
+        form.addRow(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self._new_field(name.text(), dest.text().strip() or self._default_new_dest(),
+                            field_id=(int(fid.text()) if fid.text().strip() else None),
+                            area=int(area.text() or 11), pitch=float(pitch.text() or 48))
+        except (ValueError, OSError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't create the field"),
+                                [fb.Problem(fb.ERROR, str(e))])
+
+    def _new_campaign(self, name, dest, *, mod_folder="FF9CustomMap", id_base=4000):
+        """Create an EMPTY campaign (``campaign.new_campaign``) and open it. Add rooms afterward from the
+        campaign root. Returns the campaign.toml path. Raises ValueError / CampaignError on bad input."""
+        name = str(name).strip()
+        if not name:
+            raise ValueError("a campaign name is required")
+        dest = Path(dest)
+        cpath = dest / "campaign.toml"
+        if cpath.exists():
+            raise ValueError(f"a campaign.toml already exists in {dest} — choose an empty folder")
+        C.new_campaign(name, mod_folder or "FF9CustomMap", dest, id_base=int(id_base))
+        self._last_new_dir = str(dest)
+        self.open_campaign(cpath)
+        return cpath
+
+    def on_new_campaign(self):
+        """New Campaign… dialog -> create + open an empty campaign.toml."""
+        mod_folder, _fid = jobs.detect_deploy_target(REPO)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("New campaign")
+        form = QFormLayout(dlg)
+        name = QLineEdit()
+        name.setPlaceholderText("My Campaign")
+        dest = QLineEdit(self._default_new_dest())
+        mod = QLineEdit(mod_folder or "FF9CustomMap")
+        idb = QLineEdit("4000")
+        form.addRow("Name", name)
+        form.addRow("Folder", self._dir_row(dest, "Choose the campaign folder (campaign.toml goes here)"))
+        form.addRow("Mod folder", mod)
+        form.addRow("First field id", idb)
+        note = QLabel("An empty campaign.toml is created here and opened. Right-click the campaign in the "
+                      "tree (or its root) to <b>Add field…</b>.")
+        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setWordWrap(True)
+        form.addRow(note)
+        form.addRow(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self._new_campaign(name.text(), dest.text().strip() or self._default_new_dest(),
+                               mod_folder=mod.text().strip() or "FF9CustomMap",
+                               id_base=int(idb.text() or 4000))
+        except (ValueError, C.CampaignError, OSError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't create the campaign"),
+                                [fb.Problem(fb.ERROR, str(e))])
+
+    def _add_field_to_campaign(self, name, *, source=None):
+        """Append a member to the OPEN campaign (``campaign.add_field``): a blank walkable room (offline) or
+        -- with ``source`` (a real field id/name) -- a fork (needs the game). Re-renders the tree + Map and
+        selects the new member. Returns the new Member (or None if no campaign is open)."""
+        if self.plan is None or self.campaign_path is None:
+            return None
+        member = C.add_field(self.plan, self.campaign_path.parent, name=name, source=source, game=None)
+        self.member_paths = {m.name: (self.campaign_path.parent / m.toml_rel).resolve()
+                             for m in self.plan.members}
+        self._populate()
+        g = C.campaign_graph(self.plan)
+        self.map.render(g, g.entry or (self.plan.members[0].name if self.plan.members else None))
+        self._select_member(member.name)
+        self.statusBar().showMessage(f"Added {member.name} (id {member.new_id}) to {self.plan.name}")
+        return member
+
+    def on_add_field(self):
+        """Add field… dialog (from the campaign root's right-click) -> scaffold a blank member + select it."""
+        if self.plan is None or self.campaign_path is None:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add field to campaign")
+        form = QFormLayout(dlg)
+        name = QLineEdit()
+        name.setPlaceholderText("ROOM2")
+        form.addRow("Name", name)
+        note = QLabel("A new blank, walkable room is scaffolded and added to this campaign.<br>"
+                      "To fork a REAL field into the campaign, use the <b>Import</b> tab or "
+                      "<code>ff9mapkit add-field --source</code>.")
+        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setWordWrap(True)
+        form.addRow(note)
+        form.addRow(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self._add_field_to_campaign(name.text().strip())
+        except (ValueError, C.CampaignError, OSError, RuntimeError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't add the field"),
+                                [fb.Problem(fb.ERROR, str(e))])
 
     def _save_output(self, text):
         """Sink for the docked save editors' Preview/Apply output -> the bottom Output panel (console's
@@ -660,6 +854,8 @@ class Workspace(QMainWindow):
         """The palette's entries: named commands + every navigable node currently in the tree (members
         always; a field's objects once it's been expanded)."""
         cmds = [
+            ("New Field…", "command", self.on_new_field),
+            ("New Campaign…", "command", self.on_new_campaign),
             ("Open Campaign…", "command", self.on_open_campaign),
             ("Open Field…", "command", self.on_open_field),
             ("Open Save…", "command", self._open_save),
@@ -674,6 +870,8 @@ class Workspace(QMainWindow):
             ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
         ]
+        if self.plan is not None and self.campaign_path is not None:
+            cmds.insert(2, ("Add field to campaign…", "command", self.on_add_field))
         content = []
 
         def walk(item):
@@ -850,6 +1048,8 @@ class Workspace(QMainWindow):
         delete a list entity, or remove an existing single section. Empty for field / camera / an absent
         single (nothing to do there)."""
         p = self._payload(item)
+        if p and p[0] == "campaign" and self.plan is not None and self.campaign_path is not None:
+            return [("Add field…", self.on_add_field)]      # the campaign root: scaffold a new member
         fa = self._ancestor_field(item)
         if not p or fa is None:
             return []
@@ -1712,6 +1912,8 @@ def _smoke(win):
     # tree right-click / Delete-key context actions: Add on a group, Delete on an entity, Remove a single
     grp = win._object_item("IC_ENT", "npc", kind="group")
     assert [lb for lb, _ in win._context_actions(grp)] == ["Add NPC"], win._context_actions(grp)
+    # the campaign ROOT offers 'Add field…' (scaffold a new member); the Delete key ignores it (not Delete/Remove)
+    assert [lb for lb, _ in win._context_actions(win._root_items[0])] == ["Add field…"]
     ent_item = win._object_item("IC_ENT", "npc:0")
     assert ent_item and win._context_actions(ent_item)[0][0] == "Delete NPC"
     cs_item = win._object_item("IC_ENT", "cutscene")                     # the (always-shown) Cutscene node
@@ -2011,12 +2213,60 @@ def _smoke(win):
     imp.on_find()
     assert "list-fields" in icap[-1], icap[-1]
 
+    # CREATE NEW (the pure actions; the dialogs are modal so the smoke drives the actions directly) --
+    # New Field scaffolds a standalone project + opens it (loose mode)
+    nf = win._new_field("NEWROOM", d, field_id=4555, area=12, pitch=40)
+    assert nf.exists() and win._loose == "NEWROOM" and win.plan is None
+    assert win._doc("NEWROOM").data["field"]["id"] == 4555, win._doc("NEWROOM").data["field"]
+    assert (d / "NEWROOM" / "art").is_dir(), "placeholder art folder scaffolded"
+    try:                                                # clobber guard: same name+folder is refused
+        win._new_field("NEWROOM", d)
+        assert False, "creating over an existing field.toml should raise"
+    except ValueError:
+        pass
+    try:                                                # a bad name token is rejected
+        win._new_field("bad/name", d)
+        assert False, "a path-separator name should raise"
+    except ValueError:
+        pass
+    for bad in (dict(area=9), dict(field_id=50)):       # area<10 + an out-of-band id are refused up front
+        try:
+            win._new_field("GUARDROOM", d, **bad)
+            assert False, f"{bad} should raise"
+        except ValueError:
+            pass
+    # New Campaign creates an EMPTY campaign + opens it; Add field scaffolds blank members into it
+    cdir = d / "newcamp"
+    nc = win._new_campaign("My Camp", cdir, mod_folder="FF9CustomMap", id_base=4600)
+    assert nc.exists() and win.plan is not None and win.plan.name == "My Camp"
+    assert win.plan.members == [] and win._loose is None, "a fresh campaign opens empty"
+    m1 = win._add_field_to_campaign("ROOM1")
+    assert m1 and m1.name == "ROOM1" and len(win.plan.members) == 1 and win.plan.entry_name == "ROOM1"
+    assert (cdir / "ROOM1" / "room1.field.toml").exists()
+    assert "ROOM1" in win.member_paths and win._member_items.get("ROOM1") is not None
+    assert win._payload(win.tree.currentItem())[1] == "ROOM1", "the new member is selected"
+    m2 = win._add_field_to_campaign("ROOM2")
+    assert len(win.plan.members) == 2 and m2.new_id == m1.new_id + 1, (m1.new_id, m2.new_id)
+    # the two new members are registered in the on-disk campaign.toml (add_field re-saved it)
+    import tomllib as _tl_nc
+    ondisk = _tl_nc.loads((cdir / "campaign.toml").read_text(encoding="utf-8"))
+    assert {f["name"] for f in ondisk.get("field", [])} == {"ROOM1", "ROOM2"}, ondisk
+    try:                                                # clobber guard: an existing campaign folder is refused
+        win._new_campaign("Again", cdir)
+        assert False, "creating over an existing campaign.toml should raise"
+    except ValueError:
+        pass
+    # the new commands are in the palette (+ Add field appears only while a campaign is open)
+    plabels = [e[0] for e in win._command_index()]
+    assert {"New Field…", "New Campaign…", "Add field to campaign…"} <= set(plabels), plabels
+
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
           f"catalog picker + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
-          f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + Build/Deploy "
-          f"+ Import docs (argv-built) + Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
+          f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + New "
+          f"Field/Campaign + Add-field ({len(win.plan.members)} blank members) + Build/Deploy + Import "
+          f"docs (argv-built) + Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
 
 
 def main(argv=None):
