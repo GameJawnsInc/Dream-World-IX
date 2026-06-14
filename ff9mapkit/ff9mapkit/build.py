@@ -43,6 +43,7 @@ from .content import region as _region
 from .content import party as _party
 from .content import reinit as _reinit
 from .content import entry_settle as _entry_settle
+from .content import walkmesh_hotfix as _walkmesh_hotfix
 from .content import savepoint as _savepoint
 from .content import shop as _shop
 from .content import synthesis as _synthesis
@@ -460,6 +461,16 @@ def validate(project: FieldProject) -> list[str]:
         problems.append(f"[walkmesh] links not found: {wm['links']}")
     if wm.get("reference") and not project.path(wm["reference"]).is_file():
         problems.append(f"[walkmesh] reference not found: {wm['reference']}")
+    wt = f.get("walkmesh_tri_toggles")           # reproduce a real field's load-time engine walkmesh hotfix
+    if wt is not None:
+        if not isinstance(wt, list):
+            problems.append("[field] walkmesh_tri_toggles must be a list of [tri, state] pairs")
+        else:
+            for t in wt:
+                if (not isinstance(t, (list, tuple)) or len(t) != 2
+                        or int(t[0]) < 0 or int(t[1]) not in (0, 1)):
+                    problems.append(f"[field] walkmesh_tri_toggles entry {t!r} must be [tri >= 0, state 0|1]")
+                    break
     bgf = project.field.get("bgs")               # NATIVE custom scene (Moguri/vanilla path): own .bgs + atlas
     if bgf:
         if not project.path(bgf).is_file():
@@ -2056,6 +2067,19 @@ def _apply_party(project: FieldProject, eb: bytes, warnings: list | None = None)
     return _party.inject_party(eb, adds, removes)
 
 
+def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
+    """Prepend ``[field] walkmesh_tri_toggles`` to Main_Init -- reproduce a real field's LOAD-TIME engine
+    walkmesh hotfix (``BGI_triSetActive`` keyed on the real ``fldMapNo``, lost when the field is forked to a
+    custom id; see :mod:`ff9mapkit.walkmesh_hotfixes`). Each ``[tri, state]`` becomes an
+    ``EnablePathTriangle(tri, state)`` (opcode 0x9A == the engine's ``BGI_triSetActive``). Shared by the
+    synthesize path (:func:`build_script`) AND the verbatim-`.eb` path. Absent -> unchanged (byte-identical);
+    ``import`` auto-emits the key for the donors whose hotfix is statically reproducible."""
+    toggles = project.raw.get("field", {}).get("walkmesh_tri_toggles")
+    if not toggles:
+        return eb
+    return _walkmesh_hotfix.apply_tri_toggles(eb, [(int(t[0]), int(t[1])) for t in toggles])
+
+
 def _field_load_inject(label: str, field_name: str, fn):
     """Run a field-load injection (``_apply_startup`` / ``_apply_party`` / ``_apply_on_entry``), converting the
     byte inserter's opaque "0x06 jump table -- insert unsupported" ``ValueError`` into a clear, actionable
@@ -2213,6 +2237,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # RemoveParty), prepended to Main_Init. Decoupled from [startup] (party state, not story flags). A
     # synthesized field's Main_Init never rebuilds the roster, so no wipe warning is needed here.
     eb = _apply_party(project, eb)
+    # walkmesh engine-hotfix ([field] walkmesh_tri_toggles): reproduce a load-time BGI_triSetActive the engine
+    # would apply by real fldMapNo but skips on a custom id (e.g. Gulug's broken-wall block). Prepended to
+    # Main_Init; absent -> byte-identical.
+    eb = _apply_walkmesh_hotfix(project, eb)
     has_encounter = "encounter" in project.raw
 
     # larger-than-screen scrolling: enable the field's camera services (Active flag) so the engine's
@@ -3294,6 +3322,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                                             lambda: _apply_startup(project, verbatim_bytes))
         verbatim_bytes = _field_load_inject("[party]", project.name,
                                             lambda: _apply_party(project, verbatim_bytes, warnings=warnings))
+        verbatim_bytes = _field_load_inject("[field] walkmesh_tri_toggles", project.name,
+                                            lambda: _apply_walkmesh_hotfix(project, verbatim_bytes))
         oe_msg_txids, oe_suffix = _verbatim_on_entry_messages(project, langs)
         verbatim_bytes = _field_load_inject("[[on_entry]]", project.name,
                                             lambda: _apply_on_entry(project, verbatim_bytes, oe_msg_txids,

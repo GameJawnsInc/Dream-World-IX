@@ -1407,6 +1407,24 @@ def safe_custom_area(area: int) -> int:
     return area if area >= MIN_CUSTOM_AREA else 11
 
 
+def _walkmesh_hotfix_line(field) -> str:
+    """The ``[field] walkmesh_tri_toggles`` line for a fork of real ``field`` when that field has a LOAD-TIME
+    engine walkmesh hotfix (``BGI_triSetActive`` keyed on its real ``fldMapNo``) the fork would lose on its
+    custom id -- so the build reproduces it by prepending the toggles to Main_Init. ``""`` when the field has
+    no statically-reproducible walkmesh hotfix (almost all). See :mod:`ff9mapkit.walkmesh_hotfixes`."""
+    from . import walkmesh_hotfixes as _wh
+    from .dialogue import _resolve_field_id
+    try:
+        h = _wh.info(_resolve_field_id(field))
+    except Exception:
+        return ""
+    if not (h and h.auto):
+        return ""
+    arr = ", ".join(f"[{t}, {s}]" for t, s in h.toggles)
+    return (f"walkmesh_tri_toggles = [{arr}]   # {h.name}: reproduce its load-time engine walkmesh hotfix\n"
+            f"# (engine BGI_triSetActive keyed on real fldMapNo {h.field_id} is lost on a custom id; {h.source})\n")
+
+
 def write_editable_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
                            text_block: int = 1073, game=None, bundle=None,
                            id_remap=None, live_seams=False, graft_player_funcs=False, carry_text=False,
@@ -1505,7 +1523,8 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f"id = {field_id}\n"
         f'name = "{name}"\n'
         f"area = {safe_area}\n"
-        f"text_block = {text_block}\n\n"
+        f"text_block = {text_block}\n"
+        f"{_walkmesh_hotfix_line(field)}\n"
         f"[camera]\n"
         f'borrow = "camera.bgx"\n'
         f"{control_line}"
@@ -1762,6 +1781,7 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         f'name = "{name}"\n'
         f"area = {safe_area}\n"
         f"text_block = {text_block}\n"
+        f"{_walkmesh_hotfix_line(field)}"
         f'bgs = "scene.bgs.bytes"   # NATIVE scene (per-tile depth) -> seamless render, NO .bgx / no tile seams\n'
         f'atlas = "atlas.png"\n'
         + ('mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights + shadows) for 3D models\n'
