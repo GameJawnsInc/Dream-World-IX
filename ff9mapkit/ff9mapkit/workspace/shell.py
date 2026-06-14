@@ -62,6 +62,7 @@ _LIST_DEFAULTS = {
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
 }
 _ROLE = Qt.UserRole                                # per-item payload: (kind, label, key)
+_BASE = Qt.UserRole + 1                             # a member row's base text (no unsaved-dot suffix)
 
 
 def _badge(node) -> str:
@@ -149,6 +150,8 @@ class Workspace(QMainWindow):
         self._loose = None                         # the open standalone field's name (loose mode), else None
         self._docs = {}                            # member name -> loaded FieldDoc (cached, edited in place)
         self._clean = {}                           # member name -> deepcopy(doc.data) at load/last-save (dirty baseline)
+        self._touched = set()                      # members with in-progress (typed-but-uncommitted) edits
+        self._active_save = None                   # the mounted form's Save handler (Ctrl-S target)
         self._save_ctx = None                      # {member, key, spec, getters, single|kind, idx} for Save
         self.setWindowTitle("FF9 Map Kit — Workspace")
         self.resize(1280, 820)
@@ -192,6 +195,7 @@ class Workspace(QMainWindow):
         search.clicked.connect(self._open_palette)
         tb.addWidget(search)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
+        QShortcut(QKeySequence("Ctrl+S"), self, activated=self._save_shortcut)
 
     def _build_central(self):
         central = QWidget()
@@ -350,6 +354,7 @@ class Workspace(QMainWindow):
         can be edited directly. Mirrors the tkinter editor opening a lone file."""
         if not self._maybe_prompt_unsaved():
             return False
+        self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
         path = Path(path)
         try:
             doc = FieldDoc.load(path)
@@ -364,6 +369,7 @@ class Workspace(QMainWindow):
         self.member_paths = {name: path.resolve()}
         self._docs = {name: doc}
         self._clean = {name: copy.deepcopy(doc.data)}
+        self._touched = set()                      # fresh open -> nothing in-progress
         self.map.clear()                           # a standalone field has no campaign map
         self.build_deploy.set_target(path)         # pre-aim Build & Deploy at the open field
         self.act_check.setEnabled(True)
@@ -386,6 +392,7 @@ class Workspace(QMainWindow):
     def open_campaign(self, path) -> bool:
         if not self._maybe_prompt_unsaved():
             return False
+        self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
         path = Path(path)
         try:
             plan = C.load_campaign(path)
@@ -399,6 +406,7 @@ class Workspace(QMainWindow):
         self.journey_name = self._journey_label()
         self._docs = {}
         self._clean = {}
+        self._touched = set()
         self.build_deploy.set_target(path)         # pre-aim Build & Deploy at the open campaign
         self.act_check.setEnabled(True)
         self.act_lint_cli.setEnabled(True)
@@ -477,10 +485,31 @@ class Workspace(QMainWindow):
         """Snapshot a member's doc as the saved baseline (so _dirty_members no longer flags it)."""
         if member in self._docs:
             self._clean[member] = copy.deepcopy(self._docs[member].data)
+        self._touched.discard(member)              # a save clears the in-progress flag too
+        self._refresh_dirty_marks()
 
     def _dirty_members(self):
         """Cached members whose in-memory doc differs from its load/last-save baseline."""
         return [m for m in self._docs if self._docs[m].data != self._clean.get(m)]
+
+    def _touch(self, member):
+        """Mark a member as having in-progress edits (a form widget changed) + refresh the tree dots."""
+        self._touched.add(member)
+        self._refresh_dirty_marks()
+
+    def _unsaved(self):
+        """Members to flag with an unsaved-dot: committed-but-unsaved OR typed-but-uncommitted."""
+        return set(self._dirty_members()) | self._touched
+
+    def _refresh_dirty_marks(self):
+        """Put a trailing ● on each member row that has unsaved changes (committed or in-progress)."""
+        unsaved = self._unsaved()
+        for name, mi in getattr(self, "_member_items", {}).items():
+            base = mi.data(0, _BASE)
+            if base is None:
+                base = mi.text(0)
+                mi.setData(0, _BASE, base)
+            mi.setText(0, f"{base}   ●" if name in unsaved else base)
 
     def _load_objects(self, member_item):
         name = self._payload(member_item)[1]
@@ -521,6 +550,8 @@ class Workspace(QMainWindow):
         item = items[0]
         if not self._commit_active():              # fold the leaving form into the doc; stay put on a bad value
             return
+        self._touched &= set(self._dirty_members())   # reconcile: a touched-but-reverted member is clean now
+        self._refresh_dirty_marks()
         p = self._payload(item)
         field_item = self._ancestor_field(item)
         field = self._payload(field_item)[1] if field_item is not None else None
@@ -599,9 +630,15 @@ class Workspace(QMainWindow):
         from .forms_qt import CatalogPicker
         CatalogPicker(self, None, "", self.plan, self.pal, browse=True, limit=None).exec()
 
+    def _save_shortcut(self):
+        """Ctrl-S: save the mounted form (the same as clicking its Save button)."""
+        if self._active_save is not None:
+            self._active_save()
+
     # ---- the document editor (Phase 4) ----
     def _clear_doc(self):
         self._save_ctx = None                      # the about-to-be-removed form is no longer the active one
+        self._active_save = None                   # ...and Ctrl-S has nothing to save until a form mounts
         while self.doc_host_lay.count():
             it = self.doc_host_lay.takeAt(0)
             w = it.widget()
@@ -721,6 +758,7 @@ class Workspace(QMainWindow):
         self.tree.blockSignals(False)
         self._select_object(member, f"{kind}:{idx}")  # fires _on_select -> mounts the new item's form
         self.tabs.setCurrentWidget(self.doc_scroll)   # adding is an explicit edit -> show the Editor
+        self._touch(member)                           # the new default entity is an unsaved change
 
     def _refresh_objects(self, member):
         """Rebuild a member's object subtree in place (after an add) so the new item + updated count show."""
@@ -831,7 +869,7 @@ class Workspace(QMainWindow):
         self._clear_doc()
         self._header(f"{member}  ·  {key}", forms.SECTION_HELP.get(section))
         form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal, pick=self._pick,
-                                   wrap_width=self._wrap_width(member))
+                                   wrap_width=self._wrap_width(member), on_change=lambda m=member: self._touch(m))
         self.doc_host_lay.addWidget(form)
         self._save_ctx = {"member": member, "key": key, "spec": spec, "getters": getters,
                           "single": single, "section": section, "idx": idx}
@@ -846,6 +884,7 @@ class Workspace(QMainWindow):
         self._add_save(self._save, delete)
 
     def _add_save(self, handler, delete=None):
+        self._active_save = handler                            # Ctrl-S saves the mounted form
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         save = QPushButton("Save")
@@ -935,6 +974,10 @@ class Workspace(QMainWindow):
             if ctx["idx"] is None or ctx["idx"] >= len(lst):
                 return True
             target = lst[ctx["idx"]]
+        # No-op fold guard: if the form's entity matches the target's NORMALIZED content, writing would only
+        # drop default-equal BOOLs (build_entity omits e.g. once=true) and falsely dirty a merely-VIEWED node.
+        if forms.build_entity(ctx["spec"], forms.entity_to_values(ctx["spec"], target)) == entity:
+            return True
         for f in ctx["spec"]:
             target.pop(f.key, None)
         target.update(entity)
@@ -1028,7 +1071,8 @@ class Workspace(QMainWindow):
         self._clear_doc()
         self._header(f"{member}  ·  cutscene", forms.SECTION_HELP.get("cutscene"))
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
-                                   self.pal, pick=self._pick, wrap_width=self._wrap_width(member))
+                                   self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
+                                   on_change=lambda m=member: self._touch(m))
         self.doc_host_lay.addWidget(form)
         self.doc_host_lay.addWidget(QLabel("Steps (run in order; control is locked):"))
 
@@ -1117,6 +1161,7 @@ class Workspace(QMainWindow):
                 st.append(step)
                 r = len(st) - 1
             reload_steps(r)
+            self._touch(member)
 
         def remove():
             s = steps()
@@ -1124,6 +1169,7 @@ class Workspace(QMainWindow):
             if 0 <= r < len(s):
                 s.pop(r)
                 reload_steps()
+                self._touch(member)
 
         def move(d):
             s = steps()
@@ -1132,6 +1178,7 @@ class Workspace(QMainWindow):
             if 0 <= r < len(s) and 0 <= j < len(s):
                 s[r], s[j] = s[j], s[r]
                 reload_steps(j)
+                self._touch(member)
 
         sv.addWidget(self._list_buttons([("Add / Update", add_update), ("Remove", remove),
                                          ("Up", lambda: move(-1)), ("Down", lambda: move(1))]))
@@ -1159,7 +1206,8 @@ class Workspace(QMainWindow):
         self._clear_doc()
         self._header(f"{member}  ·  choice[{idx}]", forms.SECTION_HELP.get("choice"))
         form, getters = build_form(forms.CHOICE_SPEC, forms.entity_to_values(forms.CHOICE_SPEC, ch),
-                                   self.pal, pick=self._pick, wrap_width=self._wrap_width(member))
+                                   self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
+                                   on_change=lambda m=member: self._touch(m))
         self.doc_host_lay.addWidget(form)
         self.doc_host_lay.addWidget(QLabel("Options (top-to-bottom; Cancel/B picks the last):"))
         opts_list = QListWidget()
@@ -1185,7 +1233,8 @@ class Workspace(QMainWindow):
                 if w:
                     w.deleteLater()
             f, g = build_form(forms.CHOICE_OPTION_SPEC, forms.entity_to_values(forms.CHOICE_OPTION_SPEC, o),
-                              self.pal, pick=self._pick, wrap_width=self._wrap_width(member))
+                              self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
+                              on_change=lambda m=member: self._touch(m))
             opt_lay.addWidget(f)
             st["getters"] = g
 
@@ -1197,6 +1246,7 @@ class Workspace(QMainWindow):
         def add_new():
             ch["options"].append({"text": "New"})
             reload_opts(len(ch["options"]) - 1)
+            self._touch(member)
 
         def update_sel():
             r = opts_list.currentRow()
@@ -1213,12 +1263,14 @@ class Workspace(QMainWindow):
                 return
             ch["options"][r] = opt
             reload_opts(r)
+            self._touch(member)
 
         def remove():
             r = opts_list.currentRow()
             if 0 <= r < len(ch["options"]):
                 ch["options"].pop(r)
                 reload_opts()
+                self._touch(member)
 
         def move(d):
             r = opts_list.currentRow()
@@ -1226,6 +1278,7 @@ class Workspace(QMainWindow):
             if 0 <= r < len(ch["options"]) and 0 <= j < len(ch["options"]):
                 ch["options"][r], ch["options"][j] = ch["options"][j], ch["options"][r]
                 reload_opts(j)
+                self._touch(member)
 
         self.doc_host_lay.addWidget(self._list_buttons(
             [("Add new", add_new), ("Update", update_sel), ("Remove", remove),
@@ -1503,6 +1556,37 @@ def _smoke(win):
     win.tree.setCurrentItem(ent_item)                                   # select the NPC, then press Delete
     win._delete_selected()
     assert len(win._doc("IC_ENT").data.get("npc", [])) == before_del - 1, "the Delete key removed the NPC"
+    # EDITING POLISH -- (1) unsaved-dot: touching a member dots its tree row; saving clears it
+    win._mark_clean("IC_ENT")                          # known-clean baseline
+    mi_ic = win._member_items["IC_ENT"]
+    assert "●" not in mi_ic.text(0), "a clean member shows no unsaved dot"
+    win._touch("IC_ENT")
+    assert "●" in mi_ic.text(0), "an edited member shows the unsaved dot"
+    win._mark_clean("IC_ENT")
+    assert "●" not in mi_ic.text(0), "saving clears the unsaved dot"
+    # (2) Ctrl-S runs the mounted form's Save handler
+    saved_calls = []
+    win._active_save = lambda: saved_calls.append(True)
+    win._save_shortcut()
+    assert saved_calls, "Ctrl-S runs the active form's Save handler"
+    # (3) live validation: a bad value flags its field (validate() returns the invalid count)
+    from PySide6.QtWidgets import QLineEdit as _QLE2
+    fw2, fg2 = build_form(forms.FIELD_SPEC,
+                          forms.entity_to_values(forms.FIELD_SPEC, {"id": 4003, "name": "R", "area": 11}), win.pal)
+    assert fw2.validate() == 0, "loaded values are valid"
+    id_edit = fg2["id"].__self__                       # the QLineEdit behind the id getter
+    assert isinstance(id_edit, _QLE2)
+    id_edit.setText("abc")                             # type a non-numeric id -> live validate flags it
+    assert fw2.validate() == 1, "a non-numeric id is flagged invalid"
+    # review fix 1: merely VIEWING a node whose BOOL equals its default (once=true) must NOT dirty the doc
+    win._doc("IC_ENT").data["event"] = [{"name": "chest", "message": "hi", "once": True}]
+    win._mark_clean("IC_ENT")
+    win._open_editor("IC_ENT", "object", "event:0")    # view the event (no edit)
+    assert win._commit_active() is True                # navigate-away folds it...
+    assert win._doc("IC_ENT").data["event"][0].get("once") is True, "viewing kept the explicit once=true"
+    assert "IC_ENT" not in win._dirty_members(), "viewing an event with once=true did not dirty the field"
+    win._doc("IC_ENT").data.pop("event", None)
+    win._mark_clean("IC_ENT")
     # the Qt form renderer round-trips through build_entity (the SAME parser as the tkinter editor)
     sample = {"name": "Vivi", "preset": "vivi", "dialogue": "hi"}
     _w, _g = build_form(forms.NPC_SPEC, forms.entity_to_values(forms.NPC_SPEC, sample), win.pal)
@@ -1587,6 +1671,16 @@ def _smoke(win):
     win._open_editor("AUTHORED", "object", "cutscene")     # cutscene sub-editor over a loose field
     win._open_editor("AUTHORED", "object", "choice:0")     # choice sub-editor over a loose field
     win.on_check()                                          # loose validate+lint runs (no campaign, no crash)
+    # review fix 2: reopening a DIFFERENT file that shares a [field] name must not carry the old form's values
+    da = d / "DUP_A.field.toml"
+    da.write_text('[field]\nid = 4400\nname = "DUP"\narea = 11\n\n[[npc]]\nname = "Alpha"\n', encoding="utf-8")
+    db = d / "DUP_B.field.toml"
+    db.write_text('[field]\nid = 4401\nname = "DUP"\narea = 11\n\n[[npc]]\nname = "Beta"\n', encoding="utf-8")
+    assert win.open_field(da)
+    win._open_editor("DUP", "object", "npc:0")             # mount A's NPC form (stale _save_ctx if not cleared)
+    assert win.open_field(db)                              # open B (same field name 'DUP')
+    assert win._doc("DUP").data["npc"][0]["name"] == "Beta", "B's NPC is intact (no stale write from A)"
+    assert "DUP" not in win._dirty_members(), "a fresh open of B (same name) is clean"
 
     # 5b-i: the Story State save document inspects a crypto-free JSON save (gEventGlobal)
     import base64 as _b64

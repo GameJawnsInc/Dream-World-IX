@@ -70,14 +70,25 @@ def _wrap_preview_panel(line_edit, get_text, palette, wrap_width):
     return panel
 
 
-def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_WRAP_WIDTH):
+def _changed_signal(widget):
+    """The 'value changed' signal of a form widget (QLineEdit/QPlainTextEdit textChanged, QComboBox
+    currentTextChanged, QCheckBox toggled), or None."""
+    for attr in ("textChanged", "currentTextChanged", "toggled"):
+        sig = getattr(widget, attr, None)
+        if sig is not None:
+            return sig
+    return None
+
+
+def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_WRAP_WIDTH, on_change=None):
     """Return ``(widget, getters)`` for ``spec`` + flat ``values`` (from ``forms.entity_to_values``).
 
     ``getters`` maps each field key to a 0-arg callable returning the widget's current value. ``pick``
     (optional) is ``pick(catalog: str, current: str) -> str | None``; when given, catalog-backed fields
     get a "Browse…" button that calls it and writes the chosen name back into the widget. Dialogue-bearing
     fields (:data:`DIALOGUE_KEYS`) get a live FF9-window wrap preview at ``wrap_width`` (None = wrapping off
-    for this field -> show the line raw)."""
+    for this field -> show the line raw). ``on_change`` (optional) is called on ANY edit (for dirty
+    tracking); each field is ALSO validated live -- a bad value turns its hint red with the parse error."""
     w = QWidget()
     lay = QFormLayout(w)
     lay.setLabelAlignment(Qt.AlignRight | Qt.AlignTop)
@@ -85,6 +96,10 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
     lay.setHorizontalSpacing(14)
     lay.setVerticalSpacing(10)
     getters = {}
+    hints = {}                                         # field key -> its hint QLabel (help text / live error)
+    editable = []                                      # (key, widget) for wiring change -> validate + on_change
+    muted_style = f"color:{palette['muted']};font-size:11px;"
+    err_style = f"color:{palette['error']};font-size:11px;"
 
     def browse(field, getter, setter):
         name = pick(field.catalog, getter())
@@ -135,16 +150,50 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             v.addLayout(row)
         else:
             v.addWidget(widget)
-        if f.help:
-            hint = QLabel(f.help)
-            hint.setWordWrap(True)
-            hint.setStyleSheet(f"color:{palette['muted']};font-size:11px;")
-            v.addWidget(hint)
+        hint = QLabel(f.help or "")                    # always present (hidden if no help) so a live error
+        hint.setWordWrap(True)                          # has somewhere to show
+        hint.setStyleSheet(muted_style)
+        hint.setVisible(bool(f.help))
+        v.addWidget(hint)
+        hints[f.key] = hint
+        editable.append((f.key, widget))
         if f.key in DIALOGUE_KEYS and hasattr(widget, "textChanged"):
             v.addWidget(_wrap_preview_panel(widget, getters[f.key], palette, wrap_width))
         label = QLabel(f.label + ":")
         label.setStyleSheet("font-weight:500;")
         lay.addRow(label, box)
+
+    def validate():
+        """Live per-field check: a value that fails its parser turns the hint red with the error; an OK
+        field shows its normal help. Returns the count of invalid fields."""
+        bad = 0
+        for f in spec:
+            if f.kind == forms.BOOL:
+                continue
+            h = hints[f.key]
+            try:
+                forms._parse_field(f.kind, getters[f.key]())
+            except ValueError as e:
+                h.setText(f"⚠  {e}")
+                h.setStyleSheet(err_style)
+                h.setVisible(True)
+                bad += 1
+                continue
+            h.setText(f.help or "")
+            h.setStyleSheet(muted_style)
+            h.setVisible(bool(f.help))
+        return bad
+
+    def on_field_change():
+        validate()
+        if on_change:
+            on_change()
+    for _key, widget in editable:
+        sig = _changed_signal(widget)
+        if sig is not None:
+            sig.connect(on_field_change)
+    validate()                                          # seed the initial state (loaded values are valid)
+    w.validate = validate                               # expose for tests / an external re-check
     return w, getters
 
 
