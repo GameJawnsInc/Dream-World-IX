@@ -179,6 +179,10 @@ def main(argv=None) -> int:
     ap.add_argument("--allow-name-collision", action="store_true", dest="allow_name_collision",
                     help="install even when EVT/FBG names collide with another FolderNames folder (default: ABORT; "
                          "the proper fix is to re-fork with `import-chain --name-prefix <TAG>`)")
+    ap.add_argument("--allow-id-collision", action="store_true", dest="allow_id_collision",
+                    help="install even when a field/scene id collides with another FolderNames folder's "
+                         "DictionaryPatch (default: ABORT; EventDB is global, so a shared id black-screens one "
+                         "side -- use ids in your .ff9deploy.toml band)")
     ap.add_argument("--flag-base", type=int, default=None, dest="flag_base",
                     help="override the campaign's flag_base (the JOURNEY assembler hands each of a journey's "
                          "campaigns a disjoint gEventGlobal flag window; see ff9mapkit.journey / deploy_journey.py)")
@@ -297,6 +301,19 @@ def main(argv=None) -> int:
         if not args.allow_name_collision:
             print("\nABORTING before install (no game files touched). Re-fork with `import-chain --name-prefix "
                   "<TAG>`, or pass --allow-name-collision to install anyway.", file=sys.stderr)
+            return 2
+
+    # (1.6) id-collision check: a field/scene id this campaign registers that ANOTHER stacked folder also uses
+    #       collides in the GLOBAL EventDB (names may DIFFER, so the name check above misses it -> the 30011 vs
+    #       -bb CAMKEYS bug). Equally fatal for a campaign -> ABORT, like the name check.
+    iwarn = DS.id_collision_warning(
+        DS.check_id_collisions(game, mod_folder, DS.dictionary_ids_at(dist_root).keys(), folder_names=order),
+        mod_folder)
+    if iwarn:
+        print("\n  !! " + iwarn)
+        if not args.allow_id_collision:
+            print("\nABORTING before install (no game files touched). Use ids no other stacked folder registers "
+                  "(your .ff9deploy.toml band), or pass --allow-id-collision to install anyway.", file=sys.stderr)
             return 2
 
     # (2) bootstrap a fresh mod folder so the snapshot has something to copy (deploy_field pattern)

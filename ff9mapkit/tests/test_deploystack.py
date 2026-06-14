@@ -226,3 +226,77 @@ def test_name_collision_warning_text_and_none(tmp_path):
     w = name_collision_warning(cs, "C")
     assert w and "NAME COLLISION" in w and "--name-prefix" in w and "EVT_DL_ENT" in w and "'A'" in w
     assert name_collision_warning([], "C") is None         # clear -> no warning
+
+
+# ---- the cross-folder ID-collision guard (global EventDB; the name guard MISSES it) -------------
+from ff9mapkit.deploystack import (check_id_collisions, id_collision_warning,  # noqa: E402
+                                   dictionary_ids_at)
+
+
+def _mk_dict(game, folder, lines):
+    p = game / folder / "DictionaryPatch.txt"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_dictionary_ids_at_parses_field_and_battle(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    _mk_dict(g, "A", ["FieldScene 30007 11 TEST30007 TEST30007 741",
+                      "BattleScene 30011 CAMKEYS BBG_B209", "# comment", "garbage", "FieldScene xx bad"])
+    ids = dictionary_ids_at(g / "A")
+    assert ids[30007] == ("FieldScene", "TEST30007")        # kind + MAPID
+    assert ids[30011] == ("BattleScene", "CAMKEYS")         # kind + scene name; non-int / junk lines skipped
+    assert dictionary_ids_at(g / "missing") == {}
+
+
+def test_id_collision_field_vs_battle_the_30011_bug(tmp_path):
+    # the real multi-hour bug: -ate FieldScene 30011 vs -bb BattleScene 30011 -- names DIFFER, so the NAME
+    # guard returns clear; this id guard must catch it.
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")    # FolderNames = A, B, C
+    _mk_dict(g, "B", ["BattleScene 30011 CAMKEYS BBG_B209"])
+    cs = check_id_collisions(g, "A", {30011})
+    assert len(cs) == 1
+    c = cs[0]
+    assert (c.field_id, c.other_folder, c.other_kind, c.other_name) == (30011, "B", "BattleScene", "CAMKEYS")
+    # the NAME guard does NOT see it (TEST30011 != CAMKEYS) -- proves the two guards are complementary
+    assert check_name_collisions(g, "A", {"EVT_TEST30011"}, {"FBG_N11_TEST30011"}) == []
+
+
+def test_id_collision_field_vs_field_and_free_id(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")
+    _mk_dict(g, "C", ["FieldScene 4100 30 DC_DL_ENT DC_DL_ENT 50"])
+    cs = check_id_collisions(g, "A", {4100, 4101})           # 4100 collides, 4101 free
+    assert len(cs) == 1 and cs[0].field_id == 4100 and cs[0].other_kind == "FieldScene"
+    assert check_id_collisions(g, "A", {30600}) == []        # an id nobody else uses -> clear
+
+
+def test_id_collision_excludes_target_folder(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")
+    _mk_dict(g, "B", ["FieldScene 30011 11 TEST30011 TEST30011 738"])
+    assert check_id_collisions(g, "B", {30011}) == []        # our own folder's id is replaced in place
+
+
+def test_id_collision_graceful_without_ini_and_order_override(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    _mk_dict(g, "B", ["BattleScene 30011 CAMKEYS BBG_B209"])
+    assert check_id_collisions(g, "A", {30011}) == []        # no Memoria.ini -> empty stack, no false alarm
+    cs = check_id_collisions(g, "A", {30011}, folder_names=["A", "B", "C"])   # explicit order
+    assert len(cs) == 1 and cs[0].other_folder == "B"
+
+
+def test_id_collision_warning_text_and_none(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")
+    _mk_dict(g, "B", ["BattleScene 30011 CAMKEYS BBG_B209"])
+    w = id_collision_warning(check_id_collisions(g, "A", {30011}), "A")
+    assert w and "ID COLLISION" in w and "30011" in w and "'B'" in w and "CAMKEYS" in w and "EventDB" in w
+    assert id_collision_warning([], "A") is None             # clear -> no warning

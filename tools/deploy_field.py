@@ -261,6 +261,17 @@ try:
 except Exception:
     pass                                                   # a missing/odd Memoria.ini must never break a deploy
 
+# id-collision guard: this field id ALSO registered (as a FieldScene/BattleScene) by another stacked FolderNames
+# folder collides in the GLOBAL FF9DBAll.EventDB -> one side loads the wrong .eb -> black screen (the 30011 vs
+# -bb CAMKEYS bug). A loud WARN (not abort) -- single-field test deploys are iterative.
+try:
+    from ff9mapkit.deploystack import check_id_collisions, id_collision_warning
+    _iw = id_collision_warning(check_id_collisions(GAME, MOD_FOLDER, {FID}), MOD_FOLDER)
+    if _iw:
+        print(f"\n  !! {_iw}")
+except Exception:
+    pass
+
 # CSV-shadow guard: the starting bag (InitialItems.csv) is read HIGHEST-PRIORITY-WINS, so deploying it into a
 # folder a HIGHER-priority FolderNames folder also ships silently drops it. (ShopItems/DefaultEquipment MERGE,
 # so they don't whole-file-shadow.) Only check the ones this deploy actually shipped.

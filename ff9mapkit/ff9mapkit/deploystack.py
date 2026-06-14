@@ -217,3 +217,91 @@ def name_collision_warning(collisions: list, target_folder: str) -> str | None:
                  "--name-prefix <TAG>` -- so every FBG/EVT name is globally unique; or drop the colliding "
                  "folder from Memoria.ini FolderNames.")
     return "\n".join(lines)
+
+
+# ---- cross-folder ID-collision guard (FF9DBAll.EventDB[id] is GLOBAL across folders) ----
+# A field/battle id is the KEY into the global ``FF9DBAll.EventDB`` (id -> eb-name), which DataPatchers populates
+# from EVERY FolderNames folder's ``DictionaryPatch.txt`` at boot. Two folders that register the SAME id collide:
+# ``EventDB[id]`` ends up holding ONE name, so the OTHER registration's field/battle loads the WRONG ``.eb`` ->
+# ``loadEventData`` null -> ``EventEngine.StartEvents(ebFileData=null)`` -> black screen. This cost a multi-hour
+# debug: ``-ate``'s ``FieldScene 30011 TEST30011`` collided with ``-bb``'s ``BattleScene 30011 CAMKEYS``, so
+# warping to field 30011 tried to load ``EVT_BATTLE_CAMKEYS`` from the FIELD path (not there) -> null. Because the
+# names DIFFER (``TEST30011`` vs ``CAMKEYS``), the NAME guard above does NOT catch it -- this id guard does.
+# NOTE: which registration "wins" ``EventDB[id]`` is DataPatchers processing-order dependent (in the 30011 case
+# the battle won despite ``-bb`` being a higher-priority folder), so EITHER side can break -> flag ANY collision
+# and don't assert a winner. (Memory: project-ff9-eventdb-id-collision.)
+
+@dataclass
+class IdCollision:
+    """One field/scene id a deploy registers that ANOTHER live FolderNames folder's ``DictionaryPatch.txt``
+    already uses. ``other_kind`` is ``"FieldScene"``/``"BattleScene"``; ``other_name`` is that line's MAPID /
+    scene name (for the message)."""
+    field_id: int
+    other_folder: str
+    other_kind: str
+    other_name: str
+
+
+def dictionary_ids_at(root) -> dict:
+    """Map ``id -> (kind, name)`` for every ``FieldScene``/``BattleScene`` line in a mod/dist root's
+    ``DictionaryPatch.txt`` (``{}`` if absent/unreadable). ``kind`` = the leading token; ``name`` = the MAPID
+    (``FieldScene`` field 3) or scene name (``BattleScene`` field 2). On a duplicate id within one file the last
+    line wins (mirrors the engine's last-writer-wins)."""
+    out: dict = {}
+    p = Path(root) / "DictionaryPatch.txt"
+    if not p.is_file():
+        return out
+    for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+        parts = line.split()
+        if len(parts) < 2 or parts[0] not in ("FieldScene", "BattleScene"):
+            continue
+        try:
+            fid = int(parts[1])
+        except ValueError:
+            continue
+        # the human name sits at a DIFFERENT field by kind: FieldScene <id> <area> <MAPID> <NAME> <txt> (field 3
+        # = MAPID); BattleScene <id> <NAME> <BBG> (field 2 = scene name).
+        name = (parts[3] if len(parts) > 3 else "") if parts[0] == "FieldScene" else (parts[2] if len(parts) > 2 else "")
+        out[fid] = (parts[0], name)
+    return out
+
+
+def check_id_collisions(game_dir, target_folder: str, ids, folder_names: list | None = None) -> list:
+    """Do any field/scene ``ids`` a deploy registers into ``target_folder`` collide with an id ANOTHER live
+    FolderNames folder's ``DictionaryPatch`` already uses? (``EventDB`` is GLOBAL -> a shared id makes one side
+    load the wrong ``.eb`` -> black screen.) Returns a list of :class:`IdCollision` (``[]`` => clear). Reads
+    ``Memoria.ini`` ``FolderNames`` (unless ``folder_names`` passed); degrades to ``[]`` when unreadable. The
+    TARGET folder is EXCLUDED (a redeploy reuses its own id, not a collision); only folders actually in the stack
+    are checked (others aren't loaded). Distinct from :func:`check_name_collisions` -- that catches same-NAME
+    files; this catches same-ID registrations whose names may DIFFER (the case that guard misses)."""
+    game_dir = Path(game_dir)
+    order = folder_names
+    if order is None:
+        ini = game_dir / "Memoria.ini"
+        order = parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+    others = [f for f in order if f != target_folder]
+    if not others:
+        return []
+    want = sorted({int(i) for i in ids})
+    out: list = []
+    for f in others:
+        their = dictionary_ids_at(game_dir / f)
+        for i in want:
+            if i in their:
+                kind, name = their[i]
+                out.append(IdCollision(i, f, kind, name))
+    return out
+
+
+def id_collision_warning(collisions: list, target_folder: str) -> str | None:
+    """A human-readable multi-line warning for cross-folder id collisions, or ``None`` when clear."""
+    if not collisions:
+        return None
+    lines = [f"ID COLLISION: {len(collisions)} id(s) this deploy registers in '{target_folder}' are ALSO used by "
+             f"another Memoria.ini FolderNames folder. FF9DBAll.EventDB is GLOBAL across folders, so a shared id "
+             f"maps to ONE .eb -- one side loads the WRONG script (null .eb -> StartEvents(null) -> black screen):"]
+    for c in collisions:
+        lines.append(f"  - id {c.field_id} vs '{c.other_folder}' ({c.other_kind} '{c.other_name}')")
+    lines.append("Fix: use an id no other stacked folder registers -- e.g. your worktree's `.ff9deploy.toml` "
+                 "scratch/campaign band. (Diagnose: grep -rn '<id>' FF9CustomMap*/DictionaryPatch.txt.)")
+    return "\n".join(lines)
