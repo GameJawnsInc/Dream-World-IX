@@ -10,10 +10,27 @@ either way -- it only fails if the shadow repair regresses.)
 
 from __future__ import annotations
 
+import importlib.metadata
 import subprocess
 import sys
 
+import pytest
 
+
+def _installed() -> bool:
+    """True if ff9mapkit is pip-installed (in site-packages). The namespace-shadow REPAIR only has a real
+    package to repoint at when there IS an install; with no install (a deliberate multi-worktree setup --
+    run from the kit root instead), `-m ff9mapkit` from a FOREIGN dir resolves nothing, so the scenario is
+    moot and the test skips."""
+    try:
+        importlib.metadata.distribution("ff9mapkit")
+        return True
+    except importlib.metadata.PackageNotFoundError:
+        return False
+
+
+@pytest.mark.skipif(not _installed(), reason="ff9mapkit not pip-installed; `-m` from a foreign dir needs an "
+                                             "install (run from the kit root). Uninstalled for multi-worktree.")
 def test_dash_m_runs_under_namespace_shadow(tmp_path):
     (tmp_path / "ff9mapkit").mkdir()           # an empty dir named ff9mapkit -> the shadow trap
     r = subprocess.run([sys.executable, "-m", "ff9mapkit", "--version"],
