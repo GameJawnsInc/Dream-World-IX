@@ -93,6 +93,7 @@ class Journey:
     name: str
     entry: int
     set_scenario: "int | None" = None
+    entrance: "int | None" = None        # arrival entrance into the entry field (D8:2) -- frames the entry camera
 
 
 @dataclass
@@ -185,11 +186,13 @@ def load_journeys(path) -> HubSpec:
         if "entry" not in j:
             raise HubError(f"[[journey]] {jid!r}: missing required key 'entry' (the journey's entry field id)")
         sc = j.get("set_scenario")
+        ent = j.get("entrance")
         journeys.append(Journey(
             id=jid,
             name=str(j.get("name") or _humanize(jid)),
             entry=int(j["entry"]),
             set_scenario=int(sc) if sc is not None else None,
+            entrance=int(ent) if ent is not None else None,
         ))
 
     return hubspec_from_table(data["hub"], journeys)
@@ -386,6 +389,8 @@ def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
         L.append(f"warp = {j.entry}")
         if j.set_scenario is not None:
             L.append(f"set_scenario = {j.set_scenario}")
+        if j.entrance is not None:
+            L.append(f"entrance = {j.entrance}   # arrival entrance -> frames the entry camera (no static frame)")
         L.append("")
     L.append("[[choice.options]]")
     L.append(f'text = "{_q(spec.stay_text)}"   # no warp -- closes the menu')

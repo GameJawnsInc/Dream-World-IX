@@ -54,6 +54,15 @@ def test_option_body_empty_when_no_actions():
     assert choice.option_body({"text": "No"}, reply_txid=None) == b""
 
 
+def test_warp_entrance_sets_field_entrance():
+    # a choice warp with an entrance writes the arrival-entrance var (D8:2) BEFORE the Field() -- so the
+    # destination's player-init places the player + the engine frames the entry camera (no static frame).
+    assert event.warp(6200) == opcodes.run_sound_code(265, 65535) + opcodes.field(6200)   # bare: unchanged
+    assert event.warp(6200, entrance=3) == region.set_field_entrance(3) + event.warp(6200)
+    assert region.set_field_entrance(2) in choice.option_body({"warp": 6200, "entrance": 2})
+    assert region.set_field_entrance(0) not in choice.option_body({"warp": 6200})           # no key -> no write
+
+
 def test_instant_choice_appends_imme_tag(tmp_path):
     # [[choice]] instant=true appends FF9's [IMME] tag so the menu pops fully drawn (no type-on), like the
     # Treno Weapon Shop's "What can I do for you?" Buy/Sell menu. Default (no instant) stays byte-identical.

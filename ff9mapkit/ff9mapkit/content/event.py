@@ -70,15 +70,24 @@ def reveal_object(slot: int) -> bytes:
 WARP_SOUND = (265, 65535)
 
 
-def warp(target: int) -> bytes:
+def warp(target: int, entrance: "int | None" = None) -> bytes:
     """Body part: warp the player to ``Field(target)``. Grounded in real *talk-handler* warps -- a Field
     op TRANSITIONS directly from an event / tag-3 _SpeakBTN context (unlike a bare Field in Main_Init,
     which no-ops -- see memory project_ff9_field_warp_pattern); 14+ shipping fields warp the player from a
     tag-3 handler this way (the Dali innkeeper, the airship, Gargan Roo...). Plays the transition sound,
     then warps. The warp TRANSITIONS AWAY, so this MUST be the LAST part of a body (anything after is
-    unreachable). (The real warps also run a fade -- constant writes to the screen-fade vars + step ops;
-    omitted here as cosmetic polish. If the cut reads abrupt in-game, splice the proven fade tail.)"""
-    return opcodes.run_sound_code(*WARP_SOUND) + opcodes.field(int(target))
+    unreachable).
+
+    ``entrance`` (when set) writes the ARRIVAL-ENTRANCE var (D8:2) FIRST, exactly as a gateway does
+    (:func:`ff9mapkit.content.region.set_field_entrance`): the destination field's player-init switches on
+    it to place the player, AND the engine frames the camera for that entry. A bare warp with NO entrance
+    lands at the engine default -- on a SCROLLING destination (e.g. a forked Ice Cavern) that shows a
+    STATIC/off-centre frame with the player in a corner until they move (the World-Hub entry-camera bug).
+    Default None = no entrance write (byte-identical to before). (The real warps also run a fade -- screen
+    -fade var writes + step ops; omitted as cosmetic polish; splice the proven fade tail if the cut reads
+    abrupt.)"""
+    pre = _region.set_field_entrance(int(entrance)) if entrance is not None else b""
+    return pre + opcodes.run_sound_code(*WARP_SOUND) + opcodes.field(int(target))
 
 
 def set_scenario(value: int) -> bytes:

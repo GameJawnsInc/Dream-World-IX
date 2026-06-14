@@ -113,6 +113,7 @@ class Journey:
     seed: JourneySeed
     links: list                          # [JourneyLink]
     set_scenario: "int | None" = None    # bare-row hub-side beat seed (the proven single-field lever)
+    entrance: "int | None" = None        # arrival entrance into the entry field (frames the entry camera)
 
     @property
     def is_bare(self) -> bool:
@@ -230,10 +231,12 @@ def load_journeys(path) -> JourneyManifest:
             raise JourneyError(f"journey {jid!r}: a bare single-field journey can't have [[journey.link]]s "
                                f"(links chain campaigns; this journey has none)")
         sc = j.get("set_scenario")
+        ent = j.get("entrance")
         journeys.append(Journey(
             id=jid, name=str(j.get("name") or _hub._humanize(jid)), campaigns=campaigns, entry=entry,
             seed=_seed_from(j.get("seed")), links=links,
-            set_scenario=int(sc) if sc is not None else None))
+            set_scenario=int(sc) if sc is not None else None,
+            entrance=int(ent) if ent is not None else None))
 
     return JourneyManifest(hub=dict(data.get("hub", {})), journeys=journeys, path=p)
 
@@ -517,7 +520,7 @@ def manifest_to_hub_spec(manifest: JourneyManifest) -> "_hub.HubSpec":
     for j in manifest.journeys:
         rj = resolve_journey(j, plans)
         hub_journeys.append(_hub.Journey(id=j.id, name=j.name, entry=rj.entry_id,
-                                         set_scenario=j.hub_scenario))
+                                         set_scenario=j.hub_scenario, entrance=j.entrance))
     return _hub.hubspec_from_table(manifest.hub, hub_journeys)
 
 

@@ -59,7 +59,9 @@ def option_body(opt: dict, reply_txid: int | None = None) -> bytes:
     if "set_scenario" in opt:
         parts.append(_event.set_scenario(int(opt["set_scenario"])))
     if "warp" in opt:
-        parts.append(_event.warp(int(opt["warp"])))                               # LAST: transitions away
+        # entrance (optional): set the destination's arrival entrance so the player + camera frame
+        # correctly on entry (a bare warp lands a scrolling field on a static/off-centre frame).
+        parts.append(_event.warp(int(opt["warp"]), entrance=opt.get("entrance")))  # LAST: transitions away
     return b"".join(parts)
 
 
