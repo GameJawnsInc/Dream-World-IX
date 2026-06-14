@@ -29,6 +29,8 @@ LIGHT = {
     "accent_fg": "#ffffff",     # text on accent
     "accent_hover": "#256ae0",
     "accent_pressed": "#1f5fcc",
+    "help": "#7c3aed",          # help / info affordance (violet -- distinct from accent/success/warn)
+    "help_hover": "#6d28d9",
     "border": "#d6dae0",
     "success": "#1a8f5a",       # "placed in Blender" / OK lines
     "hover": "#eef1f4",         # neutral button hover
@@ -51,6 +53,8 @@ DARK = {
     "accent_fg": "#ffffff",
     "accent_hover": "#3d7df0",
     "accent_pressed": "#356fda",
+    "help": "#9d7bff",          # help / info affordance (violet -- distinct from accent/success/warn)
+    "help_hover": "#8b66f5",
     "border": "#3a404a",
     "success": "#46c98a",
     "hover": "#30353d",

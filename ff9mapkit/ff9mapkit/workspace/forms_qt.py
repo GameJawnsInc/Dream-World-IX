@@ -403,7 +403,11 @@ class CatalogLibrary(QDialog):
         cs.clicked.connect(self._copy_snippet)
         helpb = QPushButton("?")
         helpb.setToolTip("What's in the Info Hub? (glossary + how to use it)")
-        helpb.setFixedWidth(32)
+        helpb.setFixedSize(30, 30)                         # a circular violet badge -- pops out from the
+        helpb.setStyleSheet(                               # neutral Copy/Close buttons (a distinct 'info' hue)
+            f"QPushButton {{ background:{palette['help']}; color:{palette['accent_fg']}; border:0; "
+            f"border-radius:15px; font-weight:bold; font-size:15px; }}"
+            f"QPushButton:hover {{ background:{palette['help_hover']}; }}")
         helpb.clicked.connect(self._show_help)
         close = QPushButton("Close")
         close.clicked.connect(self.reject)
