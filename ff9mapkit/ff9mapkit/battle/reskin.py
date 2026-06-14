@@ -7,15 +7,15 @@ Mot id that doesn't belong to the loaded Geo names a clip the model lacks, and t
 (`btl_init.cs:240`/`:521-522`). The only safe source is a real enemy that ALREADY uses the target model --
 Square-Enix shipped that whole block together, so it is guaranteed engine-valid.
 
-SCOPE -- this is a MESH re-skin, NOT a full one (★ IN-GAME PROVEN 2026-06-13). It swaps the visible MODEL, but
-which animation CLIPS play is bound at the scene/type level -- the target scene's raw17 + the per-type Konran
-selector (`btlseq.cs:1150-1151`), both KEPT -- and those clips RETARGET onto the new mesh (clip load path is
-derived from the clip NAME, `AnimationFactory.cs:60`, which is why a mesh swap never crashes). So a re-skinned
-enemy shows the new model's BODY but is POSED BY THE TARGET ENEMY'S ANIMATIONS -- idle AND attack. (Proven: a
-Goblin re-skinned to the Fang stood UPRIGHT and Knifed / Goblin-Punched with the Goblin's animation, on the Fang
-mesh -- "equal parts interesting and hilarious".) The swapped Mot[6] don't override this; the scene's anim
-binding wins. A faithful FULL re-skin would also need the donor's raw17 anim binding + AA_DATA -- the deferred
-raw17-sequence work. The build warns per re-skinned slot.
+SCOPE -- this is a BODY re-skin, NOT a full one (★ IN-GAME PROVEN 2026-06-13). The transplanted Mot[6] DO drive
+the new model's OWN idle / damage / death animations (`btl_init.cs:240`); but the per-ATTACK animation is bound
+by the donor SCENE's raw17 btlseq (keyed by the per-type Konran@78 selector, `btlseq.cs:1150-1151`), which a
+re-skin KEEPS -- so the ATTACK plays the TARGET enemy's clip, RETARGETED onto the new mesh (clip load path is by
+clip NAME, `AnimationFactory.cs:60`, so the cross-model retarget never crashes). Proven: a Goblin re-skinned to
+the Fang IDLED as a quadruped Fang but KNIFED / Goblin-Punched with the Goblin's upright animation. So the body
+looks like the new creature at rest / when hit / dying, but its ATTACK gesture stays the target's. A faithful
+FULL re-skin would also need the donor's raw17 attack binding + AA_DATA -- the deferred raw17-sequence work. The
+build warns per re-skinned slot.
 
 This module reads the donor block LIVE from the user's install (provenance: never committed; only the kit's
 open-source name->geo catalog ships). Two donor specs:

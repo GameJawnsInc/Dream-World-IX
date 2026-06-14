@@ -61,13 +61,13 @@ _MON_STATUS_FIELDS = {"resist_status": 0, "auto_status": 4, "initial_status": 8}
 # transplants the WHOLE block. The GAMEPLAY fields (status/hp/mp/rewards/stats/elements/level/category/defences/
 # blue_magic/win_card) are deliberately OUTSIDE these ranges -- they stay the target's.
 #
-# SCOPE -- this is a MESH re-skin, NOT a full one (★ IN-GAME PROVEN 2026-06-13: a Goblin re-skinned to the Fang
-# showed the Fang MESH but stood/attacked with the GOBLIN's animations). It swaps the visible model, but which
-# clips PLAY is bound at the scene/type level (the target's raw17 + the per-type Konran@78 selector,
-# `btlseq.cs:1150-1151`, both KEPT) and they retarget onto the new mesh -- idle AND attack stay the target's, NOT
-# just attack. (The swapped Mot[6] don't override the scene anim binding.) DO NOT add Konran@78 or MesCnt@79 (the
-# message-count cursor) to these ranges -- both are raw17/text linkage tied to the TARGET scene. Flags@48 (incl.
-# die_atk/die_dmg, which pick the death-anim path) also stays the target's -- it carries gameplay bits.
+# SCOPE -- this is a BODY re-skin, NOT a full one (★ IN-GAME PROVEN 2026-06-13: a Goblin re-skinned to the Fang
+# IDLED as a quadruped Fang but ATTACKED Goblin-like). The transplanted Mot[6] DO drive the new model's own idle/
+# damage/death; but the per-ATTACK animation is bound by the donor scene's raw17 btlseq (keyed by Konran@78, the
+# per-type AnmOfsList selector, `btlseq.cs:1150-1151`), which is KEPT -- so the ATTACK plays the TARGET's clip
+# retargeted onto the new mesh (clip-path-by-name, `AnimationFactory.cs:60`, never crashes). DO NOT add Konran@78
+# or MesCnt@79 (the message-count cursor) to these ranges -- both are raw17/text linkage tied to the TARGET scene.
+# Flags@48 (incl. die_atk/die_dmg, which pick the death-anim path) also stays the target's -- it carries gameplay bits.
 _RESKIN_RANGES = (
     (28, 20),    # Radius(2) Geo(2) Mot[6](12) Mesh[2](4)  -- the model + its 6 idle/damage/death anim ids
     (72, 6),     # Bone[4](4) DieSfx(2)
