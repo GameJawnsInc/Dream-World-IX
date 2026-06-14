@@ -31,6 +31,15 @@ whose options ``warp`` to each journey's entry, plus a trailing no-warp "stay" r
     narrator_model = 220             # default = player_model
     narrator_pos   = [480, 127]
 
+    # Set-dressing (author-customizable) -- dress the hub without hand-editing the generated field.toml.
+    [[hub.props]]                    # static set-dressing (the proven [[prop]] path; non-interactive)
+    prop = "save_point"             #   a prop archetype by name (save_point/chest/tent/barrel/...) OR
+    pos  = [300, 100]               #   model = <GEO id> + pose = "<anim>" for a bare standing figure
+    [[hub.ambient_npcs]]             # a flavor character (talk -> its dialogue line, if any)
+    archetype = "moogle"            #   archetype name OR model = <GEO id>
+    pos       = [260, 150]
+    dialogue  = "Kupo! Safe travels!"   # optional; omit for a silent standing NPC
+
     [[journey]]
     id    = "black_mage_village"     # stable slug (hub-choice key + seed namespace; docs/JOURNEYS.md)
     name  = "The Black Mage Village" # the menu row label (default: humanized id)
@@ -104,6 +113,10 @@ class HubSpec:
     narrator: str = DEFAULT_NARRATOR
     narrator_model: "int | str | None" = None    # None -> inherit player_model
     narrator_pos: "list | None" = None
+    # Set-dressing (author-customizable): static [[prop]]s (save point / lamp / a bare standing moogle) +
+    # ambient [[npc]]s (a talkable flavor character). All BG-borrow + the proven prop/npc build path.
+    props: "list" = field(default_factory=list)          # each: {prop=<archetype>|model=N, pos, pose?, face?}
+    ambient_npcs: "list" = field(default_factory=list)    # each: {archetype=<name>|model=N, pos, dialogue?}
     journeys: "list[Journey]" = field(default_factory=list)
 
     @property
@@ -142,6 +155,8 @@ def hubspec_from_table(h: dict, journeys: "list[Journey]") -> HubSpec:
         narrator=str(h.get("narrator", DEFAULT_NARRATOR)),
         narrator_model=h.get("narrator_model"),
         narrator_pos=list(h["narrator_pos"]) if "narrator_pos" in h else None,
+        props=[dict(p) for p in h.get("props", [])],
+        ambient_npcs=[dict(n) for n in h.get("ambient_npcs", [])],
         journeys=journeys,
     )
 
@@ -242,6 +257,22 @@ def validate_hub(spec: HubSpec) -> "tuple[list, list]":
         warnings.append(f"{rows} menu rows (journeys + stay) -- FF9 choice menus show ~4 at a time and "
                         f"scroll; verify the long list reads well in-game (paging / sub-hubs are a future "
                         f"enhancement).")
+
+    # set-dressing structural checks (unknown prop/archetype NAMES are caught by build.validate on the
+    # emitted field.toml -- here we just ensure each row is well-formed so the emit produces valid TOML).
+    def _check_pos(label, row):
+        if not (isinstance(row.get("pos"), (list, tuple)) and len(row["pos"]) == 2):
+            errors.append(f"{label}: needs pos = [x, z] (a point on the hub walkmesh)")
+    for k, p in enumerate(spec.props):
+        if p.get("prop") is None and p.get("model") is None:
+            errors.append(f"[[hub.props]] #{k}: needs a 'prop' (archetype name, e.g. \"save_point\") or "
+                          f"'model' (a GEO id) + optional 'pose'")
+        _check_pos(f"[[hub.props]] #{k}", p)
+    for k, n in enumerate(spec.ambient_npcs):
+        if n.get("archetype") is None and n.get("model") is None:
+            errors.append(f"[[hub.ambient_npcs]] #{k}: needs an 'archetype' (name, e.g. \"moogle\") or "
+                          f"'model' (a GEO id)")
+        _check_pos(f"[[hub.ambient_npcs]] #{k}", n)
     return errors, warnings
 
 
@@ -256,6 +287,40 @@ def _model_toml(v) -> str:
         return str(v)
     s = str(v)
     return s if s.isdigit() else f'"{_q(s)}"'
+
+
+def _prop_block(p: dict) -> list:
+    """A ``[[prop]]`` toml block from a ``[[hub.props]]`` row -- static set-dressing (a prop archetype by
+    name, e.g. ``save_point``/``lamp``, or a raw ``model`` + ``pose`` for a bare standing figure)."""
+    out = ["[[prop]]"]
+    if p.get("prop") is not None:
+        out.append(f'prop = "{_q(p["prop"])}"')
+    elif p.get("model") is not None:
+        out.append(f"model = {_model_toml(p['model'])}")
+    pos = p.get("pos") or [0, 0]
+    out.append(f"pos = [{int(pos[0])}, {int(pos[1])}]")
+    if p.get("pose") is not None:
+        out.append(f"pose = {_model_toml(p['pose'])}")
+    if p.get("face") is not None:
+        out.append(f"face = {int(p['face'])}")
+    out.append("")
+    return out
+
+
+def _ambient_npc_block(n: dict, idx: int) -> list:
+    """A non-narrator ``[[npc]]`` block from a ``[[hub.ambient_npcs]]`` row -- a flavor character (talk -> its
+    ``dialogue`` line, if any). Resolved by ``archetype`` name or raw ``model``."""
+    out = ["[[npc]]", f'name = "{_q(n.get("name") or f"Ambient_{idx}")}"']
+    if n.get("archetype") is not None:
+        out.append(f'archetype = "{_q(n["archetype"])}"')
+    elif n.get("model") is not None:
+        out.append(f"model = {_model_toml(n['model'])}")
+    pos = n.get("pos") or [0, 0]
+    out.append(f"pos = [{int(pos[0])}, {int(pos[1])}]")
+    if n.get("dialogue"):
+        out.append(f'dialogue = "{_q(n["dialogue"])}"')
+    out.append("")
+    return out
 
 
 def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
@@ -296,6 +361,16 @@ def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
         f"pos = [{npos[0]}, {npos[1]}]",
         f"model = {_model_toml(spec.narrator_model_resolved)}",
         "",
+    ]
+    if spec.props or spec.ambient_npcs:
+        L.append("# Set-dressing (author-customizable via [[hub.props]] / [[hub.ambient_npcs]]): static props")
+        L.append("# + ambient flavor NPCs. All BG-borrow; the proven prop/npc build path compiles them.")
+        L.append("")
+    for p in spec.props:
+        L += _prop_block(p)
+    for k, n in enumerate(spec.ambient_npcs):
+        L += _ambient_npc_block(n, k)
+    L += [
         "# The journey menu: each option warps to a journey's entry field; set_scenario (optional) seeds",
         "# the beat hub-side before the warp. The trailing row has no warp -- it just closes the menu.",
         "[[choice]]",

@@ -99,6 +99,37 @@ def test_render_emits_loadable_validatable_field(tmp_path):
     assert ch["cancel"] == 2 and "warp" not in opts[2]
 
 
+def test_set_dressing_props_and_ambient_npcs(tmp_path):
+    # author-customizable hub: [[hub.props]] (static set-dressing) + [[hub.ambient_npcs]] (flavor NPCs)
+    toml = ('[hub]\nname="WORLD_HUB"\nid=4500\narea=21\nborrow_bg="GRGR_MAP420_GR_CEN_0"\ncamera="c.bgx"\n'
+            'text_block=8\nplayer_spawn=[404,127]\nnarrator_pos=[480,127]\n'
+            '[[hub.props]]\nprop="save_point"\npos=[300,100]\n'
+            '[[hub.props]]\nmodel=220\npose="stand"\npos=[350,140]\n'
+            '[[hub.ambient_npcs]]\narchetype="moogle"\npos=[260,150]\ndialogue="Kupo! Safe travels!"\n'
+            '[[journey]]\nid="dali"\nname="Dali"\nentry=4100\n')
+    p = tmp_path / "j.toml"
+    p.write_text(toml, encoding="utf-8")
+    spec = hub.load_journeys(p)
+    assert len(spec.props) == 2 and len(spec.ambient_npcs) == 1
+    proj, _ = _emit_and_load(tmp_path, spec)
+    assert build.validate(proj) == []                          # the emitted field.toml builds clean
+    f = proj.raw
+    assert len(f["prop"]) == 2 and f["prop"][0]["prop"] == "save_point" and f["prop"][1]["model"] == 220
+    assert [n["name"] for n in f["npc"]] == ["Stiltzkin", "Ambient_0"]   # narrator first, then ambient
+    assert any(n.get("archetype") == "moogle" and n.get("dialogue") for n in f["npc"])
+    assert "choice" in f                                        # the journey menu survives the set-dressing
+
+
+def test_set_dressing_validation_catches_malformed_rows():
+    bad = hub.HubSpec(name="H", id=4500, area=21, borrow_bg="X", camera="c.bgx",
+                      props=[{"pos": [1, 2]}],                  # neither prop nor model
+                      ambient_npcs=[{"archetype": "moogle"}],   # no pos
+                      journeys=[hub.Journey("a", "A", 4501)])
+    errs, _ = hub.validate_hub(bad)
+    assert any("[[hub.props]]" in e and "prop" in e for e in errs)
+    assert any("[[hub.ambient_npcs]]" in e and "pos" in e for e in errs)
+
+
 def test_render_set_scenario_only_when_present(tmp_path):
     spec = _spec(journeys=[hub.Journey("a", "A", 4501, None)])
     proj, _ = _emit_and_load(tmp_path, spec)
