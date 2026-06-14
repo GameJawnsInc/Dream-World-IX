@@ -153,8 +153,8 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         hint = QLabel(f.help or "")                    # always present (hidden if no help) so a live error
         hint.setWordWrap(True)                          # has somewhere to show
         hint.setStyleSheet(muted_style)
-        hint.setVisible(bool(f.help))
-        v.addWidget(hint)
+        v.addWidget(hint)                               # PARENT it BEFORE setVisible: setVisible(True) on a
+        hint.setVisible(bool(f.help))                   # parentless widget flashes a top-level window (Windows)
         hints[f.key] = hint
         editable.append((f.key, widget))
         if f.key in DIALOGUE_KEYS and hasattr(widget, "textChanged"):

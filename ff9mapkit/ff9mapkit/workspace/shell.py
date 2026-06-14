@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QProcess
-from PySide6.QtGui import QAction, QBrush, QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter,
@@ -62,7 +62,6 @@ _LIST_DEFAULTS = {
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
 }
 _ROLE = Qt.UserRole                                # per-item payload: (kind, label, key)
-_BASE = Qt.UserRole + 1                             # a member row's base text (no unsaved-dot suffix)
 
 
 def _badge(node) -> str:
@@ -156,6 +155,7 @@ class Workspace(QMainWindow):
         self.setWindowTitle("FF9 Map Kit — Workspace")
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
+        self._dot_icon = self._make_dot_icon(pal["accent"])   # the unsaved-changes dot (coloured, not text)
         self._build_toolbar()
         self._build_central()
         self._build_dock()
@@ -493,23 +493,61 @@ class Workspace(QMainWindow):
         return [m for m in self._docs if self._docs[m].data != self._clean.get(m)]
 
     def _touch(self, member):
-        """Mark a member as having in-progress edits (a form widget changed) + refresh the tree dots."""
+        """Mark a member as having in-progress edits (a list/step mutation) + refresh the tree dots."""
         self._touched.add(member)
         self._refresh_dirty_marks()
 
+    def _on_form_change(self, member):
+        """A form WIDGET changed: dot the member only if the active form now DIFFERS from the saved
+        baseline -- so reverting a value back to its original un-dots the row -- else clear it."""
+        ctx = self._save_ctx
+        if ctx and ctx.get("member") == member and self._form_matches_baseline(ctx):
+            self._touched.discard(member)
+        else:
+            self._touched.add(member)
+        self._refresh_dirty_marks()
+
+    def _form_matches_baseline(self, ctx) -> bool:
+        """True if the mounted form's current values equal the saved baseline's section (normalized through
+        build_entity both ways, so default-equal omissions don't count as a change). False on a bad value."""
+        try:
+            entity = forms.build_entity(ctx["spec"], read(ctx["getters"]))
+        except ValueError:
+            return False
+        clean = self._clean.get(ctx["member"], {})
+        if ctx["single"]:
+            base = clean.get(ctx["section"], {}) or {}
+        else:
+            lst = clean.get(ctx["section"], []) or []
+            idx = ctx.get("idx")
+            base = lst[idx] if idx is not None and idx < len(lst) else {}
+        return forms.build_entity(ctx["spec"], forms.entity_to_values(ctx["spec"], base)) == entity
+
     def _unsaved(self):
-        """Members to flag with an unsaved-dot: committed-but-unsaved OR typed-but-uncommitted."""
+        """Members to flag with the unsaved-dot: committed-but-unsaved OR typed-but-uncommitted."""
         return set(self._dirty_members()) | self._touched
 
+    @staticmethod
+    def _make_dot_icon(color):
+        """A small filled circle QIcon in ``color`` -- the unsaved-changes dot (coloured independently of
+        the row text, drawn at the row's icon slot)."""
+        pm = QPixmap(10, 10)
+        pm.fill(QColor(0, 0, 0, 0))
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(color))
+        p.drawEllipse(1, 1, 8, 8)
+        p.end()
+        return QIcon(pm)
+
     def _refresh_dirty_marks(self):
-        """Put a trailing ● on each member row that has unsaved changes (committed or in-progress)."""
+        """Show the coloured unsaved-dot icon on each member row that has unsaved changes (committed or
+        in-progress); clear it otherwise."""
         unsaved = self._unsaved()
+        blank = QIcon()
         for name, mi in getattr(self, "_member_items", {}).items():
-            base = mi.data(0, _BASE)
-            if base is None:
-                base = mi.text(0)
-                mi.setData(0, _BASE, base)
-            mi.setText(0, f"{base}   ●" if name in unsaved else base)
+            mi.setIcon(0, self._dot_icon if name in unsaved else blank)
 
     def _load_objects(self, member_item):
         name = self._payload(member_item)[1]
@@ -869,7 +907,7 @@ class Workspace(QMainWindow):
         self._clear_doc()
         self._header(f"{member}  ·  {key}", forms.SECTION_HELP.get(section))
         form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal, pick=self._pick,
-                                   wrap_width=self._wrap_width(member), on_change=lambda m=member: self._touch(m))
+                                   wrap_width=self._wrap_width(member), on_change=lambda m=member: self._on_form_change(m))
         self.doc_host_lay.addWidget(form)
         self._save_ctx = {"member": member, "key": key, "spec": spec, "getters": getters,
                           "single": single, "section": section, "idx": idx}
@@ -1072,7 +1110,7 @@ class Workspace(QMainWindow):
         self._header(f"{member}  ·  cutscene", forms.SECTION_HELP.get("cutscene"))
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
-                                   on_change=lambda m=member: self._touch(m))
+                                   on_change=lambda m=member: self._on_form_change(m))
         self.doc_host_lay.addWidget(form)
         self.doc_host_lay.addWidget(QLabel("Steps (run in order; control is locked):"))
 
@@ -1207,7 +1245,7 @@ class Workspace(QMainWindow):
         self._header(f"{member}  ·  choice[{idx}]", forms.SECTION_HELP.get("choice"))
         form, getters = build_form(forms.CHOICE_SPEC, forms.entity_to_values(forms.CHOICE_SPEC, ch),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
-                                   on_change=lambda m=member: self._touch(m))
+                                   on_change=lambda m=member: self._on_form_change(m))
         self.doc_host_lay.addWidget(form)
         self.doc_host_lay.addWidget(QLabel("Options (top-to-bottom; Cancel/B picks the last):"))
         opts_list = QListWidget()
@@ -1234,7 +1272,7 @@ class Workspace(QMainWindow):
                     w.deleteLater()
             f, g = build_form(forms.CHOICE_OPTION_SPEC, forms.entity_to_values(forms.CHOICE_OPTION_SPEC, o),
                               self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
-                              on_change=lambda m=member: self._touch(m))
+                              on_change=lambda m=member: self._on_form_change(m))
             opt_lay.addWidget(f)
             st["getters"] = g
 
@@ -1556,20 +1594,29 @@ def _smoke(win):
     win.tree.setCurrentItem(ent_item)                                   # select the NPC, then press Delete
     win._delete_selected()
     assert len(win._doc("IC_ENT").data.get("npc", [])) == before_del - 1, "the Delete key removed the NPC"
-    # EDITING POLISH -- (1) unsaved-dot: touching a member dots its tree row; saving clears it
+    # EDITING POLISH -- (1) unsaved-dot icon: touching a member dots its tree row; saving clears it
     win._mark_clean("IC_ENT")                          # known-clean baseline
     mi_ic = win._member_items["IC_ENT"]
-    assert "●" not in mi_ic.text(0), "a clean member shows no unsaved dot"
+    assert mi_ic.icon(0).isNull(), "a clean member shows no unsaved-dot icon"
     win._touch("IC_ENT")
-    assert "●" in mi_ic.text(0), "an edited member shows the unsaved dot"
+    assert not mi_ic.icon(0).isNull(), "an edited member shows the unsaved-dot icon"
     win._mark_clean("IC_ENT")
-    assert "●" not in mi_ic.text(0), "saving clears the unsaved dot"
-    # (2) Ctrl-S runs the mounted form's Save handler
+    assert mi_ic.icon(0).isNull(), "saving clears the unsaved-dot icon"
+    # (2) reverting a value to its original clears the in-progress dot (no save needed)
+    win._open_editor("IC_ENT", "field", "field")
+    id_w = win._save_ctx["getters"]["id"].__self__     # the id QLineEdit behind the field form
+    orig = id_w.text()
+    id_w.setText(orig + "9")                            # edit -> on_field_change -> _on_form_change -> touched
+    assert "IC_ENT" in win._touched, "editing a field marks it touched"
+    id_w.setText(orig)                                 # revert -> matches baseline -> un-touched
+    assert "IC_ENT" not in win._touched, "reverting a value clears the in-progress dot"
+    # (3) Ctrl-S runs the mounted form's Save handler
     saved_calls = []
     win._active_save = lambda: saved_calls.append(True)
     win._save_shortcut()
     assert saved_calls, "Ctrl-S runs the active form's Save handler"
-    # (3) live validation: a bad value flags its field (validate() returns the invalid count)
+    # (4) live validation: a bad value flags its field (validate() returns the invalid count); also proves
+    # the hint is parented before setVisible (no parentless top-level flash -- the build-time flicker fix)
     from PySide6.QtWidgets import QLineEdit as _QLE2
     fw2, fg2 = build_form(forms.FIELD_SPEC,
                           forms.entity_to_values(forms.FIELD_SPEC, {"id": 4003, "name": "R", "area": 11}), win.pal)
