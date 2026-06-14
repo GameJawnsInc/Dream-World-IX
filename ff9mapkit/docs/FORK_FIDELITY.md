@@ -216,6 +216,9 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   fork ships the donor scene's overlays with no donor `.eb` to fade them (static card). `import --native`/`--editable`
   of an area-title field auto-emits `hide_area_title` + `area_title_overlays` (via `areatitle.title_range`);
   **`--verbatim` is left untouched** (it carries the donor `.eb`'s real scenario-gated show+fade — title wanted there).
+  ★ **IN-GAME PROVEN by A/B (2026-06-14):** two native Mognet Central (3100) forks — id 30006 *without* the hide shows
+  the static "Mognet Central" card (the leak is real for native forks), id 30005 *with* the auto-emitted hide shows
+  no card (the suppression works).
 - **Scenario cutscene roster / warp-directors carried as standing NPCs** — HANDLED on synth (`_loop_warps` drops any
   LOOP firing `Field()`; 2-shopkeeper→1 proven) and BG-borrow (carries no `.eb`). ⚠ The destructive synth-drop keys
   on `Field()` (0x2B) ONLY — **deliberately narrow** (spares animated props + the save-Moogle puppet, per worklist
