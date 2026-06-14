@@ -70,7 +70,14 @@ def reveal_object(slot: int) -> bytes:
 WARP_SOUND = (265, 65535)
 
 
-def warp(target: int, entrance: "int | None" = None) -> bytes:
+# The proven field-transition fade-out, byte-identical to what ladders + gateways emit (and what the
+# engine itself does on a worldmap entry): FadeFilter(mode 6 = SUB, 24f, target colour white) drives the
+# screen to BLACK (SUB shows `screen - colour`, so colour=white => black), then Wait(25) holds until the
+# fade has fully finished. Confirmed against SceneDirector.InitFade/ServiceFade + content.ladder.
+WARP_FADE = (6, 24, 0, 255, 255, 255)
+
+
+def warp(target: int, entrance: "int | None" = None, *, fade: bool = False) -> bytes:
     """Body part: warp the player to ``Field(target)``. Grounded in real *talk-handler* warps -- a Field
     op TRANSITIONS directly from an event / tag-3 _SpeakBTN context (unlike a bare Field in Main_Init,
     which no-ops -- see memory project_ff9_field_warp_pattern); 14+ shipping fields warp the player from a
@@ -78,15 +85,24 @@ def warp(target: int, entrance: "int | None" = None) -> bytes:
     then warps. The warp TRANSITIONS AWAY, so this MUST be the LAST part of a body (anything after is
     unreachable).
 
-    ``entrance`` (when set) writes the ARRIVAL-ENTRANCE var (D8:2) FIRST, exactly as a gateway does
-    (:func:`ff9mapkit.content.region.set_field_entrance`): the destination field's player-init switches on
-    it to place the player, AND the engine frames the camera for that entry. A bare warp with NO entrance
-    lands at the engine default -- on a SCROLLING destination (e.g. a forked Ice Cavern) that shows a
-    STATIC/off-centre frame with the player in a corner until they move (the World-Hub entry-camera bug).
-    Default None = no entrance write (byte-identical to before). (The real warps also run a fade -- screen
-    -fade var writes + step ops; omitted as cosmetic polish; splice the proven fade tail if the cut reads
-    abrupt.)"""
-    pre = _region.set_field_entrance(int(entrance)) if entrance is not None else b""
+    ``fade`` (default False) prepends the proven transition FADE-OUT (:data:`WARP_FADE` + ``Wait(25)``).
+    This is what fixes the World-Hub "static screen on spawn": a bare ``Field()`` warp transitions with the
+    SOURCE field still fully drawn, so the destination loads *in the clear* and you SEE its camera-init
+    frames (the smooth-cam needs ~0.8s to wire up player-tracking -- ``FieldMap.SceneService3DScroll`` --
+    during which the camera sits on the bare scene centre with the player off in a corner). Every real
+    gateway/ladder/worldmap entry fades to black FIRST, so the destination loads black and its own reveal
+    fade (and any ``[camera] entry_settle``) hides the wire-up. ``fade=True`` makes the choice-warp do the
+    same. (The destination's reveal LERPs the SUB layer from white->black; if the source never set it to
+    white, that reveal is a no-op and nothing is hidden -- which is exactly the bug.)
+
+    ``entrance`` (when set) writes the ARRIVAL-ENTRANCE var (D8:2) before the warp, like a gateway
+    (:func:`ff9mapkit.content.region.set_field_entrance`) -- the destination's player-init may switch on it
+    to place the player. NOTE it is NOT a camera fix and is silently overridden by destinations whose
+    Main_Init rewrites D8:2 on entry (e.g. the forked Ice Cavern sets D8:2=10000 up front); the fade is the
+    camera fix. Default None = no entrance write."""
+    pre = opcodes.fade_filter(*WARP_FADE) + opcodes.wait(25) if fade else b""
+    if entrance is not None:
+        pre += _region.set_field_entrance(int(entrance))
     return pre + opcodes.run_sound_code(*WARP_SOUND) + opcodes.field(int(target))
 
 

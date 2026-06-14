@@ -37,13 +37,15 @@ def test_event_set_scenario_reuses_startup_lever():
 
 
 def test_choice_option_warp_is_last_and_after_seed():
-    # a journey row: seed the beat (set_scenario) THEN warp (warp must be last -- Field transitions away)
+    # a journey row: seed the beat (set_scenario) THEN warp (warp must be last -- Field transitions away).
+    # The choice-warp FADES OUT first (fade=True) so the destination doesn't load in the clear (static-screen
+    # fix), so the warp tail == event.warp(.., fade=True), not the bare warp.
     out = choice.option_body({"text": "Dali", "set_scenario": 2600, "warp": 4501})
-    assert out == event.set_scenario(2600) + event.warp(4501)
-    assert out.endswith(event.warp(4501))                       # warp is the final action
+    assert out == event.set_scenario(2600) + event.warp(4501, fade=True)
+    assert out.endswith(event.warp(4501, fade=True))            # faded warp is the final action
     # warp also sits after the existing vocabulary (set_flag before warp)
     out2 = choice.option_body({"text": "x", "set_flag": [8500, 1], "warp": 4502})
-    assert out2 == event.set_flag(8500, 1) + event.warp(4502)
+    assert out2 == event.set_flag(8500, 1) + event.warp(4502, fade=True)
 
 
 def test_choice_option_byte_identical_without_warp():

@@ -241,12 +241,14 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
     ``ate_mode`` (not None) brackets the steps ``ATE(mode) ... ATE(0)`` -- a compulsory ATE's HUD prompt
     (the winATE caption on its windows is set by the caller via ``compile_steps(say_flags=...)``).
 
-    ``then_warp`` (a field id) makes the scene AUTO-RETURN: it ends with ``Field(then_warp)`` instead of
-    restoring control -- exactly how real grey ATEs end (field 956 -> ``Field(2054)``). The warp sits
-    OUTSIDE the once-gate so it ALWAYS fires (even on a re-entry that skips a once'd cutscene, the player
-    still warps back); it transitions away, so it's the last op (no ``EnableMove`` -- the destination's
-    Main_Init restores control). Field() transitions from this InitCode'd entry just like the World-Hub
-    menu-row warp does (same code-entry context -- NOT the Main_Init no-op case)."""
+    ``then_warp`` (a field id) makes the scene AUTO-RETURN: it ends with a FADE-TO-BLACK then
+    ``Field(then_warp)`` instead of restoring control -- exactly how real grey ATEs end (field 956 ->
+    ``Field(2054)``). The warp sits OUTSIDE the once-gate so it ALWAYS fires (even on a re-entry that skips
+    a once'd cutscene, the player still warps back); it transitions away, so it's the last op (no
+    ``EnableMove`` -- the destination's Main_Init restores control). It fades out first (``warp(fade=True)``)
+    so the destination doesn't load in the clear (the static-screen bug). Field() transitions from this
+    InitCode'd entry just like the World-Hub menu-row warp does (same code-entry context -- NOT the
+    Main_Init no-op case)."""
     pre = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
     inner = pre + opcodes.DISABLE_MOVE
     if ate_mode is not None:
@@ -262,7 +264,11 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
     else:
         body = inner
     if then_warp is not None:
-        body += _event.warp(int(then_warp))               # AUTO-RETURN: transitions away, always fires
+        # fade=True: fade to black BEFORE the warp, like every field transition (gateway/ladder/choice).
+        # Without it the destination loads in the clear and you see its camera-init frames (the static-
+        # screen bug). A real grey-ATE return may already be black behind the ATE banner, but the kit
+        # doesn't reproduce that, so an explicit source-side fade is the safe default. See event.warp.
+        body += _event.warp(int(then_warp), fade=True)    # AUTO-RETURN: fade to black, then transition
     return body + opcodes.RETURN
 
 

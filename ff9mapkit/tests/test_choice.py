@@ -55,12 +55,29 @@ def test_option_body_empty_when_no_actions():
 
 
 def test_warp_entrance_sets_field_entrance():
-    # a choice warp with an entrance writes the arrival-entrance var (D8:2) BEFORE the Field() -- so the
-    # destination's player-init places the player + the engine frames the entry camera (no static frame).
+    # a choice warp with an entrance writes the arrival-entrance var (D8:2) before the Field().
     assert event.warp(6200) == opcodes.run_sound_code(265, 65535) + opcodes.field(6200)   # bare: unchanged
     assert event.warp(6200, entrance=3) == region.set_field_entrance(3) + event.warp(6200)
     assert region.set_field_entrance(2) in choice.option_body({"warp": 6200, "entrance": 2})
     assert region.set_field_entrance(0) not in choice.option_body({"warp": 6200})           # no key -> no write
+
+
+def test_warp_fade_prepends_proven_fadeout():
+    # fade=True prepends the proven transition fade-out (FadeFilter SUB->white = fade to BLACK, then
+    # Wait(25)) so the destination loads black and its camera-init frames are hidden -- the fix for the
+    # World-Hub static-screen-on-spawn bug. Byte-identical to what content.ladder emits for a Field() top.
+    fade = opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
+    assert event.warp(6200, fade=True) == fade + opcodes.run_sound_code(265, 65535) + opcodes.field(6200)
+    assert event.warp(6200, fade=False) == event.warp(6200)                          # default off = bare
+    assert event.warp(6200, entrance=3, fade=True) == fade + region.set_field_entrance(3) \
+        + opcodes.run_sound_code(265, 65535) + opcodes.field(6200)                    # fade, THEN entrance
+
+
+def test_choice_warp_always_fades_out():
+    # a choice option that warps is a field transition -> it always fades out first (no static screen).
+    fade = opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
+    assert choice.option_body({"warp": 6200}).startswith(fade)
+    assert region.set_field_entrance(2) in choice.option_body({"warp": 6200, "entrance": 2})
 
 
 def test_instant_choice_appends_imme_tag(tmp_path):

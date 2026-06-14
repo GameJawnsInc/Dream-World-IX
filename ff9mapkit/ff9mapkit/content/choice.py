@@ -59,9 +59,11 @@ def option_body(opt: dict, reply_txid: int | None = None) -> bytes:
     if "set_scenario" in opt:
         parts.append(_event.set_scenario(int(opt["set_scenario"])))
     if "warp" in opt:
-        # entrance (optional): set the destination's arrival entrance so the player + camera frame
-        # correctly on entry (a bare warp lands a scrolling field on a static/off-centre frame).
-        parts.append(_event.warp(int(opt["warp"]), entrance=opt.get("entrance")))  # LAST: transitions away
+        # A choice that warps is ALWAYS a field transition, so it fades out first (fade=True) -- exactly
+        # like a gateway/ladder. Without the fade the destination loads in the clear and you see its
+        # camera-init frames (the World-Hub static-screen bug). entrance (optional) sets the arrival
+        # entrance var; it is not the camera fix (the fade is) -- see event.warp.
+        parts.append(_event.warp(int(opt["warp"]), entrance=opt.get("entrance"), fade=True))  # LAST: away
     return b"".join(parts)
 
 

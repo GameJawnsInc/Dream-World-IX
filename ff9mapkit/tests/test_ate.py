@@ -206,8 +206,14 @@ def test_compulsory_ate_then_warp_auto_returns(tmp_path):
     """[cutscene] ate=true + then_warp=N ends the grey scene with Field(N) -- the auto-return real grey
     ATEs use (956 -> Field(2054)). The chain primitive: a grey cutscene field warps back to its hub."""
     eb = _build_eb(tmp_path, _CUTSCENE_ATE_TOML.replace("ate = true", "ate = true\nthen_warp = 30011"))
-    assert 30011 in [i.imm(0) for i in _all_instrs(eb) if i.op == 0x2B]   # Field(30011) warp back to the hub
-    assert [i.imm(0) for i in _all_instrs(eb) if i.op == 0xD7] == [6, 0]  # still the grey ATE(6) bracket
+    ins = _all_instrs(eb)
+    assert 30011 in [i.imm(0) for i in ins if i.op == 0x2B]   # Field(30011) warp back to the hub
+    assert [i.imm(0) for i in ins if i.op == 0xD7] == [6, 0]  # still the grey ATE(6) bracket
+    # the auto-return FADES OUT first (fade=True) so the destination doesn't load in the clear: a
+    # FadeFilter (0xEC) precedes the Field(30011) on the warp path (the static-screen fix, like choices).
+    fade_offs = [i.off for i in ins if i.op == 0xEC]
+    warp_off = next(i.off for i in ins if i.op == 0x2B and i.imm(0) == 30011)
+    assert any(f < warp_off for f in fade_offs), "then_warp must fade to black before Field()"
 
 
 def test_then_warp_validation(tmp_path):
