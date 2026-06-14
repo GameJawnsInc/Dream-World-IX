@@ -125,7 +125,7 @@ def test_resolve_reskins_emits_body_reskin_warning(monkeypatch):
     monkeypatch.setattr(reskin, "resolve_donor_block", lambda spec, game=None: (donor, "EF_R007 type 0"))
     out_cfg, warns = _build._resolve_reskins({"enemy": [{"slot": 0, "model_scene": "EF_R007"}]})
     assert out_cfg["enemy"][0]["_reskin_block"] == donor                 # block injected for apply_scene_edits
-    assert warns and "ATTACK animations stay the target enemy" in warns[0]   # honest scope warning
+    assert warns and "stay the target enemy" in warns[0] and "idle AND attack" in warns[0]   # honest MESH-swap scope
 
 
 # ---------------------------------------------------------------- name->geo (install-free catalog) ---

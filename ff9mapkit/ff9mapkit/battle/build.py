@@ -113,9 +113,9 @@ def _resolve_reskins(scene_cfg: dict, *, game=None):
         if spec is not None:
             block, prov = _reskin.resolve_donor_block(spec, game=game)
             e = dict(e, _reskin_block=block)
-            warns.append(f"slot {e.get('slot')}: re-skinned BODY to {prov} -- idle/damage/death use the new "
-                         f"model, but ATTACK animations stay the target enemy's (a full re-skin would also "
-                         f"need the donor's raw17 btlseq + AA_DATA)")
+            warns.append(f"slot {e.get('slot')}: re-skinned MESH to {prov} -- the new model's BODY shows, but "
+                         f"its ANIMATIONS (idle AND attack) stay the target enemy's, retargeted onto the new "
+                         f"mesh (a full re-skin would also need the donor's raw17 anim binding + AA_DATA)")
             touched = True
         resolved.append(e)
     return (dict(scene_cfg, enemy=resolved), warns) if touched else (scene_cfg, [])
