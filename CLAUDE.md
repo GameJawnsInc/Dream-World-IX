@@ -250,6 +250,14 @@ mechanic above was grounded byte-for-byte against shipping FF9 data, not invente
   battle). The player must actually REACH the zone (place it where he demonstrably stands).
 - Exit walk-out direction is set by the polygon's **point ORDER** (q[0]→q[1] edge first = walk
   forward, no "circle").
+- **A field→field warp MUST fade to black BEFORE `Field()`** — else the destination loads *in the
+  clear* and the player sees its camera wire up to him (~0.8s of the scroll camera sitting on the
+  bare scene centre, player in a corner = the "static screen on spawn"). The proven fade is
+  `fade_filter(6,24,0,255,255,255) + wait(25)` (SUB mode → white = screen→black), exactly what
+  gateways/ladders/the field-70 opening emit. The kit lever: `content.event.warp(..., fade=True)`
+  (choice-warps + cutscene `then_warp` use it). Never insta-warp a player-visible transition.
+  `entry_settle` is the *destination*-side complement (assumes the field already loaded black, i.e.
+  the source faded). → `project-ff9-world-hub`.
 
 **Encounters / battle** (`project-ff9-encounters`)
 - A field cloned from a cutscene field lacks an entry-0 **tag-10 Main_Reinit** → after-battle
