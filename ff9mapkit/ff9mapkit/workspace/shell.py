@@ -188,6 +188,9 @@ class Workspace(QMainWindow):
         self.campaign_path = None
         self.member_paths = {}                     # member name -> field.toml path
         self.journey_name = None
+        self.manifest = None                       # the loaded JourneyManifest in JOURNEY mode (else None)
+        self.journey_root = None                   # the open journeys.toml path (journey mode)
+        self._journey_label_path = None            # a journeys.toml found NEAR an opened campaign (for "jump to journey")
         self._loose = None                         # the open standalone field's name (loose mode), else None
         self._docs = {}                            # member name -> loaded FieldDoc (cached, edited in place)
         self._clean = {}                           # member name -> deepcopy(doc.data) at load/last-save (dirty baseline)
@@ -228,6 +231,11 @@ class Workspace(QMainWindow):
         act_new_campaign.triggered.connect(self.on_new_campaign)
         tb.addAction(act_new_campaign)
         tb.addSeparator()
+        act_open_journey = QAction("Open Journey…", self)
+        act_open_journey.setToolTip("Open a journeys.toml — the whole arc (hub + campaigns + links); lint it "
+                                    "and drill into any campaign to edit")
+        act_open_journey.triggered.connect(self.on_open_journey)
+        tb.addAction(act_open_journey)
         act_open = QAction("Open Campaign…", self)
         act_open.triggered.connect(self.on_open_campaign)
         tb.addAction(act_open)
@@ -424,6 +432,116 @@ class Workspace(QMainWindow):
         return item.data(0, _ROLE) if item is not None else None
 
     # ---- campaign io ----
+    def on_open_journey(self):
+        f, _ = QFileDialog.getOpenFileName(self, "Open a journeys.toml", "",
+                                           "Journeys (journeys.toml);;TOML (*.toml);;All files (*)")
+        if f:
+            self.open_journey(Path(f))
+
+    def open_journey(self, path) -> bool:
+        """Open a journeys.toml as the project FRONT DOOR: the whole arc (hub + member campaigns + links) is
+        the index -- no directory searching. Loads + lints the manifest, shows the resolved plan, and lets
+        you drill into any campaign to edit it (the journey stays remembered)."""
+        if not self._maybe_prompt_unsaved():
+            return False
+        self._clear_doc()
+        path = Path(path)
+        try:
+            from .. import journey as J
+            manifest = J.load_journeys(path)
+        except Exception as e:                     # noqa: BLE001
+            self.statusBar().showMessage(f"Open failed: {e}")
+            return False
+        self.manifest = manifest
+        self.journey_root = path
+        self.plan = None
+        self.campaign_path = None
+        self._loose = None
+        self._journey_label_path = None            # journey mode uses self.manifest, not the reverse-search path
+        self.journey_name = (manifest.hub.get("name") if manifest.hub else None) or path.parent.name
+        self.member_paths = {}
+        self._docs = {}
+        self._clean = {}
+        self._touched = set()
+        self._reset_history()
+        self.map.clear()                           # the journey overview lives in the doc area, not the Map
+        self.build_deploy.set_target("")           # don't leave Build & Deploy aimed at the prior campaign/field
+        self.act_check.setEnabled(True)            # Check = lint the journey manifest
+        self.act_lint_cli.setEnabled(False)
+        self._populate_journey()
+        self._lint_journey()                       # the namespace guarantee -> Problems dock, on open
+        self._mount_journey_overview()
+        self.tabs.setCurrentWidget(self.doc_scroll)
+        self.statusBar().showMessage(f"Journey {self.journey_name} — {len(manifest.journeys)} journey(s) — {path}")
+        return True
+
+    def _populate_journey(self):
+        """The journey tree: the manifest -> each [[journey]] -> its member campaigns (open one to edit it).
+        Journey mode = self.manifest set, self.plan None."""
+        self.tree.clear()
+        self._root_items = []
+        self._member_items = {}
+        jset = self._mk("jset", self.journey_name, "@journeys", "◆")
+        jset.setForeground(0, QBrush(QColor(self.pal["accent"])))
+        jset.setIcon(0, self._blank_icon)
+        self.tree.addTopLevelItem(jset)
+        jset.setExpanded(True)
+        self._root_items.append(jset)
+        for j in self.manifest.journeys:
+            jn = self._mk("journey", j.name or j.id, f"@journey:{j.id}", "◆")
+            jn.setIcon(0, self._blank_icon)
+            jset.addChild(jn)
+            jn.setExpanded(True)
+            if j.is_bare:                          # a single-field journey -> the hub warps straight to a field
+                leaf = self._mk("jbare", f"→ field {j.entry.field}", f"@bare:{j.id}", "•")
+                leaf.setIcon(0, self._blank_icon)
+                jn.addChild(leaf)
+            else:
+                for folder in j.campaigns:
+                    cn = self._mk("jcampaign", folder, folder, "▣")
+                    cn.setIcon(0, self._blank_icon)
+                    jn.addChild(cn)
+
+    def _mount_journey_overview(self):
+        """Show the resolved journey plan (campaigns, entry ids, flag windows, cross-campaign links) in the
+        doc area -- read-only; render_journey_plan is the same view as `lint-journey --graph`."""
+        self._clear_doc()
+        self._set_editor_tab("Journey")
+        self._header(self.journey_name, "The assembled journey plan. Open a campaign in the tree to edit it; "
+                     "Check (or open) lints the global id/flag namespace into Problems.")
+        box = QPlainTextEdit()
+        box.setReadOnly(True)
+        try:
+            from .. import journey as J
+            box.setPlainText(J.render_journey_plan(self.manifest))
+        except Exception as e:                     # noqa: BLE001
+            box.setPlainText(f"Could not resolve the journey plan:\n{e}")
+        self.doc_host_lay.addWidget(box, 1)
+
+    def _lint_journey(self):
+        """Lint the open journeys.toml -> the Problems dock (the GLOBAL id/flag-disjointness guarantee)."""
+        try:
+            from .. import journey as J
+            errs, warns = J.lint_manifest(self.manifest)
+        except Exception as e:                     # noqa: BLE001
+            errs, warns = [f"journey lint failed: {e}"], []
+        v = fb.classify(errs, warns, subject=f"Journey lint ({self.journey_name})",
+                        clean_headline=f"{self.journey_name} — no problems")
+        self._show_problems(v, fb.problems(errs, warns))
+
+    def _open_member_campaign(self, folder):
+        """Drill from the journey into one member campaign (the existing single-campaign editor); the journey
+        stays remembered so the journey root row returns to the overview."""
+        cpath = self.manifest.root / folder / "campaign.toml"
+        if not cpath.is_file():
+            self.statusBar().showMessage(f"no campaign.toml in {folder}")
+            return
+        self.open_campaign(cpath, keep_journey=True)
+
+    def _back_to_journey(self):
+        if self.journey_root:                      # open_journey runs its own unsaved-prompt -- don't double it
+            self.open_journey(self.journey_root)
+
     def on_open_campaign(self):
         f, _ = QFileDialog.getOpenFileName(self, "Open campaign.toml", "",
                                            "Campaign (campaign.toml);;TOML (*.toml);;All files (*)")
@@ -639,6 +757,8 @@ class Workspace(QMainWindow):
         self.plan = None
         self.campaign_path = None
         self.journey_name = None
+        self.manifest = None                       # a standalone field leaves any journey context
+        self.journey_root = None
         self._loose = name
         self.member_paths = {name: path.resolve()}
         self._docs = {name: doc}
@@ -667,7 +787,7 @@ class Workspace(QMainWindow):
         mi.setExpanded(True)
         self._refresh_dirty_marks()                     # reserve the icon slot from the first paint
 
-    def open_campaign(self, path) -> bool:
+    def open_campaign(self, path, *, keep_journey=False) -> bool:
         if not self._maybe_prompt_unsaved():
             return False
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
@@ -677,11 +797,17 @@ class Workspace(QMainWindow):
         except Exception as e:                     # noqa: BLE001
             self.statusBar().showMessage(f"Open failed: {e}")
             return False
+        if not keep_journey:                       # opening a campaign DIRECTLY leaves any journey context
+            self.manifest = None
+            self.journey_root = None
         self.plan = plan
         self._loose = None                         # leaving loose mode -> a real campaign is open
         self.campaign_path = path
         self.member_paths = {m.name: (path.parent / m.toml_rel).resolve() for m in plan.members}
-        self.journey_name = self._journey_label()
+        # drilling in from a journey KEEPS open_journey's label (stable + always present, so the back-row
+        # never vanishes); a DIRECT campaign open reverse-searches for a nearby journeys.toml (display only).
+        if not keep_journey:
+            self.journey_name = self._journey_label()
         self._docs = {}
         self._clean = {}
         self._touched = set()
@@ -703,6 +829,7 @@ class Workspace(QMainWindow):
     def _journey_label(self):
         """A real journey from a journeys.toml beside the campaign or one level up (display only; mirrors
         the tkinter navigator -- see docs/JOURNEYS.md). None when none is defined."""
+        self._journey_label_path = None
         if not self.campaign_path:
             return None
         folder = self.campaign_path.parent.name
@@ -715,6 +842,7 @@ class Workspace(QMainWindow):
                 import tomllib
                 for j in tomllib.loads(jt.read_text(encoding="utf-8")).get("journey", []):
                     if j.get("name") and (folder in j.get("campaigns", []) or j.get("entry") in ids):
+                        self._journey_label_path = jt      # so the journey row can open it (jump to journey)
                         return j["name"]
             except Exception:                      # noqa: BLE001
                 continue
@@ -877,6 +1005,9 @@ class Workspace(QMainWindow):
         if not items:
             return
         item = items[0]
+        if self.manifest is not None and self.plan is None:   # JOURNEY mode: no field forms, just overview/inspect
+            self._on_select_journey(item, self._payload(item))
+            return
         if not self._commit_active_ck():           # fold + checkpoint the leaving form; stay put on a bad value
             return
         self._touched &= set(self._dirty_members())   # reconcile: a touched-but-reverted member is clean now
@@ -899,12 +1030,48 @@ class Workspace(QMainWindow):
             else:                                  # an object/group under it -> edit by its key
                 self._open_editor(member, p[0], p[2])
 
+    def _on_select_journey(self, item, p):
+        """JOURNEY-mode selection: a journey/root row shows the plan overview; a campaign row prompts to open
+        it. No field forms, no dirty tracking (nothing's editable until you drill into a campaign)."""
+        if not p:
+            return
+        kind, label, _key = p
+        self.insp_title.setText(label)
+        self.insp_body.setToolTip("")
+        self._inspect_path = None
+        self.crumb.set(bc.trail(self.journey_name, None, None, None, ""))
+        if kind == "jcampaign":
+            self.insp_body.setText("<br>".join([
+                self._muted("a member campaign of this journey"),
+                self._muted("double-click (or Enter) to open it for editing")]))
+        elif kind == "jbare":
+            self.insp_body.setText(self._muted("a bare single-field journey — the hub warps straight to this field"))
+        else:                                      # jset / journey -> the resolved plan overview
+            self._mount_journey_overview()
+            self.insp_body.setText("<br>".join([
+                f"{len(self.manifest.journeys)} journey(s)",
+                self._muted("Check lints the global id/flag namespace → Problems")]))
+
     def _on_tree_double(self, item, _col=0):
-        """Double-click = explicit 'open': a field/object goes to the Editor, a campaign/journey root to
-        the Map. (Single-click only selects + highlights, so browsing the tree doesn't steal your tab.)"""
+        """Double-click = explicit 'open': a field/object -> the Editor; a campaign/journey root -> the Map;
+        a journey member campaign -> open it; the journey root row (when a journey is loaded) -> the overview."""
         p = self._payload(item)
-        if p:
-            self.tabs.setCurrentWidget(self.map if p[0] in ("campaign", "journey") else self.doc_scroll)
+        if not p:
+            return
+        kind = p[0]
+        if kind == "jcampaign":                    # drill from the journey into a member campaign (editable)
+            self._open_member_campaign(p[2])
+            return
+        if kind == "journey" and self.plan is not None:   # the journey row above a drilled-in campaign -> back
+            if self.manifest is not None:
+                self._back_to_journey()
+            elif self._journey_label_path is not None:    # opened the campaign directly -> jump UP to its journey
+                self.open_journey(self._journey_label_path)
+            return
+        if kind in ("jset", "journey", "jbare"):   # journey-mode rows -> the overview doc
+            self.tabs.setCurrentWidget(self.doc_scroll)
+            return
+        self.tabs.setCurrentWidget(self.map if kind == "campaign" else self.doc_scroll)
 
     def _open_current_tree_item(self):
         """Enter on the focused tree row = open it (the keyboard equivalent of a double-click)."""
@@ -919,6 +1086,7 @@ class Workspace(QMainWindow):
         cmds = [
             ("New Field…", "command", self.on_new_field),
             ("New Campaign…", "command", self.on_new_campaign),
+            ("Open Journey…", "command", self.on_open_journey),
             ("Open Campaign…", "command", self.on_open_campaign),
             ("Open Field…", "command", self.on_open_field),
             ("Open Save…", "command", self._open_save),
@@ -941,7 +1109,7 @@ class Workspace(QMainWindow):
 
         def walk(item):
             p = self._payload(item)
-            if p and p[0] in ("journey", "campaign", "field", "object", "group"):
+            if p and p[0] in ("jset", "jcampaign", "journey", "campaign", "field", "object", "group"):
                 content.append((self._palette_label(item, p), p[0], lambda it=item: self._goto_tree(it)))
             for i in range(item.childCount()):
                 walk(item.child(i))
@@ -1926,8 +2094,10 @@ class Workspace(QMainWindow):
                     f"mod folder: {self.plan.mod_folder}",
                     f"unreachable: {len(g.unreachable)} · dead-ends: {len(g.dead_ends)}"]
         if kind == "journey":
+            back = (self.manifest is not None) or (self._journey_label_path is not None)
             return ["a playable arc (see docs/JOURNEYS.md)",
-                    "authoring is the overworld / World-Hub lane"]
+                    self._muted("double-click to open the whole journey" if back
+                                else "authoring is the overworld / World-Hub lane")]
         if kind == "group" and field:
             return self._inspect_group(field, key)
         if kind == "object" and field:
@@ -2325,6 +2495,9 @@ class Workspace(QMainWindow):
 
     # ---- check (in-process) + lint (QProcess) ----
     def on_check(self):
+        if self.manifest is not None and self.plan is None:   # journey mode -> lint the manifest
+            self._lint_journey()
+            return
         if not self._ensure_saved():               # validate the CURRENT edits, not stale on-disk bytes
             return
         if self.plan is None:
@@ -3104,6 +3277,51 @@ def _smoke(win):
     # the new commands are in the palette (+ Add field appears only while a campaign is open)
     plabels = [e[0] for e in win._command_index()]
     assert {"New Field…", "New Campaign…", "Add field to campaign…"} <= set(plabels), plabels
+    _newcamp_members = len(win.plan.members)               # captured for the summary (journey mode clears win.plan)
+
+    # JOURNEY MODE: open a journeys.toml as the FRONT DOOR (load + lint + tree + overview + drill into a campaign)
+    jdir = d / "jtest"
+    (jdir / "camp1").mkdir(parents=True, exist_ok=True)
+    jcm = [C.Member(0, 5000, "ROOMA", "editable", 11, "", "ROOMA/ROOMA.field.toml", False)]
+    jcplan = C.CampaignPlan(name="Camp1", mod_folder="M", id_base=5000, flag_base=C.FIRST_SAFE_FLAG,
+                            flags_per_field=64, entry_name="ROOMA", entry_entrance=0, members=jcm, edges=[], seams=[])
+    (jdir / "camp1" / "campaign.toml").write_text(C.render_campaign_toml(jcplan), encoding="utf-8")
+    (jdir / "camp1" / "ROOMA").mkdir(parents=True, exist_ok=True)
+    (jdir / "camp1" / "ROOMA" / "ROOMA.field.toml").write_text(
+        '[field]\nid = 5000\nname = "ROOMA"\narea = 11\n\n[[npc]]\nname = "Host"\n', encoding="utf-8")
+    # NB: named arc.toml (NOT journeys.toml) on purpose -- the reverse-search _journey_label only finds a file
+    # literally named journeys.toml, so this exercises the drill-in regression (the journey label must be KEPT
+    # from open_journey, not re-derived, or the back-to-journey row would vanish -- the HIGH review finding).
+    (jdir / "arc.toml").write_text(
+        '[hub]\nname = "Test Hub"\nid = 4600\n\n'
+        '[[journey]]\nid = "alpha"\nname = "Alpha Arc"\ncampaigns = ["camp1"]\n'
+        'entry = { campaign = "camp1", field = "ROOMA" }\n', encoding="utf-8")
+    assert win.open_journey(jdir / "arc.toml")
+    assert win.manifest is not None and win.plan is None and win.journey_name == "Test Hub"
+    jroot = win.tree.topLevelItem(0)                       # journeys-manifest root -> journey -> member campaign
+    assert win._payload(jroot)[0] == "jset"
+    jnode = jroot.child(0)
+    assert win._payload(jnode) == ("journey", "Alpha Arc", "@journey:alpha"), win._payload(jnode)
+    cnode = jnode.child(0)
+    assert win._payload(cnode) == ("jcampaign", "camp1", "camp1"), win._payload(cnode)
+    # selecting the root mounts the resolved-plan overview in the doc area (read-only)
+    win.tree.setCurrentItem(jroot)
+    ov = [w for w in win.doc_host.findChildren(QPlainTextEdit) if w.isReadOnly()]
+    assert any("Alpha Arc" in w.toPlainText() and "5000" in w.toPlainText() for w in ov), "overview renders the plan"
+    win.on_check()                                         # Check lints the manifest -> Problems (no crash)
+    # DRILL IN: opening the campaign node loads it (single-campaign editor); the journey stays remembered
+    win._on_tree_double(cnode)
+    assert win.plan is not None and win.plan.name == "Camp1" and win.manifest is not None, "drilled into the campaign"
+    assert "ROOMA" in win.member_paths
+    assert win.journey_name == "Test Hub", "drill-in KEEPS the journey label (no reverse-search rename/loss)"
+    # the journey row (always present -- the label is kept) sits above the campaign; it returns to the overview
+    jrow = win._root_items[0]
+    assert win._payload(jrow)[0] == "journey", "the back-to-journey row exists after drilling in"
+    win._on_tree_double(jrow)
+    assert win.plan is None and win.manifest is not None, "back to the journey overview"
+    # opening a plain field afterwards drops the journey context
+    assert win.open_field(af) and win.manifest is None, "a standalone field leaves journey mode"
+    assert "Open Journey…" in [e[0] for e in win._command_index()]
 
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
@@ -3111,9 +3329,9 @@ def _smoke(win):
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
           f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
-          f"({len(win.plan.members)} blank members) + Build/Deploy + Import docs (argv-built) + Info Hub "
-          f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + Ctrl-K palette, "
-          f"Problems dock ({nprob} rows); QProcess wired")
+          f"({_newcamp_members} blank members) + Build/Deploy + Import docs (argv-built) + Info Hub "
+          f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
+          f"(open/lint/overview/drill-in) + Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
 
 
 def main(argv=None):
