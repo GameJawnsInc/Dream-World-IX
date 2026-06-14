@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import collections
 import copy
+import html
 import os
 import sys
 from pathlib import Path
@@ -104,6 +105,16 @@ def _field_token(name) -> str:
 # (Snapshot-of-the-document, not a per-op delta -- simple + always-correct for a small TOML tree.)
 _UndoRec = collections.namedtuple("_UndoRec", "member before after label focus")
 UNDO_LIMIT = 100                                   # cap the history so a long session can't grow unbounded
+
+
+def _esc(s) -> str:
+    return html.escape(str(s), quote=True)
+
+
+def _snip(s, n=44) -> str:
+    """A one-line, length-capped preview of a value (Inspector dialogue/message snippets)."""
+    s = str(s).replace("\n", " ").strip()
+    return s if len(s) <= n else s[:n - 1] + "…"
 
 
 class BreadcrumbBar(QWidget):
@@ -315,6 +326,7 @@ class Workspace(QMainWindow):
         iv = QVBoxLayout(insp)
         iv.setContentsMargins(10, 10, 10, 10)
         self.insp_title = QLabel("Inspector")
+        self.insp_title.setTextFormat(Qt.TextFormat.PlainText)   # a user-typed entity name is never markup
         self.insp_title.setStyleSheet("font-weight:600;")
         self.insp_body = QLabel("Select something on the left.")
         self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
@@ -322,7 +334,7 @@ class Workspace(QMainWindow):
         self.insp_body.setTextFormat(Qt.TextFormat.RichText)        # the file line is a copy-to-clipboard link
         self.insp_body.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse
                                                | Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.insp_body.linkActivated.connect(self._copy_inspect_path)
+        self.insp_body.linkActivated.connect(self._inspect_link)
         self._inspect_path = None
         self.insp_body.setStyleSheet(f"color:{self.pal['muted']};")
         self.insp_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
@@ -1845,6 +1857,30 @@ class Workspace(QMainWindow):
             QApplication.clipboard().setText(self._inspect_path)
             self.statusBar().showMessage(f"Copied path: {self._inspect_path}", 4000)
 
+    def _inspect_link(self, href):
+        """Inspector hyperlink dispatch: 'copy' -> copy the file path; 'goto:<member>' -> select that field."""
+        if href == "copy":
+            self._copy_inspect_path("copy")
+        elif href.startswith("goto:"):
+            self._select_member(href[len("goto:"):])
+
+    def _goto_link(self, member):
+        return (f'<a href="goto:{_esc(member)}" style="color:{self.pal["accent"]};'
+                f'text-decoration:none;">{_esc(member)}</a>')
+
+    def _muted(self, s):
+        return f'<span style="color:{self.pal["muted"]};">{s}</span>'
+
+    def _safe_doc(self, member):
+        """The member's FieldDoc, loading+caching it if needed (the Inspector runs BEFORE the editor mounts,
+        so a never-opened field would otherwise have no data to roll up). None on a load error."""
+        if member in self._docs:
+            return self._docs[member]
+        try:
+            return self._doc(member)
+        except Exception:                              # noqa: BLE001
+            return None
+
     def _inspect(self, item, payload, field):
         if payload is None:
             return
@@ -1852,30 +1888,224 @@ class Workspace(QMainWindow):
         self.insp_title.setText(label)
         self.insp_body.setToolTip("")                       # full path (if any) goes on hover, not inline
         self._inspect_path = None
-        lines = []
-        if kind == "field" and self.plan is not None:
-            m = next((m for m in self.plan.members if m.name == label), None)
-            if m:
-                path = self.member_paths.get(label)
-                lines = [f"field id: {m.new_id}", f"source: real field {m.real_id}", f"mode: {m.mode}"]
-                if path:
-                    self._inspect_path = str(path)
-                    self.insp_body.setToolTip(str(path))    # a long absolute path mustn't force the panel wide
-                    lines.append(f'<a href="copy" style="color:{self.pal["accent"]};text-decoration:none;">'
-                                 f'file: {Path(path).name}  ⧉ copy</a>')
-                else:
-                    lines.append("file: (unknown)")
-        elif kind == "campaign" and self.plan is not None:
-            g = C.campaign_graph(self.plan)
-            lines = [f"{len(self.plan.members)} fields", f"entry: {g.entry or '(none)'}",
-                     f"mod folder: {self.plan.mod_folder}",
-                     f"unreachable: {len(g.unreachable)} · dead-ends: {len(g.dead_ends)}"]
-        elif kind == "journey":
-            lines = ["a playable arc (see docs/JOURNEYS.md)",
-                     "authoring is the overworld / World-Hub lane"]
-        elif field:
-            lines = [f"in field: {field}", f"kind: {kind}"]
+        try:                                                # a single bad node must never blank/break the panel
+            lines = self._inspect_build(kind, key, field)
+        except Exception:                                   # noqa: BLE001
+            lines = [self._muted("— (could not inspect this node)")]
         self.insp_body.setText("<br>".join(lines) if lines else "—")
+
+    def _inspect_build(self, kind, key, field):
+        if kind == "field":
+            return self._inspect_field(field)
+        if kind == "campaign" and self.plan is not None:
+            g = C.campaign_graph(self.plan)
+            return [f"{len(self.plan.members)} fields", f"entry: {g.entry or '(none)'}",
+                    f"mod folder: {self.plan.mod_folder}",
+                    f"unreachable: {len(g.unreachable)} · dead-ends: {len(g.dead_ends)}"]
+        if kind == "journey":
+            return ["a playable arc (see docs/JOURNEYS.md)",
+                    "authoring is the overworld / World-Hub lane"]
+        if kind == "group" and field:
+            return self._inspect_group(field, key)
+        if kind == "object" and field:
+            return self._inspect_object(field, key)
+        return [self._muted(f"in field: {field}")] if field else []
+
+    def _inspect_field(self, name):
+        """A campaign member (or a loose field): id/source/mode, a CONTENT rollup, the live cross-references
+        (exits to / reached from -- clickable member links + reachability flags), and the file-path link."""
+        lines = []
+        doc = self._safe_doc(name)
+        if self.plan is not None:
+            m = next((mm for mm in self.plan.members if mm.name == name), None)
+            if m:
+                lines += [f"field id: {m.new_id}",
+                          self._muted(f"source: real field {m.real_id} · mode: {m.mode}")]
+        elif doc is not None:
+            lines.append(f"field id: {(doc.data.get('field') or {}).get('id')}")
+        if doc is not None:
+            lines.append(self._rollup(doc.data))
+        if self.plan is not None:
+            lines += self._field_xrefs(name)
+        path = self.member_paths.get(name)
+        if path:
+            self._inspect_path = str(path)
+            self.insp_body.setToolTip(str(path))            # a long absolute path mustn't force the panel wide
+            lines.append(f'<a href="copy" style="color:{self.pal["accent"]};text-decoration:none;">'
+                         f'file: {Path(path).name}  ⧉ copy</a>')
+        return lines
+
+    def _rollup(self, data):
+        """A one-line 'what's in this field' tally -- the content the tree groups hide behind their counts."""
+        bits = []
+        for sect, sing in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event"),
+                           ("marker", "marker"), ("choice", "choice")):
+            n = len(data.get(sect, []) or [])
+            if n:
+                bits.append(f"{n} {sing}{'' if n == 1 else 's'}")
+        if data.get("cutscene"):
+            steps = len((data.get("cutscene") or {}).get("steps", []) or [])
+            bits.append(f"cutscene ({steps} step{'' if steps == 1 else 's'})")
+        if data.get("encounter"):
+            bits.append("encounters")
+        if data.get("music"):
+            bits.append("BGM")
+        return self._muted("contents: " + (", ".join(bits) if bits else "empty"))
+
+    def _field_xrefs(self, name):
+        """The member's doors as clickable cross-references -- the SAME edges the Map draws, resolved from the
+        campaign manifest as loaded (plan.edges). NOTE: these reflect the campaign AS OPENED -- a gateway edit
+        isn't mirrored here until the campaign is reopened (the rollup/destination lines above DO read the live
+        doc), so we flag it when the field has unsaved edits."""
+        try:
+            node = C.campaign_graph(self.plan).by_name.get(name)
+        except Exception:                              # noqa: BLE001
+            return []
+        if node is None:
+            return []
+        lines = []
+        if node.out_edges:
+            lines.append("→ exits to: " + ", ".join(
+                self._goto_link(oe["to"]) + (" (gated)" if oe["gated"] else "") for oe in node.out_edges))
+        if node.in_edges:
+            lines.append("← reached from: " + ", ".join(
+                self._goto_link(ie["frm"]) + (" (gated)" if ie.get("gated") else "") for ie in node.in_edges))
+        for s in node.seams:
+            tgt = s.get("to_member") or s.get("to_real") or "?"
+            lines.append(f"⇢ seam ({_esc(s.get('kind', ''))}): "
+                         + (self._goto_link(tgt) if s.get("to_member") else _esc(tgt)))
+        if not node.reachable and not node.is_entry:
+            lines.append(f'<span style="color:{self.pal["error"]};">⚠ unreachable from the entry</span>')
+        elif node.dead_end:
+            lines.append(self._muted("○ dead end — no exits"))
+        if name in self._unsaved():                    # the doors above are as-of-open; warn that edits aren't live
+            lines.append(self._muted("↻ doors as of campaign open — reopen to refresh after gateway edits"))
+        return lines
+
+    def _inspect_group(self, member, key):
+        doc = self._safe_doc(member)
+        n = len(doc.data.get(key, []) or []) if doc else 0
+        sing = _LIST_SINGULAR.get(key, key)
+        return [f"in field: {self._goto_link(member)}",
+                self._muted(f"{n} {sing.lower()}{'' if n == 1 else 's'} — pick one to edit, or add a new one")]
+
+    def _inspect_object(self, member, key):
+        if key == "field":                             # the 'Field' child node -> the SAME rich view as the row
+            return self._inspect_field(member)
+        doc = self._safe_doc(member)
+        if doc is None:
+            return [self._muted(f"in field: {member}")]
+        head = [f"in field: {self._goto_link(member)}"]
+        if key == "camera":                            # spatial -- Blender-only (mirror the editor's own note)
+            return head + [self._muted("camera / walkmesh / layers are SPATIAL — authored in Blender, "
+                                       "read-only here.")]
+        if ":" in key:                                 # a list entity (npc:2, gateway:0, ...)
+            section, idx = key.split(":")
+            lst = doc.data.get(section, []) or []
+            idx = int(idx)
+            return head + (self._inspect_entity(section, lst[idx]) if idx < len(lst) else [])
+        return head + self._inspect_single(key, doc.data.get(key))   # a single section
+
+    def _inspect_entity(self, section, e):
+        m = self._muted
+        if section == "npc":
+            model = e.get("preset") or (f"model #{e['model']}" if e.get("model") is not None else "?")
+            out = [f"NPC: {_esc(e.get('name', '?'))}", m(f"looks like: {_esc(model)}")]
+            if e.get("pos") is not None:
+                out.append(m(f"pos: {_esc(e['pos'])}"))
+            if e.get("dialogue"):
+                out.append(m(f"“{_esc(_snip(e['dialogue']))}”"))
+            return out + self._gate_lines(e)
+        if section == "gateway":
+            dest, broken = self._resolve_dest(e.get("to"))
+            out = ["gateway → " + dest]
+            if e.get("entrance") is not None:
+                out.append(m(f"entrance: {_esc(e['entrance'])}"))
+            if e.get("zone"):
+                out.append(m(f"zone: {len(e['zone'])} pts"))
+            if broken:
+                out.append(f'<span style="color:{self.pal["warn"]};">⚠ destination not in this campaign</span>')
+            return out + self._gate_lines(e)
+        if section == "event":
+            eff = []                                   # an event can do several things -> show ALL, not just one
+            if e.get("give_item"):
+                eff.append("item")
+            if e.get("gil") is not None:
+                eff.append("gil")
+            if e.get("set_flag"):
+                eff.append("flag")
+            if e.get("message"):
+                eff.append("message")
+            out = [f"event: {_esc(e.get('name', 'event'))} ({'+'.join(eff) if eff else 'trigger'})"]
+            if e.get("message"):
+                out.append(m(f"“{_esc(_snip(e['message']))}”"))
+            if e.get("set_flag"):
+                out.append(m(f"sets flag: {_esc(e['set_flag'])}"))
+            out.append(m(f"once: {str(e.get('once', True)).lower()}"))
+            return out + self._gate_lines(e)
+        if section == "marker":
+            out = [f"marker: {_esc(e.get('name', '?'))}"]
+            if e.get("pos") is not None:
+                out.append(m(f"pos: {_esc(e['pos'])}"))
+            return out
+        if section == "choice":
+            out = [f"choice: “{_esc(_snip(e.get('prompt', '')))}”",
+                   m(f"{len(e.get('options', []) or [])} option(s)")]
+            if e.get("npc"):
+                out.append(m(f"on NPC: {_esc(e['npc'])}"))
+            elif e.get("zone"):
+                out.append(m(f"zone trigger: {len(e['zone'])} pts"))
+            return out
+        return [m(f"kind: {section}")]
+
+    def _gate_lines(self, e):
+        out = []
+        if e.get("requires_flag"):
+            out.append(self._muted(f"shows when flag set: {_esc(e['requires_flag'])}"))
+        if e.get("requires_flag_clear"):
+            out.append(self._muted(f"shows when flag clear: {_esc(e['requires_flag_clear'])}"))
+        return out
+
+    def _inspect_single(self, key, data):
+        if not data:
+            return [self._muted(f"{key}: not set — select it to author")]
+        if key == "cutscene":
+            steps = (data or {}).get("steps", []) or []
+            out = [f"cutscene: {len(steps)} step{'' if len(steps) == 1 else 's'}",
+                   self._muted("actor: " + (_esc(data["actor"]) if data.get("actor") else "narration")),
+                   self._muted(f"once: {str(data.get('once', True)).lower()}")]
+            if steps:
+                out.append(self._muted(f"first: {_esc(forms.step_summary(steps[0]))}"))
+            return out
+        return [self._muted(f"{_esc(k)}: {_esc(_snip(v))}") for k, v in (data or {}).items()]
+
+    def _resolve_dest(self, to):
+        """A gateway's destination id -> (display html, broken?). A campaign member -> a clickable name; a
+        real FF9 field -> its (shortened) FBG folder; otherwise it's dangling (⚠). Coerces ``to`` to an int
+        once so the member / real-field / dangling branches agree (a hand-edited toml may hold a string)."""
+        raw = to
+        try:
+            to = int(to)
+        except (TypeError, ValueError):
+            to = None
+        if to is None:                                 # unset, or a non-numeric value -> dangling (escaped)
+            return (self._muted("(unset)") if raw is None else f"field {_esc(raw)}", raw is not None)
+        if self.plan is not None:
+            m = next((mm for mm in self.plan.members if mm.new_id == to), None)
+            if m:
+                return (self._goto_link(m.name) + " " + self._muted(f"(field {to})"), False)
+        folder = self._real_field_name(to)
+        if folder:
+            return (f"{_esc(_snip(folder, 28))} " + self._muted(f"(real field {to})"), False)
+        return (f"field {to}", True)
+
+    @staticmethod
+    def _real_field_name(fid):
+        try:
+            from .. import extract
+            return extract.ID_TO_FBG.get(int(fid))
+        except Exception:                              # noqa: BLE001
+            return None
 
     def _select_member(self, name):
         mi = getattr(self, "_member_items", {}).get(name)
@@ -2175,6 +2405,48 @@ def _smoke(win):
     assert win.insp_body.toolTip() == mp and win._inspect_path == mp
     win._copy_inspect_path("copy")
     assert QApplication.clipboard().text() == mp, "the file link copies the full path"
+    # FULLER INSPECTOR -- a field node shows a content ROLLUP + clickable CROSS-REFERENCES (the live doors,
+    # same edges the Map draws). IC_ENT -> IC_COR is a stable plan edge.
+    win.tree.setCurrentItem(win._member_items["IC_ENT"])
+    ib = win.insp_body.text()
+    assert "contents:" in ib, ib
+    assert "exits to:" in ib and 'href="goto:IC_COR"' in ib, ib    # clickable member link
+    # the goto link navigates: feeding it to the link dispatch selects that member in the tree
+    win._inspect_link("goto:IC_COR")
+    assert win._payload(win.tree.currentItem())[1] == "IC_COR", "a cross-ref link selects the field"
+    # IC_COR is reached-from IC_ENT (the reverse edge), also clickable
+    assert "reached from:" in win.insp_body.text() and 'href="goto:IC_ENT"' in win.insp_body.text()
+    # per-ENTITY summaries: probe an NPC (with an HTML-ish name for the escaping path) + a member gateway,
+    # a real-FF9 gateway, and an out-of-campaign gateway, then clean up
+    pdoc = win._doc("IC_ENT")
+    pdoc.data.setdefault("npc", []).append({"name": "<b>Probe</b>", "preset": "vivi", "dialogue": "Hi, friend!"})
+    pdoc.data.setdefault("gateway", []).extend([{"name": "door", "to": 30101, "entrance": 2},
+                                                {"name": "real", "to": 100},      # a real FF9 field id
+                                                {"name": "oob", "to": 99999}])
+    win.tree.blockSignals(True)
+    win._refresh_objects("IC_ENT")
+    win.tree.blockSignals(False)
+    win._select_object("IC_ENT", f"npc:{len(pdoc.data['npc']) - 1}")
+    ni = win.insp_body.text()
+    assert "vivi" in ni and "Hi, friend" in ni, ni
+    assert "&lt;b&gt;Probe&lt;/b&gt;" in ni and "<b>Probe</b>" not in ni, "the body ESCAPES HTML in a name"
+    assert win.insp_title.text() == "<b>Probe</b>", "the title is PLAIN text (literal name, not rendered)"
+    assert win.insp_title.textFormat() == Qt.TextFormat.PlainText
+    win._select_object("IC_ENT", "gateway:0")          # to=30101 == IC_COR's new_id -> resolves to the member
+    assert 'href="goto:IC_COR"' in win.insp_body.text(), win.insp_body.text()
+    win._select_object("IC_ENT", "gateway:1")          # to=100 -> a real FF9 field: named, NOT clickable, NOT broken
+    gr = win.insp_body.text()
+    assert "real field 100" in gr and "not in this campaign" not in gr, gr
+    assert "goto:" not in gr.split("gateway")[-1], "a real-field destination is plain text, not a member link"
+    win._select_object("IC_ENT", "gateway:2")          # to=99999 -> neither a member nor a real field
+    assert "not in this campaign" in win.insp_body.text(), win.insp_body.text()
+    pdoc.data["npc"].pop()                             # clean up the probes (and re-baseline)
+    pdoc.data.pop("gateway", None)
+    win.tree.blockSignals(True)
+    win._refresh_objects("IC_ENT")
+    win.tree.blockSignals(False)
+    win._mark_clean("IC_ENT")
+    win.tree.setCurrentItem(win._member_items["IC_ENT"])
     # the unsaved-dot icon must not resize tree rows (uniform height + small icon -> no jump on save)
     assert win.tree.uniformRowHeights() and win.tree.iconSize() == QSize(12, 12)
     # (b) the Editor tab reflects what's open; placeholder resets it
@@ -2591,7 +2863,8 @@ def _smoke(win):
           f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({len(win.plan.members)} blank members) + Build/Deploy + Import docs (argv-built) + Info Hub "
-          f"LIBRARY (sectioned + detail pane) + Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
+          f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + Ctrl-K palette, "
+          f"Problems dock ({nprob} rows); QProcess wired")
 
 
 def main(argv=None):
