@@ -3,14 +3,18 @@ partial-CSV deltas (the kit's WIN over Hades Workshop: declarative, campaign-wid
 
   [[battle_action]]              # rebalance a shared ability (Actions.csv, id 0-191)
   action = "Fire"               #   name (resolved from the base CSV) or a 0-191 id
-  power  = 30                   #   any of: power / element(s) / rate / mp / script / category / type
+  power  = 30                   #   damage: power / element(s) / rate / mp / script / category / type
   element = ["Ice"]             #   element names -> the `elements` bitmask
-  mp = 4
+  targets = "AllEnemy"          #   targeting (TargetType name/id) + menu_window (TargetDisplay) +
+  default_ally = true           #   default_ally / for_dead / default_on_dead / camera (bools) + vfx1 / vfx2
+  status_index = 70             #   the StatusSets.csv row this action inflicts/cures
 
   [[status]]                     # retune a status ailment (StatusData.csv, id 0-32)
   status = "Poison"
   tick = 30                     #   OprCount (per-tick effect, 0-255)
   duration = 0                  #   ContiCount (0 = until cured, 0-65535)
+  clear_on_apply = ["Sleep"]    #   BattleStatus lists: what applying it CLEARS / what it grants IMMUNITY to
+  immunity_provided = ["Poison"]
 
 WHY a delta + read-base: the engine merges these CSVs by **whole-ROW replacement** keyed on id
 (``FF9BattleDB`` / ``EnumerateCsvFromLowToHigh``), so a partial file overrides only the rows it lists while
@@ -40,10 +44,24 @@ ACTION_FIELDS = {
     "script": ("scriptid", "script", _I32), "script_id": ("scriptid", "script", _I32),
     "category": ("category", "int", 255),
     "type": ("type", "int", 255),
+    # targeting + presentation (cols 3-10): the engine parses these as TargetType/TargetDisplay ENUMS (by
+    # ``Name(value)``), Booleans (``1``/``0``), and signed/unsigned Int16 anim ids -- see the encoders below.
+    "targets": ("targets", "target_type", 0),
+    "menu_window": ("menuwindow", "target_display", 0),
+    "default_ally": ("defaultally", "bool", 0),
+    "for_dead": ("fordead", "bool", 0),
+    "default_on_dead": ("defaultondead", "bool", 0),
+    "camera": ("defaultcamera", "bool", 0),
+    "vfx1": ("animationid1", "sint", 32767), "animation1": ("animationid1", "sint", 32767),
+    "vfx2": ("animationid2", "int", 65535), "animation2": ("animationid2", "int", 65535),
+    "status_index": ("statusindex", "int", _I32),     # the StatusSets.csv row this action inflicts/cures
 }
 STATUS_FIELDS = {
     "tick": ("oprcount", "int", 255),
     "duration": ("conticount", "int", 65535),
+    # what this status clears / blocks: a BattleStatus list (``Name(idx), ...``) via encode_status_list.
+    "clear_on_apply": ("clearonapply", "statuslist", 0),
+    "immunity_provided": ("immunityprovided", "statuslist", 0),
 }
 _ACTION_MAX_ID = 191
 _STATUS_MAX_ID = 32
@@ -158,6 +176,20 @@ def _encode_value(key, value, spec, *, warnings=None) -> str:
     col, enc, vmax = spec
     if enc == "int":
         v = _to_int(value, key)
+    elif enc == "sint":                                  # a SIGNED column (Int16 anim id): -vmax-1 .. vmax
+        v = _to_int(value, key)
+        if not -(vmax + 1) <= v <= vmax:
+            raise ActionDeltaError(f"{key}={v} out of range ({-(vmax + 1)}..{vmax})")
+        return str(v)
+    elif enc == "bool":
+        return _encode_bool(value, key)                  # the CSV stores Booleans as 1/0
+    elif enc in ("target_type", "target_display", "statuslist"):
+        fn = {"target_type": battlecsv.encode_target_type, "target_display": battlecsv.encode_target_display,
+              "statuslist": battlecsv.encode_status_list}[enc]
+        try:
+            return fn(value)                             # returns the final cell string (Name(value) / Name(idx) list)
+        except (ValueError, TypeError) as ex:
+            raise ActionDeltaError(f"{key}: {ex}")
     elif enc == "elements":
         try:
             v = battlecsv.encode_elements(value)
@@ -174,6 +206,17 @@ def _encode_value(key, value, spec, *, warnings=None) -> str:
     if not 0 <= v <= vmax:
         raise ActionDeltaError(f"{key}={v} out of range (0-{vmax})")
     return str(v)
+
+
+def _encode_bool(value, key) -> str:
+    """A bool / 0|1 / "true"|"false" -> the CSV "1"/"0" cell."""
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int) and value in (0, 1):
+        return str(value)
+    if isinstance(value, str) and value.strip().lower() in ("0", "1", "true", "false"):
+        return "1" if value.strip().lower() in ("1", "true") else "0"
+    raise ActionDeltaError(f"{key} must be a boolean (true/false or 1/0)")
 
 
 def _apply_entries(entries, rows, cols, names, fields_map, *, kind, max_id) -> tuple:

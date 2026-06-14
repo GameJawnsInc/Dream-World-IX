@@ -144,3 +144,48 @@ def test_validate_entry_structural():
     assert AD.validate_entry({"action": "Fire"}, kind="battle_action")     # no fields set
     assert AD.validate_entry({"action": "Fire", "nope": 1}, kind="battle_action")  # unknown field
     assert AD.validate_entry({"status": "Poison", "tick": 5}, kind="status") == []  # ok
+
+
+# ---- niche player levers: targeting / presentation (Actions.csv) + status interaction (StatusData.csv) ----
+def test_action_targeting_and_presentation_fields(base):
+    text, _w = AD.build_actions_delta([{
+        "action": "Fire", "targets": "AllEnemy", "menu_window": "Mp", "default_ally": True,
+        "for_dead": False, "default_on_dead": 1, "camera": True, "vfx1": -5, "vfx2": 4321,
+        "status_index": 70}])
+    cols, rows = _reparse(base, text)
+    fire = rows[25]
+    assert fire[cols["targets"]] == "AllEnemy(8)" and fire[cols["menuwindow"]] == "Mp(2)"
+    assert fire[cols["defaultally"]] == "1" and fire[cols["fordead"]] == "0"
+    assert fire[cols["defaultondead"]] == "1" and fire[cols["defaultcamera"]] == "1"
+    assert fire[cols["animationid1"]] == "-5" and fire[cols["animationid2"]] == "4321"
+    assert fire[cols["statusindex"]] == "70"
+
+
+def test_action_targets_by_id_and_unknown_name(base):
+    _t, _w = AD.build_actions_delta([{"action": "Fire", "targets": 3}])
+    cols, rows = _reparse(base, _t)
+    assert rows[25][cols["targets"]] == "ManyAny(3)"
+    with pytest.raises(AD.ActionDeltaError):
+        AD.build_actions_delta([{"action": "Fire", "targets": "Nope"}])
+
+
+def test_action_vfx1_is_signed_range_checked(base):
+    AD.build_actions_delta([{"action": "Fire", "vfx1": -32768}])            # Int16 min, ok
+    with pytest.raises(AD.ActionDeltaError):
+        AD.build_actions_delta([{"action": "Fire", "vfx1": 40000}])         # > Int16 max
+
+
+def test_status_clear_and_immunity_lists(base):
+    text, _w = AD.build_status_delta([{
+        "status": "Poison", "clear_on_apply": ["Defend", "Poison"], "immunity_provided": "Poison"}])
+    cols, rows = _reparse(base, text)
+    assert rows[16][cols["clearonapply"]] == "Defend(15), Poison(16)"      # the real base "Name(idx), ..." format
+    assert rows[16][cols["immunityprovided"]] == "Poison(16)"
+
+
+def test_status_clear_none_empties_the_cell(base):
+    text, _w = AD.build_status_delta([{"status": "Poison", "clear_on_apply": "none"}])
+    cols, rows = _reparse(base, text)
+    assert rows[16][cols["clearonapply"]] == ""
+    with pytest.raises(AD.ActionDeltaError):
+        AD.build_status_delta([{"status": "Poison", "clear_on_apply": ["Nope"]}])

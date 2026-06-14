@@ -108,6 +108,59 @@ def encode_status(names) -> int:
     return mask
 
 
+# ---- TargetType / TargetDisplay (Memoria.Data enums; the Actions.csv cell format is "Name(value)") -------
+# Committed open-source enum NAMES (TargetType.cs / TargetDisplay.cs); the value is the enum's int.
+TARGET_TYPES = ("SingleAny", "SingleAlly", "SingleEnemy", "ManyAny", "ManyAlly", "ManyEnemy", "All", "AllAlly",
+                "AllEnemy", "Random", "RandomAlly", "RandomEnemy", "Everyone", "Self", "Automatic", "Special")
+TARGET_DISPLAYS = ("None", "Hp", "Mp", "Debuffs", "Buffs")
+
+
+def _encode_enum(value, names, label) -> str:
+    """A name (case-insensitive) or a 0..N-1 id -> the ``Name(value)`` CSV cell. ValueError on a bad value."""
+    if isinstance(value, bool):
+        raise ValueError(f"{label} can't be a boolean")
+    if isinstance(value, int) or (isinstance(value, str) and value.strip().lstrip("-").isdigit()):
+        i = int(value)
+    else:
+        i = {n.lower(): k for k, n in enumerate(names)}.get(str(value).strip().lower())
+        if i is None:
+            raise ValueError(f"unknown {label} {value!r} (known: {', '.join(names)})")
+    if not 0 <= i < len(names):
+        raise ValueError(f"{label} id {i} out of range (0-{len(names) - 1})")
+    return f"{names[i]}({i})"
+
+
+def encode_target_type(value) -> str:
+    """A TargetType name (``SingleEnemy``/``AllEnemy``/…) or 0-15 id -> the ``Name(value)`` Actions.csv cell."""
+    return _encode_enum(value, TARGET_TYPES, "targets")
+
+
+def encode_target_display(value) -> str:
+    """A TargetDisplay name (``None``/``Hp``/``Mp``/``Debuffs``/``Buffs``) or 0-4 id -> the ``Name(value)`` cell."""
+    return _encode_enum(value, TARGET_DISPLAYS, "menu_window")
+
+
+# StatusData ClearOnApply/ImmunityProvided cells are a ``Name(bitIndex), ...`` list (BattleStatusId, the
+# ``#! UnshiftStatuses`` format); the index = the status's bit position (Petrify=0 … GradualPetrify=31).
+_STATUS_INDEX_BY_NAME = {nm.lower(): (bm.bit_length() - 1, nm) for bm, nm in STATUSES}
+
+
+def encode_status_list(value) -> str:
+    """A list of status names (or ``None``/``""``/``"none"``) -> the ``Name(idx), Name(idx)`` cell for a
+    StatusData BattleStatus column. ValueError on an unknown name."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        value = [] if value.strip().lower() in ("", "none", "-") else [value]
+    out = []
+    for n in value or []:
+        hit = _STATUS_INDEX_BY_NAME.get(str(n).strip().lower())
+        if hit is None:
+            raise ValueError(f"unknown status {n!r} (known: {', '.join(nm for _, nm in STATUSES)})")
+        out.append(f"{hit[1]}({hit[0]})")
+    return ", ".join(out)
+
+
 # ---- CSV parsing (mirrors itemstats._read_csv; legend keyed on an 'id' column, parens stripped) --------
 def _read_csv(path) -> tuple:
     """Parse a Memoria battle CSV -> ``(cols, rows)``. ``cols`` maps each header name (normalized:

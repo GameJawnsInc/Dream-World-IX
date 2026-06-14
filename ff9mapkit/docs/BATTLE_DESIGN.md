@@ -140,8 +140,8 @@ Header (`Actions.csv:5`):
 | power / elements / rate / mp | damage / element / hit-or-status% / MP cost | CSV | cols 12/13/14/16 → `BTL_REF`/`AA_DATA` (`BattleActionEntry.cs:13-45`) | No | **done** (`[[battle_action]] power/element/rate/mp`, `actiondelta`) |
 | **scriptId** | which battle-calc formula runs | CSV (re-point) **/ DLL (new)** | col 11 → `ScriptsLoader.GetBattleScript` (`ScriptsLoader.cs:215-223`) | re-point **No** / new formula **Yes** (`Memoria.Scripts.<Mod>.dll`) | **done (re-point)** (`[[battle_action]] script` resolves the formula catalog; a NEW formula still needs the `.dll`) |
 | category / type | physical/magic/reflectable/contact/weapon-props/crit bits | CSV | cols 15/17 (`type 0x8/0x10/0x20` only when `CustomBattleFlagsMeaning=1`) | No | **done** (`[[battle_action]] category/type`) |
-| statusIndex (AddStatusNo) | which `StatusSets.csv` row it inflicts/cures | CSV | col 16 → `StatusSetId` | No | **absent in this channel** (no `[[battle_action]] statusIndex`); reachable via `[[battle_attack]] status_set` (BP by-name) |
-| targets / menuWindow / camera / vfx | targeting + cursor display + VFX ids | CSV | cols 3-10 | No | **absent** |
+| statusIndex (AddStatusNo) | which `StatusSets.csv` row it inflicts/cures | CSV | col 16 → `StatusSetId` | No | **done** (`[[battle_action]] status_index`) |
+| targets / menuWindow / camera / vfx | targeting + cursor display + VFX ids | CSV | cols 3-10 | No | **done** (`[[battle_action]] targets`(TargetType)/`menu_window`(TargetDisplay)/`default_ally`/`for_dead`/`default_on_dead`/`camera`/`vfx1`/`vfx2`) |
 
 Elements bitmask (`EffectElement.cs:8-16`): Fire=1, Cold=2, Thunder=4, Earth=8, Aqua=16, Wind=32, Holy=64,
 Darkness=128 — the **same 8-bit space** as the enemy Guard/Absorb/Half/Weak bytes.
@@ -151,7 +151,7 @@ Darkness=128 — the **same 8-bit space** as the enemy Guard/Absorb/Half/Weak by
 | Lever | Controls | Channel | Location | DLL? | Kit |
 |---|---|---|---|---|---|
 | OprCount (tick) / ContiCount (duration) | how punishing each ailment is (0/0 = permanent) | CSV | `StatusData.csv` → `btl_stat.cs` | No | **done** (`[[status]] tick/duration`, `actiondelta`) |
-| ClearOnApply / ImmunityProvided | what a status clears / blocks | CSV | `BattleStatusDataEntry.cs:29-70` | No | **absent** |
+| ClearOnApply / ImmunityProvided | what a status clears / blocks | CSV | `BattleStatusDataEntry.cs:29-70` | No | **done** (`[[status]] clear_on_apply`/`immunity_provided`, BattleStatus lists) |
 | StatusSets (bundles) | the named multi-status groups actions apply | CSV | `StatusSets.csv` (`#! UnshiftStatuses`); ids ≥39 | No | **absent** for authoring (read-only catalog only — no emitter) |
 | MagicSwordSets | Steiner+Vivi combo unlocks | CSV | `MagicSwordSets.csv` | No | **absent** |
 

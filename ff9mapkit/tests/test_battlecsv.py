@@ -76,3 +76,18 @@ def test_real_status_sets_resolve_action_status_index():
     # StatusData has 0-32; a known one decodes
     poison = B.status(16)
     assert poison is not None and poison.name.lower().startswith("poison") and poison.tick > 0
+
+
+def test_target_and_status_list_encoders():
+    from ff9mapkit.battle import battlecsv as B
+    import pytest as _pt
+    assert B.encode_target_type("AllEnemy") == "AllEnemy(8)"
+    assert B.encode_target_type("singleenemy") == "SingleEnemy(2)" and B.encode_target_type(3) == "ManyAny(3)"
+    assert B.encode_target_display("Mp") == "Mp(2)" and B.encode_target_display(0) == "None(0)"
+    assert B.encode_status_list(["Defend", "Poison"]) == "Defend(15), Poison(16)"   # the real base format
+    assert B.encode_status_list("Haste") == "Haste(19)"
+    assert B.encode_status_list("none") == "" and B.encode_status_list(None) == ""
+    for bad in (lambda: B.encode_target_type("Nope"), lambda: B.encode_target_type(99),
+                lambda: B.encode_status_list(["Nope"])):
+        with _pt.raises(ValueError):
+            bad()
