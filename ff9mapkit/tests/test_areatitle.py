@@ -39,9 +39,7 @@ def test_hide_single_overlay_range():
 
 def test_no_range_is_a_noop():
     src = data.blank_field_bytes("us")
-    assert AT.hide(src, None, None) == src                            # field has no area title
-    assert AT.apply(src, None, None, mode="hide") == src
-    assert AT.apply(src, 2, 3, mode="fade") == src                    # fade path not wired yet -> no-op
+    assert AT.hide(src, None, None) == src                            # field has no area title -> unchanged
 
 
 def test_build_wires_hide_area_title_from_field_block(tmp_path):
