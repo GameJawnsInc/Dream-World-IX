@@ -52,8 +52,9 @@ class FF9MK_PT_panel(bpy.types.Panel):
         row.operator("ff9mk.read_camera", icon="IMPORT", text="Read Camera")
         box.operator("ff9mk.add_camera", icon="ADD", text="Add Camera")
         if multicam:
-            box.label(text=f"{ncam} cameras. Select one to pose it; give each a layer + a Cam Zone.",
+            box.label(text=f"{ncam} cameras. Select one + View Camera to frame its backdrop + walkmesh.",
                       icon="OUTLINER_OB_CAMERA")
+            box.operator("ff9mk.view_ff9_camera", icon="VIEW_CAMERA", text="View Selected Camera")
         c = None
         try:
             c = ops.selected_or_scene_camera_ff9(context)   # readout follows the selected camera

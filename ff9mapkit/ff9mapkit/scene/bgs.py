@@ -100,7 +100,8 @@ class Sprite:
 
 
 class Overlay:
-    __slots__ = ("curZ", "orgZ", "orgX", "orgY", "w", "h", "spriteCount", "locOffset", "prmOffset", "sprites")
+    __slots__ = ("curZ", "orgZ", "orgX", "orgY", "w", "h", "camNdx",
+                 "spriteCount", "locOffset", "prmOffset", "sprites")
 
     def __init__(self, **kw):
         for k, v in kw.items():
@@ -121,9 +122,12 @@ def parse_overlays(data: bytes):
         f = _OVERLAY.unpack_from(data, off)
         off += _OVERLAY.size
         buf, buf2 = f[0], f[17]
+        # buf2 packs camNdx (low 8 bits) | isXOffset (1) | viewportNdx (7) | spriteCount (high 16)
+        # -- BGOVERLAY_DEF.ReadData. camNdx = which CAMERA paints this overlay (multi-camera fields
+        # split their art across cameras), the key to a per-camera backdrop.
         overlays.append(Overlay(
             curZ=_bits(buf, 8, 12), orgZ=_bits(buf, 20, 12),
-            orgX=f[3], orgY=f[4], w=f[1], h=f[2],
+            orgX=f[3], orgY=f[4], w=f[1], h=f[2], camNdx=_bits(buf2, 0, 8),
             spriteCount=_bits(buf2, 16, 16), locOffset=f[18], prmOffset=f[19]))
     return h, overlays
 

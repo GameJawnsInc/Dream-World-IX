@@ -24,7 +24,7 @@ SCENE = KIT / "scene"
 VENDORED = ("cam.py", "bgi.py", "bgx.py", "guide.py")   # guide imports PIL only lazily (render only)
 # extra vendored modules from elsewhere in the kit, as (source_path, vendor_filename) pairs:
 VENDORED_EXTRA = ((KIT / "battle" / "fbx.py", "battle_fbx.py"),)   # battle-map FBX emit/parse (pure)
-VERSION = "0.9.10"
+VERSION = "0.9.11"
 EXCLUDE_DIRS = {"__pycache__"}
 
 

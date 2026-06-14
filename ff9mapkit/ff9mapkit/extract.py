@@ -1055,7 +1055,7 @@ def export_all_art(out_dir=None, *, game=None, pattern=None, write_atlas=True, c
 
 
 def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=None,
-                       draw_footprint=True):
+                       draw_footprint=True, camera_index=None):
     """Composite the field's OPAQUE base art into one background PNG, for the Blender backdrop.
 
     Assembles the field's per-overlay art OFFLINE from the atlas (`_overlay_art` / scene.bgart),
@@ -1066,7 +1066,13 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
     walkmesh frame directly, so this lands exactly where the player walks in-game. The walkmesh may
     extend past the canvas edges (tunnels) -- that's correct, not a misalignment. `upscale` defaults to
     the active export factor (TileSize // 16) so placement matches the overlay PNGs' own pixels-per-tile;
-    pass a value only to force it. Returns (w, h), or None if the field has no readable art at all."""
+    pass a value only to force it. Returns (w, h), or None if the field has no readable art at all.
+
+    `camera_index` (default None) = composite ALL overlays onto camera 0's canvas (the glimpse). Pass
+    an int K to composite ONLY the overlays camera K paints (`camNdx == K`) onto camera K's OWN range
+    canvas + project the footprint via camera K -- the per-camera backdrop for a MULTI-camera field
+    (each camera shows a different region of the scene; the all-overlays composite jams them onto one
+    canvas as misplaced rectangles). For a single-camera field `camera_index=0` == None (all camNdx 0)."""
     res = _overlay_art(field, game=game, bundle=bundle)
     if res is None:
         return None
@@ -1077,10 +1083,14 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
     bgs_bytes = _raw_bytes(env.container[roles["bgs"]].read())
     h = bgs.parse_header(bgs_bytes)
     sOrgX, sOrgY = h.bounds[2], h.bounds[3]
-    c0 = bgs.parse_cameras(bgs_bytes)[0]
-    W, H = c0.range[0] * up, c0.range[1] * up
+    cams = bgs.parse_cameras(bgs_bytes)
+    ci = 0 if camera_index is None else int(camera_index)
+    cam_use = cams[ci] if 0 <= ci < len(cams) else cams[0]
+    W, H = cam_use.range[0] * up, cam_use.range[1] * up
     canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    opaque = [(i, o) for i, o in enumerate(overlays) if o.sprites and o.sprites[0].trans == 0]
+    # camera_index=None -> all overlays (glimpse); =K -> only the overlays camera K paints (camNdx==K).
+    opaque = [(i, o) for i, o in enumerate(overlays) if o.sprites and o.sprites[0].trans == 0
+              and (camera_index is None or o.camNdx == ci)]
     opaque.sort(key=lambda io: -(io[1].curZ + io[1].orgZ))    # back (high depth) -> front
     for i, o in opaque:
         im = provider(i)
@@ -1103,7 +1113,7 @@ def compose_background(field: str, out_path, *, game=None, bundle=None, upscale=
         for t in wm.tris:
             pts = []
             for vi in t.vtx:
-                cx, cy = cam.to_canvas(wv[vi], c0)      # exact GTE projection, render frame
+                cx, cy = cam.to_canvas(wv[vi], cam_use)  # exact GTE projection, render frame
                 pts.append((cx * up, cy * up))
             draw.polygon(pts, fill=(90, 180, 255, 45), outline=(120, 225, 255, 160))
     canvas.save(out_path)
@@ -1801,7 +1811,16 @@ def write_lightweight_project(field: str, out_dir, *, name: str | None = None, f
     if len(wm.floors) > 1:
         _write_links_toml(wm, out / "walkmesh.links.toml")
     try:                                                             # the model-against backdrop (no footprint)
-        compose_background(field, out / "background.png", game=game, bundle=bundle, draw_footprint=False)
+        compose_background(field, out / "background.png", game=game, bundle=bundle,
+                           draw_footprint=False, camera_index=0)
+        # MULTI-camera field: also write a clean per-camera backdrop (camera 0 = background.png above;
+        # cameras 1.. here) so Blender's Import Field shows each camera its OWN art instead of all
+        # overlays jammed onto camera 0's canvas (the "molded together" look). A single-camera field
+        # writes nothing extra -- camera_index=0 already == the whole scene (every overlay is camNdx 0).
+        ncams = len(cam.parse_bgx_cameras(str(out / "camera.bgx")))
+        for k in range(1, ncams):
+            compose_background(field, out / f"background_cam{k:02d}.png", game=game, bundle=bundle,
+                               draw_footprint=False, camera_index=k)
     except Exception:                                                # noqa: BLE001 - preview only, never fatal
         pass
     name = name or (meta["mapid"].split("_")[0] + "_FORK")

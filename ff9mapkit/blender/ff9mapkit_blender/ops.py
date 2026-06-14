@@ -1120,6 +1120,7 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             cam_obj = bpy.data.objects.new(CAMERA_NAME, bpy.data.cameras.new(CAMERA_NAME))
             context.scene.collection.objects.link(cam_obj)
         _pose_camera_from_ff9(cam_obj, c0, scrolling)
+        cam_obj["ff9_rw"], cam_obj["ff9_rh"] = int(c0.range[0]), int(c0.range[1])
         _apply_canvas_resolution(context, c0.range[0], c0.range[1])
         context.scene.camera = cam_obj
 
@@ -1144,6 +1145,7 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             co = bpy.data.objects.new(nm, bpy.data.cameras.new(nm))
             context.scene.collection.objects.link(co)
             co[CAM_KEY] = i
+            co["ff9_rw"], co["ff9_rh"] = int(ci.range[0]), int(ci.range[1])
             _pose_camera_from_ff9(co, ci, ci.range[0] > 384 or ci.range[1] > 448)
             extra_cams.append((co, ci))
 
@@ -1269,6 +1271,23 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             bg.frame_method = "FIT"
             bg.alpha = 1.0
             bg.display_depth = "BACK"
+
+        # MULTI-camera fields ship a clean per-camera backdrop (background_cam01.png ..). Attach each to
+        # its camera object, so switching the active camera shows THAT camera's painted art behind its
+        # own walkmesh region (cam0 keeps background.png above). Skipped silently for single-camera /
+        # not-re-exported projects (no per-camera file). For the backdrop + walkmesh to align you must
+        # view through the camera at ITS resolution -- use "View Camera" (ff9mk.view_ff9_camera).
+        for co, _ci in extra_cams:
+            cbg = os.path.join(d, f"background_cam{int(co[CAM_KEY]):02d}.png")
+            if not os.path.isfile(cbg):
+                continue
+            cim = bpy.data.images.load(cbg, check_existing=True)
+            co.data.show_background_images = True
+            cbgi = co.data.background_images.new()
+            cbgi.image = cim
+            cbgi.frame_method = "FIT"
+            cbgi.alpha = 1.0
+            cbgi.display_depth = "BACK"
 
         seam_note = (f" {n_seams} cross-floor seam(s) highlighted (FF9_Seams) -- don't move those edges."
                      if n_seams else "")
@@ -1654,11 +1673,39 @@ class FF9MK_OT_export_battle(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class FF9MK_OT_view_ff9_camera(bpy.types.Operator):
+    bl_idname = "ff9mk.view_ff9_camera"
+    bl_label = "View Camera"
+    bl_description = ("Make the SELECTED FF9 camera active, match the render resolution to its FF9 range "
+                      "so its walkmesh + per-camera backdrop align, and look through it. Use this to "
+                      "inspect each camera of a MULTI-camera field -- one global resolution can't frame "
+                      "cameras of different aspect at once, so switch with this between FF9_Camera/_01/_02")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        cam_obj = context.active_object
+        if cam_obj is None or cam_obj.type != "CAMERA":
+            cam_obj = next((o for o in context.selected_objects if o.type == "CAMERA"), None)
+        if cam_obj is None or cam_obj.type != "CAMERA" or "ff9_rw" not in cam_obj:
+            self.report({"ERROR"}, "Select an FF9 camera (FF9_Camera or FF9_Camera_01..) first.")
+            return {"CANCELLED"}
+        context.scene.camera = cam_obj
+        context.scene.render.resolution_x = int(cam_obj["ff9_rw"])
+        context.scene.render.resolution_y = int(cam_obj["ff9_rh"])
+        for area in context.screen.areas:                      # look through it in every 3D viewport
+            if area.type == "VIEW_3D":
+                for space in area.spaces:
+                    if space.type == "VIEW_3D":
+                        space.region_3d.view_perspective = "CAMERA"
+        self.report({"INFO"}, f"viewing {cam_obj.name} @ {int(cam_obj['ff9_rw'])}x{int(cam_obj['ff9_rh'])}")
+        return {"FINISHED"}
+
+
 CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera, FF9MK_OT_read_camera,
            FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_paint_template,
            FF9MK_OT_add_layer, FF9MK_OT_clear_layers,
            FF9MK_OT_add_npc, FF9MK_OT_add_waypoint, FF9MK_OT_add_gateway, FF9MK_OT_add_event,
-           FF9MK_OT_add_camera, FF9MK_OT_add_camzone, FF9MK_OT_set_spawn,
+           FF9MK_OT_add_camera, FF9MK_OT_add_camzone, FF9MK_OT_set_spawn, FF9MK_OT_view_ff9_camera,
            FF9MK_OT_import_field, FF9MK_OT_export_field,
            FF9MK_OT_import_battle, FF9MK_OT_export_battle)
 

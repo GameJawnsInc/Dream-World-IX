@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "ff9mapkit_blender"
-version = "0.9.10"
+version = "0.9.11"
 name = "FF9 Map Kit"
 tagline = "Visually author FF9 custom-field cameras and walkmeshes"
 maintainer = "FF9 Map Kit contributors"
