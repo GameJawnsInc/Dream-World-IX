@@ -245,9 +245,17 @@ class Workspace(QMainWindow):
         self.act_lint_cli.triggered.connect(self.run_cli_lint)
         self.act_lint_cli.setEnabled(False)
         tb.addAction(self.act_lint_cli)
-        act_hub = QAction("Info Hub", self)
-        act_hub.triggered.connect(self._open_catalog)
-        tb.addAction(act_hub)
+        self.act_hub = QAction("Info Hub", self)
+        self.act_hub.setToolTip("Open the Info Hub catalog library (browse models / NPCs / props / items / "
+                                "flags by name)")
+        self.act_hub.triggered.connect(self._open_catalog)
+        tb.addAction(self.act_hub)
+        self._hub_btn = tb.widgetForAction(self.act_hub)   # color it violet (= the 'info / reference' hue, like
+        if self._hub_btn is not None:                       # the Info Hub's own ? badge) so the popup stands out
+            self._hub_btn.setStyleSheet(
+                f"QToolButton {{ background:{self.pal['help']}; color:{self.pal['accent_fg']}; "
+                f"border:1px solid {self.pal['help']}; border-radius:6px; padding:6px 12px; font-weight:600; }}"
+                f"QToolButton:hover {{ background:{self.pal['help_hover']}; border-color:{self.pal['help_hover']}; }}")
         spacer = QWidget()
         spacer.setSizePolicy(spacer.sizePolicy().Policy.Expanding, spacer.sizePolicy().Policy.Preferred)
         tb.addWidget(spacer)
@@ -2592,6 +2600,8 @@ def _smoke(win):
     assert not any(l.startswith("Campaign") for l in nolabels), nolabels
     assert any(l.startswith("Archetypes") for l in nolabels) and lib2.cats.count() >= 5, nolabels
     assert "Browse catalog (Info Hub)" in [e[0] for e in win._command_index()]
+    # the toolbar Info Hub button is tinted the violet 'info' hue (so the catalog popup stands out)
+    assert win._hub_btn is not None and win.pal["help"] in win._hub_btn.styleSheet()
 
     # Check surfaces the dangling GHOST edge as a problem
     win.on_check()
