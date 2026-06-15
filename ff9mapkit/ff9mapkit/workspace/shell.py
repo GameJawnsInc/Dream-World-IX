@@ -1749,19 +1749,18 @@ class Workspace(QMainWindow):
         if reason:
             self.doc_host_lay.addWidget(self._warn_label(
                 f"⚠ {reason}. Save a copy in a folder of your own to author edits."))
-        if not sites:
-            self.doc_host_lay.addWidget(self._muted_label(
-                "No editable values in this routine — it has no item/gil/warp/flag/dialogue literals. "
-                "(Control flow, calls, and adding instructions are Phase 4.)"))
-            self.doc_host_lay.addStretch(1)
-            self._active_save = None
-            return
         existing = self._doc(member).data.get("logic_edit") or []
-        nedit = sum(1 for s in sites if self._logic_pending(s, existing))
-        self.doc_host_lay.addWidget(self._muted_label(
-            f"{len(sites)} editable value(s)" + (f" · {nedit} edited" if nedit else "")))
-        for site in sites:
-            self.doc_host_lay.addWidget(self._logic_site_row(member, entry, tag, site, existing))
+        if sites:
+            nedit = sum(1 for s in sites if self._logic_pending(s, existing))
+            self.doc_host_lay.addWidget(self._muted_label(
+                f"{len(sites)} editable value(s)" + (f" · {nedit} edited" if nedit else "")))
+            for site in sites:
+                self.doc_host_lay.addWidget(self._logic_site_row(member, entry, tag, site, existing))
+        else:
+            self.doc_host_lay.addWidget(self._muted_label(
+                "No editable values in this routine — its rewards/warps/flags aren't literal operands. "
+                "You can still ADD an effect below."))
+        self._mount_logic_add_section(member, entry, tag, eb)       # [[logic_add]] authoring (length-changing)
         self._active_save = lambda m=member, e=entry, t=tag: self._save_logic(m, e, t)
         row = QHBoxLayout()
         row.setContentsMargins(0, 8, 0, 0)
@@ -1770,7 +1769,7 @@ class Workspace(QMainWindow):
         save.clicked.connect(lambda _=False: self._save_logic(member, entry, tag))
         row.addWidget(save)
         rst = QPushButton("Reset")
-        rst.setToolTip("Discard ALL unsaved logic edits on this field (revert to the last save)")
+        rst.setToolTip("Discard ALL unsaved logic edits + added effects on this field (revert to the last save)")
         rst.clicked.connect(lambda _=False: self._reset_logic(member, entry, tag))
         row.addWidget(rst)
         row.addStretch(1)
@@ -2038,7 +2037,7 @@ class Workspace(QMainWindow):
             eb, _entries, lang_bodies = self._member_logic_inputs(member)
             errs = eblint.errors(eblint.lint_eb(LE.apply_logic_edits(eb, cand)))
             if errs:
-                return "composed .eb: " + errs[0]
+                return f"composed .eb: {errs[0]}"            # EbIssue.__str__ (str+EbIssue would TypeError)
             for lang, body in lang_bodies.items():
                 LE.apply_logic_text_edits(body, cand, lang)
         except LE.LogicEditError as ex:
@@ -2074,15 +2073,318 @@ class Workspace(QMainWindow):
                                        f"wrote {self.member_paths[member].name}"), [])
 
     def _reset_logic(self, member, entry, tag):
-        """Reset = discard ALL unsaved logic edits on this field (restore the saved baseline's list)."""
+        """Reset = discard ALL unsaved logic edits AND added effects on this field (restore the saved baseline)."""
         clean = self._clean.get(member, {})
         doc = self._doc(member)
-        if "logic_edit" in clean:
-            doc.data["logic_edit"] = copy.deepcopy(clean["logic_edit"])
-        else:
-            doc.data.pop("logic_edit", None)
+        for key in ("logic_edit", "logic_add"):
+            if key in clean:
+                doc.data[key] = copy.deepcopy(clean[key])
+            else:
+                doc.data.pop(key, None)
         self._reconcile_logic_dirty(member)
         self._checkpoint(member, "reset logic edits", f"logic_n:{entry}:{tag}")
+        self._mount_logic_node(member, entry, tag)
+
+    # ---- [[logic_add]] authoring: length-changing effects (give item/gil, set flag, show line) ----
+    def _routine_adds(self, member, entry, tag):
+        """``[(list_index, add)]`` for the doc's ``[[logic_add]]`` entries that target this (entry, tag)."""
+        out = []
+        for i, a in enumerate(self._doc(member).data.get("logic_add") or []):
+            if isinstance(a, dict) and a.get("entry") == entry and a.get("tag") == tag:
+                out.append((i, a))
+        return out
+
+    def _logic_add_label(self, add):
+        """A friendly one-line rendering of a ``[[logic_add]]`` (what it does + where it's inserted)."""
+        from ..eb import disasm
+        kind = add.get("kind")
+        where = add.get("where", "prepend")
+        place = ("at start" if where != "after"
+                 else f"after {disasm.op_name(add.get('after_op'))} #{add.get('after_nth', 0)}")
+        if kind == "give_item":
+            from .. import items
+            it = add.get("item")
+            nm = items.name_of(it) if isinstance(it, int) else str(it)
+            body = f"give {nm} ×{add.get('count', 1)}"
+        elif kind == "give_gil":
+            body = f"give {add.get('amount')} gil"
+        elif kind == "set_flag":
+            body = f"set flag {add.get('flag')} = {add.get('value', 1)}"
+        elif kind == "show_line":
+            body = f'show "{self._short(add.get("message", ""))}"'
+        else:
+            body = str(kind)
+        msg = add.get("message")
+        extra = f' + “{self._short(msg)}”' if (msg and kind != "show_line") else ""
+        return f"{body}{extra} ({place})"
+
+    @staticmethod
+    def _short(s, n=40):
+        s = " ".join(str(s or "").split())
+        return s if len(s) <= n else s[:n] + "…"
+
+    def _mount_logic_add_section(self, member, entry, tag, eb):
+        """The ``[[logic_add]]`` block for this routine: a header + 'Add effect…' button, then each existing
+        added effect (with Remove). Adds are length-CHANGING (give item/gil, set flag, show line), guarded so
+        they fire once; the read-only tree above still shows the donor's original bytecode."""
+        adds = self._routine_adds(member, entry, tag)
+        hdr = QHBoxLayout()
+        hdr.setContentsMargins(0, 12, 0, 0)
+        title = QLabel(f"Added effects{f' · {len(adds)}' if adds else ''}")
+        title.setStyleSheet("font-weight:600;")
+        hdr.addWidget(title)
+        hdr.addStretch(1)
+        addbtn = QPushButton("Add effect…")
+        addbtn.setToolTip("Insert a give-item / give-gil / set-flag / show-line effect into this routine "
+                          "(a length-changing [[logic_add]], guarded so it fires once)")
+        addbtn.clicked.connect(lambda _=False: self._add_logic_effect(member, entry, tag, eb))
+        hdr.addWidget(addbtn)
+        hw = QWidget()
+        hw.setLayout(hdr)
+        self.doc_host_lay.addWidget(hw)
+        for idx, add in adds:
+            self.doc_host_lay.addWidget(self._logic_add_row(member, entry, tag, idx, add))
+
+    def _logic_add_row(self, member, entry, tag, idx, add):
+        """One added-effect row: 'give Phoenix Down ×1 (after AddItem #0)  (unsaved)'  [Remove]."""
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 2, 0, 2)
+        # POSITION-aware: this exact add is "(saved)" iff the saved baseline holds an equal dict at the SAME
+        # list index (a plain `in` would mislabel a value-identical NEW duplicate as already-saved).
+        baseline = (self._clean.get(member) or {}).get("logic_add") or []
+        saved = idx < len(baseline) and baseline[idx] == add
+        state = ("saved", self.pal["muted"]) if saved else ("unsaved", self.pal["warn"])
+        lbl = QLabel(f"{_esc(self._logic_add_label(add))}  "
+                     f"<span style='color:{state[1]};'>({state[0]})</span>")
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setWordWrap(True)
+        h.addWidget(lbl, 1)
+        rm = QPushButton("Remove")
+        rm.clicked.connect(lambda _=False, i=idx: self._revert_logic_add(member, entry, tag, i))
+        h.addWidget(rm)
+        return w
+
+    def _add_logic_effect(self, member, entry, tag, eb):
+        reason = protected_reason(self.member_paths[member])
+        if reason:
+            self._show_problems(fb.Verdict(fb.ERROR, "Can't author here"),
+                                [fb.Problem(fb.ERROR, f"{reason}. Save a copy in a folder of your own.")])
+            return
+        add = self._logic_add_dialog(member, entry, tag, eb)
+        if add is not None:
+            self._commit_logic_add(member, entry, tag, add)
+
+    def _routine_anchors(self, eb, entry, tag):
+        """``[(after_op, after_nth, label)]`` for each instruction in the routine -- the 'after' placement
+        choices (anchor the insert after the after_nth-th occurrence of after_op)."""
+        from ..eb.model import EbScript
+        from ..eb import disasm
+        try:
+            s = EbScript.from_bytes(eb)
+            e = s.entry(entry)
+            f = None if e.empty else e.func_by_tag(tag)
+        except Exception:                                          # noqa: BLE001
+            return []
+        if f is None:
+            return []
+        out, seen = [], {}
+        for k, i in enumerate(s.instrs(f)):
+            nth = seen.get(i.op, 0)
+            seen[i.op] = nth + 1
+            arg = ""
+            try:
+                if i.imm(0) is not None:
+                    arg = f"({i.imm(0)})"
+            except Exception:                                      # noqa: BLE001
+                arg = ""
+            out.append((i.op, nth, f"#{k}: {disasm.op_name(i.op)}{arg}"))
+        return out
+
+    def _logic_add_dialog(self, member, entry, tag, eb):
+        """Author one ``[[logic_add]]`` for this routine: pick a kind (give item/gil, set flag, show line), a
+        placement (at start, or after an instruction), and an optional/required message. Returns the add dict
+        or None. The heavy validation happens at commit (build.dry_run_logic_adds)."""
+        from .. import flags as _flags
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add effect")
+        outer = QVBoxLayout(dlg)
+        form = QFormLayout()
+        outer.addLayout(form)
+
+        kind = QComboBox()
+        for label, data in (("Give item", "give_item"), ("Give gil", "give_gil"),
+                            ("Set story flag", "set_flag"), ("Show line", "show_line")):
+            kind.addItem(label, data)
+        form.addRow("Effect", kind)
+
+        stack = QStackedWidget()
+        gi = QWidget(); gif = QFormLayout(gi); gif.setContentsMargins(0, 0, 0, 0)
+        item_ed = QLineEdit("Potion"); gi_count = QLineEdit("1")
+        gif.addRow("Item", item_ed); gif.addRow("Count", gi_count)
+        gi_hint = self._muted_label(""); gif.addRow(gi_hint)
+        gg = QWidget(); ggf = QFormLayout(gg); ggf.setContentsMargins(0, 0, 0, 0)
+        gil_ed = QLineEdit("1000"); ggf.addRow("Amount", gil_ed)
+        sf = QWidget(); sff = QFormLayout(sf); sff.setContentsMargins(0, 0, 0, 0)
+        flag_ed = QLineEdit(str(_flags.FIRST_SAFE_FLAG)); val_ed = QLineEdit("1")
+        sff.addRow("Flag index", flag_ed); sff.addRow("Value (0/1)", val_ed)
+        sff.addRow(self._muted_label(f"An explicit safe-band index ≥ {_flags.FIRST_SAFE_FLAG}."))
+        sl = QWidget(); slf = QFormLayout(sl); slf.setContentsMargins(0, 0, 0, 0)
+        slf.addRow(self._muted_label("The message below IS the effect (a dialogue window)."))
+        for w in (gi, gg, sf, sl):
+            stack.addWidget(w)
+        form.addRow(stack)
+
+        msg_ed = QPlainTextEdit("")
+        msg_ed.setMinimumSize(QSize(360, 60))
+        msg_lbl = QLabel("Message")
+        form.addRow(msg_lbl, msg_ed)
+        msg_hint = self._muted_label("")
+        form.addRow(msg_hint)
+
+        place = QComboBox()
+        place.addItem("At start of routine", "prepend")
+        place.addItem("After an instruction…", "after")
+        form.addRow("Where", place)
+        anchors = self._routine_anchors(eb, entry, tag)
+        anchor = QComboBox()
+        for op, nth, label in anchors:
+            anchor.addItem(label, (op, nth))
+        anchor_lbl = QLabel("Anchor")
+        form.addRow(anchor_lbl, anchor)
+
+        def sync(*_):
+            k = kind.currentData()
+            stack.setCurrentIndex({"give_item": 0, "give_gil": 1, "set_flag": 2, "show_line": 3}[k])
+            is_show = (k == "show_line")
+            msg_lbl.setText("Message (required)" if is_show else "Message")
+            after = (place.currentData() == "after")
+            anchor.setVisible(after and bool(anchors))
+            anchor_lbl.setVisible(after and bool(anchors))
+            if after and not anchors:
+                msg_hint.setText("⚠ this routine has no instructions to anchor after — use 'At start'.")
+            elif is_show:
+                msg_hint.setText("Shown in a dialogue window when this fires (once-guarded).")
+            else:
+                msg_hint.setText("Optional — pops a “Received…” style window when the effect fires.")
+
+        def on_item(*_):
+            from .. import items
+            t = item_ed.text().strip()
+            try:
+                v = int(t) if t.isdigit() else items.resolve(t)
+                gi_hint.setText(f"→ {items.name_of(v) or ('item #' + str(v))}  (#{v})")
+            except ValueError as ex:
+                gi_hint.setText(f"⚠ {ex}")
+
+        kind.currentIndexChanged.connect(sync)
+        place.currentIndexChanged.connect(sync)
+        item_ed.textChanged.connect(on_item)
+        on_item()
+        sync()
+        outer.addWidget(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        try:
+            return self._build_logic_add(kind.currentData(), entry, tag, place.currentData(),
+                                         anchor.currentData() if anchors else None, anchors,
+                                         item_ed.text(), gi_count.text(), gil_ed.text(),
+                                         flag_ed.text(), val_ed.text(), msg_ed.toPlainText())
+        except ValueError as ex:
+            self._show_problems(fb.Verdict(fb.ERROR, "Bad value"), [fb.Problem(fb.ERROR, str(ex))])
+            return None
+
+    def _build_logic_add(self, kind, entry, tag, placement, anchor_data, anchors,
+                         item_text, count_text, gil_text, flag_text, val_text, message):
+        """Assemble + light-validate a ``[[logic_add]]`` dict from the dialog inputs (raises ValueError on a
+        bad field; the full build dry-run runs at commit)."""
+        from .. import items
+        add = {"kind": kind, "entry": entry, "tag": tag}
+        if placement == "after":
+            if not anchors:
+                raise ValueError("no instruction to anchor after — use 'At start of routine'")
+            op, nth = anchor_data
+            add["where"] = "after"
+            add["after_op"] = int(op)
+            add["after_nth"] = int(nth)
+        if kind == "give_item":
+            t = item_text.strip()
+            (int(t) if t.isdigit() else items.resolve(t))          # validate it resolves
+            add["item"] = int(t) if t.isdigit() else t
+            cnt = self._pos_int(count_text, "count", 1, 255)
+            if cnt != 1:
+                add["count"] = cnt
+        elif kind == "give_gil":
+            add["amount"] = self._pos_int(gil_text, "amount", 1, 9_999_999)
+        elif kind == "set_flag":
+            add["flag"] = self._pos_int(flag_text, "flag index", 0, 65535)
+            v = self._pos_int(val_text, "value", 0, 1) if (val_text or "").strip() else 1
+            if v != 1:
+                add["value"] = v
+        msg = (message or "").strip()
+        if kind == "show_line":
+            if not msg:
+                raise ValueError("a show-line needs a message")
+            add["message"] = msg
+        elif msg:
+            add["message"] = msg
+        return add
+
+    @staticmethod
+    def _pos_int(text, label, lo, hi):
+        try:
+            v = int((text or "").strip())                       # int() rejects "--5"/"5-3"/"" cleanly
+        except (TypeError, ValueError):
+            raise ValueError(f"{label} must be a whole number")
+        if not (lo <= v <= hi):
+            raise ValueError(f"{label} must be {lo}–{hi}")
+        return v
+
+    def _set_logic_adds(self, member, cand):
+        """Write the member's ``logic_add`` list (or drop the key when empty, so a fully-reverted field stays
+        byte-identical to the donor)."""
+        doc = self._doc(member)
+        if cand:
+            doc.data["logic_add"] = cand
+        else:
+            doc.data.pop("logic_add", None)
+
+    def _validate_logic_add_candidate(self, member, cand_adds):
+        """Dry-run ``cand_adds`` (+ the member's CURRENT, possibly-unsaved logic_edit) against its LOCAL
+        .eb/.mes via build.dry_run_logic_adds -- the EXACT build path. Returns an error string, or None."""
+        from .. import build as _build
+        try:
+            proj = _build.FieldProject.load(self.member_paths[member])
+        except Exception as ex:                                    # noqa: BLE001
+            return f"{type(ex).__name__}: {ex}"
+        proj.raw["logic_edit"] = self._doc(member).data.get("logic_edit") or []
+        proj.raw["logic_add"] = cand_adds
+        return _build.dry_run_logic_adds(proj)
+
+    def _commit_logic_add(self, member, entry, tag, add):
+        """Append a new ``[[logic_add]]`` after a clean offline dry-run (build's verbatim add pass). On a
+        validation error nothing is written + the reason is shown."""
+        doc = self._doc(member)
+        cand = (doc.data.get("logic_add") or []) + [add]
+        err = self._validate_logic_add_candidate(member, cand)
+        if err:
+            self._show_problems(fb.Verdict(fb.ERROR, "Effect not added — it wouldn't build"),
+                                [fb.Problem(fb.ERROR, err)])
+            return
+        self._set_logic_adds(member, cand)
+        self._touch(member)
+        self._checkpoint(member, f"add {add.get('kind')}", f"logic_n:{entry}:{tag}")
+        self._mount_logic_node(member, entry, tag)
+        self._show_problems(fb.Verdict(fb.OK, f"{member}: + {self._logic_add_label(add)} (unsaved)"), [])
+
+    def _revert_logic_add(self, member, entry, tag, idx):
+        doc = self._doc(member)
+        lst = list(doc.data.get("logic_add") or [])
+        if 0 <= idx < len(lst):
+            lst.pop(idx)
+        self._set_logic_adds(member, lst)
+        self._reconcile_logic_dirty(member)
+        self._checkpoint(member, "remove effect", f"logic_n:{entry}:{tag}")
         self._mount_logic_node(member, entry, tag)
 
     # ---- tree right-click / Delete-key: Add to a group, Delete an entity, Remove a single section ----
@@ -4019,6 +4321,7 @@ def _smoke(win):
     # PHASE 0 -- VERBATIM logic-map surfacing: a [verbatim_eb] member badges its row, shows a read-only
     # "Script" subtree (built from the LOCAL .bin -- no install), and the field rollup explains the empty lists.
     vb_ok = False
+    add_ok = False
     _fix = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "alex100-us.eb.bytes"
     if _fix.exists():                                       # needs the extracted fixture (skipped on a clean clone)
         vd = Path(tempfile.mkdtemp())
@@ -4095,6 +4398,34 @@ def _smoke(win):
                 break
         vb_ok = "edited" if edit_ok else "shown"
 
+        # PHASE 4 GUI -- author a [[logic_add]] from the Script panel: add a give_item + a show_line (both
+        # dry-run-validated via build.dry_run_logic_adds), the anchor builder, revert/undo/redo, save clean.
+        add_ok = False
+        rkey0 = win._payload(rnode)[2]
+        e0, t0 = int(rkey0.split(":")[1]), int(rkey0.split(":")[2])
+        win._open_editor("ALEXFORK", "logic_node", rkey0)
+        gi = win._build_logic_add("give_item", e0, t0, "prepend", None, [], "Potion", "1", "", "", "", "")
+        assert gi == {"kind": "give_item", "entry": e0, "tag": t0, "item": "Potion"}, gi
+        win._commit_logic_add("ALEXFORK", e0, t0, gi)
+        assert (win._doc("ALEXFORK").data.get("logic_add") or [])[-1]["kind"] == "give_item", "authored a give_item"
+        assert "ALEXFORK" in win._unsaved() and win._routine_adds("ALEXFORK", e0, t0), "dirtied + shows in rows"
+        sl = win._build_logic_add("show_line", e0, t0, "prepend", None, [], "", "", "", "", "", "Bonus line!")
+        assert sl["kind"] == "show_line" and sl["message"] == "Bonus line!", sl
+        win._commit_logic_add("ALEXFORK", e0, t0, sl)
+        assert sum(a["kind"] == "show_line" for a in win._doc("ALEXFORK").data["logic_add"]) == 1, "authored show_line"
+        # the anchor builder resolves an 'after' placement to (after_op, after_nth)
+        anchors = win._routine_anchors(eb_b, e0, t0)
+        assert anchors, "the routine exposes anchorable instructions"
+        aft = win._build_logic_add("give_gil", e0, t0, "after", anchors[0][:2], anchors, "", "", "500", "", "", "")
+        assert aft["where"] == "after" and aft["after_op"] == anchors[0][0] and aft["amount"] == 500, aft
+        win._undo(); win._redo()                                # checkpoint round-trips the add history
+        while win._routine_adds("ALEXFORK", e0, t0):            # remove every added effect
+            win._revert_logic_add("ALEXFORK", e0, t0, win._routine_adds("ALEXFORK", e0, t0)[0][0])
+        assert not win._doc("ALEXFORK").data.get("logic_add"), "removed all added effects"
+        win._save_logic("ALEXFORK", e0, t0)                     # leave the fixture clean
+        assert "ALEXFORK" not in win._unsaved(), "save cleared the dot"
+        add_ok = True
+
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
           f"catalog picker + Open Field (standalone authored) + Save docs (Story State SC "
@@ -4104,7 +4435,8 @@ def _smoke(win):
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
           f"(open/lint/overview/drill-in) + VERBATIM logic-map subtree + in-place edit panel "
-          f"({vb_ok or 'fixture-skipped'}) "
+          f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
+          f"({'add/show_line/anchor/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
           f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
 
 

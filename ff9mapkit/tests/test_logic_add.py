@@ -350,6 +350,26 @@ def test_logic_add_message_plan_sits_above_on_entry():
     assert build._verbatim_on_entry_messages(bad, LANGS)[0] == {1: 1000}  # non-dict at idx 0 skipped cleanly
 
 
+def test_dry_run_logic_adds_returns_clean_strings():
+    """build.dry_run_logic_adds (the GUI 'Add effect' gate) returns a STRING on any failure (never a raw
+    traceback) and None when there's nothing to apply."""
+    from ff9mapkit import build
+
+    class _P:
+        def __init__(self, raw):
+            self.raw = raw
+
+        def logic_adds(self):
+            return self.raw.get("logic_add", [])
+
+        def logic_edits(self):
+            return self.raw.get("logic_edit", [])
+
+    assert build.dry_run_logic_adds(_P({})) is None                       # no adds -> None
+    out = build.dry_run_logic_adds(_P({"logic_add": [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8512}]}))
+    assert isinstance(out, str) and "VERBATIM" in out                     # adds on a non-verbatim field
+
+
 def test_validate_flags_logic_add_on_synthesized_field():
     """[[logic_add]] on a non-verbatim field is surfaced as a problem (offline, via validate)."""
     from ff9mapkit import build

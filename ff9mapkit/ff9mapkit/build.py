@@ -511,6 +511,40 @@ def _validate_logic_adds(project: FieldProject, problems: list) -> None:
         problems.append(f"[[logic_add]] could not be validated: {type(ex).__name__}: {ex}")
 
 
+def dry_run_logic_adds(project: FieldProject) -> "str | None":
+    """OFFLINE dry-run of the project's ``[[logic_add]]`` list: compose the verbatim ``.eb``, apply the
+    ``[[logic_edit]]`` value swaps, then the adds (EXACT build order), with the same guard params + message
+    txids the build uses, and lint. Returns the FIRST error string, or ``None`` if everything applies cleanly.
+    The single-error sibling of :func:`_validate_logic_adds` (which appends every problem) -- used by the
+    Workspace 'Add effect' panel to gate a candidate add before it's written, mirroring the build 1:1 so a
+    GUI-authored add that passes here also builds."""
+    adds = project.logic_adds()
+    if not adds:
+        return None
+    if "verbatim_eb" not in project.raw:
+        return ("[[logic_add]] only applies to a VERBATIM fork ([verbatim_eb]); this field is synthesized "
+                "from field.toml -- author the source blocks directly.")
+    from . import eblint as _eblint
+    from . import logic_add as _la
+    from . import logic_edit as _le
+    from .config import LANGS as _LANGS
+    try:
+        base, _suffix = compose_verbatim_eb(project)
+        if base is None:
+            return "[[logic_add]] needs a [verbatim_eb] block with a valid `bin` (the fork's .eb)."
+        base = _le.apply_logic_edits(base, project.logic_edits())     # adds run AFTER edits (build order)
+        gb, gw, rf = _logic_guard_params(project)
+        la_txids, _ = _logic_add_message_plan(project, _LANGS)
+        out = _la.apply_logic_adds(base, adds, guard_base=gb, guard_window=gw, reserved_flags=rf,
+                                   message_txids=la_txids)
+        errs = _eblint.errors(_eblint.lint_eb(out))
+        return (f"composed .eb: {errs[0]}") if errs else None    # EbIssue.__str__ (str+EbIssue would TypeError)
+    except (_la.LogicAddError, _le.LogicEditError) as ex:
+        return str(ex)
+    except Exception as ex:                              # noqa: BLE001
+        return f"{type(ex).__name__}: {ex}"
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
