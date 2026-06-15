@@ -192,6 +192,11 @@ class FieldProject:
         from .content import textcarry as _textcarry
         return _textcarry.load_sidecar(self.path(ct["bin"]))
 
+    def logic_edits(self):
+        """The ``[[logic_edit]]`` list (Phase-2 in-place value edits on a verbatim fork's .eb/.mes), or ``[]``
+        when none -- a plain/synthesized field has no edits and the build stays byte-identical."""
+        return self.raw.get("logic_edit", []) or []
+
 
 # --------------------------------------------------------------------------- validation
 
@@ -423,9 +428,36 @@ def _zone_desc(z) -> str:
     return str(len(z)) if isinstance(z, (list, tuple)) else f"a {type(z).__name__}"
 
 
+def _validate_logic_edits(project: FieldProject, problems: list) -> None:
+    """OFFLINE dry-run of [[logic_edit]] (Phase-2 in-place edits) so a bad/drifted/overflowing edit -- or an edit
+    on a non-verbatim field -- surfaces in `lint`/the Workspace Check, not only at full build. Mirrors the
+    build-time apply + eblint gate; reuses the applier's own validation (a LogicEditError -> a clean problem)."""
+    edits = project.logic_edits()
+    if not edits:
+        return
+    if "verbatim_eb" not in project.raw:
+        problems.append("[[logic_edit]] only applies to a VERBATIM fork ([verbatim_eb]); this field is "
+                        "synthesized from field.toml -- it would be ignored. Edit the source blocks directly.")
+        return
+    from .content import verbatim as _vb
+    from . import eblint as _eblint
+    from . import logic_edit as _le
+    from .config import LANGS as _LANGS
+    try:
+        out = _le.apply_logic_edits(_vb.verbatim_eb(project), edits)
+        problems += [f"[[logic_edit]] composed .eb: {e}" for e in _eblint.errors(_eblint.lint_eb(out))]
+        for lang in _LANGS:                              # the .mes text rewrites, per language (cheap; local sidecar)
+            _le.apply_logic_text_edits(_vb.verbatim_mes(project, lang) or "", edits, lang)
+    except _le.LogicEditError as ex:
+        problems.append(f"[[logic_edit]] {ex}")
+    except Exception as ex:                              # noqa: BLE001 -- never crash validate (e.g. a missing bin)
+        problems.append(f"[[logic_edit]] could not be validated: {type(ex).__name__}: {ex}")
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
+    _validate_logic_edits(project, problems)
     story_names = _story_names(project)
     f = project.field
     for key in ("id", "name", "area"):
@@ -3308,6 +3340,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     from .content import verbatim as _verbatim
     verbatim_bytes = _verbatim.verbatim_eb(project)
     oe_suffix: dict = {}
+    verbatim_edits = project.logic_edits()
     if verbatim_bytes is not None:
         # the verbatim .eb bypasses build_script, so apply the field-load hooks HERE too -- else the
         # documented "pair with [startup] to boot a beat" is a silent no-op (the fork would boot at
@@ -3328,6 +3361,18 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         verbatim_bytes = _field_load_inject("[[on_entry]]", project.name,
                                             lambda: _apply_on_entry(project, verbatim_bytes, oe_msg_txids,
                                             _FlagAlloc(getattr(project, "flag_base", None)), warnings=warnings))
+        # Phase-2 in-place value edits ([[logic_edit]]): run LAST -- the applier self-locates by entry/tag/op +
+        # the old value (re-decoding the FINAL bytes), so the field-load inserts above don't invalidate it. Each
+        # edit is length-preserving, so the composed .eb is re-validated by the Phase-3 linter; a broken edit
+        # fails the build (BuildError), never ships.
+        if verbatim_edits:
+            from . import eblint as _eblint
+            from . import logic_edit as _logic_edit
+            verbatim_bytes = _logic_edit.apply_logic_edits(verbatim_bytes, verbatim_edits)
+            _le_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+            if _le_errs:
+                raise BuildError(f"[[logic_edit]] broke the composed .eb of {project.name}: "
+                                 f"{[str(e) for e in _le_errs]}")
         # a [[shop]] OPENER (a standalone `zone` region, or an `[[npc]] opens_shop`) is synthesized in
         # build_script, which the verbatim path bypasses -- so it is NOT injected here (the donor's own
         # logic ships instead). The inventory CSV still ships (mod-write stage). Warn so it isn't a silent
@@ -3343,7 +3388,11 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if verbatim_bytes is not None:
             eb = verbatim_bytes
             # the donor's WHOLE text (index-txids) + any appended [[on_entry]] narration lines (high txids)
-            lang_body = (_verbatim.verbatim_mes(project, lang) or "") + oe_suffix.get(lang, "")
+            lang_body = _verbatim.verbatim_mes(project, lang) or ""
+            if verbatim_edits:                                  # Phase-2 dialogue-string rewrites (per language)
+                from . import logic_edit as _logic_edit
+                lang_body = _logic_edit.apply_logic_text_edits(lang_body, verbatim_edits, lang)
+            lang_body = lang_body + oe_suffix.get(lang, "")
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
