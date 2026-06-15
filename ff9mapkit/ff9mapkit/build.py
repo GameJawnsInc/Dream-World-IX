@@ -500,7 +500,10 @@ def _validate_logic_adds(project: FieldProject, problems: list) -> None:
             return
         base = _le.apply_logic_edits(base, project.logic_edits())      # adds run AFTER edits (build order)
         gb, gw, rf = _logic_guard_params(project)
-        out = _la.apply_logic_adds(base, adds, guard_base=gb, guard_window=gw, reserved_flags=rf)
+        from .config import LANGS as _LANGS
+        la_txids, _la_suffix = _logic_add_message_plan(project, _LANGS)  # message txids match the build
+        out = _la.apply_logic_adds(base, adds, guard_base=gb, guard_window=gw, reserved_flags=rf,
+                                   message_txids=la_txids)
         problems += [f"[[logic_add]] composed .eb: {e}" for e in _eblint.errors(_eblint.lint_eb(out))]
     except (_la.LogicAddError, _le.LogicEditError) as ex:
         problems.append(f"[[logic_add]] {ex}")
@@ -2269,6 +2272,31 @@ def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto) -> bytes
     return _ate.inject_ate(eb, ate_txids["prompt"], opt_bodies, avail_idx=avail_idx, mode=mode, setup=setup)
 
 
+def _appended_txid_base(project: FieldProject, langs) -> int:
+    """The first txid SAFE to append above a verbatim donor's `.mes`: ``max(donor max + 1, CARRY_BASE_TXID)``
+    across all languages. :data:`content.textcarry.CARRY_BASE_TXID` (1000) is the unconditionally-safe floor
+    above real-field text; a donor whose own text reaches it pushes the base higher. Shared by the on-entry-
+    message and logic-add-message appenders so their appended lines occupy DISJOINT id ranges (no collision
+    with the donor's index-txids or with each other). This is the append-and-resolve trick ``--carry-text``
+    uses, so the donor's verbatim text stays untouched."""
+    from .content import verbatim as _verbatim, textcarry as _textcarry
+    from . import dialogue as _dialogue
+    max_txid = 0
+    for lang in langs:
+        body = _verbatim.verbatim_mes(project, lang) or ""
+        ids = _dialogue.parse_mes(body) if body else {}
+        if ids:
+            max_txid = max(max_txid, max(ids))
+    return max(max_txid + 1, _textcarry.CARRY_BASE_TXID)
+
+
+def _on_entry_message_count(project: FieldProject) -> int:
+    """How many ``[[on_entry]]`` hooks carry a narration ``message`` (the size of the on-entry appended-text
+    block, so the logic-add block can sit above it)."""
+    return sum(1 for h in (project.raw.get("on_entry") or [])
+               if isinstance(h, dict) and h.get("message"))
+
+
 def _verbatim_on_entry_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     """For a verbatim fork's ``[[on_entry]]`` narration MESSAGE hooks: give each message a txid ABOVE the
     donor `.mes`'s max (so it can't collide with the donor's index-txids) and the `.mes` lines to APPEND to
@@ -2276,23 +2304,12 @@ def _verbatim_on_entry_messages(project: FieldProject, langs) -> tuple[dict, dic
     the message SHOWS instead of being dropped. Returns ``(txid_by_hook, suffix_by_lang)`` -- ``({}, {})`` when
     the fork has no message hook (a state-only verbatim fork is then unchanged). The authored message is
     single-block: the SAME text for every language (like the synthesize path), appended at the same txid in
-    each language's body -- so the `.eb` (injected once, language-identical) stays valid.
-
-    The band floor is :data:`content.textcarry.CARRY_BASE_TXID` (1000, the unconditionally-safe id above
-    real-field text); a donor whose text reaches it pushes the base to ``max donor txid + 1``. This is the
-    same append-and-resolve trick ``--carry-text`` uses, so the donor's verbatim text stays untouched."""
-    from .content import verbatim as _verbatim, textcarry as _textcarry
-    from . import dialogue as _dialogue
-    msg_hooks = [(k, h) for k, h in enumerate(project.raw.get("on_entry") or []) if h.get("message")]
+    each language's body -- so the `.eb` (injected once, language-identical) stays valid."""
+    msg_hooks = [(k, h) for k, h in enumerate(project.raw.get("on_entry") or [])
+                 if isinstance(h, dict) and h.get("message")]   # skip malformed (validate() flags it loudly)
     if not msg_hooks:
         return {}, {}
-    bodies = {lang: (_verbatim.verbatim_mes(project, lang) or "") for lang in langs}
-    max_txid = 0
-    for body in bodies.values():
-        ids = _dialogue.parse_mes(body) if body else {}
-        if ids:
-            max_txid = max(max_txid, max(ids))
-    base = max(max_txid + 1, _textcarry.CARRY_BASE_TXID)
+    base = _appended_txid_base(project, langs)
     wrap = _wrap_width(project)
     lines, tails, txid_by_hook = [], [], {}
     for i, (k, h) in enumerate(msg_hooks):
@@ -2304,6 +2321,33 @@ def _verbatim_on_entry_messages(project: FieldProject, langs) -> tuple[dict, dic
         txid_by_hook[k] = base + i
     suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
     return txid_by_hook, {lang: suffix for lang in langs}
+
+
+def _logic_add_message_plan(project: FieldProject, langs) -> tuple[dict, dict]:
+    """For a verbatim fork's ``[[logic_add]]`` MESSAGES (a ``show_line``, or any add with ``message =``):
+    give each a txid ABOVE the donor `.mes` AND above the ``[[on_entry]]`` message block (so every appended
+    line stays disjoint), plus the per-language `.mes` lines to append. The inserted ``WindowSync`` (emitted
+    by :func:`logic_add.apply_logic_adds` for that add) then resolves into the appended entry, so the line
+    SHOWS. Returns ``(txid_by_add_idx, suffix_by_lang)`` -- ``({}, {})`` when no add shows a message. The key
+    is the NORMALIZED add index (:func:`logic_add.plan_messages`), the SAME index ``apply_logic_adds``
+    enumerates, so the build/Check hand it matching ids. Single-block: the same text for every language
+    (the ``.eb`` is injected once, language-identical)."""
+    from . import logic_add as _logic_add
+    plan = _logic_add.plan_messages(project.logic_adds())
+    if not plan:
+        return {}, {}
+    base = _appended_txid_base(project, langs) + _on_entry_message_count(project)  # above the on-entry block
+    wrap = _wrap_width(project)
+    lines, tails, txid_by_idx = [], [], {}
+    for j, (idx, message, speaker, tail) in enumerate(plan):
+        line = _text.with_speaker(speaker, message)
+        if wrap is not None:
+            line = _text.wrap_text(line, wrap)[0]
+        lines.append(line)
+        tails.append(tail)
+        txid_by_idx[idx] = base + j
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    return txid_by_idx, {lang: suffix for lang in langs}
 
 
 def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
@@ -3439,6 +3483,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # BuildError. This composition is shared verbatim with Check + the GUI edit panel (compose_verbatim_eb).
     verbatim_bytes, oe_suffix = compose_verbatim_eb(project, langs=langs, warnings=warnings)
     verbatim_edits = project.logic_edits()
+    la_suffix: dict = {}                                        # [[logic_add]] show_line / message lines (per lang)
     if verbatim_bytes is not None:
         # Phase-2 in-place value edits ([[logic_edit]]): run LAST -- the applier self-locates by entry/tag/op +
         # the old value (re-decoding the FINAL bytes), so the field-load inserts above don't invalidate it. Each
@@ -3466,8 +3511,12 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             from . import logic_add as _logic_add
             _gb, _gw, _rf = _logic_guard_params(project)
             try:
+                # a show_line / message add gets a txid above the donor `.mes` + the [[on_entry]] block; its
+                # appended line ships in la_suffix below, and the inserted WindowSync resolves into it.
+                _la_txids, la_suffix = _logic_add_message_plan(project, langs)
                 verbatim_bytes = _logic_add.apply_logic_adds(verbatim_bytes, verbatim_adds, guard_base=_gb,
-                                                            guard_window=_gw, reserved_flags=_rf, warnings=warnings)
+                                                            guard_window=_gw, reserved_flags=_rf,
+                                                            message_txids=_la_txids, warnings=warnings)
             except _logic_add.LogicAddError as ex:       # match Check: a clean failure, not a raw traceback
                 raise BuildError(f"[[logic_add]] in {project.name}: {ex}")
             _la_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
@@ -3496,7 +3545,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             if verbatim_edits:                                  # Phase-2 dialogue-string rewrites (per language)
                 from . import logic_edit as _logic_edit
                 lang_body = _logic_edit.apply_logic_text_edits(lang_body, verbatim_edits, lang)
-            lang_body = lang_body + oe_suffix.get(lang, "")
+            lang_body = lang_body + oe_suffix.get(lang, "") + la_suffix.get(lang, "")
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,

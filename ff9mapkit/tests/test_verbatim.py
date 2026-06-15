@@ -149,6 +149,46 @@ def test_build_field_verbatim_with_logic_edit_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_with_show_line_end_to_end(tmp_path):
+    # Phase 4b show_line: a [[logic_add]] that SHOWS a line must (1) build clean, (2) ship a WindowSync into
+    # the verbatim .eb at a txid ABOVE the donor text, and (3) APPEND that line to every language's .mes at
+    # the same txid -- the give_item "Received..." gap closed via the [[on_entry]]-style .mes channel.
+    from ff9mapkit import build, extract, dialogue
+    from ff9mapkit.eb import EbScript
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    project = build.FieldProject.load(toml)
+    project.raw["logic_add"] = [{"kind": "give_item", "entry": 0, "tag": 0, "item": "Potion",
+                                 "message": "SHOW LINE TEST!"}]
+    assert build.validate(project) == []                        # Check agrees offline (incl. the txid plan)
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")     # must not raise
+    # the shipped .eb has a WindowSync (0x1F) to a high (appended) txid, and gives the Potion (0x48)
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    win_txids = set()
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        for e in s.entries:
+            if e.empty:
+                continue
+            for f in e.funcs:
+                for i in s.instrs(f):
+                    if i.op == 0x1F and i.imm(2) is not None and i.imm(2) >= 1000:
+                        win_txids.add(i.imm(2))
+    assert win_txids, "the show_line WindowSync was injected at an appended txid"
+    # the appended .mes line is present at that txid in the shipped text
+    mes = [p for p in out.rglob("*.mes")]
+    assert mes
+    hit = False
+    for p in mes:
+        parsed = dialogue.parse_mes(p.read_text(encoding="utf-8"))
+        for t in win_txids:
+            if t in parsed and "SHOW LINE TEST!" in parsed[t].text:
+                hit = True
+    assert hit, "the show_line text shipped in the .mes at the WindowSync's txid"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_import_chain_verbatim_wires_a_connected_slice(tmp_path):
     # import-chain --verbatim forks a CONNECTED slice: every member ships its donor's WHOLE .eb (run as-is),
     # with the IN-CHAIN Field() exits retargeted to sibling forks + each member's donor .mes at the donor's

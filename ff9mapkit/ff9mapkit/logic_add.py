@@ -17,6 +17,15 @@ Kinds:
   * ``give_item`` / ``give_gil`` -- CUMULATIVE (each call adds more), so wrapped in the FF9 chest once-guard
     ``if(!guard){guard=1; body}`` (the guard flag auto-allocated from the safe band) -- UNLESS it's a tag-3
     talk handler with ``repeat = true`` (a deliberately repeatable per-interaction effect).
+  * ``show_line`` -- open a dialogue window showing an authored line. Its only effect is the message, so
+    it's the way to ANNOUNCE a silent ``give_item``/``give_gil`` (otherwise they hand over the reward with
+    no "Received X!" box). Any other kind may also carry an optional ``message = "..."`` to announce its
+    effect in the SAME once-guard (give THEN show, atomically).
+
+A ``show_line`` (or any ``message =``) line is APPENDED to the donor ``.mes`` above its txids -- the same
+append-and-resolve channel ``[[on_entry]]`` narration uses (:func:`build._verbatim_on_entry_messages`) -- so
+the inserted ``WindowSync`` resolves into real text. A message ALWAYS implies a once-guard (a window in a
+tread zone would re-open every frame), even on an otherwise-idempotent ``set_flag``.
 
 The effect bytes reuse the proven :mod:`ff9mapkit.content.region` / :mod:`ff9mapkit.content.event` encoders
 verbatim (zero new bytecode). The composed ``.eb`` is re-validated by :func:`ff9mapkit.eblint.lint_eb` before
@@ -31,7 +40,7 @@ from .eb import edit as _edit
 from .eb.model import EbScript
 
 GLOB_BOOL = _region.GLOB_BOOL                       # 0xC4 -- save-persistent story-flag class
-_ADD_KINDS = ("set_flag", "give_item", "give_gil")
+_ADD_KINDS = ("set_flag", "give_item", "give_gil", "show_line")
 _CUMULATIVE = ("give_item", "give_gil")             # need a once-guard (set_flag is idempotent)
 TALK_TAG = 3                                        # the only tag where an UNGATED cumulative effect is sane
 _GIL_CAP = 9_999_999
@@ -54,28 +63,58 @@ def _int(add, key, *, default=None, optional=False):
     return v
 
 
-def _effect_body(add) -> bytes:
-    """The raw effect bytes for one add (no guard) -- reuses the content encoders."""
+def _add_message(add) -> "str | None":
+    """The authored line this add SHOWS, or None. ``show_line`` requires one; any other kind may carry an
+    optional ``message = "..."`` to announce its effect. Raises on a present-but-malformed message."""
+    msg = add.get("message")
+    if add.get("kind") == "show_line":
+        if not isinstance(msg, str) or not msg:
+            raise LogicAddError("logic_add show_line needs a non-empty `message` string (the line to show)")
+        return msg
+    if msg is None:
+        return None
+    if not isinstance(msg, str) or not msg:
+        raise LogicAddError(f"logic_add ({add.get('kind', '?')}) message must be a non-empty string")
+    return msg
+
+
+def _needs_guard(add) -> bool:
+    """A once-guard is needed for a CUMULATIVE effect (give_item/give_gil pile up) OR any add that shows a
+    MESSAGE (a window in a tread zone would re-open every frame). ``set_flag`` alone is idempotent -> ungated."""
+    return add.get("kind") in _CUMULATIVE or _add_message(add) is not None
+
+
+def _effect_body(add, *, message_txid=None) -> bytes:
+    """The raw effect bytes for one add (no guard) -- reuses the content encoders. When the add carries a
+    message (or IS a ``show_line``), a ``WindowSync(message_txid)`` is APPENDED after the effect (give THEN
+    announce); ``message_txid`` is the build-allocated id of the appended ``.mes`` line."""
     kind = add.get("kind")
+    msg = _add_message(add)
+    if msg is not None and message_txid is None:                   # the build allocates message txids; a
+        raise LogicAddError(f"logic_add ({kind}) has a message but no text id was allocated (internal: "
+                            "apply_logic_adds needs message_txids -- the build/Check plan provides it)")
+    tail = _event.message(int(message_txid)) if msg is not None else b""
+    if kind == "show_line":
+        return tail                                                # the message IS the whole effect
     if kind == "set_flag":
         idx, val = _int(add, "flag"), _int(add, "value", default=1, optional=True)
         if not _flags.is_safe_custom(idx):
             raise LogicAddError(f"set_flag index {idx} is outside the safe custom band "
                                 f"[{_flags.FIRST_SAFE_FLAG}, {_flags.CHOICE_SCRATCH_FLOOR}) (or reserved)")
-        return _region.set_var(GLOB_BOOL, idx, val)
+        return _region.set_var(GLOB_BOOL, idx, val) + tail
     if kind == "give_item":
         count = _int(add, "count", default=1, optional=True)
         if not (1 <= count <= 255):
             raise LogicAddError(f"give_item count {count} out of range (1-255; AddItem count is one byte)")
         try:
-            return _event.give_item(add.get("item"), count)        # name or id, resolved by items
+            return _event.give_item(add.get("item"), count) + tail  # name or id, resolved by items
         except (ValueError, KeyError) as ex:
             raise LogicAddError(f"give_item: {ex}")
     if kind == "give_gil":
         amount = _int(add, "amount")
         if not (0 < amount <= _GIL_CAP):
             raise LogicAddError(f"give_gil amount {amount} out of range (1-{_GIL_CAP})")
-        return _event.give_gil(amount)
+        return _event.give_gil(amount) + tail
     raise LogicAddError(f"logic_add unknown kind '{kind}' (kinds: {_ADD_KINDS})")
 
 
@@ -127,12 +166,12 @@ class _GuardAlloc:
                             "raise [campaign] flags_per_field or set an explicit guard = N")
 
 
-def _core_bytes(add, alloc, warnings=None) -> bytes:
-    """The bytes to prepend for one add: the effect, guarded unless it's idempotent (set_flag) or a
-    deliberately-repeatable tag-3 talk effect (``repeat = true``)."""
-    body = _effect_body(add)
-    if add.get("kind") not in _CUMULATIVE:
-        return body                                            # set_flag -- idempotent, ungated
+def _core_bytes(add, alloc, warnings=None, *, message_txid=None) -> bytes:
+    """The bytes to prepend for one add: the effect, guarded unless it's idempotent (a message-less
+    set_flag) or a deliberately-repeatable tag-3 talk effect (``repeat = true``)."""
+    body = _effect_body(add, message_txid=message_txid)
+    if not _needs_guard(add):
+        return body                                            # set_flag w/o a message -- idempotent, ungated
     if add.get("repeat"):
         if _int(add, "tag") != TALK_TAG:
             raise LogicAddError(f"logic_add {add['kind']} repeat=true is only allowed on a tag-{TALK_TAG} "
@@ -180,7 +219,7 @@ def _insert_after(eb_bytes, eb, f, entry, tag, add, core, warnings) -> bytes:
     return _edit.replace_function_body(eb_bytes, entry, tag, new_body)
 
 
-def _apply_one(eb_bytes, add, alloc, warnings=None) -> bytes:
+def _apply_one(eb_bytes, add, alloc, warnings=None, *, message_txid=None) -> bytes:
     if add.get("kind") not in _ADD_KINDS:
         raise LogicAddError(f"logic_add unknown kind '{add.get('kind')}' (kinds: {_ADD_KINDS})")
     where = add.get("where", "prepend")
@@ -194,20 +233,18 @@ def _apply_one(eb_bytes, add, alloc, warnings=None) -> bytes:
     f = eb.entry(entry).func_by_tag(tag)
     if f is None:
         raise LogicAddError(f"logic_add entry {entry} has no function tag {tag}")
-    core = _core_bytes(add, alloc, warnings)
+    core = _core_bytes(add, alloc, warnings, message_txid=message_txid)
     if where == "prepend":
         return _edit.insert_in_function(eb_bytes, entry, tag, 0, core)   # the always-safe rel_off=0 prepend
     return _insert_after(eb_bytes, eb, f, entry, tag, add, core, warnings)   # mid-function (keystone rebuild)
 
 
-def apply_logic_adds(eb_bytes, adds, *, guard_base=None, guard_window=None, reserved_flags=None,
-                     warnings=None) -> bytes:
-    """Apply every ``[[logic_add]]`` to ``eb_bytes`` as a guarded PREPEND and return the new bytes. Empty ->
-    byte-identical. Raises :class:`LogicAddError` on any unsafe add. ``guard_base``/``guard_window`` confine
-    auto once-guards to a campaign member's flag block; ``reserved_flags`` is the project's OTHER authored
-    safe-band flags (so a guard never aliases one). ``warnings`` (a list) collects advisories."""
+def _normalize_adds(adds):
+    """The canonical filtered add list -- shared by :func:`apply_logic_adds` and :func:`plan_messages` so a
+    message txid keyed by index lines up with the add the build actually applies. Raises on a non-list or a
+    non-table element (the same clean errors the build/Check surface)."""
     if adds is None:
-        adds = []
+        return []
     if not isinstance(adds, (list, tuple)):                     # a single [logic_add] table (or junk) -> clean error
         raise LogicAddError("logic_add must be an array of tables ([[logic_add]]), not "
                             f"{type(adds).__name__} (you likely wrote [logic_add] instead of [[logic_add]])")
@@ -215,10 +252,36 @@ def apply_logic_adds(eb_bytes, adds, *, guard_base=None, guard_window=None, rese
     for a in adds:
         if not isinstance(a, dict):
             raise LogicAddError(f"each logic_add must be a table, got {type(a).__name__}")
+    return adds
+
+
+def plan_messages(adds):
+    """The appended ``.mes`` lines a ``[[logic_add]]`` list needs, in apply order: ``[(idx, message,
+    speaker, tail)]`` for every add that SHOWS a line (a ``show_line`` or any kind with ``message =``).
+    ``idx`` is the index into the normalized (filtered) add list -- the SAME index :func:`apply_logic_adds`
+    enumerates -- so the build can allocate one txid per entry and hand them back as ``message_txids``."""
+    out = []
+    for idx, add in enumerate(_normalize_adds(adds)):
+        msg = _add_message(add)
+        if msg is not None:
+            out.append((idx, msg, add.get("speaker"), add.get("tail")))
+    return out
+
+
+def apply_logic_adds(eb_bytes, adds, *, guard_base=None, guard_window=None, reserved_flags=None,
+                     message_txids=None, warnings=None) -> bytes:
+    """Apply every ``[[logic_add]]`` to ``eb_bytes`` (a guarded PREPEND, or a mid-function insert for
+    ``where="after"``) and return the new bytes. Empty -> byte-identical. Raises :class:`LogicAddError` on
+    any unsafe add. ``guard_base``/``guard_window`` confine auto once-guards to a campaign member's flag
+    block; ``reserved_flags`` is the project's OTHER authored safe-band flags (so a guard never aliases one).
+    ``message_txids`` maps a normalized-add index (see :func:`plan_messages`) to the txid of its appended
+    ``.mes`` line -- required for any add that shows a message. ``warnings`` (a list) collects advisories."""
+    adds = _normalize_adds(adds)
     if not adds:
         return bytes(eb_bytes)
+    message_txids = message_txids or {}
     alloc = _GuardAlloc(guard_base, guard_window, adds, reserved_flags)
     out = bytes(eb_bytes)
-    for add in adds:
-        out = _apply_one(out, add, alloc, warnings)
+    for idx, add in enumerate(adds):
+        out = _apply_one(out, add, alloc, warnings, message_txid=message_txids.get(idx))
     return out

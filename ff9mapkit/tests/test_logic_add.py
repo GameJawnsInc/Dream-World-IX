@@ -167,6 +167,84 @@ def test_after_insert_bad_anchor_refused():
                                              "where": "after", "after_op": 0x48, "after_nth": 0}])
 
 
+WINDOW_SYNC = 0x1F
+
+
+# ---- show_line / message=: announce an effect via an appended .mes line ----
+def test_show_line_emits_guarded_window():
+    """show_line opens a WindowSync at the build-allocated txid, once-guarded (a window in a tread zone would
+    re-open every frame)."""
+    out = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "show_line", "entry": 0, "tag": 0,
+                                              "message": "Hi!"}], message_txids={0: 1001})
+    _eb_, ins = _instrs(out)
+    win = [i for i in ins if i.op == WINDOW_SYNC]
+    assert len(win) == 1 and win[0].imm(2) == 1001              # WindowSync -> the appended txid
+    assert any(i.op == 0x02 for i in ins) and _clean(out)       # once-guarded
+
+
+def test_show_line_needs_allocated_txid():
+    """A message with no allocated txid is a clean error (the build/Check plan always provides one)."""
+    with pytest.raises(LA.LogicAddError):
+        LA.apply_logic_adds(_eb((0, RET)), [{"kind": "show_line", "entry": 0, "tag": 0, "message": "Hi!"}])
+
+
+def test_message_on_give_announces_after_give():
+    """give_item + message= gives THEN shows, inside ONE guard (atomic): AddItem before WindowSync."""
+    out = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "give_item", "entry": 0, "tag": 0, "item": 236,
+                                              "message": "Received a Potion!"}], message_txids={0: 1005})
+    _eb_, ins = _instrs(out)
+    add_i = next(k for k, i in enumerate(ins) if i.op == 0x48)
+    win_i = next(k for k, i in enumerate(ins) if i.op == WINDOW_SYNC)
+    assert add_i < win_i                                        # give then announce
+    assert sum(i.op == 0x02 for i in ins) == 1 and _clean(out)  # a SINGLE shared once-guard
+
+
+def test_set_flag_with_message_is_guarded():
+    """A bare set_flag is ungated, but set_flag + message= must guard (else the window spams every frame)."""
+    plain = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520}])
+    assert not any(i.op == 0x02 for i in _instrs(plain)[1])
+    withmsg = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520,
+                                                  "message": "The path opens."}], message_txids={0: 1001})
+    _eb_, ins = _instrs(withmsg)
+    assert any(i.op == 0x02 for i in ins) and any(i.op == WINDOW_SYNC for i in ins) and _clean(withmsg)
+
+
+def test_plan_messages_indexes_match_apply_order():
+    """plan_messages keys by the NORMALIZED add index -- so a txid keyed by it lines up with the add
+    apply_logic_adds enumerates (even with a falsy element filtered out)."""
+    adds = [None,                                                          # filtered out
+            {"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520},      # no message -> not in the plan
+            {"kind": "show_line", "entry": 0, "tag": 0, "message": "A"},   # normalized idx 1
+            {"kind": "give_gil", "entry": 0, "tag": 0, "amount": 5, "message": "B"}]  # normalized idx 2
+    plan = LA.plan_messages(adds)
+    assert [(idx, msg) for idx, msg, _s, _t in plan] == [(1, "A"), (2, "B")]
+    # the txids the plan implies apply correctly (the show_line at idx 1, the give at idx 2)
+    out = LA.apply_logic_adds(_eb((0, RET)), adds, message_txids={1: 2001, 2: 2002})
+    _eb_, ins = _instrs(out)
+    assert sorted(i.imm(2) for i in ins if i.op == WINDOW_SYNC) == [2001, 2002] and _clean(out)
+
+
+def test_show_line_after_insert():
+    """show_line works with where="after" -- the WindowSync is spliced mid-function via the keystone."""
+    from ff9mapkit.eb import cmdasm
+    body = cmdasm.assemble_block("SetTriangleFlagMask(1)\nSetTriangleFlagMask(2)\nRET()")
+    out = LA.apply_logic_adds(_eb((0, body)), [{"kind": "show_line", "entry": 0, "tag": 0, "message": "Hi!",
+                                               "where": "after", "after_op": 0x27, "after_nth": 0}],
+                              message_txids={0: 1001})
+    _eb_, ins = _instrs(out)
+    assert any(i.op == WINDOW_SYNC and i.imm(2) == 1001 for i in ins) and _clean(out)
+
+
+def test_show_line_malformed_message_refused():
+    base = _eb((0, RET))
+    for bad in ({"kind": "show_line", "entry": 0, "tag": 0},                       # missing message
+                {"kind": "show_line", "entry": 0, "tag": 0, "message": ""},        # empty
+                {"kind": "show_line", "entry": 0, "tag": 0, "message": 5},         # non-string
+                {"kind": "give_item", "entry": 0, "tag": 0, "item": 236, "message": ""}):  # bad msg on a give
+        with pytest.raises(LA.LogicAddError):
+            LA.apply_logic_adds(base, [bad], message_txids={0: 1001})
+
+
 # ---- guards / refusals ----
 def test_refusals():
     base = _eb((0, RET))
@@ -235,6 +313,41 @@ def test_empty_is_byte_identical():
     eb = _eb((0, RET))
     assert LA.apply_logic_adds(eb, []) == eb
     assert LA.apply_logic_adds(eb, None) == eb
+
+
+def test_logic_add_message_plan_sits_above_on_entry():
+    """build._logic_add_message_plan allocates each show_line / message= a txid ABOVE the donor `.mes`
+    (CARRY_BASE_TXID floor with no donor text) AND above the [[on_entry]] message block, keyed by the
+    normalized add index, with the appended lines present in every language's suffix."""
+    from ff9mapkit import build, dialogue
+    from ff9mapkit.config import LANGS
+
+    class _P:
+        def __init__(self, raw):
+            self.raw = raw
+
+        def logic_adds(self):
+            return self.raw.get("logic_add", [])
+
+    p = _P({"on_entry": [{"message": "a"}, {"message": "b"}],          # 2 on-entry lines -> [1000,1002)
+            "logic_add": [{"kind": "show_line", "entry": 0, "tag": 0, "message": "First"},
+                          None,                                         # filtered out (index alignment check)
+                          {"kind": "give_item", "entry": 0, "tag": 0, "item": 236, "message": "Second"}]})
+    txids, suffix = build._logic_add_message_plan(p, LANGS)
+    assert txids == {0: 1002, 1: 1003}                                 # above the 2 on-entry lines; idx 1 = the give
+    assert set(suffix) == set(LANGS)
+    parsed = dialogue.parse_mes(suffix["us"])
+    assert set(parsed) == {1002, 1003} and "First" in parsed[1002].text and "Second" in parsed[1003].text
+    assert suffix["us"] == suffix[LANGS[-1]]                            # single-block: same text every language
+
+    # a malformed (non-dict) on_entry element is SKIPPED, not crashed-on, by both message planners (validate()
+    # is the layer that loudly rejects it) -- _on_entry_message_count and _verbatim_on_entry_messages agree.
+    bad = _P({"on_entry": ["junk", {"message": "a"}],
+              "logic_add": [{"kind": "show_line", "entry": 0, "tag": 0, "message": "X"}]})
+    assert build._on_entry_message_count(bad) == 1                      # the lone dict-with-message
+    txids2, _suffix2 = build._logic_add_message_plan(bad, LANGS)
+    assert txids2 == {0: 1001}                                          # sits above the 1 on-entry line
+    assert build._verbatim_on_entry_messages(bad, LANGS)[0] == {1: 1000}  # non-dict at idx 0 skipped cleanly
 
 
 def test_validate_flags_logic_add_on_synthesized_field():
