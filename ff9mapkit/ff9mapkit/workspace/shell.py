@@ -1757,9 +1757,9 @@ class Workspace(QMainWindow):
             self._active_save = None
             return
         existing = self._doc(member).data.get("logic_edit") or []
-        npend = sum(1 for s in sites if self._logic_pending(s, existing))
+        nedit = sum(1 for s in sites if self._logic_pending(s, existing))
         self.doc_host_lay.addWidget(self._muted_label(
-            f"{len(sites)} editable value(s)" + (f" · {npend} with an unsaved edit" if npend else "")))
+            f"{len(sites)} editable value(s)" + (f" · {nedit} edited" if nedit else "")))
         for site in sites:
             self.doc_host_lay.addWidget(self._logic_site_row(member, entry, tag, site, existing))
         self._active_save = lambda m=member, e=entry, t=tag: self._save_logic(m, e, t)
@@ -1792,23 +1792,27 @@ class Workspace(QMainWindow):
         return lbl
 
     @staticmethod
-    def _logic_pending(site, existing):
-        """The pending edits on ``site`` (coords in its footprint), or [] -- the unsaved [[logic_edit]] rows."""
+    def _logic_pending(site, edits):
+        """The authored edits on ``site`` (coords in its footprint) within ``edits``, or []."""
         from .. import logic_edit as LE
         foot = LE.site_footprint(site)
-        return [e for e in (existing or []) if LE.edit_coord(e) in foot]
+        return [e for e in (edits or []) if LE.edit_coord(e) in foot]
 
     def _logic_site_row(self, member, entry, tag, site, existing):
-        """One editable-value row: 'gives Potion  →  Elixir (unsaved)'  [Edit…] [Revert]."""
+        """One editable-value row: 'gives Potion  →  Elixir (unsaved)'  [Edit…] [Revert]. '(unsaved)' vs
+        '(saved)' is decided by comparing this site's edits against the saved baseline -- so a fork opened with
+        edits already in its toml reads '(saved)', not a false '(unsaved)'."""
         pend = self._logic_pending(site, existing)
+        saved = self._logic_pending(site, (self._clean.get(member) or {}).get("logic_edit") or [])
         w = QWidget()
         h = QHBoxLayout(w)
         h.setContentsMargins(0, 2, 0, 2)
         cur = self._logic_value_str(site, site.old)
         if pend:
             newv = pend[0].get(site.new_key)
+            state = ("saved", self.pal["muted"]) if pend == saved else ("unsaved", self.pal["warn"])
             txt = f'{site.label}  →  <b>{_esc(self._logic_value_str(site, newv))}</b>  ' \
-                  f'<span style="color:{self.pal["warn"]};">(unsaved)</span>'
+                  f'<span style="color:{state[1]};">({state[0]})</span>'
         else:
             txt = f"{site.label}" + (f"  <span style='color:{self.pal['muted']};'>= {_esc(cur)}</span>"
                                      if site.value_kind != "string" else "")
@@ -3990,7 +3994,13 @@ def _smoke(win):
                 assert win.doc_host_lay.count() > 0, "undo re-mounted the logic panel (not the field form)"
                 win._redo()
                 assert win._doc("ALEXFORK").data.get("logic_edit"), "redo restored the edit"
+                win._save_logic("ALEXFORK", e_, t_)             # persist -> the row should now read "(saved)"
+                assert "ALEXFORK" not in win._unsaved(), "save cleared the dot"
+                assert (win._logic_pending(site, win._doc("ALEXFORK").data.get("logic_edit"))
+                        == win._logic_pending(site, (win._clean.get("ALEXFORK") or {}).get("logic_edit"))), \
+                    "a saved edit matches the baseline -> labeled (saved), not (unsaved)"
                 win._revert_logic_site("ALEXFORK", e_, t_, site)
+                win._save_logic("ALEXFORK", e_, t_)             # leave the fixture's toml clean again
                 assert not win._doc("ALEXFORK").data.get("logic_edit"), "revert cleared the edit"
                 edit_ok = True
                 break
