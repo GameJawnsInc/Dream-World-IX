@@ -1786,6 +1786,38 @@ def _cmd_logic_map(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_lint_eb(args: argparse.Namespace) -> int:
+    """Structurally lint a field's ``.eb`` (decode / jump bounds / switch bounds / reachable terminator /
+    dangling RunScript) -- the offline soundness check for a verbatim fork or an in-place edit. Accepts a
+    real field id/name OR a path to a ``.eb`` / verbatim ``.bin``. Exit 1 if any ERROR is found."""
+    _safe_console()
+    from . import eblint
+    import os
+    target = args.field
+    try:
+        if os.path.isfile(target):
+            data = open(target, "rb").read()
+            label = os.path.basename(target)
+        else:
+            from . import forkreport as FR
+            from .extract import EventBundle
+            fid = FR.resolve_field_id(target, game=args.game)
+            data = EventBundle(args.game).eb_for_id(fid)
+            label = f"field {fid}"
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if not data:
+        print(f"no .eb bytes for {target} (not present in this install)", file=sys.stderr)
+        return 2
+    issues = eblint.lint_eb(data)
+    errs = eblint.errors(issues)
+    for i in issues:
+        print(str(i))
+    print(f"\n{label}: {len(errs)} error(s), {len(issues) - len(errs)} warning(s)")
+    return 1 if errs else 0
+
+
 def _cmd_find_rooms(args: argparse.Namespace) -> int:
     """Sweep all fields for the best swap/demo TEST ROOMS (single-PC + swap-clean + a close 3/4 camera).
     The 'where can I cleanly walk as a swapped character / see the model's detail?' verb -- a ~45s offline
@@ -2528,6 +2560,12 @@ def build_parser() -> argparse.ArgumentParser:
     lmp.add_argument("--json", action="store_true",
                      help="emit the map as JSON (the generated [view]) instead of the readable transcript")
     lmp.set_defaults(func=_cmd_logic_map)
+
+    le = sub.add_parser("lint-eb",
+                        help="structurally lint a field's .eb (decode / jump+switch bounds / reachable terminator / "
+                             "dangling RunScript) -- the offline soundness check for a verbatim fork or an edit")
+    le.add_argument("field", help="a real field id/name OR a path to a .eb / verbatim .bin")
+    le.set_defaults(func=_cmd_lint_eb)
 
     fdr = sub.add_parser("find-rooms",
                          help="sweep ALL fields for the best swap/demo test rooms (single-PC + swap-clean + close camera)")

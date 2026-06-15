@@ -145,6 +145,31 @@ def decode_switch(instr: Instr) -> "SwitchInfo | None":
     return SwitchInfo(op, base, edges)
 
 
+# --- control-flow facts (engine ABI) ----------------------------------------------------------------
+# The flow-TERMINATOR opcodes: a path reaching one ENDS (the engine's per-function dispatch stops via
+# adFin(); the IP never advances into adjacent bytecode). RET 0x04 / TerminateEntry 0x1C + the high ops
+# whose DoEventCode return code routes through adFin(): Battle 0x2A / Field 0x2B / STOP 0x4F /
+# TetraMaster 0xAE / WorldMap 0xB6 / GameOver 0xF5 (verified vs EBin.cs). NOTE: battle/ailint.py keeps a
+# parallel private copy (it predates this) -- both are guarded by their whole-corpus soundness sweeps, which
+# would fail if either drifted from the engine.
+TERMINATOR_OPS = frozenset({0x04, 0x1C, 0x2A, 0x2B, 0x4F, 0xAE, 0xB6, 0xF5})
+JUMP_OPS = frozenset({0x01, 0x02, 0x03})   # JMP / JMP_IFNOT / JMP_IF -- a 2-byte relative offset operand
+
+
+def jump_target(ins: Instr) -> "int | None":
+    """The absolute byte target of a relative jump (0x01/0x02/0x03), or None if its offset is an expression.
+    Signedness MATCHES the engine: JMP (0x01) / JMP_IF (0x03) read a SIGNED int16; JMP_IFNOT (0x02) reads its
+    skip UNSIGNED -- so a backward JMP_IFNOT becomes a huge forward target a bounds check catches."""
+    if not ins.arg_is_expr or ins.arg_is_expr[0]:
+        return None
+    raw = ins.imm(0)
+    if raw is None:
+        return None
+    if ins.op == 0x02:                                          # JMP_IFNOT -- engine reads this UNSIGNED
+        return ins.end + raw
+    return ins.end + (raw - 0x10000 if raw >= 0x8000 else raw)  # JMP / JMP_IF -- signed int16
+
+
 def read_expr(raw: bytes, pos: int) -> tuple[str, int]:
     """Decode an expression token stream; returns (text, new_pos). Mirrors the engine."""
     ops = []
