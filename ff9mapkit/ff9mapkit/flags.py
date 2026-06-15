@@ -301,6 +301,54 @@ def collect_flag_defs(raw: dict) -> dict:
     return out
 
 
+def collect_safe_flag_indices(raw: dict) -> set:
+    """Every SAFE-BAND gEventGlobal bit index the project references as a story flag -- ``[[flag]]`` defs,
+    ``[startup].flags``, and every content section's flag fields (``requires_flag``/``flag``/``set_flag``/
+    ``set_flags``, recursing options/steps). Assumes :func:`resolve_project_flags` already ran (references are
+    ints); out-of-band / non-int values are dropped. Used to RESERVE these so an auto-allocated ``[[logic_add]]``
+    once-guard never aliases an authored story flag (which would silently pre-fire the guard)."""
+    out: set = set()
+
+    def _take(v):
+        if isinstance(v, int) and not isinstance(v, bool) and is_safe_custom(v):
+            out.add(v)
+
+    try:
+        for idx in collect_flag_defs(raw).values():
+            _take(idx)
+    except ValueError:                                 # a malformed [[flag]] table -> load already failed; ignore here
+        pass
+    su = raw.get("startup")
+    if isinstance(su, dict):
+        for p in su.get("flags", []) or []:
+            if isinstance(p, dict):
+                _take(p.get("flag"))
+
+    def _walk(item):
+        if not isinstance(item, dict):
+            return
+        for k in _FLAG_INDEX_KEYS:
+            _take(item.get(k))
+        for k in _FLAG_PAIR_KEYS:
+            pair = item.get(k)
+            if isinstance(pair, list) and pair:
+                _take(pair[0])
+        for sf in (item.get("set_flags") or []):
+            if isinstance(sf, dict):
+                _take(sf.get("flag"))
+        for sub in ("options", "steps"):
+            for it in (item.get(sub) or []):
+                _walk(it)
+    for sec in _FLAG_SECTIONS:
+        val = raw.get(sec)
+        if isinstance(val, dict):
+            _walk(val)
+        elif isinstance(val, list):
+            for it in val:
+                _walk(it)
+    return out
+
+
 def resolve(value, name_map: dict) -> int:
     """Resolve a flag reference (an int, a digit-string, or a registered name) to its index. An int /
     digit-string passes through unchanged; a name is looked up case/spacing-insensitively in ``name_map``

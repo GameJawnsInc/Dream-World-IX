@@ -197,6 +197,11 @@ class FieldProject:
         when none -- a plain/synthesized field has no edits and the build stays byte-identical."""
         return self.raw.get("logic_edit", []) or []
 
+    def logic_adds(self):
+        """The ``[[logic_add]]`` list (Phase-4a length-changing guarded-prepend additions on a verbatim fork's
+        .eb), or ``[]`` when none -- a plain/synthesized field has none and the build stays byte-identical."""
+        return self.raw.get("logic_add", []) or []
+
 
 # --------------------------------------------------------------------------- validation
 
@@ -428,6 +433,19 @@ def _zone_desc(z) -> str:
     return str(len(z)) if isinstance(z, (list, tuple)) else f"a {type(z).__name__}"
 
 
+def _logic_guard_params(project: FieldProject):
+    """The once-guard allocator inputs shared by the build + Check (so they allocate IDENTICALLY): the member's
+    flag base + window (campaign) and the project's authored safe-band flags (to avoid aliasing one). A single
+    field has no base -> the allocator uses the whole safe band; window applies only with a base."""
+    base = getattr(project, "flag_base", None)
+    window = getattr(project, "flags_per_field", None) if base is not None else None
+    try:
+        reserved = _flags.collect_safe_flag_indices(project.raw)
+    except Exception:                                   # noqa: BLE001 -- flag collection must never break the build
+        reserved = set()
+    return base, window, reserved
+
+
 def _validate_logic_edits(project: FieldProject, problems: list) -> None:
     """OFFLINE dry-run of [[logic_edit]] (Phase-2 in-place edits) so a bad/drifted/overflowing edit -- or an edit
     on a non-verbatim field -- surfaces in `lint`/the Workspace Check, not only at full build. Mirrors the
@@ -445,6 +463,10 @@ def _validate_logic_edits(project: FieldProject, problems: list) -> None:
     from .config import LANGS as _LANGS
     try:
         base, _suffix = compose_verbatim_eb(project)      # same byte stream the build edits (retarget + inserts)
+        if base is None:                                  # [verbatim_eb] present but no `bin` (build silently skips)
+            problems.append("[[logic_edit]] needs a [verbatim_eb] block with a valid `bin` (the fork's .eb); "
+                            "without it the edits are ignored at build.")
+            return
         out = _le.apply_logic_edits(base, edits)
         problems += [f"[[logic_edit]] composed .eb: {e}" for e in _eblint.errors(_eblint.lint_eb(out))]
         for lang in _LANGS:                              # the .mes text rewrites, per language (cheap; local sidecar)
@@ -455,10 +477,42 @@ def _validate_logic_edits(project: FieldProject, problems: list) -> None:
         problems.append(f"[[logic_edit]] could not be validated: {type(ex).__name__}: {ex}")
 
 
+def _validate_logic_adds(project: FieldProject, problems: list) -> None:
+    """OFFLINE dry-run of [[logic_add]] (Phase-4a length-changing prepends) so a bad/unsafe add -- or an add on
+    a non-verbatim field -- surfaces in `lint`/the Workspace Check, not only at full build. Mirrors the build's
+    order + guard params EXACTLY (composed .eb + logic_edits, then the adds with the same guard window/reserved
+    flags, then eblint)."""
+    adds = project.logic_adds()
+    if not adds:
+        return
+    if "verbatim_eb" not in project.raw:
+        problems.append("[[logic_add]] only applies to a VERBATIM fork ([verbatim_eb]); this field is "
+                        "synthesized from field.toml -- it would be ignored. Author the source blocks directly.")
+        return
+    from . import eblint as _eblint
+    from . import logic_add as _la
+    from . import logic_edit as _le
+    try:
+        base, _suffix = compose_verbatim_eb(project)
+        if base is None:                                  # [verbatim_eb] present but no `bin`
+            problems.append("[[logic_add]] needs a [verbatim_eb] block with a valid `bin` (the fork's .eb); "
+                            "without it the adds are ignored at build.")
+            return
+        base = _le.apply_logic_edits(base, project.logic_edits())      # adds run AFTER edits (build order)
+        gb, gw, rf = _logic_guard_params(project)
+        out = _la.apply_logic_adds(base, adds, guard_base=gb, guard_window=gw, reserved_flags=rf)
+        problems += [f"[[logic_add]] composed .eb: {e}" for e in _eblint.errors(_eblint.lint_eb(out))]
+    except (_la.LogicAddError, _le.LogicEditError) as ex:
+        problems.append(f"[[logic_add]] {ex}")
+    except Exception as ex:                              # noqa: BLE001 -- never crash validate
+        problems.append(f"[[logic_add]] could not be validated: {type(ex).__name__}: {ex}")
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
     _validate_logic_edits(project, problems)
+    _validate_logic_adds(project, problems)
     story_names = _story_names(project)
     f = project.field
     for key in ("id", "name", "area"):
@@ -3384,11 +3438,33 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if verbatim_edits:
             from . import eblint as _eblint
             from . import logic_edit as _logic_edit
-            verbatim_bytes = _logic_edit.apply_logic_edits(verbatim_bytes, verbatim_edits)
+            try:
+                verbatim_bytes = _logic_edit.apply_logic_edits(verbatim_bytes, verbatim_edits)
+            except _logic_edit.LogicEditError as ex:     # match Check: a clean failure, not a raw traceback
+                raise BuildError(f"[[logic_edit]] in {project.name}: {ex}")
             _le_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
             if _le_errs:
                 raise BuildError(f"[[logic_edit]] broke the composed .eb of {project.name}: "
                                  f"{[str(e) for e in _le_errs]}")
+        # Phase-4a length-changing ADDITIONS ([[logic_add]]): a guarded PREPEND of an effect into a routine,
+        # AFTER the value edits (so the edits' donor-based coordinates aren't shifted by an inserted instr).
+        # The only primitive is the always-safe rel_off=0 prepend; the composed .eb is re-linted (a broken
+        # add fails the build, never ships). Guard params (member window + the project's authored flags) match
+        # Check exactly via _logic_guard_params, so an add that passes Check builds (and vice-versa).
+        verbatim_adds = project.logic_adds()
+        if verbatim_adds:
+            from . import eblint as _eblint
+            from . import logic_add as _logic_add
+            _gb, _gw, _rf = _logic_guard_params(project)
+            try:
+                verbatim_bytes = _logic_add.apply_logic_adds(verbatim_bytes, verbatim_adds, guard_base=_gb,
+                                                            guard_window=_gw, reserved_flags=_rf, warnings=warnings)
+            except _logic_add.LogicAddError as ex:       # match Check: a clean failure, not a raw traceback
+                raise BuildError(f"[[logic_add]] in {project.name}: {ex}")
+            _la_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+            if _la_errs:
+                raise BuildError(f"[[logic_add]] broke the composed .eb of {project.name}: "
+                                 f"{[str(e) for e in _la_errs]}")
         # a [[shop]] OPENER (a standalone `zone` region, or an `[[npc]] opens_shop`) is synthesized in
         # build_script, which the verbatim path bypasses -- so it is NOT injected here (the donor's own
         # logic ships instead). The inventory CSV still ships (mod-write stage). Warn so it isn't a silent
@@ -3400,6 +3476,9 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             warnings.append("[[shop]]/[[synthesis]] opener (zone region / [[npc]] opens_shop) is NOT injected into "
                             "a verbatim fork -- the donor's own .eb ships instead; the inventory/recipe CSV is still "
                             "written. Author the opener on a synthesized field if you need it.")
+    elif verbatim_edits or project.logic_adds():            # [verbatim_eb] present but no `bin` -> nothing composed
+        warnings.append(f"[[logic_edit]]/[[logic_add]] on {project.name} were NOT applied -- no verbatim .eb was "
+                        "composed ([verbatim_eb] is missing its `bin`). Add the fork's .eb bin or remove the edits.")
     for lang in langs:
         if verbatim_bytes is not None:
             eb = verbatim_bytes

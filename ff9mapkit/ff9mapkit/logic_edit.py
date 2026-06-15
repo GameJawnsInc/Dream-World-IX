@@ -175,11 +175,27 @@ def _apply_eb_edit(eb, buf, ed):
         raise LogicEditError(f"logic_edit unknown .eb kind '{kind}' (kinds: {_EB_KINDS} + 'text')")
 
 
+def _edit_list(edits):
+    """Validate the ``[[logic_edit]]`` container is an array of tables (so ``[logic_edit]`` -- a single TOML
+    table -- or junk is a clean :class:`LogicEditError`, not a raw ``AttributeError`` from ``.get`` on a key)
+    and return its non-empty entries."""
+    if edits is None:
+        return []
+    if not isinstance(edits, (list, tuple)):
+        raise LogicEditError("logic_edit must be an array of tables ([[logic_edit]]), not "
+                             f"{type(edits).__name__} (you likely wrote [logic_edit] instead of [[logic_edit]])")
+    out = [e for e in edits if e]
+    for e in out:
+        if not isinstance(e, dict):
+            raise LogicEditError(f"each logic_edit must be a table, got {type(e).__name__}")
+    return out
+
+
 def apply_logic_edits(eb_bytes, edits) -> bytes:
     """Apply every NON-text ``[[logic_edit]]`` to ``eb_bytes`` in place (length-preserving, old-guarded) and
     return the patched bytes. Empty / text-only -> byte-identical. Raises :class:`LogicEditError` on any unsafe
     edit (bad address, drift, overflow, unsupported)."""
-    eb_edits = [e for e in (edits or []) if e.get("kind") != "text"]
+    eb_edits = [e for e in _edit_list(edits) if e.get("kind") != "text"]
     if not eb_edits:
         return bytes(eb_bytes)
     eb = EbScript.from_bytes(eb_bytes)
@@ -210,7 +226,7 @@ def apply_logic_text_edits(body: str, edits, lang: str) -> str:
     rewritten body. A VERIFIED in-place splice: it replaces one entry's text payload, then re-parses and asserts
     every OTHER entry is byte-identical (so a botched splice fails the build, not the player). v1 supports the
     index-implicit verbatim donor body (no ``[TXID=]`` re-index markers)."""
-    text_edits = [e for e in (edits or []) if e.get("kind") == "text" and e.get("lang") in (None, lang)]
+    text_edits = [e for e in _edit_list(edits) if e.get("kind") == "text" and e.get("lang") in (None, lang)]
     if not text_edits or not body:
         return body
     from .dialogue import parse_mes, strip_tags

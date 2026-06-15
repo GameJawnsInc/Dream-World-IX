@@ -141,6 +141,14 @@ def test_unknown_kind_refused():
         LE.apply_logic_edits(_eb(RET), [{"kind": "frobnicate", "entry": 0, "tag": 0}])
 
 
+def test_malformed_edit_container_is_clean_error():
+    """`[logic_edit]` (a single table) / a non-dict element -> a clean LogicEditError, not a raw AttributeError."""
+    eb = _eb(ADDGIL + RET)
+    for bad in ("foo", [1], {"kind": "gil", "entry": 0, "tag": 0, "op": 0xCE, "old": 100, "new": 1}):
+        with pytest.raises(LE.LogicEditError):
+            LE.apply_logic_edits(eb, bad)
+
+
 def test_non_int_fields_raise_clean_logic_edit_error():
     """A TOML float/str/bool where an int is required (a hand-authoring slip) is a clean LogicEditError, not a
     raw TypeError/AttributeError traceback."""
