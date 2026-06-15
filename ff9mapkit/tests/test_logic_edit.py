@@ -233,3 +233,162 @@ def test_apply_on_real_field_eb():
     eb2 = EbScript.from_bytes(out)
     dests = [i.imm(0) for i in eb2.instrs(eb2.entry(ent).func_by_tag(tag)) if i.op == 0x2B]
     assert 6300 in dests
+
+
+# ============================================================================================
+# Phase 2b: editable_effects -- the GUI authoring surface (discover edit-sites, synth + merge edits)
+# ============================================================================================
+ADDITEM236 = bytes([0x48, 0, 236, 0, 1])               # AddItem(id=236, count=1)
+SETTEXTVAR236 = bytes([0x66, 0, 0, 236, 0])            # SetTextVariable(slot=0, value=236) -- display id
+WIN0 = bytes([0x1F, 0, 0, 0, 0, 0])                    # WindowSync(_, _, txid=0)
+
+
+def _site(sites, group, old=None):
+    return next(s for s in sites if s.group == group and (old is None or s.old == old))
+
+
+def test_editable_effects_item_pairs_give_and_display():
+    """An item reward surfaces ONE site whose synth retargets the AddItem give AND the matched
+    SetTextVariable 'Received <item>!' display together (the give-vs-display lesson)."""
+    eb = _eb(ADDITEM236 + SETTEXTVAR236 + RET)
+    sites = LE.editable_effects(eb, 0, 0)
+    s = _site(sites, "item")
+    assert s.old == 236 and len(s.templates) == 1 and len(s.display_templates) == 1
+    out = LE.apply_logic_edits(eb, LE.synth_edits(s, 239))
+    eb2 = EbScript.from_bytes(out)
+    ins = list(eb2.instrs(eb2.entries[0].funcs[0]))
+    assert [i.imm(0) for i in ins if i.op == 0x48] == [239]      # give retargeted
+    assert [i.imm(1) for i in ins if i.op == 0x66] == [239]      # display retargeted too
+    assert len(out) == len(eb) and eblint.errors(eblint.lint_eb(out)) == []
+
+
+def test_editable_effects_item_multi_occurrence_uses_nth():
+    """Two gives + two displays of the same id -> the synth emits per-nth edits that retarget all four."""
+    eb = _eb(ADDITEM236 + ADDITEM236 + SETTEXTVAR236 + SETTEXTVAR236 + RET)
+    s = _site(LE.editable_effects(eb, 0, 0), "item")
+    assert len(s.templates) == 2 and len(s.display_templates) == 2
+    assert [t.get("nth") for t in s.templates] == [0, 1]
+    out = LE.apply_logic_edits(eb, LE.synth_edits(s, 239))
+    eb2 = EbScript.from_bytes(out)
+    ins = list(eb2.instrs(eb2.entries[0].funcs[0]))
+    assert [i.imm(0) for i in ins if i.op == 0x48] == [239, 239]
+    assert [i.imm(1) for i in ins if i.op == 0x66] == [239, 239]
+
+
+def test_item_display_kind_pins_text_slot():
+    """The item-display edit targets ONLY SetTextVariable in text slot 0 (FF9's item-get display) -- a
+    same-value SetTextVariable in another slot (a preview row) must NOT be corrupted."""
+    eb = _eb(bytes([0x66, 0, 0, 236, 0]) + bytes([0x66, 0, 1, 236, 0]) + RET)   # STV(slot0,236), STV(slot1,236)
+    out = LE.apply_logic_edits(eb, [{"kind": "item_display", "entry": 0, "tag": 0, "op": 0x66,
+                                     "operand": 1, "slot": 0, "old": 236, "new": 239}])
+    eb2 = EbScript.from_bytes(out)
+    assert [(i.imm(0), i.imm(1)) for i in eb2.instrs(eb2.entries[0].funcs[0]) if i.op == 0x66] == [(0, 239), (1, 236)]
+
+
+def test_editable_effects_item_display_pairing_is_slot_aware():
+    """Discovery pairs an AddItem only with the SAME-id SetTextVariable in slot 0; a slot-1 same-value STV is
+    left out of the site (so retargeting the item never rewrites the unrelated preview)."""
+    eb = _eb(ADDITEM236 + bytes([0x66, 0, 0, 236, 0]) + bytes([0x66, 0, 1, 236, 0]) + RET)
+    s = _site(LE.editable_effects(eb, 0, 0), "item")
+    assert len(s.display_templates) == 1 and s.display_templates[0]["kind"] == "item_display"
+    out = LE.apply_logic_edits(eb, LE.synth_edits(s, 239))
+    eb2 = EbScript.from_bytes(out)
+    assert [(i.imm(0), i.imm(1)) for i in eb2.instrs(eb2.entries[0].funcs[0]) if i.op == 0x66] == [(0, 239), (1, 236)]
+
+
+def test_compose_verbatim_eb_retarget_makes_field_edit_match_build(tmp_path):
+    """build.compose_verbatim_eb returns the donor with [verbatim_eb] retarget applied (the SAME bytes the
+    build edits), so a field-warp site discovered on it carries the POST-retarget `old` -- the GUI dry-run and
+    the build can't diverge on a retargeted exit (the review's HIGH 'wrong bytes' bug)."""
+    from ff9mapkit import build
+    (tmp_path / "f.eb.bin").write_bytes(_eb(FIELD + RET))                 # donor Field(300)
+    (tmp_path / "f.field.toml").write_text(
+        '[field]\nid = 6300\nname = "F"\narea = 11\n\n[verbatim_eb]\nbin = "f.eb.bin"\n'
+        'retarget = { 300 = 6300 }\n', encoding="utf-8")
+    proj = build.FieldProject.load(tmp_path / "f.field.toml")
+    eb, _suffix = build.compose_verbatim_eb(proj)
+    e = EbScript.from_bytes(eb)
+    assert [i.imm(0) for i in e.instrs(e.entries[0].funcs[0]) if i.op == 0x2B] == [6300]   # retargeted pre-edit
+    site = next(s for s in LE.editable_effects(eb, 0, 0) if s.group == "field")
+    assert site.old == 6300                                               # discovery sees the build's value
+    out = LE.apply_logic_edits(eb, LE.synth_edits(site, 7000))            # the GUI-authored edit applies cleanly
+    assert eblint.errors(eblint.lint_eb(out)) == []
+
+
+def test_editable_effects_item_without_display_notes_it():
+    """A give with NO matching display still authors the give, with an advisory note."""
+    s = _site(LE.editable_effects(_eb(ADDITEM236 + RET), 0, 0), "item")
+    assert not s.display_templates and "only the give" in s.note
+    out = LE.apply_logic_edits(_eb(ADDITEM236 + RET), LE.synth_edits(s, 233))
+    assert _read(out, 0x48, 0) == 233
+
+
+def test_editable_effects_skips_inert_and_no_item_grants():
+    """The engine no-op AddItem ids (NO_ITEM 255 / id%1000>=612) are not editable sites (parity with the
+    read-only map, which hides them)."""
+    eb = _eb(bytes([0x48, 0, 255, 0, 1]) + bytes([0x48, 0, 0xBC, 0x02, 1]) + RET)   # AddItem(255), AddItem(700)
+    assert not [s for s in LE.editable_effects(eb, 0, 0) if s.group == "item"]
+
+
+def test_editable_effects_skips_gil_sentinel():
+    """A > party-cap AddGil (a scripted/computed sentinel, e.g. the generic treasure handler's gil branch) is
+    not surfaced as an editable reward."""
+    sentinel = bytes([0xCE, 0]) + (16000000).to_bytes(3, "little")   # AddGil(16000000) -- > 9,999,999 cap
+    assert not [s for s in LE.editable_effects(_eb(sentinel + RET), 0, 0) if s.group == "gil"]
+
+
+def test_editable_effects_gil_field_flag_round_trip():
+    sg = _site(LE.editable_effects(_eb(ADDGIL + RET), 0, 0), "gil")
+    assert _read(LE.apply_logic_edits(_eb(ADDGIL + RET), LE.synth_edits(sg, 5000)), 0xCE, 0) == 5000
+    sf = _site(LE.editable_effects(_eb(FIELD + RET), 0, 0), "field")
+    assert _read(LE.apply_logic_edits(_eb(FIELD + RET), LE.synth_edits(sf, 6300)), 0x2B, 0) == 6300
+    sx = _site(LE.editable_effects(_eb(FLAG + RET), 0, 0), "flag")
+    assert sx.new_key == "new_flag"
+    out = LE.apply_logic_edits(_eb(FLAG + RET), LE.synth_edits(sx, 8520))
+    eb = EbScript.from_bytes(out)
+    assert [_glob_var_token(out, i.off + 1)[0] for i in eb.instrs(eb.entries[0].funcs[0])
+            if i.op == 0x05 and _glob_var_token(out, i.off + 1)] == [8520]
+
+
+def test_editable_effects_text_per_language_guards():
+    """A dialogue line surfaces a per-language text site -- each template guarded by THAT language's own
+    current string, so one new string writes consistently across langs that differ."""
+    from ff9mapkit.dialogue import parse_mes
+    us = "[STRT=10,1]Hello world[ENDN][STRT=8,2][TAIL=DWN]Second line[ENDN]"
+    fr = "[STRT=10,1]Bonjour[ENDN][STRT=8,2][TAIL=DWN]Second line[ENDN]"
+    sites = LE.editable_effects(_eb(WIN0 + RET), 0, 0, entries=parse_mes(us),
+                                lang_bodies={"us": us, "fr": fr})
+    s = _site(sites, "text")
+    assert s.old == "Hello world"
+    olds = {t["lang"]: t["old"] for t in s.templates}
+    assert olds == {"us": "Hello world", "fr": "Bonjour"}        # each lang guarded by its own line
+    edits = LE.synth_edits(s, "Hi there")
+    assert "Hi there" in LE.apply_logic_text_edits(us, edits, "us")
+    assert "Hi there" in LE.apply_logic_text_edits(fr, edits, "fr")
+
+
+def test_editable_effects_text_reindexed_body_skipped():
+    """A [TXID=]-reindexed .mes (Phase 4) is not offered as an editable text site (no template -> no row)."""
+    from ff9mapkit.dialogue import parse_mes
+    us = "[STRT=10,1]Hello world[ENDN]"
+    sites = LE.editable_effects(_eb(WIN0 + RET), 0, 0, entries=parse_mes(us),
+                                lang_bodies={"us": "[TXID=0][STRT=10,1]Hello world[ENDN]"})
+    assert not [s for s in sites if s.group == "text"]
+
+
+def test_synth_then_upsert_replaces_not_stacks():
+    """Re-editing the same site replaces its edits (matched by coords), so the list never accumulates
+    stale layers; site_footprint drops the give AND display together."""
+    s = _site(LE.editable_effects(_eb(ADDITEM236 + SETTEXTVAR236 + RET), 0, 0), "item")
+    lst = LE.upsert_edits([], LE.synth_edits(s, 239), drop=LE.site_footprint(s))
+    assert len(lst) == 2
+    lst2 = LE.upsert_edits(lst, LE.synth_edits(s, 241), drop=LE.site_footprint(s))
+    assert len(lst2) == 2 and {e["new"] for e in lst2} == {241}    # replaced, not stacked
+    cleared = LE.upsert_edits(lst2, [], drop=LE.site_footprint(s))
+    assert cleared == []                                           # clearing a site removes all its edits
+
+
+def test_editable_effects_out_of_range_and_empty():
+    assert LE.editable_effects(_eb(RET), 9, 0) == []               # no such entry
+    assert LE.editable_effects(_eb(RET), 0, 7) == []               # no such tag
+    assert LE.editable_effects(_eb(RET), 0, 0) == []               # a routine with no editable values

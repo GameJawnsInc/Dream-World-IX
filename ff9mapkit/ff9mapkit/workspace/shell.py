@@ -1054,18 +1054,7 @@ class Workspace(QMainWindow):
         name = self._payload(field_item)[1]
         try:
             from .. import logic_map as LM
-            spec = (self._doc(name).data.get("verbatim_eb") or {})
-            base = Path(self.member_paths[name]).parent
-            eb = (base / spec["bin"]).read_bytes()
-            entries = None
-            tj = spec.get("text")
-            if tj and (base / tj).exists():
-                import json
-                from .. import dialogue as _d
-                blocks = json.loads((base / tj).read_text(encoding="utf-8"))
-                body = blocks.get("us") or next(iter(blocks.values()), None) if isinstance(blocks, dict) else None
-                if body:
-                    entries = _d.parse_mes(body)
+            eb, entries, _lang = self._member_logic_inputs(name)
             lm = LM.build_logic_map(eb, entries=entries)
         except Exception as e:                          # noqa: BLE001
             grp.addChild(self._mk("note", f"(could not build logic map: {e})"))
@@ -1106,6 +1095,52 @@ class Workspace(QMainWindow):
             out.append(f"spawned: {e.spawns}x" if e.spawns else "defined, not spawned")
         out.append(f"functions (tags): {', '.join(str(t) for t in e.tags) or '—'}")
         return out
+
+    def _member_logic_inputs(self, member):
+        """Load a verbatim member's ``.eb`` bytes AS THE BUILD EDITS THEM + parsed us ``.mes`` (line text) +
+        ALL-language ``.mes`` bodies (for per-language text edits) from the LOCAL sidecars -- no game install.
+        Shared by the read-only logic map and the in-place edit panel. Returns ``(eb_bytes, us_entries|None,
+        {lang: body})``; raises on a missing/unreadable ``.bin``."""
+        import json
+        from .. import dialogue as _d
+        spec = (self._doc(member).data.get("verbatim_eb") or {})
+        base = Path(self.member_paths[member]).parent
+        eb = self._composed_verbatim_eb(member, spec, base)
+        entries, lang_bodies = None, {}
+        tj = spec.get("text")
+        if tj and (base / tj).exists():
+            blocks = json.loads((base / tj).read_text(encoding="utf-8"))
+            if isinstance(blocks, dict):
+                lang_bodies = {k: v for k, v in blocks.items() if isinstance(v, str)}
+                body = blocks.get("us") or next(iter(lang_bodies.values()), None)
+                if body:
+                    entries = _d.parse_mes(body)
+        return eb, entries, lang_bodies
+
+    def _composed_verbatim_eb(self, member, spec, base):
+        """The member's verbatim ``.eb`` AS THE BUILD EDITS IT: the donor bytes with the ``retarget`` Field-remap
+        + the ``[startup]``/``[party]``/``[[on_entry]]`` field-load inserts applied (``build.compose_verbatim_eb``,
+        the SAME composition Check + the build run), so the panel's discovery + dry-run can't disagree with the
+        build (a ``field`` warp's ``old`` and a flag/item ``nth`` are computed on the SAME stream). Built from the
+        ON-DISK project -- the build also runs on saved files, and the GUI doesn't edit retarget/startup, only the
+        ``[[logic_edit]]`` list (applied separately). Degrades to the retargeted donor, then the raw donor, if the
+        project can't be composed, so the panel never breaks."""
+        raw = (base / spec["bin"]).read_bytes()
+        try:
+            from .. import build as _build
+            eb, _suffix = _build.compose_verbatim_eb(_build.FieldProject.load(self.member_paths[member]))
+            if eb is not None:
+                return eb
+        except Exception:                              # noqa: BLE001 -- e.g. a jump-table donor -> degrade
+            pass
+        try:                                           # at least apply the Field() retarget (the common case)
+            from ..content.verbatim import remap_fields
+            rt = {int(k): int(v) for k, v in (spec.get("retarget") or {}).items()}
+            if rt:
+                return remap_fields(raw, rt)
+        except Exception:                              # noqa: BLE001
+            pass
+        return raw
 
     def _doc(self, member):
         """The member's FieldDoc, loaded once and cached (the form edits this instance + saves it)."""
@@ -1257,9 +1292,11 @@ class Workspace(QMainWindow):
             member = self._payload(field_item)[1]
             if item is field_item:                 # the member row itself -> its Field form
                 self._open_editor(member, "field", "field")
+            elif p[0] == "logic_node":             # a verbatim routine -> the in-place [[logic_edit]] panel
+                self._open_editor(member, "logic_node", p[2])
             elif p[0] not in _LOGIC_KINDS:         # an object/group under it -> edit by its key
                 self._open_editor(member, p[0], p[2])
-            #                                        (logic-map nodes are READ-ONLY -> inspector only, no form)
+            #                                        (logic_root / logic_entry are containers -> inspector only)
 
     def _on_select_journey(self, item, p):
         """JOURNEY-mode selection: a journey/root row shows the plan overview; a campaign row prompts to open
@@ -1491,8 +1528,38 @@ class Workspace(QMainWindow):
         self._goto_focus(member, focus)               # select + mount the edited node from restored data
         self.statusBar().showMessage(note, 3000)
 
+    def _select_logic_node(self, member, entry, tag):
+        """Expand the member's Script subtree + select its ``(entry, tag)`` routine row so the edit panel and
+        the tree highlight agree (after an undo/redo). Returns True if the row was found + selected."""
+        mi = getattr(self, "_member_items", {}).get(member)
+        if mi is None:
+            return False
+        grp = next((mi.child(i) for i in range(mi.childCount())
+                    if (self._payload(mi.child(i)) or (None,))[0] == "logic_root"), None)
+        if grp is None:
+            return False
+        self.tree.expandItem(grp)                      # triggers the lazy _load_logic_map if not yet built
+        want = f"logic_n:{entry}:{tag}"
+        for ei in range(grp.childCount()):
+            en = grp.child(ei)
+            for ri in range(en.childCount()):
+                rn = en.child(ri)
+                if (self._payload(rn) or (None, None, None))[2] == want:
+                    self.tabs.setCurrentWidget(self.doc_scroll)
+                    self.tree.setCurrentItem(rn)       # fires _on_select -> mounts the panel + breadcrumb
+                    return True
+        return False
+
     def _goto_focus(self, member, key):
         """Select + mount the node ``(member, key)`` after an undo/redo (falls back to the member row)."""
+        if key and key.startswith("logic_n:"):       # a verbatim logic-node edit -> re-open its edit panel
+            parts = key.split(":")
+            if len(parts) == 3 and member in self._docs:
+                e_, t_ = int(parts[1]), int(parts[2])
+                if not self._select_logic_node(member, e_, t_):   # select the tree row (panel + highlight agree)
+                    self.tabs.setCurrentWidget(self.doc_scroll)   # row gone (lazy/closed) -> mount directly
+                    self._mount_logic_node(member, e_, t_)
+                return
         node = None
         if key and ":" in key:                        # a list entity (npc:2) or a choice (choice:0)
             node = self._object_item(member, key, kind="object")
@@ -1616,6 +1683,11 @@ class Workspace(QMainWindow):
             self._doc_placeholder("Camera / walkmesh / layers / positions are SPATIAL — author them in "
                                   "Blender (FF9 Map Kit add-on). This shell owns the logic only.")
             return
+        if kind == "logic_node":                   # a verbatim routine -> the in-place [[logic_edit]] panel
+            parts = key.split(":")                  # key = "logic_n:<entry>:<tag>"
+            if len(parts) == 3:
+                self._mount_logic_node(member, int(parts[1]), int(parts[2]))
+            return
         if key in _SINGLES:                        # a single table (field/encounter/music/dialogue)
             spec = _SECTION_SPEC[key]
             self._mount_form(member, key, spec, doc.data.get(key, {}) or {}, single=True, section=key)
@@ -1653,6 +1725,277 @@ class Workspace(QMainWindow):
         btn.clicked.connect(lambda _=False: self._add_list_item(member, kind))
         self.doc_host_lay.addWidget(btn, alignment=Qt.AlignLeft)
         self.doc_host_lay.addStretch(1)
+
+    # ---- in-place edits of a verbatim fork's .eb (the "Script" subtree -> [[logic_edit]] authoring) ----
+    def _mount_logic_node(self, member, entry, tag):
+        """The in-place edit panel for one verbatim routine: each editable value (item reward, gil, warp,
+        story flag, dialogue line) as a row with an 'Edit…' affordance that authors a ``[[logic_edit]]`` into
+        the member's field.toml (the amber-dot/Save flow). Sidesteps dead-end #14 -- edit the shipped ``.eb``
+        IN PLACE rather than extract a routine. Each commit is dry-run-validated (build's verbatim pass)."""
+        from .. import logic_edit as LE
+        self._clear_doc()
+        self._set_editor_tab(f"Script · entry {entry}")
+        try:
+            eb, entries, lang_bodies = self._member_logic_inputs(member)
+            sites = LE.editable_effects(eb, entry, tag, entries=entries, lang_bodies=lang_bodies)
+        except Exception as e:                          # noqa: BLE001
+            self._doc_placeholder(f"Could not load the script for {member}: {e}")
+            return
+        self._header(f"{member}  ·  entry {entry} / tag {tag}",
+                     "In-place edits to the shipped .eb / .mes. Changing a value authors a [[logic_edit]] — "
+                     "length-preserving + old-guarded; the read-only tree above still shows the donor's "
+                     "original. Run Check, then Build & Deploy.")
+        reason = protected_reason(self.member_paths[member])
+        if reason:
+            self.doc_host_lay.addWidget(self._warn_label(
+                f"⚠ {reason}. Save a copy in a folder of your own to author edits."))
+        if not sites:
+            self.doc_host_lay.addWidget(self._muted_label(
+                "No editable values in this routine — it has no item/gil/warp/flag/dialogue literals. "
+                "(Control flow, calls, and adding instructions are Phase 4.)"))
+            self.doc_host_lay.addStretch(1)
+            self._active_save = None
+            return
+        existing = self._doc(member).data.get("logic_edit") or []
+        npend = sum(1 for s in sites if self._logic_pending(s, existing))
+        self.doc_host_lay.addWidget(self._muted_label(
+            f"{len(sites)} editable value(s)" + (f" · {npend} with an unsaved edit" if npend else "")))
+        for site in sites:
+            self.doc_host_lay.addWidget(self._logic_site_row(member, entry, tag, site, existing))
+        self._active_save = lambda m=member, e=entry, t=tag: self._save_logic(m, e, t)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 8, 0, 0)
+        save = QPushButton("Save")
+        save.setObjectName("accent")
+        save.clicked.connect(lambda _=False: self._save_logic(member, entry, tag))
+        row.addWidget(save)
+        rst = QPushButton("Reset")
+        rst.setToolTip("Discard ALL unsaved logic edits on this field (revert to the last save)")
+        rst.clicked.connect(lambda _=False: self._reset_logic(member, entry, tag))
+        row.addWidget(rst)
+        row.addStretch(1)
+        holder = QWidget()
+        holder.setLayout(row)
+        self.doc_host_lay.addWidget(holder)
+        self.doc_host_lay.addStretch(1)
+
+    def _muted_label(self, text):
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setWordWrap(True)
+        return lbl
+
+    def _warn_label(self, text):
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"color:{self.pal['warn']};")
+        lbl.setWordWrap(True)
+        return lbl
+
+    @staticmethod
+    def _logic_pending(site, existing):
+        """The pending edits on ``site`` (coords in its footprint), or [] -- the unsaved [[logic_edit]] rows."""
+        from .. import logic_edit as LE
+        foot = LE.site_footprint(site)
+        return [e for e in (existing or []) if LE.edit_coord(e) in foot]
+
+    def _logic_site_row(self, member, entry, tag, site, existing):
+        """One editable-value row: 'gives Potion  →  Elixir (unsaved)'  [Edit…] [Revert]."""
+        pend = self._logic_pending(site, existing)
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 2, 0, 2)
+        cur = self._logic_value_str(site, site.old)
+        if pend:
+            newv = pend[0].get(site.new_key)
+            txt = f'{site.label}  →  <b>{_esc(self._logic_value_str(site, newv))}</b>  ' \
+                  f'<span style="color:{self.pal["warn"]};">(unsaved)</span>'
+        else:
+            txt = f"{site.label}" + (f"  <span style='color:{self.pal['muted']};'>= {_esc(cur)}</span>"
+                                     if site.value_kind != "string" else "")
+        lbl = QLabel(txt)
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setWordWrap(True)
+        if site.note and not pend:
+            lbl.setToolTip(site.note)
+        h.addWidget(lbl, 1)
+        edit = QPushButton("Edit…")
+        edit.clicked.connect(lambda _=False, s=site: self._edit_logic_site(member, entry, tag, s))
+        h.addWidget(edit)
+        if pend:
+            rv = QPushButton("Revert")
+            rv.clicked.connect(lambda _=False, s=site: self._revert_logic_site(member, entry, tag, s))
+            h.addWidget(rv)
+        return w
+
+    def _logic_value_str(self, site, v):
+        """A friendly rendering of a site value: an item name, a truncated string, else the number."""
+        if site.value_kind == "item":
+            from .. import items
+            return items.name_of(v) or f"item #{v}"
+        if site.value_kind == "string":
+            s = " ".join(str(v).split())
+            return '"' + (s[:44] + "…" if len(s) > 44 else s) + '"'
+        return str(v)
+
+    def _resolve_logic_value(self, site, text):
+        """Parse the dialog text into a NEW value for ``site`` (an item name/id, a number, or a string).
+        Raises ValueError with a hint on a bad value."""
+        if site.value_kind == "string":
+            return text
+        text = (text or "").strip()
+        if not text:
+            raise ValueError("enter a value")
+        if site.value_kind == "item":
+            from .. import items
+            try:
+                return items.resolve(text)             # a name, or a 0–255 regular item id
+            except ValueError:
+                if text.isdigit():                     # allow a raw pool-encoded id beyond the named 0–255 space
+                    return int(text)
+                raise
+        if not text.lstrip("-").isdigit():
+            raise ValueError("enter a whole number")
+        return int(text)
+
+    def _logic_value_dialog(self, site):
+        """Modal editor for one site's value; returns the NEW value (int, or str for a dialogue line) or None."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit value")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel(site.label))
+        if site.value_kind == "string":
+            ed = QPlainTextEdit(str(site.old))
+            ed.setMinimumSize(QSize(380, 96))
+            form.addRow("New line", ed)
+            if site.note:
+                form.addRow(self._muted_label(site.note + " — other languages are set to this line too."))
+            form.addRow(self._ok_cancel(dlg))
+            return ed.toPlainText() if dlg.exec() == QDialog.DialogCode.Accepted else None
+        prefill = self._logic_value_str(site, site.old) if site.value_kind == "item" else str(site.old)
+        ed = QLineEdit(prefill)
+        ed.setMinimumWidth(260)
+        form.addRow("New value", ed)
+        hint = self._muted_label(site.note or "")
+        form.addRow(hint)
+        if site.value_kind == "item":
+            def on_change(*_):
+                try:
+                    v = self._resolve_logic_value(site, ed.text())
+                    hint.setText(f"→ {self._logic_value_str(site, v)}  (#{v})")
+                except ValueError as e:
+                    hint.setText(f"⚠ {e}")
+            ed.textChanged.connect(on_change)
+            ed.selectAll()
+            on_change()
+        form.addRow(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        try:
+            return self._resolve_logic_value(site, ed.text())
+        except ValueError as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Bad value"), [fb.Problem(fb.ERROR, str(e))])
+            return None
+
+    def _edit_logic_site(self, member, entry, tag, site):
+        new = self._logic_value_dialog(site)
+        if new is None:
+            return
+        if site.group != "text" and new == site.old:            # back to the donor value -> just clear the edit
+            self._revert_logic_site(member, entry, tag, site)
+            return
+        self._commit_logic_edit(member, entry, tag, site, new)
+
+    def _commit_logic_edit(self, member, entry, tag, site, new):
+        """Author (or replace) ``site``'s edit -> the member's ``logic_edit`` list, AFTER a clean offline
+        dry-run (build's verbatim pass). On a validation error nothing is written + the reason is shown."""
+        from .. import logic_edit as LE
+        doc = self._doc(member)
+        cand = LE.upsert_edits(doc.data.get("logic_edit"), LE.synth_edits(site, new),
+                               drop=LE.site_footprint(site))
+        err = self._validate_logic_candidate(member, cand)
+        if err:
+            self._show_problems(fb.Verdict(fb.ERROR, "Edit not applied — it wouldn't build"),
+                                [fb.Problem(fb.ERROR, err)])
+            return
+        self._set_logic_edits(member, cand)
+        self._touch(member)
+        self._checkpoint(member, f"edit {site.group}", f"logic_n:{entry}:{tag}")
+        self._mount_logic_node(member, entry, tag)              # re-render with the pending state
+        self._show_problems(fb.Verdict(fb.OK,
+                            f"{member}: {site.label} → {self._logic_value_str(site, new)} (unsaved)"), [])
+
+    def _revert_logic_site(self, member, entry, tag, site):
+        from .. import logic_edit as LE
+        doc = self._doc(member)
+        self._set_logic_edits(member, LE.upsert_edits(doc.data.get("logic_edit"), [],
+                                                      drop=LE.site_footprint(site)))
+        self._reconcile_logic_dirty(member)
+        self._checkpoint(member, f"revert {site.group}", f"logic_n:{entry}:{tag}")
+        self._mount_logic_node(member, entry, tag)
+
+    def _set_logic_edits(self, member, cand):
+        """Write the member's ``logic_edit`` list (or drop the key entirely when empty, so a fully-reverted
+        field stays byte-identical to the donor and the toml has no empty ``[[logic_edit]]`` noise)."""
+        doc = self._doc(member)
+        if cand:
+            doc.data["logic_edit"] = cand
+        else:
+            doc.data.pop("logic_edit", None)
+
+    def _validate_logic_candidate(self, member, cand):
+        """Dry-run ``cand`` against the member's LOCAL .eb/.mes (mirrors build._validate_logic_edits). Returns
+        an error string, or None if every edit applies cleanly + the composed .eb lints clean."""
+        from .. import logic_edit as LE
+        from .. import eblint
+        try:
+            eb, _entries, lang_bodies = self._member_logic_inputs(member)
+            errs = eblint.errors(eblint.lint_eb(LE.apply_logic_edits(eb, cand)))
+            if errs:
+                return "composed .eb: " + errs[0]
+            for lang, body in lang_bodies.items():
+                LE.apply_logic_text_edits(body, cand, lang)
+        except LE.LogicEditError as ex:
+            return str(ex)
+        except Exception as ex:                                  # noqa: BLE001
+            return f"{type(ex).__name__}: {ex}"
+        return None
+
+    def _reconcile_logic_dirty(self, member):
+        """After a revert, drop the touch flag iff the doc is back to its saved baseline."""
+        if member in self._docs and self._docs[member].data == self._clean.get(member):
+            self._touched.discard(member)
+        else:
+            self._touched.add(member)
+        self._refresh_dirty_marks()
+
+    def _save_logic(self, member, entry, tag):
+        """Persist the member's doc (its authored logic_edit list) to disk + clear the dot."""
+        reason = protected_reason(self.member_paths[member])
+        if reason:
+            self._show_problems(fb.Verdict(fb.ERROR, "Can't save here"),
+                                [fb.Problem(fb.ERROR, f"{reason}. Save a copy in a folder of your own.")])
+            return
+        try:
+            self._doc(member).save()
+        except Exception as e:                                   # noqa: BLE001
+            self._show_problems(fb.Verdict(fb.ERROR, "Save failed"), [fb.Problem(fb.ERROR, str(e))])
+            return
+        self._mark_clean(member)
+        self._checkpoint(member, "save logic edits", f"logic_n:{entry}:{tag}")
+        self._show_problems(fb.Verdict(fb.OK, f"Saved {member} · logic edits",
+                                       f"wrote {self.member_paths[member].name}"), [])
+
+    def _reset_logic(self, member, entry, tag):
+        """Reset = discard ALL unsaved logic edits on this field (restore the saved baseline's list)."""
+        clean = self._clean.get(member, {})
+        doc = self._doc(member)
+        if "logic_edit" in clean:
+            doc.data["logic_edit"] = copy.deepcopy(clean["logic_edit"])
+        else:
+            doc.data.pop("logic_edit", None)
+        self._reconcile_logic_dirty(member)
+        self._checkpoint(member, "reset logic edits", f"logic_n:{entry}:{tag}")
+        self._mount_logic_node(member, entry, tag)
 
     # ---- tree right-click / Delete-key: Add to a group, Delete an entity, Remove a single section ----
     def _context_actions(self, item):
@@ -3614,11 +3957,46 @@ def _smoke(win):
                      if win._payload(sgrp.child(i))[0] == "logic_entry")
         assert eitem.childCount() >= 1, "the entry has decoded routines"
         rnode = eitem.child(0)
-        win.tree.setCurrentItem(rnode)                      # read-only inspect: detail shown, NO form mounted
+        win.tree.setCurrentItem(rnode)                      # read-only inspect: detail shown in the inspector
         assert win._payload(rnode)[0] == "logic_node" and win.insp_body.text(), "routine detail in the inspector"
         win.tree.setCurrentItem(vitem)
         assert "verbatim fork" in win.insp_body.text(), win.insp_body.text()
-        vb_ok = True
+
+        # PHASE 2b -- editable logic node: selecting a routine mounts the in-place edit panel; authoring a
+        # value writes a [[logic_edit]] into the member field.toml (the amber-dot flow), a revert clears it.
+        from .. import logic_edit as _LE
+        win._open_editor("ALEXFORK", "logic_node", win._payload(rnode)[2])   # mount the panel (sites or empty)
+        assert win.doc_host_lay.count() > 0, "logic-node edit panel mounted"
+        eb_b, ents, langs = win._member_logic_inputs("ALEXFORK")
+        _SAFE = {"text": "Smoke edit!", "item": 233, "gil": 7, "field": 6300}   # safe NEW per editable kind
+        edit_ok = False
+        for ei in range(sgrp.childCount()):
+            en = sgrp.child(ei)
+            if win._payload(en)[0] != "logic_entry":
+                continue
+            for ri in range(en.childCount()):
+                rkey = win._payload(en.child(ri))[2]
+                e_, t_ = int(rkey.split(":")[1]), int(rkey.split(":")[2])
+                site = next((s for s in _LE.editable_effects(eb_b, e_, t_, entries=ents, lang_bodies=langs)
+                             if s.group in _SAFE), None)
+                if site is None:
+                    continue
+                win._open_editor("ALEXFORK", "logic_node", rkey)
+                win._commit_logic_edit("ALEXFORK", e_, t_, site, _SAFE[site.group])
+                assert win._doc("ALEXFORK").data.get("logic_edit"), "authored a [[logic_edit]]"
+                assert "ALEXFORK" in win._unsaved(), "authoring dirtied the member"
+                win._undo()                                     # undo re-opens the panel + clears the edit
+                assert not win._doc("ALEXFORK").data.get("logic_edit"), "undo removed the edit"
+                assert win.doc_host_lay.count() > 0, "undo re-mounted the logic panel (not the field form)"
+                win._redo()
+                assert win._doc("ALEXFORK").data.get("logic_edit"), "redo restored the edit"
+                win._revert_logic_site("ALEXFORK", e_, t_, site)
+                assert not win._doc("ALEXFORK").data.get("logic_edit"), "revert cleared the edit"
+                edit_ok = True
+                break
+            if edit_ok:
+                break
+        vb_ok = "edited" if edit_ok else "shown"
 
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
@@ -3628,7 +4006,8 @@ def _smoke(win):
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
-          f"(open/lint/overview/drill-in) + VERBATIM logic-map subtree ({'shown' if vb_ok else 'fixture-skipped'}) "
+          f"(open/lint/overview/drill-in) + VERBATIM logic-map subtree + in-place edit panel "
+          f"({vb_ok or 'fixture-skipped'}) "
           f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
 
 

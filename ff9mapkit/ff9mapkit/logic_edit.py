@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 import struct
+from dataclasses import dataclass, field as _dc_field
 
 from .eb import disasm
 from .eb.model import EbScript
@@ -30,9 +31,10 @@ ITEM_OP = 0x48          # AddItem(item_id:u16, count:u8)
 GIL_OP = 0xCE           # AddGil(amount:u24)
 FIELD_OP = 0x2B         # Field(dest:u16)
 EXPR_OP = 0x05          # an expression statement (a GLOB flag read/write rides here)
+SETTEXTVAR_OP = 0x66    # SetTextVariable(slot:u8, value:u16) -- feeds the "Received <item>!" DISPLAY id
 WINDOW_OPS = {0x1F: 2, 0x20: 2, 0x95: 3, 0x96: 3}   # Window op -> its txid operand index (dialogue.WINDOW_OPS)
 _ITEM_OPERAND = {"id": 0, "count": 1}
-_EB_KINDS = ("field", "item", "gil", "txid", "flag_index", "operand")
+_EB_KINDS = ("field", "item", "gil", "txid", "flag_index", "operand", "item_display")
 _TAIL_RE = re.compile(r"\[TAIL=([^\]]*)\]")
 
 
@@ -99,13 +101,16 @@ def _guarded_write(buf, abs_off, w, old, new):
     buf[abs_off:abs_off + w] = new.to_bytes(w, "little")
 
 
-def _operand_edit(eb, buf, ed, op, operand_index):
-    """Locate an instr (op, current operand == old) in entry/tag and overwrite that operand same-width."""
+def _operand_edit(eb, buf, ed, op, operand_index, *, extra=None, what=None):
+    """Locate an instr (op, current operand == old, + an optional ``extra(ins)`` guard) in entry/tag and
+    overwrite that operand same-width. ``extra`` lets a kind pin a SECOND operand (e.g. the item-display
+    text slot) so the value-filtered nth matches discovery -- without it, an unrelated same-value instr
+    could be mis-targeted."""
     f = _func(eb, ed)
     old, new = _int(ed, "old"), _int(ed, "new")
-    hits = [i for i in eb.instrs(f) if i.op == op and i.imm(operand_index) == old]
-    ins = _pick(hits, ed, f"{disasm.op_name(op)} with operand[{operand_index}]=={old} in "
-                          f"entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')}")
+    hits = [i for i in eb.instrs(f) if i.op == op and i.imm(operand_index) == old and (extra is None or extra(i))]
+    ins = _pick(hits, ed, what or (f"{disasm.op_name(op)} with operand[{operand_index}]=={old} in "
+                                   f"entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')}"))
     bo = _arg_byte_offset(ins, operand_index)
     if bo is None:
         raise LogicEditError(f"logic_edit cannot address {disasm.op_name(op)} operand {operand_index} "
@@ -151,9 +156,15 @@ def _apply_eb_edit(eb, buf, ed):
     elif kind == "flag_index":
         _flag_edit(eb, buf, ed)
     elif kind == "operand":                                  # generic escape hatch: patch literal operand
-        _operand_edit(eb, buf, ed, _int(ed, "op"), _int(ed, "operand"))   # `operand` of any op (e.g. the
-        #   item id a SetTextVariable(0x66) feeds the "Received <item>!" message -- the DISPLAY half of a
-        #   reward, separate from the AddItem that GIVES it; both must change to fully retarget a chest)
+        _operand_edit(eb, buf, ed, _int(ed, "op"), _int(ed, "operand"))   # `operand` of any op (caller owns
+        #   the choice of op/operand/nth -- e.g. a hand-authored display patch; no slot guard)
+    elif kind == "item_display":                             # the "Received <item>!" DISPLAY half of a reward:
+        slot = _int(ed, "slot", optional=True)               #   SetTextVariable(slot, item_id). FF9's item-get
+        slot = 0 if slot is None else slot                   #   display is slot 0; pin it so a same-value
+        old = _int(ed, "old")                                #   SetTextVariable in another slot isn't corrupted.
+        _operand_edit(eb, buf, ed, SETTEXTVAR_OP, 1, extra=lambda i: i.imm(0) == slot,
+                      what=f"SetTextVariable(slot={slot}, id={old}) display in "
+                           f"entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')}")
     else:
         raise LogicEditError(f"logic_edit unknown .eb kind '{kind}' (kinds: {_EB_KINDS} + 'text')")
 
@@ -228,3 +239,212 @@ def apply_logic_text_edits(body: str, edits, lang: str) -> str:
                 raise LogicEditError(f"logic_edit text splice corrupted txid {t} ({lang})")
         body = spliced
     return body
+
+
+# --- discovery: the editable value-sites of one routine (the GUI authoring surface) -----------------
+# The GUI (Workspace "Script (verbatim .eb)" subtree) can't ask the user to hand-write entry/tag/op/nth/old
+# coordinates. So this walks ONE (entry, tag) routine the way the appliers' `_pick` filters do, and returns a
+# legible EditSite per editable value, each carrying ready-to-fill [[logic_edit]] templates. Edit -> click ->
+# pick a new value; :func:`synth_edits` splices it in; :func:`upsert_edits` merges into the field.toml list.
+@dataclass
+class EditSite:
+    """One editable value in a routine -- a row + 'Edit…' affordance in the GUI. ``templates`` are the
+    [[logic_edit]] dicts MINUS the new-value key (filled by :func:`synth_edits`). For an item reward the
+    AddItem give and the matched ``SetTextVariable`` 'Received <item>!' display are paired in
+    ``display_templates`` so ONE edit retargets both -- the give-vs-display decoupling: if only the give
+    changes, the message lies (the chest-says-Potion-gives-Elixir bug)."""
+    group: str                  # item | gil | field | flag | text  (what's being edited)
+    value_kind: str             # item | int | flag | string  -> how the dialog renders/validates NEW
+    label: str                  # the row label shown in the panel
+    old: object                 # the donor's current value (int, or the us string for text)
+    new_key: str = "new"        # the template key the NEW value goes under ("new", or "new_flag" for flag)
+    templates: list = _dc_field(default_factory=list)          # the primary edits (the give / the value)
+    display_templates: list = _dc_field(default_factory=list)  # item: the paired display edits
+    note: str = ""              # an advisory (e.g. no display site found / count not shown)
+    key: str = ""               # a stable id for this site within the routine (GUI row <-> its edits)
+
+
+def _op_tmpl(kind, entry, tag, old, nth, total, *, op=None, operand=None):
+    """One length-preserving operand template (the new value spliced in later). ``nth`` is included only
+    when the value is ambiguous (``total`` > 1) -- mirroring what the appliers' ``_pick`` requires."""
+    t = {"kind": kind, "entry": int(entry), "tag": int(tag), "old": old}
+    if op is not None:
+        t["op"] = op
+    if operand is not None:
+        t["operand"] = operand
+    if total > 1:
+        t["nth"] = nth
+    return t
+
+
+def _value_groups(instrs, op, operand_index):
+    """``{value: [nth, ...]}`` for every immediate ``operand_index`` of ``op`` -- the value-filtered nth
+    each occurrence gets (the exact index :func:`_pick` resolves), so an edit can target all or one."""
+    groups: dict = {}
+    for ins in instrs:
+        if ins.op != op:
+            continue
+        v = ins.imm(operand_index)
+        if v is None:
+            continue
+        groups.setdefault(v, []).append(len(groups.get(v, [])))
+    return groups
+
+
+def _line_old(entries, txid):
+    """The donor's current line (tag-stripped) for ``txid``, or None (no ``.mes`` / not found)."""
+    if not entries:
+        return None
+    from .dialogue import strip_tags
+    ent = entries.get(int(txid))
+    return strip_tags(ent.text) if ent is not None else None
+
+
+def _short(s, width=44):
+    s = " ".join(str(s).split())
+    return (s[:width] + "…") if len(s) > width else s
+
+
+def _text_templates(txid, lang_bodies, fallback_old):
+    """A per-language ``text`` template (each guarded by THAT language's own current string) so a single
+    new string is written to every localized copy consistently. Skips a ``[TXID=]``-reindexed body (Phase
+    4) and a language missing the txid. Falls back to one lang-agnostic template when no bodies are given."""
+    if not lang_bodies:
+        return [{"kind": "text", "txid": int(txid), "old": fallback_old}] if fallback_old is not None else []
+    from .dialogue import parse_mes, strip_tags
+    out = []
+    for lang, body in lang_bodies.items():
+        if not body or "[TXID=" in body:
+            continue
+        ent = parse_mes(body).get(int(txid))
+        if ent is None:
+            continue
+        out.append({"kind": "text", "lang": lang, "txid": int(txid), "old": strip_tags(ent.text)})
+    return out
+
+
+def editable_effects(eb_bytes, entry, tag, *, entries=None, lang_bodies=None):
+    """Discover the editable value-sites of one ``(entry, tag)`` routine of a verbatim fork's ``.eb`` --
+    item rewards (give + paired display), gil grants, ``Field()`` warps, GLOB story-flag indices, and
+    dialogue lines -- each as an :class:`EditSite` the GUI authors a ``[[logic_edit]]`` from. Pure; never
+    mutates. ``entries`` = parsed us ``.mes`` (``{txid: MesEntry}``) for line text; ``lang_bodies`` =
+    ``{lang: raw .mes body}`` for per-language text-edit guards."""
+    eb = EbScript.from_bytes(eb_bytes)
+    if not (0 <= entry < eb.entry_count):
+        return []
+    e = eb.entry(entry)
+    if e.empty:
+        return []
+    f = e.func_by_tag(tag)
+    if f is None:
+        return []
+    from . import forkreport as FR
+    instrs = list(eb.instrs(f))
+    sites: list = []
+
+    # items: group AddItem by id (skipping the engine no-op grants the read map also hides); pair each with
+    # the same-id SetTextVariable in TEXT SLOT 0 (FF9's item-get display, build.set_text_variable(0, id)) so
+    # the reward + its "Received <item>!" message change together. A same-value SetTextVariable in another
+    # slot (e.g. a preview row) is NOT the item display and is left alone.
+    disp_groups: dict = {}
+    for ins in instrs:
+        if ins.op == SETTEXTVAR_OP and ins.imm(0) == 0:
+            v = ins.imm(1)
+            if v is not None:
+                disp_groups.setdefault(v, []).append(len(disp_groups.get(v, [])))
+    item_groups: dict = {}
+    for ins in instrs:
+        if ins.op != ITEM_OP:
+            continue
+        iid = ins.imm(0)
+        if iid is None or iid == FR.NO_ITEM or FR.item_inert(iid):
+            continue
+        item_groups.setdefault(iid, []).append(len(item_groups.get(iid, [])))
+    for iid, nths in item_groups.items():
+        give = [_op_tmpl("item", entry, tag, iid, n, len(nths), op=ITEM_OP, operand="id") for n in nths]
+        dn = disp_groups.get(iid, [])
+        disp = [{**_op_tmpl("item_display", entry, tag, iid, n, len(dn), op=SETTEXTVAR_OP, operand=1), "slot": 0}
+                for n in dn]
+        label = f"gives {FR.item_label(iid)}" + (f"  (×{len(nths)})" if len(nths) > 1 else "")
+        note = "" if disp else "no 'Received <item>!' display message paired — only the give changes"
+        sites.append(EditSite("item", "item", label, int(iid), "new", give, disp, note, f"item:{iid}"))
+
+    # gil grants (skip the > party-cap sentinel amounts -- a scripted/computed AddGil, not a treasure reward)
+    for amt, nths in _value_groups(instrs, GIL_OP, 0).items():
+        if amt > FR.GIL_CAP:
+            continue
+        tmpls = [_op_tmpl("gil", entry, tag, amt, n, len(nths), op=GIL_OP) for n in nths]
+        sites.append(EditSite("gil", "int", f"gives {amt} gil", int(amt), "new", tmpls, key=f"gil:{amt}"))
+
+    # Field() warps (an alternative to the [verbatim_eb] retarget table -- per-site, not by global dest)
+    for dest, nths in _value_groups(instrs, FIELD_OP, 0).items():
+        tmpls = [_op_tmpl("field", entry, tag, dest, n, len(nths), op=FIELD_OP) for n in nths]
+        sites.append(EditSite("field", "field", f"warps to field {dest}", int(dest), "new", tmpls,
+                              key=f"field:{dest}"))
+
+    # GLOB story-flag indices (read + write of one index remap together so they stay in sync)
+    from .eventscan import _glob_var_token
+    flag_groups: dict = {}
+    for ins in instrs:
+        if ins.op != EXPR_OP:
+            continue
+        tok = _glob_var_token(eb.data, ins.off + 1)
+        if tok is not None:
+            flag_groups.setdefault(tok[0], []).append(len(flag_groups.get(tok[0], [])))
+    for idx, nths in flag_groups.items():
+        tmpls = [{"kind": "flag_index", "entry": int(entry), "tag": int(tag), "flag": int(idx),
+                  **({"nth": n} if len(nths) > 1 else {})} for n in nths]
+        n = len(nths)
+        sites.append(EditSite("flag", "flag", f"story flag {idx}" + (f"  (×{n})" if n > 1 else ""),
+                              int(idx), "new_flag", tmpls, key=f"flag:{idx}"))
+
+    # dialogue lines (one site per distinct Window-op txid that resolves to a line)
+    seen_txid: set = set()
+    for ins in instrs:
+        if ins.op not in WINDOW_OPS:
+            continue
+        txid = ins.imm(WINDOW_OPS[ins.op])
+        if txid is None or txid in seen_txid:
+            continue
+        seen_txid.add(txid)
+        us_old = _line_old(entries, txid)
+        tmpls = _text_templates(txid, lang_bodies, us_old)
+        if not tmpls:
+            continue                                          # no editable .mes for this line
+        label = (f'line {txid}: "{_short(us_old)}"' if us_old else f"line {txid}")
+        langs = [t["lang"] for t in tmpls if t.get("lang")]
+        note = ("rewrites " + ", ".join(langs)) if langs else ""
+        sites.append(EditSite("text", "string", label, us_old if us_old is not None else "",
+                              "new", tmpls, note=note, key=f"text:{txid}"))
+    return sites
+
+
+# --- edit synthesis + merge (the GUI writes these into the field.toml's logic_edit list) -------------
+_COORD_KEYS = ("kind", "entry", "tag", "op", "operand", "slot", "nth", "lang", "txid", "flag", "old")
+
+
+def synth_edits(site: EditSite, new) -> list:
+    """The ``[[logic_edit]]`` dicts that realize editing ``site`` to ``new`` -- the value edits PLUS, for an
+    item, the paired display edits (so the 'Received <item>!' message always tracks the give)."""
+    out = [{**t, site.new_key: new} for t in site.templates]
+    out += [{**t, "new": new} for t in site.display_templates]
+    return out
+
+
+def edit_coord(ed: dict) -> tuple:
+    """The identifying coordinates of a logic_edit (everything but the NEW value) -- for dedup/replace."""
+    return tuple((k, ed.get(k)) for k in _COORD_KEYS)
+
+
+def site_footprint(site: EditSite) -> set:
+    """The coords of EVERY edit ``site`` can author (value + display) -- so re-editing or clearing a site
+    removes all of its prior edits before adding new ones (handles a changed display set cleanly)."""
+    return {edit_coord(t) for t in (site.templates + site.display_templates)}
+
+
+def upsert_edits(existing, new_edits, *, drop=None) -> list:
+    """Return ``existing`` with edits whose coords are in ``drop`` (default = the new edits' own coords)
+    removed, then ``new_edits`` appended. Pure -- re-editing a site replaces its edits, never stacks them."""
+    drop = set(drop) if drop is not None else {edit_coord(e) for e in new_edits}
+    kept = [e for e in (existing or []) if edit_coord(e) not in drop]
+    return kept + list(new_edits)

@@ -444,7 +444,8 @@ def _validate_logic_edits(project: FieldProject, problems: list) -> None:
     from . import logic_edit as _le
     from .config import LANGS as _LANGS
     try:
-        out = _le.apply_logic_edits(_vb.verbatim_eb(project), edits)
+        base, _suffix = compose_verbatim_eb(project)      # same byte stream the build edits (retarget + inserts)
+        out = _le.apply_logic_edits(base, edits)
         problems += [f"[[logic_edit]] composed .eb: {e}" for e in _eblint.errors(_eblint.lint_eb(out))]
         for lang in _LANGS:                              # the .mes text rewrites, per language (cheap; local sidecar)
             _le.apply_logic_text_edits(_vb.verbatim_mes(project, lang) or "", edits, lang)
@@ -2242,6 +2243,33 @@ def _verbatim_on_entry_messages(project: FieldProject, langs) -> tuple[dict, dic
     return txid_by_hook, {lang: suffix for lang in langs}
 
 
+def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
+    """The verbatim fork's ``.eb`` exactly as the ``[[logic_edit]]`` applier sees it: the donor bytes with the
+    ``[verbatim_eb] retarget`` Field-remap (``verbatim.verbatim_eb``) + the field-load inserts
+    (``[startup]`` / ``[party]`` / ``[field] walkmesh_tri_toggles`` / ``[[on_entry]]``) applied, but BEFORE the
+    in-place ``[[logic_edit]]`` pass. Returns ``(eb_bytes, oe_suffix_by_lang)`` -- ``(None, {})`` for a
+    non-verbatim project. This is the SINGLE source of truth shared by :func:`build_field`,
+    :func:`_validate_logic_edits`, and the Workspace edit panel, so logic-edit discovery, the GUI dry-run,
+    Check, and the build all agree on one byte stream (else a ``field`` warp's ``old`` or a flag/item ``nth``
+    drifts between the donor and what the build actually edits)."""
+    from .content import verbatim as _verbatim
+    eb = _verbatim.verbatim_eb(project)
+    if eb is None:
+        return None, {}
+    warnings = warnings if warnings is not None else []
+    langs = langs or LANGS
+    eb = _field_load_inject("[startup]", project.name, lambda: _apply_startup(project, eb))
+    eb = _field_load_inject("[party]", project.name, lambda: _apply_party(project, eb, warnings=warnings))
+    eb = _field_load_inject("[field] walkmesh_tri_toggles", project.name,
+                            lambda: _apply_walkmesh_hotfix(project, eb))
+    oe_msg_txids, oe_suffix = _verbatim_on_entry_messages(project, langs)
+    eb = _field_load_inject("[[on_entry]]", project.name,
+                            lambda: _apply_on_entry(project, eb, oe_msg_txids,
+                                                    _FlagAlloc(getattr(project, "flag_base", None)),
+                                                    warnings=warnings))
+    return eb, oe_suffix
+
+
 def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None,
                  cutscene_txids: list | None = None, walkmesh=None,
@@ -3337,30 +3365,17 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # Verbatim-.eb fork (docs/FORK_FIDELITY.md, the entry-0 carry): ship the donor's WHOLE event script
     # (entry-0 + all objects + all gateways, layout intact, Field() destinations remapped) instead of
     # synthesizing one -- the field runs its real logic. None unless the project has a [verbatim_eb] block.
-    from .content import verbatim as _verbatim
-    verbatim_bytes = _verbatim.verbatim_eb(project)
-    oe_suffix: dict = {}
+    # the verbatim .eb bypasses build_script, so apply the field-load hooks HERE too -- else the documented
+    # "pair with [startup] to boot a beat" is a silent no-op (the fork would boot at scenario-zero), and
+    # [[on_entry]] beats would never fire. Both arm into the donor's Main_Init; the .eb is language-identical,
+    # so inject once before the per-language loop. An [[on_entry]] narration MESSAGE is given a text channel by
+    # APPENDING it to the donor `.mes` above the donor's txids (oe_suffix, added per-language below); its
+    # WindowSync resolves into that appended entry. ~11% of real fields have a 0x06 jump table at the top of
+    # Main_Init that the byte inserter can't shift past -> compose_verbatim_eb fails closed with a clear
+    # BuildError. This composition is shared verbatim with Check + the GUI edit panel (compose_verbatim_eb).
+    verbatim_bytes, oe_suffix = compose_verbatim_eb(project, langs=langs, warnings=warnings)
     verbatim_edits = project.logic_edits()
     if verbatim_bytes is not None:
-        # the verbatim .eb bypasses build_script, so apply the field-load hooks HERE too -- else the
-        # documented "pair with [startup] to boot a beat" is a silent no-op (the fork would boot at
-        # scenario-zero), and [[on_entry]] beats would never fire. Both arm into the donor's Main_Init;
-        # the .eb is language-identical, so inject once before the per-language loop. An [[on_entry]]
-        # narration MESSAGE is given a text channel by APPENDING it to the donor `.mes` above the donor's
-        # txids (oe_suffix, added per-language below); its WindowSync resolves into that appended entry.
-        # ~11% of real fields have a 0x06 jump table at the top of Main_Init that the byte inserter can't shift
-        # past -> fail closed with a clear BuildError (not an opaque ValueError) if the author asked for a
-        # field-load block on such a donor (shared by all three levers; a no-block field never calls insert).
-        verbatim_bytes = _field_load_inject("[startup]", project.name,
-                                            lambda: _apply_startup(project, verbatim_bytes))
-        verbatim_bytes = _field_load_inject("[party]", project.name,
-                                            lambda: _apply_party(project, verbatim_bytes, warnings=warnings))
-        verbatim_bytes = _field_load_inject("[field] walkmesh_tri_toggles", project.name,
-                                            lambda: _apply_walkmesh_hotfix(project, verbatim_bytes))
-        oe_msg_txids, oe_suffix = _verbatim_on_entry_messages(project, langs)
-        verbatim_bytes = _field_load_inject("[[on_entry]]", project.name,
-                                            lambda: _apply_on_entry(project, verbatim_bytes, oe_msg_txids,
-                                            _FlagAlloc(getattr(project, "flag_base", None)), warnings=warnings))
         # Phase-2 in-place value edits ([[logic_edit]]): run LAST -- the applier self-locates by entry/tag/op +
         # the old value (re-decoding the FINAL bytes), so the field-load inserts above don't invalidate it. Each
         # edit is length-preserving, so the composed .eb is re-validated by the Phase-3 linter; a broken edit
