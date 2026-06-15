@@ -32,7 +32,7 @@ FIELD_OP = 0x2B         # Field(dest:u16)
 EXPR_OP = 0x05          # an expression statement (a GLOB flag read/write rides here)
 WINDOW_OPS = {0x1F: 2, 0x20: 2, 0x95: 3, 0x96: 3}   # Window op -> its txid operand index (dialogue.WINDOW_OPS)
 _ITEM_OPERAND = {"id": 0, "count": 1}
-_EB_KINDS = ("field", "item", "gil", "txid", "flag_index")
+_EB_KINDS = ("field", "item", "gil", "txid", "flag_index", "operand")
 _TAIL_RE = re.compile(r"\[TAIL=([^\]]*)\]")
 
 
@@ -150,6 +150,10 @@ def _apply_eb_edit(eb, buf, ed):
         _operand_edit(eb, buf, ed, op, WINDOW_OPS[op])
     elif kind == "flag_index":
         _flag_edit(eb, buf, ed)
+    elif kind == "operand":                                  # generic escape hatch: patch literal operand
+        _operand_edit(eb, buf, ed, _int(ed, "op"), _int(ed, "operand"))   # `operand` of any op (e.g. the
+        #   item id a SetTextVariable(0x66) feeds the "Received <item>!" message -- the DISPLAY half of a
+        #   reward, separate from the AddItem that GIVES it; both must change to fully retarget a chest)
     else:
         raise LogicEditError(f"logic_edit unknown .eb kind '{kind}' (kinds: {_EB_KINDS} + 'text')")
 

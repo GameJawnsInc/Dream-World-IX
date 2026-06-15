@@ -63,6 +63,17 @@ def test_gil_and_field_and_txid():
     assert _read(out, 0x1F, 2) == 222
 
 
+def test_generic_operand_kind_patches_any_literal():
+    """The generic `operand` kind patches any literal operand -- e.g. SetTextVariable (0x66)'s display item id
+    (the 'Received <item>!' message var), the DISPLAY half of a chest reward, separate from the AddItem give."""
+    eb = _eb(bytes([0x66, 0, 0, 0xEC, 0x00, 0x04]))          # SetTextVariable(0, 236); RET  (236=0xEC, 2-byte op1)
+    out = LE.apply_logic_edits(eb, [{"kind": "operand", "entry": 0, "tag": 0, "op": 0x66,
+                                     "operand": 1, "old": 236, "new": 239}])
+    eb2 = EbScript.from_bytes(out)
+    assert [i.imm(1) for i in eb2.instrs(eb2.entries[0].funcs[0]) if i.op == 0x66] == [239]
+    assert len(out) == len(eb)
+
+
 def test_flag_index_same_width_class():
     out = LE.apply_logic_edits(_eb(FLAG + RET), [{"kind": "flag_index", "entry": 0, "tag": 0, "flag": 8512, "new_flag": 8520}])
     eb = EbScript.from_bytes(out)
