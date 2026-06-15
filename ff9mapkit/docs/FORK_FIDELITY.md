@@ -162,9 +162,26 @@ field's `.eb`/`.mes` bytes, or by an engine table keyed on the donor's real `fld
   **engine tables keyed on the real `fldMapNo`/FBG-name** that a minted id (≥4000) is simply absent from, with **no
   `.eb` opcode reach**. For each, a dev-only DLL patch *would* solve it (the proven-but-unshipped `s23` narrow-map
   patch is the template) but is **declined to keep the shipped mod engine-independent**.
-- **One genuinely-hard NON-engine residual: copy-only perspective geometry** — ladder climb-arcs, jump parabolas,
-  the save-Moogle pop-out coords are hand-tuned to the donor camera and can only be *copied* (verbatim carry), never
-  generated from scratch. Not an engine wall; a from-scratch *authoring* ceiling.
+- **Perspective movement arcs are NOT a genuine residual** (corrected 2026-06-15 — an earlier draft called ladder
+  climb-arcs / jump parabolas / the save-Moogle pop-out "copy-only, never generated from scratch"; that was wrong).
+  These arcs are authored in **world coordinates**, and the engine projects world→screen through the fixed camera
+  automatically (the solved scale-1 camera math) — so the "perspective" is **free**, there is nothing to hand-tune in
+  screen space (`climb_arc_body`: *"the engine projects every world rung through the camera, so the climb traces the
+  painted ledge for free"*). The real state per mechanic:
+    - **Ladders — generated from scratch TODAY.** `navigable_climb_body` / `inject_navigable_ladder`
+      (`content/ladder.py`) derive FF9's real navigable climb (line equation + height band + held-d-pad loop +
+      mount/dismount) from just the **two world endpoints** — *"any new painted vine just supplies its own two
+      points (read off the paint guide, same as walkmesh placement)."* Decoded byte-for-byte from field 706
+      (Gizamaluke vine) and reproduces 706's loop verbatim for 706's endpoints. NOT copy-only.
+    - **Jumps + save-Moogle pop-out — copy-only TODAY, but unbuilt-not-impossible.** `inject_jump` wants verbatim
+      `jump_bytes` because no from-scratch `navigable_jump_body(from, to)` is wired yet; a jump is a one-shot
+      `SetupJump(x,y,z,steps) + Jump` from two world points, so the generator is tractable (the deprecated
+      `climb_arc_body` already interpolates `SetupJump/Jump` hops from two endpoints).
+    - **The single genuine-eyeball residual: the off-floor height** (a jump's apex, a ladder's top, the moogle's
+      pop height). The floor walkmesh pins depth *at floor level*, but these mechanics leave the floor plane, so
+      that one number is read off the painting + confirmed in the playtest loop (Hard-Constraint §2). An **authoring
+      task** like placing the walkmesh or painting the BG — NOT an engine wall and NOT an asset-absence impossibility
+      (contrast cross-rig gesture remap below, where the clips literally do not exist).
 
 **Decision shortcut:** `.eb`/`.mes`-owned → flips by mode (verbatim keeps, repurpose drops). Keyed on a real
 `fldMapNo`/FBG-name engine table → mode-independent and IMPOSSIBLE on a mint.
@@ -206,10 +223,12 @@ proven-but-deliberately-unshipped template).
 | 7 | **Per-fork BBG/tuning on a REUSED vanilla scene** | scene→BBG resolves `Info.BattleBackground ?? MapModel[...]`; `BattleBackground` is the `[PatchableField]` override point but still **per-scene-id global**, no per-field dimension; `raw16`/`raw17` are per-scene-id whole-file. | **Unnecessary**: MINT a fresh scene (`battle-import --fork-scene`) → its own BBG + tuning on stock. |
 | 8 | **A brand-NEW custom playable member** (13th+ in menu/battle/save) | `CharacterId` is a fixed 0–11 compile-time enum; fixed-layout save (`PLAYER[9]`); `SetupPartyUID` can't bind a no-event-id member. The hard frontier. | None for a true new member (reskin a slot or add existing cast). |
 
-Two residuals are **not engine-fixable at all** (no DLL helps): **cross-rig gesture remap** (0/15 of a Vivi
-cutscene's clips have a Steiner equivalent in the global `AnimationDB` — a DLL can't invent artist-authored clips)
-and **from-scratch perspective-correct arcs/pop-out** (hand-tuned coords, copy-only). The faithful answer to both is
-`--verbatim` with the original rig.
+**One** residual is **not engine-fixable at all** (no DLL helps): **cross-rig gesture remap** — 0/15 of a Vivi
+cutscene's clips have a Steiner equivalent in the global `AnimationDB`, and a DLL can't invent artist-authored
+clips. The faithful answer is `--verbatim` with the original rig. *(An earlier draft also listed "from-scratch
+perspective arcs/pop-out" here — that was WRONG and is corrected in "The governing principle" above: those arcs are
+world-space + engine-projected, ladders already generate from two endpoints, and jumps/pop-out are an unbuilt
+generator rather than an impossibility.)*
 
 ### SHOULD-NOT — donor identity to DROP on a reuse (flips to BROUGHT-IN under verbatim)
 
