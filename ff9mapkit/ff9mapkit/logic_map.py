@@ -82,12 +82,13 @@ class Node:
     flags_read: list = _dc_field(default_factory=list)   # [{index, require_set}]
     warps: list = _dc_field(default_factory=list)         # [{op, to}] Field / WorldMap
     calls: list = _dc_field(default_factory=list)         # [Call]
+    branches: list = _dc_field(default_factory=list)      # [{op, base, edges:[{value, target, is_default}]}] switch tables
     unresolved: list = _dc_field(default_factory=list)    # [{op, reason, off}] runtime-computed / dynamic
 
     @property
     def empty(self) -> bool:
         return not (self.says or self.gives or self.flags_set or self.flags_read
-                    or self.warps or self.calls or self.unresolved)
+                    or self.warps or self.calls or self.branches or self.unresolved)
 
 
 @dataclass
@@ -281,6 +282,14 @@ def build_logic_map(eb_bytes, *, entries=None, field_id: int = 0, fbg_name: str 
                 elif op in REPLY_OPS:
                     node.unresolved.append({"op": ins.name, "reason": "dispatches to the dynamic caller",
                                             "off": ins.off})
+                elif ins.is_switch:
+                    sw = ins.switch()
+                    if sw is None:
+                        node.unresolved.append({"op": ins.name, "reason": "switch operands computed", "off": ins.off})
+                    else:
+                        node.branches.append({"op": ins.name, "base": sw.base,
+                                              "edges": [{"value": e.value, "target": e.target,
+                                                         "is_default": e.is_default} for e in sw.edges]})
                 elif op == EXPR_STMT_OP:
                     w = _flag_write_at(data, ins.off)
                     if w is not None:
@@ -367,6 +376,11 @@ def _fmt_node_lines(n: Node, indent: str = "        ") -> list:
     for c in n.calls:
         tgt = f" -> entry {c.targets}" if c.targets else ""
         out.append(f"{indent}-> {c.label}{tgt}")
+    for b in n.branches:
+        ncases = sum(1 for e in b["edges"] if not e["is_default"])
+        arms = [("default" if e["is_default"] else str(e["value"])) + f"->@{e['target']}" for e in b["edges"]]
+        shown = ", ".join(arms[:6]) + (f", ... (+{len(arms) - 6} more)" if len(arms) > 6 else "")
+        out.append(f"{indent}switch ({ncases} cases): {shown}")
     for u in n.unresolved:
         out.append(f"{indent}? {u['op']}: {u['reason']}")
     return out

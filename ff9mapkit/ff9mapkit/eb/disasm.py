@@ -19,6 +19,9 @@ from dataclasses import dataclass, field
 
 from ._optables import OP_ARG_COUNT, OP_ARG_SIZE, OP_NAMES
 
+SWITCH_OPS = (0x06, 0x0B, 0x0D)   # JMP_SWITCHEX (explicit value/offset pairs) / JMP_SWITCH (contiguous range) /
+#                                   JMP_SWITCH with a 2-byte case count. See decode_switch.
+
 
 def op_name(op: int) -> str:
     return OP_NAMES.get(op, f"op_{op:02X}")
@@ -63,11 +66,83 @@ class Instr:
         """Immediate operand *i* as int, or None if it was an expression."""
         return self.args[i] if (i < len(self.args) and not self.arg_is_expr[i]) else None
 
+    @property
+    def is_switch(self) -> bool:
+        return self.op in SWITCH_OPS
+
+    def switch(self) -> "SwitchInfo | None":
+        """Structured (case value -> absolute target) decode if this is a switch; else None."""
+        return decode_switch(self)
+
     def __str__(self) -> str:
         parts = []
         for v, is_expr in zip(self.args, self.arg_is_expr):
             parts.append(v if is_expr else str(v))
         return f"[{self.off}] {self.name}({', '.join(parts)})"
+
+
+@dataclass
+class SwitchEdge:
+    """One arm of a switch: a selector ``value`` (None = the default arm) -> an absolute byte ``target``."""
+    value: int | None
+    target: int
+    is_default: bool = False
+
+
+@dataclass
+class SwitchInfo:
+    """A decoded switch dispatch table. ``base`` = the lowest selector value of the contiguous-range form
+    (0x0B/0x0D), or None for the explicit value/offset form (0x06). ``edges`` = the cases then the default.
+    Targets are ABSOLUTE byte offsets (same space as ``Instr.off`` / ``Func.abs_start``), valid only within
+    the owning function. The selector itself is popped from the expression stack at runtime (pushed by the
+    preceding ``0x05``), so it is not part of this inline-table decode."""
+    op: int
+    base: int | None
+    edges: list
+
+
+def _sx_hi(w: int) -> int:
+    """Sign-extend only the HIGH byte of a 16-bit word -- the engine reads the contiguous-form base as
+    ``offsetL | ((SByte)offsetH << 8)`` (EBin.cs JMP_SWITCH), so a base 0xFFFE means selector -2, not 65534."""
+    return (w & 0xFF) | ((((w >> 8) & 0xFF) ^ 0x80) - 0x80) * 256
+
+
+def decode_switch(instr: Instr) -> "SwitchInfo | None":
+    """Decode a switch instruction (0x06 / 0x0B / 0x0D) into a :class:`SwitchInfo` of absolute case+default
+    targets, or None if *instr* isn't a switch (or its operands aren't plain immediates). Derived from the
+    Memoria engine (EBin.cs JMP_SWITCH / JMP_SWITCHEX) and validated 100% boundary-aligned across all 5563
+    switches in the 676 shipping fields.
+
+    Layout (O = ``instr.off``; ``a`` = the flat 2-byte operands :attr:`Instr.args`):
+      * 0x06 (explicit): ``a[0]`` = default reloffset, then n pairs ``(value=a[1+2k], reloffset=a[2+2k])``;
+        anchor = O+4; target = anchor + reloffset.
+      * 0x0B (contiguous): ``base = sx_hi(a[0])``, ``a[1]`` = default reloffset, ``a[2..]`` = n contiguous
+        case reloffsets for selectors base..base+n-1; anchor = O+1.
+      * 0x0D (contiguous, 2-byte count): identical to 0x0B with anchor = O+2 (none ship; by-construction).
+    All reloffsets are unsigned u16 (the engine only jumps forward)."""
+    op = instr.op
+    if op not in SWITCH_OPS:
+        return None
+    a = instr.args
+    if any(not isinstance(x, int) for x in a):     # a switch never has expression operands; bail if malformed
+        return None
+    O = instr.off
+    if op == 0x06:
+        if not a:
+            return None
+        anchor = O + 4
+        n = (len(a) - 1) // 2
+        edges = [SwitchEdge(a[1 + 2 * k], anchor + a[2 + 2 * k]) for k in range(n)]
+        edges.append(SwitchEdge(None, anchor + a[0], True))
+        return SwitchInfo(op, None, edges)
+    if len(a) < 2:
+        return None
+    anchor = O + (2 if op == 0x0D else 1)
+    base = _sx_hi(a[0])
+    n = len(a) - 2
+    edges = [SwitchEdge(base + i, anchor + a[2 + i]) for i in range(n)]
+    edges.append(SwitchEdge(None, anchor + a[1], True))
+    return SwitchInfo(op, base, edges)
 
 
 def read_expr(raw: bytes, pos: int) -> tuple[str, int]:

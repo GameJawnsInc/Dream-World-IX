@@ -14,6 +14,8 @@ import pytest
 
 from ff9mapkit import eventscan
 from ff9mapkit import logic_map as LM
+from ff9mapkit.eb.model import EbScript
+from ff9mapkit.eb.disasm import Instr, decode_switch, SWITCH_OPS
 
 FIX = Path(__file__).parent / "fixtures"
 _alex = FIX / "alex100-us.eb.bytes"
@@ -188,3 +190,92 @@ def test_format_logic_map_renders():
     out = LM.format_logic_map(LM.build_logic_map(ALEX100, field_id=100, fbg_name="fbg_test"))
     assert out.startswith("logic-map: fbg_test")
     assert "entries" in out and "routines" in out
+
+
+# ---- Phase 1: the switch-table (0x06/0x0B/0x0D) case->target decoder (disasm.decode_switch) ----
+def _instr(off, op, args):
+    return Instr(off=off, op=op, args=list(args), arg_is_expr=[False] * len(args), length=0)
+
+
+def test_decode_switch_0b_contiguous():
+    """JMP_SWITCH (0x0B): base + n contiguous case reloffsets + a default; anchor = off+1. Real field-50 example."""
+    sw = decode_switch(_instr(3933, 0x0B, [10, 1502, 11, 94, 1440]))
+    assert sw.base == 10
+    assert [(e.value, e.target, e.is_default) for e in sw.edges] == \
+        [(10, 3945, False), (11, 4028, False), (12, 5374, False), (None, 5436, True)]
+
+
+def test_decode_switch_06_explicit():
+    """JMP_SWITCHEX (0x06): explicit (value, reloffset) pairs + a leading default; anchor = off+4. Real field-51."""
+    sw = decode_switch(_instr(581, 0x06, [88, 104, 8, 3, 68]))
+    assert sw.base is None
+    assert [(e.value, e.target, e.is_default) for e in sw.edges] == [(104, 593, False), (3, 653, False), (None, 673, True)]
+
+
+def test_decode_switch_base_sign_extends_high_byte():
+    """The contiguous-form base sign-extends its HIGH byte only (engine (SByte) cast): 0xFFFE -> selector -2."""
+    sw = decode_switch(_instr(0, 0x0B, [0xFFFE, 0, 0]))
+    assert sw.base == -2 and sw.edges[0].value == -2
+
+
+def test_decode_switch_0d_anchor_off_plus_2():
+    """0x0D is JMP_SWITCH with a 2-byte count -> same body, anchor off+2 (none ship; by-construction)."""
+    sw = decode_switch(_instr(0, 0x0D, [0, 4, 8]))
+    assert sw.base == 0 and sw.edges[0].target == 10 and sw.edges[-1].target == 6   # off+2 + {8 (case), 4 (default)}
+
+
+def test_decode_switch_default_only_no_cases():
+    """A degenerate switch with n==0 (only the default arm) decodes to a single default edge, no cases, no crash."""
+    s06 = decode_switch(_instr(0, 0x06, [5]))                 # ac = 1 + 2*0
+    assert s06.base is None and [(e.value, e.target, e.is_default) for e in s06.edges] == [(None, 9, True)]
+    s0b = decode_switch(_instr(0, 0x0B, [3, 7]))              # ac = 2 + 0  (base=3, default reloff=7)
+    assert s0b.base == 3 and [(e.value, e.target, e.is_default) for e in s0b.edges] == [(None, 8, True)]
+
+
+def test_decode_switch_rejects_non_switch_and_malformed():
+    assert decode_switch(_instr(0, 0x2B, [100])) is None                                  # not a switch op
+    assert decode_switch(Instr(0, 0x0B, ["{expr}", 0, 0], [True, False, False], 0)) is None   # expr operand
+    assert decode_switch(_instr(0, 0x0B, [5])) is None                                    # too short for base+default
+
+
+def test_build_logic_map_decodes_switch_into_branches():
+    """build_logic_map surfaces a switch as a node.branches entry -- not silently skipped, not unresolved."""
+    eb = _eb(bytes([0x0B, 0x01, 0x00, 0x00, 0x04, 0x00, 0x08, 0x00, 0x04]))   # JMP_SWITCH base=0 default=4 case0=8
+    lm = LM.build_logic_map(eb)
+    br = [b for n in lm.nodes for b in n.branches]
+    assert len(br) == 1 and br[0]["base"] == 0
+    edges = br[0]["edges"]
+    assert sum(1 for e in edges if not e["is_default"]) == 1 and any(e["is_default"] for e in edges)
+    assert not any(u["reason"].startswith("switch") for n in lm.nodes for u in n.unresolved)   # decoded, not bailed
+
+
+@needs_alex
+def test_switch_soundness_sweep_real_fields():
+    """Every case+default target of every switch in a sample of switch-heavy real fields lands on a decoded-
+    instruction boundary inside its function -- the ailint-style soundness proof (the full 5563-switch / 676-
+    field sweep runs out-of-band; this samples a few fields so it stays fast + non-vacuous)."""
+    try:
+        from ff9mapkit.extract import EventBundle
+        bundle = EventBundle()
+    except Exception:                                   # noqa: BLE001 -- no install/UnityPy -> skip the sweep
+        pytest.skip("no game install for the switch sweep")
+    total = 0
+    for fid in (50, 51, 100, 300, 2803):
+        data = bundle.eb_for_id(fid)
+        if not data:
+            continue
+        eb = EbScript.from_bytes(data)
+        for e in eb.entries:
+            if e.empty:
+                continue
+            for f in e.funcs:
+                valid = {i.off for i in eb.instrs(f)} | {f.abs_end}
+                for ins in eb.instrs(f):
+                    if ins.op in SWITCH_OPS:
+                        sw = decode_switch(ins)
+                        total += 1
+                        assert sw is not None
+                        for ed in sw.edges:
+                            assert f.abs_start <= ed.target <= f.abs_end and ed.target in valid, \
+                                (fid, ins.off, ed.target)
+    assert total > 0, "the sample must actually contain switches (else the sweep is vacuous)"
