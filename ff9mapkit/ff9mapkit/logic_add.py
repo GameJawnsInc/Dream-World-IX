@@ -2,14 +2,15 @@
 an existing routine. The structural sibling of :mod:`ff9mapkit.logic_edit` (length-PRESERVING value swaps).
 
 Where ``[[logic_edit]]`` overwrites an operand same-width, ``[[logic_add]]`` ADDS instructions, which changes
-the ``.eb``'s length. The ONLY length-changing primitive used is
-:func:`ff9mapkit.eb.edit.insert_in_function` with ``rel_off=0`` -- the documented, 676/676-proven, ALWAYS-safe
-PREPEND (the engine is uniformly IP-relative, so the whole function body shifts together; safe even over a
-0x06/0x0B switch table). The riskier shapes (mid-function insert, switch-case relocation, whole-function
-rebuild) are deferred to Phase 4b: a scoping sweep proved :func:`ff9mapkit.eb.cmdasm.assemble_instruction`
-round-trips 100% of field instructions, but it does NOT relocate switch-table case offsets, so a length change
-*before/inside* a switch-bearing function can only be done by a wholesale-discard ``replace_function_body`` or
-this rel_off=0 prepend -- never a generic mid-function rebuild.
+the ``.eb``'s length. Two placements:
+  * ``where = "prepend"`` (default, Phase 4a) -- :func:`ff9mapkit.eb.edit.insert_in_function` at ``rel_off=0``,
+    the 676/676-proven ALWAYS-safe prepend (the engine is uniformly IP-relative, so the whole function body
+    shifts together; safe even over a 0x06/0x0B switch table).
+  * ``where = "after"`` (Phase 4b) -- insert the effect AFTER the ``after_nth``-th ``after_op`` instruction, via
+    the keystone (:func:`ff9mapkit.eb.cmdasm.disassemble_items` -> splice the effect's labeled source ->
+    :func:`ff9mapkit.eb.cmdasm.assemble_block` -> :func:`ff9mapkit.eb.edit.replace_function_body`), so EVERY jump
+    and switch in the function relocates past the inserted bytes (the keystone round-trips all 676 fields +
+    3155/3155 switch functions byte-exact, and relocates them under a length change).
 
 Kinds:
   * ``set_flag`` -- write a GLOB story flag. IDEMPOTENT, so prepended UNGATED into any routine.
@@ -143,21 +144,60 @@ def _core_bytes(add, alloc, warnings=None) -> bytes:
     return _guarded(body, alloc.take(add))                     # default: once-guarded (safe in any routine)
 
 
+def _insert_after(eb_bytes, eb, f, entry, tag, add, core, warnings) -> bytes:
+    """Phase-4b: splice ``core`` AFTER the ``after_nth``-th occurrence of ``after_op`` in the routine. Uses the
+    keystone -- disassemble the function to labeled source, insert the effect's (re-labeled) source right after
+    the anchor instruction's line, reassemble (so EVERY jump/switch in the function relocates past the inserted
+    bytes), and swap the rebuilt body in via :func:`eb.edit.replace_function_body`. The effect's own once-guard
+    skip lands on the function's continuation, exactly as a prepend's does."""
+    from .eb import cmdasm as _cmdasm
+    from .eb import disasm as _disasm
+    after_op = _int(add, "after_op")
+    after_nth = _int(add, "after_nth", default=0, optional=True)
+    hits = [i for i in eb.instrs(f) if i.op == after_op]
+    if not (0 <= after_nth < len(hits)):
+        raise LogicAddError(f"logic_add where='after': no {_disasm.op_name(after_op)} #{after_nth} in "
+                            f"entry{_int(add, 'entry')}/tag{_int(add, 'tag')} (found {len(hits)})")
+    anchor = hits[after_nth]
+    if warnings is not None and (anchor.op in _disasm.TERMINATOR_OPS or anchor.op == 0x01):
+        kind = "terminator" if anchor.op in _disasm.TERMINATOR_OPS else "unconditional JMP"
+        warnings.append(f"logic_add where='after' anchors on a {kind} ({_disasm.op_name(anchor.op)}) in "
+                        f"entry{_int(add, 'entry')}/tag{_int(add, 'tag')} -- the inserted effect is unreachable "
+                        "(control never falls through to it). Anchor on an earlier instruction.")
+    anchor_rel = anchor.off - f.abs_start
+    try:                                                        # the rebuild can raise CmdAsmError (a sibling of
+        items = _cmdasm.disassemble_items(eb.data, f.abs_start, f.abs_end)   # LogicAddError) -- normalize it so the
+        line_idx = next((k for k, (off, _t) in enumerate(items) if off == anchor_rel), None)   # build/Check report
+        if line_idx is None:                                    # the anchor is a decoded instr -> always found
+            raise LogicAddError("logic_add where='after': could not locate the anchor instruction (internal)")
+        effect_src = _cmdasm.relabel(_cmdasm.disassemble_block(core, 0, len(core)), "_e")
+        texts = [t for _o, t in items]
+        spliced = "\n".join(texts[:line_idx + 1] + effect_src.split("\n") + texts[line_idx + 1:])
+        new_body = _cmdasm.assemble_block(spliced)
+    except _cmdasm.CmdAsmError as ex:                           # ...is a clean failure, not a raw traceback
+        raise LogicAddError(f"logic_add where='after': could not rebuild entry{_int(add, 'entry')}/"
+                            f"tag{_int(add, 'tag')}: {ex}")
+    return _edit.replace_function_body(eb_bytes, entry, tag, new_body)
+
+
 def _apply_one(eb_bytes, add, alloc, warnings=None) -> bytes:
     if add.get("kind") not in _ADD_KINDS:
         raise LogicAddError(f"logic_add unknown kind '{add.get('kind')}' (kinds: {_ADD_KINDS})")
     where = add.get("where", "prepend")
-    if where != "prepend":
-        raise LogicAddError(f"logic_add where='{where}' is not supported in Phase 4a (only 'prepend'); "
-                            "mid-function placement needs switch relocation (Phase 4b)")
+    if where not in ("prepend", "after"):
+        raise LogicAddError(f"logic_add where='{where}' is not supported (use 'prepend' or 'after'; "
+                            "'after' takes an after_op anchor)")
     entry, tag = _int(add, "entry"), _int(add, "tag")
     eb = EbScript.from_bytes(eb_bytes)
     if not (0 <= entry < eb.entry_count) or eb.entry(entry).empty:
         raise LogicAddError(f"logic_add entry {entry} is empty or out of range (0..{eb.entry_count - 1})")
-    if eb.entry(entry).func_by_tag(tag) is None:
+    f = eb.entry(entry).func_by_tag(tag)
+    if f is None:
         raise LogicAddError(f"logic_add entry {entry} has no function tag {tag}")
     core = _core_bytes(add, alloc, warnings)
-    return _edit.insert_in_function(eb_bytes, entry, tag, 0, core)   # the always-safe rel_off=0 prepend
+    if where == "prepend":
+        return _edit.insert_in_function(eb_bytes, entry, tag, 0, core)   # the always-safe rel_off=0 prepend
+    return _insert_after(eb_bytes, eb, f, entry, tag, add, core, warnings)   # mid-function (keystone rebuild)
 
 
 def apply_logic_adds(eb_bytes, adds, *, guard_base=None, guard_window=None, reserved_flags=None,

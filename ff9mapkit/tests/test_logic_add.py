@@ -113,6 +113,60 @@ def test_explicit_guard_used_and_band_checked():
         LA.apply_logic_adds(_eb((0, RET)), [{"kind": "give_item", "entry": 0, "tag": 0, "item": 236, "guard": 100}])
 
 
+# ---- Phase 4b: where="after" (mid-function insert via the keystone rebuild) ----
+def test_after_insert_relocates_surrounding_jump():
+    """Inserting an effect AFTER an anchor instruction mid-function rebuilds the function via the keystone, so a
+    jump that spans the insert point relocates and still hits its target."""
+    from ff9mapkit.eb import cmdasm, disasm
+    body = cmdasm.assemble_block("SetTriangleFlagMask(1)\nJMP(d)\nSetTriangleFlagMask(2)\nd:\nRET()")
+    out = LA.apply_logic_adds(_eb((0, body)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520,
+                                               "where": "after", "after_op": 0x27, "after_nth": 0}])
+    assert _clean(out)
+    eb, ins = _instrs(out)
+    assert [i.op for i in ins][:2] == [0x27, 0x05]              # the set_flag landed right after the anchor
+    jmp = next(i for i in ins if i.op == 0x01)
+    ret = [i for i in ins if i.op == 0x04][-1]
+    assert disasm.jump_target(jmp) == ret.off                  # the JMP relocated past the inserted bytes
+
+
+def test_after_insert_guarded_give_lands():
+    """A cumulative give inserted mid-function is once-guarded (cond_not + JMP_IFNOT skip + set + AddItem) and
+    the composed function stays eblint-clean + byte-round-trips."""
+    from ff9mapkit.eb import cmdasm
+    body = cmdasm.assemble_block("SetTriangleFlagMask(1)\nSetTriangleFlagMask(2)\nRET()")
+    out = LA.apply_logic_adds(_eb((0, body)), [{"kind": "give_item", "entry": 0, "tag": 0, "item": 236,
+                                               "where": "after", "after_op": 0x27, "after_nth": 1}])
+    assert _clean(out)
+    eb, ins = _instrs(out)
+    assert any(i.op == 0x48 and i.imm(0) == 236 for i in ins) and any(i.op == 0x02 for i in ins)   # give + guard
+    # the give sits after the 2nd anchor (idx 1), not the 1st
+    op27 = [k for k, i in enumerate(ins) if i.op == 0x27]
+    give = next(k for k, i in enumerate(ins) if i.op == 0x48)
+    assert give > op27[1]
+
+
+def test_after_insert_warns_on_unreachable_anchor():
+    """Anchoring on a terminator (RET) OR an unconditional JMP makes the effect dead (control never falls
+    through to it) -> an advisory warning."""
+    from ff9mapkit.eb import cmdasm
+    jmp_body = cmdasm.assemble_block("SetTriangleFlagMask(1)\nJMP(d)\nd:\nRET()")
+    warns = []
+    LA.apply_logic_adds(_eb((0, jmp_body)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520,
+                                             "where": "after", "after_op": 0x01, "after_nth": 0}], warnings=warns)
+    assert any("unreachable" in w for w in warns)
+    warns2 = []
+    LA.apply_logic_adds(_eb((0, bytes([0x04]))), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520,
+                                                  "where": "after", "after_op": 0x04, "after_nth": 0}], warnings=warns2)
+    assert any("unreachable" in w for w in warns2)
+
+
+def test_after_insert_bad_anchor_refused():
+    body = bytes([0x04])                                       # just RET (op 0x04)
+    with pytest.raises(LA.LogicAddError):                      # no AddItem (0x48) to anchor on
+        LA.apply_logic_adds(_eb((0, body)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520,
+                                             "where": "after", "after_op": 0x48, "after_nth": 0}])
+
+
 # ---- guards / refusals ----
 def test_refusals():
     base = _eb((0, RET))

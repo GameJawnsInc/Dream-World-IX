@@ -263,14 +263,15 @@ def _switch_labeled_ops(ins, start: int) -> list:
     return [str(sw.base & 0xFFFF), f"L{default.target - start}"] + [f"L{e.target - start}" for e in cases]
 
 
-def disassemble_block(raw: bytes, start: int, end: int) -> str:
-    """The inverse of :func:`assemble_block`: decode ``raw[start:end]`` to assemble_block SOURCE in which every
-    JUMP and every SWITCH case/default target is a function-relative ``L<n>`` label. Re-assembling the result
-    reproduces the bytes byte-for-byte (round-trip), and -- because the targets are labels -- a length change
-    between a branch and its target is RELOCATED automatically. This is the keystone a Phase-4b length-changing
-    rebuild edits (mid-function insert / cross-0xFF flag / switch-case) then splices back via
-    :func:`ff9mapkit.eb.edit.replace_function_body`. Computed (expression-operand) jumps/switches that can't be
-    resolved offline keep their raw decoded operands (so the round-trip still holds; they just don't relocate)."""
+def disassemble_items(raw: bytes, start: int, end: int) -> list:
+    """The inverse of :func:`assemble_block` as a structured list of ``(rel_off | None, text)`` -- one entry per
+    SOURCE line, where ``rel_off`` is the function-relative byte offset of an INSTRUCTION line and ``None`` marks
+    a ``L<n>:`` label line. Every JUMP and every SWITCH case/default target is rendered as a function-relative
+    ``L<n>`` label, so re-assembling (:func:`assemble_block`) reproduces the bytes byte-for-byte AND a length
+    change between a branch and its target RELOCATES automatically. The structured form lets a length-changing
+    rebuild splice new source at a precise instruction boundary (then reassemble + splice via
+    :func:`ff9mapkit.eb.edit.replace_function_body`). Computed (expression-operand) jumps/switches that can't be
+    resolved offline keep their raw decoded operands (the round-trip still holds; they just don't relocate)."""
     from ..battle.battleai import _decode_func_pretty          # the pretty operand renderer (general bytecode)
     end = min(end, len(raw))                                   # a truncated/corrupt/forked .eb can claim a func past the buffer
     try:
@@ -285,23 +286,38 @@ def disassemble_block(raw: bytes, start: int, end: int) -> str:
         elif ins.is_switch and ins.switch() is not None:
             for e in ins.switch().edges:
                 targets.add(e.target - start)
-    lines, seen = [], set()
+    items, seen = [], set()                                    # (rel_off | None, text); None = a label line
     for ins in instrs:
         rel = ins.off - start
         if rel in targets:
-            lines.append(f"L{rel}:")
+            items.append((None, f"L{rel}:"))
             seen.add(rel)
         mn, ops = pretty.get(ins.off, (_cmd_fallback(ins.op), []))
         if ins.op in _disasm.JUMP_OPS and _disasm.jump_target(ins) is not None:
             ops = [f"L{_disasm.jump_target(ins) - start}"]
         elif ins.is_switch and ins.switch() is not None:
             ops = _switch_labeled_ops(ins, start)
-        lines.append(f"{mn}({', '.join(ops)})")
+        items.append((rel, f"{mn}({', '.join(ops)})"))
     end_rel = end - start
     if end_rel in targets and end_rel not in seen:             # a branch to end-of-function -> a trailing label
-        lines.append(f"L{end_rel}:")
-    return "\n".join(lines)
+        items.append((None, f"L{end_rel}:"))
+    return items
+
+
+def disassemble_block(raw: bytes, start: int, end: int) -> str:
+    """``disassemble_items`` joined into one source string (see that function for the contract)."""
+    return "\n".join(text for _off, text in disassemble_items(raw, start, end))
 
 
 def _cmd_fallback(op: int) -> str:
     return OP_NAMES.get(op, f"op_{op:02X}")
+
+
+_LABEL_RE = __import__("re").compile(r"\bL(\d+)\b")
+
+
+def relabel(src: str, prefix: str) -> str:
+    """Rename every ``L<n>`` label (definition + reference) in ``src`` to ``<prefix>L<n>`` so a snippet's labels
+    can't collide with the labels of a function it is spliced into. Labels are always ``L<digits>`` (instruction
+    offsets); operator/mnemonic tokens never match that shape, so this is safe on assemble_block source."""
+    return _LABEL_RE.sub(lambda m: f"{prefix}L{m.group(1)}", src)
