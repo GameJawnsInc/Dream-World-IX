@@ -31,6 +31,19 @@ def test_example_validates_clean():
     assert validate(FieldProject.load(EXAMPLE)) == []
 
 
+def test_validate_rejects_out_of_range_field_id(tmp_path):
+    """A field id past the engine's Int16 fldMapNo cap (32767) is rejected (it registers unreachable AND can
+    break DictionaryPatch parsing -> a New-Game black screen, as a 620729 deploy did 2026-06-15). A valid
+    scratch id is fine."""
+    cam = "\n\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+    bad = tmp_path / "bad.field.toml"
+    bad.write_text('[field]\nid = 620729\nname = "BADID"\narea = 11' + cam, encoding="utf-8")
+    assert any("out of range 1-32767" in p for p in validate(FieldProject.load(bad)))
+    ok = tmp_path / "ok.field.toml"
+    ok.write_text('[field]\nid = 30000\nname = "OKID"\narea = 11' + cam, encoding="utf-8")
+    assert not any("out of range 1-32767" in p for p in validate(FieldProject.load(ok)))
+
+
 def test_build_reproduces_hut_int_eb_byte_exact(built):
     # The hut script EMBEDS the blank field (game-derived), so we can't ship its bytes as a golden.
     # Instead we compare the fresh build's SHA-256 to the manifest (a hash isn't a redistribution of

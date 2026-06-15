@@ -518,6 +518,15 @@ def validate(project: FieldProject) -> list[str]:
     for key in ("id", "name", "area"):
         if key not in f:
             problems.append(f"[field] missing required key '{key}'")
+    if "id" in f:                                          # the engine fldMapNo is Int16 -> ids > 32767 are
+        try:                                               # unreachable AND can break the WHOLE DictionaryPatch
+            _fid = int(f["id"])                            # parse (a higher id black-screens New Game; 2026-06-15)
+            if not (1 <= _fid <= 32767):
+                problems.append(f"[field] id {_fid} out of range 1-32767 (the engine fldMapNo is a signed 16-bit "
+                                "int; a larger id registers unreachable and can break DictionaryPatch parsing -> "
+                                "a New-Game/black-screen). Use the custom band 4000-9899 or dev scratch 30000-32767.")
+        except (TypeError, ValueError):
+            problems.append(f"[field] id must be an integer (got {f['id']!r})")
     if "area" in f and int(f["area"]) < 10:
         problems.append(f"[field] area must be >= 10 (got {f['area']}); single-digit areas black-screen")
     cfgs = camera_cfgs(project)
