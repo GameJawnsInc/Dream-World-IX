@@ -296,6 +296,45 @@ def test_editable_effects_item_display_pairing_is_slot_aware():
     assert [(i.imm(0), i.imm(1)) for i in eb2.instrs(eb2.entries[0].funcs[0]) if i.op == 0x66] == [(0, 239), (1, 236)]
 
 
+def test_item_count_kind_pins_item_id():
+    """The item-quantity edit targets ONLY the AddItem of the named item id -- a same-count AddItem of a
+    DIFFERENT item must keep its count."""
+    eb = _eb(bytes([0x48, 0, 236, 0, 1]) + bytes([0x48, 0, 240, 0, 1]) + RET)   # AddItem(236,1), AddItem(240,1)
+    out = LE.apply_logic_edits(eb, [{"kind": "item_count", "entry": 0, "tag": 0, "op": 0x48,
+                                     "operand": 1, "item_id": 236, "old": 1, "new": 5}])
+    eb2 = EbScript.from_bytes(out)
+    assert [(i.imm(0), i.imm(1)) for i in eb2.instrs(eb2.entries[0].funcs[0]) if i.op == 0x48] == [(236, 5), (240, 1)]
+
+
+def test_editable_effects_item_count_discovery_and_synth():
+    """An item site exposes the quantity (uniform AddItem count); synth_item_edits can change the id, the
+    count, or both -- a count-only change emits no give/display edit."""
+    eb = _eb(ADDITEM236 + bytes([0x66, 0, 0, 236, 0]) + RET)        # AddItem(236,1) + display
+    s = _site(LE.editable_effects(eb, 0, 0), "item")
+    assert s.count_old == 1 and len(s.count_templates) == 1 and "×1" in s.label
+    out = LE.apply_logic_edits(eb, LE.synth_item_edits(s, 236, 3))  # same item, quantity 1 -> 3
+    eb2 = EbScript.from_bytes(out)
+    assert [(i.imm(0), i.imm(1)) for i in eb2.instrs(eb2.entries[0].funcs[0]) if i.op == 0x48] == [(236, 3)]
+    both = LE.apply_logic_edits(eb, LE.synth_item_edits(s, 240, 2))  # new item AND quantity
+    eb3 = EbScript.from_bytes(both)
+    assert [(i.imm(0), i.imm(1)) for i in eb3.instrs(eb3.entries[0].funcs[0]) if i.op == 0x48] == [(240, 2)]
+    assert [i.imm(1) for i in eb3.instrs(eb3.entries[0].funcs[0]) if i.op == 0x66] == [240]   # display tracks id
+
+
+def test_synth_item_edits_skips_unchanged_components():
+    s = _site(LE.editable_effects(_eb(ADDITEM236 + bytes([0x66, 0, 0, 236, 0]) + RET), 0, 0), "item")
+    assert LE.synth_item_edits(s, 236, 1) == []                     # no change at all -> no edits
+    assert all(e["kind"] == "item_count" for e in LE.synth_item_edits(s, 236, 4))   # count only
+    assert all(e["kind"] in ("item", "item_display") for e in LE.synth_item_edits(s, 250, 1))  # id only
+
+
+def test_editable_effects_item_varying_count_not_editable():
+    """When the give-paths grant DIFFERENT counts, the quantity isn't surfaced as editable (noted)."""
+    eb = _eb(bytes([0x48, 0, 236, 0, 1]) + bytes([0x48, 0, 236, 0, 3]) + RET)   # AddItem(236,1) and (236,3)
+    s = _site(LE.editable_effects(eb, 0, 0), "item")
+    assert s.count_old is None and not s.count_templates and "varies" in s.note
+
+
 def test_compose_verbatim_eb_retarget_makes_field_edit_match_build(tmp_path):
     """build.compose_verbatim_eb returns the donor with [verbatim_eb] retarget applied (the SAME bytes the
     build edits), so a field-warp site discovered on it carries the POST-retarget `old` -- the GUI dry-run and

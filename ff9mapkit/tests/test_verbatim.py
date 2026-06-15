@@ -126,6 +126,29 @@ def test_import_verbatim_ships_the_whole_donor_eb(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_with_logic_edit_end_to_end(tmp_path):
+    # REGRESSION: a FULL build of a verbatim fork must run build_field's per-language loop (which reads
+    # _verbatim.verbatim_mes) AND apply [[logic_edit]] through compose_verbatim_eb -- the path the GUI panel
+    # authors into. Exercises the whole pipe end-to-end (build_mod -> build_field), not just the unit helpers.
+    from ff9mapkit import build, extract
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    site = next(((e.index, f.tag, ins.imm(0))
+                 for e in donor.entries if not e.empty for f in e.funcs
+                 for ins in donor.instrs(f) if ins.op == 0x2B and ins.imm(0) is not None), None)
+    assert site, "Dali Inn has a literal Field() exit"
+    ent, tag, dest = site
+    project = build.FieldProject.load(toml)
+    project.raw["logic_edit"] = [{"kind": "field", "entry": ent, "tag": tag, "op": 0x2B,
+                                  "old": dest, "new": 6300, "nth": 0}]
+    assert build.validate(project) == []                        # the GUI dry-run's offline gate agrees
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")     # must NOT raise (the _verbatim NameError site)
+    ebs = list(out.rglob("*.eb.bytes"))
+    assert ebs and any(6300 in _fields(p.read_bytes()) for p in ebs), "the [[logic_edit]] field retarget shipped"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_import_chain_verbatim_wires_a_connected_slice(tmp_path):
     # import-chain --verbatim forks a CONNECTED slice: every member ships its donor's WHOLE .eb (run as-is),
     # with the IN-CHAIN Field() exits retargeted to sibling forks + each member's donor .mes at the donor's

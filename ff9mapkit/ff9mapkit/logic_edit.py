@@ -34,7 +34,7 @@ EXPR_OP = 0x05          # an expression statement (a GLOB flag read/write rides 
 SETTEXTVAR_OP = 0x66    # SetTextVariable(slot:u8, value:u16) -- feeds the "Received <item>!" DISPLAY id
 WINDOW_OPS = {0x1F: 2, 0x20: 2, 0x95: 3, 0x96: 3}   # Window op -> its txid operand index (dialogue.WINDOW_OPS)
 _ITEM_OPERAND = {"id": 0, "count": 1}
-_EB_KINDS = ("field", "item", "gil", "txid", "flag_index", "operand", "item_display")
+_EB_KINDS = ("field", "item", "gil", "txid", "flag_index", "operand", "item_display", "item_count")
 _TAIL_RE = re.compile(r"\[TAIL=([^\]]*)\]")
 
 
@@ -165,6 +165,12 @@ def _apply_eb_edit(eb, buf, ed):
         _operand_edit(eb, buf, ed, SETTEXTVAR_OP, 1, extra=lambda i: i.imm(0) == slot,
                       what=f"SetTextVariable(slot={slot}, id={old}) display in "
                            f"entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')}")
+    elif kind == "item_count":                               # the QUANTITY operand of a specific AddItem(id):
+        iid = _int(ed, "item_id")                            #   pin the item id so a same-count AddItem of a
+        old = _int(ed, "old")                                #   DIFFERENT item isn't retargeted.
+        _operand_edit(eb, buf, ed, ITEM_OP, _ITEM_OPERAND["count"], extra=lambda i: i.imm(0) == iid,
+                      what=f"AddItem(id={iid}) count=={old} in "
+                           f"entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')}")
     else:
         raise LogicEditError(f"logic_edit unknown .eb kind '{kind}' (kinds: {_EB_KINDS} + 'text')")
 
@@ -260,6 +266,8 @@ class EditSite:
     new_key: str = "new"        # the template key the NEW value goes under ("new", or "new_flag" for flag)
     templates: list = _dc_field(default_factory=list)          # the primary edits (the give / the value)
     display_templates: list = _dc_field(default_factory=list)  # item: the paired display edits
+    count_templates: list = _dc_field(default_factory=list)    # item: the quantity (AddItem count) edits
+    count_old: object = None    # item: the current quantity (None if it varies across give-paths -> not editable)
     note: str = ""              # an advisory (e.g. no display site found / count not shown)
     key: str = ""               # a stable id for this site within the routine (GUI row <-> its edits)
 
@@ -365,9 +373,21 @@ def editable_effects(eb_bytes, entry, tag, *, entries=None, lang_bodies=None):
         dn = disp_groups.get(iid, [])
         disp = [{**_op_tmpl("item_display", entry, tag, iid, n, len(dn), op=SETTEXTVAR_OP, operand=1), "slot": 0}
                 for n in dn]
-        label = f"gives {FR.item_label(iid)}" + (f"  (×{len(nths)})" if len(nths) > 1 else "")
+        # quantity: editable only when every give-path of this item grants the SAME count (the usual case);
+        # if the counts vary, expose no count edit (the user can hand-author per-path) and note it.
+        counts = [ins.imm(1) for ins in instrs if ins.op == ITEM_OP and ins.imm(0) == iid]
+        uniform = bool(counts) and counts[0] is not None and len(set(counts)) == 1
+        count_old = counts[0] if uniform else None
+        cnt = ([{**_op_tmpl("item_count", entry, tag, count_old, n, len(nths), op=ITEM_OP, operand=1),
+                 "item_id": int(iid)} for n in nths] if uniform else [])
+        qty = f" ×{count_old}" if count_old is not None else ""
+        paths = f"  ({len(nths)} give-paths)" if len(nths) > 1 else ""
+        label = f"gives {FR.item_label(iid)}{qty}{paths}"
         note = "" if disp else "no 'Received <item>!' display message paired — only the give changes"
-        sites.append(EditSite("item", "item", label, int(iid), "new", give, disp, note, f"item:{iid}"))
+        if not uniform and len(counts) > 1:
+            note = (note + "  " if note else "") + "quantity varies across give-paths — not editable here"
+        sites.append(EditSite("item", "item", label, int(iid), "new", give, disp, cnt, count_old,
+                              note, f"item:{iid}"))
 
     # gil grants (skip the > party-cap sentinel amounts -- a scripted/computed AddGil, not a treasure reward)
     for amt, nths in _value_groups(instrs, GIL_OP, 0).items():
@@ -420,14 +440,28 @@ def editable_effects(eb_bytes, entry, tag, *, entries=None, lang_bodies=None):
 
 
 # --- edit synthesis + merge (the GUI writes these into the field.toml's logic_edit list) -------------
-_COORD_KEYS = ("kind", "entry", "tag", "op", "operand", "slot", "nth", "lang", "txid", "flag", "old")
+_COORD_KEYS = ("kind", "entry", "tag", "op", "operand", "slot", "item_id", "nth", "lang", "txid", "flag", "old")
 
 
 def synth_edits(site: EditSite, new) -> list:
     """The ``[[logic_edit]]`` dicts that realize editing ``site`` to ``new`` -- the value edits PLUS, for an
-    item, the paired display edits (so the 'Received <item>!' message always tracks the give)."""
+    item, the paired display edits (so the 'Received <item>!' message always tracks the give). For an item the
+    quantity is unchanged (use :func:`synth_item_edits` to also set the count)."""
     out = [{**t, site.new_key: new} for t in site.templates]
     out += [{**t, "new": new} for t in site.display_templates]
+    return out
+
+
+def synth_item_edits(site: EditSite, new_id, new_count=None) -> list:
+    """The edits to retarget an item reward to ``new_id`` (give + paired display) AND, when ``new_count`` is
+    given and differs, its quantity. A component whose value is unchanged emits NO edit (so a count-only change
+    doesn't author a redundant give edit, and vice-versa)."""
+    out = []
+    if new_id != site.old:
+        out += [{**t, "new": new_id} for t in site.templates]
+        out += [{**t, "new": new_id} for t in site.display_templates]
+    if new_count is not None and site.count_old is not None and new_count != site.count_old:
+        out += [{**t, "new": new_count} for t in site.count_templates]
     return out
 
 
@@ -437,9 +471,9 @@ def edit_coord(ed: dict) -> tuple:
 
 
 def site_footprint(site: EditSite) -> set:
-    """The coords of EVERY edit ``site`` can author (value + display) -- so re-editing or clearing a site
-    removes all of its prior edits before adding new ones (handles a changed display set cleanly)."""
-    return {edit_coord(t) for t in (site.templates + site.display_templates)}
+    """The coords of EVERY edit ``site`` can author (value + display + quantity) -- so re-editing or clearing a
+    site removes all of its prior edits before adding new ones (handles a changed display/count set cleanly)."""
+    return {edit_coord(t) for t in (site.templates + site.display_templates + site.count_templates)}
 
 
 def upsert_edits(existing, new_edits, *, drop=None) -> list:

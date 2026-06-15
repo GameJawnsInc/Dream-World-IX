@@ -1809,13 +1809,12 @@ class Workspace(QMainWindow):
         h.setContentsMargins(0, 2, 0, 2)
         cur = self._logic_value_str(site, site.old)
         if pend:
-            newv = pend[0].get(site.new_key)
             state = ("saved", self.pal["muted"]) if pend == saved else ("unsaved", self.pal["warn"])
-            txt = f'{site.label}  →  <b>{_esc(self._logic_value_str(site, newv))}</b>  ' \
+            txt = f'{site.label}  →  <b>{_esc(self._logic_pending_str(site, pend))}</b>  ' \
                   f'<span style="color:{state[1]};">({state[0]})</span>'
         else:
             txt = f"{site.label}" + (f"  <span style='color:{self.pal['muted']};'>= {_esc(cur)}</span>"
-                                     if site.value_kind != "string" else "")
+                                     if site.value_kind in ("int", "field", "flag") else "")
         lbl = QLabel(txt)
         lbl.setTextFormat(Qt.TextFormat.RichText)
         lbl.setWordWrap(True)
@@ -1840,6 +1839,17 @@ class Workspace(QMainWindow):
             s = " ".join(str(v).split())
             return '"' + (s[:44] + "…" if len(s) > 44 else s) + '"'
         return str(v)
+
+    def _logic_pending_str(self, site, pend):
+        """The new value to show on a row with a pending edit. An item shows item + quantity (either of which
+        may be unchanged), so a count-only or id-only edit reads correctly."""
+        if site.group == "item":
+            id_edit = next((e for e in pend if e.get("kind") in ("item", "item_display")), None)
+            cnt_edit = next((e for e in pend if e.get("kind") == "item_count"), None)
+            new_id = id_edit["new"] if id_edit else site.old
+            new_cnt = cnt_edit["new"] if cnt_edit else site.count_old
+            return self._logic_value_str(site, new_id) + (f" ×{new_cnt}" if new_cnt is not None else "")
+        return self._logic_value_str(site, pend[0].get(site.new_key))
 
     def _resolve_logic_value(self, site, text):
         """Parse the dialog text into a NEW value for ``site`` (an item name/id, a number, or a string).
@@ -1901,6 +1911,12 @@ class Workspace(QMainWindow):
             return None
 
     def _edit_logic_site(self, member, entry, tag, site):
+        if site.group == "item":                                # an item reward: edit BOTH the item + quantity
+            picked = self._logic_item_dialog(site)
+            if picked is None:
+                return
+            self._commit_item_edit(member, entry, tag, site, *picked)
+            return
         new = self._logic_value_dialog(site)
         if new is None:
             return
@@ -1908,6 +1924,73 @@ class Workspace(QMainWindow):
             self._revert_logic_site(member, entry, tag, site)
             return
         self._commit_logic_edit(member, entry, tag, site, new)
+
+    def _logic_item_dialog(self, site):
+        """Modal editor for an item reward: pick a new item (name or id, live-resolved) AND, when the quantity
+        is uniform across the give-paths, a quantity. Returns ``(new_id, new_count)`` or None."""
+        from .. import items
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit item reward")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel(site.label))
+        item_ed = QLineEdit(self._logic_value_str(site, site.old))
+        item_ed.setMinimumWidth(260)
+        form.addRow("New item", item_ed)
+        hint = self._muted_label("")
+        form.addRow(hint)
+
+        def on_change(*_):
+            try:
+                v = self._resolve_logic_value(site, item_ed.text())
+                hint.setText(f"→ {self._logic_value_str(site, v)}  (#{v})")
+            except ValueError as e:
+                hint.setText(f"⚠ {e}")
+        item_ed.textChanged.connect(on_change)
+        item_ed.selectAll()
+        on_change()
+        qty_ed = None
+        if site.count_old is not None:
+            qty_ed = QLineEdit(str(site.count_old))
+            form.addRow("Quantity", qty_ed)
+        elif site.note:
+            form.addRow(self._muted_label(site.note))
+        form.addRow(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        try:
+            new_id = self._resolve_logic_value(site, item_ed.text())
+            new_count = site.count_old
+            if qty_ed is not None:
+                txt = qty_ed.text().strip()
+                if not txt.isdigit():
+                    raise ValueError("quantity must be a whole number")
+                new_count = int(txt)
+                if not (1 <= new_count <= 255):
+                    raise ValueError("quantity must be 1–255 (the AddItem count is one byte)")
+        except ValueError as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Bad value"), [fb.Problem(fb.ERROR, str(e))])
+            return None
+        return new_id, new_count
+
+    def _commit_item_edit(self, member, entry, tag, site, new_id, new_count):
+        """Author an item reward edit (give + paired display + quantity), dry-run-validated, into the member's
+        logic_edit list. No change (same id + count) clears the site's edits."""
+        from .. import logic_edit as LE
+        doc = self._doc(member)
+        edits = LE.synth_item_edits(site, new_id, new_count)
+        cand = LE.upsert_edits(doc.data.get("logic_edit"), edits, drop=LE.site_footprint(site))
+        err = self._validate_logic_candidate(member, cand)
+        if err:
+            self._show_problems(fb.Verdict(fb.ERROR, "Edit not applied — it wouldn't build"),
+                                [fb.Problem(fb.ERROR, err)])
+            return
+        self._set_logic_edits(member, cand)
+        self._reconcile_logic_dirty(member)
+        self._checkpoint(member, "edit item", f"logic_n:{entry}:{tag}")
+        self._mount_logic_node(member, entry, tag)
+        qty = f" ×{new_count}" if new_count is not None else ""
+        self._show_problems(fb.Verdict(fb.OK,
+                            f"{member}: {site.label} → {self._logic_value_str(site, new_id)}{qty}"), [])
 
     def _commit_logic_edit(self, member, entry, tag, site, new):
         """Author (or replace) ``site``'s edit -> the member's ``logic_edit`` list, AFTER a clean offline
@@ -1986,6 +2069,7 @@ class Workspace(QMainWindow):
             return
         self._mark_clean(member)
         self._checkpoint(member, "save logic edits", f"logic_n:{entry}:{tag}")
+        self._mount_logic_node(member, entry, tag)          # re-render so the rows flip "(unsaved)" -> "(saved)"
         self._show_problems(fb.Verdict(fb.OK, f"Saved {member} · logic edits",
                                        f"wrote {self.member_paths[member].name}"), [])
 
@@ -3986,7 +4070,10 @@ def _smoke(win):
                 if site is None:
                     continue
                 win._open_editor("ALEXFORK", "logic_node", rkey)
-                win._commit_logic_edit("ALEXFORK", e_, t_, site, _SAFE[site.group])
+                if site.group == "item":                        # the new item path: retarget id (+ display + qty)
+                    win._commit_item_edit("ALEXFORK", e_, t_, site, _SAFE["item"], site.count_old)
+                else:
+                    win._commit_logic_edit("ALEXFORK", e_, t_, site, _SAFE[site.group])
                 assert win._doc("ALEXFORK").data.get("logic_edit"), "authored a [[logic_edit]]"
                 assert "ALEXFORK" in win._unsaved(), "authoring dirtied the member"
                 win._undo()                                     # undo re-opens the panel + clears the edit
