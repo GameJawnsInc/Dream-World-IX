@@ -106,6 +106,19 @@ def _needs_guard(add) -> bool:
     return add.get("kind") in _CUMULATIVE or _add_message(add) is not None
 
 
+def _needs_settle(add) -> bool:
+    """Whether a message body needs the field-load control-lock dance (``Wait`` + ``DisableMove`` ...
+    ``EnableMove``, the same one ``[[on_entry]]`` narration uses). A bare ``WindowSync`` renders fine when the
+    player has control (a tread/talk arm), but is SILENT when the arm runs at FIELD LOAD (a tag-0 Main_Init /
+    object-Init dispatch, before usercontrol). Auto-on for a tag-0 message arm; ``settle = true/false`` overrides."""
+    if _add_message(add) is None:
+        return False
+    s = add.get("settle")
+    if s is not None:
+        return bool(s)
+    return _int(add, "tag") == 0                              # tag 0 = Init/Main_Init = field-load = locked
+
+
 def _effect_body(add, *, message_txid=None) -> bytes:
     """The raw effect bytes for one add (no guard) -- reuses the content encoders. When the add carries a
     message (or IS a ``show_line``), a ``WindowSync(message_txid)`` is APPENDED after the effect (give THEN
@@ -189,10 +202,21 @@ class _GuardAlloc:
                             "raise [campaign] flags_per_field or set an explicit guard = N")
 
 
+def _settle_wrap(body: bytes) -> bytes:
+    """Wrap a message body in the field-load control-lock dance (``Wait`` + ``DisableMove`` ... ``EnableMove``)
+    so a ``WindowSync`` rendered at FIELD LOAD (a tag-0 Init/Main_Init dispatch, before usercontrol) shows --
+    the same dance ``content.onentry`` uses for narration. A bare window there is silent."""
+    from .content import cutscene as _cutscene
+    from .eb import opcodes as _op
+    return _op.wait(_cutscene.REORDER_WAIT) + _op.DISABLE_MOVE + body + _op.ENABLE_MOVE
+
+
 def _core_bytes(add, alloc, warnings=None, *, message_txid=None) -> bytes:
     """The bytes to prepend for one add: the effect, guarded unless it's idempotent (a message-less
     set_flag) or a deliberately-repeatable tag-3 talk effect (``repeat = true``)."""
     body = _effect_body(add, message_txid=message_txid)
+    if _needs_settle(add):                                      # a field-load message needs the control-lock dance
+        body = _settle_wrap(body)
     if not _needs_guard(add):
         return body                                            # set_flag w/o a message -- idempotent, ungated
     if add.get("repeat"):
