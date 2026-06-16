@@ -110,6 +110,49 @@ def test_paint_template_renders():
     assert im.size == (1536, 1792) and im.mode == "RGBA"
 
 
+def test_template_layers_compose_to_single():
+    """The per-layer split (grid/outline/height) overlaid in order must reproduce the SINGLE combined
+    template byte-for-byte -- so opting into multi-PNG never changes what gets drawn."""
+    from ff9mapkit.scene import guide as G
+    _, cam = _make(CAMS[0])
+    fr = G.frame_floor(cam, back_canvas_y=160.0, front_canvas_y=400.0)
+    S = 4
+    cw, ch = G._canvas_wh(cam)
+    W, H = cw * S, ch * S
+    wall_h = abs(fr.zb - fr.zf)
+    combined = bytearray(W * H * 4)                       # what render_paint_template draws
+    for layer, _o, _d in G.PAINT_TEMPLATE_LAYERS:
+        G._draw_template_layer(combined, W, H, layer, cam, fr, S, 8, 8, wall_h)
+    overlay = bytearray(W * H * 4)                        # per-layer buffers composited in order
+    for layer, _o, _d in G.PAINT_TEMPLATE_LAYERS:
+        buf = bytearray(W * H * 4)
+        G._draw_template_layer(buf, W, H, layer, cam, fr, S, 8, 8, wall_h)
+        for i in range(3, len(buf), 4):
+            if buf[i]:                                    # non-transparent pixel overwrites (same as combined)
+                overlay[i - 3:i + 1] = buf[i - 3:i + 1]
+    assert overlay == combined
+
+
+def test_render_paint_template_layers_writes_manifest(tmp_path):
+    import json
+    import os
+    from ff9mapkit.scene import guide as G
+    _, cam = _make(CAMS[0])
+    fr = G.frame_floor(cam, back_canvas_y=160.0, front_canvas_y=400.0)
+    files = G.render_paint_template_layers(cam, fr, str(tmp_path), basename="pt")
+    assert [os.path.basename(f) for f in files] == \
+        ["pt_grid.png", "pt_outline.png", "pt_height.png", "pt.manifest.json"]
+    for f in files[:3]:                                   # each layer is a real, non-empty PNG
+        assert os.path.getsize(f) > 0
+        with open(f, "rb") as fh:
+            assert fh.read(8) == b"\x89PNG\r\n\x1a\n"
+    man = json.loads((tmp_path / "pt.manifest.json").read_text())
+    assert man["version"] == 1 and man["scale"] == 4
+    assert man["canvas_size"] == [384 * 4, 448 * 4]
+    assert [L["type"] for L in man["layers"]] == ["grid", "outline", "height"]
+    assert man["layers"][0]["opacity"] == 0.35 and man["layers"][1]["type"] == "outline"
+
+
 def test_frame_floor_shallow_pitch_raises_gracefully():
     from ff9mapkit.scene import guide as G
     c = G.make_camera(8, 4500, fov_x_deg=42)        # too shallow -> floor rows above horizon

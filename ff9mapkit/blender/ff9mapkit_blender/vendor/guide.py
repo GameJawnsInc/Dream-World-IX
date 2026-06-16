@@ -204,6 +204,51 @@ def render_paint_guide(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int
     return (W, H)
 
 
+# --- transparent trace-over paint template (single-PNG default + opt-in per-layer PNGs) ----
+_GRID_RGBA = (210, 215, 230, 90)        # faint perspective grid
+_OUTLINE_RGBA = (255, 170, 60, 255)     # bright floor outline
+_BORDER_RGBA = (120, 200, 255, 200)     # canvas safe-frame
+# Ordered bottom -> top (the paint-app layer order), each with the manifest opacity + blurb:
+PAINT_TEMPLATE_LAYERS = (
+    ("grid", 0.35, "Perspective floor grid (alignment only)"),
+    ("outline", 1.0, "Floor outline + canvas safe-frame (where the floor lands)"),
+    ("height", 0.7, "Vertical height guides (corner poles / back rings / ceiling box)"),
+)
+
+
+def _draw_template_layer(buf: bytearray, W: int, H: int, layer: str, cam: _cam.Cam,
+                         frame: "FloorFrame", S: int, nx: int, nz: int, wall_h: float) -> None:
+    """Draw ONE named paint-template layer into ``buf`` ('grid' | 'outline' | 'height'). Shared by the
+    single-PNG ``render_paint_template`` and the per-layer ``render_paint_template_layers`` so the two
+    can never drift. 'outline' carries the canvas border; 'height' is the colored vertical guides."""
+    from . import placeholder as _ph
+
+    def px(P):
+        cx, cy = _cam.to_canvas(P, cam)
+        return (cx * S, cy * S)
+
+    fx, zb, zf = frame.half_width, frame.zb, frame.zf
+    if layer == "grid":
+        xs = [-fx + 2 * fx * i / nx for i in range(nx + 1)]
+        zs = [zb + (zf - zb) * j / nz for j in range(nz + 1)]
+        for x in xs:
+            _ph.draw_line(buf, W, H, px((x, 0, zb)), px((x, 0, zf)), _GRID_RGBA, 1)
+        for z in zs:
+            _ph.draw_line(buf, W, H, px((-fx, 0, z)), px((fx, 0, z)), _GRID_RGBA, 1)
+    elif layer == "outline":
+        edge = [px(P) for P in frame.corners_world]            # bright floor outline (back thicker)
+        for k in range(4):
+            _ph.draw_line(buf, W, H, edge[k], edge[(k + 1) % 4], _OUTLINE_RGBA, 2 * S)
+        _ph.draw_line(buf, W, H, edge[0], edge[1], _OUTLINE_RGBA, 3 * S)
+        for a, b in (((1, 1), (W - 2, 1)), ((W - 2, 1), (W - 2, H - 2)),    # canvas border
+                     ((W - 2, H - 2), (1, H - 2)), ((1, H - 2), (1, 1))):
+            _ph.draw_line(buf, W, H, a, b, _BORDER_RGBA, 2)
+    elif layer == "height":
+        if wall_h > 0:
+            for p0, p1, col in _height_segments(cam, frame, S, wall_h):
+                _ph.draw_line(buf, W, H, p0, p1, col, max(1, S // 2))
+
+
 def render_paint_template(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: int = 4,
                           nx: int = 8, nz: int = 8, wall_height: float | None = None) -> tuple:
     """Render a TRANSPARENT trace-over paint template (canvas_w*scale x canvas_h*scale), pure stdlib.
@@ -211,7 +256,8 @@ def render_paint_template(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: 
     A transparent overlay: open it in your paint app, paint your room on layers BELOW it, then
     hide/delete this layer. Draws a faint perspective floor grid + a bright floor outline + the
     canvas border + vertical height guides. Coordinate labels are PRINTED by the CLI (no font in
-    stdlib). Returns the image (w, h) in pixels.
+    stdlib). ``render_paint_template_layers`` writes the same content as separate per-layer PNGs.
+    Returns the image (w, h) in pixels.
     """
     from . import placeholder as _ph
 
@@ -219,30 +265,47 @@ def render_paint_template(cam: _cam.Cam, frame: FloorFrame, png_path, *, scale: 
     cw, ch = _canvas_wh(cam)
     W, H = cw * S, ch * S
     buf = bytearray(W * H * 4)                                  # transparent
-
-    def px(P):
-        cx, cy = _cam.to_canvas(P, cam)
-        return (cx * S, cy * S)
-
-    fx, zb, zf = frame.half_width, frame.zb, frame.zf
-    xs = [-fx + 2 * fx * i / nx for i in range(nx + 1)]
-    zs = [zb + (zf - zb) * j / nz for j in range(nz + 1)]
-    GRID = (210, 215, 230, 90)                                  # faint perspective grid
-    for x in xs:
-        _ph.draw_line(buf, W, H, px((x, 0, zb)), px((x, 0, zf)), GRID, 1)
-    for z in zs:
-        _ph.draw_line(buf, W, H, px((-fx, 0, z)), px((fx, 0, z)), GRID, 1)
-    edge = [px(P) for P in frame.corners_world]                # bright floor outline (back thicker)
-    for k in range(4):
-        _ph.draw_line(buf, W, H, edge[k], edge[(k + 1) % 4], (255, 170, 60, 255), 2 * S)
-    _ph.draw_line(buf, W, H, edge[0], edge[1], (255, 170, 60, 255), 3 * S)
-    for a, b in (((1, 1), (W - 2, 1)), ((W - 2, 1), (W - 2, H - 2)),       # canvas border
-                 ((W - 2, H - 2), (1, H - 2)), ((1, H - 2), (1, 1))):
-        _ph.draw_line(buf, W, H, a, b, (120, 200, 255, 200), 2)
-    wall_h = abs(zb - zf) if wall_height is None else wall_height
-    if wall_h > 0:
-        for p0, p1, col in _height_segments(cam, frame, S, wall_h):
-            _ph.draw_line(buf, W, H, p0, p1, col, max(1, S // 2))
+    wall_h = abs(frame.zb - frame.zf) if wall_height is None else wall_height
+    for layer, _opacity, _desc in PAINT_TEMPLATE_LAYERS:
+        _draw_template_layer(buf, W, H, layer, cam, frame, S, nx, nz, wall_h)
     with open(png_path, "wb") as fh:
         fh.write(_ph._png_rgba(W, H, buf))
     return (W, H)
+
+
+def render_paint_template_layers(cam: _cam.Cam, frame: FloorFrame, out_dir, *, scale: int = 4,
+                                 nx: int = 8, nz: int = 8, wall_height: float | None = None,
+                                 basename: str = "paint_template") -> list:
+    """Write the paint template as SEPARATE transparent PNGs -- one per layer (grid / outline /
+    height) -- plus a ``<basename>.manifest.json`` listing them in bottom-to-top paint order with a
+    suggested opacity. Lets the artist toggle each guide independently in a paint app. The single-PNG
+    ``render_paint_template`` stays the default; this is the opt-in per-layer form. Returns the list
+    of written paths (the manifest last)."""
+    import json
+    import os
+
+    from . import placeholder as _ph
+
+    S = scale
+    cw, ch = _canvas_wh(cam)
+    W, H = cw * S, ch * S
+    wall_h = abs(frame.zb - frame.zf) if wall_height is None else wall_height
+    os.makedirs(out_dir, exist_ok=True)
+    written, entries = [], []
+    for layer, opacity, desc in PAINT_TEMPLATE_LAYERS:
+        buf = bytearray(W * H * 4)
+        _draw_template_layer(buf, W, H, layer, cam, frame, S, nx, nz, wall_h)
+        fn = f"{basename}_{layer}.png"
+        path = os.path.join(out_dir, fn)
+        with open(path, "wb") as fh:
+            fh.write(_ph._png_rgba(W, H, buf))
+        written.append(path)
+        entries.append({"file": fn, "type": layer, "opacity": opacity, "blend": "normal",
+                        "description": desc})
+    man = {"version": 1, "canvas_size": [W, H], "scale": S, "layers": entries}
+    man_path = os.path.join(out_dir, f"{basename}.manifest.json")
+    with open(man_path, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(man, fh, indent=2)
+        fh.write("\n")
+    written.append(man_path)
+    return written

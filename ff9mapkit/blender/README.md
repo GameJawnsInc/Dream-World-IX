@@ -55,7 +55,12 @@ A typical pass:
      the floor edges + a ceiling box) in the viewport — so you can model/paint walls in perspective.
    - *Export Paint Template* writes a transparent `paint_template.png` (floor outline + perspective
      grid + height guides) to trace over — paint your room on layers *under* it. It sizes to the
-     **full painting** (so a scrolling room gets a wide template).
+     **full painting** (so a scrolling room gets a wide template), and a multi-camera field gets one
+     template per camera (`paint_template_cam00.png`, …).
+     - Tick **Export as layers** to instead write each guide as its own transparent PNG —
+       `paint_template_grid.png` / `_outline.png` / `_height.png` — plus a `paint_template.manifest.json`
+       listing them with a suggested opacity, so you can toggle each guide independently in your paint
+       app. (CLI equivalent: `ff9mapkit guide --template --template-layers --png out/paint_template.png`.)
 4. **(Human) paint the background layers** to that guide/template. Typical layers back-to-front: a
    **back** layer (everything behind the player), a **floor** layer, and optionally a **front**
    layer with a small `z` so it draws *over* the player (occlusion). Save PNGs (RGBA) — see the

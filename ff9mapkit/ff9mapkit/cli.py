@@ -225,7 +225,14 @@ def _cmd_guide(args: argparse.Namespace) -> int:
         print(f"  {nm}: world {wld} -> canvas px {cv}")
     print(f"walkmesh corners (x,z): {guide.walkmesh_corners(fr)}")
     if args.png:
-        if args.template:
+        if args.template and getattr(args, "template_layers", False):
+            import os
+            out_dir = os.path.dirname(args.png) or "."
+            base = os.path.splitext(os.path.basename(args.png))[0]
+            files = guide.render_paint_template_layers(g, fr, out_dir, basename=base)
+            print(f"paint template: {len(files) - 1} layer PNGs + manifest -> {out_dir} "
+                  f"(load {base}.manifest.json in your paint app)")
+        elif args.template:
             wpx, hpx = guide.render_paint_template(g, fr, args.png)
             print(f"paint template ({wpx}x{hpx}, transparent - paint UNDER it) -> {args.png}")
         else:
@@ -2131,6 +2138,10 @@ def build_parser() -> argparse.ArgumentParser:
     gd.add_argument("--png", help="write a PNG here (checkerboard guide, or template with --template)")
     gd.add_argument("--template", action="store_true",
                     help="write a TRANSPARENT trace-over paint template (paint your room under it)")
+    gd.add_argument("--template-layers", action="store_true",
+                    help="with --template: write SEPARATE per-layer PNGs (grid / outline / height) + a "
+                         "<name>.manifest.json instead of one combined PNG, so you can toggle each "
+                         "guide in your paint app")
     gd.set_defaults(func=_cmd_guide)
 
     bd = sub.add_parser("build", help="compile field.toml project(s) into a Memoria mod")

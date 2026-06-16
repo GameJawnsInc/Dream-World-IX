@@ -9,6 +9,7 @@ Guide -> Export Field -> run `ff9mapkit build <field.toml>`.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 
@@ -103,6 +104,11 @@ class FF9MKProps(bpy.types.PropertyGroup):
                     "an absolute folder. If the .blend is unsaved it falls back to ~/<name>")
     layers: bpy.props.CollectionProperty(type=FF9MKLayer)
     layers_index: bpy.props.IntProperty(default=0)
+    template_layers: bpy.props.BoolProperty(
+        name="Export as layers", default=False,
+        description="Write the paint template as SEPARATE per-layer PNGs (grid / outline / height) + "
+                    "a manifest.json instead of one combined PNG, so you can toggle each guide in "
+                    "your paint app")
     # --- battle map (3D BBG geometry) ---
     bbg_name: bpy.props.StringProperty(name="BBG", default="",
                                        description="The battle-background slot (e.g. BBG_B209)")
@@ -647,11 +653,13 @@ class FF9MK_OT_compute_guide(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def _rasterize_paint_template(t, scale=4):
+def _rasterize_paint_template(t, scale=4, only=None):
     """Rasterize a bridge.paint_template_lines() dict into a transparent float-RGBA buffer in bpy
     image order (rows bottom-up). Mirrors the CLI render_paint_template exactly: faint perspective
-    grid, bright floor outline (back edge thicker), the canvas safe-frame border, then the COLORED
-    vertical height guides (poles/rings/ceiling box) on top. Returns (buf, W, H)."""
+    grid, bright floor outline (back edge thicker) + the canvas safe-frame border, then the COLORED
+    vertical height guides (poles/rings/ceiling box) on top. ``only`` (None | 'grid' | 'outline' |
+    'height') draws just that one layer for the per-layer export ('outline' carries the border).
+    Returns (buf, W, H)."""
     import array
     W, H = t["size"]
     S = scale
@@ -676,19 +684,54 @@ def _rasterize_paint_template(t, scale=4):
                         o = (row + xx) * 4
                         buf[o], buf[o + 1], buf[o + 2], buf[o + 3] = rgba
 
-    for a, b in t["grid"]:                                    # faint perspective grid
-        line(a, b, (0.82, 0.84, 0.90, 0.35))
-    outline = t["outline"]
-    for a, b in outline:                                      # bright floor outline
-        line(a, b, (1.0, 0.667, 0.235, 1.0), 2 * S)
-    if outline:                                               # back edge highlighted (thicker)
-        line(outline[0][0], outline[0][1], (1.0, 0.667, 0.235, 1.0), 3 * S)
-    for a, b in t.get("border", []):                          # canvas safe-frame
-        line(a, b, (0.471, 0.784, 1.0, 0.784), 2)
-    for seg in t.get("height", []):                           # COLORED poles / rings / ceiling box
-        a, b, rgba = seg
-        line(a, b, tuple(ch / 255.0 for ch in rgba), max(1, S // 2))
+    if only in (None, "grid"):
+        for a, b in t["grid"]:                                # faint perspective grid
+            line(a, b, (0.82, 0.84, 0.90, 0.35))
+    if only in (None, "outline"):
+        outline = t["outline"]
+        for a, b in outline:                                  # bright floor outline
+            line(a, b, (1.0, 0.667, 0.235, 1.0), 2 * S)
+        if outline:                                           # back edge highlighted (thicker)
+            line(outline[0][0], outline[0][1], (1.0, 0.667, 0.235, 1.0), 3 * S)
+        for a, b in t.get("border", []):                      # canvas safe-frame
+            line(a, b, (0.471, 0.784, 1.0, 0.784), 2)
+    if only in (None, "height"):
+        for seg in t.get("height", []):                       # COLORED poles / rings / ceiling box
+            a, b, rgba = seg
+            line(a, b, tuple(ch / 255.0 for ch in rgba), max(1, S // 2))
     return buf, W, H
+
+
+def _save_template_image(name, W, H, buf, path):
+    """Write a float-RGBA buffer to ``path`` as a PNG via a (re-used) bpy image. Raises OSError on a
+    write failure so the caller can report which camera/layer failed."""
+    old = bpy.data.images.get(name)
+    if old:
+        bpy.data.images.remove(old)
+    img = bpy.data.images.new(name, W, H, alpha=True)
+    img.pixels.foreach_set(buf)
+    img.filepath_raw = path
+    img.file_format = "PNG"
+    img.save()
+
+
+def _write_template_layers(out, base, t):
+    """Write per-layer paint-template PNGs (grid / outline / height) + a <base>.manifest.json into
+    ``out``, mirroring guide.render_paint_template_layers (same layer set, order, opacity). Returns
+    the number of layer PNGs written."""
+    entries = []
+    W = H = 0
+    for layer, opacity, desc in guide.PAINT_TEMPLATE_LAYERS:
+        buf, W, H = _rasterize_paint_template(t, scale=4, only=layer)
+        fn = f"{base}_{layer}.png"
+        _save_template_image(f"FF9_PT_{base}_{layer}", W, H, buf, os.path.join(out, fn))
+        entries.append({"file": fn, "type": layer, "opacity": opacity, "blend": "normal",
+                        "description": desc})
+    man = {"version": 1, "canvas_size": [W, H], "scale": 4, "layers": entries}
+    with open(os.path.join(out, f"{base}.manifest.json"), "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(man, fh, indent=2)
+        fh.write("\n")
+    return len(entries)
 
 
 class FF9MK_OT_paint_template(bpy.types.Operator):
@@ -722,31 +765,32 @@ class FF9MK_OT_paint_template(bpy.types.Operator):
             except ValueError as e:
                 errors.append(f"cam{idx}: {e}")
                 continue
-            buf, W, H = _rasterize_paint_template(t, scale=4)
-            name = f"FF9_PaintTemplate_cam{idx:02d}" if multi else "FF9_PaintTemplate"
-            fn = f"paint_template_cam{idx:02d}.png" if multi else "paint_template.png"
-            old = bpy.data.images.get(name)
-            if old:
-                bpy.data.images.remove(old)
-            img = bpy.data.images.new(name, W, H, alpha=True)
-            img.pixels.foreach_set(buf)
-            path = os.path.join(out, fn)
+            base = f"paint_template_cam{idx:02d}" if multi else "paint_template"
             try:
-                img.filepath_raw = path
-                img.file_format = "PNG"
-                img.save()
+                if p.template_layers:
+                    n = _write_template_layers(out, base, t)
+                    written.append((idx, n, os.path.join(out, f"{base}.manifest.json")))
+                else:
+                    buf, W, H = _rasterize_paint_template(t, scale=4)
+                    path = os.path.join(out, f"{base}.png")
+                    _save_template_image(f"FF9_PT_{base}", W, H, buf, path)
+                    written.append((idx, (W, H), path))
             except OSError as e:
                 errors.append(f"cam{idx}: {e.strerror}")
                 continue
-            written.append((idx, W, H, path))
         if not written:
             self.report({"ERROR"}, "no template written: " + "; ".join(errors))
             return {"CANCELLED"}
-        if multi:
+        if p.template_layers:
+            n_layers = len(guide.PAINT_TEMPLATE_LAYERS)
+            scope = f"{len(written)} cameras x " if multi else ""
+            msg = (f"paint template: {scope}{n_layers} layer PNGs + manifest -> {out}; "
+                   "load the manifest.json in your paint app")
+        elif multi:
             msg = (f"{len(written)} paint templates (one per camera) -> {out}; "
                    "paint each camera's room on layers UNDER its template")
         else:
-            _idx, W, H, path = written[0]
+            _idx, (W, H), path = written[0]
             msg = f"paint template ({W}x{H}) -> {path}; paint your room on layers UNDER it"
         if errors:
             msg += f" (skipped {len(errors)}: {'; '.join(errors)})"
