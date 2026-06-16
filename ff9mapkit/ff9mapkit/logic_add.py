@@ -191,6 +191,7 @@ def _insert_after(eb_bytes, eb, f, entry, tag, add, core, warnings) -> bytes:
     skip lands on the function's continuation, exactly as a prepend's does."""
     from .eb import cmdasm as _cmdasm
     from .eb import disasm as _disasm
+    from .eb import exprasm as _exprasm
     after_op = _int(add, "after_op")
     after_nth = _int(add, "after_nth", default=0, optional=True)
     hits = [i for i in eb.instrs(f) if i.op == after_op]
@@ -213,7 +214,7 @@ def _insert_after(eb_bytes, eb, f, entry, tag, add, core, warnings) -> bytes:
         texts = [t for _o, t in items]
         spliced = "\n".join(texts[:line_idx + 1] + effect_src.split("\n") + texts[line_idx + 1:])
         new_body = _cmdasm.assemble_block(spliced)
-    except _cmdasm.CmdAsmError as ex:                           # ...is a clean failure, not a raw traceback
+    except (_cmdasm.CmdAsmError, _exprasm.AssembleError) as ex:   # ...is a clean failure, not a raw traceback
         raise LogicAddError(f"logic_add where='after': could not rebuild entry{_int(add, 'entry')}/"
                             f"tag{_int(add, 'tag')}: {ex}")
     return _edit.replace_function_body(eb_bytes, entry, tag, new_body)

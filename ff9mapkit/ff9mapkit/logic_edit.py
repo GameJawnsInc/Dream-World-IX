@@ -11,9 +11,10 @@ silent mis-patch) if the donor bytes drifted. Authored declaratively as ``[[logi
 applied in build's verbatim pass (CLAUDE.md / docs/FORK_FIDELITY.md). Empty list -> byte-identical no-op.
 
 v1 kinds: ``field`` (0x2B dest) · ``item`` (0x48 id/count) · ``gil`` (0xCE amount) · ``txid`` (a Window op's text id)
-· ``flag_index`` (the GLOB ``C4``/``E4`` index inside an 0x05 expression, width-class-preserving) · ``text`` (a
-``.mes`` dialogue-string rewrite, the only non-length-preserving kind -- it targets the per-language ``.mes``, not the
-``.eb``). Deferred: ``switch_case`` (a switch's case value) and cross-0xFF flag remaps (a length change = Phase 4).
+· ``flag_index`` (the GLOB ``C4``/``E4`` index inside an 0x05 expression -- a same-width remap is an in-place
+operand swap; a remap that CROSSES the 0xFF C4/E4 token boundary is length-changing and rebuilt via the Phase-4b
+keystone) · ``text`` (a ``.mes`` dialogue-string rewrite, targets the per-language ``.mes``, not the ``.eb``).
+Deferred: ``switch_case`` (a switch's case value/target).
 
 The ``.eb`` bytecode is language-identical (only the 84-byte name differs), so one edit set patches all 7 langs.
 """
@@ -118,11 +119,22 @@ def _operand_edit(eb, buf, ed, op, operand_index, *, extra=None, what=None):
     _guarded_write(buf, ins.off + bo, disasm.argsize(op, operand_index), old, new)
 
 
-def _flag_edit(eb, buf, ed):
-    """Remap a GLOB story-flag index inside an 0x05 expression (the C4/E4 var token) -- width-class-preserving."""
+def _flag_width(idx: int) -> int:
+    """The GLOB var token's index width in BYTES: 1 for ``idx <= 0xFF`` (the C4 short token), 2 for the E4 long
+    token. The engine reads the token byte to know the width, so a remap crossing 0xFF changes BOTH the token
+    byte and its length -- a length-changing edit (the keystone rebuild), not an in-place same-width swap."""
+    return 1 if idx <= 0xFF else 2
+
+
+def _flag_locate(eb, ed):
+    """Find the 0x05 expression instruction that reads/writes GLOB flag ``ed['flag']`` (disambiguated by
+    ``nth``); return ``(ins, idx, tok_len, old, new)``. Shared by the in-place and re-width flag paths so they
+    locate IDENTICALLY. Raises on an out-of-range target or a flag that isn't found (donor drift / bad addr)."""
     from .eventscan import _glob_var_token
     f = _func(eb, ed)
     old, new = _int(ed, "flag"), _int(ed, "new_flag")
+    if not (0 <= new <= 0xFFFF):
+        raise LogicEditError(f"logic_edit flag remap target {new} out of range (0-65535)")
     hits = []
     for i in eb.instrs(f):
         if i.op != EXPR_OP:
@@ -130,14 +142,58 @@ def _flag_edit(eb, buf, ed):
         tok = _glob_var_token(eb.data, i.off + 1)             # the var token sits right after the 0x05
         if tok is not None and tok[0] == old:
             hits.append((i, tok))
-    pair = _pick(hits, ed, f"GLOB flag {old} read/write in entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')}")
-    ins, (idx, tok_len) = pair
-    idx_w = tok_len - 1                                        # C4 -> 1-byte index, E4 -> 2-byte index
-    new_w = 1 if new <= 0xFF else 2
-    if new_w != idx_w:
-        raise LogicEditError(f"logic_edit flag remap {old}->{new} crosses the 0xFF C4/E4 token boundary "
-                             "(a length change) -- not supported in the in-place tier (Phase 4)")
-    _guarded_write(buf, ins.off + 2, idx_w, old, new)         # 0x05 at off, token byte at off+1, index at off+2
+    ins, (idx, tok_len) = _pick(hits, ed, f"GLOB flag {old} read/write in "
+                                f"entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')}")
+    return ins, idx, tok_len, old, new
+
+
+def _flag_edit(eb, buf, ed):
+    """In-place (length-preserving) GLOB story-flag index remap inside an 0x05 expression -- ONLY when the new
+    index stays in the SAME C4/E4 width class. A cross-0xFF remap is length-changing and routed to
+    :func:`_flag_rewidth` by :func:`apply_logic_edits`; this raises if one somehow reaches the in-place path."""
+    ins, idx, tok_len, old, new = _flag_locate(eb, ed)
+    if _flag_width(new) != (tok_len - 1):                     # C4 -> 1-byte index, E4 -> 2-byte index
+        raise LogicEditError(f"internal: cross-0xFF flag remap {old}->{new} must use the re-width pass")
+    _guarded_write(buf, ins.off + 2, tok_len - 1, old, new)   # 0x05 at off, token byte at off+1, index at off+2
+
+
+def _flag_rewidth(eb_bytes, ed, anchor_rel, old, new) -> bytes:
+    """A cross-0xFF GLOB flag remap (length-CHANGING: the C4 short token <-> the E4 long token), applied at the
+    EXACT instruction located during the split (``anchor_rel`` is its function-relative offset, captured before
+    the in-place pass and adjusted for any prior same-function rebuild). Rewrite that 0x05 expression's
+    ``Global.Bit[old]`` token to ``Global.Bit[new]`` in the disassembled function SOURCE and reassemble via the
+    keystone (``exprasm`` picks the new index's natural width; ``cmdasm`` relocates every jump/switch past the
+    length change), then swap the rebuilt body in. Old-guarded: it asserts the byte at ``anchor_rel`` is still a
+    0x05 reading ``old`` (so conflicting edits that drifted the site fail cleanly, never silently mis-patch)."""
+    from .eb import cmdasm as _cmdasm
+    from .eb import edit as _edit
+    from .eb import exprasm as _exprasm
+    from .eb._exprtable import decode_var
+    from .eventscan import _glob_var_token, GLOB_BOOL_SHORT, GLOB_BOOL_LONG
+    eb = EbScript.from_bytes(eb_bytes)
+    f = _func(eb, ed)
+    abs_off = f.abs_start + anchor_rel
+    tok = _glob_var_token(eb.data, abs_off + 1) if (0 <= abs_off < len(eb.data) and eb.data[abs_off] == EXPR_OP) else None
+    if tok is None or tok[0] != old:                          # the captured site no longer holds the old flag
+        raise LogicEditError(f"logic_edit flag remap {old}->{new}: the target 0x05 expression in "
+                             f"entry{_int(ed, 'entry')}/tag{_int(ed, 'tag')} drifted (conflicting edits?)")
+    old_tok = decode_var(GLOB_BOOL_SHORT if old <= 0xFF else GLOB_BOOL_LONG, old)   # "Global.Bit[old]"
+    new_tok = decode_var(GLOB_BOOL_SHORT if new <= 0xFF else GLOB_BOOL_LONG, new)   # "Global.Bit[new]"
+    try:
+        items = _cmdasm.disassemble_items(eb.data, f.abs_start, f.abs_end)
+        line_idx = next((k for k, (off, _t) in enumerate(items) if off == anchor_rel), None)
+        if line_idx is None:                                  # the guarded instr is decoded -> always present
+            raise LogicEditError("logic_edit flag remap: could not locate the expression instruction (internal)")
+        _off, text = items[line_idx]
+        if old_tok not in text:                               # second guard: the decoded expr must show the old flag
+            raise LogicEditError(f"logic_edit flag remap: {old_tok} not in the decoded expression ({text})")
+        texts = [t for _o, t in items]
+        texts[line_idx] = text.replace(old_tok, new_tok)
+        new_body = _cmdasm.assemble_block("\n".join(texts))
+    except (_cmdasm.CmdAsmError, _exprasm.AssembleError) as ex:   # normalize the rebuild failure (clean build error)
+        raise LogicEditError(f"logic_edit flag remap {old}->{new}: could not rebuild "
+                             f"entry{_int(ed, 'entry')}/tag{_int(ed, 'tag')}: {ex}")
+    return _edit.replace_function_body(eb_bytes, _int(ed, "entry"), _int(ed, "tag"), new_body)
 
 
 def _apply_eb_edit(eb, buf, ed):
@@ -192,17 +248,36 @@ def _edit_list(edits):
 
 
 def apply_logic_edits(eb_bytes, edits) -> bytes:
-    """Apply every NON-text ``[[logic_edit]]`` to ``eb_bytes`` in place (length-preserving, old-guarded) and
-    return the patched bytes. Empty / text-only -> byte-identical. Raises :class:`LogicEditError` on any unsafe
-    edit (bad address, drift, overflow, unsupported)."""
+    """Apply every NON-text ``[[logic_edit]]`` to ``eb_bytes`` and return the patched bytes. Empty / text-only ->
+    byte-identical. Most edits are length-preserving in-place operand swaps (old-guarded); the lone exception is
+    a ``flag_index`` remap that CROSSES the 0xFF C4/E4 token boundary, which is length-changing and rebuilt via
+    the keystone -- those run in a second pass AFTER the in-place edits (so the in-place edits' donor-based
+    offsets aren't shifted by a rebuild). Raises :class:`LogicEditError` on any unsafe edit."""
     eb_edits = [e for e in _edit_list(edits) if e.get("kind") != "text"]
     if not eb_edits:
         return bytes(eb_bytes)
     eb = EbScript.from_bytes(eb_bytes)
-    buf = bytearray(eb_bytes)
+    inplace, rewidth = [], []                                  # split: same-width (in-place) vs cross-0xFF (rebuild)
     for ed in eb_edits:
+        if ed.get("kind") == "flag_index":
+            ins, _idx, tok_len, old, new = _flag_locate(eb, ed)
+            if _flag_width(new) != (tok_len - 1):              # crosses 0xFF -> capture the EXACT site offset now
+                rewidth.append((ed, (_int(ed, "entry"), _int(ed, "tag")), ins.off - _func(eb, ed).abs_start,
+                                old, new))
+                continue
+        inplace.append(ed)
+    buf = bytearray(eb_bytes)
+    for ed in inplace:                                         # length-preserving: instruction offsets stay put
         _apply_eb_edit(eb, buf, ed)
-    return bytes(buf)
+    out = bytes(buf)
+    # cross-0xFF rebuilds: locate each by its captured function-relative offset (stable through the in-place
+    # pass), adjusted for the byte delta of prior same-function rebuilds (processed in ascending offset). This
+    # ties each rebuild to the EXACT instruction the split saw -- it can't drift onto a different same-flag instr.
+    deltas: dict = {}
+    for ed, key, anchor_rel, old, new in sorted(rewidth, key=lambda r: (r[1], r[2])):
+        out = _flag_rewidth(out, ed, anchor_rel + deltas.get(key, 0), old, new)
+        deltas[key] = deltas.get(key, 0) + (_flag_width(new) - _flag_width(old))
+    return out
 
 
 # --- .mes dialogue-string rewrite (kind="text") -- a verified in-place splice, per language ----------

@@ -126,9 +126,128 @@ def test_ambiguous_requires_nth_then_disambiguates():
     assert gils == [100, 7]                                   # only the 2nd changed
 
 
-def test_flag_cross_0xff_boundary_refused():
-    with pytest.raises(LE.LogicEditError):                    # 8512 (E4/2-byte) -> 200 (C4/1-byte) = length change
-        LE.apply_logic_edits(_eb(FLAG + RET), [{"kind": "flag_index", "entry": 0, "tag": 0, "flag": 8512, "new_flag": 200}])
+SHORT_FLAG = bytes([0x05, 0xC4, 200, 0x7D, 1, 0, 0x2C, 0x7F])  # set GLOB 200 (C4 short, 1-byte index)
+
+
+def _glob_idxs(out):
+    eb = EbScript.from_bytes(out)
+    return [_glob_var_token(out, i.off + 1)[0] for i in eb.instrs(eb.entries[0].funcs[0])
+            if i.op == 0x05 and _glob_var_token(out, i.off + 1)]
+
+
+def test_flag_cross_0xff_short_to_long():
+    """A remap that crosses 0xFF (200 C4/1-byte -> 8512 E4/2-byte) is length-CHANGING: rebuilt via the keystone,
+    grows by 1 byte, lints clean, and now reads the long-form flag."""
+    base = _eb(SHORT_FLAG + RET)
+    out = LE.apply_logic_edits(base, [{"kind": "flag_index", "entry": 0, "tag": 0, "flag": 200, "new_flag": 8512}])
+    assert _glob_idxs(out) == [8512] and len(out) == len(base) + 1
+    assert eblint.errors(eblint.lint_eb(out)) == [] and EbScript.from_bytes(out).to_bytes() == out
+
+
+def test_flag_cross_0xff_long_to_short():
+    """The reverse (8512 E4/2-byte -> 100 C4/1-byte) shrinks by 1 byte and lints clean."""
+    base = _eb(FLAG + RET)
+    out = LE.apply_logic_edits(base, [{"kind": "flag_index", "entry": 0, "tag": 0, "flag": 8512, "new_flag": 100}])
+    assert _glob_idxs(out) == [100] and len(out) == len(base) - 1
+    assert eblint.errors(eblint.lint_eb(out)) == []
+
+
+def test_flag_cross_0xff_relocates_jump():
+    """A JMP spanning the re-widened flag token relocates so it still hits its target after the length change."""
+    from ff9mapkit.eb import cmdasm
+    body = cmdasm.assemble_block("JMP(d)\n" + cmdasm.disassemble_block(SHORT_FLAG, 0, len(SHORT_FLAG)) + "\nd:\nRET()")
+    out = LE.apply_logic_edits(_eb(body), [{"kind": "flag_index", "entry": 0, "tag": 0, "flag": 200, "new_flag": 8512}])
+    assert eblint.errors(eblint.lint_eb(out)) == []            # eblint validates every jump/switch target
+    eb = EbScript.from_bytes(out)
+    f = eb.entries[0].funcs[0]
+    jmp = next(i for i in eb.instrs(f) if i.op == 0x01)
+    ret = [i for i in eb.instrs(f) if i.op == 0x04][-1]
+    assert disasm.jump_target(jmp) == ret.off                  # relocated to still land on the RET
+
+
+def test_flag_same_width_stays_in_place():
+    """A same-width remap (8512 -> 8520, both E4) is byte-length-identical (the in-place path, not a rebuild)."""
+    base = _eb(FLAG + RET)
+    out = LE.apply_logic_edits(base, [{"kind": "flag_index", "entry": 0, "tag": 0, "flag": 8512, "new_flag": 8520}])
+    assert _glob_idxs(out) == [8520] and len(out) == len(base)
+
+
+def test_flag_cross_0xff_two_remaps_in_one_function():
+    """Two cross-0xFF remaps in ONE function compose: the second's captured offset is adjusted for the first's
+    length change (processed ascending-offset), so both land on their intended instructions."""
+    short50 = bytes([0x05, 0xC4, 50, 0x7D, 1, 0, 0x2C, 0x7F])   # set GLOB 50 (C4 short)
+    long300 = bytes([0x05, 0xE4]) + struct.pack("<H", 300) + bytes([0x7D, 1, 0, 0x2C, 0x7F])  # set GLOB 300 (E4)
+    out = LE.apply_logic_edits(_eb(short50 + long300 + RET), [
+        {"kind": "flag_index", "entry": 0, "tag": 0, "flag": 50, "new_flag": 8512},   # short->long (+1)
+        {"kind": "flag_index", "entry": 0, "tag": 0, "flag": 300, "new_flag": 100}])   # long->short (-1)
+    assert _glob_idxs(out) == [8512, 100] and eblint.errors(eblint.lint_eb(out)) == []
+    assert EbScript.from_bytes(out).to_bytes() == out
+
+
+def test_flag_cross_0xff_conflicting_edits_refused_not_corrupted():
+    """A conflicting set (an in-place edit drifts the very instruction a cross-0xFF remap targets) fails CLEANLY
+    -- the offset+old guard refuses, never silently patches a different instruction (the review's MED finding)."""
+    one = bytes([0x05, 0xC4, 200, 0x7D, 1, 0, 0x2C, 0x7F])      # the only GLOB 200 read/write
+    with pytest.raises(LE.LogicEditError):
+        LE.apply_logic_edits(_eb(one + RET), [
+            {"kind": "flag_index", "entry": 0, "tag": 0, "flag": 200, "new_flag": 77},     # in-place: drifts the site
+            {"kind": "flag_index", "entry": 0, "tag": 0, "flag": 200, "new_flag": 8512}])  # cross: site no longer 200
+
+
+def test_flag_cross_0xff_guard_and_mix():
+    """The remap is old-guarded (a wrong old flag isn't found -> refused), and a cross-0xFF remap composes with
+    same-pass in-place edits on the same function."""
+    with pytest.raises(LE.LogicEditError):                     # no GLOB 999 in the func
+        LE.apply_logic_edits(_eb(SHORT_FLAG + RET),
+                             [{"kind": "flag_index", "entry": 0, "tag": 0, "flag": 999, "new_flag": 8512}])
+    out = LE.apply_logic_edits(_eb(ADDGIL + SHORT_FLAG + RET), [
+        {"kind": "gil", "entry": 0, "tag": 0, "op": 0xCE, "old": 100, "new": 5000},          # in-place
+        {"kind": "flag_index", "entry": 0, "tag": 0, "flag": 200, "new_flag": 8512}])        # cross-0xFF rebuild
+    assert _read(out, 0xCE, 0) == 5000 and _glob_idxs(out) == [8512]
+    assert eblint.errors(eblint.lint_eb(out)) == []
+
+
+def test_flag_cross_0xff_on_real_fields():
+    """On REAL field bytecode: find a GLOB flag read/write and remap it ACROSS the 0xFF boundary -- the rebuilt
+    function stays eblint-clean + byte-round-trips (the keystone relocates the real jumps/switch)."""
+    try:
+        from ff9mapkit.extract import EventBundle
+        bundle = EventBundle()
+    except Exception:                                                    # noqa: BLE001
+        pytest.skip("no game install")
+    tested = 0
+    for fid in (351, 300, 302, 1054, 70, 250):
+        try:
+            data = bundle.eb_for_id(fid)
+        except Exception:                                               # noqa: BLE001
+            continue
+        if not data:
+            continue
+        s = EbScript.from_bytes(data)
+        site = None
+        for e in s.entries:
+            if e.empty:
+                continue
+            for f in e.funcs:
+                for i in s.instrs(f):
+                    tok = _glob_var_token(data, i.off + 1) if i.op == 0x05 else None
+                    if tok is not None:
+                        site = (e.index, f.tag, tok[0]); break
+                if site:
+                    break
+            if site:
+                break
+        if site is None:
+            continue
+        ent, tag, old = site
+        new = 8512 if old <= 0xFF else 100                              # force a width change either way
+        out = LE.apply_logic_edits(data, [{"kind": "flag_index", "entry": ent, "tag": tag,
+                                           "flag": old, "new_flag": new, "nth": 0}])
+        assert eblint.errors(eblint.lint_eb(out)) == [], f"field {fid}"
+        assert EbScript.from_bytes(out).to_bytes() == out and len(out) != len(data), f"field {fid}"
+        tested += 1
+    if not tested:
+        pytest.skip("no sample field had a GLOB flag token")
 
 
 def test_txid_non_window_op_refused():
