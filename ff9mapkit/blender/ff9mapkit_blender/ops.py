@@ -726,6 +726,19 @@ def _collect_content_items(context):
     return paint.normalize_content(field_cfg)
 
 
+def _collect_walkmesh(context):
+    """The designated FF9_Walkmesh as (ff9_verts, tris) for paint's walkmesh-outline layer, or None.
+    Projects the REAL floor shape (a fork's / a modeled mesh), not the synthesized frame rectangle."""
+    wm = context.scene.ff9mapkit.walkmesh
+    if wm is None or wm.type != "MESH":
+        return None
+    try:
+        verts, tris, _ = _walkmesh_world_mesh(wm)
+    except Exception:   # noqa: BLE001 - never let a degenerate mesh abort the export
+        return None
+    return (bridge.blender_verts_to_ff9(verts), tris) if verts and tris else None
+
+
 class FF9MK_OT_paint_template(bpy.types.Operator):
     bl_idname = "ff9mk.paint_template"
     bl_label = "Export Paint Template"
@@ -749,6 +762,7 @@ class FF9MK_OT_paint_template(bpy.types.Operator):
             self.report({"ERROR"}, f"can't write template: {e.strerror}. Save the .blend or set 'Export to'.")
             return {"CANCELLED"}
         items = _collect_content_items(context) if p.template_layers else []
+        walkmesh = _collect_walkmesh(context) if p.template_layers else None
         written, errors = [], []
         for cam_obj in cam_objs:
             idx = int(cam_obj[CAM_KEY]) if CAM_KEY in cam_obj else 0
@@ -759,7 +773,7 @@ class FF9MK_OT_paint_template(bpy.types.Operator):
                     # floor layers + per-type content PNGs + legend + manifest, via the shared stdlib
                     # path (same output as the `ff9mapkit paint-template` CLI; covers every camera).
                     frame = bridge._floor_frame(c, p.back_y, p.front_y)
-                    files = paint.render_full_template(c, frame, items, out, basename=base)
+                    files = paint.render_full_template(c, frame, items, out, basename=base, walkmesh=walkmesh)
                     written.append((idx, len(files), os.path.join(out, f"{base}.manifest.json")))
                 else:
                     t = bridge.paint_template_lines(c, p.back_y, p.front_y, scale=4)

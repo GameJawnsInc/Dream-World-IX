@@ -334,13 +334,45 @@ def _rasterize_type(d: dict, color, W: int, H: int) -> bytearray:
     return buf
 
 
+WALKMESH_RGBA = (235, 235, 245, 255)    # the REAL walkable-floor boundary (neutral, distinct from content)
+
+
+def walkmesh_outline_segments(ff9_verts, tris, cam: _cam.Cam, scale: int) -> list:
+    """Boundary edges of a walkmesh (its real floor OUTLINE) projected to canvas px. ``ff9_verts`` are
+    world (x, y, z) points in the FF9 frame; ``tris`` are (a, b, c) vertex-index triples. The boundary =
+    edges belonging to exactly one triangle (the perimeter + any holes / disjoint-floor outlines), so an
+    arbitrary forked or hand-modeled walkmesh draws as its true shape, not a synthesized rectangle. The
+    interior triangulation (shared edges) is dropped. bpy-free."""
+    count: dict = {}
+    for tri in tris:
+        if len(tri) < 3:
+            continue
+        a, b, cc = int(tri[0]), int(tri[1]), int(tri[2])
+        for u, v in ((a, b), (b, cc), (cc, a)):
+            if u == v:
+                continue                                  # doubled vertex (degenerate fan edge)
+            key = (v, u) if u > v else (u, v)
+            count[key] = count.get(key, 0) + 1
+
+    def px(i):
+        x, y, z = ff9_verts[i][0], ff9_verts[i][1], ff9_verts[i][2]
+        cx, cy = _cam.to_canvas((x, y, z), cam)
+        return (cx * scale, cy * scale)
+
+    n = len(ff9_verts)
+    return [(px(a), px(b)) for (a, b), c in count.items()
+            if c == 1 and 0 <= a < n and 0 <= b < n]
+
+
 def render_full_template(cam: _cam.Cam, frame, items: list, out_dir, *, basename: str = "paint_template",
-                         scale: int = 4, nx: int = 8, nz: int = 8) -> list:
+                         scale: int = 4, nx: int = 8, nz: int = 8, walkmesh=None) -> list:
     """Write the FULL paint template for a field: the floor layers (grid / outline / height -- only when
-    a ``frame`` is given, i.e. a synth field or a borrow with ``[camera.frame]``) PLUS one transparent
-    PNG per content type present (npcs/props/gateways/...), a ``<basename>.legend.json`` (pin -> name /
-    height / canvas px / off-canvas), and ONE ``<basename>.manifest.json`` listing every layer bottom-to-
-    top with its opacity. Returns the written paths (legend + manifest last). bpy-free + stdlib."""
+    a ``frame`` is given, i.e. a synth field or a borrow with ``[camera.frame]``); the REAL walkmesh
+    outline if ``walkmesh=(ff9_verts, tris)`` is passed (a fork's / modeled floor's true shape, not the
+    synthesized rectangle); PLUS one transparent PNG per content type present (npcs/props/gateways/...),
+    a ``<basename>.legend.json`` (pin -> name / height / canvas px / off-canvas), and ONE
+    ``<basename>.manifest.json`` listing every layer bottom-to-top with its opacity. Returns the written
+    paths (legend + manifest last). bpy-free + stdlib."""
     import json
     import os
 
@@ -366,6 +398,17 @@ def render_full_template(cam: _cam.Cam, frame, items: list, out_dir, *, basename
             _write_png(fn, buf)
             entries.append({"file": fn, "type": layer, "opacity": opacity, "blend": "normal",
                             "description": desc})
+
+    if walkmesh is not None:                                  # the REAL walkmesh outline (forks / modeled)
+        wm_verts, wm_tris = walkmesh
+        segs = walkmesh_outline_segments(wm_verts, wm_tris, cam, scale)
+        if segs:
+            buf = bytearray(W * H * 4)
+            for p0, p1 in segs:
+                _ph.draw_line(buf, W, H, p0, p1, WALKMESH_RGBA, 2)
+            _write_png(f"{basename}_walkmesh.png", buf)
+            entries.append({"file": f"{basename}_walkmesh.png", "type": "walkmesh", "opacity": 0.9,
+                            "blend": "normal", "description": "Walkable floor boundary (the real walkmesh)"})
 
     proj = project_content(items, cam, scale)                 # content layers, one PNG per present type
     for t in CONTENT_ORDER:

@@ -309,8 +309,17 @@ def _cmd_paint_template(args: argparse.Namespace) -> int:
             with open(spath, "rb") as fh:
                 scene_cfg = tomllib.load(fh)
     items = paint.normalize_content(project.raw, scene_cfg)
+    walkmesh = None                                  # the field's REAL floor outline (forks / modeled)
+    try:
+        from .scene import bgi
+        wm = bgi.BgiWalkmesh.from_bytes(build.resolve_walkmesh(project, cam0))
+        verts, tris = wm.world_verts(), [tuple(t.vtx) for t in wm.tris]
+        if verts and tris:
+            walkmesh = (verts, tris)
+    except Exception:                                # no/odd walkmesh (e.g. BG-borrow only) -> skip the layer
+        walkmesh = None
     out_dir = args.out or os.path.dirname(os.path.abspath(args.field)) or "."
-    files = paint.render_full_template(cam0, frame, items, out_dir, basename=args.basename)
+    files = paint.render_full_template(cam0, frame, items, out_dir, basename=args.basename, walkmesh=walkmesh)
     ntypes = len({it["type"] for it in items})
     print(f"paint template: {len(files) - 2} layer PNGs + legend + manifest -> {out_dir}")
     print(f"  {len(items)} content markers across {ntypes} types; load {args.basename}.manifest.json in "

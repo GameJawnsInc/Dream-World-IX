@@ -181,3 +181,36 @@ def test_render_full_template_content_only_when_no_frame(tmp_path):
     names = {os.path.basename(f) for f in files}
     assert not (names & {"pt_grid.png", "pt_outline.png", "pt_height.png"})   # no floor without a frame
     assert "pt_npc.png" in names and "pt.manifest.json" in names
+
+
+# --- walkmesh outline (the real floor shape, not the synthesized rectangle) --------------
+_WM_QUAD = ([(-100, 0, -1100), (100, 0, -1100), (100, 0, -900), (-100, 0, -900)],
+            [(0, 1, 2), (0, 2, 3)])
+
+
+def test_walkmesh_outline_is_the_boundary():
+    cam = _cam()
+    verts, tris = _WM_QUAD
+    segs = paint.walkmesh_outline_segments(verts, tris, cam, 4)
+    assert len(segs) == 4          # 4 perimeter edges; the shared diagonal 0-2 (2 tris) is dropped
+
+
+def test_walkmesh_outline_skips_degenerate_fan_edge():
+    cam = _cam()
+    verts, _ = _WM_QUAD
+    tris = [(0, 1, 2), (0, 2, 3), (0, 3, 3)]   # the IsInQuad fan shape: a doubled last vertex
+    segs = paint.walkmesh_outline_segments(verts, tris, cam, 4)
+    assert segs                                # doesn't crash; the (3,3) edge is skipped
+
+
+def test_render_full_template_walkmesh_layer(tmp_path):
+    cam = _cam()
+    fr = guide.frame_floor(cam, back_canvas_y=205, front_canvas_y=432)
+    files = paint.render_full_template(cam, fr, [], str(tmp_path), basename="pt", walkmesh=_WM_QUAD)
+    names = {os.path.basename(f) for f in files}
+    assert "pt_walkmesh.png" in names
+    man = json.load(open(tmp_path / "pt.manifest.json"))
+    assert any(l["type"] == "walkmesh" for l in man["layers"])
+    # no walkmesh passed -> no walkmesh layer (back-compat)
+    files2 = paint.render_full_template(cam, fr, [], str(tmp_path / "b"), basename="pt")
+    assert "pt_walkmesh.png" not in {os.path.basename(f) for f in files2}
