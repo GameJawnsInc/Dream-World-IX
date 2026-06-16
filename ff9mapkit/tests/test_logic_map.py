@@ -279,3 +279,28 @@ def test_switch_soundness_sweep_real_fields():
                             assert f.abs_start <= ed.target <= f.abs_end and ed.target in valid, \
                                 (fid, ins.off, ed.target)
     assert total > 0, "the sample must actually contain switches (else the sweep is vacuous)"
+
+
+def test_node_summary_and_hint():
+    """node_summary = a terse one-liner from the per-routine attribution; node_hint = a single-category,
+    high-confidence tree suffix (EMPTY for a mixed routine, so the tree label can't mislead)."""
+    N, Call = LM.Node, LM.Call
+    # a MIXED routine (calls + 2 flag writes + a flag read): the summary lists all; the hint is empty
+    mixed = N(0, 20, "shared_routine", 0, 0,
+              calls=[Call("RunScript", 9, 29, "main", [0], 100)],
+              flags_set=[{"index": 3461, "mode": "set"}, {"index": 3458, "mode": "set"}],
+              flags_read=[{"index": 8512, "require_set": True}])
+    s = LM.node_summary(mixed)
+    assert "runs tag 29" in s and "sets 2 flags" in s and "reads flag 8512" in s
+    assert LM.node_hint(mixed) == ""                       # 2+ categories -> no (misleading) hint
+    # SINGLE-category routines -> a terse, honest hint
+    assert LM.node_hint(N(0, 1, "shared_routine", 0, 0,
+                          calls=[Call("RunScript", 9, 29, "main", [0], 0)])) == " → tag 29"
+    assert LM.node_hint(N(0, 2, "shared_routine", 0, 0, warps=[{"op": "Field", "to": 300}])) == " → warp"
+    says1 = N(0, 3, "shared_routine", 0, 0, says=[{"txid": 5, "text": "Hi"}])
+    assert LM.node_hint(says1) == " · dialogue" and LM.node_summary(says1) == "says 1 line"
+    rew = N(0, 5, "shared_routine", 0, 0, gives=[{"kind": "item", "id": 1, "count": 1, "label": "Potion"}])
+    assert LM.node_summary(rew) == "gives 1 reward" and LM.node_hint(rew) == " · reward"
+    # an EMPTY routine -> empty summary + no hint
+    empty = N(0, 4, "shared_routine", 0, 0)
+    assert LM.node_summary(empty) == "" and LM.node_hint(empty) == ""

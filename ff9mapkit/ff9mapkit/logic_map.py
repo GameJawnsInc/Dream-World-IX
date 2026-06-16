@@ -386,6 +386,62 @@ def _fmt_node_lines(n: Node, indent: str = "        ") -> list:
     return out
 
 
+def node_summary(n: Node) -> str:
+    """A terse ONE-LINE 'what this routine does' from the per-routine attribution (calls / dialogue / rewards /
+    flags / warps / branches) -- context for the GUI edit panel + tooling. ``''`` for an empty routine. This is
+    a SUMMARY, not the full transcript (:func:`_fmt_node_lines` lists each item)."""
+    parts = []
+    if n.calls:
+        tags = sorted({c.tag for c in n.calls if c.tag is not None})
+        parts.append(f"runs tag {tags[0]}" if (len(n.calls) == 1 and len(tags) == 1)
+                     else f"calls {len(n.calls)} routines")
+    if n.says:
+        parts.append(f"says {len(n.says)} line" + ("s" if len(n.says) != 1 else ""))
+    gkinds = [g["kind"] for g in n.gives]
+    reward = sum(1 for k in gkinds if k in ("item", "gil"))
+    if reward:
+        parts.append(f"gives {reward} reward" + ("s" if reward != 1 else ""))
+    for kind, phrase in (("shop", "opens a shop"), ("save_menu", "opens the save menu"),
+                         ("menu", "opens a menu"), ("remove_item", "takes an item"), ("remove_gil", "takes gil")):
+        c = gkinds.count(kind)
+        if c:
+            parts.append(phrase + (f" ×{c}" if c > 1 else ""))
+    if n.flags_read:
+        parts.append(f"reads flag {n.flags_read[0]['index']}" if len(n.flags_read) == 1
+                     else f"reads {len(n.flags_read)} flags")
+    if n.flags_set:
+        parts.append(f"sets flag {n.flags_set[0]['index']}" if len(n.flags_set) == 1
+                     else f"sets {len(n.flags_set)} flags")
+    if n.warps:
+        parts.append(f"{len(n.warps)} warp" + ("s" if len(n.warps) != 1 else ""))
+    if n.branches:
+        parts.append(f"{len(n.branches)} switch" + ("es" if len(n.branches) != 1 else ""))
+    if n.unresolved:
+        parts.append(f"{len(n.unresolved)} runtime-computed")
+    return " · ".join(parts)
+
+
+def node_hint(n: Node) -> str:
+    """A SHORT, high-confidence tree-label suffix -- emitted ONLY when the routine has a SINGLE kind of action
+    (so the hint can't mislead). A mixed routine returns ``''`` and stays plain (its detail is in the panel
+    summary / :func:`_fmt_node_lines`)."""
+    cats = (bool(n.calls), bool(n.says), bool(n.gives), bool(n.warps), bool(n.flags_set), bool(n.branches))
+    if sum(cats) != 1:
+        return ""
+    if n.calls:
+        tags = sorted({c.tag for c in n.calls if c.tag is not None})
+        return f" → tag {tags[0]}" if (len(n.calls) == 1 and len(tags) == 1) else f" → {len(n.calls)} calls"
+    if n.warps:
+        return " → warp"
+    if n.says:
+        return " · dialogue"
+    if n.gives:
+        return " · reward"
+    if n.flags_set:
+        return " · sets flag"
+    return " · switch"                                        # the only remaining single category (branches)
+
+
 def format_logic_map(lm: LogicMap) -> str:
     """Render a :class:`LogicMap` as a readable per-entry transcript of the whole script."""
     head = lm.fbg_name or f"field {lm.field_id}"

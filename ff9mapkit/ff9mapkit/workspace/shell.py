@@ -1056,6 +1056,8 @@ class Workspace(QMainWindow):
             from .. import logic_map as LM
             eb, entries, _lang = self._member_logic_inputs(name)
             lm = LM.build_logic_map(eb, entries=entries)
+            self._logic_maps = getattr(self, "_logic_maps", {})
+            self._logic_maps[name] = lm                 # cache for the edit panel's per-routine summary
         except Exception as e:                          # noqa: BLE001
             grp.addChild(self._mk("note", f"(could not build logic map: {e})"))
             return
@@ -1078,7 +1080,7 @@ class Workspace(QMainWindow):
             ehdr = self._mk("logic_entry", f"entry {e.index}: {e.role}{model}", f"logic_e:{e.index}")
             ehdr.setData(0, _DETAIL, [_esc(s) for s in self._logic_entry_detail(e)])
             for n in nodes:
-                rn = self._mk("logic_node", f"{n.kind} / tag {n.tag}", f"logic_n:{e.index}:{n.tag}")
+                rn = self._mk("logic_node", f"{n.kind} / tag {n.tag}{LM.node_hint(n)}", f"logic_n:{e.index}:{n.tag}")
                 rn.setData(0, _DETAIL, [_esc(s) for s in LM._fmt_node_lines(n, indent="")] or [self._muted("—")])
                 ehdr.addChild(rn)
             grp.addChild(ehdr)
@@ -1727,6 +1729,20 @@ class Workspace(QMainWindow):
         self.doc_host_lay.addStretch(1)
 
     # ---- in-place edits of a verbatim fork's .eb (the "Script" subtree -> [[logic_edit]] authoring) ----
+    def _logic_node_summary(self, member, entry, tag, eb, entries):
+        """A one-line 'what this routine does' (logic_map.node_summary) for the edit-panel header -- so a
+        routine with NO editable literals still reads as something ('runs tag 29 · sets 2 flags'), not blank.
+        Reuses the cached LogicMap from the tree build; rebuilds offline if the tree wasn't expanded first."""
+        from .. import logic_map as LM
+        lm = getattr(self, "_logic_maps", {}).get(member)
+        if lm is None:
+            try:
+                lm = LM.build_logic_map(eb, entries=entries)
+            except Exception:                              # noqa: BLE001 -- a summary is best-effort, never fatal
+                return ""
+        n = next((x for x in lm.nodes if x.entry == entry and x.tag == tag), None)
+        return LM.node_summary(n) if n is not None else ""
+
     def _mount_logic_node(self, member, entry, tag):
         """The in-place edit panel for one verbatim routine: each editable value (item reward, gil, warp,
         story flag, dialogue line) as a row with an 'Edit…' affordance that authors a ``[[logic_edit]]`` into
@@ -1745,6 +1761,9 @@ class Workspace(QMainWindow):
                      "In-place edits to the shipped .eb / .mes. Changing a value authors a [[logic_edit]] — "
                      "length-preserving + old-guarded; the read-only tree above still shows the donor's "
                      "original. Run Check, then Build & Deploy.")
+        summary = self._logic_node_summary(member, entry, tag, eb, entries)
+        if summary:                                     # context: WHAT this routine does (not just editable values)
+            self.doc_host_lay.addWidget(self._muted_label(f"This routine {summary}."))
         reason = protected_reason(self.member_paths[member])
         if reason:
             self.doc_host_lay.addWidget(self._warn_label(
@@ -4560,6 +4579,11 @@ def _smoke(win):
         rkey0 = win._payload(rnode)[2]
         e0, t0 = int(rkey0.split(":")[1]), int(rkey0.split(":")[2])
         win._open_editor("ALEXFORK", "logic_node", rkey0)
+        # the panel + tree now carry a per-routine 'what it does' summary / single-category hint (read-only)
+        from ff9mapkit import logic_map as _LM2
+        assert isinstance(win._logic_node_summary("ALEXFORK", e0, t0, eb_b, ents), str), "node summary builds"
+        assert win._logic_maps.get("ALEXFORK") and any(_LM2.node_summary(n)
+                                                       for n in win._logic_maps["ALEXFORK"].nodes), "a routine summarizes"
         gi = win._build_logic_add("give_item", e0, t0, "prepend", None, [], "Potion", "1", "", "", "", "")
         assert gi == {"kind": "give_item", "entry": e0, "tag": t0, "item": "Potion"}, gi
         win._commit_logic_add("ALEXFORK", e0, t0, gi)
