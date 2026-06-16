@@ -38,6 +38,7 @@ from .content import npc as _npc
 from .content import object as _object
 from .content import onentry as _onentry
 from .content import pathfind as _pathfind
+from .content import platform as _platform
 from .content import prop as _prop
 from .content import region as _region
 from .content import party as _party
@@ -836,6 +837,28 @@ def validate(project: FieldProject) -> list[str]:
         trig = jp.get("trigger", "action")
         if trig not in ("action", "tread"):
             problems.append(f'[[jump]] trigger must be "action" (press) or "tread" (auto), got {trig!r}')
+    for pf in project.raw.get("platform", []):          # carry platforms (Pandemonium-elevator ride)
+        z = pf.get("zone", [])
+        if not isinstance(z, (list, tuple)) or len(z) not in (3, 4, 5):   # a scalar zone would len()-crash the lint
+            problems.append(f"[[platform]] zone must have 3-5 points (the boarding trigger), got {_zone_desc(z)}")
+        pts = {}
+        for k in ("board", "arrive"):
+            v = pf.get(k)
+            if not (isinstance(v, (list, tuple)) and len(v) in (2, 3)):
+                problems.append(f"[[platform]] needs {k} = [x, z] or [x, z, y] (the ride {k} point)")
+            else:
+                pts[k] = (int(v[2]) if len(v) > 2 else 0)
+        if "board" in pts and "arrive" in pts and pts["board"] == pts["arrive"]:
+            problems.append("[[platform]] board and arrive must differ in height (y) -- a zero-height ride never moves")
+        dur = pf.get("duration", _platform.DEFAULT_DURATION)
+        if not (isinstance(dur, int) and dur > 0):
+            problems.append(f"[[platform]] duration must be a positive integer (ride frames), got {dur!r}")
+        trig = pf.get("trigger", "action")
+        if trig not in ("action", "tread"):
+            problems.append(f'[[platform]] trigger must be "action" (press) or "tread" (auto), got {trig!r}')
+        wt = pf.get("warp_to")
+        if wt is not None and not isinstance(wt, int):
+            problems.append(f"[[platform]] warp_to must be a field id (int) if set, got {wt!r}")
     su = project.raw.get("startup")                     # story-state presets ([startup]: assert the beat)
     if su is not None:
         if not isinstance(su, dict):
@@ -2869,6 +2892,28 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             eb, _ = _jump.inject_jump(eb, [tuple(p) for p in jz], jbytes, jump_tag=jtag,
                                       trigger=jp.get("trigger", "action"), bubble=jp.get("bubble", True))
             jtag += 1
+
+    # carry platforms: FF9's Pandemonium-elevator mechanism -- a region the player boards ("!"+press for
+    # trigger="action", auto on walk-in for "tread") that RunScriptSyncs a ride function grafted onto the
+    # player, carrying him frame-by-frame (MoveInstantXZY) from board -> arrive, then handing control back
+    # (or, with warp_to, fading + Field()-ing to the destination floor = an inter-floor elevator). The
+    # carry is the navigable ladder climb minus the d-pad; each platform gets a distinct tag, clear of the
+    # ladder/jump climb tags above. v1 emits the carry only -- the visible platform is human-painted art
+    # (or a placed model driven in lockstep, a follow-up). project memory: moving-platforms-elevators.
+    platforms = project.raw.get("platform", [])
+    if platforms:
+        ptag = _platform.FIRST_PLATFORM_TAG
+        for pf in platforms:
+            pz = pf["zone"]
+            if len(pz) == 4:
+                pz = _gw.quad_zone(pz)
+            eb, _ = _platform.inject_platform(
+                eb, [tuple(p) for p in pz], pf["board"], pf["arrive"],
+                ride_tag=ptag, duration=int(pf.get("duration", _platform.DEFAULT_DURATION)),
+                animation=pf.get("animation"), trigger=pf.get("trigger", "action"),
+                bubble=pf.get("bubble", True), warp_to=pf.get("warp_to"),
+                warp_entrance=int(pf.get("warp_entrance", 0)))
+            ptag += 1
 
     # save points: a press-to-interact region that opens the SAVE menu (Menu(4,0) -> OpenSaveMenu), the
     # functional core of FF9's save moogle (the barrel/moogle/jump-out are cosmetic set-dressing). Unlike a
