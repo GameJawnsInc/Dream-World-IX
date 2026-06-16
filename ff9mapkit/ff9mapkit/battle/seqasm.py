@@ -55,7 +55,10 @@ def assemble_instr_text(line: str) -> _sc.Instr:
             if "=" not in part:
                 raise SeqAsmError(f"{name}: operand {part.strip()!r} must be `field=value`")
             k, v = part.split("=", 1)
-            provided[k.strip()] = _parse_int(v)
+            key = k.strip()
+            if key in provided:
+                raise SeqAsmError(f"{name}: operand {key!r} given more than once")
+            provided[key] = _parse_int(v)
     fieldnames = {fn for fn, _o, _w, _s, _k in fields}
     unknown = set(provided) - fieldnames
     if unknown:

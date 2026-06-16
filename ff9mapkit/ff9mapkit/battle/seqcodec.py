@@ -231,6 +231,8 @@ def parse(raw17: bytes) -> Raw17:
 # ----------------------------------------------------------------- serialize
 def emit_instr(ins: Instr) -> bytes:
     """One instruction's bytes (opcode + operands), byte-exact (covers the 0x19 discarded-pad byte)."""
+    if ins.op not in _OPS:                             # a directly-built Instr with a bogus opcode -> clean error
+        raise SeqCodecError(f"opcode {ins.op} is not a valid sequence opcode (0..{MAX_OPCODE})")
     buf = bytearray(SIZE[ins.op])
     buf[0] = ins.op
     for (_name, rel, w, signed, _kind), val in zip(_OPS[ins.op][1], ins.operands):

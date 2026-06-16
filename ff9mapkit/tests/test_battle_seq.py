@@ -249,6 +249,27 @@ def test_author_lint_catches_bad_anim():
         seqauthor.insert_sequence(raw, 0, "Wait(frames=5)", before=0, after=1)
 
 
+def test_seqasm_rejects_duplicate_operand():
+    with pytest.raises(seqasm.SeqAsmError):                      # a copy-paste typo must not silently last-wins
+        seqasm.assemble("Wait(frames=3, frames=4); End")
+
+
+def test_emit_instr_guards_bad_opcode():
+    with pytest.raises(seqcodec.SeqCodecError):                  # a directly-built bogus Instr -> clean error
+        seqcodec.emit_instr(seqcodec.Instr(34, 0, []))
+
+
+def test_author_overflow_is_a_clean_error():
+    # a body that repacks past the Int16 camOffset/seqOffset limit must raise a CLEAN SeqAuthorError (never let
+    # the seqcodec exception leak through validate_* and crash the build -- the never-traceback invariant)
+    raw = _synthetic()
+    huge = "Wait(frames=1)\n" * 16400 + "End"
+    with pytest.raises(seqauthor.SeqAuthorError):
+        seqauthor.replace_sequence(raw, 0, huge)
+    problems = seqauthor.validate_replaces(raw, [{"seq": 0, "source": huge}])
+    assert problems and "Int16" in problems[0]                   # surfaced as a problem, NOT raised
+
+
 # ----------------------------------------------------------------- install-gated golden round-trip
 def _can_read_donor() -> bool:
     try:
@@ -314,3 +335,23 @@ def test_author_on_real_donor_preserves_rest(donor):
                [(i.op, tuple(i.operands)) for i in m2.body_for(s).instrs]
     assert m2.camera_block == m.camera_block
     assert [i.name for i in m2.body_for(0).instrs].count("Wait") == 1
+
+
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+@pytest.mark.parametrize("donor", ["EF_R007"])
+def test_camera_id_lint_real_donor(donor):
+    """lint_seq bounds a SetCamera/RunCamera id against the raw17's OWN camera count (a per-file cross-reference,
+    like the Anim code) -- an out-of-range id selects a non-existent camera (native stuck/black-camera softlock).
+    Needs a real donor (the synthetic camera block doesn't parse, so the check is skipped there)."""
+    from ff9mapkit.battle import extract, camera_codec
+    try:
+        raw17 = extract.read_scene_assets(donor)["raw17"]
+    except (ValueError, KeyError, FileNotFoundError) as ex:
+        pytest.skip(f"donor {donor} not readable: {ex}")
+    n_cams = len(camera_codec.parse_block(raw17)[1])
+    assert n_cams >= 1
+    # an in-range camera authors fine; an out-of-range one fails the build (lint), not the game
+    ok, _ = seqauthor.replace_sequence(raw17, 0, "WaitAnim\nSetCamera(cam=0)\nEnd")
+    assert seqauthor.lint_seq(ok) == []
+    with pytest.raises(seqauthor.SeqAuthorError):
+        seqauthor.replace_sequence(raw17, 0, f"WaitAnim\nSetCamera(cam={n_cams + 50})\nEnd")

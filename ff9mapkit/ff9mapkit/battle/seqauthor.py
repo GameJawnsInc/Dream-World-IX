@@ -5,11 +5,14 @@ and SPLICE it in, driving the offset-fixup repack (:func:`seqcodec.serialize_rep
 
 ``[[scene.seq_replace]]`` (seq = sub_no, source = ...) replaces an existing attack's choreography wholesale. A
 brand-NEW attack slot (growing ``seqCount`` + wiring a raw16 ``AA_DATA`` + the ``.eb`` AI to select it) is a further
-step; replace is the keystone primitive it builds on. Authoring is lint-gated: an out-of-range ``Anim`` code (the
-one real crash class -- it would ``IndexOutOfRange`` the engine's ``animList``) fails the build, not the game.
+step; replace is the keystone primitive it builds on. Authoring is lint-gated on the two per-file cross-references
+the engine doesn't bounds-check: an out-of-range ``Anim`` code (``IndexOutOfRange`` on ``animList``) and a
+``SetCamera``/``RunCamera`` id past the file's camera count (a stuck/black native camera) -- both fail the build,
+not the game.
 """
 from __future__ import annotations
 
+from . import camera_codec as _cc
 from . import seqasm as _seqasm
 from . import seqcodec as _sc
 
@@ -18,28 +21,43 @@ class SeqAuthorError(ValueError):
     pass
 
 
+_CAMERA_OPS = (0x10, 0x12, 0x20)                         # SetCamera / RunCamera / RunCameraForced (cam id @ operand 0)
+
+
 def lint_seq(raw17: bytes) -> list:
     """Offline semantic problems of a raw17's sequences (empty => OK). The codec already guarantees decode-to-
-    terminator / opcode in range / no overrun / disjoint bodies; this adds the one SEMANTIC crash class the codec
-    can't see: an ``Anim`` (0x05) code whose ``seqBaseAnim[sub] + code`` indexes past ``animList`` (the engine does
-    no bounds check -> IndexOutOfRange). Checked for every sub_no pointing at each body (aliases can differ)."""
+    terminator / opcode in range / no overrun / disjoint bodies; this adds the SEMANTIC cross-references the codec
+    can't see -- the two operands whose safe range is a function of THIS file's own contents:
+    * an ``Anim`` (0x05) code whose ``seqBaseAnim[sub] + code`` indexes past ``animList`` (the engine does no
+      bounds check -> IndexOutOfRange);
+    * a ``SetCamera``/``RunCamera`` ``cam`` id >= the raw17's own camera count (the closed native SFX plugin
+      selects a non-existent camera -> a stuck/black camera).
+    Both are checked for every sub_no pointing at each body (aliases can differ)."""
     try:
         model = _sc.parse(raw17)
     except _sc.SeqCodecError as ex:
         return [f"unparseable raw17: {ex}"]
+    cam_count = None                                     # the camera block may be absent/garbage on a hand-built
+    try:                                                 # model -> skip the cam check rather than crash the lint
+        cam_count = len(_cc.parse_block(raw17)[1])
+    except Exception:                                    # noqa: BLE001 -- CameraCodecError or a malformed block
+        cam_count = None
     problems = []
     n = model.anim_count
     for sub in range(model.seq_count):
         body = model.body_for(sub)
         if body is None:
             continue
-        base = model.seq_base_anim[sub] if sub < len(model.seq_base_anim) else 0
+        base = model.seq_base_anim[sub]
         for ins in body.instrs:
             if ins.op == 0x05 and ins.operands[0] != 255:        # Anim, non-idle
                 idx = base + ins.operands[0]
-                if not 0 <= idx < n:
+                if idx >= n:                                     # base+code of two unsigned bytes is always >= 0
                     problems.append(f"sub {sub}: Anim code {ins.operands[0]} -> animList[{base}+{ins.operands[0]}]"
                                     f" = {idx} is out of range (animCount {n}) -- would crash the engine")
+            elif ins.op in _CAMERA_OPS and cam_count is not None and ins.operands[0] >= cam_count:
+                problems.append(f"sub {sub}: {ins.name} cam {ins.operands[0]} exceeds the {cam_count} camera(s) "
+                                f"in this raw17 -- no camera entry to play (stuck/black camera)")
     return problems
 
 
@@ -61,12 +79,15 @@ def replace_sequence(raw17: bytes, sub_no: int, source: str) -> tuple:
     except _seqasm.SeqAsmError as ex:
         raise SeqAuthorError(f"seq {sub_no} source: {ex}")
     warnings = []
-    shared = tuple(s for s in range(model.seq_count) if model.seq_offset[s] == body.offset)
-    if len(shared) > 1:
-        warnings.append(f"seq {sub_no} shares its body with sub(s) {','.join(str(s) for s in shared)} "
+    others = tuple(s for s in range(model.seq_count) if model.seq_offset[s] == body.offset and s != sub_no)
+    if others:
+        warnings.append(f"seq {sub_no} also shares its body with sub(s) {','.join(str(s) for s in others)} "
                         f"-- replacing it rewrites ALL of them")
     body.instrs = [_sc.Instr(i.op, 0, list(i.operands)) for i in instrs]    # offsets are recomputed by the repack
-    out = _sc.serialize_repacked(model)
+    try:
+        out = _sc.serialize_repacked(model)                                 # may raise on an i16-overflowing body
+    except _sc.SeqCodecError as ex:
+        raise SeqAuthorError(f"seq {sub_no}: {ex}")
     problems = lint_seq(out)                                                # the composed result must lint clean
     if problems:
         raise SeqAuthorError(f"seq {sub_no} would produce an invalid raw17: {'; '.join(problems)}")
@@ -112,15 +133,18 @@ def insert_sequence(raw17: bytes, sub_no: int, source: str, *, before=None, afte
         raise SeqAuthorError(f"seq {sub_no}: insert position {pos} is at/after the terminator -- "
                              f"insert before the final {body.instrs[-1].name}")
     warnings = []
-    shared = tuple(s for s in range(model.seq_count) if model.seq_offset[s] == body.offset)
-    if len(shared) > 1:
-        warnings.append(f"seq {sub_no} shares its body with sub(s) {','.join(str(s) for s in shared)} "
+    others = tuple(s for s in range(model.seq_count) if model.seq_offset[s] == body.offset and s != sub_no)
+    if others:
+        warnings.append(f"seq {sub_no} also shares its body with sub(s) {','.join(str(s) for s in others)} "
                         f"-- the insert applies to ALL of them")
     new = [_sc.Instr(i.op, 0, list(i.operands)) for i in body.instrs]
     for k, ins in enumerate(frag):
         new.insert(pos + k, _sc.Instr(ins.op, 0, list(ins.operands)))
     body.instrs = new
-    out = _sc.serialize_repacked(model)
+    try:
+        out = _sc.serialize_repacked(model)
+    except _sc.SeqCodecError as ex:
+        raise SeqAuthorError(f"seq {sub_no}: {ex}")
     problems = lint_seq(out)
     if problems:
         raise SeqAuthorError(f"seq {sub_no} insert would produce an invalid raw17: {'; '.join(problems)}")
