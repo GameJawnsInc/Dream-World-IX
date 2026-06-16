@@ -250,6 +250,189 @@ def test_flag_cross_0xff_on_real_fields():
         pytest.skip("no sample field had a GLOB flag token")
 
 
+# ---- switch_case: redirect a jump-table arm to a different in-function target ----
+def _switch_eb(switchex=False):
+    """A 1-func .eb with a switch over 3 cases -> distinct SetTriangleFlagMask(k); returns (eb, {case->rel
+    target}) so a test can author old_target/new_target numerically. 0x0B contiguous (base 0) or 0x06 explicit."""
+    from ff9mapkit.eb import cmdasm
+    head = ("SET({Map.Int16[0] B_EXPR_END})\n"
+            + ("SWITCHEX(Ld, 0, La, 5, Lb, 10, Lc)\n" if switchex else "SWITCH(0, Ld, La, Lb, Lc)\n"))
+    body = cmdasm.assemble_block(
+        head + "La:\nSetTriangleFlagMask(1)\nRET()\nLb:\nSetTriangleFlagMask(2)\nRET()\n"
+        "Lc:\nSetTriangleFlagMask(3)\nRET()\nLd:\nRET()")
+    eb = _eb(body)
+    s = EbScript.from_bytes(eb)
+    f = s.entries[0].funcs[0]
+    sw = next(i for i in s.instrs(f) if i.op in (0x06, 0x0B, 0x0D))
+    si = disasm.decode_switch(sw)
+    return eb, {("default" if e.is_default else e.value): e.target - f.abs_start for e in si.edges}
+
+
+def _switch_edges(out):
+    s = EbScript.from_bytes(out)
+    f = s.entries[0].funcs[0]
+    sw = next(i for i in s.instrs(f) if i.op in (0x06, 0x0B, 0x0D))
+    si = disasm.decode_switch(sw)
+    return {("default" if e.is_default else e.value): e.target - f.abs_start for e in si.edges}
+
+
+def test_switch_case_redirect_one_arm():
+    """Redirecting one case to another arm's target changes ONLY that edge, is length-neutral, eblint-clean."""
+    eb, rels = _switch_eb()
+    out = LE.apply_logic_edits(eb, [{"kind": "switch_case", "entry": 0, "tag": 0,
+                                     "case": 0, "old_target": rels[0], "new_target": rels[1]}])
+    assert len(out) == len(eb) and eblint.errors(eblint.lint_eb(out)) == []
+    got = _switch_edges(out)
+    assert got[0] == rels[1] and got[1] == rels[1] and got[2] == rels[2] and got["default"] == rels["default"]
+
+
+def test_switch_case_default_redirect():
+    eb, rels = _switch_eb()
+    out = LE.apply_logic_edits(eb, [{"kind": "switch_case", "entry": 0, "tag": 0,
+                                     "case": "default", "old_target": rels["default"], "new_target": rels[2]}])
+    got = _switch_edges(out)
+    assert got["default"] == rels[2] and got[0] == rels[0] and eblint.errors(eblint.lint_eb(out)) == []
+
+
+def test_switch_case_switchex_explicit_values():
+    """A 0x06 SWITCHEX redirect targets the arm by its EXPLICIT case value (not a contiguous index)."""
+    eb, rels = _switch_eb(switchex=True)                       # values 0, 5, 10
+    out = LE.apply_logic_edits(eb, [{"kind": "switch_case", "entry": 0, "tag": 0,
+                                     "case": 5, "old_target": rels[5], "new_target": rels[10]}])
+    got = _switch_edges(out)
+    assert got[5] == rels[10] and got[0] == rels[0] and got[10] == rels[10]
+    assert eblint.errors(eblint.lint_eb(out)) == [] and len(out) == len(eb)
+
+
+def test_switch_case_label_inject_to_bare_boundary():
+    """Redirecting to an instruction boundary that ISN'T already a branch target injects its L<n> label
+    (zero bytes -> still length-neutral) and stays eblint-clean."""
+    eb, rels = _switch_eb()
+    s = EbScript.from_bytes(eb)
+    f = s.entries[0].funcs[0]
+    # a RET instruction that is NOT a switch target (the RETs after La/Lb/Lc are bare boundaries; only Ld is)
+    bare = next(i.off - f.abs_start for i in s.instrs(f)
+                if i.op == 0x04 and (i.off - f.abs_start) not in rels.values())
+    out = LE.apply_logic_edits(eb, [{"kind": "switch_case", "entry": 0, "tag": 0,
+                                     "case": 1, "old_target": rels[1], "new_target": bare}])
+    assert len(out) == len(eb) and eblint.errors(eblint.lint_eb(out)) == []
+    assert _switch_edges(out)[1] == bare
+
+
+def test_switch_case_negative_base():
+    """A CONTIGUOUS switch with a NEGATIVE base (cmdasm re-emits it as a raw u16, e.g. 65534 = base -2) is
+    redirectable -- _switch_operand_index must sign-decode the base to match _switch_locate's signed selector
+    (the review's MED #1; real on fields 353/814/1010/1057)."""
+    from ff9mapkit.eb import cmdasm
+    body = cmdasm.assemble_block(
+        "SET({Map.Int16[0] B_EXPR_END})\nSWITCH(65534, Ld, La, Lb)\n"   # base -2 -> selectors -2, -1
+        "La:\nSetTriangleFlagMask(1)\nRET()\nLb:\nSetTriangleFlagMask(2)\nRET()\nLd:\nRET()")
+    eb = _eb(body)
+    rels = _switch_edges(eb)
+    assert -2 in rels and -1 in rels                           # signed selectors decoded
+    out = LE.apply_logic_edits(eb, [{"kind": "switch_case", "entry": 0, "tag": 0,
+                                     "case": -2, "old_target": rels[-2], "new_target": rels[-1]}])
+    got = _switch_edges(out)
+    assert got[-2] == rels[-1] and got[-1] == rels[-1] and eblint.errors(eblint.lint_eb(out)) == []
+
+
+def test_switch_case_composes_with_flag_rewidth():
+    """A cross-0xFF flag rewidth (length-changing, +1 byte) at a LOWER offset than a switch, composed with a
+    switch_case redirect in the SAME function: the switch's donor-relative targets must be shifted by the prior
+    rebuild's delta, else the guard false-fails 'donor drift' (the review's MED #2 -- previously uncovered)."""
+    from ff9mapkit.eb import cmdasm
+    from ff9mapkit.eventscan import _glob_var_token
+    body = cmdasm.assemble_block(
+        "SET({Global.Bit[200] B_EXPR_END})\n"                  # short flag read (crosses 0xFF when remapped)
+        "SET({Map.Int16[0] B_EXPR_END})\nSWITCH(0, Ld, La, Lb, Lc)\n"
+        "La:\nSetTriangleFlagMask(1)\nRET()\nLb:\nSetTriangleFlagMask(2)\nRET()\n"
+        "Lc:\nSetTriangleFlagMask(3)\nRET()\nLd:\nRET()")
+    eb = _eb(body)
+    rels = _switch_edges(eb)                                   # DONOR-original case targets (pre-rewidth)
+    out = LE.apply_logic_edits(eb, [
+        {"kind": "flag_index", "entry": 0, "tag": 0, "flag": 200, "new_flag": 8512},       # +1 byte, lower offset
+        {"kind": "switch_case", "entry": 0, "tag": 0, "case": 0, "old_target": rels[0], "new_target": rels[1]}])
+    assert eblint.errors(eblint.lint_eb(out)) == [] and EbScript.from_bytes(out).to_bytes() == out
+    got = _switch_edges(out)
+    assert got[0] == got[1]                                    # case 0 now lands on case 1's (shifted) target
+    s = EbScript.from_bytes(out)
+    f = s.entries[0].funcs[0]
+    flags = [_glob_var_token(s.data, i.off + 1)[0] for i in s.instrs(f)
+             if i.op == 0x05 and _glob_var_token(s.data, i.off + 1)]
+    assert 8512 in flags and 200 not in flags                  # the flag rewidth ALSO landed
+
+
+def test_switch_case_two_redirects_compose():
+    """Two switch_case redirects on the same switch (both length-neutral) compose -- the second re-locates on
+    the post-first bytes and still matches its donor-relative offsets (no spurious drift)."""
+    eb, rels = _switch_eb()
+    out = LE.apply_logic_edits(eb, [
+        {"kind": "switch_case", "entry": 0, "tag": 0, "case": 0, "old_target": rels[0], "new_target": rels[2]},
+        {"kind": "switch_case", "entry": 0, "tag": 0, "case": 1, "old_target": rels[1], "new_target": rels[2]}])
+    got = _switch_edges(out)
+    assert got[0] == rels[2] and got[1] == rels[2] and eblint.errors(eblint.lint_eb(out)) == []
+
+
+def test_switch_case_guards():
+    eb, rels = _switch_eb()
+    for bad, why in (
+        ({"case": 0, "old_target": 999, "new_target": rels[1]}, "wrong old_target"),
+        ({"case": 99, "old_target": rels[0], "new_target": rels[1]}, "no such case"),
+        ({"case": 0, "old_target": rels[0], "new_target": rels[0] + 1}, "new_target mid-instruction"),
+        ({"case": 50, "old_target": rels[0], "new_target": rels[1]}, "selector out of contiguous range")):
+        with pytest.raises(LE.LogicEditError):
+            LE.apply_logic_edits(eb, [{"kind": "switch_case", "entry": 0, "tag": 0, **bad}])
+
+
+def test_switch_case_on_real_fields():
+    """On REAL field bytecode: redirect one switch case to another existing arm -- only that edge changes, the
+    rest of the function is byte-identical, eblint-clean + byte-roundtrips."""
+    try:
+        from ff9mapkit.extract import EventBundle
+        bundle = EventBundle()
+    except Exception:                                                    # noqa: BLE001
+        pytest.skip("no game install")
+    tested = 0
+    for fid in (351, 250, 1054, 105, 70):
+        try:
+            data = bundle.eb_for_id(fid)
+        except Exception:                                               # noqa: BLE001
+            continue
+        if not data:
+            continue
+        s = EbScript.from_bytes(data)
+        site = None
+        for e in s.entries:
+            if e.empty:
+                continue
+            for f in e.funcs:
+                switches = [i for i in s.instrs(f) if i.op in (0x06, 0x0B, 0x0D)]
+                for nth, sw in enumerate(switches):            # nth disambiguates >1 switch in a function
+                    si = disasm.decode_switch(sw)
+                    cases = [ed for ed in si.edges if not ed.is_default]
+                    tgts = {ed.target for ed in si.edges}
+                    # need a case whose target differs from at least one OTHER arm (something to redirect to)
+                    if cases and len(tgts) >= 2:
+                        c = cases[0]
+                        other = next(t for t in tgts if t != c.target)
+                        site = (e.index, f.tag, nth, c.value, c.target - f.abs_start, other - f.abs_start)
+                        break
+                if site:
+                    break
+            if site:
+                break
+        if site is None:
+            continue
+        ent, tag, nth, case, old_t, new_t = site
+        out = LE.apply_logic_edits(data, [{"kind": "switch_case", "entry": ent, "tag": tag, "nth": nth,
+                                           "case": case, "old_target": old_t, "new_target": new_t}])
+        assert len(out) == len(data) and eblint.errors(eblint.lint_eb(out)) == [], f"field {fid}"
+        assert EbScript.from_bytes(out).to_bytes() == out, f"field {fid}"
+        tested += 1
+    if not tested:
+        pytest.skip("no sample field had a redirectable switch")
+
+
 def test_txid_non_window_op_refused():
     with pytest.raises(LE.LogicEditError):
         LE.apply_logic_edits(_eb(FIELD + RET), [{"kind": "txid", "entry": 0, "tag": 0, "op": 0x2B, "old": 300, "new": 1}])

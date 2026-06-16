@@ -13,8 +13,10 @@ applied in build's verbatim pass (CLAUDE.md / docs/FORK_FIDELITY.md). Empty list
 v1 kinds: ``field`` (0x2B dest) · ``item`` (0x48 id/count) · ``gil`` (0xCE amount) · ``txid`` (a Window op's text id)
 · ``flag_index`` (the GLOB ``C4``/``E4`` index inside an 0x05 expression -- a same-width remap is an in-place
 operand swap; a remap that CROSSES the 0xFF C4/E4 token boundary is length-changing and rebuilt via the Phase-4b
-keystone) · ``text`` (a ``.mes`` dialogue-string rewrite, targets the per-language ``.mes``, not the ``.eb``).
-Deferred: ``switch_case`` (a switch's case value/target).
+keystone) · ``switch_case`` (REDIRECT one case/default arm of a jump table 0x06/0x0B/0x0D to a different
+in-function target -- re-wire which branch a dialogue-menu row / ATE / scenario value triggers; keystone rebuild,
+length-neutral) · ``text`` (a ``.mes`` dialogue-string rewrite, targets the per-language ``.mes``, not the
+``.eb``). Deferred: ADDING a switch case (a new menu row / dispatch arm -- length-changing, a logic_add follow-up).
 
 The ``.eb`` bytecode is language-identical (only the 84-byte name differs), so one edit set patches all 7 langs.
 """
@@ -35,7 +37,8 @@ EXPR_OP = 0x05          # an expression statement (a GLOB flag read/write rides 
 SETTEXTVAR_OP = 0x66    # SetTextVariable(slot:u8, value:u16) -- feeds the "Received <item>!" DISPLAY id
 WINDOW_OPS = {0x1F: 2, 0x20: 2, 0x95: 3, 0x96: 3}   # Window op -> its txid operand index (dialogue.WINDOW_OPS)
 _ITEM_OPERAND = {"id": 0, "count": 1}
-_EB_KINDS = ("field", "item", "gil", "txid", "flag_index", "operand", "item_display", "item_count")
+_EB_KINDS = ("field", "item", "gil", "txid", "flag_index", "operand", "item_display", "item_count", "switch_case")
+_SWITCH_OPS = (0x06, 0x0B, 0x0D)        # JMP_SWITCHEX (explicit) / JMP_SWITCH (contiguous) / 2-byte-count variant
 _TAIL_RE = re.compile(r"\[TAIL=([^\]]*)\]")
 
 
@@ -196,6 +199,123 @@ def _flag_rewidth(eb_bytes, ed, anchor_rel, old, new) -> bytes:
     return _edit.replace_function_body(eb_bytes, _int(ed, "entry"), _int(ed, "tag"), new_body)
 
 
+# --- switch_case: REDIRECT a jump-table arm (0x06/0x0B/0x0D) to a different in-function target -------------
+def _switch_case_key(ed):
+    """The selector an edit targets: an int case VALUE, or the string ``"default"``."""
+    case = ed.get("case")
+    if case == "default":
+        return "default"
+    if isinstance(case, bool) or not isinstance(case, int):
+        raise LogicEditError('logic_edit switch_case needs `case` = an integer selector value or "default"')
+    return case
+
+
+def _switch_locate(eb, ed):
+    """Find the switch instruction + the edge for ``case`` in entry/tag; return ``(ins, anchor_rel, case,
+    old_target)``. Disambiguate among multiple switches with ``nth``. Guard: the selected edge currently
+    resolves to ``ed['old_target']`` (a function-relative offset) -- a wrong old_target / drifted donor fails."""
+    f = _func(eb, ed)
+    case = _switch_case_key(ed)
+    old_target = _int(ed, "old_target")
+    switches = [i for i in eb.instrs(f) if i.op in _SWITCH_OPS]
+    if not switches:
+        raise LogicEditError(f"logic_edit switch_case: no switch (0x06/0x0B/0x0D) in "
+                             f"entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')}")
+    ins = _pick(switches, ed, f"switch instruction in entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')}")
+    si = disasm.decode_switch(ins)
+    if si is None:                                             # a switch whose operands aren't plain immediates
+        raise LogicEditError(f"logic_edit switch_case: could not decode the switch in "
+                             f"entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')} (computed operands?)")
+    if case == "default":
+        edge = next((e for e in si.edges if e.is_default), None)
+    else:
+        edge = next((e for e in si.edges if not e.is_default and e.value == case), None)
+    if edge is None:
+        raise LogicEditError(f"logic_edit switch_case: no case {case} in the switch "
+                             f"(values: {[e.value for e in si.edges if not e.is_default]})")
+    cur = edge.target - f.abs_start
+    if cur != old_target:
+        raise LogicEditError(f"logic_edit switch_case guard: case {case} currently targets {cur}, not "
+                             f"old_target {old_target} (donor drift or wrong old_target)")
+    return ins, ins.off - f.abs_start, case, old_target
+
+
+def _switch_operand_index(op, ops, case):
+    """The index in the cmdasm SWITCH/SWITCHEX operand list of the LABEL operand for ``case``.
+    0x0B/0x0D: ``[base, default, case0, case1, ...]`` (case i is selector base+i). 0x06: ``[default, val0,
+    lbl0, val1, lbl1, ...]`` (explicit values)."""
+    if op in (0x0B, 0x0D):                                      # SWITCH(base, default, case0, case1, ...)
+        if case == "default":
+            return 1
+        try:
+            base = disasm._sx_hi(int(ops[0]) & 0xFFFF)         # cmdasm re-emits the base as RAW u16: a negative
+        except (ValueError, IndexError):                       # base (-1) shows as "65535" -> sign-decode it
+            raise LogicEditError("logic_edit switch_case: malformed SWITCH operands (internal)")
+        i = case - base
+        if not (0 <= i < len(ops) - 2):
+            raise LogicEditError(f"logic_edit switch_case: selector {case} is outside the contiguous range "
+                                 f"{base}..{base + len(ops) - 3} of this SWITCH (only those cases or "
+                                 '"default" are redirectable; an arbitrary value needs a 0x06 SWITCHEX)')
+        return 2 + i
+    if case == "default":                                      # 0x06 SWITCHEX(default, val0, lbl0, ...)
+        return 0
+    for k in range(1, len(ops) - 1, 2):
+        try:
+            if int(ops[k]) == case:
+                return k + 1
+        except ValueError:
+            continue
+    raise LogicEditError(f"logic_edit switch_case: no explicit case value {case} in this SWITCHEX")
+
+
+def _switch_redirect(eb_bytes, ed, anchor_rel, case, old_target, new_target) -> bytes:
+    """Redirect a switch ``case``/default arm to a different in-function instruction boundary, applied at the
+    EXACT switch located during the split. Swap that one arm's ``L<old_target>`` label for ``L<new_target>`` in
+    the disassembled source (injecting ``L<new_target>:`` if the boundary isn't already a branch target -- a
+    label is zero bytes, so this stays length-NEUTRAL) and reassemble via the keystone (``cmdasm`` re-anchors
+    every reloff; it RAISES on a backward / >u16 reloff -> normalized here). Old-guarded: the byte at
+    ``anchor_rel`` is still a switch of the same op AND the arm's operand is still ``L<old_target>``."""
+    from .eb import cmdasm as _cmdasm
+    from .eb import edit as _edit
+    from .eb import exprasm as _exprasm
+    eb = EbScript.from_bytes(eb_bytes)
+    f = _func(eb, ed)
+    abs_off = f.abs_start + anchor_rel
+    op = eb.data[abs_off] if (0 <= abs_off < len(eb.data)) else None
+    if op not in _SWITCH_OPS:                                   # the captured site no longer holds a switch
+        raise LogicEditError(f"logic_edit switch_case: the switch in entry{_int(ed, 'entry')}/"
+                             f"tag{_int(ed, 'tag')} drifted (conflicting edits?)")
+    old_label, new_label = f"L{old_target}", f"L{new_target}"
+    try:
+        items = _cmdasm.disassemble_items(eb.data, f.abs_start, f.abs_end)
+        line_idx = next((k for k, (off, _t) in enumerate(items) if off == anchor_rel), None)
+        if line_idx is None:                                   # the guarded switch is decoded -> always present
+            raise LogicEditError("logic_edit switch_case: could not locate the switch (internal)")
+        texts = [t for _o, t in items]
+        line = texts[line_idx]
+        mnem = line[:line.index("(")]
+        ops = line[line.index("(") + 1:line.rindex(")")].split(", ")
+        op_idx = _switch_operand_index(op, ops, case)
+        if ops[op_idx] != old_label:                           # second guard: the arm still points at old_target
+            raise LogicEditError(f"logic_edit switch_case guard: the case {case} arm is {ops[op_idx]}, not "
+                                 f"{old_label} (donor drift)")
+        if not any(o is None and t.strip() == new_label + ":" for o, t in items):
+            tgt_idx = next((k for k, (off, _t) in enumerate(items) if off == new_target), None)
+            if tgt_idx is None:                                # new_target must be a real instruction boundary
+                raise LogicEditError(f"logic_edit switch_case: new_target {new_target} is not an instruction "
+                                     f"boundary in entry{_int(ed, 'entry')}/tag{_int(ed, 'tag')}")
+            texts.insert(tgt_idx, new_label + ":")             # label a bare boundary (zero bytes, length-neutral)
+            if tgt_idx <= line_idx:
+                line_idx += 1
+        ops[op_idx] = new_label
+        texts[line_idx] = mnem + "(" + ", ".join(ops) + ")"
+        new_body = _cmdasm.assemble_block("\n".join(texts))
+    except (_cmdasm.CmdAsmError, _exprasm.AssembleError) as ex:
+        raise LogicEditError(f"logic_edit switch_case {old_target}->{new_target}: could not rebuild "
+                             f"entry{_int(ed, 'entry')}/tag{_int(ed, 'tag')}: {ex}")
+    return _edit.replace_function_body(eb_bytes, _int(ed, "entry"), _int(ed, "tag"), new_body)
+
+
 def _apply_eb_edit(eb, buf, ed):
     kind = _req(ed, "kind")
     if kind == "field":
@@ -249,34 +369,49 @@ def _edit_list(edits):
 
 def apply_logic_edits(eb_bytes, edits) -> bytes:
     """Apply every NON-text ``[[logic_edit]]`` to ``eb_bytes`` and return the patched bytes. Empty / text-only ->
-    byte-identical. Most edits are length-preserving in-place operand swaps (old-guarded); the lone exception is
-    a ``flag_index`` remap that CROSSES the 0xFF C4/E4 token boundary, which is length-changing and rebuilt via
-    the keystone -- those run in a second pass AFTER the in-place edits (so the in-place edits' donor-based
-    offsets aren't shifted by a rebuild). Raises :class:`LogicEditError` on any unsafe edit."""
+    byte-identical. Most edits are length-preserving in-place operand swaps (old-guarded); two kinds need the
+    keystone REBUILD instead -- a ``flag_index`` remap that CROSSES the 0xFF C4/E4 boundary (length-changing) and
+    a ``switch_case`` redirect (length-neutral but the reloff is computed, not a literal). The rebuilds run in a
+    SECOND pass AFTER the in-place edits (so the in-place edits' donor-based offsets aren't shifted first), each
+    located by the EXACT function-relative offset captured here, delta-adjusted for prior same-function rebuilds.
+    Raises :class:`LogicEditError` on any unsafe edit."""
     eb_edits = [e for e in _edit_list(edits) if e.get("kind") != "text"]
     if not eb_edits:
         return bytes(eb_bytes)
     eb = EbScript.from_bytes(eb_bytes)
-    inplace, rewidth = [], []                                  # split: same-width (in-place) vs cross-0xFF (rebuild)
+    inplace, rebuilds = [], []                                 # in-place operand swaps vs keystone rebuilds
     for ed in eb_edits:
-        if ed.get("kind") == "flag_index":
+        kind = ed.get("kind")
+        if kind == "flag_index":
             ins, _idx, tok_len, old, new = _flag_locate(eb, ed)
-            if _flag_width(new) != (tok_len - 1):              # crosses 0xFF -> capture the EXACT site offset now
-                rewidth.append((ed, (_int(ed, "entry"), _int(ed, "tag")), ins.off - _func(eb, ed).abs_start,
-                                old, new))
+            if _flag_width(new) != (tok_len - 1):              # crosses 0xFF -> keystone rebuild (length-changing)
+                rebuilds.append(("flag", ed, (_int(ed, "entry"), _int(ed, "tag")),
+                                 ins.off - _func(eb, ed).abs_start, _flag_width(new) - _flag_width(old),
+                                 (old, new)))
                 continue
+        elif kind == "switch_case":                            # redirect a switch arm (keystone, length-neutral)
+            ins, anchor_rel, case, old_target = _switch_locate(eb, ed)
+            rebuilds.append(("switch", ed, (_int(ed, "entry"), _int(ed, "tag")), anchor_rel, 0,
+                             (case, old_target, _int(ed, "new_target"))))
+            continue
         inplace.append(ed)
     buf = bytearray(eb_bytes)
     for ed in inplace:                                         # length-preserving: instruction offsets stay put
         _apply_eb_edit(eb, buf, ed)
     out = bytes(buf)
-    # cross-0xFF rebuilds: locate each by its captured function-relative offset (stable through the in-place
-    # pass), adjusted for the byte delta of prior same-function rebuilds (processed in ascending offset). This
-    # ties each rebuild to the EXACT instruction the split saw -- it can't drift onto a different same-flag instr.
+    # keystone rebuilds: locate each by its captured function-relative offset (stable through the in-place pass),
+    # adjusted for the byte delta of prior same-function rebuilds (ascending offset) so multiple rebuilds compose.
+    # Ties each rebuild to the EXACT instruction the split saw -- it can't drift onto a different same-flag instr.
     deltas: dict = {}
-    for ed, key, anchor_rel, old, new in sorted(rewidth, key=lambda r: (r[1], r[2])):
-        out = _flag_rewidth(out, ed, anchor_rel + deltas.get(key, 0), old, new)
-        deltas[key] = deltas.get(key, 0) + (_flag_width(new) - _flag_width(old))
+    for rkind, ed, key, anchor_rel, byte_delta, payload in sorted(rebuilds, key=lambda r: (r[2], r[3])):
+        dk = deltas.get(key, 0)                                # cumulative byte shift from prior same-function rebuilds
+        eff = anchor_rel + dk
+        if rkind == "flag":
+            out = _flag_rewidth(out, ed, eff, *payload)
+        else:                                                  # a switch's case targets are all FORWARD of it, so
+            case, old_t, new_t = payload                       # they shifted by dk too -- relocate them, not just
+            out = _switch_redirect(out, ed, eff, case, old_t + dk, new_t + dk)   # the anchor (the composition fix)
+        deltas[key] = dk + byte_delta
     return out
 
 
