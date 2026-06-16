@@ -91,42 +91,64 @@ if (sAIconMode > 0 && ((sAIconMode & 4) > 0 || GetUserControl())) {
   2-second blink coroutines. `FieldHUD.OnATEClick` (`FieldHUD.cs:313-316`) is a **dead NGUI passthrough** (zero
   C# callers) that only re-enables the Blue sprite — it does **not** open the menu.
 
-### `ATE(mode)` arg semantics — what the engine masks DO vs what the game actually USES
+### `ATE(mode)` arg semantics — the arg is a **3-bit flag word, NOT an enum**
 
-**Engine mask logic** (`EIcon.ProcessAIcon`): colour = `(mode&3)` (`==2`→Gray, else Blue); render gate =
-`mode>0 && ((mode&4) || GetUserControl())` (so `&4` = force-show under control-lock). By the masks alone:
+★ **Engine-source ground truth** (`EIcon.ProcessAIcon` + `SetAIcon`, `Global/EIcon.cs:416-454`; the only
+mode-aware switch *downstream* is on `ATEType {Blue = 1, Gray = 2}`, `Global/ATEType.cs`). The engine **never
+compares the arg to `1`/`5`/`6` by name** — `SetAIcon` stores the raw byte verbatim into `sAIconMode` (no
+clamp, no validation, no `default:` — `EIcon.cs:443-454`), and `ProcessAIcon` reads only **three bits** of it:
 
-| `mode` | Mask effect |
-|---|---|
-| `0` | off / hide (`SetAIcon` early-out) |
-| `1` | Blue, shows only with user control | `(mode&3)!=2`, no force |
-| `2` | Gray, shows only with user control | `(mode&3)==2`, no force |
-| `5` (`1\|4`) | Blue, **force-show** | `(mode&4)>0` |
-| `6` (`2\|4`) | Gray, **force-show** | `(mode&3)==2 & (mode&4)>0` |
+- **`> 0`** — enable gate. `0` = disable/hide (`SetAIcon(0)` early-outs immediately, `EIcon.cs:445`).
+- **`& 3 == 2`** — **Gray** banner (unskippable; blinks on a ~15-frame cadence, `EIcon.cs:426`). Anything else
+  (`& 3 != 2`) ⇒ **Blue** "Press SELECT" (steady).
+- **`& 4`** — **force** bit (`kAIconForce`, `EIcon.cs:472`): show even when the player has **no** user control.
+  Without it, the icon shows only while `GetUserControl()` is true.
 
-**★ But the REAL bytes tell a different story (676-field sweep of the user's install — `forced-ate-fidelity`
-workflow, 2026-06-13).** Mode histogram across all fields: **`{1: 473, 0: 358, 6: 45, 5: 1}`** — and crucially:
+High bits (≥ 8) are masked out entirely, so `9` behaves like `1`, `14` like `6`. That leaves **8 reachable
+low-bit combinations**, of which the game ships exactly **four**:
 
-FF9 has **two real ATE flavors**, and they ARE distinguished by the mode byte:
+| byte | bits | `&3` → colour | `&4` force | net behaviour | shipped? |
+|---|---|---|---|---|---|
+| **0** | `000` | — | — | **off / hide** | ✅ 436× (the clear/disarm between brackets) |
+| **1** | `001` | Blue | no | **Blue, optional** — shows only with control; you may ignore it | ✅ 552× |
+| 2 | `010` | Gray | no | Gray *but can't show during a no-control beat* → useless for a forced scene | ❌ never |
+| 3 | `011` | Blue | no | duplicate of mode 1 | ❌ |
+| 4 | `100` | Blue | yes | Blue, forced | ❌ |
+| **5** | `101` | Blue | yes | **Blue, forced** — re-flashes the SELECT glyph during auto-play | ✅ 1× (field 206 only) |
+| **6** | `110` | Gray | yes | **Gray, forced** = the grey unskippable banner | ✅ 51× |
+| 7 | `111` | Blue | yes | duplicate of mode 4/5 | ❌ |
 
-- **Mode 1 = the OPTIONAL Press-SELECT menu hubs** (fields 1901 Eiko, 552 Lindblum, 206 Prima Vista, …) — armed
-  in `Main_Init`, Blue. Shows the "Press SELECT" prompt only when you have control; you choose to watch.
-  *(Earlier revisions of this doc mislabeled these "forced" — they are the OPTIONAL flavor.)*
-- **★ Mode 6 = the GREY UNSKIPPABLE ATE** (corrected 2026-06-13 — the `grey-unskippable-ate` re-classification
-  **overturned an earlier wrong "transition fade" call**). All 45 mode-6 sites are *mandatory captioned off-screen
-  story scenes*: `… PreloadField(5,N) → ATE(6) → Wait(45) → white FadeFilter(6,24,…) → ATE(0) → WindowAsync(0,
-  64, txid) → Field(N)`. **The discriminator is the `winATE(64)` caption window ~3 bytes after the `ATE(0)`** —
-  the white fade is the fade *INTO* the forced ATE scene, not a door transition (the prior call fixated on the
-  fade and missed the window). `mode 6` = Gray (`&3==2`) + force-show (`&4`) = exactly the icon for an auto-playing
-  scene under a `DisableMove/DisableMenu` lock, warping across connected screens where the scene continues.
-  **Smoking gun: the Festival-of-the-Hunt cluster** (2105/2113/2114/2157/2161-2163/2211) chains 10-11 sequential
-  grey-ATE scenes (caption txids 91-101 / 116-126). ★ In-game target: field 956 (Gargant station) @30010.
-  **This IS the engine's forced/unskippable ATE — author one with `ate_mode = 6`.**
-- **Mode 2 NEVER appears.** The "Gray = seen" convention via `ATE(2)` is *not used anywhere* — the only grey is
-  mode 6 above (Gray + force), and it means "unskippable," not "seen."
-- **Mode 5 appears exactly ONCE** — field 206 entry-0 tag-1, the rotating Press-SELECT hub opening its menu
-  window (flanked by `winATE(64)` windows + an `ATE(0)`). It is *the* interactive-menu-open op.
-- Histogram across all fields: **`{1: 473, 0: 358, 6: 45, 5: 1}`** (mode 0 = the clear/disarm between brackets).
+So there are only **five distinct observable behaviours** (off / Blue-optional / Blue-forced / Gray-optional /
+Gray-forced); the game uses four of them (never Gray-optional). The unused byte values aren't "missing modes" —
+they're either **redundant** (3 ≈ 1; 4/7 ≈ 5) or **useless** (2 = Gray-without-force, which can't drive the
+no-control off-screen beats Gray exists for). That is *why* every sweep only ever finds `{0, 1, 5, 6}`.
+
+**Fresh full-coverage scan** (kit disassembler over **all 818** field event scripts from `p0data`, 2026-06-16):
+**459 fields** carry an ATE, **1040 call sites, ZERO expression-args** (every mode byte is a literal — nothing
+hidden behind a computed value), distinct values **exactly `{0, 1, 5, 6}`** (no `2`, no `3/4/7+`), histogram
+**`{1: 552, 0: 436, 6: 51, 5: 1}`**. This re-verifies the original "676-field sweep" (`{1: 473, 0: 358, 6: 45,
+5: 1}`) — **identical value set**, larger counts only because the scope is wider (818 vs 676 scripts). The lone
+mode-5 site lands byte-exact on field 206's documented offset 2640, anchoring the decoder.
+
+**★ The mode-6 flip-flop is now SETTLED by engine source, not byte-sweep inference.** An earlier draft called
+mode 6 a "screen-transition fade, NOT a grey ATE"; the next overturned it to "grey unskippable." `EIcon.cs`
+ends the argument: `6 = 0b110 = Gray (&3==2) + force (&4)` → the grey, force-shown, blinking banner. The
+"grey unskippable" reading is correct, and it is now a **decode, not a guess.**
+
+FF9's **two real ATE flavors** map cleanly onto the bits:
+
+- **Optional / Blue (`mode 1`)** — the Press-SELECT menu hubs (fields 1901 Eiko, 552 Lindblum, 206 Prima Vista,
+  …): armed in `Main_Init`, Blue, no force → the prompt shows only when you have control, so you may ignore it.
+  *(Earlier revisions mislabeled these "forced" — they are OPTIONAL.)*
+- **Forced / Gray (`mode 6`)** — 51 mandatory captioned off-screen story scenes (field 956 Gargant; the
+  Festival-of-the-Hunt cluster 2105/2113/2114/2157/2161-2163/2211 chains 10-11 sequential grey-ATE scenes,
+  caption txids 91-101 / 116-126). Bracketed `ATE(6) … ATE(0)` and played under a `DisableMove..EnableMove`
+  lock with a `winATE(64)` caption and **no menu** — the bottom-left grey "ACTIVE TIME EVENT" banner blinks
+  throughout. **Author one with `[cutscene] ate = true` (`ate_mode = 6`, the default).** ★ In-game @30008 /
+  real 956 @30010.
+- **Mode 5 (Blue + force) appears exactly ONCE** — field 206 entry-0 tag-1, the rotating Press-SELECT hub
+  opening its menu window. Discouraged for authoring (a force-shown *Blue* icon re-flashes the SELECT glyph
+  during auto-play — see the press-glyph note below).
 
 > **The press-glyph mechanics** (`ActiveTimeEvent.cs`): the on-field icon widget owns the "Press SELECT" glyph
 > (`PressSelectSprite`), gated by colour — the **Blue** display coroutine (`DisplayBlueATEText`) cycles it ON

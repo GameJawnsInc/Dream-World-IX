@@ -79,11 +79,13 @@ def bubble(state: int) -> bytes:                               # 0x68 (BUBBLE) a
 
 def ate(mode: int) -> bytes:                                   # 0xD7 (AICON) argsize [1]
     """ATE(mode): arm/hide the blinking on-field "Active Time Event / Press SELECT" prompt (engine
-    ``EIcon.SetAIcon`` -> ``sAIconMode``). ``mode`` bits: 0 = off/hide; ``&3 != 2`` = Blue (new),
-    ``&3 == 2`` = Gray (seen, dimmed); ``&4`` (e.g. 5) = FORCE-show (draw even without user control).
-    ``EIcon.ProcessAIcon`` only draws the icon when ``sAIconMode>0 && (mode&4 || GetUserControl())`` --
-    so an ATE on a free-roam HUB uses mode 1 (player has control), a cutscene field uses mode 5.
-    Verified ``d7 00 05`` = ATE(5) vs field 552/206. See docs/ATE_SYSTEM.md."""
+    ``EIcon.SetAIcon`` -> ``sAIconMode``, ``EIcon.cs:416-454``). ``mode`` is a 3-bit FLAG WORD, not an
+    enum: ``>0`` = enable (``0`` = off/hide); ``&3 == 2`` = Gray banner (else Blue); ``&4`` = FORCE-show
+    (draw even without user control). ``ProcessAIcon`` draws only when ``sAIconMode>0 && (mode&4 ||
+    GetUserControl())``. The shipping game uses exactly 4 of the 8 combos: 1 = Blue/optional (free-roam
+    hub, player has control), 6 = Gray+force = the grey UNSKIPPABLE banner (forced cutscene), 0 = clear.
+    AVOID 5 (Blue+force, field 206's lone real site) -- it re-flashes the SELECT glyph during auto-play
+    (use 6 for a forced scene). Verified ``d7 00 05`` = ATE(5) vs field 206. See docs/ATE_SYSTEM.md."""
     return encode(0xD7, mode)
 
 

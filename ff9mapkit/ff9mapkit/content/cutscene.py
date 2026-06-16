@@ -50,12 +50,14 @@ DEFAULT_WARMUP = 30     # frames (~1s @ 30fps); generous margin over the 16-fram
 
 
 # A compulsory / auto-advance ATE (FF9's FORCED "Active Time Event" cutscene -- no menu, plays at a story
-# beat, e.g. field 1901's Eiko ATE) is an ordinary cutscene with two cosmetic ATE flourishes, both grounded
-# byte-for-byte in 1901 (`docs/ATE_SYSTEM.md` Flavor A):
+# beat, e.g. field 956 Gargant / the Festival-of-the-Hunt cluster) is an ordinary cutscene with two cosmetic
+# ATE flourishes, both grounded byte-for-byte in the real grey mode-6 fields (`docs/ATE_SYSTEM.md` Flavor A):
 #   * its dialogue windows carry the winATE caption flag (64) -> the "Active Time Event" header. This flag
 #     is ALSO what makes the engine tag the closed dialog `isCompulsory` (ETb.ProcessATEDialog) -- the
 #     defining, engine-recognized marker of a compulsory ATE.
-#   * the body is bracketed `ATE(1) ... ATE(0)` (0xD7) -- the HUD-icon arm (real field 1901 uses mode 1).
+#   * the body is bracketed `ATE(6) ... ATE(0)` (0xD7) -- the grey-unskippable HUD-icon arm (Gray+force; the
+#     mode arg is a 3-bit flag word, not an enum -- &3==2 Gray, &4 force; see EIcon.cs:416-454 / ATE_SYSTEM.md).
+#     (NB field 1901's Eiko ATE is the OPTIONAL Blue mode-1 menu hub, NOT this forced flavor -- don't mirror it.)
 # TWO real templates for an auto-playing ATE (676-field byte sweep + the grey-unskippable re-classification,
 # docs/ATE_SYSTEM.md):
 #   * ate_mode = 6 (GREY + force-show) = the AUTHENTIC UNSKIPPABLE ATE and the DEFAULT -- the real game's forced
@@ -208,7 +210,8 @@ def build_choreography(steps, txids, flag_idx: int, *, flag_class=CUTSCENE_FLAG_
     lock, so the player can't wander) lets the field's entry fade settle before the actor moves.
 
     ``ate_mode`` (not None) styles it as a compulsory ATE: brackets the steps ``ATE(mode) ... ATE(0)``
-    and (with ``say_flags=ATE_CAPTION_FLAG``) gives its windows the ATE caption -- mirrors field 1901."""
+    and (with ``say_flags=ATE_CAPTION_FLAG``) gives its windows the ATE caption -- mirrors the real grey
+    mode-6 fields (e.g. 956 Gargant), NOT field 1901 (which is the optional Blue mode-1 menu hub)."""
     inner = opcodes.DISABLE_MOVE
     if warmup > 0:
         inner += opcodes.wait(int(warmup))
@@ -216,7 +219,7 @@ def build_choreography(steps, txids, flag_idx: int, *, flag_class=CUTSCENE_FLAG_
         inner += opcodes.ate(int(ate_mode))                  # arm the blinking "Active Time Event" prompt
     inner += compile_steps(steps, txids, say_flags=say_flags)
     if ate_mode is not None:
-        inner += opcodes.ate(0)                              # disarm before control returns (1901 bracket)
+        inner += opcodes.ate(0)                              # disarm before control returns (close the bracket)
     inner += opcodes.ENABLE_MOVE + _region.set_var(flag_class, flag_idx, 1)
     return _region.if_block(_region.cond_not(flag_class, flag_idx), inner)
 

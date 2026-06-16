@@ -35,10 +35,11 @@ from . import choice as _choice, region as _region
 # on a field claims ATE_FLAG_BASE + i so multiple ATEs don't collide.
 ATE_FLAG_BASE = 8300
 
-# ATE(mode) presets (see opcodes.ate / EIcon.ProcessAIcon):
-MODE_BLUE = 1     # new, steady blue -- shows while the player has control (the HUB default)
-MODE_GRAY = 2     # seen, dimmed gray flicker
-MODE_FORCE = 5    # force-show (draw even without user control -- a scripted/cutscene moment)
+# ATE(mode) presets -- the arg is a 3-bit FLAG WORD, not an enum (see opcodes.ate / EIcon.cs:416-454 /
+# docs/ATE_SYSTEM.md): >0 enable (0=off); &3==2 Gray (else Blue); &4 force-show (draw without user control).
+MODE_BLUE = 1     # Blue, no force -- the optional Press-SELECT prompt (shows only with control). The [ate] HUB default.
+MODE_GRAY = 2     # Gray, no force -- NEVER used in the real game (can't show during a no-control beat; use 6 for grey).
+MODE_FORCE = 5    # Blue + force -- field 206's lone real site. AVOID for authoring: re-flashes the SELECT glyph (use 6).
 
 WIN_ATE = 64      # ETb.winATE -> Dialog.CaptionType.ActiveTimeEvent
 
@@ -107,8 +108,9 @@ def inject_ate(data, prompt_txid: int, option_bodies, *, avail_idx: int = ATE_FL
     ``ATE(mode)`` + set the avail flag + ``InitCode`` the menu slot) to entry-0 tag-0. Returns new ``.eb``
     bytes. The prepend goes through :func:`ff9mapkit.eb.edit.insert_in_function`, which is boundary-safe even
     on a Main_Init with a ``0x06`` scenario jump-table. No-op-safe: pass real ``option_bodies`` (one per row).
-    Default ``mode`` is Blue (mode 1, shows while the player has control -- the HUB convention); pass
-    ``MODE_FORCE`` (5) to draw the prompt even without control (a scripted moment / a guaranteed-visible test)."""
+    Default ``mode`` is Blue (mode 1, shows while the player has control -- the HUB convention). For a forced
+    auto-play use mode 6 (Gray+force) via ``[cutscene] ate``, not ``MODE_FORCE`` (5, Blue+force) -- a force-shown
+    Blue icon re-flashes the SELECT glyph during auto-play (mode arg = a 3-bit flag word; see EIcon.cs:416-454)."""
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     entry = menu_entry(prompt_txid, option_bodies, avail_idx=avail_idx, setup=setup)
     slot = EbScript.from_bytes(out).first_free_slot()

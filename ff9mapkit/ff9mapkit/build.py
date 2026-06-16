@@ -2498,9 +2498,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     cs_once_flag = None
     if cs and cs.get("once", True):
         cs_once_flag = int(cs["flag"]) if "flag" in cs else _auto.cutscene()
-    # compulsory / auto-advance ATE styling (no menu -- the forced flavor, e.g. field 1901): bracket the
-    # body ATE(mode)..ATE(0) + caption its windows winATE. `ate=true` -> mode 1 (Blue, mirrors 1901);
-    # `ate_mode` overrides (5 = force-show). See content/cutscene.py + docs/ATE_SYSTEM.md Flavor A.
+    # compulsory / auto-advance ATE styling (no menu -- the forced flavor, e.g. field 956 / the grey mode-6
+    # fields): bracket the body ATE(mode)..ATE(0) + caption its windows winATE. `ate=true` -> mode 6 (Gray +
+    # force = the grey UNSKIPPABLE banner, the default); `ate_mode` overrides. NOT field 1901 (optional Blue
+    # mode-1 hub). See content/cutscene.py + docs/ATE_SYSTEM.md Flavor A.
     cs_ate_mode = (int(cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)) if cs and cs.get("ate") else None)
     cs_say_flags = _cutscene.ATE_CAPTION_FLAG if cs_ate_mode is not None else 128
     actor_choreo = None
