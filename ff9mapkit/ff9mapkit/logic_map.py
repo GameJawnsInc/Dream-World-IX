@@ -421,6 +421,61 @@ def node_summary(n: Node) -> str:
     return " · ".join(parts)
 
 
+def node_report(n: Node) -> list:
+    """A FRIENDLY, human-readable per-routine transcript (for the GUI 'What this routine does' block). Less
+    cryptic than :func:`_fmt_node_lines`: dialogue shows its text, flag READS read as run-conditions, flag
+    WRITES say 'sets story flag N', warps say 'warps to field N' / 'exits to the world map', and switch arms
+    show their CASE VALUES (the scenario / menu-row numbers) instead of raw byte offsets. The inherent
+    crypticness that remains -- raw story-flag indices + routine #tags -- has no friendlier source (FF9 story
+    flags + function tags are unnamed). Empty list for an empty routine."""
+    out = []
+    for s in n.says:
+        out.append(f'Says: "{s["text"] or ("line " + str(s["txid"]))}"')
+    for g in n.gives:
+        k = g["kind"]
+        if k == "item":
+            out.append("Gives the player " + g["label"]
+                       + (f" ×{g['count']}" if g.get("count") not in (None, 1) else ""))
+        elif k == "gil":
+            out.append(f"Gives {g['amount']} gil" if g.get("amount") is not None else "Gives gil")
+        elif k == "shop":
+            out.append("Opens a shop")
+        elif k == "save_menu":
+            out.append("Opens the save-point menu")
+        elif k == "menu":
+            out.append(f"Opens a menu (#{g.get('id')})")
+        elif k == "remove_item":
+            out.append(f"Takes an item (#{g.get('id')})")
+        elif k == "remove_gil":
+            out.append("Takes gil")
+    for fr in n.flags_read:
+        out.append(f"Runs only if story flag {fr['index']} is " + ("SET" if fr["require_set"] else "CLEAR"))
+    for fs in n.flags_set:
+        out.append(("Sets" if fs["mode"] == "set" else "Sets (OR into)") + f" story flag {fs['index']}")
+    for w in n.warps:
+        op = str(w["op"])
+        if op.lower().startswith("field"):
+            out.append(f"Warps to field {w.get('to')}")
+        elif "world" in op.lower():
+            out.append("Exits to the world map")
+        else:
+            out.append(f"{op}({w.get('to')})")
+    for c in n.calls:
+        lbl = c.label or f"calls routine #{c.tag}"
+        tgt = f" [→ entry {', '.join(str(t) for t in c.targets)}]" if c.targets else ""
+        out.append(lbl[:1].upper() + lbl[1:] + tgt)
+    for b in n.branches:
+        vals = [str(e["value"]) for e in b["edges"] if not e["is_default"]]
+        if vals:
+            shown = ", ".join(vals[:8]) + (f", +{len(vals) - 8} more" if len(vals) > 8 else "")
+            out.append(f"Branches on a value → cases {shown} (else a default path)")
+        else:
+            out.append("Branches (a default path only)")
+    for u in n.unresolved:
+        out.append(f"Calls a routine chosen at runtime — {u['reason']}")
+    return out
+
+
 def node_hint(n: Node) -> str:
     """A SHORT, high-confidence tree-label suffix -- emitted ONLY when the routine has a SINGLE kind of action
     (so the hint can't mislead). A mixed routine returns ``''`` and stays plain (its detail is in the panel

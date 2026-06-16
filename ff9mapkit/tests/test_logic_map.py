@@ -304,3 +304,29 @@ def test_node_summary_and_hint():
     # an EMPTY routine -> empty summary + no hint
     empty = N(0, 4, "shared_routine", 0, 0)
     assert LM.node_summary(empty) == "" and LM.node_hint(empty) == ""
+
+
+def test_node_report():
+    """node_report renders a FRIENDLY transcript: dialogue text, flag reads as run-conditions, warps named,
+    switch arms by CASE VALUE (not raw offsets), and capitalized call labels."""
+    N, Call = LM.Node, LM.Call
+    n = N(0, 0, "main_init", 0, 0,
+          says=[{"txid": 5, "text": "Welcome!"}],
+          gives=[{"kind": "item", "id": 1, "count": 2, "label": "Potion"}, {"kind": "save_menu"}],
+          flags_read=[{"index": 8512, "require_set": True}],
+          flags_set=[{"index": 3461, "mode": "set"}, {"index": 3458, "mode": "or"}],
+          warps=[{"op": "Field", "to": 300}],
+          calls=[Call("RunScript", 9, 29, "main", [0], 100,
+                      label="runs shared field logic (Main_Init routine #29)")],
+          branches=[{"op": 0x0B, "base": 0, "edges": [{"value": 1900, "target": 10, "is_default": False},
+                                                       {"value": 2005, "target": 20, "is_default": False},
+                                                       {"value": None, "target": 30, "is_default": True}]}])
+    r = LM.node_report(n)
+    assert 'Says: "Welcome!"' in r
+    assert "Gives the player Potion ×2" in r and "Opens the save-point menu" in r
+    assert "Runs only if story flag 8512 is SET" in r
+    assert "Sets story flag 3461" in r and "Sets (OR into) story flag 3458" in r
+    assert "Warps to field 300" in r
+    assert any(line.startswith("Runs shared field logic") and "entry 0" in line for line in r)
+    assert "Branches on a value → cases 1900, 2005 (else a default path)" in r
+    assert LM.node_report(N(0, 1, "shared_routine", 0, 0)) == []      # empty routine -> empty report

@@ -1081,7 +1081,7 @@ class Workspace(QMainWindow):
             ehdr.setData(0, _DETAIL, [_esc(s) for s in self._logic_entry_detail(e)])
             for n in nodes:
                 rn = self._mk("logic_node", f"{n.kind} / tag {n.tag}{LM.node_hint(n)}", f"logic_n:{e.index}:{n.tag}")
-                rn.setData(0, _DETAIL, [_esc(s) for s in LM._fmt_node_lines(n, indent="")] or [self._muted("—")])
+                rn.setData(0, _DETAIL, [_esc(s) for s in LM.node_report(n)] or [self._muted("—")])
                 ehdr.addChild(rn)
             grp.addChild(ehdr)
             shown += 1
@@ -1729,18 +1729,23 @@ class Workspace(QMainWindow):
         self.doc_host_lay.addStretch(1)
 
     # ---- in-place edits of a verbatim fork's .eb (the "Script" subtree -> [[logic_edit]] authoring) ----
-    def _logic_node_summary(self, member, entry, tag, eb, entries):
-        """A one-line 'what this routine does' (logic_map.node_summary) for the edit-panel header -- so a
-        routine with NO editable literals still reads as something ('runs tag 29 · sets 2 flags'), not blank.
-        Reuses the cached LogicMap from the tree build; rebuilds offline if the tree wasn't expanded first."""
+    def _logic_node(self, member, entry, tag, eb, entries):
+        """The logic_map :class:`Node` for (entry, tag) -- reused for the panel's one-line summary + the
+        collapsible 'what this routine does' transcript. Cached from the tree build; rebuilt offline if the
+        tree wasn't expanded first. ``None`` if unavailable (the summary/report is best-effort, never fatal)."""
         from .. import logic_map as LM
         lm = getattr(self, "_logic_maps", {}).get(member)
         if lm is None:
             try:
                 lm = LM.build_logic_map(eb, entries=entries)
-            except Exception:                              # noqa: BLE001 -- a summary is best-effort, never fatal
-                return ""
-        n = next((x for x in lm.nodes if x.entry == entry and x.tag == tag), None)
+            except Exception:                              # noqa: BLE001 -- best-effort context, never fatal
+                return None
+        return next((x for x in lm.nodes if x.entry == entry and x.tag == tag), None)
+
+    def _logic_node_summary(self, member, entry, tag, eb, entries):
+        """The one-line 'what this routine does' (logic_map.node_summary), or '' -- used by the smoke + tests."""
+        from .. import logic_map as LM
+        n = self._logic_node(member, entry, tag, eb, entries)
         return LM.node_summary(n) if n is not None else ""
 
     def _mount_logic_node(self, member, entry, tag):
@@ -1761,9 +1766,16 @@ class Workspace(QMainWindow):
                      "In-place edits to the shipped .eb / .mes. Changing a value authors a [[logic_edit]] — "
                      "length-preserving + old-guarded; the read-only tree above still shows the donor's "
                      "original. Run Check, then Build & Deploy.")
-        summary = self._logic_node_summary(member, entry, tag, eb, entries)
-        if summary:                                     # context: WHAT this routine does (not just editable values)
-            self.doc_host_lay.addWidget(self._muted_label(f"This routine {summary}."))
+        from .. import logic_map as LM                  # context: WHAT this routine does, not just editable values
+        node = self._logic_node(member, entry, tag, eb, entries)
+        if node is not None:
+            report = LM.node_report(node)
+            summary = LM.node_summary(node)
+            if report:                                  # a collapsible friendly transcript (header = the one-liner)
+                self.doc_host_lay.addWidget(self._collapsible(
+                    f"This routine {summary}" if summary else "What this routine does", report))
+            elif summary:
+                self.doc_host_lay.addWidget(self._muted_label(f"This routine {summary}."))
         reason = protected_reason(self.member_paths[member])
         if reason:
             self.doc_host_lay.addWidget(self._warn_label(
@@ -1808,6 +1820,36 @@ class Workspace(QMainWindow):
         lbl.setStyleSheet(f"color:{self.pal['warn']};")
         lbl.setWordWrap(True)
         return lbl
+
+    def _collapsible(self, title, lines, *, open_=False):
+        """A disclosure section: a clickable header (``title``) that shows/hides a body of muted ``lines``.
+        Used for the read-only 'What this routine does' transcript so a big routine doesn't flood the panel."""
+        box = QWidget()
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 4, 0, 0)
+        lay.setSpacing(2)
+        btn = QToolButton()
+        btn.setText(title)
+        btn.setCheckable(True)
+        btn.setChecked(open_)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        btn.setArrowType(Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow)
+        btn.setStyleSheet("QToolButton { border:none; font-weight:600; text-align:left; }")
+        body = QWidget()
+        bl = QVBoxLayout(body)
+        bl.setContentsMargins(16, 0, 0, 0)
+        bl.setSpacing(1)
+        for ln in lines:
+            bl.addWidget(self._muted_label(_esc(ln)))
+        body.setVisible(open_)
+
+        def _toggle(checked):
+            body.setVisible(checked)
+            btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+        btn.toggled.connect(_toggle)
+        lay.addWidget(btn)
+        lay.addWidget(body)
+        return box
 
     @staticmethod
     def _logic_pending(site, edits):
@@ -4582,8 +4624,10 @@ def _smoke(win):
         # the panel + tree now carry a per-routine 'what it does' summary / single-category hint (read-only)
         from ff9mapkit import logic_map as _LM2
         assert isinstance(win._logic_node_summary("ALEXFORK", e0, t0, eb_b, ents), str), "node summary builds"
-        assert win._logic_maps.get("ALEXFORK") and any(_LM2.node_summary(n)
-                                                       for n in win._logic_maps["ALEXFORK"].nodes), "a routine summarizes"
+        _lm0 = win._logic_maps.get("ALEXFORK")
+        assert _lm0 and any(_LM2.node_summary(n) for n in _lm0.nodes), "a routine summarizes"
+        assert any(_LM2.node_report(n) for n in _lm0.nodes), "a routine has a friendly transcript"
+        assert win._collapsible("hdr", ["line one", "line two"]) is not None, "the disclosure widget builds"
         gi = win._build_logic_add("give_item", e0, t0, "prepend", None, [], "Potion", "1", "", "", "", "")
         assert gi == {"kind": "give_item", "entry": e0, "tag": t0, "item": "Potion"}, gi
         win._commit_logic_add("ALEXFORK", e0, t0, gi)
