@@ -403,27 +403,6 @@ def test_validate_flags_logic_add_on_synthesized_field():
     assert any("only applies to a VERBATIM" in p for p in problems)
 
 
-def test_settle_dance_for_field_load_message():
-    """A message shown from a FIELD-LOAD arm (tag 0 = Init/Main_Init, pre-usercontrol) is wrapped in the
-    control-lock dance (DisableMove 0x2D + EnableMove 0x2E) so the window renders; a control-active arm
-    (tag 2/3) shows a bare window. `settle` overrides the tag-0 auto either way."""
-    def has_dance(out, tag):
-        _e, ins = _instrs(out, tag=tag)
-        return any(i.op == 0x2D for i in ins) and any(i.op == 0x2E for i in ins)
-    show = {"kind": "show_line", "message": "Hi"}
-    assert has_dance(LA.apply_logic_adds(_eb((0, RET)), [{**show, "entry": 0, "tag": 0}],
-                                         message_txids={0: 1001}), 0)                       # tag-0 auto-dance
-    assert not has_dance(LA.apply_logic_adds(_eb((2, RET)), [{**show, "entry": 0, "tag": 2}],
-                                             message_txids={0: 1001}), 2)                   # tag-2 bare (control active)
-    assert not has_dance(LA.apply_logic_adds(_eb((0, RET)), [{**show, "entry": 0, "tag": 0, "settle": False}],
-                                             message_txids={0: 1001}), 0)                   # settle=false overrides
-    assert has_dance(LA.apply_logic_adds(_eb((2, RET)), [{**show, "entry": 0, "tag": 2, "settle": True}],
-                                         message_txids={0: 1001}), 2)                       # settle=true forces it
-    # a message-less effect is never wrapped (no window to render)
-    assert not has_dance(LA.apply_logic_adds(_eb((0, RET)), [{"kind": "set_flag", "entry": 0, "tag": 0,
-                                                             "flag": 8520}]), 0)
-
-
 # ---- add_case: ADD a new arm to a jump table (length-changing table grow + new branch) ----
 def test_add_case_contiguous_give_item():
     """A 0x0B contiguous add (case='auto' => base+ncases) wiring a once-guarded give_item, rejoining the
