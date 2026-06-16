@@ -437,53 +437,22 @@ the highest folder + ABORT on a cross-folder EVT/FBG name collision; wires New G
 broken field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain.
 World-Hub: `gen-hub` generator + New Game → hub → REAL verbatim journeys (Dali 4100 + Treno-Pub 4501) + entry
 camera-settle — all IN-GAME PROVEN (the shipped entries are camera-clean; only the F6 debug warp drifts).
-Active: **battle TUNING / encounter authoring** (`battle_design`) — recon + Phase 0/1/2/3/4/5: raw16 full codec + golden
-round-trip; `[scene]` combat-identity tuning by name; `battle-actions` / `battle-scene` catalogs; the **offline
-balance-lint** `scenelint.py`; **`[[battle_action]]`/`[[status]]`** CSV-delta ability/status rebalancing; **Phase 4 —
-the `BattlePatch.txt` emitter** (`battlepatch.py`): `[[battle_patch]]` (scene-scoped) + `[[battle_enemy]]`/
-`[[battle_attack]]` (global by-name `AnyEnemyByName:`/`AnyAttackByName:` = the campaign-wide WIN) reaching the
-BP-only rate arrays / `BonusElement` / `MaxDamageLimit` / `WinCardRate`, the enemy ATTACK table, and scene flags
-**without re-packing raw16**; merged non-clobbering into a live `BattlePatch.txt` under `//` markers + the BGM
-block; CLI `battle-patch`. ★ **Phases 1 & 4 IN-GAME PROVEN** on the forked EF_R007 Goblin (P1: auto-Protect +
-phys-def wall + AP; P4: a `[[battle_patch.attack]]` patched the enemy's normal attack by index — `power`+
-`status_set` both landed, the inflicted `StatusSets.csv` bundle showed in-game = the `AA_DATA` enemy-attack lever
-works by name; FULLY PROVEN — a follow-up confirmed `AnyEnemyByName: Goblin` (started Poisoned), `AnyAttackByName:
-Goblin Punch` (power→1), the `back_attack` scene flag, and a guaranteed `drop_rates` Elixir, i.e. the
-campaign-wide by-name channel + BP-only levers + scene flags in one fight). **Phase 5 — player-side CSVs**
-(`characterdelta.py`): `[[character]]`→BaseStats.csv (per-id partial) + `[[leveling]]`→Leveling.csv (WHOLE-FILE,
-read base 99 / patch / re-emit all 99); range-checked, provenance-clean, + the Leveling deploy shadow-guard; CLI
-`characters`. ★ **IN-GAME PROVEN** — a `[[character]]` boost of Vivi + `[party] add` on a New-Game field showed
-her tuned stats (40/80/90/45) in the status menu at a fresh New Game (BaseStats lands at the New-Game party build).
-**Phase 5b** (`[[ability_gem]]` → AbilityGems.csv): re-cost a support ability's gem requirement by name/id
-(committed SupportAbility table; `#! IncludeBoosted` preserved); CLI `ability-gems`. **Phase 6a** — the enemy-AI
-**disassembler view** (read-only `battle-ai <scene>`): names the battle `.eb` vocabulary (`op_binary` expr table
-+ `0xC0` var decode → `Global.Bit[..]`/`B_CURHP`; `eb.pretty_expr`; `battle/battleai.py` walks Main_Init + per-type
-AI by tag), proven by a byte-walk PARITY test vs `read_code`. **Phase 6b** — same-length AI constant patches
-(`battle/aipatch.py`): `constant_sites` locates every patchable literal (offset+width, mirroring the decoders),
-`battle-ai --sites` lists them, `[[scene.ai_patch]]` (battle.toml) does an `at`/`old`-guarded/`new` in-place edit
-(no fpos fixup; applied per-lang to the forked eb). **Phase 6c-i** — the enemy-AI expression **ASSEMBLER**
-(`eb/exprasm.py`), the keystone of new-branch authoring: the exact INVERSE of the 6a disassembler
-(`assemble(pretty_expr(b)) == b` byte-for-byte, proven against the real EF_R007 AI), CLI `battle-ai --asm`; each
-token inverts a `pretty_expr` branch (op / `const`+`const4` / the `0xC0` minimal var encoding / sysvar / obj /
-member-ptr). **Phase 6c-ii** — the enemy-AI **COMMAND assembler** (`eb/cmdasm.py`, mirrors `read_code`'s byte-walk
-+ resolves `label:`/symbolic jumps in two passes) + **branch insertion** (`battle/aiauthor.py`: `add_ai_function`/
-`replace_ai_function` splice an assembled branch via the existing byte-safe `eb.edit` fpos-fixup primitives — the
-first LENGTH-CHANGING AI edit), CLI `battle-ai --asm-block`; round-trip proven on the real EF_R007 AI (every
-instruction + function byte-for-byte; insertion re-parses everything-else-intact). **Phase 6c-iii** — the enemy-AI
-**LINTER** (`battle/ailint.py`: decode / jump-bounds / reachable-RET reachability walk / Attack-idx range — a
-**562-scene sweep lints ALL shipping scenes CLEAN**, the soundness proof; CLI `battle-ai --lint`) + the declarative
-**`[[scene.ai_function]]`** build surface (`aiauthor.apply_ai_functions`, spliced per-lang AFTER `ai_patch`; the
-validate hook lints the COMPOSED shipped eb) — **Phase 6c COMPLETE + ★ IN-GAME PROVEN (2026-06-13)**: a `[[scene.ai_function]]` RET-ing the forked Goblin's tag-5 attack routine (`battle_tests/bt_goblin`) made it stand idle (Phase-4 Poison then killed it). Dispatch model = an enemy turn → tag 7 (ATB); the spawned enemy's ENTRY is bound by Main_Init's `InitObject` (Goblin → entry 2, NOT the labelled "type 0"); the `Attack` cmd lives in **tag 5** → [[project-ff9-battle-tuning]]. ★★ **ESCALATED + IN-GAME PROVEN (2026-06-13)** — beyond RET (stop acting) to CHANGING the attack: reseeding the Goblin's per-slot attack seed (`Instance.Int24[0]` 323→130, a same-length byte patch) made it use **Goblin Punch every turn** instead of Knife. Two load-bearing facts: (a) Main_Init's `SWITCH(B_SYSVAR[31])` keys the AI bind on **`B_SYSVAR[31]` = `btl_scene.PatNum`** (the PICKED PATTERN, NOT the enemy type) — a forked scene whose patterns spawn different types runs the WRONG AI on a right-looking model (fix = 1-byte `InitObject` patch, NOT `monster_count`); (b) an enemy's attack = a per-slot SEED read as `enemy_attack[(Int24[0]>>slot*6)&63]`, so RESEED to change it (forcing the final `Attack({...})` index desyncs from tag-5's per-slot target setup → fizzle); a table attack no AI seeds (Fire here) likely isn't render-wired. ★★★ **BRANCH INSERTION also IN-GAME PROVEN (2026-06-13)** — the length-changing primitive: a 30-byte coin-flip conditional (`SET({B_SYSVAR[0] const(1) B_AND}); JMP_IF`) spliced into tag-5 right before the `Attack` via `eb.edit.insert_in_function` (does the fpos fixup; refuses a straddling jump — both rotation paths flow through it) makes the Goblin pick **Knife vs Goblin Punch each turn**. So every Phase-6c authoring primitive — **stop (RET) · reseed · insert-branch** — now runs in-engine; the full read→author→lint→ship stack is end-to-end proven. ★★★★ **STATE-DRIVEN HP-PHASE AI IN-GAME PROVEN (2026-06-13)** — the capstone: an inserted branch reads the Goblin's OWN battle HP and ENRAGES below half (Knife above 50% → Goblin Punch below), in-game. Self-HP read = `B_SYSLIST[1] B_MEMBER(36)` (cur) / `B_MEMBER(35)` (max) — N is a `btl_scrp.GetCharacterData` switch-case selector (NOT a byte offset; setter symmetric so `B_MEMBER(N) … B_LET_A` WRITES), distinct from the party-slot op_binary `B_CURHP`/`B_MAXHP`; mapped via a 7-agent workflow + a 562-scene sweep (56 bosses use the identical `cur < max/2` via the `_E`/`B_PICK`/`B_COUNT` extract idiom that binds the read target — a bare `B_LT` would not). A real boss-pattern enemy authored end-to-end from the kit, no DLL, lint-clean. Full selector map → [[project-ff9-battle-ai-members]]. ★ **PRODUCTIZED (kit 0.9.78)**: the HP-phase + branch-insert are now declarative battle.toml surfaces — **`[[scene.ai_phase]]`** (`stat`/`below`/`then`/`else` → generates the `cur<max/N` branch, attack-var INFERRED from the `Attack`; proven byte-identical to the in-game branch) + **`[[scene.ai_insert]]`** (splice a fragment at a `before`/`after`/`at` locator) + `B_MEMBER` naming (read: `disassemble_ai` annotates `36=cur.hp`; write: `B_MEMBER(cur.hp)`). Multi-lens adversarial review caught + fixed a boundary-blind jump-straddle guard (corrupt-but-unlinted eb), a mid-instruction `at`, an append-at-end contradiction, + 3 clean-error gaps; `eb.edit.insert_in_function`'s straddle check is now boundary-correct. 40 new tests, 1361 green. ★ **GAP CLOSED (kit 0.9.79)** — a forked boss is now FULLY declarative: **`[[scene.enemy]] ai_entry = N`** overrides `rewrite_main_init`'s generic `1+type` binding (EF_R007 is an offset-entry donor — its Main_Init `SWITCH(B_SYSVAR[31]=PatNum)` binds type 0 → entry 2; `monster_count` alone bound the wrong turn-less AI), and the rotation **reseed drops out** (ai_phase overrides the attack index). So the whole boss = `monster_count` + `[[scene.enemy]] type/ai_entry` + `[[scene.ai_phase]]`. Focused review caught + fixed: a list-typed `ai_entry` TypeError, `ai_entry=0` binding Main_Init, and a silently-ignored override without `monster_count`. 1365 green. ★★ **FULL PIPELINE IN-GAME PROVEN (2026-06-13)** — a from-scratch rebuild on a freshly-restored CLEAN EF_R007 fork (`battle.toml` → `battle-build` → `deploy_battle`, zero hand-patches) produced a working forked boss: every battle is the Goblin (Main_Init binds entry 2), it Knifes above half HP and **enrages to Goblin Punch below half**, confirmed in-game. The declarative `battle.toml → game` pipeline is end-to-end proven; the "author a boss from the kit" arc is COMPLETE (read → understand → author → lint → ship → declarative).
-★ Phases 2/3/4/5/5b/6a/6b/6c-i/6c-ii/6c-iii each validated by a multi-lens adversarial review (Phase 2: 562-scene sweep; Phase 3: caught
-a boot-crash range bug + the cp1252 encoding; Phase 4: caught a `StatusSetId` over-range KeyNotFound crash, a
-malformed-toml traceback, + a silent dead-`Battle:` selector; Phase 5: caught a fixture provenance leak + a
-missing whole-file shadow-guard; 5b: an unresolvable display name; 6a: a truncated-eb crash; 6b: a 3-byte-immediate
-KeyError + the B_CONST4 26-bit mask; 6c-i: an `opXX` back-door that assembled a bare operand-byte → desync, fixed +
-`assemble()` now self-verifies its round trip as a library invariant; 6c-ii: a missing flow-terminator check
-[RET-less branch runs off the function] + a backward `JMP_IFNOT` the engine reads UNSIGNED; 6c-iii: the linter
-decoded `JMP_IFNOT` signed not unsigned [missed the backward-jump fault] + the validate hook lit the un-patched
-donor not the composed eb) → [[project-ff9-battle-tuning]],
-`docs/BATTLE_DESIGN.md`. Next: Phase 6c is COMPLETE; the deferred tail is raw17 btlseq sequence authoring (new codec + a coordinated raw16+eb+raw17 edit).
+Battle TUNING / encounter authoring (`battle_design`) — ★★ **PILLAR COMPREHENSIVELY COMPLETE, enemy AND player
+side, most in-game proven** (kit 0.9.90 lane; rebased onto master). Enemy combat identity (raw16 `[scene]` /
+`[[scene.enemy]]`: stats/affinities/status/defences/category/rewards/`flags` + **BODY re-skin** `model=`/`model_scene=`)
+· per-name BattlePatch (`[[battle_patch]]`/`[[battle_enemy]]`/`[[battle_attack]]` — the BP-only rate/element/limit
+levers + the enemy ATTACK table) · offline balance-lint (`scenelint.py`) · full enemy-**AI authoring** (Phase 6c:
+`[[scene.ai_phase]]`/`[[scene.ai_insert]]`/`ai_entry` — read→patch→assemble→splice→lint; a forked enrage-below-half
+boss in-game proven) · player CSV levers (`actiondelta`/`characterdelta`: `[[battle_action]]`/`[[status]]`/
+`[[status_set]]`/`[[magic_sword_set]]`/`[[character_param]]`/`[[command_set]]`/`[[ability_feature]]`/`[[learn]]` +
+BaseStats/Leveling/AbilityGems, all no-DLL CSV deltas). ★★ **raw17 `btlseq` attack-CHOREOGRAPHY — READ→PATCH→AUTHOR
+whole stack DONE + IN-GAME PROVEN (kit 0.9.89-0.9.90)**: format solved vs `btlseq.cs` + a 562-scene corpus (disasm
+3814/3814; codec byte-exact 562/562); `seqcodec`/`seqdis`/`battle-seq` (read) · `seqpatch`/`[[scene.seq_patch]]`
+(same-length operand patch — slow-mo'd the Goblin's Knife lunge) · `seqasm` (assembler, exact inverse 3525/3525) +
+`seqauthor`/`[[scene.seq_replace]]`/`[[scene.seq_insert]]` + `battle-seq --lint` (length-changing splice + repack —
+a brand-new `Wait` froze the Goblin mid-Knife). 3 adversarial-review rounds. **TIMING FACT: the sequence interpreter
+ticks ~15 fps (`Wait(150)`≈10 s).** The only raw17 piece left = a wholly-new attack SLOT (grow `seqCount` +
+coordinate raw16 `AA_DATA`+`.eb` AI; optional). Full detail → [[project-ff9-battle-tuning]] + `docs/BATTLE_DESIGN.md`.
 Frontier: #13 (story-event director/roster on rotating-cast fields) — ★ **core PROVEN** (a `--verbatim` fork +
 `[startup]` shows a beat-correct rotating roster: forking Dali Weapon Shop 354 at SC 2600 vs 11090, the shopkeeper
 changed + an NPC appeared, in-game 2026-06-12); the **roster-by-beat analyzer + the synth-fork director skip both

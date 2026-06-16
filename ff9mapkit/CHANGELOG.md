@@ -5,6 +5,233 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+> **Battle-tuning lane** (rebased onto master 2026-06-16; the per-entry version labels below are this
+> lane's internal progression — the kit `__version__` is bumped past master's in lockstep).
+
+### Added — raw17 `btlseq` NET-NEW sequence authoring: assembler + length-changing splice (0.9.90)
+The final raw17 tier: author choreography from scratch and splice it in, mirroring the proven `.eb`-AI
+`cmdasm`/`aiauthor` path. The same-length patcher (0.9.89) edits operands in place; this CHANGES a sequence's
+length and repacks the whole file.
+- **`battle/seqcodec.serialize_repacked`** — the length-changing serialize: re-lays distinct bodies contiguously,
+  recomputes every `seqOffset[]` (+4 skew) + `camOffset` (4-aligned), re-appends the camera block verbatim (its
+  offsets are camOffset-relative → it floats intact). Range-checks both i16 offsets. Logical round-trip proven on
+  all 562 corpus files (`parse(serialize_repacked(parse(b)))` == same sequences + camera).
+- **`battle/seqasm.py`** + CLI **`battle-seq --asm "<src>"`** — the assembler (inverse of the disassembler):
+  `Name(field=value, …)` lines → instruction bytes, each operand range-checked against its field; a leading
+  `[offset]` + trailing `# comment` paste back in. `to_source`↔`assemble` is an exact mutual inverse, proven
+  byte-for-byte over all 3525 distinct corpus bodies; `assemble` self-verifies its output re-decodes. A
+  terminator-free `assemble_fragment` feeds inserts.
+- **`battle/seqauthor.py`** + battle.toml **`[[scene.seq_replace]]`** (replace a whole sequence body) +
+  **`[[scene.seq_insert]]`** (splice a fragment at a `before`/`after` locator — an instruction index or opcode
+  name) + CLI **`battle-seq --lint`** (`lint_seq`: the one semantic crash class the codec can't see — an `Anim`
+  code resolving past `animList`). Length-changing edits run AFTER `seq_patch` in the build (its offsets stay
+  valid), then repack; shared-body aliasing is warned. Composed + validated offline like the AI authoring.
+- The keystone for a brand-NEW attack slot (grow `seqCount` + wire a raw16 `AA_DATA` + the `.eb` AI to select it);
+  the replace/insert primitives + the repack are its foundation.
+
+### Added — raw17 `btlseq` attack-sequence codec + disassembler + same-length patcher (0.9.89)
+The raw17 attack-CHOREOGRAPHY body — the last battle frontier — is now read + patchable, mirroring the proven
+`.eb` enemy-AI on-ramp (read → same-length patch → lossless codec). PROVEN against `btlseq.cs` + a 562-scene /
+3814-sequence corpus sweep: a width table derived from the 34-entry `gSeqProg[]` delegate table (cross-checked
+against the independent `AdvanceSeqCode` skip table — the engine's own built-in parity check, agreeing for all 34
+opcodes) disassembles 3814/3814 sequences to a terminator, and the codec round-trips `serialize(parse(b)) == b`
+byte-exact on 562/562 real donors (the raw16/camera-codec golden analog).
+- **`battle/seqcodec.py`** — the lossless codec (`parse`/`serialize`) + the in-memory model (header + per-body
+  decoded instructions + the verbatim camera block, which the separate `camera_codec` owns). The 34-opcode table
+  (name + operand width/signedness/kind per `SeqExec*`/`SeqInit*`); the `+4` body skew; `seqOffset` aliasing
+  (multiple `sub_no` → one shared body); verbatim gap/pad capture (padding is NOT a derivable alignment rule);
+  rejects a body opcode of 34 (the latent `gSeqProg[34]` out-of-bounds crash).
+- **`battle/seqdis.py`** + CLI **`battle-seq <scene>`** — the read-only disassembler view: each `sub_no` (= attack
+  index) as named instructions with annotated operands + the resolved global anim ids
+  (`animList[seqBaseAnim[sub_no] + animCode]`). `--sites` lists the patchable operands (the `aipatch --sites` analog).
+- **`battle/seqpatch.py`** + battle.toml **`[[scene.seq_patch]]`** — same-length operand patches (the `aipatch`
+  analog): `constant_sites` yields every patchable operand (frame counts, anim/camera/vfx/sfx ids, masks, coords;
+  the 0x19 Sfx discarded-pad byte is excluded); `[[scene.seq_patch]]` does an `at`/`old`-guarded/`new` in-place
+  edit (no offset repack — byte-accurate by construction), applied to the forked raw17 in the mint build + lint-
+  validated offline. raw17 is language-independent, so one patch covers all languages.
+- Deferred (the §8 tail): length-changing edits — an instruction assembler + a net-new sequence (a coordinated
+  raw16 `AA_DATA` + raw17 header/body + `.eb` AI-by-`sub_no` edit). The `seqcodec` model + offset-fixup are the
+  foundation for it.
+
+### Added — `[[learn]]` → Abilities/<Preset>.csv: the character ability-progression curve (0.9.88)
+The last Character-CSV lever (and the highest-value): author what each character LEARNS + the AP to master, per
+preset. WHOLE-FILE per preset (highest-priority-wins, mirroring `[[leveling]]`): reads the base
+`Abilities/<Preset>.csv`, overrides an existing token's AP / appends a new one / drops a removed one, re-emits the
+COMPLETE list.
+- **`[[learn]]`** = `preset` (a `CharacterPresetId` name/id 0-19 — guests split Cinna1/2 etc.; bare names are an
+  ambiguous error) + `[[learn.ability]]` sub-tables (`ability` + `ap`) + an optional `remove = [...]`. The
+  `ability`/`remove` tokens accept `0` / `AA:n` / `SA:n` (range-checked), an SA NAME (committed table → `SA:id`),
+  or an active-ability NAME (resolved live via Actions.csv → `AA:id`). Multiple blocks per preset merge.
+- New `characterdelta.build_learn_file` (per-preset FILE SET) + `_resolve_learn_token` + `_group_learns` + a
+  `ModLayout.abilities_csv(preset)` METHOD + the build validate/emit + a dedicated **per-preset deploy step**
+  (walks the staging `Abilities/` dir, each file its own reversible backup; folds the 20 preset stems into the
+  startup-CSV relaunch set). 3 tests; full suite green. **Character-CSV niche lane COMPLETE** (only `Commands`
+  command-DEFINITIONS deferred, cross-ref into Actions).
+
+### Added — `[[character_param]]` + `[[command_set]]`: character identity + battle-menu layout (0.9.87)
+The first two of the player-character CSVs (partial per-id deltas, mirroring `[[character]]`/BaseStats):
+- **`[[character_param]]`** → `CharacterParameters.csv`: `character` + `row` / `win_pose` / `category` /
+  `menu_type` (a CharacterPreset name/id) / `equipment_set` + the advanced `serial_formula` / `name_keyword`
+  Strings. CRITICAL: written by **FIXED column index** (the file's legend names are stale — `DefaultMenuType`
+  etc.); all numerics are Byte (0-255), range-checked offline; String cells reject an embedded `;`.
+- **`[[command_set]]`** → `CommandSets.csv`: re-point a character's battle-menu command SLOTS (`attack` / `defend`
+  / `ability1` / `ability2` / `item` / `change` + their `*_trance` variants) to existing `BattleCommandId`s
+  (0-47) — e.g. give Vivi a different ability command. Keyed by **preset 0-19** (`CharacterPresetId`, NOT the
+  0-11 CharacterId — guests split into Cinna1/2 etc.; bare names are an ambiguous error). Handles the file's
+  **tab-padding** (strips every cell) + the colliding `Attack(Trance)` legend (fixed-index slots).
+- New committed `PRESET_IDS` (0-19 CharacterPresetId names) + `config` paths + build validate/emit + deploy
+  startup-CSV wiring. 4 tests; full suite green. (The `[[learn]]` ability-progression lists + a `commands`
+  catalog are the remaining character-CSV pieces.)
+
+### Added — `[[magic_sword_set]]` → MagicSwordSets.csv: author combo unlocks (0.9.86)
+The last battle-CSV-family lever: Steiner+Vivi-style combo unlocks — a **Supporter**'s `base_abilities` unlock a
+**Beneficiary**'s `unlocked_abilities` (Vivi's Black Magic → Steiner's Magic Sword), unless a `*_blocking_status`
+is present. **`[[magic_sword_set]]`** = `id` + `supporter`/`beneficiary` (CharacterId name/id, reuses
+`characterdelta._resolve_char_id`) + `base_abilities`/`unlocked_abilities` (active-ability ids → `AA:n` tokens) +
+`supporter_blocking_status`/`beneficiary_blocking_status` (reuse `encode_status_list`). Emits a PARTIAL
+`MagicSwordSets.csv` (per-id merge, `EnumerateCsvFromLowToHigh`, no base read → offline). Row verified vs the base
+(`1;1;3;AA:25, AA:26;AA:50;Silence(3);Sleep(17), Mini(28)`). build validate/emit + deploy startup-CSV wiring. 2 tests.
+
+### Added — `[[status_set]]` → StatusSets.csv: author the status BUNDLES actions inflict (0.9.85)
+Completes the action→status story: `[[battle_action]] status_index` (0.9.84) points an ability at a status SET;
+this authors new sets. **`[[status_set]]`** = `id` (0-38 = base, ≥39 = custom), `name` (cosmetic), `statuses`
+(a BattleStatus list, reusing `encode_status_list`). Emits a PARTIAL `Data/Battle/StatusSets.csv` — the engine
+merges per-id low→high (`FF9BattleDB.LoadStatusSets` via `EnumerateCsvFromLowToHigh`), so it ships ONLY the
+author's rows (no base read → fully offline + provenance-clean). `actiondelta.build_status_sets` + the build
+validate/emit wiring + the deploy startup-CSV copy loop (RELAUNCH). Row format `Name;Id;Name(idx)…` verified
+against the base (`Doom + Slow;39;Doom(27), Slow(20)`). 5 tests; full suite green.
+
+### Added — round out `[[battle_action]]` / `[[status]]`: targeting, presentation + status interaction (0.9.84)
+The niche player-side levers, completing the Actions.csv / StatusData.csv author surfaces (column-adds to the
+existing `actiondelta` emitter + three new committed encoders):
+- **`[[battle_action]]`**: `targets` (TargetType, by name/id), `menu_window` (TargetDisplay), `default_ally` /
+  `for_dead` / `default_on_dead` / `camera` (booleans), `vfx1` / `vfx2` (anim ids; `vfx1` is signed Int16),
+  `status_index` (the StatusSets row an action inflicts/cures).
+- **`[[status]]`**: `clear_on_apply` / `immunity_provided` (BattleStatus lists — what applying a status CLEARS /
+  what it grants IMMUNITY to).
+- New `battlecsv` encoders: `encode_target_type` / `encode_target_display` (committed `TargetType` / `TargetDisplay`
+  enum names → `Name(value)`) + `encode_status_list` (`BattleStatusId` → `Name(idx), …`). Verified against the
+  engine PARSE side (`CsvParser.EnumValue` reads the int in the parens — the name is cosmetic; `Boolean` reads
+  char 0; `ParseBattleStatus` splits the comma-list), so the emit round-trips the base file's own write format
+  EXACTLY (`Defend(15), Poison(16)`, `AllEnemy(8)`). cp1252/LF, range-checked offline. 11 tests; full suite green.
+
+### Added — `[[ability_feature]]` → AbilityFeatures.txt: author what abilities DO, no DLL (0.9.83)
+The player-side "prize" lever: emit a drop-in Memoria `AbilityFeatures.txt` — the DSL behind Auto-Haste, killers
+(Man Eater), MP+20%, Counter, gil-gated casts, command disables. A PARTIAL file merged per-ability over the base.
+- **`[[ability_feature]]`**: `kind` (SA/AA/CMD), `ability` (a SupportAbility/active name or id; CMD = int id),
+  `cumulate` (the trailing `+` merge flag; default `true` = stack over the base, `false` = full override / clear),
+  `comment`, `features` (the `[code=...]` / feature-line body, passed through OPAQUE — the engine validates the
+  NCalc formula at load). `abilityfeatures.py` (mirrors `battlepatch` in shape, the CSV-deltas in lifecycle).
+- Reuses the committed SA name table (`characterdelta`) + the live `Actions.csv` AA resolver (`actiondelta`);
+  provenance-clean (emits only the author's blocks). Offline structure-validation: id range per kind, balanced
+  `[code]`/`[/code]`, no nested header, the closed AA/CMD `[code=TAG]` sets (warn on unknown/cross-kind), the
+  special-id words `Global`/`GlobalLast`/`GlobalEnemy`/`GlobalEnemyLast` (kind-gated). CLI `ability-features [--tags]`.
+  Deploys via the startup-CSV copy loop (`.txt`-aware backup/revert) → **RELAUNCH to apply**.
+- Built from a 4-agent recon spec + validated by a 4-lens adversarial review. The review confirmed the whitelists
+  EXACTLY match the engine parsers (no real ability is false-rejected or mangled) and caught two bugs + four
+  fidelity fixes: ★ the **indented-SA-verb silent no-op** (the engine `^verb` matcher ignores leading whitespace
+  → emit now strips body lines to column 0), a **single-table dict build crash** (→ routed through `_as_list` so
+  build matches lint), the empty-body "clear" override, the multi-line `[code]` warning, the AA id-0 warning, and
+  the exact-token SA verb hint. 28 tests; full suite green. ★ **IN-GAME PROVEN (2026-06-14):** a `>SA Global`
+  `StatusInit AutoStatus Haste` block (emitted from `bt_trigger.field.toml`, deployed via `deploy_field.py`'s
+  `.txt`-aware copy loop, RELAUNCH) made the WHOLE PARTY start every battle Hasted, no ability equipped — the
+  no-DLL ability-effect DSL works end-to-end (author → build → deploy → in-engine).
+
+### Added — enemy `flags` lever + the gap-map reconciled (0.9.82)
+- **`[[scene.enemy]] flags`** (raw16 `SB2_MON_PARM.Flags@48`): the one enemy-identity field BattlePatch can't
+  reach (not a `[PatchableField]`). Named bits `die_atk`/`die_dmg` (death-animation path) + **`non_dying_boss`**
+  (the enemy SURVIVES HP=0 — for scripted boss phases); accepts a name / list of names / raw int (the unnamed
+  high bits pass through to the enemy's AI `.eb`). `scene_data._MON_FLAG_NAMES`, from `ENEMY.cs:37-39`.
+- **Gap map reconciled — the WHOLE lever map** (`docs/BATTLE_DESIGN.md`): the "Kit" column was systematically
+  stale (Phases 3/5/6 shipped but the doc wasn't updated). Two audit passes (the second a 7-agent workflow that
+  verified every claim against the code) flipped ~36 stale entries:
+  - §2 **(a)** per-enemy stats: `category`/`hit_rate`/4 defences/`blue_magic`/`win_card`/element affinities/status
+    masks/`bonus_element`/drop-steal rates/`max_damage_limit` are all built (`scene_data` raw16 + `battlepatch` BP);
+    `flags` added (above); only the inert per-type `AP@50` remains unexposed.
+  - **(a′)** the AA_DATA enemy attack table → done via `[[battle_attack]]`/`[[battle_patch.attack]]` (BP by name).
+  - **(a″)** pattern Rate/AP → done (BP / `[scene] ap`). **(a‴)** scene-wide flags (preemptive/back-attack/
+    can-escape/…) → done via the BattlePatch SCENE token (`battlepatch.SCENE_FLAGS`).
+  - **(b)** enemy AI: all six rows were understated → done (the Phase-6c `[[scene.ai_function]]`/`ai_phase`/
+    `ai_insert`/`ai_patch` + `ai_entry` surfaces).
+  - **(c)/(d)/(e)** CSV deltas: `[[battle_action]]`/`[[status]]` (`actiondelta`) + `[[character]]`/`[[leveling]]`/
+    `[[ability_gem]]` (`characterdelta`) → done (Phase 3/5/5b).
+  - §4 fidelity: the raw16 scene + battle-eb container + raw17 camera are codec-proven on real donors; the
+    "what each lever needs first" list is nearly drained (only the raw17-btlseq codec remains).
+  - §9: MergeScripts (default false) + raw16-tail preservation marked RESOLVED. The gap map now matches the code.
+
+### Added — enemy BODY re-skin: `[[scene.enemy]] model =` / `model_scene =` (0.9.81)
+Make a forked battle enemy LOOK like a different creature while keeping its own gameplay (stats/affinities/
+rewards/AI) — the "altered model" lever, no DLL, no new codec.
+- **How:** transplant a REAL donor enemy's self-consistent model block (Geo + the 6 Mot animation ids + Mesh +
+  Radius + the model-attached cosmetics: bones, die/start SFX, status-icon + shadow bones/offsets) into the
+  target type's `SB2_MON_PARM`, leaving every gameplay field. The donor block is read LIVE from the install (so
+  the bytes are guaranteed engine-valid — `btl_init.cs:240`/`:521-522`: a Mot id that doesn't belong to the
+  loaded Geo freezes the battle). `scene_data._RESKIN_RANGES` is the byte map; `reskin.py` resolves the donor.
+- **Two forms:** `model_scene = "<SCENE>"` (+ `model_type = N`) copies a named real battle scene's enemy (the
+  reliable form, "look like THAT enemy"); `model = "<GEO_MON_B3_* / numeric id>"` resolves a geo id and scans
+  the install for the first real enemy that uses it. (Friendly creature names are FIELD models, not battle
+  enemies — use a donor scene or a `GEO_MON_B3_*` id.) `--game` added to `battle-build` for non-standard installs.
+- **HONEST SCOPE — a BODY re-skin, not a full one** (adversarial review flagged it; ★ in-game test confirmed the
+  split): the transplanted Mot[6] drive the new model's OWN idle/damage/death, but the per-ATTACK animation is
+  bound by the untouched raw17 btlseq (keyed by Konran@78) — so the ATTACK plays the target's clip retargeted onto
+  the new mesh. Proven in-game: a Goblin re-skinned to the Fang IDLED as a quadruped Fang but Knifed / Goblin-Punched
+  with the Goblin's animation (clip load is by name, `AnimationFactory.cs:60`, so the cross-model attack retarget
+  never crashes). The build warns per slot; a full re-skin (donor raw17 attack binding + AA_DATA) is deferred.
+- Validated by a 4-lens adversarial review (verified the byte ranges partition cleanly model-vs-gameplay, the
+  Konran/MesCnt/Flags exclusions are correct, Radius@28 is live; caught + fixed: the attack-anim mis-scoping
+  [now warns], a broken friendly-name form [F0 field models ≠ B3 battle enemies; docs/errors corrected], raw
+  tracebacks on a missing install/UnityPy [now actionable `ReskinError`], a silent `model_type`-alone typo, and
+  the dead `--game` plumbing). 14 new tests incl. 2 install-gated real-donor golden transplants. Full suite green.
+
+### Changed — raw17 camera codec real-donor proven + the btlseq/sequence doc corrected (0.9.80)
+A test + docs pass (no behaviour change) closing two `docs/BATTLE_DESIGN.md` gaps surfaced by an analysis workflow.
+- **Camera codec golden round-trip on a REAL donor** (`test_battle_scene_codec.py::test_camera_codec_golden_roundtrip_real_donor`,
+  install-gated): `serialize_block(parse_block(raw17)) == raw17[camOffset:]` **and** `splice_block(raw17, …) == raw17`
+  on `EF_R007`. The opening-camera codec was previously synthetic-tested only; it is now proven lossless on actual
+  Square-Enix bytes (the camera-codec analog of the raw16 scene-codec golden). Resolves the §9 open question.
+- **Doc correction (the mischaracterization):** the raw17 `btlseq` attack-choreography body was labelled "cannot
+  author." Corrected — the *kit* lacks a sequence codec, but the *engine* permits **data authoring with no DLL**.
+  New **§2(h)** documents the engine-verified facts (a 10-agent analysis, 3 claims adversarially re-derived from
+  source): two channels (binary `btlseq.raw17` via `gSeqProg[]`; text `Data/SpecialEffects/<ef>/*.seq` via
+  `UnifiedBattleSequencer`, gated by `SFXRework`), both no-DLL whole-file overrides; the genuine gameplay levers
+  (hit-count = total damage via repeated `Calc`; effect-gating; text-only target-rescope + `gEventGlobal` writes);
+  what sequences CANNOT change (the damage math, bound from `AA_DATA`/`scriptId` before the sequence); and why
+  sequence authoring is **not** a custom-model stepping-stone (it references existing anim/model ids by name).
+
+### Added — `[[scene.enemy]] ai_entry` = an explicit AI-binding override -> a forked boss is now FULLY declarative (0.9.79)
+Closes the last gap: a complete forked boss from `battle.toml` alone, no hand-patches.
+- **`[[scene.enemy]] ai_entry = N`** overrides `rewrite_main_init`'s generic `1+type` AI binding (used by
+  `monster_count`). EF_R007 is an OFFSET-entry donor — its Main_Init `SWITCH(B_SYSVAR[31])` binds the Goblin
+  (type 0) to entry **2** (entry 1 is a different type's AI), so `monster_count` alone bound the WRONG, turn-less
+  AI (the Goblin stood idle). `ai_entry` pins the right entry (find it with `battle-ai <scene>`). Validated offline
+  (a bad/empty entry fails `validate` with a clear message, not just at build).
+- So the whole forked boss = `monster_count` (uniform spawn) + `[[scene.enemy]] type=… ai_entry=…` (the binding) +
+  `[[scene.ai_phase]]` (the HP phase). The previously-needed rotation **reseed drops out** — `ai_phase` overrides
+  the attack index, so the seed is moot. Proven on a clean EF_R007 fork: Main_Init binds entry 2 + the HP-phase
+  splices + lint-clean (the same behaviour as the hand-patched, in-game-proven build).
+- 4 new tests; full suite green.
+
+### Added — declarative enemy-AI authoring: `[[scene.ai_phase]]` / `[[scene.ai_insert]]` + `B_MEMBER` naming (0.9.78)
+Productizes the in-game-PROVEN HP-phase / branch-insert capability into `battle.toml` (was hand-spliced Python).
+- **`[[scene.ai_phase]]`** — a high-level "enrage below X% HP" surface: `entry`/`tag`/`stat` (hp/mp/at)/`below`
+  (unit fraction)/`then`/`else` (attack index below/above the threshold). Generates the exact `cur < max/N`
+  branch 56 shipping bosses use (the `_E`/`B_PICK`/`B_COUNT` extract idiom) and splices it before the function's
+  `Attack`; the attack-index variable is INFERRED from that `Attack`. **Proven byte-identical** to the hand-built
+  branch that was in-game proven (Goblin Knifes above half HP → Goblin Punch below). `then`/`else` are
+  range-checked against the scene attack count (the one fault the composed lint can't see).
+- **`[[scene.ai_insert]]`** — the general length-changing primitive made declarative: splice an assembled
+  fragment into a function at a locator (`before`/`after` = a command mnemonic, or `at` = a body offset), via
+  `eb.edit.insert_in_function`. Composed + linted in the build like `ai_function`/`ai_patch`.
+- **`B_MEMBER` naming** (`eb/_membertable.py`): the `btl_scrp.GetCharacterData` selector→field map (cur.hp=36,
+  max.hp=35, MP/ATB/status/defence/…). `disassemble_ai` now annotates `B_MEMBER(36)` as `# B_MEMBER 36=cur.hp`
+  (read), and the assembler accepts `B_MEMBER(cur.hp)` by name (write) — the `pretty_expr` round-trip stays raw.
+- Validated by a multi-lens adversarial review (caught + fixed: a boundary-blind jump-straddle guard that could
+  ship a corrupt-but-unlinted eb, a mid-instruction `at`, an append-at-end locator/splice contradiction, an
+  uncaught non-numeric `below`, a divisor overflow, an unchecked then/else). `eb.edit.insert_in_function`'s
+  straddle check is now boundary-correct (rejects genuine corruption, allows the "before X" target retarget).
+- 40 new tests; full suite 1361 green. **Branch/phase splice in-game proven; the declarative surface reproduces
+  it byte-for-byte.** Remaining gap: the Main_Init binding fix + seed reseed aren't yet declarative.
+
 ### Fixed — scalar-`zone` / string-iterable lint guards on `[[shop]]` / `[[jump]]` / `[[savepoint]]` (0.9.90)
 - The `validate()` paths for `[[shop]]`, `[[jump]]`, and `[[savepoint]]` called `len(zone)` on the raw value, so a
   scalar `zone = 5` raised an uncaught `TypeError` that aborted the whole lint with a traceback (instead of a clean
