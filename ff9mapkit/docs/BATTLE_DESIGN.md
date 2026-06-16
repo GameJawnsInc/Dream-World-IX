@@ -239,15 +239,31 @@ power/element/accuracy/status-set (bound from `AA_DATA`/`scriptId` *before* the 
 stats/defences, AP/EXP/gil rewards, whether the attack costs an ATB turn / how AI selects it, and the
 single-vs-multi *command* designation + reflect routing (`cmd.tar_id`).
 
-**Kit status:** the OPENING-CAMERA half of raw17 is a true codec (now real-donor proven, above); the SEQUENCE
-BODY is **sliced-verbatim, never parsed** → the kit cannot yet author choreography. The body's format does
-**not** share the camera block's self-describing offset structure (flat single-byte opcodes, per-opcode variable
-operand widths, separate `seqOffset`/`animList` tables, the `+4` body skew — `btlseq.cs:1165-1218`), so the
-camera codec's offset machinery is **not** reusable; only the high-level "rebuild offsets on emit" pattern
-transfers. On-ramp (mirrors the proven `.eb` read→patch→author path): read-only `battle-seq` disassembler
-(transcribe `gSeqProg` + the `AdvanceSeqCode` width table) → same-length in-place patch (retime a `Wait`, swap
-a camera/anim id) → lossless parse↔repack codec (gated on a real-donor golden) → net-new sequence (assembler +
-a coordinated raw16 `AA_DATA` + `.eb` AI-by-`sub_no` + raw17 edit — the deferred "highest cost" tail, §8).
+**Kit status (PROVEN 2026-06-16, kit 0.9.89):** BOTH halves of raw17 are now a true codec. The OPENING-CAMERA
+block (`camera_codec`, real-donor proven) and — new — the SEQUENCE BODY (`battle/seqcodec.py`). The body format
+is fully solved against `btlseq.cs` (the 34-entry `gSeqProg[]` delegate table @1223-1259 + the `AdvanceSeqCode`
+operand-width table @1165-1218 — the two width sources AGREE for all 34 opcodes, the engine's own built-in parity
+check) and a **562-scene / 3814-sequence corpus sweep**: a from-scratch disassembler walks 3814/3814 sequences to
+a terminator (`0x00` End / `0x18` FastEnd), 0 unknown opcodes, 0 camera-block overruns, and the codec round-trips
+`serialize(parse(b)) == b` **byte-exact on 562/562** real donors. Body layout: 8-byte header + `seqOffset[]`
+(`i16`)/`animList[]`(`i32`)/`seqBaseAnim[]`(`u8`) tables; `body_start = 8 + 3·seqCount + 4·animCount`; the **`+4`
+body skew** (a `seqOffset[i]` value is file-pos − 4); flat `[op][operands]` opcodes; some `seqOffset` slots ALIAS
+one shared body; padding is **NOT** a derivable alignment rule (0/1-byte gaps that can land odd; 5 scenes carry a
+4-byte trailing pad) → captured verbatim. Built on this on-ramp (mirrors the proven `.eb` read→patch→author path):
+- **read** — `battle-seq <scene>` disassembler (`seqdis.py`): each `sub_no` (== attack index) as named
+  instructions + resolved anim ids (`animList[seqBaseAnim[sub_no]+animCode]`); `--sites` lists patch targets.
+- **same-length patch** — `[[scene.seq_patch]]` (`seqpatch.py`): `at`/`old`-guarded/`new` in-place operand edits
+  (retime a `Wait`, swap an `Anim`/`SetCamera` id) — no offset repack, byte-accurate, applied to the forked raw17.
+- **lossless codec** — `seqcodec.py` `parse`/`serialize` (golden-proven), the model + offset-fixup foundation.
+- **net-new sequence** (DEFERRED, §8) — an instruction assembler + a coordinated raw16 `AA_DATA` + raw17
+  header/body + `.eb` AI-by-`sub_no` edit (the "highest cost" tail).
+
+DURABLE FACTS (corpus-verified, beyond the prior summary): **`seqCount ∈ {AtkCount, AtkCount+1}`** (NOT strictly
+`== AtkCount` — when `+1`, `seqOffset[AtkCount]` is a verbatim alias of `seqOffset[0]`, never independently
+triggerable); a body opcode byte of **34 (`0x22`) is a latent engine crash** (the guard is `> gSeqProg.Length`,
+so 34 indexes `gSeqProg[34]` out of bounds — the codec/lint reject it); opcode **`0x19` Sfx has a discarded byte
+at operand `+4`** (a real-but-ignored hole, not a patch site); Move opcodes have **no `Next` operand in the bytes**
+(it is hard-coded in the engine `Init`).
 
 ---
 

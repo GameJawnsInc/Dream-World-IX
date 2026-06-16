@@ -32,6 +32,7 @@ from . import fbx as _fbx
 from . import scene_codec as _scene_codec
 from . import scene_data as _scene_data
 from . import scenelint as _scenelint
+from . import seqpatch as _seqpatch
 
 _BBG_RE = re.compile(r"^BBG_[A-Z]\d+$")
 # Real shipping battle maps are BBG_B001..177; a NEW number (>= this) = a wholly custom map that needs
@@ -209,6 +210,11 @@ def validate_battle(project: BattleProject) -> list[str]:
                 # lint the FINAL composed bytecode -- EXACTLY what the per-lang build ships, so an ai_patch / ai_function
                 # / ai_phase / ai_insert that puts a jump / Attack index out of range (or a runaway branch) is caught.
                 problems += [f"[[scene.ai]] lint: {i}" for i in _ailint.lint_ai(composed, atk_count=atk)]
+            seq_patches = sc.get("seq_patch")            # same-length raw17 attack-sequence operand patches
+            raw17_f = sd / "btlseq.raw17.bytes"
+            if seq_patches and raw17_f.is_file():
+                problems += [f"[[scene.seq_patch]]: {p}"
+                             for p in _seqpatch.validate_patches(raw17_f.read_bytes(), seq_patches)]
     return problems
 
 
@@ -291,6 +297,12 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
                 yaw_deg=float(scene_cfg.get("camera_yaw", 0)),
                 pitch_deg=float(scene_cfg.get("camera_pitch", 0)),
                 zoom=float(scene_cfg.get("camera_zoom", 1.0)))
+        if scene_cfg and scene_cfg.get("seq_patch"):            # same-length attack-sequence operand patches
+            try:                                                # (retime/swap an anim/camera id in the choreography)
+                raw17, sp_warns = _seqpatch.apply_seq_patches(raw17, scene_cfg["seq_patch"])
+            except _seqpatch.SeqPatchError as ex:
+                raise BattleBuildError(f"[[scene.seq_patch]]: {ex}")
+            warnings += sp_warns
         (scene_out / f"{sid}.raw17.bytes").write_bytes(raw17)
         written += [scene_out / "dbfile0000.raw16.bytes", scene_out / f"{sid}.raw17.bytes"]
 

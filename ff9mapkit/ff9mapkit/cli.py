@@ -1090,6 +1090,21 @@ def _cmd_battle_ai(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_battle_seq(args: argparse.Namespace) -> int:
+    """Disassemble a battle scene's attack SEQUENCES (btlseq.raw17) -- the read-only 'see the choreography'
+    view: each sub_no (attack index) as named instructions with resolved anim ids. With ``--sites`` lists the
+    patchable operands (offset/value) for ``[[scene.seq_patch]]`` instead of the disassembly."""
+    _safe_console()
+    from .battle import seqdis as SD
+    try:
+        print(SD.scene_seq_sites(args.donor, game=args.game) if args.sites
+              else SD.analyze_scene_seq(args.donor, game=args.game))
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return 0
+
+
 def _cmd_ability_gems(args: argparse.Namespace) -> int:
     """List the support abilities + their gem COSTS (AbilityGems.csv, read-live) -- the ``[[ability_gem]]``
     targets. Re-costing a support ability is the build-economy balance lever."""
@@ -2401,6 +2416,14 @@ def build_parser() -> argparse.ArgumentParser:
                      help="lint the scene's enemy AI offline (decode / jump bounds / reachable RET / Attack-index "
                           "range); exit 1 if any issue is found")
     bai.set_defaults(func=_cmd_battle_ai)
+
+    bsq = sub.add_parser("battle-seq",
+                         help="disassemble a battle scene's attack sequences (btlseq.raw17) -- read-only")
+    bsq.add_argument("donor", help="battle scene name, e.g. EF_R007 (see `battle-list --scenes`)")
+    bsq.add_argument("--sites", action="store_true",
+                     help="list patchable sequence operands (offset/value) for [[scene.seq_patch]] instead of the "
+                          "disasm")
+    bsq.set_defaults(func=_cmd_battle_seq)
 
     ch = sub.add_parser("characters",
                         help="list the playable characters' base stats (the [[character]] / [[leveling]] targets)")
