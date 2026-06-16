@@ -78,6 +78,23 @@ def test_normalize_merges_scene_positions_by_name():
     assert len(gw["zone"]) == 4
 
 
+def test_markers_to_field_cfg_feeds_normalize():
+    # the Blender add-on's collected markers -> field_cfg -> normalize, same path as the CLI
+    cfg = paint.markers_to_field_cfg(
+        npcs=[{"pos": (10, 20), "preset": "moogle", "name": "Kupo"}],
+        gateways=[{"to": 100, "zone": [(0, 0), (1, 0), (1, 1), (0, 1)]}],
+        events=[{"zone": [(2, 2), (3, 2), (3, 3), (2, 3)], "name": "ev"}],
+        camzones=[{"to_camera": 1, "zone": [(0, 0), (1, 0), (1, 1), (0, 1)]}],
+        waypoints=[{"pos": (5, 5), "name": "wp"}], spawn=(7, 8))
+    assert cfg["player"]["spawn"] == [7, 8]
+    items = paint.normalize_content(cfg)
+    assert {i["type"] for i in items} == {"npc", "gateway", "event", "camzone", "waypoint", "spawn"}
+    moog = next(i for i in items if i["type"] == "npc")
+    assert moog["subtype"] == "moogle" and paint.resolve_height(moog) == 440
+    # no spawn -> no player block
+    assert "player" not in paint.markers_to_field_cfg(npcs=[], spawn=None)
+
+
 def test_normalize_skips_positionless_entries():
     # an NPC with neither inline pos nor a scene twin is dropped (nothing to project)
     items = paint.normalize_content({"npc": [{"name": "ghost", "preset": "vivi"}]})

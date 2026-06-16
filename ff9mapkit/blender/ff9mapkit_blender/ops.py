@@ -17,7 +17,7 @@ import bpy
 from mathutils import Matrix
 
 from . import bridge
-from .vendor import bgx, cam, guide
+from .vendor import bgx, cam, guide, paint
 
 CAMERA_NAME = "FF9_Camera"
 WALKMESH_NAME = "FF9_Walkmesh"
@@ -105,10 +105,11 @@ class FF9MKProps(bpy.types.PropertyGroup):
     layers: bpy.props.CollectionProperty(type=FF9MKLayer)
     layers_index: bpy.props.IntProperty(default=0)
     template_layers: bpy.props.BoolProperty(
-        name="Export as layers", default=False,
-        description="Write the paint template as SEPARATE per-layer PNGs (grid / outline / height) + "
-                    "a manifest.json instead of one combined PNG, so you can toggle each guide in "
-                    "your paint app")
+        name="Export as layers (+ content)", default=False,
+        description="Write the paint template as SEPARATE per-layer PNGs (floor grid / outline / height) "
+                    "PLUS one PNG per placed content type (NPCs/gateways/events/camera-zones/waypoints/"
+                    "spawn) with height poles + a legend.json, and a manifest.json -- instead of one "
+                    "combined floor-only PNG. Toggle each layer in your paint app.")
     # --- battle map (3D BBG geometry) ---
     bbg_name: bpy.props.StringProperty(name="BBG", default="",
                                        description="The battle-background slot (e.g. BBG_B209)")
@@ -715,31 +716,22 @@ def _save_template_image(name, W, H, buf, path):
     img.save()
 
 
-def _write_template_layers(out, base, t):
-    """Write per-layer paint-template PNGs (grid / outline / height) + a <base>.manifest.json into
-    ``out``, mirroring guide.render_paint_template_layers (same layer set, order, opacity). Returns
-    the number of layer PNGs written."""
-    entries = []
-    W = H = 0
-    for layer, opacity, desc in guide.PAINT_TEMPLATE_LAYERS:
-        buf, W, H = _rasterize_paint_template(t, scale=4, only=layer)
-        fn = f"{base}_{layer}.png"
-        _save_template_image(f"FF9_PT_{base}_{layer}", W, H, buf, os.path.join(out, fn))
-        entries.append({"file": fn, "type": layer, "opacity": opacity, "blend": "normal",
-                        "description": desc})
-    man = {"version": 1, "canvas_size": [W, H], "scale": 4, "layers": entries}
-    with open(os.path.join(out, f"{base}.manifest.json"), "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(man, fh, indent=2)
-        fh.write("\n")
-    return len(entries)
+def _collect_content_items(context):
+    """The scene's content markers -> a normalized item list for paint.project_content, via the same
+    field.toml-driven path the CLI uses. Covers the 6 marker kinds the add-on can place (NPC / gateway
+    / event / camera-zone / waypoint / spawn); props/ladders/jumps/save points live only in field.toml."""
+    npcs, gateways, spawn, events = _collect_markers(context)
+    field_cfg = paint.markers_to_field_cfg(npcs, gateways, events,
+                                           _collect_camzones(context), _collect_waypoints(context), spawn)
+    return paint.normalize_content(field_cfg)
 
 
 class FF9MK_OT_paint_template(bpy.types.Operator):
     bl_idname = "ff9mk.paint_template"
     bl_label = "Export Paint Template"
-    bl_description = ("Write a transparent trace-over paint template (floor outline + perspective grid "
-                      "+ vertical height guides, 4x scale, full canvas) for each camera; paint your room "
-                      "on layers UNDER it")
+    bl_description = ("Write a transparent trace-over paint template (floor grid + outline + vertical "
+                      "height guides, 4x scale, full canvas) for each camera; 'Export as layers' also "
+                      "projects placed content (NPCs/gateways/events/...) + a legend. Paint UNDER it.")
 
     def execute(self, context):
         p = context.scene.ff9mapkit
@@ -756,25 +748,28 @@ class FF9MK_OT_paint_template(bpy.types.Operator):
         except OSError as e:
             self.report({"ERROR"}, f"can't write template: {e.strerror}. Save the .blend or set 'Export to'.")
             return {"CANCELLED"}
+        items = _collect_content_items(context) if p.template_layers else []
         written, errors = [], []
         for cam_obj in cam_objs:
             idx = int(cam_obj[CAM_KEY]) if CAM_KEY in cam_obj else 0
             c = _camera_obj_to_ff9(context, cam_obj)
-            try:
-                t = bridge.paint_template_lines(c, p.back_y, p.front_y, scale=4)
-            except ValueError as e:
-                errors.append(f"cam{idx}: {e}")
-                continue
             base = f"paint_template_cam{idx:02d}" if multi else "paint_template"
             try:
                 if p.template_layers:
-                    n = _write_template_layers(out, base, t)
-                    written.append((idx, n, os.path.join(out, f"{base}.manifest.json")))
+                    # floor layers + per-type content PNGs + legend + manifest, via the shared stdlib
+                    # path (same output as the `ff9mapkit paint-template` CLI; covers every camera).
+                    frame = bridge._floor_frame(c, p.back_y, p.front_y)
+                    files = paint.render_full_template(c, frame, items, out, basename=base)
+                    written.append((idx, len(files), os.path.join(out, f"{base}.manifest.json")))
                 else:
+                    t = bridge.paint_template_lines(c, p.back_y, p.front_y, scale=4)
                     buf, W, H = _rasterize_paint_template(t, scale=4)
                     path = os.path.join(out, f"{base}.png")
                     _save_template_image(f"FF9_PT_{base}", W, H, buf, path)
                     written.append((idx, (W, H), path))
+            except ValueError as e:                            # floor row above the horizon, etc.
+                errors.append(f"cam{idx}: {e}")
+                continue
             except OSError as e:
                 errors.append(f"cam{idx}: {e.strerror}")
                 continue
@@ -782,10 +777,9 @@ class FF9MK_OT_paint_template(bpy.types.Operator):
             self.report({"ERROR"}, "no template written: " + "; ".join(errors))
             return {"CANCELLED"}
         if p.template_layers:
-            n_layers = len(guide.PAINT_TEMPLATE_LAYERS)
             scope = f"{len(written)} cameras x " if multi else ""
-            msg = (f"paint template: {scope}{n_layers} layer PNGs + manifest -> {out}; "
-                   "load the manifest.json in your paint app")
+            msg = (f"paint template: {scope}floor + content layers + legend + manifest -> {out}; "
+                   "load the manifest.json in your paint app, the legend.json for names/heights")
         elif multi:
             msg = (f"{len(written)} paint templates (one per camera) -> {out}; "
                    "paint each camera's room on layers UNDER its template")

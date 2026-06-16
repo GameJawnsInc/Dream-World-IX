@@ -21,7 +21,7 @@ PKG = HERE / "ff9mapkit_blender"
 VENDOR = PKG / "vendor"
 KIT = HERE.parent / "ff9mapkit"                     # .../ff9mapkit/ff9mapkit
 SCENE = KIT / "scene"
-VENDORED = ("cam.py", "bgi.py", "bgx.py", "guide.py")   # guide imports PIL only lazily (render only)
+VENDORED = ("cam.py", "bgi.py", "bgx.py", "guide.py", "placeholder.py", "paint.py")   # paint/placeholder = the content paint-template projector + stdlib rasterizer
 # extra vendored modules from elsewhere in the kit, as (source_path, vendor_filename) pairs:
 VENDORED_EXTRA = ((KIT / "battle" / "fbx.py", "battle_fbx.py"),)   # battle-map FBX emit/parse (pure)
 VERSION = "0.9.12"
