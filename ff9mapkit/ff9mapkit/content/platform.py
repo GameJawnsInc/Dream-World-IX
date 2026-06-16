@@ -32,6 +32,7 @@ import struct
 
 from ..eb import EbScript, edit, opcodes
 from . import region as _region
+from . import cutscene as _cutscene
 from .ladder import _Asm, _arg, _const, _selfv, _stmt, F_Y, LADDER_FLAG, find_player_entry, square_zone
 
 PLAYER_UID = 250          # the controlled player's runtime UID (standard across FF9 fields)
@@ -234,3 +235,60 @@ def inject_platform(data, zone, *, rise: int | None = None, land=None, speed: in
     if activate:
         data = edit.activate(data, opcodes.init_region(slot, 0))
     return data, slot
+
+
+def entry_rise_body(*, rise: int, duration: int = DEFAULT_DURATION, animation: int | None = None) -> bytes:
+    """The ON-ARRIVAL elevator rise (the real 2713 mechanism): the player spawns at the TOP (his entrance
+    = the let-off floor); this drops him ``rise`` world-units to the bottom UNDER the black entry fade,
+    then rides him back UP to the spawn floor and lands. Because the ride ENDS exactly on the spawn floor
+    (a real floor), ``SetPathing(1)`` re-attaches cleanly -- no snap-down. Runs in the player's context."""
+    rise = abs(int(rise))
+    if rise == 0:
+        raise ValueError("entry_rise_body: rise must be non-zero (the elevator's travel height)")
+    duration = max(1, int(duration))
+    smag = max(1, math.ceil(rise / duration))         # per-frame UP step (selfY decreases)
+
+    def selfx(): return _selfv(0)
+    def selfz(): return _selfv(2)
+    def selfy(): return _selfv(F_Y)
+
+    a = _Asm()
+    a.raw(opcodes.add_character_attribute(LADDER_FLAG) + opcodes.set_pathing(0))   # detach; don't floor-snap
+    if animation is not None:
+        a.raw(opcodes.run_animation(int(animation)))
+    a.raw(_stmt(_scratch_start(), selfy(), bytes([_region.T_ASSIGN])))             # capture the TOP (spawn) selfY
+    # drop to the bottom: selfY = top + rise (more selfY = lower); hidden under the entry fade
+    a.raw(opcodes.encode(0xA1, _arg(selfx()),
+                         _arg(_scratch_start(), _const(rise), bytes([_region.T_PLUS])),
+                         _arg(selfz()), arg_flags=0b111))
+    a.label("LOOP")
+    a.raw(opcodes.encode(0xA1, _arg(selfx()),
+                         _arg(selfy(), _const(smag), bytes([_region.T_MINUS])),    # rise UP one notch
+                         _arg(selfz()), arg_flags=0b111))
+    a.raw(opcodes.wait(1))
+    a.raw(_stmt(selfy(), _scratch_start(), bytes([_region.T_GT])))                 # still below the top?
+    a.jmp(_region.JMP_TRUE, "LOOP")
+    a.raw(opcodes.encode(0xA1, _arg(selfx()), _arg(_scratch_start()), _arg(selfz()), arg_flags=0b111))  # exact top
+    a.raw(opcodes.remove_character_attribute(LADDER_FLAG) + opcodes.set_pathing(1))  # land on the spawn floor
+    a.raw(opcodes.RETURN)
+    return a.assemble()
+
+
+def inject_entry_rise(data, *, rise: int, ride_tag: int = FIRST_PLATFORM_TAG,
+                      duration: int = DEFAULT_DURATION, animation: int | None = None,
+                      player_uid: int = PLAYER_UID):
+    """Graft the on-arrival rise (:func:`entry_rise_body`) onto the player and arm an ``InitCode`` that
+    fires it at field load -- so the elevator plays AUTOMATICALLY when you warp into the field (no press,
+    no zone), under the entry fade. The trigger waits out Main_Init's own ``EnableMove``, re-locks, runs
+    the rise synchronously, then hands control back at the top. Returns new ``.eb`` bytes."""
+    out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
+    pe = find_player_entry(EbScript.from_bytes(out))
+    out = edit.add_function(out, pe, ride_tag, entry_rise_body(rise=rise, duration=duration, animation=animation))
+    trig = (opcodes.wait(_cutscene.REORDER_WAIT) + opcodes.DISABLE_MOVE
+            + opcodes.run_script_sync(RUNSCRIPT_LEVEL, player_uid, ride_tag)
+            + opcodes.ENABLE_MOVE + opcodes.RETURN)
+    entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + trig
+    slot = EbScript.from_bytes(out).first_free_slot()
+    out = edit.append_entry(out, slot, entry)
+    out = edit.activate(out, opcodes.init_code(slot, 0))
+    return out

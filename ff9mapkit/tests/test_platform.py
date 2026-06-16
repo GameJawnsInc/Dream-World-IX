@@ -84,6 +84,31 @@ def test_inject_land_platform_lints_clean():
     assert _new_errors(eb) == []
 
 
+# --- entry mode: the on-arrival rise (drop to the bottom under the fade, ride up to the spawn floor) ----
+def test_entry_rise_body_drops_then_rises():
+    body = _platform.entry_rise_body(rise=1200, duration=48)
+    ops = _ops(body)
+    # 3 MoveInstantXZY: drop-to-bottom, per-frame rise, exact top snap
+    assert ops.count(0xA1) == 3
+    assert 0x22 in ops and 0x03 in ops              # Wait + the rise loop back-edge
+    assert 0xA8 in ops                              # SetPathing (detach at start, re-attach on landing)
+    assert ops[-1] == 0x04                          # RETURN
+    import pytest
+    with pytest.raises(ValueError):
+        _platform.entry_rise_body(rise=0)           # a zero shaft never moves
+
+
+def test_inject_entry_rise_arms_on_load():
+    eb = _platform.inject_entry_rise(CLEAN, rise=1200)
+    parsed = EbScript.from_bytes(eb)
+    pe = find_player_entry(parsed)
+    assert parsed.entry(pe).func_by_tag(_platform.FIRST_PLATFORM_TAG) is not None   # rise grafted on the player
+    # an InitCode now arms a trigger entry in Main_Init (so the rise fires at field load)
+    main = parsed.entry(0)
+    assert any(i.op == 0x09 for i in parsed.instrs(main.func_by_tag(0)))            # 0x09 = InitCode
+    assert _new_errors(eb) == []
+
+
 def test_warp_tail_emits_field_transition():
     plain = _platform.carry_body(rise=200)
     elevator = _platform.carry_body(rise=200, warp_to=2714, warp_entrance=1)

@@ -838,16 +838,21 @@ def validate(project: FieldProject) -> list[str]:
         if trig not in ("action", "tread"):
             problems.append(f'[[jump]] trigger must be "action" (press) or "tread" (auto), got {trig!r}')
     for pf in project.raw.get("platform", []):          # carry platforms (Pandemonium-elevator ride)
-        z = pf.get("zone", [])
-        if not isinstance(z, (list, tuple)) or len(z) not in (3, 4, 5):   # a scalar zone would len()-crash the lint
-            problems.append(f"[[platform]] zone must have 3-5 points (the boarding trigger), got {_zone_desc(z)}")
+        entry_mode = bool(pf.get("entry"))              # entry=true: on-arrival rise (no zone, just rise)
         land = pf.get("land")
         rise = pf.get("rise")
-        if land is not None:
-            if not (isinstance(land, (list, tuple)) and len(land) in (2, 3)):
-                problems.append(f"[[platform]] land must be [x, z] or [x, z, y] (the landing floor), got {land!r}")
-        elif not (isinstance(rise, int) and rise != 0):
-            problems.append(f"[[platform]] needs land = [x, z, y] (ride to a floor) OR rise = <units> (nonzero), got rise={rise!r}")
+        if entry_mode:
+            if not (isinstance(rise, int) and rise != 0):
+                problems.append(f"[[platform]] entry = true needs rise = <units> (the elevator's travel height, nonzero), got rise={rise!r}")
+        else:
+            z = pf.get("zone", [])
+            if not isinstance(z, (list, tuple)) or len(z) not in (3, 4, 5):   # a scalar zone would len()-crash the lint
+                problems.append(f"[[platform]] zone must have 3-5 points (the boarding trigger), got {_zone_desc(z)}")
+            if land is not None:
+                if not (isinstance(land, (list, tuple)) and len(land) in (2, 3)):
+                    problems.append(f"[[platform]] land must be [x, z] or [x, z, y] (the landing floor), got {land!r}")
+            elif not (isinstance(rise, int) and rise != 0):
+                problems.append(f"[[platform]] needs land = [x, z, y] (ride to a floor) OR rise = <units> (nonzero), got rise={rise!r}")
         dur = pf.get("duration", _platform.DEFAULT_DURATION)
         if not (isinstance(dur, int) and dur > 0):
             problems.append(f"[[platform]] duration must be a positive integer (ride frames), got {dur!r}")
@@ -2902,6 +2907,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if platforms:
         ptag = _platform.FIRST_PLATFORM_TAG
         for pf in platforms:
+            if pf.get("entry"):                       # ON-ARRIVAL rise: plays at field load, no zone/press
+                eb = _platform.inject_entry_rise(
+                    eb, rise=int(pf["rise"]), ride_tag=ptag,
+                    duration=int(pf.get("duration", _platform.DEFAULT_DURATION)),
+                    animation=pf.get("animation"))
+                ptag += 1
+                continue
             pz = pf["zone"]
             if len(pz) == 4:
                 pz = _gw.quad_zone(pz)
