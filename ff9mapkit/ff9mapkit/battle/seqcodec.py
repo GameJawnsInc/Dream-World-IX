@@ -255,3 +255,44 @@ def serialize(model: Raw17) -> bytes:
     out += model.final_pad
     out += model.camera_block
     return bytes(out)
+
+
+_I16_MAX = (1 << 15) - 1
+
+
+def serialize_repacked(model: Raw17) -> bytes:
+    """Re-serialize with bodies RE-LAID contiguously + every offset recomputed -- the LENGTH-CHANGING path (used
+    after a body replace/insert, when ``serialize``'s preserve-exact-layout invariant no longer holds).
+
+    Only TWO things in the file reference positions: ``camOffset`` (@2) and ``seqOffset[]``. So the repack lays each
+    distinct body back-to-back from ``body_start`` (in model order), sets ``seqOffset[i] = new_body_start − 4`` (the
+    +4 skew; aliases inherit; the 0 sentinel stays 0), sets ``camOffset = align_up(last_body_end, 4)``, and
+    re-appends the camera block VERBATIM (its internal offsets are camOffset-relative, so it floats intact). The
+    result is NOT byte-identical to a donor (different padding) but is functionally equivalent + re-parses to the
+    same logical sequences. Both i16 offsets are range-checked."""
+    body_start = model.body_start
+    new_off_for = {}                                  # old seqOffset value -> new seqOffset value (file-pos - 4)
+    body_bytes = bytearray()
+    for b in model.bodies:
+        new_off_for[b.offset] = (body_start + len(body_bytes)) - 4
+        for ins in b.instrs:
+            body_bytes += emit_instr(ins)
+    last_end = body_start + len(body_bytes)
+    new_cam_offset = (last_end + 3) & ~3              # 4-align (SE convention; not strictly required by the engine)
+    if new_cam_offset > _I16_MAX:
+        raise SeqCodecError(f"repacked camOffset {new_cam_offset} exceeds Int16 ({_I16_MAX}) -- bodies too large")
+    new_seq_offset = [0 if o == 0 else new_off_for[o] for o in model.seq_offset]
+    for sub, o in enumerate(new_seq_offset):
+        if not 0 <= o <= _I16_MAX:
+            raise SeqCodecError(f"repacked seqOffset[{sub}] = {o} exceeds Int16 range -- sequence body too far")
+    out = bytearray()
+    out += struct.pack("<hhhh", model.seq_block_offset, new_cam_offset, model.seq_count, model.anim_count)
+    out += struct.pack(f"<{model.seq_count}h", *new_seq_offset)
+    out += struct.pack(f"<{model.anim_count}i", *model.anim_list)
+    out += bytes(model.seq_base_anim)
+    if len(out) != body_start:
+        raise SeqCodecError("repacked header length mismatch (internal)")
+    out += body_bytes
+    out += b"\x00" * (new_cam_offset - last_end)      # zero pad to the 4-aligned camOffset
+    out += model.camera_block
+    return bytes(out)

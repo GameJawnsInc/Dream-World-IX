@@ -11,7 +11,7 @@ import struct
 
 import pytest
 
-from ff9mapkit.battle import seqcodec, seqdis, seqpatch
+from ff9mapkit.battle import seqcodec, seqdis, seqpatch, seqasm, seqauthor
 
 
 # ----------------------------------------------------------------- a hand-built raw17
@@ -183,6 +183,72 @@ def test_pad_byte_not_a_site():
     assert {"sfx", "frames", "param"} <= kinds                        # the real Sfx operands ARE sites
 
 
+# ----------------------------------------------------------------- net-new authoring: repack + assembler + author
+def test_repack_preserves_sequences_and_camera():
+    raw = _synthetic()
+    m = seqcodec.parse(raw)
+    r = seqcodec.serialize_repacked(m)
+    m2 = seqcodec.parse(r)
+    assert m2.camera_block == m.camera_block
+    for s in range(m.seq_count):
+        b1, b2 = m.body_for(s), m2.body_for(s)
+        assert [(i.op, tuple(i.operands)) for i in b1.instrs] == [(i.op, tuple(i.operands)) for i in b2.instrs]
+    assert m2.cam_offset % 4 == 0
+
+
+def test_assembler_inverse_and_self_verify():
+    src = "WaitAnim\nAnim(anim_code=2)\nMoveToTarget(frames=6, distance=-1300)\nEnd"
+    instrs = seqasm.assemble(src)
+    assert [i.name for i in instrs] == ["WaitAnim", "Anim", "MoveToTarget", "End"]
+    # to_source <-> assemble is the exact inverse (the library invariant)
+    assert [(i.op, tuple(i.operands)) for i in seqasm.assemble(seqasm.to_source(instrs))] == \
+           [(i.op, tuple(i.operands)) for i in instrs]
+    # a [offset] prefix + a trailing # comment paste back in
+    assert seqasm.assemble_instr_text("[94] Anim(anim_code=2)  # note").operands == [2]
+
+
+def test_assembler_validation():
+    with pytest.raises(seqasm.SeqAsmError):                      # unknown opcode
+        seqasm.assemble("Nope; End")
+    with pytest.raises(seqasm.SeqAsmError):                      # unknown operand
+        seqasm.assemble("Wait(framez=5); End")
+    with pytest.raises(seqasm.SeqAsmError):                      # out of u8 range
+        seqasm.assemble("Wait(frames=300); End")
+    with pytest.raises(seqasm.SeqAsmError):                      # no terminator
+        seqasm.assemble("Wait(frames=5)")
+    with pytest.raises(seqasm.SeqAsmError):                      # mid-stream terminator
+        seqasm.assemble("End; Wait(frames=5); End")
+    with pytest.raises(seqasm.SeqAsmError):                      # a fragment must NOT have a terminator
+        seqasm.assemble_fragment("Wait(frames=5); End")
+    assert seqasm.assemble_instr_text("MoveToTarget(frames=6, distance=-1300)").operands == [6, -1300]  # signed OK
+
+
+def test_author_replace_and_insert():
+    raw = _synthetic()
+    # REPLACE sub 0 with a re-authored body (length-changing); the other sequence + structure survive the repack
+    out, warns = seqauthor.replace_sequence(raw, 0, "WaitAnim\nAnim(anim_code=1)\nCalc\nWait(frames=20)\nEnd")
+    m = seqcodec.parse(out)
+    assert [i.name for i in m.body_for(0).instrs] == ["WaitAnim", "Anim", "Calc", "Wait", "End"]
+    assert [i.name for i in m.body_for(1).instrs] == ["Calc", "FastEnd"]      # sub 1 intact
+    assert m.camera_block == seqcodec.parse(raw).camera_block
+    # INSERT a fragment before an opcode-name locator
+    out2, _ = seqauthor.insert_sequence(raw, 0, "Wait(frames=99)", before="Wait")
+    m2 = seqcodec.parse(out2)
+    names = [i.name for i in m2.body_for(0).instrs]
+    assert names.count("Wait") == 2 and names[-1] == "End"
+
+
+def test_author_lint_catches_bad_anim():
+    # an Anim code that resolves past animList is the one semantic crash class -- lint/replace must reject it
+    raw = _synthetic()                                          # animCount = 2, seqBaseAnim[0] = 0
+    with pytest.raises(seqauthor.SeqAuthorError):
+        seqauthor.replace_sequence(raw, 0, "Anim(anim_code=50)\nEnd")
+    with pytest.raises(seqauthor.SeqAuthorError):               # bad locator
+        seqauthor.insert_sequence(raw, 0, "Wait(frames=5)", before="DoesNotExist")
+    with pytest.raises(seqauthor.SeqAuthorError):               # both before and after
+        seqauthor.insert_sequence(raw, 0, "Wait(frames=5)", before=0, after=1)
+
+
 # ----------------------------------------------------------------- install-gated golden round-trip
 def _can_read_donor() -> bool:
     try:
@@ -212,3 +278,39 @@ def test_seq_golden_roundtrip_real_donor(donor):
     assert sites
     same, _ = seqpatch.apply_seq_patches(raw17, [{"at": s.offset, "old": s.value, "new": s.value} for s in sites])
     assert same == raw17
+
+
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+@pytest.mark.parametrize("donor", ["EF_R007"])
+def test_author_on_real_donor_preserves_rest(donor):
+    """A length-changing replace/insert on a real raw17 repacks the WHOLE file -- so the other sequences AND the
+    camera block must survive intact (the strongest proof the offset-fixup is correct)."""
+    from ff9mapkit.battle import extract
+    try:
+        raw17 = extract.read_scene_assets(donor)["raw17"]
+    except (ValueError, KeyError, FileNotFoundError) as ex:
+        pytest.skip(f"donor {donor} not readable: {ex}")
+    m = seqcodec.parse(raw17)
+    # round-trip: replace sub 0 with its OWN canonical source -> identical sequences (assemble + repack are exact)
+    src0 = seqasm.to_source(m.body_for(0).instrs)
+    rt, _ = seqauthor.replace_sequence(raw17, 0, src0)
+    m_rt = seqcodec.parse(rt)
+    for s in range(m.seq_count):
+        b1 = m.body_for(s)
+        if b1 is None:
+            continue
+        assert [(i.op, tuple(i.operands)) for i in b1.instrs] == \
+               [(i.op, tuple(i.operands)) for i in m_rt.body_for(s).instrs]
+    assert m_rt.camera_block == m.camera_block
+    # author: insert a long Wait before the lunge -> sub 0 grows, all OTHER sequences + the camera stay byte-equal
+    out, _ = seqauthor.insert_sequence(raw17, 0, "Wait(frames=120)", before="MoveToTarget")
+    m2 = seqcodec.parse(out)
+    assert seqauthor.lint_seq(out) == []
+    for s in range(1, m.seq_count):
+        b1 = m.body_for(s)
+        if b1 is None:
+            continue
+        assert [(i.op, tuple(i.operands)) for i in b1.instrs] == \
+               [(i.op, tuple(i.operands)) for i in m2.body_for(s).instrs]
+    assert m2.camera_block == m.camera_block
+    assert [i.name for i in m2.body_for(0).instrs].count("Wait") == 1

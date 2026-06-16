@@ -32,6 +32,7 @@ from . import fbx as _fbx
 from . import scene_codec as _scene_codec
 from . import scene_data as _scene_data
 from . import scenelint as _scenelint
+from . import seqauthor as _seqauthor
 from . import seqpatch as _seqpatch
 
 _BBG_RE = re.compile(r"^BBG_[A-Z]\d+$")
@@ -210,11 +211,24 @@ def validate_battle(project: BattleProject) -> list[str]:
                 # lint the FINAL composed bytecode -- EXACTLY what the per-lang build ships, so an ai_patch / ai_function
                 # / ai_phase / ai_insert that puts a jump / Attack index out of range (or a runaway branch) is caught.
                 problems += [f"[[scene.ai]] lint: {i}" for i in _ailint.lint_ai(composed, atk_count=atk)]
-            seq_patches = sc.get("seq_patch")            # same-length raw17 attack-sequence operand patches
+            seq_patches, seq_replaces, seq_inserts = sc.get("seq_patch"), sc.get("seq_replace"), sc.get("seq_insert")
             raw17_f = sd / "btlseq.raw17.bytes"
-            if seq_patches and raw17_f.is_file():
-                problems += [f"[[scene.seq_patch]]: {p}"
-                             for p in _seqpatch.validate_patches(raw17_f.read_bytes(), seq_patches)]
+            if (seq_patches or seq_replaces or seq_inserts) and raw17_f.is_file():
+                r17 = raw17_f.read_bytes()               # compose in the SAME order the build applies (patch first,
+                if seq_patches:                          # then length-changing replace, then insert) so later
+                    problems += [f"[[scene.seq_patch]]: {p}" for p in _seqpatch.validate_patches(r17, seq_patches)]
+                    try:                                 # validations see the post-step raw17
+                        r17, _ = _seqpatch.apply_seq_patches(r17, seq_patches)
+                    except _seqpatch.SeqPatchError:      # the error is already reported by validate_patches
+                        pass
+                if seq_replaces:
+                    problems += [f"[[scene.seq_replace]]: {p}" for p in _seqauthor.validate_replaces(r17, seq_replaces)]
+                    try:
+                        r17, _ = _seqauthor.apply_seq_replaces(r17, seq_replaces)
+                    except _seqauthor.SeqAuthorError:
+                        pass
+                if seq_inserts:
+                    problems += [f"[[scene.seq_insert]]: {p}" for p in _seqauthor.validate_inserts(r17, seq_inserts)]
     return problems
 
 
@@ -297,12 +311,24 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
                 yaw_deg=float(scene_cfg.get("camera_yaw", 0)),
                 pitch_deg=float(scene_cfg.get("camera_pitch", 0)),
                 zoom=float(scene_cfg.get("camera_zoom", 1.0)))
-        if scene_cfg and scene_cfg.get("seq_patch"):            # same-length attack-sequence operand patches
-            try:                                                # (retime/swap an anim/camera id in the choreography)
+        if scene_cfg and scene_cfg.get("seq_patch"):            # same-length attack-sequence operand patches FIRST
+            try:                                                # (its offsets are into the un-repacked body region)
                 raw17, sp_warns = _seqpatch.apply_seq_patches(raw17, scene_cfg["seq_patch"])
             except _seqpatch.SeqPatchError as ex:
                 raise BattleBuildError(f"[[scene.seq_patch]]: {ex}")
             warnings += sp_warns
+        if scene_cfg and scene_cfg.get("seq_replace"):          # length-changing: replace a whole sequence body
+            try:                                                # (repacks -> every seqOffset/camOffset recomputed)
+                raw17, sr_warns = _seqauthor.apply_seq_replaces(raw17, scene_cfg["seq_replace"])
+            except _seqauthor.SeqAuthorError as ex:
+                raise BattleBuildError(f"[[scene.seq_replace]]: {ex}")
+            warnings += sr_warns
+        if scene_cfg and scene_cfg.get("seq_insert"):           # length-changing: splice a fragment into a sequence
+            try:
+                raw17, si_warns = _seqauthor.apply_seq_inserts(raw17, scene_cfg["seq_insert"])
+            except _seqauthor.SeqAuthorError as ex:
+                raise BattleBuildError(f"[[scene.seq_insert]]: {ex}")
+            warnings += si_warns
         (scene_out / f"{sid}.raw17.bytes").write_bytes(raw17)
         written += [scene_out / "dbfile0000.raw16.bytes", scene_out / f"{sid}.raw17.bytes"]
 

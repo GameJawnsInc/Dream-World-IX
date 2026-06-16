@@ -1096,6 +1096,36 @@ def _cmd_battle_seq(args: argparse.Namespace) -> int:
     patchable operands (offset/value) for ``[[scene.seq_patch]]`` instead of the disassembly."""
     _safe_console()
     from .battle import seqdis as SD
+    if args.asm is not None:                            # assemble a sequence source -> bytes + a re-disasm proof
+        from .battle import seqasm
+        try:
+            instrs = seqasm.assemble(args.asm)
+        except seqasm.SeqAsmError as e:
+            print(f"assemble error: {e}", file=sys.stderr)
+            return 2
+        b = seqasm.assemble_bytes(instrs)
+        print(f"bytes ({len(b)}): {b.hex(' ')}")
+        for ins in instrs:                              # the re-disassembly proof (canonical form)
+            print(f"  {seqasm.to_source([ins])}")
+        return 0
+    if not args.donor:
+        print("a scene name is required (or use --asm to assemble a sequence source)", file=sys.stderr)
+        return 2
+    if args.lint:                                       # lint a scene's sequences offline (anim-code range, etc.)
+        from .battle import seqauthor
+        try:
+            raw17 = SD._scene_raw17(args.donor, game=args.game)
+        except (RuntimeError, FileNotFoundError, ValueError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        issues = seqauthor.lint_seq(raw17)
+        if not issues:
+            print(f"# {args.donor} sequences: clean")
+            return 0
+        print(f"# {args.donor} sequences: {len(issues)} issue(s)")
+        for i in issues:
+            print(f"  {i}")
+        return 1
     try:
         out = (SD.scene_seq_sites(args.donor, game=args.game) if args.sites
                else SD.analyze_scene_seq(args.donor, game=args.game))
@@ -2419,11 +2449,16 @@ def build_parser() -> argparse.ArgumentParser:
     bai.set_defaults(func=_cmd_battle_ai)
 
     bsq = sub.add_parser("battle-seq",
-                         help="disassemble a battle scene's attack sequences (btlseq.raw17) -- read-only")
-    bsq.add_argument("donor", help="battle scene name, e.g. EF_R007 (see `battle-list --scenes`)")
+                         help="disassemble / lint / assemble a battle scene's attack sequences (btlseq.raw17)")
+    bsq.add_argument("donor", nargs="?", help="battle scene name, e.g. EF_R007 (see `battle-list --scenes`)")
     bsq.add_argument("--sites", action="store_true",
                      help="list patchable sequence operands (offset/value) for [[scene.seq_patch]] instead of the "
                           "disasm")
+    bsq.add_argument("--asm", metavar="SRC",
+                     help="assemble a sequence source (e.g. \"WaitAnim; Anim(anim_code=0); Calc; End\") -> its "
+                          "bytes + a re-disasm proof; the inverse of the disassembly -- no scene needed")
+    bsq.add_argument("--lint", action="store_true",
+                     help="lint the scene's sequences offline (Anim-code range etc.); exit 1 if any issue is found")
     bsq.set_defaults(func=_cmd_battle_seq)
 
     ch = sub.add_parser("characters",
