@@ -34,7 +34,9 @@ def test_carry_body_has_terminating_loop():
     body = _platform.carry_body((0, 0, 0), (0, 0, 200), duration=32)
     ops = _ops(body)
     assert ops.count(0xA1) == 3                  # board snap + per-frame loop snap + exact final snap
-    assert 0x22 in ops                           # Wait(1) in the loop
+    assert 0x22 in ops                           # Wait(1) in the loop (deterministic ride timing)
+    assert 0x40 in ops                           # RunAnimation -- the looping ride clip (keeps the player rendered)
+    assert 0x3F in ops and 0x3D in ops           # SetAnimationFlags + SetAnimationInOut -- the on-ride anim state
     assert 0x03 in ops                           # JMP_TRUE -- the loop back-edge (so it can repeat)
     assert ops[-1] == 0x04                        # ends in RETURN
     assert 0xA8 in ops                           # SetPathing (detach at board, re-attach at land)
