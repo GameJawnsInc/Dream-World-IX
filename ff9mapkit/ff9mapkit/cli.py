@@ -321,9 +321,10 @@ def _cmd_paint_template(args: argparse.Namespace) -> int:
     out_dir = args.out or os.path.dirname(os.path.abspath(args.field)) or "."
     files = paint.render_full_template(cam0, frame, items, out_dir, basename=args.basename, walkmesh=walkmesh)
     ntypes = len({it["type"] for it in items})
-    print(f"paint template: {len(files) - 2} layer PNGs + legend + manifest -> {out_dir}")
-    print(f"  {len(items)} content markers across {ntypes} types; load {args.basename}.manifest.json in "
-          f"your paint app, {args.basename}.legend.json for names/heights")
+    print(f"paint template: {len(files) - 3} layer PNGs + legend + manifest + Photoshop importer -> {out_dir}")
+    print(f"  {len(items)} content markers across {ntypes} types; in Photoshop run "
+          f"{args.basename}.import.jsx (File > Scripts > Browse...) to load all layers, "
+          f"{args.basename}.legend.json for names/heights")
     if len(cams) > 1:
         print(f"  note: field has {len(cams)} cameras; projected camera 0 only "
               "(per-camera fan-out is a follow-up)", file=sys.stderr)

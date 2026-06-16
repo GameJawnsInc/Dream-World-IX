@@ -364,6 +364,54 @@ def walkmesh_outline_segments(ff9_verts, tris, cam: _cam.Cam, scale: int) -> lis
             if c == 1 and 0 <= a < n and 0 <= b < n]
 
 
+_PS_JSX_TEMPLATE = '''\
+// FF9 Map Kit -- paint-template layer importer for Adobe Photoshop (auto-generated).
+// In Photoshop: File > Scripts > Browse... and pick this file. It builds ONE layered document from
+// the PNGs beside it -- correct bottom-to-top order, each layer's opacity + name, already aligned --
+// so you don't drag each PNG or reorder by hand. (Photoshop can't read the manifest.json directly;
+// this script is the bridge.)
+#target photoshop
+(function () {
+  var here = new File($.fileName).parent;
+  var W = %(W)d, H = %(H)d;
+  var L = [
+%(rows)s
+  ];
+  var ru = app.preferences.rulerUnits;
+  app.preferences.rulerUnits = Units.PIXELS;
+  try {
+    var doc = app.documents.add(W, H, 72, "%(base)s", NewDocumentMode.RGB, DocumentFill.TRANSPARENT);
+    var starter = doc.artLayers[0];
+    for (var i = 0; i < L.length; i++) {
+      var f = new File(here + "/" + L[i].file);
+      if (!f.exists) { continue; }
+      var src = app.open(f);
+      src.selection.selectAll();
+      src.selection.copy();
+      src.close(SaveOptions.DONOTSAVECHANGES);
+      app.activeDocument = doc;
+      doc.paste();                                  // same size as the doc -> pastes aligned at 0,0
+      doc.activeLayer.name = L[i].name;
+      doc.activeLayer.opacity = L[i].opacity;
+    }
+    if (doc.artLayers.length > 1) { try { starter.remove(); } catch (e) {} }
+  } finally {
+    app.preferences.rulerUnits = ru;
+  }
+})();
+'''
+
+
+def _photoshop_jsx(basename: str, W: int, H: int, entries: list) -> str:
+    """An Adobe Photoshop ExtendScript that rebuilds the layered template from the per-layer PNGs beside
+    it (bottom-to-top order + opacity + names, pre-aligned). The bridge from the generic manifest to a
+    one-click 'File > Scripts > Browse...' import."""
+    rows = ",\n".join(
+        '    {file:"%s", name:"%s", opacity:%d}' % (e["file"], e["type"], int(round(e["opacity"] * 100)))
+        for e in entries)
+    return _PS_JSX_TEMPLATE % {"W": W, "H": H, "base": basename, "rows": rows}
+
+
 def render_full_template(cam: _cam.Cam, frame, items: list, out_dir, *, basename: str = "paint_template",
                          scale: int = 4, nx: int = 8, nz: int = 8, walkmesh=None) -> list:
     """Write the FULL paint template for a field: the floor layers (grid / outline / height -- only when
@@ -426,7 +474,13 @@ def render_full_template(cam: _cam.Cam, frame, items: list, out_dir, *, basename
         fh.write("\n")
     written.append(os.path.join(out_dir, lfn))
 
-    manifest = {"version": 1, "canvas_size": [W, H], "scale": scale, "layers": entries, "legend": lfn}
+    jfn = f"{basename}.import.jsx"                             # one-click Photoshop layered import
+    with open(os.path.join(out_dir, jfn), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(_photoshop_jsx(basename, W, H, entries))
+    written.append(os.path.join(out_dir, jfn))
+
+    manifest = {"version": 1, "canvas_size": [W, H], "scale": scale, "layers": entries,
+                "legend": lfn, "importer": jfn}
     mfn = f"{basename}.manifest.json"
     with open(os.path.join(out_dir, mfn), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(manifest, fh, indent=2)

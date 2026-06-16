@@ -172,6 +172,12 @@ def test_render_full_template_writes_layers_legend_manifest(tmp_path):
     man = json.load(open(tmp_path / "pt.manifest.json"))
     assert man["legend"] == "pt.legend.json"
     assert [l["type"] for l in man["layers"]][:3] == ["grid", "outline", "height"]  # floor underneath
+    # the Photoshop one-click importer references the manifest layers in order, with opacity
+    assert man["importer"] == "pt.import.jsx" and (tmp_path / "pt.import.jsx").is_file()
+    jsx = (tmp_path / "pt.import.jsx").read_text()
+    assert "#target photoshop" in jsx
+    for layer in man["layers"]:
+        assert layer["file"] in jsx
 
 
 def test_render_full_template_content_only_when_no_frame(tmp_path):
