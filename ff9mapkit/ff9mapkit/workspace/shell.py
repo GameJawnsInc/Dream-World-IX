@@ -2094,26 +2094,36 @@ class Workspace(QMainWindow):
                 out.append((i, a))
         return out
 
-    def _logic_add_label(self, add):
-        """A friendly one-line rendering of a ``[[logic_add]]`` (what it does + where it's inserted)."""
-        from ..eb import disasm
-        kind = add.get("kind")
-        where = add.get("where", "prepend")
-        place = ("at start" if where != "after"
-                 else f"after {disasm.op_name(add.get('after_op'))} #{add.get('after_nth', 0)}")
+    def _effect_phrase(self, kind, add):
+        """The 'what it does' phrase for an effect kind (give item/gil, set flag, show line) -- shared by the
+        ``[[logic_add]]`` row label and the ``menu_row`` label (whose ``effect`` names the same payload)."""
         if kind == "give_item":
             from .. import items
             it = add.get("item")
             nm = items.name_of(it) if isinstance(it, int) else str(it)
-            body = f"give {nm} ×{add.get('count', 1)}"
-        elif kind == "give_gil":
-            body = f"give {add.get('amount')} gil"
-        elif kind == "set_flag":
-            body = f"set flag {add.get('flag')} = {add.get('value', 1)}"
-        elif kind == "show_line":
-            body = f'show "{self._short(add.get("message", ""))}"'
-        else:
-            body = str(kind)
+            return f"give {nm} ×{add.get('count', 1)}"
+        if kind == "give_gil":
+            return f"give {add.get('amount')} gil"
+        if kind == "set_flag":
+            return f"set flag {add.get('flag')} = {add.get('value', 1)}"
+        if kind == "show_line":
+            return f'show "{self._short(add.get("message", ""))}"'
+        return str(kind)
+
+    def _logic_add_label(self, add):
+        """A friendly one-line rendering of a ``[[logic_add]]`` (what it does + where it's inserted)."""
+        from ..eb import disasm
+        kind = add.get("kind")
+        if kind == "menu_row":                                     # a new choice-menu row (no prepend/after place)
+            eff = add.get("effect")
+            extra = (f' + “{self._short(add.get("message"))}”'
+                     if (add.get("message") and eff != "show_line") else "")
+            return (f'menu row “{self._short(add.get("label", ""))}” → {self._effect_phrase(eff, add)}{extra} '
+                    f'(txid {add.get("menu_txid")})')
+        where = add.get("where", "prepend")
+        place = ("at start" if where != "after"
+                 else f"after {disasm.op_name(add.get('after_op'))} #{add.get('after_nth', 0)}")
+        body = self._effect_phrase(kind, add)
         msg = add.get("message")
         extra = f' + “{self._short(msg)}”' if (msg and kind != "show_line") else ""
         return f"{body}{extra} ({place})"
@@ -2139,6 +2149,12 @@ class Workspace(QMainWindow):
                           "(a length-changing [[logic_add]], guarded so it fires once)")
         addbtn.clicked.connect(lambda _=False: self._add_logic_effect(member, entry, tag, eb))
         hdr.addWidget(addbtn)
+        if self._menu_txid_hint(eb, entry, tag) is not None:    # only where this routine HAS a choice menu
+            rowbtn = QPushButton("Add menu row…")
+            rowbtn.setToolTip("Add a NEW selectable row to the choice menu in this routine (a [[logic_add]] "
+                              "menu_row: the row label + its dispatch arm + the availability mask, at once)")
+            rowbtn.clicked.connect(lambda _=False: self._add_menu_row(member, entry, tag, eb))
+            hdr.addWidget(rowbtn)
         hw = QWidget()
         hw.setLayout(hdr)
         self.doc_host_lay.addWidget(hw)
@@ -2339,6 +2355,146 @@ class Workspace(QMainWindow):
         if not (lo <= v <= hi):
             raise ValueError(f"{label} must be {lo}–{hi}")
         return v
+
+    # ---- menu_row authoring: a NEW selectable+labelled choice-menu row ------------------------------
+    def _menu_txid_hint(self, eb, entry, tag):
+        """Best-effort: the ``.mes`` txid of a choice menu in this routine (the WindowSync just before a base-0
+        contiguous GetChoose switch), to PRE-FILL the dialog. None if the routine has no such menu."""
+        from ..eb import disasm
+        from ..eb.model import EbScript
+        window_ops = {0x1F: 2, 0x20: 2, 0x95: 3, 0x96: 3}
+        try:
+            s = EbScript.from_bytes(eb)
+            e = s.entry(entry)
+            f = None if e.empty else e.func_by_tag(tag)
+            if f is None:
+                return None
+            ins = list(s.instrs(f))
+        except Exception:                                          # noqa: BLE001
+            return None
+        for sw in ins:
+            if sw.op not in (0x0B, 0x0D):
+                continue
+            si = disasm.decode_switch(sw)
+            if si is None or si.base != 0:
+                continue
+            wins = [i for i in ins if i.op in window_ops and i.off < sw.off]
+            if wins:
+                t = wins[-1].imm(window_ops[wins[-1].op])
+                if t is not None:
+                    return t
+        return None
+
+    def _build_menu_row(self, entry, tag, menu_txid_text, label, effect_kind,
+                        item_text, count_text, gil_text, flag_text, val_text, message):
+        """Assemble a ``[[logic_add]] kind="menu_row"`` dict from the dialog inputs (raises ValueError on a bad
+        field; the full build dry-run runs at commit). Reuses :meth:`_build_logic_add` for the row's effect
+        payload, then drops the prepend/after placement keys a dispatch row doesn't use."""
+        lbl = (label or "").strip()
+        if not lbl:
+            raise ValueError("a menu row needs a label (the option text shown in the menu)")
+        if "\n" in lbl:
+            raise ValueError("a menu row label can't contain a newline")
+        txid = self._pos_int(menu_txid_text, "menu text id", 0, 65535)
+        eff = self._build_logic_add(effect_kind, entry, tag, "prepend", None, [],
+                                    item_text, count_text, gil_text, flag_text, val_text, message)
+        payload = {k: v for k, v in eff.items() if k not in ("kind", "entry", "tag")}
+        return {"kind": "menu_row", "entry": entry, "tag": tag, "menu_txid": txid,
+                "label": lbl, "effect": effect_kind, **payload}
+
+    def _add_menu_row(self, member, entry, tag, eb):
+        reason = protected_reason(self.member_paths[member])
+        if reason:
+            self._show_problems(fb.Verdict(fb.ERROR, "Can't author here"),
+                                [fb.Problem(fb.ERROR, f"{reason}. Save a copy in a folder of your own.")])
+            return
+        add = self._menu_row_dialog(member, entry, tag, eb)
+        if add is not None:
+            self._commit_logic_add(member, entry, tag, add)
+
+    def _menu_row_dialog(self, member, entry, tag, eb):
+        """Author a ``[[logic_add]] kind="menu_row"``: the menu's text id + the new row label, the row's effect
+        (give item/gil, set flag, show line), and an optional announce. Returns the add dict or None. The heavy
+        validation (1:1 menu, [PCHM] reject, row alignment) happens at commit (build.dry_run_logic_adds)."""
+        from .. import flags as _flags
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add menu row")
+        outer = QVBoxLayout(dlg)
+        form = QFormLayout()
+        outer.addLayout(form)
+        form.addRow(self._muted_label(
+            "Adds a NEW selectable row to an existing choice menu in this routine (a base-0 contiguous GetChoose "
+            "switch + a [CHOO] row list). Picking the row runs the effect below; the row appears last."))
+
+        hint = self._menu_txid_hint(eb, entry, tag)
+        txid_ed = QLineEdit("" if hint is None else str(hint))
+        form.addRow("Menu text id", txid_ed)
+        form.addRow(self._muted_label("The .mes entry holding the menu's prompt + rows (the WindowSync txid)"
+                                      + ("." if hint is None else " — pre-filled from this routine's menu.")))
+        label_ed = QLineEdit("Get a free Potion!")
+        form.addRow("Row label", label_ed)
+
+        kind = QComboBox()
+        for label, data in (("Give item", "give_item"), ("Give gil", "give_gil"),
+                            ("Set story flag", "set_flag"), ("Show line", "show_line")):
+            kind.addItem(label, data)
+        form.addRow("When picked", kind)
+
+        stack = QStackedWidget()
+        gi = QWidget(); gif = QFormLayout(gi); gif.setContentsMargins(0, 0, 0, 0)
+        item_ed = QLineEdit("Potion"); count_ed = QLineEdit("1")
+        gif.addRow("Item", item_ed); gif.addRow("Count", count_ed)
+        gi_hint = self._muted_label(""); gif.addRow(gi_hint)
+        gg = QWidget(); ggf = QFormLayout(gg); ggf.setContentsMargins(0, 0, 0, 0)
+        gil_ed = QLineEdit("1000"); ggf.addRow("Amount", gil_ed)
+        sf = QWidget(); sff = QFormLayout(sf); sff.setContentsMargins(0, 0, 0, 0)
+        flag_ed = QLineEdit(str(_flags.FIRST_SAFE_FLAG)); val_ed = QLineEdit("1")
+        sff.addRow("Flag index", flag_ed); sff.addRow("Value (0/1)", val_ed)
+        sff.addRow(self._muted_label(f"An explicit safe-band index ≥ {_flags.FIRST_SAFE_FLAG}."))
+        sl = QWidget(); slf = QFormLayout(sl); slf.setContentsMargins(0, 0, 0, 0)
+        slf.addRow(self._muted_label("The message below IS the effect (a dialogue window)."))
+        for w in (gi, gg, sf, sl):
+            stack.addWidget(w)
+        form.addRow(stack)
+
+        msg_ed = QPlainTextEdit("")
+        msg_ed.setMinimumSize(QSize(360, 56))
+        msg_lbl = QLabel("Message")
+        form.addRow(msg_lbl, msg_ed)
+        msg_hint = self._muted_label("")
+        form.addRow(msg_hint)
+
+        def sync(*_):
+            k = kind.currentData()
+            stack.setCurrentIndex({"give_item": 0, "give_gil": 1, "set_flag": 2, "show_line": 3}[k])
+            msg_lbl.setText("Message (required)" if k == "show_line" else "Message")
+            msg_hint.setText("Shown in a dialogue window when this row is picked (once-guarded)."
+                             if k == "show_line"
+                             else "Optional — pops a “Received…” style window when the row's effect fires.")
+
+        def on_item(*_):
+            from .. import items
+            t = item_ed.text().strip()
+            try:
+                v = int(t) if t.isdigit() else items.resolve(t)
+                gi_hint.setText(f"→ {items.name_of(v) or ('item #' + str(v))}  (#{v})")
+            except ValueError as ex:
+                gi_hint.setText(f"⚠ {ex}")
+
+        kind.currentIndexChanged.connect(sync)
+        item_ed.textChanged.connect(on_item)
+        on_item()
+        sync()
+        outer.addWidget(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        try:
+            return self._build_menu_row(entry, tag, txid_ed.text(), label_ed.text(), kind.currentData(),
+                                        item_ed.text(), count_ed.text(), gil_ed.text(),
+                                        flag_ed.text(), val_ed.text(), msg_ed.toPlainText())
+        except ValueError as ex:
+            self._show_problems(fb.Verdict(fb.ERROR, "Bad value"), [fb.Problem(fb.ERROR, str(ex))])
+            return None
 
     def _set_logic_adds(self, member, cand):
         """Write the member's ``logic_add`` list (or drop the key when empty, so a fully-reverted field stays
@@ -4418,6 +4574,13 @@ def _smoke(win):
         assert anchors, "the routine exposes anchorable instructions"
         aft = win._build_logic_add("give_gil", e0, t0, "after", anchors[0][:2], anchors, "", "", "500", "", "", "")
         assert aft["where"] == "after" and aft["after_op"] == anchors[0][0] and aft["amount"] == 500, aft
+        # menu_row: the build helper assembles a dispatch-row dict (the effect payload reused, no placement keys)
+        mr = win._build_menu_row(e0, t0, "118", "Get a free Potion!", "give_item", "Potion", "1", "", "", "", "")
+        assert mr == {"kind": "menu_row", "entry": e0, "tag": t0, "menu_txid": 118,
+                      "label": "Get a free Potion!", "effect": "give_item", "item": "Potion"}, mr
+        mrm = win._build_menu_row(e0, t0, "118", "Lore", "show_line", "", "", "", "", "", "An old tale...")
+        assert mrm["effect"] == "show_line" and mrm["message"] == "An old tale..." and "where" not in mrm, mrm
+        assert "menu row" in win._logic_add_label(mr) and "txid 118" in win._logic_add_label(mr)
         win._undo(); win._redo()                                # checkpoint round-trips the add history
         while win._routine_adds("ALEXFORK", e0, t0):            # remove every added effect
             win._revert_logic_add("ALEXFORK", e0, t0, win._routine_adds("ALEXFORK", e0, t0)[0][0])
@@ -4436,7 +4599,7 @@ def _smoke(win):
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
           f"(open/lint/overview/drill-in) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
-          f"({'add/show_line/anchor/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
+          f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
           f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
 
 
