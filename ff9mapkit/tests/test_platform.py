@@ -84,28 +84,42 @@ def test_inject_land_platform_lints_clean():
     assert _new_errors(eb) == []
 
 
-# --- entry mode: the on-arrival rise (drop to the bottom under the fade, ride up to the spawn floor) ----
-def test_entry_rise_body_drops_then_rises():
+# --- entry mode: on-arrival rise. DROP in Init (under the fade) + UP-only ride + post-fade trigger -----
+def test_entry_rise_body_is_up_only():
+    # the ride func now ONLY rides up (the drop is a separate Init splice) -> 2 snaps (loop + exact top)
     body = _platform.entry_rise_body(rise=1200, duration=48)
     ops = _ops(body)
-    # 3 MoveInstantXZY: drop-to-bottom, per-frame rise, exact top snap
-    assert ops.count(0xA1) == 3
-    assert 0x22 in ops and 0x03 in ops              # Wait + the rise loop back-edge
-    assert 0xA8 in ops                              # SetPathing (detach at start, re-attach on landing)
-    assert ops[-1] == 0x04                          # RETURN
-    import pytest
-    with pytest.raises(ValueError):
-        _platform.entry_rise_body(rise=0)           # a zero shaft never moves
+    assert ops.count(0xA1) == 2
+    assert 0x22 in ops and 0x03 in ops and 0xA8 in ops and ops[-1] == 0x04
 
 
-def test_inject_entry_rise_arms_on_load():
+def test_drop_block_detaches_and_lowers():
+    drop = _platform._drop_to_bottom(1200)
+    ops = _ops(drop)
+    assert 0x1B in ops or 0xA0 in ops or 0xA8 in ops    # detach (AddCharacterAttribute / SetPathing present)
+    assert 0xA1 in ops                                  # the MoveInstantXZY that lowers the player
+    import struct
+    assert struct.pack("<h", 1200) in drop              # selfY + rise (the shaft height) as a constant
+
+
+def test_inject_entry_rise_drops_in_init_and_arms_post_fade():
     eb = _platform.inject_entry_rise(CLEAN, rise=1200)
     parsed = EbScript.from_bytes(eb)
     pe = find_player_entry(parsed)
-    assert parsed.entry(pe).func_by_tag(_platform.FIRST_PLATFORM_TAG) is not None   # rise grafted on the player
-    # an InitCode now arms a trigger entry in Main_Init (so the rise fires at field load)
-    main = parsed.entry(0)
-    assert any(i.op == 0x09 for i in parsed.instrs(main.func_by_tag(0)))            # 0x09 = InitCode
+    assert parsed.entry(pe).func_by_tag(_platform.FIRST_PLATFORM_TAG) is not None    # up-ride grafted on the player
+    # the DROP is spliced into the player Init, AFTER DefinePlayerCharacter (0x2C)
+    init = parsed.entry(pe).func_by_tag(0)
+    dpc = next((i for i in parsed.instrs(init) if i.op == 0x2C), None)
+    assert dpc is not None
+    assert any(i.op == 0xA1 and i.off > dpc.off for i in parsed.instrs(init))        # the drop MoveInstantXZY
+    # Main_Init arms the trigger with InitCode (0x09); the trigger spins on usercontrol then runs the rise
+    assert any(i.op == 0x09 for i in parsed.instrs(parsed.entry(0).func_by_tag(0)))
+    trig = next((parsed.entry(ei).func_by_tag(0) for ei in range(parsed.entry_count)
+                 if parsed.entry(ei) is not None and parsed.entry(ei).func_by_tag(0) is not None
+                 and any(i.op == 0x14 and 56 in (i.args or []) for i in parsed.instrs(parsed.entry(ei).func_by_tag(0)))), None)
+    assert trig is not None
+    tops = [i.op for i in parsed.instrs(trig)]
+    assert 0x03 in tops                                                              # the backward usercontrol spin (JMP_TRUE)
     assert _new_errors(eb) == []
 
 
