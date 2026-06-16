@@ -32,8 +32,7 @@ import struct
 
 from ..eb import EbScript, edit, opcodes
 from . import region as _region
-from .ladder import (_Asm, _arg, _const, _selfv, _stmt, CLIMB_ANIM, F_Y, LADDER_FLAG,
-                     find_player_entry, square_zone)
+from .ladder import _Asm, _arg, _const, _selfv, _stmt, F_Y, LADDER_FLAG, find_player_entry, square_zone
 
 PLAYER_UID = 250          # the controlled player's runtime UID (standard across FF9 fields)
 FIRST_PLATFORM_TAG = 56   # player ride funcs start here -- clear of ladder (17+) / jump (40+) climb tags,
@@ -89,17 +88,16 @@ def carry_body(board, arrive, *, duration: int = DEFAULT_DURATION, animation: in
                     bytes([_region.T_MINUS]), bytes([_region.T_MULT]),
                     _const(span), bytes([_region.T_DIV]), bytes([_region.T_PLUS]))
 
-    ride_anim = CLIMB_ANIM if animation is None else int(animation)   # the per-frame ride clip
     a = _Asm()
-    # board: grip (ladder flag so the height isn't floor-snapped away) + detach + snap to the start point,
-    # then establish the on-ride ANIMATION STATE (mirrors the climb's mount). Without an active animation the
-    # engine drops the player from the character-over-overlay composite -> an INVISIBLE ride (in-game proven
-    # failure); SetAnimationFlags/SetAnimationInOut + the per-frame tick below are exactly what the proven
-    # navigable climb does to stay visible.
+    if animation is not None:
+        a.raw(opcodes.run_animation(int(animation)))      # optional ride gesture (cosmetic; off by default)
+    # board: grip (ladder flag so the height isn't floor-snapped away) + detach + snap to the start point.
+    # NOTE: visibility of the ride is governed by the FIELD CAMERA, not animation -- a vertical rise stays
+    # rendered only when the camera's depthOffset + shallow pitch map it into screen-Y (not depth, which the
+    # [100,3996] psxDepth cull rejects) and its vrp band is tall enough to scroll up. Fork an elevator-style
+    # scene+camera (e.g. Pandemonium 2713); a flat field's camera dumps the rise into depth -> invisible.
     a.raw(opcodes.add_character_attribute(LADDER_FLAG) + opcodes.set_pathing(0)
-          + opcodes.move_instant_xzy(bx, bz, by)
-          + opcodes.set_animation_flags(1, 0) + opcodes.set_animation_in_out(0, 0)
-          + opcodes.run_animation(ride_anim))                          # start the LOOPING ride clip once
+          + opcodes.move_instant_xzy(bx, bz, by))
     a.label("LOOP")
     # advance the target a fixed step toward arrive, then snap the player onto the ride line for it
     a.raw(_stmt(_scratch(), _selfv(F_Y), _const(stepmag), bytes([sign_tok]), bytes([_region.T_ASSIGN])))
