@@ -36,6 +36,8 @@ class Site:
     kind: str          # frames | anim_code | camera | vfx | svfx | sfx | mesh_mask | message | coord | ...
     value: int         # the current decoded value (signed per the field)
     where: str         # human context, e.g. "sub0 Anim anim_code"
+    shared_subs: tuple = ()   # ALL sub_nos whose seqOffset aliases this body (>1 => a SHARED body: a patch here
+    #                           rewrites every one of them; 289/562 real scenes alias one body across several slots)
 
     @property
     def vmin(self) -> int:
@@ -64,12 +66,17 @@ def constant_sites(raw17: bytes) -> list:
     out = []
     for body in model.bodies:
         sub = _canonical_sub(model, body)
+        shared = tuple(s for s in range(model.seq_count) if model.seq_offset[s] == body.offset)
         for ins in body.instrs:
             for (name, rel, w, signed, kind), val in zip(ins.fields, ins.operands):
                 if kind == "pad":
                     continue
-                out.append(Site(sub, ins.offset + rel, w, signed, kind, val, f"sub{sub} {ins.name} {name}"))
+                out.append(Site(sub, ins.offset + rel, w, signed, kind, val,
+                                f"sub{sub} {ins.name} {name}", shared))
     return out
+
+
+_PATCH_KEYS = {"at", "old", "new", "seq"}
 
 
 def apply_seq_patches(raw17: bytes, patches) -> tuple:
@@ -86,6 +93,10 @@ def apply_seq_patches(raw17: bytes, patches) -> tuple:
     for n, p in enumerate(patches):
         if not isinstance(p, dict):
             raise SeqPatchError(f"[[scene.seq_patch]] #{n} must be a table (got {type(p).__name__})")
+        unknown = set(p) - _PATCH_KEYS
+        if unknown:
+            raise SeqPatchError(f"[[scene.seq_patch]] #{n}: unknown key(s) {sorted(unknown)} "
+                                f"(expected at / old / new / seq) -- typo?")
         at, old, new = p.get("at"), p.get("old"), p.get("new")
         for k, v in (("at", at), ("old", old), ("new", new)):
             if not isinstance(v, int) or isinstance(v, bool):
@@ -95,9 +106,14 @@ def apply_seq_patches(raw17: bytes, patches) -> tuple:
             raise SeqPatchError(f"[[scene.seq_patch]] #{n}: no patchable operand at offset {at} "
                                 f"(cite an offset from `battle-seq --sites`)")
         seq = p.get("seq")
-        if seq is not None and seq != site.sub_no:
-            warnings.append(f"[[scene.seq_patch]] #{n}: seq={seq} but offset {at} belongs to sub {site.sub_no} "
-                            f"(a shared/aliased body) -- patching by offset regardless")
+        if seq is not None and seq not in site.shared_subs:                  # a wrong seq number (typo), NOT an alias
+            owners = "/".join(str(s) for s in site.shared_subs)
+            warnings.append(f"[[scene.seq_patch]] #{n}: seq={seq} does not own offset {at} (owned by sub {owners}) "
+                            f"-- check the seq/at numbers")
+        if len(site.shared_subs) > 1:                                        # a genuinely SHARED body: the edit hits
+            owners = ",".join(str(s) for s in site.shared_subs)              # every aliasing attack, regardless of seq
+            warnings.append(f"[[scene.seq_patch]] #{n}: offset {at} drives a SHARED sequence body (subs {owners}) "
+                            f"-- this edit changes the choreography of ALL of them")
         if at in seen:
             warnings.append(f"[[scene.seq_patch]] #{n} and #{seen[at]} both patch offset {at} -- the later wins")
         seen[at] = n

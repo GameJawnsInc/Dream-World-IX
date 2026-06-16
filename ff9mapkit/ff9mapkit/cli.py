@@ -1097,12 +1097,13 @@ def _cmd_battle_seq(args: argparse.Namespace) -> int:
     _safe_console()
     from .battle import seqdis as SD
     try:
-        print(SD.scene_seq_sites(args.donor, game=args.game) if args.sites
-              else SD.analyze_scene_seq(args.donor, game=args.game))
+        out = (SD.scene_seq_sites(args.donor, game=args.game) if args.sites
+               else SD.analyze_scene_seq(args.donor, game=args.game))
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
-    return 0
+    print(out)
+    return 2 if "<unreadable" in out else 0           # a malformed raw17 disasm exits non-zero (parity w/ --sites)
 
 
 def _cmd_ability_gems(args: argparse.Namespace) -> int:

@@ -110,6 +110,47 @@ def test_patch_guard_and_range():
         seqpatch.apply_seq_patches(raw, [{"at": 999, "old": 0, "new": 0}])
 
 
+def _synthetic_aliased():
+    """seqCount=2, BOTH subs point at one shared body (an exact alias) -- Anim(2) Wait(5) End. animCount=0."""
+    seq = bytes([0x05, 0x02, 0x01, 0x05, 0x00])
+    body_start = 8 + 3 * 2 + 4 * 0                      # 14
+    so = body_start - 4                                # 10
+    head = struct.pack("<hhhh", 4, body_start + len(seq), 2, 0)
+    head += struct.pack("<hh", so, so)                 # both subs -> the same offset
+    head += bytes([0, 0])                              # seqBaseAnim
+    return head + seq
+
+
+def test_shared_body_aliasing_surfaced_and_warned():
+    raw = _synthetic_aliased()
+    sites = seqpatch.constant_sites(raw)
+    wait = next(s for s in sites if s.kind == "frames")
+    assert wait.shared_subs == (0, 1)                  # constant_sites knows both slots alias this body
+    # patching a shared body WARNS regardless of the cited seq (the documented #1 foot-gun)
+    out, warns = seqpatch.apply_seq_patches(raw, [{"at": wait.offset, "old": 5, "new": 9, "seq": 0}])
+    assert any("SHARED" in w for w in warns)
+    assert seqcodec.parse(out).body_for(0).instrs[1].operands == [9]
+
+
+def test_parse_rejects_partial_overlap():
+    # two DISTINCT offsets where the 2nd lands strictly inside the 1st body -> partial overlap (0 in the corpus,
+    # but a re-serialize would double-emit the shared tail) -> the disjoint-or-exact-alias invariant is enforced
+    seq0 = bytes([0x01, 0x05, 0x01, 0x06, 0x00])       # Wait Wait End
+    body_start = 8 + 3 * 2 + 4 * 0                      # 14
+    head = struct.pack("<hhhh", 4, body_start + len(seq0), 2, 0)
+    head += struct.pack("<hh", body_start - 4, body_start - 4 + 2)   # sub1 starts 2 bytes into sub0's body
+    head += bytes([0, 0])
+    with pytest.raises(seqcodec.SeqCodecError):
+        seqcodec.parse(head + seq0)
+
+
+def test_patch_rejects_unknown_keys():
+    raw = _synthetic()
+    wait = next(s for s in seqpatch.constant_sites(raw) if s.kind == "frames")
+    with pytest.raises(seqpatch.SeqPatchError):         # 'value' is a typo for 'new' -> would silently no-op
+        seqpatch.apply_seq_patches(raw, [{"at": wait.offset, "old": wait.value, "value": 9}])
+
+
 @pytest.mark.parametrize("blob", [
     b"\x04\x00",                                                  # < 8 bytes
     struct.pack("<hhhh", 4, 18, 0, 10) + b"\x00" * 12,           # animCount 10 wants 40 B past EOF

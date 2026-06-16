@@ -20,8 +20,9 @@ Format facts (all little-endian, all offsets absolute file positions):
   FastEnd. Several ``seqOffset`` slots may ALIAS one body (a verbatim duplicate offset -- attacks that share
   choreography); bodies never partially overlap. Inter-body + trailing padding is NOT a derivable alignment
   rule (0/1-byte gaps that can land on odd boundaries; 5 scenes carry a 4-byte trailing pad) -> captured VERBATIM.
-* The interpreter coerces ``op > 34`` to End, so an opcode byte of exactly ``34`` (0x22) indexes ``gSeqProg[34]``
-  out of bounds -- a latent engine crash. Valid opcodes are 0..33; this codec rejects a body byte of 34.
+* The interpreter guard is ``op > gSeqProg.Length`` (== ``> 34``), so an opcode byte of exactly ``34`` (0x22)
+  is NOT coerced -- it indexes ``gSeqProg[34]`` out of bounds, a latent engine crash; ``35..255`` coerce to
+  ``0`` End. Valid opcodes are 0..33; this codec rejects a body opcode of ``34..255`` (strict, for safety).
 """
 from __future__ import annotations
 
@@ -214,6 +215,10 @@ def parse(raw17: bytes) -> Raw17:
         if abs_start < body_start or abs_start >= cam_offset:
             raise SeqCodecError(f"seqOffset {o} (abs {abs_start}) outside the body region "
                                 f"[{body_start}, {cam_offset})")
+        if abs_start < prev_end:                          # a DISTINCT offset landing inside an earlier body =
+            raise SeqCodecError(f"seqOffset {o} (abs {abs_start}) overlaps an earlier sequence body that ends "
+                                f"at {prev_end} -- partial overlap (bodies must be disjoint or EXACT aliases; "
+                                f"a re-serialize would double-emit the shared tail)")   # 0 in the corpus
         gap = bytes(raw17[prev_end:abs_start])
         instrs, end = _decode_body(raw17, abs_start, cam_offset)
         bodies.append(Body(o, gap, instrs))

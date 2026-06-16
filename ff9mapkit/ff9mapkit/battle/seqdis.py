@@ -100,5 +100,7 @@ def scene_seq_sites(donor: str, game=None) -> str:
              "# cite the offset in [[scene.seq_patch]] (seq = <sub_no>, at = <offset>, old = <value>, "
              "new = <same-width value>)"]
     for s in sites:
-        lines.append(f"  sub{s.sub_no:<2} at={s.offset:<6} {s.width}B  {s.kind:<10} = {s.value:<8}  {s.where}")
+        shared = f"  (SHARED: also drives sub {','.join(str(x) for x in s.shared_subs if x != s.sub_no)})" \
+            if len(s.shared_subs) > 1 else ""
+        lines.append(f"  sub{s.sub_no:<2} at={s.offset:<6} {s.width}B  {s.kind:<10} = {s.value:<8}  {s.where}{shared}")
     return "\n".join(lines)
