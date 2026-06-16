@@ -312,14 +312,21 @@ def _cmd_paint_template(args: argparse.Namespace) -> int:
     walkmesh = None                                  # the field's REAL floor outline (forks / modeled)
     try:
         from .scene import bgi
-        wm = bgi.BgiWalkmesh.from_bytes(build.resolve_walkmesh(project, cam0))
-        verts, tris = wm.world_verts(), [tuple(t.vtx) for t in wm.tris]
+        wm_cfg = project.raw.get("walkmesh", {}) or {}
+        ref = wm_cfg.get("bgi") or wm_cfg.get("reference")   # a shipped/borrowed .bgi (forks)
+        wm_bytes = project.path(ref).read_bytes() if ref else build.resolve_walkmesh(project, cam0)
+        wmesh = bgi.BgiWalkmesh.from_bytes(wm_bytes)
+        verts, tris = wmesh.world_verts(), [tuple(t.vtx) for t in wmesh.tris]
         if verts and tris:
             walkmesh = (verts, tris)
     except Exception:                                # no/odd walkmesh (e.g. BG-borrow only) -> skip the layer
         walkmesh = None
     out_dir = args.out or os.path.dirname(os.path.abspath(args.field)) or "."
-    files = paint.render_full_template(cam0, frame, items, out_dir, basename=args.basename, walkmesh=walkmesh)
+    # a fork ships a composited background.png next to the field -> use it as the base layer so the
+    # guides sit on the real art (not black). From-scratch fields have no background.png -> stays None.
+    base_image = "background.png" if os.path.isfile(os.path.join(out_dir, "background.png")) else None
+    files = paint.render_full_template(cam0, frame, items, out_dir, basename=args.basename,
+                                       walkmesh=walkmesh, base_image=base_image)
     ntypes = len({it["type"] for it in items})
     print(f"paint template: {len(files) - 3} layer PNGs + legend + manifest + Photoshop importer -> {out_dir}")
     print(f"  {len(items)} content markers across {ntypes} types; in Photoshop run "

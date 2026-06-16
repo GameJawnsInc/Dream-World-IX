@@ -413,7 +413,7 @@ def _photoshop_jsx(basename: str, W: int, H: int, entries: list) -> str:
 
 
 def render_full_template(cam: _cam.Cam, frame, items: list, out_dir, *, basename: str = "paint_template",
-                         scale: int = 4, nx: int = 8, nz: int = 8, walkmesh=None) -> list:
+                         scale: int = 4, nx: int = 8, nz: int = 8, walkmesh=None, base_image=None) -> list:
     """Write the FULL paint template for a field: the floor layers (grid / outline / height -- only when
     a ``frame`` is given, i.e. a synth field or a borrow with ``[camera.frame]``); the REAL walkmesh
     outline if ``walkmesh=(ff9_verts, tris)`` is passed (a fork's / modeled floor's true shape, not the
@@ -473,6 +473,10 @@ def render_full_template(cam: _cam.Cam, frame, items: list, out_dir, *, basename
         json.dump(legend, fh, indent=2)
         fh.write("\n")
     written.append(os.path.join(out_dir, lfn))
+
+    if base_image and os.path.isfile(os.path.join(out_dir, base_image)):   # the REAL art, as the base layer
+        entries.insert(0, {"file": base_image, "type": "background", "opacity": 1.0, "blend": "normal",
+                           "description": "the field's real background art -- paint/trace over it"})
 
     jfn = f"{basename}.import.jsx"                             # one-click Photoshop layered import
     with open(os.path.join(out_dir, jfn), "w", encoding="utf-8", newline="\n") as fh:

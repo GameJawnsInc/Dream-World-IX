@@ -209,6 +209,23 @@ def test_walkmesh_outline_skips_degenerate_fan_edge():
     assert segs                                # doesn't crash; the (3,3) edge is skipped
 
 
+def test_render_full_template_background_base_layer(tmp_path):
+    # the fork shape: no synthesized frame (frame=None), the real background as the BOTTOM layer
+    cam = _cam()
+    (tmp_path / "background.png").write_bytes(b"x")          # only needs to exist to be referenced
+    paint.render_full_template(cam, None, [], str(tmp_path), basename="pt",
+                               walkmesh=_WM_QUAD, base_image="background.png")
+    man = json.load(open(tmp_path / "pt.manifest.json"))
+    assert not any(l["type"] in ("grid", "outline", "height") for l in man["layers"])  # synth frame skipped
+    assert man["layers"][0]["type"] == "background" and man["layers"][0]["file"] == "background.png"
+    assert man["layers"][1]["type"] == "walkmesh"           # walkmesh sits over the art
+    assert "background.png" in (tmp_path / "pt.import.jsx").read_text()
+    # a base_image that isn't on disk is ignored (no phantom layer)
+    paint.render_full_template(cam, None, [], str(tmp_path / "b"), basename="pt", base_image="nope.png")
+    man2 = json.load(open(tmp_path / "b" / "pt.manifest.json"))
+    assert all(l["type"] != "background" for l in man2["layers"])
+
+
 def test_render_full_template_walkmesh_layer(tmp_path):
     cam = _cam()
     fr = guide.frame_floor(cam, back_canvas_y=205, front_canvas_y=432)

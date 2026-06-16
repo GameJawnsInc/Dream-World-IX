@@ -739,6 +739,16 @@ def _collect_walkmesh(context):
     return (bridge.blender_verts_to_ff9(verts), tris) if verts and tris else None
 
 
+def _template_base_image(out, idx):
+    """The forked field's composited background in ``out`` (the real art ``ff9mapkit import`` writes), as
+    the paint template's base layer -- per-camera ``background_camNN.png`` first, else ``background.png``;
+    None if neither is present (a from-scratch field has no such file)."""
+    for fn in (f"background_cam{idx:02d}.png", "background.png"):
+        if os.path.isfile(os.path.join(out, fn)):
+            return fn
+    return None
+
+
 class FF9MK_OT_paint_template(bpy.types.Operator):
     bl_idname = "ff9mk.paint_template"
     bl_label = "Export Paint Template"
@@ -763,6 +773,10 @@ class FF9MK_OT_paint_template(bpy.types.Operator):
             return {"CANCELLED"}
         items = _collect_content_items(context) if p.template_layers else []
         walkmesh = _collect_walkmesh(context) if p.template_layers else None
+        # A FORK has real art + an arbitrary walkmesh: skip the SYNTHESIZED floor frame (grid/outline/
+        # height -- a meaningless flat rectangle here) and sit the walkmesh + content on the real
+        # background. A from-scratch field (blank canvas) keeps the frame as its painting guide.
+        is_fork = bool(p.borrow_bg or p.editable_fork)
         written, errors = [], []
         for cam_obj in cam_objs:
             idx = int(cam_obj[CAM_KEY]) if CAM_KEY in cam_obj else 0
@@ -772,8 +786,10 @@ class FF9MK_OT_paint_template(bpy.types.Operator):
                 if p.template_layers:
                     # floor layers + per-type content PNGs + legend + manifest, via the shared stdlib
                     # path (same output as the `ff9mapkit paint-template` CLI; covers every camera).
-                    frame = bridge._floor_frame(c, p.back_y, p.front_y)
-                    files = paint.render_full_template(c, frame, items, out, basename=base, walkmesh=walkmesh)
+                    frame = None if is_fork else bridge._floor_frame(c, p.back_y, p.front_y)
+                    base_image = _template_base_image(out, idx) if is_fork else None
+                    files = paint.render_full_template(c, frame, items, out, basename=base,
+                                                       walkmesh=walkmesh, base_image=base_image)
                     written.append((idx, len(files), os.path.join(out, f"{base}.manifest.json")))
                 else:
                     t = bridge.paint_template_lines(c, p.back_y, p.front_y, scale=4)
