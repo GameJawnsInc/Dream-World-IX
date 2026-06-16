@@ -22,7 +22,7 @@ def _anim_note(model: _sc.Raw17, sub_no: int, ins: _sc.Instr) -> str:
     idx = base + code
     if 0 <= idx < len(model.anim_list):
         return f"  # -> animList[{base}+{code}] = anim id {model.anim_list[idx]}"
-    return f"  # -> animList[{base}+{code}] OUT OF RANGE (animCount {model.anim_list and len(model.anim_list)})"
+    return f"  # -> animList[{base}+{code}] OUT OF RANGE (animCount {len(model.anim_list)})"
 
 
 def _operand_str(ins: _sc.Instr) -> str:

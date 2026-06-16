@@ -191,6 +191,10 @@ def parse(raw17: bytes) -> Raw17:
         raise SeqCodecError(f"bad header (seqCount={seq_count}, animCount={anim_count})")
     if not 0 < cam_offset <= len(raw17):
         raise SeqCodecError(f"bad camOffset {cam_offset} (file {len(raw17)} bytes)")
+    table_end = 8 + 2 * seq_count + 4 * anim_count + seq_count   # seqOffset[] + animList[] + seqBaseAnim[]
+    if table_end > len(raw17):                                   # bound BEFORE the unpacks so a malformed header
+        raise SeqCodecError(f"header tables (end {table_end}) run past EOF (file {len(raw17)} bytes) -- "
+                            f"seqCount={seq_count}, animCount={anim_count}")   # raises cleanly, never a struct.error
     off = 8
     seq_offset = list(struct.unpack_from(f"<{seq_count}h", raw17, off)); off += 2 * seq_count
     anim_list = list(struct.unpack_from(f"<{anim_count}i", raw17, off)); off += 4 * anim_count

@@ -110,6 +110,25 @@ def test_patch_guard_and_range():
         seqpatch.apply_seq_patches(raw, [{"at": 999, "old": 0, "new": 0}])
 
 
+@pytest.mark.parametrize("blob", [
+    b"\x04\x00",                                                  # < 8 bytes
+    struct.pack("<hhhh", 4, 18, 0, 10) + b"\x00" * 12,           # animCount 10 wants 40 B past EOF
+    struct.pack("<hhhh", 4, 12, 10, 0) + b"\x00" * 6,            # seqCount 10 wants 20 B past EOF
+    struct.pack("<hhhh", 4, 8, 30000, 0),                        # huge seqCount, tables past EOF
+    struct.pack("<hhhh", 4, 0, 1, 0),                            # camOffset 0
+    struct.pack("<hhhh", 4, 9999, 1, 0),                         # camOffset past EOF
+])
+def test_parse_rejects_malformed_cleanly(blob):
+    # a malformed header must raise SeqCodecError (never a raw struct.error/IndexError) -- so the disassembler
+    # degrades, constant_sites raises a kit error, and validate_patches NEVER raises (the build-safe invariant)
+    with pytest.raises(seqcodec.SeqCodecError):
+        seqcodec.parse(blob)
+    assert seqdis.disassemble_seq(blob).startswith("<unreadable")
+    with pytest.raises(seqpatch.SeqPatchError):
+        seqpatch.constant_sites(blob)
+    assert seqpatch.validate_patches(blob, [{"at": 0, "old": 0, "new": 0}])     # returns problems, does NOT raise
+
+
 def test_pad_byte_not_a_site():
     # opcode 0x19 Sfx has a discarded pad byte at operand +4 -- it must NOT appear as a patch site
     seq = bytes([0x19, 0x10, 0x00, 0x05, 0xff, 0x40, 0x00])           # Sfx + End
