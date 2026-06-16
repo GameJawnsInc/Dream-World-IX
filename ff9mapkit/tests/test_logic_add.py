@@ -14,10 +14,28 @@ import pytest
 from ff9mapkit import eblint
 from ff9mapkit import flags as _flags
 from ff9mapkit import logic_add as LA
+from ff9mapkit.eb import cmdasm, disasm
 from ff9mapkit.eb.model import EbScript
 from ff9mapkit.eventscan import _glob_var_token
 
 RET = bytes([0x04])
+
+
+def _sw_body(switchex=False):
+    """A function body with a switch over 2 cases -> distinct SetTriangleFlagMask(k); 0x0B contiguous (base 0,
+    cases 0,1) or 0x06 explicit (values 0,5)."""
+    head = "SET({Map.Int16[0] B_EXPR_END})\n" + (
+        "SWITCHEX(Ld, 0, La, 5, Lb)\n" if switchex else "SWITCH(0, Ld, La, Lb)\n")
+    return cmdasm.assemble_block(
+        head + "La:\nSetTriangleFlagMask(1)\nRET()\nLb:\nSetTriangleFlagMask(2)\nRET()\nLd:\nRET()")
+
+
+def _sw_edges(out, tag=0):
+    s = EbScript.from_bytes(out)
+    f = s.entry(0).func_by_tag(tag)
+    sw = next(i for i in s.instrs(f) if i.op in (0x06, 0x0B, 0x0D))
+    si = disasm.decode_switch(sw)
+    return {("default" if e.is_default else e.value): e.target - f.abs_start for e in si.edges}
 
 
 def _eb(*funcs) -> bytes:
@@ -383,6 +401,113 @@ def test_validate_flags_logic_add_on_synthesized_field():
     problems = []
     build._validate_logic_adds(_P(), problems)
     assert any("only applies to a VERBATIM" in p for p in problems)
+
+
+# ---- add_case: ADD a new arm to a jump table (length-changing table grow + new branch) ----
+def test_add_case_contiguous_give_item():
+    """A 0x0B contiguous add (case='auto' => base+ncases) wiring a once-guarded give_item, rejoining the
+    default arm: a new edge appears, the give + its guard land, original arms intact, eblint-clean + roundtrips."""
+    eb = _eb((0, _sw_body()))                                  # 0x0B, cases 0,1
+    before = _sw_edges(eb)
+    out = LA.apply_logic_adds(eb, [{"kind": "add_case", "entry": 0, "tag": 0, "case": "auto",
+                                   "effect": "give_item", "item": 236}])
+    after = _sw_edges(out)
+    assert set(after) == {0, 1, 2, "default"} and after[2] not in (before[0], before[1])   # new contiguous case 2
+    assert eblint.errors(eblint.lint_eb(out)) == [] and EbScript.from_bytes(out).to_bytes() == out
+    _eb_, ins = _instrs(out)
+    assert any(i.op == 0x48 and i.imm(0) == 236 for i in ins) and any(i.op == 0x02 for i in ins)  # give + once-guard
+    assert any(i.op == 0x01 for i in ins)                     # the backward merge JMP to the default arm
+
+
+def test_add_case_switchex_explicit_value():
+    """A 0x06 SWITCHEX add with an explicit (arbitrary) selector value, set_flag effect (ungated)."""
+    eb = _eb((0, _sw_body(switchex=True)))                    # 0x06, values 0,5
+    out = LA.apply_logic_adds(eb, [{"kind": "add_case", "entry": 0, "tag": 0, "case": 9,
+                                   "effect": "set_flag", "flag": 8520}])
+    after = _sw_edges(out)
+    assert 9 in after and set(after) == {0, 5, 9, "default"}
+    _eb_, ins = _instrs(out)
+    assert not any(i.op == 0x02 for i in ins)                 # set_flag is idempotent -> ungated (no if-guard)
+    assert _first_glob(out) == 8520 and eblint.errors(eblint.lint_eb(out)) == []
+
+
+def test_add_case_show_line_appends_window():
+    """An add_case with effect=show_line emits a WindowSync at the build-allocated txid in its new branch."""
+    eb = _eb((0, _sw_body()))
+    out = LA.apply_logic_adds(eb, [{"kind": "add_case", "entry": 0, "tag": 0, "case": "auto",
+                                   "effect": "show_line", "message": "Hi!"}], message_txids={0: 1001})
+    _eb_, ins = _instrs(out)
+    assert any(i.op == 0x1F and i.imm(2) == 1001 for i in ins) and 2 in _sw_edges(out)
+    assert eblint.errors(eblint.lint_eb(out)) == []
+    # plan_messages sees the add_case's effect message (so the build allocates its txid)
+    assert LA.plan_messages([{"kind": "add_case", "entry": 0, "tag": 0, "effect": "show_line",
+                              "message": "Hi!"}]) == [(0, "Hi!", None, None)]
+
+
+def test_add_case_guards():
+    sw = _eb((0, _sw_body()))                                  # 0x0B base 0, cases 0,1 (next contiguous = 2)
+    sx = _eb((0, _sw_body(switchex=True)))                     # 0x06 values 0,5
+    for base, bad in (
+        (sw, {"case": 5, "effect": "set_flag", "flag": 8520}),                 # 0x0B non-contiguous (must be 2)
+        (sx, {"case": 5, "effect": "set_flag", "flag": 8520}),                 # 0x06 duplicate value 5
+        (sw, {"case": "auto"}),                                                # missing effect
+        (sw, {"case": "auto", "effect": "frob", "flag": 8520}),                # bad effect
+        (sw, {"case": "auto", "effect": "set_flag", "flag": 8520, "case_count": 9}),   # shape drift
+        (sw, {"case": "auto", "effect": "give_item", "item": 236, "repeat": True}),    # repeat unsupported
+        (sw, {"case": "auto", "effect": "set_flag", "flag": 8520, "then": "elsewhere"}),  # then != merge
+        (sx, {"case": "auto", "effect": "set_flag", "flag": 8520})):           # 0x06 needs explicit value
+        with pytest.raises(LA.LogicAddError):
+            LA.apply_logic_adds(base, [{"kind": "add_case", "entry": 0, "tag": 0, **bad}])
+
+
+def test_add_case_original_arms_preserved():
+    """Adding a case must not disturb the existing arms' destinations (they shift in bytes but still resolve)."""
+    eb = _eb((0, _sw_body()))
+    before = _sw_edges(eb)
+    out = LA.apply_logic_adds(eb, [{"kind": "add_case", "entry": 0, "tag": 0, "case": "auto",
+                                   "effect": "set_flag", "flag": 8520}])
+    after = _sw_edges(out)
+    # case 0 and case 1 still target DISTINCT branches (the same two SetTriangleFlagMask arms), default intact
+    assert after[0] != after[1] and after[0] != after["default"] and after[1] != after["default"]
+    eb2, ins = _instrs(out)
+    assert sorted(i.imm(0) for i in ins if i.op == 0x27) == [1, 2]   # both original arm bodies still present
+
+
+def test_add_case_on_real_field_206_menu():
+    """On REAL field 206 (the Prima Vista ATE warp menu, 0x0B base 0, rows 0-4 -> fields 208/112/206/204/202):
+    add a contiguous case 5 with a give_item branch -> the new edge appears, eblint-clean + byte-roundtrips,
+    and ALL 5 original rows still warp to their real destinations."""
+    try:
+        from ff9mapkit.extract import EventBundle
+        bundle = EventBundle()
+    except Exception:                                                    # noqa: BLE001
+        pytest.skip("no game install")
+    try:
+        data = bundle.eb_for_id(206)
+    except Exception:                                                    # noqa: BLE001
+        pytest.skip("field 206 not in this install")
+    if not data:
+        pytest.skip("field 206 not in this install")
+
+    def menu_edges(d):
+        s = EbScript.from_bytes(d)
+        f = s.entry(5).func_by_tag(1)
+        sw = next(i for i in s.instrs(f) if i.op in (0x06, 0x0B, 0x0D)
+                  and len([e for e in disasm.decode_switch(i).edges if not e.is_default]) >= 4)
+        return {e.value: e.target - f.abs_start for e in disasm.decode_switch(sw).edges if not e.is_default}
+
+    def warp_dests(d):
+        s = EbScript.from_bytes(d)
+        f = s.entry(5).func_by_tag(1)
+        return sorted({i.imm(0) for i in s.instrs(f) if i.op == 0x2B})
+
+    before = menu_edges(data)
+    out = LA.apply_logic_adds(data, [{"kind": "add_case", "entry": 5, "tag": 1, "case": "auto",
+                                     "effect": "give_item", "item": "Phoenix Down"}])
+    after = menu_edges(out)
+    assert set(after) == set(before) | {5}, "the contiguous case 5 was added"
+    assert eblint.errors(eblint.lint_eb(out)) == [] and EbScript.from_bytes(out).to_bytes() == out
+    assert {208, 112, 206, 204, 202} <= set(warp_dests(out)), "the 5 original rows still warp to their fields"
 
 
 # ---- real game bytecode: the safe prepend on actual field .eb (install-gated) ----

@@ -21,6 +21,13 @@ Kinds:
     it's the way to ANNOUNCE a silent ``give_item``/``give_gil`` (otherwise they hand over the reward with
     no "Received X!" box). Any other kind may also carry an optional ``message = "..."`` to announce its
     effect in the SAME once-guard (give THEN show, atomically).
+  * ``add_case`` -- ADD a new arm to an existing jump table (0x06/0x0B/0x0D) -- a NEW dispatch arm (a scenario
+    value, an ATE/dialogue menu row) that runs one of the effects above (named by ``effect``) then rejoins the
+    switch's DEFAULT arm (``then = "merge"``). 0x0B/0x0D are contiguous (``case = "auto"`` = base+ncases, the
+    only legal extension); 0x06 takes an explicit unused ``case`` value. Length-changing: the operand table
+    grows + the branch body is appended at the function end, and the keystone re-anchors every reloff. (The
+    full coordinated MENU ROW -- case + the ``EnableDialogChoices`` avail-mask + the ``.mes`` row label -- is a
+    deferred follow-up; ``add_case`` alone makes an EXISTING-but-default selector value live.)
 
 A ``show_line`` (or any ``message =``) line is APPENDED to the donor ``.mes`` above its txids -- the same
 append-and-resolve channel ``[[on_entry]]`` narration uses (:func:`build._verbatim_on_entry_messages`) -- so
@@ -44,6 +51,18 @@ _ADD_KINDS = ("set_flag", "give_item", "give_gil", "show_line")
 _CUMULATIVE = ("give_item", "give_gil")             # need a once-guard (set_flag is idempotent)
 TALK_TAG = 3                                        # the only tag where an UNGATED cumulative effect is sane
 _GIL_CAP = 9_999_999
+_SWITCH_OPS = (0x06, 0x0B, 0x0D)                    # JMP_SWITCHEX (explicit) / JMP_SWITCH (contiguous) / 2-byte
+
+
+def _effective_effect_add(add):
+    """The add whose ``kind`` names the EFFECT to encode. For a normal effect add that's ``add`` itself; for an
+    ``add_case`` (where ``kind`` stays ``"add_case"`` and the payload is named by ``effect``) it's a synthesized
+    ``{**add, "kind": <effect>}`` -- so the effect/message/guard machinery treats both uniformly. ``None`` for an
+    ``add_case`` with no ``effect`` (a stub arm)."""
+    if add.get("kind") != "add_case":
+        return add
+    eff = add.get("effect")
+    return {**add, "kind": eff} if eff is not None else None
 
 
 class LogicAddError(ValueError):
@@ -66,6 +85,9 @@ def _int(add, key, *, default=None, optional=False):
 def _add_message(add) -> "str | None":
     """The authored line this add SHOWS, or None. ``show_line`` requires one; any other kind may carry an
     optional ``message = "..."`` to announce its effect. Raises on a present-but-malformed message."""
+    add = _effective_effect_add(add)
+    if add is None:                                            # an add_case stub (no effect) -> no message
+        return None
     msg = add.get("message")
     if add.get("kind") == "show_line":
         if not isinstance(msg, str) or not msg:
@@ -140,8 +162,9 @@ class _GuardAlloc:
         self._hi = min(self._hi, _flags.CHOICE_SCRATCH_FLOOR)
         self._used = {f for f in (reserved or ()) if isinstance(f, int) and not isinstance(f, bool)}
         for a in adds or []:                           # other set_flag targets (handed-out guards are recorded in take)
-            if a.get("kind") == "set_flag" and isinstance(a.get("flag"), int) and not isinstance(a.get("flag"), bool):
-                self._used.add(a["flag"])
+            ea = _effective_effect_add(a)              # incl. an add_case whose effect is set_flag
+            if ea and ea.get("kind") == "set_flag" and isinstance(ea.get("flag"), int) and not isinstance(ea.get("flag"), bool):
+                self._used.add(ea["flag"])
 
     def take(self, add):
         g = add.get("guard")
@@ -220,9 +243,127 @@ def _insert_after(eb_bytes, eb, f, entry, tag, add, core, warnings) -> bytes:
     return _edit.replace_function_body(eb_bytes, entry, tag, new_body)
 
 
+# --- add_case: ADD a new arm to a jump table (length-changing: grow the operand table + a new branch body) ---
+def _locate_switch(eb, entry, tag, nth):
+    """Find the ``nth`` switch (0x06/0x0B/0x0D) in entry/tag; return ``(f, ins, SwitchInfo)``. ``nth`` may be
+    None when the function has exactly one switch. Raises a clean :class:`LogicAddError` on any miss."""
+    from .eb import disasm as _disasm
+    if not (0 <= entry < eb.entry_count) or eb.entry(entry).empty:
+        raise LogicAddError(f"add_case entry {entry} is empty or out of range (0..{eb.entry_count - 1})")
+    f = eb.entry(entry).func_by_tag(tag)
+    if f is None:
+        raise LogicAddError(f"add_case entry {entry} has no function tag {tag}")
+    switches = [i for i in eb.instrs(f) if i.op in _SWITCH_OPS]
+    if not switches:
+        raise LogicAddError(f"add_case: no switch (0x06/0x0B/0x0D) in entry{entry}/tag{tag}")
+    if nth is None:
+        if len(switches) > 1:
+            raise LogicAddError(f"add_case: {len(switches)} switches in entry{entry}/tag{tag} -- "
+                                f"add `nth` (0..{len(switches) - 1})")
+        nth = 0
+    if not (0 <= nth < len(switches)):
+        raise LogicAddError(f"add_case nth {nth} out of range (0..{len(switches) - 1})")
+    ins = switches[nth]
+    si = _disasm.decode_switch(ins)
+    if si is None:
+        raise LogicAddError(f"add_case: the switch in entry{entry}/tag{tag} has computed operands (can't add)")
+    return f, ins, si
+
+
+def _resolve_add_case(add, si, ncases):
+    """Validate + return the new selector value. 0x0B/0x0D (contiguous): only extends at ``base + ncases``;
+    ``case = "auto"`` resolves to it, an explicit int must equal it. 0x06 (explicit): any unused value 0-65535."""
+    case = add.get("case", "auto")
+    if si.op in (0x0B, 0x0D):
+        nxt = si.base + ncases
+        if case == "auto":
+            return nxt
+        v = _int(add, "case")
+        if v != nxt:
+            raise LogicAddError(f"add_case: a contiguous SWITCH only extends at the NEXT selector {nxt} "
+                                f"(base {si.base} + {ncases} cases) -- got {v}; use case=\"auto\"")
+        return nxt
+    if case == "auto":                                         # 0x06 SWITCHEX -- needs an explicit value
+        raise LogicAddError("add_case: a 0x06 SWITCHEX needs an explicit `case` value (no contiguous 'auto')")
+    v = _int(add, "case")
+    if v in {e.value for e in si.edges if not e.is_default}:
+        raise LogicAddError(f"add_case: case value {v} already exists in this SWITCHEX (a duplicate arm is dead)")
+    if not (0 <= v <= 0xFFFF):
+        raise LogicAddError(f"add_case: case value {v} out of range (0-65535)")
+    return v
+
+
+def _insert_case(eb_bytes, eb, f, entry, tag, ins, si, case_value, core):
+    """Append a new case arm to the switch: grow its operand list (``L<new>`` for 0x0B/0x0D, ``value, L<new>``
+    for 0x06) and append the new branch (``NEWCASE:`` + the effect's re-labeled source + a ``JMP`` to the
+    switch's DEFAULT arm) at the function end, then reassemble (cmdasm re-anchors every reloff) + swap the body
+    in. The new arm's reloff is FORWARD (the branch is after the switch); the merge JMP is a plain backward
+    0x01 to the default. The count byte is recomputed by cmdasm from the operand-list length (no manual bump)."""
+    from .eb import cmdasm as _cmdasm
+    from .eb import exprasm as _exprasm
+    sw_rel = ins.off - f.abs_start
+    default_rel = next(e.target for e in si.edges if e.is_default) - f.abs_start
+    if not (0 <= default_rel < (f.abs_end - f.abs_start)):     # a default arm AT the function end (a malformed
+        raise LogicAddError(f"add_case: the switch's default arm in entry{entry}/tag{tag} is not an in-function "
+                            "instruction boundary -- no safe merge target (the donor is itself broken)")
+    try:
+        items = _cmdasm.disassemble_items(eb.data, f.abs_start, f.abs_end)
+        line_idx = next((k for k, (off, _t) in enumerate(items) if off == sw_rel), None)
+        if line_idx is None:                                   # the located switch is decoded -> always present
+            raise LogicAddError("add_case: could not locate the switch (internal)")
+        texts = [t for _o, t in items]
+        line = texts[line_idx]
+        mnem = line[:line.index("(")]
+        ops = line[line.index("(") + 1:line.rindex(")")].split(", ")
+        ops += ([str(case_value), "NEWCASE"] if si.op == 0x06 else ["NEWCASE"])   # 0x0B/0x0D: positional (base+n)
+        texts[line_idx] = mnem + "(" + ", ".join(ops) + ")"
+        branch = ["NEWCASE:"]
+        if core:                                               # the effect body (re-labeled so its L<n> can't collide)
+            branch += _cmdasm.relabel(_cmdasm.disassemble_block(core, 0, len(core)), "_c").split("\n")
+        branch.append(f"JMP(L{default_rel})")                  # then="merge": rejoin the switch's default arm
+        new_body = _cmdasm.assemble_block("\n".join(texts + branch))
+    except (_cmdasm.CmdAsmError, _exprasm.AssembleError) as ex:
+        raise LogicAddError(f"add_case: could not rebuild entry{entry}/tag{tag}: {ex}")
+    return _edit.replace_function_body(eb_bytes, entry, tag, new_body)
+
+
+def _apply_add_case(eb_bytes, add, alloc, warnings=None, *, message_txid=None) -> bytes:
+    """Add ONE new case arm to an existing switch, running a reused effect (set_flag/give_item/give_gil/
+    show_line) then rejoining the switch's default arm. The keystone rebuild relocates everything."""
+    if add.get("repeat"):
+        raise LogicAddError("add_case does not support `repeat` (a dispatch arm is not a tag-3 talk poll)")
+    then = add.get("then", "merge")
+    if then != "merge":
+        raise LogicAddError(f"add_case then='{then}' is not supported (v1 ships then=\"merge\" = rejoin the "
+                            "switch's own default arm)")
+    eff = add.get("effect")
+    if eff is None:
+        raise LogicAddError("add_case needs an `effect` (set_flag/give_item/give_gil/show_line) -- a stub arm "
+                            "that only rejoins the default is a no-op")
+    if eff not in _ADD_KINDS:
+        raise LogicAddError(f"add_case effect '{eff}' must be one of {_ADD_KINDS}")
+    entry, tag = _int(add, "entry"), _int(add, "tag")
+    nth = _int(add, "nth", default=None, optional=True)
+    eb = EbScript.from_bytes(eb_bytes)
+    f, ins, si = _locate_switch(eb, entry, tag, nth)
+    ncases = len([e for e in si.edges if not e.is_default])
+    cc = _int(add, "case_count", default=None, optional=True)  # optional shape guard (donor drift -> fail)
+    if cc is not None and cc != ncases:
+        raise LogicAddError(f"add_case case_count guard: the switch has {ncases} cases, not {cc} (donor drift)")
+    cap = 65535 if si.op == 0x0D else 255                      # the count byte width (0x06/0x0B = 1 byte)
+    if ncases >= cap:
+        raise LogicAddError(f"add_case: this switch is full ({ncases}/{cap} cases)")
+    case_value = _resolve_add_case(add, si, ncases)
+    core = _core_bytes(_effective_effect_add(add), alloc, warnings, message_txid=message_txid)
+    return _insert_case(eb_bytes, eb, f, entry, tag, ins, si, case_value, core)
+
+
 def _apply_one(eb_bytes, add, alloc, warnings=None, *, message_txid=None) -> bytes:
-    if add.get("kind") not in _ADD_KINDS:
-        raise LogicAddError(f"logic_add unknown kind '{add.get('kind')}' (kinds: {_ADD_KINDS})")
+    kind = add.get("kind")
+    if kind == "add_case":                                     # ADD a switch arm (length-changing table grow)
+        return _apply_add_case(eb_bytes, add, alloc, warnings, message_txid=message_txid)
+    if kind not in _ADD_KINDS:
+        raise LogicAddError(f"logic_add unknown kind '{kind}' (kinds: {_ADD_KINDS} + 'add_case')")
     where = add.get("where", "prepend")
     if where not in ("prepend", "after"):
         raise LogicAddError(f"logic_add where='{where}' is not supported (use 'prepend' or 'after'; "
