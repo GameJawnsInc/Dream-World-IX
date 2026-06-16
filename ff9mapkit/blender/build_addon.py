@@ -24,7 +24,7 @@ SCENE = KIT / "scene"
 VENDORED = ("cam.py", "bgi.py", "bgx.py", "guide.py", "placeholder.py", "paint.py")   # paint/placeholder = the content paint-template projector + stdlib rasterizer
 # extra vendored modules from elsewhere in the kit, as (source_path, vendor_filename) pairs:
 VENDORED_EXTRA = ((KIT / "battle" / "fbx.py", "battle_fbx.py"),)   # battle-map FBX emit/parse (pure)
-VERSION = "0.9.15"
+VERSION = "0.9.16"
 EXCLUDE_DIRS = {"__pycache__"}
 
 

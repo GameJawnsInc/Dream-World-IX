@@ -394,7 +394,12 @@ _PS_JSX_TEMPLATE = '''\
       doc.activeLayer.name = L[i].name;
       doc.activeLayer.opacity = L[i].opacity;
     }
-    if (doc.artLayers.length > 1) { try { starter.remove(); } catch (e) {} }
+    // remove the initial blank layer -- but ONLY if it's still empty. Some Photoshop versions paste
+    // the FIRST layer ONTO the empty starter (no new layer), so a blind remove would delete it.
+    try {
+      var bb = starter.bounds;
+      if (String(bb[0]) == String(bb[2]) || String(bb[1]) == String(bb[3])) { starter.remove(); }
+    } catch (e) {}
   } finally {
     app.preferences.rulerUnits = ru;
   }

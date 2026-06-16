@@ -327,7 +327,11 @@ def _camera_obj_to_ff9(context, cam_obj):
     m3 = mw.to_3x3()
     R_bl = [[m3[i][j] for j in range(3)] for i in range(3)]   # columns = local axes in world
     loc = [mw.translation[i] for i in range(3)]
-    rw, rh = _range_wh(p)
+    # prefer the camera's OWN imported range (ff9_rw/ff9_rh, stored direct = un-clamped) so a forked
+    # field with a real range smaller than the canvas_w/h property minimums (e.g. 512x352) projects +
+    # sizes correctly; fall back to the scene canvas for a from-scratch camera with no stored range.
+    rw = int(cam_obj["ff9_rw"]) if "ff9_rw" in cam_obj else _range_wh(p)[0]
+    rh = int(cam_obj["ff9_rh"]) if "ff9_rh" in cam_obj else _range_wh(p)[1]
     if p.scroll_enabled:
         # the FF9 scroll camera's frame IS the full painting, so interpret the sensor as the canvas
         # width (proj = lens). This is robust to a STALE camera posed by an older add-on version
