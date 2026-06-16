@@ -647,63 +647,110 @@ class FF9MK_OT_compute_guide(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _rasterize_paint_template(t, scale=4):
+    """Rasterize a bridge.paint_template_lines() dict into a transparent float-RGBA buffer in bpy
+    image order (rows bottom-up). Mirrors the CLI render_paint_template exactly: faint perspective
+    grid, bright floor outline (back edge thicker), the canvas safe-frame border, then the COLORED
+    vertical height guides (poles/rings/ceiling box) on top. Returns (buf, W, H)."""
+    import array
+    W, H = t["size"]
+    S = scale
+    buf = array.array("f", bytes(W * H * 4 * 4))              # all 0.0 -> transparent
+
+    def line(p0, p1, rgba, thick=1):                          # square-brush, overwrite (matches placeholder.draw_line)
+        x0, y0 = p0; x1, y1 = p1
+        dx, dy = x1 - x0, y1 - y0
+        n = int(max(abs(dx), abs(dy)))
+        half = max(0, thick - 1)
+        for i in range(n + 1):
+            tt = i / n if n else 0.0
+            cx = int(round(x0 + dx * tt)); cy = int(round(y0 + dy * tt))
+            for oy in range(-half, half + 1):
+                yy = cy + oy
+                if not (0 <= yy < H):
+                    continue
+                row = (H - 1 - yy) * W                         # bpy image rows are bottom-up
+                for ox in range(-half, half + 1):
+                    xx = cx + ox
+                    if 0 <= xx < W:
+                        o = (row + xx) * 4
+                        buf[o], buf[o + 1], buf[o + 2], buf[o + 3] = rgba
+
+    for a, b in t["grid"]:                                    # faint perspective grid
+        line(a, b, (0.82, 0.84, 0.90, 0.35))
+    outline = t["outline"]
+    for a, b in outline:                                      # bright floor outline
+        line(a, b, (1.0, 0.667, 0.235, 1.0), 2 * S)
+    if outline:                                               # back edge highlighted (thicker)
+        line(outline[0][0], outline[0][1], (1.0, 0.667, 0.235, 1.0), 3 * S)
+    for a, b in t.get("border", []):                          # canvas safe-frame
+        line(a, b, (0.471, 0.784, 1.0, 0.784), 2)
+    for seg in t.get("height", []):                           # COLORED poles / rings / ceiling box
+        a, b, rgba = seg
+        line(a, b, tuple(ch / 255.0 for ch in rgba), max(1, S // 2))
+    return buf, W, H
+
+
 class FF9MK_OT_paint_template(bpy.types.Operator):
     bl_idname = "ff9mk.paint_template"
     bl_label = "Export Paint Template"
-    bl_description = ("Write a transparent 1536x1792 trace-over paint template (floor outline + "
-                      "perspective grid) for the current camera; paint your room on layers UNDER it")
+    bl_description = ("Write a transparent trace-over paint template (floor outline + perspective grid "
+                      "+ vertical height guides, 4x scale, full canvas) for each camera; paint your room "
+                      "on layers UNDER it")
 
     def execute(self, context):
-        import array
-        c = active_camera_to_ff9(context)
-        if c is None:
-            self.report({"ERROR"}, "No active camera (run Setup FF9 Scene first).")
-            return {"CANCELLED"}
         p = context.scene.ff9mapkit
-        try:
-            t = bridge.paint_template_lines(c, p.back_y, p.front_y, scale=4)
-        except ValueError as e:
-            self.report({"ERROR"}, str(e))
+        cam_objs = _collect_cameras(context)
+        if not cam_objs and context.scene.camera and context.scene.camera.type == "CAMERA":
+            cam_objs = [context.scene.camera]                 # untagged single camera
+        if not cam_objs:
+            self.report({"ERROR"}, "No camera (run Setup FF9 Scene first).")
             return {"CANCELLED"}
-        W, H = t["size"]
-        buf = array.array("f", bytes(W * H * 4 * 4))          # all 0.0 -> transparent
-
-        def line(p0, p1, rgba):
-            x0, y0 = p0; x1, y1 = p1
-            dx, dy = x1 - x0, y1 - y0
-            n = int(max(abs(dx), abs(dy)))
-            for i in range(n + 1):
-                tt = i / n if n else 0.0
-                x = int(round(x0 + dx * tt)); y = int(round(y0 + dy * tt))
-                if 0 <= x < W and 0 <= y < H:
-                    idx = ((H - 1 - y) * W + x) * 4           # bpy image rows are bottom-up
-                    buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3] = rgba
-
-        for a, b in t["grid"]:                                # faint perspective grid
-            line(a, b, (0.82, 0.84, 0.90, 0.35))
-        for a, b in t.get("height", []):                      # vertical guides: poles/rings/ceiling
-            line(a, b, (0.35, 0.86, 0.92, 0.80))
-        for a, b in t["outline"]:                             # bright floor outline (~3px)
-            for o in (-1, 0, 1):
-                line((a[0], a[1] + o), (b[0], b[1] + o), (1.0, 0.67, 0.24, 0.95))
-                line((a[0] + o, a[1]), (b[0] + o, b[1]), (1.0, 0.67, 0.24, 0.95))
-
-        old = bpy.data.images.get("FF9_PaintTemplate")
-        if old:
-            bpy.data.images.remove(old)
-        img = bpy.data.images.new("FF9_PaintTemplate", W, H, alpha=True)
-        img.pixels.foreach_set(buf)
+        multi = len(cam_objs) > 1                              # multi-cam: one template per camera
         out = _resolve_out_dir(p.export_dir)
         try:
             os.makedirs(out, exist_ok=True)
-            path = os.path.join(out, "paint_template.png")
-            img.filepath_raw = path
-            img.file_format = "PNG"
-            img.save()
         except OSError as e:
             self.report({"ERROR"}, f"can't write template: {e.strerror}. Save the .blend or set 'Export to'.")
             return {"CANCELLED"}
-        self.report({"INFO"}, f"paint template ({W}x{H}) -> {path}; paint your room on layers UNDER it")
+        written, errors = [], []
+        for cam_obj in cam_objs:
+            idx = int(cam_obj[CAM_KEY]) if CAM_KEY in cam_obj else 0
+            c = _camera_obj_to_ff9(context, cam_obj)
+            try:
+                t = bridge.paint_template_lines(c, p.back_y, p.front_y, scale=4)
+            except ValueError as e:
+                errors.append(f"cam{idx}: {e}")
+                continue
+            buf, W, H = _rasterize_paint_template(t, scale=4)
+            name = f"FF9_PaintTemplate_cam{idx:02d}" if multi else "FF9_PaintTemplate"
+            fn = f"paint_template_cam{idx:02d}.png" if multi else "paint_template.png"
+            old = bpy.data.images.get(name)
+            if old:
+                bpy.data.images.remove(old)
+            img = bpy.data.images.new(name, W, H, alpha=True)
+            img.pixels.foreach_set(buf)
+            path = os.path.join(out, fn)
+            try:
+                img.filepath_raw = path
+                img.file_format = "PNG"
+                img.save()
+            except OSError as e:
+                errors.append(f"cam{idx}: {e.strerror}")
+                continue
+            written.append((idx, W, H, path))
+        if not written:
+            self.report({"ERROR"}, "no template written: " + "; ".join(errors))
+            return {"CANCELLED"}
+        if multi:
+            msg = (f"{len(written)} paint templates (one per camera) -> {out}; "
+                   "paint each camera's room on layers UNDER its template")
+        else:
+            _idx, W, H, path = written[0]
+            msg = f"paint template ({W}x{H}) -> {path}; paint your room on layers UNDER it"
+        if errors:
+            msg += f" (skipped {len(errors)}: {'; '.join(errors)})"
+        self.report({"INFO"}, msg)
         return {"FINISHED"}
 
 

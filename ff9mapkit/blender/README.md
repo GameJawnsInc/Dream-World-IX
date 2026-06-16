@@ -188,11 +188,13 @@ Memoria. See the CLI worked example `../examples/scroll-demo/`.
   non-square vertical scale (14/15) that Blender's square-pixel render doesn't show. The exported
   **camera is exact** (the math bakes that in), and the **paint guide** (`guide.txt` /
   *Compute Paint Guide*) is the source of truth for aligning your art.
-- **Supported pitch range (advisory).** The in-game camera is exact at any angle, but the paint
-  guide's back-edge prediction is calibrated for the real FF9 downward-pitch range (~0–50°, the
-  steepest shipped camera is ~49.6°). Past that the far/back edge of the guide can drift — the
-  panel warns but never blocks. For a dead-on back edge at a steeper angle, re-pin the vertical
-  canvas scale with one in-game grid check (see `project-ff9-camera-math`).
+- **Supported pitch range (advisory).** The in-game camera *and* the paint guide are exact at any
+  angle — the projection is pure scale-1 math, with no per-pitch calibration. The ~0–50° range (the
+  steepest shipped FF9 camera is ~49.6°) is an *authenticity* note, not a math limit: steeper angles
+  render correctly but look non-vanilla, and at very steep pitches the player's collision radius
+  (~48u, which the character's centre can't cross) shows up as a visible inset along the
+  foreshortened back edge. The panel warns but never blocks. If alignment ever looks off in-game,
+  confirm with one in-game grid check (see `project-ff9-camera-math`).
 
 ## How it's built / trusted
 

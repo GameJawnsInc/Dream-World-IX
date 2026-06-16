@@ -9,8 +9,9 @@ on the painted canvas for a chosen camera angle, and hand back the matching walk
   render_paint_guide(cam, frame, png)              -> a checkerboard guide image to paint over
   walkmesh_corners(frame)                          -> 4 (x, z) corners for scene.bgi.quad()
 
-Canvas is the painted logical 384x448 (top-left origin, Y down); the calibrated map lives in
-:mod:`ff9mapkit.scene.cam` (sx=0.926, sy=0.889).
+Canvas is the painted logical 384x448 (top-left origin, Y down) with an EXACT scale-1 map
+(canvasX = rawProj.x + w/2, canvasY = h/2 - rawProj.y; see :mod:`ff9mapkit.scene.cam`). The old
+per-pitch sx/sy fudge (0.926/0.889) is gone -- the projection is exact at every pitch.
 """
 
 from __future__ import annotations

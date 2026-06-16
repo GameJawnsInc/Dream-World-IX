@@ -305,22 +305,10 @@ def _grid_nx(c, nx):
     return max(nx, round(nx * rw / SCREEN_W))
 
 
-def _height_segments(c, frame, S, wall_h):
-    """Line segments (PNG px) for vertical perspective guides: poles at the floor corners/mid-edges,
-    back-wall rings at quarter heights, and the room-box (ceiling) outline. World-accurate."""
-    def px(x, y, z):
-        cx, cy = cam.to_canvas((x, y, z), c)
-        return (cx * S, cy * S)
-    (blx, _a, blz), (brx, _b, brz), (frx, _cc, frz), (flx, _d, flz) = frame.corners_world
-    bl, br, fr, fl = (blx, blz), (brx, brz), (frx, frz), (flx, flz)
-    bm = ((blx + brx) / 2.0, blz)
-    fm = ((flx + frx) / 2.0, flz)
-    ticks = [wall_h * k / 4.0 for k in range(1, 5)]
-    segs = [(px(x, 0, z), px(x, wall_h, z)) for (x, z) in (bl, br, fr, fl, bm, fm)]   # poles
-    segs += [(px(bl[0], h, bl[1]), px(br[0], h, br[1])) for h in ticks]               # back rings
-    tops = [px(x, wall_h, z) for (x, z) in (bl, br, fr, fl)]                           # ceiling box
-    segs += [(tops[i], tops[(i + 1) % 4]) for i in range(4)]
-    return segs
+# Vertical height guides for the PNG come straight from the vendored guide._height_segments
+# (COLORED poles/rings/ceiling-box triples) so the Blender template matches the CLI exactly --
+# no second copy of the projection here. The viewport WIREFRAME (uncolored verts/edges) is a
+# different shape, so it stays as _height_wireframe_blender below.
 
 
 def _height_wireframe_blender(frame, wall_h):
@@ -384,10 +372,11 @@ def floor_quad_blender(c, back_canvas_y, front_canvas_y):
 def paint_template_lines(c, back_canvas_y, front_canvas_y, scale=4, nx=8, nz=8):
     """Line segments (in PNG pixels) for a trace-over paint template, bpy-free + testable.
 
-    Returns {"size": (W, H), "grid": [...], "outline": [...], "height": [...]} where the canvas is
-    the camera's Range * scale (the FULL painting for a scrolling field) and (x,y) are top-left-origin
-    PNG pixels. ``height`` is the vertical perspective guides (poles/rings/ceiling). The bpy operator
-    rasterizes these. The floor fills the wide canvas for a scrolling camera.
+    Returns {"size": (W, H), "grid": [...], "outline": [...], "height": [...], "border": [...]} where
+    the canvas is the camera's Range * scale (the FULL painting for a scrolling field) and (x,y) are
+    top-left-origin PNG pixels. ``height`` is the vertical perspective guides (poles/rings/ceiling) as
+    COLORED (p0, p1, rgba) triples; ``border`` is the canvas safe-frame edge. The bpy operator
+    rasterizes these (matching the CLI render_paint_template). The floor fills a scrolling canvas.
     """
     fr = _floor_frame(c, back_canvas_y, front_canvas_y)
     fx, zb, zf = fr.half_width, fr.zb, fr.zf
@@ -405,8 +394,11 @@ def paint_template_lines(c, back_canvas_y, front_canvas_y, scale=4, nx=8, nz=8):
     grid = [(px(x, zb), px(x, zf)) for x in xs] + [(px(-fx, z), px(fx, z)) for z in zs]
     co = [px(*p) for p in ((-fx, zb), (fx, zb), (fx, zf), (-fx, zf))]
     outline = [(co[i], co[(i + 1) % 4]) for i in range(4)]
-    height = _height_segments(c, fr, S, abs(zb - zf))
-    return {"size": (rw * S, rh * S), "grid": grid, "outline": outline, "height": height}
+    height = guide._height_segments(c, fr, S, abs(zb - zf))      # COLORED (p0, p1, rgba) triples
+    W, H = rw * S, rh * S
+    border = [((1, 1), (W - 2, 1)), ((W - 2, 1), (W - 2, H - 2)),
+              ((W - 2, H - 2), (1, H - 2)), ((1, H - 2), (1, 1))]
+    return {"size": (W, H), "grid": grid, "outline": outline, "height": height, "border": border}
 
 
 def layers_to_toml(layers):
