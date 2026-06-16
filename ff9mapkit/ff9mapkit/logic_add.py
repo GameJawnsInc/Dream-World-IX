@@ -25,9 +25,17 @@ Kinds:
     value, an ATE/dialogue menu row) that runs one of the effects above (named by ``effect``) then rejoins the
     switch's DEFAULT arm (``then = "merge"``). 0x0B/0x0D are contiguous (``case = "auto"`` = base+ncases, the
     only legal extension); 0x06 takes an explicit unused ``case`` value. Length-changing: the operand table
-    grows + the branch body is appended at the function end, and the keystone re-anchors every reloff. (The
-    full coordinated MENU ROW -- case + the ``EnableDialogChoices`` avail-mask + the ``.mes`` row label -- is a
-    deferred follow-up; ``add_case`` alone makes an EXISTING-but-default selector value live.)
+    grows + the branch body is appended at the function end, and the keystone re-anchors every reloff.
+    ``add_case`` alone makes an EXISTING-but-default selector value live -- it adds a dispatch arm but no
+    SELECTABLE, LABELLED menu row.
+  * ``menu_row`` -- the full coordinated MENU ROW: add a NEW selectable + labelled option to an existing
+    dialogue-choice menu. Orchestrates three legs over a CANONICAL menu (a base-0 contiguous GetChoose switch
+    + a text-gated ``[CHOO]`` row list): (A) the dispatch arm (an ``add_case`` at the next contiguous row
+    index, running ``effect``), (B) a best-effort widen of the ``EnableDialogChoices`` (0x7C) availability
+    mask, and (C) a verified splice of the new ``\n[MOVE=18,0]<label>`` row into the menu's single ``.mes``
+    entry (the row-label leg ships in :func:`menu_row_text_plan` / :func:`apply_menu_row_text`, applied by the
+    build). v1 targets TEXT-gated menus (no pre-tag / ``[PCHC]``); a ``[PCHM]`` mask-gated menu (incl. the ATE
+    avail-word menus) fails closed -- the runtime mask leg is a follow-up. One ``menu_row`` per switch.
 
 A ``show_line`` (or any ``message =``) line is APPENDED to the donor ``.mes`` above its txids -- the same
 append-and-resolve channel ``[[on_entry]]`` narration uses (:func:`build._verbatim_on_entry_messages`) -- so
@@ -39,6 +47,8 @@ verbatim (zero new bytecode). The composed ``.eb`` is re-validated by :func:`ff9
 the build ships it -- a bad add fails the BUILD (a clean :class:`LogicAddError`), never a silent mis-splice.
 """
 from __future__ import annotations
+
+import re
 
 from . import flags as _flags
 from .content import event as _event
@@ -52,14 +62,17 @@ _CUMULATIVE = ("give_item", "give_gil")             # need a once-guard (set_fla
 TALK_TAG = 3                                        # the only tag where an UNGATED cumulative effect is sane
 _GIL_CAP = 9_999_999
 _SWITCH_OPS = (0x06, 0x0B, 0x0D)                    # JMP_SWITCHEX (explicit) / JMP_SWITCH (contiguous) / 2-byte
+_DISPATCH_KINDS = ("add_case", "menu_row")          # kinds whose EFFECT is named by `effect` (not `kind`)
+ENABLE_DIALOG_CHOICES = 0x7C                        # CHOOSEPARAM: [argflags][availMask:u16][default:u8]
+CHOICE_INDENT = "[MOVE=18,0]"                       # = content.text.CHOICE_INDENT (per-row menu indent)
 
 
 def _effective_effect_add(add):
-    """The add whose ``kind`` names the EFFECT to encode. For a normal effect add that's ``add`` itself; for an
-    ``add_case`` (where ``kind`` stays ``"add_case"`` and the payload is named by ``effect``) it's a synthesized
-    ``{**add, "kind": <effect>}`` -- so the effect/message/guard machinery treats both uniformly. ``None`` for an
-    ``add_case`` with no ``effect`` (a stub arm)."""
-    if add.get("kind") != "add_case":
+    """The add whose ``kind`` names the EFFECT to encode. For a normal effect add that's ``add`` itself; for a
+    DISPATCH add (``add_case``/``menu_row`` -- ``kind`` stays the dispatch kind, the payload is named by
+    ``effect``) it's a synthesized ``{**add, "kind": <effect>}`` -- so the effect/message/guard machinery treats
+    all of them uniformly. ``None`` for a dispatch add with no ``effect`` (a stub arm)."""
+    if add.get("kind") not in _DISPATCH_KINDS:
         return add
     eff = add.get("effect")
     return {**add, "kind": eff} if eff is not None else None
@@ -358,12 +371,86 @@ def _apply_add_case(eb_bytes, add, alloc, warnings=None, *, message_txid=None) -
     return _insert_case(eb_bytes, eb, f, entry, tag, ins, si, case_value, core)
 
 
+# --- menu_row: the full coordinated ADD of a selectable+labelled choice-menu row -----------------------
+def _menu_row_switch(eb, add):
+    """Locate + VALIDATE a ``menu_row``'s dispatch switch: it must be a base-0 CONTIGUOUS GetChoose switch
+    (0x0B/0x0D, base 0) so the row index IS the case value (1:1). Returns ``(f, ins, si, new_row)`` where
+    ``new_row`` = the existing case count = the next contiguous row index. Raises a clean LogicAddError on a
+    non-canonical menu (explicit 0x06 / non-zero base) -- author those with a manual add_case + logic_edit text."""
+    from .eb import disasm as _disasm
+    entry, tag = _int(add, "entry"), _int(add, "tag")
+    nth = _int(add, "nth", default=None, optional=True)
+    f, ins, si = _locate_switch(eb, entry, tag, nth)
+    if si.op not in (0x0B, 0x0D):
+        raise LogicAddError(f"menu_row needs a CONTIGUOUS GetChoose switch (0x0B/0x0D); entry{entry}/tag{tag}'s "
+                            f"switch is {_disasm.op_name(si.op)} (explicit 0x06) -- author this with a manual "
+                            "add_case (explicit case) + a [[logic_edit]] text row instead")
+    if si.base != 0:
+        raise LogicAddError(f"menu_row needs a base-0 GetChoose switch (the picked row index IS the case value); "
+                            f"entry{entry}/tag{tag}'s switch has base {si.base} -- not a 1:1 menu")
+    new_row = len([e for e in si.edges if not e.is_default])
+    return f, ins, si, new_row
+
+
+def _widen_dialog_mask(eb_bytes, eb, f, sw_ins, new_row, warnings=None) -> bytes:
+    """BEST-EFFORT leg B: OR the new row's bit into the ``EnableDialogChoices`` (0x7C) availability mask that
+    sets up this menu (the last 0x7C before the switch), an in-place LENGTH-PRESERVING operand edit. A no-op
+    (with a warning) when the mask is absent (text-gated menu) or computed at runtime (an expression operand
+    -- ATE avail-word copy / dynamic flag-gated). For a TEXT-gated menu (no pre-tag / ``[PCHC]``) the mask is
+    not consulted, so leaving it unwidened is harmless; this keeps a literal all-on mask looking consistent."""
+    masks = [i for i in eb.instrs(f) if i.op == ENABLE_DIALOG_CHOICES and i.off < sw_ins.off]
+    if not masks:
+        if warnings is not None:
+            warnings.append("menu_row: no EnableDialogChoices (0x7C) precedes the switch -- the menu enables its "
+                            "rows from the text ([CHOO] rows / a [PCHC] count), so the new row relies on the .mes "
+                            "row (+ count); no mask to widen.")
+        return eb_bytes
+    m = masks[-1]
+    if m.arg_is_expr[0]:                                       # a RUNTIME-computed mask -- no literal to patch
+        if warnings is not None:
+            warnings.append("menu_row: the EnableDialogChoices mask is computed at runtime (expression operand), "
+                            "not widened. v1 targets text-gated menus ([PCHC]/no pre-tag); if this menu hides "
+                            "rows via a [PCHM] mask, the new row may not be selectable.")
+        return eb_bytes
+    if new_row >= 16:                                          # the availMask is a u16 -- bit 16+ is unrepresentable
+        if warnings is not None:
+            warnings.append(f"menu_row: row index {new_row} exceeds the 16-bit EnableDialogChoices mask -- the "
+                            "availability bit can't be set. (A [PCHM] mask-gated menu with >16 rows is unsupported; "
+                            "a text-gated menu doesn't consult the mask, so this is harmless there.)")
+        return eb_bytes
+    old = m.imm(0)
+    new = (old | (1 << new_row)) & 0xFFFF
+    if new == old:
+        return eb_bytes                                        # bit already set
+    ba = bytearray(eb_bytes)
+    ba[m.off + 2:m.off + 4] = new.to_bytes(2, "little")        # op(1) + argflags(1) -> mask u16 LE at off+2
+    return bytes(ba)
+
+
+def _apply_menu_row(eb_bytes, add, alloc, warnings=None, *, message_txid=None) -> bytes:
+    """The ``.eb`` side of a ``menu_row``: widen the availability mask (leg B), then ADD the dispatch arm at
+    the next contiguous row index (leg A = ``add_case`` with ``case="auto"``, running ``effect``). The ``.mes``
+    row-label leg (C) is applied by the build via :func:`menu_row_text_plan` / :func:`apply_menu_row_text`."""
+    label = add.get("label")
+    if not isinstance(label, str) or not label:
+        raise LogicAddError("menu_row needs a non-empty `label` (the new row's menu text)")
+    _int(add, "menu_txid")                                     # required: the .mes entry holding the choice rows
+    if add.get("case", "auto") != "auto":
+        raise LogicAddError('menu_row uses case="auto" (the new row is always the next contiguous choice index)')
+    eb = EbScript.from_bytes(eb_bytes)
+    f, ins, si, new_row = _menu_row_switch(eb, add)            # validates base-0 contiguous + computes new_row
+    eb_bytes = _widen_dialog_mask(eb_bytes, eb, f, ins, new_row, warnings)
+    return _apply_add_case(eb_bytes, add, alloc, warnings, message_txid=message_txid)   # leg A (the dispatch arm)
+
+
 def _apply_one(eb_bytes, add, alloc, warnings=None, *, message_txid=None) -> bytes:
     kind = add.get("kind")
     if kind == "add_case":                                     # ADD a switch arm (length-changing table grow)
         return _apply_add_case(eb_bytes, add, alloc, warnings, message_txid=message_txid)
+    if kind == "menu_row":                                     # ADD a selectable+labelled choice-menu row
+        return _apply_menu_row(eb_bytes, add, alloc, warnings, message_txid=message_txid)
     if kind not in _ADD_KINDS:
-        raise LogicAddError(f"logic_add unknown kind '{kind}' (kinds: {_ADD_KINDS} + 'add_case')")
+        raise LogicAddError(f"logic_add unknown kind '{kind}' (kinds: {_ADD_KINDS} + 'add_case'/'menu_row')")
     where = add.get("where", "prepend")
     if where not in ("prepend", "after"):
         raise LogicAddError(f"logic_add where='{where}' is not supported (use 'prepend' or 'after'; "
@@ -423,7 +510,123 @@ def apply_logic_adds(eb_bytes, adds, *, guard_base=None, guard_window=None, rese
         return bytes(eb_bytes)
     message_txids = message_txids or {}
     alloc = _GuardAlloc(guard_base, guard_window, adds, reserved_flags)
+    if any(a.get("kind") == "menu_row" for a in adds):         # leg-A/leg-C alignment guard (see below)
+        _assert_menu_row_switches(EbScript.from_bytes(eb_bytes), adds)
     out = bytes(eb_bytes)
     for idx, add in enumerate(adds):
         out = _apply_one(out, add, alloc, warnings, message_txid=message_txids.get(idx))
     return out
+
+
+# --- menu_row leg C: the .mes row-label splice (applied by the build, NOT part of the .eb byte stream) ---
+_PCHC_RE = re.compile(r"\[PCHC=(\d+),(\d+)((?:,\d+)*)\]")      # pre-choose config: count, cancel-row, +extra fields
+_TRAILING_TAGS_RE = re.compile(r"(?:\[[A-Z][A-Z0-9]*(?:=[^\]]*)?\])+$")   # a run of [TAG]/[TAG=..] at the very end
+
+
+def _switch_off(eb, add):
+    """The absolute byte offset of the switch an ``add_case``/``menu_row`` targets on ``eb``'s bytes, or None for
+    a non-dispatch add. Used to detect two dispatch adds hitting the SAME switch regardless of how ``nth`` is
+    spelled (``None`` vs an explicit ``0`` on a single-switch function resolve to the same instruction)."""
+    if add.get("kind") not in _DISPATCH_KINDS:
+        return None
+    _f, ins, _si = _locate_switch(eb, _int(add, "entry"), _int(add, "tag"),
+                                  _int(add, "nth", default=None, optional=True))
+    return ins.off
+
+
+def _assert_menu_row_switches(eb, adds):
+    """Reject a ``menu_row`` that shares its switch with ANY other dispatch add (``add_case``/``menu_row``).
+    The ``menu_row`` row index (leg C) is planned from the PRE-add switch, while the dispatch case (leg A) is
+    computed from the LIVE bytes as adds apply sequentially -- so a second dispatch add growing the same switch
+    first would land leg A on a different case than the planned row, mis-aligning the menu (no error otherwise).
+    Keys by switch OFFSET, so it also catches ``nth=None`` vs ``nth=0`` duplicates + two menu_rows on one switch.
+    ``eb`` = the pre-add bytes; a non-locatable other add is skipped (its own miss surfaces at apply)."""
+    dispatch = [(i, a) for i, a in enumerate(adds) if a.get("kind") in _DISPATCH_KINDS]
+    offs = {}
+    for i, a in dispatch:
+        try:
+            offs[i] = _switch_off(eb, a)
+        except LogicAddError:
+            offs[i] = None                                     # the other add's own error surfaces at apply
+    for i, a in dispatch:
+        if a.get("kind") != "menu_row" or offs[i] is None:
+            continue
+        for j, _b in dispatch:
+            if j != i and offs[j] == offs[i]:
+                raise LogicAddError(f"menu_row at index {i} shares its switch (entry{_int(a, 'entry')}/"
+                                    f"tag{_int(a, 'tag')}) with another dispatch add (add_case/menu_row) at index "
+                                    f"{j} -- they would mis-align the row index. Use ONE menu_row per switch, or "
+                                    "split across fields.")
+
+
+def menu_row_text_plan(eb_bytes, adds):
+    """For each ``menu_row`` add (in normalized order): ``(idx, menu_txid, label, new_row)`` -- the data the
+    build needs to splice the row LABEL into the donor ``.mes``. ``new_row`` is read from the ORIGINAL switch
+    (``eb_bytes`` = the pre-``logic_add`` bytes), so it matches the dispatch arm :func:`apply_logic_adds` adds.
+    Empty -> no ``.mes`` work. :func:`_assert_menu_row_switches` enforces ONE dispatch add per switch (a second
+    would mis-align the row index). Raises a clean :class:`LogicAddError` on a non-canonical menu."""
+    adds = _normalize_adds(adds)
+    if not any(a.get("kind") == "menu_row" for a in adds):
+        return []
+    eb = EbScript.from_bytes(eb_bytes)
+    _assert_menu_row_switches(eb, adds)
+    out = []
+    for idx, add in enumerate(adds):
+        if add.get("kind") != "menu_row":
+            continue
+        label = add.get("label")
+        if not isinstance(label, str) or not label:
+            raise LogicAddError("menu_row needs a non-empty `label` (the new row's menu text)")
+        if "\n" in label:
+            raise LogicAddError(f"menu_row label may not contain a newline (it would inject a phantom row): {label!r}")
+        _f, _ins, _si, new_row = _menu_row_switch(eb, add)
+        out.append((idx, _int(add, "menu_txid"), label, new_row))
+    return out
+
+
+def apply_menu_row_text(body, plan, lang, warnings=None):
+    r"""Leg C: splice each planned ``menu_row``'s ``\n[MOVE=18,0]<label>`` row into the menu's single ``.mes``
+    entry (the verbatim donor body), bumping a ``[PCHC]`` row count. A VERIFIED splice (every other entry stays
+    byte-identical, via :func:`logic_edit.verified_mes_splice`). Fails CLOSED on a ``[PCHM]`` mask-gated menu, a
+    missing/non-choice entry, an unsupported trailing window tag (only a final ``[IMME]`` is handled), or a row
+    count that doesn't match the dispatch (so the row index and case stay 1:1). ``plan`` =
+    :func:`menu_row_text_plan`; empty plan/body -> unchanged."""
+    if not plan or not body:
+        return body
+    from . import logic_edit as _le
+    from .dialogue import parse_mes
+    for (_idx, menu_txid, label, new_row) in plan:
+        ent = parse_mes(body).get(menu_txid)
+        if ent is None:
+            raise LogicAddError(f"menu_row: menu_txid {menu_txid} not found in the {lang} .mes")
+        text = ent.text
+        choo = text.find("[CHOO]")
+        if choo < 0:
+            raise LogicAddError(f"menu_row: menu_txid {menu_txid} is not a choice menu (no [CHOO] tag) in the "
+                                f"{lang} .mes")
+        if "[PCHM=" in text:                                   # mask-gated (any arity) -- v1 fails closed
+            raise LogicAddError(f"menu_row: menu_txid {menu_txid} is a [PCHM] mask-gated menu -- v1 targets "
+                                "text-gated menus ([PCHC] / no pre-tag); a mask-gated row is a follow-up")
+        after = text[choo + len("[CHOO]"):]                    # the row list (then maybe a trailing tag run)
+        tail = _TRAILING_TAGS_RE.search(after)
+        tail_str = tail.group(0) if tail else ""
+        if tail_str and tail_str != "[IMME]":                  # an unknown trailing window tag -> don't corrupt it
+            raise LogicAddError(f"menu_row: menu_txid {menu_txid} ends with an unsupported trailing tag "
+                                f"{tail_str!r} ({lang} .mes) -- v1 handles plain rows (+ a final [IMME])")
+        rows = after[:len(after) - len(tail_str)].split("\n")  # the row segments (excluding the trailing tag run)
+        if len(rows) != new_row:
+            raise LogicAddError(f"menu_row: menu_txid {menu_txid} has {len(rows)} row(s) but the dispatch expects "
+                                f"the new row at index {new_row} ({lang} .mes) -- the menu's rows and its "
+                                "GetChoose switch aren't 1:1 (donor drift / not a single-line canonical menu)")
+        seg = "\n" + CHOICE_INDENT + label
+        new_text = (text[:len(text) - len(tail_str)] + seg + tail_str) if tail_str else (text + seg)
+        cm = _PCHC_RE.search(text)
+        if cm and cm.start() < choo:                           # a [PCHC] BEFORE the rows: bump count, keep the rest
+            new_text = (new_text[:cm.start()] + f"[PCHC={int(cm.group(1)) + 1},{cm.group(2)}{cm.group(3)}]"
+                        + new_text[cm.end():])
+        elif warnings is not None:                             # no pre-tag: CANCEL (B) = the (new) last row
+            warnings.append(f"menu_row: menu_txid {menu_txid} has no pre-tag, so CANCEL (B) returns the LAST row "
+                            "-- the new row is now last, so B will trigger it. Add a [PCHC] cancel row if that's "
+                            "unwanted.")
+        body = _le.verified_mes_splice(body, menu_txid, new_text, lang=lang, err=LogicAddError)
+    return body

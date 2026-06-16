@@ -431,11 +431,47 @@ def _splice_block(part: str, new_text: str) -> str:
     return part[:b + 1] + tail_str + new_text + part[endn:]
 
 
+def verified_mes_splice(body: str, txid: int, new_text: str, *, lang: str, err=None) -> str:
+    """Replace ONLY ``txid``'s text payload with ``new_text`` in an index-implicit ``.mes`` body, then re-parse
+    and assert every OTHER entry is byte-identical -- a botched splice fails the build, not the player. Shared by
+    the dialogue-string rewrite (``kind="text"``) and the ``logic_add`` ``menu_row`` row-label splice. ``err`` is
+    the exception class to raise (defaults to :class:`LogicEditError`, so a ``menu_row`` caller can pass its own
+    ``LogicAddError``). v1 supports the verbatim donor body (no ``[TXID=]`` re-index markers)."""
+    from .dialogue import parse_mes
+    err = err or LogicEditError
+    if "[TXID=" in body:
+        raise err("a .mes splice on a [TXID=]-reindexed body is not supported (Phase 2b)")
+    before = parse_mes(body)
+    if txid not in before:
+        raise err(f"txid {txid} not found in the {lang} .mes")
+    parts = body.split("[STRT=")
+    if not (0 <= txid + 1 < len(parts)):                      # index-implicit: txid == position == part index-1
+        raise err(f"txid {txid} out of range in the {lang} .mes")
+    try:
+        parts[txid + 1] = _splice_block(parts[txid + 1], new_text)
+    except LogicEditError as ex:                              # _splice_block speaks LogicEditError -> normalize to err
+        raise err(str(ex))
+    spliced = "[STRT=".join(parts)
+    after = parse_mes(spliced)                                # VERIFY: only the target entry changed
+    if len(after) != len(before):
+        raise err(f"the .mes splice changed the entry count ({lang})")
+    for t, e in before.items():
+        got = after.get(t)
+        if got is None:
+            raise err(f"the .mes splice dropped txid {t} ({lang})")
+        if t == txid:
+            if got.text != new_text:
+                raise err(f"the .mes splice didn't take for txid {txid} ({lang})")
+        elif (got.text, got.strt, got.tail) != (e.text, e.strt, e.tail):
+            raise err(f"the .mes splice corrupted txid {t} ({lang})")
+    return spliced
+
+
 def apply_logic_text_edits(body: str, edits, lang: str) -> str:
     """Apply every ``kind="text"`` edit whose ``lang`` is unset or == ``lang`` to a ``.mes`` body, returning the
-    rewritten body. A VERIFIED in-place splice: it replaces one entry's text payload, then re-parses and asserts
-    every OTHER entry is byte-identical (so a botched splice fails the build, not the player). v1 supports the
-    index-implicit verbatim donor body (no ``[TXID=]`` re-index markers)."""
+    rewritten body. A VERIFIED in-place splice (:func:`verified_mes_splice`): it replaces one entry's text
+    payload, then re-parses and asserts every OTHER entry is byte-identical (so a botched splice fails the build,
+    not the player). v1 supports the index-implicit verbatim donor body (no ``[TXID=]`` re-index markers)."""
     text_edits = [e for e in _edit_list(edits) if e.get("kind") == "text" and e.get("lang") in (None, lang)]
     if not text_edits or not body:
         return body
@@ -446,30 +482,12 @@ def apply_logic_text_edits(body: str, edits, lang: str) -> str:
         txid, old, new = _int(ed, "txid"), _req(ed, "old"), _req(ed, "new")
         if not isinstance(old, str) or not isinstance(new, str):
             raise LogicEditError(f"logic_edit text txid {txid}: 'old' and 'new' must be strings")
-        before = parse_mes(body)
-        ent = before.get(txid)
+        ent = parse_mes(body).get(txid)
         if ent is None:
             raise LogicEditError(f"logic_edit text: txid {txid} not found in the {lang} .mes")
         if old not in (ent.text, strip_tags(ent.text)):
             raise LogicEditError(f"logic_edit text txid {txid} ({lang}): current line != `old` (donor drifted)")
-        parts = body.split("[STRT=")
-        if not (0 <= txid + 1 < len(parts)):                  # index-implicit: txid == position == part index-1
-            raise LogicEditError(f"logic_edit text: txid {txid} out of range in the {lang} .mes")
-        parts[txid + 1] = _splice_block(parts[txid + 1], new)
-        spliced = "[STRT=".join(parts)
-        after = parse_mes(spliced)                            # VERIFY: only the target entry changed
-        if len(after) != len(before):
-            raise LogicEditError(f"logic_edit text splice changed the .mes entry count ({lang})")
-        for t, e in before.items():
-            got = after.get(t)
-            if got is None:
-                raise LogicEditError(f"logic_edit text splice dropped txid {t} ({lang})")
-            if t == txid:
-                if got.text != new:
-                    raise LogicEditError(f"logic_edit text splice didn't take for txid {txid} ({lang})")
-            elif (got.text, got.strt, got.tail) != (e.text, e.strt, e.tail):
-                raise LogicEditError(f"logic_edit text splice corrupted txid {t} ({lang})")
-        body = spliced
+        body = verified_mes_splice(body, txid, new, lang=lang)
     return body
 
 

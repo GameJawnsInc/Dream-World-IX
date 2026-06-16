@@ -536,3 +536,210 @@ def test_logic_add_on_real_fields():
         tested += 1
     if not tested:
         pytest.skip("none of the sample fields were present in this install")
+
+
+# ---- menu_row: the coordinated ADD of a selectable+labelled choice-menu row -------------------------
+def _menu_eb(ncases=2, mask=3, *, expr_mask=False, no_mask=False) -> bytes:
+    """A 1-entry .eb whose entry0/tag0 is a canonical choice menu: an EnableDialogChoices(mask) (unless
+    no_mask) + a base-0 contiguous SWITCH over ``ncases`` rows -> distinct SetTriangleFlagMask(k) arms."""
+    labels = [f"L{k}" for k in range(ncases)]
+    arms = "\n".join(f"{labels[k]}:\nSetTriangleFlagMask({k + 1})\nRET()" for k in range(ncases))
+    src = ""
+    if not no_mask:
+        src += ("EnableDialogChoices({Map.Int16[0] B_EXPR_END}, 0)\n" if expr_mask
+                else f"EnableDialogChoices({mask}, 0)\n")
+    src += "SET({Map.Int16[0] B_EXPR_END})\n" + f"SWITCH(0, Ld, {', '.join(labels)})\n" + arms + "\nLd:\nRET()"
+    return _eb((0, cmdasm.assemble_block(src)))
+
+
+def _choice_payload(prompt, rows, pretag=""):
+    from ff9mapkit.content import text as T
+    return pretag + prompt + T.CHOICE_OPEN + ("\n" + T.CHOICE_INDENT).join(rows)
+
+
+def _donor_mes(*payloads) -> str:
+    """An index-implicit verbatim DONOR .mes (no [TXID=] markers): payload i is at txid i."""
+    import re
+
+    from ff9mapkit.content import text as T
+    marked, _n = T.build_mes(list(payloads), start_txid=0)
+    return re.sub(r"\[TXID=\d+\]", "", marked).lstrip("_").rstrip("\n")
+
+
+_ROW = {"kind": "menu_row", "entry": 0, "tag": 0, "menu_txid": 0, "label": "Get a Potion",
+        "effect": "give_item", "item": "Potion"}
+
+
+def test_menu_row_eb_adds_arm_and_widens_mask():
+    """The .eb legs: a new contiguous dispatch arm (case = ncases) AND the EnableDialogChoices mask gains the
+    new row's bit (3 -> 7 for a 2-row menu becoming 3-row), eblint-clean + byte-round-trips."""
+    eb = _menu_eb(ncases=2, mask=3)
+    out = LA.apply_logic_adds(eb, [{**_ROW, "effect": "set_flag", "flag": 8520}])
+    s = EbScript.from_bytes(out)
+    f = s.entry(0).func_by_tag(0)
+    si = disasm.decode_switch(next(i for i in s.instrs(f) if i.is_switch))
+    assert {e.value for e in si.edges if not e.is_default} == {0, 1, 2}        # the new contiguous arm
+    assert next(i for i in s.instrs(f) if i.op == LA.ENABLE_DIALOG_CHOICES).imm(0) == 7   # mask widened
+    assert _clean(out)
+
+
+def test_menu_row_text_appends_row_and_warns_cancel():
+    """The .mes leg (no pre-tag): the label is appended as the last row; every other entry stays byte-identical;
+    a warning notes the new last row becomes the CANCEL target."""
+    eb = _menu_eb(ncases=2)
+    donor = _donor_mes("hi", _choice_payload("Well?", ["Yes", "No"]), "bye")   # menu at txid 1
+    plan = LA.menu_row_text_plan(eb, [{**_ROW, "menu_txid": 1, "label": "Get a Potion"}])
+    warns = []
+    out = LA.apply_menu_row_text(donor, plan, "us", warnings=warns)
+    from ff9mapkit import dialogue as D
+    ents = D.parse_mes(out)
+    assert ents[1].text.endswith("\n[MOVE=18,0]Get a Potion") and ents[1].text.count("[MOVE=18,0]") == 3
+    assert ents[0].text == "hi" and ents[2].text == "bye"                      # neighbours untouched
+    assert any("CANCEL" in w for w in warns)
+
+
+def test_menu_row_text_pchc_bumps_count():
+    """A [PCHC=count,cancel] menu: the count is bumped (2 -> 3), cancel row unchanged, no cancel warning."""
+    eb = _menu_eb(ncases=2)
+    donor = _donor_mes(_choice_payload("Well?", ["Yes", "No"], pretag="[PCHC=2,1]"))
+    warns = []
+    out = LA.apply_menu_row_text(donor, LA.menu_row_text_plan(eb, [_ROW]), "us", warnings=warns)
+    from ff9mapkit import dialogue as D
+    assert "[PCHC=3,1]" in D.parse_mes(out)[0].text and not any("CANCEL" in w for w in warns)
+
+
+def test_menu_row_text_rejects_pchm_and_bad_menus():
+    """The .mes leg fails closed on a [PCHM] mask-gated menu, a missing txid, a non-choice entry, and a
+    row-count that doesn't match the dispatch (rows != new_row)."""
+    eb = _menu_eb(ncases=2)
+    plan2 = LA.menu_row_text_plan(eb, [_ROW])
+    cases = {
+        "PCHM": _donor_mes(_choice_payload("Well?", ["Yes", "No"], pretag="[PCHM=2,1]")),
+        "no [CHOO]": _donor_mes("just a line"),
+        "rows != new_row": _donor_mes(_choice_payload("Well?", ["Yes", "No", "Maybe"])),   # 3 rows, expects 2
+    }
+    for _why, donor in cases.items():
+        with pytest.raises(LA.LogicAddError):
+            LA.apply_menu_row_text(donor, plan2, "us")
+    with pytest.raises(LA.LogicAddError):                                      # txid 9 absent
+        LA.apply_menu_row_text(_donor_mes("a"), [(0, 9, "X", 2)], "us")
+
+
+def test_menu_row_imme_suffix_preserved():
+    """An [IMME] (instant-pop) suffix stays LAST -- the new row is inserted before it."""
+    eb = _menu_eb(ncases=2)
+    donor = _donor_mes(_choice_payload("Well?", ["Yes", "No"]) + "[IMME]")
+    out = LA.apply_menu_row_text(donor, LA.menu_row_text_plan(eb, [_ROW]), "us")
+    from ff9mapkit import dialogue as D
+    assert D.parse_mes(out)[0].text.endswith("\n[MOVE=18,0]Get a Potion[IMME]")
+
+
+def test_menu_row_eb_rejects_noncanonical_switch():
+    """The .eb leg requires a base-0 contiguous GetChoose switch: a 0x06 SWITCHEX and a non-zero base both fail."""
+    sx = _eb((0, _sw_body(switchex=True)))                                     # 0x06 explicit
+    with pytest.raises(LA.LogicAddError):
+        LA.apply_logic_adds(sx, [_ROW])
+    # a base-2 contiguous switch (selector != row index) -- author manually
+    nb = _eb((0, cmdasm.assemble_block(
+        "SET({Map.Int16[0] B_EXPR_END})\nSWITCH(2, Ld, La, Lb)\n"
+        "La:\nSetTriangleFlagMask(1)\nRET()\nLb:\nSetTriangleFlagMask(2)\nRET()\nLd:\nRET()")))
+    with pytest.raises(LA.LogicAddError):
+        LA.apply_logic_adds(nb, [_ROW])
+
+
+def test_menu_row_rejects_dup_switch_and_missing_keys():
+    """Two menu_rows on the same switch (would mis-align both row indices) and a missing label/menu_txid fail."""
+    eb = _menu_eb(ncases=2)
+    with pytest.raises(LA.LogicAddError):
+        LA.menu_row_text_plan(eb, [_ROW, {**_ROW, "label": "Two"}])             # same entry/tag/nth
+    with pytest.raises(LA.LogicAddError):
+        LA.apply_logic_adds(eb, [{k: v for k, v in _ROW.items() if k != "label"}])
+    with pytest.raises(LA.LogicAddError):
+        LA.apply_logic_adds(eb, [{k: v for k, v in _ROW.items() if k != "menu_txid"}])
+
+
+def test_menu_row_message_announce():
+    """A menu_row may carry a message (the 'Received X!' box shown when the row is picked): plan_messages sees
+    it, and the inserted branch emits a WindowSync at the build-allocated txid."""
+    assert LA.plan_messages([{**_ROW, "message": "Got it!"}]) == [(0, "Got it!", None, None)]
+    eb = _menu_eb(ncases=2)
+    out = LA.apply_logic_adds(eb, [{**_ROW, "message": "Got it!"}], message_txids={0: 1001})
+    _eb_, ins = _instrs(out)
+    assert any(i.op == 0x1F and i.imm(2) == 1001 for i in ins) and _clean(out)
+
+
+def test_menu_row_mask_best_effort():
+    """The mask widen is BEST-EFFORT: an expression-operand (runtime-computed) mask and a no-mask menu both
+    WARN but still add the dispatch arm (text-gated menus don't consult the mask)."""
+    for eb in (_menu_eb(ncases=2, expr_mask=True), _menu_eb(ncases=2, no_mask=True)):
+        warns = []
+        out = LA.apply_logic_adds(eb, [{**_ROW, "effect": "set_flag", "flag": 8520}], warnings=warns)
+        assert 2 in _sw_edges(out) and _clean(out) and warns
+
+
+def test_menu_row_on_real_field_206():
+    """On REAL field 206 (the ATE warp menu, entry5/tag1, 0x0B base 0): the menu_row .eb orchestration adds a
+    contiguous arm + stays eblint-clean (its runtime-computed mask is left as a best-effort warn)."""
+    try:
+        from ff9mapkit.extract import EventBundle
+        data = EventBundle().eb_for_id(206)
+    except Exception:                                                          # noqa: BLE001
+        pytest.skip("no game install / field 206 absent")
+    if not data:
+        pytest.skip("field 206 not in this install")
+    warns = []
+    out = LA.apply_logic_adds(data, [{"kind": "menu_row", "entry": 5, "tag": 1, "menu_txid": 353,
+                                      "label": "Extra", "effect": "give_item", "item": "Phoenix Down"}],
+                              warnings=warns)
+    assert len(out) > len(data) and _clean(out)
+    # the new contiguous arm exists (rows 0-4 -> +row 5)
+    plan = LA.menu_row_text_plan(data, [{"kind": "menu_row", "entry": 5, "tag": 1, "menu_txid": 353,
+                                         "label": "Extra"}])
+    assert plan and plan[0][3] == 5                                            # new_row = 5 (after rows 0-4)
+
+
+def test_menu_row_rejects_shared_switch_with_other_dispatch_add():
+    """A menu_row sharing its switch with ANOTHER dispatch add (an add_case, OR a second menu_row spelled with
+    nth=0 vs None) would mis-align the planned row index vs the live dispatch case -- rejected by BOTH the plan
+    and apply_logic_adds."""
+    eb = _menu_eb(ncases=2)
+    collisions = [
+        [_ROW, {"kind": "add_case", "entry": 0, "tag": 0, "case": "auto", "effect": "set_flag", "flag": 8521}],
+        [_ROW, {**_ROW, "nth": 0, "label": "B"}],                              # two menu_rows, nth=None vs 0
+    ]
+    for adds in collisions:
+        with pytest.raises(LA.LogicAddError):
+            LA.menu_row_text_plan(eb, adds)
+        with pytest.raises(LA.LogicAddError):
+            LA.apply_logic_adds(eb, adds)
+    # but a menu_row + a PREPEND (no switch growth) on the same function is fine (prepend doesn't add a case)
+    ok = LA.apply_logic_adds(eb, [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8522}, _ROW])
+    assert 2 in _sw_edges(ok) and _clean(ok)
+
+
+def test_menu_row_text_rejects_unknown_trailing_tag():
+    """A non-[IMME] trailing window tag (e.g. [TIME=..]) would land the new row AFTER the tag -- fail closed."""
+    eb = _menu_eb(ncases=2)
+    donor = _donor_mes(_choice_payload("Well?", ["Yes", "No"]) + "[TIME=300]")
+    with pytest.raises(LA.LogicAddError):
+        LA.apply_menu_row_text(donor, LA.menu_row_text_plan(eb, [_ROW]), "us")
+
+
+def test_menu_row_text_pretag_arity():
+    """[PCHM] is rejected at ANY arity (2- or 3-field); a [PCHC] count bump preserves trailing fields."""
+    eb = _menu_eb(ncases=2)
+    for pm in ("[PCHM=2,1]", "[PCHM=2,1,0]"):
+        donor = _donor_mes(_choice_payload("Well?", ["Yes", "No"], pretag=pm))
+        with pytest.raises(LA.LogicAddError):
+            LA.apply_menu_row_text(donor, LA.menu_row_text_plan(eb, [_ROW]), "us")
+    from ff9mapkit import dialogue as D
+    donor = _donor_mes(_choice_payload("Well?", ["Yes", "No"], pretag="[PCHC=2,1,0]"))
+    out = LA.apply_menu_row_text(donor, LA.menu_row_text_plan(eb, [_ROW]), "us")
+    assert "[PCHC=3,1,0]" in D.parse_mes(out)[0].text                          # count bumped, extra field kept
+
+
+def test_menu_row_rejects_newline_label():
+    """A label with an embedded newline would inject a phantom row -- rejected at plan time."""
+    eb = _menu_eb(ncases=2)
+    with pytest.raises(LA.LogicAddError):
+        LA.menu_row_text_plan(eb, [{**_ROW, "label": "two\nlines"}])

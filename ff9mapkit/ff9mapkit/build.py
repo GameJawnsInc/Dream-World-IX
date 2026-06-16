@@ -505,6 +505,13 @@ def _validate_logic_adds(project: FieldProject, problems: list) -> None:
         out = _la.apply_logic_adds(base, adds, guard_base=gb, guard_window=gw, reserved_flags=rf,
                                    message_txids=la_txids)
         problems += [f"[[logic_add]] composed .eb: {e}" for e in _eblint.errors(_eblint.lint_eb(out))]
+        # a menu_row also splices a .mes ROW per language -- dry-run it against each donor body (missing txid /
+        # no [CHOO] / [PCHM] mask-gated / row-count mismatch), like the build's text loop. base = pre-add bytes.
+        plan = _la.menu_row_text_plan(base, adds)
+        if plan:
+            from .content import verbatim as _vb
+            for lang in _LANGS:
+                _la.apply_menu_row_text(_vb.verbatim_mes(project, lang) or "", plan, lang)
     except (_la.LogicAddError, _le.LogicEditError) as ex:
         problems.append(f"[[logic_add]] {ex}")
     except Exception as ex:                              # noqa: BLE001 -- never crash validate
@@ -538,7 +545,14 @@ def dry_run_logic_adds(project: FieldProject) -> "str | None":
         out = _la.apply_logic_adds(base, adds, guard_base=gb, guard_window=gw, reserved_flags=rf,
                                    message_txids=la_txids)
         errs = _eblint.errors(_eblint.lint_eb(out))
-        return (f"composed .eb: {errs[0]}") if errs else None    # EbIssue.__str__ (str+EbIssue would TypeError)
+        if errs:
+            return f"composed .eb: {errs[0]}"                    # EbIssue.__str__ (str+EbIssue would TypeError)
+        plan = _la.menu_row_text_plan(base, adds)               # a menu_row also splices a .mes row (per lang)
+        if plan:
+            from .content import verbatim as _vb
+            for lang in _LANGS:
+                _la.apply_menu_row_text(_vb.verbatim_mes(project, lang) or "", plan, lang)
+        return None
     except (_la.LogicAddError, _le.LogicEditError) as ex:
         return str(ex)
     except Exception as ex:                              # noqa: BLE001
@@ -3518,6 +3532,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     verbatim_bytes, oe_suffix = compose_verbatim_eb(project, langs=langs, warnings=warnings)
     verbatim_edits = project.logic_edits()
     la_suffix: dict = {}                                        # [[logic_add]] show_line / message lines (per lang)
+    menu_row_plan: list = []                                    # [[logic_add]] menu_row .mes row splices (per lang)
     if verbatim_bytes is not None:
         # Phase-2 in-place value edits ([[logic_edit]]): run LAST -- the applier self-locates by entry/tag/op +
         # the old value (re-decoding the FINAL bytes), so the field-load inserts above don't invalidate it. Each
@@ -3548,6 +3563,9 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                 # a show_line / message add gets a txid above the donor `.mes` + the [[on_entry]] block; its
                 # appended line ships in la_suffix below, and the inserted WindowSync resolves into it.
                 _la_txids, la_suffix = _logic_add_message_plan(project, langs)
+                # a menu_row's .mes row-label splice (leg C) -- planned from the PRE-add bytes (so its row index
+                # matches the dispatch arm) and applied to each language's donor body in the text loop below.
+                menu_row_plan = _logic_add.menu_row_text_plan(verbatim_bytes, verbatim_adds)
                 verbatim_bytes = _logic_add.apply_logic_adds(verbatim_bytes, verbatim_adds, guard_base=_gb,
                                                             guard_window=_gw, reserved_flags=_rf,
                                                             message_txids=_la_txids, warnings=warnings)
@@ -3579,6 +3597,15 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             if verbatim_edits:                                  # Phase-2 dialogue-string rewrites (per language)
                 from . import logic_edit as _logic_edit
                 lang_body = _logic_edit.apply_logic_text_edits(lang_body, verbatim_edits, lang)
+            if menu_row_plan:                                   # [[logic_add]] menu_row: splice the row label in
+                from . import logic_add as _logic_add
+                # ORDER MATTERS: the menu row is spliced into the donor's index-implicit body BEFORE the
+                # [[on_entry]]/[[logic_add]] message suffixes are appended below -- those carry [TXID=] markers,
+                # which verified_mes_splice rejects. Keep the splice ahead of the `+ oe_suffix + la_suffix`.
+                try:
+                    lang_body = _logic_add.apply_menu_row_text(lang_body, menu_row_plan, lang, warnings=warnings)
+                except _logic_add.LogicAddError as ex:          # match Check: a clean failure, not a traceback
+                    raise BuildError(f"[[logic_add]] menu_row in {project.name}: {ex}")
             lang_body = lang_body + oe_suffix.get(lang, "") + la_suffix.get(lang, "")
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
