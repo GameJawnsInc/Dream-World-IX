@@ -841,9 +841,13 @@ def validate(project: FieldProject) -> list[str]:
         z = pf.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (3, 4, 5):   # a scalar zone would len()-crash the lint
             problems.append(f"[[platform]] zone must have 3-5 points (the boarding trigger), got {_zone_desc(z)}")
+        land = pf.get("land")
         rise = pf.get("rise")
-        if not (isinstance(rise, int) and rise != 0):
-            problems.append(f"[[platform]] needs rise = <world units> (a non-zero int; positive = up), got {rise!r}")
+        if land is not None:
+            if not (isinstance(land, (list, tuple)) and len(land) in (2, 3)):
+                problems.append(f"[[platform]] land must be [x, z] or [x, z, y] (the landing floor), got {land!r}")
+        elif not (isinstance(rise, int) and rise != 0):
+            problems.append(f"[[platform]] needs land = [x, z, y] (ride to a floor) OR rise = <units> (nonzero), got rise={rise!r}")
         dur = pf.get("duration", _platform.DEFAULT_DURATION)
         if not (isinstance(dur, int) and dur > 0):
             problems.append(f"[[platform]] duration must be a positive integer (ride frames), got {dur!r}")
@@ -2902,7 +2906,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             if len(pz) == 4:
                 pz = _gw.quad_zone(pz)
             eb, _ = _platform.inject_platform(
-                eb, [tuple(p) for p in pz], rise=int(pf["rise"]),
+                eb, [tuple(p) for p in pz],
+                rise=(int(pf["rise"]) if "rise" in pf else None), land=pf.get("land"),
+                speed=int(pf.get("speed", _platform.DEFAULT_SPEED)),
                 ride_tag=ptag, duration=int(pf.get("duration", _platform.DEFAULT_DURATION)),
                 animation=pf.get("animation"), trigger=pf.get("trigger", "action"),
                 bubble=pf.get("bubble", True), warp_to=pf.get("warp_to"),

@@ -58,6 +58,30 @@ def test_zero_rise_rejected():
     import pytest
     with pytest.raises(ValueError):
         _platform.carry_body(rise=0)             # a zero ride never moves
+    with pytest.raises(ValueError):
+        _platform.carry_body()                   # neither land nor rise
+
+
+# --- land mode: ride from the boarding spot to an absolute floor (clean landing) ----------
+def test_carry_land_rides_to_absolute_point():
+    body = _platform.carry_body(land=(12, 432, -474), speed=30)
+    ops = _ops(body)
+    assert ops.count(0xA1) == 2                  # interpolated loop snap + exact final snap (to the landing)
+    assert 0x22 in ops and 0x03 in ops and ops[-1] == 0x04
+    # captures boarding x / z / selfY (MAP.I16[5]/[6]/[4]) -- the ride interpolates FROM there
+    for idx in (_platform.PLATFORM_START_X, _platform.PLATFORM_START_Z, _platform.PLATFORM_START):
+        assert bytes([_platform._region.MAP_INT16, idx]) in body
+    # the exact final snap carries the landing's x (12) and selfY (-(-474)=474) as constants
+    import struct
+    assert struct.pack("<h", 12) in body and struct.pack("<h", 474) in body
+
+
+def test_inject_land_platform_lints_clean():
+    eb, _ = _platform.inject_platform(CLEAN, ZONE, land=(12, 432, -474))
+    parsed = EbScript.from_bytes(eb)
+    pe = find_player_entry(parsed)
+    assert parsed.entry(pe).func_by_tag(_platform.FIRST_PLATFORM_TAG) is not None
+    assert _new_errors(eb) == []
 
 
 def test_warp_tail_emits_field_transition():

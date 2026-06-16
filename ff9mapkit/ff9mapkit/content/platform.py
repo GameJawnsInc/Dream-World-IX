@@ -38,19 +38,83 @@ PLAYER_UID = 250          # the controlled player's runtime UID (standard across
 FIRST_PLATFORM_TAG = 56   # player ride funcs start here -- clear of ladder (17+) / jump (40+) climb tags,
                           #   below the object-carry player band (64+); one tag per platform
 RUNSCRIPT_LEVEL = 2       # the script level RunScriptSync uses (matches the real ladder/jump triggers)
-PLATFORM_SCRATCH = 3      # MAP.I16[3]: the ride's destination selfY (computed once at board; the ladder uses [2])
+PLATFORM_SCRATCH = 3      # MAP.I16[3]: this frame's stepped selfY target (transient per-field)
 PLATFORM_START = 4        # MAP.I16[4]: the captured boarding selfY (the height the player rides FROM)
-DEFAULT_DURATION = 32     # ride frames -- the ride eases over ~this many frames (linear, always terminates)
+PLATFORM_START_X = 5      # MAP.I16[5]: the captured boarding world-X
+PLATFORM_START_Z = 6      # MAP.I16[6]: the captured boarding world-Z
+DEFAULT_DURATION = 32     # ride frames (for the relative `rise` mode -- linear, always terminates)
+DEFAULT_SPEED = 30        # world-units/frame for the absolute `land` mode (ride duration = distance/speed)
 
 
 def _scratch() -> bytes:
-    """The ride's destination selfY var (MAP.I16[PLATFORM_SCRATCH]); transient per-field, set once per ride."""
+    """This frame's stepped selfY target (MAP.I16[PLATFORM_SCRATCH]); transient per-field."""
     return _region._push_var(_region.MAP_INT16, PLATFORM_SCRATCH)
 
 
 def _scratch_start() -> bytes:
     """The boarding selfY var (MAP.I16[PLATFORM_START]); captured from the player at ride start."""
     return _region._push_var(_region.MAP_INT16, PLATFORM_START)
+
+
+def _scratch_x() -> bytes:
+    """The boarding world-X var (MAP.I16[PLATFORM_START_X]); captured at ride start (`land` mode)."""
+    return _region._push_var(_region.MAP_INT16, PLATFORM_START_X)
+
+
+def _scratch_z() -> bytes:
+    """The boarding world-Z var (MAP.I16[PLATFORM_START_Z]); captured at ride start (`land` mode)."""
+    return _region._push_var(_region.MAP_INT16, PLATFORM_START_Z)
+
+
+def _carry_land_body(land, *, speed: int, animation: int | None,
+                     warp_to: int | None, warp_entrance: int) -> bytes:
+    """Ride the player from WHEREVER he boards to the absolute landing point ``land`` = ``(x, z, y)``, at
+    ``speed`` world-units/frame, then re-attach to the walkmesh -- landing cleanly on the floor AT
+    ``land`` (no end-of-ride floor-snap warp). RELATIVE start (captures the boarding position, no
+    teleport-in) + ABSOLUTE end (the landing is a real floor). ``land`` must be ABOVE the boarding point
+    (the elevator rides UP -> selfY decreases). Used for inter-field-style lifts where you board at the
+    bottom and step off onto a higher floor elsewhere in the room."""
+    lx, lz = int(land[0]), int(land[1])
+    ly = int(land[2]) if len(land) > 2 else 0
+    lsy = -ly                                          # landing selfY (= -worldY)
+    speed = max(1, int(speed))
+
+    def selfx(): return _selfv(0)
+    def selfz(): return _selfv(2)
+    def selfy(): return _selfv(F_Y)
+
+    def interp(c_start: bytes, target: int) -> bytes:
+        # c_start + (target - c_start) * (cur - csy) / (lsy - csy)   -- linear, parameterised by selfY
+        return _arg(c_start,
+                    _const(target), c_start, bytes([_region.T_MINUS]),                 # (target - c_start)
+                    _scratch(), _scratch_start(), bytes([_region.T_MINUS]),            # (cur - csy)
+                    bytes([_region.T_MULT]),
+                    _const(lsy), _scratch_start(), bytes([_region.T_MINUS]),           # (lsy - csy)
+                    bytes([_region.T_DIV]), bytes([_region.T_PLUS]))
+
+    a = _Asm()
+    a.raw(opcodes.add_character_attribute(LADDER_FLAG) + opcodes.set_pathing(0))   # grip + detach; NO teleport
+    if animation is not None:
+        a.raw(opcodes.run_animation(int(animation)))
+    # capture the boarding position (x, z, selfY) -- the ride interpolates FROM here
+    a.raw(_stmt(_scratch_x(), selfx(), bytes([_region.T_ASSIGN])))
+    a.raw(_stmt(_scratch_z(), selfz(), bytes([_region.T_ASSIGN])))
+    a.raw(_stmt(_scratch_start(), selfy(), bytes([_region.T_ASSIGN])))
+    a.label("LOOP")
+    a.raw(_stmt(_scratch(), selfy(), _const(speed), bytes([_region.T_MINUS]), bytes([_region.T_ASSIGN])))  # step UP
+    a.raw(opcodes.encode(0xA1, interp(_scratch_x(), lx), _arg(_scratch()), interp(_scratch_z(), lz), arg_flags=0b111))
+    a.raw(opcodes.wait(1))
+    a.raw(_stmt(selfy(), _const(lsy), bytes([_region.T_GT])))      # selfY still above the landing?
+    a.jmp(_region.JMP_TRUE, "LOOP")
+    a.raw(opcodes.encode(0xA1, _arg(_const(lx)), _arg(_const(lsy)), _arg(_const(lz)), arg_flags=0b111))  # exact landing
+    if warp_to is not None:
+        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
+              + _region.set_field_entrance(int(warp_entrance))
+              + opcodes.field(int(warp_to)) + opcodes.terminate_entry(255))
+    else:
+        a.raw(opcodes.remove_character_attribute(LADDER_FLAG) + opcodes.set_pathing(1))
+    a.raw(opcodes.RETURN)
+    return a.assemble()
 
 
 def _assemble_entry(funcs) -> bytes:
@@ -64,24 +128,30 @@ def _assemble_entry(funcs) -> bytes:
     return bytes([_region.REGION_ENTRY_TYPE, len(funcs)]) + table + b"".join(b for _, b in funcs)
 
 
-def carry_body(*, rise: int, duration: int = DEFAULT_DURATION, animation: int | None = None,
+def carry_body(*, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED,
+               duration: int = DEFAULT_DURATION, animation: int | None = None,
                warp_to: int | None = None, warp_entrance: int = 0) -> bytes:
-    """The player's ride function: from WHEREVER he boards, carry him ``rise`` world-units vertically
-    (positive = UP) over ~``duration`` frames, keeping his x/z, then land. Runs in the player's context
-    (the region RunScriptSync's it), so the moves move the PLAYER.
+    """The player's ride function, run in the player's context (the region RunScriptSync's it) so the
+    moves move the PLAYER. Two modes:
 
-    Crucially the ride is RELATIVE -- it captures the player's current height and lifts him from there,
-    with NO absolute teleport. (An earlier absolute board-snap warped him to a fixed point, which on a
-    3D-model platform dropped him under the model before the rise.) ``rise`` is in worldY-up units; the
-    engine's selfY = -worldY, so UP means selfY DECREASES.
+    * ``land = (x, z, y)`` -- ride from WHEREVER he boards to that absolute landing point (a real floor),
+      so he steps off cleanly (no end-of-ride floor-snap). For inter-field-style lifts: board at the
+      bottom, ride up, let off on a higher floor elsewhere. ``land`` must be ABOVE the boarding point.
+    * ``rise = <units>`` -- lift him ``rise`` world-units vertically (positive = up) from his current
+      height, keeping x/z. A pure in-place vertical lift (needs a real floor at the top, else he
+      floor-snaps back down when collision re-enables).
 
-    VISIBILITY is governed by the FIELD CAMERA, not the carry: a vertical rise stays rendered only when
-    the camera's depthOffset + shallow pitch map it into screen-Y (not depth -- the [100,3996] psxDepth
-    cull rejects out-of-band) and its vrp band is tall enough to scroll up. Fork an elevator-style
-    scene+camera (e.g. Pandemonium 2713); a flat field's camera dumps the rise into depth -> invisible.
-
-    If ``warp_to`` is given the ride ENDS with the proven gateway transition (fade to black + ``Field()``
-    re-entry at ``warp_entrance``) -- an inter-floor ELEVATOR. Omit it for a pure in-screen ride."""
+    Both are RELATIVE at the start (capture the boarding position, no teleport-in -- an earlier absolute
+    board-snap warped him under a platform model). VISIBILITY is governed by the FIELD CAMERA, not the
+    carry: a vertical rise stays rendered only when the camera's depthOffset + shallow pitch map it into
+    screen-Y (not depth -- the [100,3996] psxDepth cull) and its vrp band is tall enough to scroll up;
+    fork an elevator-style scene+camera (e.g. Pandemonium 2713). With ``warp_to`` the ride ENDS in a
+    fade + ``Field()`` re-entry (an inter-floor elevator)."""
+    if land is not None:
+        return _carry_land_body(land, speed=speed, animation=animation,
+                                warp_to=warp_to, warp_entrance=warp_entrance)
+    if rise is None:
+        raise ValueError("carry_body needs land=[x,z,y] (ride to a floor) or rise=<units> (vertical lift)")
     rise = int(rise)
     if rise == 0:
         raise ValueError("carry_body: rise must be non-zero (positive = up) -- a zero ride never moves")
@@ -143,15 +213,16 @@ def platform_region(zone, ride_tag: int, *, trigger: str = "action", bubble: boo
     return _assemble_entry(funcs)
 
 
-def inject_platform(data, zone, *, rise: int, ride_tag: int = FIRST_PLATFORM_TAG,
+def inject_platform(data, zone, *, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED,
+                    ride_tag: int = FIRST_PLATFORM_TAG,
                     duration: int = DEFAULT_DURATION, animation: int | None = None,
                     trigger: str = "action", bubble: bool = True, warp_to: int | None = None,
                     warp_entrance: int = 0, player_uid: int = PLAYER_UID, activate: bool = True):
     """Inject one carry platform: graft the ride function (``ride_tag``) onto the player entry, append a
-    boarding region that fires it, and arm the region. The player rides UP ``rise`` world-units from
-    wherever he boards. Returns ``(new_bytes, region_slot)``. For multiple platforms pass a distinct
-    ``ride_tag`` each (start at :data:`FIRST_PLATFORM_TAG`)."""
-    body = carry_body(rise=rise, duration=duration, animation=animation,
+    boarding region that fires it, and arm the region. Pass ``land=[x,z,y]`` (ride from the boarding spot
+    to that landing floor) or ``rise=<units>`` (vertical lift). Returns ``(new_bytes, region_slot)``. For
+    multiple platforms pass a distinct ``ride_tag`` each (start at :data:`FIRST_PLATFORM_TAG`)."""
+    body = carry_body(rise=rise, land=land, speed=speed, duration=duration, animation=animation,
                       warp_to=warp_to, warp_entrance=warp_entrance)
     eb = EbScript.from_bytes(data)
     pe = find_player_entry(eb)
