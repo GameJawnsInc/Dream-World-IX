@@ -266,6 +266,61 @@ def _cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_paint_template(args: argparse.Namespace) -> int:
+    """Project a field.toml's FLOOR + CONTENT onto per-layer trace-over paint-template PNGs (+ a legend).
+
+    Unlike `guide` (camera-only), this reads the whole field: it resolves the camera, frames the floor,
+    and projects every content marker (NPCs/props/gateways/events/save points/ladders/jumps/choices/
+    waypoints/camera zones/spawn) -- so the artist sees where each thing lands + how tall to paint it.
+    Works on a from-scratch field (full floor + content) or a fork (content overlay on the real art)."""
+    import os
+
+    from . import build
+    from .scene import guide, paint
+    try:
+        project = build.FieldProject.load(args.field)
+    except (OSError, ValueError, KeyError) as e:
+        print(f"error: can't load {args.field}: {e}", file=sys.stderr)
+        return 2
+    try:
+        cams = build.resolve_cameras(project)
+    except build.BuildError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    if not cams:
+        print("error: [camera] section is required", file=sys.stderr)
+        return 2
+    cam0 = cams[0]
+    cfgs = build.camera_cfgs(project)
+    c0 = cfgs[0] if cfgs else {}
+    fr_cfg = c0.get("frame") or {}
+    frame = None
+    if "borrow" not in c0 or fr_cfg:                 # synth field, or a borrow with an explicit frame
+        try:
+            frame = guide.frame_floor(cam0, back_canvas_y=float(fr_cfg.get("back", 205)),
+                                      front_canvas_y=float(fr_cfg.get("front", 432)))
+        except ValueError as e:
+            print(f"note: floor layers skipped ({e})", file=sys.stderr)
+    scene_cfg = None                                 # the two-file split: <field>.scene.toml sibling
+    if args.field.endswith(".field.toml"):
+        spath = args.field[: -len(".field.toml")] + ".scene.toml"
+        if os.path.isfile(spath):
+            import tomllib
+            with open(spath, "rb") as fh:
+                scene_cfg = tomllib.load(fh)
+    items = paint.normalize_content(project.raw, scene_cfg)
+    out_dir = args.out or os.path.dirname(os.path.abspath(args.field)) or "."
+    files = paint.render_full_template(cam0, frame, items, out_dir, basename=args.basename)
+    ntypes = len({it["type"] for it in items})
+    print(f"paint template: {len(files) - 2} layer PNGs + legend + manifest -> {out_dir}")
+    print(f"  {len(items)} content markers across {ntypes} types; load {args.basename}.manifest.json in "
+          f"your paint app, {args.basename}.legend.json for names/heights")
+    if len(cams) > 1:
+        print(f"  note: field has {len(cams)} cameras; projected camera 0 only "
+              "(per-camera fan-out is a follow-up)", file=sys.stderr)
+    return 0
+
+
 def _cmd_lint(args: argparse.Namespace) -> int:
     """Check a field.toml WITHOUT building -- ONE pass over every offline validator: schema errors
     (validate), story/flag logic + dialogue overflow + dup names (lint_logic), reserved flag-band use
@@ -2157,6 +2212,13 @@ def build_parser() -> argparse.ArgumentParser:
                         "content placement, layer art, camera pitch)")
     ln.add_argument("field", help="path to a .field.toml")
     ln.set_defaults(func=_cmd_lint)
+
+    pt = sub.add_parser("paint-template", help="project a field.toml's floor + content onto per-layer "
+                        "trace-over PNGs + a legend (camera-aware; covers every content type)")
+    pt.add_argument("field", help="path to a .field.toml")
+    pt.add_argument("--out", default=None, help="output dir (default: the field.toml's dir)")
+    pt.add_argument("--basename", default="paint_template", help="output filename stem (default paint_template)")
+    pt.set_defaults(func=_cmd_paint_template)
 
     nw = sub.add_parser("new", help="scaffold a new field project directory")
     nw.add_argument("name", help="field name (e.g. MY_ROOM)")

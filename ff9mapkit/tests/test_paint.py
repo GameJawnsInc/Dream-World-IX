@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+
 from ff9mapkit.scene import guide, paint
 
 
@@ -133,3 +136,31 @@ def test_far_offscreen_content_flagged_off_canvas():
                                               "pos": [99999, 99999]}]})
     proj = paint.project_content(items, cam, scale=4)
     assert proj["legend"][0]["off_canvas"] is True
+
+
+# --- render_full_template (PNGs + legend + manifest) -------------------------------------
+def test_render_full_template_writes_layers_legend_manifest(tmp_path):
+    cam = _cam()
+    fr = guide.frame_floor(cam, back_canvas_y=205, front_canvas_y=432)
+    items = paint.normalize_content(_field())
+    files = paint.render_full_template(cam, fr, items, str(tmp_path), basename="pt")
+    names = {os.path.basename(f) for f in files}
+    # floor layers + every content type present in _field() + legend + manifest
+    assert {"pt_grid.png", "pt_outline.png", "pt_height.png"} <= names
+    assert {"pt_npc.png", "pt_prop.png", "pt_waypoint.png", "pt_spawn.png", "pt_gateway.png",
+            "pt_event.png", "pt_camzone.png", "pt_savepoint.png"} <= names
+    assert {"pt.legend.json", "pt.manifest.json"} <= names
+    # no empty layers: types absent from _field() get no PNG
+    assert not (names & {"pt_jump.png", "pt_ladder.png", "pt_choice.png"})
+    man = json.load(open(tmp_path / "pt.manifest.json"))
+    assert man["legend"] == "pt.legend.json"
+    assert [l["type"] for l in man["layers"]][:3] == ["grid", "outline", "height"]  # floor underneath
+
+
+def test_render_full_template_content_only_when_no_frame(tmp_path):
+    cam = _cam()
+    items = paint.normalize_content(_field())
+    files = paint.render_full_template(cam, None, items, str(tmp_path), basename="pt")
+    names = {os.path.basename(f) for f in files}
+    assert not (names & {"pt_grid.png", "pt_outline.png", "pt_height.png"})   # no floor without a frame
+    assert "pt_npc.png" in names and "pt.manifest.json" in names

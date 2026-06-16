@@ -258,3 +258,123 @@ def project_content(items: list, cam: _cam.Cam, scale: int = 4, *, footprint_px:
                        "canvas": [round(anchor[0], 1), round(anchor[1], 1)], "off_canvas": off})
 
     return {"size": (W, H), "types": types, "legend": legend}
+
+
+# --- rasterize the projected content to per-type PNGs (+ legend + manifest), pure stdlib --------
+# Distinct color per content type (RGBA 0-255); zone colors match the Blender viewport where it has one
+# (event amber, camera-zone blue) so the template reads the same as the add-on.
+TYPE_COLOR = {
+    "npc": (90, 210, 255, 255), "prop": (120, 220, 130, 255), "spawn": (90, 255, 120, 255),
+    "waypoint": (160, 200, 255, 255), "gateway": (255, 100, 220, 255), "event": (255, 215, 40, 255),
+    "camzone": (90, 160, 255, 255), "choice": (70, 220, 200, 255), "savepoint": (255, 230, 70, 255),
+    "ladder": (255, 150, 40, 255), "jump": (255, 90, 40, 255),
+}
+TYPE_DESC = {
+    "npc": "NPCs (footprint + height pole)", "prop": "Props (footprint + height pole)",
+    "spawn": "Player spawn", "waypoint": "Cutscene waypoints", "gateway": "Gateway exit zones",
+    "event": "Event trigger zones", "camzone": "Camera-switch zones", "choice": "Dialogue-choice zones",
+    "savepoint": "Save points (zone + moogle pole)", "ladder": "Ladders (zone + climb)",
+    "jump": "Jump take-off zones",
+}
+# draw order: flat zones underneath, point content on top, the player spawn topmost
+CONTENT_ORDER = ["gateway", "event", "camzone", "choice", "jump", "ladder", "savepoint",
+                 "prop", "waypoint", "npc", "spawn"]
+# unit-circle offsets for a small octagon footprint (no math import needed)
+_OCT = [(1.0, 0.0), (0.707, 0.707), (0.0, 1.0), (-0.707, 0.707), (-1.0, 0.0),
+        (-0.707, -0.707), (0.0, -1.0), (0.707, -0.707)]
+
+
+def _draw_footprint(buf, W, H, shape, c, r, color):
+    """Draw a small OUTLINE footprint glyph (so the artist still sees the art under it)."""
+    from . import placeholder as _ph
+    cx, cy = c
+    if shape == "square":
+        p = [(cx - r, cy - r), (cx + r, cy - r), (cx + r, cy + r), (cx - r, cy + r)]
+        for i in range(4):
+            _ph.draw_line(buf, W, H, p[i], p[(i + 1) % 4], color, 2)
+    elif shape in ("cross", "star"):
+        _ph.draw_line(buf, W, H, (cx - r, cy), (cx + r, cy), color, 2)
+        _ph.draw_line(buf, W, H, (cx, cy - r), (cx, cy + r), color, 2)
+        if shape == "star":                                   # spawn: add the diagonals
+            _ph.draw_line(buf, W, H, (cx - r, cy - r), (cx + r, cy + r), color, 2)
+            _ph.draw_line(buf, W, H, (cx - r, cy + r), (cx + r, cy - r), color, 2)
+    else:                                                     # circle (octagon outline)
+        ring = [(cx + r * ox, cy + r * oy) for ox, oy in _OCT]
+        for i in range(len(ring)):
+            _ph.draw_line(buf, W, H, ring[i], ring[(i + 1) % len(ring)], color, 2)
+
+
+def _rasterize_type(d: dict, color, W: int, H: int) -> bytearray:
+    """One transparent buffer with a content type's geometry: zone outlines, height poles, footprints,
+    and a small locator cross at each zone pin (point content already has a footprint there)."""
+    from . import placeholder as _ph
+    buf = bytearray(W * H * 4)
+    for ring in d["zones"]:
+        for i in range(len(ring)):
+            _ph.draw_line(buf, W, H, ring[i], ring[(i + 1) % len(ring)], color, 2)
+    for p0, p1 in d["poles"]:
+        _ph.draw_line(buf, W, H, p0, p1, color, 2)
+    for f in d["footprints"]:
+        _draw_footprint(buf, W, H, f["shape"], f["c"], f["r"], color)
+    if not d["footprints"]:                                   # zone type: mark its pin (centroid)
+        for pin in d["pins"]:
+            _draw_footprint(buf, W, H, "cross", pin["c"], 4, color)
+    return buf
+
+
+def render_full_template(cam: _cam.Cam, frame, items: list, out_dir, *, basename: str = "paint_template",
+                         scale: int = 4, nx: int = 8, nz: int = 8) -> list:
+    """Write the FULL paint template for a field: the floor layers (grid / outline / height -- only when
+    a ``frame`` is given, i.e. a synth field or a borrow with ``[camera.frame]``) PLUS one transparent
+    PNG per content type present (npcs/props/gateways/...), a ``<basename>.legend.json`` (pin -> name /
+    height / canvas px / off-canvas), and ONE ``<basename>.manifest.json`` listing every layer bottom-to-
+    top with its opacity. Returns the written paths (legend + manifest last). bpy-free + stdlib."""
+    import json
+    import os
+
+    from . import guide as _guide
+    from . import placeholder as _ph
+
+    W, H = _canvas_wh(cam, scale)
+    os.makedirs(out_dir, exist_ok=True)
+    written, entries = [], []
+
+    def _write_png(fn, buf):
+        path = os.path.join(out_dir, fn)
+        with open(path, "wb") as fh:
+            fh.write(_ph._png_rgba(W, H, buf))
+        written.append(path)
+
+    if frame is not None:                                     # floor layers (single-source the drawing)
+        wall_h = abs(frame.zb - frame.zf)
+        for layer, opacity, desc in _guide.PAINT_TEMPLATE_LAYERS:
+            buf = bytearray(W * H * 4)
+            _guide._draw_template_layer(buf, W, H, layer, cam, frame, scale, nx, nz, wall_h)
+            fn = f"{basename}_{layer}.png"
+            _write_png(fn, buf)
+            entries.append({"file": fn, "type": layer, "opacity": opacity, "blend": "normal",
+                            "description": desc})
+
+    proj = project_content(items, cam, scale)                 # content layers, one PNG per present type
+    for t in CONTENT_ORDER:
+        d = proj["types"].get(t)
+        if not d:
+            continue
+        _write_png(f"{basename}_{t}.png", _rasterize_type(d, TYPE_COLOR[t], W, H))
+        entries.append({"file": f"{basename}_{t}.png", "type": t, "opacity": 1.0, "blend": "normal",
+                        "description": TYPE_DESC.get(t, t)})
+
+    legend = {"version": 1, "canvas_size": [W, H], "items": proj["legend"]}
+    lfn = f"{basename}.legend.json"
+    with open(os.path.join(out_dir, lfn), "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(legend, fh, indent=2)
+        fh.write("\n")
+    written.append(os.path.join(out_dir, lfn))
+
+    manifest = {"version": 1, "canvas_size": [W, H], "scale": scale, "layers": entries, "legend": lfn}
+    mfn = f"{basename}.manifest.json"
+    with open(os.path.join(out_dir, mfn), "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(manifest, fh, indent=2)
+        fh.write("\n")
+    written.append(os.path.join(out_dir, mfn))
+    return written
