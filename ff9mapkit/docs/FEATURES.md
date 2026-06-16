@@ -19,7 +19,7 @@ codec/golden tests) with the full in-game pass still pending.
 | **Background art** | Align by trial and error | A **pixel-accurate paint guide** for your exact camera; depth layers + occlusion |
 | **Walkmesh** | Hand-author binary, or the editor's unreliable neighbor links | Model in Blender → `.bgi`, **or import a real field's** and reshape it (multi-floor, seam-preserving) |
 | **Event script (`.eb`)** | Hex-edit PSX-style bytecode by hand; HW can't add entries | Declarative NPCs / dialogue / gateways / encounters / events / cutscenes, injected byte-exactly |
-| **Starting point** | From zero | **Fork any of ~670 real fields** — camera, walkmesh, art, *and* its exits/encounters/music |
+| **Starting point** | From zero | **Fork any of ~674 real fields** — camera, walkmesh, art, *and* its exits/encounters/music |
 
 ---
 
@@ -90,11 +90,10 @@ codec/golden tests) with the full in-game pass still pending.
 
 | Tool | What | Docs |
 |---|---|---|
-| **CLI** | `new / guide / camera / walkmesh / disasm / build / import / list-fields / lint / pack / edit / dialogue / dialogue-import / fork-report / doctor` | [README](../README.md) |
+| **CLI** | 55 commands — author/build/lint/pack a field, fork & inspect real fields, campaigns & journeys, battle maps, save/story-state editing, and reference catalogs | [README](../README.md) |
+| **Workspace GUI** (`apps/ff9_studio.pyw`, PySide6) | The modern front door: one dockable window with a **journey ▸ campaign ▸ field ▸ object** tree and tabs for the Editor (field/NPC/gateway/event/cutscene/choice forms + catalog picker + live FF9-wrap preview), Map, Story State + Item & Equip save editors, Build & Deploy, Import (preview fidelity → fork), and a searchable Info Hub — plus a Ctrl-K palette, an Inspector, and undo/redo. **Folds in the eight standalone tkinter apps that were retired** (dialogue / import / campaign editor / story state / items / Info Hub / build / editor). | [README](../README.md) |
 | **Blender add-on** | Visually pose the camera, model the walkmesh, place NPC/gateway/event/spawn/cam-zone markers, paint backdrop, import a real field — **and reshape a 3D battle map** (Import/Export Battle Map) | [blender/README](../blender/README.md) |
-| **Form editor** (`ff9mapkit edit`) | Dialogue / events / encounters / flags / cutscenes in forms — no TOML | [README](../README.md) |
-| **Dialogue editor** (`apps/ff9_dialogue.pyw`) | Every line in one list with a **live FF9-wrap preview**; view/import real stock dialogue | [DIALOGUE](DIALOGUE.md) |
-| **FFIX Import** (`apps/ff9_import.pyw`) | Bring content in from the real game: **Preview fidelity** before forking (`fork-report`), **fork a field** with the fidelity flags as checkboxes (Native art · carry NPCs/props · carry real dialogue · carry the save point), **read** a field's dialogue, **inspect** a save, list fields. Standalone + a Campaign-Editor tab | [FORK_REPORT](FORK_REPORT.md) |
+| **Form editor** (`ff9mapkit edit`) | Dialogue / events / encounters / flags / cutscenes in forms — no TOML, stdlib-only Tkinter (no PySide6 needed) | [README](../README.md) |
 | **Two-file split** | Blender owns *where* (`scene.toml`), you own *what* (`field.toml`); merged at build | [FORMAT](FORMAT.md) |
 
 ## Engineering (how it's trusted)
@@ -102,7 +101,7 @@ codec/golden tests) with the full in-game pass still pending.
 - **Byte-exact codecs** — the `.eb` script, `.bgi` walkmesh, `.bgx`/`.bgs` scene, and `.mes` text all
   round-trip real game data byte-for-byte; building the worked examples reproduces in-game-verified
   assets exactly.
-- **Offline golden-master validation** — 254 kit + 47 Blender tests; correctness is proven without
+- **Offline golden-master validation** — 1,600+ kit + 60 Blender tests; correctness is proven without
   ever launching the game (which honors the "can't see the running game" constraint).
 - **Grounded in source** — opcode tables and camera/projection math are baked from the Memoria engine
   source, not guessed; the `.eb` and scene formats were reverse-engineered and verified.
