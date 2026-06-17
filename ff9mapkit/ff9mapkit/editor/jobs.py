@@ -181,6 +181,20 @@ def deploy_battle_argv(repo_root, battle, *, trigger=None):
     return a
 
 
+def fork_command_argv(command, *, out_abs=None):
+    """Turn a reference-arc playbook line (``import-chain <seed> --out <key> ...``, from
+    :func:`..refarc.parse_fork_commands`) into a runnable argv: ``[python, -m, ff9mapkit, import-chain, ...]``.
+    With ``out_abs`` the ``--out`` value is rewritten to that absolute path, so the fork can run from the kit
+    root (the local-package shadow) yet still land the campaign folder beside the journeys.toml."""
+    import shlex
+    parts = shlex.split(str(command))
+    if out_abs is not None and "--out" in parts:
+        i = parts.index("--out")
+        if i + 1 < len(parts):
+            parts[i + 1] = str(out_abs)
+    return [sys.executable, "-m", "ff9mapkit", *parts]
+
+
 def deploy_journey_argv(repo_root, journeys, *, apply=False, wire_newgame=False, apply_links=False):
     """Deploy (or dry-run) a multi-campaign journey manifest via ``tools/deploy_journey.py``.
 

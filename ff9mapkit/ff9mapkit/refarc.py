@@ -16,6 +16,7 @@ docs/FORK_FIDELITY.md): it's a PLAN you execute arc-by-arc. Pure + tk-free (mirr
 """
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -246,3 +247,37 @@ def render_arc_journey_toml(arcset: ReferenceArcSet, *, hub_name: str = "FF9 Dis
 def _toml_str(s) -> str:
     """Escape a value for a double-quoted TOML string (backslash + quote)."""
     return str(s).replace("\\", "\\\\").replace('"', '\\"')
+
+
+# --------------------------------------------------------------------------- parse the playbook back out
+@dataclass
+class ParsedFork:
+    key: str                       # the arc folder (the --out value) = the journeys.toml campaign name
+    seed: int                      # the real field id (the import-chain seed)
+    command: str                   # the canonical `import-chain <seed> --out <key> ...` (no launcher prefix)
+
+
+_FORK_RE = re.compile(r"(import-chain\s+(\d+)\b.*?--out\s+(\S+).*?)\s*$")
+
+
+def parse_fork_commands(text: str) -> list:
+    """Recover the fork PLAYBOOK from a journeys.toml's header comments: every commented
+    ``# .. py -m ff9mapkit import-chain <seed> ... --out <key> ...`` line -> a :class:`ParsedFork` (in file
+    order, de-duplicated by key). Returns ``[]`` for a file with no playbook (a hand-written journey). The
+    GUI uses this to offer a per-arc Fork button; ``command`` is the launcher-free tail (run it via
+    ``editor.jobs.fork_command_argv``)."""
+    out: list = []
+    seen: set = set()
+    for raw in text.splitlines():
+        s = raw.strip()
+        if not s.startswith("#") or "import-chain" not in s:
+            continue
+        m = _FORK_RE.search(s)
+        if not m:
+            continue
+        key = m.group(3)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ParsedFork(key=key, seed=int(m.group(2)), command=m.group(1).strip()))
+    return out

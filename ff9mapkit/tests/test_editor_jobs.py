@@ -103,6 +103,17 @@ def test_deploy_journey_argv(tmp_path):
     assert "--wire-newgame" not in jobs.deploy_journey_argv(tmp_path, "j.toml", wire_newgame=True)
 
 
+def test_fork_command_argv(tmp_path):
+    cmd = ("import-chain 300 --out ice_cavern --verbatim --id-base 6200 --name-prefix ICEC "
+           "--mod-folder FF9CustomMap-icec --flags-per-field 16")
+    argv = jobs.fork_command_argv(cmd, out_abs=tmp_path / "ice_cavern")
+    assert argv[1:5] == ["-m", "ff9mapkit", "import-chain", "300"]
+    assert argv[argv.index("--out") + 1] == str(tmp_path / "ice_cavern")   # --out -> absolute path
+    assert "--verbatim" in argv and "--flags-per-field" in argv
+    # without out_abs the relative --out is preserved (the literal playbook value)
+    assert jobs.fork_command_argv(cmd)[argv.index("--out") + 1] == "ice_cavern"
+
+
 def test_revert_journey_argv_picks_most_recent(tmp_path):
     # the journey revert must undo the user's LAST action: --apply writes revert_journey.py, --apply-links
     # writes revert_journey_links.py -- the GUI button picks whichever is newer (mtime), or None if neither.

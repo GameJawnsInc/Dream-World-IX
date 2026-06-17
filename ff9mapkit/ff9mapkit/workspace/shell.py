@@ -22,7 +22,7 @@ from PySide6.QtCore import Qt, QProcess, QSize
 from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QFormLayout,
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
+    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTextEdit,
     QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -518,6 +518,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._fork_queue = []                      # a fresh journey -> no stale fork chain can re-drain
         self._reset_history()
         self.map.clear()                           # the journey overview lives in the doc area, not the Map
         self.build_deploy.set_target(self.journey_root)   # pre-aim Build & Deploy at the journey (deploy_journey)
@@ -559,11 +560,14 @@ class Workspace(QMainWindow):
 
     def _mount_journey_overview(self):
         """Show the resolved journey plan (campaigns, entry ids, flag windows, cross-campaign links) in the
-        doc area -- read-only; render_journey_plan is the same view as `lint-journey --graph`."""
+        doc area -- read-only; render_journey_plan is the same view as `lint-journey --graph`. Below it, a
+        'Fork the arcs' panel surfaces the Step-1 fork playbook (per-arc status + a Fork button) so a fresh
+        reference-arc scaffold reads as 'next steps', not just a red lint error."""
         self._clear_doc()
         self._set_editor_tab("Journey")
         self._header(self.journey_name, "The assembled journey plan. Open a campaign in the tree to edit it; "
                      "Check (or open) lints the global id/flag namespace into Problems.")
+        self._mount_fork_panel()                   # Step-1 fork helper (only if the manifest has campaigns)
         box = QPlainTextEdit()
         box.setReadOnly(True)
         try:
@@ -572,6 +576,141 @@ class Workspace(QMainWindow):
         except Exception as e:                     # noqa: BLE001
             box.setPlainText(f"Could not resolve the journey plan:\n{e}")
         self.doc_host_lay.addWidget(box, 1)
+
+    # ---- Step-1 fork helper (run import-chain per arc, from the journey overview) ----
+    def _campaign_forked(self, folder) -> bool:
+        """True if a member campaign has actually been forked (its campaign.toml exists beside the manifest)."""
+        try:
+            return (self.manifest.root / folder / "campaign.toml").is_file()
+        except Exception:                          # noqa: BLE001
+            return False
+
+    def _mount_fork_panel(self):
+        """The 'Fork the arcs' card: every member campaign with its status (forked / not) + a Fork button that
+        runs its `import-chain` command (parsed from the journeys.toml header playbook) right in the GUI. Shown
+        only when the manifest has campaigns; Fork buttons appear only for arcs whose command is in the header
+        (a reference-arc scaffold, or any journey whose comments carry the playbook)."""
+        folders = []
+        for j in self.manifest.journeys:
+            for f in j.campaigns:
+                if f not in folders:
+                    folders.append(f)
+        if not folders:
+            return
+        self._fork_cmds = {}
+        try:
+            from .. import refarc as RA
+            text = Path(self.journey_root).read_text(encoding="utf-8")
+            self._fork_cmds = {pf.key: pf for pf in RA.parse_fork_commands(text)}
+        except Exception:                          # noqa: BLE001
+            self._fork_cmds = {}
+        self._fork_order = folders
+        done = [f for f in folders if self._campaign_forked(f)]
+        missing_cmds = [f for f in folders if f not in done and f in self._fork_cmds]
+
+        box = QGroupBox(f"Fork the arcs   ({len(done)}/{len(folders)} forked)")
+        gv = QVBoxLayout(box)
+        if len(done) < len(folders):
+            hint = QLabel("These campaigns don't exist yet — <b>Step 1</b> is to fork them from their real FF9 "
+                          "fields. Click <b>Fork</b> (runs <code>import-chain</code> into a folder beside this "
+                          "file; needs UnityPy + your install), or run the commands in a terminal. The lint "
+                          "clears each one as it's forked.")
+            hint.setTextFormat(Qt.TextFormat.RichText)
+            hint.setWordWrap(True)
+            hint.setStyleSheet(f"color:{self.pal['muted']};")
+            gv.addWidget(hint)
+        self._fork_buttons = {}
+        for f in folders:
+            row = QHBoxLayout()
+            forked = self._campaign_forked(f)
+            pf = self._fork_cmds.get(f)
+            tag = QLabel(("✓ " if forked else "○ ") + f + (f"  (real field {pf.seed})" if pf else ""))
+            tag.setStyleSheet(f"color:{self.pal['accent'] if forked else self.pal['text']};")
+            row.addWidget(tag)
+            row.addStretch(1)
+            if forked:
+                lbl = QLabel("forked")
+                lbl.setStyleSheet(f"color:{self.pal['muted']};")
+                row.addWidget(lbl)
+            elif pf:
+                b = QPushButton("Fork")
+                b.clicked.connect(lambda _=False, key=f: self._fork_campaign(key))
+                self._fork_buttons[f] = b
+                row.addWidget(b)
+            else:
+                lbl = QLabel("fork manually")
+                lbl.setStyleSheet(f"color:{self.pal['muted']};")
+                row.addWidget(lbl)
+            gv.addLayout(row)
+        if missing_cmds:
+            allb = QPushButton(f"Fork all missing ({len(missing_cmds)})")
+            allb.setObjectName("accent")
+            allb.clicked.connect(self._fork_all_missing)
+            self._fork_all_btn = allb
+            gv.addWidget(allb)
+        self.doc_host_lay.addWidget(box)
+
+    def _fork_argv(self, key):
+        """The runnable import-chain argv for arc ``key`` (its --out rewritten to an absolute path beside the
+        manifest, so the fork runs from the kit root yet lands the folder next to the journeys.toml)."""
+        pf = self._fork_cmds[key]
+        return jobs.fork_command_argv(pf.command, out_abs=self.manifest.root / key)
+
+    def _fork_campaign(self, key):
+        """Fork ONE arc via import-chain (streamed to Output); on success, refresh the overview + re-lint."""
+        if key not in self._fork_cmds:
+            return
+        pf = self._fork_cmds[key]
+        if not self.run_job(self._fork_argv(key), cwd=KIT, subject=f"Fork {key} (import-chain {pf.seed})",
+                            ok_headline=f"Forked {key} → {self.manifest.root / key}",
+                            ok_next="The arc folder exists now; the journey lint clears it. Fill its entry/links.",
+                            fail_hint="import-chain needs UnityPy + your FF9 install. See the Output tab.",
+                            on_finished=lambda code: self._after_fork()):
+            self.statusBar().showMessage("a job is already running — wait for it to finish")
+
+    def _on_journey_overview(self) -> bool:
+        """True iff the journey overview is the active context (manifest open, not drilled into a campaign).
+        The fork chain + its refresh both gate on this so navigating away stops the background forks."""
+        return self.manifest is not None and self.plan is None and bool(self.journey_root)
+
+    def _fork_all_missing(self):
+        """Fork every not-yet-forked arc that has a command, one after another (stop on the first failure)."""
+        self._fork_queue = [f for f in getattr(self, "_fork_order", [])
+                            if f in self._fork_cmds and not self._campaign_forked(f)]
+        self._fork_next_in_queue()
+
+    def _fork_next_in_queue(self):
+        # bail (clearing the queue) if we've left the journey overview -- don't keep launching forks in the
+        # background after the user drills into a campaign or closes the journey.
+        if not self._on_journey_overview():
+            self._fork_queue = []
+            return
+        while getattr(self, "_fork_queue", None):
+            key = self._fork_queue[0]              # PEEK -- only consume on a successful launch (no lost arc)
+            pf = self._fork_cmds.get(key)
+            if pf is None or self._campaign_forked(key):   # vanished from the header / already forked -> drop
+                self._fork_queue.pop(0)
+                continue
+            if self.run_job(self._fork_argv(key), cwd=KIT, subject=f"Fork {key} (import-chain {pf.seed})",
+                            ok_headline=f"Forked {key}", on_finished=lambda code: self._after_queued_fork(code)):
+                self._fork_queue.pop(0)            # launched -> consume it; the rest run from on_finished
+            else:                                  # a job is already running -> keep the queue, let the user retry
+                self.statusBar().showMessage("a job is already running — click ‘Fork all missing’ again when it finishes")
+            return                                 # one fork at a time (launched OR deferred)
+        self._after_fork()                         # queue drained -> refresh once
+
+    def _after_queued_fork(self, code):
+        if code == 0:
+            self._fork_next_in_queue()             # success -> next arc (which refreshes when drained)
+        else:
+            self._fork_queue = []                  # stop the chain on a failure; let the user see the Output
+            self._after_fork()
+
+    def _after_fork(self):
+        """Refresh the journey overview + re-lint after a fork (only if still on the journey overview)."""
+        if self._on_journey_overview():
+            self._mount_journey_overview()
+            self._lint_journey()
 
     def _lint_journey(self):
         """Lint the open journeys.toml -> the Problems dock (the GLOBAL id/flag-disjointness guarantee)."""
@@ -4554,6 +4693,30 @@ def _smoke(win):
     assert "import-chain 300" in rt and "ice_cavern" in rt and "--name-prefix" in rt, "the fork playbook is in the header"
     assert win.manifest.journeys[0].campaigns[:2] == ["alexandria", "evil_forest"], win.manifest.journeys[0].campaigns
     assert "<b>" in win._refarc_preview_html() and "alexandria" in win._refarc_preview_html(), "the dialog preview renders"
+    # the journey overview's Step-1 FORK panel: per-arc commands parsed from the header, none forked yet, and a
+    # Fork button that runs import-chain (--out rewritten beside the manifest) right in the GUI (slice 3).
+    assert "ice_cavern" in win._fork_cmds and win._fork_cmds["ice_cavern"].seed == 300, "fork commands parsed"
+    assert not win._campaign_forked("ice_cavern"), "no arc is forked in a fresh scaffold"
+    _real_run_job = win.run_job
+    fcap = []
+    win.run_job = lambda argv, **kw: (fcap.append(list(map(str, argv))) or True)  # capture, don't launch
+    win._fork_campaign("ice_cavern")
+    assert fcap and "import-chain" in fcap[-1] and "300" in fcap[-1], fcap[-1]
+    iout = fcap[-1][fcap[-1].index("--out") + 1]
+    assert iout.replace("\\", "/").endswith("jref/ice_cavern"), iout       # forked beside the journeys.toml
+    win._fork_all_missing()                                                 # the chain runs the first, queues the rest
+    assert win._fork_queue and "import-chain" in fcap[-1], "Fork-all started the chain"
+    # busy-rejection: a rejected launch (a job already running) must keep the WHOLE queue (no arc dropped)
+    win.run_job = lambda argv, **kw: False
+    win._fork_all_missing()
+    assert win._fork_queue == [f for f in win._fork_order if not win._campaign_forked(f)], "rejected launch loses no arc"
+    # navigation guard: once we've left the journey overview (a campaign drilled in), the chain bails + clears
+    win.plan = object()
+    win._fork_next_in_queue()
+    assert win._fork_queue == [], "the fork chain stops when off the journey overview"
+    win.plan = None
+    win._fork_queue = []                                                    # stop the (stubbed) chain
+    win.run_job = _real_run_job
     try:                                                   # clobber guard: an existing manifest is refused
         win._new_journey("Again", d / "jnew")
         assert False, "an existing journeys.toml should be refused"

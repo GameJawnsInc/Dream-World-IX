@@ -55,6 +55,18 @@ def test_playbook_flag_windows_fit_the_safe_band():
     assert refarc.arc_flags_per_field(2) >= refarc.arc_flags_per_field(12) >= refarc.arc_flags_per_field(40)
 
 
+def test_parse_fork_commands_roundtrips_the_emitted_playbook():
+    # the GUI 'Fork the arcs' panel recovers the per-arc import-chain commands from the journeys.toml header.
+    aset = refarc.load_reference_arcs()
+    text = refarc.render_arc_journey_toml(aset)
+    parsed = refarc.parse_fork_commands(text)
+    assert [p.key for p in parsed] == [a.key for a in aset.arcs]      # every arc, in file order
+    assert [p.seed for p in parsed] == [a.seed for a in aset.arcs]
+    ic = next(p for p in parsed if p.key == "ice_cavern")
+    assert ic.command.startswith("import-chain 300 --out ice_cavern") and "--flags-per-field 16" in ic.command
+    assert refarc.parse_fork_commands('[hub]\nid = 4600\n') == []     # a hand-written file has no playbook
+
+
 def test_packaged_seeds_are_real_forkable_fields():
     # every disc-1 seed must resolve to a real FF9 field (a dead id only fails at STEP-1 fork time -- catch it
     # here so a future edit to the table is caught offline). The id->FBG table is provenance-clean + baked.
