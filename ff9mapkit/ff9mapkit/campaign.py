@@ -760,6 +760,14 @@ def campaign_graph(plan: CampaignPlan) -> CampaignGraph:
                 if nxt not in reached:
                     reached.add(nxt)
                     stack.append(nxt)
+    # A VERBATIM fork ships each member's WHOLE donor .eb, so its real connectivity -- story-scripted warps,
+    # per-door arrival tables, story-gated transitions -- is intact and runs in-game, but the static walk-in-edge
+    # BFS can't see it: a whole-zone fork's screens reached only by cutscene, or other-disc room variants, read
+    # as "unreachable" though every forked real field WAS reachable in the real game (FF9 has no unused fields).
+    # So don't flag verbatim members as unreachable -- it's a false-positive flood, not stranded content. (A
+    # DECLARATIVE campaign's reachability IS meaningful: its gateways are authored from these very edges.)
+    if getattr(plan, "verbatim", False):
+        reached = set(names)
 
     nodes = []
     for m in plan.members:

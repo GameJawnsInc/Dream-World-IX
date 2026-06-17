@@ -678,6 +678,18 @@ def test_campaign_graph_resolves_edges_seams_reachability():
     assert len(by["C"].seams) == 2                                     # only the two member-rooted seams
 
 
+def test_campaign_graph_verbatim_relaxes_reachability(tmp_path):
+    # A VERBATIM fork ships the donor .eb whole, so its real (story-scripted / gated) connectivity is intact --
+    # the static walk-in BFS can't see it, so a disconnected member must NOT read as unreachable (the whole-zone
+    # red-X flood). A declarative campaign still flags it (its gateways ARE the edges).
+    plan = _graph_plan()                                                # D is walk-in-disconnected
+    assert campaign.campaign_graph(plan).unreachable == ["D"]           # declarative -> D unreachable (real)
+    plan.verbatim = True
+    g = campaign.campaign_graph(plan)
+    assert g.unreachable == [] and all(n.reachable for n in g.nodes)    # verbatim -> no false-positive flood
+    assert g.by_name["D"].reachable is True
+
+
 def test_campaign_graph_entry_fallback():
     g = campaign.campaign_graph(_graph_plan(entry="NOPE"))
     assert g.entry_valid is False and g.entry == "A"                   # falls back to the first member
