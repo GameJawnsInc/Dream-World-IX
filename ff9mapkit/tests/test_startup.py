@@ -129,6 +129,36 @@ def test_startup_words_validate(tmp_path):
                _problems(tmp_path, BASE + "\n[startup]\nwords = [{byte = 3000, value = 1}]\n"))
 
 
+def test_startup_bytes_seeds_single_byte_no_neighbour_clobber(tmp_path):
+    """[startup] bytes = [{byte = N, value = V}] writes a save-backed SINGLE byte (GLOB_BYTE 0xD4) at
+    gEventGlobal[N] ONLY -- the right lever for adjacent independent config bytes (the Pandemonium lift pair
+    byte361=4 + byte362=6) without the `words` UInt16 write zeroing the neighbour. Regression for that footgun
+    (a `words = [{byte=361, value=4}]` set byte361=4 but ZEROED byte362, breaking the down-arrival ride)."""
+    toml = BASE + "\n[startup]\nbytes = [{byte = 361, value = 4}, {byte = 362, value = 6}]\n"
+    body = _main_init_bytes(_build_eb(tmp_path, toml))
+    assert region.set_var(region.GLOB_BYTE, 361, 4) in body          # byte 361 = 4 (single byte, token 0xF4)
+    assert region.set_var(region.GLOB_BYTE, 362, 6) in body          # byte 362 = 6 (independent -- no clobber)
+    assert region.set_var(region.GLOB_UINT16, 361, 4) not in body    # NOT a 2-byte word write (0xFC) at 361
+
+
+def test_startup_bytes_refine_after_words(tmp_path):
+    """Emit order is words -> bytes -> bits, so a narrower `bytes` write refines a wider `words` write's
+    neighbour: a UInt16 at 361 (zeroes 362) THEN a byte at 362 = the byte wins (361=word-low, 362=byte)."""
+    toml = BASE + "\n[startup]\nwords = [{byte = 361, value = 4}]\nbytes = [{byte = 362, value = 6}]\n"
+    body = _main_init_bytes(_build_eb(tmp_path, toml))
+    assert body.index(region.set_var(region.GLOB_UINT16, 361, 4)) \
+           < body.index(region.set_var(region.GLOB_BYTE, 362, 6))   # word first, byte refine after
+
+
+def test_startup_bytes_validate(tmp_path):
+    assert any("value must be 0.." in m for m in
+               _problems(tmp_path, BASE + "\n[startup]\nbytes = [{byte = 361, value = 256}]\n"))   # > 1 byte
+    assert any("ScenarioCounter" in m for m in
+               _problems(tmp_path, BASE + "\n[startup]\nbytes = [{byte = 0, value = 1}]\n"))        # byte 0
+    assert any("byte must be 0.." in m for m in
+               _problems(tmp_path, BASE + "\n[startup]\nbytes = [{byte = 3000, value = 1}]\n"))     # out of range
+
+
 def test_startup_flag_by_name(tmp_path):
     toml = (BASE + '\n[[flag]]\nname = "switch_on"\nindex = 8520\n'
             '\n[startup]\nflags = [{flag = "switch_on", value = 1}]\n')

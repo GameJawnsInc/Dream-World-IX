@@ -40,6 +40,10 @@ from ..eb import EbScript, edit, opcodes
 GLOB_BOOL = 0xC4      # Global + Bit  -> SAVE-PERSISTENT bool (story flags, chest "once", etc.)
 MAP_BOOL = 0xC5       # Map + Bit     -> transient per-field bool (resets on reload; rarely what you want)
 GLOB_UINT8 = 0xD5     # Map + Byte    -> transient byte (the camera-switch flag; reset per load by design)
+GLOB_BYTE = 0xD4      # Global + Byte -> SAVE-BACKED single byte: writes ONLY gEventGlobal[idx] (one byte),
+                      # unlike GLOB_UINT16 which spans [idx, idx+1] and zeroes the neighbour. The engine
+                      # reads e.g. the Pandemonium lift-config bytes 361/362 this way (token 0xF4 =
+                      # 0xD4 | the long-index bit). Use this to seed ONE byte without clobbering the next.
 GLOB_UINT16 = 0xDC    # Global + UInt16 -> save-backed 16-bit word. Read via the EXPRESSION path it is
                       # UNSIGNED (0..65535, no sign-extension -- EBin.GetVariableValueInternal), so it
                       # holds a choice availability mask without the 0xFFFF->-1 sign trap of a literal.
@@ -48,7 +52,7 @@ MAP_INT16 = 0xD9      # Map + Int16 -> transient SIGNED 16-bit (wiped per field 
                       # from the player's height every frame so its transient value never matters.
 GLOB_INT16 = 0xD8     # Global + Int16. Idx 2 (D8:2) is the engine's ARRIVAL-ENTRANCE var: set it right
                       # before Field()/WorldMap() and the destination field's player-init switches on it.
-VAR_CLASSES = {"glob_bool": GLOB_BOOL, "map_bool": MAP_BOOL, "glob_uint8": GLOB_UINT8}
+VAR_CLASSES = {"glob_bool": GLOB_BOOL, "map_bool": MAP_BOOL, "glob_uint8": GLOB_UINT8, "glob_byte": GLOB_BYTE}
 
 # A scratch word high in gEventGlobal (byte offset; vars index BYTES, bits index BITS -- so byte 2040
 # is bits 16320+, clear of base-game vars [low offsets] AND the kit's 8000+ bit-flags [bytes ~1000]).

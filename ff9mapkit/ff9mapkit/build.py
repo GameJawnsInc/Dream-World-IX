@@ -299,12 +299,14 @@ def _story_names(project: FieldProject) -> dict:
 
 def _validate_story_writes(d: dict, label: str, names: dict, problems: list, *,
                            scenario_key: str = "scenario", flags_key: str = "flags",
-                           words_key: str | None = None) -> None:
+                           words_key: str | None = None, bytes_key: str | None = None) -> None:
     """Validate a story-state write block -- the ``[startup]`` presets OR a ``[[gateway]]``'s on-exit
     advance (``set_scenario``/``set_flags``). ``<scenario_key>`` is 0..SCENARIO_MAX or an area name;
     ``<flags_key>`` is a list of ``{flag = <index|name>, value = 0|1}``. ``<words_key>`` (only ``[startup]``
     passes it) is a list of ``{byte = <0..2046>, value = <0..65535>}`` -- a save-backed UInt16 word write
-    (e.g. the ATE-availability mask at byte 236). Appends human-readable problems."""
+    (e.g. the ATE-availability mask at byte 236) that spans two bytes. ``<bytes_key>`` (also ``[startup]``)
+    is a list of ``{byte = <0..2047>, value = <0..255>}`` -- a save-backed SINGLE-byte write (no neighbour
+    clobber). Appends human-readable problems."""
     sc = d.get(scenario_key)
     if isinstance(sc, str):
         try:
@@ -350,6 +352,26 @@ def _validate_story_writes(d: dict, label: str, names: dict, problems: list, *,
                 if isinstance(v, bool) or not isinstance(v, int) or not (0 <= v <= _startup.WORD_VALUE_MAX):
                     problems.append(f"{label} {words_key} #{i} value must be 0..{_startup.WORD_VALUE_MAX} "
                                     f"(got {v!r})")
+    if bytes_key is not None:
+        bw = d.get(bytes_key, [])
+        if not isinstance(bw, list):
+            problems.append(f"{label} {bytes_key} must be a list of {{byte = <0..{_startup.BYTE_BYTE_MAX}>, "
+                            f"value = <0..{_startup.BYTE_VALUE_MAX}>}}")
+        else:
+            for i, b in enumerate(bw):
+                if not isinstance(b, dict) or "byte" not in b or "value" not in b:
+                    problems.append(f"{label} {bytes_key} #{i} needs `byte` (a gEventGlobal byte offset) and "
+                                    f"`value` (a single byte, 0..{_startup.BYTE_VALUE_MAX})")
+                    continue
+                idx, val = b["byte"], b["value"]
+                if isinstance(idx, bool) or not isinstance(idx, int) or not (0 <= idx <= _startup.BYTE_BYTE_MAX):
+                    problems.append(f"{label} {bytes_key} #{i} byte must be 0..{_startup.BYTE_BYTE_MAX} (got {idx!r})")
+                elif idx == 0:
+                    problems.append(f"{label} {bytes_key} #{i}: byte 0 is the ScenarioCounter -- use "
+                                    f"`scenario = N` instead")
+                if isinstance(val, bool) or not isinstance(val, int) or not (0 <= val <= _startup.BYTE_VALUE_MAX):
+                    problems.append(f"{label} {bytes_key} #{i} value must be 0..{_startup.BYTE_VALUE_MAX} "
+                                    f"(a single byte; use `words` for a 16-bit value) (got {val!r})")
 
 
 def _validate_party(pty, problems: list) -> None:
@@ -868,9 +890,9 @@ def validate(project: FieldProject) -> list[str]:
     if su is not None:
         if not isinstance(su, dict):
             problems.append("[startup] must be a table (scenario = N|\"area\", flags = [{flag, value}], "
-                            "and/or words = [{byte, value}])")
+                            "words = [{byte, value}] (16-bit), and/or bytes = [{byte, value}] (single byte))")
         else:
-            _validate_story_writes(su, "[startup]", story_names, problems, words_key="words")
+            _validate_story_writes(su, "[startup]", story_names, problems, words_key="words", bytes_key="bytes")
     oe = project.raw.get("on_entry")                     # field-load beats ([[on_entry]]: gated, once)
     if oe is not None:
         _validate_on_entry(oe, story_names, problems)
@@ -2241,7 +2263,8 @@ def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
         sc = _flags.resolve_scenario(sc)
     presets = [(_flags.resolve(p["flag"], names), int(p.get("value", 1))) for p in su.get("flags", [])]
     words = [(int(w["byte"]), int(w["value"])) for w in su.get("words", [])]
-    return _startup.inject_startup(eb, presets, sc, words)
+    byte_writes = [(int(b["byte"]), int(b["value"])) for b in su.get("bytes", [])]
+    return _startup.inject_startup(eb, presets, sc, words, byte_writes)
 
 
 def _apply_party(project: FieldProject, eb: bytes, warnings: list | None = None) -> bytes:
