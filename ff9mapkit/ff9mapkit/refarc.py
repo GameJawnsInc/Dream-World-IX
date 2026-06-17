@@ -214,11 +214,15 @@ def render_arc_journey_toml(arcset: ReferenceArcSet, *, hub_name: str = "FF9 Dis
     ])
     L.append("")
 
+    from . import hub as _hub
     L.append("[hub]")
-    L.append(f'name = "{_toml_str(hub_name)}"          # the World-Hub field that lists + warps into the arcs')
+    L.append(f'name = "{_hub.name_token(hub_name)}"          # an EVT_/FBG_ token (no spaces -- the field name)')
     L.append(f"id = {int(hub_id)}                  # the hub field id (custom band, >= 4000; NOT in an arc band)")
     if hub_area is not None:
         L.append(f"area = {int(hub_area)}                  # the borrowed room's FBG area (FBG_N<area>_...)")
+    else:                                              # custom borrow_bg with no area -> the default 21 is likely wrong
+        L.append("# area = 21          # SET ME: must equal the borrowed room's real FBG area (the default 21 is "
+                 "usually WRONG for a custom room -> black screen)")
     L.append(f'borrow_bg = "{_toml_str(borrow_bg)}"   # a real field whose art the hub reuses (`list-fields`)')
     if borrow_field is not None:
         L.append(f"borrow_field = {int(borrow_field)}              # the real field -> `deploy_journey --apply` "

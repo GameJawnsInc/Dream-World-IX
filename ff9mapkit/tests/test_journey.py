@@ -208,6 +208,41 @@ entry = 6001
     assert any("claimed by BOTH" in e and "6001" in e for e in errors)
 
 
+def test_render_selector_hub_and_journey_row(tmp_path):
+    # an empty World Hub (the journey selector): [hub] only, defaults to Mognet Central, loads structurally
+    t = journey.render_selector_hub_toml(hub_name="World Hub", hub_id=4600)
+    p = tmp_path / "journeys.toml"
+    p.write_text(t, encoding="utf-8")
+    m = journey.load_journeys(p)
+    assert m.hub["id"] == 4600 and m.hub["borrow_field"] == 3100 and m.hub["area"] == 56 and m.journeys == []
+    assert m.hub["name"] == "World_Hub", "a spaced hub name is coerced to an EVT/FBG token"
+    assert all(ord(c) < 128 for c in t), "the generated, hand-edited file must be ASCII"
+    # an empty selector hub ([hub] + no rows) is a WARNING, not a hard error (a valid fill-me-in scaffold)
+    eerr, ewarn = journey.lint_manifest(m)
+    assert eerr == [] and any("add a journey" in w for w in ewarn), (eerr, ewarn)
+    # add two bare rows (selector menu) -> they parse, resolve, and lint clean
+    t2 = (t + "\n" + journey.render_journey_row("dali", "Dali", 4100, scenario=2600)
+          + "\n" + journey.render_journey_row("treno", "Treno", 4501))
+    p.write_text(t2, encoding="utf-8")
+    m2 = journey.load_journeys(p)
+    assert [(j.id, j.entry.field, j.hub_scenario) for j in m2.journeys] == [("dali", 4100, 2600), ("treno", 4501, None)]
+    assert journey.lint_manifest(m2) == ([], [])
+    # a CUSTOM borrow_bg has NO live Mognet area/borrow_field -- a 'SET ME' area placeholder warns instead of
+    # silently defaulting to 21 (the documented BG-borrow black screen).
+    t3 = journey.render_selector_hub_toml(borrow_bg="GRGR_MAP420_GR_CEN_0")
+    lines3 = t3.splitlines()
+    assert 'borrow_bg = "GRGR_MAP420_GR_CEN_0"' in t3
+    assert not any(ln.startswith("area =") for ln in lines3) and "# area = 21" in t3 and "SET ME" in t3
+    assert not any(ln.startswith("borrow_field") for ln in lines3)   # no LIVE borrow_field for a custom room
+
+
+def test_render_journey_row_validates():
+    with pytest.raises(journey.JourneyError):
+        journey.render_journey_row("bad slug!", "X", 4100)      # slug must be A-Z/0-9/_
+    with pytest.raises(journey.JourneyError):
+        journey.render_journey_row("ok", "X", "not-an-int")     # entry must be a field id
+
+
 def test_lint_hub_id_collides_with_campaign_member(tmp_path):
     # the [hub] field registers in the SAME global EventDB as the campaigns -> a hub/member id collision is a
     # black screen; the disjointness lint must claim the hub id too (else it passes silently).

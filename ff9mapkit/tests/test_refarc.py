@@ -97,7 +97,7 @@ def test_rendered_journey_loads_through_the_real_journey_loader(tmp_path):
     p = tmp_path / "journeys.toml"
     p.write_text(text, encoding="utf-8")
     m = journey.load_journeys(p)                            # the structural schema is valid
-    assert m.hub.get("id") == 4711 and m.hub.get("name") == "My Disc 1"
+    assert m.hub.get("id") == 4711 and m.hub.get("name") == "My_Disc_1"   # hub name -> EVT/FBG token
     j = m.journeys[0]
     assert j.campaigns == [a.key for a in aset.arcs] and not j.is_bare
     assert j.entry.campaign == aset.arcs[0].key             # entry names the first arc's campaign

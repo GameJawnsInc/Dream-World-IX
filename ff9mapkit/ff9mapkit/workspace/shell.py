@@ -131,11 +131,12 @@ def _render_journey_toml(*, hub_name, hub_id, borrow_bg, jid, jname, kind="bare"
     with a placeholder entry + a commented links/seed block (those need member names from forked campaigns).
     Always loads (the schema is valid); a multi template's missing campaign folders surface as a helpful
     'fork the campaigns first' note in the overview/lint -- onboarding, not a crash."""
+    from .. import hub as _hub
     L = ["# A JOURNEY = one playable arc the World Hub selects + warps into. The hub is a small BG-borrow",
          "# field that shows a menu; each journey seeds its story state and warps in. docs/JOURNEYS.md.",
          "",
          "[hub]",
-         f'name = "{_toml_str(hub_name)}"      # the World-Hub field\'s display name',
+         f'name = "{_hub.name_token(hub_name)}"      # an EVT_/FBG_ token (no spaces -- becomes the field name)',
          f"id = {int(hub_id)}                  # the hub field id (custom band, >= 4000)",
          f'borrow_bg = "{_toml_str(borrow_bg)}"   # a real field whose art the hub reuses (`ff9mapkit list-fields`)',
          "",
@@ -567,6 +568,13 @@ class Workspace(QMainWindow):
         self._set_editor_tab("Journey")
         self._header(self.journey_name, "The assembled journey plan. Open a campaign in the tree to edit it; "
                      "Check (or open) lints the global id/flag namespace into Problems.")
+        addrow = QHBoxLayout()
+        add_journey = QPushButton("Add journey…")
+        add_journey.setToolTip("Add a menu row that warps New Game into an installed slice (the World-Hub selector)")
+        add_journey.clicked.connect(self.on_add_journey_row)
+        addrow.addWidget(add_journey)
+        addrow.addStretch(1)
+        self.doc_host_lay.addLayout(addrow)
         self._mount_fork_panel()                   # Step-1 fork helper (only if the manifest has campaigns)
         box = QPlainTextEdit()
         box.setReadOnly(True)
@@ -757,6 +765,63 @@ class Workspace(QMainWindow):
         if self.journey_root:                      # open_journey runs its own unsaved-prompt -- don't double it
             self.open_journey(self.journey_root)
 
+    def on_add_journey_row(self):
+        """Add a ``[[journey]]`` menu row to the open hub: a row that warps New Game into an ALREADY-INSTALLED
+        field. The World-Hub selector builder -- validates (slug + entry id, no dup), appends to the
+        journeys.toml, and re-opens so the row lints + lists. (Reach an installed slice via Build & Deploy.)"""
+        if self.manifest is None or not self.journey_root:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add journey to hub")
+        form = QFormLayout(dlg)
+        jid = QLineEdit()
+        jid.setPlaceholderText("dali   (a slug: A-Z, 0-9, _)")
+        jname = QLineEdit()
+        jname.setPlaceholderText("Dali")
+        entry = QLineEdit()
+        entry.setPlaceholderText("4100   (the installed field this row warps into)")
+        scenario = QLineEdit()
+        scenario.setPlaceholderText("optional story beat (set_scenario)")
+        form.addRow("Journey id", jid)
+        form.addRow("Menu label", jname)
+        form.addRow("Entry field id", entry)
+        form.addRow("Scenario", scenario)
+        note = QLabel("Each row is a menu choice on the hub. Install the slice first (fork + deploy); this row "
+                      "just points New Game at its field id.")
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color:{self.pal['muted']};")
+        form.addRow(note)
+        form.addRow(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._append_journey_row(jid.text().strip(), jname.text().strip(), entry.text().strip(),
+                                 scenario.text().strip())
+
+    def _append_journey_row(self, sid, name, entry_text, scenario_text) -> bool:
+        """Validate + append a ``[[journey]]`` row to the open hub, then re-open (re-lint + re-list). Returns
+        True on success. The dialog-free core of :meth:`on_add_journey_row` (so it's headlessly testable)."""
+        import tomllib
+        from .. import journey as J
+        try:
+            sid = str(sid).strip()                 # strip BEFORE the empty/dup checks (render_journey_row strips too)
+            if not sid:
+                raise ValueError("a journey id is required")
+            if sid in {j.id for j in self.manifest.journeys}:
+                raise ValueError(f"a journey id {sid!r} is already in this hub — pick another")
+            ent = int(entry_text)
+            row = J.render_journey_row(sid, name or sid, ent,
+                                       scenario=int(scenario_text) if str(scenario_text).strip() else None)
+            text = Path(self.journey_root).read_text(encoding="utf-8").rstrip("\n") + "\n\n" + row
+            tomllib.loads(text)                    # belt-and-suspenders: the result must still parse
+            Path(self.journey_root).write_text(text, encoding="utf-8", newline="\n")
+            self.open_journey(self.journey_root)   # re-lint + re-list (the new row appears in the tree)
+            self.statusBar().showMessage(f"Added journey '{sid}' → field {ent}")
+            return True
+        except (ValueError, J.JourneyError, tomllib.TOMLDecodeError, OSError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't add the journey"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return False
+
     def on_open_campaign(self):
         f, _ = QFileDialog.getOpenFileName(self, "Open campaign.toml", "",
                                            "Campaign (campaign.toml);;TOML (*.toml);;All files (*)")
@@ -919,6 +984,11 @@ class Workspace(QMainWindow):
             bg = (borrow_bg or "").strip()
             use = None if bg in ("", "N11_HUT", RA.HUB_BORROW_BG) else bg
             text = RA.render_arc_journey_toml(RA.load_reference_arcs(), hub_name=name, hub_id=hub_id, borrow_bg=use)
+        elif kind == "hub":
+            from .. import journey as J, refarc as RA
+            bg = (borrow_bg or "").strip()                 # same Mognet-Central default as the reference-arc hub
+            use = None if bg in ("", "N11_HUT", RA.HUB_BORROW_BG) else bg
+            text = J.render_selector_hub_toml(hub_name=name, hub_id=hub_id, borrow_bg=use)
         else:
             text = _render_journey_toml(hub_name=name, hub_id=hub_id, borrow_bg=borrow_bg or "N11_HUT",
                                         jid=jid or "intro", jname=jname or "Intro", kind=kind,
@@ -951,17 +1021,20 @@ class Workspace(QMainWindow):
         bare_rb = QRadioButton("Bare — the hub warps straight to ONE field")
         multi_rb = QRadioButton("Multi-campaign arc — chain forked campaigns")
         arc_rb = QRadioButton("FF9 reference arc — scaffold FF9's real story arcs to fork & chain")
+        hub_rb = QRadioButton("World Hub — a menu that lists installed journeys, pick one at New Game")
         bare_rb.setChecked(True)
         grp = QButtonGroup(dlg)
         grp.addButton(bare_rb)
         grp.addButton(multi_rb)
         grp.addButton(arc_rb)
+        grp.addButton(hub_rb)
         trow = QWidget()
         tl = QVBoxLayout(trow)
         tl.setContentsMargins(0, 0, 0, 0)
         tl.addWidget(bare_rb)
         tl.addWidget(multi_rb)
         tl.addWidget(arc_rb)
+        tl.addWidget(hub_rb)
         form.addRow("Type", trow)
         name = QLineEdit()
         name.setPlaceholderText("My Hub")
@@ -997,10 +1070,20 @@ class Workspace(QMainWindow):
         arc_preview.setWordWrap(True)
         arc_preview.setTextFormat(Qt.TextFormat.RichText)
         al.addWidget(arc_preview)
+        hub_panel = QWidget()
+        hl = QVBoxLayout(hub_panel)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hub_blurb = QLabel("Creates an empty World Hub (just the <code>[hub]</code> menu field). After it opens, "
+                           "use <b>Add journey…</b> to add one menu row per installed slice — each row warps "
+                           "into a field you've already forked &amp; deployed.")
+        hub_blurb.setWordWrap(True)
+        hub_blurb.setTextFormat(Qt.TextFormat.RichText)
+        hl.addWidget(hub_blurb)
         stack = QStackedWidget()
         stack.addWidget(bare_panel)
         stack.addWidget(multi_panel)
         stack.addWidget(arc_panel)
+        stack.addWidget(hub_panel)
         form.addRow(stack)
         note = QLabel()
         note.setStyleSheet(f"color:{self.pal['muted']};")
@@ -1009,35 +1092,37 @@ class Workspace(QMainWindow):
         form.addRow(self._ok_cancel(dlg))
 
         from .. import refarc as _RA
+        _NOTES = {
+            0: "A <b>complete</b>, ready-to-build journeys.toml — the hub menu warps straight to your entry field.",
+            1: "Fork the campaigns first (<code>ff9mapkit import-chain</code>). This writes the hub + journey with "
+               "the entry/links/seed <b>left to fill in</b> against your members.",
+            2: "Scaffolds the FF9 disc-1 story spine as a chained journey + a per-arc <code>import-chain</code> "
+               "fork playbook (the north-star fork-and-test harness). The hub defaults to <b>Mognet Central</b> "
+               "(the journey nexus). Not a one-click rebuild — fork each arc, fill the entry/links, deploy.",
+            3: "A journey SELECTOR: New Game lands on the hub and you pick which installed journey to play. "
+               "Creates the empty hub; add a menu row per slice with <b>Add journey…</b> afterward. The hub "
+               "defaults to <b>Mognet Central</b> (the journey nexus).",
+        }
         def _toggle():
-            idx = 0 if bare_rb.isChecked() else (1 if multi_rb.isChecked() else 2)
+            rbs = [bare_rb, multi_rb, arc_rb, hub_rb]
+            idx = next((i for i, rb in enumerate(rbs) if rb.isChecked()), 0)
             stack.setCurrentIndex(idx)
-            # swap the borrow-art default to match the kind (a reference-arc hub defaults to Mognet Central,
-            # FF9's journey nexus) WITHOUT clobbering a value the user actually typed.
+            # swap the borrow-art default to match the kind (the reference-arc + World-Hub fields default to
+            # Mognet Central, FF9's journey nexus) WITHOUT clobbering a value the user actually typed.
             cur = borrow.text().strip()
-            if idx == 2 and cur in ("", "N11_HUT"):
+            if idx in (2, 3) and cur in ("", "N11_HUT"):
                 borrow.setText(_RA.HUB_BORROW_BG)
-            elif idx != 2 and cur in ("", _RA.HUB_BORROW_BG):
+            elif idx not in (2, 3) and cur in ("", _RA.HUB_BORROW_BG):
                 borrow.setText("N11_HUT")
-            if idx == 0:
-                note.setText("A <b>complete</b>, ready-to-build journeys.toml — the hub menu warps straight to "
-                             "your entry field.")
-            elif idx == 1:
-                note.setText("Fork the campaigns first (<code>ff9mapkit import-chain</code>). This writes the hub "
-                             "+ journey with the entry/links/seed <b>left to fill in</b> against your members.")
-            else:
-                note.setText("Scaffolds the FF9 disc-1 story spine as a chained journey + a per-arc "
-                             "<code>import-chain</code> fork playbook (the north-star fork-and-test harness). The "
-                             "hub defaults to <b>Mognet Central</b> (the journey nexus). Not a one-click rebuild — "
-                             "fork each arc, fill the entry/links, deploy, playtest.")
-        bare_rb.toggled.connect(_toggle)
-        multi_rb.toggled.connect(_toggle)
-        arc_rb.toggled.connect(_toggle)
+            note.setText(_NOTES[idx])
+        for rb in (bare_rb, multi_rb, arc_rb, hub_rb):
+            rb.toggled.connect(_toggle)
         _toggle()
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        kind = "bare" if bare_rb.isChecked() else ("multi" if multi_rb.isChecked() else "refarc")
-        hub_name = name.text().strip() or ("FF9 Disc 1" if kind == "refarc" else "")
+        kind = ("bare" if bare_rb.isChecked() else "multi" if multi_rb.isChecked()
+                else "refarc" if arc_rb.isChecked() else "hub")
+        hub_name = name.text().strip() or {"refarc": "FF9 Disc 1", "hub": "World Hub"}.get(kind, "")
         try:
             self._new_journey(
                 hub_name, dest.text().strip() or self._default_new_dest(), kind=kind,
@@ -1589,6 +1674,8 @@ class Workspace(QMainWindow):
         ]
         if self.plan is not None and self.campaign_path is not None:
             cmds.insert(2, ("Add field to campaign…", "command", self.on_add_field))
+        if self.manifest is not None:
+            cmds.insert(2, ("Add journey to hub…", "command", self.on_add_journey_row))
         content = []
 
         def walk(item):
@@ -2823,6 +2910,8 @@ class Workspace(QMainWindow):
         delete a list entity, or remove an existing single section. Empty for field / camera / an absent
         single (nothing to do there)."""
         p = self._payload(item)
+        if p and p[0] in ("jset", "journey") and self.manifest is not None:
+            return [("Add journey…", self.on_add_journey_row)]   # the hub root: add a menu row (selector builder)
         if p and p[0] == "campaign" and self.plan is not None and self.campaign_path is not None:
             return [("Add field…", self.on_add_field)]      # the campaign root: scaffold a new member
         fa = self._ancestor_field(item)
@@ -4712,11 +4801,11 @@ def _smoke(win):
     # New Journey -- BARE = a COMPLETE ready file (hub warps to one field); MULTI = hub + journey with the
     # entry/links/seed left to fill in. Both open into journey mode; the dialog's choices become real values.
     jbare = win._new_journey("My Hub", d / "jnew", kind="bare", hub_id=4600, entry=4100)
-    assert jbare.exists() and win.manifest is not None and win.journey_name == "My Hub"
+    assert jbare.exists() and win.manifest is not None and win.journey_name == "My_Hub"  # hub name -> EVT/FBG token
     bt = jbare.read_text(encoding="utf-8")
     assert "[hub]" in bt and 'id = "intro"' in bt and "entry = 4100" in bt and "campaigns" not in bt, bt
     jmulti = win._new_journey("Arc Hub", d / "jmulti", kind="multi", campaigns=["dali", "outside"])
-    assert jmulti.exists() and win.manifest is not None and win.journey_name == "Arc Hub"
+    assert jmulti.exists() and win.manifest is not None and win.journey_name == "Arc_Hub"  # hub name -> token
     mt = jmulti.read_text(encoding="utf-8")
     assert 'campaigns = ["dali", "outside"]' in mt and 'campaign = "dali"' in mt, mt
     assert "[[journey.link]]" in mt and "import-chain" in mt, "the multi file shows the links + the fork-first step"
@@ -4755,6 +4844,29 @@ def _smoke(win):
     win.plan = None
     win._fork_queue = []                                                    # stop the (stubbed) chain
     win.run_job = _real_run_job
+    # WORLD HUB (the journey selector): create an empty hub, then add menu rows pointing at installed slices.
+    jhub = win._new_journey("My World Hub", d / "jhub", kind="hub")
+    assert jhub.exists() and win.manifest is not None and len(win.manifest.journeys) == 0, "empty selector hub"
+    ht = jhub.read_text(encoding="utf-8")
+    assert win.manifest.hub.get("borrow_field") == 3100 and "[hub]" in ht, "hub defaults to Mognet Central"
+    assert win.manifest.hub.get("name") == "My_World_Hub", "hub name coerced to an EVT/FBG token (no spaces)"
+    # an empty selector hub is a WARNING (a fill-me-in scaffold), NOT a red error (the original UX complaint)
+    from .. import journey as _Jh
+    _he, _hw = _Jh.lint_manifest(win.manifest)
+    assert _he == [] and any("add a journey" in w for w in _hw), (_he, _hw)
+    assert win.on_add_journey_row.__self__ is win                          # the action exists
+    assert win._append_journey_row("dali", "Dali", "4100", "2600") is True, "added a journey row"
+    assert win._append_journey_row("treno", "Treno", "4501", "") is True
+    assert [j.id for j in win.manifest.journeys] == ["dali", "treno"], [j.id for j in win.manifest.journeys]
+    assert win.manifest.journeys[0].entry.field == 4100 and win.manifest.journeys[0].hub_scenario == 2600
+    assert not win._append_journey_row("dali", "Dup", "4102", ""), "a duplicate journey id is refused"
+    assert not win._append_journey_row(" dali ", "Dup", "4102", ""), "a whitespace-padded duplicate is refused too"
+    assert not win._append_journey_row("bad slug!", "X", "4103", ""), "a bad slug is refused"
+    assert not win._append_journey_row("ok", "X", "not-an-int", ""), "a non-numeric entry is refused"
+    assert [j.id for j in win.manifest.journeys] == ["dali", "treno"], "rejected rows didn't land"
+    # 'Add journey…' is offered on the hub root (context menu) + the palette, while a hub is open
+    assert any(lbl == "Add journey…" for lbl, _ in win._context_actions(win.tree.topLevelItem(0)))
+    assert "Add journey to hub…" in [e[0] for e in win._command_index()]
     try:                                                   # clobber guard: an existing manifest is refused
         win._new_journey("Again", d / "jnew")
         assert False, "an existing journeys.toml should be refused"

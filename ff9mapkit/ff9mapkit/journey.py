@@ -341,7 +341,10 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
     errors, warnings = [], []
 
     if not manifest.journeys:
-        errors.append("no [[journey]] rows -- a journeys manifest needs at least one journey to select")
+        # an empty SELECTOR hub ([hub] + no rows yet) is a valid in-progress scaffold -> a warning, not a hard
+        # error (the build/assemble path still rejects it at validate_hub). Only a hub-less manifest errors.
+        (warnings if manifest.hub else errors).append(
+            "no [[journey]] rows yet -- add a journey (GUI: 'Add journey...') before deploying")
     if not manifest.hub:
         warnings.append("no [hub] table -- the journey graph lints, but `assemble-journey` can't emit the "
                         "hub field without it (add a [hub] block: name/id/borrow_bg/camera).")
@@ -562,6 +565,78 @@ def generate_hub(journeys_path, out_path=None, *, extract_camera=False, game=Non
 
 
 # ---------------------------------------------------------------- read-only resolved view
+def _toml_str(s) -> str:
+    """Escape a value for a double-quoted TOML string (backslash + quote)."""
+    return str(s).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def render_journey_row(jid: str, name: str, entry: int, *, scenario=None, entrance=None) -> str:
+    """One bare ``[[journey]]`` block -- a World-Hub menu row that warps into an ALREADY-INSTALLED field
+    (``entry``). Pure text (no game). Raises :class:`JourneyError` on a bad slug / non-int entry."""
+    jid = str(jid).strip()
+    if not _SLUG_RE.match(jid):
+        raise JourneyError(f"journey id {jid!r} must be a slug (A-Z, 0-9, _) -- it's the hub-choice key")
+    try:
+        entry = int(entry)
+    except (TypeError, ValueError):
+        raise JourneyError(f"entry {entry!r} must be a field id (the installed field the hub warps into)")
+    L = ["[[journey]]",
+         f'id = "{_toml_str(jid)}"',
+         f'name = "{_toml_str(name) or jid}"',
+         f"entry = {entry}          # the installed field this menu row warps into (>= 4000)"]
+    if scenario is not None:
+        L.append(f"set_scenario = {int(scenario)}        # seed this story beat before warping in")
+    if entrance is not None:
+        L.append(f"entrance = {int(entrance)}")
+    return "\n".join(L) + "\n"
+
+
+def render_selector_hub_toml(*, hub_name="World Hub", hub_id=4600, borrow_bg=None, hub_area=None,
+                             borrow_field=None, journeys=None) -> str:
+    """A WORLD-HUB (journey-selector) ``journeys.toml``: ``[hub]`` + one bare ``[[journey]]`` row per
+    already-installed slice. New Game lands on the hub; each row is a menu choice that warps into its field.
+    The hub backdrop defaults to MOGNET CENTRAL (FF9's journey nexus + a real ``borrow_field`` so
+    ``deploy_journey --apply`` auto-extracts the camera). ``journeys`` = list of ``{id, name, entry,
+    scenario?}``; an empty list emits a commented example to fill (in the GUI: 'Add journey...')."""
+    if borrow_bg is None:                              # default the hub to Mognet Central (the journey nexus)
+        from . import refarc as _refarc
+        borrow_bg, hub_area, borrow_field = _refarc.HUB_BORROW_BG, _refarc.HUB_BORROW_AREA, _refarc.HUB_BORROW_FIELD
+    L = ["# A WORLD HUB -- a journey SELECTOR. New Game lands here; each [[journey]] row below is a menu",
+         "# choice that warps into an ALREADY-INSTALLED slice (a forked field / arc in its own mod folder).",
+         "# Keep every journey installed at once; the hub just needs each one's {name, entry id, seed}.",
+         "# Add a row per installed journey (GUI: 'Add journey...'), then deploy + point New Game at the hub.",
+         "",
+         "[hub]",
+         f'name = "{_hub.name_token(hub_name)}"      # an EVT_/FBG_ token (no spaces -- becomes the field name)',
+         f"id = {int(hub_id)}                  # the hub field id (custom band, >= 4000)"]
+    if hub_area is not None:
+        L.append(f"area = {int(hub_area)}                  # the borrowed room's FBG area (FBG_N<area>_...)")
+    else:                                              # custom borrow_bg with no area -> the default 21 is likely wrong
+        L.append("# area = 21          # SET ME: must equal the borrowed room's real FBG area (the default 21 is "
+                 "usually WRONG for a custom room -> black screen)")
+    L.append(f'borrow_bg = "{_toml_str(borrow_bg)}"   # the room whose art the hub reuses (`list-fields`)')
+    if borrow_field is not None:
+        L.append(f"borrow_field = {int(borrow_field)}              # the real field -> `deploy_journey --apply` "
+                 "auto-extracts its camera")
+    else:
+        L.append("# borrow_field = <real field id>   # uncomment so `deploy_journey --apply` auto-extracts the camera")
+    L.append("")
+    rows = list(journeys or [])
+    if rows:
+        for r in rows:
+            L.append(render_journey_row(r["id"], r.get("name", r["id"]), r["entry"],
+                                        scenario=r.get("scenario")).rstrip("\n"))
+            L.append("")
+    else:
+        L += ["# Add a journey row per installed slice (or use the GUI 'Add journey...'). Example:",
+              "# [[journey]]",
+              '# id = "dali"',
+              '# name = "Dali"',
+              "# entry = 4100          # the installed field New Game warps into for this journey",
+              "# set_scenario = 2600   # optional: seed the story beat"]
+    return "\n".join(L) + "\n"
+
+
 def render_journey_plan(manifest: JourneyManifest) -> str:
     """A human-readable view of the assembled namespace: each journey, its entry global id + hub seed, and (for
     a multi-campaign arc) its campaigns' id bands + flag windows + resolved cross-campaign links. Backs the

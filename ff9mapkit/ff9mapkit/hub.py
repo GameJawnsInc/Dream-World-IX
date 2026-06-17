@@ -78,6 +78,14 @@ SCENARIO_MAX = 32767
 _NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")     # a field/journey name -> EVT_/FBG_ token + comment/subdir-safe
 
 
+def name_token(s, *, fallback="HUB") -> str:
+    """Coerce a hub display name to an EVT_/FBG_ TOKEN: the ``[hub]`` ``name`` becomes ``EVT_<name>.eb`` +
+    ``FBG_N<area>_<name>`` (validated by :data:`_NAME_RE`), so spaces/punctuation must collapse to underscores
+    (``World Hub`` -> ``World_Hub``). Already-valid tokens pass through unchanged; empty -> ``fallback``."""
+    t = re.sub(r"[^A-Za-z0-9_]+", "_", str(s)).strip("_")
+    return t or fallback
+
+
 class HubError(ValueError):
     """A journeys.toml / hub-generation problem (caught + printed by the CLI)."""
 
