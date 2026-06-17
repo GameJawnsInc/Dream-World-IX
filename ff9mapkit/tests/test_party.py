@@ -149,8 +149,10 @@ def test_field_resets_party_scan(tmp_path):
 
 # ---- the jump-table fail-closed guard (adversarial-review finding) ----------------------------
 def test_field_load_inject_converts_jump_table_valueerror():
-    """~11% of real fields have a 0x06 jump table at the top of Main_Init that the inserter can't shift past;
-    a field-load block on such a donor must fail closed with a clear BuildError, not an opaque ValueError."""
+    """Defensive net: if a field-load injector ever raises a 0x06 jump-table ValueError (a MID-function insert),
+    _field_load_inject must convert it to a clear BuildError, not leak an opaque ValueError. The levers all
+    PREPEND (rel_off=0), which is always safe past a jump table since the rel_off==0 fix, so this no longer
+    fires for them -- but the conversion stays as insurance for a future mid-insert lever."""
     jt = ValueError("func 0 has a jump table (0x06); insert unsupported")
     with pytest.raises(BuildError, match="jump table"):
         _field_load_inject("[party]", "FIELD100", lambda: _raise(jt))

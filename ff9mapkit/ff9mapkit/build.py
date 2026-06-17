@@ -2302,21 +2302,24 @@ def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
 
 
 def _field_load_inject(label: str, field_name: str, fn):
-    """Run a field-load injection (``_apply_startup`` / ``_apply_party`` / ``_apply_on_entry``), converting the
-    byte inserter's opaque "0x06 jump table -- insert unsupported" ``ValueError`` into a clear, actionable
-    :class:`BuildError`. ~11% of real fields (e.g. field 100) have a jump table at the top of Main_Init that
-    :func:`edit.insert_in_function` can't yet shift past; on a verbatim fork of one of those, prepending a
-    field-load block fails closed with a useful message instead of an opaque mid-build traceback. (Harmless on
-    the synthesize path -- the kit-built Main_Init never has a jump table -- but the same guard is cheap there.)"""
+    """Run a field-load injection (``_apply_startup`` / ``_apply_party`` / ``_apply_walkmesh_hotfix`` /
+    ``_apply_on_entry``), converting the byte inserter's opaque "0x06 jump table" ``ValueError`` into a clear
+    :class:`BuildError`. Every field-load lever PREPENDS to Main_Init (``insert_in_function`` at ``rel_off == 0``)
+    or appends a code entry + ``InitCode`` -- BOTH are always safe, even on the ~11% of fields whose Main_Init
+    opens with a 0x06 scenario jump table (e.g. the interactive-ATE hub field 206): the engine is uniformly
+    IP-relative, so moving the whole body wholesale keeps every case offset valid (see
+    :func:`ff9mapkit.eb.edit.insert_in_function`). So this conversion is now a DEFENSIVE net --
+    ``insert_in_function`` only refuses a MID-function insert into a jump table, which these levers never do.
+    Kept so a future mid-insert lever would fail closed with a clear message instead of an opaque mid-build
+    traceback. (The original prepend-REFUSAL this once guarded was lifted by the ``rel_off == 0`` fix.)"""
     try:
         return fn()
     except ValueError as e:
         if "jump table" in str(e):
             raise BuildError(
-                f"field {field_name}: cannot prepend {label} to Main_Init -- this donor's Main_Init has a 0x06 "
-                f"jump table, which the byte inserter can't yet shift past (affects ~11% of real fields, e.g. "
-                f"field 100). Fork this field WITHOUT {label} (a verbatim fork already carries its real logic + "
-                f"cast), or choose a different donor.") from e
+                f"field {field_name}: a field-load injection ({label}) hit a 0x06 jump-table refusal during a "
+                f"MID-function insert. The field-load levers prepend (always safe, even past a Main_Init scenario "
+                f"jump table), so this is unexpected -- fork this field WITHOUT {label}, or report it.") from e
         raise
 
 
@@ -3632,9 +3635,10 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # [[on_entry]] beats would never fire. Both arm into the donor's Main_Init; the .eb is language-identical,
     # so inject once before the per-language loop. An [[on_entry]] narration MESSAGE is given a text channel by
     # APPENDING it to the donor `.mes` above the donor's txids (oe_suffix, added per-language below); its
-    # WindowSync resolves into that appended entry. ~11% of real fields have a 0x06 jump table at the top of
-    # Main_Init that the byte inserter can't shift past -> compose_verbatim_eb fails closed with a clear
-    # BuildError. This composition is shared verbatim with Check + the GUI edit panel (compose_verbatim_eb).
+    # WindowSync resolves into that appended entry. The field-load hooks PREPEND, which is safe even on the
+    # ~11% of fields whose Main_Init opens with a 0x06 scenario jump table (edit.insert_in_function moves the
+    # body wholesale, IP-relative -- so e.g. a field-206 fork carries its [startup]/[[on_entry]] beats fine).
+    # This composition is shared verbatim with Check + the GUI edit panel (compose_verbatim_eb).
     verbatim_bytes, oe_suffix = compose_verbatim_eb(project, langs=langs, warnings=warnings)
     verbatim_edits = project.logic_edits()
     la_suffix: dict = {}                                        # [[logic_add]] show_line / message lines (per lang)

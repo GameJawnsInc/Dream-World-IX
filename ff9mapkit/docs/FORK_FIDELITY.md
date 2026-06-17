@@ -298,13 +298,21 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
 
 - **`[startup]`/`[party]`/`[[on_entry]]` on a 0x06-jump-table donor WORKS** — a prepend (`rel_off==0`) is exempt from
   the jump-table refusal (`eb/edit.py:227`, the check only fires on a *mid-function* insert; docstring cites field
-  206). The `build.py:2062` `_field_load_inject` BuildError docstring + message still name "field 100 … can't yet
-  shift past" — **STALE**; the prepend path handles jump-table donors, the guard now only nets a hypothetical
-  mid-function field-load insert. (Refresh the prose.)
-- **Battle BGM (#6) is overstated as "minted scene plays silent."** The `Battle:`/`Music:` BattlePatch channel is
-  WIRED and keys on the battle *scene id* (which a fork keeps), so the donor's exact battle song reproduces when set.
-  The true residual: `extract` doesn't auto-prefill the donor song → `battle_music` defaults to `0` (Battle Theme)
-  (`build.py:3335`). Downgrade #6 to "auto-detect the donor battle song," not "silent."
+  206). **✅ FIXED (kit 0.9.99):** the `_field_load_inject` docstring + BuildError message + `content/party.py`'s
+  `inject_party` docstring no longer claim prepending fails on a jump-table donor or cite "field 100" — they now say
+  a prepend is always safe (the levers all prepend / append-activate) and the guard is a *defensive* net for a
+  hypothetical future mid-function field-load insert.
+- **Battle BGM (#6) — auto-detection LANDED for random encounters; the real residual is SCRIPTED battles.**
+  `import` now auto-detects the donor's battle song (`battle_bgm.py` reads the install's `BtlEncountBgmMetaData.txt`
+  `(field, scene) -> song` map LIVE, provenance-clean) and prefills `[encounter] battle_music`; the build reproduces
+  it via the scene-keyed `Music:` BattlePatch line (`FF9SndMetaData.BtlBgmPatcherMapper`, which wins over the lost
+  `(fldMapNo, scene)` lookup a mint can't satisfy). ★ **EMPIRICAL FINDING (kit 0.9.99):** every one of the game's
+  ~101 *random*-encounter fields maps to song `0` (the standard Battle Theme), so the prefill is correctness /
+  future-proofing, not a behavior change for existing forks. The SPECIAL battle themes (e.g. song `35`) belong to
+  ~30 *scripted*-battle fields (a `Battle(0x2A)` op, scene at `imm(1)`, NO `SetRandomBattles`) — a `--verbatim` fork
+  carries the `Battle` op but the kit emits no `Music:` line, so the boss theme is lost on the custom `fldMapNo`.
+  CLOSING that = emit a scene-keyed `Music:` for the donor's carried `Battle`-op scenes (now tractable — the scene
+  is a plain operand; a follow-up feature, not the literal #6 chip).
 - **✅ LANDED — engine walkmesh hotfixes lost on a mint (`walkmesh_hotfixes.py` + `content/walkmesh_hotfix.py`,
   kit 0.9.97).** A handful of fields rely on a hardcoded `BGI_triSetActive` keyed on the real `fldMapNo` (toggles a
   walkmesh triangle's walkable bit); a fork runs at a custom id, so the `mapNo==<real id>` guard is false and the

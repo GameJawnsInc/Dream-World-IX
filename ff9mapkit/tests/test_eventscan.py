@@ -112,7 +112,8 @@ def test_imported_content_toml_is_valid_and_complete(tmp_path):
     # objects carry a verbatim entry sidecar, so the emit needs an out_dir (as ladders/jumps do)
     blocks, cd, summary = extract._imported_content_toml(ALEX100, out_dir=tmp_path, name="field")
     assert cd == 0
-    assert summary == {"gateways": 4, "encounter": False, "music": 9, "control_direction": 0,
+    assert summary == {"gateways": 4, "encounter": False, "music": 9, "battle_music": None,
+                       "control_direction": 0,   # no encounter -> no battle song to auto-detect
                        "ladders": 0, "jumps": 0, "objects": 2,   # Alexandria: the bell + the ticket prop,
                        "player_funcs": 0, "carry_text": 0, "save_moogle": 0,   # carried VERBATIM (hidden NPCs
                        "spawn_flash": 0, "spawn_flash_fixed": 0,   # skipped); no graft/carry/save-moogle/flash here

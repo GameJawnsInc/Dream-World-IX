@@ -80,9 +80,10 @@ def party_body(adds=(), removes=()) -> bytes:
 
 def inject_party(eb, adds=(), removes=()) -> bytes:
     """Prepend the party sequence to **Main_Init** (entry 0, tag 0). :func:`edit.insert_in_function` fixes the
-    entry/func tables; an offset-0 insert raises ``ValueError`` only if Main_Init opens with a 0x06 jump table
-    (~11% of real fields -- the caller fails it closed with a clear message). No adds/removes -> the input bytes
-    unchanged (byte-identical to a field with no ``[party]``). Accepts bytes or an :class:`EbScript`."""
+    entry/func tables; an offset-0 prepend is ALWAYS safe -- even on the ~11% of fields whose Main_Init opens
+    with a 0x06 scenario jump table (the engine is IP-relative, so the table shifts wholesale). No adds/removes
+    -> the input bytes unchanged (byte-identical to a field with no ``[party]``). Accepts bytes or an
+    :class:`EbScript`."""
     data = bytes(eb) if isinstance(eb, (bytes, bytearray)) else eb.to_bytes()
     body = party_body(adds, removes)
     if not body:

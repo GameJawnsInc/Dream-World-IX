@@ -416,6 +416,21 @@ def _object_stub(o) -> str:
     return f'{head}[[prop]]\nmodel = {mref}{pose}\npos = [{x}, {z}]{face}'
 
 
+def _donor_battle_song(field_id, enc, game):
+    """The donor field's real random-battle BGM (akao song-play id) for this encounter's PRIMARY scene, or
+    ``None`` when unknown / not mapped / the install can't be read. FF9 keys the battle song on
+    ``(field id, scene)`` (``battle_bgm``); a fork to a custom id loses that lookup, so ``import`` prefills
+    ``[encounter] battle_music`` and the build reproduces it via a SCENE-keyed ``Music:`` BattlePatch line.
+    Best-effort: never fails an import over BGM detection."""
+    if field_id is None or not enc:
+        return None
+    try:
+        from . import battle_bgm as _bbgm
+        return _bbgm.song(field_id, int(enc["scenes"][0]), game)
+    except Exception:                                    # noqa: BLE001 -- BGM is a nicety, never block the fork
+        return None
+
+
 def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=None, live_seams=False,
                            graft_player_funcs=False, carry_text=False, field_id=None, game=None,
                            graft_savepoint=False):
@@ -503,10 +518,14 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
                          f"# verbatim story-gated door (real dest field id(s): {', '.join(map(str, dests))}). "
                          f"To redirect: retarget = {{ {dests[0]} = <your id> }}")
     enc = content["encounter"]
+    donor_song = _donor_battle_song(field_id, enc, game) if enc else None
     if enc:
         block = f"[encounter]\nscene = {enc['scenes'][0]}\nfreq = {enc['freq']}"
         if len(set(enc["scenes"])) != 1:
             block += f"\nscenes = [{', '.join(str(s) for s in enc['scenes'])}]"
+        if donor_song:                                    # non-zero only: 0 == the build's default Battle Theme
+            block += (f"\nbattle_music = {donor_song}   # the donor's real battle song (akao song-play id), "
+                      f"auto-detected from the real field -- a mint loses it (build emits a Music: line)")
         parts.append("# random battles imported from the real field (build adds the after-battle "
                      "reinit)\n" + block)
     if content["music"] is not None:
@@ -651,6 +670,7 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
                 f'[carry_text]\nbin = "{fn}"')
             n_carry_text = len(plan)
     summary = {"gateways": len(gws), "encounter": enc is not None, "music": content["music"],
+               "battle_music": donor_song,   # the donor's real battle BGM (auto-detected), or None if unknown/default
                "control_direction": content["control_direction"], "ladders": n_ladders,
                "jumps": n_jumps, "objects": n_objects, "player_funcs": n_player_funcs,
                "carry_text": n_carry_text, "save_moogle": n_save_moogle,
@@ -675,13 +695,14 @@ def _content_for_import(field: str, game, *, out_dir=None, name="field", id_rema
     eb_bytes = extract_event_script(field, game=game)
     if not eb_bytes:
         return "", None, None
-    fid = None
-    if carry_text or graft_savepoint:                    # both want the resolved donor field id
-        from .dialogue import _resolve_field_id
-        try:
-            fid = _resolve_field_id(field)
-        except (FileNotFoundError, ValueError):
-            fid = None
+    # Resolve the donor's real field id for EVERY import: carry_text / graft_savepoint need it, AND the
+    # encounter block uses it to auto-detect the donor's battle BGM (battle_bgm keys on the field id). It's a
+    # pure table lookup (no install), so it's cheap and best-effort -- None just disables the BGM prefill.
+    from .dialogue import _resolve_field_id
+    try:
+        fid = _resolve_field_id(field)
+    except (FileNotFoundError, ValueError):
+        fid = None
     return _imported_content_toml(eb_bytes, out_dir=out_dir, name=name, id_remap=id_remap,
                                   live_seams=live_seams, graft_player_funcs=graft_player_funcs,
                                   carry_text=carry_text, field_id=fid, game=game,
