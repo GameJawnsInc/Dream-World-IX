@@ -190,3 +190,8 @@ backups/
 
 # throwaway proof/scratch files (not committed)
 scratch/
+
+# Pandemonium elevator verbatim forks -- SE-derived scene/.eb/walkmesh binaries + their tomls (local
+# scratch; the kit recipe + the byte361/362 lift-config lives in git log + project memory, not these forks).
+tworoom/pand_lift/
+tworoom/pand_elv/
