@@ -518,3 +518,17 @@ def test_fieldtable_maps_known_fields_to_event_names():
     assert len(FBG_TO_EVT) > 600
     assert FBG_TO_EVT["fbg_n21_grgr_map420_gr_cen_0"][1] == "EVT_GARGAN_GR_CEN_0"
     assert FBG_TO_EVT["fbg_n36_glgv_map792_gv_rm1_0"][1] == "EVT_GULUGU_GV_RM1_0"
+
+
+def test_field_by_id_is_complete_and_disambiguates_shared_folders():
+    # FIELD_BY_ID is the ID-keyed table that keeps EVERY field, including the ~142 that share a background folder
+    # with another field (the folder-keyed FBG_TO_EVT drops all but one). The id-keyed lookups + event_name_for
+    # must use it so a shared-folder field forks its OWN event (else its Field() warp leaks; the 7deacc0 bug).
+    from ff9mapkit import extract
+    from ff9mapkit._fieldtable import FIELD_BY_ID, FBG_TO_EVT
+    assert len(FIELD_BY_ID) > 800 and len(extract.ID_TO_FBG) == len(FIELD_BY_ID) > len(FBG_TO_EVT)
+    # 52 and 3008 share fbg_n00_tshp_map005_th_met_0 but are DIFFERENT events (a play room reused in the ending)
+    assert extract.ID_TO_FBG[52] == extract.ID_TO_FBG[3008] == "fbg_n00_tshp_map005_th_met_0"
+    assert extract.event_name_for("52") == "EVT_ALEX1_TS_MEET_0"
+    assert extract.event_name_for("3008") == "EVT_ENDING_TH_0"
+    assert extract.event_name_for("52") != extract.event_name_for("3008")     # each ships its own .eb

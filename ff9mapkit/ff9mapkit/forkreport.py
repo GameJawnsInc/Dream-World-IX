@@ -537,9 +537,11 @@ def resolve_field_id(token, *, game=None) -> int:
                  or ("_map" + sl) in (ID_TO_FBG.get(fid, "") or "").lower()]
         if len(exact) == 1:
             return exact[0]
-        ex = ", ".join(ID_TO_FBG.get(f, str(f)) for f in hits[:4])
-        raise ValueError(f"{token!r} matches {len(hits)} fields ({ex}{'...' if len(hits) > 4 else ''}) "
-                         f"-- be more specific or use the field id")
+        # several fields can SHARE one FBG folder (the same room at different story beats), so listing folders
+        # would just repeat -- list the field IDS, which is exactly what disambiguates them.
+        ex = ", ".join(str(f) for f in hits[:8])
+        raise ValueError(f"{token!r} matches {len(hits)} fields (ids {ex}{'...' if len(hits) > 8 else ''}) "
+                         f"-- pass the field id (a shared FBG folder maps to several fields)")
     return hits[0]
 
 

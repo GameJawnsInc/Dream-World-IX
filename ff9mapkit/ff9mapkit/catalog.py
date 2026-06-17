@@ -29,7 +29,7 @@ import difflib
 from typing import NamedTuple, Optional
 
 from ._animdb_all import ANIMATIONS
-from ._fieldtable import FBG_TO_EVT
+from ._fieldtable import FBG_TO_EVT, FIELD_BY_ID
 from ._itemdb import ITEMS
 from ._modeldb import MODELS
 from ._scenedb import SCENES
@@ -264,11 +264,13 @@ def items(query=None) -> list:
 
 
 def fields(query=None) -> list:
-    """``[(fbg_folder, field_id, evt_name), ...]``; ``query`` filters by fbg/evt substring."""
+    """``[(fbg_folder, field_id, evt_name), ...]`` for EVERY field (id-keyed, so the ~142 fields that SHARE a
+    background folder with another -- the same room at a different story beat -- BOTH appear, each with its own
+    event); ``query`` filters by fbg/evt substring."""
     q = (query or "").lower()
-    out = [(fbg, fid, evt) for fbg, (fid, evt) in FBG_TO_EVT.items()
+    out = [(fbg, fid, evt) for fid, (fbg, evt) in FIELD_BY_ID.items()
            if not q or q in fbg.lower() or q in evt.lower()]
-    return sorted(out, key=lambda r: r[0])
+    return sorted(out, key=lambda r: (r[0], r[1]))
 
 
 # ----------------------------------------------------------- cross-kind ------

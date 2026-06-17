@@ -878,21 +878,25 @@ def _safe_member_dir(manifest_dir, member: Member) -> Path:
     return sub.resolve()
 
 
-def _resolve_source_folder(source) -> str:
-    """A real field reference (an id, or a unique FBG-folder substring) -> its FBG folder. For add_field's
-    fork path. Raises if it's not a single known field."""
+def _resolve_source_id(source) -> int:
+    """A real field reference (an id, or a unique FBG-folder substring) -> its FIELD ID (the donor). For
+    add_field's fork path. The ID is what disambiguates a folder SHARED by several fields (the same room at
+    different story beats, e.g. 52/3008) -- a folder name can't, so a shared-folder substring is rejected
+    (pass the id). Raises if it's not a single known field. (Mirrors import-chain's fork-by-id; the donor must
+    resolve its OWN .eb, not the folder-keyed winner.)"""
     from . import extract
     try:
         fid = int(source)
         if fid in extract.ID_TO_FBG:
-            return extract.ID_TO_FBG[fid]
+            return fid
     except (TypeError, ValueError):
         pass
     s = str(source).lower()
-    hits = sorted({f for f in extract.ID_TO_FBG.values() if s in f.lower()})
+    hits = sorted(fid for fid, f in extract.ID_TO_FBG.items() if s in f.lower())
     if len(hits) == 1:
         return hits[0]
-    raise CampaignError(f"source {source!r} matched {len(hits)} fields -- give a field id or a unique FBG name")
+    raise CampaignError(f"source {source!r} matched {len(hits)} fields {hits[:8]} -- give a field id "
+                        f"(a shared FBG folder maps to several fields) or a unique FBG name")
 
 
 def new_campaign(name, mod_folder, manifest_dir, *, id_base=4000, flag_base=FIRST_SAFE_FLAG,
@@ -929,8 +933,10 @@ def add_field(plan: CampaignPlan, manifest_dir, *, name, source=None, game=None)
         pack.new_project(name, manifest_dir, field_id=new_id, area=11)
         member = Member(0, new_id, name, "editable", 11, "", f"{name}/{name.lower()}.field.toml", False)
     else:                                                # fork a real field -- needs the game
-        folder = _resolve_source_folder(source)
-        real_id = next((i for i, f in extract.ID_TO_FBG.items() if f == folder), 0)
+        real_id = _resolve_source_id(source)             # the donor ID (disambiguates a shared FBG folder)
+        folder = extract.ID_TO_FBG[real_id]
+        donor = str(real_id)                             # fork by ID, not the (possibly shared) folder name --
+        #     so the writers ship THIS field's .eb/scene, not the folder-keyed winner (mirrors write_campaign).
         area, _ = extract.parse_fbg_folder(folder)
         mode = "borrow" if area >= extract.MIN_CUSTOM_AREA else "native"
         mdir = manifest_dir / name
@@ -940,11 +946,11 @@ def add_field(plan: CampaignPlan, manifest_dir, *, name, source=None, game=None)
         needs_export = False
         try:                                             # area<10 forks NATIVE (own atlas+.bgs, no .bgx)
             fork = extract.write_field_project if mode == "borrow" else extract.write_native_project
-            _meta, p = fork(folder, mdir, name=name, field_id=new_id, game=game, id_remap=remap)
+            _meta, p = fork(donor, mdir, name=name, field_id=new_id, game=game, id_remap=remap)
         except RuntimeError:                             # a field with no usable background atlas (rare)
             if mode == "borrow":
                 raise
-            _meta, p = _emit_logic_only_member(folder, mdir, name, new_id, remap, False, game)
+            _meta, p = _emit_logic_only_member(donor, mdir, name, new_id, remap, False, game)
             needs_export = True
         member = Member(real_id, new_id, name, mode, area, folder, f"{name}/{p.name}", needs_export)
     plan.members.append(member)

@@ -601,6 +601,16 @@ def test_add_field_forks_a_real_field(tmp_path):
     assert campaign.lint_campaign(campaign.load_campaign(tmp_path / "campaign.toml"), tmp_path)[0] == []
 
 
+def test_resolve_source_id_disambiguates_a_shared_folder():
+    # add_field must fork the donor by ID (not the FBG folder), so a field that SHARES its background folder
+    # with another (52/3008 -- the same room at different beats) forks ITS OWN .eb, not the folder-key winner
+    # (the review's HIGH finding -- the bug write_campaign was fixed for, originally left in add_field). Offline.
+    assert campaign._resolve_source_id(3008) == 3008          # an id resolves to itself, not the folder's first id
+    assert campaign._resolve_source_id("52") == 52
+    with pytest.raises(campaign.CampaignError):               # a SHARED-folder substring matches 52 AND 3008
+        campaign._resolve_source_id("tshp_map005_th_met")
+
+
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_real_build_all(tmp_path):
     from ff9mapkit import eventscan

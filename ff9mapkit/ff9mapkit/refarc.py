@@ -38,9 +38,11 @@ ARC_ID_SPAN = 200
 # OVERFLOWS -> the deploy lint hard-errors. So the fork playbook emits a SMALLER `--flags-per-field` sized so
 # all arcs fit; arcs keep their full member count (the lever is the per-field reservation, not --max-fields).
 SAFE_FLAG_BUDGET = _flags.CHOICE_SCRATCH_FLOOR - _flags.FIRST_SAFE_FLAG     # bits the journey band has for campaigns
-# A --whole-zone fork can be bigger than the 25-field default cap (Alexandria's zone = 38 screens across discs);
-# size the per-arc flag budget for that so the chain still fits the safe band end-to-end (the deploy lint is the
-# real backstop). Stays well under ARC_ID_SPAN (100) -- no FF9 zone has that many forkable fields.
+# A --whole-zone fork can be bigger than the 25-field default cap (Alexandria's zone = 48 screens across discs);
+# 40 is an AVERAGE-arc estimate for sizing the flag budget -- the model's total (n_arcs * 40) OVERSHOOTS the real
+# sum (the 12 disc-1 zones total ~326), so the chosen flags-per-field is conservative + fits the safe band
+# (the deploy lint is the real backstop). NB: a big single zone (Lindblum = 124) fits the id band (ARC_ID_SPAN
+# = 200) but not this 40 estimate -- harmless, since the budget is checked on the TOTAL, not per-arc.
 MAX_FIELDS_PER_ARC = 40
 
 # Default hub backdrop = MOGNET CENTRAL (real field 3100, FBG fbg_n56_mgnt_map810_mn_mog_0): FF9's Moogle
