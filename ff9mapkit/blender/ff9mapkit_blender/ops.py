@@ -1343,6 +1343,14 @@ class FF9MK_OT_import_field(bpy.types.Operator):
         # camera by -D), which aligns the view while leaving the walkmesh + content in the raw engine
         # frame, so content still exports correctly (the tilted-camera D has a depth term that would
         # corrupt content if applied to the mesh). Only when there's art to align to.
+        #
+        # KNOWN LIMITATION (deep / multi-level walkmeshes -- vertical shafts, elevators, tall
+        # Y-scrollers like the PDMN elevator): this is a single CONSTANT nudge, so it can't correct a
+        # pinhole-vs-GTE error that grows with depth -- the walkmesh DRIFTS toward the top/bottom of a
+        # field whose world-Y spans thousands of units (center stays aligned). VIEWPORT ONLY: the
+        # `ff9mapkit paint-template` PNG export + the in-game projection are exact (real GTE,
+        # render-frame Y). Left as-is on purpose -- a viewport fix would risk the proven editable-fork
+        # export round-trip. See blender/README.md "Two things to know".
         if has_art:
             D = bridge.walkmesh_view_offset(bgi_bytes, c0)
             cam_obj.location.x -= D[0]

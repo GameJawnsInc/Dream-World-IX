@@ -193,6 +193,15 @@ Memoria. See the CLI worked example `../examples/scroll-demo/`.
   non-square vertical scale (14/15) that Blender's square-pixel render doesn't show. The exported
   **camera is exact** (the math bakes that in), and the **paint guide** (`guide.txt` /
   *Compute Paint Guide*) is the source of truth for aligning your art.
+  - **Known limitation — deep / multi-level walkmeshes** (vertical shafts, elevators, tall
+    Y-scrollers, e.g. the Pandemonium elevator). The viewport fits the walkmesh to the art with a
+    single *constant* camera nudge (Blender's pinhole ≠ FF9's exact 2D-BG projection). A constant
+    nudge can't correct an error that grows with depth, so on a field whose world‑Y spans thousands
+    of units the walkmesh **drifts toward the top/bottom** (the center stays aligned). This is the
+    Blender **viewport only** — the exported **paint template** (`ff9mapkit paint-template`) and the
+    in-game projection are exact (real FF9 GTE projection, render-frame Y). **Trust the PNG, not the
+    viewport, for deep fields.** Left as-is deliberately: fixing the viewport would risk the proven
+    editable-fork export round-trip.
 - **Supported pitch range (advisory).** The in-game camera *and* the paint guide are exact at any
   angle — the projection is pure scale-1 math, with no per-pitch calibration. The ~0–50° range (the
   steepest shipped FF9 camera is ~49.6°) is an *authenticity* note, not a math limit: steeper angles
