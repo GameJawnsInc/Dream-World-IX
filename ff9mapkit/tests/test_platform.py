@@ -84,28 +84,25 @@ def test_inject_land_platform_lints_clean():
     assert _new_errors(eb) == []
 
 
-# --- entry mode: on-arrival rise = ABSOLUTE drop-to-hole-bottom in Init + land-to-floor ride post-fade --
-def test_drop_to_hole_bottom_is_absolute():
-    # drop to (lx, -ly+rise, lz) as CONSTANTS -- no stale-selfY capture
-    drop = _platform._drop_to_hole_bottom(12, 432, -474, 1200)
-    ops = _ops(drop)
-    assert 0xA8 in ops and 0xA1 in ops                  # SetPathing detach + the MoveInstantXZY
+# --- entry mode: self-contained ABSOLUTE drop+rise in the post-fade ride func (no Init drop, no division)
+def test_entry_rise_body_absolute_no_division():
+    body = _platform.entry_rise_body(land=(12, 432, -474), rise=1200, duration=48)
+    ops = _ops(body)
+    # 3 MoveInstantXZY: drop-to-bottom, per-frame rise, exact floor snap -- all absolute
+    assert ops.count(0xA1) == 3
+    assert 0x22 in ops and 0x03 in ops and 0xA8 in ops and ops[-1] == 0x04
+    assert 0x16 not in ops                               # NO divide op (T_DIV) -> can't fling sideways
     import struct
-    assert struct.pack("<h", 12) in drop                # lx constant
-    assert struct.pack("<h", -(-474) + 1200) in drop    # bottom selfY = -ly + rise = 1674 constant
+    assert struct.pack("<h", -(-474) + 1200) in body     # the absolute hole-bottom selfY (1674)
+    assert struct.pack("<h", -(-474)) in body            # the absolute floor selfY (474)
 
 
-def test_inject_entry_rise_drops_absolute_and_arms_post_fade():
+def test_inject_entry_rise_no_init_drop_arms_post_fade():
     eb = _platform.inject_entry_rise(CLEAN, land=(12, 432, -474), rise=1200)
     parsed = EbScript.from_bytes(eb)
     pe = find_player_entry(parsed)
-    # the ride func is the absolute land-mode carry (rides to the exact floor, lands flush)
-    assert parsed.entry(pe).func_by_tag(_platform.FIRST_PLATFORM_TAG) is not None
-    # the DROP is spliced into the player Init, AFTER DefinePlayerCharacter (0x2C)
-    init = parsed.entry(pe).func_by_tag(0)
-    dpc = next((i for i in parsed.instrs(init) if i.op == 0x2C), None)
-    assert dpc is not None
-    assert any(i.op == 0xA1 and i.off > dpc.off for i in parsed.instrs(init))        # the absolute drop
+    assert parsed.entry(pe).func_by_tag(_platform.FIRST_PLATFORM_TAG) is not None     # ride grafted on the player
+    # the player Init is NOT modified (no drop spliced -- it didn't stick): the only ride is the func
     # Main_Init arms an InitCode trigger that spins on usercontrol (JMP_TRUE) then RunScriptSyncs the rise
     assert any(i.op == 0x09 for i in parsed.instrs(parsed.entry(0).func_by_tag(0)))
     trig = next((parsed.entry(ei).func_by_tag(0) for ei in range(parsed.entry_count)
