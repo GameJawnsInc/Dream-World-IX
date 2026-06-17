@@ -36,7 +36,10 @@ ARC_ID_SPAN = 100
 # OVERFLOWS -> the deploy lint hard-errors. So the fork playbook emits a SMALLER `--flags-per-field` sized so
 # all arcs fit; arcs keep their full member count (the lever is the per-field reservation, not --max-fields).
 SAFE_FLAG_BUDGET = _flags.CHOICE_SCRATCH_FLOOR - _flags.FIRST_SAFE_FLAG     # bits the journey band has for campaigns
-MAX_FIELDS_PER_ARC = 25                                                     # import-chain's default --max-fields cap
+# A --whole-zone fork can be bigger than the 25-field default cap (Alexandria's zone = 38 screens across discs);
+# size the per-arc flag budget for that so the chain still fits the safe band end-to-end (the deploy lint is the
+# real backstop). Stays well under ARC_ID_SPAN (100) -- no FF9 zone has that many forkable fields.
+MAX_FIELDS_PER_ARC = 40
 
 # Default hub backdrop = MOGNET CENTRAL (real field 3100, FBG fbg_n56_mgnt_map810_mn_mog_0): FF9's Moogle
 # journey nexus -- the thematic home for a journey selector (it's the room the project's World Hub borrows),
@@ -145,6 +148,8 @@ def fork_command(arc: ReferenceArc, *, id_base: int, tag: str, flags_per_field: 
     parts = [f"py -m ff9mapkit import-chain {arc.seed}", f"--out {arc.key}"]
     if arc.zone:
         parts.append(f"--zones {arc.zone}")
+    parts.append("--whole-zone")                 # fork the WHOLE zone, not just the seed's door-reachable slice
+    #                                              (cutscene zones don't door-connect -- the bytes are there)
     if verbatim:
         parts.append("--verbatim")
     parts.append(f"--id-base {id_base}")
@@ -324,18 +329,20 @@ def _mk_link(src_c, src_f, dst_c, dst_f, *, comment=None):
 
 def _pick_boundary(cur_plan, nxt_plan, cur, nxt, notes):
     """Pick the boundary member of ``cur`` that hands off to ``nxt`` + the arrival member, the SAME way the
-    deploy step classifies a link (:func:`journey._seam_remap`): a member whose single ``Field()`` seam lands
-    in ``nxt`` (PRECISE field_remap, exact arrival) wins; else a world-map exit (worldmap_inject, arrival =
-    ``nxt``'s entry); else a best-guess + a VERIFY note. Returns a link dict (always -- a `fill`/`verify` link
-    still scaffolds the row so the journey lints + the human only edits one field)."""
+    deploy step classifies a link (:func:`journey._seam_remap`, fed the next arc's real ids): a member with a
+    ``Field()`` door straight INTO ``nxt`` (PRECISE field_remap, exact arrival) wins; else a world-map exit
+    (worldmap_inject, arrival = ``nxt``'s entry -- NOT shadowed by the member's in-zone doors); else a lone
+    out-of-chain door repurposed to ``nxt`` (a VERIFY note). Returns a link dict (always -- a `fill`/`verify`
+    link still scaffolds the row so the journey lints + the human only edits one field)."""
     from . import journey as _journey
     nxt_sources = {m.real_id: m.name for m in nxt_plan.members}     # real field id -> the next arc's member name
+    nxt_reals = frozenset(nxt_sources)                             # the next arc's donor ids (precise-door test)
     nxt_entry = nxt_plan.entry_name
     precise, overworld, other_fr = [], [], []
     for m in cur_plan.members:
-        sr = _journey._seam_remap(cur_plan, m.name, 0)             # dst_id is a dummy; we only read mode/remap
+        sr = _journey._seam_remap(cur_plan, m.name, 0, dst_reals=nxt_reals)   # dst_id dummy; read mode/remap
         if sr["mode"] == "field_remap":
-            target = next(iter(sr["remap"]), None)                 # the single int seam target
+            target = next(iter(sr["remap"]), None)                 # the chosen int seam target
             (precise.append((m.name, nxt_sources[target])) if target in nxt_sources else other_fr.append(m.name))
         elif sr["mode"] == "worldmap_inject":
             overworld.append(m.name)

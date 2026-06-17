@@ -801,31 +801,48 @@ def seed_to_field_blocks(seed: "JourneySeed | None") -> dict:
     return blocks
 
 
-def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: int) -> dict:
+def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: int, *,
+                dst_reals=frozenset()) -> dict:
     """Resolve a boundary member's onward seam into the cross-campaign link MODE. Returns a dict
-    ``{mode, remap, kinds, retargetable, note}``:
-      * ``field_remap`` -- exactly ONE int seam target (a scripted/portal ``Field()`` exit): patch it to
-        ``dst_id`` in place (``content.verbatim.remap_fields``). The proven path.
-      * ``worldmap_inject`` -- NO ``Field()`` target but an OVERWORLD seam (the elided world-map leg): the
-        boundary exits to the world map via ``WorldMap(loc)`` (no field id to retarget), so we body-REPLACE
-        its walk-out region handler with a ``Field(dst_id)`` warp, reusing the region's existing map-edge
-        zone (``apply_link_rewrites``). Auto-wired.
-      * ``none`` -- no onward seam, or several ``Field()`` targets (ambiguous): not auto-wired."""
+    ``{mode, remap, kinds, retargetable, note}``. ``dst_reals`` = the REAL field ids that ARE the next campaign
+    (its members' donor ids); supplying it lets a door straight INTO the next campaign be told apart from an
+    incidental in-zone door. Order:
+      * ``field_remap`` (PRECISE) -- the member has a ``Field()`` door whose target is in ``dst_reals`` (a real
+        warp straight into the next campaign, e.g. a dungeon mouth -> the next field): patch that door to
+        ``dst_id`` (``content.verbatim.remap_fields``). Beats the overworld -- the real door is the exact boundary.
+      * ``worldmap_inject`` -- NO door into the next campaign, but an OVERWORLD seam (a zone's world-map exit):
+        the boundary leaves to the world map, so body-REPLACE its walk-out region with a ``Field(dst_id)`` warp
+        (``apply_link_rewrites``). This is the cross-zone boundary for a world-connected chain, and is NOT
+        shadowed by the member's incidental in-zone ``Field()`` doors (the dali/south_gate fix).
+      * ``field_remap`` (REPURPOSE) -- no overworld and exactly ONE out-of-chain ``Field()`` door (not into the
+        next campaign): repurpose it to ``dst_id`` (the lone-onward-door heuristic).
+      * ``none`` -- no onward seam, or several ``Field()`` doors and no overworld (ambiguous): not auto-wired.
+
+    NB (in-game-UNVERIFIED): the worldmap_inject-over-in-zone-doors path is a deploy-side change -- it matches the
+    real game (you leave a zone via the world map) and preserves the proven Ice Cavern cases (entrance = pure
+    overworld -> inject; internal exit = a lone ``Field()`` -> remap), but a both-seams boundary's wiring should
+    be confirmed in a playtest (``apply_link_rewrites`` reports found=False if no walk-out region matches)."""
     g = _campaign.campaign_graph(src_plan)
     node = g.by_name.get(member_name)
     seams = node.seams if node else []
     kinds = sorted({s.get("kind") for s in seams if s.get("kind")})
     targets = sorted({s["to_real"] for s in seams if isinstance(s.get("to_real"), int)})
-    if len(targets) == 1:
+    into_next = [t for t in targets if t in dst_reals]
+    if into_next:                                # a real door straight into the next campaign -> PRECISE boundary
+        return {"mode": "field_remap", "remap": {into_next[0]: dst_id}, "kinds": kinds, "retargetable": True,
+                "note": "" if len(into_next) == 1 else f"{len(into_next)} doors into the next campaign "
+                        f"{into_next}; took the first"}
+    if "overworld" in kinds:                      # no door into the next campaign -> the world-map exit IS it
+        return {"mode": "worldmap_inject", "remap": {}, "kinds": kinds, "retargetable": True,
+                "note": "overworld exit -- body-replace the walk-out region with Field(dst) (elided world leg)"
+                        + (f"; ignores {len(targets)} in-zone Field() door(s) {targets}" if targets else "")}
+    if len(targets) == 1:                         # a lone out-of-chain Field() door -> repurpose it to the next
         return {"mode": "field_remap", "remap": {targets[0]: dst_id}, "kinds": kinds,
                 "retargetable": True, "note": ""}
     if len(targets) > 1:
         return {"mode": "none", "remap": {}, "kinds": kinds, "retargetable": False,
                 "note": f"{len(targets)} Field() seam targets {targets} -- ambiguous; pick a "
                         f"single-onward-seam boundary member, or split the boundary"}
-    if "overworld" in kinds:                     # no Field() target, but exits to the world map -> inject
-        return {"mode": "worldmap_inject", "remap": {}, "kinds": kinds, "retargetable": True,
-                "note": "overworld exit -- body-replace the walk-out region with Field(dst) (elided leg)"}
     return {"mode": "none", "remap": {}, "kinds": kinds, "retargetable": False,
             "note": "no onward seam on the boundary member -- nothing to retarget into the next campaign"}
 
@@ -861,7 +878,11 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
                 folder_seen.setdefault(plan.mod_folder, folder)
         for lk in rj.links:
             src_plan = plans[lk["src_campaign"]][0]
-            sr = _seam_remap(src_plan, lk["src_field"], lk["dst_id"])
+            dst_plan = plans[lk["dst_campaign"]][0]
+            # the arrival member's DONOR id -> a boundary door that lands there is the precise cross-zone warp
+            dst_real = next((m.real_id for m in dst_plan.members if m.new_id == lk["dst_id"]), None)
+            sr = _seam_remap(src_plan, lk["src_field"], lk["dst_id"],
+                             dst_reals=frozenset({dst_real}) if dst_real else frozenset())
             links.append(LinkRewrite(
                 src_campaign=lk["src_campaign"], src_field=lk["src_field"], src_id=lk["src_id"],
                 src_mod_folder=src_plan.mod_folder, eb_name=f"EVT_{lk['src_field']}",

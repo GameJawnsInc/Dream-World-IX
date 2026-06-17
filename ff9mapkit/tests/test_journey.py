@@ -17,10 +17,13 @@ from ff9mapkit.flags import CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG
 
 # ---- fixture builders (no game) ---------------------------------------------------------
 def _make_campaign(root, folder, *, members, id_base, flags_per_field=64, entry=None,
-                   seams=None, edges=None, mod_folder="FF9CustomMap-test"):
-    """Write a minimal but VALID campaign folder: campaign.toml + a parseable field.toml per member."""
+                   seams=None, edges=None, mod_folder="FF9CustomMap-test", sources=None):
+    """Write a minimal but VALID campaign folder: campaign.toml + a parseable field.toml per member.
+    ``sources`` (name -> donor real id) sets a member's real_id (default 0) -- needed to exercise a boundary
+    door that lands straight in the NEXT campaign (the precise field_remap path)."""
     cdir = root / folder
     cdir.mkdir(parents=True, exist_ok=True)
+    sources = sources or {}
     plan = CampaignPlan(name=folder, mod_folder=mod_folder, id_base=id_base, flag_base=FIRST_SAFE_FLAG,
                         flags_per_field=flags_per_field, entry_name=entry or members[0], entry_entrance=0)
     for i, name in enumerate(members):
@@ -29,9 +32,9 @@ def _make_campaign(root, folder, *, members, id_base, flags_per_field=64, entry=
         (mdir / f"{name}.field.toml").write_text(
             f'[field]\nid = {id_base + i}\nname = "{name}"\narea = 11\ntext_block = 1073\n',
             encoding="utf-8", newline="\n")
-        plan.members.append(Member(real_id=0, new_id=id_base + i, name=name, mode="native",
-                                   src_area=11, folder="", toml_rel=f"{name}/{name}.field.toml",
-                                   needs_export=False))
+        plan.members.append(Member(real_id=int(sources.get(name, 0)), new_id=id_base + i, name=name,
+                                   mode="native", src_area=11, folder="",
+                                   toml_rel=f"{name}/{name}.field.toml", needs_export=False))
     plan.edges = edges or []
     plan.seams = seams or []
     (cdir / "campaign.toml").write_text(campaign.render_campaign_toml(plan), encoding="utf-8", newline="\n")
@@ -750,3 +753,68 @@ to = { campaign = "cavern", field = "IC_ENT" }
         if not e.empty:
             for fn in e.funcs:
                 list(s.instrs(fn))
+
+
+def test_deploy_plan_overworld_preferred_over_ambiguous_field_seams(tmp_path):
+    # A boundary member with an overworld exit AND SEVERAL ambiguous in-zone Field() doors (a shop, a sub-room):
+    # the >1 Field() targets are ambiguous (previously -> 'none' -> BOUNDARY_MEMBER in reconcile), so the
+    # world-map exit wins -> worldmap_inject. This is the dali/south_gate fix (their overworld exit was shadowed).
+    _make_campaign(tmp_path, "za", members=["A1", "A2"], id_base=6000, mod_folder="mf-a",
+                   seams=[{"frm": "A2", "to_real": "WORLDMAP", "kind": "overworld", "note": "wm"},
+                          {"frm": "A2", "to_real": 998, "kind": "scripted", "note": "a shop door"},
+                          {"frm": "A2", "to_real": 999, "kind": "scripted", "note": "a sub-room door"}])
+    _make_campaign(tmp_path, "zb", members=["B1"], id_base=6100, mod_folder="mf-b")
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["za", "zb"]
+entry = { campaign = "za", field = "A1" }
+[[journey.link]]
+from = { campaign = "za", field = "A2" }
+to = { campaign = "zb", field = "B1" }
+""")
+    lk = journey.build_deploy_plan(journey.load_journeys(p)).links[0]
+    assert lk.mode == "worldmap_inject" and lk.retargetable and lk.remap == {}    # overworld wins over ambiguity
+    assert "overworld" in lk.seam_kinds
+
+
+def test_deploy_plan_overworld_wins_over_a_lone_in_zone_door(tmp_path):
+    # south_gate's case: the boundary has an overworld exit AND a SINGLE in-zone Field() door that does NOT lead
+    # into the next campaign (B1's real id is 0, the door is 555). The world-map exit is the real cross-zone
+    # boundary -> worldmap_inject; the in-zone door must NOT shadow it (the bug a naive len==1-first ordering hit).
+    _make_campaign(tmp_path, "za", members=["A1", "A2"], id_base=6000, mod_folder="mf-a",
+                   seams=[{"frm": "A2", "to_real": "WORLDMAP", "kind": "overworld", "note": "wm"},
+                          {"frm": "A2", "to_real": 555, "kind": "scripted", "note": "an in-zone sub-room"}])
+    _make_campaign(tmp_path, "zb", members=["B1"], id_base=6100, mod_folder="mf-b")
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["za", "zb"]
+entry = { campaign = "za", field = "A1" }
+[[journey.link]]
+from = { campaign = "za", field = "A2" }
+to = { campaign = "zb", field = "B1" }
+""")
+    lk = journey.build_deploy_plan(journey.load_journeys(p)).links[0]
+    assert lk.mode == "worldmap_inject" and lk.remap == {}        # the in-zone door doesn't shadow the overworld
+
+
+def test_deploy_plan_field_door_into_next_campaign_is_precise(tmp_path):
+    # A boundary with a Field() door whose target IS the next campaign's arrival donor id (700) AND an overworld
+    # exit: the door straight into the next campaign is the PRECISE boundary -> field_remap {700: dst}, beating
+    # the world-map leg (review finding: a real door to the next arc must not be coarsened to worldmap_inject).
+    _make_campaign(tmp_path, "za", members=["A1", "A2"], id_base=6000, mod_folder="mf-a",
+                   seams=[{"frm": "A2", "to_real": "WORLDMAP", "kind": "overworld", "note": "wm"},
+                          {"frm": "A2", "to_real": 700, "kind": "scripted", "note": "door into the next zone"}])
+    _make_campaign(tmp_path, "zb", members=["B1"], id_base=6100, mod_folder="mf-b", sources={"B1": 700})
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["za", "zb"]
+entry = { campaign = "za", field = "A1" }
+[[journey.link]]
+from = { campaign = "za", field = "A2" }
+to = { campaign = "zb", field = "B1" }
+""")
+    lk = journey.build_deploy_plan(journey.load_journeys(p)).links[0]
+    assert lk.mode == "field_remap" and lk.remap == {700: 6100}    # precise door into the next campaign

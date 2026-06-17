@@ -21,8 +21,8 @@ note = "The opening: the Tantalus play, kidnapping Garnet, the escape from Alexa
 [[arc]]
 key = "evil_forest"
 name = "Evil Forest"
-seed = 152
-note = "The crash-landing, Blank, the petrification -- the party first comes together."
+seed = 250
+note = "The crash-landing, Blank, the petrification -- the party first comes together. (seed = ef_ent, the forest ENTRANCE; field 152/ef_fr6 is an isolated cutscene screen.)"
 
 [[arc]]
 key = "ice_cavern"
@@ -39,14 +39,14 @@ note = "Dali village + the underground black-mage production line. PROVEN forkab
 [[arc]]
 key = "cargo_ship"
 name = "Cargo Ship"
-seed = 500
-note = "The cargo ship out of Dali toward Lindblum."
+seed = 507
+note = "The cargo ship out of Dali toward Lindblum. (seed = ca_dck_0, the walkable deck; field 500/ca_dck_1 is an isolated cutscene variant.)"
 
 [[arc]]
 key = "lindblum"
 name = "Lindblum"
 seed = 550
-note = "Lindblum: the Festival of the Hunt and Lindblum Castle (L. Castle = 600)."
+note = "Lindblum: the Festival of the Hunt and Lindblum Castle. (--whole-zone forks the whole ldbm zone, ~70 screens across discs; Lindblum CASTLE is its own zone -- add it as a separate arc if you want it.)"
 
 [[arc]]
 key = "gizamaluke"
@@ -69,8 +69,8 @@ note = "The South Gate / Bohden Station road (North Gate = 851)."
 [[arc]]
 key = "treno"
 name = "Treno"
-seed = 916
-note = "The City of Nobles: the auction house, Queen Stella's cards, Dr. Tot's tower. (Main screen tr_whf.)"
+seed = 1908
+note = "The City of Nobles: the auction house, Queen Stella's cards, Dr. Tot's tower. (seed = tr_gat, the city gate; field 916/tr_whf is an isolated screen.)"
 
 [[arc]]
 key = "gargan_roo"

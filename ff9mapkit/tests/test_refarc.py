@@ -212,6 +212,23 @@ def test_reconcile_is_idempotent(tmp_path):
     assert any(n.level == "skip" for n in notes)
 
 
+def test_reconcile_precise_arrival_survives_a_co_present_overworld(tmp_path):
+    # A boundary member with a lone Field() door INTO the next arc AND an incidental overworld exit must keep its
+    # PRECISE arrival (the door's real target member), not be coarsened to the next arc's generic entry -- the
+    # review's regression: an overworld-FIRST classification would have lost the exact to.field.
+    _write_forked_campaign(tmp_path, "arc_a", entry="A1", members=[("A1", 100, 6000), ("A2", 101, 6001)],
+                           seams=[("A2", 201, "scripted"), ("A2", "WORLDMAP", "overworld")])
+    # arc_b: B1 is the entry (source 200); B2 (source 201) is the NON-entry member the A2 door lands on.
+    _write_forked_campaign(tmp_path, "arc_b", entry="B1", members=[("B1", 200, 6100), ("B2", 201, 6101)], seams=[])
+    aset = refarc.ReferenceArcSet(title="P", arcs=[refarc.ReferenceArc(key="arc_a", name="A", seed=100, beat=0),
+                                                   refarc.ReferenceArc(key="arc_b", name="B", seed=200)])
+    out, _ = refarc.reconcile_arc_journey(refarc.render_arc_journey_toml(aset), tmp_path)
+    p = tmp_path / "journeys.toml"
+    p.write_text(out, encoding="utf-8")
+    lk = journey.load_journeys(p).journeys[0].links[0]
+    assert (lk.src_campaign, lk.src_field, lk.dst.campaign, lk.dst.field) == ("arc_a", "A2", "arc_b", "B2")
+
+
 def test_reconcile_flags_a_boundary_with_no_seam(tmp_path):
     # arc_a's only member has NO onward seam -> reconcile can't find a boundary; it still scaffolds the link row
     # (so the journey is structurally complete) but leaves a FILL placeholder + a 'verify' note for the human.
@@ -281,3 +298,15 @@ def test_reconcile_marks_an_ambiguous_precise_tie_inline(tmp_path):
     p = tmp_path / "journeys.toml"
     p.write_text(out, encoding="utf-8")
     journey.load_journeys(p)                                               # still valid TOML
+
+
+def test_fork_playbook_uses_whole_zone_and_fixed_seeds():
+    # reference-arc forks must capture the WHOLE zone (cutscene zones don't door-connect from the seed), and
+    # the previously-ISOLATED entry seeds were corrected to connected entrances (so the chain arrives walkable).
+    aset = refarc.load_reference_arcs()
+    for _arc, cmd in refarc.fork_playbook(aset):
+        assert "--whole-zone" in cmd, cmd
+    by_key = {a.key: a.seed for a in aset.arcs}
+    assert by_key["evil_forest"] == 250    # ef_ent (entrance), not 152/ef_fr6 (an isolated cutscene screen)
+    assert by_key["cargo_ship"] == 507     # ca_dck_0 (walkable deck), not 500/ca_dck_1 (a cutscene variant)
+    assert by_key["treno"] == 1908         # tr_gat (city gate), not 916/tr_whf (isolated)

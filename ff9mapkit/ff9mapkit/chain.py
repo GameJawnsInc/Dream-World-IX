@@ -150,6 +150,36 @@ def walk(seed_ids, scan_fn, zone_fn, *, forkable_fn=None, max_hops=DEFAULT_MAX_H
     )
 
 
+def zone_coverage(result: GraphResult, zone_members_fn) -> dict:
+    """How much of each touched zone the walk actually forked: ``{zone: (reached, total, [unreached_ids])}``.
+    ``zone_members_fn(zone)`` -> the set of ALL forkable field ids in that zone (the static FBG table). A low
+    ratio flags an ISOLATED seed -- e.g. Evil Forest seeded at 152 forks 1 of 13 (the rest aren't door-reachable
+    from that screen). PURE: the membership comes from a callback so :mod:`chain` stays game-free. Only zones the
+    walk forked at least one field in are reported (the seed's own zone(s) + any followed neighbour)."""
+    forked_by_zone: dict = {}
+    for fid, info in result.nodes.items():
+        if info.get("found"):
+            forked_by_zone.setdefault(info["zone"], set()).add(int(fid))
+    out: dict = {}
+    for zone, forked in forked_by_zone.items():
+        total = {int(x) for x in (zone_members_fn(zone) or ())}
+        unreached = sorted(total - forked)
+        out[zone] = (len(forked & total) if total else len(forked), len(total), unreached)
+    return out
+
+
+def render_coverage(coverage: dict) -> list:
+    """Lines flagging under-forked zones (reached < total) -- the 'isolated seed' hint. ``[]`` if every touched
+    zone is fully covered (e.g. a --whole-zone fork)."""
+    lines: list = []
+    for zone, (reached, total, unreached) in sorted(coverage.items()):
+        if total and reached < total:
+            shown = ", ".join(map(str, unreached[:12])) + (" ..." if len(unreached) > 12 else "")
+            lines.append(f"  zone {zone}: forked {reached} of {total} forkable fields -- {len(unreached)} "
+                         f"NOT door-reachable from the seed ({shown}). Try --whole-zone (or a connected seed).")
+    return lines
+
+
 def _walkin_summary(info):
     """('->' destinations with x{n} stacking, story_conditional?) for a node's walk-in edges."""
     counts: "OrderedDict" = OrderedDict()
@@ -173,9 +203,10 @@ def _dedup(rows, keys):
     return out
 
 
-def render(result: GraphResult, label_fn=None) -> str:
+def render(result: GraphResult, label_fn=None, coverage=None) -> str:
     """A human-readable scoping report for ``--dry-run``: per-zone node lists, inter-zone portals,
-    scripted seams, overworld exits, and a blast-radius line. ``label_fn(id)`` -> a display name."""
+    scripted seams, overworld exits, and a blast-radius line. ``label_fn(id)`` -> a display name. ``coverage``
+    (from :func:`zone_coverage`) adds an 'isolated seed' hint when a touched zone is under-forked."""
     label_fn = label_fn or (lambda i: "")
     b = result.bounds
     zstr = ",".join(b["zones"]) if b["zones"] else ("seed-zone" if b["stop_at_zone_boundary"] else "any")
@@ -235,6 +266,12 @@ def render(result: GraphResult, label_fn=None) -> str:
     wm = [fid for fid, info in result.nodes.items() if info.get("overworld_exits")]
     if wm:
         out.append("OVERWORLD EXITS (screens that leave to the world map): " + ", ".join(map(str, wm)))
+        out.append("")
+
+    cov_lines = render_coverage(coverage) if coverage else []
+    if cov_lines:
+        out.append("UNDER-FORKED ZONES (fields in the zone the seed can't door-reach -- the bytes are there):")
+        out.extend(cov_lines)
         out.append("")
 
     nwalk = sum(1 for info in result.nodes.values() for e in info["edges"] if e["kind"] == WALK_IN)

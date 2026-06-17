@@ -1001,6 +1001,14 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
 
+    if getattr(args, "whole_zone", False):       # seed EVERY forkable field in the seed's zone(s) -> the whole
+        seed_zones = {chain.zone_label(extract.ID_TO_FBG[s])          # zone forks, not just the door-reachable
+                      for s in seeds if s in extract.ID_TO_FBG}       # slice (cutscene-only screens included)
+        extra = sorted(fid for fid, folder in extract.ID_TO_FBG.items()
+                       if chain.zone_label(folder) in seed_zones and fid not in seeds)
+        seeds = seeds + extra                     # original seed(s) FIRST -> entry_field stays the intended entry
+        args.max_fields = max(args.max_fields, len(seeds))           # never truncate the zone we asked for
+
     def zone_fn(fid):
         return chain.zone_label(extract.ID_TO_FBG.get(int(fid)))
 
@@ -1027,6 +1035,10 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
                         follow_scripted=args.follow_scripted,
                         stop_at_zone_boundary=not args.cross_zones)
 
+    def _zone_members(z):                         # all forkable fields in a zone (for the coverage hint)
+        return [fid for fid, folder in extract.ID_TO_FBG.items() if chain.zone_label(folder) == z]
+    coverage = chain.zone_coverage(result, _zone_members)
+
     if args.out:                                  # P2 write mode: fork the chain into campaign/
         from . import campaign
         cfg = _deploy_cfg()
@@ -1045,9 +1057,13 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
             print(str(e), file=sys.stderr)
             return 2
         _print_campaign_summary(plan, args.out, verbatim=args.verbatim)
+        cov_lines = chain.render_coverage(coverage)
+        if cov_lines:
+            print("\nUNDER-FORKED ZONES (the bytes are there -- re-fork with --whole-zone to capture them):")
+            print("\n".join(cov_lines))
         return 0
 
-    print(chain.render(result, label_fn=_chain_label_fn(game=args.game)))
+    print(chain.render(result, label_fn=_chain_label_fn(game=args.game), coverage=coverage))
     return 0
 
 
@@ -2467,6 +2483,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="also follow scripted/teleport warps (default: list them as seams, don't recurse)")
     ic.add_argument("--cross-zones", action="store_true", dest="cross_zones",
                     help="don't stop at zone boundaries (follow into any zone, bounded by --max-hops/--max-fields)")
+    ic.add_argument("--whole-zone", action="store_true", dest="whole_zone",
+                    help="fork EVERY forkable field in the seed's zone(s), not just those door-reachable from the "
+                         "seed -- captures cutscene-only / non-door-connected screens the walk misses (the seed "
+                         "stays the entry). Raises --max-fields to fit the zone. Same as seeding an FBG substring.")
     ic.add_argument("--dry-run", action="store_true", dest="dry_run",
                     help="just print the discovered graph (the default when --out is omitted)")
     # P2 write mode: --out flips import-chain from the read-only dry-run to forking the chain.

@@ -134,3 +134,35 @@ def test_render_smoke():
     assert "ZONE a" in text
     assert "BLAST RADIUS" in text
     assert "MENU / NON-FIELD TARGETS" in text and "F4" in text
+
+
+# ---- zone coverage (the 'isolated seed' hint) -------------------------------------------
+def test_zone_coverage_flags_unreached_fields():
+    # seed 1 forks zone 'a' = {1,2,3,4}; pretend the zone ALSO has a field 5 the seed can't door-reach.
+    r = chain.walk(1, _scan_fn, _zone_fn)
+    members = {"a": {1, 2, 3, 4, 5}, "b": {10, 11}}
+    cov = chain.zone_coverage(r, lambda z: members.get(z, set()))
+    assert cov["a"] == (4, 5, [5])                      # reached 4 of 5; field 5 unreached
+    lines = chain.render_coverage(cov)
+    assert any("zone a" in ln and "4 of 5" in ln and "--whole-zone" in ln for ln in lines)
+
+
+def test_zone_coverage_full_is_silent():
+    # a fully-covered zone (e.g. a --whole-zone fork) yields no hint.
+    r = chain.walk(1, _scan_fn, _zone_fn)
+    cov = chain.zone_coverage(r, lambda z: {1, 2, 3, 4} if z == "a" else set())
+    assert cov["a"][0] == cov["a"][1] == 4
+    assert chain.render_coverage(cov) == []
+
+
+def test_whole_zone_multi_seed_forks_disconnected_field():
+    # the --whole-zone mechanism = seed EVERY zone field. Field 5 is its own island (no edges); seeding it
+    # directly forks it where a walk from 1 never would.
+    GRAPH[5] = {"zone": "a", "walk_in": [], "scripted": [], "wm": []}
+    try:
+        r = chain.walk([1, 5], _scan_fn, _zone_fn)     # seed 1 AND the island 5
+        assert {1, 2, 3, 4, 5} <= _ids(r)
+        cov = chain.zone_coverage(r, lambda z: {1, 2, 3, 4, 5} if z == "a" else set())
+        assert chain.render_coverage(cov) == []        # now fully covered
+    finally:
+        del GRAPH[5]
