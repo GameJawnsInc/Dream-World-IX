@@ -315,10 +315,12 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   `Battle(0x2A)`/`BattleEx(0x8C)` scenes (scene = `btlId & 0x7FFF`, engine `DoEventCode.cs:962`); `import --verbatim`
   looks each up in the BGM map and auto-emits `[[battle_bgm]] scene=N song=M` for the NON-zero (boss/special)
   songs; the build emits a scene-keyed `Music:` line per pair (deduped — `BtlBgmPatcherMapper` is scene-keyed +
-  mod-global). ★ END-TO-END PROVEN OFFLINE: `import 656 --verbatim` (Mount Gulug Red-Dragon room) emits
-  `[[battle_bgm]] scene=330 song=35`, which builds to `Battle: 330 / Music: 35`. Song 0 is skipped (= the build
-  default + would override the scene globally for nothing), so random encounters (all song 0) add no lines. NOT
-  in-game tested yet (needs a deploy + a boss battle in the fork).
+  mod-global). Song 0 is skipped (= the build default + would override the scene globally for nothing), so random
+  encounters (all song 0) add no lines. ★ **IN-GAME PROVEN (2026-06-17):** a `--verbatim` fork of `EVT_GIZ_BOSS`
+  (field 707, Gizamaluke / Sacred Room) → `[[battle_bgm]] scene=326 song=35` → `Battle: 326 / Music: 35`; deployed
+  to slot 30050 (`FF9CustomMap-bt`), the Gizamaluke fight plays the **boss battle theme** (song 35), not the normal
+  battle theme — the user confirmed by ear. (Offline-proven first on `import 656 --verbatim` = KUINA_KM_SWP/Marsh,
+  scene 330 → 35.) **#6 fully closed (random prefill + scripted carry), in-game proven.**
 - **✅ LANDED — engine walkmesh hotfixes lost on a mint (`walkmesh_hotfixes.py` + `content/walkmesh_hotfix.py`,
   kit 0.9.97).** A handful of fields rely on a hardcoded `BGI_triSetActive` keyed on the real `fldMapNo` (toggles a
   walkmesh triangle's walkable bit); a fork runs at a custom id, so the `mapNo==<real id>` guard is false and the
