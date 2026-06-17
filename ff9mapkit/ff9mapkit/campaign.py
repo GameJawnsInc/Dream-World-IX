@@ -228,6 +228,9 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
     swap_skipped: list = []                                  # verbatim members with no swappable player entry
     for real in members_ids:
         folder = extract.ID_TO_FBG[real]
+        donor = str(real)                                    # identify the donor by ID, not the FBG folder --
+        #     several field ids can SHARE one folder (the same room at a different story beat, e.g. 52/3008), so
+        #     a folder-name lookup is ambiguous + DROPS the member; the id resolves its own scene + .eb exactly.
         area, _ = extract.parse_fbg_folder(folder)
         # verbatim ships its own native scene + the donor's whole .eb, so it forks NATIVE for any area
         mode = "native" if verbatim else ("borrow" if area >= extract.MIN_CUSTOM_AREA else "native")
@@ -240,7 +243,7 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
                 # the donor's OWN registered textid (a valid MesDB key); shipping its .mes there is an
                 # identity override, and same-zone members share it (identical text -> harmless).
                 tb = EVENT_ID_TO_MES.get(real, 1073)
-                _meta, p = extract.write_native_project(folder, mdir, name=mname, field_id=new_id[real],
+                _meta, p = extract.write_native_project(donor, mdir, name=mname, field_id=new_id[real],
                                                         text_block=tb, game=game, id_remap=new_id,
                                                         live_seams=live_seams, verbatim=True)
                 member_exits[real] = _meta.get("imported_content", {}).get("field_exits", [])
@@ -253,16 +256,16 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
                         swap_skipped.append(mname)       # no swappable player entry (e.g. a cutscene member)
                         # a real overflow/corruption ValueError is NOT caught here -> it propagates loudly
             elif mode == "borrow":
-                _meta, p = extract.write_field_project(folder, mdir, name=mname, field_id=new_id[real],
+                _meta, p = extract.write_field_project(donor, mdir, name=mname, field_id=new_id[real],
                                                        game=game, id_remap=new_id, live_seams=live_seams)
             else:   # area<10: NATIVE fork (own atlas+.bgs, NO .bgx) -- seamless + fully offline (no [Export])
-                _meta, p = extract.write_native_project(folder, mdir, name=mname, field_id=new_id[real],
+                _meta, p = extract.write_native_project(donor, mdir, name=mname, field_id=new_id[real],
                                                         game=game, id_remap=new_id, live_seams=live_seams)
         except RuntimeError:                                # a field with no usable background atlas (rare)
             if mode == "borrow":
                 raise
             # verbatim degrades to a logic-only stub too (loses the verbatim .eb for this one member)
-            _meta, p = _emit_logic_only_member(folder, mdir, mname, new_id[real], new_id, live_seams, game)
+            _meta, p = _emit_logic_only_member(donor, mdir, mname, new_id[real], new_id, live_seams, game)
             needs_export = True
             if verbatim:
                 degraded.append(mname)                       # surfaced loudly in the CLI summary (NOT verbatim)

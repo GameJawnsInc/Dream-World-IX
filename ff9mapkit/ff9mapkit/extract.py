@@ -25,7 +25,7 @@ from pathlib import Path
 
 from . import config
 from . import eventscan
-from ._fieldtable import FBG_TO_EVT
+from ._fieldtable import FBG_TO_EVT, FIELD_BY_ID
 from .scene import bgart, bgs, bgi, cam
 
 
@@ -266,8 +266,14 @@ def _events_bundle(game=None):
 
 
 def event_name_for(field: str, game=None):
-    """The ``EVT_<name>`` event-script name for an imported field's FBG folder, or None if it isn't a
-    standard field map (world/special fields have no field event). Uses the baked FBG->event table."""
+    """The ``EVT_<name>`` event-script name for an imported field, or None if it isn't a standard field map
+    (world/special fields have no field event). A pure-DIGIT token resolves by FIELD ID straight from the
+    id-keyed table -- so a field that SHARES its FBG folder with another (the same room at a different story
+    beat, e.g. 52/3008) gets its OWN event, not the folder-keyed table's single winner. A name/substring token
+    still goes through the folder-keyed table."""
+    tok = str(field).strip()
+    if tok.isdigit() and int(tok) in ID_TO_EVT:
+        return ID_TO_EVT[int(tok)]
     folder, _ = resolve_field(field, game)
     rec = FBG_TO_EVT.get(folder)
     return rec[1] if rec else None
@@ -325,10 +331,13 @@ def extract_mapconfig(field: str, *, game=None):
 
 
 # ---- id-keyed event extraction (the chain walk) -----------------------------------------
-# resolve_field()/event_name_for() are NAME-keyed (substring match on FBG folders), so a bare
-# numeric field id mis-resolves. The graph walk needs id -> .eb DIRECTLY, so invert the baked table.
-ID_TO_FBG = {rec[0]: folder for folder, rec in FBG_TO_EVT.items()}    # field id -> FBG folder
-ID_TO_EVT = {rec[0]: rec[1] for folder, rec in FBG_TO_EVT.items()}    # field id -> EVT_ script name
+# resolve_field()/event_name_for() are NAME-keyed (substring match on FBG folders), so a bare numeric
+# field id mis-resolves. The graph walk needs id -> .eb DIRECTLY -> the id-keyed FIELD_BY_ID table.
+# (NOT an inversion of the folder-keyed FBG_TO_EVT: ~142 of the 818 real fields SHARE a background folder
+#  with another field -- the same room at a different story beat -- so inverting the folder-keyed table
+#  DROPPED them, and their Field() warps leaked to the live game during a fork. FIELD_BY_ID keeps every id.)
+ID_TO_FBG = {fid: fbg for fid, (fbg, _evt) in FIELD_BY_ID.items()}    # field id -> FBG folder (complete)
+ID_TO_EVT = {fid: evt for fid, (_fbg, evt) in FIELD_BY_ID.items()}    # field id -> EVT_ script name (complete)
 
 
 class EventBundle:

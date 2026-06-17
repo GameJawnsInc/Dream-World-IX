@@ -26,10 +26,12 @@ from . import flags as _flags
 _DATA = Path(__file__).resolve().parent / "data" / "reference_arcs.toml"
 
 # Each arc forks into its own disjoint id band so the campaigns never collide in the GLOBAL EventDB namespace
-# (the sec 8 id-disjointness guarantee the journey assembler lints). 100 ids/arc easily covers import-chain's
-# <=25 members; the band starts in the shipped-custom range (4000-9899, CLAUDE.md sec 3).
+# (the sec 8 id-disjointness guarantee the journey assembler lints). A --whole-zone fork can be large -- the
+# biggest FF9 zone is Lindblum (ldbm = 124 forkable fields once shared-FBG-folder fields are counted) -- so the
+# band must clear that; 200 ids/arc covers every zone with margin. 12 arcs x 200 = 6000..8400, inside the
+# shipped-custom range (4000-9899, CLAUDE.md sec 3).
 DEFAULT_ID_BASE = 6000
-ARC_ID_SPAN = 100
+ARC_ID_SPAN = 200
 
 # The journey assembler lays every campaign's GLOB flag window end-to-end inside ONE safe band (8512..16320 =
 # 7808 bits). At import-chain's defaults (25 members x 64 flags/field) a 12-arc chain needs 19200 bits and
