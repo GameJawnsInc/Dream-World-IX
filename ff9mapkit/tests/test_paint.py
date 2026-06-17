@@ -226,6 +226,21 @@ def test_render_full_template_background_base_layer(tmp_path):
     assert all(l["type"] != "background" for l in man2["layers"])
 
 
+def test_walkmesh_outline_projects_in_render_frame_y_flip():
+    # the engine negates walkmesh Y before the GTE (WalkMesh.cs); a DEEP floor (large world Y, e.g. a
+    # vertical shaft) must project with Y flipped or it drifts off the painting. Flat floors (Y~0) are
+    # unaffected, which is why only big scrollers showed it. Guard the flip.
+    from ff9mapkit.scene import cam as _c
+    cam = _cam()
+    verts = [(0, 1000, 0), (100, 1000, 0), (50, 1000, 200)]   # a triangle at world Y=1000 (deep)
+    segs = paint.walkmesh_outline_segments(verts, [(0, 1, 2)], cam, 1)
+    pts = {(round(p[0], 2), round(p[1], 2)) for s in segs for p in s}
+    flipped = tuple(round(v, 2) for v in _c.to_canvas((0, -1000, 0), cam))     # render frame (Y negated)
+    unflipped = tuple(round(v, 2) for v in _c.to_canvas((0, 1000, 0), cam))    # the raw-Y bug
+    assert flipped in pts and unflipped not in pts
+    assert flipped != unflipped                              # at this depth the flip genuinely matters
+
+
 def test_render_full_template_walkmesh_layer(tmp_path):
     cam = _cam()
     fr = guide.frame_floor(cam, back_canvas_y=205, front_canvas_y=432)

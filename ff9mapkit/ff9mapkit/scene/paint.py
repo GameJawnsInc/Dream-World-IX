@@ -355,8 +355,13 @@ def walkmesh_outline_segments(ff9_verts, tris, cam: _cam.Cam, scale: int) -> lis
             count[key] = count.get(key, 0) + 1
 
     def px(i):
+        # Project in the engine's RENDER frame: the engine negates the walkmesh Y before the GTE
+        # (Memoria WalkMesh.cs), so flip Y here too (matches extract.compose_background). Without it a
+        # DEEP floor -- a vertical shaft / multi-level field where world Y spans thousands of units
+        # (e.g. the PDMN elevator) -- drifts symmetrically off the painting; a flat floor (Y~0) is
+        # unaffected, which is why only large scrollers showed it.
         x, y, z = ff9_verts[i][0], ff9_verts[i][1], ff9_verts[i][2]
-        cx, cy = _cam.to_canvas((x, y, z), cam)
+        cx, cy = _cam.to_canvas((x, -y, z), cam)
         return (cx * scale, cy * scale)
 
     n = len(ff9_verts)
