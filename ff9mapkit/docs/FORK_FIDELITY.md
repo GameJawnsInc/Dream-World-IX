@@ -311,8 +311,14 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   future-proofing, not a behavior change for existing forks. The SPECIAL battle themes (e.g. song `35`) belong to
   ~30 *scripted*-battle fields (a `Battle(0x2A)` op, scene at `imm(1)`, NO `SetRandomBattles`) — a `--verbatim` fork
   carries the `Battle` op but the kit emits no `Music:` line, so the boss theme is lost on the custom `fldMapNo`.
-  CLOSING that = emit a scene-keyed `Music:` for the donor's carried `Battle`-op scenes (now tractable — the scene
-  is a plain operand; a follow-up feature, not the literal #6 chip).
+  ★ **✅ CLOSED (kit 0.9.101): the scripted-battle carry.** `eventscan.scan_battle_scenes` decodes the donor's
+  `Battle(0x2A)`/`BattleEx(0x8C)` scenes (scene = `btlId & 0x7FFF`, engine `DoEventCode.cs:962`); `import --verbatim`
+  looks each up in the BGM map and auto-emits `[[battle_bgm]] scene=N song=M` for the NON-zero (boss/special)
+  songs; the build emits a scene-keyed `Music:` line per pair (deduped — `BtlBgmPatcherMapper` is scene-keyed +
+  mod-global). ★ END-TO-END PROVEN OFFLINE: `import 656 --verbatim` (Mount Gulug Red-Dragon room) emits
+  `[[battle_bgm]] scene=330 song=35`, which builds to `Battle: 330 / Music: 35`. Song 0 is skipped (= the build
+  default + would override the scene globally for nothing), so random encounters (all song 0) add no lines. NOT
+  in-game tested yet (needs a deploy + a boss battle in the fork).
 - **✅ LANDED — engine walkmesh hotfixes lost on a mint (`walkmesh_hotfixes.py` + `content/walkmesh_hotfix.py`,
   kit 0.9.97).** A handful of fields rely on a hardcoded `BGI_triSetActive` keyed on the real `fldMapNo` (toggles a
   walkmesh triangle's walkable bit); a fork runs at a custom id, so the `mapNo==<real id>` guard is false and the

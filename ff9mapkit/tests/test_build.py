@@ -860,3 +860,43 @@ def test_validate_rejects_low_area(tmp_path):
     bad.write_text('[field]\nid=4002\nname="X"\narea=7\n[camera]\npitch=48\n', encoding="utf-8")
     problems = validate(FieldProject.load(bad))
     assert any("area must be >= 10" in p for p in problems)
+
+
+def test_battle_bgm_emits_scene_keyed_music(tmp_path):
+    # [[battle_bgm]] -> a SCENE-keyed Battle:/Music: BattlePatch line (a verbatim fork's carried boss battle;
+    # a mint loses the engine's (field, scene) song lookup, so the kit reproduces it scene-keyed). Inject the
+    # block into the loaded oracle project (so its art/walkmesh assets still resolve from EXAMPLE's dir).
+    proj = FieldProject.load(EXAMPLE)
+    proj.raw["battle_bgm"] = [{"scene": 330, "song": 35}]
+    out = tmp_path / "mod"
+    build_mod([proj], out, mod_name="FF9CustomMap")
+    bp = ModLayout(out).battle_patch.read_text(encoding="utf-8")
+    assert "Battle: 330" in bp and "Music: 35" in bp
+
+
+def test_battle_bgm_dedups_scene_globally(tmp_path):
+    # the same scene twice -> ONE Battle:/Music: pair (it's scene-keyed + mod-global; a dup just restates it)
+    proj = FieldProject.load(EXAMPLE)
+    proj.raw["battle_bgm"] = [{"scene": 330, "song": 35}, {"scene": 330, "song": 35}]
+    out = tmp_path / "mod"
+    build_mod([proj], out, mod_name="FF9CustomMap")
+    bp = ModLayout(out).battle_patch.read_text(encoding="utf-8")
+    assert bp.count("Battle: 330") == 1
+
+
+def test_validate_rejects_bad_battle_bgm(tmp_path):
+    bad = tmp_path / "bad.field.toml"
+    bad.write_text('[field]\nid=4003\nname="X"\narea=11\n[camera]\npitch=48\n'
+                   "[[battle_bgm]]\nscene = -1\nsong = 35\n", encoding="utf-8")
+    assert any("battle_bgm" in p for p in validate(FieldProject.load(bad)))
+
+
+def test_battle_bgm_warns_on_conflicting_song(tmp_path):
+    # same scene, DIFFERENT songs -> first-wins emission + a build warning (the override is scene-keyed/global)
+    proj = FieldProject.load(EXAMPLE)
+    proj.raw["battle_bgm"] = [{"scene": 330, "song": 35}, {"scene": 330, "song": 9}]
+    out = tmp_path / "mod"
+    res = build_mod([proj], out, mod_name="FF9CustomMap")
+    bp = ModLayout(out).battle_patch.read_text(encoding="utf-8")
+    assert "Music: 35" in bp and "Music: 9" not in bp                 # first-wins
+    assert any("conflicting songs" in w for w in res["warnings"])

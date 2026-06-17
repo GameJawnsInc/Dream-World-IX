@@ -641,6 +641,15 @@ def validate(project: FieldProject) -> list[str]:
                         or int(t[0]) < 0 or int(t[1]) not in (0, 1)):
                     problems.append(f"[field] walkmesh_tri_toggles entry {t!r} must be [tri >= 0, state 0|1]")
                     break
+    for q, b in enumerate(project.raw.get("battle_bgm", [])):   # scene-keyed donor battle songs (verbatim carry)
+        if not isinstance(b, dict) or "scene" not in b or "song" not in b:
+            problems.append(f"[[battle_bgm]] #{q} needs scene = <battle scene id> and song = <akao song-play id>")
+            continue
+        try:
+            if int(b["scene"]) < 0 or int(b["song"]) < 0:
+                problems.append(f"[[battle_bgm]] #{q}: scene and song must be >= 0")
+        except (TypeError, ValueError):
+            problems.append(f"[[battle_bgm]] #{q}: scene and song must be integers")
     bgf = project.field.get("bgs")               # NATIVE custom scene (Moguri/vanilla path): own .bgs + atlas
     if bgf:
         if not project.path(bgf).is_file():
@@ -3514,7 +3523,8 @@ def collect_text(project: FieldProject):
 @dataclass
 class FieldResult:
     dict_line: str
-    battle: tuple | None = None     # (scene, music) for BattlePatch, or None
+    battle: tuple | None = None     # (scene, music) for the [encounter] random primary scene, or None
+    battle_bgm: list = _dc_field(default_factory=list)   # extra (scene, song) pairs from [[battle_bgm]]
     fbg: str = ""
     warnings: list = _dc_field(default_factory=list)
 
@@ -3736,7 +3746,10 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     if "encounter" in project.raw:
         e = project.raw["encounter"]
         battle = (int(e["scene"]), int(e.get("battle_music", 0)))
-    return FieldResult(dict_line=dict_line, battle=battle, fbg=fbg, warnings=warnings)
+    # [[battle_bgm]]: extra scene-keyed battle songs (a verbatim fork's carried scripted/boss battles -- the
+    # custom fldMapNo loses the engine's (field, scene) lookup, so the build reproduces each via Music:).
+    bgm_pairs = [(int(b["scene"]), int(b["song"])) for b in project.raw.get("battle_bgm", [])]
+    return FieldResult(dict_line=dict_line, battle=battle, battle_bgm=bgm_pairs, fbg=fbg, warnings=warnings)
 
 
 def _field_name(project) -> str:
@@ -4027,10 +4040,26 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     # BattlePatch.txt = the per-encounter BGM block (Battle:/Music:) + the Phase-4 by-name enemy/attack/scene
     # tuning blocks ([[battle_patch]] / [[battle_enemy]] / [[battle_attack]]). Both are mod-global reflection
     # patches that coexist in one file -- each Battle:/AnyEnemyByName: selector opens an independent patch.
+    # Battle:/Music: is SCENE-keyed (BtlBgmPatcherMapper) and mod-GLOBAL, so emit each scene ONCE -- the
+    # [encounter] primary scene + every [[battle_bgm]] pair, first occurrence wins (a later dup would just
+    # restate the same scene's song).
     bp_lines: list[str] = []
-    for scene, mus in (r.battle for r in results if r.battle):
-        bp_lines += [f"Battle: {scene}", f"Music: {mus}"]
+    seen_songs: dict = {}                              # scene -> the first-wins song already emitted for it
+    bgm_conflicts: list[str] = []
+    for r in results:
+        for scene, mus in (([r.battle] if r.battle else []) + list(r.battle_bgm)):
+            if scene in seen_songs:
+                if seen_songs[scene] != mus:           # one scene, two different songs -> only one can win
+                    bgm_conflicts.append(
+                        f"battle scene {scene} has conflicting songs ({seen_songs[scene]} vs {mus}); keeping "
+                        f"{seen_songs[scene]} (the Music: override is scene-keyed + mod-global -- one song per "
+                        f"scene). Auto-imported forks never hit this (FF9's scene->song is consistent); it means "
+                        f"a hand-authored [encounter] battle_music / [[battle_bgm]] disagrees with the donor.")
+                continue
+            seen_songs[scene] = mus
+            bp_lines += [f"Battle: {scene}", f"Music: {mus}"]
     tune_lines, bp_warnings = _emit_battle_patch(projects)
+    bp_warnings = list(bp_warnings) + bgm_conflicts
     bp_lines += tune_lines
     if bp_lines:
         layout.battle_patch.write_text("\n".join(bp_lines) + "\n", encoding="utf-8", newline="\n")

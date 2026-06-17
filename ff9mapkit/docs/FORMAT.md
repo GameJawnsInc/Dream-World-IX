@@ -1181,6 +1181,25 @@ player freezes on battle return).
 
 ---
 
+## `[[battle_bgm]]` (optional, array-of-tables)
+
+Per-scene battle music, keyed on the **battle scene id** (not the field). Each block emits a
+`Battle: <scene>` / `Music: <song>` line into `BattlePatch.txt`.
+
+| key | meaning |
+|---|---|
+| `scene` | the battle scene id this song applies to. |
+| `song` | the akao song-play id (e.g. `35` = a boss/special battle theme). |
+
+Why it exists: FF9 picks a field battle's song by `(fldMapNo, scene)`, so a fork to a custom id loses
+the donor's *scripted* (boss) battle theme — the custom `fldMapNo` isn't in the engine's map. This
+block reproduces it via the **scene-keyed** `Music:` override (`BtlBgmPatcherMapper`), which wins
+regardless of the field id. `import --verbatim` auto-emits one per donor `Battle()`/`BattleEx()` scene
+whose real song is non-zero (the standard Battle Theme, song `0`, is the build default and is skipped).
+The lines are deduped by scene across the whole mod (the patch is scene-keyed and mod-global).
+
+---
+
 ## `[music]` (optional)
 
 | key | meaning |

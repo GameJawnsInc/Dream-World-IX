@@ -704,9 +704,13 @@ def _cmd_import(args: argparse.Namespace) -> int:
         print("  mode   : NATIVE custom scene (atlas.png + .bgs, NO .bgx -- seamless per-tile render, Moguri-style)")
         print(f"  atlas  : {meta.get('atlas_source', '?')}")
         if args.verbatim:
-            n_exits = len(meta.get("imported_content", {}).get("field_exits", []))
+            ic = meta.get("imported_content", {})
+            n_exits = len(ic.get("field_exits", []))
             print(f"  logic  : VERBATIM .eb -- ships the field's REAL event script whole ({n_exits} Field() exit(s); "
                   "add a [startup] block to boot a beat). The declarative blocks are not used in this mode.")
+            if ic.get("battle_bgm"):
+                print(f"  bgm    : {ic['battle_bgm']} scripted battle(s) carry the donor's real battle theme "
+                      "([[battle_bgm]] -> a scene-keyed Music: line; a mint would otherwise lose it)")
         if getattr(args, "_swapped_to", None):
             print(f"  player : SWAPPED -> you walk as {args._swapped_to} (SetModel + movement anims patched; "
                   "party/menu state unchanged)")

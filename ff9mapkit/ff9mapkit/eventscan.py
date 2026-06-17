@@ -31,6 +31,9 @@ SHARED_MENU_WARPS = frozenset(range(2950, 2956))  # chocobo/mognet shared menu w
 SETREGION_OP = 0x29        # SetRegion(points)        -- the trigger polygon
 SET_RANDOM_BATTLES = 0x3C  # SetRandomBattles(slot, s1..s4)
 SET_BATTLE_FREQ = 0x57     # SetRandomBattleFrequency(freq)
+BATTLE_OP = 0x2A           # Battle(rush, btlId)         -- scripted battle; scene = btlId & 0x7FFF, arg index 1
+BATTLE_EX_OP = 0x8C        # BattleEx(rush, group, btlId) -- scripted battle w/ group; scene = btlId, arg index 2
+BATTLE_SCENE_MASK = 0x7FFF  # btlId bit 15 = Steiner's state, NOT the scene id (EventEngine.DoEventCode.cs:962)
 RUN_SOUND_CODE = 0xC5      # RunSoundCode(code, id); code 0 = song_play (field BGM)
 TWIST_OP = 0x67            # SetControlDirection(x, y)
 RUN_SCRIPT_SYNC = 0x14     # RunScriptSync(level, uid, tag) -- REQEW: run obj `uid`'s func `tag`, wait
@@ -248,6 +251,29 @@ def scan_encounter(eb_bytes):
     freq_ins = next(_first_instr(eb, SET_BATTLE_FREQ), None)
     freq = int(freq_ins.imm(0)) if (freq_ins is not None and freq_ins.imm(0) is not None) else 255
     return {"scenes": scenes, "freq": freq, "pattern": pattern}
+
+
+def scan_battle_scenes(eb_bytes):
+    """Sorted unique SCRIPTED battle scene ids the field's ``.eb`` enters via ``Battle`` (0x2A, btlId at
+    arg 1) / ``BattleEx`` (0x8C, btlId at arg 2). The scene is ``btlId & 0x7FFF`` -- the high bit is
+    Steiner's state, not the scene (``EventEngine.DoEventCode.cs:962``). Random encounters
+    (``SetRandomBattles``) are NOT included (that's :func:`scan_encounter`). An expression-computed btlId
+    is skipped (``imm`` returns None -- can't resolve statically). Used by ``import --verbatim`` to carry
+    the donor's per-scene battle BGM (a fork's custom fldMapNo loses the engine's (field, scene) lookup)."""
+    eb = EbScript.from_bytes(eb_bytes)
+    out = set()
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                arg = 1 if ins.op == BATTLE_OP else 2 if ins.op == BATTLE_EX_OP else None
+                if arg is None:
+                    continue
+                v = ins.imm(arg)
+                if v is not None:
+                    out.add(int(v) & BATTLE_SCENE_MASK)
+    return sorted(out)
 
 
 def scan_control_direction(eb_bytes):

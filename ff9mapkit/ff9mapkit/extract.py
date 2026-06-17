@@ -431,6 +431,40 @@ def _donor_battle_song(field_id, enc, game):
         return None
 
 
+def _donor_battle_bgm_pairs(eb_bytes, field_id, game):
+    """``(scene, song)`` pairs for a VERBATIM fork: the donor's SCRIPTED battle scenes
+    (``Battle``/``BattleEx``, :func:`eventscan.scan_battle_scenes`) whose real song is NON-ZERO -- a
+    boss/special battle theme. A mint's custom ``fldMapNo`` misses the engine's ``(field, scene)`` BGM
+    lookup, so the carried ``Battle`` op would play the field BGM instead of the boss theme; each pair makes
+    the build emit a SCENE-keyed ``Music:`` line (``BtlBgmPatcherMapper``) that reproduces it regardless of
+    the custom id. Song 0 (the standard Battle Theme) is skipped -- it's the build default and would override
+    the scene's BGM globally for no gain. ``[]`` when nothing qualifies. Best-effort: never raises (BGM is a
+    nicety, must not block a fork) -- so a missing install / no UnityPy just yields ``[]``."""
+    if field_id is None:
+        return []
+    try:
+        from . import battle_bgm as _bbgm
+        pairs = []
+        for scene in eventscan.scan_battle_scenes(eb_bytes):
+            song = _bbgm.song(field_id, scene, game)
+            if song:                                         # non-zero special/boss theme only
+                pairs.append((scene, song))
+        return pairs
+    except Exception:                                        # noqa: BLE001 -- BGM detection never blocks the fork
+        return []
+
+
+def _render_battle_bgm_blocks(pairs) -> str:
+    """``[[battle_bgm]]`` toml for the donor battle-song pairs (or "" if none)."""
+    if not pairs:
+        return ""
+    out = ["# --- Donor BATTLE BGM for the SCRIPTED battles this verbatim fork triggers: a mint loses the\n"
+           "# engine's (field, scene) song lookup, so each scene-keyed Music: line reproduces the donor's\n"
+           "# real (boss/special) battle theme on the custom id. (FORK_FIDELITY.md #6.) ---"]
+    out += [f"[[battle_bgm]]\nscene = {scene}\nsong = {song}" for scene, song in pairs]
+    return "\n\n".join(out)
+
+
 def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=None, live_seams=False,
                            graft_player_funcs=False, carry_text=False, field_id=None, game=None,
                            graft_savepoint=False):
@@ -1775,6 +1809,16 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         _de = EbScript.from_bytes(donor_eb)
         dests = sorted({int(i.imm(0)) for e in _de.entries if not e.empty for f in e.funcs
                         for i in _de.instrs(f) if i.op == 0x2B and i.imm(0) is not None})
+        # Donor battle BGM: a verbatim fork carries the real Battle()/BattleEx() ops, but its custom id misses
+        # the engine's (fldMapNo, scene) song lookup -> the boss/special theme is lost. Auto-emit [[battle_bgm]]
+        # for the donor's scripted battle scenes whose song is non-zero (build -> a scene-keyed Music: line).
+        from .dialogue import _resolve_field_id
+        try:
+            _donor_fid = _resolve_field_id(field)
+        except (FileNotFoundError, ValueError):
+            _donor_fid = None
+        bgm_pairs = _donor_battle_bgm_pairs(donor_eb, _donor_fid, game)
+        bgm_blocks = _render_battle_bgm_blocks(bgm_pairs)
         # retarget the Field() exits: import-chain pre-fills a LIVE table (doors warp into the chain's own
         # member forks); a single-field import leaves the commented fill-in template (byte-identical golden).
         rt_text, n_retargeted = _vb.render_retarget(dests, id_remap)
@@ -1798,9 +1842,10 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
             "[verbatim_eb]\n"
             f'bin = "{name}.verbatim_eb.bin"\n'
             f"{text_line}"
-            f"{rt_intro}{rt_text}")
+            f"{rt_intro}{rt_text}"
+            + (("\n\n" + bgm_blocks) if bgm_blocks else ""))
         meta["imported_content"] = {"verbatim_eb": True, "field_exits": dests, "text": bool(mes_by_lang),
-                                    "gateways_retargeted": n_retargeted}
+                                    "gateways_retargeted": n_retargeted, "battle_bgm": len(bgm_pairs)}
     else:
         content_blocks, control_dir, content_summary = _content_for_import(
             field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams,

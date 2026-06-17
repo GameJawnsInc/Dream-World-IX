@@ -3,9 +3,14 @@
 prefills ``[encounter] battle_music`` with the donor's real song so a fork doesn't fall back to the
 generic Battle Theme. These tests are install-free -- the parse + lookup layers are pure, and the extract
 wiring is exercised with an injected map (no UnityPy / no game)."""
+from pathlib import Path
+
 import pytest
 
-from ff9mapkit import battle_bgm, extract
+from ff9mapkit import battle_bgm, eventscan, extract
+from ff9mapkit.eb import edit
+
+ALEX100 = (Path(__file__).parent / "fixtures" / "alex100-us.eb.bytes").read_bytes()  # a real town field (no battles)
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +93,35 @@ def test_load_caches_miss_and_never_retries(monkeypatch):
 
 
 # ---- extract wiring: import prefills [encounter] battle_music -----------------------------------
+# ---- scan_battle_scenes: the SCRIPTED Battle(0x2A)/BattleEx(0x8C) scene decode ----------------
+def test_scan_battle_scenes_empty_on_a_no_battle_field():
+    # a town street has no scripted Battle op -> [] (it never raises on a real .eb)
+    assert eventscan.scan_battle_scenes(ALEX100) == []
+
+
+def test_scan_battle_scenes_finds_inserted_battle_op_masking_high_bit():
+    # Battle(rush=1, btlId=0x814A): op 2A, arg-expr-flags 00, arg0=01 (1B), arg1=4A 81 (2B LE = 0x814A). The
+    # scene is btlId & 0x7FFF == 330 (bit 15 = Steiner's state, masked off).
+    eb = edit.insert_in_function(ALEX100, 0, 0, 0, bytes([0x2A, 0x00, 0x01, 0x4A, 0x81]))
+    assert 330 in eventscan.scan_battle_scenes(eb)
+
+
+# ---- the verbatim battle-bgm carry: pairs + block render ----------------------------------------
+def test_donor_battle_bgm_pairs_keeps_nonzero_skips_zero_and_unknown(monkeypatch):
+    monkeypatch.setattr(eventscan, "scan_battle_scenes", lambda eb: [330, 67, 999])
+    songs = {(656, 330): 35, (656, 67): 0}      # 67 -> 0 (default), 999 -> None (unmapped)
+    monkeypatch.setattr(battle_bgm, "song", lambda fid, sc, game=None: songs.get((fid, sc)))
+    assert extract._donor_battle_bgm_pairs(b"\x00", 656, None) == [(330, 35)]
+    assert extract._donor_battle_bgm_pairs(b"\x00", None, None) == []   # no donor id -> nothing
+
+
+def test_render_battle_bgm_blocks():
+    assert extract._render_battle_bgm_blocks([]) == ""
+    txt = extract._render_battle_bgm_blocks([(330, 35), (294, 35)])
+    assert "[[battle_bgm]]\nscene = 330\nsong = 35" in txt
+    assert "[[battle_bgm]]\nscene = 294\nsong = 35" in txt
+
+
 def test_donor_battle_song_helper(monkeypatch):
     monkeypatch.setattr(battle_bgm, "song",
                         lambda fid, scene, game=None: 35 if (fid, scene) == (257, 303) else None)
