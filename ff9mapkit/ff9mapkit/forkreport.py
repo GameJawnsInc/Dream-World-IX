@@ -843,6 +843,20 @@ def _camera_line(rep: ForkReport) -> str:
     return f"  Camera        : {feel} ({', '.join(bits)}){tail}"
 
 
+def _entry_settle_line(rep: ForkReport) -> str:
+    """The entry-camera-settle advisory (coarse flag). The engine's smooth-camera follower eases onto the
+    spawn on a warp-in; a SYNTH fork (--native/BG-borrow) reveals immediately, so on a SCROLLING field that
+    ease is VISIBLE as a drift (worst on an F6/hard warp; the bigger the spawn-to-centre delta, the longer it
+    drifts). Empty for a fixed-camera field (no center-on-player motion) or when the camera wasn't read. A
+    --verbatim fork carries the donor's real entry sequence, which hides it. (content/entry_settle.py.)"""
+    if not rep.cam_scrolling:
+        return ""
+    return ("  Entry settle  : scrolling camera -> a SYNTH (--native/BG-borrow) fork may show the camera ease "
+            "onto the spawn on warp-in (worst on an F6/hard warp; a big spawn-to-centre delta drifts longer). "
+            "Add `[camera] entry_settle = 45` to hide it behind the load fade; a --verbatim fork carries the "
+            "real entry sequence and doesn't need it.")
+
+
 def format_report(rep: ForkReport) -> str:
     title = rep.fbg_name or f"field {rep.field_id}"
     lines = [f"fork-report: {title}  (field {rep.field_id}{', ' + rep.event_name if rep.event_name else ''})", ""]
@@ -870,6 +884,9 @@ def format_report(rep: ForkReport) -> str:
     cam_line = _camera_line(rep)
     if cam_line:
         lines.append(cam_line)
+    settle_line = _entry_settle_line(rep)
+    if settle_line:
+        lines.append(settle_line)
     if rep.area_title:
         a, b = rep.area_title
         lines.append(f"  Area title    : this field shows an area-title CARD (overlays {a}-{b}) -- donor identity: "

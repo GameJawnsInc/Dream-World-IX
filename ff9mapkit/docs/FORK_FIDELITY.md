@@ -176,7 +176,11 @@ the author asserts the beat for now (they have the game knowledge — cf. `feedb
 > location is in `EMinigame.MappingATEID` (the ATE still plays; only the trophy bookkeeping is id-bound). And the
 > **Verdict** line now SYNTHESIZES across every axis: the recommended fork MODE (`--verbatim` when the field has
 > story-gated cast/logic / a non-Zidane player / party or item grants / per-door arrival — plus a `[startup]`
-> beat; else `--native`) and a lost-on-mint fork-in-place steer.
+> beat; else `--native`) and a lost-on-mint fork-in-place steer. Plus an **Entry settle** line (coarse flag): a
+> SCROLLING field's smooth-cam eases onto the spawn on warp-in, and a SYNTH fork reveals immediately so the ease
+> is VISIBLE (worst on an F6/hard warp) — so it flags "scrolling → a `--native`/BG-borrow fork may drift; add
+> `[camera] entry_settle`; `--verbatim` masks it." (A fixed-camera field shows no line.) The exact frame count is
+> still a playtest tune; the flag answers *whether* you need it.
 
 ### The governing principle
 

@@ -849,3 +849,13 @@ def test_verdict_truncates_reasons_over_three():
     v = FR._verdict_line(FR.ForkReport(field_id=1, roster_class="story-event", non_zidane=True,
                                        party_adds=["Vivi"], item_gives=[(1, 1)], arrival_spots=2))
     assert "..." in v
+
+
+def test_entry_settle_flag_only_for_scrolling():
+    # the coarse entry-settle flag: shown for a SCROLLING field, absent for a fixed-camera one
+    assert FR._entry_settle_line(FR.ForkReport(field_id=1, cam_scrolling=True)).lstrip().startswith("Entry settle")
+    assert FR._entry_settle_line(FR.ForkReport(field_id=1, cam_scrolling=False)) == ""
+    scroll = FR.format_report(FR.ForkReport(field_id=1, cam_scrolling=True, cam_pitch=4.6, cam_fov=51.6))
+    assert "Entry settle" in scroll and "entry_settle = 45" in scroll
+    fixed = FR.format_report(FR.ForkReport(field_id=1, cam_scrolling=False, cam_pitch=41.0, cam_fov=26.5))
+    assert "Entry settle" not in fixed
