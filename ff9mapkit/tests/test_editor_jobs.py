@@ -78,6 +78,49 @@ def test_detect_kind_field_vs_campaign_vs_battle(tmp_path):
     assert jobs.detect_kind(battle)[0] == "battle"
 
 
+def test_detect_kind_journey(tmp_path):
+    # a journeys.toml ([hub] + [[journey]]) is a 4th kind -- table-disjoint from field/campaign/battle, and
+    # the parsed manifest comes back as the payload (so the Build panel can show the hub/journey counts).
+    j = tmp_path / "journeys.toml"
+    j.write_text('[hub]\nname = "H"\nid = 4600\n\n[[journey]]\nid = "a"\nentry = 4100\n', encoding="utf-8")
+    kind, manifest = jobs.detect_kind(j)
+    assert kind == "journey" and manifest is not None and len(manifest.journeys) == 1
+    # a field.toml must NOT be mistaken for a journey (no [hub]/[[journey]])
+    field = tmp_path / "f.field.toml"
+    field.write_text('[field]\nid = 4003\nname = "X"\narea = 11\n', encoding="utf-8")
+    assert jobs.detect_kind(field)[0] == "field"
+
+
+def test_deploy_journey_argv(tmp_path):
+    base = jobs.deploy_journey_argv(tmp_path, "j.toml")
+    assert base[1].replace("\\", "/").endswith("tools/deploy_journey.py") and base[-1] == "j.toml"
+    assert "--apply" not in base and "--apply-links" not in base          # default = a safe dry-run
+    ap = jobs.deploy_journey_argv(tmp_path, "j.toml", apply=True, wire_newgame=True)
+    assert "--apply" in ap and "--wire-newgame" in ap
+    lk = jobs.deploy_journey_argv(tmp_path, "j.toml", apply_links=True)
+    assert "--apply-links" in lk and "--apply" not in lk
+    # --wire-newgame is gated under --apply (a no-op alone) -> not emitted without it
+    assert "--wire-newgame" not in jobs.deploy_journey_argv(tmp_path, "j.toml", wire_newgame=True)
+
+
+def test_revert_journey_argv_picks_most_recent(tmp_path):
+    # the journey revert must undo the user's LAST action: --apply writes revert_journey.py, --apply-links
+    # writes revert_journey_links.py -- the GUI button picks whichever is newer (mtime), or None if neither.
+    import os
+    scroll = tmp_path / "tools" / "scroll_out"
+    scroll.mkdir(parents=True)
+    assert jobs.revert_journey_argv(tmp_path) is None              # no journey deploy -> nothing to undo
+    full = scroll / "revert_journey.py"
+    links = scroll / "revert_journey_links.py"
+    full.write_text("# unified\n", encoding="utf-8")
+    links.write_text("# links\n", encoding="utf-8")
+    os.utime(full, (1000, 1000))                                   # links-only applied LAST -> it wins
+    os.utime(links, (2000, 2000))
+    assert jobs.revert_journey_argv(tmp_path)[-1].replace("\\", "/").endswith("scroll_out/revert_journey_links.py")
+    os.utime(full, (3000, 3000))                                   # a fresh full --apply -> the unified wins again
+    assert jobs.revert_journey_argv(tmp_path)[-1].replace("\\", "/").endswith("scroll_out/revert_journey.py")
+
+
 def test_detect_deploy_target_reads_pin(tmp_path):
     assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap", None)   # no file -> defaults
     (tmp_path / ".ff9deploy.toml").write_text('mod_folder = "FF9CustomMap-ic"\nid = 30004\n', encoding="utf-8")

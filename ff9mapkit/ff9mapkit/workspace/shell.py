@@ -520,7 +520,7 @@ class Workspace(QMainWindow):
         self._touched = set()
         self._reset_history()
         self.map.clear()                           # the journey overview lives in the doc area, not the Map
-        self.build_deploy.set_target("")           # don't leave Build & Deploy aimed at the prior campaign/field
+        self.build_deploy.set_target(self.journey_root)   # pre-aim Build & Deploy at the journey (deploy_journey)
         self.act_check.setEnabled(True)            # Check = lint the journey manifest
         self.act_lint_cli.setEnabled(False)
         self._populate_journey()
@@ -4317,6 +4317,35 @@ def _smoke(win):
     bd.on_go()
     assert any("deploy_field.py" in a for a in launched[-1]), launched[-1]
     bd._check_field(str(d / "IC_ENT" / "IC_ENT.field.toml"))    # in-process field Check (no crash)
+    # journey kind: a bare journeys.toml auto-detects -> the deploy_journey.py orchestrator (slice 2). The
+    # default is a SAFE dry-run (playbook only); --apply / --wire-newgame / --apply-links are opt-in radios.
+    jbd = d / "bd_journey.toml"
+    jbd.write_text('[hub]\nname = "BD Hub"\nid = 4600\n\n[[journey]]\nid = "solo"\nentry = 4100\n', encoding="utf-8")
+    bd.set_target(jbd)
+    assert bd.kind == "journey" and bd.manifest is not None
+    # isHidden() reflects the explicit setVisible() state (the window isn't shown in headless smoke, so
+    # isVisible() is False for every child) -> the journey panel is the one un-hidden by _render_kind.
+    assert not bd.journey_box.isHidden() and bd.field_box.isHidden(), "the journey panel shows for a journeys.toml"
+    bd.rb_jour_preview.setChecked(True)
+    bd.on_go()
+    assert any("deploy_journey.py" in a for a in launched[-1]) and "--apply" not in launched[-1], launched[-1]
+    bd.rb_jour_apply.setChecked(True)
+    assert bd.wire_newgame_j.isEnabled(), "wire-New-Game enables only for the one-shot deploy"
+    bd.wire_newgame_j.setChecked(True)
+    bd.on_go()
+    assert "--apply" in launched[-1] and "--wire-newgame" in launched[-1], launched[-1]
+    bd.rb_jour_links.setChecked(True)
+    assert not bd.wire_newgame_j.isEnabled(), "wire-New-Game greys out for links-only"
+    bd.on_go()
+    assert "--apply-links" in launched[-1] and "--apply" not in launched[-1], launched[-1]
+    bd._check_journey(str(jbd))                                 # in-process journey lint (no crash)
+    # the journey revert resolves the MOST RECENT of revert_journey.py / revert_journey_links.py (or None) --
+    # robust to whatever real reverts the repo happens to have; exercise the on_revert journey branch headless.
+    rj = jobs.revert_journey_argv(REPO)
+    assert rj is None or rj[-1].replace("\\", "/").endswith(("scroll_out/revert_journey.py",
+                                                             "scroll_out/revert_journey_links.py")), rj
+    bd._info = lambda *a: None                                   # don't pop a modal box in headless
+    bd.on_revert()                                              # journey revert branch: no-op or captured argv, no crash
 
     imp = win.import_field
     icap = []

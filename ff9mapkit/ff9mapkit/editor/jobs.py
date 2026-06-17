@@ -19,14 +19,21 @@ from pathlib import Path
 
 # --------------------------------------------------------------------------- file-kind detection
 def detect_kind(path):
-    """``('campaign', plan)`` | ``('battle', None)`` | ``('field', None)`` for the picked file.
+    """``('campaign', plan)`` | ``('journey', manifest)`` | ``('battle', None)`` | ``('field', None)``.
 
-    A campaign.toml has a ``[campaign]`` table (``load_campaign`` raises on anything else); a battle.toml
-    has a ``[battlemap]`` table; else it's a field.toml -- the cheap, exact discriminators (mirrors the
-    tkinter Build GUI)."""
+    A campaign.toml has a ``[campaign]`` table (``load_campaign`` raises on anything else); a journeys.toml
+    has a ``[hub]`` table and/or ``[[journey]]`` rows (``load_journeys`` raises otherwise); a battle.toml
+    has a ``[battlemap]`` table; else it's a field.toml -- the cheap, exact discriminators (the four kinds
+    are table-disjoint, so the order is just for readability). Mirrors the tkinter Build GUI + the journey
+    front door."""
     try:
         from ..campaign import load_campaign
         return "campaign", load_campaign(path)
+    except Exception:
+        pass
+    try:
+        from ..journey import load_journeys
+        return "journey", load_journeys(path)
     except Exception:
         pass
     try:
@@ -97,6 +104,18 @@ def latest_battle_revert(repo_root):
     return scripts[0] if scripts else None
 
 
+def latest_journey_revert(repo_root):
+    """The most recently written journey revert script, or ``None``.
+
+    A journey deploy writes ONE of two reverts depending on the mode: the full ``--apply`` one-shot writes the
+    unified ``revert_journey.py``; a standalone ``--apply-links`` writes only ``revert_journey_links.py``. The
+    GUI Revert button must undo the user's LAST journey action, so we pick the most-recently-modified of the
+    two (mirrors :func:`latest_battle_revert`) -- never a stale unified revert left over from an earlier run."""
+    scroll = Path(repo_root) / "tools" / "scroll_out"
+    cands = [p for p in (scroll / "revert_journey.py", scroll / "revert_journey_links.py") if p.is_file()]
+    return max(cands, key=lambda p: p.stat().st_mtime) if cands else None
+
+
 # --------------------------------------------------------------------------- import argv (FFIX Import)
 def import_args(field, *, out, field_id, name=None, art="native", carry_npcs=True, carry_text=True,
                 dialogue_stubs=False, save_moogle=False):
@@ -162,12 +181,39 @@ def deploy_battle_argv(repo_root, battle, *, trigger=None):
     return a
 
 
+def deploy_journey_argv(repo_root, journeys, *, apply=False, wire_newgame=False, apply_links=False):
+    """Deploy (or dry-run) a multi-campaign journey manifest via ``tools/deploy_journey.py``.
+
+    Default (no flags) = a DRY-RUN that lints + prints the ordered deploy playbook (no game files touched).
+    ``apply`` = the ONE-SHOT deploy (every campaign into its own stacked folder, the cross-campaign links,
+    then the hub field -- one unified revert); ``wire_newgame`` additionally points New Game at the hub
+    (single-owner, so it's gated under ``--apply`` -- a no-op alone). ``apply_links`` = re-apply ONLY the
+    cross-campaign link ``.eb`` remaps (run after a campaign re-deploy wipes them)."""
+    a = [sys.executable, _tool(repo_root, "deploy_journey.py"), str(journeys)]
+    if apply:
+        a.append("--apply")
+        if wire_newgame:
+            a.append("--wire-newgame")
+    elif apply_links:
+        a.append("--apply-links")
+    return a
+
+
 def revert_field_argv(repo_root):
     return [sys.executable, _tool(repo_root, "scroll_out", "revert_deploy.py")]
 
 
 def revert_campaign_argv(repo_root):
     return [sys.executable, _tool(repo_root, "scroll_out", "revert_campaign.py")]
+
+
+def revert_journey_argv(repo_root):
+    """The interpreter + the MOST RECENT journey revert script (the unified ``revert_journey.py`` from a full
+    ``--apply``, or the links-only ``revert_journey_links.py`` from ``--apply-links``), or ``None`` if no
+    journey deploy is undoable yet. Picking by mtime (like :func:`revert_battle_argv`) means the GUI Revert
+    undoes the user's LAST journey action, never a stale earlier unified revert."""
+    s = latest_journey_revert(repo_root)
+    return [sys.executable, str(s)] if s else None
 
 
 def revert_battle_argv(repo_root):
