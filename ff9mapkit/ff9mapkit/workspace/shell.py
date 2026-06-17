@@ -573,6 +573,14 @@ class Workspace(QMainWindow):
         add_journey.setToolTip("Add a menu row that warps New Game into an installed slice (the World-Hub selector)")
         add_journey.clicked.connect(self.on_add_journey_row)
         addrow.addWidget(add_journey)
+        if any(j.campaigns for j in self.manifest.journeys):       # a multi-campaign journey -> offer STEP-2 fill
+            fillb = QPushButton("Fill entry & links from forks")
+            fillb.setToolTip("STEP 2: replace the ENTRY_MEMBER / link placeholders with the real member names of "
+                             "the forked campaigns (run after Fork all). Idempotent.")
+            if self._needs_reconcile():
+                fillb.setObjectName("accent")          # highlight while placeholders remain
+            fillb.clicked.connect(self.on_reconcile_journey)
+            addrow.addWidget(fillb)
         addrow.addStretch(1)
         self.doc_host_lay.addLayout(addrow)
         self._mount_fork_panel()                   # Step-1 fork helper (only if the manifest has campaigns)
@@ -740,6 +748,12 @@ class Workspace(QMainWindow):
         if self._on_journey_overview():
             self._mount_journey_overview()
             self._lint_journey()
+            # all arcs forked but the entry/links are still templates -> nudge STEP 2 (the lint shows the
+            # ENTRY_MEMBER error; the 'Fill entry & links from forks' button resolves it from the forks).
+            folders = getattr(self, "_fork_order", [])
+            if folders and all(self._campaign_forked(f) for f in folders) and self._needs_reconcile():
+                self.statusBar().showMessage("All arcs forked — click ‘Fill entry & links from forks’ to "
+                                             "resolve the entry/link placeholders (STEP 2).")
 
     def _lint_journey(self):
         """Lint the open journeys.toml -> the Problems dock (the GLOBAL id/flag-disjointness guarantee)."""
@@ -843,6 +857,56 @@ class Workspace(QMainWindow):
             return True
         except (J.JourneyError, OSError) as e:
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't remove the journey"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return False
+
+    def _needs_reconcile(self) -> bool:
+        """True iff the open manifest has a multi-campaign journey still carrying STEP-2 placeholders
+        (``ENTRY_MEMBER`` / ``BOUNDARY_MEMBER`` / ``ARRIVAL_MEMBER``) -- the signal to offer 'Fill entry &
+        links from forks'. Cheap text check (no resolution)."""
+        if self.manifest is None or not self.journey_root:
+            return False
+        if not any(j.campaigns for j in self.manifest.journeys):
+            return False
+        try:
+            text = Path(self.journey_root).read_text(encoding="utf-8")
+        except OSError:
+            return False
+        return any(ph in text for ph in ("ENTRY_MEMBER", "BOUNDARY_MEMBER", "ARRIVAL_MEMBER"))
+
+    def on_reconcile_journey(self):
+        """Fill the multi-campaign journey's ``entry`` + ``[[journey.link]]`` rows from the forked campaigns
+        beside the manifest (STEP 2, automated). The button/palette entry to :meth:`_reconcile_journey`."""
+        self._reconcile_journey()
+
+    def _reconcile_journey(self) -> bool:
+        """STEP 2: replace the reference-arc scaffold's ``ENTRY_MEMBER`` + commented ``[[journey.link]]``
+        templates with the REAL member names of the campaigns forked beside the manifest
+        (:func:`ff9mapkit.refarc.reconcile_arc_journey`). Writes + re-opens (the journey lint then shows the
+        now-resolved state -- clean, or a precise 'fill this boundary' error for any seam it couldn't auto-find).
+        Dialog-free core (headlessly testable); returns True iff it wrote a change."""
+        if self.manifest is None or not self.journey_root:
+            return False
+        import tomllib
+        from .. import refarc as RA, journey as J
+        try:
+            text = Path(self.journey_root).read_text(encoding="utf-8")
+            new_text, notes = RA.reconcile_arc_journey(text, self.manifest.root)
+            filled = [n.text for n in notes if n.level == "filled"]
+            verify = [n.text for n in notes if n.level == "verify"]
+            if new_text == text:                       # nothing filled -> show why (no re-open, so Problems is ours)
+                self._show_problems(
+                    fb.Verdict(fb.WARN if (verify or not filled) else fb.OK, "Reconcile — nothing to fill"),
+                    [fb.Problem(fb.WARN, n.text) for n in notes] or [fb.Problem(fb.WARN, "nothing to reconcile")])
+                return False
+            tomllib.loads(new_text)                    # belt-and-suspenders: the result must still parse
+            Path(self.journey_root).write_text(new_text, encoding="utf-8", newline="\n")
+            self.open_journey(self.journey_root)       # re-lint + re-list -- the lint now owns Problems (cleaner)
+            tail = f" — {len(verify)} note(s) to review (see the Output console + any inline # VERIFY/# FILL)" if verify else ""
+            self.statusBar().showMessage(f"Filled entry & links from the forked campaigns{tail}")
+            return True
+        except (ValueError, J.JourneyError, tomllib.TOMLDecodeError, OSError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't reconcile the journey"),
                                 [fb.Problem(fb.ERROR, str(e))])
             return False
 
@@ -1700,6 +1764,8 @@ class Workspace(QMainWindow):
             cmds.insert(2, ("Add field to campaign…", "command", self.on_add_field))
         if self.manifest is not None:
             cmds.insert(2, ("Add journey to hub…", "command", self.on_add_journey_row))
+            if any(j.campaigns for j in self.manifest.journeys):
+                cmds.insert(3, ("Fill entry & links from forks…", "command", self.on_reconcile_journey))
         content = []
 
         def walk(item):
@@ -4971,6 +5037,38 @@ def _smoke(win):
     assert win.open_field(af) and win.manifest is None, "a standalone field leaves journey mode"
     assert "Open Journey…" in [e[0] for e in win._command_index()]
 
+    # RECONCILE (STEP 2): a reference-arc scaffold's ENTRY_MEMBER + link placeholders fill from the forked
+    # campaigns beside it -- camp_a/A2 has a scripted Field() seam to 200 (== camp_b/B1's source) -> PRECISE.
+    from .. import refarc as _RA
+    rdir = Path(tempfile.mkdtemp())
+    for key, ent, mem, sm in (("camp_a", "A1", [("A1", 100, 6000), ("A2", 101, 6001)], [("A2", 200, "scripted")]),
+                              ("camp_b", "B1", [("B1", 200, 6100)], [])):
+        rp = C.CampaignPlan(name=key, mod_folder=f"FF9CustomMap-{key}", id_base=mem[0][2],
+                            flag_base=C.FIRST_SAFE_FLAG, flags_per_field=16, entry_name=ent, entry_entrance=0,
+                            members=[C.Member(s, n, nm, "native", 11, "", f"{nm}/{nm}.field.toml", False)
+                                     for (nm, s, n) in mem],
+                            seams=[{"frm": f, "to_real": tr, "kind": k, "note": "", "to_member": None}
+                                   for (f, tr, k) in sm], verbatim=True)
+        (rdir / key).mkdir(parents=True, exist_ok=True)
+        (rdir / key / "campaign.toml").write_text(C.render_campaign_toml(rp), encoding="utf-8", newline="\n")
+        for (nm, *_rest) in mem:                                   # member field.tomls (so the campaign lints)
+            (rdir / key / nm).mkdir(parents=True, exist_ok=True)
+            (rdir / key / nm / f"{nm}.field.toml").write_text(
+                f'[field]\nid = {dict((m[0], m[2]) for m in mem)[nm]}\nname = "{nm}"\narea = 11\n', encoding="utf-8")
+    aset = _RA.ReferenceArcSet(title="Recon", arcs=[_RA.ReferenceArc(key="camp_a", name="A", seed=100, beat=0),
+                                                    _RA.ReferenceArc(key="camp_b", name="B", seed=200)])
+    (rdir / "journeys.toml").write_text(_RA.render_arc_journey_toml(aset), encoding="utf-8", newline="\n")
+    assert win.open_journey(rdir / "journeys.toml")
+    assert win._needs_reconcile(), "the scaffold still has ENTRY_MEMBER/link placeholders"
+    assert win._reconcile_journey() is True, "reconcile filled the placeholders"
+    assert not win._needs_reconcile(), "placeholders gone after reconcile"
+    rj = win.manifest.journeys[0]
+    assert rj.entry.field == "A1", rj.entry.field
+    assert [(l.src_campaign, l.src_field, l.dst.campaign, l.dst.field) for l in rj.links] == [
+        ("camp_a", "A2", "camp_b", "B1")], [(l.src_campaign, l.src_field) for l in rj.links]
+    assert win._reconcile_journey() is False, "reconcile is idempotent (nothing left to fill)"
+    assert win.open_field(af) and win.manifest is None                    # leave journey mode for the rest
+
     # PHASE 0 -- VERBATIM logic-map surfacing: a [verbatim_eb] member badges its row, shows a read-only
     # "Script" subtree (built from the LOCAL .bin -- no install), and the field rollup explains the empty lists.
     vb_ok = False
@@ -5101,7 +5199,7 @@ def _smoke(win):
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
-          f"(open/lint/overview/drill-in) + VERBATIM logic-map subtree + in-place edit panel "
+          f"(open/lint/overview/drill-in/RECONCILE entry+links from forks) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
           f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")

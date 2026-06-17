@@ -289,6 +289,65 @@ def test_lint_ungated_stacked_door_warns(tmp_path):
     assert any("stacked same-zone" in w for w in warnings)
 
 
+def test_lint_stacked_door_suppressed_for_verbatim(tmp_path):
+    # A --verbatim fork ships the donor's WHOLE .eb, so an if(flag){A}else{B} story-conditional door is
+    # carried + resolved by the engine -- there's no authored [[gateway]] to gate, so the (g) warning is a
+    # false positive and must be suppressed. (The advice "set requires_flag in its field.toml" only applies
+    # to a declarative fork that re-authors gateways from the [[edge]]s.)
+    edges = [{"frm": "A", "to": "B", "entrance": 0, "story_conditional": True},
+             {"frm": "A", "to": "A", "entrance": 0, "story_conditional": True}]
+    plan = _lint_plan(tmp_path, edges=edges)
+    plan.verbatim = True
+    _, warnings = campaign.lint_campaign(plan, tmp_path)
+    assert not any("stacked same-zone" in w for w in warnings)
+
+
+def test_lint_stacked_door_fires_for_degraded_verbatim_member(tmp_path):
+    # A verbatim chain whose member DEGRADED to a logic-only stub (needs_export) re-authors DECLARATIVE gateways,
+    # so its stacked story-conditional door is genuinely ungated -- the warning must STILL fire even though the
+    # plan is verbatim (the per-member fix; whole-plan suppression was a false-negative the review caught).
+    mem = [campaign.Member(300, 6000, "A", "native", 11, "", "A/A.field.toml", True),     # needs_export stub
+           campaign.Member(301, 6001, "B", "native", 11, "", "B/B.field.toml", False)]
+    plan = _lint_plan(tmp_path, members=mem, edges=[
+        {"frm": "A", "to": "B", "entrance": 0, "story_conditional": True},
+        {"frm": "A", "to": "A", "entrance": 0, "story_conditional": True}])
+    plan.verbatim = True
+    _, warnings = campaign.lint_campaign(plan, tmp_path)
+    assert any("stacked same-zone" in w and "member A" in w for w in warnings), warnings
+
+
+def test_verbatim_story_conditional_marker_survives_roundtrip(tmp_path):
+    # the explicit `story_conditional = true` marker must round-trip even for a VERBATIM plan (which omits the
+    # gated_by placeholder), so a re-loaded plan's degraded member still trips the stacked-door warning.
+    mem = [campaign.Member(300, 6000, "A", "native", 11, "", "A/A.field.toml", True)]
+    plan = campaign.CampaignPlan(name="C", mod_folder="M", id_base=6000, flag_base=campaign.FIRST_SAFE_FLAG,
+                                 flags_per_field=64, entry_name="A", entry_entrance=0, members=mem, verbatim=True,
+                                 edges=[{"frm": "A", "to": "A", "entrance": 0, "story_conditional": True},
+                                        {"frm": "A", "to": "A", "entrance": 1, "story_conditional": True}])
+    text = campaign.render_campaign_toml(plan)
+    assert "story_conditional = true" in text and "gated_by" not in text   # verbatim: marker yes, gated_by no
+    p = tmp_path / "campaign.toml"
+    p.write_text(text, encoding="utf-8")
+    loaded = campaign.load_campaign(p)
+    assert sum(1 for e in loaded.edges if e["story_conditional"]) == 2 and loaded.verbatim is True
+
+
+def test_campaign_toml_roundtrips_verbatim_flag(tmp_path):
+    # the verbatim marker must PERSIST (render -> load) so lint stays verbatim-aware on a re-read campaign.toml.
+    plan = campaign.CampaignPlan(name="C", mod_folder="M", id_base=6000, flag_base=campaign.FIRST_SAFE_FLAG,
+                                 flags_per_field=64, entry_name="A", entry_entrance=0,
+                                 members=[campaign.Member(300, 6000, "A", "native", 11, "", "A/A.field.toml", False)],
+                                 verbatim=True)
+    text = campaign.render_campaign_toml(plan)
+    assert "verbatim        = true" in text
+    p = tmp_path / "campaign.toml"
+    p.write_text(text, encoding="utf-8")
+    assert campaign.load_campaign(p).verbatim is True
+    # a non-verbatim plan emits no verbatim line + loads False (back-compat with existing campaign.tomls)
+    plan.verbatim = False
+    assert "verbatim" not in campaign.render_campaign_toml(plan)
+
+
 def test_lint_flag_dangling_and_dupwriter(tmp_path):
     # B requires flag 8520 that nobody sets -> dangling; A+B both set 8520 -> covered separately
     dangling = _lint_plan(tmp_path, member_content={

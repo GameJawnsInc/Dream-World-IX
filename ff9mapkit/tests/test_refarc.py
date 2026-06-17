@@ -142,3 +142,142 @@ def test_custom_table_and_validation(tmp_path):
     empty.write_text('title = "nothing"\n', encoding="utf-8")
     with pytest.raises(refarc.RefArcError):
         refarc.load_reference_arcs(empty)
+
+
+# --------------------------------------------------------------------------- STEP 2 reconcile (after Fork-All)
+from ff9mapkit import campaign as _campaign
+
+
+def _write_forked_campaign(base, key, *, entry, members, seams):
+    """Materialize a forked ``<key>/campaign.toml`` (the STEP-1 artifact reconcile reads). ``members`` =
+    ``[(name, source_real_id, new_id)]``; ``seams`` = ``[(frm, to_real, kind)]``."""
+    plan = _campaign.CampaignPlan(
+        name=key, mod_folder=f"FF9CustomMap-{key}", id_base=members[0][2],
+        flag_base=_campaign.FIRST_SAFE_FLAG, flags_per_field=16, entry_name=entry, entry_entrance=0,
+        members=[_campaign.Member(src, nid, nm, "native", 11, "", f"{nm}/{nm}.field.toml", False)
+                 for (nm, src, nid) in members],
+        seams=[{"frm": f, "to_real": tr, "kind": k, "note": "", "to_member": None} for (f, tr, k) in seams],
+        verbatim=True)
+    d = base / key
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "campaign.toml").write_text(_campaign.render_campaign_toml(plan), encoding="utf-8", newline="\n")
+
+
+def _three_arc_scaffold():
+    aset = refarc.ReferenceArcSet(title="Test Arc", arcs=[
+        refarc.ReferenceArc(key="arc_a", name="Arc A", seed=100, beat=0),
+        refarc.ReferenceArc(key="arc_b", name="Arc B", seed=200),
+        refarc.ReferenceArc(key="arc_c", name="Arc C", seed=300)])
+    return refarc.render_arc_journey_toml(aset)
+
+
+def test_reconcile_fills_entry_and_links(tmp_path):
+    # arc_a/A2 has a scripted Field() seam to 200 (== arc_b/B1's source) -> PRECISE field_remap (exact arrival);
+    # arc_b/B2 exits to the world map -> worldmap_inject (arrival = arc_c's entry member). Both auto-fill.
+    _write_forked_campaign(tmp_path, "arc_a", entry="A1",
+                           members=[("A1", 100, 6000), ("A2", 101, 6001)], seams=[("A2", 200, "scripted")])
+    _write_forked_campaign(tmp_path, "arc_b", entry="B1",
+                           members=[("B1", 200, 6100), ("B2", 201, 6101)], seams=[("B2", "WORLDMAP", "overworld")])
+    _write_forked_campaign(tmp_path, "arc_c", entry="C1",
+                           members=[("C1", 300, 6200), ("C2", 301, 6201)], seams=[])
+
+    out, notes = refarc.reconcile_arc_journey(_three_arc_scaffold(), tmp_path)
+    assert "ENTRY_MEMBER" not in out and "BOUNDARY_MEMBER" not in out and "ARRIVAL_MEMBER" not in out
+    p = tmp_path / "journeys.toml"
+    p.write_text(out, encoding="utf-8")
+    j = journey.load_journeys(p).journeys[0]                       # parses + resolves structurally
+    assert j.entry.campaign == "arc_a" and j.entry.field == "A1"
+    assert [(l.src_campaign, l.src_field, l.dst.campaign, l.dst.field) for l in j.links] == [
+        ("arc_a", "A2", "arc_b", "B1"),                            # precise: A2 -> B1 (the matched source)
+        ("arc_b", "B2", "arc_c", "C1")]                            # overworld: B2 -> arc_c's entry
+    assert any(n.level == "filled" and "entry" in n.text for n in notes)
+
+
+def test_reconcile_skips_when_not_forked(tmp_path):
+    # no campaign folders on disk yet -> a 'skip' note pointing at STEP 1, and the text is unchanged.
+    text = _three_arc_scaffold()
+    out, notes = refarc.reconcile_arc_journey(text, tmp_path)
+    assert out == text
+    assert any(n.level == "skip" and "fork the campaigns first" in n.text for n in notes)
+
+
+def test_reconcile_is_idempotent(tmp_path):
+    for k, e, mem, sm in [("arc_a", "A1", [("A1", 100, 6000), ("A2", 101, 6001)], [("A2", 200, "scripted")]),
+                          ("arc_b", "B1", [("B1", 200, 6100), ("B2", 201, 6101)], [("B2", "WORLDMAP", "overworld")]),
+                          ("arc_c", "C1", [("C1", 300, 6200), ("C2", 301, 6201)], [])]:
+        _write_forked_campaign(tmp_path, k, entry=e, members=mem, seams=sm)
+    once, _ = refarc.reconcile_arc_journey(_three_arc_scaffold(), tmp_path)
+    twice, notes = refarc.reconcile_arc_journey(once, tmp_path)    # re-running must not duplicate links / re-touch
+    assert twice == once
+    assert any(n.level == "skip" for n in notes)
+
+
+def test_reconcile_flags_a_boundary_with_no_seam(tmp_path):
+    # arc_a's only member has NO onward seam -> reconcile can't find a boundary; it still scaffolds the link row
+    # (so the journey is structurally complete) but leaves a FILL placeholder + a 'verify' note for the human.
+    _write_forked_campaign(tmp_path, "arc_a", entry="A1", members=[("A1", 100, 6000)], seams=[])
+    _write_forked_campaign(tmp_path, "arc_b", entry="B1", members=[("B1", 200, 6100)], seams=[])
+    out, notes = refarc.reconcile_arc_journey(
+        refarc.render_arc_journey_toml(refarc.ReferenceArcSet(title="T", arcs=[
+            refarc.ReferenceArc(key="arc_a", name="A", seed=100),
+            refarc.ReferenceArc(key="arc_b", name="B", seed=200)])), tmp_path)
+    assert "BOUNDARY_MEMBER" in out and "FILL" in out             # placeholder + an inline FILL hint
+    assert any(n.level == "verify" for n in notes)
+
+
+def test_cli_reconcile_fills_in_place(tmp_path, capsys):
+    # the `reference-arcs --reconcile <journeys.toml>` CLI path: emit a 2-arc scaffold, simulate the forks, then
+    # reconcile in place (return 0, ENTRY_MEMBER gone, the link filled). In-process via cli.main (no subprocess).
+    from ff9mapkit import cli
+    (tmp_path / "arcs.toml").write_text(
+        'title = "Mini"\n[[arc]]\nkey = "ca"\nname = "A"\nseed = 100\nbeat = 0\n'
+        '[[arc]]\nkey = "cb"\nname = "B"\nseed = 200\n', encoding="utf-8")
+    assert cli.main(["reference-arcs", "--table", str(tmp_path / "arcs.toml"), "--emit", str(tmp_path)]) == 0
+    _write_forked_campaign(tmp_path, "ca", entry="A1",
+                           members=[("A1", 100, 6000), ("A2", 101, 6001)], seams=[("A2", 200, "scripted")])
+    _write_forked_campaign(tmp_path, "cb", entry="B1", members=[("B1", 200, 6100)], seams=[])
+    jp = tmp_path / "journeys.toml"
+    assert cli.main(["reference-arcs", "--reconcile", str(jp)]) == 0
+    txt = jp.read_text(encoding="utf-8")
+    assert "ENTRY_MEMBER" not in txt and 'field = "A1"' in txt and 'field = "A2"' in txt and 'field = "B1"' in txt
+    # idempotent: a second run writes nothing + says so
+    assert cli.main(["reference-arcs", "--reconcile", str(jp)]) == 0
+    assert "nothing to fill" in capsys.readouterr().out
+
+
+def test_reconcile_is_resumable_under_incremental_forks(tmp_path):
+    # Fork arc_a + arc_b but NOT arc_c -> reconcile fills the entry (only needs arc_a) but KEEPS every link
+    # template (a partial fill would strip the b->c template and a re-run could never recover it -- the HIGH
+    # review finding). Then fork arc_c and re-run -> the WHOLE chain links. No silently-missing handoff.
+    _write_forked_campaign(tmp_path, "arc_a", entry="A1",
+                           members=[("A1", 100, 6000), ("A2", 101, 6001)], seams=[("A2", 200, "scripted")])
+    _write_forked_campaign(tmp_path, "arc_b", entry="B1",
+                           members=[("B1", 200, 6100), ("B2", 201, 6101)], seams=[("B2", "WORLDMAP", "overworld")])
+    out1, notes1 = refarc.reconcile_arc_journey(_three_arc_scaffold(), tmp_path)
+    assert 'field = "A1"' in out1 and "ENTRY_MEMBER" not in out1            # entry fills early
+    assert "# [[journey.link]]" in out1                                     # ALL link templates kept...
+    assert out1.count("\n[[journey.link]]") == 0                            # ...and NO real link rows written yet
+    assert any(n.level == "verify" and "arc_c" in n.text for n in notes1)
+    _write_forked_campaign(tmp_path, "arc_c", entry="C1",
+                           members=[("C1", 300, 6200), ("C2", 301, 6201)], seams=[])
+    out2, _ = refarc.reconcile_arc_journey(out1, tmp_path)                  # now every boundary resolves
+    p = tmp_path / "journeys.toml"
+    p.write_text(out2, encoding="utf-8")
+    j = journey.load_journeys(p).journeys[0]
+    assert [(l.src_campaign, l.dst.campaign) for l in j.links] == [("arc_a", "arc_b"), ("arc_b", "arc_c")]
+
+
+def test_reconcile_marks_an_ambiguous_precise_tie_inline(tmp_path):
+    # TWO members of arc_a each have a single Field() seam landing in arc_b -> a precise TIE. Reconcile picks one
+    # but MUST mark it inline (# VERIFY) so it isn't silently wrong (the GUI status promises an inline marker).
+    _write_forked_campaign(tmp_path, "arc_a", entry="A1", members=[("A1", 100, 6000), ("A2", 101, 6001)],
+                           seams=[("A1", 200, "scripted"), ("A2", 201, "scripted")])
+    _write_forked_campaign(tmp_path, "arc_b", entry="B1", members=[("B1", 200, 6100), ("B2", 201, 6101)], seams=[])
+    aset = refarc.ReferenceArcSet(title="Tie", arcs=[refarc.ReferenceArc(key="arc_a", name="A", seed=100, beat=0),
+                                                     refarc.ReferenceArc(key="arc_b", name="B", seed=200)])
+    out, notes = refarc.reconcile_arc_journey(refarc.render_arc_journey_toml(aset), tmp_path)
+    assert "# VERIFY" in out and "exit into arc_b" in out                  # the tie is flagged in the file
+    assert any(n.level == "verify" for n in notes)
+    p = tmp_path / "journeys.toml"
+    p.write_text(out, encoding="utf-8")
+    journey.load_journeys(p)                                               # still valid TOML

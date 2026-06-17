@@ -491,6 +491,20 @@ def _cmd_reference_arcs(args: argparse.Namespace) -> int:
     a one-click rebuild of FF9 -- it's a PLAN you execute arc-by-arc (docs/FORK_FIDELITY.md)."""
     from pathlib import Path
     from . import refarc
+    if args.reconcile:                              # STEP 2 -- operates on a journeys.toml, NOT an arc table
+        jp = Path(args.reconcile)
+        if not jp.is_file():
+            print(f"{jp}: no such file", file=sys.stderr)
+            return 2
+        new_text, notes = refarc.reconcile_arc_journey(jp.read_text(encoding="utf-8"), jp.parent)
+        for n in notes:
+            print(f"  [{n.level}] {n.text}")
+        if new_text == jp.read_text(encoding="utf-8"):
+            print("nothing to fill (fork the campaigns first, or the entry/links are already set).")
+            return 0
+        jp.write_text(new_text, encoding="utf-8", newline="\n")
+        print(f"wrote {jp}  (entry + links filled from the forked campaigns). Re-lint with `lint-journey`.")
+        return 0
     try:
         aset = refarc.load_reference_arcs(args.table)
     except (refarc.RefArcError, FileNotFoundError, ValueError) as e:
@@ -2332,6 +2346,9 @@ def build_parser() -> argparse.ArgumentParser:
     ra.add_argument("--emit", default=None, metavar="DIR",
                     help="WRITE a journeys.toml scaffold (the arcs as a chained journey + the fork playbook) into DIR")
     ra.add_argument("--playbook", action="store_true", help="print ONLY the import-chain fork commands")
+    ra.add_argument("--reconcile", default=None, metavar="JOURNEYS_TOML",
+                    help="STEP 2: fill an emitted journeys.toml's entry/link placeholders from the campaigns "
+                         "forked beside it (run after forking; writes in place). Ignores --table.")
     ra.add_argument("--force", action="store_true", help="with --emit, overwrite an existing journeys.toml")
     ra.add_argument("--hub-name", default="FF9 Disc 1", dest="hub_name", help="hub field display name (--emit)")
     ra.add_argument("--hub-id", type=int, default=4600, dest="hub_id", help="hub field id, >=4000 (--emit)")

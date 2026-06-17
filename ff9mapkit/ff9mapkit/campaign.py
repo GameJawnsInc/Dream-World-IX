@@ -62,6 +62,9 @@ class CampaignPlan:
     edges: list = field(default_factory=list)   # {frm, to, entrance, story_conditional}
     seams: list = field(default_factory=list)    # {frm, to_real, kind, note, to_member?}
     flags: list = field(default_factory=list)    # [[flag]] shared named flags: {name, index} (cross-field)
+    verbatim: bool = False                       # forked with --verbatim: every member ships its donor's WHOLE
+    #                                              .eb, so a story-conditional stacked door is carried + resolved
+    #                                              by the engine at runtime (NOT re-authored from [[edge]]s).
 
     @property
     def needs_export(self):
@@ -282,6 +285,8 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
     plan = CampaignPlan(name=name, mod_folder=mod_folder, id_base=id_base, flag_base=flag_base,
                         flags_per_field=flags_per_field, entry_name=name_of[members_ids[0]],
                         entry_entrance=entry_entrance, members=members, edges=edges, seams=seams)
+    plan.verbatim = bool(verbatim)        # PERSISTED: gates the declarative-only stacked-door lint (the donor
+    #                                       .eb resolves story-conditional doors itself -- nothing to re-author)
     plan.verbatim_degraded = degraded     # transient build-time signal (NOT persisted): verbatim members
     plan.swap_player = swap_name          # transient: --swap-player char applied to every member, + the
     plan.swap_gesture_warn = swap_gesture_warn   # members whose scripted gestures will glitch on the new rig,
@@ -312,9 +317,11 @@ def render_campaign_toml(plan: CampaignPlan) -> str:
          f"flag_base       = {plan.flag_base}",
          f"flags_per_field = {plan.flags_per_field}",
          f'entry_field     = "{plan.entry_name}"',
-         f"entry_entrance  = {plan.entry_entrance}",
-         "",
-         "# Members in BFS discovery order; id = id_base + i."]
+         f"entry_entrance  = {plan.entry_entrance}"]
+    if plan.verbatim:                             # verbatim members ship the donor .eb whole -> story-conditional
+        L.append("verbatim        = true   # every member ships its donor's whole .eb (real logic + real doors)")
+    L += ["",
+          "# Members in BFS discovery order; id = id_base + i."]
     for m in plan.members:
         L.append("[[field]]")
         L.append(f'name = "{m.name}"')
@@ -332,8 +339,15 @@ def render_campaign_toml(plan: CampaignPlan) -> str:
         L.append(f'to = "{e["to"]}"')
         L.append(f"entrance = {e['entrance']}")
         if e.get("story_conditional"):
-            L.append(f'gated_by = ""   # STORY-COND stacked same-zone exit -- set requires_flag '
-                     f'(suggest {plan.flag_base + 7})')
+            L.append("story_conditional = true")   # explicit marker -> survives load (NOT inferred from gated_by,
+            #                                         which verbatim omits) so a DEGRADED-member lint still fires
+            if plan.verbatim:
+                # the donor .eb owns this conditional door (if(flag){A}else{B}) -- it's carried verbatim and the
+                # engine resolves it at runtime, so there is NOTHING to gate here (informational only).
+                L.append("# the donor .eb resolves this story-conditional door at runtime (informational)")
+            else:
+                L.append(f'gated_by = ""   # STORY-COND stacked same-zone exit -- set requires_flag '
+                         f'(suggest {plan.flag_base + 7})')
         L.append("")
     if plan.seams:
         L += ["# Seams: NOT live gateways -- scripted teleports / overworld exits / menu / out-of-chain."]
@@ -373,9 +387,12 @@ def load_campaign(path) -> CampaignPlan:
         id_base=int(c.get("id_base", 4000)), flag_base=int(c.get("flag_base", FIRST_SAFE_FLAG)),
         flags_per_field=int(c.get("flags_per_field", 64)), entry_name=c.get("entry_field", ""),
         entry_entrance=int(c.get("entry_entrance", 0)), members=members,
+        verbatim=bool(c.get("verbatim", False)),
         flags=list(data.get("flag", [])),
         edges=[{"frm": e["from"], "to": e["to"], "entrance": int(e.get("entrance", 0)),
-                "story_conditional": "gated_by" in e} for e in data.get("edge", [])],
+                # the explicit marker (new) OR a legacy gated_by placeholder (back-compat with older forks)
+                "story_conditional": bool(e.get("story_conditional")) or ("gated_by" in e)}
+               for e in data.get("edge", [])],
         # normalize seams to the in-memory shape (from -> frm), exactly as edges above; render_campaign_toml
         # writes `from`, but _collect_edges_seams/lint/campaign_graph all key on `frm`, so a raw passthrough
         # left loaded seams with `from` (dropping them from the resolved graph + nulling lint messages).
@@ -613,10 +630,16 @@ def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
     for nm in plan.needs_export:                  # (f) artless members
         warnings.append(f"member {nm}: needs in-game art ([Export] Field=1) before a real build")
 
-    stacked = defaultdict(int)                     # (g) ungated stacked story-conditional door
+    # (g) ungated stacked story-conditional door -- DECLARATIVE gateways only. A VERBATIM member ships the donor
+    #     .eb whole, so its if(flag){A}else{B} door is carried + resolved by the engine (nothing authored to
+    #     gate -> the warning would be a false positive). BUT a DEGRADED member (needs_export: a logic-only stub)
+    #     re-authors its gateways declaratively even in a verbatim chain, so it still needs the gating advice.
+    degraded = set(plan.needs_export)
+    stacked = defaultdict(int)
     for e in plan.edges:
-        if e.get("story_conditional"):
-            stacked[e["frm"]] += 1
+        frm = e.get("frm")
+        if e.get("story_conditional") and (not plan.verbatim or frm in degraded):
+            stacked[frm] += 1
     for frm, n in stacked.items():
         if n >= 2:
             warnings.append(f"member {frm}: {n} stacked same-zone exits (story-conditional) -- set "

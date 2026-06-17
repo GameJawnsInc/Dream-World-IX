@@ -304,3 +304,207 @@ def parse_fork_commands(text: str) -> list:
         seen.add(key)
         out.append(ParsedFork(key=key, seed=int(m.group(2)), command=m.group(1).strip()))
     return out
+
+
+# --------------------------------------------------------------------------- STEP 2: reconcile after Fork-All
+# The scaffold ships `entry = {.. field = "ENTRY_MEMBER"}` + COMMENTED `[[journey.link]]` templates (STEP 2 =
+# "fill the member names from the forked campaigns"). Until filled, the journey hard-errors on the placeholder
+# + warns 0-of-(N-1) links. This automates STEP 2: once the campaigns are forked beside the journeys.toml, we
+# read each campaign.toml's REAL entry member + boundary seams and rewrite the placeholders in place.
+@dataclass
+class ReconcileNote:
+    level: str    # "filled" (an exact fill) | "verify" (a best-guess that needs a human eyeball) | "skip"
+    text: str
+
+
+def _mk_link(src_c, src_f, dst_c, dst_f, *, comment=None):
+    return {"src_campaign": src_c, "src_field": src_f, "dst_campaign": dst_c, "dst_field": dst_f,
+            "comment": comment}
+
+
+def _pick_boundary(cur_plan, nxt_plan, cur, nxt, notes):
+    """Pick the boundary member of ``cur`` that hands off to ``nxt`` + the arrival member, the SAME way the
+    deploy step classifies a link (:func:`journey._seam_remap`): a member whose single ``Field()`` seam lands
+    in ``nxt`` (PRECISE field_remap, exact arrival) wins; else a world-map exit (worldmap_inject, arrival =
+    ``nxt``'s entry); else a best-guess + a VERIFY note. Returns a link dict (always -- a `fill`/`verify` link
+    still scaffolds the row so the journey lints + the human only edits one field)."""
+    from . import journey as _journey
+    nxt_sources = {m.real_id: m.name for m in nxt_plan.members}     # real field id -> the next arc's member name
+    nxt_entry = nxt_plan.entry_name
+    precise, overworld, other_fr = [], [], []
+    for m in cur_plan.members:
+        sr = _journey._seam_remap(cur_plan, m.name, 0)             # dst_id is a dummy; we only read mode/remap
+        if sr["mode"] == "field_remap":
+            target = next(iter(sr["remap"]), None)                 # the single int seam target
+            (precise.append((m.name, nxt_sources[target])) if target in nxt_sources else other_fr.append(m.name))
+        elif sr["mode"] == "worldmap_inject":
+            overworld.append(m.name)
+    if precise:
+        nm, dst = precise[0]
+        if len(precise) > 1:                                       # a tie -> mark it inline so it's not silently picked
+            notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: {len(precise)} members exit into {nxt}; "
+                                       f"picked {nm!r}"))
+            return _mk_link(cur, nm, nxt, dst,
+                            comment=f"VERIFY: {len(precise)} members of {cur} exit into {nxt}; "
+                                    f"picked {nm} -> {dst}")
+        return _mk_link(cur, nm, nxt, dst)
+    if len(overworld) == 1:
+        return _mk_link(cur, overworld[0], nxt, nxt_entry)
+    if len(overworld) > 1:
+        notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: {len(overworld)} world-map exits {overworld}; "
+                                   f"picked {overworld[0]!r} -- confirm it's the one toward {nxt}"))
+        return _mk_link(cur, overworld[0], nxt, nxt_entry,
+                        comment=f"VERIFY: {cur} has {len(overworld)} world-map exits; confirm this is toward {nxt}")
+    if len(other_fr) == 1:
+        notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: boundary {other_fr[0]!r} exits to a field "
+                                   f"outside {nxt} -- confirm the hand-off target"))
+        return _mk_link(cur, other_fr[0], nxt, nxt_entry,
+                        comment=f"VERIFY: {other_fr[0]} exits to a field outside {nxt}; confirm to.field")
+    notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: no single clear boundary seam -- set from.field by "
+                               f"hand (the member that leaves {cur} toward {nxt})"))
+    return _mk_link(cur, "BOUNDARY_MEMBER", nxt, nxt_entry,
+                    comment=f"FILL: the member that leaves {cur} toward {nxt} (no boundary seam auto-found)")
+
+
+def _journey_block_range(lines, target_jidx):
+    """The [start, end) line span of the ``target_jidx``-th ``[[journey]]`` block (a row runs to the next
+    ``[[journey]]`` header or EOF; its ``[[journey.link]]`` / ``[journey.seed]`` subtables belong to it).
+    ``(None, None)`` if there's no such block."""
+    idxs = [i for i, ln in enumerate(lines) if ln.strip() == "[[journey]]"]
+    if target_jidx >= len(idxs):
+        return None, None
+    start = idxs[target_jidx]
+    end = idxs[target_jidx + 1] if target_jidx + 1 < len(idxs) else len(lines)
+    return start, end
+
+
+_ENTRY_FIELD_RE = re.compile(r'field\s*=\s*"([^"]*)"')
+_TMPL_PREFIXES = ("# [[journey.link]]", "# from = {", "# to = {", "# One link per arc boundary",
+                  "# member names (")
+
+
+def _is_link_template(stripped: str) -> bool:
+    return any(stripped.startswith(p) for p in _TMPL_PREFIXES)
+
+
+def _render_links(links):
+    out: list = []
+    for lk in links:
+        if lk.get("comment"):
+            out.append(f"# {lk['comment']}")
+        out.append("[[journey.link]]")
+        out.append(f'from = {{ campaign = "{_toml_str(lk["src_campaign"])}", '
+                   f'field = "{_toml_str(lk["src_field"])}" }}')
+        out.append(f'to = {{ campaign = "{_toml_str(lk["dst_campaign"])}", '
+                   f'field = "{_toml_str(lk["dst_field"])}", entrance = 0 }}')
+        out.append("")                                             # a blank line between adjacent link blocks
+    return out
+
+
+def reconcile_arc_journey(text: str, base_dir) -> "tuple[str, list]":
+    """Fill a reference-arc ``journeys.toml``'s ``entry`` placeholder + its commented ``[[journey.link]]`` rows
+    from the REAL member names of the forked campaign folders beside it (STEP 2, automated). ``text`` is the
+    file content; ``base_dir`` is the folder holding it (where each ``<campaign>/campaign.toml`` was forked).
+
+    Returns ``(new_text, notes)`` -- ``notes`` is a list of :class:`ReconcileNote`. ``new_text == text`` (with a
+    'skip' note) when there's nothing to do: no multi-campaign journey, the campaigns aren't forked yet, or the
+    links are already filled. Targets the FIRST multi-campaign journey (the reference-arc scaffold has exactly
+    one; a selector hub of BARE journeys needs no reconcile). Pure + tk-free -- the GUI writes the result so
+    the edit is one undo step; a CLI/test can call it headless."""
+    from . import campaign as _campaign
+    base = Path(base_dir)
+    notes: list = []
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        return text, [ReconcileNote("skip", f"not parseable TOML ({e})")]
+
+    jrows = data.get("journey", [])
+    midx = next((i for i, j in enumerate(jrows) if j.get("campaigns")), None)
+    if midx is None:
+        return text, [ReconcileNote("skip", "no multi-campaign [[journey]] to reconcile "
+                                    "(bare journeys warp to a field id -- no entry member or links to fill)")]
+    if sum(1 for j in jrows if j.get("campaigns")) > 1:
+        notes.append(ReconcileNote("verify", "more than one multi-campaign journey -- reconciling only the first"))
+    campaigns = [str(c) for c in jrows[midx].get("campaigns", [])]
+    if not campaigns:
+        return text, [ReconcileNote("skip", "the journey lists no campaigns")]
+
+    plans: dict = {}
+    for k in campaigns:
+        cpath = base / k / "campaign.toml"
+        if cpath.is_file():
+            try:
+                plans[k] = _campaign.load_campaign(cpath)
+            except Exception as e:                                  # noqa: BLE001 -- a bad campaign.toml -> skip it
+                notes.append(ReconcileNote("verify", f"campaign {k!r}: campaign.toml unreadable ({e})"))
+    if campaigns[0] not in plans:
+        notes.append(ReconcileNote("skip", f"fork the campaigns first (STEP 1) -- {campaigns[0]!r} has no "
+                                   f"campaign.toml at {base / campaigns[0] / 'campaign.toml'}"))
+        return text, notes
+
+    entry_member = plans[campaigns[0]].entry_name                  # the entry arc's REAL start member (exact)
+    pairs = list(zip(campaigns, campaigns[1:]))
+    unforked = sorted({c for pair in pairs for c in pair if c not in plans})
+    # Fill the link rows ATOMICALLY -- only once EVERY boundary's two campaigns are forked. A PARTIAL fill would
+    # strip the still-commented templates for the not-yet-forkable boundaries (losing them), and a later re-run
+    # would see the real rows it did write and bail (has_real_link) -- so those links could NEVER be filled. For
+    # an incremental fork-by-arc workflow we therefore keep ALL templates until the chain is complete, then fill
+    # them in one pass. (Entry only needs the first campaign, so it fills early regardless.)
+    links_complete = not unforked
+    links = [_pick_boundary(plans[c], plans[n], c, n, notes) for (c, n) in pairs] if links_complete else []
+
+    # ---- text surgery on the target journey block (leave everything else, incl. the header playbook, intact)
+    lines = text.split("\n")
+    start, end = _journey_block_range(lines, midx)
+    if start is None:
+        notes.append(ReconcileNote("skip", "couldn't locate the [[journey]] block (file hand-edited?)"))
+        return text, notes
+    block = lines[start:end]
+
+    # entry: replace ONLY the placeholder (respect a real member a human already set)
+    changed = False
+    for i, ln in enumerate(block):
+        if ln.strip().startswith("entry ="):
+            m = _ENTRY_FIELD_RE.search(ln)
+            cur_field = m.group(1) if m else None
+            if cur_field == "ENTRY_MEMBER" or cur_field is None:
+                block[i] = f'entry = {{ campaign = "{_toml_str(campaigns[0])}", field = "{_toml_str(entry_member)}" }}'
+                notes.append(ReconcileNote("filled", f"entry -> {campaigns[0]}/{entry_member}"))
+                changed = True
+            else:
+                notes.append(ReconcileNote("skip", f"entry already set to {cur_field!r} -- left as-is"))
+            break
+
+    # links: fill the whole set in ONE pass, and only when the block has NO real [[journey.link]] yet AND every
+    # boundary resolved (so an incremental fork keeps the templates intact + a re-run can complete the chain).
+    has_real_link = any(ln.strip() == "[[journey.link]]" for ln in block)
+    if has_real_link:
+        notes.append(ReconcileNote("skip", "[[journey.link]] rows already present -- left as-is "
+                                   "(delete them to re-fill)"))
+    elif not links_complete:
+        notes.append(ReconcileNote("verify", f"links NOT filled yet -- fork {unforked} first, then re-run; the "
+                                   f"commented link templates are KEPT so a later run fills the whole chain"))
+    elif links:
+        kept, insert_at = [], None
+        for ln in block:
+            if _is_link_template(ln.strip()):
+                if insert_at is None:
+                    insert_at = len(kept)                          # splice the real rows where the template was
+                continue
+            kept.append(ln)
+        rendered = _render_links(links)
+        if insert_at is None:                                      # no template (hand-written) -> after `entry =`
+            ei = next((i for i, ln in enumerate(kept) if ln.strip().startswith("entry =")), None)
+            insert_at = (ei + 1) if ei is not None else len(kept)
+            rendered = [""] + rendered
+        block = kept[:insert_at] + rendered + kept[insert_at:]
+        n_verify = sum(1 for lk in links if lk.get("comment"))
+        notes.append(ReconcileNote("filled" if not n_verify else "verify",
+                                   f"{len(links)} link(s) filled" + (f" ({n_verify} need a look)" if n_verify else "")))
+        changed = True
+
+    if not changed:
+        notes.append(ReconcileNote("skip", "nothing to fill (entry + links already set)"))
+        return text, notes
+    return "\n".join(lines[:start] + block + lines[end:]), notes
