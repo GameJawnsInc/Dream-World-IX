@@ -69,6 +69,7 @@ class BuildDoc(QWidget):
         v.addWidget(self._campaign_box())
         v.addWidget(self._journey_box())
         v.addWidget(self._battle_box())
+        v.addWidget(self._newgame_box())
 
         btns = QHBoxLayout()
         self.chk = QPushButton("Check logic")
@@ -157,6 +158,32 @@ class BuildDoc(QWidget):
         self.journey_box = box
         return box
 
+    def _newgame_box(self):
+        # always-visible: point New Game straight at a deployed field id (the hub-less single destination).
+        box = QGroupBox("New Game entry  (skip the hub — land straight on a field)")
+        gv = QVBoxLayout(box)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Field id:"))
+        self.newgame_id = QLineEdit()
+        self.newgame_id.setFixedWidth(90)
+        self.newgame_id.setPlaceholderText("4100")
+        self.set_ng = QPushButton("Point New Game here")
+        self.set_ng.clicked.connect(self.on_set_newgame)
+        self.rev_ng = QPushButton("Revert New Game")
+        self.rev_ng.clicked.connect(self.on_revert_newgame)
+        row.addWidget(self.newgame_id)
+        row.addWidget(self.set_ng)
+        row.addWidget(self.rev_ng)
+        row.addStretch(1)
+        gv.addLayout(row)
+        hint = QLabel("Single-owner: replaces the current New-Game landing (and skips any World Hub). The field "
+                      "must already be DEPLOYED/registered. Relaunch the game to test.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        gv.addWidget(hint)
+        self.newgame_box = box
+        return box
+
     def _battle_box(self):
         box = QGroupBox("Deploy battle map")
         bv = QVBoxLayout(box)
@@ -192,6 +219,8 @@ class BuildDoc(QWidget):
         self.manifest = payload if kind == "journey" else None
         if kind == "field":
             self.field_id, self.field_name = jobs.field_id_name(path) if path else (None, None)
+            if self.field_id is not None and not self.newgame_id.text().strip():
+                self.newgame_id.setText(str(self.field_id))   # convenience: prefill the New-Game target once
         self._render_kind()
 
     def _render_kind(self):
@@ -303,7 +332,7 @@ class BuildDoc(QWidget):
         return f
 
     def _busy(self, b):
-        for w in (self.chk, self.go, self.rev):
+        for w in (self.chk, self.go, self.rev, self.set_ng, self.rev_ng):
             w.setEnabled(not b)
 
     def _stream(self, argv, *, cwd, subject, ok_headline, ok_next=""):
@@ -472,6 +501,29 @@ class BuildDoc(QWidget):
                          ok_headline=f"Deployed battle map → {self.mod_folder}",
                          ok_next="A minted scene / BattlePatch line needs one relaunch; a texture/FBX override "
                                  "loads on the next battle.")
+
+    # ------------------------------------------------------------------ New Game entry (hub-less)
+    def on_set_newgame(self):
+        fid = self.newgame_id.text().strip()
+        if not fid.isdigit():
+            return self._warn("Bad field id", "Enter the numeric field id New Game should land on "
+                                              "(e.g. a deployed slice's entry, 4100).")
+        if self._confirm("Point New Game here",
+                         f"Point New Game straight at field {fid}?\n\nThis REPLACES the current New-Game landing "
+                         "(single-owner) and skips any World Hub. The field must already be deployed/registered; "
+                         "relaunch the game to test."):
+            self._stream(jobs.newgame_retarget_argv(self.repo, fid), cwd=self.repo, subject="Set New Game entry",
+                         ok_headline=f"New Game now lands on field {fid}",
+                         ok_next="Relaunch the game, then New Game. Undo with 'Revert New Game'.")
+
+    def on_revert_newgame(self):
+        argv = jobs.revert_newgame_argv(self.repo)
+        if not Path(argv[-1]).exists():
+            return self._info("Nothing to revert", "No New-Game retarget to undo yet.")
+        if self._confirm("Revert New Game", "Restore the previous New-Game landing?"):
+            self._stream(argv, cwd=self.repo, subject="Revert New Game",
+                         ok_headline="Reverted the New-Game retarget",
+                         ok_next="Relaunch to load the restored New-Game landing.")
 
     # ------------------------------------------------------------------ Revert
     def on_revert(self):

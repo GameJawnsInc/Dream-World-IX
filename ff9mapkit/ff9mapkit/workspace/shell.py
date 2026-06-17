@@ -4676,6 +4676,16 @@ def _smoke(win):
                                                              "scroll_out/revert_journey_links.py")), rj
     bd._info = lambda *a: None                                   # don't pop a modal box in headless
     bd.on_revert()                                              # journey revert branch: no-op or captured argv, no crash
+    # NEW GAME ENTRY (hub-less): point New Game straight at a deployed field id (retarget_newgame_warp.py)
+    bd.newgame_id.setText("4100")
+    bd.on_set_newgame()
+    assert any("retarget_newgame_warp.py" in a for a in launched[-1]) and "4100" in launched[-1], launched[-1]
+    bd.newgame_id.setText("not-a-number")                        # a bad id is refused (warn, no launch)
+    _before = list(launched[-1])
+    bd._warn = lambda *a: None
+    bd.on_set_newgame()
+    assert launched[-1] == _before, "a non-numeric New-Game id launches nothing"
+    bd.on_revert_newgame()                                       # revert branch: no-op (no retarget) or captured
 
     imp = win.import_field
     icap = []

@@ -230,6 +230,18 @@ def revert_journey_argv(repo_root):
     return [sys.executable, str(s)] if s else None
 
 
+def newgame_retarget_argv(repo_root, field_id):
+    """Point New Game straight at a deployed field id (``tools/retarget_newgame_warp.py``) -- the hub-less
+    single-destination entry. SINGLE-OWNER: it replaces the current New-Game landing; the field must already
+    be registered (deployed), and the game must relaunch to pick it up. Reversible (writes a revert script)."""
+    return [sys.executable, _tool(repo_root, "retarget_newgame_warp.py"), str(field_id)]
+
+
+def revert_newgame_argv(repo_root):
+    """The interpreter + ``tools/scroll_out/revert_newgame_retarget.py`` (written by the New-Game retarget)."""
+    return [sys.executable, _tool(repo_root, "scroll_out", "revert_newgame_retarget.py")]
+
+
 def revert_battle_argv(repo_root):
     """The interpreter + the latest ``revert_battle_*.py``, or ``None`` if no battle deploy to undo."""
     s = latest_battle_revert(repo_root)

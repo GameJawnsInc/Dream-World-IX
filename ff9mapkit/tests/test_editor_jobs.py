@@ -114,6 +114,13 @@ def test_fork_command_argv(tmp_path):
     assert jobs.fork_command_argv(cmd)[argv.index("--out") + 1] == "ice_cavern"
 
 
+def test_newgame_argv(tmp_path):
+    a = jobs.newgame_retarget_argv(tmp_path, 4100)
+    assert a[1].replace("\\", "/").endswith("tools/retarget_newgame_warp.py") and a[-1] == "4100"
+    r = jobs.revert_newgame_argv(tmp_path)
+    assert r[1].replace("\\", "/").endswith("scroll_out/revert_newgame_retarget.py")
+
+
 def test_revert_journey_argv_picks_most_recent(tmp_path):
     # the journey revert must undo the user's LAST action: --apply writes revert_journey.py, --apply-links
     # writes revert_journey_links.py -- the GUI button picks whichever is newer (mtime), or None if neither.
