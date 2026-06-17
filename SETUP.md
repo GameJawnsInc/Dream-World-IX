@@ -347,7 +347,7 @@ tabbed document area, a right-hand **Inspector**, and a bottom **Output/Problems
 
 ## 7. CLI command reference
 
-55 subcommands, invoked as `ff9mapkit <cmd>` or `py -m ff9mapkit <cmd>`. Global flags: `--game
+59 subcommands, invoked as `ff9mapkit <cmd>` or `py -m ff9mapkit <cmd>`. Global flags: `--game
 <path>`, `--mod-folder <name>`, `--version`.
 
 **Setup / doctor**

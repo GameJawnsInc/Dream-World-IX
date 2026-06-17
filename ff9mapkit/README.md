@@ -75,7 +75,7 @@ and `build` compiles both.
 
 ## Commands
 
-55 subcommands — run `ff9mapkit -h` (or `py -m ff9mapkit -h`) for the full list. The common ones,
+59 subcommands — run `ff9mapkit -h` (or `py -m ff9mapkit -h`) for the full list. The common ones,
 grouped:
 
 **Setup**

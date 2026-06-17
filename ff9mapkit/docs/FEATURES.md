@@ -90,7 +90,7 @@ codec/golden tests) with the full in-game pass still pending.
 
 | Tool | What | Docs |
 |---|---|---|
-| **CLI** | 55 commands — author/build/lint/pack a field, fork & inspect real fields, campaigns & journeys, battle maps, save/story-state editing, and reference catalogs | [README](../README.md) |
+| **CLI** | 59 commands — author/build/lint/pack a field, fork & inspect real fields, campaigns & journeys, battle maps, save/story-state editing, and reference catalogs | [README](../README.md) |
 | **Workspace GUI** (`apps/ff9_studio.pyw`, PySide6) | The modern front door: one dockable window with a **journey ▸ campaign ▸ field ▸ object** tree and tabs for the Editor (field/NPC/gateway/event/cutscene/choice forms + catalog picker + live FF9-wrap preview), Map, Story State + Item & Equip save editors, Build & Deploy, Import (preview fidelity → fork), and a searchable Info Hub — plus a Ctrl-K palette, an Inspector, and undo/redo. **Folds in the eight standalone tkinter apps that were retired** (dialogue / import / campaign editor / story state / items / Info Hub / build / editor). | [README](../README.md) |
 | **Blender add-on** | Visually pose the camera, model the walkmesh, place NPC/gateway/event/spawn/cam-zone markers, paint backdrop, import a real field — **and reshape a 3D battle map** (Import/Export Battle Map) | [blender/README](../blender/README.md) |
 | **Form editor** (`ff9mapkit edit`) | Dialogue / events / encounters / flags / cutscenes in forms — no TOML, stdlib-only Tkinter (no PySide6 needed) | [README](../README.md) |
@@ -101,7 +101,7 @@ codec/golden tests) with the full in-game pass still pending.
 - **Byte-exact codecs** — the `.eb` script, `.bgi` walkmesh, `.bgx`/`.bgs` scene, and `.mes` text all
   round-trip real game data byte-for-byte; building the worked examples reproduces in-game-verified
   assets exactly.
-- **Offline golden-master validation** — 1,600+ kit + 60 Blender tests; correctness is proven without
+- **Offline golden-master validation** — 1,500+ kit + 60 Blender tests; correctness is proven without
   ever launching the game (which honors the "can't see the running game" constraint).
 - **Grounded in source** — opcode tables and camera/projection math are baked from the Memoria engine
   source, not guessed; the `.eb` and scene formats were reverse-engineered and verified.

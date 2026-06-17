@@ -2,14 +2,14 @@
 
 The hard-won lesson: **a re-used `.blend` can carry a camera posed by an older add-on version**,
 which silently mis-scales. So always start a scrolling room from a **new** `.blend` and **Pose the
-camera fresh**. This checklist is the known-good path (add-on **v0.9.3**).
+camera fresh**. This checklist is the known-good path (add-on **v0.9.12**).
 
 ## 0. One-time
 ```
-py ff9mapkit/blender/build_addon.py          # -> dist/ff9mapkit_blender-0.9.3.zip
+py ff9mapkit/blender/build_addon.py          # -> dist/ff9mapkit_blender-0.9.12.zip
 py -m pip install -e ff9mapkit               # so `py -m ff9mapkit build ...` works anywhere
 ```
-In Blender: **Edit ▸ Preferences ▸ Get Extensions ▸ ▾ ▸ Install from Disk…** → pick the 0.9.3 zip →
+In Blender: **Edit ▸ Preferences ▸ Get Extensions ▸ ▾ ▸ Install from Disk…** → pick the 0.9.12 zip →
 make sure **FF9 Map Kit** is enabled. (If an older version was installed, remove it first.)
 
 ## 1. New file
