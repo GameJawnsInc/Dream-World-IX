@@ -142,7 +142,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   4600, 2026-06-14; was the old World Hub 4500). The field-70 opening's own fade-out is preserved, so New Game
   fades to black → Field(4600) (seamless, no FMV). The mechanism + seamless-entry lever + starting-state
   capstone → [[project-ff9-new-game-entry]].
-- **Versions:** kit `0.9.81`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
+- **Versions:** kit `0.10.0`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
   `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
@@ -182,7 +182,10 @@ real gameplay and reproducible in Python (zero Hades Workshop):
   fightable scene, or a wholly-original `BBG_B###`; tune the fight (stats/positions/rewards/spawn) and the
   camera (`battle.toml` + `battle-import`/`-build`; a separate pillar from fields, no DLL rebuild).
 - **Campaigns:** `import-chain <seed>` forks a connected slice of the game into one drop-in mod; the
-  **Campaign Editor** IDE (navigator + graph + Map + authoring) edits the multi-field project.
+  **Campaign Editor** IDE (navigator + graph + Map + authoring) edits the multi-field project. **`reference-arcs`**
+  (CLI + a New-Journey "FF9 reference arc" option) scaffolds FF9's real story arcs (`data/reference_arcs.toml`, the
+  disc-1 spine) into a chained `journeys.toml` + a per-arc `import-chain` fork playbook — the north-star fork-and-test
+  harness (a PLAN, not a one-click rebuild).
 - **Save points & story flags:** a synthesized `[[savepoint]]` (`Menu(4,0)`, save→reload into a custom
   field works); `[[flag]]` story flags by name; `flags`/`flags-inspect`/`flags-diff`/`save-edit` read,
   compare, and edit a real save's `gEventGlobal` state.

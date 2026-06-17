@@ -739,9 +739,10 @@ class Workspace(QMainWindow):
 
     def _new_journey(self, name, dest, *, kind="bare", hub_id=4600, borrow_bg="N11_HUT", jid="intro",
                      jname="Intro", entry=4100, scenario=None, campaigns=None):
-        """Write a journeys.toml from the New-Journey choices (`_render_journey_toml`) + open it. ``kind='bare'``
-        = a complete file; ``kind='multi'`` = hub + first journey filled in, links/seed left to fill. Returns
-        the path. Raises ValueError on an empty name or an existing manifest."""
+        """Write a journeys.toml from the New-Journey choices + open it. ``kind='bare'`` = a complete file;
+        ``kind='multi'`` = hub + first journey filled in, links/seed left to fill; ``kind='refarc'`` = the FF9
+        reference-arc scaffold (the disc-1 story spine as a chained journey + the per-arc import-chain fork
+        playbook, via `refarc`). Returns the path. Raises ValueError on an empty name or an existing manifest."""
         name = str(name).strip()
         if not name:
             raise ValueError("a hub / journey name is required")
@@ -750,31 +751,53 @@ class Workspace(QMainWindow):
         if jpath.exists():
             raise ValueError(f"a journeys.toml already exists in {dest} — choose another folder")
         dest.mkdir(parents=True, exist_ok=True)
-        jpath.write_text(_render_journey_toml(hub_name=name, hub_id=hub_id, borrow_bg=borrow_bg or "N11_HUT",
-                                              jid=jid or "intro", jname=jname or "Intro", kind=kind,
-                                              entry=entry, scenario=scenario, campaigns=campaigns),
-                         encoding="utf-8", newline="\n")
+        if kind == "refarc":
+            from .. import refarc as RA
+            text = RA.render_arc_journey_toml(RA.load_reference_arcs(), hub_name=name, hub_id=hub_id,
+                                              borrow_bg=borrow_bg or "N11_HUT")
+        else:
+            text = _render_journey_toml(hub_name=name, hub_id=hub_id, borrow_bg=borrow_bg or "N11_HUT",
+                                        jid=jid or "intro", jname=jname or "Intro", kind=kind,
+                                        entry=entry, scenario=scenario, campaigns=campaigns)
+        jpath.write_text(text, encoding="utf-8", newline="\n")
         self._last_new_dir = str(dest)
         self.open_journey(jpath)
         return jpath
 
+    def _refarc_preview_html(self) -> str:
+        """A compact HTML preview of the packaged reference-arc table, for the New-Journey 'FF9 reference arc'
+        panel (so the dialog shows WHAT it scaffolds before you commit)."""
+        try:
+            from .. import refarc as RA
+            aset = RA.load_reference_arcs()
+        except Exception as e:                     # noqa: BLE001
+            return f"<i>Could not load the reference-arc table: {html.escape(str(e))}</i>"
+        rows = " &rarr; ".join(
+            f"{html.escape(a.key)} <span style='color:{self.pal['muted']}'>({a.seed})</span>" for a in aset.arcs)
+        return (f"<b>{html.escape(aset.title)}</b> — {len(aset.arcs)} arcs, each forks one real field "
+                f"(<code>import-chain</code>):<br>{rows}")
+
     def on_new_journey(self):
-        """New Journey… dialog: pick Bare vs Multi-campaign + the hub / first-journey values, so the generated
-        journeys.toml has REAL values (not placeholders) and the dialog itself shows what a journey IS."""
+        """New Journey… dialog: pick Bare / Multi-campaign / FF9-reference-arc + the hub / first-journey values,
+        so the generated journeys.toml has REAL values (not placeholders) and the dialog itself shows what a
+        journey IS."""
         dlg = QDialog(self)
         dlg.setWindowTitle("New journey")
         form = QFormLayout(dlg)
         bare_rb = QRadioButton("Bare — the hub warps straight to ONE field")
         multi_rb = QRadioButton("Multi-campaign arc — chain forked campaigns")
+        arc_rb = QRadioButton("FF9 reference arc — scaffold FF9's real story arcs to fork & chain")
         bare_rb.setChecked(True)
         grp = QButtonGroup(dlg)
         grp.addButton(bare_rb)
         grp.addButton(multi_rb)
+        grp.addButton(arc_rb)
         trow = QWidget()
         tl = QVBoxLayout(trow)
         tl.setContentsMargins(0, 0, 0, 0)
         tl.addWidget(bare_rb)
         tl.addWidget(multi_rb)
+        tl.addWidget(arc_rb)
         form.addRow("Type", trow)
         name = QLineEdit()
         name.setPlaceholderText("My Hub")
@@ -803,9 +826,17 @@ class Workspace(QMainWindow):
         ml = QFormLayout(multi_panel)
         ml.setContentsMargins(0, 0, 0, 0)
         ml.addRow("Campaign folders", campaigns)
+        arc_panel = QWidget()
+        al = QVBoxLayout(arc_panel)
+        al.setContentsMargins(0, 0, 0, 0)
+        arc_preview = QLabel(self._refarc_preview_html())
+        arc_preview.setWordWrap(True)
+        arc_preview.setTextFormat(Qt.TextFormat.RichText)
+        al.addWidget(arc_preview)
         stack = QStackedWidget()
         stack.addWidget(bare_panel)
         stack.addWidget(multi_panel)
+        stack.addWidget(arc_panel)
         form.addRow(stack)
         note = QLabel()
         note.setStyleSheet(f"color:{self.pal['muted']};")
@@ -814,20 +845,29 @@ class Workspace(QMainWindow):
         form.addRow(self._ok_cancel(dlg))
 
         def _toggle():
-            bare = bare_rb.isChecked()
-            stack.setCurrentIndex(0 if bare else 1)
-            note.setText("A <b>complete</b>, ready-to-build journeys.toml — the hub menu warps straight to "
-                         "your entry field." if bare else
-                         "Fork the campaigns first (<code>ff9mapkit import-chain</code>). This writes the hub "
-                         "+ journey with the entry/links/seed <b>left to fill in</b> against your members.")
+            idx = 0 if bare_rb.isChecked() else (1 if multi_rb.isChecked() else 2)
+            stack.setCurrentIndex(idx)
+            if idx == 0:
+                note.setText("A <b>complete</b>, ready-to-build journeys.toml — the hub menu warps straight to "
+                             "your entry field.")
+            elif idx == 1:
+                note.setText("Fork the campaigns first (<code>ff9mapkit import-chain</code>). This writes the hub "
+                             "+ journey with the entry/links/seed <b>left to fill in</b> against your members.")
+            else:
+                note.setText("Scaffolds the FF9 disc-1 story spine as a chained journey + a per-arc "
+                             "<code>import-chain</code> fork playbook (the north-star fork-and-test harness). "
+                             "Not a one-click rebuild — fork each arc, fill the entry/links, deploy, playtest.")
         bare_rb.toggled.connect(_toggle)
+        multi_rb.toggled.connect(_toggle)
+        arc_rb.toggled.connect(_toggle)
         _toggle()
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        kind = "bare" if bare_rb.isChecked() else "multi"
+        kind = "bare" if bare_rb.isChecked() else ("multi" if multi_rb.isChecked() else "refarc")
+        hub_name = name.text().strip() or ("FF9 Disc 1" if kind == "refarc" else "")
         try:
             self._new_journey(
-                name.text(), dest.text().strip() or self._default_new_dest(), kind=kind,
+                hub_name, dest.text().strip() or self._default_new_dest(), kind=kind,
                 hub_id=int(hub_id.text() or 4600), borrow_bg=borrow.text().strip() or "N11_HUT",
                 jid=jid.text().strip() or "intro", jname=jname.text().strip() or "Intro",
                 entry=int(entry.text() or 4100),
@@ -4507,6 +4547,13 @@ def _smoke(win):
     mt = jmulti.read_text(encoding="utf-8")
     assert 'campaigns = ["dali", "outside"]' in mt and 'campaign = "dali"' in mt, mt
     assert "[[journey.link]]" in mt and "import-chain" in mt, "the multi file shows the links + the fork-first step"
+    # FF9 REFERENCE ARC -- scaffolds the disc-1 story spine as a chained journey + the per-arc fork playbook
+    jref = win._new_journey("FF9 Disc 1", d / "jref", kind="refarc")
+    assert jref.exists() and win.manifest is not None, "the reference-arc journey opened in journey mode"
+    rt = jref.read_text(encoding="utf-8")
+    assert "import-chain 300" in rt and "ice_cavern" in rt and "--name-prefix" in rt, "the fork playbook is in the header"
+    assert win.manifest.journeys[0].campaigns[:2] == ["alexandria", "evil_forest"], win.manifest.journeys[0].campaigns
+    assert "<b>" in win._refarc_preview_html() and "alexandria" in win._refarc_preview_html(), "the dialog preview renders"
     try:                                                   # clobber guard: an existing manifest is refused
         win._new_journey("Again", d / "jnew")
         assert False, "an existing journeys.toml should be refused"

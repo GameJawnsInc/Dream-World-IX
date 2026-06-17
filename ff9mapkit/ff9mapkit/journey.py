@@ -395,6 +395,13 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
                 _claim(int(j.entry.field), f"journey {j.id!r} (bare entry)")
             except (TypeError, ValueError):
                 errors.append(f"journey {j.id!r}: bare entry {j.entry.field!r} must be a field id (int)")
+    # the [hub] field id is ALSO global -- it registers + renders alongside every campaign, so a hub/member
+    # collision is the same global-EventDB black screen. Claim it so the disjointness check covers it offline.
+    if manifest.hub.get("id") is not None:
+        try:
+            _claim(int(manifest.hub["id"]), "the [hub] field")
+        except (TypeError, ValueError):
+            errors.append(f"[hub] id {manifest.hub.get('id')!r} must be a field id (int)")
 
     # (e) id band range (every claimed id in the custom band)
     for fid, label in sorted(owner.items()):

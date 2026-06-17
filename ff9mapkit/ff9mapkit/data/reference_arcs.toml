@@ -1,0 +1,85 @@
+# FF9 reference arc -- the DISC 1 STORY SPINE, laid out as a chain of forkable arcs.
+#
+# This is the north-star planning + fork-and-test harness (CLAUDE.md "fork FIDELITY, not a release"):
+# each [[arc]] below is ONE campaign you produce with `import-chain <seed> --verbatim`, and the arcs chain
+# in order as a multi-campaign JOURNEY. The loop is: fork an arc -> deploy the journey -> walk it -> ask
+# "does it play identically?" -> refine -> move to the next arc. It is NOT a one-click rebuild of FF9 (the
+# world map is unmoddable and the narrative-state layer is the weak axis -- docs/FORK_FIDELITY.md).
+#
+# Seeds are drafted from reference/field-manifest.tsv + the in-game-proven import-chain seeds. EDIT freely
+# (this is YOUR game knowledge): correct a `seed`, add an optional `zone = "<FBG token>"` to widen the fork
+# past the seed's own zone, or add `beat = <ScenarioCounter>` to seed an arc's story state on entry.
+
+title = "FF9 -- Disc 1 spine"
+
+[[arc]]
+key = "alexandria"
+name = "Alexandria / Prima Vista"
+seed = 100
+note = "The opening: the Tantalus play, kidnapping Garnet, the escape from Alexandria. (Prima Vista = 50.)"
+
+[[arc]]
+key = "evil_forest"
+name = "Evil Forest"
+seed = 152
+note = "The crash-landing, Blank, the petrification -- the party first comes together."
+
+[[arc]]
+key = "ice_cavern"
+name = "Ice Cavern"
+seed = 300
+note = "Through the Ice Cavern to the world map. PROVEN forkable (the 300 -> Outside 312 arc, in-game proven)."
+
+[[arc]]
+key = "dali"
+name = "Dali"
+seed = 350
+note = "Dali village + the underground black-mage production line. PROVEN forkable (Dali Inn / Weapon Shop)."
+
+[[arc]]
+key = "cargo_ship"
+name = "Cargo Ship"
+seed = 500
+note = "The cargo ship out of Dali toward Lindblum."
+
+[[arc]]
+key = "lindblum"
+name = "Lindblum"
+seed = 550
+note = "Lindblum: the Festival of the Hunt and Lindblum Castle (L. Castle = 600)."
+
+[[arc]]
+key = "gizamaluke"
+name = "Gizamaluke's Grotto"
+seed = 701
+note = "The grotto guardian and the broken bell gate, on the road to Burmecia."
+
+[[arc]]
+key = "burmecia"
+name = "Burmecia"
+seed = 750
+note = "The rain-ruined kingdom of Burmecia; the first encounter with Beatrix."
+
+[[arc]]
+key = "south_gate"
+name = "South Gate"
+seed = 800
+note = "The South Gate / Bohden Station road (North Gate = 851)."
+
+[[arc]]
+key = "treno"
+name = "Treno"
+seed = 916
+note = "The City of Nobles: the auction house, Queen Stella's cards, Dr. Tot's tower. (Main screen tr_whf.)"
+
+[[arc]]
+key = "gargan_roo"
+name = "Gargan Roo"
+seed = 950
+note = "The gargant tunnel linking the Treno region to Cleyra."
+
+[[arc]]
+key = "cleyra"
+name = "Cleyra"
+seed = 1000
+note = "The sandstorm-shrouded sanctuary and Alexandria's attack -- the disc-1 climax."

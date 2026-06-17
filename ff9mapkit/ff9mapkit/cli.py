@@ -13,6 +13,7 @@ Subcommands are wired up incrementally as the library lands:
     gen-hub   - generate a World-Hub field.toml from a journeys.toml registry (P6)
     lint-journey     - validate a multi-campaign journeys.toml (id/flag disjointness, links resolve)
     assemble-journey - lint + emit the World-Hub field for bare AND multi-campaign journeys
+    reference-arcs   - FF9 reference-arc scaffold: emit a chained journeys.toml of FF9's real story arcs
     extract-field - cache a real field's camera+walkmesh into the gitignored workspace cache
     import    - fork a real FF9 field (BG-borrow, or --editable custom scene) (Tier 3)
     list-fields - list the real FF9 fields available to import              (Tier 3)
@@ -480,6 +481,44 @@ def _cmd_assemble_journey(args: argparse.Namespace) -> int:
     print(f"Then build + deploy the hub (`tools/deploy_field.py {info['path']}`) + each campaign "
           f"(`tools/deploy_campaign.py --no-warp`); or run the whole journey with `tools/deploy_journey.py "
           f"{args.journeys} --apply`.")
+    return 0
+
+
+def _cmd_reference_arcs(args: argparse.Namespace) -> int:
+    """The FF9 reference-arc scaffold -- the north-star planning + fork-and-test harness. List the curated
+    arc->seed table, print the fork PLAYBOOK, or EMIT a multi-campaign journeys.toml laying the arcs out as a
+    chained journey + the `import-chain` commands to fork each one. Pure offline (no game install). It is NOT
+    a one-click rebuild of FF9 -- it's a PLAN you execute arc-by-arc (docs/FORK_FIDELITY.md)."""
+    from pathlib import Path
+    from . import refarc
+    try:
+        aset = refarc.load_reference_arcs(args.table)
+    except (refarc.RefArcError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if args.emit:
+        out = Path(args.emit)
+        out.mkdir(parents=True, exist_ok=True)
+        jpath = out / "journeys.toml"
+        if jpath.exists() and not args.force:
+            print(f"{jpath} already exists (use --force to overwrite)", file=sys.stderr)
+            return 2
+        jpath.write_text(refarc.render_arc_journey_toml(
+            aset, hub_name=args.hub_name, hub_id=args.hub_id, borrow_bg=args.borrow_bg, id_base=args.id_base),
+            encoding="utf-8", newline="\n")
+        print(f"wrote {jpath}  ({len(aset.arcs)} arcs, hub id {args.hub_id})")
+        print("Next: fork each arc (the import-chain playbook is in the file header), fill the entry/links from "
+              "the forked member names, then deploy (Build & Deploy -> this file, or "
+              f"`py tools/deploy_journey.py {jpath.as_posix()} --apply`).")
+        return 0
+    if args.playbook:
+        for i, (_arc, cmd) in enumerate(refarc.fork_playbook(aset, id_base=args.id_base), 1):
+            print(f"{i:>2}. {cmd}")
+        return 0
+    print(f"{aset.title}  ({len(aset.arcs)} arcs, in story order):")
+    for arc in aset.arcs:
+        print(f"  {arc.key:<14} seed {arc.seed:<5} {arc.name}")
+    print("\n--emit <dir> to scaffold a chained journeys.toml; --playbook for just the fork commands.")
     return 0
 
 
@@ -2281,6 +2320,21 @@ def build_parser() -> argparse.ArgumentParser:
                          "[camera] borrow to it (needs the install + UnityPy)")
     aj.add_argument("--force", action="store_true", help="re-extract the camera even if already cached")
     aj.set_defaults(func=_cmd_assemble_journey)
+
+    ra = sub.add_parser("reference-arcs", help="FF9 reference-arc scaffold: list the curated arc->seed table, "
+                        "print the fork playbook, or emit a chained journeys.toml (the north-star harness)")
+    ra.add_argument("--table", default=None,
+                    help="a custom reference-arc table (default: the packaged FF9 disc-1 spine)")
+    ra.add_argument("--emit", default=None, metavar="DIR",
+                    help="WRITE a journeys.toml scaffold (the arcs as a chained journey + the fork playbook) into DIR")
+    ra.add_argument("--playbook", action="store_true", help="print ONLY the import-chain fork commands")
+    ra.add_argument("--force", action="store_true", help="with --emit, overwrite an existing journeys.toml")
+    ra.add_argument("--hub-name", default="FF9 Disc 1", dest="hub_name", help="hub field display name (--emit)")
+    ra.add_argument("--hub-id", type=int, default=4600, dest="hub_id", help="hub field id, >=4000 (--emit)")
+    ra.add_argument("--borrow-bg", default="N11_HUT", dest="borrow_bg", help="hub art borrow field (--emit)")
+    ra.add_argument("--id-base", type=int, default=6000, dest="id_base",
+                    help="first arc's campaign id base; arc i gets id_base + i*100 (default 6000)")
+    ra.set_defaults(func=_cmd_reference_arcs)
 
     ef = sub.add_parser("extract-field", help="cache a real field's camera+walkmesh in the gitignored "
                         "workspace cache (reused by BG-borrow tomls / gen-hub --extract-camera)")

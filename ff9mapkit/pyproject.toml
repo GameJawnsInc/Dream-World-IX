@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ff9mapkit"
-version = "0.9.99"
+version = "0.10.0"
 description = "Author novel custom field maps for Final Fantasy IX (Memoria engine) from a declarative TOML project file."
 readme = "README.md"
 requires-python = ">=3.11"          # tomllib is stdlib from 3.11
@@ -47,4 +47,4 @@ include = ["ff9mapkit*"]
 # regenerated from the user's own FF9 install by `ff9mapkit extract-templates` (docs/PROVENANCE.md).
 # (Deliberately NOT globbing data/*.bin or data/blank_field/ so a wheel can never bundle FF9 bytes,
 #  even if a developer has run extract-templates locally.)
-ff9mapkit = ["data/provenance/manifest.json", "data/provenance/*.patch"]
+ff9mapkit = ["data/provenance/manifest.json", "data/provenance/*.patch", "data/reference_arcs.toml"]

@@ -208,6 +208,24 @@ entry = 6001
     assert any("claimed by BOTH" in e and "6001" in e for e in errors)
 
 
+def test_lint_hub_id_collides_with_campaign_member(tmp_path):
+    # the [hub] field registers in the SAME global EventDB as the campaigns -> a hub/member id collision is a
+    # black screen; the disjointness lint must claim the hub id too (else it passes silently).
+    _make_campaign(tmp_path, "ca", members=["A1", "A2"], id_base=6000)
+    p = _write_manifest(tmp_path, """
+[hub]
+name = "H"
+id = 6000
+
+[[journey]]
+id = "arc"
+campaigns = ["ca"]
+entry = { campaign = "ca", field = "A1" }
+""", with_hub=False)
+    errors, _ = journey.lint_manifest(journey.load_journeys(p))
+    assert any("claimed by BOTH" in e and "6000" in e and "hub" in e for e in errors)
+
+
 def test_lint_missing_campaign_folder(tmp_path):
     p = _write_manifest(tmp_path, """
 [[journey]]
