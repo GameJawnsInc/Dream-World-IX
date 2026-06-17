@@ -8,6 +8,14 @@
 > Provenance: this doc is analysis + citations only — **zero Square-Enix bytes**. All enemy stat bytes and
 > all CSV stat values are SE game DATA → read live from the user's install, never committed (the
 > `itemstats.py` read-live vs `_itemdb.py` committed-names split).
+>
+> **Status: the battle-tuning pillar has SHIPPED + is largely in-game proven.** This began as a recon/gap
+> map; the roadmap below (§8) is now mostly DONE — the full raw16 per-enemy table (`scene_data.py`), the CSV
+> deltas (`actiondelta.py`/`characterdelta.py`/`abilityfeatures.py`), enemy-AI authoring (`aiauthor.py`/
+> `ailint.py`/`aipatch.py`), BODY re-skin (`reskin.py`), and raw17 sequence authoring (`seqasm.py`/
+> `seqauthor.py`). The only deferred items are a wholly-new attack SLOT and a brand-new battle-calc formula
+> (a `Memoria.Scripts.<Mod>.dll`). §1/§2/§6 below are kept for the engineering rationale — read the per-row
+> **Kit** columns + §8 phase stamps for current ship-state.
 
 ---
 
@@ -34,8 +42,9 @@ do NOT share a format or a merge model:
 wiring, and the BGM are stock-Memoria data-patches. The **only** DLL needs are (a) a *brand-new* battle-calc
 formula / `scriptId` behavior — and even that is a separate, swappable **`Memoria.Scripts.<Mod>.dll`** loaded
 per mod folder via `Assembly.LoadFile` (`ScriptsLoader.cs:283-291`), **NOT** the engine `Assembly-CSharp.dll` —
-and (b) engine-enum changes (e.g. a wholly new `CharacterId`). The kit's `[scene]` tuner today reaches **~9 of
-~40+ patchable enemy fields** and **zero** of the CSV/AI channels.
+and (b) engine-enum changes (e.g. a wholly new `CharacterId`). The kit's `[scene]` tuner now reaches the **full
+raw16 per-enemy combat-identity table** (§2(a)) **plus** the CSV channels (`actiondelta`/`characterdelta`) and
+the enemy-AI `.eb` channel (`aiauthor`/`ailint`/`aipatch`).
 
 ---
 
@@ -167,7 +176,7 @@ Darkness=128 — the **same 8-bit space** as the enemy Guard/Absorb/Half/Weak by
 | Commands / CommandSets | battle-menu definitions + per-char layout | CSV (partial) | `CharacterCommands.cs` (0-44 / 0-19) | No | **partial** — CommandSets done (`[[command_set]]` re-points a preset's menu slots to existing command ids); Commands (command DEFINITIONS) deferred (cross-ref into Actions/abilities) |
 | Abilities/`<Name>.csv` | learn list + AP cost | CSV (**whole-file per preset**) | `ff9abil.cs:432` (`GetCsvWithHighestPriority`) | No | **done** (`[[learn]]` preset + `[[learn.ability]]` ability/ap + `remove` → whole-file per-preset re-emit; AA/SA tokens or names) |
 | AbilityGems | support-ability stone costs | CSV (partial, 0-63) | `AbilityGems.csv` → `ff9abil.cs:409` | No | **done** (`[[ability_gem]]`, `characterdelta`) |
-| AbilityFeatures.txt | the SA/AA effect DSL (Auto-Haste, killers, MP+20%…) | text (`>SA/>AA/>CMD`, `+`=cumulate) | `ff9abil.cs:448-534` | No | **absent** |
+| AbilityFeatures.txt | the SA/AA effect DSL (Auto-Haste, killers, MP+20%…) | text (`>SA/>AA/>CMD`, `+`=cumulate) | `ff9abil.cs:448-534` | No | **done** (`[[ability_feature]]` → `AbilityFeatures.txt`, `abilityfeatures.py`, CLI `ability-features`) |
 | DefaultEquipment / InitialItems | starting gear + bag | CSV | `content/equipment.py` / `content/inventory.py` | No | **done** (items_equipment) |
 | BattleParameters | **COSMETIC ONLY** — model + 34 anim ids + bones | CSV (partial, 0-18) | `btl_mot.cs` | No | absent (don't confuse w/ BaseStats) |
 
@@ -187,9 +196,9 @@ FBX geometry + textures (true codec round-trip, `fbx.parse_fbx↔emit_fbx`), `Ba
 camera nudge/sweep (raw17, `camera_data`/`camera_codec` — the camera codec is now **real-donor round-trip
 proven**: `test_battle_scene_codec.py::test_camera_codec_golden_roundtrip_real_donor` asserts
 `serialize_block(parse_block(raw17)) == raw17[camOffset:]` + `splice_block(raw17, …) == raw17` on `EF_R007`),
-BGM (`BattlePatch Music: <akao song id>`). The raw17 `btlseq` attack-choreography BODY is shipped **verbatim**
-— the *kit* has no codec for it yet, but it is **data-authorable without a DLL**; the old "cannot author" was
-wrong (see §2(h)).
+BGM (`BattlePatch Music: <akao song id>`). The raw17 `btlseq` attack-choreography BODY is now **codec-parsed and
+authorable** (`seqcodec.py` parse/serialize + the `seqasm.py` assembler + `[[scene.seq_replace]]`/
+`[[scene.seq_insert]]`, §2(h)); the old "cannot author" was wrong, and only a wholly-new attack SLOT remains deferred.
 
 ### (h) Attack SEQUENCES — `btlseq.raw17` + `Data/SpecialEffects/<ef>/*.seq` (choreography + a thin gameplay edge)
 
@@ -255,8 +264,12 @@ one shared body; padding is **NOT** a derivable alignment rule (0/1-byte gaps th
 - **same-length patch** — `[[scene.seq_patch]]` (`seqpatch.py`): `at`/`old`-guarded/`new` in-place operand edits
   (retime a `Wait`, swap an `Anim`/`SetCamera` id) — no offset repack, byte-accurate, applied to the forked raw17.
 - **lossless codec** — `seqcodec.py` `parse`/`serialize` (golden-proven), the model + offset-fixup foundation.
-- **net-new sequence** (DEFERRED, §8) — an instruction assembler + a coordinated raw16 `AA_DATA` + raw17
-  header/body + `.eb` AI-by-`sub_no` edit (the "highest cost" tail).
+- **length-changing authoring** — the instruction **assembler** (`seqasm.py`, the exact inverse of `seqdis`) +
+  `[[scene.seq_replace]]`/`[[scene.seq_insert]]` (`seqauthor.py`): replace or insert sequence instructions with
+  full offset/header repack (the keystone that froze the Goblin mid-Knife). **SHIPPED.**
+- **wholly-new attack SLOT** (DEFERRED, §8) — grow `seqCount` + a coordinated raw16 `AA_DATA` + raw17
+  header/body + `.eb` AI-by-`sub_no` edit (the "highest cost" tail). This — not the assembler — is the one
+  raw17 piece still deferred.
 
 DURABLE FACTS (corpus-verified, beyond the prior summary): **`seqCount ∈ {AtkCount, AtkCount+1}`** (NOT strictly
 `== AtkCount` — when `+1`, `seqOffset[AtkCount]` is a verbatim alias of `seqOffset[0]`, never independently
@@ -321,14 +334,14 @@ The status is **asymmetric**:
 | **raw17 opening camera** | **YES, true codec — real-donor proven** | `camera_codec.parse_block ↔ serialize_block` (offset-table repack) | **Fully satisfies** import→tweak→verify: `splice_block(raw17, parse_block(raw17)[1]) == raw17` asserted on `EF_R007` (`test_battle_scene_codec.py`) |
 | **battle `.eb`** | **YES, general codec** | `EbScript.from_bytes(x).to_bytes()==x` on real donors | Container round-trips; **full enemy-AI authoring ships** (`ai_function`/`ai_phase`/`ai_insert`/`ai_patch`, Phase 6c) beyond `rewrite_main_init` |
 | **raw16 (`SB2_MON_PARM`)** | **YES, full codec — real-donor proven** | `scene_codec.parse_scene ↔ serialize_scene` (golden round-trip incl. the engine-ignored tail, `EF_R007`) | **Fully satisfies** import→tweak→verify; `scene_data` stays surgical for individual field edits |
-| **raw17 btlseq (sequences)** | sliced-verbatim, **never parsed** | `camera_codec.py` splices `raw17[:camOffset]` | KIT has no codec yet → can't *author* choreography; but the ENGINE permits **data authoring with no DLL** (§2(h)) — hit-count/effect-gating already work in the verbatim raw17 |
+| **raw17 btlseq (sequences)** | **YES, codec + authoring** | `seqcodec.py` parse/serialize (golden-proven) + `seqasm.py` assembler + `[[scene.seq_replace]]`/`[[scene.seq_insert]]` | Choreography is **data-authorable with no DLL** (§2(h)); only a wholly-new attack SLOT remains (§2(h)/§8) |
 | **`.mes`** | **copy only** | `shutil.copyfile` | Never parsed |
 | **Actions/Status/Character CSVs** | **delta emitters ship** | `actiondelta`/`characterdelta` live-read the install base CSVs + emit partial deltas (Phase 3/5/5b) | Partial deltas non-destructive by design (lossless on untouched rows) |
 
 **Honest framing:** the methodology's "parse a real X → re-emit → prove ==" is now codec-proven on real donors
 for the **FBX**, the **raw17 opening camera**, the **raw16 scene** (incl. the engine-ignored tail), and the
-**battle `.eb`** container. The remaining passthrough-copy assets are the **raw17 btlseq sequence body** (no codec
-yet) and the **`.mes`**; the CSV levers ship as non-destructive partial deltas.
+**raw17 btlseq sequence body** (`seqcodec.py`, §2(h)), and the **battle `.eb`** container. The only remaining
+passthrough-copy asset is the **`.mes`**; the CSV levers ship as non-destructive partial deltas.
 
 **What each new lever needs first** (most are now SHIPPED — the list is nearly drained):
 - ~~raw16 affinity/status/defence/AP fields~~ — **SHIPPED** (`scene_data`/`battlepatch`; the whole per-enemy
@@ -337,9 +350,9 @@ yet) and the **`.mes`**; the CSV levers ship as non-destructive partial deltas.
   the base CSVs, partial deltas, `#!` legends carried).
 - ~~Enemy AI bodies~~ — **SHIPPED** (Phase 6c: `exprasm`/`cmdasm`/`aiauthor`/`ailint` + the declarative
   `[[scene.ai_*]]` surfaces).
-- **raw17 btlseq + a new attack SEQUENCE** → the ONE remaining gap: needs a btlseq codec (camera-codec's
-  offset-table repack proves it's feasible) + a coordinated raw16(`AA_DATA`)+eb+raw17 edit. Highest cost, lowest
-  priority. → §2(h).
+- ~~raw17 btlseq sequence authoring~~ — **SHIPPED** (`seqcodec.py` codec + `seqasm.py` assembler +
+  `[[scene.seq_replace]]`/`[[scene.seq_insert]]`, §2(h)). The ONE remaining gap is a **wholly-new attack SLOT**
+  (grow `seqCount` + a coordinated raw16(`AA_DATA`)+eb+raw17 edit) — highest cost, lowest priority. → §2(h).
 
 ---
 
@@ -405,10 +418,15 @@ reaches ANY scene by name **without forking** — the BP-only rate arrays / `Bon
 `WinCardRate`, the enemy ATTACK table, scene flags, pattern Rate/AP — plus the cross-scene
 `AnyEnemyByName:`/`AnyAttackByName:` channel. Offline **lint** (`scenelint.py`, Phase 2) sits over all of it.
 
-**Still missing:** **character/growth CSVs** (`BaseStats`/`Leveling`/abilities — Phase 5); **enemy AI bodies**
-(the battle `.eb` opcode/expression authoring layer — Phase 6); **model re-skin** (`Geo/Mot`, raw16-only); a
-net-new raw17 attack SEQUENCE (needs a btlseq codec); and a brand-new battle-calc **formula** (a separate
-`Memoria.Scripts.<Mod>.dll`, not the engine DLL).
+**Now shipped (matching §8):** **character/growth CSVs** (`BaseStats`/`Leveling`/abilities — Phase 5,
+`characterdelta.py`); **enemy AI bodies** (the battle `.eb` opcode/expression authoring layer — Phase 6c,
+`aiauthor.py`/`ailint.py`/`aipatch.py`); **model re-skin** (`Geo/Mot`, raw16-only, `reskin.py`); and **raw17
+sequence authoring** (the `seqasm.py` assembler + length-changing `[[scene.seq_replace]]`/`[[scene.seq_insert]]`,
+`seqauthor.py`).
+
+**Still missing:** a **wholly-new attack SLOT** (grow `seqCount` + a coordinated raw16 `AA_DATA` + `.eb` AI edit —
+§2(h)/§8); and a **brand-new battle-calc formula** / `scriptId` behavior (a separate `Memoria.Scripts.<Mod>.dll`,
+not the engine DLL).
 
 ---
 
@@ -616,7 +634,7 @@ raw16 "type"); the `Attack` (0x38) command lives in **tag 5**. **Defer raw17 btl
   asserts byte-identity INCLUDING the tail (`test_battle_scene_codec.py`).
 - ~~**Camera codec on a real donor raw17**~~ — **RESOLVED 2026-06-13**: `splice_block(raw17, parse_block(raw17)[1])
   == raw17` is asserted on `EF_R007` (`test_battle_scene_codec.py::test_camera_codec_golden_roundtrip_real_donor`,
-  install-gated). The opening-camera codec is lossless on real bytes; the SEQUENCE BODY remains un-parsed (§2(h)).
+  install-gated). The opening-camera codec is lossless on real bytes; the SEQUENCE BODY is now codec-parsed + authorable too (`seqcodec.py`/`seqasm.py`/`seqauthor.py`, §2(h)).
 - **Enemies do NOT pull from `Actions.csv`** — a tool editing `Actions.csv` to retune enemy moves mis-targets
   every enemy edit (enemy attacks = raw16 AA_DATA / BattlePatch only). (`btl_util.cs:353-354`)
 - **Category default bits / the vanilla `type` byte** — only the `CustomBattleFlagsMeaning=1` meanings are

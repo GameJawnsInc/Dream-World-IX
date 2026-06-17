@@ -1,7 +1,9 @@
-# DESIGN SPEC — `import-chain` + `build-all`/`deploy-all`: the field-chain byte round-trip
+# `import-chain` + `build-all`/`deploy-all`: the field-chain byte round-trip
 
-Status: **P1 IMPLEMENTED + verified** (the rest is design). Author target: ff9mapkit maintainer.
-Grounded against the live codebase (citations inline) and a **live byte-trace of the Ice Cavern region (fields 300–312)**, used as the worked example throughout. Every claim cites `file:line` where verified; anything the code does NOT yet do is flagged **[new_work]**.
+> **Status: SHIPPED + in-game proven.** This began as a design doc; P1–P5 are implemented (P4 deploy in-game-verified). The implementation lives in `chain.py`, `campaign.py`, `eventscan.py`, `extract.py`, and `tools/deploy_campaign.py` (CLI `import-chain` / `build-all` / `lint-campaign`; deploy via `tools/deploy_campaign.py`). Status detail per the block below.
+
+Status: **P1–P5 implemented (P4 deploy in-game-verified); status per the block below.** Author target: ff9mapkit maintainer.
+Grounded against the live codebase (citations inline) and a **live byte-trace of the Ice Cavern region (fields 300–312)**, used as the worked example throughout. Every claim cites `file:line` where verified; the few genuinely-deferred items are flagged **[new_work]**.
 
 ## Implementation status
 
@@ -71,17 +73,18 @@ Grounded against the live codebase (citations inline) and a **live byte-trace of
   **DEFERRED (forward-looking):** per-member flag **auto-allocation** (threading `flag_base + i*K` into `build_script`/`lint_logic`) — the Ice Cavern
   forks are empty rooms (zero flags allocated), so the collision is latent; the lint surfaces any *explicit* collision meanwhile, and auto-isolation
   lands when campaign members gain authored content. Also deferred: named-flag registry; the `.eb`-based (vs toml) cross-field flag lint.
-- **P4 — deploy-all + New-Game entry: TOOL BUILT (2026-06-09), in-game verification deferred to the regression session.** New
-  `tools/deploy_campaign.py` (a tools script like install_tworoom.py — it touches the install) reversibly installs a built campaign:
-  resolve mod folder (deploy_field precedence → `FF9CustomMap-ow`), build-all to a temp dist, **ONE** snapshot of the mod folder, **wholesale
-  replace** with the dist (never a per-id DictionaryPatch merge — that's the sibling-clobber bug), wire New Game via the proven `newgame_warp.py`
-  (route `field 70 → field 100 (entrance 231) → entry`, `--stock`; field 100 sets up the party since `NewGame()` doesn't), and emit one
-  `revert_campaign.py`. **Default-safe: dry-run unless `--apply`.** Verified offline: the real Ice Cavern dry-run prints the plan (13 members
-  30100–30112, entry IC_ENT, route, dist contents) + lints + touches nothing; 5 tests (entry/mod-folder resolution, dist summary, revert-script
-  generation, guarded dry-run); 492 kit tests pass. **Cross-folder note (load-bearing):** `newgame_warp` patches the SHARED `FF9CustomMap`
-  field-100/70 overrides (which must exist there), not the campaign's folder — so only one campaign owns New Game at a time, and `revert_campaign.py`
-  undoes BOTH the folder snapshot and the warp. **Strictly in-game (regression session):** the actual `--apply` install, the relaunch, New Game
-  landing in IC_ENT *with a party*, save/Continue inside a custom field, walking the chain — plus the spawn/camera readjustments the build surfaced.
+- **P4 — deploy-all + New-Game entry: DONE, in-game proven.** `tools/deploy_campaign.py` (a tools script like install_tworoom.py — it
+  touches the install) reversibly installs a built campaign: resolve mod folder (deploy_field precedence → `FF9CustomMap-ow`), build-all to a temp
+  dist, **ONE** snapshot of the mod folder, **wholesale replace** with the dist (never a per-id DictionaryPatch merge — that's the sibling-clobber
+  bug), wire New Game via the proven `retarget_newgame_warp.py` (a **direct field-70 opening-override retarget**: byte-patch the shared `FF9CustomMap`
+  field-70 opening `EVT_ALEX1_TS_OPENING` so its `Field()` literal points at the campaign's entry id → New Game → field 70 → `Field(entry)`), and
+  emit one `revert_campaign.py`. **No field-100 hop:** a self-seeding verbatim chain bakes its own party/beat via `[startup]`/`[party]`, so the entry
+  field needs no party-creating intermediary; `--stock` is a deprecated no-op (`argparse.SUPPRESS`, ignored). This **supersedes** the old field-100-hop
+  `newgame_warp.py`. **Default-safe: dry-run unless `--apply`.** Verified offline: the real Ice Cavern dry-run prints the plan (13 members
+  30100–30112, entry IC_ENT, route, dist contents) + lints + touches nothing. **Cross-folder note (load-bearing):** the retarget patches the SHARED
+  `FF9CustomMap` field-70 override (which must exist there), not the campaign's folder — so only one campaign owns New Game at a time, and
+  `revert_campaign.py` undoes BOTH the folder snapshot and the warp. In-game proven: `--apply` install → relaunch → New Game lands in the entry field,
+  save/Continue inside a custom field, walking the chain.
 
 > Provenance of the worked example: traced LIVE via `eventscan` on the real extracted `.eb` bytes from the user's p0data install. The correct id→field resolution is `_fieldtable.FBG_TO_EVT` inverted (NOT `resolve_field`, which substring-matches FBG names and mis-resolves a bare numeric id). All 13 fields extracted + scanned cleanly.
 
@@ -99,12 +102,14 @@ Single-field `import` already closes *half* the byte round-trip: `extract_event_
 
 A bounded BFS over the **walkable-door graph**. Frontier seeded with the resolved seed field; per node:
 
-1. **Resolve id → folder → `.eb`.** This is the one hard blocker. `resolve_field`/`event_name_for` are NAME-keyed — they `re.sub("^fbg_n\d+_", ...)` then substring-match FBG folder names (`extract.py:116-128`), so a bare numeric id like `300` mis-resolves (the trace confirms: a first pass got nonsense Treno/S.Gate targets). The live trace proved the correct path is to invert `_fieldtable.FBG_TO_EVT` (`_fieldtable.py:14`, 692 rows, value `[field_id, "EVT_<name>"]`) to a `{field_id: folder}` map. **[new_work]** Add:
+1. **Resolve id → folder → `.eb`.** This was the one hard blocker. `resolve_field`/`event_name_for` are NAME-keyed — they `re.sub("^fbg_n\d+_", ...)` then substring-match FBG folder names (`extract.py:116-128`), so a bare numeric id like `300` mis-resolves (the trace confirms: a first pass got nonsense Treno/S.Gate targets). The live trace proved the correct path is to invert `_fieldtable.FBG_TO_EVT` to id-keyed maps, which the kit ships as `extract.ID_TO_FBG` / `extract.ID_TO_EVT` (`extract.py:330-331`); the `.eb` lookup itself is `EventBundle.eb_for_id(field_id)` (`extract.py:357`), which skips `resolve_field`'s name path:
    ```python
-   ID_TO_FBG = {fid: folder for folder, (fid, evt) in FBG_TO_EVT.items()}
-   def event_script_by_id(field_id, game=None, lang="us"): ...   # skips resolve_field's name path
+   ID_TO_FBG = {rec[0]: folder for folder, rec in FBG_TO_EVT.items()}   # extract.py:330
+   ID_TO_EVT = {rec[0]: rec[1]   for folder, rec in FBG_TO_EVT.items()}   # extract.py:331
+   bundle = EventBundle(game)            # loaded once for the whole walk
+   eb = bundle.eb_for_id(field_id)       # .eb bytes, or None for a world/special/absent id
    ```
-   Watch: duplicate/aliased ids, and ids with no FBG (world/special fields → `None`). Terminate those branches gracefully — exactly how `extract_event_script` already returns `None` rather than raising (`extract.py:187-209`).
+   It handles duplicate/aliased ids, and ids with no FBG (world/special fields → `None`); those branches terminate gracefully — exactly how `extract_event_script` returns `None` rather than raising (`extract.py:187-209`).
 
 2. **Scan the node.** Call `event_script_by_id` → `scan_content` (`eventscan.py:254-263`). That single call yields `{gateways, music, encounter, control_direction, ladders}` — the entire per-node payload, already field-by-field and proven.
 
@@ -123,25 +128,29 @@ A bounded BFS over the **walkable-door graph**. Frontier seeded with the resolve
 - **Battle edges are not graph edges.** Encounters are scanned as per-node *content* (`scan_encounter`, `eventscan.py:133-146`), never followed.
 - **Scripted/cutscene warps are invisible (by design, and a documented limitation).** `scan_gateways` requires an entry holding BOTH `SetRegion(0x29)` AND `Field(0x2B)` (`eventscan.py:105`); it skips computed/expression polygons (`_region_points` returns `[]` on any `arg_is_expr`) and bare `Field()` warps. The trace shows two real cases this drops: **306's `Field(652)`→Marsh** (a cutscene warp, no `SetRegion`) and **308's `Field(309)`** (a one-way scripted transition — `kit_gateways` empty for 308). The graph is the *walkable* graph, not every narrative transition. (★ Not `NarrowMapList.cs` — that's the engine's camera-WIDTH table, not a warp/cutscene driver; the unseen movers are scripted `Field()` warps + scenario-counter dispatch *inside* the `.eb`, plus runtime-computed ids.) **trust-the-user caveat (CLAUDE.md §9) applies.**
 
-### 2.3 Two NEW scanners for cross-field flag dependencies **[new_work]**
+### 2.3 Two scanners for cross-field flag dependencies
 
-`scan_content` captures NO flag dependencies today — nothing scans gate prologues or flag writes. To surface "edge gated by flag N" / "field X sets flag N", add two raw-byte scanners (they MUST raw-match around opcode `0x05` like `eventscan._entrance_at` at `:67-73`, NOT `instr.args` — the disassembler flattens expression operands to opaque string tokens and `Instr.imm()` returns `None` for expression args):
+`scan_content` captures no flag dependencies, so to surface "edge gated by flag N" / "field X sets flag N" the kit ships two raw-byte scanners in `eventscan.py` (`scan_flags_set`, `scan_edge_flag_gates`, alongside `scan_required_flags` and the `_glob_var_token` helper). They raw-match around opcode `0x05` like `eventscan._entrance_at` at `:67-73`, NOT `instr.args` — the disassembler flattens expression operands to opaque string tokens and `Instr.imm()` returns `None` for expression args:
 
 - **`scan_flags_set(eb)`** — flag WRITES. Match `region.set_var`/`or_var` on `GLOB_BOOL` (`region.py:121-123,136-139`): `05 C4 <idx> 7D <i16> 2C|3F 7F`, plus the long-index form (`class|0x20` = `0xE4` + 2-byte LE, `region.py:109-117`). Returns the `{flag_idx}` this field writes.
 - **`scan_edge_flag_gates(eb)`** — flag READS gating an exit. The exact prologue `region.flag_gate` emits (`region.py:210-218`) is `cond_truthy + JMP_TRUE/FALSE + i16(1) + RETURN` = `05 C4 <idx> 7F  03|02  01 00  <RETURN>`. Detect it at the head of a gated gateway's tag-2 (Range/tread) func; emit `{edge → required flag_idx, require_set}`.
 
 **Filter to `GLOB_BOOL` (0xC4 / 0xE4).** `MAP_BOOL` (0xC5) / `GLOB_UINT8` (0xD5) are per-field transient, WIPED on field load (`region.py:40-42`) — reporting them as cross-field deps is a false link. NOTE the trace finding: **none of Ice Cavern's 13 inter-screen edges are flag-gated** — every captured gateway is an unconditional `SetRegion(tread)→Field`. The region's story gating lives in *cutscene entries* (Black Waltz 3 / Mene), which `scan_content` deliberately skips. So for the worked example these scanners report empty — they exist for gated regions, and to drive cross-field lint (§4).
 
-### 2.4 The reusable API **[new_work]**
+### 2.4 The reusable API
+
+The graph walk shipped as `chain.walk(seed_ids, scan_fn, zone_fn, ...)` (`chain.py:57`) — a pure bounded BFS over the door graph — driven by a `scan_fn(field_id)` that the `import-chain` command builds over `extract.EventBundle` + `eventscan.scan_all_warps` (the walk-in / scripted / overworld taxonomy, `eventscan.py:1264`), with the §2.3 flag scanners layered in for cross-field deps:
 
 ```python
-def scan_field_graph(field_id, game=None):
-    """Never raises (mirrors extract_event_script). Returns:
-       (edges, encounter, music, control_direction, ladders, flags_set, flags_read)."""
+result = chain.walk(seed, scan_fn, zone_fn, forkable_fn=..., zones=..., max_fields=...)
+# scan_fn(field_id) never raises (mirrors extract_event_script): id -> .eb via
+#   extract.EventBundle -> scan_all_warps + the §2.3 flag scanners; a missing/world dest
+#   yields {found: False, ...} and that branch terminates while the walk continues.
 ```
-~80% composes existing funcs: `ID_TO_FBG` → `event_script_by_id` → `scan_content` + the two new scanners. A missing/world dest yields empties and the walk continues. The walker resolves all ids against the in-memory `FBG_TO_EVT` table (instant) and only hits UnityPy for the `.eb` extraction (the bundle/index caches at `extract.py:76,149` make a cold first run 1–2 min, then cheap).
 
-### 2.5 Id remapping + retarget pass — the load-bearing new logic **[new_work]**
+It composes existing funcs: `ID_TO_FBG`/`ID_TO_EVT` (`extract.py:330-331`) resolve id → folder/`EVT_` script against the in-memory `FBG_TO_EVT` table (instant); `EventBundle` (`extract.py:334`) loads the bundle once and pulls each `.eb` by id; only the `.eb` extraction hits UnityPy (the bundle/index caches make a cold first run 1–2 min, then cheap).
+
+### 2.5 Id remapping + retarget pass — the load-bearing logic
 
 After the walk completes with a visited set of real ids:
 1. Assign each real id a fresh custom id: `custom_id = id_base + i` (deterministic order = BFS discovery order, so it's stable/re-runnable).
@@ -158,7 +167,7 @@ This is precisely what single-field import cannot do (it has no knowledge of sib
 
 ## 3. The campaign.toml manifest
 
-No multi-field document type exists today (grep `campaign` = 0 hits). **[new_work]** Propose a top-level `campaign.toml` that the chain importer emits and the export loop consumes. It references N per-field `field.toml`s (reuses `FieldProject.load` per node, `build.py:124-131`) rather than inlining them — keeps single-field tooling (`edit`, `lint`, Blender) working unchanged on each member.
+The kit defines a top-level `campaign.toml` that the chain importer emits and the export loop consumes (`campaign.py`). It references N per-field `field.toml`s (reuses `FieldProject.load` per node, `build.py:124-131`) rather than inlining them — keeps single-field tooling (`edit`, `lint`, Blender) working unchanged on each member.
 
 ### 3.1 Schema
 
@@ -277,9 +286,9 @@ entry_entrance = 0
 - **Flags:** parameterize the allocators by a **per-field `flag_base`** so field B never overlaps field A. Field `i` owns `[flag_base + i*K, flag_base + (i+1)*K)`, and within its block the three categories sub-partition (cutscene `base+0`, events `base+1..+31`, choices `base+32..+63`). **[LANDED 2026-06-10, story_flags branch]** `build._FlagAlloc` threads an optional per-member `flag_base` through `build_script`/`lint_logic` (default `None` = the historical 8000/8100/8200 constants, so single-field builds stay **byte-identical**); `campaign.build_campaign` assigns each member `flag_base + i*K`. The default `flag_base` is now **8512** (`campaign.FIRST_SAFE_FLAG`) — the old **8300** collided with real-FF9's treasure-chest bitfield at bits **8376–8511** (a verified latent save-corrupter; see `research/STORY_FLAGS.md` §4). `lint_campaign` now errors if any member block, or any explicit flag, lands in the chest band or past the choice scratch (bit 16320).
 - **Cross-field named flags:** authors write `requires_flag`/`set_flag` **by name**, resolved through a campaign registry table to a concrete index. This is the *only* safe cross-field gate (a name maps to one index regardless of which field sets vs reads it). Hook `build.py:983` (`_gate_of`) and `event.py:48` (int-only today). Shared/cross-field flags live in a **separate band above the per-field blocks** (recommended over exporting from a field block) so a field's local once-flags never alias a shared flag.
 
-### 4.3 Cross-field lint **[new_work]**
+### 4.3 Cross-field lint
 
-`lint_logic` (`build.py:415-491`) validates flags WITHIN one field only (dangling `requires_flag`, once-base collisions, dup names) — there is no inter-field check anywhere. Generalize it to a campaign-level validator that asserts, before `build_mod` writes the DictionaryPatch:
+`lint_logic` (`build.py:415-491`) validates flags WITHIN one field only (dangling `requires_flag`, once-base collisions, dup names). `campaign.lint_campaign` is the campaign-level validator (auto-run by `build-all`; errors abort, warnings advise) that asserts, before `build_mod` writes the DictionaryPatch:
 - every `[[edge]] to` / `[[seam]]` / `[[ladder]] top_field` resolves to a member (or is an explicit seam);
 - ids are distinct and in range;
 - every cross-field `requires_flag` (a gated edge/NPC) is `set_flag` by **some** member — and ideally by one reachable *earlier* in the entry-rooted graph (an edge gated by flag N whose producer isn't in the imported set = a permanently-locked door). The §6 open question — auto-pull producers vs warn — defaults to **warn**, mirroring the linter's existing philosophy;
@@ -292,7 +301,7 @@ entry_entrance = 0
 
 ### 5.1 `build-all` (generalize `build_mod`)
 
-The BUILD half is ~90% present. `build_mod(projects, out_root, ...)` already loops `build_field` over a LIST and writes ONE combined `DictionaryPatch.txt` (one `dict_line` per field at `:1833-1834`), a merged `BattlePatch.txt` (`:1836-1842`), and one `ModDescription.xml` (`:1844`). The `ff9mapkit build` CLI already takes `nargs="+"` field.tomls (`cli.py:644-650`). **[new_work]** `build-all` is a thin campaign front-end:
+The BUILD half reuses `build_mod`: `build_mod(projects, out_root, ...)` already loops `build_field` over a LIST and writes ONE combined `DictionaryPatch.txt` (one `dict_line` per field at `:1833-1834`), a merged `BattlePatch.txt` (`:1836-1842`), and one `ModDescription.xml` (`:1844`). The `ff9mapkit build` CLI already takes `nargs="+"` field.tomls (`cli.py:644-650`). `build-all` is a thin campaign front-end:
 ```
 load campaign.toml -> [FieldProject.load(m.toml) for m in members]    # build.py:124
    -> apply id_base / flag_base assignment + retarget (§2.5, §4.2)
@@ -303,7 +312,7 @@ Output is a staged `dist/` (like `tworoom/dist`). `build_field` already assemble
 
 ### 5.2 `deploy-all` (generalize `install_tworoom.py`)
 
-`install_tworoom.py` is the literal hand-coded 2-field permanent install and explicitly states (line 8) the kit lacks a first-class multi-field install. Generalize its exact shape for arbitrary N **[new_work]**:
+`install_tworoom.py` was the literal hand-coded 2-field permanent install; `tools/deploy_campaign.py` generalizes its exact shape for arbitrary N:
 
 1. **ONE pre-deploy snapshot** of the whole mod folder → `backups/<folder>.pre-<campaign>.<stamp>` (`install_tworoom.py:45-47`). This is the critical reversibility choice — **do NOT use `deploy_field`'s per-id revert** (`deploy_field.py:142`), whose per-id DictionaryPatch line-merge can wipe a sibling's `FieldScene` line → black-screen warp to an unregistered id (CLAUDE.md §3 records this exact failure). One set-wide snapshot → one `revert_campaign.py` that restores all N fields + the New-Game override atomically.
 2. **Copy each member's assets:** EVT `.eb` (7 langs) for all; `.mes` blocks; and the FBG scene dir **only for editable members** (skip for borrow — `deploy_field.py:110-113` already guards this; `install_tworoom.py:64` relies on borrow shipping EVT-only). Route every path through `ModLayout` (`config.py:99-198`: `eb_path`, `mes_path`, `fieldmap_dir`, `dictionary_patch`, `battle_patch`).
@@ -313,9 +322,9 @@ Output is a staged `dist/` (like `tworoom/dist`). `build_field` already assemble
 
 Target resolution reuses `deploy_field`'s `.ff9deploy.toml` (mod_folder + id) > `$FF9_MOD_FOLDER` > defaults, bootstrapping a fresh folder with `ModDescription.xml` + empty DictionaryPatch (`deploy_field.py:27-53,92-102`).
 
-### 5.3 New-Game entry with party-setup routing
+### 5.3 New-Game entry
 
-Productize `newgame_warp.py` into the deploy. **The hard constraint: `NewGame()` does NOT create the party** (`newgame_warp.py:103-105`) — a bare `Field(entry)` from the opening lands you party-less. The entry MUST route through a party-creating field (field **100**). On stock Memoria you also need the field-70 → field-100 hop (`--stock`, `newgame_warp.py:103-129,181-188`); the dev engine starts at field 100 already. The shipped mod must work on stock (CLAUDE.md §1), so a release campaign emits the **field-70 → field-100 → entry** route. Mechanism (reuse verbatim): byte-patch the field-100 override to append `if (FieldEntrance == 231){ proven fade + Field(entry) }`, gated on entrance **231** (`NEWGAME_ENTRANCE`, `newgame_warp.py:41`) so non-New-Game arrivals are untouched, activated by **overwriting the `RunSoundCode` after the InitRegion cluster** (an executed, shift-free site — NOT a trailing `Wait`, which is dead code behind the unconditional `0x01` JMP; the first attempt overwrote one and never fired). Reversible (backs up the 7-lang override + writes a revert).
+`tools/deploy_campaign.py` wires New Game via the proven `retarget_newgame_warp.py` — a **direct field-70 opening-override retarget**. `NewGame()` is stock and drops you at `fldMapNo` 70, so field 70 IS the real New-Game field; the deploy byte-patches the shared `FF9CustomMap` field-70 opening override `EVT_ALEX1_TS_OPENING` so its `Field()` literal points straight at the campaign's entry id. Route: **New Game → field 70 → `Field(entry)`** (direct retarget, no intermediary). A self-seeding verbatim chain bakes its own party/beat via `[startup]`/`[party]` (story_flags' starting-state capstone), so the entry field needs no party-creating hop. This **supersedes** the old field-100-hop `newgame_warp.py` (whose field-100 injection site doesn't exist on every install); `--stock` is a deprecated no-op (`argparse.SUPPRESS`, ignored — the field-70 retarget is universal). Reversible: backs up the 7-lang field-70 override + writes a revert; `revert_campaign.py` undoes the folder snapshot AND the warp.
 
 ### 5.4 Worktree / FolderNames / distinct-id constraints (CLAUDE.md §3–§4)
 
@@ -397,8 +406,8 @@ py tools/deploy_campaign.py campaign/ice/campaign.toml --mod-folder FF9CustomMap
 1. **A contiguous ≥4000 block registers** (e.g. 4100..4112 all warp-able) — the id-ceiling is unverified.
 2. **Save → Continue inside a custom field (≥4000)** persists and reloads (the campaign is only "real" if you can save mid-cavern).
 3. **Per-field entrance → spawn** lands the player at the right door (today single-spawn; confirm it's acceptable, or it justifies §2.6).
-4. **Party setup on entry** — New Game routes field-70 → 100 → 4100 with a full party (the `NewGame()`-makes-no-party constraint).
-5. **The New-Game gate** fires only on entrance 231 and doesn't disturb the normal opening.
+4. **Party on entry** — New Game routes field-70 → `Field(entry)` (direct retarget) and the self-seeding verbatim chain's `[startup]`/`[party]` bakes the party/beat into the entry fork's own `.eb`.
+5. **The New-Game retarget** lands in the entry field and doesn't disturb the normal opening.
 
 ---
 
@@ -411,10 +420,10 @@ Each phase independently testable; sizes are relative.
 | **P1 — Read-only graph walk + print** ✅ **DONE** | `ID_TO_FBG`/`ID_TO_EVT` + `EventBundle` (`extract.py`); `scan_all_warps` 3-way taxonomy (`eventscan.py`); pure bounded BFS + `render` (`chain.py`); zone-aware bounds (zones / max-hops / stop-at / no-FBG / denylist / max-fields loud abort); `import-chain <seed> [--zones a,b]`. | ✅ `import-chain 300 --zones iccv,vgdl` reproduces the traced Ice Cavern graph (spine + 305 hub + 307→{308,309} STORY-COND, 300/311/312 overworld exits, 306/308 seams). 12 offline tests pass. | **M** (reverse-map + BFS; ~80% reused) |
 | **P2 — Emit campaign.toml + forks** ✅ **DONE** | `campaign.py` (assign_ids + per-member fork loop via `write_field_project`/`write_editable_project`) + `extract` `id_remap` kwarg doing the retarget at the gateway-emit site; out-of-chain→seam stub; area<10→editable (degrade to logic-only + `needs_export` when art absent); `campaign.toml` array-of-tables. | ✅ Real Ice Cavern: 13 members 6000–6012, 22 retargeted edges, IC_STA STORY-COND twins→6008/6009, IC_WAF no bogus gateway, seams 2 scripted+3 overworld. 6 offline tests + 1 real-bytes test. | **M–L** (retarget + id-rewrite) |
 | **P3 — build-all** ✅ **DONE** | `campaign.load_campaign` + `build_campaign` + `validate_ids`; `FieldProject.load` per member from its subdir; distinct text_block per member; `build-all` CLI → `build_mod(mod_name=campaign folder)`; `--allow-artless` guard. | ✅ Real Ice Cavern: one 13-line DictionaryPatch (30100–30112), InstallationPath `FF9CustomMap-ow`, retargeted gateways survive compilation. 3 tests + 478 kit tests pass. | **S** (~90% reused `build_mod`) |
-| **P4 — deploy-all + New-Game** ✅ **TOOL BUILT** (in-game pending) | `tools/deploy_campaign.py`: one snapshot + wholesale dist replace (no per-id merge), `newgame_warp` route 70→100→entry (`--stock`), one `revert_campaign.py` (undoes folder + warp); **dry-run unless `--apply`**. | ✅ offline: real Ice Cavern dry-run prints the plan + lints + touches nothing; 5 tests + 492 kit tests pass. **IN-GAME (regression session):** `--apply` → relaunch → New Game lands in IC_ENT *with party* → walk + save/Continue → revert. | **M** |
+| **P4 — deploy-all + New-Game** ✅ **DONE** (in-game proven) | `tools/deploy_campaign.py`: one snapshot + wholesale dist replace (no per-id merge), New Game via `retarget_newgame_warp.py` (direct field-70 override retarget → New Game → field 70 → `Field(entry)`; `--stock` a deprecated no-op; no field-100 hop — a self-seeding chain bakes party/beat via `[startup]`/`[party]`), one `revert_campaign.py` (undoes folder + warp); **dry-run unless `--apply`**. | ✅ offline: real Ice Cavern dry-run prints the plan + lints + touches nothing. **IN-GAME:** `--apply` → relaunch → New Game lands in the entry field → walk + save/Continue → revert. | **M** |
 | **P5 — campaign lint + flag scanners** ✅ **DONE** (alloc deferred) | `lint_campaign` (errors: edges/entry/seams/ids/member-files; warnings: stacked doors, explicit-flag dangling/dup) + GLOB flag scanners in eventscan (raw-byte, GLOB-only); `lint-campaign` CLI + auto-lint in build-all. **Deferred:** per-member flag auto-allocation (latent on empty forks), named-flag registry. | ✅ Real Ice Cavern lints OK + IC_STA stacked-door warning; scanners round-trip region.set_var/flag_gate + detect Gizamaluke 703 / Dali 402; 9 tests + 487 kit tests pass. | **M** |
 
-**Critical-path note:** P1→P2 is the genuinely new engineering (reverse-map + retarget). P3 is nearly free (`build_mod` already builds N fields). P4 is mechanical reuse but gated on the in-game handshake (relaunch + party route). P5 (flag/id correctness) can land **before** P4 ships to anyone — it's the safety net for the one root-cause bug (§4.1) that silently corrupts saves. Recommended order: **P1+P2 (read/fork preview) → P5 (correctness) → P3+P4 (the deployable mod)** so no one deploys a flag-colliding campaign.
+**Critical-path note:** P1→P2 was the genuinely new engineering (reverse-map + retarget). P3 was nearly free (`build_mod` already builds N fields). P4 is mechanical reuse, validated by the in-game handshake (relaunch + the field-70 New-Game retarget). P5 (flag/id correctness) is the safety net for the one root-cause bug (§4.1) that silently corrupts saves. Build order was **P1+P2 (read/fork preview) → P5 (correctness) → P3+P4 (the deployable mod)** so no one deploys a flag-colliding campaign.
 
 ---
 

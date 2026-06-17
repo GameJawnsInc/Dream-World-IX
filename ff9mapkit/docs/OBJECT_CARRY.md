@@ -1,4 +1,13 @@
-# Faithful Object Carry via Real-Engine `.eb` Entry Grafting — Implementation-Ready Design
+# Faithful Object Carry via Real-Engine `.eb` Entry Grafting
+
+> **Status: SHIPPED + in-game proven.** This began as a design doc; the implementation lives in
+> `content/object.py` (`carry_bytes` / `remap_entry_refs(..., player_tag_remap=)` /
+> `graft_objects(..., player_tag_remap=, out_slot_map=)`) + `eventscan.scan_objects_verbatim`, wired in
+> `build.py::compose_verbatim_eb`. Carry is reached through `ff9mapkit import` flags `--graft-player-funcs`
+> (player-tag ≥ 2 interactions fire — docs/PLAYER_GRAFT.md), `--carry-text` (verbatim real-words dialogue —
+> docs/TEXT_CARRY.md), and `--save-moogle` (verbatim save point — docs/SAVEPOINT.md). §4–§6 below preserve the
+> original design rationale (algorithm, file surface, phasing) — read them as the as-built design narrative,
+> not as pending work; where a §5 symbol name differs from the shipped one it is corrected inline.
 
 > Produced by the `object-graft-research` ultracode workflow (11 agents, 5 dimensions, adversarially
 > verified against real FF9 bytes + the Memoria engine source). This is the design that replaces the
@@ -24,7 +33,16 @@ cleanly, because the fork's blank player has only function tags [0, 1] (verified
 reference the player only by uid 250 with a tag the fork's player has — which is dominated by truly-static
 `GEO_ACC` set-dressing (tents, the cask's Init, signs).
 
-## 2. WHAT SHIPS IN V1 vs DEFERRED
+> **As shipped, the player-tag ≥ 2 dangle is no longer a hard wall.** The player-function graft
+> (`--graft-player-funcs`, `remap_entry_refs(..., player_tag_remap=)`; docs/PLAYER_GRAFT.md) carries the
+> missing player tags so those interactions fire; init-only carry (§4) is the fallback for the non-graftable
+> remainder (exotic/text-only/non-Zidane).
+
+## 2. CARRY SCOPE (as shipped)
+
+> The original v1/deferred split below is kept as the scoping rationale. As shipped, the carry surface is
+> wider than the v1 row: player-tag ≥ 2 interactions carry via `--graft-player-funcs`, real-words dialogue via
+> `--carry-text`, and the save point verbatim via `--save-moogle` (see the per-item notes).
 
 **The numbers (corrected per the adversarial verdicts — trust the verdict over the finding):**
 
@@ -47,14 +65,16 @@ into a **field-specific player function tag** the fork's player lacks. So:
   kept verbatim, no remap.
 - **Arg-instanced rows** grafted once + N `InitObject` calls (the box-row pattern).
 
-**V1 REFUSES (falls through to the existing `[[npc]]`/`[[prop]]` author-stub, or omits):**
-- Any object that `RunScript`s a **player tag ≥ 2** (e.g. field-122 cask tag-2 → player tag 24; boxes → player
-  tags 11/12). These compile but dispatch to a nonexistent tag → no-op or `IndexOutOfRange`/softlock. **The user's
-  own cask+boxes case hits this** — so v1 carries the cask's *placement faithfully via Init-only graft* (see §4)
-  but must drop/stub its interactive tag-2.
-- Any object referencing the **player by entry index** (56 objects game-wide dispatch this way) unless normalized
-  to 250 first.
-- Any **uncarried sibling/region** reference.
+**Player-tag ≥ 2 interactions — CARRIED (shipped via `--graft-player-funcs`):**
+- An object that `RunScript`s a **player tag ≥ 2** (e.g. field-122 cask tag-2 → player tag 24; boxes → player
+  tags 11/12) is NO LONGER a hard refuse. The player-function graft splices the donor's missing player tags into
+  the fork's player and remaps the calls (`remap_entry_refs(..., player_tag_remap=)` + `build.py`'s
+  `remap_player_func_siblings`), so the interaction fires. See docs/PLAYER_GRAFT.md. **Init-only carry (§4) is the
+  fallback** when a tag can't be grafted (exotic/non-Zidane) — carries the cask's placement faithfully and drops
+  only the non-portable interactive tag.
+- An object referencing the **player by entry index** (56 objects game-wide dispatch this way) is normalized to
+  250 first (the slot-independent `controlUID` alias).
+- An **uncarried sibling/region** reference still refuses the standalone graft.
 
 **v1.5 — STARTSEQ-helper closure — DONE (✓ shipped; in-game gate pending).** Carry the benign concurrent Seq a
 carried object launches via `STARTSEQ` (RunSharedScript, an entry index), appended at a free slot + the launcher
@@ -76,14 +96,15 @@ to 250). Gated on `[[object]]` + `graft_seq_helpers=False` default → authored 
 In-game gates: **567** (a `GEO_ACC_F0_V02` prop, refuse→renders), **1212/2053** (a shared helper → all render
 once), **705** (the Gizamaluke moogle's `MoveCamera` helper → stays refused, no sweep fires).
 
-**DEFERRED:**
-- **Save-point transitive closure — DEFER ENTIRELY, re-scope as synthesis.** The save point is **5 hidden objects
-  + 2 STARTSEQ helpers = 7 entries PLUS mandatory player-object surgery** (moogle tag3 → player tags 13/14/15;
-  player tags 13/14/15 → moogle = a cycle through the player) PLUS a shared `gEventGlobal`/MAP state contract. The
-  graft appends sibling entries; it cannot rewrite the fork's player. A future `content/savepoint.py` should
-  **synthesize** a save region + visible set-dressing props + optional cosmetic jump-out invoking the engine
-  save-menu opcode directly — not graft 6700 bytes of donor menu bytecode. Already excluded by `scan_objects`'
-  hidden-flag gate; v1 adds the visible-cask refuse-rule so no fragment leaks.
+**Save-point transitive closure — SHIPPED VERBATIM (`--save-moogle`):**
+- The save point is **5 hidden objects + 2 STARTSEQ helpers = 7 entries PLUS player-object surgery** (moogle tag3
+  → player tags 13/14/15; player tags 13/14/15 → moogle = a cycle through the player) PLUS a shared
+  `gEventGlobal`/MAP state contract. This is NOT deferred: `eventscan.scan_objects_verbatim(graft_savepoint=True)`
+  walks the hidden cluster's transitive closure (seeded on `SAVE_MOOGLE_MODEL`), and `build.py`'s player-function
+  graft carries the Moogle's player-tag 13/14/15 turn siblings so the cycle resolves — the whole save flourish
+  runs as the original. The earlier "re-scope as synthesis / the graft cannot rewrite the fork's player" plan was
+  superseded: the player-function graft is exactly the surgery that was thought impossible. The save point is
+  carried whenever the donor field actually has one. See docs/SAVEPOINT.md.
 
 ## 3. THE CROSS-REFERENCE REMAP TABLE
 
@@ -217,17 +238,26 @@ remap_refs_in_place(data, slot, remap_uid, remap_slot, self_old, self_new):
 3. **Same-length patches only** — assert each patched arg width == 1 before writing, so internal `0x0B`/`0x06`
    switch jumps (function-relative) survive untouched.
 
-## 5. THE NEW API / FILE SURFACE
+## 5. THE API / FILE SURFACE (as built)
 
-**NEW `ff9mapkit/ff9mapkit/content/object.py`** — the graft module (structurally a clone of `inject_ladder`,
-~80–120 lines):
-- `graft_objects(data, specs, load) -> bytes` — the two-pass driver above.
-- `remap_refs_in_place(...)`, `build_value_map(donor_player_entry, donor2new)`, `_arg_byte_offset(ins, ai)`,
-  `_remap_expr_obj_uids(...)`, `REF_OPS` (the §3 table), `carry_bytes(entry_bytes, carry_tags)`.
-- Imports **only** `eb/edit.py` + `eb/disasm.py` + `eb/opcodes.py` + `content/region.py` (for `set_var`/`obj_var`).
-  **Never imports `inject_npc`/`inject_prop`.**
+> Relabeled from the original "NEW API" proposal to the as-shipped surface; the symbol names below are the real
+> ones in the tree (the draft's `remap_refs_in_place` / `build_value_map` / `_remap_expr_obj_uids` were
+> consolidated into the shipped signatures).
 
-**`ff9mapkit/ff9mapkit/eventscan.py`** — add `scan_objects_verbatim(eb_bytes) -> list`:
+**`ff9mapkit/ff9mapkit/content/object.py`** — the graft module (the generalization of `inject_ladder`):
+- `graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map=None, out_skipped=None) -> bytes`
+  — the two-pass driver above.
+- `remap_entry_refs(data, slot, donor_idx, donor_player_entry, donor2new, player_tag_remap=None) -> bytes` — the
+  per-entry ref remap (also rewrites the called PLAYER tag at the `RUNSCRIPT_OPS` sites when `player_tag_remap` is
+  given, the player-function graft).
+- `_remap_value(kind, val, donor_idx, new_slot, donor_player_entry, donor2new)`, `carry_bytes(entry_bytes,
+  carry_tags=None)`.
+- `REF_OPS` (the §3 table) and `RUNSCRIPT_OPS` live in **`eventscan.py`** (imported by `object.py`), NOT in
+  `object.py`.
+- Imports `eb/edit.py` + `eb/disasm.py` + `eb/opcodes.py` + `content/region.py` (for `set_var`/`obj_var`) +
+  `eventscan`. **Never imports `inject_npc`/`inject_prop`.**
+
+**`ff9mapkit/ff9mapkit/eventscan.py`** — `scan_objects_verbatim(eb_bytes, *, fork_player_tags=…, graft_player_funcs=False, carry_text=False, graft_seq_helpers=False, graft_savepoint=False) -> list`:
 - Reuses the existing `scan_objects` Main_Init walk + skip rules (player/`GEO_MAIN`/hidden) and `_entry_bytes`.
 - **Add the player-entry-index guard** (`if e.index == _player_entry_index(eb): continue`) — `scan_jumps` already
   does exactly this at line 349; closes the 15-field player-false-positive bug (`scan_objects` line 463 only skips
@@ -244,12 +274,16 @@ remap_refs_in_place(data, slot, remap_uid, remap_slot, self_old, self_new):
   emit at `extract.py:310,333`). TOML carries `bin`, `instances`, `needs_d9` (only if class c),
   `donor_player_entry`, `carry_tags`, `kind`. Keep the CLI summary key **`"objects"`** stable.
 
-**`ff9mapkit/ff9mapkit/build.py`** — after the jumps block (~line 1428):
+**`ff9mapkit/ff9mapkit/build.py`** — in `compose_verbatim_eb` (the consume; no-op without `[[object]]`):
 ```python
-objs = project.raw.get("object", [])
-if objs:
-    from .content import object as _object
-    eb = _object.graft_objects(eb, objs, load=lambda ref: project.path(ref).read_bytes())
+objects = project.raw.get("object", [])
+object_slot_map = {}
+if objects:
+    eb = _object.graft_objects(eb, [dict(o) for o in objects],
+                               load=lambda ref: project.path(ref).read_bytes(),
+                               player_tag_remap=player_tag_remap, out_slot_map=object_slot_map)
+    if player_tag_remap:                 # remap a grafted player func's TurnTowardObject onto carried siblings
+        eb = _player.remap_player_func_siblings(eb, player_tag_remap, object_slot_map)
 ```
 Plus a **lint hook** near the `[[jump]]` checks: assert each `bin` exists + decodes; resolve refs through the
 value-map; **error on any dangling slot/uid** (uncarried sibling, or a player-tag the fork player lacks); warn on
@@ -263,14 +297,15 @@ suffice; optionally factor `_arg_byte_offset` here). **`.gitignore`** — add `*
 builds stay byte-identical (the new branch is a no-op when `[[object]]` is absent; `first_free_slot` returns the
 same value).
 
-## 6. PHASED BUILD ORDER WITH REGRESSION CHECKPOINTS
+## 6. BUILD ORDER & REGRESSION CHECKPOINTS (the original phasing)
 
-**Baseline to hold green: 628 passed (verified ~51–57s).** Every PR must show ≥ 628 + new tests, all green. The
-headline tripwire is **`test_build.py::test_build_reproduces_hut_int_eb_byte_exact`** (SHA-256 pin on the whole
-authored pipeline — flips if slot allocation or any shared primitive changes).
+> Kept as the build narrative that landed this feature. The headline tripwire is
+> **`test_build.py::test_build_reproduces_hut_int_eb_byte_exact`** (SHA-256 pin on the whole authored pipeline —
+> flips if slot allocation or any shared primitive changes); the suite is otherwise the live regression baseline
+> (see the test suite, not a pinned count).
 
 **Phase 1 — `scan_objects_verbatim` + the player-entry guard.**
-- Gate (must stay green): `test_eventscan.py` (all 18, incl. `test_scan_objects_skips_script_hidden_save_machinery`),
+- Gate (must stay green): `test_eventscan.py` (incl. `test_scan_objects_skips_script_hidden_save_machinery`),
   `test_eb.py` round-trips.
 - Add: a test that `scan_objects_verbatim` returns verbatim entry bytes + a correct classified ref map for the
   field-122 cask (install-gated) and a kit-injected prop (pure); a test that the player-entry-index guard drops
@@ -313,8 +348,8 @@ authored pipeline — flips if slot allocation or any shared primitive changes).
 - **Human playtest (the commit gate):** `ff9mapkit import fbg_n08_udft_map122_uf_sto_0 --out F` → `build` →
   `tools/deploy_field.py` → F6 → Warp → confirm the cask renders **upright at the right spot** (not the
   upside-down player-clone) and the two box rows carry. Also confirm the box-instancing switch actually yields 3
-  distinct positions (the one mechanism the verdict flagged as asserted-but-unverified). Per the project's "run
-  the branch like the others" cadence, hold the commit until this lands.
+  distinct positions (the one mechanism the verdict flagged as asserted-but-unverified). This in-game gate was the
+  shipping bar for the feature and is cleared (the cask renders upright, the box rows carry).
 
 ## 7. OPEN RISKS & UNKNOWNS
 
@@ -326,23 +361,26 @@ authored pipeline — flips if slot allocation or any shared primitive changes).
    entry + 3 `InitObject(slot, 128/129/130)` *should* reproduce 3 positions if the switch keys on the instance var
    the engine seeds per `InitObject` — but this is **asserted, not demonstrated**. If positions collapse, the row
    needs per-instance D9 seeding in Main_Init.
-3. **Talkable carry.** ~33% of carried objects are talkable; their tag-3 `WindowSync(textid)` references a TXID
-   absent from the fork's `.mes` → empty/garbage window. v1 default should **stub tag-3** for talkable carries
-   (lint-warn), not graft it verbatim.
+3. **Talkable carry — SHIPPED (`--carry-text`).** ~33% of carried objects are talkable; their tag-3
+   `WindowSync(textid)` references a TXID absent from the fork's `.mes`. This is no longer stubbed: `--carry-text`
+   carries the donor's referenced dialogue and `build.py` remaps the grafted windows to a carried TXID band, so
+   the real words show. See docs/TEXT_CARRY.md. (Without `--carry-text`, tag-3 stays stubbed/lint-warned as below.)
 
 **Worst-case failure modes:**
-- **Dangling player-tag → softlock.** A carried object that `RunScriptSync`s an absent player tag *waits forever*
-  on a callee that never completes → frozen field. Mitigation: the Init-only carry policy (§4) + the lint
-  refuse-rule must catch every player-tag-≥2 reference. **This is not a tail case — it fires on the user's own
-  cask+boxes**, so the refuse/Init-only logic is load-bearing on the very first import.
+- **Dangling player-tag → softlock.** A carried object that `RunScriptSync`s an absent player tag would *wait
+  forever* on a callee that never completes → frozen field. As shipped this is resolved two ways: the
+  player-function graft (`--graft-player-funcs`) carries the missing tag so the callee completes, and the
+  Init-only carry policy (§4) + the lint refuse-rule catch any player-tag-≥2 reference that can't be grafted. **It
+  fires on the user's own cask+boxes**, so this logic is load-bearing on the very first import.
 - **Mis-patched arg offset** → corrupts the wrong byte → garbage object or crash. Mitigation: decoder-derived
   `_arg_byte_offset` + assert width==1; covered by the remap round-trip test.
 - **Un-remapped expression-uid** (the 0x78 token or B_ANGLEA) → object placed at (0,0) or follows the wrong
   sibling. Mitigation: expression-aware remap pass; refuse computed uids.
 - **Slot-allocation drift breaking the hut golden** → the SHA-256 pin flips. Mitigation: the entire path is gated
   on `project.raw.get("object")` (empty for authored fields); Phase-3 `test_authored_path_unchanged` is the guard.
-- **Scope creep into the save point.** The save cluster (7 entries + player surgery + state contract) is
-  structurally un-graftable; v1 must hard-refuse it and the deferred work must be re-scoped to synthesis.
+- **The save point.** Originally judged structurally un-graftable (7 entries + player surgery + state contract).
+  As shipped it IS carried verbatim via `--save-moogle` (`graft_savepoint`) — the player-function graft supplies
+  the player surgery that was the blocker. Without `--save-moogle` the cluster is excluded by the hidden-flag gate.
 
 **Minor cleanup found en route (not blocking):** `content/prop.py`'s comment "save-moogle (field 300, entry 5)"
 is **stale** — field 300 entry 5 is a type-1 region; the moogle is entry 9 (shown, Mene). Fix to "field 122
@@ -353,4 +391,4 @@ entries 5–10 (hidden-in-cask); field 300 entry 9 (shown, Mene)."
 **Engine ground truth:** `Memoria/Assembly-CSharp/Global/Objects/Obj.cs:18,50`,
 `.../Event/Engine/EventEngine.cs:899`, `.../EventEngine.DoEventCode.cs:119,143,3428`, `.../Global/EBin.cs:1207,1664`.
 **Verified facts:** blank-fork player = entry 1, tags **[0,1]** only; field-122 cask = slot 10, 384B, tags
-[0,1,2,30,29], (-250,-571), pose 1904; baseline 628 tests pass.
+[0,1,2,30,29], (-250,-571), pose 1904.

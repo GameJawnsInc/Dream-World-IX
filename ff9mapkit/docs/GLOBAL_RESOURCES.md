@@ -1,11 +1,17 @@
 # Global Resources — the campaign-wide state layer (quick reference)
 
+> **Status: SHIPPED.** This began as the design doc for the campaign-wide **Resources** layer (P5);
+> that layer is built. The flag scanners live in `eventscan.py` (`scan_flags_set` / `scan_required_flags`
+> / `scan_edge_flag_gates`), the campaign lint in `campaign.py` (`lint_campaign`, CLI `ff9mapkit
+> lint-campaign`), and the per-member flag allocation in `build._FlagAlloc`. The conceptual A/B/C model
+> below is unchanged; STATUS notes flag what landed.
+
 > **Why this exists:** field authoring has two layers — **Scenes** (`field.toml`: camera/walkmesh/art)
-> and **Scripts** (`.eb` logic). It's missing the third: **Resources** — the shared id/flag namespaces
+> and **Scripts** (`.eb` logic). The third is **Resources** — the shared id/flag namespaces
 > that fields reference *by number* and that must be allocated coherently across a whole campaign.
 > This file is the map of that layer. Grounded against the live Memoria source + the kit code
-> (citations inline). Companion to `CAMPAIGN_IMPORT.md` (the import-chain/build-all design; P5 = the
-> work this file motivates).
+> (citations inline). Companion to `CAMPAIGN_IMPORT.md` (the import-chain/build-all design; this file
+> motivated P5, which is DONE).
 
 ---
 
@@ -15,9 +21,10 @@ FF9 global state splits three ways. **(A)** Two save-persistent blobs: `gEventGl
 story-flag heap) and `FF9StateGlobal` (player roster/items/gil/party/map-position). **(B)** Static
 registries merged from every mod folder at launch (`EventDB`/`SceneData`/`MapModel`) — never saved,
 which is *why ids must be globally distinct across folders*. **(C)** The kit's own allocation bands
-(flag/id/text namespaces) — today scattered constants, **allocated per-field-local where they should
-be campaign-global**. The missing piece is a **campaign-wide allocation registry** owning (C). That's
-the "Resource" layer.
+(flag/id/text namespaces) — single-field builds keep the historical per-field constants, while a
+**campaign-wide allocation registry** owns (C): per-member flag blocks (`build._FlagAlloc`), shared
+named flags (the `[[flag]]` table), and id/flag-collision lint (`campaign.lint_campaign`). That's the
+"Resource" layer — built.
 
 ---
 
@@ -61,7 +68,7 @@ Process-global `static` dicts, rebuilt from every mod folder's DictionaryPatch a
 
 ---
 
-## C. The kit's allocation bands (THIS is what needs a registry)
+## C. The kit's allocation bands (governed by the campaign registry)
 
 | Namespace | Band | Defined at | Alloc scope TODAY | Persistence |
 |---|---|---|---|---|
@@ -102,34 +109,42 @@ the choice scratch (bit 16320). (CAMPAIGN_IMPORT.md §4.1; tests in `test_campai
 
 ---
 
-## What the "Resource layer" (P5) actually is — the missing work
+## What the "Resource layer" (P5) is — SHIPPED
+
+> **Status: P5 DONE.** All three pieces below landed (mirrors `CAMPAIGN_IMPORT.md` "P5 DONE").
 
 1. **Flag registry** — named flags → one campaign-wide index, so cross-field gates (A sets
-   `ice_path_unlocked`, B reads it) resolve to the *same* bit. The only safe cross-field gate.
-   Parameterize `build_script` by a per-field `flag_base` (default = current constants so single-field
-   builds are byte-identical). Shared/named flags live in a band ABOVE the per-field blocks.
+   `ice_path_unlocked`, B reads it) resolve to the *same* bit. The only safe cross-field gate. SHIPPED:
+   the campaign `[[flag]]` table (`campaign.py:64`, `{name, index}`) + name resolution in `build.py`
+   (`build.py:150-151`, `_story_names :289`); `build_script` is parameterized by a per-field
+   `flag_base` (default = current constants so single-field builds are byte-identical) via
+   `build._FlagAlloc`. Shared/named flags live in a band ABOVE the per-member blocks (lint asserts it).
 2. **Id registry** — assert ids ≥4000 AND **globally distinct across stacked folders** (not just within
-   the campaign), because EventDB/SceneData are one merged dict.
-3. **Cross-field lint** — generalize `lint_logic` (`build.py:415`, currently within-one-field): dangling
-   `[[edge]]`/`[[seam]]`/`[[ladder]] top_field`; dup ids; dup `text_block` within a folder; every
-   cross-field `requires_flag` has a producer (ideally reachable earlier in the entry-rooted graph);
-   no unintended same-index writes.
+   the campaign), because EventDB/SceneData are one merged dict. SHIPPED: `validate_ids` (lint check
+   (a), ids non-empty/distinct/[4000,32767]) in `lint_campaign`.
+3. **Cross-field lint** — `lint_campaign` checks dangling `[[edge]]`/`[[seam]]`; duplicate ids + member
+   names; every cross-field `requires_flag` has a producer (else "permanently locked"); no unintended
+   same-index writes across members. SHIPPED (`campaign.lint_campaign`, CLI `ff9mapkit lint-campaign`).
 
-Recommended order (CAMPAIGN_IMPORT §8): land **P5 before P4 deploys to anyone** — it's the safety net for
-the one bug that silently corrupts saves.
+The one genuinely-open refinement is a campaign-wide **named-flag auto-allocation** sweep (today shared
+`[[flag]]` rows carry explicit indices the lint validates, rather than the registry auto-assigning them);
+not required for safety — the lint surfaces any explicit collision.
 
-### Two raw-byte scanners P5 needs (must match around opcode `0x05`, NOT `instr.args`)
+### The raw-byte scanners P5 added (match around opcode `0x05`, NOT `instr.args`) — SHIPPED in `eventscan.py`
 - `scan_flags_set(eb)` — flag WRITES: `05 C4 <idx> 7D <i16> 2C|3F 7F` + long-index `0xE4` form
-  (`region.py:121-139`). Returns `{flag_idx}` a field writes.
+  (`eventscan.py:1356`). Returns the `(glob_idx, op)` pairs a field writes.
 - `scan_edge_flag_gates(eb)` — flag READS gating an exit: `05 C4 <idx> 7F 03|02 01 00 <RETURN>`
-  (`region.py:210-218`). Filter to GLOB (`0xC4`/`0xE4`) — MAP/UINT8 are transient = false links.
+  (`eventscan.py:1399`). Filter to GLOB (`0xC4`/`0xE4`) — MAP/UINT8 are transient = false links.
+- `scan_required_flags(eb)` — the general flag-READ form (any guarded-block length, not just the strict
+  kit prologue) for real-field gates (`eventscan.py:1377`).
 
 ---
 
 ## TL;DR for a session picking this up
 - The save has exactly **two** mutable global blobs: `gEventGlobal` (flags + ScenarioCounter) and
   `FF9StateGlobal` (player data). Per-field `mapvar` is transient — never use it for cross-field state.
-- Ids are **global keys** across mod folders; flags are a **shared 2048-byte namespace**. Both need
-  campaign-wide allocation, not per-field counters.
-- The concrete next task is **P5**: flag registry + per-field `flag_base` parameterization + cross-field
-  lint. Everything you need is cited above; the design is in `CAMPAIGN_IMPORT.md` §4 + §8.
+- Ids are **global keys** across mod folders; flags are a **shared 2048-byte namespace**. Both get
+  campaign-wide allocation (not per-field counters) — the registry below.
+- **P5 is SHIPPED**: the flag registry (`[[flag]]` table + `build._FlagAlloc` per-member `flag_base`)
+  and cross-field lint (`campaign.lint_campaign`, CLI `lint-campaign`). The design notes are in
+  `CAMPAIGN_IMPORT.md` §4 + §8 (P5 marked DONE there).
