@@ -345,7 +345,7 @@ words = [{byte = 236, value = 0x0F}]     # bits 0-3 = the 4 first-visit Lindblum
 ```
 ★ In-game proven: a `--verbatim` Lindblum-552 fork with this seed boots straight into the real Small-Town Knight
 ATE menu, no cutscenes replayed. (Avail-word differs per region — 200/550/552 = byte 236; 1850 = 489/490/3905;
-Dali-350 + 1600 need several; find a field's word via the `find-clean-ate` analysis.) Low-level equivalent:
+Dali-350 + 1600 need several; find a field's avail-word by disassembling it (`ff9mapkit disasm <field>`) and reading the `opDC` site that gates its ATE menu.) Low-level equivalent:
 `[startup] flags` setting the word's bits (flag `N*8+bit` = byte N bit `bit`; e.g. flag 1888 = byte 236 bit 0).
 
 **The fidelity wall (document in `FORK_FIDELITY.md`, don't fight):** ATE **trigger/menu/cutscene** = `.eb`-faithful

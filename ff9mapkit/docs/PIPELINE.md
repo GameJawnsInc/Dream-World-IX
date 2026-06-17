@@ -55,7 +55,7 @@ walkmesh quad derived from that camera. So `ff9mapkit build MY_ROOM/my_room.fiel
 To start from one of FF9's ~674 real fields (needs `pip install UnityPy`):
 
 ```bash
-ff9mapkit list-fields grotto              # find a field
+ff9mapkit list-fields glgv                # find a field
 ff9mapkit import glgv_map792_gv_rm1 --out MY_FORK            # BG-borrow: reuse its art/walkmesh/camera
 ff9mapkit import glgv_map792_gv_rm1 --out MY_FORK --editable # editable custom scene (see below)
 ```

@@ -110,12 +110,12 @@ A bounded BFS over the **walkable-door graph**. Frontier seeded with the resolve
 
 3. **Enqueue successors.** For each `edge["to"]` not yet visited and within bounds, push it. Bounds applied **in this order** (cheap → expensive, fail-fast):
    - **visited-set** dedup (the graph is bidirectional and loops — Ice Cavern's 305 hub has 3 exits, every door is two-way).
-   - **`--max-hops`** depth cap (default small, e.g. 3).
-   - **`--include` / `--exclude`** on FBG folder prefix (region unit — Ice Cavern is all `fbg_n05_iccv_*` except 312's `fbg_n06_vgdl_*`).
+   - **`--max-hops`** depth cap (default 20).
+   - **`--zones`** (with `--cross-zones` to span more) on FBG folder prefix (zone unit — Ice Cavern is all `fbg_n05_iccv_*` except 312's `fbg_n06_vgdl_*`).
    - **`--stop-at <id,...>`** explicit cuts.
    - **no-FBG prune** (world/special → branch terminates).
    - **crash/unborrowable denylist** (seed it with field **100** — area 1 AND documented to crash, CLAUDE.md §5).
-   - **`--max-fields` hard cap** (default ~20–30): abort LOUDLY if exceeded rather than forking 200 fields.
+   - **`--max-fields` hard cap** (default 25): abort LOUDLY if exceeded rather than forking 200 fields.
 
 ### 2.2 Natural graph boundaries (free, no new code)
 
@@ -330,7 +330,7 @@ Productize `newgame_warp.py` into the deploy. **The hard constraint: `NewGame()`
 
 ```
 # 1. Walk + fork the region from real game bytes (dry-run first to see the blast radius)
-py -m ff9mapkit import-chain 300 --include iccv --max-fields 20 --dry-run
+py -m ff9mapkit import-chain 300 --zones iccv --max-fields 20 --dry-run
    -> prints the adjacency list: 13 fields 300..312, the linear spine
       300->301->...->305->307->309->310->311->312, the 305<->306 side-branch,
       the 307->{308,309} fork, all bidirectional; flags: 'none gated'; 2 termini
@@ -338,8 +338,8 @@ py -m ff9mapkit import-chain 300 --include iccv --max-fields 20 --dry-run
       seam (306->652). All area<10 -> "will fork as --editable".
 
 # 2. Commit the fork
-py -m ff9mapkit import-chain 300 --include iccv --id-base 4100 --editable \
-     --name ICE_CAVERN --out campaign/ice/
+py -m ff9mapkit import-chain 300 --zones iccv --id-base 4100 \
+     --campaign-name ICE_CAVERN --out campaign/ice/    # area<10 members fork editable automatically
    -> writes campaign/ice/{IC_ENTRANCE.field.toml ... IC_OUTSIDE.field.toml}
       + their camera.bgx / walkmesh.bgi / layer PNG sidecars (editable scenes)
       + campaign.toml (§3.2, ids 4100..4112, edges retargeted to names)
@@ -358,14 +358,14 @@ py -m ff9mapkit build-all campaign/ice/campaign.toml --out dist/ice/
    -> cross-field lint: all 22 edges resolve, ids distinct & >=4000, text_blocks ok.
 
 # 5. Deploy reversibly + wire New Game to the entry field
-py tools/deploy_campaign.py dist/ice/ --mod-folder FF9CustomMap-ice \
-     --entry IC_ENTRANCE --stock
-   -> ONE snapshot of FF9CustomMap-ice; copy 13x EVT (7 langs) + editable scenes
-      + .mes; DictionaryPatch = the 13 lines; New-Game: field-70->100->4100(ent 0);
+py tools/deploy_campaign.py campaign/ice/campaign.toml --mod-folder FF9CustomMap-ice \
+     --entry IC_ENTRANCE --apply        # omit --apply for a dry-run that prints the plan + touches nothing
+   -> ONE snapshot of FF9CustomMap-ice; build + copy 13x EVT (7 langs) + editable scenes
+      + .mes; DictionaryPatch = the 13 lines; New-Game: field-70 override -> 4100(ent 0);
       revert_campaign.py written. "NEW ids 4100..4112 -> RELAUNCH once to register."
 
 # 6. Add FF9CustomMap-ice to Memoria.ini [Mod] FolderNames, RELAUNCH.
-#    New Game -> party set up in field 100 -> warps to IC_ENTRANCE (4100, entrance 0)
+#    New Game -> field-70 opening override -> IC_ENTRANCE (4100, entrance 0)
 #    -> walk the cavern: 4100->4101->...->4105 (save at hub) ->4107 (branch)
 #    ->4109->4110->4111->4112; encounters fire on the 8 non-safe screens
 #    (scenes 22/27/28/29 by depth); 4112 worldmap exit re-authored as the author chose.
@@ -389,7 +389,7 @@ py tools/deploy_campaign.py dist/ice/ --mod-folder FF9CustomMap-ice \
 
 ### Honest boundaries
 
-- **Graph explosion is the headline risk.** FF9's field graph is huge and densely cross-linked; a naive unbounded BFS from a town hub pulls hundreds. `--max-hops` alone is weak (a hub at hop 2 fans out enormously). **REQUIRE a region allowlist (`--include` folder-prefix) OR a hard `--max-fields` that aborts loudly.** Default to small max-hops + `--max-fields ~20` and force opt-in for more. (Ice Cavern is the easy case — self-contained, `--include iccv` captures it cleanly.)
+- **Graph explosion is the headline risk.** FF9's field graph is huge and densely cross-linked; a naive unbounded BFS from a town hub pulls hundreds. `--max-hops` alone is weak (a hub at hop 2 fans out enormously). **REQUIRE a zone allowlist (`--zones` folder-prefix) OR a hard `--max-fields` that aborts loudly.** Default to small max-hops + `--max-fields` (25) and force opt-in for more. (Ice Cavern is the easy case — self-contained, `--zones iccv` captures it cleanly.)
 - **Un-borrowable / crashing destinations.** Area < 10 black-screens (common in early game — Alexandria area 1, cargo ship area 0); **field 100 BOTH is area<10 AND crashes** (CLAUDE.md §5). Need a **data-driven crash denylist** (seed: field 100) + an **area<10 → auto-editable fallback**. Per-node failure must isolate (skip + warn + leave inbound edges as live seams), never abort the chain — `write_field_project` raises `RuntimeError` for area<10 (`extract.py:702`); `import-chain` must catch and degrade.
 
 ### Load-bearing in-game tests (the human's verifications — I cannot see the game)

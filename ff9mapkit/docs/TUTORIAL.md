@@ -12,6 +12,7 @@ installed, and (for import) `pip install UnityPy`.
 ## 1. Install + sanity check (1 min)
 
 ```bash
+cd ff9mapkit             # the package dir, where pyproject.toml lives (no pyproject at the repo root)
 pip install -e .
 export FF9_GAME_PATH="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
 ff9mapkit doctor          # should find your install + report UnityPy present
@@ -21,14 +22,14 @@ ff9mapkit doctor          # should find your install + report UnityPy present
 ## 2. Pick a field to fork (1 min)
 
 ```bash
-ff9mapkit list-fields grotto      # or: alex, treno, grgr, … (map codes)
+ff9mapkit list-fields glgv        # or: alex, treno, grgr, … (map codes)
 ```
 Copy a field name from the list, e.g. `glgv_map792_gv_rm1_0`.
 
 ## 3. Fork it (1 min)
 
 ```bash
-ff9mapkit import glgv_map792_gv_rm1_0 --out myroom
+ff9mapkit import glgv_map792_gv_rm1_0 --out myroom --name MYROOM
 ```
 You now have `myroom/MYROOM_FORK.field.toml` (+ `camera.bgx`, `walkmesh.bgi`). It already renders the
 real field's art, walkmesh, camera, and even its exits/encounters/music. The command prints the
@@ -55,10 +56,11 @@ ff9mapkit lint myroom/MYROOM_FORK.field.toml      # flags off-walkmesh content, 
 ## 5. Build into a mod (1 min)
 
 ```bash
-ff9mapkit build myroom/MYROOM_FORK.field.toml --out dist --mod-name MyFirstField
+ff9mapkit build myroom/MYROOM_FORK.field.toml --out dist/MyFirstField --mod-name MyFirstField
 ```
-That writes a complete Memoria mod under `dist/MyFirstField/`. Copy it next to `FF9_Launcher.exe`
-(into the game folder); Memoria auto-enables it.
+That writes a complete Memoria mod into `dist/MyFirstField/`. Copy that folder into the game install,
+add its name to `Memoria.ini` under `[Mod] FolderNames` (the folder name must match the `--mod-name`),
+and relaunch — a copied folder isn't read until it's enabled there.
 
 ## 6. Reach it in-game (2–3 min)
 

@@ -10,9 +10,10 @@ ff9mapkit fork-report 354          # by field id
 ff9mapkit fork-report dl_shp       # by FBG-name substring (see `list-fields`)
 ```
 
-> A bare number here is a **field id** (not a map number — `import` interprets a bare number as a map id, so
-> `354` means different fields to the two commands). That's why the report's **Suggested authoring** line spells
-> out the `import` command with the field's full **FBG name** — copy that to fork the exact field you reported on.
+> A bare number here is a **field id** — and so is a bare number to `import` (the two are at parity by design, so
+> `import 354` forks the **same** field `fork-report 354` describes). The report's **Suggested authoring** line
+> still spells out the `import` command with the field's full **FBG name** for robustness — copy that to fork the
+> exact field you reported on.
 
 It's also a one-click **Preview fidelity** button in the FFIX Import GUI (`apps/ff9_import.pyw`, standalone and
 the Campaign Editor's Import tab): type/Find a field, hit **Preview fidelity**, read the verdict, then import.
