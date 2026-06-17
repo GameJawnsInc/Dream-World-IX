@@ -11,11 +11,37 @@ index dd3078ae..7cea41fe 100644
          {
              // I. Castle/Small Room, Chest_TerranA (containing a Fork)
              // or Alexandria/Alley, Dante
+diff --git a/Assembly-CSharp/Global/Honolulu/HonoluluBattleMain.cs b/Assembly-CSharp/Global/Honolulu/HonoluluBattleMain.cs
+index 805f5ab3..f40f7b6d 100644
+--- a/Assembly-CSharp/Global/Honolulu/HonoluluBattleMain.cs
++++ b/Assembly-CSharp/Global/Honolulu/HonoluluBattleMain.cs
+@@ -109,6 +109,9 @@ public class HonoluluBattleMain : PersistenSingleton<MonoBehaviour>
+             }
+             FF9StateSystem instance = PersistenSingleton<FF9StateSystem>.Instance;
+             FF9StateSystem.Battle.FF9Battle.map.nextMode = instance.prevMode;
++            // [ff9mapkit] remember the field we entered from, so a fork's event battle whose scene .eb bakes a
++            // donor real next-field (btl_scrp cmd 37) is redirected back into the fork chain at battle end.
++            Memoria.DataPatchers.PreBattleFieldNo = (instance.prevMode == 1) ? FF9StateSystem.Common.FF9.fldMapNo : -1;
+             if (instance.prevMode == 1)
+             {
+                 FF9StateSystem.Battle.FF9Battle.map.nextMapNo = FF9StateSystem.Common.FF9.fldMapNo;
+@@ -708,7 +711,10 @@ public class HonoluluBattleMain : PersistenSingleton<MonoBehaviour>
+                 if (ff9StateGlobal.btl_result == FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE)
+                     ff9StateGlobal.btl_result = FF9StateGlobal.BTL_RESULT_VICTORY;
+                 if (FF9StateSystem.Battle.FF9Battle.map.nextMode == 1 || FF9StateSystem.Battle.FF9Battle.map.nextMode == 5)
+-                    FF9StateSystem.Common.FF9.fldMapNo = FF9StateSystem.Battle.FF9Battle.map.nextMapNo;
++                    // [ff9mapkit] if we entered from a fork, redirect the battle's baked-in donor next-field to its fork sibling.
++                    FF9StateSystem.Common.FF9.fldMapNo = Memoria.DataPatchers.IsForkField(Memoria.DataPatchers.PreBattleFieldNo)
++                        ? (Int16)Memoria.DataPatchers.ForkSiblingField(FF9StateSystem.Battle.FF9Battle.map.nextMapNo)
++                        : FF9StateSystem.Battle.FF9Battle.map.nextMapNo;
+                 else if (FF9StateSystem.Battle.FF9Battle.map.nextMode == 3)
+                     FF9StateSystem.Common.FF9.wldMapNo = FF9StateSystem.Battle.FF9Battle.map.nextMapNo;
+                 UIManager.Battle.GoToBattleResult();
 diff --git a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
-index cee10cb8..3b586b9c 100644
+index cee10cb8..419abdf9 100644
 --- a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
 +++ b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
-@@ -27,9 +27,23 @@ namespace Memoria
+@@ -27,9 +27,43 @@ namespace Memoria
          public const String MemoriaDictionaryPatcherPath = "DictionaryPatch.txt";
          public const String MemoriaBattlePatcherPath = "BattlePatch.txt";
          public const String MemoriaTextPatcherPath = "TextPatch.txt";
@@ -28,6 +54,11 @@ index cee10cb8..3b586b9c 100644
 +        // custom-id FORK of that field, which otherwise reports its own (unknown) id and loses them.
 +        // Populated from each mod folder's ForkDonorPatch.txt (low->high; higher folders override).
 +        private static readonly Dictionary<Int32, Int32> ForkDonorMap = new Dictionary<Int32, Int32>();
++        // reverse of ForkDonorMap (donor real id -> fork id); -1 marks an ambiguous donor (forked twice -> never remap).
++        private static readonly Dictionary<Int32, Int32> ForkSiblingMap = new Dictionary<Int32, Int32>();
++        // the field the current battle was entered from (set in HonoluluBattleMain.Awake) -- decides whether to
++        // redirect that battle's hardcoded "change next field" back into the fork chain. -1 = not a field battle.
++        public static Int32 PreBattleFieldNo = -1;
 +
 +        // The donor real id for a forked field id, else the id unchanged. Use at field-id-gated checks:
 +        //   FF9StateSystem.Common.FF9.fldMapNo == 105  ->  DataPatchers.EffectiveFieldId(...fldMapNo) == 105
@@ -36,10 +67,25 @@ index cee10cb8..3b586b9c 100644
 +            return ForkDonorMap.TryGetValue(fldMapNo, out Int32 donor) ? donor : fldMapNo;
 +        }
 +
++        // True if this id is one of our forked field ids.
++        public static Boolean IsForkField(Int32 fieldNo)
++        {
++            return ForkDonorMap.ContainsKey(fieldNo);
++        }
++
++        // A DONOR field's fork sibling in this mod, else the donor unchanged. Redirects an event battle's
++        // hardcoded after-battle field (btl_scrp cmd 37 "Change next field" / SetNextMap, baked into the
++        // NON-forked battle scene .eb -- e.g. the play's King Leo battle -> real field 63) back into the
++        // fork chain, but only when the battle was entered from a fork (see HonoluluBattleMain).
++        public static Int32 ForkSiblingField(Int32 donorFieldNo)
++        {
++            return ForkSiblingMap.TryGetValue(donorFieldNo, out Int32 fork) && fork >= 0 ? fork : donorFieldNo;
++        }
++
          public static void Initialize(Boolean forceInit = false)
          {
              if (_isInitialized && !forceInit)
-@@ -47,6 +61,8 @@ namespace Memoria
+@@ -47,6 +81,8 @@ namespace Memoria
                          DataPatchers.PatchBattles(File.ReadAllLines(battlePath));
                      if (folder.TryFindAssetInModOnDisc(DataPatchers.MemoriaTextPatcherPath, out String textPath))
                          TextPatcher.PatchTexts(File.ReadAllLines(textPath));
@@ -48,7 +94,7 @@ index cee10cb8..3b586b9c 100644
                  }
                  _isInitialized = true;
                  Log.Message($"[DataPatchers] Initialized");
-@@ -57,6 +73,20 @@ namespace Memoria
+@@ -57,6 +93,23 @@ namespace Memoria
              }
          }
  
@@ -62,7 +108,10 @@ index cee10cb8..3b586b9c 100644
 +                    continue;
 +                String[] parts = s.Split(DataPatchers.SpaceSeparators, StringSplitOptions.RemoveEmptyEntries);
 +                if (parts.Length >= 2 && Int32.TryParse(parts[0], out Int32 fork) && Int32.TryParse(parts[1], out Int32 donor))
++                {
 +                    ForkDonorMap[fork] = donor;
++                    ForkSiblingMap[donor] = (ForkSiblingMap.TryGetValue(donor, out Int32 prev) && prev != fork) ? -1 : fork;
++                }
 +            }
 +        }
 +
