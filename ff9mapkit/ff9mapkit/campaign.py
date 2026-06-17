@@ -504,6 +504,16 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         apply_seed_blocks(entry_project.raw, seed_blocks)
     info = build_mod(projects, out, mod_name=plan.mod_folder, author=author, description=description,
                      entry_project=entry_project)
+    # [ff9mapkit] fork-fidelity: ForkDonorPatch.txt maps each custom-id fork -> its donor real field id, so
+    # the engine's behaviors hardcoded on a real fldMapNo (off-mesh exemptions, cutscene party-shape guards,
+    # scroll player-binds -- docs/FORK_IDGATE_MAP.md) still fire for the fork. Read by the patched DataPatchers
+    # (memoria-patches/s24-fork-donor-remap); a no-op on a stock engine that doesn't read the file.
+    donor_lines = [f"{m.new_id} {m.real_id}" for m in plan.members
+                   if getattr(m, "real_id", None) and m.new_id != m.real_id]
+    if donor_lines:
+        (Path(out) / "ForkDonorPatch.txt").write_text(
+            "# ff9mapkit fork-fidelity: <forkId> <donorRealId>\n" + "\n".join(donor_lines) + "\n",
+            encoding="utf-8", newline="\n")
     info["plan"] = plan
     info["out"] = str(Path(out).resolve())
     info["warnings"] = list(lint_warnings) + list(info.get("warnings", []))

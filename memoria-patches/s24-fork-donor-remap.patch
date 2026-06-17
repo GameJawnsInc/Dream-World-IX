@@ -1,0 +1,71 @@
+diff --git a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
+index dd3078ae..7cea41fe 100644
+--- a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
++++ b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
+@@ -920,7 +920,7 @@ public partial class FieldMapActorController : HonoBehavior
+     {
+         if ((this.charFlags & 1) == 0)
+             return;
+-        if ((FF9StateSystem.Common.FF9.fldMapNo == 2504 && this.originalActor.sid == 14) || (FF9StateSystem.Common.FF9.fldMapNo == 105 && this.originalActor.sid == 4) || (FF9StateSystem.Common.FF9.fldMapNo == 2605 && this.originalActor.sid == 11))
++        if ((Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2504 && this.originalActor.sid == 14) || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 105 && this.originalActor.sid == 4) || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2605 && this.originalActor.sid == 11))
+         {
+             // I. Castle/Small Room, Chest_TerranA (containing a Fork)
+             // or Alexandria/Alley, Dante
+diff --git a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
+index cee10cb8..3b586b9c 100644
+--- a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
++++ b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
+@@ -27,9 +27,23 @@ namespace Memoria
+         public const String MemoriaDictionaryPatcherPath = "DictionaryPatch.txt";
+         public const String MemoriaBattlePatcherPath = "BattlePatch.txt";
+         public const String MemoriaTextPatcherPath = "TextPatch.txt";
++        public const String MemoriaForkDonorPatcherPath = "ForkDonorPatch.txt"; // [ff9mapkit] fork-fidelity
+ 
+         public static Char[] SpaceSeparators = [' ', '\t'];
+ 
++        // [ff9mapkit] fork field id -> donor real field id. Lets engine behaviors hardcoded on a real
++        // fldMapNo (off-mesh exemptions, party-shape guards, scroll player-binds, ...) still fire for a
++        // custom-id FORK of that field, which otherwise reports its own (unknown) id and loses them.
++        // Populated from each mod folder's ForkDonorPatch.txt (low->high; higher folders override).
++        private static readonly Dictionary<Int32, Int32> ForkDonorMap = new Dictionary<Int32, Int32>();
++
++        // The donor real id for a forked field id, else the id unchanged. Use at field-id-gated checks:
++        //   FF9StateSystem.Common.FF9.fldMapNo == 105  ->  DataPatchers.EffectiveFieldId(...fldMapNo) == 105
++        public static Int32 EffectiveFieldId(Int32 fldMapNo)
++        {
++            return ForkDonorMap.TryGetValue(fldMapNo, out Int32 donor) ? donor : fldMapNo;
++        }
++
+         public static void Initialize(Boolean forceInit = false)
+         {
+             if (_isInitialized && !forceInit)
+@@ -47,6 +61,8 @@ namespace Memoria
+                         DataPatchers.PatchBattles(File.ReadAllLines(battlePath));
+                     if (folder.TryFindAssetInModOnDisc(DataPatchers.MemoriaTextPatcherPath, out String textPath))
+                         TextPatcher.PatchTexts(File.ReadAllLines(textPath));
++                    if (folder.TryFindAssetInModOnDisc(DataPatchers.MemoriaForkDonorPatcherPath, out String forkDonorPath))
++                        DataPatchers.PatchForkDonors(File.ReadAllLines(forkDonorPath)); // [ff9mapkit] fork-fidelity
+                 }
+                 _isInitialized = true;
+                 Log.Message($"[DataPatchers] Initialized");
+@@ -57,6 +73,20 @@ namespace Memoria
+             }
+         }
+ 
++        // [ff9mapkit] ForkDonorPatch.txt: one mapping per line, "<forkId> <donorRealId>" (# / ; comment ok).
++        private static void PatchForkDonors(String[] code)
++        {
++            foreach (String line in code)
++            {
++                String s = line.Trim();
++                if (s.Length == 0 || s[0] == '#' || s[0] == ';')
++                    continue;
++                String[] parts = s.Split(DataPatchers.SpaceSeparators, StringSplitOptions.RemoveEmptyEntries);
++                if (parts.Length >= 2 && Int32.TryParse(parts[0], out Int32 fork) && Int32.TryParse(parts[1], out Int32 donor))
++                    ForkDonorMap[fork] = donor;
++            }
++        }
++
+         public static void ApplyBattlePatch(BTL_SCENE scene)
+         {
+             try

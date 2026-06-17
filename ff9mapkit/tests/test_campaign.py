@@ -649,6 +649,11 @@ def test_real_build_all(tmp_path):
     assert all(int(t[5]) == 1073 for t in toks)                         # textid = a VALID MesDB base block
     md = (dist / "ModDescription.xml").read_text(encoding="utf-8")
     assert "<InstallationPath>FF9CustomMap-ow</InstallationPath>" in md  # matches Memoria FolderNames
+    # fork-fidelity: ForkDonorPatch.txt maps each custom-id fork -> its donor real field id (so the engine's
+    # real-fldMapNo-gated behaviors fire on the fork; read by the s24 DataPatchers patch). 300->30100, 301->30101.
+    fdp = [ln for ln in (dist / "ForkDonorPatch.txt").read_text(encoding="utf-8").splitlines()
+           if ln.strip() and not ln.startswith("#")]
+    assert sorted(fdp) == ["30100 300", "30101 301"]
 
 
 # ---- read-only resolved graph (campaign_graph + render_graph; pure, no game) ------------
