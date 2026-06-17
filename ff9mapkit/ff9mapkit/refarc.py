@@ -38,6 +38,14 @@ ARC_ID_SPAN = 100
 SAFE_FLAG_BUDGET = _flags.CHOICE_SCRATCH_FLOOR - _flags.FIRST_SAFE_FLAG     # bits the journey band has for campaigns
 MAX_FIELDS_PER_ARC = 25                                                     # import-chain's default --max-fields cap
 
+# Default hub backdrop = MOGNET CENTRAL (real field 3100, FBG fbg_n56_mgnt_map810_mn_mog_0): FF9's Moogle
+# journey nexus -- the thematic home for a journey selector (it's the room the project's World Hub borrows),
+# and supplying the real `borrow_field` lets `deploy_journey --apply` auto-extract the hub camera. Override
+# `borrow_bg`/`area`/`borrow_field` to theme the hub on any other real room (`ff9mapkit list-fields`).
+HUB_BORROW_BG = "MGNT_MAP810_MN_MOG_0"
+HUB_BORROW_AREA = 56
+HUB_BORROW_FIELD = 3100
+
 
 class RefArcError(ValueError):
     """A malformed reference-arc table (missing key, duplicate key, no arcs)."""
@@ -163,12 +171,17 @@ def _commented_block(lines: list) -> list:
 
 
 def render_arc_journey_toml(arcset: ReferenceArcSet, *, hub_name: str = "FF9 Disc 1", hub_id: int = 4600,
-                            borrow_bg: str = "N11_HUT", journey_id: str = "ff9_disc1",
+                            borrow_bg: "str | None" = None, hub_area: "int | None" = None,
+                            borrow_field: "int | None" = None, journey_id: str = "ff9_disc1",
                             journey_name: "str | None" = None, id_base: int = DEFAULT_ID_BASE) -> str:
     """Render a multi-campaign ``journeys.toml`` laying the arcs out as one chained journey, with the fork
     PLAYBOOK in the header and the entry/links/seed left as fill-in templates (the member names come from the
-    forked campaigns). Always loads structurally (the schema is valid); the not-yet-forked campaign folders
-    surface as a 'fork the campaigns first' note in the journey overview/lint -- onboarding, not a crash."""
+    forked campaigns). The hub defaults to MOGNET CENTRAL (field 3100 -- FF9's journey nexus + a real
+    ``borrow_field`` so ``deploy_journey --apply`` auto-extracts the camera); pass ``borrow_bg`` to theme it on
+    another room (``hub_area``/``borrow_field`` then describe that room, else only the bg is emitted). Always
+    loads structurally; the not-yet-forked campaign folders surface as a 'fork first' note -- onboarding."""
+    if borrow_bg is None:                          # default the hub to Mognet Central (thematic + --apply-ready)
+        borrow_bg, hub_area, borrow_field = HUB_BORROW_BG, HUB_BORROW_AREA, HUB_BORROW_FIELD
     journey_name = journey_name or arcset.title
     plays = fork_playbook(arcset, id_base=id_base)
     keys = [a.key for a in arcset.arcs]
@@ -204,8 +217,14 @@ def render_arc_journey_toml(arcset: ReferenceArcSet, *, hub_name: str = "FF9 Dis
     L.append("[hub]")
     L.append(f'name = "{_toml_str(hub_name)}"          # the World-Hub field that lists + warps into the arcs')
     L.append(f"id = {int(hub_id)}                  # the hub field id (custom band, >= 4000; NOT in an arc band)")
+    if hub_area is not None:
+        L.append(f"area = {int(hub_area)}                  # the borrowed room's FBG area (FBG_N<area>_...)")
     L.append(f'borrow_bg = "{_toml_str(borrow_bg)}"   # a real field whose art the hub reuses (`list-fields`)')
-    L.append("# borrow_field = <real field id>   # uncomment so `deploy_journey --apply` auto-extracts the hub camera")
+    if borrow_field is not None:
+        L.append(f"borrow_field = {int(borrow_field)}              # the real field -> `deploy_journey --apply` "
+                 "auto-extracts its camera")
+    else:
+        L.append("# borrow_field = <real field id>   # uncomment so `deploy_journey --apply` auto-extracts the camera")
     L.append("")
 
     L.append("[[journey]]")

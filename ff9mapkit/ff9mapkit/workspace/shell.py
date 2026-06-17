@@ -620,12 +620,14 @@ class Workspace(QMainWindow):
             hint.setStyleSheet(f"color:{self.pal['muted']};")
             gv.addWidget(hint)
         self._fork_buttons = {}
+        self._fork_rows = {}                        # key -> the status QLabel (restyled while a fork runs)
         for f in folders:
             row = QHBoxLayout()
             forked = self._campaign_forked(f)
             pf = self._fork_cmds.get(f)
             tag = QLabel(("✓ " if forked else "○ ") + f + (f"  (real field {pf.seed})" if pf else ""))
             tag.setStyleSheet(f"color:{self.pal['accent'] if forked else self.pal['text']};")
+            self._fork_rows[f] = tag
             row.addWidget(tag)
             row.addStretch(1)
             if forked:
@@ -650,6 +652,22 @@ class Workspace(QMainWindow):
             gv.addWidget(allb)
         self.doc_host_lay.addWidget(box)
 
+    def _mark_fork_running(self, key):
+        """Reflect an in-progress fork in the panel so it's obvious something's happening: the active arc's row
+        flips to '⟳ … forking…' and its button to 'Forking…', and EVERY fork control disables (you can't
+        double-launch). The panel re-mounts on completion (showing the arc's ✓ + re-enabling the rest)."""
+        for f, b in getattr(self, "_fork_buttons", {}).items():
+            b.setEnabled(False)
+            b.setText("Forking…" if f == key else "Fork")
+        tag = getattr(self, "_fork_rows", {}).get(key)
+        if tag is not None:
+            tag.setText(f"⟳ {key}  (forking…)")
+            tag.setStyleSheet(f"color:{self.pal['accent']};")
+        allb = getattr(self, "_fork_all_btn", None)
+        if allb is not None:
+            allb.setEnabled(False)
+            allb.setText("Forking…")
+
     def _fork_argv(self, key):
         """The runnable import-chain argv for arc ``key`` (its --out rewritten to an absolute path beside the
         manifest, so the fork runs from the kit root yet lands the folder next to the journeys.toml)."""
@@ -661,11 +679,13 @@ class Workspace(QMainWindow):
         if key not in self._fork_cmds:
             return
         pf = self._fork_cmds[key]
-        if not self.run_job(self._fork_argv(key), cwd=KIT, subject=f"Fork {key} (import-chain {pf.seed})",
-                            ok_headline=f"Forked {key} → {self.manifest.root / key}",
-                            ok_next="The arc folder exists now; the journey lint clears it. Fill its entry/links.",
-                            fail_hint="import-chain needs UnityPy + your FF9 install. See the Output tab.",
-                            on_finished=lambda code: self._after_fork()):
+        if self.run_job(self._fork_argv(key), cwd=KIT, subject=f"Fork {key} (import-chain {pf.seed})",
+                        ok_headline=f"Forked {key} → {self.manifest.root / key}",
+                        ok_next="The arc folder exists now; the journey lint clears it. Fill its entry/links.",
+                        fail_hint="import-chain needs UnityPy + your FF9 install. See the Output tab.",
+                        on_finished=lambda code: self._after_fork()):
+            self._mark_fork_running(key)           # immediate 'Forking…' feedback (the job streams to Output)
+        else:
             self.statusBar().showMessage("a job is already running — wait for it to finish")
 
     def _on_journey_overview(self) -> bool:
@@ -694,17 +714,18 @@ class Workspace(QMainWindow):
             if self.run_job(self._fork_argv(key), cwd=KIT, subject=f"Fork {key} (import-chain {pf.seed})",
                             ok_headline=f"Forked {key}", on_finished=lambda code: self._after_queued_fork(code)):
                 self._fork_queue.pop(0)            # launched -> consume it; the rest run from on_finished
+                self._mark_fork_running(key)       # show THIS arc as forking (the rest disable)
             else:                                  # a job is already running -> keep the queue, let the user retry
                 self.statusBar().showMessage("a job is already running — click ‘Fork all missing’ again when it finishes")
             return                                 # one fork at a time (launched OR deferred)
         self._after_fork()                         # queue drained -> refresh once
 
     def _after_queued_fork(self, code):
-        if code == 0:
-            self._fork_next_in_queue()             # success -> next arc (which refreshes when drained)
-        else:
+        if code != 0:
             self._fork_queue = []                  # stop the chain on a failure; let the user see the Output
-            self._after_fork()
+        self._after_fork()                         # re-mount: the just-forked arc shows ✓ (and re-enables the rest)
+        if code == 0 and getattr(self, "_fork_queue", None):
+            self._fork_next_in_queue()             # ...then launch the next arc (marks it running on the fresh panel)
 
     def _after_fork(self):
         """Refresh the journey overview + re-lint after a fork (only if still on the journey overview)."""
@@ -892,8 +913,12 @@ class Workspace(QMainWindow):
         dest.mkdir(parents=True, exist_ok=True)
         if kind == "refarc":
             from .. import refarc as RA
-            text = RA.render_arc_journey_toml(RA.load_reference_arcs(), hub_name=name, hub_id=hub_id,
-                                              borrow_bg=borrow_bg or "N11_HUT")
+            # the generic N11_HUT placeholder OR the Mognet bg -> use refarc's full Mognet-Central default
+            # (borrow_bg + area + borrow_field, so `deploy_journey --apply` auto-extracts the camera); a truly
+            # custom borrow_bg is passed through (just the bg + a commented borrow_field hint).
+            bg = (borrow_bg or "").strip()
+            use = None if bg in ("", "N11_HUT", RA.HUB_BORROW_BG) else bg
+            text = RA.render_arc_journey_toml(RA.load_reference_arcs(), hub_name=name, hub_id=hub_id, borrow_bg=use)
         else:
             text = _render_journey_toml(hub_name=name, hub_id=hub_id, borrow_bg=borrow_bg or "N11_HUT",
                                         jid=jid or "intro", jname=jname or "Intro", kind=kind,
@@ -983,9 +1008,17 @@ class Workspace(QMainWindow):
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
 
+        from .. import refarc as _RA
         def _toggle():
             idx = 0 if bare_rb.isChecked() else (1 if multi_rb.isChecked() else 2)
             stack.setCurrentIndex(idx)
+            # swap the borrow-art default to match the kind (a reference-arc hub defaults to Mognet Central,
+            # FF9's journey nexus) WITHOUT clobbering a value the user actually typed.
+            cur = borrow.text().strip()
+            if idx == 2 and cur in ("", "N11_HUT"):
+                borrow.setText(_RA.HUB_BORROW_BG)
+            elif idx != 2 and cur in ("", _RA.HUB_BORROW_BG):
+                borrow.setText("N11_HUT")
             if idx == 0:
                 note.setText("A <b>complete</b>, ready-to-build journeys.toml — the hub menu warps straight to "
                              "your entry field.")
@@ -994,8 +1027,9 @@ class Workspace(QMainWindow):
                              "+ journey with the entry/links/seed <b>left to fill in</b> against your members.")
             else:
                 note.setText("Scaffolds the FF9 disc-1 story spine as a chained journey + a per-arc "
-                             "<code>import-chain</code> fork playbook (the north-star fork-and-test harness). "
-                             "Not a one-click rebuild — fork each arc, fill the entry/links, deploy, playtest.")
+                             "<code>import-chain</code> fork playbook (the north-star fork-and-test harness). The "
+                             "hub defaults to <b>Mognet Central</b> (the journey nexus). Not a one-click rebuild — "
+                             "fork each arc, fill the entry/links, deploy, playtest.")
         bare_rb.toggled.connect(_toggle)
         multi_rb.toggled.connect(_toggle)
         arc_rb.toggled.connect(_toggle)
@@ -4704,6 +4738,10 @@ def _smoke(win):
     assert fcap and "import-chain" in fcap[-1] and "300" in fcap[-1], fcap[-1]
     iout = fcap[-1][fcap[-1].index("--out") + 1]
     assert iout.replace("\\", "/").endswith("jref/ice_cavern"), iout       # forked beside the journeys.toml
+    # in-progress feedback: the active arc shows 'Forking…' + EVERY fork control disables (no silent run)
+    assert win._fork_buttons["ice_cavern"].text() == "Forking…", win._fork_buttons["ice_cavern"].text()
+    assert all(not b.isEnabled() for b in win._fork_buttons.values()), "all fork buttons disable during a fork"
+    assert not win._fork_all_btn.isEnabled(), "Fork-all disables during a fork too"
     win._fork_all_missing()                                                 # the chain runs the first, queues the rest
     assert win._fork_queue and "import-chain" in fcap[-1], "Fork-all started the chain"
     # busy-rejection: a rejected launch (a job already running) must keep the WHOLE queue (no arc dropped)

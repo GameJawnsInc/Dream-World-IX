@@ -2331,7 +2331,8 @@ def build_parser() -> argparse.ArgumentParser:
     ra.add_argument("--force", action="store_true", help="with --emit, overwrite an existing journeys.toml")
     ra.add_argument("--hub-name", default="FF9 Disc 1", dest="hub_name", help="hub field display name (--emit)")
     ra.add_argument("--hub-id", type=int, default=4600, dest="hub_id", help="hub field id, >=4000 (--emit)")
-    ra.add_argument("--borrow-bg", default="N11_HUT", dest="borrow_bg", help="hub art borrow field (--emit)")
+    ra.add_argument("--borrow-bg", default=None, dest="borrow_bg",
+                    help="hub art borrow field (--emit; default: Mognet Central, FF9's journey nexus)")
     ra.add_argument("--id-base", type=int, default=6000, dest="id_base",
                     help="first arc's campaign id base; arc i gets id_base + i*100 (default 6000)")
     ra.set_defaults(func=_cmd_reference_arcs)

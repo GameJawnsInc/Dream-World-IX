@@ -55,6 +55,18 @@ def test_playbook_flag_windows_fit_the_safe_band():
     assert refarc.arc_flags_per_field(2) >= refarc.arc_flags_per_field(12) >= refarc.arc_flags_per_field(40)
 
 
+def test_default_hub_is_mognet_central():
+    # the reference-arc hub defaults to Mognet Central (FF9's journey nexus) -- thematic + a real borrow_field
+    # so `deploy_journey --apply` auto-extracts the camera (closing the earlier no-camera gap).
+    t = refarc.render_arc_journey_toml(refarc.load_reference_arcs())
+    assert f'borrow_bg = "{refarc.HUB_BORROW_BG}"' in t and f"area = {refarc.HUB_BORROW_AREA}" in t
+    assert f"borrow_field = {refarc.HUB_BORROW_FIELD}" in t
+    # a CUSTOM borrow_bg is passed through with no (unknown) area/borrow_field, just the commented hint
+    t2 = refarc.render_arc_journey_toml(refarc.load_reference_arcs(), borrow_bg="GRGR_MAP420_GR_CEN_0")
+    assert 'borrow_bg = "GRGR_MAP420_GR_CEN_0"' in t2
+    assert "# borrow_field = <real field id>" in t2 and f"area = {refarc.HUB_BORROW_AREA}" not in t2
+
+
 def test_parse_fork_commands_roundtrips_the_emitted_playbook():
     # the GUI 'Fork the arcs' panel recovers the per-arc import-chain commands from the journeys.toml header.
     aset = refarc.load_reference_arcs()
