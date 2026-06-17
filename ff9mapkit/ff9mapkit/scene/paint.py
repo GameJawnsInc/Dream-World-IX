@@ -386,13 +386,16 @@ _PS_JSX_TEMPLATE = '''\
       var f = new File(here + "/" + L[i].file);
       if (!f.exists) { continue; }
       var src = app.open(f);
-      src.selection.selectAll();
-      src.selection.copy();
+      var sl = src.activeLayer;
+      if (sl.isBackgroundLayer) { sl.isBackgroundLayer = false; }   // unlock an opaque image so it duplicates
+      // DUPLICATE keeps the layer's absolute pixel position -- every PNG fills its canvas from (0,0), so
+      // the layers land pixel-aligned. (paste() centers on the current VIEW and can drift, which made
+      // the walkmesh look "centered" / off the art.)
+      var dup = sl.duplicate(doc, ElementPlacement.PLACEATBEGINNING);
       src.close(SaveOptions.DONOTSAVECHANGES);
       app.activeDocument = doc;
-      doc.paste();                                  // same size as the doc -> pastes aligned at 0,0
-      doc.activeLayer.name = L[i].name;
-      doc.activeLayer.opacity = L[i].opacity;
+      dup.name = L[i].name;
+      dup.opacity = L[i].opacity;
     }
     // remove the initial blank layer -- but ONLY if it's still empty. Some Photoshop versions paste
     // the FIRST layer ONTO the empty starter (no new layer), so a blind remove would delete it.
