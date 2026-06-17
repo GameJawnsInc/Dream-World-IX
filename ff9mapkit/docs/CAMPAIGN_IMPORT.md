@@ -92,7 +92,7 @@ Grounded against the live codebase (citations inline) and a **live byte-trace of
 
 ## 1. What & why
 
-Single-field `import` already closes *half* the byte round-trip: `extract_event_script(field)` reads a real field's compiled `.eb` from the game's p0data bundle (never raising — `extract.py:187`), and `eventscan.scan_content(eb)` returns that field's gateway **edges** `{to, entrance, zone}` plus `music`, `encounter`, `control_direction`, and `ladders` in one pass (`eventscan.py:254-263`, `scan_gateways` at `:76-108`). But each edge's `to` is the *real* destination field id pointing back into the live game — `import` prints "gateways point at REAL fields — retarget them" (`cli.py:336`) and stops. **`import-chain`** turns that single-node extract into a bounded graph walk: from a seed field it follows the `to` edges, forks every reachable field, and — the one thing single-field import structurally cannot do — **retargets the edges among the chain's own new ids** so the forked region is a self-contained, connected, walkable campaign rather than a pile of doors leading back into the live game. The symmetric **`build-all`/`deploy-all`** export loop then ships those N forked fields as ONE reversible, New-Game-enterable Memoria mod. Together they close the round-trip for field-chains: *region of real game bytes → editable campaign → rebuildable drop-in mod.* The Ice Cavern (300–312) is the canonical worked example — a clean, near-linear 13-screen region traced entirely from real bytes.
+Single-field `import` already closes *half* the byte round-trip: `extract_event_script(field)` reads a real field's compiled `.eb` from the game's p0data bundle (never raising — `extract.extract_event_script`), and `eventscan.scan_content(eb)` returns that field's gateway **edges** `{to, entrance, zone}` plus `music`, `encounter`, `control_direction`, and `ladders` in one pass (`eventscan.scan_content`, `scan_gateways` at `eventscan.scan_gateways`). But each edge's `to` is the *real* destination field id pointing back into the live game — `import` prints "gateways point at REAL fields — retarget them" (`cli.py:336`) and stops. **`import-chain`** turns that single-node extract into a bounded graph walk: from a seed field it follows the `to` edges, forks every reachable field, and — the one thing single-field import structurally cannot do — **retargets the edges among the chain's own new ids** so the forked region is a self-contained, connected, walkable campaign rather than a pile of doors leading back into the live game. The symmetric **`build-all`/`deploy-all`** export loop then ships those N forked fields as ONE reversible, New-Game-enterable Memoria mod. Together they close the round-trip for field-chains: *region of real game bytes → editable campaign → rebuildable drop-in mod.* The Ice Cavern (300–312) is the canonical worked example — a clean, near-linear 13-screen region traced entirely from real bytes.
 
 ---
 
@@ -102,16 +102,16 @@ Single-field `import` already closes *half* the byte round-trip: `extract_event_
 
 A bounded BFS over the **walkable-door graph**. Frontier seeded with the resolved seed field; per node:
 
-1. **Resolve id → folder → `.eb`.** This was the one hard blocker. `resolve_field`/`event_name_for` are NAME-keyed — they `re.sub("^fbg_n\d+_", ...)` then substring-match FBG folder names (`extract.py:116-128`), so a bare numeric id like `300` mis-resolves (the trace confirms: a first pass got nonsense Treno/S.Gate targets). The live trace proved the correct path is to invert `_fieldtable.FBG_TO_EVT` to id-keyed maps, which the kit ships as `extract.ID_TO_FBG` / `extract.ID_TO_EVT` (`extract.py:330-331`); the `.eb` lookup itself is `EventBundle.eb_for_id(field_id)` (`extract.py:357`), which skips `resolve_field`'s name path:
+1. **Resolve id → folder → `.eb`.** This was the one hard blocker. `resolve_field`/`event_name_for` are NAME-keyed — they `re.sub("^fbg_n\d+_", ...)` then substring-match FBG folder names (`extract.resolve_field`), so a bare numeric id like `300` mis-resolves (the trace confirms: a first pass got nonsense Treno/S.Gate targets). The live trace proved the correct path is to invert `_fieldtable.FBG_TO_EVT` to id-keyed maps, which the kit ships as `extract.ID_TO_FBG` / `extract.ID_TO_EVT`; the `.eb` lookup itself is `EventBundle.eb_for_id(field_id)` (`extract.EventBundle.eb_for_id`), which skips `resolve_field`'s name path:
    ```python
-   ID_TO_FBG = {rec[0]: folder for folder, rec in FBG_TO_EVT.items()}   # extract.py:330
-   ID_TO_EVT = {rec[0]: rec[1]   for folder, rec in FBG_TO_EVT.items()}   # extract.py:331
+   ID_TO_FBG = {rec[0]: folder for folder, rec in FBG_TO_EVT.items()}   # extract.ID_TO_FBG
+   ID_TO_EVT = {rec[0]: rec[1]   for folder, rec in FBG_TO_EVT.items()}   # extract.ID_TO_EVT
    bundle = EventBundle(game)            # loaded once for the whole walk
    eb = bundle.eb_for_id(field_id)       # .eb bytes, or None for a world/special/absent id
    ```
-   It handles duplicate/aliased ids, and ids with no FBG (world/special fields → `None`); those branches terminate gracefully — exactly how `extract_event_script` returns `None` rather than raising (`extract.py:187-209`).
+   It handles duplicate/aliased ids, and ids with no FBG (world/special fields → `None`); those branches terminate gracefully — exactly how `extract_event_script` returns `None` rather than raising (`extract.extract_event_script`).
 
-2. **Scan the node.** Call `event_script_by_id` → `scan_content` (`eventscan.py:254-263`). That single call yields `{gateways, music, encounter, control_direction, ladders}` — the entire per-node payload, already field-by-field and proven.
+2. **Scan the node.** Call `event_script_by_id` → `scan_content` (`eventscan.scan_content`). That single call yields `{gateways, music, encounter, control_direction, ladders}` — the entire per-node payload, already field-by-field and proven.
 
 3. **Enqueue successors.** For each `edge["to"]` not yet visited and within bounds, push it. Bounds applied **in this order** (cheap → expensive, fail-fast):
    - **visited-set** dedup (the graph is bidirectional and loops — Ice Cavern's 305 hub has 3 exits, every door is two-way).
@@ -124,22 +124,22 @@ A bounded BFS over the **walkable-door graph**. Frontier seeded with the resolve
 
 ### 2.2 Natural graph boundaries (free, no new code)
 
-- **WorldMap exits stop the walk.** `scan_gateways` only follows `Field` (`FIELD_OP = 0x2B`, `eventscan.py:25`); WorldMap is a distinct opcode `0xB6` (`eb/opcodes.py:343`) and is never an edge. So the region's worldmap handoff is automatically a terminus — in the trace, **312** (38 `WorldMap` ops, no `Field` gateways) ends the chain for free, and **300** is the only worldmap *entry*.
-- **Battle edges are not graph edges.** Encounters are scanned as per-node *content* (`scan_encounter`, `eventscan.py:133-146`), never followed.
-- **Scripted/cutscene warps are invisible (by design, and a documented limitation).** `scan_gateways` requires an entry holding BOTH `SetRegion(0x29)` AND `Field(0x2B)` (`eventscan.py:105`); it skips computed/expression polygons (`_region_points` returns `[]` on any `arg_is_expr`) and bare `Field()` warps. The trace shows two real cases this drops: **306's `Field(652)`→Marsh** (a cutscene warp, no `SetRegion`) and **308's `Field(309)`** (a one-way scripted transition — `kit_gateways` empty for 308). The graph is the *walkable* graph, not every narrative transition. (★ Not `NarrowMapList.cs` — that's the engine's camera-WIDTH table, not a warp/cutscene driver; the unseen movers are scripted `Field()` warps + scenario-counter dispatch *inside* the `.eb`, plus runtime-computed ids.) **trust-the-user caveat (CLAUDE.md §9) applies.**
+- **WorldMap exits stop the walk.** `scan_gateways` only follows `Field` (`FIELD_OP = 0x2B`, `eventscan.FIELD_OP`); WorldMap is a distinct opcode `0xB6` (`eb/opcodes.py:343`) and is never an edge. So the region's worldmap handoff is automatically a terminus — in the trace, **312** (38 `WorldMap` ops, no `Field` gateways) ends the chain for free, and **300** is the only worldmap *entry*.
+- **Battle edges are not graph edges.** Encounters are scanned as per-node *content* (`scan_encounter`, `eventscan.scan_encounter`), never followed.
+- **Scripted/cutscene warps are invisible (by design, and a documented limitation).** `scan_gateways` requires an entry holding BOTH `SetRegion(0x29)` AND `Field(0x2B)` (`eventscan.scan_gateways`); it skips computed/expression polygons (`_region_points` returns `[]` on any `arg_is_expr`) and bare `Field()` warps. The trace shows two real cases this drops: **306's `Field(652)`→Marsh** (a cutscene warp, no `SetRegion`) and **308's `Field(309)`** (a one-way scripted transition — `kit_gateways` empty for 308). The graph is the *walkable* graph, not every narrative transition. (★ Not `NarrowMapList.cs` — that's the engine's camera-WIDTH table, not a warp/cutscene driver; the unseen movers are scripted `Field()` warps + scenario-counter dispatch *inside* the `.eb`, plus runtime-computed ids.) **trust-the-user caveat (CLAUDE.md §9) applies.**
 
 ### 2.3 Two scanners for cross-field flag dependencies
 
-`scan_content` captures no flag dependencies, so to surface "edge gated by flag N" / "field X sets flag N" the kit ships two raw-byte scanners in `eventscan.py` (`scan_flags_set`, `scan_edge_flag_gates`, alongside `scan_required_flags` and the `_glob_var_token` helper). They raw-match around opcode `0x05` like `eventscan._entrance_at` at `:67-73`, NOT `instr.args` — the disassembler flattens expression operands to opaque string tokens and `Instr.imm()` returns `None` for expression args:
+`scan_content` captures no flag dependencies, so to surface "edge gated by flag N" / "field X sets flag N" the kit ships two raw-byte scanners in `eventscan.py` (`scan_flags_set`, `scan_edge_flag_gates`, alongside `scan_required_flags` and the `_glob_var_token` helper). They raw-match around opcode `0x05` like `eventscan._entrance_at`, NOT `instr.args` — the disassembler flattens expression operands to opaque string tokens and `Instr.imm()` returns `None` for expression args:
 
-- **`scan_flags_set(eb)`** — flag WRITES. Match `region.set_var`/`or_var` on `GLOB_BOOL` (`region.py:121-123,136-139`): `05 C4 <idx> 7D <i16> 2C|3F 7F`, plus the long-index form (`class|0x20` = `0xE4` + 2-byte LE, `region.py:109-117`). Returns the `{flag_idx}` this field writes.
-- **`scan_edge_flag_gates(eb)`** — flag READS gating an exit. The exact prologue `region.flag_gate` emits (`region.py:210-218`) is `cond_truthy + JMP_TRUE/FALSE + i16(1) + RETURN` = `05 C4 <idx> 7F  03|02  01 00  <RETURN>`. Detect it at the head of a gated gateway's tag-2 (Range/tread) func; emit `{edge → required flag_idx, require_set}`.
+- **`scan_flags_set(eb)`** — flag WRITES. Match `region.set_var`/`or_var` on `GLOB_BOOL` (`region.set_var`/`region.or_var`): `05 C4 <idx> 7D <i16> 2C|3F 7F`, plus the long-index form (`class|0x20` = `0xE4` + 2-byte LE, `region._push_var`). Returns the `{flag_idx}` this field writes.
+- **`scan_edge_flag_gates(eb)`** — flag READS gating an exit. The exact prologue `region.flag_gate` emits (`region.flag_gate`) is `cond_truthy + JMP_TRUE/FALSE + i16(1) + RETURN` = `05 C4 <idx> 7F  03|02  01 00  <RETURN>`. Detect it at the head of a gated gateway's tag-2 (Range/tread) func; emit `{edge → required flag_idx, require_set}`.
 
-**Filter to `GLOB_BOOL` (0xC4 / 0xE4).** `MAP_BOOL` (0xC5) / `GLOB_UINT8` (0xD5) are per-field transient, WIPED on field load (`region.py:40-42`) — reporting them as cross-field deps is a false link. NOTE the trace finding: **none of Ice Cavern's 13 inter-screen edges are flag-gated** — every captured gateway is an unconditional `SetRegion(tread)→Field`. The region's story gating lives in *cutscene entries* (Black Waltz 3 / Mene), which `scan_content` deliberately skips. So for the worked example these scanners report empty — they exist for gated regions, and to drive cross-field lint (§4).
+**Filter to `GLOB_BOOL` (0xC4 / 0xE4).** `MAP_BOOL` (0xC5) / `GLOB_UINT8` (0xD5) are per-field transient, WIPED on field load (`region.MAP_BOOL`/`region.GLOB_UINT8`) — reporting them as cross-field deps is a false link. NOTE the trace finding: **none of Ice Cavern's 13 inter-screen edges are flag-gated** — every captured gateway is an unconditional `SetRegion(tread)→Field`. The region's story gating lives in *cutscene entries* (Black Waltz 3 / Mene), which `scan_content` deliberately skips. So for the worked example these scanners report empty — they exist for gated regions, and to drive cross-field lint (§4).
 
 ### 2.4 The reusable API
 
-The graph walk shipped as `chain.walk(seed_ids, scan_fn, zone_fn, ...)` (`chain.py:57`) — a pure bounded BFS over the door graph — driven by a `scan_fn(field_id)` that the `import-chain` command builds over `extract.EventBundle` + `eventscan.scan_all_warps` (the walk-in / scripted / overworld taxonomy, `eventscan.py:1264`), with the §2.3 flag scanners layered in for cross-field deps:
+The graph walk shipped as `chain.walk(seed_ids, scan_fn, zone_fn, ...)` (`chain.walk`) — a pure bounded BFS over the door graph — driven by a `scan_fn(field_id)` that the `import-chain` command builds over `extract.EventBundle` + `eventscan.scan_all_warps` (the walk-in / scripted / overworld taxonomy, `eventscan.scan_all_warps`), with the §2.3 flag scanners layered in for cross-field deps:
 
 ```python
 result = chain.walk(seed, scan_fn, zone_fn, forkable_fn=..., zones=..., max_fields=...)
@@ -148,7 +148,7 @@ result = chain.walk(seed, scan_fn, zone_fn, forkable_fn=..., zones=..., max_fiel
 #   yields {found: False, ...} and that branch terminates while the walk continues.
 ```
 
-It composes existing funcs: `ID_TO_FBG`/`ID_TO_EVT` (`extract.py:330-331`) resolve id → folder/`EVT_` script against the in-memory `FBG_TO_EVT` table (instant); `EventBundle` (`extract.py:334`) loads the bundle once and pulls each `.eb` by id; only the `.eb` extraction hits UnityPy (the bundle/index caches make a cold first run 1–2 min, then cheap).
+It composes existing funcs: `ID_TO_FBG`/`ID_TO_EVT` (`extract.ID_TO_FBG`/`extract.ID_TO_EVT`) resolve id → folder/`EVT_` script against the in-memory `FBG_TO_EVT` table (instant); `EventBundle` (`extract.EventBundle`) loads the bundle once and pulls each `.eb` by id; only the `.eb` extraction hits UnityPy (the bundle/index caches make a cold first run 1–2 min, then cheap).
 
 ### 2.5 Id remapping + retarget pass — the load-bearing logic
 
@@ -157,17 +157,17 @@ After the walk completes with a visited set of real ids:
 2. In every node's emitted `field.toml`, rewrite each `[[gateway]] to` (and `[[ladder]] top_field`) that points at an **in-chain** real id → the corresponding new custom id.
 3. Edges pointing **outside** the chain become **seams**: emit as a commented stub carrying the real id (a one-way door back into the live game, or a TODO). This is the decision the design must make explicit (see §7 open boundary): default = comment-out as a dead end; `--live-seams` to leave them warping into the real game.
 
-This is precisely what single-field import cannot do (it has no knowledge of sibling forks). `deploy_field.py:77-78` already proves an in-memory id override is mechanically fine.
+This is precisely what single-field import cannot do (it has no knowledge of sibling forks). `deploy_field`'s sandbox-identity override (`deploy_field.FID`/`deploy_field.TEST_NAME`) already proves an in-memory id override is mechanically fine.
 
 ### 2.6 Per-arrival spawn (deferred) **[new_work]**
 
-`extract_field` emits ONE heuristic `[player] spawn` = centre of the on-camera walkmesh (`extract.py:355-371`), regardless of arrival entrance. A faithful chain wants each field's `{entrance: (x,z)}` map — recovered by scanning the player entry's Init for `if (D8:2 == k){ MoveInstantXZY(...) }` branches. The branch shape varies per field (no fixed template). **v1 ships single-spawn-per-field**; entrance is imported and round-tripped on edges (the trace shows the clean FF9 convention — every gateway *leaving* field N carries `entrance = N`'s screen index: 305's three exits all `entrance=5`, 309's all `entrance=9`) but the *landing* position is the single default. Mark as a known limitation.
+`extract_field` emits ONE heuristic `[player] spawn` = centre of the on-camera walkmesh (`extract.extract_field`), regardless of arrival entrance. A faithful chain wants each field's `{entrance: (x,z)}` map — recovered by scanning the player entry's Init for `if (D8:2 == k){ MoveInstantXZY(...) }` branches. The branch shape varies per field (no fixed template). **v1 ships single-spawn-per-field**; entrance is imported and round-tripped on edges (the trace shows the clean FF9 convention — every gateway *leaving* field N carries `entrance = N`'s screen index: 305's three exits all `entrance=5`, 309's all `entrance=9`) but the *landing* position is the single default. Mark as a known limitation.
 
 ---
 
 ## 3. The campaign.toml manifest
 
-The kit defines a top-level `campaign.toml` that the chain importer emits and the export loop consumes (`campaign.py`). It references N per-field `field.toml`s (reuses `FieldProject.load` per node, `build.py:124-131`) rather than inlining them — keeps single-field tooling (`edit`, `lint`, Blender) working unchanged on each member.
+The kit defines a top-level `campaign.toml` that the chain importer emits and the export loop consumes (`campaign.py`). It references N per-field `field.toml`s (reuses `FieldProject.load` per node, `build.FieldProject.load`) rather than inlining them — keeps single-field tooling (`edit`, `lint`, Blender) working unchanged on each member.
 
 ### 3.1 Schema
 
@@ -278,22 +278,22 @@ entry_entrance = 0
 
 ### 4.1 The bug this fixes
 
-**ROOT CAUSE (verified):** the once-flag allocator's `flag_counter` resets to 0 per build and the flag = `EVENT_FLAG_BASE + counter`, computed *per-field* from global constants — `event.py:27` (8000), `cutscene.py:37` (8100), `choice.py:35` (8200) (`build.py:1152,1181-1184`). So field B's first chest and field A's first chest both pick **8000**, and because `once=true` writes a save-persistent `GLOB_BOOL` (`cutscene.py:156-162`), **looting field A's chest can mark field B's chest looted campaign-wide.** Harmless for one field; a latent campaign-corrupter for N.
+**ROOT CAUSE (verified):** the once-flag allocator's `flag_counter` resets to 0 per build and the flag = `EVENT_FLAG_BASE + counter`, computed *per-field* from global constants — `event.py:27` (8000), `cutscene.py:37` (8100), `choice.py:35` (8200) (`build._FlagAlloc`). So field B's first chest and field A's first chest both pick **8000**, and because `once=true` writes a save-persistent `GLOB_BOOL` (`cutscene.py:156-162`), **looting field A's chest can mark field B's chest looted campaign-wide.** Harmless for one field; a latent campaign-corrupter for N.
 
 ### 4.2 Campaign-wide partitioning **[new_work]**
 
-- **Ids:** member `i` gets `id_base + i` (4100, 4101, …). `build_mod` does NO allocation — each id is read verbatim from `[field] id` (`build.py:139 → :1819`). The campaign loader either (a) verifies author-typed ids are all ≥4000 and **globally** distinct, or (b) auto-assigns from `id_base` and rewrites every cross-field reference in lockstep (§2.5). **Assert global uniqueness, not just within-campaign** — EventDB/SceneData are merged from EVERY mod folder at launch, so the same id in two folders collides (CLAUDE.md §3). The contiguous-block ceiling (4100..4140 all register) is **unverified — needs an in-game test** (§7).
+- **Ids:** member `i` gets `id_base + i` (4100, 4101, …). `build_mod` does NO allocation — each id is read verbatim from `[field] id` (`build.FieldProject` → `build.build_field`). The campaign loader either (a) verifies author-typed ids are all ≥4000 and **globally** distinct, or (b) auto-assigns from `id_base` and rewrites every cross-field reference in lockstep (§2.5). **Assert global uniqueness, not just within-campaign** — EventDB/SceneData are merged from EVERY mod folder at launch, so the same id in two folders collides (CLAUDE.md §3). The contiguous-block ceiling (4100..4140 all register) is **unverified — needs an in-game test** (§7).
 - **Flags:** parameterize the allocators by a **per-field `flag_base`** so field B never overlaps field A. Field `i` owns `[flag_base + i*K, flag_base + (i+1)*K)`, and within its block the three categories sub-partition (cutscene `base+0`, events `base+1..+31`, choices `base+32..+63`). **[LANDED 2026-06-10, story_flags branch]** `build._FlagAlloc` threads an optional per-member `flag_base` through `build_script`/`lint_logic` (default `None` = the historical 8000/8100/8200 constants, so single-field builds stay **byte-identical**); `campaign.build_campaign` assigns each member `flag_base + i*K`. The default `flag_base` is now **8512** (`campaign.FIRST_SAFE_FLAG`) — the old **8300** collided with real-FF9's treasure-chest bitfield at bits **8376–8511** (a verified latent save-corrupter; see `research/STORY_FLAGS.md` §4). `lint_campaign` now errors if any member block, or any explicit flag, lands in the chest band or past the choice scratch (bit 16320).
-- **Cross-field named flags:** authors write `requires_flag`/`set_flag` **by name**, resolved through a campaign registry table to a concrete index. This is the *only* safe cross-field gate (a name maps to one index regardless of which field sets vs reads it). Hook `build.py:983` (`_gate_of`) and `event.py:48` (int-only today). Shared/cross-field flags live in a **separate band above the per-field blocks** (recommended over exporting from a field block) so a field's local once-flags never alias a shared flag.
+- **Cross-field named flags:** authors write `requires_flag`/`set_flag` **by name**, resolved through a campaign registry table to a concrete index. This is the *only* safe cross-field gate (a name maps to one index regardless of which field sets vs reads it). Hook `build._gate_of` and `event.py:48` (int-only today). Shared/cross-field flags live in a **separate band above the per-field blocks** (recommended over exporting from a field block) so a field's local once-flags never alias a shared flag.
 
 ### 4.3 Cross-field lint
 
-`lint_logic` (`build.py:415-491`) validates flags WITHIN one field only (dangling `requires_flag`, once-base collisions, dup names). `campaign.lint_campaign` is the campaign-level validator (auto-run by `build-all`; errors abort, warnings advise) that asserts, before `build_mod` writes the DictionaryPatch:
+`lint_logic` (`build.lint_logic`) validates flags WITHIN one field only (dangling `requires_flag`, once-base collisions, dup names). `campaign.lint_campaign` is the campaign-level validator (auto-run by `build-all`; errors abort, warnings advise) that asserts, before `build_mod` writes the DictionaryPatch:
 - every `[[edge]] to` / `[[seam]]` / `[[ladder]] top_field` resolves to a member (or is an explicit seam);
 - ids are distinct and in range;
 - every cross-field `requires_flag` (a gated edge/NPC) is `set_flag` by **some** member — and ideally by one reachable *earlier* in the entry-rooted graph (an edge gated by flag N whose producer isn't in the imported set = a permanently-locked door). The §6 open question — auto-pull producers vs warn — defaults to **warn**, mirroring the linter's existing philosophy;
 - no two members write the same flag index unintentionally (the root-cause check, now cross-field);
-- distinct `text_block` per member (default 1073 is fine *because each custom field owns its own `.mes` at that block in its own mod folder* — but two members sharing a block in one folder would overwrite dialogue; worth a campaign assert). `lint_logic`'s `settable` vs `need_set` clash check (`build.py:474-482`) is the template.
+- distinct `text_block` per member (default 1073 is fine *because each custom field owns its own `.mes` at that block in its own mod folder* — but two members sharing a block in one folder would overwrite dialogue; worth a campaign assert). `lint_logic`'s `settable` vs `need_set` clash check (`build.lint_logic`) is the template.
 
 ---
 
@@ -301,26 +301,26 @@ entry_entrance = 0
 
 ### 5.1 `build-all` (generalize `build_mod`)
 
-The BUILD half reuses `build_mod`: `build_mod(projects, out_root, ...)` already loops `build_field` over a LIST and writes ONE combined `DictionaryPatch.txt` (one `dict_line` per field at `:1833-1834`), a merged `BattlePatch.txt` (`:1836-1842`), and one `ModDescription.xml` (`:1844`). The `ff9mapkit build` CLI already takes `nargs="+"` field.tomls (`cli.py:644-650`). `build-all` is a thin campaign front-end:
+The BUILD half reuses `build_mod`: `build_mod(projects, out_root, ...)` already loops `build_field` over a LIST and writes ONE combined `DictionaryPatch.txt` (one `dict_line` per field, `build.build_mod`), a merged `BattlePatch.txt` (`build._emit_battle_patch`), and one `ModDescription.xml` (`build.build_mod`). The `ff9mapkit build` CLI already takes `nargs="+"` field.tomls (`cli.py:644-650`). `build-all` is a thin campaign front-end:
 ```
-load campaign.toml -> [FieldProject.load(m.toml) for m in members]    # build.py:124
+load campaign.toml -> [FieldProject.load(m.toml) for m in members]    # build.FieldProject.load
    -> apply id_base / flag_base assignment + retarget (§2.5, §4.2)
    -> cross-field lint (§4.3) — ABORT on dangling edge / dup id / dup text_block
-   -> build_mod(projects, out_root, mod_name=campaign.mod_folder)      # build.py:1827, unchanged
+   -> build_mod(projects, out_root, mod_name=campaign.mod_folder)      # build.build_mod, unchanged
 ```
-Output is a staged `dist/` (like `tworoom/dist`). `build_field` already assembles `FieldScene <id> <area> <bg_mapid> <name> <text_block>` and **skips the scene/FBG write when `borrow_bg` is set** (`build.py:1797-1804`) — so borrow members ship only `.eb`(+`.mes`), editable members ship their `.bgx`/`.bgi`/PNG scene. A mixed-mode chain builds fine (members are independent field.tomls). Per-language `.eb` is automatic (bytecode is language-identical, CLAUDE.md §7).
+Output is a staged `dist/` (like `tworoom/dist`). `build_field` already assembles `FieldScene <id> <area> <bg_mapid> <name> <text_block>` and **skips the scene/FBG write when `borrow_bg` is set** (`build.build_field`) — so borrow members ship only `.eb`(+`.mes`), editable members ship their `.bgx`/`.bgi`/PNG scene. A mixed-mode chain builds fine (members are independent field.tomls). Per-language `.eb` is automatic (bytecode is language-identical, CLAUDE.md §7).
 
 ### 5.2 `deploy-all` (generalize `install_tworoom.py`)
 
 `install_tworoom.py` was the literal hand-coded 2-field permanent install; `tools/deploy_campaign.py` generalizes its exact shape for arbitrary N:
 
-1. **ONE pre-deploy snapshot** of the whole mod folder → `backups/<folder>.pre-<campaign>.<stamp>` (`install_tworoom.py:45-47`). This is the critical reversibility choice — **do NOT use `deploy_field`'s per-id revert** (`deploy_field.py:142`), whose per-id DictionaryPatch line-merge can wipe a sibling's `FieldScene` line → black-screen warp to an unregistered id (CLAUDE.md §3 records this exact failure). One set-wide snapshot → one `revert_campaign.py` that restores all N fields + the New-Game override atomically.
+1. **ONE pre-deploy snapshot** of the whole mod folder → `backups/<folder>.pre-<campaign>.<stamp>` (`install_tworoom.py:45-47`). This is the critical reversibility choice — **do NOT use `deploy_field`'s per-id revert** (the generated `deploy_field` `revert_deploy_<id>.py`), whose per-id DictionaryPatch line-merge can wipe a sibling's `FieldScene` line → black-screen warp to an unregistered id (CLAUDE.md §3 records this exact failure). One set-wide snapshot → one `revert_campaign.py` that restores all N fields + the New-Game override atomically.
 2. **Copy each member's assets:** EVT `.eb` (7 langs) for all; `.mes` blocks; and the FBG scene dir **only for editable members** (skip for borrow — `deploy_field.py:110-113` already guards this; `install_tworoom.py:64` relies on borrow shipping EVT-only). Route every path through `ModLayout` (`config.py:99-198`: `eb_path`, `mes_path`, `fieldmap_dir`, `dictionary_patch`, `battle_patch`).
-3. **DictionaryPatch = the campaign's combined lines verbatim** from the staged dist (`install_tworoom.py:73-75`) — do NOT reuse `deploy_field`'s sandbox identity override (it forces id→4003 / name→TESTROOM, `deploy_field.py:77-80`, the OPPOSITE of what a campaign needs; each member must deploy at its OWN id/name).
+3. **DictionaryPatch = the campaign's combined lines verbatim** from the staged dist (`install_tworoom.py:73-75`) — do NOT reuse `deploy_field`'s sandbox identity override (it forces id→4003 / name→TESTROOM, `deploy_field.FID`/`deploy_field.TEST_NAME`, the OPPOSITE of what a campaign needs; each member must deploy at its OWN id/name).
 4. **New-Game entry** (§5.3).
 5. **Emit `revert_campaign.py`** (full restore from the snapshot, undoing both the field swap AND the New-Game repoint — `install_tworoom.py:77-87`).
 
-Target resolution reuses `deploy_field`'s `.ff9deploy.toml` (mod_folder + id) > `$FF9_MOD_FOLDER` > defaults, bootstrapping a fresh folder with `ModDescription.xml` + empty DictionaryPatch (`deploy_field.py:27-53,92-102`).
+Target resolution reuses `deploy_field`'s `.ff9deploy.toml` (mod_folder + id) > `$FF9_MOD_FOLDER` > defaults, bootstrapping a fresh folder with `ModDescription.xml` + empty DictionaryPatch (`deploy_field._worktree_cfg`/`deploy_field._def_folder`).
 
 ### 5.3 New-Game entry
 
@@ -399,7 +399,7 @@ py tools/deploy_campaign.py campaign/ice/campaign.toml --mod-folder FF9CustomMap
 ### Honest boundaries
 
 - **Graph explosion is the headline risk.** FF9's field graph is huge and densely cross-linked; a naive unbounded BFS from a town hub pulls hundreds. `--max-hops` alone is weak (a hub at hop 2 fans out enormously). **REQUIRE a zone allowlist (`--zones` folder-prefix) OR a hard `--max-fields` that aborts loudly.** Default to small max-hops + `--max-fields` (25) and force opt-in for more. (Ice Cavern is the easy case — self-contained, `--zones iccv` captures it cleanly.)
-- **Un-borrowable / crashing destinations.** Area < 10 black-screens (common in early game — Alexandria area 1, cargo ship area 0); **field 100 BOTH is area<10 AND crashes** (CLAUDE.md §5). Need a **data-driven crash denylist** (seed: field 100) + an **area<10 → auto-editable fallback**. Per-node failure must isolate (skip + warn + leave inbound edges as live seams), never abort the chain — `write_field_project` raises `RuntimeError` for area<10 (`extract.py:702`); `import-chain` must catch and degrade.
+- **Un-borrowable / crashing destinations.** Area < 10 black-screens (common in early game — Alexandria area 1, cargo ship area 0); **field 100 BOTH is area<10 AND crashes** (CLAUDE.md §5). Need a **data-driven crash denylist** (seed: field 100) + an **area<10 → auto-editable fallback**. Per-node failure must isolate (skip + warn + leave inbound edges as live seams), never abort the chain — `write_field_project` raises `RuntimeError` for area<10 (`extract.write_field_project`); `import-chain` must catch and degrade.
 
 ### Load-bearing in-game tests (the human's verifications — I cannot see the game)
 

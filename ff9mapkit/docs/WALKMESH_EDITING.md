@@ -126,7 +126,8 @@ check (below) catches the consequence at build time.
 ## 4. Build-time verification — reachability (shipped in v1)
 
 `BgiWalkmesh.reachable_floors()` BFS's the triangle `nbr` graph from the start tri — the *same* links
-the engine pathfinds over. `build` warns when `all_floors() - reachable_floors()` is non-empty:
+the engine pathfinds over. `build` warns when `all_floors() - reachable_floors()` is non-empty
+(paraphrased — see build.py for the exact emitted string):
 
 ```
 walkmesh: floor(s) [1, 2, 3, 4, 5, 6] not walk-reachable from the start (6 of 7 floors stranded).
@@ -201,7 +202,7 @@ and the reconcile was prototyped (`tools/smoke_reconcile.py`). Results:
 (always default), keep `[[seam]]` (3D-position keys cover coincident *and* vertical-bridge), and the
 reconcile is proven to reproduce real fields' links exactly. The position-key approach is sound.
 
-## 7. Non-goals / open questions
+## 8. Non-goals / open questions
 
 - **Auto-inventing** connectivity for brand-new floors — you declare the seam; we can only *suggest*
   coincident ones.

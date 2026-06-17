@@ -98,7 +98,7 @@ mode-aware switch *downstream* is on `ATEType {Blue = 1, Gray = 2}`, `Global/ATE
 compares the arg to `1`/`5`/`6` by name** — `SetAIcon` stores the raw byte verbatim into `sAIconMode` (no
 clamp, no validation, no `default:` — `EIcon.cs:443-454`), and `ProcessAIcon` reads only **three bits** of it:
 
-- **`> 0`** — enable gate. `0` = disable/hide (`SetAIcon(0)` early-outs immediately, `EIcon.cs:445`).
+- **`> 0`** — enable gate. `0` = disable/hide (mode 0 calls `ShowAIcon(false)` to hide the icon, `EIcon.cs:445`).
 - **`& 3 == 2`** — **Gray** banner (unskippable; blinks on a ~15-frame cadence, `EIcon.cs:426`). Anything else
   (`& 3 != 2`) ⇒ **Blue** "Press SELECT" (steady).
 - **`& 4`** — **force** bit (`kAIconForce`, `EIcon.cs:472`): show even when the player has **no** user control.

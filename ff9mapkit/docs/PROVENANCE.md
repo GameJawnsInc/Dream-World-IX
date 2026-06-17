@@ -32,9 +32,10 @@ only **our** part:
 
 ## One‑time setup
 
-```bash
+```powershell
 pip install -e .
-export FF9_GAME_PATH="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
+$env:FF9_GAME_PATH = "C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"   # optional
+# bash:  export FF9_GAME_PATH="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
 pip install UnityPy                 # reads FF9's p0data assetbundles
 ff9mapkit extract-templates        # regenerate the base assets into a local (gitignored) cache
 ff9mapkit doctor                   # should now report: templates : extracted

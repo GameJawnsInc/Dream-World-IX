@@ -243,7 +243,6 @@ Then a minimal `journeys.toml` at the project root referencing both folders (§2
 - **editor_gui** owns only *display* (§5).
 - **Global namespace:** EventDB/SceneData/flag bands are global — the assembler is the *only* place that
   can guarantee disjoint id + flag bands across a journey's campaigns. That guarantee is the whole job.
-```
 
 (handoff authored from editor_gui; ship/merge per the FF-master discipline. Related: `project-ff9-world-hub`,
 `project-ff9-new-game-entry`, `project-ff9-branch-lanes`, `project-ff9-worldmap-feasibility`.)

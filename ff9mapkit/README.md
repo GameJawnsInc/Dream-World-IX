@@ -16,7 +16,7 @@ actor walk/turn/emote/teleport) — authored from one `field.toml`, a **form-bas
 a **[Blender add-on](blender/README.md)**.
 
 > **The full capability list is in [`docs/FEATURES.md`](docs/FEATURES.md)** (with a before/now
-> comparison), and [`docs/gallery/`](docs/gallery/) shows each feature in action.
+> comparison), and [`docs/gallery/`](docs/gallery/) collects screenshots/GIFs as they're captured.
 
 ## What it does
 
@@ -144,7 +144,7 @@ grouped:
 - [`SETUP.md`](../SETUP.md) — **start here:** install, configure, the dev loop, and your first field (setup + quickstart).
 - [`docs/TUTORIAL.md`](docs/TUTORIAL.md) — the focused ~10-minute first-field walkthrough.
 - [`docs/FEATURES.md`](docs/FEATURES.md) — **the full capability list** (+ before/now comparison).
-- [`docs/gallery/`](docs/gallery/) — each feature in action (screenshots / GIFs).
+- [`docs/gallery/`](docs/gallery/) — collects screenshots/GIFs as they're captured.
 - [`docs/FORMAT.md`](docs/FORMAT.md) — the `field.toml` schema.
 - [`docs/PIPELINE.md`](docs/PIPELINE.md) — the full authoring workflow.
 - [`docs/ENGINE.md`](docs/ENGINE.md) — engine requirements (stock Memoria) + provenance notes.

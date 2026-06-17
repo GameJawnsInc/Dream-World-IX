@@ -49,7 +49,7 @@ Only TWO mutable blobs survive a save. Everything per-field is session-transient
     Save→Continue-inside-a-custom-field round-trips (CAMPAIGN_IMPORT §7 test #2).
 
 ### Session-only (NOT saved — don't treat as cross-field state)
-- `EventContext.mapvar = Byte[80]` (`EventContext.cs:9,113`; `cMapVarN=80`) — **wiped every field load.**
+- `EventContext.mapvar = Byte[80]` (`EventContext.cs:9,113`; `cMapVarN=80` at `EventEngine.Static.cs:14`) — **wiped every field load.**
 - Var sources (`EBin.VariableSource`, `EBin.cs:2550`): `Global=0` → gEventGlobal (persistent),
   `Map=1` → mapvar (transient 80B), `Instance=2` → per-object. Selection: `EBin.cs:1617`.
   ⚠ **HW naming is INVERTED** (HW "GlobBool" = engine Map = transient). A high index in MAP space is
@@ -78,7 +78,7 @@ Process-global `static` dicts, rebuilt from every mod folder's DictionaryPatch a
 | Campaign flags | **8512+** (`FIRST_SAFE_FLAG`), 64/field | `campaign.py` | per-member `flag_base+i*K`, lint-bounded (**was 8300 → chest collision, FIXED**) | GLOB / save |
 | Choice mask scratch | byte 2040 (bits 16320+) | `content/region.py:57` | campaign-global | GLOB / save |
 | Field ids | 4000–9899 content · 30000–32767 scratch | `pack.py` | per-mod hash block; `id_base+i` in campaign | static reg |
-| Battle scenes | 1–177 real · 200+ mint | `battle/build.py:34,162` | manual | static reg |
+| Battle scenes | 1–177 real · 200+ mint | `battle/build.py:41` (`_REAL_BBG_MAX`) | manual | static reg |
 | Text block (mesId) | default 1073 | `pack.py:73`, `campaign.py:112` | per-field | static reg |
 | TXID (per line) | 500+ | `content/text.py:23` | per-field, `base+i` | static reg |
 | Worldmap locations | 9000–9012 (FIXED) | `eventscan.py:27` | not allocatable | engine |

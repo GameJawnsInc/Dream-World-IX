@@ -37,10 +37,11 @@ If the `ff9mapkit` command isn't found afterward (its Scripts dir isn't on PATH)
 
 ## Workflow
 
-The **FF9 Map Kit** sidebar panel walks top-to-bottom: **Setup → Camera → Walkmesh →
-Background Art → Content → Export**. A typical pass:
+The **FF9 Map Kit** sidebar panel walks top-to-bottom: **Camera → Walkmesh →
+Background Art → Content → Export** (with **New Scene** / **Import Field** in a row above the boxes).
+A typical pass:
 
-1. **Setup FF9 Scene** — creates an FF9-posed camera and a flat `FF9_Walkmesh` plane on **z = 0**
+1. **New Scene** — creates an FF9-posed camera and a flat `FF9_Walkmesh` plane on **z = 0**
    (FF9's floor is y=0, which maps to Blender's z=0). Press **Home** to frame it.
 2. **Pose the camera** (*Camera* box) — set Pitch / Distance / FOV and hit *Pose Camera*, or just
    move/aim the camera freely. The panel shows the derived **FF9 pitch + FOV** live, and warns
@@ -90,13 +91,6 @@ Background Art → Content → Export**. A typical pass:
      `<name>.field.toml` (or `ff9mapkit edit`), attached to an NPC by name. Place the NPC here in
      Blender; the scaffolded field.toml includes a commented `[[choice]]` example. Choices live only in
      the field.toml — re-exporting from Blender (which rewrites only the scene.toml) keeps them.
-8b. **Multi-camera (optional)** — for a field that cuts between camera angles as you walk (FF9
-   streets/plazas). In the **Camera** box, **Add Camera** drops another FF9 camera (set its own
-   *Yaw/Pitch/FOV* + *Pose*; select a camera to edit it). Give each camera its own painted
-   background via **Add Layer**, then set that layer's **cam** index in the layer row. In **Content**,
-   **Cam Zone** drops a blue zone — set `ff9_to_camera` (which camera to switch to) and place it over
-   that camera's area; **zones must not overlap**. Export emits a `[[camera]]` array (camera 0 =
-   default at load), per-layer `camera`, and `[[camera_zone]]` switches.
 8. **Export Field** (*Export* box) — set the field `id` / `name` / `area` / `text_block` and the
    *Export to* folder, then *Export Field* writes `camera.bgx`, `walkmesh.obj`, the painted PNGs, and
    **two TOMLs** (Godot-style — placement vs. script):
@@ -106,6 +100,13 @@ Background Art → Content → Export**. A typical pass:
      + dialogue choices). Written **only the first time** (a scaffold from your markers); after that
      it's *yours* and Export never touches it. Edit dialogue, story flags, events, and choices here
      (a text editor or `ff9mapkit edit`).
+8b. **Multi-camera (optional)** — for a field that cuts between camera angles as you walk (FF9
+   streets/plazas). In the **Camera** box, **Add Camera** drops another FF9 camera (set its own
+   *Yaw/Pitch/FOV* + *Pose*; select a camera to edit it). Give each camera its own painted
+   background via **Add Layer**, then set that layer's **cam** index in the layer row. In **Content**,
+   **Cam Zone** drops a blue zone — set `ff9_to_camera` (which camera to switch to) and place it over
+   that camera's area; **zones must not overlap**. Export emits a `[[camera]]` array (camera 0 =
+   default at load), per-layer `camera`, and `[[camera_zone]]` switches.
 9. **Build** — `ff9mapkit build <name>.field.toml --out <game>/FF9CustomMap` — it auto-merges the
    sibling `<name>.scene.toml` by entity name (scene = where, field = what). Then play.
 

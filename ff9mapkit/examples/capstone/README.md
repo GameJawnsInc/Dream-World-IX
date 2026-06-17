@@ -33,6 +33,7 @@ ff9mapkit lint  examples/capstone/capstone.field.toml
 # Deploy to field 4003 in the highest-priority mod folder (the deployed field must live there, and
 # InitialItems.csv is highest-priority-wins, so it must not be shadowed by a higher folder):
 py tools/deploy_field.py examples/capstone/capstone.field.toml --id 4003 --mod-folder FF9CustomMap
+# Revert: py tools/scroll_out/revert_deploy_4003.py   (restores the start-state CSVs + drops field 4003)
 
 # Point New Game at 4003: retarget the field-70 override (evt_alex1_ts_opening) to warp Field(4003).
 # The override is SINGLE-OWNER, so a prior World-Hub deploy may have it pointing elsewhere (e.g. 4600 =

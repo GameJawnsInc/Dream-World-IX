@@ -64,8 +64,11 @@ and relaunch — a copied folder isn't read until it's enabled there.
 
 ## 6. Reach it in-game (2–3 min)
 
-Your field exists but needs a door. The portable way is a **gateway from a field you can already walk
-to**. Fork that field too, add a gateway into yours, and ship it as an override:
+On stock Memoria the portable way to reach a new field is a gateway from a field you can already walk to.
+(If you run the dev engine, the F6 debug menu can Warp straight to the id instead.)
+
+Your field exists but needs a door. Fork that field too, add a gateway into yours, and ship it as an
+override:
 
 ```bash
 ff9mapkit import <a-field-you-can-reach> --out entry

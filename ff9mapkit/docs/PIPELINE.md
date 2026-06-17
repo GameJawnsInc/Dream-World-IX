@@ -63,7 +63,14 @@ ff9mapkit import glgv_map792_gv_rm1 --out MY_FORK --editable # editable custom s
 - **BG-borrow** (default) renders the real field's art + walkmesh + camera and runs your script on top — fastest, but the art is not editable.
 - **`--editable`** forks it into a full custom scene you can repaint: the walkmesh is re-exported to `walkmesh.obj`, and the background is split into **one `layer_*.png` per depth** (occlusion preserved — foreground pieces still draw over the player). Repaint any single layer, reshape the walkmesh, add content, then `ff9mapkit build`. Requires the field to have been exported in-game once via `Memoria.ini [Export] Field=1` (so the per-overlay PNGs exist on disk); additive light/shadow overlays are skipped in this first pass.
 
-**Import also extracts the real field's content** (read straight from its event script): its **exits** → live `[[gateway]]` blocks, its **random encounters** → `[encounter]`, its **field BGM** → `[music]`, and its **WASD-vs-camera tuning** → `[camera] control_direction`. So a fork keeps the real place's exits, battles, and music, not just its look. Imported gateways point at the **real destination field ids** (a comment flags them) — retarget each `to` to your own room ids, or leave them to walk back into the live game. Not imported (author these fresh): NPCs + their dialogue, arbitrary event triggers, and cutscenes.
+**Import also extracts the real field's content** (read straight from its event script), so a fork keeps the real place's exits, battles, and music, not just its look:
+
+- its **exits** → live `[[gateway]]` blocks
+- its **random encounters** → `[encounter]`
+- its **field BGM** → `[music]`
+- its **WASD-vs-camera tuning** → `[camera] control_direction`
+
+Imported gateways point at the **real destination field ids** (a comment flags them) — retarget each `to` to your own room ids, or leave them to walk back into the live game. Not imported (author these fresh): NPCs + their dialogue, arbitrary event triggers, and cutscenes.
 
 Either way you get a ready-to-edit `field.toml` — skip to step 5.
 

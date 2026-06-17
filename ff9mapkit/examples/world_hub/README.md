@@ -41,14 +41,12 @@ optional seed}`; HOW a journey plays internally is the fork's own business.
   New-Game override at the hub: `tools/retarget_newgame_warp.py 4500` (a required target arg — the live
   install currently targets 4600, Mognet Central). The override preserves the opening's fade, so it's
   seamless, no FMV.
-- **Camera on entry** — Memoria's smooth-camera follower (`CameraStabilizer`) eases the camera to the player
-  on *every* field load; you only notice it when the entry camera is far off, *and* there's no transition to
-  hide the settle. Every real way into the hub already has that transition: **New Game** comes through the
-  engine's start/field fade-to-black, and the journeys are verbatim forks with their own entrances — so the
-  settle happens behind black and you see it already at rest. The lone exception is the **F6 debug warp**, an
-  instant jump with no fade (a dev tool; players never use it). `[camera] entry_settle = N` (the generator
-  emits 45) adds a black hold that reinforces the settle behind the entry fade; set `0` to drop it. To test a
-  faded entry yourself, F6 → Warp **4502** (`hub_lobby.field.toml`) and walk through its door into the hub.
+- **Camera on entry** — `[camera] entry_settle = N` adds a black hold on entry so Memoria's smooth-camera
+  follower (`CameraStabilizer`) eases the camera to the player *behind* the fade, and you see it already at
+  rest (the generator emits 45; set `0` to drop it). You only need it for the **F6 debug warp** (an instant,
+  fade-less dev jump players never use) — every real way in already has a transition (New Game's fade, the
+  journeys' own verbatim entrances). To test a faded entry yourself, F6 → Warp **4502**
+  (`hub_lobby.field.toml`) and walk through its door into the hub.
 
 ## Setup (provenance: you supply the game bytes)
 

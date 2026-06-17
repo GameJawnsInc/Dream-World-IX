@@ -4,6 +4,9 @@ Visual proof of each headline capability. Drop a screenshot or short GIF next to
 exact filename in each `![...]()` below and it renders automatically. Aim for ~800px-wide PNGs or
 short (3–6s) GIFs; in-game shots are far more convincing than UI screenshots.
 
+*The images below are placeholders until captured — the referenced files don't exist yet, so broken-image
+icons here are expected, not a regression.*
+
 > Tip: capture in a consistent window size, and prefer a moment that shows the feature *doing
 > something* (the player on the walkmesh, the NPC mid-line, the camera mid-switch).
 
@@ -70,7 +73,7 @@ The add-on: posed FF9 camera, walkmesh on the floor guide, and placed markers (N
 ![Authoring a field in the Blender add-on](blender-authoring.png)
 
 ### Form editor
-`ff9mapkit edit` — dialogue / events / cutscene steps authored in forms, no TOML.
+`ff9mapkit edit` — dialogue / events / cutscene steps authored in forms, no TOML hand-editing.
 
 ![The form-based logic editor](form-editor.png)
 

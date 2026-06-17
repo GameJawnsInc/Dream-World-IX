@@ -18,10 +18,11 @@ ff9mapkit fork-report dl_shp       # by FBG-name substring (see `list-fields`)
 It's also a one-click **Preview fidelity** button on the Workspace's **Import** surface
 (`ff9mapkit/workspace/importdoc.py`): type/Find a field, hit **Preview fidelity**, read the verdict, then import.
 
-## What it reports — two independent axes
+## What it reports
 
-A fork can render the right cast yet lose its interactions (or vice-versa), so the two are reported
-separately:
+**Roster** and **Interaction** are the two *independent* axes (a fork can render the right cast yet lose
+its interactions, or vice-versa, so the two are reported separately); everything after them is an
+"also reported" list:
 
 - **Roster fidelity** — how many persistent objects a fork carries, how many are **directors** (a
   `Field()`-warp / phase-switch in their LOOP = a cutscene actor carried as an NPC, the rotating-cast /

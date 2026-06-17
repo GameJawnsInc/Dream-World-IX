@@ -23,12 +23,12 @@ Install a built mod by copying its folder next to `FF9_Launcher.exe` (or zip it 
 
 ## Optional engine polish (nice-to-have, not required)
 
-Two small Memoria improvements make the experience smoother; they are **not** needed for a
-field to work and are intended to be upstreamed so everyone benefits:
+Two small possible Memoria improvements would make the experience smoother; they are **not** needed
+for a field to work, and the project isn't actively upstreaming them:
 
 1. **Overlay texture cache** (`BGSCENE_DEF`): caches decoded overlay PNGs by path so field
    loads / battle-returns don't re-decode them.
-2. **FieldCreatorScene PNG-path fix**: the in-editor scene export writes overlay PNGs to the
+2. **FieldCreatorScene PNG-path fix** (Memoria PR #1433, left as-is): the in-editor scene export writes overlay PNGs to the
    game root instead of the field folder, which black-screens the editor. (This kit's CLI
    pipeline doesn't use that editor, so the bug doesn't affect kit users — but fixing it
    makes the official in-engine editor usable as an alternative authoring path.)
