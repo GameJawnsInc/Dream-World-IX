@@ -822,6 +822,30 @@ class Workspace(QMainWindow):
                                 [fb.Problem(fb.ERROR, str(e))])
             return False
 
+    def on_remove_journey_row(self, jid):
+        """Confirm + remove a hub menu row (the dialog/Delete-key entry to :meth:`_remove_journey_row`)."""
+        if self._confirm(f"Remove journey '{jid}'",
+                         f"Remove the menu row '{jid}' from this hub?\n\n(The installed slice it points to is "
+                         "NOT deleted — only this menu choice.)"):
+            self._remove_journey_row(jid)
+
+    def _remove_journey_row(self, jid) -> bool:
+        """Remove the ``[[journey]]`` row ``jid`` from the open hub, then re-open (re-lint + re-list). Returns
+        True on success. The dialog-free core (so it's headlessly testable)."""
+        if self.manifest is None or not self.journey_root:
+            return False
+        from .. import journey as J
+        try:
+            text = J.remove_journey_row(Path(self.journey_root).read_text(encoding="utf-8"), jid)
+            Path(self.journey_root).write_text(text, encoding="utf-8", newline="\n")
+            self.open_journey(self.journey_root)
+            self.statusBar().showMessage(f"Removed journey '{jid}'")
+            return True
+        except (J.JourneyError, OSError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't remove the journey"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return False
+
     def on_open_campaign(self):
         f, _ = QFileDialog.getOpenFileName(self, "Open campaign.toml", "",
                                            "Campaign (campaign.toml);;TOML (*.toml);;All files (*)")
@@ -2911,7 +2935,11 @@ class Workspace(QMainWindow):
         single (nothing to do there)."""
         p = self._payload(item)
         if p and p[0] in ("jset", "journey") and self.manifest is not None:
-            return [("Add journey…", self.on_add_journey_row)]   # the hub root: add a menu row (selector builder)
+            acts = [("Add journey…", self.on_add_journey_row)]   # the hub root: add a menu row (selector builder)
+            if p[0] == "journey" and ":" in (p[2] or ""):        # a journey row: also offer Remove (Delete-key)
+                jid = p[2].split(":", 1)[1]
+                acts.append((f"Remove journey '{jid}'", lambda j=jid: self.on_remove_journey_row(j)))
+            return acts
         if p and p[0] == "campaign" and self.plan is not None and self.campaign_path is not None:
             return [("Add field…", self.on_add_field)]      # the campaign root: scaffold a new member
         fa = self._ancestor_field(item)
@@ -4864,8 +4892,17 @@ def _smoke(win):
     assert not win._append_journey_row("bad slug!", "X", "4103", ""), "a bad slug is refused"
     assert not win._append_journey_row("ok", "X", "not-an-int", ""), "a non-numeric entry is refused"
     assert [j.id for j in win.manifest.journeys] == ["dali", "treno"], "rejected rows didn't land"
-    # 'Add journey…' is offered on the hub root (context menu) + the palette, while a hub is open
+    # two rows -> the SAME field warn (the copy-paste mistake); removing one clears it
+    assert win._append_journey_row("dup", "Dup", "4100", "") is True     # 4100 == dali's entry
+    _de, _dw = _Jh.lint_manifest(win.manifest)
+    assert any("both warp to field 4100" in w for w in _dw), _dw
+    assert win._remove_journey_row("dup") is True and [j.id for j in win.manifest.journeys] == ["dali", "treno"]
+    assert not any("both warp" in w for w in _Jh.lint_manifest(win.manifest)[1]), "dup-entry warning cleared"
+    assert win._remove_journey_row("nope") is False, "removing a missing journey fails gracefully"
+    # 'Add journey…' on the hub root + 'Remove journey' on a journey row (context menu) + the palette
     assert any(lbl == "Add journey…" for lbl, _ in win._context_actions(win.tree.topLevelItem(0)))
+    _jrow = win.tree.topLevelItem(0).child(0)                            # the first [[journey]] node
+    assert any(lbl.startswith("Remove journey") for lbl, _ in win._context_actions(_jrow)), win._payload(_jrow)
     assert "Add journey to hub…" in [e[0] for e in win._command_index()]
     try:                                                   # clobber guard: an existing manifest is refused
         win._new_journey("Again", d / "jnew")

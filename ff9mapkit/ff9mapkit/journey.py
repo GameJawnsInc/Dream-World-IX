@@ -358,6 +358,16 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
             errors.append(f"journey id {j.id!r} is duplicated -- ids must be unique")
         seen.add(j.id)
 
+    # (a2) two menu rows warping to the SAME bare entry field -> almost always a typo (a copy-pasted row).
+    entry_seen: dict = {}
+    for j in manifest.journeys:
+        if j.is_bare and isinstance(j.entry.field, int):
+            if j.entry.field in entry_seen:
+                warnings.append(f"journeys {entry_seen[j.entry.field]!r} and {j.id!r} both warp to field "
+                                f"{j.entry.field} -- two menu rows to the same destination (likely a copy-paste)")
+            else:
+                entry_seen[j.entry.field] = j.id
+
     # (b) load every referenced campaign (folder exists + parses). Bare journeys reference none.
     try:
         plans = load_campaign_plans(manifest)
@@ -376,10 +386,11 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
             errors.extend(f"campaign {folder!r}: {e}" for e in cerr)
             warnings.extend(f"campaign {folder!r}: {w}" for w in cwarn)
 
-    # (d) THE GLOBAL ID-DISJOINTNESS GUARANTEE (docs/JOURNEYS.md §8): every member of every campaign + every
-    #     bare entry id share one EventDB/SceneData namespace -- all are registered at launch, so a collision
-    #     is a hard launch failure regardless of which journey the player picks.
-    owner: dict = {}                              # global field id -> a human label of who claims it
+    # (d) THE GLOBAL ID-DISJOINTNESS GUARANTEE (docs/JOURNEYS.md §8): every field the assembler REGISTERS -- a
+    #     campaign member or the hub -- must have a globally unique id (one EventDB/SceneData namespace). A bare
+    #     entry only REFERENCES an installed field (the hub warps to it), so it must not collide with a
+    #     registered field, but two bare journeys MAY warp to the SAME destination (e.g. New Game vs New Game+).
+    owner: dict = {}                              # global field id -> a human label of who REGISTERS it
     def _claim(fid: int, label: str):
         if not isinstance(fid, int):
             return
@@ -392,22 +403,30 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
     for folder, (plan, _) in plans.items():
         for m in plan.members:
             _claim(m.new_id, f"campaign {folder!r} member {m.name!r}")
-    for j in manifest.journeys:
-        if j.is_bare:
-            try:
-                _claim(int(j.entry.field), f"journey {j.id!r} (bare entry)")
-            except (TypeError, ValueError):
-                errors.append(f"journey {j.id!r}: bare entry {j.entry.field!r} must be a field id (int)")
-    # the [hub] field id is ALSO global -- it registers + renders alongside every campaign, so a hub/member
-    # collision is the same global-EventDB black screen. Claim it so the disjointness check covers it offline.
+    # the [hub] field id is ALSO registered -- it renders alongside every campaign, so a hub/member collision is
+    # the same global-EventDB black screen. Claim it (before the bare-entry check, so a bare-vs-hub clash shows).
     if manifest.hub.get("id") is not None:
         try:
             _claim(int(manifest.hub["id"]), "the [hub] field")
         except (TypeError, ValueError):
             errors.append(f"[hub] id {manifest.hub.get('id')!r} must be a field id (int)")
+    bare_ids: list = []
+    for j in manifest.journeys:
+        if j.is_bare:
+            try:
+                fid = int(j.entry.field)
+            except (TypeError, ValueError):
+                errors.append(f"journey {j.id!r}: bare entry {j.entry.field!r} must be a field id (int)")
+                continue
+            bare_ids.append(fid)
+            if fid in owner:                      # a bare entry collides with a REGISTERED field (member / hub)
+                errors.append(f"field id {fid} is claimed by BOTH {owner[fid]} and journey {j.id!r} (bare entry) "
+                              f"-- a campaign member / the hub registers it; re-point this journey.")
+            # NB: NOT claimed into `owner` -- two bare journeys may legally warp to the same installed field
+            # (the duplicate-destination case is the (a2) warning above, not a hard error).
 
-    # (e) id band range (every claimed id in the custom band)
-    for fid, label in sorted(owner.items()):
+    # (e) id band range (every registered id + every bare entry in the custom band)
+    for fid, label in sorted(list(owner.items()) + [(b, f"a bare entry") for b in bare_ids]):
         if not (ID_LO <= fid <= ID_HI):
             errors.append(f"{label}: field id {fid} out of band -- custom ids are {ID_LO}-{ID_HI} "
                           f"(the live fldMapNo is Int16, so a higher id registers but is unreachable)")
@@ -589,6 +608,32 @@ def render_journey_row(jid: str, name: str, entry: int, *, scenario=None, entran
     if entrance is not None:
         L.append(f"entrance = {int(entrance)}")
     return "\n".join(L) + "\n"
+
+
+_JOURNEY_HDR = re.compile(r"\s*\[\[\s*journey\s*\]\]\s*(#.*)?$")   # a TOP-LEVEL [[journey]] (not journey.link)
+
+
+def remove_journey_row(text: str, jid: str) -> str:
+    """Remove the ``[[journey]]`` block whose ``id`` is ``jid`` from a journeys.toml's TEXT. A block runs from
+    its ``[[journey]]`` header to the next ``[[journey]]`` header (or EOF), carrying any ``[journey.seed]`` /
+    ``[[journey.link]]`` sub-tables. Preserves the ``[hub]`` table + every other journey + comments. Raises
+    :class:`JourneyError` if no journey with that id is present."""
+    lines = text.splitlines()
+    starts = [i for i, ln in enumerate(lines) if _JOURNEY_HDR.match(ln)]
+    for k, s in enumerate(starts):
+        end = starts[k + 1] if k + 1 < len(starts) else len(lines)
+        bid = None
+        for ln in lines[s:end]:
+            m = re.match(r'\s*id\s*=\s*"([^"]*)"', ln)
+            if m:
+                bid = m.group(1)
+                break
+        if bid == jid:
+            del lines[s:end]
+            while lines and not lines[-1].strip():     # don't leave a trailing blank pile-up at EOF
+                lines.pop()
+            return ("\n".join(lines) + "\n") if lines else "\n"
+    raise JourneyError(f"no journey {jid!r} to remove in this manifest")
 
 
 def render_selector_hub_toml(*, hub_name="World Hub", hub_id=4600, borrow_bg=None, hub_area=None,

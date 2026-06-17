@@ -243,6 +243,43 @@ def test_render_journey_row_validates():
         journey.render_journey_row("ok", "X", "not-an-int")     # entry must be a field id
 
 
+def test_remove_journey_row(tmp_path):
+    t = (journey.render_selector_hub_toml(hub_name="Hub")
+         + "\n" + journey.render_journey_row("a", "A", 4100)
+         + "\n" + journey.render_journey_row("b", "B", 4200)
+         + "\n" + journey.render_journey_row("c", "C", 4300))
+    t2 = journey.remove_journey_row(t, "b")                      # remove the MIDDLE row
+    p = tmp_path / "j.toml"
+    p.write_text(t2, encoding="utf-8")
+    assert [j.id for j in journey.load_journeys(p).journeys] == ["a", "c"], "middle gone, rest intact"
+    assert all(ord(ch) < 128 for ch in t2)
+    with pytest.raises(journey.JourneyError):
+        journey.remove_journey_row(t2, "nope")
+
+
+def test_remove_journey_row_keeps_other_subtables(tmp_path):
+    # removing journey 'b' must NOT eat journey 'a's [journey.seed] subtable (block boundary = next [[journey]])
+    t = ('[hub]\nname = "H"\nid = 4600\n\n'
+         '[[journey]]\nid = "a"\ncampaigns = ["ca"]\nentry = { campaign = "ca", field = "A1" }\n'
+         '[journey.seed]\nscenario = 2600\n\n'
+         '[[journey]]\nid = "b"\nname = "B"\nentry = 4200\n')
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000)
+    p = tmp_path / "journeys.toml"
+    p.write_text(journey.remove_journey_row(t, "b"), encoding="utf-8")
+    m = journey.load_journeys(p)
+    assert [j.id for j in m.journeys] == ["a"] and m.journeys[0].seed.scenario == 2600, "a's seed survived"
+
+
+def test_lint_warns_on_duplicate_bare_entry(tmp_path):
+    t = (journey.render_selector_hub_toml(hub_name="Hub")
+         + "\n" + journey.render_journey_row("a", "A", 4100)
+         + "\n" + journey.render_journey_row("b", "B", 4100))   # two rows -> the SAME field (a copy-paste)
+    p = tmp_path / "j.toml"
+    p.write_text(t, encoding="utf-8")
+    errs, warns = journey.lint_manifest(journey.load_journeys(p))
+    assert errs == [] and any("both warp to field 4100" in w for w in warns), (errs, warns)
+
+
 def test_lint_hub_id_collides_with_campaign_member(tmp_path):
     # the [hub] field registers in the SAME global EventDB as the campaigns -> a hub/member id collision is a
     # black screen; the disjointness lint must claim the hub id too (else it passes silently).
