@@ -166,3 +166,22 @@ def test_whole_zone_multi_seed_forks_disconnected_field():
         assert chain.render_coverage(cov) == []        # now fully covered
     finally:
         del GRAPH[5]
+
+
+# ---- CLI seed resolution: comma-separated multi-seed (one campaign over several zones) ----
+def test_resolve_chain_seeds_multi():
+    """_resolve_chain_seeds splits comma-separated tokens (id or FBG substring), keeps token order
+    (first stays the campaign entry), and de-duplicates -- so `import-chain 50,100 --whole-zone`
+    forks several zones as ONE campaign. Uses the baked field table (no game install)."""
+    from ff9mapkit.cli import _resolve_chain_seeds
+    from ff9mapkit import extract, chain
+    assert _resolve_chain_seeds("50") == [50]                      # single id unchanged
+    assert _resolve_chain_seeds("50,100") == [50, 100]             # multi ids, order kept
+    ta = _resolve_chain_seeds("tshp,alxt")                         # two zones by FBG substring
+    zones = {chain.zone_label(extract.ID_TO_FBG[f]) for f in ta}
+    assert zones == {"tshp", "alxt"} and len(ta) == len(set(ta))   # both zones, de-duped
+    assert chain.zone_label(extract.ID_TO_FBG[ta[0]]) == "tshp"    # first token's zone leads
+    assert _resolve_chain_seeds("50, tshp")[0] == 50               # whitespace ok, entry preserved
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        _resolve_chain_seeds("nosuchzone_xyz")

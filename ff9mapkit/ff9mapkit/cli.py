@@ -836,17 +836,31 @@ def _chain_label_fn(game=None):
 
 
 def _resolve_chain_seeds(seed: str, game=None):
-    """Seed -> field-id list. A numeric seed is that id; otherwise an FBG substring seeds EVERY matching
-    field (e.g. 'iccv' seeds the whole Ice Cavern zone)."""
+    """Seed(s) -> field-id list. Accepts a COMMA-SEPARATED list of tokens; each token is a numeric field id
+    OR an FBG substring that seeds EVERY matching field (e.g. 'iccv' = the whole Ice Cavern zone). Several
+    tokens fork multiple zones as ONE campaign (with --whole-zone -> cross-zone warps auto-retarget in-fork);
+    seeds keep token order (so the first stays the campaign entry) and are de-duplicated."""
     from . import extract
-    s = seed.strip()
-    if s.lstrip("-").isdigit():
-        return [int(s)]
-    sl = s.lower()
-    hits = sorted(fid for fid, folder in extract.ID_TO_FBG.items() if sl in folder)
-    if not hits:
+    out: list[int] = []
+    seen: set = set()
+    for tok in seed.split(","):
+        s = tok.strip()
+        if not s:
+            continue
+        if s.lstrip("-").isdigit():
+            ids = [int(s)]
+        else:
+            sl = s.lower()
+            ids = sorted(fid for fid, folder in extract.ID_TO_FBG.items() if sl in folder)
+            if not ids:
+                raise FileNotFoundError(f"no field id or FBG folder matches seed token {s!r}")
+        for fid in ids:
+            if fid not in seen:
+                seen.add(fid)
+                out.append(fid)
+    if not out:
         raise FileNotFoundError(f"no field id or FBG folder matches seed {seed!r}")
-    return hits
+    return out
 
 
 def _deploy_cfg():
@@ -2471,7 +2485,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     ic = sub.add_parser("import-chain",
                         help="walk a connected region of REAL fields from a seed (read-only door graph; P1)")
-    ic.add_argument("seed", help="seed field id (e.g. 300) OR an FBG substring (e.g. iccv = seed every Ice Cavern screen)")
+    ic.add_argument("seed", help="seed field id (e.g. 300) OR an FBG substring (e.g. iccv = seed every Ice "
+                                 "Cavern screen). COMMA-SEPARATED for several (e.g. 50,100 or tshp,alxt) -> "
+                                 "with --whole-zone forks multiple zones as ONE campaign (cross-zone warps "
+                                 "auto-retarget in-fork); the first token stays the entry.")
     ic.add_argument("--zones", default=None,
                     help="comma-separated zone tokens to span (e.g. iccv,vgdl); default = stay in the seed's zone")
     ic.add_argument("--max-hops", type=int, default=20, dest="max_hops",
