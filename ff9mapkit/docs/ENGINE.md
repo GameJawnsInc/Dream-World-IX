@@ -5,7 +5,9 @@
 A field built by this kit needs **no engine modifications**. Everything it relies on already
 ships in [Memoria](https://github.com/Albeoris/Memoria):
 
-- the `FieldScene` **DictionaryPatch** directive that registers a custom field id,
+- the `FieldScene` **DictionaryPatch** directive that registers a custom field id
+  (how the kit *mints* that id — area `>= 10`, BG-borrow vs custom scene — is in
+  [`TECHNICAL.md`](TECHNICAL.md) §1),
 - loading a **pure-Memoria background scene** (`.bgx`) + its overlay PNGs,
 - loading the **walkmesh** (`.bgi.bytes`),
 - loading the per-language **event script** (`.eb`),
@@ -38,10 +40,7 @@ flat-floor camera-anchor solver.
 
 ## Data provenance / redistribution
 
-**The kit ships no Final Fantasy IX game data.** The base assets it needs (a cleaned "blank"
-field script + an exit-region template + the test fixtures) are *derived* from FF9 field data,
-so instead of bundling them the repo ships only our copy/insert **patches** (our edits + copy
-offsets, never game bytes) and a SHA-256 manifest; `ff9mapkit extract-templates` regenerates the
-assets from the user's **own** install into a local cache. See [`PROVENANCE.md`](PROVENANCE.md)
-for the full rationale + the airtight guarantee (no insert run ever duplicates a source-file run).
-**Background art and walkmeshes you author are yours;** the kit never ships copyrighted content.
+**The kit ships no Final Fantasy IX game data** — the base assets it needs are regenerated from
+your own install via `ff9mapkit extract-templates`. **Background art and walkmeshes you author are
+yours;** the kit never ships copyrighted content. See [`PROVENANCE.md`](PROVENANCE.md) for the full
+rationale, the patches-not-bytes mechanism, and the airtight guarantee.

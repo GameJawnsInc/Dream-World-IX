@@ -8,15 +8,14 @@ Author **novel custom field maps** for *Final Fantasy IX* (Steam, via the
 > pipeline for minting brand-new playable FF9 fields, end to end. The output runs on a
 > **stock, unmodified Memoria install** — no engine patching required.
 
-**What's in the box:** custom camera angles (single / scrolling / multi-camera) · painted
-background layers with depth + occlusion · hand-modeled *or* **imported-from-the-real-game**
-walkmeshes (including multi-floor reshape) · NPCs with custom dialogue · gateways · random
-encounters · events (chests / gil / story flags) · story branching · cutscenes (narration +
-actor walk/turn/emote/teleport) — authored from one `field.toml`, a **form-based editor**, and
-a **[Blender add-on](blender/README.md)**.
+**Headline capabilities:** author **any camera angle** from scratch (single / scrolling / multi-camera)
+with a pixel-accurate paint guide · **fork any of ~674 real fields** — camera, walkmesh, art, *and* its
+exits/encounters/music · NPCs, dialogue, gateways, encounters, events, story branching, and cutscenes from
+one `field.toml`. Author it in TOML, a **form-based editor**, or a **[Blender add-on](blender/README.md)**.
 
-> **The full capability list is in [`docs/FEATURES.md`](docs/FEATURES.md)** (with a before/now
-> comparison), and [`docs/gallery/`](docs/gallery/) collects screenshots/GIFs as they're captured.
+> **Full capability list & command reference → [`docs/FEATURES.md`](docs/FEATURES.md)** (with a before/now
+> comparison) and [`SETUP.md`](../SETUP.md) (the 59-command CLI reference). [`docs/gallery/`](docs/gallery/)
+> collects screenshots/GIFs as they're captured.
 
 ## What it does
 
@@ -44,100 +43,33 @@ between is the kit.
 ## Quickstart
 
 ```powershell
-pip install -e .                              # from the ff9mapkit\ package dir
-$env:FF9_GAME_PATH = "C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
-# bash:  export FF9_GAME_PATH="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
-
-pip install UnityPy                           # reads FF9's assetbundles (for the one-time step below)
-ff9mapkit extract-templates                   # one-time: regenerate base assets from YOUR install
-ff9mapkit doctor                              # verify it found your install + templates extracted
-ff9mapkit new MY_ROOM --area 11               # scaffold a project
-ff9mapkit guide --pitch 48 --png guide.png    # paint guide for your camera
-# ... (human) paint art into MY_ROOM/art, fill in MY_ROOM/my_room.field.toml ...
-ff9mapkit build MY_ROOM/my_room.field.toml --out dist --mod-name MyMod
-ff9mapkit pack dist/MyMod --out MyMod.zip     # share it
+pip install -e .                                 # from the ff9mapkit\ package dir
+py -m ff9mapkit doctor                           # verify it found your FF9 install
+py -m ff9mapkit import <field> --out myroom --verbatim   # fork a real field — or `new` for original art
 ```
 
-> **`ff9mapkit` command not found?** Its Scripts dir may not be on your PATH. Use
-> **`py -m ff9mapkit <command>`** instead — it's identical and works from any folder.
+> **Full setup → [`SETUP.md`](../SETUP.md)**: extras (`gui`/`save`/`dev`), game-path resolution, the
+> one-time `extract-templates` (the kit ships no game data — see [Provenance](docs/PROVENANCE.md)),
+> `doctor`, the dev loop, and a guided first-field walkthrough.
 
-**Prefer not to touch TOML?** Author the *logic* (dialogue, events, story flags, encounters,
-music, cutscenes) in a form-based editor instead:
-
-```bash
-ff9mapkit edit MY_ROOM/my_room.field.toml     # forms, dropdowns, a cutscene step list
-```
-
-The visual side has a front-end too — the [**Blender add-on**](blender/README.md) places the
-camera, walkmesh, painted layers, and markers (NPCs, gateways, event zones, spawn) and writes the
-`scene.toml`. So the suite splits cleanly: **Blender = where things are, the editor = what they do**,
-and `build` compiles both.
+**Prefer not to touch TOML?** Author the *logic* (dialogue, events, story flags, encounters, music,
+cutscenes) in the form-based editor — `ff9mapkit edit <field.toml>`. The visual side has a front-end too:
+the [**Blender add-on**](blender/README.md) poses the camera, models the walkmesh, places markers, and
+writes a `scene.toml`. So the suite splits cleanly — **Blender = where things are, the editor = what they
+do** — and `build` compiles both. There's also a one-window [PySide6 Workspace GUI](../SETUP.md#6-the-gui-workspace-optional).
 
 ## Commands
 
-59 subcommands — run `ff9mapkit -h` (or `py -m ff9mapkit -h`) for the full list. The common ones,
-grouped:
+59 subcommands — run `ff9mapkit -h` (or `py -m ff9mapkit -h`) for the full list. A taste of the families:
 
-**Setup**
+- **Author** — `new` (scaffold) · `guide` (paint guide for your camera) · `walkmesh` · `edit` (form editor)
+- **Build & ship** — `build` · `lint` · `pack` · `export-art`
+- **Fork a real field** — `import` (`--editable`/`--native`/`--verbatim`) · `import-chain` · `fork-report`
+- **Campaigns & journeys** — `new-campaign` / `build-all` · `gen-hub` / `assemble-journey`
+- **Battle maps & tuning** — `battle-import` / `battle-build` · `battle-scene` / `battle-ai`
+- **Dialogue, catalogs & saves** — `dialogue` · `catalog` / `models` / `archetypes` · `flags-inspect` · `items-inspect`
 
-| command | what it does |
-|---|---|
-| `doctor` | resolve + sanity-check the game/mod paths + whether templates are extracted |
-| `extract-templates` | one-time: regenerate the kit's base assets from **your own** FF9 install (the kit ships no game data — see [Provenance](docs/PROVENANCE.md)) |
-
-**Author a field**
-
-| command | what it does |
-|---|---|
-| `new <name>` | scaffold a `field.toml` project + `art/` dir |
-| `guide --pitch P` | author a camera, frame a flat floor, print/draw a paint guide |
-| `camera <bgx>` | inspect a scene camera (`--regen` to round-trip it) |
-| `walkmesh obj <in> <out>` | convert an `.obj` walkmesh to `.bgi`; `walkmesh fix` rebuilds neighbor links; `walkmesh verify` runs the checks |
-| `disasm <eb>` | disassemble a field event script |
-| `edit [field.toml]` | open the **form-based logic editor** (no TOML hand-editing) |
-
-**Build, lint & ship**
-
-| command | what it does |
-|---|---|
-| `build <field.toml>...` | compile project(s) into a Memoria mod |
-| `lint <field.toml>` | check story-flag/placement/geometry/camera logic without building |
-| `pack <mod>` | zip a built mod for distribution |
-| `export-art [field]` | assemble a field's background PNGs offline (`--composite` for one clean plate) |
-
-**Fork a real field**
-
-| command | what it does |
-|---|---|
-| `import <field>` | fork a **real** FF9 field into an editable `field.toml` (BG-borrow, or `--editable` / `--native` / `--verbatim`) — also extracts its exits/encounters/BGM/movement |
-| `import-all` / `import-chain <seed>` | bulk-import a Blender-ready archive / fork a connected region into a campaign |
-| `list-fields [pat]` / `find-field <q>` / `find-rooms` | list real fields to `import` / resolve a field id-or-name / sweep for good test rooms |
-| `fork-report <field>` | preview offline what a fork will/won't reproduce (`--explain` decodes each NPC) |
-
-**Campaigns & journeys**
-
-| command | what it does |
-|---|---|
-| `new-campaign` / `add-field` / `build-all` / `lint-campaign` | create / extend / compile / validate a multi-field `campaign.toml` |
-| `gen-hub` / `lint-journey` / `assemble-journey` | generate / validate / assemble a multi-campaign World-Hub `journeys.toml` |
-
-**Battle backgrounds & tuning**
-
-| command | what it does |
-|---|---|
-| `battle-import` / `battle-build` | fork a real battle background / compile a `battle.toml` into a mod |
-| `battle-list` / `battle-scene` / `battle-actions` / `battle-ai` | browse battle backgrounds / enemy data / player abilities / disassemble enemy AI |
-| `battle-patch` / `characters` / `ability-gems` | preview a field's `BattlePatch.txt` / list character-stat & gem-cost tuning targets |
-
-**Dialogue, catalogs & saves**
-
-| command | what it does |
-|---|---|
-| `dialogue <field.toml>` | view a field's authored dialogue + how each line wraps on screen ([DIALOGUE](docs/DIALOGUE.md)) |
-| `dialogue-import <field>` | read a **real** FF9 field's dialogue (or a built mod's, with `--mod`) — "NPC → text" |
-| `catalog` / `models` / `animations` / `archetypes` / `items` / `scenes` / `flags` | search the reference catalogs by name (place anything by name) |
-| `flags-inspect` / `flags-diff` / `save-edit` | decode / diff / set a save's scenario + story flags |
-| `items-inspect` / `items-set-*` | read / write a save's gil, items, equipment, key items, stats, AP |
+> **The full grouped command reference (all 59, with flags) is in [`SETUP.md` §7](../SETUP.md#7-cli-command-reference).**
 
 ## Docs
 

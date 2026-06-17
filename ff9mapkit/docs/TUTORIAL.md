@@ -15,9 +15,13 @@ installed, and (for import) `pip install UnityPy`.
 cd ff9mapkit             # the package dir, where pyproject.toml lives (no pyproject at the repo root)
 pip install -e .
 export FF9_GAME_PATH="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
-ff9mapkit doctor          # should find your install + report UnityPy present
+ff9mapkit extract-templates   # one time per checkout — regenerates base assets from your install
+ff9mapkit doctor              # should find your install + report UnityPy present + templates extracted
 ```
 (If the `ff9mapkit` command isn't on your PATH, use `py -m ff9mapkit …` — identical.)
+
+Full setup, extras (`gui`/`save`/`dev`), game-path resolution, and the dev loop →
+**[SETUP.md](../../SETUP.md)** (repo root).
 
 ## 2. Pick a field to fork (1 min)
 

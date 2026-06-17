@@ -30,11 +30,9 @@ guide below is the modern stand-in for the layout render the original artists dr
 
 ## 0. Install
 
-```bash
-pip install -e .
-export FF9_GAME_PATH="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
-ff9mapkit doctor          # confirm it found your install
-```
+Install the kit, point it at your FF9 install, run `extract-templates`, and confirm with
+`ff9mapkit doctor` — the full one-time setup (prerequisites, the game-path resolution order, the
+optional extras) is in **[../../SETUP.md](../../SETUP.md)**.
 
 The output runs on a **stock, unmodified Memoria install** — see [ENGINE.md](ENGINE.md).
 

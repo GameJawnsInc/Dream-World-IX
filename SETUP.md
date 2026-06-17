@@ -174,18 +174,13 @@ Rule of thumb: **`--verbatim`** to *play* it the same; **`--editable`** to *chan
 
 ### Reference box — id bands & the global-id rule
 
-| Band | Range | Use |
-|---|---|---|
-| Real fields | **10–3100** | locked (the shipping game) |
-| Shipped custom | **4000–9899** | your published mod fields (the default `4003` test slot lives here) |
-| Dev scratch | **30000–32767** | per-worktree test slots |
+Custom field ids are **≥ 4000** (the default `4003` test slot included), and because the engine's
+registries are merged across mod folders, **ids must be globally distinct even across stacked
+folders** — two folders reusing an id collide and one field loads a null `.eb` (black screen). One
+SETUP caveat on the cap: a field id is an **Int16 (max 32767)** — a higher id registers but is
+unreachable, and an out-of-range id can break the whole `DictionaryPatch` parse.
 
-Field id is **Int16 → max 32767** (a higher id registers but is unreachable, and an out-of-range
-id can break the whole `DictionaryPatch` parse). **EventDB ids are GLOBAL**, so **distinct ids are
-required even across stacked mod folders** — two folders reusing an id collide and one field loads
-a null `.eb` (black screen).
-
-The canonical reference for the id / flag / text namespaces (and the global-id rule) is
+The full id / flag / text namespaces and the global-id rule (with their rationale) live in
 [`ff9mapkit/docs/GLOBAL_RESOURCES.md`](ff9mapkit/docs/GLOBAL_RESOURCES.md).
 
 ---
@@ -434,8 +429,8 @@ tabbed document area, a right-hand **Inspector**, and a bottom **Output/Problems
 | `items-inspect` | Read items / equipment / gil from a save. |
 | `items-set-gil` / `-item` / `-equip` / `-keyitem` / `-stat` / `-ap` | Write gil / inventory / equipment / key items / permanent stats / AP. |
 
-> The `ff9mapkit/README.md` command table lists only 15 of these — the campaign/journey, battle,
-> save-editing, and catalog families have outgrown it. This table is the current full surface.
+> This table is the full command surface — `ff9mapkit/README.md` keeps a condensed family overview
+> that links here.
 
 ---
 

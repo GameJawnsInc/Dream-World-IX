@@ -22,7 +22,8 @@ only **our** part:
   `(offset, length)`; it does **not** contain the game's bytes. This is exactly how an IPS/BPS/xdelta
   ROM‑hack patch works, and why patches are legally distributable while ROMs are not. (For reference,
   the blank‑field patches are ~70–110 bytes of our edits over a 956‑byte field; the region patch is
-  ~5 bytes.)
+  ~5 bytes.) Verified **airtight**: `provision.patch_game_runs` asserts no insert run ever duplicates a
+  run already present in the source field — so a patch can't smuggle game bytes in disguise.
 - a **manifest** (`data/provenance/manifest.json`) — names the base fields to read and records the
   SHA‑256 of every regenerated blob, so extraction self‑verifies it produced exactly the right bytes
   (a hash is a one‑way digest, not a copy of the data).
