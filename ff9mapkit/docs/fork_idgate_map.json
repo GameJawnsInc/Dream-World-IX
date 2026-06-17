@@ -1,0 +1,3540 @@
+[
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 820,
+  "field_ids": [
+   3009
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 3009",
+  "behavior": "In AutoHide coroutine, on the Epilogue Stage field calls DialogManager.ForceControlByEvent(false) and yield-breaks (skips the timed auto-close wait), handing control back to the event.",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Real fldMapNo == gate (field 3009 = Epilogue: Stage). A custom-id fork of 3009 falls through to the normal timed AutoHide instead of returning control to the event script -> the scripted epilogue cutscene's dialog handshake breaks (control not yielded as the .eb expects), can hang/desync the epilogue. The epilogue is heavily scripted so impact is high.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 826,
+  "field_ids": [
+   3010
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 3010",
+  "behavior": "Same as 3009: ForceControlByEvent(false) + yield-break in AutoHide for the Epilogue Stage field 3010.",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Real fldMapNo == gate (field 3010 = Epilogue: Stage). Fork loses the event-control handoff in AutoHide; same break as 3009.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/DialogManager.cs",
+  "line": 214,
+  "field_ids": [
+   100
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 100",
+  "behavior": "In Close(), on Alexandria/Main Street when Map-byte-31 var == 3 (Puck hits Vivi), immediately calls dialog.AfterHidden() to force-finish the dialog instead of waiting for the close animation.",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Real fldMapNo == gate (field 100 = Alexandria/Main Street, intro). A custom-id fork loses the immediate AfterHidden() flush during the Puck-hits-Vivi scripted beat, so the dialog's AfterHidden side-effects (ProcessDialog/release) don't fire on the scripted close -> the intro cutscene handshake can hang. Also gated on map-var 31 == 3 (story state). High-value gate for the intro/opening fork work.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 657,
+  "field_ids": [
+   2200
+  ],
+  "gate": "FF9.fldMapNo == 2200 && ScenarioCounter == 9790 && FieldEntrance == 114",
+  "behavior": "Hotfix: clears the whole party (sets 4 slots to NONE) right after obtaining the Gulug Stone, even if AllCharactersAvailable=2.",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Palace/Dungeon. This is a script-correctness hotfix; the comment notes the script normally adds characters back. A fork at a custom id misses it, so with AllCharactersAvailable=2 the party isn't cleared and the downstream re-add logic can desync the cast \u2014 potential soft-lock / wrong party for the cutscene. Scenario+entrance gated too.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 667,
+  "field_ids": [
+   2207
+  ],
+  "gate": "FF9.fldMapNo == 2207 && ScenarioCounter == 9835",
+  "behavior": "Hotfix: forces the party to be exactly Oeilvert's team (Zidane + up to 3 of Garnet/Amarant/Quina/Freya/Vivi/Steiner/Eiko chosen by VARL_GenBool_3536..3542) when bringing the Gulug Stone back.",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Palace/Hall. Comment says it prevents another soft-lock later. A fork loses the forced-team correction => possible soft-lock / wrong party in the following cutscene. Scenario gated.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 687,
+  "field_ids": [
+   2301
+  ],
+  "gate": "FF9.fldMapNo == 2301 && ScenarioCounter == 9910",
+  "behavior": "Hotfix: ensures at least one normal character (forces Zidane+Steiner) for the Esto Gaza Priest cutscene if the party has none of Garnet/Steiner/Freya/Quina/Amarant.",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Esto Gaza/Altar. Guards a cutscene that needs a normal actor present. A fork loses it => the cutscene can run with an unsupported party and soft-lock. Scenario gated.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 700,
+  "field_ids": [
+   2362
+  ],
+  "gate": "FF9.fldMapNo == 2362 && ScenarioCounter == 9950 && GenBool_3262 == 0",
+  "behavior": "Hotfix: forces a normal team (Zidane/Vivi/Steiner/Garnet) for the cutscene at the bottom of Gulug when Zidane or Vivi is missing or Eiko/non-standard members are present.",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Gulug/Path. Cutscene party-shape guard. A fork loses it => possible soft-lock with wrong party. Scenario+flag gated.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.updateModelsToBeAdded.cs",
+  "line": 80,
+  "field_ids": [
+   768
+  ],
+  "gate": "wasField && gMode==1 && _ff9.fldMapNo == 768 && FF9StateSystem.Battle.battleMapIndex == 4",
+  "behavior": "After the Beatrix battle in Burmecia/Palace, repositions and re-poses 7 actors (Brahne, Kuja, Zidane, Vivi, Freya, Quina, Beatrix) to fixed coordinates/animations (fix #664).",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Burmecia/Palace post-battle reinit. A fork at a custom id loses the actor repositioning => the after-battle cutscene actors are in wrong spots/poses, and the scripted scene can break/soft-lock. Also gated on battleMapIndex==4. UID-keyed actor fixes (11/13/15/16/19/20/23).",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 923,
+  "field_ids": [
+   2504,
+   105,
+   2605
+  ],
+  "gate": "(fldMapNo==2504 && sid==14) || (fldMapNo==105 && sid==4) || (fldMapNo==2605 && sid==11)",
+  "behavior": "UpdateActiveTri: early-returns to EXEMPT the actor from per-frame walkmesh tri-snapping",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "THE canonical case. 2504 sid14 = I.Castle/Small Room Chest_TerranA (Fork chest); 105 sid4 = Alexandria/Alley Dante (ladder-climbing signmaker); 2605 sid11 = Terra/Treetop Chest_TerranA (Remedy chest). These actors live off the walkmesh (on a ladder / a chest floating above floor). Without the exemption UpdateActiveTri calls ResetPos every frame -> actor reset/cutscene softlock (the proven Dante case). Highest-priority gate for the fork->donor-id remap patch.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 102,
+  "field_ids": [
+   2507
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2507 (I. Castle/Stairwell) in HonoAwake",
+  "behavior": "Starts DelayedActiveTri coroutine that disables NPC char-collision and specific walkmesh triangles after 0.5s (ladders+stairs room)",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Also gated again at line 139 inside the coroutine. Disables tris 174/175/177/178 and de-activates non-player actor collision. A fork loses both \u2192 the ladder/stairs walkmesh isn't carved \u2192 player/NPCs can walk into blocked geometry or a scripted climb cutscene mis-navigates; high softlock risk on this navigation-heavy room. Engine remap should cover 2507.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 1495,
+  "field_ids": [
+   1656
+  ],
+  "gate": "fldMapNo == 1656 && playerController == null (Iifa Tree/Eidolon Mountain) in EBG_scene2DScrollRelease",
+  "behavior": "Binds the player controller to obj uid 8 (selects Zidane) when none is set, before a scroll-release",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Also see 1972 (SceneService3DScroll CrutchForEvaMap on 1656). This 'crutch' picks the controllable actor for a scripted scroll where playerController is null. A fork loses it \u2192 playerController stays null \u2192 the scroll-release / camera-follow has no player to track during this Eidolon cutscene \u2192 camera/scroll can hang or the beat doesn't advance. High softlock risk; engine remap should cover 1656.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 1966,
+  "field_ids": [
+   2512
+  ],
+  "gate": "map == 2512 && playerController == null (CrutchForIpsenMap, EVT_IPSEN_IP_CNT_2) in SceneService3DScroll",
+  "behavior": "Binds player controller to obj uid 2 when null, so 3D scroll can track the player",
+  "fork_loses": true,
+  "fork_impact": "SOFTLOCK",
+  "notes": "Same 'crutch' pattern as 1656. Fork loses \u2192 playerController null during this Ipsen cutscene scroll \u2192 camera/scroll has nothing to follow \u2192 beat can stall. Softlock risk; engine remap should cover 2512.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Actor/Actor.cs",
+  "line": 24,
+  "field_ids": [
+   2954
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2954 && sid == 4",
+  "behavior": "Chocobo's Paradise: sets the Gold Chocobo actor's turn rate (omega) to 96 instead of the default 16.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Actor ctor; gated on actor sid==4. A fork gets the default omega=16 -> the gold chocobo turns/orients slower. Playable, animation/movement quirk.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/Actor/Actor.cs",
+  "line": 26,
+  "field_ids": [
+   1656
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1656 && sid == 9",
+  "behavior": "Iifa Tree/Eidolon Mound: sets Vivi actor's turn rate (omega) to 48 instead of default 16.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Actor ctor; sid==9. Fork gets default omega -> Vivi turns slower in that scene. Movement quirk, playable.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/BGSCENE_DEF.cs",
+  "line": 925,
+  "field_ids": [
+   1505,
+   2605,
+   2653,
+   2259,
+   153,
+   1806,
+   1214,
+   1823,
+   1752,
+   2922,
+   2923,
+   2924,
+   2925,
+   2926,
+   1751,
+   1753,
+   2252,
+   2714
+  ],
+  "gate": "combineMeshes = list.Contains(FF9StateSystem.Common.FF9.fldMapNo)",
+  "behavior": "Selects the combined-mesh background build path (CreateSceneCombined) instead of per-sprite CreateScene, for fields with depth-sorting/transparency problems",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "id-keyed List<Int16> of fldMapNo (note: keyed on the numeric id, NOT the FBG name, so a fork DOES lose it). Fork \u2192 combineMeshes=false \u2192 uses the non-combined render path \u2192 these specific fields can show overlay depth-sort/transparency artifacts (e.g. Crystal World, Iifa roots, Oeilvert). Visual correctness regression but playable.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/BGSCENE_DEF.cs",
+  "line": 1721,
+  "field_ids": [
+   552
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 552 (Lindblum/Main Street) in CreateSceneCombined",
+  "behavior": "Overrides per-overlay canCombine handling for Lindblum Main Street overlay 17",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Only reached if 552 is in the combineMeshes list \u2014 it is NOT, so this branch is effectively dead for 552 unless combine path entered another way. If reached, a fork loses the overlay-17 special-case \u2192 depth artifacts on that street overlay. Note the body 'i==17 ? true : true' is a no-op anyway.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/BGSCENE_DEF.cs",
+  "line": 1733,
+  "field_ids": [
+   552
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 552 && i == 17",
+  "behavior": "Marks sprites 202,203,214,215 of overlay 17 as separate (non-combined) sprites on Lindblum Main Street",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Same 552 gate inside the combine path. Fork loses the separate-sprite carve-out \u2192 those 4 sprites depth-sort wrong if the combine path is taken. Playable cosmetic-ish quirk.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/BGSCENE_DEF.cs",
+  "line": 1837,
+  "field_ids": [
+   2714
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2714 (Pand./Maze) && spriteIndex in {64,65,66,80,81}",
+  "behavior": "Forces depth=400 on 5 specific maze sprites so they render in front correctly",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "CreateScene_NonCombinedSprite. Fork of Pandemonium Maze loses the depth fix \u2192 those 5 sprites sort to wrong depth (visual occlusion bug). Playable.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 489,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 23",
+  "behavior": "Marks textId 154/155 (or 149/150 IT, 134/135 default) as an 'overlay' dialog (moved off-screen, purple-digit number-entry UI) for Mist Gates potion-buying.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Gated on FieldZoneId (zone/area id), not fldMapNo, but a custom-id mint generally won't carry zone 23 -> loses the overlay number-entry treatment, dialog renders in-place wrong (cosmetic-to-functional for the buy-count UI). Zone 23 = Mist Gates. Verbatim forks that BG-borrow may keep zone id; synth forks won't.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 505,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 70 || FF9TextTool.FieldZoneId == 741",
+  "behavior": "Marks textId 204-206 (US/UK) or 205-207 as overlay dialogs for Treno Auction House bidding number-entry.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId gate (zones 70 and 741 = Treno auction). Same overlay number-entry mechanism as line 489; a custom-id fork loses the off-screen overlay treatment so the bid-amount digit UI breaks. Not fldMapNo.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 518,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 166",
+  "behavior": "Marks textId 106/107 as overlay dialogs for Daguerreo ore->aquamarine transforming count UI.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId gate (zone 166 = Daguerreo). Overlay number-entry mechanism; fork loses the count-selection overlay UI. Not fldMapNo.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 522,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 358",
+  "behavior": "Marks per-language textId pairs as overlay dialogs for Madain Sari 'cook for how many people' count UI.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId gate (zone 358 = Madain Sari). Overlay number-entry mechanism; fork loses the count-selection overlay UI. Not fldMapNo.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 544,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 945",
+  "behavior": "Marks textId 251/252 (JP) or 252/253 as overlay dialogs for Chocobo Places Gysahl-Greens buy count UI.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId gate (zone 945 = Chocobo Places). Overlay number-entry mechanism; fork loses the buy-count overlay UI. Not fldMapNo.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 733,
+  "field_ids": [
+   2951,
+   2952
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2951 || FF9StateSystem.Common.FF9.fldMapNo == 2952",
+  "behavior": "In OnKeyConfirm, swallows the confirm keypress for specific Press/Release mes-id pairs (Chocobo Hot&Cold dig prompts) at Chocobo's Lagoon (2951) and Air Garden (2952) so the press isn't double-handled.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Real fldMapNo == gate. A custom-id fork of 2951/2952 (Chocobo's Lagoon / Air Garden) loses the confirm-suppression, so the Hot&Cold dig confirm fires twice / mis-handles the press during digging. Playable but a minigame input quirk. (Chocobo H&C is known to be field-id gated; the project notes recommend forking in-place on 2950-2952.)",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 741,
+  "field_ids": [
+   2950
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2950",
+  "behavior": "Same confirm-keypress suppression for the Press/Release mes-id pairs (245/225, 246/226) at Chocobo's Forest.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Real fldMapNo == gate (field 2950 = Chocobo's Forest). A custom-id fork loses the dig-confirm suppression. Same family as line 733.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 832,
+  "field_ids": [
+   3011
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 3011",
+  "behavior": "In AutoHide, on Epilogue Stage 3011 calls ForceControlByEvent(true) and adds a per-language timing offset to the auto-hide wait (does NOT yield-break).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Real fldMapNo == gate (field 3011 = Epilogue: Stage). A fork loses the ForceControlByEvent(true) + the language-dependent wait fudge, so the epilogue dialog auto-hide timing/control is off (text may auto-advance with wrong timing). Less severe than 3009/3010 since it doesn't yield-break, but still an epilogue cutscene desync.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/EBin.cs",
+  "line": 317,
+  "field_ids": [
+   2801
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2801 && s1.sid == 11 && s1.ip == 3834 (inside IsFastTrophyMode)",
+  "behavior": "Fast-trophy-mode shortcut: force-sets map var 46 = 8 at a specific script point in Daguerreo/Right Hall to skip ahead the Gilgamesh sequence.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2801 = FBG_N55_DGLO_MAP777_DG_SRH_0 (Daguerreo Right Hall, Gilgamesh). Gated additionally on FF9StateSystem.Settings.IsFastTrophyMode (an optional speedrun/trophy assist), sid 11, ip 3834. A fork loses the trophy-mode skip only; normal play unaffected.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/EBin.cs",
+  "line": 319,
+  "field_ids": [
+   1900
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1900 && s1.sid == 0 && s1.ip == 4138 (inside IsFastTrophyMode)",
+  "behavior": "Fast-trophy-mode shortcut: force-sets map var 26 = 8 at a specific script point in Treno/Pub Main to skip ahead.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1900 = FBG_N20_TRNO_MAP417_TR_BAR_0 (Treno Pub, second instance). Gated on IsFastTrophyMode (optional), sid 0, ip 4138. Lost only in trophy mode; normal play unaffected.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/EBin.cs",
+  "line": 323,
+  "field_ids": [
+   705
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 705 && s1.sid == 3 && s1.ip == 541 (in expr())",
+  "behavior": "In the expression evaluator, when this exact NPC/IP is hit on Gizamaluke Bell Room, advances s1.ip by 7 and returns 0 early -- skips an expression (a bugfix/patch for the Female Moogle).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 705 = FBG_N12_GZML_MAP254A_GZ_BEL_0 (Gizamaluke Bell Room, Female Moogle). NOT inside IsFastTrophyMode -- this runs every playthrough. A fork at a custom id loses this expr skip; effect is whatever bug the patch fixes for that Moogle's script (playable, likely a soft/cosmetic glitch). sid 3, ip 541.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/EBin.cs",
+  "line": 714,
+  "field_ids": [
+   908,
+   1908
+  ],
+  "gate": "(FF9StateSystem.Common.FF9.fldMapNo == 908 || fldMapNo == 1908) && _eventEngine.gCur.uid == 0 && t3 == 80 (in B_LT)",
+  "behavior": "Widescreen fix: in a less-than comparison, rewrites the literal 80 to 300 so the Treno gate trigger position is correct in widescreen.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fields 908 = FBG_N20_TRNO_MAP400_TR_GAT_0 and 1908 = the second Treno gate instance. Comment: 'fix for gates at treno in widescreen'. A fork loses the widescreen gate-position correction (gate trigger may misfire off in widescreen); playable. Note the sibling check at line 718 (gCur.uid==13 && t3==-300 -> -250) is NOT field-id gated, so a fork keeps that one.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/EBin.cs",
+  "line": 730,
+  "field_ids": [
+   657
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 657 && gCur.sid == 17 && gCur.ip in {1413,1542,1666,1795,2172,2301,1919,2048,2425,2554,2683,2812,2941} (in B_GT)",
+  "behavior": "In a greater-than comparison, flips strict '<' to '<=' (t3 <= _v0) at many script points for Zidane in the Qu's Marsh Pond -- a comparison/boundary fix for the frog-catching minigame.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 657 = FBG_N15_KUIN_MAP317_KM_SWP_1 (Qu's Marsh / Pond, frog catching). Runs every playthrough (not trophy-gated). sid 17 (Zidane). A fork loses the inclusive-boundary fix for frog catching at those 13 IPs -- minigame edge-case behavior changes; playable.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 345,
+  "field_ids": [
+   903,
+   1903,
+   112
+  ],
+  "gate": "(fldMapNo == 903 && sid==11) || (fldMapNo == 1903 && sid==15) (stadium); else if fldMapNo == 112 && sid==7 (pub)",
+  "behavior": "Tetra Master: computes the Card Stadium tournament opponent id (fldMapNo*1000+flag+100), or routes the Alexandria/Pub card game to the normal opponent-id path.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "opponentId uses fldMapNo*1000 so a fork produces a different/garbage opponent id -> wrong or no Quadmist opponent selected for the stadium tournament. Could break the card minigame's opponent pick (wrong deck) -> functional, plus the achievement. Pub branch (112) just loses normal opponent registration.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 365,
+  "field_ids": [
+   2955
+  ],
+  "gate": "fldMapNo == 2955 && uid == 9",
+  "behavior": "Chocobo's Paradise: registers the Fat Chocobo Tetra Master opponent id.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Sets quadmistOpponentId for the Fat Chocobo card game; a fork skips it -> opponent id not set (achievement + possibly no/garbage opponent).",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 388,
+  "field_ids": [
+   1421
+  ],
+  "gate": "fldMapNo == 1421 && EBin.s1.sid==0 && EBin.s1.ip==813",
+  "behavior": "Fossil Roo/Mining Site: a dig-minigame cheat that force-sets two map vars (digging assist for the Madain's Ring).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Also pinned on script ip==813, so it would only ever match the exact donor bytecode anyway. A fork loses the dig-assist hack; the dig minigame still plays normally. Minor.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 697,
+  "field_ids": [
+   1850
+  ],
+  "gate": "fldMapNo == 1850 && s1.sid == 15",
+  "behavior": "Alexandria/Main Street: overrides the Hippaul-race Vivi-speed var with Configuration.Hacks.HippaulRacingViviSpeed and clamps a minimum speed.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Applies the Steam Hippaul-racing speed hack / min-speed clamp to the Vivi runner. A fork loses the speed override -> the race uses raw .eb speed (playable, the configurable assist is gone). Functional.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 638,
+  "field_ids": [
+   70
+  ],
+  "gate": "this._ff9.fldMapNo == 70",
+  "behavior": "Suppresses the entry autosave on the Opening-FMV field (field 70).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "noSave flag. A custom-id fork of field 70 would NOT match == 70, so the autosave-suppression is lost and an autosave could fire on entry. Wrong-but-playable (an unwanted autosave). The toolkit already retargets New Game via a field-70 override, so this is the opening field.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 639,
+  "field_ids": [
+   2200
+  ],
+  "gate": "this._ff9.fldMapNo == 2200 && scCounterSvr == 9450 && mapIndexSvr == 9999",
+  "behavior": "Suppresses entry autosave on Palace/Dungeon first-time entrance.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "noSave flag, also scenario+mapIndex gated. A fork loses the suppression; harmless-ish unwanted autosave. Cosmetic-to-functional.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 640,
+  "field_ids": [
+   150
+  ],
+  "gate": "this._ff9.fldMapNo == 150 && scCounterSvr == 1155 && mapIndexSvr == 325",
+  "behavior": "Suppresses entry autosave on A. Castle/Guardhouse (Zidane & Blank after sword fight).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "noSave flag. Fork loses autosave-suppression.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 641,
+  "field_ids": [
+   1251
+  ],
+  "gate": "this._ff9.fldMapNo == 1251 && scCounterSvr == 5400",
+  "behavior": "Suppresses entry autosave on Pinnacle Rocks/Hole first-time entrance.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "noSave flag. Fork loses autosave-suppression.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 642,
+  "field_ids": [
+   1602
+  ],
+  "gate": "this._ff9.fldMapNo == 1602 && scCounterSvr == 6645 && mapIndexSvr == 16",
+  "behavior": "Suppresses entry autosave on Mdn. Sari/Path (night-time Zidane/Vivi/Eiko cutscene).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "noSave flag. Fork loses autosave-suppression.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 643,
+  "field_ids": [
+   1757
+  ],
+  "gate": "this._ff9.fldMapNo == 1757 && scCounterSvr == 6740",
+  "behavior": "Suppresses entry autosave on Iifa Tree/Outer Seal (return after Soulcage).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "noSave flag. Fork loses autosave-suppression.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 644,
+  "field_ids": [
+   2752
+  ],
+  "gate": "this._ff9.fldMapNo == 2752 && scCounterSvr == 11100 && mapIndexSvr == 9999",
+  "behavior": "Suppresses entry autosave on Invincible/Bridge (Assault of the Silver Dragons).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "noSave flag. Fork loses autosave-suppression.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 645,
+  "field_ids": [
+   3001
+  ],
+  "gate": "this._ff9.fldMapNo == 3001 && scCounterSvr == 12000 && mapIndexSvr == 0",
+  "behavior": "Suppresses entry autosave on Ending/AC.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "noSave flag. Fork loses autosave-suppression.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.cs",
+  "line": 646,
+  "field_ids": [
+   2161
+  ],
+  "gate": "this._ff9.fldMapNo == 2161 && scCounterSvr == 10000 && mapIndexSvr == 32",
+  "behavior": "Suppresses entry autosave on L. Castle/Guest Room (Zidane awakes after Mount Gulug).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "noSave flag. Fork loses autosave-suppression.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.GetSysvar.cs",
+  "line": 71,
+  "field_ids": [
+   2919
+  ],
+  "gate": "Configuration.Hacks.ExcaliburIINoTimeLimit && FF9StateSystem.Common.FF9.fldMapNo == 2919",
+  "behavior": "GetSysvar code 20 (the in-script countdown timer read) returns 0 on Crystal World 2919 so the Excalibur II time limit never expires (a Memoria QoL hack).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2919 = FBG_N45_CYSW_MAPX19_CW_EMP_0 (Crystal World, where Excalibur II is grabbed). Only active when the optional Configuration.Hacks.ExcaliburIINoTimeLimit toggle is on; a custom-id fork loses the no-time-limit assist (timer reads real value). Vanilla behavior (timed) is preserved, so this is a lost QoL hack, not a softlock. Not field-id-pinned to vanilla logic.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessAnime.cs",
+  "line": 48,
+  "field_ids": [
+   2950,
+   2951,
+   2952,
+   2953,
+   2954,
+   2955
+  ],
+  "gate": "fldMapNo == 2950 || 2951 || 2952 || 2953 || 2954 || 2955 (flag)",
+  "behavior": "On the Chocobo Hot & Cold maps, when a child actor's parent (Choco) changes idle/walk/run state, force-SetAnim the child to the matching clip so it visibly re-animates; off these maps the child only copies the anim id without calling SetAnim.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Chocobo Hot & Cold fields. 'flag' is true only on the real ids; a fork at a custom id sets flag=false, so a parented actor's animation clip isn't refreshed on parent state change (anim id is still copied, but SetAnim/frame reset is skipped) -> child actor animation glitch/stale clip. Visible-but-playable. Note id 2953 appears in this OR but not in the line-73 sid table. Matches memory: Chocobo H&C is field-id gated (fork in-place on 2950-2952).",
+  "group": "eventengine-anime-turn"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessAnime.cs",
+  "line": 73,
+  "field_ids": [
+   2950,
+   2951,
+   2952,
+   2954,
+   2955
+  ],
+  "gate": "(fldMapNo==2950 && sid==25) || (2951 && sid==29) || (2952 && sid==23) || (2954 && sid==26) || (2955 && sid==28)",
+  "behavior": "For one specific parented actor per Chocobo H&C map (the named sid), drive its animFrame independently (increment + modulo frameN) instead of slaving animFrame to the parent's animFrame.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Chocobo Hot & Cold. Each clause pins a real field id AND a specific actor sid. A custom-id fork takes the else branch (animFrame = parent.animFrame), so this special actor (e.g. Choco/Mene) animates locked to its parent instead of free-running -> wrong/desynced animation, but playable. Note: 2953 has no sid clause here even though it's in the line-48 OR; this gate covers 2950/2951/2952/2954/2955.",
+  "group": "eventengine-anime-turn"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessEvents.cs",
+  "line": 18,
+  "field_ids": [
+   303,
+   304
+  ],
+  "gate": "FF9.fldMapNo == 303 || FF9.fldMapNo == 304 (inside IsNoEncounter)",
+  "behavior": "When the No-Encounter setting is on, clears GlobBool 205/206/207 on Ice Cavern/Icicle Field & Ice Path to prevent the Wyerd forced battles.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Only active when the IsNoEncounter setting is on; a fork at a custom id won't get the Wyerd-flag clearing, so the Wyerd battle would still trigger despite no-encounter. Wrong-but-playable, and conditional on a cheat/setting.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessEvents.cs",
+  "line": 25,
+  "field_ids": [
+   301
+  ],
+  "gate": "FF9.fldMapNo == 301 (inside IsNoEncounter)",
+  "behavior": "No-Encounter setting: clears GlobBool 238/239 on Ice Cavern/Ice Path.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Conditional on IsNoEncounter. Fork loses the forced-battle flag clearing.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessEvents.cs",
+  "line": 31,
+  "field_ids": [
+   302
+  ],
+  "gate": "FF9.fldMapNo == 302 (inside IsNoEncounter)",
+  "behavior": "No-Encounter setting: clears GlobBool 206/207 on Ice Cavern/Ice Path.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Conditional on IsNoEncounter. Fork loses the forced-battle flag clearing.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessEvents.cs",
+  "line": 37,
+  "field_ids": [
+   2921
+  ],
+  "gate": "FF9.fldMapNo == 2921 (inside IsNoEncounter)",
+  "behavior": "No-Encounter setting: sets GlobUInt16_40 = 10 on Memoria/To the Origin (to skip a forced-encounter sequence).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Conditional on IsNoEncounter. Fork loses the progression-flag set; a fork could get stuck on the forced sequence under no-encounter.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessEvents.cs",
+  "line": 109,
+  "field_ids": [
+   257
+  ],
+  "gate": "_ff9.fldMapNo == 257",
+  "behavior": "On Evil Forest/Nest, gates event-code processing on the dialog being fully visible (canProcessCode = !DialogManager.Activate || CompletlyVisible) to sync a scripted moment with dialog reveal.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "A fork at a custom id always runs code unconditionally (canProcessCode stays true) => the dialog/script timing sync on field 257 is lost. Wrong-but-playable timing/pacing quirk; could mis-time a scripted dialog beat.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessEvents.cs",
+  "line": 518,
+  "field_ids": [
+   52
+  ],
+  "gate": "FF9.fldMapNo != 52 || (actor.sid != 6 && actor.sid != 13) || getVarManually(6357) == 0",
+  "behavior": "Keeps two specific actors (sid 6 & 13) visible on field 52 while a flag (var 6357) is set, instead of disabling their renderers.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Renderer-enable exception. The condition is built so on field 52 with sid 6/13 and var6357!=0 the disable is SKIPPED (actors stay shown). A fork at a custom id makes 'fldMapNo != 52' true => the exception fires for ALL actors and these two are disabled like normal => those actors get hidden when they shouldn't be. Visual/logic quirk on a fork (actors vanish). FUNCTIONAL-leaning visual.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessTurn.cs",
+  "line": 18,
+  "field_ids": [
+   2855
+  ],
+  "gate": "fldMapNo == 2855 && getVarManually(SC_COUNTER_SVR)==9370 && actor.model==273 (turnAdd==32766 branch)",
+  "behavior": "During a specific scripted turn (turnAdd==32766) for model 273 at scenario 9370, wrap the candidate turn angle 'a' into [-180,180] before the completion comparison, normalizing the rotation so the turn terminates correctly.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2855 gated AND scenario-counter-gated (9370) AND model-gated (273). A fork loses the angle-normalization for this scripted turn; without it the completion test (a < turnRot) can mis-evaluate, leaving the actor turning the long way / overshooting. Cutscene-specific; wrong-but-recoverable rotation rather than a hard hang. A fork at scenario-zero also wouldn't hit SC 9370, so practically NA unless the fork seeds that beat -- but if seeded, the field-id pin still drops it.",
+  "group": "eventengine-anime-turn"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessTurn.cs",
+  "line": 35,
+  "field_ids": [
+   2855
+  ],
+  "gate": "fldMapNo == 2855 && getVarManually(SC_COUNTER_SVR)==9370 && actor.model==273 (turnAdd==Int16.MaxValue/32767 branch)",
+  "behavior": "Mirror of line 18 for the opposite turn direction (turnAdd==32767): wrap angle 'a' into [-180,180] before the completion comparison so the scripted turn terminates correctly.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Same field 2855 + scenario 9370 + model 273 gate as line 18, the turnAdd==Int16.MaxValue path. Fork loses angle normalization on this scripted turn -> potential overshoot/long-way rotation. Same NA-unless-seeded caveat: requires SC 9370 to even reach, but if seeded the field-id pin drops it on a custom id.",
+  "group": "eventengine-anime-turn"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.turnOffTriManually.cs",
+  "line": 8,
+  "field_ids": [
+   1900
+  ],
+  "gate": "fldMapNo == 1900 && sid == 4",
+  "behavior": "Deactivates walkmesh triangle 56 (BGI_triSetActive(56,0)) for actor sid 4 on this field -- script-driven removal of a walkable tri (e.g. closing off a path/blocking a tri).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "turnOffTriManually is called from script (TurnOffTriManually opcode) to toggle a specific walkmesh tri by field. A custom-id fork of 1900 never matches, so the tri stays active -> the player can walk where the original blocks them (or a path that should open/close doesn't), a walkmesh logic quirk. Could in principle strand a scripted sequence but generally wrong-but-playable. sid 4 pinned.",
+  "group": "eventengine-anime-turn"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.turnOffTriManually.cs",
+  "line": 14,
+  "field_ids": [
+   900
+  ],
+  "gate": "fldMapNo == 900 (with sid 8 and sid 17 sub-cases, scenario/map-index gated)",
+  "behavior": "On field 900: sid 8 deactivates tri 56 once SC_COUNTER>=4450; sid 17 deactivates tri 62 unless SC>=4450 or map-index is 1/5 -- scenario-progress-driven walkmesh tri toggling.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 900 pinned; inner branches further gated on SC_COUNTER_SVR (4450) and MAP_INDEX_SVR (1/5). A fork at a custom id never enters this block, so these progression-based walkmesh changes never apply -> tris in the wrong active state for the story beat (path open when it should be closed or vice versa). Wrong-but-playable; sids 8 and 17.",
+  "group": "eventengine-anime-turn"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.turnOffTriManually.cs",
+  "line": 32,
+  "field_ids": [
+   1455
+  ],
+  "gate": "fldMapNo == 1455 && sid == 5",
+  "behavior": "Deactivates walkmesh triangle 16 (BGI_triSetActive(16,0)) for actor sid 5 on this field.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1455 pinned + sid 5. A custom-id fork loses the scripted tri-16 deactivation, leaving that tri walkable when the original removes it -> walkmesh quirk, wrong-but-playable.",
+  "group": "eventengine-anime-turn"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.turnOffTriManually.cs",
+  "line": 40,
+  "field_ids": [
+   2803
+  ],
+  "gate": "fldMapNo == 2803 && sid == 20",
+  "behavior": "For sid 20 on field 2803, sets tris 105 and 106 active or inactive based on whether script var 761060 == 1 -- toggles a pair of walkmesh tris by a story flag.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2803 pinned + sid 20; tri activation driven by var 761060. A fork never runs this, so tris 105/106 keep their default active state regardless of the flag -> walkmesh region wrong (open/closed mismatch), wrong-but-playable. Could block/allow a route the script intends to gate.",
+  "group": "eventengine-anime-turn"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngineUtils.cs",
+  "line": 1687,
+  "field_ids": [],
+  "gate": "QuadTalkableData.ContainsKey(EMinigame.CreateNPCID(fldMapNo, uid)) where key = fldMapNo*1000 + uid",
+  "behavior": "id-keyed TABLE mapping a field's quad/trigger (composite key field*1000+objN) to a partner NPC uid; consumed by EventCollision.IsQuadTalkable (gMode==1 field mode) to make a tread-quad act as a talkable proxy for that NPC (directional talk fixups for card-game / interaction quads).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "TABLE QuadTalkableData (EventEngineUtils.cs). Keys decode field_id = key/1000: 111(Alexandria Town Beast St), 553,555,560,561,562 & 1303,1308 (Lindblum), 902,903,911,912 & 1860,1864,1902,1903,1911,1912 (Treno & ALXT_A reuse), 1509(Cleyra), 2103,2108,2109(Lindblum-W), 2303(Esto Gaza), 2455(Alexandria-W), 2802(Daguerreo). NOT extended by DictionaryPatch (unlike eventIDToFBGID/MESID), so a custom-id fork's composite key never matches -> the quad loses its talkable-proxy/directional behavior (an NPC the player should be able to talk to via a floor quad becomes non-interactive). Companion per-field fldMapNo branches (2103/2108/2109/2802) live in EventCollision.IsQuadTalkable (out of scope). Fork-remap engine patch must cover key/1000.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngineUtils.cs",
+  "line": 1722,
+  "field_ids": [],
+  "gate": "QuadCircleData.ContainsKey(EMinigame.CreateNPCID(fldMapNo, quad.sid)) where key = fldMapNo*1000 + sid (in EventEngine.IsInQuadHotFix, gMode==1)",
+  "behavior": "id-keyed TABLE replacing a field quad's collision shape with a circular (or augmented) region; IsInQuadHotFix uses it so the trigger/talk zone fires over a circle instead of the raw walkmesh quad (a collision hotfix for specific NPCs/triggers).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "TABLE QuadCircleData (EventEngineUtils.cs). Keys decode field_id = key/1000: 356(Dali Windmill), 404(Underground Dali), 561(Lindblum), 601(Lindblum CFR), 757(Burmecia), 916(Treno WHF), 1553(Cleyra Trunk camp), 2151(Lindblum Lift), 2222(Sanctuary), 2255(Ueno Underground vessel), 2901(Cleyra Sandwhirl), 2950 & 2952(Chocobo Hot&Cold). NOT extended by DictionaryPatch. A custom-id fork's composite key never matches -> the quad reverts to raw IsInQuad shape; the affected trigger/interaction may be unreachable or mis-shaped (e.g. Chocobo dig spots, lift call zone). Fork-remap engine patch must cover key/1000.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngineUtils.cs",
+  "line": 1855,
+  "field_ids": [
+   1060
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1060 && symbol != \"US\" && symbol != \"JP\" (in loadEventData)",
+  "behavior": "Forces the US-language .eb event binary to load for non-US/JP languages on Cleyra/Cathedral so the dancing scene uses the US/JP script variant (other-language binaries are broken for that scene).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1060 = FBG_N19_CLIR_MAP389_CY_TWN_H (Cleyra Cathedral dancing scene). A custom-id fork of 1060 in a non-US/JP language would load that language's own (broken) .eb for the dance instead of the US fallback -> the dancing scene could misbehave/desync. US/JP players and verbatim forks shipping the correct .eb unaffected. Edge case but a real field-id-pinned load redirect.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 340,
+  "field_ids": [
+   103,
+   107
+  ],
+  "gate": "fldMapNo == 103 || fldMapNo == 107  (CheckNPCPush; sid==3 || sid==4 -> result=false)",
+  "behavior": "On fields 103 and 107, NPCs with sid 3 or 4 are exempted from being push-collided (CheckNPCPush returns false, so the player won't push/bump them).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Equality-style gate (!=103 && !=107 short-circuits). A fork at a custom id falls through to the default result=true, so those NPCs become pushable -> the player can shove actors that vanilla pins in place. Movement/collision quirk, playable. Fields 103/107 are early Alexandria-castle area.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 342,
+  "field_ids": [
+   1856
+  ],
+  "gate": "fldMapNo == 1856 (CheckNPCPush; sid==5 || sid==6 -> result=false)",
+  "behavior": "On field 1856, NPCs with sid 5 or 6 are exempted from push collision (not pushable by the player).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "A custom-id fork loses the exemption -> those two actors become pushable. Movement/collision quirk, not a softlock.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 369,
+  "field_ids": [
+   2108
+  ],
+  "gate": "fldMapNo == 2108 (CheckQuadPush; quad.sid==6 -> result = IsQuadTalkable(...))",
+  "behavior": "On field 2108, a quad with sid 6 is only pushable when it is also talkable (push gated on facing/talkable test instead of always-true).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork falls to default result=true -> the sid-6 quad is always pushable regardless of talkable state. Interaction quirk on the Treno card-game field; playable.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 371,
+  "field_ids": [
+   2802
+  ],
+  "gate": "fldMapNo == 2802 (CheckQuadPush; quad.sid==24 -> result=false)",
+  "behavior": "On field 2802, a quad with sid 24 is exempted from push collision.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork loses the exemption -> the sid-24 quad becomes pushable. Collision quirk.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 373,
+  "field_ids": [
+   2914
+  ],
+  "gate": "fldMapNo == 2914 (CheckQuadPush; quad.sid==13 -> result=false)",
+  "behavior": "On field 2914, a quad with sid 13 is exempted from push collision.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork loses the exemption -> sid-13 quad becomes pushable. Collision quirk.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 401,
+  "field_ids": [
+   2108
+  ],
+  "gate": "fldMapNo == 2108 (CheckQuadTalk; quad.sid==7 -> result=false)",
+  "behavior": "On field 2108, a quad with sid 7 is made non-talkable (CheckQuadTalk returns false).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork falls to default result=true -> the sid-7 quad becomes talkable when vanilla suppresses its talk prompt. Interaction quirk; could expose an otherwise-hidden talk target.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 403,
+  "field_ids": [
+   2504
+  ],
+  "gate": "fldMapNo == 2504 (CheckQuadTalk; quad.sid==9 -> result=false)",
+  "behavior": "On field 2504, a quad with sid 9 is made non-talkable.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork loses the suppression -> sid-9 quad becomes talkable. Interaction quirk.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 449,
+  "field_ids": [],
+  "gate": "EventEngineUtils.QuadTalkableData.ContainsKey(EMinigame.CreateNPCID(fldMapNo, uid))  (id-keyed TABLE membership)",
+  "behavior": "Looks up a talkable-quad partner object in QuadTalkableData using a key built from (fldMapNo, quad.uid); if absent, IsQuadTalkable returns the default true.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "TABLE name = EventEngineUtils.QuadTalkableData, keyed via EMinigame.CreateNPCID(fldMapNo, uid). The known fldMapNo keys it is populated for (per the branches just below) are 2103, 2108, 2109, 2802. A custom-id fork uses fldMapNo=customId so the composite key never matches -> the talkable-quad pairing and per-field facing logic are all skipped, IsQuadTalkable falls through to 'return true'. Field-id-pinned. Playable interaction quirk.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 458,
+  "field_ids": [
+   2108
+  ],
+  "gate": "fldMapNo == 2108 (IsQuadTalkable; returns dir>90 && dir<160)",
+  "behavior": "On field 2108, a registered talkable quad is only talkable when the player faces within a specific direction window (dir 91-159), instead of the generic CollisionAngle test.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Only reached when EventEngineUtils.QuadTalkableData contains key=CreateNPCID(fldMapNo,uid) - that key is itself field-id-derived, so a fork would not match the table either (see separate QuadTalkableData finding). On a fork the whole IsQuadTalkable special-casing collapses to the default 'return true' early-out, changing which direction the player must face to talk to the quad. Playable.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 463,
+  "field_ids": [
+   2109
+  ],
+  "gate": "fldMapNo == 2109 (IsQuadTalkable; returns dir>159 && dir<223)",
+  "behavior": "On field 2109, talkable-quad facing window is dir 160-222.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Same QuadTalkableData precondition as 2108. Fork loses the per-field facing window. Playable interaction quirk.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 468,
+  "field_ids": [
+   2103
+  ],
+  "gate": "fldMapNo == 2103 (IsQuadTalkable; returns dir>159 && dir<223)",
+  "behavior": "On field 2103, talkable-quad facing window is dir 160-222.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Same QuadTalkableData precondition. Fork loses the per-field facing window. Playable interaction quirk.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 473,
+  "field_ids": [
+   2802
+  ],
+  "gate": "fldMapNo != 2802 vs ==2802 (IsQuadTalkable; the !=2802 path uses generic angle, the ==2802 path checks GetObjUID(18) Y-pos > 950 AND dir 17-111)",
+  "behavior": "On field 2802 a talkable quad requires both a facing window (dir 17-111) and obj-18's world Y-position > 950; all other (non-2802) registered fields use the generic CollisionAngle +/-880 window.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Gated behind QuadTalkableData membership (field-id keyed). On a fork the table miss makes IsQuadTalkable early-return true, dropping both the 2802 special condition and the generic angle gate. The Y-position-of-object-18 dependency is the kind of scripted state a fork can't reproduce. Playable interaction quirk.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 500,
+  "field_ids": [
+   656,
+   657,
+   658,
+   659
+  ],
+  "gate": "switch(fldMapNo) case 656/657/658/659 (IsNPCTalkable; Frog-catching fields)",
+  "behavior": "On the Qu's-Marsh frog fields 656-659, frog NPCs (models 174/175/176/GoldenFrog) are only talkable when the eBin var 157157 > 0; on 657 additionally talkable if npc.sid==4.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Hardcoded field ids 656-659. A custom-id fork skips the switch, so the frog-talkable gating (and the 657 sid==4 special case) is lost -> frogs are talkable per the generic path. The fork also wouldn't have the frog-catch script state anyway. Playable; mainly affects the frog-catching minigame logic.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 532,
+  "field_ids": [
+   350
+  ],
+  "gate": "fldMapNo == 350 (IsNPCTalkable; npc.sid==34, SC_COUNTER==2600 && MAP_INDEX==2 -> flag=false)",
+  "behavior": "On field 350, NPC sid 34 is made non-talkable during a specific story beat (scenario counter 2600, map index 2).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 350 (Dali area). Fork loses the talk-suppression during that beat -> the NPC stays talkable when vanilla hides the prompt. Also depends on SC/MAP_INDEX scripted state. Playable interaction quirk.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 534,
+  "field_ids": [
+   507
+  ],
+  "gate": "fldMapNo == 507 (IsNPCTalkable; npc.sid==15, SC_COUNTER==2915 && MAP_INDEX==3 && GetObjUID(10)!=null -> flag=false)",
+  "behavior": "On field 507, NPC sid 15 is made non-talkable during scenario beat 2915 / map index 3 while object 10 exists.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 507. Fork loses the talk-suppression. Story-state dependent; playable interaction quirk.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 536,
+  "field_ids": [
+   566
+  ],
+  "gate": "fldMapNo == 566 (IsNPCTalkable; npc.sid==7, SC_COUNTER==3140 && MAP_INDEX==40 -> flag=false)",
+  "behavior": "On field 566, NPC sid 7 is made non-talkable during scenario beat 3140 / map index 40.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 566. Fork loses the talk-suppression during that beat. Story-state dependent; playable.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 540,
+  "field_ids": [
+   1603
+  ],
+  "gate": "fldMapNo == 1603 (IsNPCTalkable; npc.uid==133 && SC_COUNTER==6810 -> flag=false)",
+  "behavior": "On field 1603, the NPC with uid 133 is made non-talkable at scenario counter 6810.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1603. Fork loses the talk-suppression. Story-state dependent; playable.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 542,
+  "field_ids": [
+   1608
+  ],
+  "gate": "fldMapNo == 1608 (IsNPCTalkable; npc.sid==15, SC_COUNTER>=6850 -> returns true/false)",
+  "behavior": "On field 1608, NPC sid 15 talkability is gated on scenario counter >= 6850 (returns that boolean directly).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1608. Fork loses the SC-gated talkability; NPC reverts to generic talkable. Story-state dependent; playable.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 544,
+  "field_ids": [
+   1856
+  ],
+  "gate": "fldMapNo == 1856 (IsNPCTalkable; npc.uid==4 && BubbleUI active && SFIconType==Exclamation -> flag=false)",
+  "behavior": "On field 1856, NPC uid 4 is suppressed from talk while the '!' bubble icon is showing.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1856. Fork loses the suppression -> uid-4 NPC talkable even while '!' is up. Minor interaction quirk; playable.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 546,
+  "field_ids": [
+   2950
+  ],
+  "gate": "fldMapNo == 2950 (IsNPCTalkable; npc.sid==9, returns MAP_INDEX!=2 && var(8401)==1)",
+  "behavior": "On field 2950 (Chocobo's Forest), NPC sid 9 (Mene/chocobo-game NPC) talkability returns based on map index != 2 and eBin var 8401 == 1.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2950. Note: the Chocobo Hot&Cold HUD is also field-id gated elsewhere (CheckUIMiniGameForMobile 2950/2951/2952) so a fork of these fields already loses the minigame; this is one more piece. Fork loses the sid-9 talkable gating. Playable.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 41,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 7 (CheckSpecialHUDFromMesId; Cleyra Trunk JumpingRope)",
+  "behavior": "In zone 7 (Cleyra Trunk), mesId 113 opens the JumpingRope minigame HUD ('mash X').",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated (zone 7). Fork loses the auto JumpingRope HUD trigger from the mesId. FUNCTIONAL (minigame). TABLE-like dispatch on FieldZoneId; not a fldMapNo literal.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 47,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 22 (CheckSpecialHUDFromMesId; Lindblum Castle telescope)",
+  "behavior": "In zone 22, a per-language mesId opens the Telescope minigame HUD.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated. Fork loses the Telescope HUD trigger. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 70,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 23 (CheckSpecialHUDFromMesId; Mist Gates auction)",
+  "behavior": "In zone 23, a per-language mesId opens the Auction minigame HUD (Potion bid).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated. Fork loses the Auction HUD trigger. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 88,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 33 (CheckSpecialHUDFromMesId; Alexandria(1) JumpingRope)",
+  "behavior": "In zone 33, mesId 233/246 open/close the JumpingRope minigame HUD.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated. Fork loses the JumpingRope HUD trigger. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 101,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 70 || == 741 (CheckSpecialHUDFromMesId; Treno auction)",
+  "behavior": "In zones 70/741 (Treno 1 & 2), a per-language mesId opens the Auction minigame HUD (bidding dialog).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated (zones 70, 741). Fork loses the bidding Auction HUD trigger. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 116,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 71 (CheckSpecialHUDFromMesId; Qu's Marsh Mog tutorial)",
+  "behavior": "In zone 71, a per-language mesId opens the MogTutorial HUD.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated. Fork loses the MogTutorial HUD trigger. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 131,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 90 (CheckSpecialHUDFromMesId; Alexandria(2) Hippaul race)",
+  "behavior": "In zone 90, mesId 147/148 open/close the RacingHippaul minigame HUD.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated. Fork loses the Hippaul-race HUD trigger. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 140,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 166 (CheckSpecialHUDFromMesId; Daguerreo auction)",
+  "behavior": "In zone 166, mesId 105 opens the Auction minigame HUD ('Place how many Ore?').",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated. Fork loses the Ore-auction HUD trigger. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 146,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 358 (CheckSpecialHUDFromMesId; Madain Sari(1) auction)",
+  "behavior": "In zone 358, a per-language mesId opens the Auction minigame HUD.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated. Fork loses the Auction HUD trigger. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 170,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 740 (CheckSpecialHUDFromMesId; Desert Palace GetTheKey)",
+  "behavior": "In zone 740, mesId 249/250 open/close the GetTheKey minigame HUD.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated. Fork loses the GetTheKey HUD trigger. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 183,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 945 (CheckSpecialHUDFromMesId; Chocobo Places instruction/auction)",
+  "behavior": "In zone 945, mesId 34/35 open the ChocoHotInstruction HUD; otherwise a per-language mesId opens the Auction HUD.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated. Fork loses both the Chocobo instruction HUD and the gysahl-auction HUD triggers. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 201,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 946 (CheckSpecialHUDFromMesId; Alexandria Ruin JumpingRope)",
+  "behavior": "In zone 946, per-language mesIds open/close the JumpingRope minigame HUD.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "FieldZoneId-gated. Fork loses the JumpingRope HUD trigger. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 346,
+  "field_ids": [
+   64
+  ],
+  "gate": "fldMapNo == 64 (CheckUIMiniGameForMobile; Chanbara sword-fight HUD)",
+  "behavior": "On field 64 (Alexandria Castle public seats), opens/closes the Chanbara (Blank vs Marcus sword-fight) minigame HUD based on dialog-progression var and field-entrance var.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Mobile-platform path (CheckUIMiniGameForMobile), but it IS field-id pinned. PC builds drive the same HUD via EventInput/Chanbara mask, so impact is platform-conditional; on mobile a fork of field 64 loses the auto Chanbara HUD. Treat as FUNCTIONAL (minigame HUD missing).",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 359,
+  "field_ids": [
+   1208
+  ],
+  "gate": "fldMapNo == 1208 (CheckUIMiniGameForMobile; SwingACage HUD)",
+  "behavior": "On field 1208 (A. Castle dungeon), opens/closes the Swing-a-Cage minigame HUD when dialog progression == 13.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Mobile path; field-id pinned. Fork of 1208 loses the auto Swing-a-Cage HUD on mobile. FUNCTIONAL (minigame).",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 369,
+  "field_ids": [
+   1704
+  ],
+  "gate": "fldMapNo == 1704 (CheckUIMiniGameForMobile; Eidolon Wall)",
+  "behavior": "On field 1704 (Madain Sari Eidolon Wall), on mobile toggles player-control enable based on dialog visibility when user-control is off.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Mobile-only control-enable tweak. Fork loses it -> on mobile the player-control state during that scene may differ. Playable (mobile-only).",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 374,
+  "field_ids": [
+   2204
+  ],
+  "gate": "fldMapNo == 2204 (CheckUIMiniGameForMobile; Desert Palace Odyssey, GetTheKey)",
+  "behavior": "On field 2204 (Palace/Odyssey), closes the Get-the-Key minigame HUD when the timer hits 0.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2204 also appears in EventInput (timer-enabled input path). Fork loses the timer->close-HUD behavior. FUNCTIONAL (minigame). Mobile path.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 379,
+  "field_ids": [
+   2921
+  ],
+  "gate": "fldMapNo == 2921 (CheckUIMiniGameForMobile; Memoria/To the Origin)",
+  "behavior": "On field 2921, on mobile toggles player-control enable based on dialog visibility when user-control is off.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Mobile-only control-enable tweak. Fork loses it. Playable (mobile-only).",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 384,
+  "field_ids": [
+   2950,
+   2951,
+   2952
+  ],
+  "gate": "fldMapNo == 2950 || 2951 || 2952 (CheckUIMiniGameForMobile; Chocobo Hot&Cold HUD)",
+  "behavior": "On the Chocobo Forest/Lagoon/Air-Garden fields, opens the ChocoHot minigame HUD when the timer is running and closes ChocoHotInstruction (and closes ChocoHot when only timer-enabled).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fields 2950/2951/2952. Consistent with the project memory that Chocobo Hot&Cold HUD is field-id gated (fork loses HUD; must fork in-place on real ids). Mobile path here; the HUD plumbing is field-id pinned. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 396,
+  "field_ids": [
+   2711
+  ],
+  "gate": "fldMapNo == 2711 (CheckUIMiniGameForMobile; Pandemonium Control Room elevator)",
+  "behavior": "On field 2711, opens/closes the Pandemonium-Elevator minigame HUD based on whether dialog window ID7 shows the elevator-control text (TextId 324).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2711. Fork loses the elevator-control HUD. Mobile path; field-id pinned. FUNCTIONAL (minigame).",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventInput.cs",
+  "line": 95,
+  "field_ids": [
+   1420
+  ],
+  "gate": "fldMapNo == 1420 && EventInput.CheckLadderFlag() (ReadInput; BubbleUI active, gMode==1)",
+  "behavior": "On field 1420 (Fossil Roo Cavern) while climbing ivy with the BubbleUI active, processes input with button-trigger disabled (false,false) instead of (false,true) - i.e. different button-trigger handling for the ivy-climb mash.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1420. Fork falls to the else (false,true) -> the ivy-climbing input handling changes (the mash/hold semantics differ). Could make the ivy-climb minigame feel wrong but still playable. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventInput.cs",
+  "line": 142,
+  "field_ids": [
+   606
+  ],
+  "gate": "fldMapNo == 606 (ReadInput; L.Castle/Event telescope)",
+  "behavior": "On field 606, only processes movement input while the Telescope HUD is active (the whole else-branch is field-606 specific for telescope input).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 606. A fork takes the generic else path (dialog/mobile/normal ProcessInput) instead of the telescope-gated path. Telescope minigame input handling lost on a fork. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventInput.cs",
+  "line": 147,
+  "field_ids": [
+   2204
+  ],
+  "gate": "fldMapNo == 2204 && TimerUI.Enable (ReadInput; Palace/Odyssey)",
+  "behavior": "On field 2204 while the timer is enabled, processes input with button-trigger disabled (false,false) - timed Get-the-Key input mode.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2204. Fork falls to the generic path; the timed-puzzle input mode is lost. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventInput.cs",
+  "line": 151,
+  "field_ids": [
+   1607
+  ],
+  "gate": "fldMapNo == 1607 (ReadInput; Mdn. Sari/Kitchen)",
+  "behavior": "On field 1607, forces ProcessInput(false,false) - non-trigger (continuous) input mode for the kitchen scene.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1607. Fork uses the generic (false,true) path -> input becomes trigger-mode rather than continuous. Minigame/scene input quirk; playable. FUNCTIONAL.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventInput.cs",
+  "line": 155,
+  "field_ids": [
+   1420
+  ],
+  "gate": "fldMapNo == 1420 (ReadInput; Fossil Roo/Cavern, no-bubble path)",
+  "behavior": "On field 1420, forces ProcessInput(false,true).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1420. This particular branch sets the same (false,true) the default else also uses, so the practical input outcome here matches the fallback -> low real impact, but the field-id branch is lost on a fork. FUNCTIONAL (effectively negligible for this branch; the line-95 ivy branch is the meaningful 1420 gate).",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventInput.cs",
+  "line": 159,
+  "field_ids": [
+   1422
+  ],
+  "gate": "fldMapNo == 1422 (ReadInput; Fossil Roo/Entrance)",
+  "behavior": "On field 1422, forces ProcessInput(false,true).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1422. Same (false,true) as the default else, so the practical outcome matches the fallback -> negligible behavioral change, but the branch is field-id pinned and skipped on a fork. FUNCTIONAL (effectively negligible).",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventInput.cs",
+  "line": 190,
+  "field_ids": [
+   909,
+   1909
+  ],
+  "gate": "fldMapNo == 909 || fldMapNo == 1909 (ReadInput; mobile fast-forward exception)",
+  "behavior": "On mobile, fast-forward processing is normally skipped, but is force-enabled on fields 909 (Treno Auction Site) and 1909 (Treno Auction House) so the auction can be fast-forwarded.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Mobile-only path (the !MobilePlatform || ... guard). Fields 909/1909. On mobile, a fork of those Treno auction fields loses the fast-forward-during-auction allowance. Non-mobile builds run FastForwardProcess regardless, so PC impact is nil. FUNCTIONAL (mobile-only).",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventInput.cs",
+  "line": 367,
+  "field_ids": [
+   1420
+  ],
+  "gate": "fldMapNo != 1420 || eventMode != 1 (FastForwardProcess; Fossil Roo ivy-climb)",
+  "behavior": "During fast-forward, on the same-frame repeat the operation mask is cleared for all fields EXCEPT field 1420 in event-mode 1, where instead the last-input time is refreshed (so ivy-climb mashing isn't masked out under fast-forward).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Inverted gate: the special-cased field is 1420 (Fossil Roo Cavern, ivy climb). A custom-id fork has fldMapNo != 1420, so it takes the masking branch -> under fast-forward the ivy-climb mash inputs get masked, degrading/softening the climb minigame. Only matters when fast-forward is active. FUNCTIONAL (the climb still works at normal speed).",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 135,
+  "field_ids": [
+   1413
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1413",
+  "behavior": "HonoLateUpdate: when out of depth range, sets actor.frontCamera = (sid==12) for Zidane (Fossil Roo/Nest)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1413, sid 12 (Zidane). Controls front/back-of-camera draw ordering (occlusion) when the actor is outside the normal depth band. Fork falls into the else branch (frontCamera=false) -> Zidane could be incorrectly occluded by the background near the nest; visual/draw-order quirk, playable.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 141,
+  "field_ids": [
+   1414
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1414",
+  "behavior": "HonoLateUpdate: when out of depth range, sets actor.frontCamera = (sid==16) for Zidane (Fossil Roo/Nest)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1414, sid 16 (Zidane). Same front/back draw-order control as 1413. Fork loses it (else -> frontCamera=false) -> draw-order/occlusion wrong; playable visual quirk.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 147,
+  "field_ids": [
+   2752,
+   1707
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo != 2752 && FF9StateSystem.Common.FF9.fldMapNo != 1707",
+  "behavior": "HonoLateUpdate: out-of-depth-range fallback sets frontCamera=false UNLESS the field is 2752 or 1707 (Invincible/Bridge, Mdn.Sari/Secret Room)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "INVERTED logic: 2752 and 1707 are EXEMPTED from the frontCamera=false fallback (they keep their prior frontCamera, i.e. stay drawn in front when out of depth range). A custom-id fork of 2752 or 1707 no longer matches the !=, so it FALLS INTO the false-assignment -> the actor that should stay drawn in front gets pushed behind the BG when out of depth range; draw-order/occlusion quirk, playable. (A fork of any OTHER field is unaffected.)",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 243,
+  "field_ids": [
+   1412,
+   1410
+  ],
+  "gate": "fldMapNo >= 1400 && fldMapNo <= 1425 (then == 1412 / != 1410 sub-branches)",
+  "behavior": "GeoAttach: special-cases PC curPos when attaching to a parent node within the Fossil Roo zone (1400-1425)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "RANGE check 1400-1425 (the Fossil Roo zone, gargant-riding) plus inner == 1412 and != 1410. On attach: 1412 keeps the PC's own curPos; all other zone fields except 1410 snap the PC to the parent node position. A custom-id fork (e.g. 6xxx) is OUTSIDE the 1400-1425 range, so the whole geo-attach reposition is skipped -> when the PC mounts the gargant the player isn't snapped onto it correctly. Functional (mount positioning) on Fossil Roo gargant fields; playable but visibly wrong. This is the one RANGE gate in these files.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 261,
+  "field_ids": [
+   2954
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2954 && MAP_INDEX_SVR == 8",
+  "behavior": "GeoAttach: overrides geo attach offset to (30,150,0) (Chocobo's Air Garden, map index 8)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2954 at MAP_INDEX 8. Adjusts the rider attach offset on the chocobo for a specific sub-map. Fork loses it (and can't hit MAP_INDEX 8 state easily) -> rider attach offset wrong; functional/visual, playable.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 297,
+  "field_ids": [
+   3002
+  ],
+  "gate": "fldMapNo == 3002 && sid == 2 && anim == 11022",
+  "behavior": "GeoDetach: sets HonoBehaviorSystem.ExtraLoopCount = 1 for a specific actor/anim (ending field)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 3002 (ending), sid 2, anim 11022. Forces an extra logic loop on detach to keep an ending-cutscene animation in sync. Fork loses it -> a one-frame timing hitch in that ending beat; functional/cosmetic, playable. Ending field, not a typical fork target.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 327,
+  "field_ids": [
+   1751
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1751",
+  "behavior": "UpdateMovement: forces CopyLastPos for the PC even without user control (Iifa Tree/Inner Roots entrance after elevator)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Part of an OR-chain in UpdateMovement's player branch. Without it, during a scripted (no-usercontrol) move the lastPos isn't kept in sync, which can cause the PC to snap-back / mis-position during the elevator-entrance sequence. Wrong-but-playable movement quirk on a fork.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 328,
+  "field_ids": [
+   404
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 404",
+  "behavior": "UpdateMovement: forces CopyLastPos for the PC even without user control (Dali underground Entrance)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Same OR-chain as line 327. Scripted-movement position sync for the Dali underground entrance. Fork loses smooth scripted positioning; playable.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 329,
+  "field_ids": [
+   205
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 205 && this.originalActor.sid == 16",
+  "behavior": "UpdateMovement: forces CopyLastPos for Steiner during scripted move (Prima Vista/Hallway front of Steiner's cell)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Actor sid 16 (Steiner). Player-branch OR-chain (this is a non-Zidane controlled-PC field). Fork loses scripted-move position sync; playable quirk.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 330,
+  "field_ids": [
+   2150
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2150 && this.originalActor.sid == 13",
+  "behavior": "UpdateMovement: forces CopyLastPos for Zidane during scripted move (L.Castle/Royal Chamber)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Actor sid 13 (Zidane). Player-branch OR-chain. Fork loses scripted-move position sync; playable quirk.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 331,
+  "field_ids": [
+   900
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 900 && this.originalActor.sid == 13",
+  "behavior": "UpdateMovement: forces CopyLastPos for Dagger during scripted move (Treno/Pub)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Actor sid 13 (Dagger here). Player-branch OR-chain. Treno/Pub is a known kit verbatim-fork demo field (4501). Fork loses scripted-move position sync; playable quirk.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 337,
+  "field_ids": [
+   916
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 916 && this.originalActor.uid == 10 && curPos.z in (-15900,-15700) && curPos.x < 130",
+  "behavior": "UpdateMovement: clamps Dagger's X to 130 in a bounded Z band (Treno/Dock)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Actor uid 10 (Dagger). A hardcoded invisible-wall clamp to keep the PC from walking off a specific spot on the Treno dock. Fork loses the clamp -> PC could walk into a bad area; wrong-but-playable (not a softlock).",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 339,
+  "field_ids": [
+   1005
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1005 && this.originalActor.uid == 7",
+  "behavior": "UpdateMovement: two hardcoded XZ clamps for Zidane (Cleyra/Tree Trunk sand room)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Actor uid 7 (Zidane). Hardcoded movement clamps (curPos.x>=-1060 in one band, curPos.z>=-610 in another) acting as invisible walls in the sand-filled room. Fork loses them -> player can clip past intended bounds; playable.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 350,
+  "field_ids": [
+   2050
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2050 && this.originalActor.sid == 5",
+  "behavior": "UpdateMovement (NPC branch): forces CopyLastPos for Mistodon NPC (Alexandria/Main Street)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "NPC sid 5 (Mistodon). Keeps the NPC's scripted-walk lastPos in sync. Fork loses smooth NPC scripted movement; cosmetic-to-functional NPC glide quirk, not a softlock.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 351,
+  "field_ids": [
+   350
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 350 && this.originalActor.sid == 11",
+  "behavior": "UpdateMovement (NPC branch): forces CopyLastPos for Dali_GirlA NPC (Dali/Village Road)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "NPC sid 11. Scripted-walk position sync. Fork loses NPC walk smoothness; playable.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 352,
+  "field_ids": [
+   1315
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1315 && this.originalActor.sid == 12",
+  "behavior": "UpdateMovement (NPC branch): forces CopyLastPos for Lindblum_Soldier NPC (Lindblum/Town Walls)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "NPC sid 12. Scripted-walk position sync. Fork loses NPC walk smoothness; playable.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 413,
+  "field_ids": [
+   3010
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 3010 && this.originalActor.sid == 8",
+  "behavior": "PlayAnimationViaEventScript: early-returns (skips re-playing the anim) for the Sword actor (Ending/TH)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Actor sid 8 (Sword) on the ending field. Suppresses the script-driven animation re-trigger so the sword's frame-held pose isn't disturbed. Fork loses it -> sword anim plays/overrides incorrectly; visual/animation quirk, playable.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 448,
+  "field_ids": [
+   2950,
+   2951,
+   2952,
+   2954,
+   2955
+  ],
+  "gate": "(2950&&sid==25)||(2951&&sid==29)||(2952&&sid==23)||(2954&&sid==26)||(2955&&sid==28)",
+  "behavior": "LateUpdate: calls PretendChocoboOffset to ride the Chocobo (positions rider over chocobo bone)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Chocobo's Forest/Lagoon/Air Garden/Paradise \u2014 Zidane riding the chocobo. Per-field sid for the riding-Zidane actor. Fork loses the rider-on-chocobo offset -> rider mis-positioned relative to mount; visible/functional but not a softlock. These are the Chocobo Hot&Cold fields (kit notes: fork in-place on real ids to keep HUD/behavior).",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 799,
+  "field_ids": [
+   2207
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2207 && SC_COUNTER_SVR == 9840",
+  "behavior": "CheckCollFallback: early-returns to skip the soft-lock collision fallback (Palace/Hall, Zidane summoned past stairs)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2207 at scenario 9840. Bypasses the sLock collision-timer logic for one scripted moment. Fork loses it (and also can't reach SC 9840 without seeding) -> collision fallback could mis-handle that scripted summon; wrong-but-playable, edge case.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 1047,
+  "field_ids": [
+   2952
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2952",
+  "behavior": "CalculateOriginalVertices: adds per-floor (curPos-orgPos) offset to walkmesh vertices (Chocobo's Air Garden)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 2952 only. The Air Garden is a moving/floating platform field whose floor origin shifts; this offset corrects collision-radius vertex math. Fork loses it -> radius/collision computed against unshifted verts -> walkmesh collision wrong on the moving platform; functional. (Chocobo H&C: fork in-place on 2952.)",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 1235,
+  "field_ids": [
+   1752
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1752 && (triNdx==77||78||79||80)",
+  "behavior": "ServiceForces: overrides wall-rejection factor (0.4/0.6 instead of 1.05) on specific tris (Iifa Tree/Inner Roots 2nd area)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 1752, hardcoded triangle indices 77-80. Tunes the collision push-back strength on a tricky walkmesh spot so the player isn't ejected too hard. Fork loses tuning (defaults to 1.05) -> player gets pushed off-target near those tris; movement quirk, playable. Note also pins tri indices, so even an in-place edit that reshapes the mesh would break it.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 1240,
+  "field_ids": [
+   406
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 406 && (triNdx==103||111||113)",
+  "behavior": "ServiceForces: overrides wall-rejection factor to 0.4 on specific tris (Dali/Underground room under the well)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 406, hardcoded tri indices 103/111/113. Same collision push-back tuning as 1752. Fork loses it -> harsher wall rejection near the well room; movement quirk, playable. Also tri-index-pinned.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 1348,
+  "field_ids": [
+   2712,
+   2504,
+   1056,
+   2955,
+   1807,
+   1106
+  ],
+  "gate": "(2712&&sid==18)||(2504&&sid==20)||(1056&&sid==18)||(2955&&sid==3)||(1807&&sid==27)||(1106&&(sid==18||sid==22))",
+  "behavior": "GetActiveTriIdxAtPos (foundTris.Count==1 case): applies a 432f height-difference gate before accepting the triangle, else result=-1",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Pand./Elevator(2712), I.Castle/Small Room(2504), Cleyra/Inn w-sandstorm(1056), Chocobo's Paradise(2955), A.Castle/Hallway(1807), Cleyra/Inn w-out sandstorm(1106). Multi-floor/tall-room fields where the same XZ overlaps floors at very different heights; the height gate picks the right floor. Fork loses the gate -> always accepts foundTris[0] (no height check) -> can land on the wrong vertical floor; movement/positioning quirk, generally playable but could place the actor on a wrong level.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 112,
+  "field_ids": [
+   2356
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2356 (Gulug/Room, Red Dragon)",
+  "behavior": "Disables walkmesh triangles 78,79,80 (the wall the Red Dragon bursts through)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork loses the tri-disable \u2192 the broken-wall area stays walkable/blocked incorrectly. The wall-burst is also scripted; mismatch can look wrong but is generally playable. Possible navigation snag, not a guaranteed softlock.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 119,
+  "field_ids": [
+   2161
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2161 (L. Castle/Guest Room disc 3)",
+  "behavior": "Disables walkmesh triangle 69",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork loses the tri-disable \u2192 one triangle stays active that should be blocked (state-dependent room geometry). Movement quirk, playable.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 580,
+  "field_ids": [
+   1508
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1508 (Conde Petie/Inn) on actor restore",
+  "behavior": "RestoreAttachModel \u2014 re-attaches a model part to an actor on this inn field",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "needRestore path (battle/menu return). Fork loses the attach-model restore \u2192 an NPC may be missing an attached model piece visually. Cosmetic/functional, playable.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 649,
+  "field_ids": [
+   931
+  ],
+  "gate": "map != 931 (Treno on the boat) guards the whole widescreen camera-clamp block in CenterCameraOnPlayer",
+  "behavior": "For 931 the entire widescreen X-clamp/scroll-margin logic is SKIPPED (boat scene scrolls freely)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "INVERTED gate: real 931 is EXCLUDED. A fork (id != 931) FALLS INTO the clamp block \u2014 so a fork of 931 would gain unwanted camera clamping \u2192 boat camera may jerk/clamp wrong. Conversely a fork of any other field keeps clamping (correct). Only a fork of 931 is affected. Playable camera quirk.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 666,
+  "field_ids": [
+   1205,
+   1652,
+   2552,
+   154,
+   1215,
+   1807,
+   1055
+  ],
+  "gate": "map == 1205||1652||2552||154||1215||1807||1055 (A.Castle/Chapel, Iifa Roots, Earth Shrine, Alex grand hall)",
+  "behavior": "Custom X-threshold camera clamp (with per-field threshmargin tweaks for 1652 cam0 and 1055)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork loses the bespoke clamp \u2192 camera can scroll past intended bounds or sit off-center on these wide fields. Playable but visibly wrong framing on scroll. Includes nested 1652/1055 sub-gates (668,670).",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 1163,
+  "field_ids": [
+   2351
+  ],
+  "gate": "MapNo == 2351 && overlayNdx in 3..17 (mine bucket fix)",
+  "behavior": "Forces moved overlay depth to 3000 (the official mine-bucket depth fix)",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "EBG_overlayMove. Fork loses \u2192 the mine bucket overlays sort to the wrong depth (visible occlusion bug) when moved. Playable.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 1449,
+  "field_ids": [],
+  "gate": "FixDepthOfLayer: entry[0]==fldMapNo && entry[1]==camIdx && entry[2]==ovrNdx (UpdateOverlay)",
+  "behavior": "Overrides a specific overlay's Z-depth (curZ) per (field,cam,overlay) to fix lights/props sorting in front of/behind characters",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "id-keyed TABLE FixDepthOfLayer (~80 rows). Field ids: 51,202,252,350,355,403,408,562,609,1206,1801,1359,900,1900,913,1913,951,1000,1223,1225,1309,1406,1418,1501,1502,1652,1656,1950,2008,2107,2109,2207,2209,2211,2217,2221,2222,2502,2504,2505,2600,2605,2657,2922,2924,3100. A fork loses ALL its depth fixes \u2192 lights/candles/props/water on these fields render at the wrong depth (occlude or are occluded by the character wrongly). Widespread visual-correctness regression, playable.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 1503,
+  "field_ids": [
+   813
+  ],
+  "gate": "fldMapNo == 813 && playerController == obj uid 8 (S. Gate/Berkmea, Dagger)",
+  "behavior": "Reassigns the camera-follow controller from Dagger (uid 8) to Mary (uid 2) for this scroll",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork loses \u2192 camera follows the wrong character (Dagger instead of Mary) during the Berkmea cable-car scroll. Wrong-but-playable framing; not a hard lock since a controller still exists.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 1972,
+  "field_ids": [
+   1656
+  ],
+  "gate": "map == 1656 (CrutchForEvaMap, EVT_EVA1_IF_PTS_1) in SceneService3DScroll",
+  "behavior": "Reads event var 7385; when 1, nulls playerController and applies a fixed extraOffset (-16,-8) for camera framing",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Depends on event var 7385 (a fork carrying the verbatim .eb would still set it, but the id gate blocks the engine reaction). Fork loses \u2192 camera offset wrong during this Iifa beat. Framing quirk, playable (the related 1495 crutch is the softlock-risk one).",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 2532,
+  "field_ids": [
+   51,
+   575,
+   767,
+   931,
+   1655,
+   1754,
+   2200,
+   3000,
+   3001,
+   3002,
+   3003,
+   3004,
+   3005,
+   3006,
+   3007,
+   3008,
+   3009,
+   3010,
+   3011,
+   3012
+  ],
+  "gate": "SmoothCamExcludeMaps.Contains(fldMapNo) (set at 413,458)",
+  "behavior": "Excludes the field from smooth-camera interpolation (SmoothCamActive=false) \u2014 these fields glitch with smoothing",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "id-keyed HashSet SmoothCamExcludeMaps {51,575,767,931,1655,1754,2200,3000..3012}. Fork \u2192 SmoothCamActive stays true \u2192 these specific scenes (candle scroll, hunting festival, Burmecia queen, Treno boat, Iifa roots fast-scroll, desert palace cells, ending) get smooth-cam artifacts the devs disabled. Wrong-but-playable camera jitter/glide.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/fldfmv.cs",
+  "line": 112,
+  "field_ids": [
+   100
+  ],
+  "gate": "(ff9fieldFMVAttr & 1) != 0 || FF9StateSystem.Common.FF9.fldMapNo == 100",
+  "behavior": "In FMV service state 5, allows the field FMV to begin playing even when the PLAY attr bit was not set, specifically for field 100.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Field 100 is the disc-1 opening/title field where the intro FMV must auto-start. A fork of 100 to a custom id still satisfies the play path IF its .eb sets attr bit 1 (which the FMV-play opcode does); this OR-branch is a fallback for the case the bit isn't set. A verbatim fork that emits FF9FieldFMVPlay sets attr&1 and is unaffected; a fork relying on the implicit id==100 start would not begin the FMV. Not a softlock (service still completes), so FUNCTIONAL/COSMETIC at worst (missing intro movie).",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/Honolulu/HonoluluFieldMain.cs",
+  "line": 301,
+  "field_ids": [
+   1663
+  ],
+  "gate": "nextMode==2 (battle) && fldMapNo == 1663 && SC==6950 && mapIndex==40",
+  "behavior": "Iifa Tree/Tree Trunk: force-closes all dialog boxes before the Mistodons battle swirl (a scripted-cutscene-to-battle hotfix).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "A fork of 1663 at this exact beat would not auto-close lingering dialogs entering battle -> a stuck dialog box over the battle transition. Wrong-but-playable. Scenario+mapIndex gated too.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/MBG.cs",
+  "line": 339,
+  "field_ids": [
+   2752
+  ],
+  "gate": "currentFieldMap != null && fldMapNo != 2752",
+  "behavior": "MBG.UpdateCamera: applies the movie-background per-frame camera offset/RT to the field camera for ALL MBG fields EXCEPT 2752 (which keeps its own camera).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Inverted (!=). A fork of field 2752 gets a NON-2752 id -> the condition becomes true -> the MBG camera offset IS applied, which 2752 intentionally suppresses. So the fork GAINS unwanted camera-driving on an MBG cutscene field -> wrong camera. MBG fields are special FMV-driven; forking them is exotic but the loss is functional.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/MBG.cs",
+  "line": 356,
+  "field_ids": [
+   2933
+  ],
+  "gate": "fldMapNo != 2933",
+  "behavior": "MBG.UpdateCamera: advances the MBG playback frame counter (num++) for all MBG fields except 2933 (Crystal World mbg 1), which advances its frame elsewhere (LateUpdate).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Inverted. A fork of 2933 (non-2933 id) would double-advance / mis-time its MBG frame (both the HonoUpdate path and this num++). Drives a scripted FMV-background sequence -> desync. Functional on an exotic MBG fork.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/MBG.cs",
+  "line": 409,
+  "field_ids": [
+   2933
+  ],
+  "gate": "currentFieldMap != null && fldMapNo == 2933",
+  "behavior": "MBG.UpdateCamera: Crystal World (2933) only -- repositions/clears flags on the actor (uid 4) along the scripted MBG path at specific frame numbers.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork of 2933 loses the per-frame actor repositioning that drives the Crystal World approach -> actor not moved correctly during the MBG sequence. Functional, exotic.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/MBG.cs",
+  "line": 547,
+  "field_ids": [
+   2933
+  ],
+  "gate": "fldMapNo != 2933 (HonoUpdate) ",
+  "behavior": "MBG.HonoUpdate calls MBGUpdate every HonoUpdate EXCEPT for field 2933 (which instead drives MBGUpdate from LateUpdate at line 553).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Paired with line 553. A fork of 2933 (non-2933 id) would run MBGUpdate from HonoUpdate instead of LateUpdate -> wrong update timing for the Crystal World MBG. Functional, exotic; pins the same table of MBG fields.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/MBG.cs",
+  "line": 553,
+  "field_ids": [
+   2933
+  ],
+  "gate": "fldMapNo == 2933 (LateUpdate)",
+  "behavior": "Crystal World (2933) only: drives MBGUpdate from Unity LateUpdate instead of HonoUpdate.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Fork of 2933 loses the LateUpdate driver -> MBG runs on the wrong tick. Functional, exotic.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/Movie/MovieMaterialProcessor.cs",
+  "line": 11,
+  "field_ids": [
+   2933
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2933 (Update)",
+  "behavior": "For field 2933, drives the streaming MovieMaterial.Update()/NativeUpdate() from Update() instead of LateUpdate().",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "Pairs with line 21. Field 2933 (Crystal World 'last/cw mbg 1', the background-movie field) is special-cased so the movie material ticks in Update rather than LateUpdate (timing/ordering fix). A custom-id fork of 2933 falls into the LateUpdate branch (line 21) instead -> the in-field movie still updates but on the wrong phase, possibly a 1-frame lag / sync glitch. Movie still plays, so FUNCTIONAL (visual timing), not a hang.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/SPSEffect.cs",
+  "line": 244,
+  "field_ids": [
+   155,
+   1216,
+   1808
+  ],
+  "gate": "(fldMapNo==155 || fldMapNo==1216 || fldMapNo==1808) && base.name==\"SPS_0008\"",
+  "behavior": "Alexandria Castle/Library (3 versions): applies a z-depth offset of 700 to SPS_0008 (fixes draw-order/occlusion).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "In _GenerateSPSPrims. Fork of 155/1216/1808 loses the zOffset -> the SPS draws at wrong depth (could be occluded by or pop in front of background). Visual/draw-order quirk; not a hang, classifying FUNCTIONAL since it's a depth-sorting error rather than a flat color/position tweak.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/SPSEffect.cs",
+  "line": 254,
+  "field_ids": [
+   2929
+  ],
+  "gate": "this.gMode==1 && FF9StateSystem.Common.FF9.fldMapNo == 2929",
+  "behavior": "last/cw mbg a: enables 'useScreenPositionHack' for the teleportation SPS shown after the Necron battle (special screen-space projection path).",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "In _GenerateSPSMesh. Fork of 2929 takes the normal gMode==1 projection branch instead of the screen-position hack -> the post-Necron teleport effect projects incorrectly (wrong on-screen placement/scale). Cutscene-specific visual; not a softlock, so FUNCTIONAL.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/UI/UIKey/UIKeyTrigger.cs",
+  "line": 484,
+  "field_ids": [
+   2207
+  ],
+  "gate": "State==FieldHUD && fldMapNo == 2207 && ScenarioCounter == 9840",
+  "behavior": "Palace/Hall: blocks opening the party-switch menu (plays the deny SFX and returns) when Zidane returns with the Gulug Stone -- prevents a soft-broken party state.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "A fork of 2207 at scenario 9840 would ALLOW the party menu the engine intends to forbid -> the player can enter an unintended/possibly broken party config. Wrong-but-playable (the hotfix it disables guards against a worse state). Scenario-gated.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Memoria/VoiceActing/VoicePlayer.cs",
+  "line": 251,
+  "field_ids": [
+   3009,
+   3010
+  ],
+  "gate": "dialog.EndMode > 0 && FF9StateSystem.Common.FF9.fldMapNo != 3009 && FF9StateSystem.Common.FF9.fldMapNo != 3010",
+  "behavior": "In AfterSoundFinished_Dismiss: for a timed dialog (EndMode>0) it returns early to let the timer close it, EXCEPT on Epilogue Stage 3009/3010 where it proceeds to force-close after the voice ends.",
+  "fork_loses": true,
+  "fork_impact": "FUNCTIONAL",
+  "notes": "fldMapNo != exclusion gate (inverted). On real 3009/3010 the voice-end path force-closes a timed dialog; a custom-id fork of 3009/3010 is != 3009/3010 == TRUE for the exclusion -> takes the early-return branch -> the dialog is NOT force-closed on voice end and relies on the timer. Only matters with VoiceActing enabled. Epilogue cutscene auto-advance timing. Counterpart to Dialog.cs AutoHide 3009/3010.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Assets/Scripts/Common/SceneDirector.cs",
+  "line": 593,
+  "field_ids": [
+   60
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 60 && mapvar[24]==5 && mode==Add && IsFastForward",
+  "behavior": "In Prima Vista/Interior, defers the Add-mode fade by 3 frames (StartCoroutine SetGlobalFade) when fast-forwarding, so the fade renders correctly under FF.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Only fires under FastForward setting; a fork at a custom id skips the deferred-fade tweak -> a 1-frame fade glitch at most during fast-forward. Cosmetic.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Assets/Scripts/Common/SceneDirector.cs",
+  "line": 598,
+  "field_ids": [
+   1661
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1661 && SC_COUNTER==6930 && mode==Add",
+  "behavior": "In Brahne's Fleet/Event at scenario 6930, defers the Add-mode fade by 3 frames so the global fade renders correctly.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Same deferred-fade workaround as field 60. Fork loses the 3-frame defer -> minor fade glitch only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/AllSoundDispatchPlayer.cs",
+  "line": 135,
+  "field_ids": [
+   503
+  ],
+  "gate": "fldMapNo == 503 && getVar(SC_COUNTER_SVR)==2970 && getVar(MAP_INDEX_SVR)==11 && ObjNo==35",
+  "behavior": "On Cargo Ship/Bridge at a specific scenario beat, forces a just-loaded music track (song 35) to volume 0 (mutes it).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Audio-only. A custom-id fork of field 503 (also needs the matching scenario/map-index, which a fork won't reproduce anyway) loses the mute -> a BGM that should be silent plays. Purely an audio quirk.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 1578,
+  "field_ids": [],
+  "gate": "fldMapNo >= 1400 && fldMapNo <= 1425 (&& tailPosition Upper && transparent/plain-no-choice)",
+  "behavior": "In CanAutoResize, disables automatic dialog box resizing (uses STRT-tag size instead) for Fossil Roo lever/path-display windows.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "RANGE gate on fldMapNo 1400..1425 (Fossil Roo zone). A custom-id fork (id >=4000/scratch) is OUTSIDE the range, so auto-resize is NOT disabled -> the lever/path-display windows auto-size instead of using their authored fixed size (visual layout quirk). Fork loses the special-case; cosmetic. Fork-remap patch should map donor 1400-1425 ids.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 1609,
+  "field_ids": [
+   1608
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1608",
+  "behavior": "In ForceUpperTail, for Madain Sari Secret Room at scenario 6840/6850 forces the dialog tail to the upper position based on camera position and target actor sid.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Real fldMapNo == gate (field 1608 = Madain Sari/Secret Room, Zidane+Garnet scene). A custom-id fork loses the forced-upper-tail so the Zidane/Garnet dialog bubbles point the wrong way in that cutscene. Also scenario-gated (6840/6850) so only triggers on a fork that also seeds that beat. Cosmetic (tail direction).",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/Dialog/Dialog.cs",
+  "line": 1633,
+  "field_ids": [
+   2951
+  ],
+  "gate": "FF9StateSystem.MobilePlatform && id < UIDialogId && FF9StateSystem.Common.FF9.fldMapNo == 2951",
+  "behavior": "In OverwriteDialogParameter (mobile only), for the Moogle (uid 13) choice dialog at Chocobo's Lagoon, detaches the dialog from the actor and forces a no-tail upper-center window.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Real fldMapNo == gate (field 2951 = Chocobo's Lagoon), additionally MobilePlatform-only. A custom-id fork loses the moogle-menu repositioning on mobile (PC unaffected). Cosmetic window placement.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Global/EBin.cs",
+  "line": 1310,
+  "field_ids": [
+   3011
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 3011 (in wait())",
+  "behavior": "In the Wait command, for non-US/JP languages on the Ending field, remaps wait durations (82->102, 50->90) to retime the ending cutscene for longer localized text.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Field 3011 = FBG_N46_ENDG_MAPX50_ED_EVT_0 (Ending). Only affects non-US/JP localized timing of the ending cutscene. A fork loses the retimed waits -> text/timing mismatch in localized ending; cosmetic. Not relevant to typical forking.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/EBin.cs",
+  "line": 1321,
+  "field_ids": [
+   3009
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 3009 && lang not US/JP && s1.uid == 17 && _v0 == 15 (in wait())",
+  "behavior": "In the Wait command, for non-US/JP languages remaps wait 15->20 for uid 17 on the Ending field to retime a localized line.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Field 3009 = FBG_N00_TSHP_MAP011C_TH_STG_3 (reused as an Ending stage; comment says Ending/TH). Localized-only cutscene timing tweak. A fork loses it -> cosmetic timing mismatch.",
+  "group": "eventengine-sysvar-utils"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 12,
+  "field_ids": [
+   64
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 64",
+  "behavior": "Alexandria Castle/Public Seats: Chanbara (Blank swordplay) minigame bonus-points + Steam SwordplayAssistance hacks (score +30%, encore achievement, time-extend cheat).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement/score-assist only; the minigame logic itself lives in the field .eb (verbatim-carried). Fork loses only the Steam score bonus + Encore achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 59,
+  "field_ids": [
+   1704
+  ],
+  "gate": "fldMapNo == 1704",
+  "behavior": "Madain Sari/Eidolon Wall: reports the EidolonMural achievement when the name-reveal message is read.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only trigger. Fork loses only the achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 86,
+  "field_ids": [
+   352
+  ],
+  "gate": "fldMapNo == 352",
+  "behavior": "Dali/Inn: reports the ExcellentLuck (best fortune-telling) achievement.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 112,
+  "field_ids": [
+   103,
+   2456
+  ],
+  "gate": "fldMapNo == 103 (early) / fldMapNo == 2456 && SC>=10300 (late)",
+  "behavior": "Jump-rope: picks which gEventGlobal counter holds the jump count (field 103 early-game vs 2456 late-game) to drive the Rope100/Rope1000 achievements.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "varOperation stays 0 for a fork -> achievement tracking skipped (early return). Minigame itself is field .eb. Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 136,
+  "field_ids": [
+   103,
+   2456
+  ],
+  "gate": "fieldId == 103 / fieldId == 2456 (IsCongratMessage)",
+  "behavior": "Jump-rope: matches the per-language congratulation message id used to confirm a successful rope run for the achievement.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Helper for line 112; achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 177,
+  "field_ids": [
+   911,
+   1911
+  ],
+  "gate": "fldMapNo == 911 || fldMapNo == 1911",
+  "behavior": "Treno/Queen's House: reports the QueenReward10 (Stellazzio) achievement, counting collected coins.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only. Two real ids = the disc-2 and disc-3 variants of the same field.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 204,
+  "field_ids": [
+   1900,
+   2801
+  ],
+  "gate": "(fldMapNo == 1900 && mesId == 289) || (fldMapNo == 2801 && mesId == 236)",
+  "behavior": "Treno/Pub or Daguerreo/Right Hall: reports the TreasureHuntS achievement on a specific message.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 211,
+  "field_ids": [
+   1858
+  ],
+  "gate": "fldMapNo == 1858",
+  "behavior": "Alexandria/Weapon Shop: reports the Shuffle9 (shuffle game) achievement on the congratulation message.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 233,
+  "field_ids": [
+   457,
+   455
+  ],
+  "gate": "(fldMapNo == 457 || (fldMapNo == 455 && SC < 11090)) && g_tship_model_get_flg == 0",
+  "behavior": "Mountain/Shack or Mountain/Base: reports the ShipMaquette (theater-ship model) achievement.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 246,
+  "field_ids": [
+   1109
+  ],
+  "gate": "fldMapNo == 1109 && SC == 4980",
+  "behavior": "Cleyra/Cathedral: reports CleyraVictimAll achievement if all three victims were helped.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 264,
+  "field_ids": [
+   2950,
+   2951,
+   2952
+  ],
+  "gate": "fldMapNo == 2950 || 2951 || 2952",
+  "behavior": "Chocobo's Forest/Lagoon/Air Garden: reports the ChocoboLv99 (beak level) achievement on the per-language beak-update message.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only. (Chocobo Hot&Cold logic itself is field .eb, carried verbatim.)",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 293,
+  "field_ids": [
+   909,
+   1909
+  ],
+  "gate": "(fldMapNo == 909 && sid == 7) || (fldMapNo == 1909 && sid == 3)",
+  "behavior": "Treno/Auction Site: reports the Auction10 achievement (10th auction win).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only; also keyed on the auctioneer NPC sid.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 300,
+  "field_ids": [
+   600
+  ],
+  "gate": "fldMapNo == 600",
+  "behavior": "Lindblum Castle/Royal Chamber: reports the ViviWinHunt achievement (Vivi won the Festival of the Hunt).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 329,
+  "field_ids": [
+   558,
+   1306,
+   2106,
+   908,
+   1908
+  ],
+  "gate": "quadmistOpponentId == 558002 || 1306002 || 2106002 || 908009 || 1908006 (id = fldMapNo*1000+uid)",
+  "behavior": "Tetra Master: groups certain card opponents to a canonical opponent id (and applies the Thief coin-condition card-upgrade) so the 'beat all card NPCs' achievement counts them as one.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "opponentId is fldMapNo*1000+uid (CreateNPCID), so it is field-id-derived. A fork's id makes opponentId not match -> dedup/upgrade skipped. Affects only the CardWinAll achievement grouping; the card match itself still plays.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 354,
+  "field_ids": [
+   908,
+   1908
+  ],
+  "gate": "fldMapNo == 908 || fldMapNo == 1908",
+  "behavior": "Treno/Gate: identifies the Thief card NPC (id 908009/1908006) and applies the coin-condition grouping.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "CreateNPCID is field-id-derived. Achievement-grouping + Thief card-strength upgrade; a fork loses the upgrade. Mostly cosmetic/achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 381,
+  "field_ids": [
+   1421
+  ],
+  "gate": "fldMapNo == 1421",
+  "behavior": "Fossil Roo/Mining Site: reports the MadainRing dig achievement.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 398,
+  "field_ids": [
+   3100
+  ],
+  "gate": "fldMapNo == 3100",
+  "behavior": "Mognet Central: reports the MognetCentral achievement.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 404,
+  "field_ids": [
+   1850
+  ],
+  "gate": "fldMapNo == 1850 && mesId == 152 && IsFastTrophyMode && byte491 < 80",
+  "behavior": "Alexandria/Main Street (Hippaul race): in fast-trophy mode, bumps the race-win count var to 80 on a Vivi-win message.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Trophy-mode shortcut only; achievement-adjacent. Fork loses the fast-trophy skip.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 413,
+  "field_ids": [
+   1850
+  ],
+  "gate": "fldMapNo == 1850",
+  "behavior": "Alexandria/Main Street: reports the AthleteQueen (Hippaul race) achievement on reward.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 419,
+  "field_ids": [
+   2457
+  ],
+  "gate": "fldMapNo == 2457",
+  "behavior": "Alexandria/Mini-Theater: reports the SuperSlickOil achievement.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 500,
+  "field_ids": [
+   1421
+  ],
+  "gate": "fldMapNo == 1421 && lastGFFossilMog != kupoFound && kupoFound == 1",
+  "behavior": "Fossil Roo/Mining Site: reports the Kuppo (dig up Mog) achievement.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 534,
+  "field_ids": [
+   206
+  ],
+  "gate": "fldLocNo==40 && fldMapNo == 206 && SC_COUNTER==1900 && selectedChoice==0",
+  "behavior": "MappingATEID: maps the Prima Vista/Crash Site ATE choice to ATE-seen index 0 (for the ATE80 'seen 80 ATEs' achievement).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Part of the ATE-seen achievement table. fldLocNo is eventIDToMESID[fldMapNo] so it is field-id-derived too; a custom-id fork is absent from that map -> MappingATEID returns -1 and ATE-seen tracking is lost entirely. Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 543,
+  "field_ids": [
+   253,
+   204
+  ],
+  "gate": "fldLocNo==4 && (fldMapNo == 253 || fldMapNo == 204) && isCompulsory",
+  "behavior": "MappingATEID: maps these fields' compulsory ATE to seen-index 5.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "ATE-seen achievement table; field-id-derived via fldLocNo+fldMapNo. Cosmetic/achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 545,
+  "field_ids": [
+   262
+  ],
+  "gate": "fldLocNo==4 && fldMapNo == 262 && isCompulsory",
+  "behavior": "MappingATEID: maps field 262's compulsory ATE to seen-index 6.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "ATE-seen achievement table. Cosmetic/achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 550,
+  "field_ids": [
+   306
+  ],
+  "gate": "fldLocNo==8 && fldMapNo == 306 && isCompulsory",
+  "behavior": "MappingATEID: maps field 306's compulsory ATE to seen-index 7.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "ATE-seen achievement table. Cosmetic/achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 562,
+  "field_ids": [
+   554,
+   552,
+   565
+  ],
+  "gate": "fldLocNo==276 && fldMapNo == 554/552/565 && isCompulsory",
+  "behavior": "MappingATEID: maps fields 554/552/565 compulsory ATEs to seen-indices 14/16/18 respectively.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "ATE-seen achievement table (3 ids on consecutive lines 562/564/566). Cosmetic/achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 590,
+  "field_ids": [
+   1307
+  ],
+  "gate": "fldLocNo==485 && fldMapNo == 1307",
+  "behavior": "MappingATEID: maps field 1307 ATE to seen-index 33.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "ATE-seen achievement table. Cosmetic/achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 595,
+  "field_ids": [
+   1353
+  ],
+  "gate": "fldLocNo==525 && isCompulsory && fldMapNo == 1353",
+  "behavior": "MappingATEID: maps field 1353 compulsory ATE to seen-index 34.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "ATE-seen achievement table. Cosmetic/achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 625,
+  "field_ids": [
+   956
+  ],
+  "gate": "fldLocNo==359 && fldMapNo == 956 && isCompulsory",
+  "behavior": "MappingATEID: maps field 956 compulsory ATE to seen-index 57.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "ATE-seen achievement table. Cosmetic/achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/EMinigame.cs",
+  "line": 636,
+  "field_ids": [
+   2169,
+   2113,
+   2173
+  ],
+  "gate": "fldLocNo==595||943 && isCompulsory && fldMapNo == 2169 (scenario-split 9100/9200/10010/10030) / 2113 / 2173",
+  "behavior": "MappingATEID: maps fields 2169/2113/2173 compulsory ATEs to seen-indices 70-77/73/75 (2169 further split by scenario counter).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "ATE-seen achievement table (ids on lines 636/648/652). Cosmetic/achievement.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/ETb/ETb.cs",
+  "line": 114,
+  "field_ids": [
+   1850
+  ],
+  "gate": "fldMapNo == 1850 && AndroidTVPlatform && (mes==147||148)",
+  "behavior": "Alexandria/Main Street: forces the on-screen button glyph to show for the 'press alternately' Hippaul-race prompt (Android TV only).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Android-TV-only UI tweak. PC build never enters this. NA-ish for the PC toolkit; cosmetic if it did.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/ETb/ETb.cs",
+  "line": 123,
+  "field_ids": [
+   1657
+  ],
+  "gate": "fldMapNo == 1657",
+  "behavior": "Iifa Tree/Tree Roots: sets dialog.FocusToActor false for specific lines (per language) so the camera/window doesn't snap to the speaker on the narrow root walk.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Dialog window focus tweak. A fork shows the lines with default actor-focus -> slightly different window/camera focus. Cosmetic.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/ETb/ETb.cs",
+  "line": 290,
+  "field_ids": [
+   1652
+  ],
+  "gate": "gMode==1 && fldMapNo == 1652 (IsSkipped)",
+  "behavior": "Iifa Tree/Roots: suppresses (skips) a specific message ('How far is it gonna go...?') per language.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "A fork would SHOW the otherwise-skipped line -> an extra/duplicate dialog box. Cosmetic dialogue quirk.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/ETb/ETb.cs",
+  "line": 301,
+  "field_ids": [
+   1659
+  ],
+  "gate": "gMode==1 && fldMapNo == 1659 && targetPo.sid==1 (IsSkipped)",
+  "behavior": "Iifa Tree/Seashore: skips re-showing a Queen Brahne line that's already on screen.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Fork loses the dedup -> possible duplicate dialog box. Cosmetic.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/ETb/ETb.cs",
+  "line": 309,
+  "field_ids": [
+   2209
+  ],
+  "gate": "gMode==1 && fldMapNo == 2209 && targetPo.sid==9 (IsSkipped)",
+  "behavior": "Palace/Sanctum: skips Zidane's 'No!!!' line (mes 393) when chasing Kuja.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Fork shows the otherwise-skipped line. Cosmetic dialogue quirk.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/ETb/ETb.cs",
+  "line": 401,
+  "field_ids": [
+   1850
+  ],
+  "gate": "gMode==1 && fldMapNo == 1850 && AndroidTVPlatform && (TextId==147||148)",
+  "behavior": "Alexandria/Main Street: clears ForceShowButton after the Hippaul-race prompt closes (Android TV only).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Android-TV-only; pairs with line 114. NA on PC, cosmetic otherwise.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/ETb/ETb.cs",
+  "line": 424,
+  "field_ids": [
+   206
+  ],
+  "gate": "fldLocNo==40 && fldMapNo == 206 && SC_COUNTER==1900",
+  "behavior": "ProcessATEDialog/related: special-cases the Prima Vista/Crash Site ATE at scenario 1900 (ATE-seen ATE80 achievement path).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "ATE-seen achievement tracking. Achievement-only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/Event/Engine/EventEngine.ProcessEvents.cs",
+  "line": 576,
+  "field_ids": [
+   2913
+  ],
+  "gate": "FF9.fldMapNo != 2913 || actor1.uid != 6",
+  "behavior": "Scales the shadow of actor uid 6 by the actor's local Z scale on field 2913 (Crystal World-area giant actor); all other cases use the unscaled shadow.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Shadow size. On a fork the '!= 2913' is true so the special shadow scaling is never applied => actor uid 6's shadow is the wrong (unscaled) size. Purely cosmetic shadow mismatch.",
+  "group": "eventengine-core"
+ },
+ {
+  "file": "Global/Event/EventCollision.cs",
+  "line": 294,
+  "field_ids": [
+   2108
+  ],
+  "gate": "fldMapNo == 2108 (inside CollisionRequest, after a quad-push request)",
+  "behavior": "On field 2108, when a pushable quad is engaged and the quad is talkable, polls the Exclamation '!' interaction icon (BubbleUI).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "fldMapNo==2108 (Treno-area auction/card field). A custom-id fork (e.g. 6xxx) skips the branch, so the '!' icon won't appear over the special pushable quad. Purely the interaction-prompt icon; the underlying quad push/talk still works.",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Event/EventHUD.cs",
+  "line": 32,
+  "field_ids": [],
+  "gate": "FF9TextTool.FieldZoneId == 2 (CheckSpecialHUDFromMesId; Prima Vista)",
+  "behavior": "In zone 2 (Prima Vista), when mesId 35 closes, opens the basic control tutorial.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Gated on FieldZoneId, NOT fldMapNo directly - a ZONE id set per field at text-tool registration. A custom-id fork registers its own zone id, so this and every FieldZoneId branch below are also lost. Effect: the control tutorial won't auto-open. Cosmetic/tutorial. (Distinct mechanism from fldMapNo; flagged because it is still effectively field/zone-id pinned and a fork loses it.)",
+  "group": "event-interaction"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 164,
+  "field_ids": [
+   2510
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2510 && this.actor.uid == 8",
+  "behavior": "HonoLateUpdate: sets renderer _CharZ = 20 for the Water_Mirror actor (I.Castle/Mural Room)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Field 2510, uid 8 (Water_Mirror). Forces a fixed character-Z so the mirror-reflection actor composites at the right depth. Fork loses it -> mirror reflection draws at wrong depth; cosmetic.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 169,
+  "field_ids": [
+   2363
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2363 && this.actor.uid == 33",
+  "behavior": "HonoLateUpdate: sets renderer _CharZ = 20 for Thorn (Gulug/Path)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Field 2363, uid 33 (Thorn). Fixed char-Z depth correction. Fork loses it -> Thorn draws at wrong depth; cosmetic.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 181,
+  "field_ids": [
+   661
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 661 && this.actor.uid == 3",
+  "behavior": "HonoLateUpdate: applies a hardcoded shadow offset (-39,-14,80) for Quale (Marsh/Master's House)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Field 661, uid 3 (Quale). Shadow position correction. Fork loses it -> Quale's shadow slightly off; cosmetic.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 183,
+  "field_ids": [
+   1659
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1659 && this.actor.uid == 128",
+  "behavior": "HonoLateUpdate: shadow offset (0,-66,0) for Queen_Brahne instance 1 (Iifa Tree/Seashore)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Field 1659, uid 128. Shadow offset correction. Cosmetic.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 185,
+  "field_ids": [
+   1659
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1659 && this.actor.uid == 129",
+  "behavior": "HonoLateUpdate: shadow offset (0,-21,0) for Queen_Brahne instance 2 (Iifa Tree/Seashore)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Field 1659, uid 129. Shadow offset correction. Cosmetic.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 187,
+  "field_ids": [
+   2363
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2363 && (uid==16||uid==15||uid==32||uid==33)",
+  "behavior": "HonoLateUpdate: shadow offset (0,-15,0) for Zorn/Thorn actors (Gulug/Path)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Field 2363, uids 15/16/32/33 (Zorn/Thorn). Shadow offset correction. Cosmetic.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActor.cs",
+  "line": 190,
+  "field_ids": [
+   2107,
+   2102
+  ],
+  "gate": "(fldMapNo==2107 && uid==5) || (fldMapNo==2102 && uid==4)",
+  "behavior": "HonoLateUpdate: overrides shadow position to the transform XZ with y=0 for the Pickaxe (Lindblum/Square, Lindblum/Main Street)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Fields 2107 (uid5) and 2102 (uid4), the Pickaxe prop. Forces shadow to ground under the prop. Fork loses it -> pickaxe shadow misplaced; cosmetic.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 213,
+  "field_ids": [
+   1204
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 1204 && this.originalActor.sid == 11",
+  "behavior": "Creates 5 debug sphere markers (marker1-5) at hardcoded coords for Zidane on A.Castle/Underground platform",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Actor sid 11 (Zidane). This is leftover debug visualization (DebugSetMarker on primitive spheres) \u2014 purely cosmetic/dev aid, no gameplay effect. A fork loses the debug markers but loses nothing playable.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 441,
+  "field_ids": [
+   576
+  ],
+  "gate": "fldMapNo == 576 && SC_COUNTER_SVR==3140 && MAP_INDEX_SVR==100 && originalActor.model == 270",
+  "behavior": "LateUpdate: applies a hardcoded neck rotation to Cid Human (Royal Action Figures) (Lindblum/Festival)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Also gated on scenario counter + map index + model, but field-id-pinned to 576. Neck-look cosmetic posing. A fork additionally couldn't reach the exact SC/MAP state without seeding; cosmetic only.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 472,
+  "field_ids": [
+   116
+  ],
+  "gate": "this.originalActor.model == 22 && FF9StateSystem.Common.FF9.fldMapNo == 116",
+  "behavior": "CheckOffsetPosModel: nudges the Ladder model up 40 / forward 25 (Alexandria/Rooftop)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Model 22 (Ladder) on field 116. Cosmetic bone000 offset so the ladder prop sits correctly on the rooftop art. Fork loses the nudge -> ladder slightly misplaced visually; cosmetic.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 486,
+  "field_ids": [
+   1606
+  ],
+  "gate": "fldMapNo == 1606 && (model == 235 || 236 || 237)",
+  "behavior": "CheckOffsetPosModel: nudges Stew Pot/Cooked Fish/Stew Plate props back 20 (Mdn.Sari/Resting Room)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Models 235/236/237 (food props) on field 1606. Cosmetic prop placement offset. Fork loses it -> props slightly misaligned; cosmetic.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 528,
+  "field_ids": [
+   1610
+  ],
+  "gate": "fldMapNo == 1610 && this.originalActor.sid == 19 && (anim == 6126 || anim == 6130)",
+  "behavior": "UpdateNeck: special neck rotation for Zidane Listen_1/Listen_2 (Mdn.Sari/Cove)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Actor sid 19 (Zidane) with specific listen anims on field 1610. Cosmetic head-turn during a listening cutscene pose. Fork loses it -> neck looks straight ahead instead of turned; cosmetic.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/Actor/FieldMapActorController.cs",
+  "line": 540,
+  "field_ids": [
+   1601
+  ],
+  "gate": "anim == 3802 && fldMapNo == 1601 && uid == 23 && SC_COUNTER_SVR==6600 && MAP_INDEX_SVR==5",
+  "behavior": "UpdateNeck: special neck rotation (23deg) for Eiko Look_Up_2 first-time-there (Mdn.Sari/Open Area)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Field 1601, uid 23 (Eiko), also gated on scenario/map state. Cosmetic neck angle override (else falls through to default ApplyNeckRotation). Fork loses it AND can't hit the exact SC/MAP state; cosmetic only.",
+  "group": "actor-movement"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 106,
+  "field_ids": [
+   3009,
+   3010,
+   3011
+  ],
+  "gate": "fldMapNo >= 3009 && fldMapNo <= 3011 (Ending/TH)",
+  "behavior": "Enables frame-skip / fixed target frame time for the ending sequence fields",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Range gate. Fork (id outside 3009-3011) loses the frame-skip tuning \u2192 ending plays without the perf accommodation. Cosmetic/perf only.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 582,
+  "field_ids": [
+   1508,
+   1706
+  ],
+  "gate": "fldMapNo == 1508 || fldMapNo == 1706 (Conde Petie Inn / Mdn. Sari Kitchen)",
+  "behavior": "RestoreShadowOff \u2014 suppresses an actor's shadow on restore",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Fork loses the shadow-off \u2192 an extra/incorrect shadow appears under an actor. Cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 608,
+  "field_ids": [
+   1706
+  ],
+  "gate": "needRestore && fldMapNo == 1706 (Mdn. Sari/Kitchen)",
+  "behavior": "Per-uid character scaling (uid 4 JP=40, uid 3/5=80) \u2014 shrinks specific NPCs (Moogles/Eiko cooking scene)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Fork loses the scale overrides \u2192 NPCs render at default (wrong) size in the kitchen scene. Cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 615,
+  "field_ids": [
+   2924
+  ],
+  "gate": "fldMapNo == 2924 && originalActor.sid == 8 (Crystal World 3rd area, Zidane)",
+  "behavior": "Sets Zidane's render queue to 2000 (custom draw order) instead of default -1",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "actor sid 8. Fork loses \u2192 Zidane draws at default queue \u2192 possible transparency/sort glitch vs the crystal overlays. Cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 657,
+  "field_ids": [
+   609,
+   2159
+  ],
+  "gate": "(map == 609 || map == 2159) && SC_COUNTER != 3110",
+  "behavior": "Applies a non-linear (quadratic) vertical camera curve during a specific Lindblum-tower beat",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Also depends on scenario counter. Fork loses the special Y-curve \u2192 camera pans linearly instead of the authored curve. Cosmetic camera framing.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 662,
+  "field_ids": [
+   507
+  ],
+  "gate": "map == 507 (Cargo Ship/Deck)",
+  "behavior": "Nudges camera X by +1 px",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "1px widescreen alignment tweak. Negligible cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 686,
+  "field_ids": [
+   103,
+   1853,
+   2053,
+   2606
+  ],
+  "gate": "map == 103||1853||2053||2606 (Alex center / Bran Bal exceptions)",
+  "behavior": "Adds +16 to the left camera threshold margin",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Inside the mapWidth>PsxFieldWidth branch (only reached if MapWidth returns the real wide value \u2014 which a fork already loses, see MapWidthList). Camera-margin tweak. Cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 688,
+  "field_ids": [
+   2903
+  ],
+  "gate": "map == 2903 (Memoria castle)",
+  "behavior": "Subtracts 32 from the right camera threshold",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Camera margin tweak; also see 715 and 1365 for more 2903 special-cases. Cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 690,
+  "field_ids": [
+   2923
+  ],
+  "gate": "map == 2923 (Crystal World)",
+  "behavior": "Adds +20 to the left camera threshold margin",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Camera margin tweak. Cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 703,
+  "field_ids": [
+   312,
+   456,
+   505,
+   1153,
+   2716,
+   2903
+  ],
+  "gate": "switch(map){case 312/456/505/1153/2716/2903} widescreen camera-position overrides",
+  "behavior": "Per-field hardcoded camera X (or Y clamp) for stretched-to-widescreen scrolling maps (Ice cavern out, Dali Summit, Cargo ship, Rose Rouge cockpit, Kuja descent, Memoria castle)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Each case sets an absolute CamPositionX/Y. Fork loses \u2192 these scrolling maps frame off-center at widescreen. Cosmetic framing; 2716 prevents Kuja camera going too high (still cosmetic).",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 1150,
+  "field_ids": [
+   2755
+  ],
+  "gate": "MapNo == 2755 && overlayNdx==5 && dx==1 && WidescreenSupport (EBG_overlayMove)",
+  "behavior": "Adjusts a moving tile's dx to 0.75 and scales overlay 1.1x (widescreen fix for a moving prop)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Tile-move opcode handler. Fork loses \u2192 the moving overlay drifts/scales wrong at widescreen on this field. Cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 1365,
+  "field_ids": [
+   2903
+  ],
+  "gate": "fldMapNo == 2903 && ovrNdx == 1 (Memoria castle)",
+  "behavior": "Shifts overlay 1's localPosition X by -1px",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "1px overlay alignment for Memoria castle. Cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 1655,
+  "field_ids": [
+   1651,
+   1758,
+   312,
+   805,
+   808,
+   908,
+   1908,
+   1108,
+   1657,
+   1660,
+   2251,
+   2252,
+   2600,
+   2602,
+   2604,
+   2605,
+   2606,
+   2607,
+   2651,
+   2660,
+   2851,
+   2916,
+   2922,
+   2923
+  ],
+  "gate": "switch(map){...} two switches in SceneServiceScroll (Loop@1655 and Parallax@1693) keyed on fldMapNo",
+  "behavior": "Per-field hardcoded parallax/loop overlay X/Y positions and scales to make scrolling/parallax backgrounds line up at widescreen",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Two id-keyed switch blocks (Loop case at 1657-1666: 1651,1758; Parallax cases 1695-1812: 312,805,808,908,1908,1108,1651,1758,1657,1660,2251,2252,2600,2602,2604,2605,2606,2607,2651,2660,2851,2916,2922,2923). A fork loses all these widescreen parallax fixups \u2192 parallax/looping background layers misalign or mis-scale on these fields at non-4:3 aspect. Cosmetic (only active under WidescreenSupport).",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/FieldMap.cs",
+  "line": 2364,
+  "field_ids": [
+   3000,
+   3001,
+   3002,
+   3003,
+   3004,
+   3005,
+   3006,
+   3007,
+   3008,
+   3009,
+   3010,
+   3011,
+   3012
+  ],
+  "gate": "map >= 3000 && map <= 3012 (ending) in OnWidescreenSupportChanged",
+  "behavior": "Forces PSX field/screen width to 320 and disables widescreen for the ending fields",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Range gate. Fork (id outside 3000-3012) loses \u2192 ending field renders at widescreen instead of forced-narrow 320 \u2192 ending art shows side garbage/stretch. Cosmetic. Mirrors the SmoothCamExcludeMaps 3000-3012 list.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/NarrowMapList.cs",
+  "line": 45,
+  "field_ids": [],
+  "gate": "RestrictedWidthScenesList: entry[0]==mapId && screenwidth/MAP_INDEX/SC_COUNTER match (ConditionalForceNarrow)",
+  "behavior": "Forces a normally-wide field to render NARROW (320/432/478) during specific scenario beats (index/counter), or whitelists a few fields back to widescreen",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "id-keyed TABLE keyed on fldMapNo AND scenario index/counter. ids include 50,70,150,254,352,501,507,600,615,1554,1602,1652,1807,2007,2404,2705,2706,2707,2708,2711,2905. Fork loses the per-beat forced-narrow (and the gate also depends on the fork carrying the right scenario index/counter). Visual aspect only.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/NarrowMapList.cs",
+  "line": 81,
+  "field_ids": [],
+  "gate": "RestrictedCams: entry[0]==fldMapNo && entry[1]==camIdx (read in PSXCameraAspect.LateUpdate)",
+  "behavior": "Per-(field,cam) forces a narrower PSX camera width (caps the widescreen viewport ratio for cams that overshoot)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "id-keyed TABLE RestrictedCams, ids: 50,63,116,153,154,355,600,615,801,932,951,1205,1206,1214,1215,1462,1759,1801,1806,1807,2150,2172,2217,2363,2755. Consumed in PSXCameraAspect.cs:45-51 (camRestrictionRatio). Fork \u2192 cam not restricted \u2192 widescreen shows extra/garbage at frame edges. Cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/NarrowMapList.cs",
+  "line": 117,
+  "field_ids": [],
+  "gate": "MapWidthList lookup: foreach entry if entry[0]==mapId return entry[1]; else 500",
+  "behavior": "Returns the field's authored PSX render width (letterbox/narrow-cam masking width); falls back to 500 (=widescreen, no narrowing) when the id is absent",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "id-keyed TABLE MapWidthList (every real field 50..3100, ~600 entries each [field#,width]). A custom-id fork misses \u2192 MapWidth() returns default 500 \u2192 field is treated as full-widescreen, so a narrow field's side letterbox bars are lost / off-screen party can draw over them. Matches the known 'narrow-map fork letterbox' memory. Feeds NarrowMapList.MapWidth / IsCurrentMapNarrow / OnWidescreenSupportChanged / CenterCameraOnPlayer.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/Field/Map/NarrowMapList.cs",
+  "line": 932,
+  "field_ids": [
+   1051,
+   1057,
+   1058,
+   1060,
+   1653
+  ],
+  "gate": "mapCameraMargin dictionary keyed by field id (read in FieldMap.CenterCameraOnPlayer)",
+  "behavior": "Adds left/right camera crop margin for scrollable fields that pan too far",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "id-keyed Dictionary<int,int> mapCameraMargin {1051:9,1057:17,1058:16,1060:17,1653:16}. Consumed FieldMap.cs:680-682. Fork \u2192 no extra margin \u2192 camera may show past the painted edge. Cosmetic.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Global/fldchar.cs",
+  "line": 73,
+  "field_ids": [
+   2653,
+   2654
+  ],
+  "gate": "fldMapNo == 2653 || fldMapNo == 2654",
+  "behavior": "When creating the mirror-character (case 11), forces the mirror geo's renderQueue to 2000 so the reflection sorts correctly in these two fields.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Mirror-floor reflection render-order tweak. A fork of these fields that uses the mirror feature would get a default renderQueue -> the reflected character could z-sort wrong. Visual only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 116,
+  "field_ids": [
+   2215
+  ],
+  "gate": "MapNo == 2215 && name==\"SPS_0008\" && pos==(1330,1150,1125)",
+  "behavior": "Desert Palace: lowers a misaligned flame SPS (pos.y 1150 -> 1025).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise position correction. MapNo = FF9.fldMapNo. A fork of 2215 loses the nudge -> the flame effect sits at its original slightly-misaligned spot. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 118,
+  "field_ids": [
+   2301,
+   2302
+  ],
+  "gate": "(MapNo==2301 || MapNo==2302) && name==\"SPS_0000\" && pos==(-1200,690,374)",
+  "behavior": "Esto Gaza: repositions a flame SPS_0000 to (-1330,710,674).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 2301/2302 loses the flame realignment. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 120,
+  "field_ids": [
+   2301,
+   2302
+  ],
+  "gate": "(MapNo==2301 || MapNo==2302) && name==\"SPS_0001\" && pos==(-620,400,504)",
+  "behavior": "Esto Gaza: lowers flame SPS_0001 (pos.y 400 -> 350).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 2301/2302 loses the nudge. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 122,
+  "field_ids": [
+   2304
+  ],
+  "gate": "MapNo==2304 && name==\"SPS_0000\" && pos==(-970,1455,1516)",
+  "behavior": "Esto Gaza: repositions flame SPS_0000 to (-1030,1400,1716).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 2304 loses it. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 124,
+  "field_ids": [
+   2304
+  ],
+  "gate": "MapNo==2304 && name==\"SPS_0001\" && pos==(830,1479,1516)",
+  "behavior": "Esto Gaza: repositions flame SPS_0001 to (790,1400,2016).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 2304 loses it. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 126,
+  "field_ids": [
+   303
+  ],
+  "gate": "MapNo==303 && name==\"SPS_0002\"",
+  "behavior": "Ice Cavern: hard-sets smoke SPS_0002 position to (4330,-1227,-700).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise (no pos-value guard, fires on any pos for SPS_0002). Fork of 303 loses the smoke reposition -> smoke renders at its raw script position. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 128,
+  "field_ids": [
+   205
+  ],
+  "gate": "MapNo==205 && name==\"SPS_0000\" && pos==(-110,850,510)",
+  "behavior": "Prima Vista candle: shifts pos.x -110 -> -122.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 205 loses it. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 130,
+  "field_ids": [
+   207
+  ],
+  "gate": "MapNo==207 && name==\"SPS_0000\" && pos==(865,465,-22)",
+  "behavior": "Prima Vista candle: repositions SPS_0000 to (845,485,-82).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 207 loses it. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 132,
+  "field_ids": [
+   262
+  ],
+  "gate": "MapNo==262 && name==\"SPS_0000\" && pos==(355,160,4150)",
+  "behavior": "Field 262: shifts SPS_0000 pos.x 355 -> 385.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 262 loses it. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 134,
+  "field_ids": [
+   162
+  ],
+  "gate": "MapNo==162 && name==\"SPS_0002\" && pos==(-340,660,-314)",
+  "behavior": "Field 162: repositions SPS_0002 to (-350,640,-314).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 162 loses it (also lines 136/138 for SPS_0003/0004). Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 136,
+  "field_ids": [
+   162
+  ],
+  "gate": "MapNo==162 && name==\"SPS_0003\" && pos==(-460,670,-314)",
+  "behavior": "Field 162: repositions SPS_0003 to (-470,650,-314).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 162 loses it. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 138,
+  "field_ids": [
+   162
+  ],
+  "gate": "MapNo==162 && name==\"SPS_0004\" && pos==(-570,654,-314)",
+  "behavior": "Field 162: repositions SPS_0004 to (-580,640,-314).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 162 loses it. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 140,
+  "field_ids": [
+   163
+  ],
+  "gate": "MapNo==163 && name==\"SPS_0002\" && pos==(821,502,4389)",
+  "behavior": "Field 163: repositions SPS_0002 to (735,475,4000).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 163 loses it. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 142,
+  "field_ids": [
+   163
+  ],
+  "gate": "MapNo==163 && name==\"SPS_0001\" && pos==(1150,529,4306)",
+  "behavior": "Field 163: repositions SPS_0001 to (1060,505,4000).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "AdjustSpsPrecise. Fork of 163 loses it. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 169,
+  "field_ids": [
+   2553
+  ],
+  "gate": "FF9StateSystem.Common.FF9.fldMapNo == 2553 && (sps.spsId==464||467||506||510)",
+  "behavior": "Wind Shrine/Interior: nulls the loaded SPS bin for 4 specific effect ids (suppresses those effects).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "On OPERATION_LOAD. A fork of 2553 loses the suppression -> those 4 SPS effects would render where the original hides them. Visual only (extra/incorrect effects).",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 177,
+  "field_ids": [
+   911,
+   1911
+  ],
+  "gate": "(fldMapNo==911 || fldMapNo==1911) && (sps.spsId==33||34)",
+  "behavior": "Treno/Queen's House: on SPS delete, resets pos/scale/rot to defaults for effects 33/34 before unload.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "On OPERATION_LOAD delete path. Fork of 911/1911 loses the reset. Visual only; pairs with the pos-guard at line 213.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 198,
+  "field_ids": [
+   1206,
+   1223,
+   2928
+  ],
+  "gate": "(sps.attr & ATTR_VISIBLE)!=0 && (fldMapNo==1206 || fldMapNo==1223 || fldMapNo==2928)",
+  "behavior": "Hill of Despair / A.Castle Queen's Chamber: enables the mesh renderer only if spsBin != null (suppresses showing an unloaded SPS).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "On OPERATION_ATTR. For these 3 fields the engine guards against enabling a renderer with no bin; a fork falls into the else branch (line 207) which enables unconditionally -> a null/garbage SPS could flicker visible. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 213,
+  "field_ids": [
+   911,
+   1911
+  ],
+  "gate": "fldMapNo==911 || fldMapNo==1911",
+  "behavior": "Treno/Queen's House: on OPERATION_POS, only applies the new SPS position if spsBin != null.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Fork of 911/1911 takes the else branch (line 221) and sets pos unconditionally. Visual only (an unloaded effect could get a stray position).",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/CommonSPSSystem.cs",
+  "line": 230,
+  "field_ids": [
+   50,
+   51
+  ],
+  "gate": "(fldMapNo==50 && name==\"SPS_0001\") || (fldMapNo==51 && name==\"SPS_0000\")",
+  "behavior": "Enlarges specific candle-light SPS scale by 1.30x.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "On OPERATION_SCALE. Fork of 50/51 loses the upscale -> candle flame renders at base size. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/SPS/SPSEffect.cs",
+  "line": 231,
+  "field_ids": [
+   2901,
+   2913,
+   2925
+  ],
+  "gate": "(fldMapNo==2901 && (spsId==644||736)) || (fldMapNo==2913 && (spsId==646||737)) || (fldMapNo==2925 && (spsId==990||988))",
+  "behavior": "Memoria Entrance/Portal & Crystal World save spheres: brightens the SPS color by using basef=255 instead of 127 (no fade-dim).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "In _GenerateSPSPrims color calc. Fork of 2901/2913/2925 loses the brighten -> the save-sphere effect renders dimmer than intended. Visual only.",
+  "group": "sound-sps-movie"
+ },
+ {
+  "file": "Global/TileSystem/TileSystem.cs",
+  "line": 670,
+  "field_ids": [
+   312
+  ],
+  "gate": "_fieldMapNumber == 312 && paddingType==Down && overlayNumber==2 && x<17 && y==12 (_getOverlayToRemove)",
+  "behavior": "Returns overlay 5 as the padding-source-to-skip for a specific tile during atlas tile padding (Ice Cavern outside)",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "_fieldMapNumber comes from FF9.fldMapNo (TileMap ctor, passed BGSCENE_DEF.cs:1450). This path runs only in Memoria's OFFLINE field IMPORT/atlas-creation tooling (Configuration.Import.Field), NOT normal runtime \u2014 so for a shipped fork it's effectively NA; if you re-import field 312's PSD under a custom id you'd get a 1-tile padding seam. Cosmetic, tooling-only.",
+  "group": "fieldmap-camera"
+ },
+ {
+  "file": "Memoria/Application/SmoothFrameUpdater_Field.cs",
+  "line": 119,
+  "field_ids": [
+   2953
+  ],
+  "gate": "(layer.flags & (Loop|ScrollWithOffset)) == 0 || fldMapNo == 2953",
+  "behavior": "Field smooth-frame interpolation: registers background overlay layers for sub-frame smoothing, normally skipping looping/scrolling layers EXCEPT on field 2953 (Chocobo Air Garden) where looping layers ARE smoothed.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "A fork of 2953 would skip smoothing its scrolling layers -> slightly choppier background scroll at high frame rates. Visual only. Same gate repeated for the other smooth-update passes (lines 196, 240).",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Memoria/Application/SmoothFrameUpdater_Field.cs",
+  "line": 196,
+  "field_ids": [
+   2953
+  ],
+  "gate": "_smoothUpdateRegistered && ((flags & (Loop|ScrollWithOffset)) == 0 || fldMapNo == 2953)",
+  "behavior": "Same Air-Garden looping-layer smooth-update exception, in the per-frame update pass.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Duplicate of line 119 for the update pass. Visual smoothing only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Memoria/Application/SmoothFrameUpdater_Field.cs",
+  "line": 240,
+  "field_ids": [
+   2953
+  ],
+  "gate": "_smoothUpdateRegistered && ((flags & (Loop|ScrollWithOffset)) == 0 || fldMapNo == 2953)",
+  "behavior": "Same Air-Garden looping-layer smooth-update exception, in the final/commit smooth-update pass.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Duplicate of line 119 for the third pass. Visual smoothing only.",
+  "group": "misc-scene-minigame"
+ },
+ {
+  "file": "Memoria/VoiceActing/VoicePlayer.cs",
+  "line": 321,
+  "field_ids": [],
+  "gate": "case 276: in GetSpecialAppend (switch on FieldZoneId) + ScenarioCounter 3170..3180",
+  "behavior": "Festival of the Hunt: picks special '_held_N'/'_taken_N' voice-file append for the points messages of the 8 hunt participants, incrementing gEventGlobal counters.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "FieldZoneId == 276 gate (zone 276 = Festival of the Hunt) plus scenario 3170-3180. A custom-id fork loses the special voice-line variant selection (voice acting only). Not fldMapNo; zone-id pinned. Voice/audio only -> cosmetic.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Memoria/VoiceActing/VoicePlayer.cs",
+  "line": 351,
+  "field_ids": [],
+  "gate": "case 945: in GetSpecialAppend (switch on FieldZoneId)",
+  "behavior": "Chocobo Hot&Cold: tracks specialCount and appends '_N' to the voice path for the gained-points message; resets count at game-start message.",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "FieldZoneId == 945 gate (zone 945 = Chocobo Places / Hot&Cold). Fork loses the per-find voice variant selection. Voice/audio only -> cosmetic. Not fldMapNo.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Memoria/VoiceActing/VoicePlayer.cs",
+  "line": 484,
+  "field_ids": [],
+  "gate": "HoldDialogUntilSoundEnds: zoneId==2 && mapNo>=59 && mapNo<=67",
+  "behavior": "Forces the dialog to be held open until the voice-acting sound finishes during the early-game 'I want to be your canary' Prima Vista stage play (zone 2, maps 59-67).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "Combined zoneId==2 AND mapNo range 59..67 gate. mapNo here is a map id passed in; a custom-id fork (id>=4000) fails both the zone==2 and the 59-67 range -> loses the hold-until-VA-ends behavior, so the canary stage-play dialog can advance before the voice line completes (only with VoiceActing on). Audio sync only -> cosmetic. Note 'mapNo' is the map-id arg, effectively field-id-derived.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Memoria/VoiceActing/VoicePlayer.cs",
+  "line": 488,
+  "field_ids": [],
+  "gate": "HoldDialogUntilSoundEnds: zoneId == 187",
+  "behavior": "Holds dialog open until VA sound ends for the ending scene (Vivi monologue and stage afterwards).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "FieldZoneId==187 gate (ending scene zone). Fork loses VA-hold; voice-acting audio sync only -> cosmetic. Not fldMapNo.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Memoria/VoiceActing/VoicePlayer.cs",
+  "line": 490,
+  "field_ids": [],
+  "gate": "HoldDialogUntilSoundEnds: zoneId == 189 && (universalTextId == 137 || 138)",
+  "behavior": "Holds dialog until VA ends for Cid/Baku rescue lines against the Silver Dragons (zone 189).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "FieldZoneId==189 + textId 137/138 gate. Fork loses VA-hold; voice audio sync only -> cosmetic. Not fldMapNo.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Memoria/VoiceActing/VoicePlayer.cs",
+  "line": 492,
+  "field_ids": [],
+  "gate": "HoldDialogUntilSoundEnds: zoneId == 89 && universalTextId 132..135",
+  "behavior": "Holds dialog until VA ends for the Alexander summoning chant lines (zone 89).",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "FieldZoneId==89 + textId 132-135 gate. Fork loses VA-hold; voice audio sync only -> cosmetic. Not fldMapNo.",
+  "group": "dialog-voice"
+ },
+ {
+  "file": "Memoria/VoiceActing/VoicePlayer.cs",
+  "line": 494,
+  "field_ids": [],
+  "gate": "HoldDialogUntilSoundEnds: zoneId == 484 && universalTextId == 165",
+  "behavior": "Holds dialog until VA ends for Kuja meeting the party at Mount Gulug (zone 484, 'How can that-').",
+  "fork_loses": true,
+  "fork_impact": "COSMETIC",
+  "notes": "FieldZoneId==484 + textId 165 gate. Fork loses VA-hold; voice audio sync only -> cosmetic. Not fldMapNo.",
+  "group": "dialog-voice"
+ }
+]
