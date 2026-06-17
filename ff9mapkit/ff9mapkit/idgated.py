@@ -12,17 +12,24 @@ silently stops firing. Most are internal (camera/position fixups); the USER-VISI
   party can draw over where the bars were. Widths baked in :mod:`ff9mapkit._narrowmap_data`.
 * **Chocobo dig HUD** -- the live Hot&Cold timer/HUD is gated on ``fldMapNo`` 2950-2952 (``EventHUD.cs``).
 * **Intro FMV** -- the field-70 opening movie is id-bound.
-
-Known GAP (not yet per-field here): the **ATE achievement** (``EMinigame.MappingATEID``) is keyed on
-``fldLocNo`` (location) + scenario, not a plain field id, so it needs a field->location map to surface
-per-field -- deferred. The ATE itself still PLAYS in a fork; only the trophy bookkeeping is id-bound.
+* **ATE achievement** -- a field's ATEs count toward the *ATE80* trophy via ``EMinigame.MappingATEID``, which
+  keys on ``fldLocNo`` (the field's LOCATION). The engine sets ``fldLocNo = eventIDToMESID[fldMapNo]``
+  (``HonoluluFieldMain.cs:19``) -- i.e. the field's registered MES/text-block id -- so we resolve it from the
+  baked :data:`ff9mapkit._fieldtext.EVENT_ID_TO_MES`. A mint runs at a custom id with a different text-block,
+  so its ATEs don't map to the trophy. The ATE itself still PLAYS; only the achievement bookkeeping is lost.
 
 This is pure baked data (no install needed) -- safe to call from the install-free analysis path.
 """
 from __future__ import annotations
 
 from . import walkmesh_hotfixes as _wh
+from ._fieldtext import EVENT_ID_TO_MES as _EVENT_TO_MES
 from ._narrowmap_data import FORK_DEFAULT_WIDTH, WIDTHS as _WIDTHS
+
+# fldLocNo == the field's MES id (HonoluluFieldMain.cs:19). These LOCATIONS have ATE-seen trophy mappings
+# (EMinigame.MappingATEID, lines 532-669 -- all `fldLocNo == N` cases; Memoria source, provenance-clean).
+ATE_ACHIEVEMENT_LOCS = frozenset({4, 8, 32, 37, 40, 44, 47, 52, 53, 70, 88, 90,
+                                  276, 289, 344, 358, 359, 485, 525, 595, 741, 943})
 
 # ~16:9 of the 240px PSX height: a field narrower than this is letterboxed in-game, but a fork (width 500)
 # renders widescreen, so the side letterbox masking is lost (the project-ff9-narrow-map-fork-letterbox bug).
@@ -50,6 +57,18 @@ def loses_letterbox(field) -> bool:
     return f is not None and f in _WIDTHS and _WIDTHS[f] < WIDESCREEN_WIDTH
 
 
+def field_loc_no(field):
+    """The field's ``fldLocNo`` (== its registered MES/text-block id, ``eventIDToMESID[fldMapNo]``), or None."""
+    f = _as_id(field)
+    return _EVENT_TO_MES.get(f) if f is not None else None
+
+
+def has_ate_achievement(field) -> bool:
+    """True if the field's location has an ATE-seen trophy mapping (lost on a mint -- a different fldLocNo)."""
+    loc = field_loc_no(field)
+    return loc is not None and loc in ATE_ACHIEVEMENT_LOCS
+
+
 def lost_on_mint(field) -> list:
     """``[(label, detail), ...]`` for every USER-VISIBLE id-gated engine behavior a fork of ``field`` loses on
     its custom id. Empty for most fields. The walkmesh entry notes whether the kit auto-reproduces it; the rest
@@ -70,4 +89,8 @@ def lost_on_mint(field) -> list:
         out.append(("Chocobo dig HUD", "the live Hot&Cold HUD is gated on fldMapNo 2950-2952 -> fork in-place"))
     if f in FMV_INTRO_FIELDS:
         out.append(("intro FMV", "the field-70 opening movie is id-bound -> retarget the stock field-70 override"))
+    if has_ate_achievement(f):
+        out.append(("ATE achievement",
+                    f"this location (fldLocNo {field_loc_no(f)}) has an ATE-seen trophy (EMinigame.MappingATEID); "
+                    f"a mint's different fldLocNo loses the ATE80 bookkeeping (the ATE still plays) -> fork in-place"))
     return out

@@ -409,7 +409,7 @@ def test_format_report_ascii_and_content():
 
 def test_format_report_static_roster_verdict():
     rep = FR.ForkReport(field_id=557, fbg_name="lb_tmp", roster_class="static-roster")
-    rep.n_objects = rep.n_talkable = 6
+    rep.n_objects = rep.n_talkable = rep.n_interactive = 6   # 6 NPCs, all graft-clean (Lindblum Church)
     rep.safety = {"clean": 6}
     out = FR.format_report(rep)
     assert "CLEAN static-roster" in out
@@ -805,3 +805,47 @@ def test_explain_daguerreo_decodes_the_three_sidequests():
     assert any(k == "say" and "Old Man" in t for _d, k, t in by_slot[23].steps)
     out = FR.format_explain(rep)
     assert "--verbatim" in out and "3 interactive, 3 render-only" in out
+
+
+# ---- the synthesized fidelity VERDICT (fork-report v2): mode reco + lost-on-mint steer ----------
+def test_verdict_recommends_native_for_clean_field():
+    v = FR._verdict_line(FR.ForkReport(field_id=1, roster_class="static-roster"))
+    assert "Recommended: --native" in v
+    assert "Loses" not in v and "[startup]" not in v
+
+
+def test_verdict_recommends_verbatim_with_reasons_and_startup():
+    v = FR._verdict_line(FR.ForkReport(field_id=1, roster_class="story-event", non_zidane=True,
+                                       item_gives=[(232, 1)], arrival_spots=3))
+    assert "Recommended: --verbatim" in v
+    assert "non-Zidane player" in v
+    assert "[startup] beat" in v                       # story-event -> the scenario-zero caveat
+
+
+def test_verdict_lost_on_mint_steer_skips_auto_reproduced():
+    real = FR._verdict_line(FR.ForkReport(field_id=1, lost_on_mint=[("narrow-map letterbox", "real width 382 ... is lost")]))
+    assert "Loses narrow-map letterbox" in real and "fork IN-PLACE" in real
+    auto = FR._verdict_line(FR.ForkReport(field_id=1, lost_on_mint=[("walkmesh hotfix", "X (auto-reproduced on fork)")]))
+    assert "Loses" not in auto                          # the kit reproduces it -> not a fork-in-place steer
+
+
+def test_verdict_interactions_count_is_npc_clean_only():
+    # numerator = CLEAN NPCs (n_interactive), never the props-inclusive safety['clean']; no "render-only"
+    # tail when every talkable NPC grafts clean (the "6 of 4 NPC(s)" / spurious-tail regression).
+    allc = FR._verdict_line(FR.ForkReport(field_id=1, n_talkable=4, n_interactive=4, safety={"clean": 6}))
+    assert "4 of 4 NPC(s) keep their interactions" in allc and "render-only" not in allc
+    some = FR._verdict_line(FR.ForkReport(field_id=1, n_talkable=4, n_interactive=1))
+    assert "1 of 4 NPC(s) keep their interactions" in some and "the rest render-only" in some
+
+
+def test_verdict_verbatim_without_startup_for_item_only():
+    # a static-roster field whose ONLY --verbatim reason is item grants -> --verbatim but NO [startup] caveat
+    v = FR._verdict_line(FR.ForkReport(field_id=1, roster_class="static-roster", item_gives=[(232, 1)]))
+    assert "Recommended: --verbatim" in v and "[startup]" not in v
+
+
+def test_verdict_truncates_reasons_over_three():
+    # 5 reasons fire (story-gated, non-Zidane, party, items, per-door) -> first 3 + "..."
+    v = FR._verdict_line(FR.ForkReport(field_id=1, roster_class="story-event", non_zidane=True,
+                                       party_adds=["Vivi"], item_gives=[(1, 1)], arrival_spots=2))
+    assert "..." in v

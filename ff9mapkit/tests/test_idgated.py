@@ -41,3 +41,21 @@ def test_walkmesh_entry_notes_auto_vs_fork_in_place():
     assert "auto-reproduced" in detail                # 2356 is load-time -> reproduced
     detail2 = dict(IG.lost_on_mint(2803))["walkmesh hotfix"]
     assert "fork-in-place" in detail2                 # 2803 (Daguerreo) is dynamic -> fork in place
+
+
+# ---- ATE-achievement lost-on-mint (fork-report v2): the field->fldLocNo->trophy chain ----------
+def test_ate_achievement_lost_on_mint():
+    # field 206 (the interactive-ATE hub) -> fldLocNo 40, a location WITH an ATE-seen trophy (MappingATEID)
+    assert IG.field_loc_no(206) == 40
+    assert IG.has_ate_achievement(206) is True
+    assert any(lbl == "ATE achievement" for lbl, _ in IG.lost_on_mint(206))
+    # field 707 (Gizamaluke) -> fldLocNo 51, NOT an ATE-achievement location
+    assert IG.field_loc_no(707) == 51
+    assert IG.has_ate_achievement(707) is False
+    assert not any(lbl == "ATE achievement" for lbl, _ in IG.lost_on_mint(707))
+
+
+def test_ate_achievement_locs_are_within_range():
+    # baked from EMinigame.MappingATEID (fldLocNo cases) -- a small fixed set, never the fork default
+    assert 40 in IG.ATE_ACHIEVEMENT_LOCS and 943 in IG.ATE_ACHIEVEMENT_LOCS
+    assert IG.field_loc_no(None) is None and IG.has_ate_achievement(None) is False

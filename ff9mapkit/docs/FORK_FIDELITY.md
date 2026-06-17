@@ -165,12 +165,18 @@ the author asserts the beat for now (they have the game knowledge — cf. `feedb
 > need — it isn't a fidelity *bug*, it's the band-aid for one genuinely-impossible item, and telling that apart
 > from "donor identity I should drop" is the whole point.
 >
-> **Now machine-queryable per field** (kit 0.9.98): `ff9mapkit fork-report <id>` operationalizes two axes of this
+> **Now machine-queryable per field** (kit 0.9.98, +v2 0.10.0): `ff9mapkit fork-report <id>` operationalizes the
 > taxonomy so you don't consult the table by hand — an **Area title** line (the donor-identity card you DROP on a
 > reuse / keep on `--verbatim`) and a **Lost on mint** section (the engine behaviors keyed on the real `fldMapNo`
-> a fork loses: walkmesh hotfix, narrow-map letterbox, Chocobo dig HUD, intro FMV — each noted auto-reproduced vs
-> fork-in-place). Backed by `idgated.py` (+ the baked `_narrowmap_data.py` widths) and `walkmesh_hotfixes.py`.
-> Known gap: the ATE achievement is `fldLocNo`-keyed (location, not field id) so it's not yet per-field here.
+> a fork loses: walkmesh hotfix, narrow-map letterbox, Chocobo dig HUD, intro FMV, **ATE achievement** — each
+> noted auto-reproduced vs fork-in-place). Backed by `idgated.py` (+ the baked `_narrowmap_data.py` widths) and
+> `walkmesh_hotfixes.py`. ★ **v2 (kit 0.10.0):** the **ATE achievement** is now per-field — the *ATE80* trophy is
+> keyed on `fldLocNo`, and `fldLocNo == eventIDToMESID[fldMapNo]` (`HonoluluFieldMain.cs:19`), i.e. the field's
+> registered MES id, so `idgated` resolves it from the baked `EVENT_ID_TO_MES` and flags the loss when that
+> location is in `EMinigame.MappingATEID` (the ATE still plays; only the trophy bookkeeping is id-bound). And the
+> **Verdict** line now SYNTHESIZES across every axis: the recommended fork MODE (`--verbatim` when the field has
+> story-gated cast/logic / a non-Zidane player / party or item grants / per-door arrival — plus a `[startup]`
+> beat; else `--native`) and a lost-on-mint fork-in-place steer.
 
 ### The governing principle
 

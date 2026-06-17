@@ -297,6 +297,7 @@ class ForkReport:
     n_objects: int = 0
     n_props: int = 0                          # non-talkable set-dressing
     n_talkable: int = 0
+    n_interactive: int = 0                     # talkable NPCs whose talk grafts CLEAN (keep interactions; props excluded)
     n_speaking: int = 0                        # carried NPCs whose tag-3 talk SHOWS dialogue (need --carry-text)
     n_dialogue_lines: int = 0                  # total distinct talk txids those NPCs show
     directors: list = _dc_field(default_factory=list)     # donor_idx of carried objects that warp/switch in LOOP
@@ -594,6 +595,8 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
         rep.safety[o.get("graft_safety", "?")] = rep.safety.get(o.get("graft_safety", "?"), 0) + 1
         if o.get("kind") == "npc":
             rep.n_talkable += 1
+            if o.get("graft_safety") == "clean":
+                rep.n_interactive += 1            # clean-graft NPCs (those that KEEP their talk) -- props excluded
         else:
             rep.n_props += 1
         if di is not None and _is_director(eb, di):
@@ -725,14 +728,45 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
 
 # --- rendering --------------------------------------------------------------------------------------
 def _verdict_line(rep: ForkReport) -> str:
-    clean = rep.safety.get("clean", 0)
     if rep.roster_class == "static-roster":
         head = "a CLEAN static-roster field -- a native fork renders the cast faithfully"
     else:
         head = "a STORY-EVENT field -- a fork is a high-fidelity diorama, not a faithful slice (rotating cast / cutscene actors)"
-    inter = (f"{clean} of {rep.n_talkable} NPC(s) keep their interactions; the rest render-only "
-             f"(re-author their dialogue)") if rep.n_talkable else "no talkable NPCs"
-    return f"{head}; {inter}."
+    if rep.n_talkable:
+        # numerator = CLEAN NPCs only (n_interactive), never the props-inclusive safety['clean']; the
+        # "render-only" tail only when there's a real render-only NPC remainder (not a refused prop).
+        inter = f"{rep.n_interactive} of {rep.n_talkable} NPC(s) keep their interactions"
+        if rep.n_talkable > rep.n_interactive:
+            inter += "; the rest render-only (re-author their dialogue)"
+    else:
+        inter = "no talkable NPCs"
+    parts = [f"{head}; {inter}."]
+    # The synthesized BOTTOM LINE across every axis: which fork MODE, and why. --verbatim is the faithful mode
+    # whenever the field has story-bound state a synth rebuild drops (gated cast/logic, a non-Zidane player,
+    # party/item grants, per-door arrival); otherwise --native is a clean diorama.
+    why = []
+    if rep.roster_class != "static-roster" or rep.sc_gates:
+        why.append("story-gated cast/logic")
+    if rep.non_zidane:
+        why.append("non-Zidane player")
+    if rep.party_adds or rep.party_removes or rep.party_reset or rep.party_recruit:
+        why.append("party changes")
+    if rep.item_gives or rep.item_var_give or rep.item_gil_any or rep.item_shops or rep.item_var_shop:
+        why.append("item/shop grants")
+    if rep.arrival_spots > 1:
+        why.append("per-door arrival")
+    if why:
+        reco = f"--verbatim (carries {', '.join(why[:3])}{'...' if len(why) > 3 else ''})"
+        if rep.sc_gates or rep.roster_class != "static-roster":
+            reco += " + a [startup] beat (else it boots scenario-zero)"
+    else:
+        reco = "--native (a faithful diorama; nothing story-bound to carry)"
+    parts.append(f"Recommended: {reco}.")
+    # The lost-on-a-mint steer -- only the NON-auto-reproduced losses are fork-in-place-worthy.
+    losses = [lbl for lbl, det in rep.lost_on_mint if "auto-reproduced" not in det]
+    if losses:
+        parts.append(f"Loses {', '.join(losses)} on a custom id -- fork IN-PLACE on the real id to keep (see Lost on mint).")
+    return " ".join(parts)
 
 
 def _party_line(rep: ForkReport) -> str:
