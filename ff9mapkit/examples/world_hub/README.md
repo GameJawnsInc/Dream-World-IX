@@ -3,7 +3,7 @@
 A **World Hub** is a playable field that lets the player pick which **journey** to play, then warps them
 in. A *journey* = a complete playable arc (one or more chained campaign slices). The hub's only job is
 **select → (optionally seed) → warp**; it's decoupled from journey internals — it needs only
-`{name, entry field id, optional seed}` per row. It is **NOT** a custom worldmap (no engine fork — just a
+`{id, name, entry field id, optional seed}` per row. It is **NOT** a custom worldmap (no engine fork — just a
 field + a dialogue-choice menu + warps). See the deep notes in memory `project-ff9-world-hub`.
 
 The hub is one field; its journeys warp into **real verbatim forks of actual FF9 fields** (real logic + lines):
@@ -18,10 +18,15 @@ The hub is one field; its journeys warp into **real verbatim forks of actual FF9
 above (see *Generate the hub* below). The hub stays **thin**: per journey it knows only `{id, name, entry id,
 optional seed}`; HOW a journey plays internally is the fork's own business.
 
-> The two trivial stub fields `journey_one.field.toml` / `journey_two.field.toml` are the original
-> **zero-dependency scaffold** — they just prove the warp landed (a Moogle greets you), with no fork to
-> deploy. Point a `journeys.toml` `entry` at one of them (e.g. 4502) to demo the select→warp loop without
-> first deploying a real fork.
+> The two trivial stub fields `journey_one.field.toml` (id **4501**, `JOURNEY_BMV`) /
+> `journey_two.field.toml` (id **4502**, `JOURNEY_TRENO`) are the original **zero-dependency scaffold** — they
+> just prove the warp landed (a Moogle greets you), with no fork to deploy. Point a `journeys.toml` `entry` at
+> one of them to demo the select→warp loop without first deploying a real fork.
+>
+> **Heads-up — pick distinct free ids before deploying these stubs.** As shipped, `journey_two.field.toml` and
+> `hub_lobby.field.toml` both claim id **4502**, and `journey_one.field.toml`'s id **4501** collides with the
+> real Treno journey entry (`journeys.toml` `treno` → 4501). EventDB is global, so colliding ids in stacked
+> folders black-screen one of the fields — renumber any stub you actually deploy to a free scratch id first.
 
 ## How it works
 
@@ -32,8 +37,10 @@ optional seed}`; HOW a journey plays internally is the fork's own business.
 - **The menu** — a normal `[[npc]]` (Stiltzkin) + `[[choice]]`. Each option has `warp = <entry id>` (the new
   choice **warp action**) and optionally `set_scenario`. Picking a row plays the transition sound and
   `Field()`s into that journey — grounded in real FF9 talk-handler warps (the Dali innkeeper, the airship).
-- **One-way** — to switch journeys, start a New Game, which lands you back on the hub (the field-70
-  New-Game override now points at 4500 — `tools/retarget_newgame_warp.py 4500`, seamless, no FMV).
+- **One-way** — to switch journeys, start a New Game, which lands you back on the hub. Point the field-70
+  New-Game override at the hub: `tools/retarget_newgame_warp.py 4500` (a required target arg — the live
+  install currently targets 4600, Mognet Central). The override preserves the opening's fade, so it's
+  seamless, no FMV.
 - **Camera on entry** — Memoria's smooth-camera follower (`CameraStabilizer`) eases the camera to the player
   on *every* field load; you only notice it when the entry camera is far off, *and* there's no transition to
   hide the settle. Every real way into the hub already has that transition: **New Game** comes through the
@@ -109,8 +116,8 @@ That reads [`journeys.toml`](journeys.toml) (a `[hub]` table + one `[[journey]]`
 writes a `hub.field.toml` **logically identical** to the hand-authored one above (same Moogle PC, narrator,
 and warp menu) — then build/deploy it exactly as in the previous section. Add or reorder journeys by editing
 `journeys.toml` and regenerating; the emitted `hub.field.toml` is a build artifact (don't hand-edit it). The
-generator validates the registry offline (id bands, dup names, the `text_block` 1073 shadow trap, menu
-paging) before emitting.
+generator validates the registry offline (id band, duplicate journey ids, the `text_block` 1073 shadow trap,
+and a long-menu warning) before emitting.
 
 ### Let the generator fetch the camera for you
 
@@ -132,10 +139,11 @@ py -m ff9mapkit extract-field 950          # -> .ff9mapkit-cache/fields/950/{cam
 
 ## Scaffold → real hub (all three steps now done)
 
-- **(a) New Game lands on the hub** — the field-70 override points at 4500 (`tools/retarget_newgame_warp.py
-  4500`), seamless (no opening FMV). ✓
+- **(a) New Game lands on the hub** — point the field-70 override at the hub with
+  `tools/retarget_newgame_warp.py 4500` (a required target arg; the live install currently targets 4600),
+  seamless (no opening FMV). ✓
 - **(b) Real journey destinations** — the journeys warp into real forked slices already deployed in stacked
-  folders (Dali 4100 verbatim, Ice Cavern 30100 editable), not trivial stubs. The hub seeds each journey's
+  folders (Dali 4100 verbatim, Treno 4501 verbatim), not trivial stubs. The hub seeds each journey's
   beat with `set_scenario`; the slice's own `[startup]`/`[party]`/verbatim party-setup does the rest. ✓
 - **(c) The `[[journey]]` block + generator** — `ff9mapkit gen-hub journeys.toml` (see above). ✓
 

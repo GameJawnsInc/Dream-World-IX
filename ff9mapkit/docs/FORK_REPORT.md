@@ -15,8 +15,8 @@ ff9mapkit fork-report dl_shp       # by FBG-name substring (see `list-fields`)
 > still spells out the `import` command with the field's full **FBG name** for robustness — copy that to fork the
 > exact field you reported on.
 
-It's also a one-click **Preview fidelity** button in the FFIX Import GUI (`apps/ff9_import.pyw`, standalone and
-the Campaign Editor's Import tab): type/Find a field, hit **Preview fidelity**, read the verdict, then import.
+It's also a one-click **Preview fidelity** button on the Workspace's **Import** surface
+(`ff9mapkit/workspace/importdoc.py`): type/Find a field, hit **Preview fidelity**, read the verdict, then import.
 
 ## What it reports — two independent axes
 

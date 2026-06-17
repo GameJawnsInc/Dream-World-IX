@@ -45,7 +45,8 @@ make sure **FF9 Map Kit** is enabled. (If an older version was installed, remove
 ## What we're confirming in-game (the two values that matter)
 1. **Walkmesh fills the floor** — you can walk to the painted floor edges (validates the
    preview-scale fix end-to-end).
-2. **The player plants on the floor** — feet sit on the surface, not floating/sunk (validates
-   `character_offset = 298` for this camera; we re-tune it if the player is off).
+2. **The player plants on the floor** — feet sit on the surface, not floating/sunk. The walkmesh is
+   written in true world coords (offset 0), so the floor verts you author are exactly where the
+   player walks.
 
 Plus the freebies: the view **scrolls** across the full width, and `front.png` **occludes** the player.

@@ -5,9 +5,10 @@ on the FF9 screen, and **reading real FF9 dialogue back out** of the game (to vi
 to lift it into your own room). It complements the Logic Editor (which owns *structure* — who stands where,
 which option gives what) and the camera/walkmesh tools (placement, owned by Blender).
 
-It's available three ways: the **CLI** (`ff9mapkit dialogue` / `dialogue-import`), a **standalone GUI**
-(`apps/ff9_dialogue.pyw`), and a **Dialogue tab** in the Campaign Editor. All sit on one tk-free core,
-`ff9mapkit.dialogue`.
+It's available two ways: the **CLI** (`ff9mapkit dialogue` / `dialogue-import`) and the **PySide6
+Workspace** (`apps/ff9_workspace.pyw`), where every dialogue-bearing field (`dialogue` / `message` /
+`prompt` / `reply`) gets a live FF9-window wrap preview right in the editor forms. Both sit on one tk-free
+core, `ff9mapkit.dialogue`.
 
 ---
 
@@ -87,15 +88,21 @@ They become **kit-authored content** (re-wrapped at build), not a faithful graft
 
 ---
 
-## GUI
+## Workspace (the GUI)
 
-`apps/ff9_dialogue.pyw` (or the Campaign Editor's **Dialogue** tab): every line of the open field in one
-list, an editable text box with **speaker + window-tail** alongside, and a **live wrap preview** under it.
-Save writes the same `.field.toml` the Logic Editor edits. **"Import from game…"** reads a real field (or a
-mod folder, offline) and shows the joined lines read-only, with a button to drop them in as NPC stubs.
+There's no separate dialogue surface — dialogue is edited **in place** in the field editor forms of the
+PySide6 Workspace (`apps/ff9_workspace.pyw`). Any field whose value shows in an FF9 text window —
+`dialogue`, `message`, `prompt`, `reply` — is a multi-line text box (Enter is a real line break, `[PAGE]`
+opens a new window) with a **live wrap preview** pinned underneath: it shows exactly where each line will
+break on the FF9 screen as you type, and warns when a line may overflow the window. The preview reuses the
+same build-time wrapper (`dialogue.wrap_preview` / `dialogue.overflow`), and honours the field's
+`[dialogue] wrap` width (`wrap = false` shows the line raw). Saving writes the same `.field.toml` the rest
+of the editor uses.
 
-In the Campaign Editor the Logic and Dialogue tabs **share one document**, so the words you edit in either
-are the same data. The Logic Editor's **"Dialogue…"** button hands the current field to the Dialogue tab.
+To read real FF9 dialogue inside the Workspace, use the **Import** view: its **"View dialogue"** action
+(field id/name + language) runs `dialogue-import` and streams the joined `NPC → txid → "text"` lines into
+the Output panel. The same view's fork options carry a real field's dialogue verbatim ("Real dialogue,
+verbatim") or bring it in as editable `[[npc]]` stubs to re-author ("Dialogue as editable [[npc]] stubs").
 
 ---
 

@@ -168,7 +168,7 @@ Rule of thumb: **`--verbatim`** to *play* it the same; **`--editable`** to *chan
 ### Bigger structures
 
 - **Campaigns** — `import-chain <seed>` forks a connected slice of the game into one mod; the
-  Campaign Editor edits the multi-field project.
+  PySide6 Workspace edits the multi-field project.
 - **Journeys** — a `journeys.toml` assembles one or more campaigns into a complete arc behind a
   generated **hub field** that lets the player pick an arc, seeds its starting state, and warps in.
 

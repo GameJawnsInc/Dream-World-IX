@@ -30,11 +30,16 @@ walks in with Excalibur + Genji because his PLAYER struct was built with that de
 ```sh
 ff9mapkit lint  examples/capstone/capstone.field.toml
 
-# Deploy to field 4003 in the highest-priority mod folder (the New-Game override warps Field(4003) and
-# lives there; InitialItems.csv is highest-priority-wins, so it must not be shadowed by a higher folder):
+# Deploy to field 4003 in the highest-priority mod folder (the deployed field must live there, and
+# InitialItems.csv is highest-priority-wins, so it must not be shadowed by a higher folder):
 py tools/deploy_field.py examples/capstone/capstone.field.toml --id 4003 --mod-folder FF9CustomMap
 
-# Seamless entry: the field-70 override (evt_alex1_ts_opening) warps Field(4003); strip its opening FMV:
+# Point New Game at 4003: retarget the field-70 override (evt_alex1_ts_opening) to warp Field(4003).
+# The override is SINGLE-OWNER, so a prior World-Hub deploy may have it pointing elsewhere (e.g. 4600 =
+# Mognet Central) — this repoints it for the capstone test:
+py tools/retarget_newgame_warp.py 4003
+
+# Seamless entry: now strip the opening FMV from that override so it flows straight to the warp:
 py tools/skip_opening_fmv.py        # idempotent — reports "already clean" if done
 
 # Relaunch, then New Game.
@@ -46,5 +51,8 @@ Excalibur — unmistakably not a real new-game bag); **F6 → Flags** shows Scen
 `8512` set. One New Game proves all four channels.
 
 The entry mechanism is engine-independent (a stock-Memoria mod field-70 override; the only custom DLL is the
-F6 debug menu) — see memory `project-ff9-new-game-entry`. The placeholder art is the kit's own (copied from
-`examples/SHOWCASE`); repaint `art/*.png` to taste.
+F6 debug menu) — see memory `project-ff9-new-game-entry`. **Precondition:** this test assumes the field-70
+override has been (re)pointed at 4003 via `tools/retarget_newgame_warp.py 4003` (the "Run it" step above).
+That override is single-owner — a World-Hub deploy may have field-70 warping elsewhere (e.g. 4600 = Mognet
+Central), so re-run the retarget if New Game doesn't land in 4003. The placeholder art is the kit's own
+(copied from `examples/SHOWCASE`); repaint `art/*.png` to taste.

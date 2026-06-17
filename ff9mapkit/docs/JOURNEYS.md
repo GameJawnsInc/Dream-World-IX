@@ -77,7 +77,7 @@ name  = "The Village of Dali"          # the pretty menu label
 entry = 4100                           # a FIELD ID -- warp straight here (a verbatim fork OR a campaign entry)
 set_scenario = 2600                    # HUB-SIDE beat, set on the row right before the warp (gen-hub uses this)
 
-# --- the multi-campaign ARC form (assembler offline core BUILT; deploy next): campaigns + links + a seed ---
+# --- the multi-campaign ARC form (assembler BUILT + ★ in-game proven, §9): campaigns + links + a seed ---
 [[journey]]
 id        = "escape_ice"
 name      = "Escape to the Ice Cavern"
@@ -129,19 +129,20 @@ unbuilt arc form. Keep it a pure, tk-free loader (mirror `campaign.load_campaign
 
 ---
 
-## 4. The assembler's responsibilities (overworld lane — BUILT; in-game proof + world-map leg remain; see §9)
+## 4. The assembler's responsibilities (overworld lane — COMPLETE + ★ in-game proven; see §9)
 
 > The **single-field / single-campaign** path is already shipped by **`gen-hub`** (it reads `[hub]` + each
 > `[[journey]]`'s bare-int `entry` + hub-side `set_scenario` and emits the selector field). This section is
 > the **multi-campaign assembler** — the part that turns `campaigns = [...]` + `[[journey.link]]` +
 > `[journey.seed]` into a deployable chained arc.
 >
-> **Status (2026-06-13):** BUILT in `ff9mapkit/journey.py` + `tools/deploy_journey.py` — #1 id-band
-> disjointness (validated globally), #2 flag-window assignment (`build_campaign(flag_base=)` /
-> `deploy_campaign --flag-base`), #3 link `.eb` retarget (`apply_link_rewrites`; overworld seams flagged as
-> the world-map leg, below), #5 hub emit, #6 deploy orchestration + the `deploy_journey` playbook, #7 the full
-> journey lint. #4 (seed/CSV promotion) is reused from `deploy_campaign`. Remaining = an in-game playtest of a
-> real chained journey + the overworld-seam (world-map-leg) injection. Detail in §9.
+> **Status (2026-06-13): COMPLETE + ★ IN-GAME PROVEN.** Built in `ff9mapkit/journey.py` +
+> `tools/deploy_journey.py` — #1 id-band disjointness (validated globally), #2 flag-window assignment
+> (`build_campaign(flag_base=)` / `deploy_campaign --flag-base`), #3 link `.eb` retarget
+> (`apply_link_rewrites`, BOTH link modes: `field_remap` + the overworld-seam **`worldmap_inject`** world-map
+> leg, below), #5 hub emit, #6 deploy orchestration + the `deploy_journey` playbook, #7 the full journey lint.
+> #4 (seed/CSV promotion) is reused from `deploy_campaign`. A real chained journey (Ice Cavern → Outside) was
+> playtested in-game with both link modes firing. Detail in §9.
 
 A `build_journey(journey, out)` / `deploy_journey(...)` that orchestrates the existing per-campaign tools.
 The hard parts are **global-namespace** ones (EventDB/SceneData are global — distinct ids required even
@@ -176,7 +177,7 @@ across mod folders):
 
 ## 5. The GUI display contract (editor_gui lane — DONE, forward-compatible)
 
-The Campaign Editor already **displays** a journey when one exists (it does **not** author them):
+The PySide6 Workspace already **displays** a journey when one exists (it does **not** author them):
 
 - It reads a `journeys.toml` **beside** the open `campaign.toml` *and* **one level up** (project root).
 - A journey **matches the open campaign** when the campaign's **folder name is in `campaigns`** (the
@@ -186,7 +187,7 @@ The Campaign Editor already **displays** a journey when one exists (it does **no
 
 So the instant overworld writes a `journeys.toml` in this schema, the GUI lights up — **no GUI change
 needed** beyond what's shipped. If the schema's field names change, the only GUI touch-point is
-`Workspace._journey_label()` in `apps/campaign_editor.pyw` (one method).
+`Workspace._journey_label()` in `ff9mapkit/ff9mapkit/workspace/shell.py` (one method).
 
 > **Validated (2026-06-13):** overworld adopted the schema and the GUI lit up with **zero changes** — the
 > `_journey_label()` touch-point was never hit. The bare-int `entry = <field id>` form (the shipped Dali
@@ -253,7 +254,7 @@ Then a minimal `journeys.toml` at the project root referencing both folders (§2
 
 `ff9mapkit/journey.py` + CLI `lint-journey` / `assemble-journey` + `tools/deploy_journey.py` implement the
 **assembler** — the §8 namespace guarantee, the hub fold-in, AND the deploy orchestration (both link modes:
-`field_remap` + `worldmap_inject`), fully unit-testable with no game install (`tests/test_journey.py`, 35
+`field_remap` + `worldmap_inject`), fully unit-testable with no game install (`tests/test_journey.py`, 38
 tests) and **proven in-game** (the Ice Cavern → Outside arc, below — both link mechanisms). The
 schema is unified with overworld's proven single-field hub journeys.
 

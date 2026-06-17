@@ -158,8 +158,8 @@ Pick one (or omit all three to auto-frame from `[camera.frame]`):
 | `links` | an adjacency sidecar (`walkmesh.links.toml`) paired with `obj` to **reshape an imported multi-floor field while keeping connectivity** — rebuild_neighbors only links within a floor, so the sidecar re-attaches cross-floor seams by world position (warns on a moved/deleted seam). Written by `import --editable`. See [WALKMESH_EDITING.md](WALKMESH_EDITING.md). |
 | `quad` | 4 corners `[[x, z], ...]` for a flat quad floor. |
 | *(none)* | auto: a quad framed to the painted floor via `[camera.frame]`. |
-| `character_offset` | (single-floor legacy `obj`/`quad`) world units to slide the floor toward the camera so a 3D character looks planted on the 2D painting; defaults to `0` for explicit meshes, `298` for the auto frame. |
-| `frame` | `"world"` => write verts verbatim with `orgPos=0` (geometry already in exact world coords — imported real fields, or Blender-authored against the art); `"legacy"` (default) => the calibrated flat-room path above. Multi-floor meshes are always world. |
+| `character_offset` | **DEPRECATED — accepted but ignored** (back-compat no-op). The legacy "slide the floor toward the camera" offset was ripped: the engine-measured character ground offset is `0`, so every authored mesh is written in true world coords with no offset (`build.resolve_walkmesh`). |
+| `frame` | **DEPRECATED — accepted but ignored** (back-compat no-op). All authored meshes are now written verbatim in true world coords (`orgPos = 0`, every `floor.org = 0`) — what `ff9mapkit guide` / `cam.to_canvas` predict is exactly where the player walks. (The old `"legacy"` calibrated flat-room path with a character offset is gone.) |
 
 ### The frame (how a vertex maps to the screen)
 
@@ -175,8 +175,8 @@ A single flat `obj`/`quad` is one floor. To author a **multi-level** room — or
 field forked with `ff9mapkit import` (e.g. Gargan Roo's 7 floors) — give the `.obj` one
 `o <name>` (or `g <name>`) **object per floor**; each becomes a BGI floor, with the verts carrying
 their real world height (`y`). The Blender add-on does this automatically: each material slot on the
-walkmesh exports as one floor. Multi-floor meshes use the world frame directly (no
-`character_offset`), since the imported/authored verts are already the exact engine positions.
+walkmesh exports as one floor. As with single-floor meshes, the verts are written verbatim in true
+world coords (no offset) — they are already the exact engine positions.
 
 ---
 
