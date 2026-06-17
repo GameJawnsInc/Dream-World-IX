@@ -23,6 +23,7 @@ optional `[dialogue] wrap` width knob):
 | `[[event]]` | `message = "..."` (+ `speaker` / `tail`) |
 | `[[choice]]` | `prompt = "..."` and each option's `reply = "..."` |
 | `[cutscene]` | each `{ say = "..." }` step |
+| `[[on_entry]]` | `message = "..."` (a field-load beat's narration, shown at entry; + `speaker` / `tail`) |
 
 At build time the kit collects all of it, applies the speaker prefix + auto-wrap, and writes one
 `<text-block>.mes` (default block `1073`) plus the `WindowSync` opcodes that show each line. **That whole

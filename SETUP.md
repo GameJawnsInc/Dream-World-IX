@@ -185,6 +185,9 @@ id can break the whole `DictionaryPatch` parse). **EventDB ids are GLOBAL**, so 
 required even across stacked mod folders** — two folders reusing an id collide and one field loads
 a null `.eb` (black screen).
 
+The canonical reference for the id / flag / text namespaces (and the global-id rule) is
+[`ff9mapkit/docs/GLOBAL_RESOURCES.md`](ff9mapkit/docs/GLOBAL_RESOURCES.md).
+
 ---
 
 ## 4. The dev loop (edit → deploy → F6)
@@ -443,5 +446,6 @@ tabbed document area, a right-hand **Inspector**, and a bottom **Output/Problems
 - [`ff9mapkit/docs/FEATURES.md`](ff9mapkit/docs/FEATURES.md) — the full capability list.
 - [`ff9mapkit/docs/FORK_FIDELITY.md`](ff9mapkit/docs/FORK_FIDELITY.md) — honest map of what forks do/don't reproduce.
 - [`ff9mapkit/docs/JOURNEYS.md`](ff9mapkit/docs/JOURNEYS.md) — the multi-campaign journey schema.
+- [`ff9mapkit/docs/GLOBAL_RESOURCES.md`](ff9mapkit/docs/GLOBAL_RESOURCES.md) — canonical id / flag / text namespaces + the global-id rule.
 - [`ff9mapkit/blender/README.md`](ff9mapkit/blender/README.md) — the Blender add-on.
 - [`ff9mapkit/examples/vivi-hut/`](ff9mapkit/examples/vivi-hut/) — a complete worked example.

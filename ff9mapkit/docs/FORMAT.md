@@ -40,6 +40,8 @@ purely additive. Keep both files in the same folder (asset paths resolve there).
 | `area` | ✓ | area id, **must be `>= 10`** (the loader reads exactly 2 digits — single-digit areas black-screen). |
 | `text_block` | | dialogue `.mes` block id (default `1073`). |
 | `title` | | human title (used as the scene comment). |
+| `borrow_bg` | | **BG-borrow:** a real field's `MAPID` (e.g. `"FBG_N15_BWLB"`) whose art/walkmesh/camera the engine renders while running *your* `.eb` — no custom scene shipped. With it, `[camera]`/`[walkmesh]`/`[[layers]]` are unneeded (the borrowed `camera.bgx` still drives movement/scroll/content guidance). Without it (and no `[field] bgs`) the build ships a full custom scene. The central reuse-a-real-room key. |
+| `hide_area_title` | | `true` hides a borrowed room's localized **area-title overlay** from frame 1 (`ShowTile` off) — for a hub/synthesized field that BG-borrows an area-title room (Ice Cavern, Mognet Central) but isn't that place. Range auto-resolved from the borrowed FBG, or set `area_title_overlays = [lo, hi]`. No-op if the borrow has no title. |
 
 The DictionaryPatch line emitted is: `FieldScene <id> <area> <name> <name> <text_block>`.
 
@@ -185,6 +187,7 @@ world coords (no offset) — they are already the exact engine positions.
 | key | meaning |
 |---|---|
 | `spawn` | `[x, z]` where the player appears on entry. |
+| `model` | **re-skin who you WALK as** — a model **id**, an exact **GEO name** (`"GEO_NPC_F0_MOG"` the Moogle PC), or an archetype/model name resolved via the Info Hub catalog (the same join `[[npc]] model` uses). Its movement clips (idle/walk/run/turn) auto-resolve. This is the build-side complement to `import --swap-player`. **Movement clips only** — a field that scripts player gestures would glitch, so it's free-roam-only. |
 
 ---
 
@@ -424,6 +427,50 @@ Two climb modes:
 
 ---
 
+## `[[jump]]` (optional, repeatable)
+
+A navigable **ledge / gap hop** — FF9's Ice-Cavern-style jump (the ladder mechanism minus the climb
+loop). A trigger zone fires the player's **verbatim jump arc** (perspective-correct), grafted from a
+real field by `ff9mapkit import`.
+
+```toml
+[[jump]]
+zone = [[9016,-16722],[9574,-17758],[9791,-17674]]   # 3-5-point take-off trigger
+jump = "MYFIELD.jump0.bin"                            # the real jump-arc sidecar (from `ff9mapkit import`)
+# trigger = "action"                                  # "action" (press, default) or "tread" (auto on walk-in)
+```
+
+| key | meaning |
+|---|---|
+| `zone` | the **take-off trigger** — `3`–`5` `(x,z)` corners (4 are auto-made IsInQuad-safe). |
+| `jump` | a `"<name>.jumpN.bin"` sidecar holding the real jump arc — written by `ff9mapkit import` (the file must exist, else a build error). |
+| `trigger` | `"action"` (default) = stand on the zone and **press** to hop; `"tread"` = auto-hops the moment you walk in. |
+
+Like a `climb` ladder, the kit splices the player's jump animation in once and runs the arc in the
+player's own context via `RunScriptSync`. Author from scratch isn't supported — `jump` needs a real arc.
+
+---
+
+## `[[savepoint]]` (optional, repeatable)
+
+A **synthesized save point** — the functional core of FF9's save Moogle as a press-to-interact region.
+The interact dispatch is `DisableMove; Menu(4, 0); EnableMove` (the single `Menu(4, 0)` opcode that
+opens the save menu); the barrel / Moogle / "!" are cosmetic set-dressing you add with `[[npc]]` /
+`[[prop]]`. (See [`docs/SAVEPOINT.md`](SAVEPOINT.md) for the full recipe.)
+
+```toml
+[[savepoint]]
+zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 5 corners)
+# bubble = true                                          # the floating "!" prompt (default true)
+```
+
+| key | meaning |
+|---|---|
+| `zone` | `4` or `5` `(x,z)` corners of the press-to-interact area (place where the player stands). |
+| `bubble` | the floating **"!"** prompt — default `true`; set `false` when a visible Moogle/model already signals the save. |
+
+---
+
 ## `[[event]]` (optional, repeatable)
 
 A region the player **walks into** that fires authored logic — show a message, give an item / gil,
@@ -520,6 +567,9 @@ flags = [
   { flag = 3712, value = 1 },        # a REAL story bit (an Alexandria-town event flag) — asserts it happened
   { flag = "lever_pulled", value = 1 },  # or a [[flag]] name
 ]
+words = [
+  { byte = 236, value = 4 },         # a save-backed 16-bit WORD write (e.g. the ATE-availability mask) — arms ATE menus
+]
 ```
 
 - **`scenario`** — an int (`0`–`32767`; every real beat is ≤ 12000) or an area name resolved against the
@@ -529,6 +579,10 @@ flags = [
   8512) — that's the point — so the safe-band rule does **not** apply. The lint still flags a preset into a
   genuinely *reserved* region (the chest bitfield, the byte-23 menu handshake, worldmap-unlock bits, the
   choice scratch), which would corrupt engine/save state rather than assert a beat.
+- **`words`** — a list of `{ byte = N, value = V }` save-backed **16-bit WORD** writes into `gEventGlobal`
+  (`byte` = `0`–`2046`, `value` = `0`–`65535`). Use it to seed a multi-bit avail-WORD — e.g. the ATE-availability
+  mask at byte 236 (each bit arms one Press-SELECT ATE menu row). `byte 0` is the ScenarioCounter — use `scenario`
+  for that instead.
 
 The presets **re-assert on every field entry** (idempotent — right for a fork that stands for one beat). For
 a multi-field chain, put `[startup]` on the **entry** field only. v1 is author-side (you assert the beat —
@@ -551,12 +605,15 @@ requires_flag = "met_the_elder"            # ...and/or only when this story bit 
 message = "The village lies deserted..."   # a narration window (control-locked, shows during the entry fade)
 set_scenario = 2710                         # advance the beat on this (first) entry (int or area name)
 set_flags = [{ flag = "saw_intro", value = 1 }]
+items = [["Potion", 5], ["Tent", 1]]        # SCRIPTED, once-gated give (the per-journey starting bag)
+gil = 1000                                  # gil to add (negative subtracts)
 once = true                                 # default: fire once ever (a save-persistent once-flag). false → every entry
 # flag = 8300                               # explicit once-flag index (REQUIRED in a campaign member; auto 8300+ otherwise)
 ```
 
 - It's a **list** — author several entry beats, each independently gated.
-- Each hook needs at least one of **`message`** / **`set_scenario`** / **`set_flags`**.
+- Each hook needs at least one of **`message`** / **`set_scenario`** / **`set_flags`** / **`items`** / **`gil`**.
+- **`items`** = `[[id|name, count], …]` and **`gil`** (negative subtracts) are a **scripted, once-gated** give (`AddItem`/`AddGil`) — the **per-journey starting bag**, distinct from the mod-global `[start_inventory]` CSV: it's `.eb` logic that fires on this entry only when the gates match, so it's per-fork-clean.
 - The gates (`requires_scenario` / `requires_flag`) sit *outside* the once-check, so a hook whose condition
   isn't met yet returns without spending its once-flag — it can still fire on a **later** entry once the beat
   is reached.
@@ -829,6 +886,8 @@ for_dead = false            # usable on a KO'd target (Phoenix-Down style)
 
 ---
 
+<a id="item_text"></a>
+
 ## `[[item_text]]` — an item's menu NAME + description text (optional, repeatable)
 
 Rename an item or rewrite its description. This is the text companion to the `[[item_effect]]`/`[[weapon]]`/…
@@ -906,6 +965,7 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `flag` | *(zone + `walk` only)* explicit gate-flag index (default auto from `8200`, GLOB). |
 | `prompt` | the question text (added to the field's `.mes`, above the option rows). |
 | `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + window pointer). |
+| `instant` | *(optional, bool)* `true` → FF9's `[IMME]` tag: the menu **pops fully drawn** with no character-by-character type-on (snappy menus; the World-Hub journey selector uses it). |
 | `options` | a list (`[[choice.options]]`) of **≥ 2** rows the player picks from. |
 | `default` | *(optional)* option index highlighted when the menu opens (0 = top row; default 0). |
 | `cancel` | *(optional)* option index B/Cancel picks (`-1` or omit = last row, the FF9 default). |
@@ -915,6 +975,8 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `options[].requires_flag_clear` | *(optional)* hide this row **once** story flag N is set. |
 | `options[].reply` | optional line shown after the player picks it. |
 | `options[].give_item` / `remove_item` / `gil` / `set_flag` | optional actions, same as `[[event]]` — `give_item`/`remove_item = ["Potion", 1]` (id or name; a trade row gives one item and takes another), `gil` negative charges, `set_flag` raises a story flag. |
+| `options[].warp` | *(optional)* a **field id** (a positive int) this row **warps to** — the World-Hub journey destination the choice launches. |
+| `options[].set_scenario` | *(optional)* a ScenarioCounter value (`0`–`32767`) set alongside the `warp` (seed the destination's story beat as you enter it). |
 
 **Pre-choose config (default / cancel / disable).** `default` sets the initially-highlighted row,
 `cancel` sets which row B/Cancel picks, and `options[].disabled = true` **removes** a row from the menu
@@ -995,6 +1057,16 @@ steps = [
 | `set_flag` | `[var, value]` — set a GlobBool story flag mid-scene. |
 
 The scene auto-locks control (`DisableMove`…`EnableMove`); with `once` it won't replay on re-entry.
+
+Cutscene-level keys (alongside `steps`):
+
+| key | meaning |
+|---|---|
+| `once` | `true` (default) = play once ever (save-persistent flag); `false` = every entry. |
+| `flag` | explicit GlobBool index for the once-guard (default `8100`). |
+| `then_warp` | *(narration cutscene only — no `actor`)* a **field id** (positive int) to `Field()`-warp to when the scene ends. (Errors on an actor cutscene — the actor path splices into an NPC loop, which can't take the end-warp.) |
+| `ate` | `true` styles the cutscene as a compulsory **Active Time Event** (the grey banner flavor) — `ATE(mode)…ATE(0)` HUD arm + a winATE caption. |
+| `ate_mode` | *(needs `ate = true`)* the ATE HUD mode `0`–`255` (default **6** = the grey **UNSKIPPABLE** banner; `1` = quiet no-icon auto-ATE). See `docs/ATE_SYSTEM.md`. |
 
 ### Actor cutscenes — `actor = "<npc name>"`
 
