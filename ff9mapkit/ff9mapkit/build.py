@@ -843,7 +843,9 @@ def validate(project: FieldProject) -> list[str]:
         rise = pf.get("rise")
         if entry_mode:
             if not (isinstance(rise, int) and rise != 0):
-                problems.append(f"[[platform]] entry = true needs rise = <units> (the elevator's travel height, nonzero), got rise={rise!r}")
+                problems.append(f"[[platform]] entry = true needs rise = <units> (the shaft depth below the floor, nonzero), got rise={rise!r}")
+            if not (isinstance(land, (list, tuple)) and len(land) == 3):
+                problems.append(f"[[platform]] entry = true needs land = [x, z, y] (the let-off floor you ride up TO), got {land!r}")
         else:
             z = pf.get("zone", [])
             if not isinstance(z, (list, tuple)) or len(z) not in (3, 4, 5):   # a scalar zone would len()-crash the lint
@@ -2909,7 +2911,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         for pf in platforms:
             if pf.get("entry"):                       # ON-ARRIVAL rise: plays at field load, no zone/press
                 eb = _platform.inject_entry_rise(
-                    eb, rise=int(pf["rise"]), ride_tag=ptag,
+                    eb, land=pf["land"], rise=int(pf["rise"]), ride_tag=ptag,
                     duration=int(pf.get("duration", _platform.DEFAULT_DURATION)),
                     animation=pf.get("animation"))
                 ptag += 1

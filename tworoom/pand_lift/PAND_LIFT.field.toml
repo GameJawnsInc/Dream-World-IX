@@ -1,0 +1,54 @@
+# NATIVE fork of fbg_n42_pdmn_map733_pd_evd_0 (area 42) by ff9mapkit -- ships its OWN atlas.png +
+# scene.bgs (the real per-tile-depth scene) + custom walkmesh, NO .bgx. The engine renders it via
+# the SEAMLESS native path (point-sampled atlas, per-tile occlusion) -- exactly how Moguri ships.
+# Repaint by editing atlas.png (or the Memoria PSD pipeline). Add content below, then build it.
+# Camera: pitch 27.3 deg, FOV 51.84 deg.  Walkmesh bounds: x [-2819, 2734]  z [-2855, 2956].
+
+[field]
+id = 4003
+name = "PAND_LIFT"
+area = 42
+text_block = 1073
+bgs = "scene.bgs.bytes"   # NATIVE scene (per-tile depth) -> seamless render, NO .bgx / no tile seams
+atlas = "atlas.png"
+mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights + shadows) for 3D models
+
+[camera]
+borrow = "camera.bgx"   # content logic uses this; the RENDERED camera lives inside scene.bgs
+control_direction = 0   # imported WASD-vs-camera tuning
+[camera.scroll]
+enabled = true
+
+[walkmesh]
+bgi = "walkmesh.bgi"   # the real field's walkmesh -- connectivity preserved (faithful copy)
+
+[player]
+spawn = [12, 432]   # the TOP of the elevator -- where you LET OFF (a real floor)
+
+# --- THE TEST: the FAITHFUL 2713 elevator = an ON-ARRIVAL rise. You warp into the field at the BOTTOM
+#     of the shaft; the rise plays automatically (under the entry fade) and delivers you to the TOP =
+#     the spawn floor. Mechanism (decoded from 2713 tag-23/29): purely vertical (x/z held). entry=true
+#     drops the player `rise` units below the spawn under the black fade, then rides him back UP to the
+#     spawn floor and lands cleanly (the ride ENDS on a real floor -> no snap-down). No zone/press. ---
+[[platform]]
+entry = true            # ON-ARRIVAL rise (no zone/press). Drop to the hole bottom under the black fade,
+                        # then ride UP through the hole to the floor (occluded by the surrounding floor
+                        # until flush). ABSOLUTE coords -> lands exactly flush, no overshoot/snap-down.
+land = [12, 432, -474]  # the let-off floor (the top of the hole; you stand flush here = the spawn floor)
+rise = 1200             # the shaft depth: how far BELOW `land` the hole bottom is (the visible ride height)
+duration = 48
+
+# --- OBJECTS imported from the real field -- the persistent NPCs/props (set-dressing the
+# fork would otherwise DROP: the cask, signs, the save moogle's barrel, ...). Each is
+# carried by GRAFTING the object's REAL .eb entry VERBATIM (renders byte-identical -- not a
+# lossy player-clone). `bin` is the entry sidecar; `carry_tags` (init_only objects) keeps
+# only the render-defining funcs, dropping interactive funcs that call a player function a
+# blank fork lacks (those can't port). A REFUSED object falls back to a [[prop]]/[[npc]]
+# author stub. The DIALOGUE text of a talkable NPC is still not carried -- author it. ---
+
+[[object]]
+bin = "PAND_LIFT.object0.bin"
+kind = "prop"
+donor_idx = 3
+donor_player_entry = 10
+instances = [{ arg = 0, x = 12, z = 432 }]

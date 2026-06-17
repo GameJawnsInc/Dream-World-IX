@@ -237,55 +237,49 @@ def inject_platform(data, zone, *, rise: int | None = None, land=None, speed: in
     return data, slot
 
 
-FADE_SETTLE = 24          # frames to let the entry fade-in (FadeFilter ~16) lift before the rider moves
+RIDE_WARMUP = 2           # tiny warm-up after control is handed; the rise then OVERLAPS the fade-in so the
+                          # camera pans up AS the map fades in (the player is occluded down the hole until
+                          # he emerges near the top -- the floor occlusion, not the fade, hides him)
 
 
-def _drop_to_bottom(rise: int) -> bytes:
-    """Place the player ``rise`` world-units BELOW his spawn (the shaft bottom), detached. Spliced into
-    the player Init so it runs UNDER the black entry fade -- the player is simply THERE at the bottom when
-    the screen clears, never a visible teleport. Mirrors how 2713 spawns the rider at the shaft bottom in
-    his OWN Init (entry-10 tag-0 op_0B spawn switch) before the post-fade ride eases him up."""
-    def selfx(): return _selfv(0)
-    def selfz(): return _selfv(2)
-    def selfy(): return _selfv(F_Y)
+def _drop_to_hole_bottom(lx: int, lz: int, ly: int, rise: int) -> bytes:
+    """Place the player at the EXACT shaft-bottom coordinate (lx, lz, ly-rise = ``rise`` world-units below
+    the let-off floor `ly`), detached. ABSOLUTE constants -- no stale-selfY capture, so the bottom is
+    exact regardless of whether the engine has floor-snapped the player yet. Spliced into the player Init,
+    so it runs UNDER the black entry fade (no visible teleport). The surrounding floor occludes him down
+    the hole; he emerges flush as he rises. selfY = -worldY, so the bottom's selfY = -ly + rise."""
+    bottom_selfy = -int(ly) + abs(int(rise))
     return (opcodes.add_character_attribute(LADDER_FLAG) + opcodes.set_pathing(0)
-            + opcodes.encode(0xA1, _arg(selfx()),
-                             _arg(selfy(), _const(abs(int(rise))), bytes([_region.T_PLUS])),  # selfY+rise = lower
-                             _arg(selfz()), arg_flags=0b111))
+            + opcodes.encode(0xA1, _arg(_const(int(lx))), _arg(_const(bottom_selfy)), _arg(_const(int(lz))),
+                             arg_flags=0b111))
 
 
-def entry_rise_body(*, rise: int, duration: int = DEFAULT_DURATION, animation: int | None = None) -> bytes:
-    """The ride function for the on-arrival elevator: ride the player straight UP ``rise`` world-units
-    from his boarding position (the shaft bottom, where :func:`_drop_to_bottom` placed him in the player
-    Init) to the spawn/let-off floor, then land (``SetPathing(1)`` on a real floor). It travels UP ONLY --
-    the DROP is the separate Init splice run under the black fade -- so the player is seen carried up in
-    the CLEAR, exactly as 2713's ride func does (which never drops inside the visible ride). Reuses the
-    proven :func:`carry_body` rise mode."""
-    return carry_body(rise=abs(int(rise)), duration=duration, animation=animation)
-
-
-def inject_entry_rise(data, *, rise: int, ride_tag: int = FIRST_PLATFORM_TAG,
+def inject_entry_rise(data, *, land, rise: int, ride_tag: int = FIRST_PLATFORM_TAG,
                       duration: int = DEFAULT_DURATION, animation: int | None = None,
                       player_uid: int = PLAYER_UID):
-    """The on-ARRIVAL elevator (the real 2713 mechanism), split into 2713's three slots so the rise plays
-    VISIBLY (an earlier single-function version did the drop+rise under the black fade -> nothing to see):
+    """The on-ARRIVAL elevator (the real 2713 mechanism): the player rides UP a shaft (a hole in the
+    floor) to the let-off floor ``land`` = (x, z, y), occluded by the surrounding floor until he emerges
+    flush. Split into 2713's three slots, ABSOLUTE throughout so he lands EXACTLY flush (an earlier
+    relative version captured a stale selfY at Init and overshot, then settled down = "goes back down"):
 
-      1. graft the UP-only ride (:func:`entry_rise_body`) onto the player;
-      2. splice a DROP into the player Init right after ``DefinePlayerCharacter`` (the proven
-         re-entry-spawn splice point) so the engine places him at the shaft bottom UNDER the entry fade --
-         no visible teleport;
-      3. arm an ``InitCode`` coroutine that spins until ``usercontrol == 1`` (Main_Init's ``EnableMove``
-         has run) then waits :data:`FADE_SETTLE` frames for the fade-in to lift, and only THEN locks
-         control + runs the ride synchronously (the per-frame ``Wait(1)`` advances ``ProcessAnime``) --
-         so the player is seen rising in the clear, post-fade, like 2713's tag-1 dispatcher.
+      1. graft the ABSOLUTE-``land`` carry (:func:`carry_body` land mode) onto the player -- it rides from
+         the dropped bottom to the exact floor coordinate and ``SetPathing(1)``-lands flush;
+      2. splice a DROP to the EXACT hole bottom (ly - ``rise``) into the player Init after
+         ``DefinePlayerCharacter`` -- under the black fade, no visible teleport;
+      3. arm an ``InitCode`` coroutine that spins until ``usercontrol == 1`` then waits
+         :data:`FADE_SETTLE` frames for the fade-in to lift, and only THEN runs the ride synchronously --
+         so the rise is seen post-fade, like 2713's tag-1 dispatcher.
 
-    Unconditional (fires on every entry) -- a single on-entry rise; per-door gating (``D8:2 ==``) is a
-    follow-up. Returns new ``.eb`` bytes."""
+    Unconditional (fires on every entry). Returns new ``.eb`` bytes."""
+    lx, lz = int(land[0]), int(land[1])
+    ly = int(land[2]) if len(land) > 2 else 0
+    rise = abs(int(rise))
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     pe = find_player_entry(EbScript.from_bytes(out))
-    # 1. the UP-only ride func on the player
-    out = edit.add_function(out, pe, ride_tag, entry_rise_body(rise=rise, duration=duration, animation=animation))
-    # 2. drop the player to the shaft bottom in his Init, after DefinePlayerCharacter (under the fade)
+    # 1. the ride: from the dropped bottom UP to the exact let-off floor, land flush (absolute land mode)
+    out = edit.add_function(out, pe, ride_tag,
+                            carry_body(land=(lx, lz, ly), duration=duration, animation=animation))
+    # 2. drop to the EXACT hole bottom in the player Init, after DefinePlayerCharacter (under the fade)
     eb = EbScript.from_bytes(out)
     init = eb.entry(pe).func_by_tag(0)
     if init is None:
@@ -293,7 +287,7 @@ def inject_entry_rise(data, *, rise: int, ride_tag: int = FIRST_PLATFORM_TAG,
     dpc = next((i for i in eb.instrs(init) if i.op == 0x2C), None)        # DefinePlayerCharacter
     if dpc is None:
         raise ValueError("player Init has no DefinePlayerCharacter (0x2C); cannot place the elevator drop")
-    out = edit.insert_in_function(out, pe, 0, dpc.end - init.abs_start, _drop_to_bottom(rise))
+    out = edit.insert_in_function(out, pe, 0, dpc.end - init.abs_start, _drop_to_hole_bottom(lx, lz, ly, rise))
     # 3. fire the rise POST-FADE: spin until usercontrol==1, settle past the fade, then run the ride sync
     a = _Asm()
     a.label("WAITCTL")
@@ -301,7 +295,7 @@ def inject_entry_rise(data, *, rise: int, ride_tag: int = FIRST_PLATFORM_TAG,
     a.raw(_region.cond_sysvar_eq(2, 0))                                  # usercontrol still 0 (no control yet)?
     a.jmp(_region.JMP_TRUE, "WAITCTL")                                   # yes -> keep spinning (op_03 = backward-safe;
                                                                          #   JMP_FALSE/op_02 is forward-only, unsigned)
-    a.raw(opcodes.wait(FADE_SETTLE)                                      # let the fade-in lift
+    a.raw(opcodes.wait(RIDE_WARMUP)                                      # fire early -> camera-up overlaps the fade
           + opcodes.DISABLE_MOVE
           + opcodes.run_script_sync(RUNSCRIPT_LEVEL, player_uid, ride_tag)
           + opcodes.ENABLE_MOVE + opcodes.RETURN)
