@@ -124,11 +124,13 @@ def main() -> int:
           f"in {len(targets)} override file(s):")
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     BK.mkdir(exist_ok=True)
-    changed, backups = 0, []
+    changed, confirmed, backups = 0, 0, []
     for p in targets:
         before = p.read_bytes() if p.exists() else None
-        n, _old = _retarget(p, args.target, args.frm, dry_run=args.dry_run)
+        n, old = _retarget(p, args.target, args.frm, dry_run=args.dry_run)
         changed += n
+        if n or old == args.target:                  # patched now, OR it already warps the target -> wired
+            confirmed += 1
         if n and not args.dry_run and before is not None:
             # the backup name is deterministic per file -- recover it for the revert manifest
             bname = next((b.name for b in BK.glob(f"{p.parent.name}-{p.name}.preRETARGET.*")), None)
@@ -136,6 +138,12 @@ def main() -> int:
                 backups.append((str(p), str(BK / bname)))
     rev = _write_revert(backups, stamp) if backups else None
     print(f"done -- {changed} override(s) {'would be ' if args.dry_run else ''}retargeted to Field({args.target}).")
+    # found override file(s) but NONE warp the target (no patchable Field() op -> corrupt/non-opening override):
+    # New Game was NOT wired. Fail loudly so a caller (deploy_journey) aborts instead of falsely reporting success.
+    if not args.dry_run and confirmed == 0:
+        print(f"ERROR: {len(targets)} override file(s) present but NONE warp Field({args.target}) -- none had a "
+              f"patchable Field() op (a corrupt or non-opening {args.name}.eb?). New Game NOT wired.")
+        return 1
     if not args.dry_run and changed:
         print(f"  RELAUNCH + New Game to test. (target {args.target} must be a REGISTERED field -- deploy it first.)")
         if rev:

@@ -165,6 +165,16 @@ def test_deploy_journey_argv(tmp_path):
     assert "--apply-links" in lk and "--apply" not in lk
     # --wire-newgame is gated under --apply (a no-op alone) -> not emitted without it
     assert "--wire-newgame" not in jobs.deploy_journey_argv(tmp_path, "j.toml", wire_newgame=True)
+    # the 3-way New-Game landing: none (no flag) / hub / entry -> --newgame <mode>, gated under --apply
+    assert "--newgame" not in jobs.deploy_journey_argv(tmp_path, "j.toml", apply=True, newgame="none")
+    hub = jobs.deploy_journey_argv(tmp_path, "j.toml", apply=True, newgame="hub")
+    assert hub[-2:] == ["--newgame", "hub"]
+    ent = jobs.deploy_journey_argv(tmp_path, "j.toml", apply=True, newgame="entry")
+    assert ent[-2:] == ["--newgame", "entry"]
+    assert "--newgame" not in jobs.deploy_journey_argv(tmp_path, "j.toml", newgame="hub")  # gated under --apply
+    # explicit newgame= wins over the wire_newgame alias
+    both = jobs.deploy_journey_argv(tmp_path, "j.toml", apply=True, newgame="entry", wire_newgame=True)
+    assert "--newgame" in both and "entry" in both and "--wire-newgame" not in both
 
 
 def test_fork_command_argv(tmp_path):

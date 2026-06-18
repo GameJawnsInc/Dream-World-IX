@@ -187,6 +187,11 @@ across mod folders):
 > the `import-chain` line to the header playbook (so the Fork panel offers a Fork button), and drops a commented
 > `[[journey.link]]` template. The boundary's actual member names are still wired by **Fill entry & links from
 > forks** (`reconcile_arc_journey`) after the regions are forked. So: *seed → grow → fork each → reconcile → deploy.*
+> At deploy time the **Build & Deploy** journey panel (and `deploy_journey.py --newgame {none,hub,entry}`) picks
+> where New Game lands: **none** (reach the hub via F6), **hub** (the selector menu — `retarget_newgame_warp`,
+> seamless), or **entry** (STRAIGHT into the opening field, no menu — `wire_newgame_from_stock`, keeps the real
+> opening FMV; single-journey arc only, since a multi-journey hub has no single opening). For a faithful single-arc
+> recreation, **entry** is the base-game-true front door.
 
 The PySide6 Workspace also **displays** a journey when one exists:
 

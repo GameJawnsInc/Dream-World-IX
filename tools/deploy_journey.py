@@ -16,17 +16,19 @@ step a proven tool you run + PLAYTEST in order -- "one change per in-game test",
 
 ``--apply`` runs the WHOLE playbook in one shot: each campaign (the entry campaign seed-built in-process from
 ``[journey.seed]``) -> the link rewrites -> emit + deploy the hub field, capturing each step's own revert into
-ONE ``revert_journey.py`` (reverse order). It does NOT touch New Game (the field-70 override is SINGLE-OWNER --
-forcing it would hijack an existing hub, e.g. a live World Hub); reach this hub via F6 -> Warp, or add
-``--wire-newgame`` to opt into making it the New-Game landing. ``--apply-links`` runs ONLY the link ``.eb``
-remaps (re-apply after a campaign re-deploy). Either way I cannot see the game (Hard Constraint §2): after
---apply, follow the printed manual FolderNames + relaunch steps and PLAYTEST.
+ONE ``revert_journey.py`` (reverse order). It does NOT touch New Game by default (the field-70 override is
+SINGLE-OWNER -- forcing it would hijack an existing hub, e.g. a live World Hub); reach this hub via F6 -> Warp,
+or pass ``--newgame hub`` (New Game -> the hub selector menu) or ``--newgame entry`` (New Game STRAIGHT into the
+opening field, no menu -- single-journey only; keeps the real opening FMV). ``--apply-links`` runs ONLY the link
+``.eb`` remaps (re-apply after a campaign re-deploy). Either way I cannot see the game (Hard Constraint §2):
+after --apply, follow the printed manual FolderNames + relaunch steps and PLAYTEST.
 
 Usage:
-  py tools/deploy_journey.py <journeys.toml>                       # dry-run: lint + the deploy playbook
-  py tools/deploy_journey.py <journeys.toml> --apply               # ONE-SHOT: campaigns + links + hub (F6 to reach)
-  py tools/deploy_journey.py <journeys.toml> --apply --wire-newgame # ...and make this hub the New-Game landing
-  py tools/deploy_journey.py <journeys.toml> --apply-links         # apply ONLY the cross-campaign link .eb remaps
+  py tools/deploy_journey.py <journeys.toml>                        # dry-run: lint + the deploy playbook
+  py tools/deploy_journey.py <journeys.toml> --apply                # ONE-SHOT: campaigns + links + hub (F6 to reach)
+  py tools/deploy_journey.py <journeys.toml> --apply --newgame hub   # ...and New Game -> the hub selector menu
+  py tools/deploy_journey.py <journeys.toml> --apply --newgame entry # ...and New Game -> STRAIGHT into the opening
+  py tools/deploy_journey.py <journeys.toml> --apply-links          # apply ONLY the cross-campaign link .eb remaps
 """
 from __future__ import annotations
 
@@ -235,11 +237,14 @@ def _apply_journey(manifest, plan, args) -> int:
         captured.append(cap)
     _flush()
 
-    # (4) OPTIONALLY point New Game at this hub. The field-70 override is SINGLE-OWNER (only one hub can own
-    #     New Game), so this is OPT-IN -- otherwise --apply would silently hijack an existing New-Game hub
-    #     (e.g. a live World Hub). Default: reach this hub via F6 -> Warp, New Game untouched.
-    if args.wire_newgame:
-        print("\n=== 4. New Game -> hub ===")
+    # (4) OPTIONALLY point New Game at this journey. The field-70 override is SINGLE-OWNER, so this is OPT-IN
+    #     (else --apply would silently hijack an existing New-Game hub). Three modes (--newgame):
+    #       none  -- New Game UNCHANGED (reach the hub via F6 -> Warp). DEFAULT.
+    #       hub   -- New Game -> the HUB selector menu (retarget the live override; keeps a SEAMLESS/no-FMV hub).
+    #       entry -- New Game -> straight into the OPENING field, no menu (the faithful single-arc path:
+    #                wire_newgame_from_stock keeps field-70's real opening FMV + fade, then warps the entry id).
+    if args.newgame == "hub":
+        print(f"\n=== 4. New Game -> hub (field {plan.hub_field_id}) ===")
         rc = _run([sys.executable, str(HERE / "retarget_newgame_warp.py"), str(plan.hub_field_id)])
         if rc != 0:
             return _abort(f"retarget_newgame_warp exited {rc}")
@@ -247,20 +252,36 @@ def _apply_journey(manifest, plan, args) -> int:
         if cap:
             captured.append(cap)
         _flush()
+    elif args.newgame == "entry":
+        if plan.entry_field_id is None:
+            return _abort("--newgame entry needs a SINGLE-journey manifest (a multi-journey hub has no single "
+                          "opening to land in -- use --newgame hub).")
+        print(f"\n=== 4. New Game -> opening (field {plan.entry_field_id}, no menu) ===")
+        rc = _run([sys.executable, str(HERE / "wire_newgame_from_stock.py"), str(plan.entry_field_id),
+                   "--mod-folder", highest])
+        if rc != 0:
+            return _abort(f"wire_newgame_from_stock exited {rc}")
+        cap = _capture("revert_newgame_from_stock.py", "revert_journey_newgame.py")
+        if cap:
+            captured.append(cap)
+        _flush()
     else:
-        print("\n=== 4. New Game -> hub: SKIPPED (New Game UNCHANGED; pass --wire-newgame to opt in) ===")
+        print("\n=== 4. New Game: SKIPPED (New Game UNCHANGED; --newgame hub|entry to opt in) ===")
 
     print("\n=== MANUAL STEPS (this tool cannot do these) ===")
     print(f"1. Memoria.ini [Mod] FolderNames must STACK every campaign folder + the hub folder "
           f"({highest!r} highest).")
     print("2. RELAUNCH once -- the new ids only register on a fresh launch.")
-    if args.wire_newgame:
+    if args.newgame == "hub":
         print(f"3. New Game now lands on the hub (field {plan.hub_field_id}); pick a journey, PLAYTEST.")
+    elif args.newgame == "entry":
+        print(f"3. New Game now lands STRAIGHT in the opening (field {plan.entry_field_id}) -- no menu; "
+              f"PLAYTEST. (The hub still exists; reach it via F6 -> Warp {plan.hub_field_id}.)")
     else:
         print(f"3. Reach the hub via F6 -> Warp {plan.hub_field_id} (New Game is UNCHANGED). Pick a journey, "
               f"PLAYTEST.")
-        print(f"   To make THIS hub the New-Game landing (SINGLE-OWNER -- replaces your current New-Game "
-              f"target), re-run with --wire-newgame.")
+        print(f"   To make THIS the New-Game landing (SINGLE-OWNER -- replaces your current target): re-run with "
+              f"--newgame hub (the selector menu) or --newgame entry (straight into the opening).")
     print(f"Revert EVERYTHING (reverse order): py {unified.relative_to(REPO).as_posix()}")
     return 0
 
@@ -271,11 +292,14 @@ def main(argv=None) -> int:
     ap.add_argument("--apply", action="store_true",
                     help="ONE-SHOT: deploy every campaign (seeded entry) + links + the hub field, with one "
                          "unified revert (default is a dry-run that prints the playbook). New Game is NOT "
-                         "touched unless you add --wire-newgame.")
-    ap.add_argument("--wire-newgame", action="store_true", dest="wire_newgame",
-                    help="with --apply, ALSO retarget New Game -> this manifest's hub. SINGLE-OWNER: replaces "
-                         "the current New-Game landing (e.g. a live World Hub). Off by default -- otherwise "
-                         "reach the hub via F6 -> Warp.")
+                         "touched unless you add --newgame hub|entry.")
+    ap.add_argument("--newgame", choices=("none", "hub", "entry"), default="none",
+                    help="with --apply, where New Game lands (SINGLE-OWNER: replaces the current target). "
+                         "none (default) = unchanged, reach the hub via F6. hub = the hub selector menu "
+                         "(seamless). entry = STRAIGHT into the opening field, no menu (single-journey only; "
+                         "keeps the real opening FMV).")
+    ap.add_argument("--wire-newgame", action="store_const", const="hub", dest="newgame",
+                    help="back-compat alias for --newgame hub.")
     ap.add_argument("--apply-links", action="store_true", dest="apply_links",
                     help="EXECUTE ONLY the cross-campaign link .eb remaps (re-run after any campaign re-deploy)")
     ap.add_argument("--hub-out", dest="hub_out", default=None,

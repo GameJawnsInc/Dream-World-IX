@@ -236,18 +236,23 @@ def fork_command_argv(command, *, out_abs=None):
     return [sys.executable, "-m", "ff9mapkit", *parts]
 
 
-def deploy_journey_argv(repo_root, journeys, *, apply=False, wire_newgame=False, apply_links=False):
+def deploy_journey_argv(repo_root, journeys, *, apply=False, newgame="none", wire_newgame=False, apply_links=False):
     """Deploy (or dry-run) a multi-campaign journey manifest via ``tools/deploy_journey.py``.
 
     Default (no flags) = a DRY-RUN that lints + prints the ordered deploy playbook (no game files touched).
     ``apply`` = the ONE-SHOT deploy (every campaign into its own stacked folder, the cross-campaign links,
-    then the hub field -- one unified revert); ``wire_newgame`` additionally points New Game at the hub
-    (single-owner, so it's gated under ``--apply`` -- a no-op alone). ``apply_links`` = re-apply ONLY the
-    cross-campaign link ``.eb`` remaps (run after a campaign re-deploy wipes them)."""
+    then the hub field -- one unified revert). ``newgame`` (gated under ``--apply``) chooses where New Game
+    lands -- SINGLE-OWNER, replaces the current target: ``"none"`` (unchanged, reach the hub via F6), ``"hub"``
+    (the hub selector menu, seamless), or ``"entry"`` (STRAIGHT into the opening field, no menu -- single-journey
+    only; keeps the real opening FMV). ``wire_newgame=True`` is a back-compat alias for ``newgame="hub"``.
+    ``apply_links`` = re-apply ONLY the cross-campaign link ``.eb`` remaps (run after a campaign re-deploy)."""
+    mode = newgame if (newgame and newgame != "none") else "none"
     a = [sys.executable, _tool(repo_root, "deploy_journey.py"), str(journeys)]
     if apply:
         a.append("--apply")
-        if wire_newgame:
+        if mode != "none":
+            a += ["--newgame", mode]
+        elif wire_newgame:                    # back-compat alias (deploy_journey maps --wire-newgame -> hub)
             a.append("--wire-newgame")
     elif apply_links:
         a.append("--apply-links")

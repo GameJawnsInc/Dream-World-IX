@@ -4850,14 +4850,33 @@ def _smoke(win):
     bd.on_go()
     assert any("deploy_journey.py" in a for a in launched[-1]) and "--apply" not in launched[-1], launched[-1]
     bd.rb_jour_apply.setChecked(True)
-    assert bd.wire_newgame_j.isEnabled(), "wire-New-Game enables only for the one-shot deploy"
-    bd.wire_newgame_j.setChecked(True)
+    bd._update_journey_hint()
+    # New-Game landing = a 3-way radio (none / hub / opening entry), enabled only for the one-shot deploy
+    assert bd.ng_group.isEnabled(), "New-Game radios enable only for the one-shot deploy"
+    assert bd.rb_ng_entry.isEnabled(), "single-journey manifest -> 'straight into the opening' is available"
+    bd.rb_ng_hub.setChecked(True)                              # wire -> hub menu
     bd.on_go()
-    assert "--apply" in launched[-1] and "--wire-newgame" in launched[-1], launched[-1]
+    assert "--apply" in launched[-1] and launched[-1][-2:] == ["--newgame", "hub"], launched[-1]
+    bd.rb_ng_entry.setChecked(True)                            # wire -> straight into the opening
+    bd.on_go()
+    assert launched[-1][-2:] == ["--newgame", "entry"], launched[-1]
+    bd.rb_ng_none.setChecked(True)                             # no wiring
+    bd.on_go()
+    assert "--apply" in launched[-1] and "--newgame" not in launched[-1], launched[-1]
     bd.rb_jour_links.setChecked(True)
-    assert not bd.wire_newgame_j.isEnabled(), "wire-New-Game greys out for links-only"
+    bd._update_journey_hint()
+    assert not bd.ng_group.isEnabled(), "New-Game radios grey out for links-only"
     bd.on_go()
     assert "--apply-links" in launched[-1] and "--apply" not in launched[-1], launched[-1]
+    # a MULTI-journey manifest -> 'straight into the opening' is disabled (no single opening to land in)
+    jbd2 = d / "bd_journey2.toml"
+    jbd2.write_text('[hub]\nname = "H2"\nid = 4600\n\n[[journey]]\nid = "a"\nentry = 4100\n\n'
+                    '[[journey]]\nid = "b"\nentry = 4200\n', encoding="utf-8")
+    bd.set_target(jbd2)
+    bd.rb_jour_apply.setChecked(True)
+    bd._update_journey_hint()
+    assert bd.ng_group.isEnabled() and not bd.rb_ng_entry.isEnabled(), "multi-journey -> entry-wiring disabled"
+    bd.set_target(jbd)                                         # restore the single-journey target for later steps
     bd._check_journey(str(jbd))                                 # in-process journey lint (no crash)
     # the journey revert resolves the MOST RECENT of revert_journey.py / revert_journey_links.py (or None) --
     # robust to whatever real reverts the repo happens to have; exercise the on_revert journey branch headless.

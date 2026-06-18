@@ -157,10 +157,20 @@ class BuildDoc(QWidget):
             self.jg.addButton(rb)
             rb.toggled.connect(self._update_journey_hint)
             jv.addWidget(rb)
-        # wire-newgame is meaningful only for the one-shot deploy (single-owner) -> off + disabled otherwise
-        self.wire_newgame_j = QCheckBox("Wire New Game → this hub (single-owner; replaces the current New-Game landing)")
-        self.wire_newgame_j.setEnabled(False)
-        jv.addWidget(self.wire_newgame_j)
+        # New-Game landing: meaningful only for the one-shot deploy (single-owner) -> disabled otherwise
+        self.ng_group = QGroupBox("New Game landing (one-shot deploy — single-owner)")
+        ngv = QVBoxLayout(self.ng_group)
+        self.ngg = QButtonGroup(self)
+        self.rb_ng_none = QRadioButton("Don't wire New Game — reach the hub via F6 → Warp")
+        self.rb_ng_none.setChecked(True)
+        self.rb_ng_hub = QRadioButton("Wire New Game → the hub menu (pick the journey at Mognet; seamless)")
+        self.rb_ng_entry = QRadioButton("Wire New Game → straight into the opening (no menu; keeps the real FMV)")
+        self.rb_ng_entry.setToolTip("Single-journey arc only — a multi-journey hub has no single opening to land in.")
+        for rb in (self.rb_ng_none, self.rb_ng_hub, self.rb_ng_entry):
+            self.ngg.addButton(rb)
+            ngv.addWidget(rb)
+        self.ng_group.setEnabled(False)
+        jv.addWidget(self.ng_group)
         self.journey_hint = QLabel("")
         self.journey_hint.setWordWrap(True)
         self.journey_hint.setStyleSheet(f"color:{self.pal['muted']};")
@@ -295,21 +305,33 @@ class BuildDoc(QWidget):
             msg = f"→ builds field {own} into {folder} — no game change."
         self.dest.setText(msg)
 
+    def _journey_newgame_mode(self) -> str:
+        """The selected New-Game landing for the one-shot deploy: ``"hub"`` / ``"entry"`` / ``"none"``."""
+        if self.rb_ng_hub.isChecked():
+            return "hub"
+        if self.rb_ng_entry.isChecked():
+            return "entry"
+        return "none"
+
     def _update_journey_hint(self, *_):
         if self.kind != "journey":
             return
+        apply_on = self.rb_jour_apply.isChecked()
         if self.rb_jour_preview.isChecked():
             msg = ("→ lints the manifest + prints the ordered deploy playbook. No game files are touched — "
                    "safe to run anytime; review the steps, then switch to 'Deploy journey to game'.")
-            self.wire_newgame_j.setEnabled(False)
         elif self.rb_jour_links.isChecked():
             msg = ("→ re-applies ONLY the cross-campaign link .eb remaps (run after a campaign re-deploy "
                    "wholesale-replaces its folder and wipes the links). The campaigns must already be deployed.")
-            self.wire_newgame_j.setEnabled(False)
         else:
             msg = ("→ one-shot: each campaign → its own stacked folder, the cross-campaign links, then the hub "
                    "field — one unified revert. You then stack the folders in Memoria.ini and relaunch once.")
-            self.wire_newgame_j.setEnabled(True)
+        self.ng_group.setEnabled(apply_on)
+        # "straight into the opening" needs a single-journey manifest (a multi-journey hub has no single opening)
+        single = self.manifest is not None and len(self.manifest.journeys) == 1
+        self.rb_ng_entry.setEnabled(apply_on and single)
+        if not single and self.rb_ng_entry.isChecked():
+            self.rb_ng_none.setChecked(True)
         self.journey_hint.setText(msg)
 
     # ------------------------------------------------------------------ pickers
@@ -482,18 +504,21 @@ class BuildDoc(QWidget):
                              ok_headline="Re-applied the cross-campaign links",
                              ok_next="Relaunch and playtest the campaign boundary.")
             return
-        wire = self.wire_newgame_j.isChecked()
+        mode = self._journey_newgame_mode()
         name = (self.manifest.hub.get("name") if self.manifest and self.manifest.hub else None) or Path(path).stem
         njourneys = len(self.manifest.journeys) if self.manifest else "?"
-        route = ("New Game will land on this hub (single-owner — replaces the current New-Game target)." if wire
-                 else "New Game is left UNCHANGED — reach the hub via F6 → Warp.")
+        route = {"hub": "New Game will land on the hub MENU (single-owner — replaces the current New-Game target).",
+                 "entry": "New Game will land STRAIGHT in the opening field, no menu (single-owner — replaces the "
+                          "current target; keeps the real opening FMV).",
+                 "none": "New Game is left UNCHANGED — reach the hub via F6 → Warp."}[mode]
         if self._confirm("Deploy journey",
                          f"Deploy journey '{name}' ({njourneys} journey(s)) in one shot — every campaign into "
                          f"its own stacked mod folder, the cross-campaign links, then the hub field?\n\n{route}\n\n"
                          "Reversible via one unified revert. You must then STACK the folders in Memoria.ini and "
                          "relaunch once."):
-            reach = "New Game → the hub" if wire else "F6 → Warp to the hub"
-            self._stream(jobs.deploy_journey_argv(self.repo, path, apply=True, wire_newgame=wire), cwd=self.repo,
+            reach = {"hub": "New Game → the hub menu", "entry": "New Game → straight into the opening",
+                     "none": "F6 → Warp to the hub"}[mode]
+            self._stream(jobs.deploy_journey_argv(self.repo, path, apply=True, newgame=mode), cwd=self.repo,
                          subject="Deploy journey",
                          ok_headline=f"Deployed journey '{name}'",
                          ok_next=f"Stack every campaign + hub folder in Memoria.ini [Mod] FolderNames, relaunch "

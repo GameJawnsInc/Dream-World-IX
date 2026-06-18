@@ -457,8 +457,10 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
             errors.append(f"journey {j.id!r}: entry field {j.entry.field!r} is not a member of campaign "
                           f"{j.entry.campaign!r}")
         elif isinstance(j.entry.field, int) and j.entry.field not in {m.new_id for m in entry_plan.members}:
-            warnings.append(f"journey {j.id!r}: entry id {j.entry.field} is not a member of campaign "
-                            f"{j.entry.campaign!r} -- prefer a member NAME (stable across re-id)")
+            # a raw int entry that resolves to no member is a hard error (same as a bad NAME): it would flow into
+            # plan.entry_field_id and `deploy_journey --newgame entry` would wire an unreachable New-Game target.
+            errors.append(f"journey {j.id!r}: entry id {j.entry.field} is not a member of campaign "
+                          f"{j.entry.campaign!r} -- prefer a member NAME (stable across re-id)")
 
         # flag windows fit below the choice scratch
         _, high = _flag_windows(j, plans)
@@ -769,6 +771,9 @@ class JourneyDeployPlan:
     links: list                  # [LinkRewrite]
     bare_entries: list           # [(journey_id, name, entry_id)]
     folder_conflicts: list       # [(mod_folder, folder_a, folder_b)] -- a wholesale-replace clobber
+    entry_field_id: "int | None" = None   # the resolved opening entry id IF the manifest has exactly ONE
+    #                                        journey (else None) -- the "New Game -> straight into the opening,
+    #                                        no hub menu" target (deploy_journey.py --newgame entry)
 
 
 def seed_to_field_blocks(seed: "JourneySeed | None") -> dict:
@@ -856,11 +861,14 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
     steps, links, bare, conflicts = [], [], [], []
     folder_seen: dict = {}                       # mod_folder -> the campaign folder that claimed it
     done_folders: set = set()                    # campaign folders already turned into a step (dedup)
+    entry_ids: list = []                         # each journey's resolved entry id (for the single-journey case)
     for j in manifest.journeys:
         if j.is_bare:
             bare.append((j.id, j.name, int(j.entry.field)))
+            entry_ids.append(int(j.entry.field))
             continue
         rj = resolve_journey(j, plans)
+        entry_ids.append(rj.entry_id)
         for folder in j.campaigns:
             plan, _ = plans[folder]
             if folder not in done_folders:
@@ -891,8 +899,9 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
                 dst_entrance=int(lk.get("dst_entrance", 0)),
                 seam_kinds=sr["kinds"], retargetable=sr["retargetable"], note=sr["note"]))
     hub_id = int(manifest.hub["id"]) if manifest.hub.get("id") is not None else None
+    single_entry = entry_ids[0] if len(manifest.journeys) == 1 else None    # "straight into the opening" target
     return JourneyDeployPlan(hub_field_id=hub_id, campaign_steps=steps, links=links,
-                             bare_entries=bare, folder_conflicts=conflicts)
+                             bare_entries=bare, folder_conflicts=conflicts, entry_field_id=single_entry)
 
 
 def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.field.toml>",

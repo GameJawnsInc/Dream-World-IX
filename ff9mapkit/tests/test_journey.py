@@ -328,6 +328,16 @@ def test_lint_entry_not_a_member(tmp_path):
     assert any("entry field 'GHOST' is not a member" in e for e in errors)
 
 
+def test_lint_entry_int_not_a_member_is_an_error(tmp_path):
+    # a RAW INT entry that resolves to no member is a hard error (not just a warning): it would flow into
+    # plan.entry_field_id and `deploy_journey --newgame entry` would wire an unreachable New-Game target.
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000)
+    p = _write_manifest(tmp_path, '[[journey]]\nid = "x"\ncampaigns = ["ca"]\n'
+                                  'entry = { campaign = "ca", field = 99999 }\n')
+    errors, _ = journey.lint_manifest(journey.load_journeys(p))
+    assert any("entry id 99999 is not a member" in e for e in errors)
+
+
 def test_lint_link_to_nonmember(tmp_path):
     _two_campaigns(tmp_path)
     p = _write_manifest(tmp_path, """
@@ -501,6 +511,7 @@ def test_build_deploy_plan(tmp_path):
     assert plan.hub_field_id == 4500
     assert plan.bare_entries == [("treno", "Treno", 4501)]
     assert plan.folder_conflicts == []
+    assert plan.entry_field_id is None                      # 2 journeys (bare treno + escape_ice) -> no single opening
     # two campaign steps, distinct folders, disjoint flag windows
     by = {s.folder: s for s in plan.campaign_steps}
     assert by["evil_forest"].mod_folder == "FF9CustomMap-evf" and by["evil_forest"].flag_base == FIRST_SAFE_FLAG
@@ -670,6 +681,8 @@ to = { campaign = "cb", field = "B1" }
     assert by["ca"].seed_blocks["startup"]["scenario"] == 1600
     assert by["ca"].seed_blocks["party"] == {"add": ["Vivi"]}
     assert by["cb"].seed_blocks is None                              # non-entry campaign: no seed
+    # single-journey manifest -> the opening entry id is exposed (the --newgame entry target = ca/A1)
+    assert plan.entry_field_id is not None and by["ca"].id_lo <= plan.entry_field_id <= by["ca"].id_hi
 
 
 def test_lint_seed_inventory_warns(tmp_path):
