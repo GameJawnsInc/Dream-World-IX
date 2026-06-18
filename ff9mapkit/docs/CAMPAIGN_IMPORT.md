@@ -163,6 +163,33 @@ This is precisely what single-field import cannot do (it has no knowledge of sib
 
 `extract_field` emits ONE heuristic `[player] spawn` = centre of the on-camera walkmesh (`extract.extract_field`), regardless of arrival entrance. A faithful chain wants each field's `{entrance: (x,z)}` map — recovered by scanning the player entry's Init for `if (D8:2 == k){ MoveInstantXZY(...) }` branches. The branch shape varies per field (no fixed template). **v1 ships single-spawn-per-field**; entrance is imported and round-tripped on edges (the trace shows the clean FF9 convention — every gateway *leaving* field N carries `entrance = N`'s screen index: 305's three exits all `entrance=5`, 309's all `entrance=9`) but the *landing* position is the single default. Mark as a known limitation.
 
+### 2.7 Cross-zone scripted-warp leaks + the id-preserving surgical-append fix
+
+`--whole-zone` forks every live field in the **seed's zone(s)**, which closes the within-zone scripted-transition gap (§2.1 walks doors only; ~41% of FF9 connectivity is scripted). But it is still **per-zone**: a forked member can carry a scripted `Field(X)` whose `X` lives in a *different, unseeded* zone, reachable only by that warp. The walk records it as a seam and never pulls `X` in, so the member **leaks into the real game** at that warp.
+
+Real example (2026-06-18): the cargo-ship Black Waltz deck (donor 501, fork 6121) warps `Field(506)` for the Zorn/Thorn cutscene, but **506 is the `fnrl` zone** (`fbg_n10_fnrl_map150_fn_dck_0`), not `cshp` — so the `cshp` whole-zone seed forked 500–507 *except* 506, and 6121 dropped the player into real FF9.
+
+**Detection gap to close:** a coverage/leak lint over a built campaign should flag any verbatim member's `Field(X)` where `X` is neither a campaign member nor a known overworld/menu/return seam → `live leak to real field X (zone Z) — fork it`.
+
+**Fix without a re-fork (id-preserving, so existing saves survive — a full re-fork shifts `id_base+i` and breaks any in-fork save):**
+
+```
+# 1. Fork the missed field, APPENDED at the next free id (nothing else moves):
+ff9mapkit import <X> --native --verbatim --id <next-free> --name OPEN_<NAME> --out <campaign>/OPEN_<NAME>
+#    set text_block = EVENT_ID_TO_MES[X]  (the donor's real MesDB block; the import default 1073 SHADOWS)
+#    retarget OPEN_<NAME>'s own onward Field() exits -> existing member fork ids
+# 2. Add the leaking member's retarget:  <X> = <next-free>
+# 3. deploy_field BOTH members into the live folder (surgical: each updates ONE DictionaryPatch
+#    line, preserving the other members + the New-Game override — unlike deploy_campaign's
+#    wholesale replace):
+py tools/deploy_field.py <campaign>/OPEN_<NAME>/OPEN_<NAME>.field.toml --id <next-free> --name OPEN_<NAME> --mod-folder FF9CustomMap
+py tools/deploy_field.py <campaign>/<LEAKING>/<LEAKING>.field.toml      --id <leaking-id> --name <LEAKING> --mod-folder FF9CustomMap
+# 4. Append "<next-free> <X>" to the live ForkDonorPatch.txt  (so the s23–s28 id-gate remaps fire)
+# 5. RELAUNCH (a brand-new id registers its DictionaryPatch line only at launch)
+```
+
+Record the appended member in `campaign.toml` (out-of-band `[[field]]` + `[[edge]]`s) so a future stable-id re-fork keeps it. This is the template for plugging any single missed cross-zone field on a *live* campaign.
+
 ---
 
 ## 3. The campaign.toml manifest
