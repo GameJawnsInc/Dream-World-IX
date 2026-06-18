@@ -31,6 +31,28 @@ def test_import_args_editable_with_name_and_save_moogle():
     assert "--dialogue" in a and "--save-moogle" in a and "--carry-text" not in a
 
 
+def test_import_args_verbatim_truest_fork():
+    # the recommended path: --verbatim ships the donor's whole .eb + .mes (real logic) -- a short command.
+    a = jobs.import_args("100", out="/o", field_id=4003, verbatim=True)
+    assert a == ["import", "100", "--out", "/o", "--id", "4003", "--verbatim"]
+
+
+def test_import_args_verbatim_ignores_art_and_carry():
+    # verbatim implies --native + carries everything itself, so NO art/carry flags are emitted (only --verbatim).
+    a = jobs.import_args("grgr", out="/o", field_id=5000, name="GRGR", art="editable",
+                         carry_npcs=True, carry_text=True, dialogue_stubs=True, save_moogle=True, verbatim=True)
+    assert a == ["import", "grgr", "--out", "/o", "--id", "5000", "--name", "GRGR", "--verbatim"]
+    assert not any(f in a for f in ("--native", "--editable", "--graft-player-funcs", "--carry-text",
+                                    "--dialogue", "--save-moogle"))
+
+
+def test_import_args_verbatim_native_default_combo():
+    # the EXACT combo the GUI passes (art='native' is the default + verbatim): --verbatim short-circuits BEFORE
+    # the art branch, so it does NOT also emit --native (pins the early-return order against a refactor).
+    a = jobs.import_args("100", out="/o", field_id=4003, art="native", verbatim=True)
+    assert a == ["import", "100", "--out", "/o", "--id", "4003", "--verbatim"]
+
+
 # --------------------------------------------------------------------------- deploy / revert argv
 def test_build_argv_single_field():
     a = jobs.build_argv("X.field.toml", "/out")

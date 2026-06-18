@@ -4757,13 +4757,24 @@ def _smoke(win):
     icap = []
     imp._run = lambda argv, **kw: (icap.append(list(map(str, argv))) or True)
     imp.field.setText("100")
-    imp.art_borrow.setChecked(True)
-    imp.carry_npcs.setChecked(False)
-    imp.carry_text.setChecked(False)
     imp.fid.setText("4003")
+    imp.name.setText("MYFORK")                                   # the one field that flows to argv in both modes
     imp.out.setText(str(d / "imp_out"))                          # a temp out folder (don't touch the repo)
+    # DEFAULT mode = verbatim (the recommended fork): the scene/carry boxes are HIDDEN (irrelevant), art pinned Native
+    assert imp.art_box.isHidden() and imp.carry_box.isHidden() and imp.art_native.isChecked(), "verbatim default"
     imp.on_import()
-    assert icap[-1][:4] == [sys.executable, "-m", "ff9mapkit", "import"] and icap[-1][4] == "100", icap[-1]
+    assert icap[-1][:5] == [sys.executable, "-m", "ff9mapkit", "import", "100"], icap[-1]
+    assert "--verbatim" in icap[-1] and "--graft-player-funcs" not in icap[-1], icap[-1]
+    _ni = icap[-1].index("--name")
+    assert icap[-1][_ni:_ni + 2] == ["--name", "MYFORK"], icap[-1]   # Name field -> argv passthrough
+    imp.mode_authorable.setChecked(True)                         # RE-AUTHORABLE: the boxes appear
+    assert not imp.art_box.isHidden() and not imp.carry_box.isHidden(), "authorable shows scene/carry"
+    imp.art_editable.setChecked(True)
+    imp.carry_text.setChecked(True)
+    imp.on_import()
+    assert "--verbatim" not in icap[-1] and "--editable" in icap[-1] and "--carry-text" in icap[-1], icap[-1]
+    imp.mode_verbatim.setChecked(True)                           # back to verbatim: re-hide + re-pin Native
+    assert imp.art_box.isHidden() and imp.art_native.isChecked(), "verbatim re-pins Native"
     imp.on_find()
     assert "list-fields" in icap[-1], icap[-1]
 
@@ -5197,7 +5208,7 @@ def _smoke(win):
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
           f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
-          f"({_newcamp_members} blank members) + Build/Deploy + Import docs (argv-built) + Info Hub "
+          f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "

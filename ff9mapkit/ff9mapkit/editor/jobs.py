@@ -118,15 +118,22 @@ def latest_journey_revert(repo_root):
 
 # --------------------------------------------------------------------------- import argv (FFIX Import)
 def import_args(field, *, out, field_id, name=None, art="native", carry_npcs=True, carry_text=True,
-                dialogue_stubs=False, save_moogle=False):
+                dialogue_stubs=False, save_moogle=False, verbatim=False):
     """The ``ff9mapkit import ...`` argv for a field fork (no ``py -m ff9mapkit`` prefix).
 
-    ``art`` is 'native' (--native) / 'borrow' (neither flag) / 'editable' (--editable). The carry flags
-    map to the fidelity options; --carry-text and --save-moogle both imply --graft-player-funcs (which the
-    kit also enforces), so we pass it explicitly when any carry is on for the command to read honestly."""
+    ``verbatim`` = the TRUEST fork (``--verbatim``): ship the donor's whole ``.eb`` + ``.mes`` and run the
+    real logic (story gating, rotating cast, real doors -- the proven faithful path, docs/FORK_FIDELITY.md).
+    It implies ``--native`` and carries every NPC/prop/line itself, so the ``art``/carry options DON'T apply
+    and we emit ONLY ``--verbatim`` (a short, honest command). ``art``/carry below are the RE-AUTHORABLE path:
+    ``art`` is 'native' (--native) / 'borrow' (neither flag) / 'editable' (--editable); the carry flags map to
+    the fidelity options, and --carry-text / --save-moogle imply --graft-player-funcs (kit-enforced, passed
+    explicitly so the command reads honestly)."""
     args = ["import", str(field), "--out", str(out), "--id", str(field_id)]
     if name:
         args += ["--name", str(name)]
+    if verbatim:
+        args.append("--verbatim")
+        return args
     if art == "native":
         args.append("--native")
     elif art == "editable":

@@ -1,7 +1,8 @@
 """The FFIX Import document for the Workspace (Phase 6b) -- the tkinter ff9_import, folded in.
 
-Bring content in from the real FF9 install: fork a field (the fidelity options as plain checkboxes, not
-CLI flags), preview fork fidelity, or read a field's dialogue / inspect a save / list fields. Every action
+Bring content in from the real FF9 install: fork a field (Verbatim = the truest fork, the default — ships the
+real script + dialogue, runs the real logic; or Re-authorable, the fidelity options as plain checkboxes),
+preview fork fidelity, or read a field's dialogue / inspect a save / list fields. Every action
 shells out to ``py -m ff9mapkit <cmd>`` and STREAMS into the shell's Output panel via ``run`` (the shell's
 run_job). Only this view is Qt -- the argv is :func:`..editor.jobs.import_args`, the streaming + verdict
 are the shell's, and the commands are the same CLI the terminal loop uses.
@@ -63,18 +64,38 @@ class ImportDoc(QWidget):
         row.addWidget(self.preview_btn)
         v.addLayout(row)
 
-        art = QGroupBox("Background art")
-        av = QVBoxLayout(art)
+        mode = QGroupBox("Fork mode")
+        mv = QVBoxLayout(mode)
+        self.mode_verbatim = QRadioButton("Verbatim — the truest fork (recommended)")
+        self.mode_authorable = QRadioButton("Re-authorable — editable [[npc]]/content, but you rebuild the "
+                                            "field's logic & story gating yourself (advanced)")
+        self.mode_verbatim.setChecked(True)
+        mv.addWidget(self.mode_verbatim)
+        mv.addWidget(self.mode_authorable)
+        mhint = QLabel("Verbatim ships the field's real event script + dialogue WHOLE — it runs the original "
+                       "logic, story gating, real doors and rotating cast (the proven faithful path), carrying "
+                       "every NPC/prop/line itself. A verbatim fork boots at scenario zero — use Preview fidelity "
+                       "for the suggested starting beat, then add a [startup] block in the editor. The scene + "
+                       "carry options appear only in Re-authorable mode (which drops the real logic for editable "
+                       "[[npc]]/content you re-author).")
+        mhint.setWordWrap(True)
+        mhint.setStyleSheet(f"color:{self.pal['muted']};")
+        mv.addWidget(mhint)
+        self.mode_verbatim.toggled.connect(self._sync_mode)
+        v.addWidget(mode)
+
+        self.art_box = QGroupBox("Background art")
+        av = QVBoxLayout(self.art_box)
         self.art_native = QRadioButton("Native — seamless, faithful occlusion + lighting; ANY field (recommended)")
         self.art_borrow = QRadioButton("BG-borrow — reuse the real art via DictionaryPatch (fast; area ≥ 10)")
         self.art_editable = QRadioButton("Editable scene — repaintable per-depth layers (needs an in-game export)")
         self.art_native.setChecked(True)
         for r in (self.art_native, self.art_borrow, self.art_editable):
             av.addWidget(r)
-        v.addWidget(art)
+        v.addWidget(self.art_box)
 
-        carry = QGroupBox("Carry from the real field")
-        cv = QVBoxLayout(carry)
+        self.carry_box = QGroupBox("Carry from the real field")
+        cv = QVBoxLayout(self.carry_box)
         self.carry_npcs = QCheckBox("NPCs & props faithfully (their push/talk interactions fire)")
         self.carry_text = QCheckBox("Real dialogue, verbatim (per language) — carried NPCs speak the real words")
         self.dialogue_stubs = QCheckBox("Dialogue as editable [[npc]] stubs (to RE-AUTHOR, not carry)")
@@ -83,7 +104,8 @@ class ImportDoc(QWidget):
         self.carry_text.setChecked(True)
         for c in (self.carry_npcs, self.carry_text, self.dialogue_stubs, self.save_moogle):
             cv.addWidget(c)
-        v.addWidget(carry)
+        v.addWidget(self.carry_box)
+        self._sync_mode()       # verbatim is default -> dim the art/carry boxes (verbatim carries them itself)
 
         out = QHBoxLayout()
         out.addWidget(QLabel("Write to:"))
@@ -114,6 +136,16 @@ class ImportDoc(QWidget):
 
     def _art(self):
         return "borrow" if self.art_borrow.isChecked() else "editable" if self.art_editable.isChecked() else "native"
+
+    def _sync_mode(self, *_):
+        """Verbatim carries every NPC/prop/line + implies --native, so the art + carry boxes are IRRELEVANT --
+        HIDE them (a greyed box reads as 'blocked', a hidden one as 'not part of this choice') + pin art to
+        Native so a later switch back to Re-authorable starts from the recommended scene mode."""
+        verbatim = self.mode_verbatim.isChecked()
+        self.art_box.setVisible(not verbatim)
+        self.carry_box.setVisible(not verbatim)
+        if verbatim:
+            self.art_native.setChecked(True)
 
     # ------------------------------------------------------------------ read & inspect
     def _read_box(self):
@@ -208,7 +240,9 @@ class ImportDoc(QWidget):
         if not field:
             return self._warn("No field", "Enter a real field id or name to preview its fork fidelity.")
         self._kit(["fork-report", field], subject="Fork preview",
-                  ok_next="Read the fidelity report, then set the carry options and Import.")
+                  ok_next="Read the fidelity report (it recommends a fork mode). Verbatim is the faithful "
+                          "default — note its suggested [startup] scenario, Import, then add that beat in the "
+                          "editor; or switch to Re-authorable to carry NPCs/dialogue as editable content.")
 
     def on_import(self):
         from ..editor import jobs
@@ -223,13 +257,17 @@ class ImportDoc(QWidget):
         except ValueError:
             return self._warn("Bad field id", "Field id must be a number (e.g. 4003).")
         Path(out).mkdir(parents=True, exist_ok=True)
+        verbatim = self.mode_verbatim.isChecked()
         args = jobs.import_args(field, out=str(Path(out).resolve()), field_id=fid,
                                 name=self.name.text().strip() or None, art=self._art(),
                                 carry_npcs=self.carry_npcs.isChecked(), carry_text=self.carry_text.isChecked(),
                                 dialogue_stubs=self.dialogue_stubs.isChecked(),
-                                save_moogle=self.save_moogle.isChecked())
+                                save_moogle=self.save_moogle.isChecked(), verbatim=verbatim)
+        mode = "verbatim — real script + dialogue, real logic" if verbatim else "re-authorable carry"
         self._kit(args, subject=f"Import {field}",
-                  ok_next=f"Written to {out}. Open it on the Build & Deploy tab to compile + deploy.")
+                  ok_next=f"Forked ({mode}) to {out}. Open it on the Build & Deploy tab to compile + deploy"
+                          + ("; then add a [startup] beat (Editor tab → the field's Field form) so it boots the "
+                             "right story state instead of scenario zero." if verbatim else "."))
 
     def on_view_dialogue(self):
         field = self.dlg_field.text().strip()
