@@ -1,9 +1,31 @@
 diff --git a/Assembly-CSharp/Global/Field/Map/NarrowMapList.cs b/Assembly-CSharp/Global/Field/Map/NarrowMapList.cs
-index 0e252abd..3aad665b 100644
+index 0e252abd..8f23203c 100644
 --- a/Assembly-CSharp/Global/Field/Map/NarrowMapList.cs
 +++ b/Assembly-CSharp/Global/Field/Map/NarrowMapList.cs
-@@ -38,6 +38,22 @@ public static class NarrowMapList
-             if (entry[0] == mapId)
+@@ -22,8 +22,9 @@ public static class NarrowMapList
+         Int32 currCounter = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR);
+ 
+         //return RestrictedWidthScenesList.Any(entry => entry[0] == mapId && (entry[1] == currIndex || entry[2] == currCounter));
++        Int32 effId = Memoria.DataPatchers.EffectiveFieldId(mapId);   // s23 fork-donor: forks resolve to the donor's tuned entry
+         foreach (Int32[] entry in RestrictedWidthScenesList)
+-            if (entry[0] == mapId && (FieldMap.ActualPsxScreenWidth > entry[1] || entry[1] == -5) && (entry[2] == currIndex || entry[2] == -5) && (entry[3] == currCounter || entry[3] == -5))
++            if (entry[0] == effId && (FieldMap.ActualPsxScreenWidth > entry[1] || entry[1] == -5) && (entry[2] == currIndex || entry[2] == -5) && (entry[3] == currCounter || entry[3] == -5))
+                 return true;
+         return false;
+     }
+@@ -34,10 +35,32 @@ public static class NarrowMapList
+             return 320;
+ 
+         //return MapWidthList.FirstOrDefault(entry => entry[0] == mapId)?[1] ?? 500;
++        // s23 fork-donor: a FORKED narrow field misses its custom id in this hand-tuned table, so it
++        // fell to the cam.w fallback below -- which is the BG's full width, WIDER than the real tuned
++        // value -> the fork's letterbox was too narrow and the field's full-width fog/overlay leaked
++        // over the bars. Resolve a fork to its DONOR id so it gets the EXACT real width (e.g. 320),
++        // not the cam.w approximation. Identity for real/novel ids (they fall through as before).
++        Int32 effId = Memoria.DataPatchers.EffectiveFieldId(mapId);
+         foreach (Int32[] entry in MapWidthList)
+-            if (entry[0] == mapId)
++            if (entry[0] == effId)
                  return entry[1];
  
 +        // ff9mapkit fix: custom/forked field ids aren't in MapWidthList, so they fell through to

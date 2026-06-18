@@ -158,6 +158,21 @@ index 805f5ab3..f40f7b6d 100644
                  else if (FF9StateSystem.Battle.FF9Battle.map.nextMode == 3)
                      FF9StateSystem.Common.FF9.wldMapNo = FF9StateSystem.Battle.FF9Battle.map.nextMapNo;
                  UIManager.Battle.GoToBattleResult();
+diff --git a/Assembly-CSharp/Global/SPS/CommonSPSSystem.cs b/Assembly-CSharp/Global/SPS/CommonSPSSystem.cs
+index 67e68653..12fe6ac3 100644
+--- a/Assembly-CSharp/Global/SPS/CommonSPSSystem.cs
++++ b/Assembly-CSharp/Global/SPS/CommonSPSSystem.cs
+@@ -111,7 +111,9 @@ public class CommonSPSSystem
+ 
+     private Vector3 AdjustSpsPrecise(String name, Vector3 pos)
+     {
+-        Int16 MapNo = FF9StateSystem.Common.FF9.fldMapNo;
++        // s24 fork-donor: resolve to the donor id so a forked field gets these per-field SPS position
++        // fixes too (e.g. the Ice Cavern smoke SPS_0002 at MapNo==303). Identity for real ids.
++        Int16 MapNo = (Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+         //Log.Message("if (MapNo == " + MapNo + " && name == \"" + name + "\" && pos.x == " + pos.x + " && pos.y == " + pos.y + " && pos.z == " + pos.z + ")"); // 3D positions, pos.y calculated from bottom
+         if (MapNo == 2215 && name == "SPS_0008" && pos.x == 1330 && pos.y == 1150 && pos.z == 1125) // desert palace flame misaligned
+             pos.y = 1025;
 diff --git a/Assembly-CSharp/Global/SPS/SPSEffect.cs b/Assembly-CSharp/Global/SPS/SPSEffect.cs
 index b7f75242..230f9ddf 100644
 --- a/Assembly-CSharp/Global/SPS/SPSEffect.cs
