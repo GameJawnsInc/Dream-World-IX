@@ -254,7 +254,7 @@ class Workspace(QMainWindow):
         self._redo_stack = []                      # [_UndoRec] -- undone edits (Ctrl-Shift-Z re-applies)
         self._undo_base = {}                       # member -> deepcopy(doc.data) at the last checkpoint
         self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
-        self.setWindowTitle("FF9 Map Kit — Workspace")
+        self.setWindowTitle("Dream World IX — Workspace")
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
         self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
@@ -1610,7 +1610,7 @@ class Workspace(QMainWindow):
         any_unsaved = bool(unsaved)
         for root in getattr(self, "_root_items", []):
             root.setIcon(0, self._dot_icon if any_unsaved else self._blank_icon)
-        self.setWindowTitle("FF9 Map Kit — Workspace" + ("  •" if any_unsaved else ""))
+        self.setWindowTitle("Dream World IX — Workspace" + ("  •" if any_unsaved else ""))
         self._refresh_save_button()
 
     def _load_objects(self, member_item):

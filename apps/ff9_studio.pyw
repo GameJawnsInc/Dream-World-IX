@@ -1,5 +1,5 @@
 #!/usr/bin/env pythonw
-"""FF9 Map Kit -- the front door. Opens the **Workspace**: ONE window for every tool.
+"""Dream World IX -- the front door. Opens the **Workspace**: ONE window for every tool.
 
 Double-click this (windowless via pythonw) to launch the modern PySide6 Workspace -- a single dockable
 window whose left rail is the journey > campaign > field > object hierarchy, with the field Editor, the
@@ -7,7 +7,7 @@ campaign Map, the Story State + Item & Equip save editors, Build & Deploy, and I
 Ctrl-K command palette and a bottom Output/Problems console.
 
 The legacy single-purpose tkinter windows (Logic Editor, Dialogue, Info Hub, Build, Import, Story State,
-Item & Equip, Campaign Editor) were retired here in Phase 6 of the GUI makeover -- everything they did now
+Item & Equip, Campaign Editor) were retired here -- everything they did now
 lives inside this one Workspace, over the same tk-free backends. The Workspace needs PySide6
 (`py -m pip install PySide6`, or `pip install ff9mapkit[gui]`).
 """
@@ -30,7 +30,7 @@ def main():
         root = tk.Tk()
         root.withdraw()
         messagebox.showerror(
-            "FF9 Map Kit — Workspace",
+            "Dream World IX — Workspace",
             "The Workspace needs PySide6, which isn't installed.\n\n"
             "Install it with:\n    py -m pip install PySide6\n\n"
             f"(import detail: {e})")

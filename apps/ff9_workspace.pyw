@@ -1,5 +1,5 @@
 #!/usr/bin/env pythonw
-"""Double-click launcher for the FF9 Map Kit **Workspace** -- the modern PySide6 shell (Phase 3).
+"""Double-click launcher for the Dream World IX **Workspace** -- the modern PySide6 shell.
 
 A single dockable window whose left rail is the journey > campaign > field > object hierarchy, with a
 clickable breadcrumb, a central document area, a right inspector, and a bottom Output/Problems dock. It

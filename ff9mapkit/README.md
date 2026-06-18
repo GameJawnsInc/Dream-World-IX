@@ -4,6 +4,9 @@ Author **novel custom field maps** for *Final Fantasy IX* (Steam, via the
 [Memoria engine](https://github.com/Albeoris/Memoria)) from a single declarative
 `field.toml`, compiled into a drop-in Memoria mod.
 
+> Part of the **[Dream World IX](../README.md)** project — `ff9mapkit` is the toolkit/package name
+> (unchanged), `pip install`ed and imported as `ff9mapkit`.
+
 > **Feature-complete and in-game-verified.** The productized form of a proven
 > pipeline for minting brand-new playable FF9 fields, end to end. A **novel** field runs on a
 > **stock, unmodified Memoria install**; a **forked** field needs the small bundled engine patch

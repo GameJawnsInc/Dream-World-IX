@@ -44,7 +44,7 @@ The install must run **from the package directory** (`ff9mapkit/`, where `pyproj
 not the repo root:
 
 ```powershell
-cd C:\gd\FFIX\ff9mapkit
+cd ff9mapkit                      # the package dir, from the repo root
 pip install -e .
 # …or with extras:
 pip install -e ".[dev,save,gui]"
