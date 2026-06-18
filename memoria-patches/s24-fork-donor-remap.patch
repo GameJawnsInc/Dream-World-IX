@@ -24,6 +24,45 @@ index cd05721c..9a069722 100644
          {
              if (s1.sid == 4 && s1.ip == 223)
              {
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
+index 271137b2..a9b494bf 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
+@@ -14,27 +14,30 @@ public partial class EventEngine
+         VoicePlayer.scriptRequestedButtonPress = false;
+         if (FF9StateSystem.Settings.IsNoEncounter)
+         {
++            // s24/s28 (fork-donor): resolve the donor id so a forked Ice Cavern (custom id) still gets the
++            // No-Encounter Wyerd-battle suppression that's hardcoded to the real field ids 301-304.
++            Int32 efldMapNo = Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo);
+             // Prevent Wyerd battles
+-            if (FF9StateSystem.Common.FF9.fldMapNo == 303 || FF9StateSystem.Common.FF9.fldMapNo == 304)
++            if (efldMapNo == 303 || efldMapNo == 304)
+             {
+                 // Ice Cavern/Icicle Field or Ice Cavern/Ice Path
+                 PersistenSingleton<EventEngine>.Instance.eBin.setVarManually(0xCFC5, 0); // VAR_GlobBool_207
+                 PersistenSingleton<EventEngine>.Instance.eBin.setVarManually(0xCEC5, 0); // VAR_GlobBool_206
+                 PersistenSingleton<EventEngine>.Instance.eBin.setVarManually(0xCDC5, 0); // VAR_GlobBool_205
+             }
+-            else if (FF9StateSystem.Common.FF9.fldMapNo == 301)
++            else if (efldMapNo == 301)
+             {
+                 // Ice Cavern/Ice Path
+                 PersistenSingleton<EventEngine>.Instance.eBin.setVarManually(0xEFC5, 0); // VAR_GlobBool_239
+                 PersistenSingleton<EventEngine>.Instance.eBin.setVarManually(0xEEC5, 0); // VAR_GlobBool_238
+             }
+-            else if (FF9StateSystem.Common.FF9.fldMapNo == 302)
++            else if (efldMapNo == 302)
+             {
+                 // Ice Cavern/Ice Path
+                 PersistenSingleton<EventEngine>.Instance.eBin.setVarManually(0xCFC5, 0); // VAR_GlobBool_207
+                 PersistenSingleton<EventEngine>.Instance.eBin.setVarManually(0xCEC5, 0); // VAR_GlobBool_206
+             }
+-            else if (FF9StateSystem.Common.FF9.fldMapNo == 2921)
++            else if (efldMapNo == 2921)
+             {
+                 // Memoria/To the Origin
+                 PersistenSingleton<EventEngine>.Instance.eBin.setVarManually(0x28DD, 10); // VAR_GlobUInt16_40
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 index 7f498a9a..0d84d587 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
