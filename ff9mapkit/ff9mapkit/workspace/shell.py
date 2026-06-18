@@ -4742,10 +4742,10 @@ def _smoke(win):
                                                              "scroll_out/revert_journey_links.py")), rj
     bd._info = lambda *a: None                                   # don't pop a modal box in headless
     bd.on_revert()                                              # journey revert branch: no-op or captured argv, no crash
-    # NEW GAME ENTRY (hub-less): point New Game straight at a deployed field id (retarget_newgame_warp.py)
+    # NEW GAME ENTRY (hub-less): CREATE the field-70 override from stock (works on a clean install / fresh fork)
     bd.newgame_id.setText("4100")
     bd.on_set_newgame()
-    assert any("retarget_newgame_warp.py" in a for a in launched[-1]) and "4100" in launched[-1], launched[-1]
+    assert any("wire_newgame_from_stock.py" in a for a in launched[-1]) and "4100" in launched[-1], launched[-1]
     bd.newgame_id.setText("not-a-number")                        # a bad id is refused (warn, no launch)
     _before = list(launched[-1])
     bd._warn = lambda *a: None
@@ -4775,6 +4775,26 @@ def _smoke(win):
     assert "--verbatim" not in icap[-1] and "--editable" in icap[-1] and "--carry-text" in icap[-1], icap[-1]
     imp.mode_verbatim.setChecked(True)                           # back to verbatim: re-hide + re-pin Native
     assert imp.art_box.isHidden() and imp.art_native.isChecked(), "verbatim re-pins Native"
+    # FORK A REGION (import-chain, the disc-1 workflow)
+    assert imp.dryrun_btn in imp._buttons and imp.fork_region_btn in imp._buttons   # _busy disables them
+    imp.seeds.setText("")                                        # empty-seeds GUARD: no job may start
+    _rw, _warned = imp._warn, []
+    imp._warn = lambda *a: _warned.append(a)
+    _n = len(icap)
+    imp.on_region_dryrun()
+    assert _warned and len(icap) == _n, "blank seeds must not launch a job"
+    imp._warn = _rw
+    imp.seeds.setText("300")                                     # dry-run (no --out)
+    imp.on_region_dryrun()
+    assert icap[-1][3] == "import-chain" and icap[-1][4] == "300", icap[-1]
+    assert "--out" not in icap[-1] and "--whole-zone" in icap[-1] and "--verbatim" in icap[-1], icap[-1]
+    imp.rg_out.setText(str(d / "rg_out"))                        # fork (with --out + explicit id-base/prefix)
+    imp.rg_idbase.setText("6500")
+    imp.rg_prefix.setText("RG")
+    imp.on_fork_region()
+    assert "--out" in icap[-1] and "--fresh-ids" not in icap[-1], icap[-1]
+    assert icap[-1][icap[-1].index("--name-prefix") + 1] == "RG", icap[-1]
+    assert icap[-1][icap[-1].index("--id-base") + 1] == "6500", icap[-1]
     imp.on_find()
     assert "list-fields" in icap[-1], icap[-1]
 
@@ -5208,7 +5228,7 @@ def _smoke(win):
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
           f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
-          f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable, argv-built) + Info Hub "
+          f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "

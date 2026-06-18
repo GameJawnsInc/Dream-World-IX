@@ -32,22 +32,25 @@ class ImportDoc(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(10)
-        intro = QLabel("Bring content in from your real FF9 install (needs UnityPy). Fork a real field, "
-                       "preview how faithfully it will fork, or read its dialogue / inspect a save.")
+        intro = QLabel("Bring content in from your real FF9 install (needs UnityPy). Fork a single real field, "
+                       "fork a whole connected REGION as one campaign, preview how faithfully it forks, or read "
+                       "its dialogue / inspect a save.")
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color:{pal['muted']};")
         root.addWidget(intro)
         root.addWidget(self._fork_box())
+        root.addWidget(self._region_box())
         root.addWidget(self._read_box())
         root.addStretch(1)
-        self._buttons = [self.find_btn, self.preview_btn, self.import_btn, self.dlg_btn, self.save_btn,
-                         self.list_btn, self.tpl_btn]
+        self._buttons = [self.find_btn, self.preview_btn, self.import_btn, self.dryrun_btn,
+                         self.fork_region_btn, self.dlg_btn, self.save_btn, self.list_btn, self.tpl_btn]
 
     # ------------------------------------------------------------------ fork-a-field
     def _fork_box(self):
         box = QGroupBox("Fork a real field")
         v = QVBoxLayout(box)
-        lbl = QLabel("Real field — an id, or an FBG-name substring (e.g. 100, grgr, alxt_map016). "
+        lbl = QLabel("ONE screen — an id, or an FBG-name substring (e.g. 100, grgr, alxt_map016). For a whole "
+                     "connected AREA (many screens wired together), use Fork a region below. "
                      "Find… looks up exact names/ids; Preview shows what a fork will/won't reproduce.")
         lbl.setWordWrap(True)
         lbl.setStyleSheet(f"color:{self.pal['muted']};")
@@ -147,6 +150,89 @@ class ImportDoc(QWidget):
         if verbatim:
             self.art_native.setChecked(True)
 
+    # ------------------------------------------------------------------ fork-a-region (import-chain)
+    def _region_box(self):
+        muted = f"color:{self.pal['muted']};"
+        box = QGroupBox("Fork a region  (a connected multi-field chain → one campaign)")
+        v = QVBoxLayout(box)
+        lbl = QLabel("Fork a whole connected AREA at once — the workflow behind the disc-1 opening. Enter one "
+                     "or more seed fields; the chain forks everything they reach into a single campaign, with "
+                     "every door rewired in-fork. Dry-run first to see the blast radius.")
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(muted)
+        v.addWidget(lbl)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Seeds:"))
+        self.seeds = QLineEdit()
+        self.seeds.setPlaceholderText("field ids/names, comma-separated — e.g. 300  or  50,100,64")
+        row.addWidget(self.seeds, 1)
+        v.addLayout(row)
+        self.rg_whole = QCheckBox("Whole zone — fork every field in each seed's zone, not just door-reachable "
+                                  "(catches cutscene-only screens; more fields/ids — Dry-run to preview)")
+        self.rg_verbatim = QCheckBox("Verbatim — each member ships its real script + dialogue, runs the real "
+                                     "logic (recommended; uncheck to fork re-authorable members you rebuild yourself)")
+        self.rg_whole.setChecked(True)
+        self.rg_verbatim.setChecked(True)
+        v.addWidget(self.rg_whole)
+        v.addWidget(self.rg_verbatim)
+        out = QHBoxLayout()
+        out.addWidget(QLabel("Write campaign to:"))
+        self.rg_out = QLineEdit(str(self.kit.parent / "campaign"))
+        rbrowse = QPushButton("Browse…")
+        rbrowse.clicked.connect(self.browse_region_out)
+        out.addWidget(self.rg_out, 1)
+        out.addWidget(rbrowse)
+        v.addLayout(out)
+        ids = QHBoxLayout()
+        ids.addWidget(QLabel("id base:"))
+        self.rg_idbase = QLineEdit()
+        self.rg_idbase.setFixedWidth(70)
+        self.rg_idbase.setPlaceholderText("6000")     # blank -> the CLI/.ff9deploy.toml default applies
+        ids.addWidget(self.rg_idbase)
+        ids.addWidget(QLabel("Name prefix:"))
+        self.rg_prefix = QLineEdit()
+        self.rg_prefix.setFixedWidth(110)
+        self.rg_prefix.setPlaceholderText("e.g. dali_  (stacking)")
+        ids.addWidget(self.rg_prefix)
+        self.rg_fresh = QCheckBox("Re-allocate ids (--fresh-ids)")
+        ids.addWidget(self.rg_fresh)
+        ids.addStretch(1)
+        v.addLayout(ids)
+        collide_hint = QLabel("Field ids are GLOBAL across every stacked mod folder — to keep TWO regions side by "
+                              "side, give each a DISTINCT id base AND a unique Name prefix, or the second black-"
+                              "screens. The shipped disc-1 opening occupies ~6000–6371.")
+        collide_hint.setWordWrap(True)
+        collide_hint.setStyleSheet(muted)
+        v.addWidget(collide_hint)
+        fresh_hint = QLabel("Re-forking into the SAME folder reuses the prior fork's ids by default, so in-fork "
+                            "saves survive. Tick --fresh-ids only to re-number from scratch.")
+        fresh_hint.setWordWrap(True)
+        fresh_hint.setStyleSheet(muted)
+        v.addWidget(fresh_hint)
+        btns = QHBoxLayout()
+        self.dryrun_btn = QPushButton("Dry-run (preview blast radius)")
+        self.dryrun_btn.clicked.connect(self.on_region_dryrun)
+        self.fork_region_btn = QPushButton("Fork region")
+        self.fork_region_btn.setObjectName("accent")
+        self.fork_region_btn.clicked.connect(self.on_fork_region)
+        btns.addWidget(self.dryrun_btn)
+        btns.addStretch(1)
+        btns.addWidget(self.fork_region_btn)
+        v.addLayout(btns)
+        hint = QLabel("→ then open the campaign on the Build & Deploy tab to compile + deploy the whole chain.")
+        hint.setStyleSheet(muted)
+        v.addWidget(hint)
+        return box
+
+    def _region_args(self, *, out):
+        from ..editor import jobs
+        idb = self.rg_idbase.text().strip()
+        return jobs.import_chain_args(
+            self.seeds.text().strip(), out=out,
+            whole_zone=self.rg_whole.isChecked(), verbatim=self.rg_verbatim.isChecked(),
+            id_base=int(idb) if idb.isdigit() else None,
+            name_prefix=self.rg_prefix.text().strip() or None, fresh_ids=self.rg_fresh.isChecked())
+
     # ------------------------------------------------------------------ read & inspect
     def _read_box(self):
         box = QGroupBox("Read & inspect  (read-only / maintenance)")
@@ -230,6 +316,33 @@ class ImportDoc(QWidget):
         f, _ = QFileDialog.getOpenFileName(self, "A save file (SavedData_ww.dat / extra-save / JSON)")
         if f:
             self.save_path.setText(f)
+
+    def browse_region_out(self):
+        d = QFileDialog.getExistingDirectory(self, "Folder to write the campaign into")
+        if d:
+            self.rg_out.setText(d)
+
+    def on_region_dryrun(self):
+        if not self.seeds.text().strip():
+            return self._warn("No seeds", "Enter one or more seed field ids/names to preview the region fork.")
+        self._kit(self._region_args(out=None), subject="Region dry-run",
+                  ok_next="Review the BLAST RADIUS + any under-forked zones, then Fork region.")
+
+    def on_fork_region(self):
+        seeds = self.seeds.text().strip()
+        if not seeds:
+            return self._warn("No seeds", "Enter one or more seed field ids/names (an id, or an FBG substring).")
+        out = self.rg_out.text().strip()
+        if not out:
+            return self._warn("No output folder", "Pick a folder to write the campaign into.")
+        idb = self.rg_idbase.text().strip()
+        if idb and not idb.isdigit():
+            return self._warn("Bad id base", "id base must be a number (e.g. 6000) — or blank for the default.")
+        Path(out).mkdir(parents=True, exist_ok=True)
+        self._kit(self._region_args(out=str(Path(out).resolve())), subject=f"Fork region {seeds}",
+                  ok_next=f"Forked the chain to {out}. Open its campaign.toml on Build & Deploy → Deploy; then to "
+                          f"make New Game start here, use Build & Deploy → New Game entry (point it at the entry "
+                          f"id) and relaunch.")
 
     def on_find(self):
         flt = self.field.text().strip()

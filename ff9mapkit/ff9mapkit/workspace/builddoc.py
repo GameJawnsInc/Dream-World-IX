@@ -176,8 +176,10 @@ class BuildDoc(QWidget):
         row.addWidget(self.rev_ng)
         row.addStretch(1)
         gv.addLayout(row)
-        hint = QLabel("Single-owner: replaces the current New-Game landing (and skips any World Hub). The field "
-                      "must already be DEPLOYED/registered. Relaunch the game to test.")
+        hint = QLabel("Single-owner: CREATES the field-70 override from stock (opening FMV preserved) and "
+                      "replaces the current New-Game landing (skips any World Hub) — works even on a clean "
+                      "install or a fresh region fork. The field must already be DEPLOYED/registered. Relaunch "
+                      "to test.")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{self.pal['muted']};")
         gv.addWidget(hint)
@@ -509,17 +511,18 @@ class BuildDoc(QWidget):
             return self._warn("Bad field id", "Enter the numeric field id New Game should land on "
                                               "(e.g. a deployed slice's entry, 4100).")
         if self._confirm("Point New Game here",
-                         f"Point New Game straight at field {fid}?\n\nThis REPLACES the current New-Game landing "
-                         "(single-owner) and skips any World Hub. The field must already be deployed/registered; "
-                         "relaunch the game to test."):
-            self._stream(jobs.newgame_retarget_argv(self.repo, fid), cwd=self.repo, subject="Set New Game entry",
+                         f"Point New Game straight at field {fid}?\n\nThis CREATES the field-70 override from "
+                         "stock (the opening FMV is preserved) and REPLACES the current New-Game landing "
+                         "(single-owner), skipping any World Hub. Works even on a clean install / a fresh fork. "
+                         "The field must already be deployed/registered; relaunch the game to test."):
+            self._stream(jobs.newgame_from_stock_argv(self.repo, fid), cwd=self.repo, subject="Set New Game entry",
                          ok_headline=f"New Game now lands on field {fid}",
                          ok_next="Relaunch the game, then New Game. Undo with 'Revert New Game'.")
 
     def on_revert_newgame(self):
-        argv = jobs.revert_newgame_argv(self.repo)
-        if not Path(argv[-1]).exists():
-            return self._info("Nothing to revert", "No New-Game retarget to undo yet.")
+        argv = jobs.revert_newgame_argv(self.repo)            # most-recent New-Game revert (from-stock OR retarget)
+        if argv is None or not Path(argv[-1]).exists():
+            return self._info("Nothing to revert", "No New-Game change to undo yet.")
         if self._confirm("Revert New Game", "Restore the previous New-Game landing?"):
             self._stream(argv, cwd=self.repo, subject="Revert New Game",
                          ok_headline="Reverted the New-Game retarget",

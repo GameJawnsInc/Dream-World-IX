@@ -53,6 +53,48 @@ def test_import_args_verbatim_native_default_combo():
     assert a == ["import", "100", "--out", "/o", "--id", "4003", "--verbatim"]
 
 
+# --------------------------------------------------------------------------- import-chain (region fork) argv
+def test_import_chain_args_dryrun_default_whole_zone_verbatim():
+    # no out -> the DRY-RUN (blast-radius preview); whole-zone + verbatim are the GUI defaults
+    a = jobs.import_chain_args("300")
+    assert a == ["import-chain", "300", "--whole-zone", "--verbatim"]
+    assert "--out" not in a                                            # dry-run touches nothing
+
+
+def test_import_chain_args_fork_with_options():
+    a = jobs.import_chain_args("50,100,64", out="/c", id_base=6000, name_prefix="OPEN")
+    assert a[:3] == ["import-chain", "50,100,64", "--whole-zone"]
+    assert a[a.index("--out") + 1] == "/c"
+    assert a[a.index("--id-base") + 1] == "6000" and a[a.index("--name-prefix") + 1] == "OPEN"
+    assert "--fresh-ids" not in a                                      # stable ids are the default (saves survive)
+
+
+def test_import_chain_args_fresh_ids_and_no_flags_off():
+    # --fresh-ids only when ticked; whole_zone/verbatim togglable off
+    a = jobs.import_chain_args("300", out="/c", whole_zone=False, verbatim=False, fresh_ids=True)
+    assert a == ["import-chain", "300", "--out", "/c", "--fresh-ids"]
+
+
+def test_import_chain_args_idbase_blank_vs_zero():
+    # blank id_base (the GUI sends None) OMITS --id-base so the CLI/.ff9deploy.toml default applies;
+    # id_base=0 is still emitted (the guard is `is not None`, not truthiness)
+    assert "--id-base" not in jobs.import_chain_args("300", out="/c", id_base=None)
+    z = jobs.import_chain_args("300", out="/c", id_base=0)
+    assert z[z.index("--id-base") + 1] == "0"
+
+
+def test_import_chain_args_single_toggles_and_optional_kwargs():
+    # each flag is independently controlled
+    assert jobs.import_chain_args("300", out="/c", whole_zone=True, verbatim=False) == \
+        ["import-chain", "300", "--whole-zone", "--out", "/c"]
+    assert jobs.import_chain_args("300", out="/c", whole_zone=False, verbatim=True) == \
+        ["import-chain", "300", "--verbatim", "--out", "/c"]
+    # the optional pass-throughs (GUI-unused today, but the contract is pinned)
+    a = jobs.import_chain_args("300", out="/c", flags_per_field=16, max_fields=40, campaign_name="OPEN")
+    assert a[a.index("--flags-per-field") + 1] == "16" and a[a.index("--max-fields") + 1] == "40"
+    assert a[a.index("--campaign-name") + 1] == "OPEN"
+
+
 # --------------------------------------------------------------------------- deploy / revert argv
 def test_build_argv_single_field():
     a = jobs.build_argv("X.field.toml", "/out")
@@ -137,10 +179,30 @@ def test_fork_command_argv(tmp_path):
 
 
 def test_newgame_argv(tmp_path):
-    a = jobs.newgame_retarget_argv(tmp_path, 4100)
-    assert a[1].replace("\\", "/").endswith("tools/retarget_newgame_warp.py") and a[-1] == "4100"
-    r = jobs.revert_newgame_argv(tmp_path)
-    assert r[1].replace("\\", "/").endswith("scroll_out/revert_newgame_retarget.py")
+    # the robust path the GUI uses: CREATE the field-70 override from stock (works on a clean install)
+    a = jobs.newgame_from_stock_argv(tmp_path, 6000)
+    assert a[1].replace("\\", "/").endswith("tools/wire_newgame_from_stock.py") and a[-1] == "6000"
+    # the patch-only twin still available
+    b = jobs.newgame_retarget_argv(tmp_path, 4100)
+    assert b[1].replace("\\", "/").endswith("tools/retarget_newgame_warp.py") and b[-1] == "4100"
+
+
+def test_revert_newgame_picks_most_recent(tmp_path):
+    # New-Game revert must undo the LAST wiring action: from-stock writes revert_newgame_from_stock.py, the
+    # patch writes revert_newgame_retarget.py -- pick whichever is newer (mtime), or None if neither exists.
+    import os
+    scroll = tmp_path / "tools" / "scroll_out"
+    scroll.mkdir(parents=True)
+    assert jobs.revert_newgame_argv(tmp_path) is None and jobs.latest_newgame_revert(tmp_path) is None
+    stock = scroll / "revert_newgame_from_stock.py"
+    retarget = scroll / "revert_newgame_retarget.py"
+    stock.write_text("# stock\n", encoding="utf-8")
+    retarget.write_text("# retarget\n", encoding="utf-8")
+    os.utime(stock, (1000, 1000))                                  # retarget written LAST -> it wins
+    os.utime(retarget, (2000, 2000))
+    assert jobs.revert_newgame_argv(tmp_path)[-1].endswith("revert_newgame_retarget.py")
+    os.utime(stock, (3000, 3000))                                  # now from-stock is newest
+    assert jobs.revert_newgame_argv(tmp_path)[-1].endswith("revert_newgame_from_stock.py")
 
 
 def test_revert_journey_argv_picks_most_recent(tmp_path):

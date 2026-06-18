@@ -149,6 +149,40 @@ def import_args(field, *, out, field_id, name=None, art="native", carry_npcs=Tru
     return args
 
 
+def import_chain_args(seeds, *, out=None, whole_zone=True, verbatim=True, id_base=None,
+                      name_prefix=None, fresh_ids=False, flags_per_field=None, max_fields=None,
+                      campaign_name=None):
+    """The ``ff9mapkit import-chain ...`` argv for forking a CONNECTED REGION (a multi-field chain) into ONE
+    campaign -- the workflow behind the disc-1 opening, now a GUI action.
+
+    ``seeds`` is the raw seed string ('300', '50,100,64', or an FBG substring). With no ``out`` it's the
+    DRY-RUN (prints the blast radius + coverage, touches nothing) -- the region analogue of fork-report.
+    ``whole_zone`` seeds every field in each seed's zone (catches cutscene-only screens the door-walk misses;
+    it also auto-raises the walk's --max-fields to fit). ``verbatim`` ships each member's real .eb + .mes so
+    the chain runs the real logic. STABLE IDS are the kit DEFAULT (re-forking into an existing ``out`` reuses
+    its donor->id+name map so in-fork saves survive) -- ``fresh_ids`` opts out (re-number from scratch)."""
+    args = ["import-chain", str(seeds)]
+    if whole_zone:
+        args.append("--whole-zone")
+    if verbatim:
+        args.append("--verbatim")
+    if out:
+        args += ["--out", str(out)]
+    if id_base is not None:
+        args += ["--id-base", str(id_base)]
+    if name_prefix:
+        args += ["--name-prefix", str(name_prefix)]
+    if flags_per_field is not None:
+        args += ["--flags-per-field", str(flags_per_field)]
+    if max_fields is not None:
+        args += ["--max-fields", str(max_fields)]
+    if campaign_name:
+        args += ["--campaign-name", str(campaign_name)]
+    if fresh_ids:
+        args.append("--fresh-ids")
+    return args
+
+
 # --------------------------------------------------------------------------- deploy / revert argv
 # Each returns a FULL argv whose [0] is the interpreter, so a QProcess can split it into
 # program=argv[0], arguments=argv[1:], and a subprocess can run it as-is.
@@ -237,16 +271,37 @@ def revert_journey_argv(repo_root):
     return [sys.executable, str(s)] if s else None
 
 
+def newgame_from_stock_argv(repo_root, field_id):
+    """Point New Game at a deployed field id by CREATING the field-70 override from STOCK
+    (``tools/wire_newgame_from_stock.py``) -- the robust path: it extracts stock field 70, repoints its
+    terminal ``Field(50)``->``Field(<id>)`` (all 7 langs, the opening FMV+fade preserved), and works even when
+    NO override exists yet (a clean install, or after a fresh wholesale campaign deploy wiped it). This is the
+    disc-1-proven New-Game wiring; the patch-only :func:`newgame_retarget_argv` no-ops when there's nothing to
+    patch. Reversible (writes ``revert_newgame_from_stock.py``)."""
+    return [sys.executable, _tool(repo_root, "wire_newgame_from_stock.py"), str(field_id)]
+
+
 def newgame_retarget_argv(repo_root, field_id):
-    """Point New Game straight at a deployed field id (``tools/retarget_newgame_warp.py``) -- the hub-less
-    single-destination entry. SINGLE-OWNER: it replaces the current New-Game landing; the field must already
-    be registered (deployed), and the game must relaunch to pick it up. Reversible (writes a revert script)."""
+    """Point New Game straight at a deployed field id by PATCHING an existing field-70 override
+    (``tools/retarget_newgame_warp.py``). NO-OPS when no override exists -- prefer
+    :func:`newgame_from_stock_argv` (create-from-stock) for a fresh fork. Reversible."""
     return [sys.executable, _tool(repo_root, "retarget_newgame_warp.py"), str(field_id)]
 
 
+def latest_newgame_revert(repo_root):
+    """The most-recent New-Game revert script -- the create-from-stock ``revert_newgame_from_stock.py`` OR the
+    patch ``revert_newgame_retarget.py`` -- by mtime (like :func:`latest_journey_revert`), or ``None``. So the
+    GUI Revert undoes whichever New-Game action ran LAST, regardless of which wiring tool wrote it."""
+    scroll = Path(repo_root) / "tools" / "scroll_out"
+    cands = [p for p in (scroll / "revert_newgame_from_stock.py", scroll / "revert_newgame_retarget.py")
+             if p.is_file()]
+    return max(cands, key=lambda p: p.stat().st_mtime) if cands else None
+
+
 def revert_newgame_argv(repo_root):
-    """The interpreter + ``tools/scroll_out/revert_newgame_retarget.py`` (written by the New-Game retarget)."""
-    return [sys.executable, _tool(repo_root, "scroll_out", "revert_newgame_retarget.py")]
+    """The interpreter + the most-recent New-Game revert script (from-stock or retarget), or ``None``."""
+    s = latest_newgame_revert(repo_root)
+    return [sys.executable, str(s)] if s else None
 
 
 def revert_battle_argv(repo_root):
