@@ -264,3 +264,22 @@ def test_import_chain_swap_player_swaps_every_member(tmp_path):
     es = EbScript.from_bytes(_vb.verbatim_eb(proj))
     models = [eventscan._player_model(es, p) for p in eventscan.resolve_player_entries(es)]
     assert 5489 in models                                      # Steiner (model 5489) now among the player entries
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_native_fork_carries_donor_sps_assets(tmp_path):
+    # A field's SPS effect bins (.sps) + texture (spt.tcb) load by the RUNNING scene name, so a fork (custom
+    # scene name) must ship the donor's under its OWN FBG folder -- else RunSPSCode finds no bin and the effect
+    # (fire/smoke/magic) never draws (the forked Ice Cavern lost Vivi's melt-fire until we carried these).
+    from ff9mapkit import build, extract
+    # Ice Cavern "ic_jmp" (field 303): its melt cutscene loads the fire SPS 2266-2269.
+    meta, toml = extract.write_native_project("fbg_n05_iccv_map088_ic_jmp_0", tmp_path / "m", name="ICJ", verbatim=True)
+    fire = {"2266.sps.bytes", "2267.sps.bytes", "2268.sps.bytes", "2269.sps.bytes"}
+    assert meta["sps"] > 0
+    staged = {p.name for p in (tmp_path / "m" / "sps").iterdir()}
+    assert "spt.tcb.bytes" in staged and fire <= staged        # the importer stages the donor's SPS sidecar
+    out = tmp_path / "mod"
+    build.build_mod([build.FieldProject.load(toml)], out)       # ...and the build copies it into the FBG folder
+    fbg = next(p for p in out.rglob("FieldMaps/*") if p.is_dir() and "ICJ" in p.name)
+    shipped = {p.name for p in fbg.iterdir()}
+    assert "spt.tcb.bytes" in shipped and fire <= shipped

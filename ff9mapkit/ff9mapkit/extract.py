@@ -1790,8 +1790,21 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
                   f"# NOTE: source area {meta['area']} < 10 black-screens via the engine's FBG_N<area> "
                   f"lookup, so this\n# native scene uses area {safe_area} (it ships its own art).\n")
     # ship the field's NATIVE .bgs VERBATIM -- it carries the per-tile depth the engine renders seamlessly
-    _, _, roles, env = find_field(field, game=game, bundle=bundle)
+    _, folder, roles, env = find_field(field, game=game, bundle=bundle)
     (out / "scene.bgs.bytes").write_bytes(_raw_bytes(env.container[roles["bgs"]].read()))
+    # ship the field's SPS effect bins + texture (spt.tcb) VERBATIM. The engine loads field SPS from
+    # FieldMaps/<SceneName>/<id>.sps by the RUNNING scene name; a fork's scene name is custom, so without
+    # these its RunSPSCode triggers find no bin (spsBin == null) and the effect (fire / smoke / magic) never
+    # draws -- the actor anim still plays (the symptom: forked Ice Cavern lost Vivi's melt-fire). Carry them
+    # into a sps/ sidecar; build.py copies them under the fork's FBG folder. -> project-ff9-sps-fork.
+    sps_pref = f"assets/resources/fieldmaps/{folder}/"
+    sps_assets = {k.rsplit("/", 1)[-1]: v for k, v in env.container.items()
+                  if k.startswith(sps_pref) and (k.endswith(".sps.bytes") or k.endswith("spt.tcb.bytes"))}
+    if sps_assets:
+        (out / "sps").mkdir(exist_ok=True)
+        for base, obj in sps_assets.items():
+            (out / "sps" / base).write_bytes(_raw_bytes(obj.read()))
+    meta["sps"] = len(sps_assets)
     meta["editable_name"] = name
     # ship the field's MapConfigData VERBATIM -- the 3D-model LIGHTING (per-floor lights + shadows + per-
     # object colors) the engine applies at load. Without it a native fork's models render bright/untinted.

@@ -3588,6 +3588,14 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if project.field.get("atlas"):
             shutil.copyfile(project.path(project.field["atlas"]), fm / "atlas.png")
         (fm / f"{fbg}.bgi.bytes").write_bytes(bgi_bytes)
+        # carry the field's SPS effect bins + spt.tcb (per-scene fire / smoke / magic; they load by the
+        # RUNNING scene name, so a fork must ship them under its OWN FBG folder -- else RunSPSCode finds no
+        # bin and the effect never draws). The importer staged them in <member>/sps/. -> project-ff9-sps-fork.
+        sps_src = project.path("sps")
+        if sps_src.is_dir():
+            for sf in sorted(sps_src.iterdir()):
+                if sf.is_file():
+                    shutil.copyfile(sf, fm / sf.name)
         # the field's 3D-model LIGHTING (MapConfigData: per-floor lights + shadows + per-object colors),
         # shipped under the fork's event name so the engine lights the models like the real field. Loaded
         # by the SAME event name as the .eb (MapConfiguration.LoadMapConfigData) -> EVT_<name>.bytes.
