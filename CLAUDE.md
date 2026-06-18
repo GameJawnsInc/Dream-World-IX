@@ -16,9 +16,10 @@ into a complete drop-in Memoria mod — a brand-new FF9 field (camera, walkmesh,
 gateways, encounters, events, story branching, cutscenes, ladders, jumps, props, save points) — and can
 **import/fork any of FF9's ~674 real fields**, carrying their NPCs/props/lighting/dialogue faithfully.
 Further pillars: **custom 3D battle backgrounds**, **multi-field campaigns** (Campaign-Editor IDE),
-**story-flag tooling**, **items/equipment/shops**. It runs on **stock Memoria** (the shipped mod is
-engine-independent; the local *dev* engine adds only an F6 debug menu). Likely the first practical reference
-for FF9 custom-field authoring.
+**story-flag tooling**, **items/equipment/shops**. **Engine split (§5):** a *novel* field runs on **stock
+Memoria**; a *forked* field needs our **custom Memoria** (the s24–s27 fork-donor remap suite) for the
+fork→donor logic redirects — so the shipped faithful-opening ships with custom Memoria, not stock. Likely the
+first practical reference for FF9 custom-field authoring.
 
 **North star — fork FIDELITY, not a release:** keep refining forked fields until the kit can recreate the
 *functioning game itself* from them. The measure: "fork a real field → does it play identically?" Do **not**
@@ -113,10 +114,18 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
 
 ## 5. Current state (keep this updated)
 
-- **Dev engine** = stock Memoria `6b8bb2d5` + the **F6 debug menu only** (`UIKeyTrigger.cs` +
-  `Ff9mkDebugMenu.cs`; patch `memoria-patches/s22-debug-menu-f6.patch`). Boosters are manual
-  (ini cheats + F1–F4). The *shipped* mod needs none of this — it's engine-independent.
-  Revert engine → no-edits rebuild: `tools/restore_memoria_dll.py baseline`; true stock = re-run the patcher.
+- **Dev engine** = stock Memoria `6b8bb2d5` + the **F6 debug menu** (`UIKeyTrigger.cs` +
+  `Ff9mkDebugMenu.cs`; patch `memoria-patches/s22-debug-menu-f6.patch`) **+ the s24–s27 FORK-DONOR REMAP
+  suite** (`memoria-patches/s24-fork-donor-remap.patch`: `ForkDonorPatch.txt` → `EffectiveFieldId`/
+  `ForkSiblingField`/`IsForkField` wrapping the hardcoded `fldMapNo == N` engine gates so they fire for a
+  custom FORK id). Boosters are manual (ini cheats + F1–F4). **⚠ ENGINE-INDEPENDENCE IS SPLIT:** a *novel*
+  field (BG-borrow / from-scratch, not impersonating a real id) runs on **stock** Memoria — but **a FORKED
+  field REQUIRES the s24–s27 patches** (without them a custom-id fork loses Dante's off-mesh exemption, the
+  fake-battle return field, the Steiner push, narrow-map letterbox, the How-to-Play return, etc. — the
+  "forked field custom-logic redirects"). So **the shipped faithful-opening campaign ships with our CUSTOM
+  Memoria** (stock + s24–s27; the F6 menu is the only *dev-only* piece). This is why we're shipping our own
+  engine + holding the PRs until public release. Revert engine → no-edits rebuild:
+  `tools/restore_memoria_dll.py baseline`; true stock = re-run the patcher.
 - **F6 debug menu** (dev build, in **FIELD and BATTLE** — in-game proven 2026-06-09): a draggable tabbed
   IMGUI popup —
   **Warp** (reload field · warp to any registered custom id ≥4000) ·
@@ -137,11 +146,14 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   in-game showcase is the World Hub + verbatim forks.** (The live dev `FF9CustomMap` is a churned scratchpad:
   test deploys overwrite scene folders, so the hut's `FBG_N11_HUT_*` scenes are usually absent — redeploy
   from `release/` to actually play it.) Registered: 4000 HUT_EXT, 4002 HUT_INT, **4003 = the shared test slot**.
-- **New Game lands via a stock mod field-70 override (`Field(<id>)`), NOT a DLL edit** — the only custom DLL
-  is the F6 menu. Currently retargeted to the **Mognet Central journey hub (4600)** (`tools/retarget_newgame_warp.py`
-  4600, 2026-06-14; was the old World Hub 4500). The field-70 opening's own fade-out is preserved, so New Game
-  fades to black → Field(4600) (seamless, no FMV). The mechanism + seamless-entry lever + starting-state
-  capstone → [[project-ff9-new-game-entry]].
+- **New Game lands via a stock mod field-70 override (`Field(<id>)`), NOT a DLL edit** (the custom DLL is the
+  F6 menu + the s24–s27 fork suite above — but the New-Game *entry* itself is a pure mod override). Currently
+  points at the **forked faithful opening (6000 = Prima Vista)** via the NEW
+  `tools/wire_newgame_from_stock.py 6000` (extracts stock field 70, repoints its `Field(50)`→`Field(6000)`,
+  all 7 langs). Field 70's **opening FMV + fade are PRESERVED** (faithful intro → forked Prima Vista; not the
+  old seamless/no-FMV hub path). ★ The override is WIPED by every `deploy_campaign` wholesale-replace of
+  FF9CustomMap → RE-RUN `wire_newgame_from_stock.py 6000` after each opening re-deploy. Seamless no-FMV
+  variant = `tools/skip_opening_fmv.py`. Mechanism + starting-state capstone → [[project-ff9-new-game-entry]].
 - **Versions:** kit `0.10.0`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
   repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
