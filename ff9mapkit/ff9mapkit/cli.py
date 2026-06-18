@@ -505,6 +505,21 @@ def _cmd_reference_arcs(args: argparse.Namespace) -> int:
         jp.write_text(new_text, encoding="utf-8", newline="\n")
         print(f"wrote {jp}  (entry + links filled from the forked campaigns). Re-lint with `lint-journey`.")
         return 0
+    if args.regen:                                  # REGENERATE the region PICKER's all-zones catalog
+        if args.pattern and not args.out:           # a filtered regen must NOT clobber the shipped full catalog
+            print("--pattern needs --out (a filtered catalog is a subset -- it would overwrite the shipped "
+                  "all-zones catalog). Add --out <path>, or drop --pattern to refresh the full catalog.",
+                  file=sys.stderr)
+            return 2
+        try:
+            p, n = refarc.regenerate_region_catalog(out=args.out, pattern=args.pattern)
+        except refarc.RefArcError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        print(f"wrote {n} regions -> {p}")
+        print("The region picker ('Browse FF9 regions' / 'Add region to arc') now reads this accurate, "
+              "all-zones catalog (each zone -> its real entry seed).")
+        return 0
     try:
         aset = refarc.load_reference_arcs(args.table)
     except (refarc.RefArcError, FileNotFoundError, ValueError) as e:
@@ -2417,6 +2432,12 @@ def build_parser() -> argparse.ArgumentParser:
     ra.add_argument("--reconcile", default=None, metavar="JOURNEYS_TOML",
                     help="STEP 2: fill an emitted journeys.toml's entry/link placeholders from the campaigns "
                          "forked beside it (run after forking; writes in place). Ignores --table.")
+    ra.add_argument("--regen", action="store_true",
+                    help="REGENERATE the region PICKER's catalog (every forkable zone -> its entry seed) from the "
+                         "game's real field->zone data, into the shipped data/region_catalog.toml")
+    ra.add_argument("--out", default=None, help="with --regen: write the catalog here (default: the shipped data file)")
+    ra.add_argument("--pattern", default=None,
+                    help="with --regen: only zones whose token/area matches (e.g. 'dali', 'alex')")
     ra.add_argument("--force", action="store_true", help="with --emit, overwrite an existing journeys.toml")
     ra.add_argument("--hub-name", default="FF9 Disc 1", dest="hub_name", help="hub field display name (--emit)")
     ra.add_argument("--hub-id", type=int, default=4600, dest="hub_id", help="hub field id, >=4000 (--emit)")

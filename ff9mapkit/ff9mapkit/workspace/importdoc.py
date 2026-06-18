@@ -270,7 +270,7 @@ class ImportDoc(QWidget):
         campaign disc-1 journey) with a region-fork scaffold."""
         from .. import refarc as RA
         try:
-            arcset = RA.load_reference_arcs()
+            arcset = RA.load_region_catalog()
         except Exception as e:                          # noqa: BLE001
             return self._warn("Region catalog", f"Couldn't load the FF9 region catalog: {e}")
         dlg = QDialog(self)

@@ -103,6 +103,117 @@ def load_reference_arcs(path=None) -> ReferenceArcSet:
     return ReferenceArcSet(title=str(data.get("title") or "FF9 reference arc"), arcs=arcs)
 
 
+# --------------------------------------------------------------------------- the GENERATED region catalog
+# The hand-curated `data/reference_arcs.toml` above is the disc-1 JOURNEY SPINE (12 arcs, story-ordered, for
+# `reference-arcs --emit` -> a chained journeys.toml). The PICKER ("Browse FF9 regions" / "Add region to arc")
+# instead wants EVERY forkable zone, accurately. `generate_zone_catalog` derives that straight from the game's
+# real field->zone data (extract.ID_TO_FBG), so it can't repeat the hand-draft's wrong/coarse seeds (e.g. the
+# opening seeded Alexandria-100 instead of the Prima Vista). It writes a USER-LOCAL `reference/region-catalog.toml`
+# (gitignored -- the friendly names come from the SE-derived manifest), which `load_region_catalog` prefers.
+_REGION_DATA = Path(__file__).resolve().parent / "data" / "region_catalog.toml"   # the generated all-zones catalog
+
+
+def load_region_catalog() -> ReferenceArcSet:
+    """The catalog the region PICKER reads: the GENERATED all-zones ``data/region_catalog.toml`` if present
+    (accurate, derived from the game's real zones), else the hand-curated disc-1 spine (``load_reference_arcs``)
+    -- so a fresh checkout still works and `--regen` upgrades it. (The CLI ``reference-arcs --emit`` journey
+    spine keeps reading ``load_reference_arcs`` -- a separate, curated, story-ordered list.)"""
+    return load_reference_arcs(_REGION_DATA) if _REGION_DATA.is_file() else load_reference_arcs()
+
+
+def _slug(s: str) -> str:
+    """A folder-safe key from a human label: 'Prima Vista' -> 'prima_vista'; '' -> ''."""
+    out = "".join(c if c.isalnum() else "_" for c in str(s).lower())
+    return "_".join(p for p in out.split("_") if p)
+
+
+def _zone_area_label(fids, names) -> "str | None":
+    """The most common area label (the part before '/' in the manifest name) across a zone's fields --
+    'Prima Vista/Cargo Room' -> 'Prima Vista'. None if the manifest isn't present."""
+    from collections import Counter
+    areas: Counter = Counter()
+    for f in fids:
+        nm = names.get(f)
+        if nm:
+            areas[nm.split("/")[0].strip()] += 1
+    return areas.most_common(1)[0][0] if areas else None
+
+
+def generate_zone_catalog(pattern=None) -> ReferenceArcSet:
+    """Derive a region catalog from the game's REAL zones: group every forkable field by its FBG zone token
+    (``extract.ID_TO_FBG`` + ``chain.zone_label``), and emit one [[arc]] per zone with a best-effort ENTRY seed
+    (prefer a field whose FBG marks an ENTrance -- so Evil Forest picks ef_ent 250, not the 152 cutscene -- else
+    the lowest id, which is the New-Game room for door-less zones like the Prima Vista). Names come from the
+    user-local HW manifest (else the zone token). ``pattern`` filters by zone token or area label. Ordered by
+    lowest field id (~ disc / story order). Accurate by construction -- no hand-drafted seeds to get wrong."""
+    from . import extract, chain
+    names = extract._manifest_field_names()
+    zones: dict = {}
+    for fid, fbg in extract.ID_TO_FBG.items():
+        if not str(fbg).lower().startswith("fbg_n"):   # skip non-background fields (field 70 = the FMV opening
+            continue                                    # script, 'invalidfieldmapid') -- not a forkable zone
+        z = chain.zone_label(fbg)
+        if z and z != "?":
+            zones.setdefault(z, []).append(int(fid))
+    pat = pattern.lower().strip() if pattern else None
+    arcs, used_keys = [], set()
+    for z in sorted(zones, key=lambda zz: min(zones[zz])):
+        fids = sorted(zones[z])
+        area = _zone_area_label(fids, names)
+        if pat and pat not in z.lower() and pat not in (area or "").lower():
+            continue
+        ent = [f for f in fids if "ENT" in extract.ID_TO_FBG[f].upper()]   # an explicit ENTrance field wins
+        seed = ent[0] if ent else fids[0]                                  # else the lowest id (door-less zones)
+        name = area or z.upper()
+        key = _slug(area) or z                                            # readable folder key, deduped vs token
+        base_key, n = key, 2
+        while key in used_keys:
+            key = f"{base_key}_{z}" if n == 2 else f"{base_key}_{n}"
+            n += 1
+        used_keys.add(key)
+        note = (f"{len(fids)} fields ({fids[0]}..{fids[-1]}); zone '{z}'; "
+                f"seed = {'an ENTrance field' if ent else 'the lowest id'} -- verify if it mis-lands")
+        arcs.append(ReferenceArc(key=key, name=name, seed=seed, zone=z, note=note))
+    if not arcs:
+        raise RefArcError("no zones found (need extract.ID_TO_FBG; pattern matched nothing?)")
+    return ReferenceArcSet(title="FF9 -- all forkable zones (generated from the game)", arcs=arcs)
+
+
+def render_arc_table_toml(arcset: ReferenceArcSet) -> str:
+    """Render a :class:`ReferenceArcSet` as a ``[[arc]]`` table (the inverse of :func:`load_reference_arcs`) --
+    used to write the generated ``region-catalog.toml`` the picker reads."""
+    L = ["# FF9 REGION CATALOG -- GENERATED from the game's real zones (one [[arc]] = one forkable FBG zone, with",
+         "# its entry seed). The region PICKER reads this in preference to the hand-curated disc-1 spine.",
+         "# Regenerate after a game change: `py -m ff9mapkit reference-arcs --regen`. EDIT FREELY -- correct a",
+         "# `seed` that mis-lands, rename, or add `beat = <ScenarioCounter>` to seed an arc's story state.",
+         "",
+         f'title = "{_toml_str(arcset.title)}"',
+         ""]
+    for a in arcset.arcs:
+        L.append("[[arc]]")
+        L.append(f'key = "{_toml_str(a.key)}"')
+        L.append(f'name = "{_toml_str(a.name)}"')
+        L.append(f"seed = {int(a.seed)}")
+        if a.zone:
+            L.append(f'zone = "{_toml_str(a.zone)}"')
+        if a.beat is not None:
+            L.append(f"beat = {int(a.beat)}")
+        if a.note:
+            L.append(f'note = "{_toml_str(a.note)}"')
+        L.append("")
+    return "\n".join(L) + "\n"
+
+
+def regenerate_region_catalog(out=None, pattern=None) -> "tuple[Path, int]":
+    """Generate the zone catalog + write it to ``out`` (default the shipped :data:`_REGION_DATA`).
+    Returns ``(path, n_regions)``. The picker then reads it via :func:`load_region_catalog`."""
+    arcset = generate_zone_catalog(pattern=pattern)
+    p = Path(out) if out else _REGION_DATA
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(render_arc_table_toml(arcset), encoding="utf-8", newline="\n")
+    return p, len(arcset.arcs)
+
+
 # --------------------------------------------------------------------------- per-arc fork parameters
 def arc_id_base(index: int, *, base: int = DEFAULT_ID_BASE, span: int = ARC_ID_SPAN) -> int:
     """The disjoint ``--id-base`` for arc ``index`` (0-based) so no two arcs share an EventDB id band."""

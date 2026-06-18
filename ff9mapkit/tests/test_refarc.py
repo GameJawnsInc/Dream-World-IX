@@ -334,6 +334,37 @@ def test_fork_playbook_uses_whole_zone_and_fixed_seeds():
     assert by_key["treno"] == 1908         # tr_gat (city gate), not 916/tr_whf (isolated)
 
 
+# --------------------------------------------------------------------------- generated zone catalog (the picker)
+def test_generate_zone_catalog_real_seeds():
+    # derived from the game's real field->zone data -> accurate by construction (no hand-drafted seeds).
+    cat = refarc.generate_zone_catalog()
+    byzone = {a.zone: a for a in cat.arcs}
+    assert byzone["tshp"].seed == 50            # Prima Vista opening (lowest id = cargo room = the New-Game entry)
+    assert byzone["evft"].seed == 250           # Evil Forest ENTRANCE via the _ENT heuristic, NOT the 152 cutscene
+    assert byzone["iccv"].seed == 300           # Ice Cavern entrance
+    assert byzone["alxt"].seed == 100           # Alexandria town (its own region, separate from Prima Vista)
+    assert "invalidfieldmapid" not in byzone    # field 70 (the FMV opening script, no real BG) is filtered out
+    assert len(cat.arcs) > 30 and all(a.zone and a.seed > 0 for a in cat.arcs)
+
+
+def test_region_catalog_round_trips_and_ships_current():
+    import tomllib
+    cat = refarc.generate_zone_catalog()
+    tomllib.loads(refarc.render_arc_table_toml(cat))                  # the rendered table is valid TOML
+    # the PICKER reads the shipped data/region_catalog.toml; it must be the accurate all-zones catalog...
+    picker = refarc.load_region_catalog()
+    assert any(a.zone == "tshp" and a.seed == 50 for a in picker.arcs)
+    # ...and current (not a stale committed file) -- same (zone, seed) set as a fresh generation.
+    assert {(a.zone, a.seed) for a in picker.arcs} == {(a.zone, a.seed) for a in cat.arcs}
+
+
+def test_regenerate_region_catalog_writes(tmp_path):
+    p, n = refarc.regenerate_region_catalog(out=tmp_path / "rc.toml")
+    assert p.is_file() and n > 30
+    reloaded = refarc.load_reference_arcs(p)
+    assert any(a.zone == "evft" and a.seed == 250 for a in reloaded.arcs)
+
+
 # --------------------------------------------------------------------------- append_region_to_arc (grow a chain)
 def _two_arc_scaffold():
     aset = refarc.ReferenceArcSet(title="Test Arc", arcs=[

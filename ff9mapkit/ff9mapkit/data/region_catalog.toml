@@ -1,0 +1,364 @@
+# FF9 REGION CATALOG -- GENERATED from the game's real zones (one [[arc]] = one forkable FBG zone, with
+# its entry seed). The region PICKER reads this in preference to the hand-curated disc-1 spine.
+# Regenerate after a game change: `py -m ff9mapkit reference-arcs --regen`. EDIT FREELY -- correct a
+# `seed` that mis-lands, rename, or add `beat = <ScenarioCounter>` to seed an arc's story state.
+
+title = "FF9 -- all forkable zones (generated from the game)"
+
+[[arc]]
+key = "prima_vista"
+name = "Prima Vista"
+seed = 50
+zone = "tshp"
+note = "20 fields (50..3010); zone 'tshp'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "a_castle"
+name = "A. Castle"
+seed = 64
+zone = "alxc"
+note = "95 fields (64..3005); zone 'alxc'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "alexandria"
+name = "Alexandria"
+seed = 100
+zone = "alxt"
+note = "48 fields (100..3000); zone 'alxt'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "evil_forest"
+name = "Evil Forest"
+seed = 250
+zone = "evft"
+note = "14 fields (152..262); zone 'evft'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "prima_vista_bshp"
+name = "Prima Vista"
+seed = 200
+zone = "bshp"
+note = "10 fields (200..209); zone 'bshp'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "ice_cavern"
+name = "Ice Cavern"
+seed = 300
+zone = "iccv"
+note = "12 fields (300..311); zone 'iccv'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "dali"
+name = "Dali"
+seed = 359
+zone = "vgdl"
+note = "11 fields (312..359); zone 'vgdl'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "dali_udft"
+name = "Dali"
+seed = 404
+zone = "udft"
+note = "9 fields (400..408); zone 'udft'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "dali_airp"
+name = "Dali"
+seed = 450
+zone = "airp"
+note = "8 fields (450..457); zone 'airp'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "cargo_ship"
+name = "Cargo Ship"
+seed = 500
+zone = "cshp"
+note = "7 fields (500..507); zone 'cshp'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "cargo_ship_fnrl"
+name = "Cargo Ship"
+seed = 506
+zone = "fnrl"
+note = "1 fields (506..506); zone 'fnrl'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "l_castle"
+name = "L. Castle"
+seed = 550
+zone = "ldbm"
+note = "124 fields (550..3006); zone 'ldbm'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "marsh"
+name = "Marsh"
+seed = 650
+zone = "kuin"
+note = "14 fields (650..663); zone 'kuin'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "gizamaluke"
+name = "Gizamaluke"
+seed = 701
+zone = "gzml"
+note = "7 fields (701..707); zone 'gzml'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "burmecia"
+name = "Burmecia"
+seed = 750
+zone = "brmc"
+note = "21 fields (750..3004); zone 'brmc'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "s_gate"
+name = "S. Gate"
+seed = 800
+zone = "stgt"
+note = "18 fields (800..3007); zone 'stgt'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "n_gate"
+name = "N. Gate"
+seed = 850
+zone = "ntgt"
+note = "7 fields (850..856); zone 'ntgt'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "treno"
+name = "Treno"
+seed = 900
+zone = "trno"
+note = "37 fields (900..1917); zone 'trno'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "gargan_roo"
+name = "Gargan Roo"
+seed = 950
+zone = "grgr"
+note = "8 fields (950..957); zone 'grgr'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "cleyra"
+name = "Cleyra"
+seed = 1000
+zone = "gtre"
+note = "19 fields (1000..1018); zone 'gtre'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "cleyra_clir"
+name = "Cleyra"
+seed = 1050
+zone = "clir"
+note = "22 fields (1050..1110); zone 'clir'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "red_rose"
+name = "Red Rose"
+seed = 1150
+zone = "rdrs"
+note = "6 fields (1150..2932); zone 'rdrs'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "pinnacle_rocks"
+name = "Pinnacle Rocks"
+seed = 1255
+zone = "pncl"
+note = "6 fields (1251..1256); zone 'pncl'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "fossil_roo"
+name = "Fossil Roo"
+seed = 1422
+zone = "fslr"
+note = "26 fields (1400..1425); zone 'fslr'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "mage_village"
+name = "Mage Village"
+seed = 1450
+zone = "bmvl"
+note = "25 fields (1450..3059); zone 'bmvl'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "conde_petie"
+name = "Conde Petie"
+seed = 1500
+zone = "cdpt"
+note = "10 fields (1500..1509); zone 'cdpt'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "mountain_path"
+name = "Mountain Path"
+seed = 1550
+zone = "cpmp"
+note = "8 fields (1550..1557); zone 'cpmp'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "mdn_sari"
+name = "Mdn. Sari"
+seed = 1600
+zone = "mdsr"
+note = "19 fields (1600..1707); zone 'mdsr'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "iifa_tree"
+name = "Iifa Tree"
+seed = 1650
+zone = "iftr"
+note = "15 fields (1650..3001); zone 'iftr'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "brahne_s_fleet"
+name = "Brahne’s Fleet"
+seed = 1660
+zone = "brnf"
+note = "3 fields (1660..1662); zone 'brnf'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "iifa_tree_ifug"
+name = "Iifa Tree"
+seed = 1750
+zone = "ifug"
+note = "7 fields (1750..1756); zone 'ifug'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "quan_s"
+name = "Quan’s"
+seed = 1950
+zone = "qunh"
+note = "4 fields (1950..1953); zone 'qunh'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "hilda_garde_2"
+name = "Hilda Garde 2"
+seed = 2000
+zone = "hlg2"
+note = "1 fields (2000..2000); zone 'hlg2'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "invincible"
+name = "Invincible"
+seed = 2055
+zone = "invb"
+note = "6 fields (2055..2754); zone 'invb'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "palace"
+name = "Palace"
+seed = 2200
+zone = "sdpl"
+note = "20 fields (2200..2222); zone 'sdpl'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "oeilvert"
+name = "Oeilvert"
+seed = 2251
+zone = "uuvl"
+note = "11 fields (2250..2260); zone 'uuvl'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "oeilvert_hlg1"
+name = "Oeilvert"
+seed = 2261
+zone = "hlg1"
+note = "1 fields (2261..2261); zone 'hlg1'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "esto_gaza"
+name = "Esto Gaza"
+seed = 2300
+zone = "estg"
+note = "6 fields (2300..2305); zone 'estg'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "gulug"
+name = "Gulug"
+seed = 2350
+zone = "glgv"
+note = "16 fields (2350..2365); zone 'glgv'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "i_castle"
+name = "I. Castle"
+seed = 2500
+zone = "ipsn"
+note = "13 fields (2500..2513); zone 'ipsn'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "earth_shrine"
+name = "Earth Shrine"
+seed = 2550
+zone = "emsh"
+note = "5 fields (2550..2554); zone 'emsh'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "terra"
+name = "Terra"
+seed = 2600
+zone = "tera"
+note = "9 fields (2600..2608); zone 'tera'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "bran_bal"
+name = "Bran Bal"
+seed = 2650
+zone = "brbl"
+note = "12 fields (2650..2661); zone 'brbl'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "pand"
+name = "Pand."
+seed = 2700
+zone = "pdmn"
+note = "21 fields (2700..2720); zone 'pdmn'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "hilda_garde_3"
+name = "Hilda Garde 3"
+seed = 2755
+zone = "hlg3"
+note = "7 fields (2755..2931); zone 'hlg3'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "daguerreo"
+name = "Daguerreo"
+seed = 2800
+zone = "dglo"
+note = "4 fields (2800..2803); zone 'dglo'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "blue_narciss"
+name = "Blue Narciss"
+seed = 2855
+zone = "blnr"
+note = "2 fields (2855..2856); zone 'blnr'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "memoria"
+name = "Memoria"
+seed = 2900
+zone = "cysw"
+note = "33 fields (2900..2934); zone 'cysw'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "chocobo_s_paradise"
+name = "Chocobo’s Paradise"
+seed = 2950
+zone = "chcb"
+note = "6 fields (2950..2955); zone 'chcb'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "ending"
+name = "Ending"
+seed = 3011
+zone = "endg"
+note = "2 fields (3011..3012); zone 'endg'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "mognet_central"
+name = "Mognet Central"
+seed = 3100
+zone = "mgnt"
+note = "1 fields (3100..3100); zone 'mgnt'; seed = the lowest id -- verify if it mis-lands"
+

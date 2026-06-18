@@ -878,7 +878,7 @@ class Workspace(QMainWindow):
         New-Journey picker where there's no target arc). The dialog half (headless core = :meth:`_apply_add_region`)."""
         from .. import refarc as RA
         try:
-            arcset = RA.load_reference_arcs()
+            arcset = RA.load_region_catalog()
         except Exception as e:                          # noqa: BLE001
             self._show_problems(fb.Verdict(fb.ERROR, "Region catalog"),
                                 [fb.Problem(fb.ERROR, f"Couldn't load the FF9 region catalog: {e}")])
@@ -938,7 +938,7 @@ class Workspace(QMainWindow):
         import tomllib
         from .. import refarc as RA
         try:
-            bykey = {a.key: a for a in RA.load_reference_arcs().arcs}
+            bykey = {a.key: a for a in RA.load_region_catalog().arcs}
             orig = Path(self.journey_root).read_text(encoding="utf-8")
             text, added, log = orig, [], []
             for k in keys:
@@ -1163,7 +1163,7 @@ class Workspace(QMainWindow):
         placeholder template. False (caught) if the catalog can't load."""
         try:
             from .. import refarc as RA
-            keys = {a.key for a in RA.load_reference_arcs().arcs}
+            keys = {a.key for a in RA.load_region_catalog().arcs}
             return bool(campaigns) and all(c in keys for c in campaigns)
         except Exception:                               # noqa: BLE001 -- no catalog -> fall back to the template
             return False
@@ -1199,7 +1199,7 @@ class Workspace(QMainWindow):
             # the campaign names are all FF9 catalog regions -> render the FAITHFUL multi-campaign arc (the fork
             # PLAYBOOK + entry/link templates), so the Fork panel can fork each and reconcile wires the seams.
             from .. import refarc as RA
-            bykey = {a.key: a for a in RA.load_reference_arcs().arcs}
+            bykey = {a.key: a for a in RA.load_region_catalog().arcs}
             picked = RA.ReferenceArcSet(title=(jname or "FF9 region arc"), arcs=[bykey[c] for c in campaigns])
             bg = (borrow_bg or "").strip()
             use = None if bg in ("", "N11_HUT", RA.HUB_BORROW_BG) else bg
@@ -5096,7 +5096,7 @@ def _smoke(win):
     # FF9 REGION CATALOG: "Browse FF9 regions…" (Import) + Ctrl-K "Fork FF9 regions" compose catalog regions
     # into the Fork-a-region box -- one region alone (its seed + a suggested prefix), or several composed into ONE.
     from .. import refarc as _RAcat
-    _aset = _RAcat.load_reference_arcs()
+    _aset = _RAcat.load_region_catalog()
     _imp = win.import_field
     s1 = _imp._apply_region_selection(_aset, [_aset.arcs[0].key])
     assert "," not in s1 and _imp.rg_prefix.text(), s1         # one region -> single seed + a suggested prefix
