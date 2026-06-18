@@ -1016,10 +1016,12 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
         return 2
 
     if getattr(args, "whole_zone", False):       # seed EVERY forkable field in the seed's zone(s) -> the whole
+        live = extract.build_field_index(args.game, verbose=False)   # folder_lower -> bundle (LIVE-forkable only)
         seed_zones = {chain.zone_label(extract.ID_TO_FBG[s])          # zone forks, not just the door-reachable
                       for s in seeds if s in extract.ID_TO_FBG}       # slice (cutscene-only screens included)
         extra = sorted(fid for fid, folder in extract.ID_TO_FBG.items()
-                       if chain.zone_label(folder) in seed_zones and fid not in seeds)
+                       if chain.zone_label(folder) in seed_zones and fid not in seeds
+                       and folder.lower() in live)                    # skip table-only variants with NO live bundle
         seeds = seeds + extra                     # original seed(s) FIRST -> entry_field stays the intended entry
         args.max_fields = max(args.max_fields, len(seeds))           # never truncate the zone we asked for
 
