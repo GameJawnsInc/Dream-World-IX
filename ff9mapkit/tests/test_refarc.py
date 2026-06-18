@@ -332,3 +332,81 @@ def test_fork_playbook_uses_whole_zone_and_fixed_seeds():
     assert by_key["evil_forest"] == 250    # ef_ent (entrance), not 152/ef_fr6 (an isolated cutscene screen)
     assert by_key["cargo_ship"] == 507     # ca_dck_0 (walkable deck), not 500/ca_dck_1 (a cutscene variant)
     assert by_key["treno"] == 1908         # tr_gat (city gate), not 916/tr_whf (isolated)
+
+
+# --------------------------------------------------------------------------- append_region_to_arc (grow a chain)
+def _two_arc_scaffold():
+    aset = refarc.ReferenceArcSet(title="Test Arc", arcs=[
+        refarc.ReferenceArc(key="arc_a", name="Arc A", seed=100, beat=0, note="first"),
+        refarc.ReferenceArc(key="arc_b", name="Arc B", seed=200, note="second")])
+    return refarc.render_arc_journey_toml(aset)
+
+
+def _arc_c():
+    return refarc.ReferenceArc(key="arc_c", name="Arc C", seed=300, note="third")
+
+
+def test_append_region_grows_campaigns_playbook_and_link():
+    import tomllib
+    out, notes = refarc.append_region_to_arc(_two_arc_scaffold(), _arc_c())
+    data = tomllib.loads(out)                                  # still valid TOML
+    j = next(x for x in data["journey"] if x.get("campaigns"))
+    assert j["campaigns"] == ["arc_a", "arc_b", "arc_c"], j["campaigns"]
+    # a fork command for arc_c in the header playbook, with a DISJOINT id band (max 6200 + 200 = 6400)
+    assert "--out arc_c" in out and "--id-base 6400" in out and "--name-prefix ARC" in out
+    assert "--mod-folder FF9CustomMap-" in out and "--verbatim" in out and "--whole-zone" in out
+    # a commented [[journey.link]] template for the new boundary (arc_b -> arc_c), which reconcile later fills
+    assert '# from = { campaign = "arc_b"' in out and '# to = { campaign = "arc_c"' in out
+    # the cosmetic count comments stay honest, and the new region's note rides along in the playbook
+    assert "the 3 arc folders" in out and "(3 arcs -> 2 links)" in out and "Arc C: third" in out
+    assert any(n.level == "filled" and "arc_c" in n.text for n in notes)
+    # parsed by the real journey loader (3 campaigns, structurally sound)
+    refarc.parse_fork_commands(out)                            # the playbook round-trips
+
+
+def test_append_region_is_idempotent():
+    once, _ = refarc.append_region_to_arc(_two_arc_scaffold(), _arc_c())
+    twice, notes = refarc.append_region_to_arc(once, _arc_c())
+    assert twice == once and any(n.level == "skip" and "already in this arc" in n.text for n in notes)
+
+
+def test_append_region_disjoint_band_is_above_the_max():
+    # grow twice: arc_c lands at 6400, arc_d at 6600 (each = the running max band + ARC_ID_SPAN, never reused).
+    out1, _ = refarc.append_region_to_arc(_two_arc_scaffold(), _arc_c())
+    out2, _ = refarc.append_region_to_arc(out1, refarc.ReferenceArc(key="arc_d", name="Arc D", seed=400))
+    assert "--out arc_c --whole-zone --verbatim --id-base 6400" in out2
+    assert "--out arc_d --whole-zone --verbatim --id-base 6600" in out2
+
+
+def test_append_region_skips_a_bare_journey():
+    bare = '[hub]\nname = "H"\nid = 4600\n\n[[journey]]\nid = "x"\nname = "X"\nentry = 4100\n'
+    out, notes = refarc.append_region_to_arc(bare, _arc_c())
+    assert out == bare and any(n.level == "skip" and "no multi-campaign" in n.text for n in notes)
+
+
+def test_count_comments_are_grammatical_across_arc_counts():
+    # a 1-arc journey (the intended fork-a-region-at-a-time START) reads in the SINGULAR; growing it re-pluralizes
+    # the count comments (and a 2-arc chain has exactly "1 link", not "1 links").
+    one = refarc.render_arc_journey_toml(refarc.ReferenceArcSet(
+        title="Solo", arcs=[refarc.ReferenceArc(key="arc_a", name="Arc A", seed=100)]))
+    assert "the 1 arc folder " in one and "(1 arc -> 0 links)" in one, one
+    assert "1 arc folders" not in one and "1 arcs ->" not in one, "no plural-with-1 wart at render"
+    grown, _ = refarc.append_region_to_arc(one, refarc.ReferenceArc(key="arc_b", name="Arc B", seed=200))
+    assert "the 2 arc folders" in grown and "(2 arcs -> 1 link)" in grown, grown
+    assert "(2 arcs -> 1 links)" not in grown, "1 link is singular after the bump"
+
+
+def test_append_region_then_reconcile_wires_the_new_boundary(tmp_path):
+    # the full loop: grow the chain with arc_c, fork all three, then reconcile -> the new arc_b->arc_c link fills.
+    grown, _ = refarc.append_region_to_arc(_two_arc_scaffold(), _arc_c())
+    _write_forked_campaign(tmp_path, "arc_a", entry="A1",
+                           members=[("A1", 100, 6000), ("A2", 101, 6001)], seams=[("A2", 200, "scripted")])
+    _write_forked_campaign(tmp_path, "arc_b", entry="B1",
+                           members=[("B1", 200, 6200), ("B2", 201, 6201)], seams=[("B2", 300, "scripted")])
+    _write_forked_campaign(tmp_path, "arc_c", entry="C1",
+                           members=[("C1", 300, 6400), ("C2", 301, 6401)], seams=[])
+    out, _ = refarc.reconcile_arc_journey(grown, tmp_path)
+    p = tmp_path / "journeys.toml"
+    p.write_text(out, encoding="utf-8")
+    j = journey.load_journeys(p).journeys[0]
+    assert [(l.src_campaign, l.dst.campaign) for l in j.links] == [("arc_a", "arc_b"), ("arc_b", "arc_c")]

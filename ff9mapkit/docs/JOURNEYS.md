@@ -177,7 +177,18 @@ across mod folders):
 
 ## 5. The GUI display contract (editor_gui lane — DONE, forward-compatible)
 
-The PySide6 Workspace already **displays** a journey when one exists (it does **not** author them):
+> **Update (2026-06-18):** the Workspace now also **authors the multi-campaign arc incrementally** — the
+> bottom-up "fork a region at a time → faithful chain" loop (the base game has no World Hub; the faithful
+> recreation is New Game → opening → a chained arc). **New Journey ▸ Multi ▸ Pick FF9 regions…** seeds the arc
+> from the catalog (renders `refarc.render_arc_journey_toml` → the fork playbook + entry/link templates), and a
+> multi-campaign journey gains **Add region to arc…** (overview button / journey tree context / Ctrl-K palette →
+> `refarc.append_region_to_arc`): it appends the region to `campaigns`, allocates a **disjoint id band**
+> (max existing playbook band + `ARC_ID_SPAN`) + a unique name-prefix/mod-folder + the chain flag width, appends
+> the `import-chain` line to the header playbook (so the Fork panel offers a Fork button), and drops a commented
+> `[[journey.link]]` template. The boundary's actual member names are still wired by **Fill entry & links from
+> forks** (`reconcile_arc_journey`) after the regions are forked. So: *seed → grow → fork each → reconcile → deploy.*
+
+The PySide6 Workspace also **displays** a journey when one exists:
 
 - It reads a `journeys.toml` **beside** the open `campaign.toml` *and* **one level up** (project root).
 - A journey **matches the open campaign** when the campaign's **folder name is in `campaigns`** (the

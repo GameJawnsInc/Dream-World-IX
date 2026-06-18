@@ -573,7 +573,12 @@ class Workspace(QMainWindow):
         add_journey.setToolTip("Add a menu row that warps New Game into an installed slice (the World-Hub selector)")
         add_journey.clicked.connect(self.on_add_journey_row)
         addrow.addWidget(add_journey)
-        if any(j.campaigns for j in self.manifest.journeys):       # a multi-campaign journey -> offer STEP-2 fill
+        if any(j.campaigns for j in self.manifest.journeys):       # a multi-campaign journey -> grow it + STEP-2 fill
+            addregion = QPushButton("Add region to arc…")
+            addregion.setToolTip("Append an FF9 region (its own forked campaign) to this chain — the bottom-up "
+                                 "fork-a-region-at-a-time loop. Allocates a disjoint id band; reconcile wires the link.")
+            addregion.clicked.connect(self.on_add_region_to_arc)
+            addrow.addWidget(addregion)
             fillb = QPushButton("Fill entry & links from forks")
             fillb.setToolTip("STEP 2: replace the ENTRY_MEMBER / link placeholders with the real member names of "
                              "the forked campaigns (run after Fork all). Idempotent.")
@@ -860,6 +865,107 @@ class Workspace(QMainWindow):
                                 [fb.Problem(fb.ERROR, str(e))])
             return False
 
+    # ---- grow a multi-campaign arc: add an FF9 region (refarc.append_region_to_arc) ----
+    def _has_multi_arc(self) -> bool:
+        """True iff the open manifest has a multi-campaign journey (``campaigns = [...]``) -- the gate for
+        'Add region to arc' + 'Fill entry & links from forks'."""
+        return self.manifest is not None and any(j.campaigns for j in self.manifest.journeys)
+
+    def _pick_regions(self, *, title="Add region to arc", exclude=None):
+        """Show the FF9 region catalog (``refarc``'s ``reference_arcs.toml``) as a checkable list; return the
+        selected region KEYS in catalog order (``[]`` on cancel / none checked). Regions in ``exclude`` are shown
+        disabled (default = the open arc's members, so 'Add region to arc' can't re-add; pass ``set()`` from the
+        New-Journey picker where there's no target arc). The dialog half (headless core = :meth:`_apply_add_region`)."""
+        from .. import refarc as RA
+        try:
+            arcset = RA.load_reference_arcs()
+        except Exception as e:                          # noqa: BLE001
+            self._show_problems(fb.Verdict(fb.ERROR, "Region catalog"),
+                                [fb.Problem(fb.ERROR, f"Couldn't load the FF9 region catalog: {e}")])
+            return []
+        existing = exclude if exclude is not None else {
+            c for j in (self.manifest.journeys if self.manifest else []) for c in (j.campaigns or [])}
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        lay = QVBoxLayout(dlg)
+        intro = QLabel(f"<b>{html.escape(arcset.title)}</b> — check the FF9 region(s) to add to the arc, in story "
+                       "order. Each becomes its own forked campaign with a disjoint id band + flag window; the "
+                       "boundary link is wired by 'Fill entry &amp; links from forks' after you fork it.")
+        intro.setWordWrap(True)
+        intro.setTextFormat(Qt.TextFormat.RichText)
+        intro.setStyleSheet(f"color:{self.pal['muted']};")
+        lay.addWidget(intro)
+        lst = QListWidget()
+        for a in arcset.arcs:
+            tag = "   ✓ in arc" if a.key in existing else ""
+            it = QListWidgetItem(f"{a.name}   (seed {a.seed}){tag}")
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(Qt.CheckState.Unchecked)
+            it.setData(Qt.ItemDataRole.UserRole, a.key)
+            if a.note:                                  # the catalog note shows even on a disabled "✓ in arc" row
+                it.setToolTip(a.note + ("  (already in this arc)" if a.key in existing else ""))
+            if a.key in existing:                       # already chained -> not re-addable (append is idempotent)
+                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            lst.addItem(it)
+        lay.addWidget(lst)
+        bb = QDialogButtonBox()
+        bb.addButton("Add selected", QDialogButtonBox.ButtonRole.AcceptRole)
+        bb.addButton(QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return []
+        return [lst.item(i).data(Qt.ItemDataRole.UserRole) for i in range(lst.count())
+                if lst.item(i).checkState() == Qt.CheckState.Checked]
+
+    def on_add_region_to_arc(self):
+        """Add FF9 region(s) to the open multi-campaign arc -- the bottom-up faithful-recreation loop
+        (fork-a-region, playtest, add the next). Opens the catalog -> :meth:`_apply_add_region`."""
+        if not self._has_multi_arc() or not self.journey_root:
+            return
+        keys = self._pick_regions()
+        if keys:
+            self._apply_add_region(keys)
+
+    def _apply_add_region(self, keys) -> bool:
+        """Append the chosen region keys (in order) to the open arc's chain
+        (:func:`ff9mapkit.refarc.append_region_to_arc` each), then write + re-open (re-lint + re-list). Notes go
+        to the Output console; the re-open's journey lint owns Problems. Dialog-free core (headlessly testable).
+        Returns True iff it changed the file."""
+        if self.manifest is None or not self.journey_root:
+            return False
+        import tomllib
+        from .. import refarc as RA
+        try:
+            bykey = {a.key: a for a in RA.load_reference_arcs().arcs}
+            orig = Path(self.journey_root).read_text(encoding="utf-8")
+            text, added, log = orig, [], []
+            for k in keys:
+                arc = bykey.get(k)
+                if arc is None:
+                    log.append(f"unknown region {k!r} — skipped")
+                    continue
+                text, notes = RA.append_region_to_arc(text, arc)
+                log.extend(n.text for n in notes)
+                if any(n.level == "filled" for n in notes):
+                    added.append(k)
+            if text == orig:
+                self._show_problems(fb.Verdict(fb.WARN, "Add region — nothing added"),
+                                    [fb.Problem(fb.WARN, t) for t in log] or [fb.Problem(fb.WARN, "nothing to add")])
+                return False
+            tomllib.loads(text)                          # belt-and-suspenders: the result must still parse
+            Path(self.journey_root).write_text(text, encoding="utf-8", newline="\n")
+            self.output.appendPlainText("Add region to arc:\n  " + "\n  ".join(log))
+            self.open_journey(self.journey_root)         # re-lint + re-list (now owns Problems)
+            self.statusBar().showMessage(f"Added {len(added)} region(s): {', '.join(added)} — fork them "
+                                         "(Fork panel), then 'Fill entry & links from forks'")
+            return True
+        except (ValueError, tomllib.TOMLDecodeError, OSError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't add the region"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return False
+
     def _needs_reconcile(self) -> bool:
         """True iff the open manifest has a multi-campaign journey still carrying STEP-2 placeholders
         (``ENTRY_MEMBER`` / ``BOUNDARY_MEMBER`` / ``ARRIVAL_MEMBER``) -- the signal to offer 'Fill entry &
@@ -1050,6 +1156,18 @@ class Workspace(QMainWindow):
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't create the campaign"),
                                 [fb.Problem(fb.ERROR, str(e))])
 
+    @staticmethod
+    def _all_catalog_regions(campaigns) -> bool:
+        """True iff every name in ``campaigns`` is a known FF9 region key (``refarc``'s ``reference_arcs.toml``)
+        -- the signal that a Multi journey should render the FAITHFUL fork playbook, not the typed-folder
+        placeholder template. False (caught) if the catalog can't load."""
+        try:
+            from .. import refarc as RA
+            keys = {a.key for a in RA.load_reference_arcs().arcs}
+            return bool(campaigns) and all(c in keys for c in campaigns)
+        except Exception:                               # noqa: BLE001 -- no catalog -> fall back to the template
+            return False
+
     def _new_journey(self, name, dest, *, kind="bare", hub_id=4600, borrow_bg="N11_HUT", jid="intro",
                      jname="Intro", entry=4100, scenario=None, campaigns=None):
         """Write a journeys.toml from the New-Journey choices + open it. ``kind='bare'`` = a complete file;
@@ -1077,6 +1195,16 @@ class Workspace(QMainWindow):
             bg = (borrow_bg or "").strip()                 # same Mognet-Central default as the reference-arc hub
             use = None if bg in ("", "N11_HUT", RA.HUB_BORROW_BG) else bg
             text = J.render_selector_hub_toml(hub_name=name, hub_id=hub_id, borrow_bg=use)
+        elif kind == "multi" and campaigns and self._all_catalog_regions(campaigns):
+            # the campaign names are all FF9 catalog regions -> render the FAITHFUL multi-campaign arc (the fork
+            # PLAYBOOK + entry/link templates), so the Fork panel can fork each and reconcile wires the seams.
+            from .. import refarc as RA
+            bykey = {a.key: a for a in RA.load_reference_arcs().arcs}
+            picked = RA.ReferenceArcSet(title=(jname or "FF9 region arc"), arcs=[bykey[c] for c in campaigns])
+            bg = (borrow_bg or "").strip()
+            use = None if bg in ("", "N11_HUT", RA.HUB_BORROW_BG) else bg
+            text = RA.render_arc_journey_toml(picked, hub_name=name, hub_id=hub_id,
+                                              journey_id=(jid or "ff9_arc"), journey_name=(jname or None), borrow_bg=use)
         else:
             text = _render_journey_toml(hub_name=name, hub_id=hub_id, borrow_bg=borrow_bg or "N11_HUT",
                                         jid=jid or "intro", jname=jname or "Intro", kind=kind,
@@ -1147,6 +1275,13 @@ class Workspace(QMainWindow):
         ml = QFormLayout(multi_panel)
         ml.setContentsMargins(0, 0, 0, 0)
         ml.addRow("Campaign folders", campaigns)
+        pick_regions = QPushButton("Pick FF9 regions…")
+        pick_regions.setToolTip("Choose real FF9 regions from the catalog — they fill the folders above AND make "
+                                "this a faithful arc with a fork playbook (each region forks into its own band).")
+        pick_regions.clicked.connect(
+            lambda: campaigns.setText(", ".join(self._pick_regions(title="Pick FF9 regions", exclude=set()))
+                                      or campaigns.text()))
+        ml.addRow("", pick_regions)
         hub_panel = QWidget()
         hl = QVBoxLayout(hub_panel)
         hl.setContentsMargins(0, 0, 0, 0)
@@ -1170,8 +1305,9 @@ class Workspace(QMainWindow):
         from .. import refarc as _RA
         _NOTES = {
             0: "A <b>complete</b>, ready-to-build journeys.toml — the hub menu warps straight to your entry field.",
-            1: "Fork the campaigns first (<code>ff9mapkit import-chain</code>). This writes the hub + journey with "
-               "the entry/links/seed <b>left to fill in</b> against your members.",
+            1: "A faithful multi-campaign arc (New Game plays straight through). <b>Pick FF9 regions…</b> for the "
+               "fork playbook (each region forks into its own id band; <b>Add region to arc…</b> grows it later), "
+               "or type folders you forked yourself. Fork the campaigns, then 'Fill entry &amp; links from forks'.",
             2: "A journey SELECTOR: New Game lands on the hub and you pick which installed journey to play. "
                "Creates the empty hub; add a menu row per slice with <b>Add journey…</b> afterward. The hub "
                "defaults to <b>Mognet Central</b> (the journey nexus).",
@@ -1750,7 +1886,8 @@ class Workspace(QMainWindow):
         if self.manifest is not None:
             cmds.insert(2, ("Add journey to hub…", "command", self.on_add_journey_row))
             if any(j.campaigns for j in self.manifest.journeys):
-                cmds.insert(3, ("Fill entry & links from forks…", "command", self.on_reconcile_journey))
+                cmds.insert(3, ("Add region to arc…", "command", self.on_add_region_to_arc))
+                cmds.insert(4, ("Fill entry & links from forks…", "command", self.on_reconcile_journey))
         content = []
 
         def walk(item):
@@ -2987,6 +3124,8 @@ class Workspace(QMainWindow):
         p = self._payload(item)
         if p and p[0] in ("jset", "journey") and self.manifest is not None:
             acts = [("Add journey…", self.on_add_journey_row)]   # the hub root: add a menu row (selector builder)
+            if self._has_multi_arc():                            # a multi-campaign arc -> grow it region-by-region
+                acts.append(("Add region to arc…", self.on_add_region_to_arc))
             if p[0] == "journey" and ":" in (p[2] or ""):        # a journey row: also offer Remove (Delete-key)
                 jid = p[2].split(":", 1)[1]
                 acts.append((f"Remove journey '{jid}'", lambda j=jid: self.on_remove_journey_row(j)))
@@ -4976,6 +5115,21 @@ def _smoke(win):
     win.plan = None
     win._fork_queue = []                                                    # stop the (stubbed) chain
     win.run_job = _real_run_job
+    # CATALOG-DRIVEN MULTI ARC + 'Add region to arc' (the bottom-up fork-a-region loop): a Multi journey whose
+    # campaigns are FF9 catalog regions renders the FAITHFUL fork playbook; _apply_add_region grows the chain.
+    _k0, _k1, _k2 = _aset.arcs[0].key, _aset.arcs[1].key, _aset.arcs[2].key
+    assert win._all_catalog_regions([_k0, _k1]) and not win._all_catalog_regions([_k0, "made_up_folder"])
+    jarc = win._new_journey("Region Arc", d / "jarc", kind="multi", campaigns=[_k0, _k1])
+    at = jarc.read_text(encoding="utf-8")
+    assert "import-chain" in at and "--id-base" in at and "--name-prefix" in at, "catalog multi -> a fork playbook"
+    assert win.manifest.journeys[0].campaigns == [_k0, _k1] and win._has_multi_arc()
+    assert win._apply_add_region([_k2]) is True, "added a region to the arc"
+    assert win.manifest.journeys[0].campaigns == [_k0, _k1, _k2], win.manifest.journeys[0].campaigns
+    assert f"--out {_k2}" in jarc.read_text(encoding="utf-8"), "the added region got a fork command"
+    assert win._apply_add_region([_k2]) is False, "re-adding the same region is a no-op (idempotent)"
+    # the action is reachable: context menu on the journey root + the Ctrl-K palette
+    assert any(lbl == "Add region to arc…" for lbl, _ in win._context_actions(win.tree.topLevelItem(0)))
+    assert "Add region to arc…" in [e[0] for e in win._command_index()]
     # WORLD HUB (the journey selector): create an empty hub, then add menu rows pointing at installed slices.
     jhub = win._new_journey("My World Hub", d / "jhub", kind="hub")
     assert jhub.exists() and win.manifest is not None and len(win.manifest.journeys) == 0, "empty selector hub"
@@ -5227,7 +5381,7 @@ def _smoke(win):
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
-          f"(open/lint/overview/drill-in/RECONCILE entry+links from forks) + VERBATIM logic-map subtree + in-place edit panel "
+          f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
           f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")

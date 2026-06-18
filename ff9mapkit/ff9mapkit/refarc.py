@@ -213,6 +213,10 @@ def render_arc_journey_toml(arcset: ReferenceArcSet, *, hub_name: str = "FF9 Dis
     plays = fork_playbook(arcset, id_base=id_base)
     keys = [a.key for a in arcset.arcs]
     fpf = arc_flags_per_field(len(arcset.arcs))
+    n_arcs = len(keys)
+    arc_s = "" if n_arcs == 1 else "s"                  # keep the count comments grammatical for a 1-arc start
+    n_links = max(n_arcs - 1, 0)
+    link_s = "" if n_links == 1 else "s"
 
     L: list = []
     L += _commented_block([
@@ -223,8 +227,8 @@ def render_arc_journey_toml(arcset: ReferenceArcSet, *, hub_name: str = "FF9 Dis
         '"does it play identically?", then move to the next arc (CLAUDE.md: fork FIDELITY, not a release).',
         "",
         "STEP 1 -- fork every arc (run these FROM this folder, so each --out <key> lands beside this file).",
-        f"         Each gets its OWN id band + name-prefix + mod folder + a {fpf}-bit flag block, so the {len(keys)}",
-        "         arcs deploy with no EventDB / by-name / folder / flag-window collisions (don't drop those flags):",
+        f"         Each gets its OWN id band + name-prefix + mod folder + a {fpf}-bit flag block, so each arc",
+        "         deploys with no EventDB / by-name / folder / flag-window collisions (don't drop those flags):",
     ])
     for i, (arc, cmd) in enumerate(plays, 1):
         L.append(f"#   {i:>2}. {cmd}")
@@ -263,14 +267,14 @@ def render_arc_journey_toml(arcset: ReferenceArcSet, *, hub_name: str = "FF9 Dis
     L.append(f'name = "{_toml_str(journey_name)}"   # shown on the hub menu')
     clist = ", ".join(f'"{_toml_str(k)}"' for k in keys)
     L.append(f"campaigns = [{clist}]")
-    L.append(f'#   ^ the {len(keys)} arc folders (fork them in STEP 1 above; order = story order).')
+    L.append(f'#   ^ the {n_arcs} arc folder{arc_s} (fork them in STEP 1 above; order = story order).')
     first = arcset.arcs[0]
     L.append(f'entry = {{ campaign = "{_toml_str(first.key)}", field = "ENTRY_MEMBER" }}'
              f"   # CHANGE: the start member of {first.name} (real field {first.seed})")
     L.append("")
 
     L += _commented_block([
-        f"One link per arc boundary ({len(keys)} arcs -> {max(len(keys) - 1, 0)} links). Uncomment + fill the",
+        f"One link per arc boundary ({n_arcs} arc{arc_s} -> {n_links} link{link_s}). Uncomment + fill the",
         "member names (the boundary member that walks OUT of arc i, and the arrival member of arc i+1):",
     ])
     for a, b in zip(arcset.arcs, arcset.arcs[1:]):
@@ -537,3 +541,160 @@ def reconcile_arc_journey(text: str, base_dir) -> "tuple[str, list]":
         notes.append(ReconcileNote("skip", "nothing to fill (entry + links already set)"))
         return text, notes
     return "\n".join(lines[:start] + block + lines[end:]), notes
+
+
+# --------------------------------------------------------------------------- grow an arc: append one region
+# The reference-arc scaffold declares the WHOLE chain up front; this grows a multi-campaign journey ONE region
+# at a time (the GUI's "Add region to arc") so an author can fork-a-region, playtest, then add the next -- the
+# bottom-up faithful-recreation loop. It allocates the new region a DISJOINT id band + a unique name-prefix /
+# mod folder (so it never collides with the already-forked arcs in the global EventDB namespace), rewrites the
+# `campaigns` array + the header fork PLAYBOOK (so the Fork panel offers a Fork button for it), and drops a
+# commented `[[journey.link]]` template for the new boundary (which `reconcile_arc_journey` later fills).
+_CAMPAIGNS_RE = re.compile(r'^(\s*campaigns\s*=\s*\[)(.*?)(\])(\s*#.*)?$')
+_PLAYBOOK_NUM_RE = re.compile(r'^#\s*\d+\.\s')
+_ARC_COUNT_RE = re.compile(r'\bthe \d+ arc folders?\b')          # 'folders?' -> also bumps a 1-arc start's singular
+_LINK_COUNT_RE = re.compile(r'\(\d+ arcs? -> \d+ links?\)')
+
+
+def _unique_tag(key, used) -> str:
+    """A short FBG/EVT name-prefix tag for a folder ``key`` (first 4 alnum, upper), de-duplicated against
+    ``used`` the SAME way :func:`arc_name_prefixes` does, so an appended region's tag can't shadow another's."""
+    base = "".join(c for c in str(key) if c.isalnum()).upper()[:4] or "ARC"
+    tag, n = base, 1
+    while tag in used:
+        n += 1
+        tag = f"{base[:3]}{n}"
+    return tag
+
+
+def _existing_fork_params(text) -> tuple:
+    """Read the header playbook -> ``(max_id_base|None, used_tags, flags_per_field|None)``. Parses each
+    commented ``import-chain`` command's ``--id-base`` / ``--name-prefix`` / ``--flags-per-field`` so an
+    appended region can pick a band ABOVE the existing max + a fresh tag, without re-touching the forked arcs."""
+    max_base, tags, fpfs = None, set(), set()
+    for pf in parse_fork_commands(text):
+        cmd = pf.command
+        mb = re.search(r"--id-base\s+(\d+)", cmd)
+        if mb:
+            v = int(mb.group(1))
+            max_base = v if max_base is None else max(max_base, v)
+        mt = re.search(r"--name-prefix\s+(\S+)", cmd)
+        if mt:
+            tags.add(mt.group(1))
+        mf = re.search(r"--flags-per-field\s+(\d+)", cmd)
+        if mf:
+            fpfs.add(int(mf.group(1)))
+    return max_base, tags, (min(fpfs) if fpfs else None)
+
+
+def _seed_marker(stripped: str) -> bool:
+    """True for the line that begins the ``[journey.seed]`` section (real or commented, or its lead-in comment)
+    -- the place an appended link template is inserted BEFORE (so it lands after the existing links)."""
+    return (stripped in ("[journey.seed]", "# [journey.seed]")
+            or stripped.startswith("# The New-Game starting state"))
+
+
+def append_region_to_arc(text: str, arc: ReferenceArc, *, journey_index=None) -> "tuple[str, list]":
+    """Append one catalog region (``arc``) to a multi-campaign journey's chain (the GUI's incremental
+    "Add region to arc"). Targets the FIRST multi-campaign ``[[journey]]`` (or ``journey_index``). Allocates a
+    DISJOINT id band (max existing playbook band + :data:`ARC_ID_SPAN`, floored at the by-position default), a
+    unique name-prefix + mod folder, and the chain's flag width, then rewrites the TEXT: appends ``arc.key`` to
+    ``campaigns``, the ``import-chain`` line to the header playbook, and a commented ``[[journey.link]]`` template
+    for the new boundary (``reconcile_arc_journey`` fills it once forked). Returns ``(new_text, notes)``;
+    ``new_text == text`` (+ a skip note) when the region is already in the arc, there's no multi-campaign journey,
+    or the ``campaigns`` array isn't a single line we can grow. Pure + tk-free (the GUI writes the result)."""
+    notes: list = []
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        return text, [ReconcileNote("skip", f"not parseable TOML ({e})")]
+    jrows = data.get("journey", [])
+    if journey_index is None:
+        journey_index = next((i for i, j in enumerate(jrows) if j.get("campaigns")), None)
+    if journey_index is None or journey_index >= len(jrows) or not jrows[journey_index].get("campaigns"):
+        return text, [ReconcileNote("skip", "no multi-campaign [[journey]] to grow "
+                                    "(create a Multi-campaign arc first, then add regions)")]
+    existing = [str(c) for c in jrows[journey_index].get("campaigns", [])]
+    if arc.key in existing:
+        return text, [ReconcileNote("skip", f"{arc.key!r} is already in this arc")]
+
+    # ---- allocate disjoint fork params (NEVER disturb the already-forked arcs)
+    max_base, used_tags, fpf = _existing_fork_params(text)
+    idx = len(existing)                                    # the new region's 0-based position in the chain
+    band_by_index = arc_id_base(idx)                       # what the (idx)-th arc would get in a full scaffold
+    next_base = band_by_index if max_base is None else max(band_by_index, max_base + ARC_ID_SPAN)
+    used = set(used_tags) | {_unique_tag(k, set()) for k in existing}   # dedup vs playbook tags AND folder-derived
+    tag = _unique_tag(arc.key, used)
+    if fpf is None:
+        fpf = arc_flags_per_field(idx + 1)
+    cmd = fork_command(arc, id_base=next_base, tag=tag, flags_per_field=fpf, verbatim=True)
+    if max_base is None and existing:                      # a hand-typed Multi journey has no bands to read
+        notes.append(ReconcileNote("verify", f"this arc has no fork playbook for its existing members "
+                                    f"({', '.join(existing)}) -- confirm none uses id band {next_base}+"))
+
+    lines = text.split("\n")
+
+    # ---- (a) append the folder to `campaigns = [...]` (+ bump the cosmetic count comments), in place
+    start, end = _journey_block_range(lines, journey_index)
+    if start is None:
+        return text, [ReconcileNote("skip", "couldn't locate the [[journey]] block (file hand-edited?)")]
+    camp_i = next((i for i in range(start, end) if _CAMPAIGNS_RE.match(lines[i])), None)
+    if camp_i is None:
+        return text, [ReconcileNote("skip", "the journey's `campaigns` isn't a single-line array to grow "
+                                    "(edit campaigns = [...] by hand, then add)")]
+    m = _CAMPAIGNS_RE.match(lines[camp_i])
+    inner = m.group(2).strip()
+    new_inner = (inner + ", " if inner else "") + f'"{_toml_str(arc.key)}"'
+    lines[camp_i] = f"{m.group(1)}{new_inner}]{m.group(4) or ''}"
+    n_new = len(existing) + 1
+    n_links = n_new - 1                                    # n_new >= 2 here (append needs >=1 existing) -> arc always plural
+    for i in range(start, end):                            # keep "the N arc folder(s)" / "(N arcs -> M link(s))" honest
+        lines[i] = _ARC_COUNT_RE.sub(f"the {n_new} arc folder{'' if n_new == 1 else 's'}", lines[i])
+        lines[i] = _LINK_COUNT_RE.sub(
+            f"({n_new} arc{'' if n_new == 1 else 's'} -> {n_links} link{'' if n_links == 1 else 's'})", lines[i])
+
+    # ---- (b) a commented [[journey.link]] template for the new boundary (prev member -> this region)
+    start, end = _journey_block_range(lines, journey_index)
+    prev = existing[-1]
+    tmpl = ["# [[journey.link]]",
+            f'# from = {{ campaign = "{_toml_str(prev)}", field = "BOUNDARY_MEMBER" }}   # {prev}',
+            f'# to = {{ campaign = "{_toml_str(arc.key)}", field = "ARRIVAL_MEMBER", entrance = 0 }}'
+            f"   # {arc.name} (real {arc.seed})"]
+    seed_i = next((i for i in range(start, end) if _seed_marker(lines[i].strip())), None)
+    insert_at = seed_i if seed_i is not None else end
+    if insert_at > 0 and lines[insert_at - 1].strip():     # no blank above -> add one (else reuse the existing gap)
+        tmpl = [""] + tmpl
+    if seed_i is not None:                                 # inserting before the seed block -> keep a gap after
+        tmpl = tmpl + [""]
+    lines[insert_at:insert_at] = tmpl
+
+    # ---- (c) append the fork command to the header playbook (so the Fork panel offers a Fork button), AFTER the
+    #          last command's `-- <name>: <note>` continuation line(s) so it doesn't orphan a prior arc's note
+    pb = [i for i, ln in enumerate(lines) if _PLAYBOOK_NUM_RE.match(ln) and "import-chain" in ln]
+    pb_lines = [f"#   {n_new:>2}. {cmd}"]
+    if arc.note:
+        pb_lines.append(f"#       -- {arc.name}: {arc.note}")
+    if pb:
+        at = pb[-1] + 1
+        while at < len(lines) and re.match(r"^#\s+--\s", lines[at]):   # skip the prior arc's note continuation
+            at += 1
+        lines[at:at] = pb_lines
+    else:                                                  # no playbook (hand-typed Multi) -> seed a minimal one
+        hub_i = next((i for i, ln in enumerate(lines) if ln.strip() == "[hub]"), None)
+        block = ["# STEP 1 -- fork each region into its own campaign (run from this folder so --out lands here):",
+                 *pb_lines, ""]
+        if hub_i is not None:
+            lines[hub_i:hub_i] = block
+        else:
+            lines = block + lines
+
+    new_text = "\n".join(lines)
+    try:
+        tomllib.loads(new_text)                            # belt-and-suspenders: the result must still parse
+    except tomllib.TOMLDecodeError as e:                   # pragma: no cover -- defensive
+        return text, [ReconcileNote("skip", f"the edit would not parse ({e}) -- left unchanged")]
+    notes.insert(0, ReconcileNote("filled", f"added region {arc.key!r}: id band {next_base}, prefix {tag}, "
+                                  f"folder {arc_mod_folder(tag)}"))
+    notes.append(ReconcileNote("verify", "fork it (Step 1 -- the Fork panel now lists it), then "
+                               "'Fill entry & links from forks' to wire the boundary"))
+    return new_text, notes
