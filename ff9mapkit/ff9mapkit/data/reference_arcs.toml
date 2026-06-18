@@ -1,4 +1,8 @@
-# FF9 reference arc -- the DISC 1 STORY SPINE, laid out as a chain of forkable arcs.
+# FF9 reference arc -- the DISC 1 STORY SPINE, laid out as a chain of forkable arcs / REGIONS.
+#
+# DUAL USE: each [[arc]] below is a forkable FF9 REGION. The GUI's "Browse FF9 regions…" catalog (Import tab,
+# or Ctrl-K "Fork FF9 regions") reads this table to fork a region as a campaign -- pick one, or several to
+# compose into one. The CLI `reference-arcs` instead chains the same arcs into a multi-campaign journeys.toml.
 #
 # This is the north-star planning + fork-and-test harness (CLAUDE.md "fork FIDELITY, not a release"):
 # each [[arc]] below is ONE campaign you produce with `import-chain <seed> --verbatim`, and the arcs chain

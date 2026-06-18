@@ -1086,18 +1086,11 @@ class Workspace(QMainWindow):
         self.open_journey(jpath)
         return jpath
 
-    def _refarc_preview_html(self) -> str:
-        """A compact HTML preview of the packaged reference-arc table, for the New-Journey 'FF9 reference arc'
-        panel (so the dialog shows WHAT it scaffolds before you commit)."""
-        try:
-            from .. import refarc as RA
-            aset = RA.load_reference_arcs()
-        except Exception as e:                     # noqa: BLE001
-            return f"<i>Could not load the reference-arc table: {html.escape(str(e))}</i>"
-        rows = " &rarr; ".join(
-            f"{html.escape(a.key)} <span style='color:{self.pal['muted']}'>({a.seed})</span>" for a in aset.arcs)
-        return (f"<b>{html.escape(aset.title)}</b> — {len(aset.arcs)} arcs, each forks one real field "
-                f"(<code>import-chain</code>):<br>{rows}")
+    def _fork_ff9_regions(self):
+        """Open the FF9 region catalog on the Import tab — pick real FF9 areas to fork as campaigns (one, or
+        several composed into one). The region-fork home (the old New-Journey 'FF9 reference arc' moved here)."""
+        self.tabs.setCurrentWidget(self.import_field)
+        self.import_field.open_region_catalog()
 
     def on_new_journey(self):
         """New Journey… dialog: pick Bare / Multi-campaign / FF9-reference-arc + the hub / first-journey values,
@@ -1108,21 +1101,24 @@ class Workspace(QMainWindow):
         form = QFormLayout(dlg)
         bare_rb = QRadioButton("Bare — the hub warps straight to ONE field")
         multi_rb = QRadioButton("Multi-campaign arc — chain forked campaigns")
-        arc_rb = QRadioButton("FF9 reference arc — scaffold FF9's real story arcs to fork & chain")
         hub_rb = QRadioButton("World Hub — a menu that lists installed journeys, pick one at New Game")
         bare_rb.setChecked(True)
         grp = QButtonGroup(dlg)
         grp.addButton(bare_rb)
         grp.addButton(multi_rb)
-        grp.addButton(arc_rb)
         grp.addButton(hub_rb)
         trow = QWidget()
         tl = QVBoxLayout(trow)
         tl.setContentsMargins(0, 0, 0, 0)
         tl.addWidget(bare_rb)
         tl.addWidget(multi_rb)
-        tl.addWidget(arc_rb)
         tl.addWidget(hub_rb)
+        regions_hint = QLabel("Forking FF9 areas as campaigns moved to <b>Import → Browse FF9 regions…</b> "
+                              "(or Ctrl-K → “Fork FF9 regions”) — a region catalog, not a journey.")
+        regions_hint.setTextFormat(Qt.TextFormat.RichText)
+        regions_hint.setWordWrap(True)
+        regions_hint.setStyleSheet(f"color:{self.pal['muted']};")
+        tl.addWidget(regions_hint)
         form.addRow("Type", trow)
         name = QLineEdit()
         name.setPlaceholderText("My Hub")
@@ -1151,13 +1147,6 @@ class Workspace(QMainWindow):
         ml = QFormLayout(multi_panel)
         ml.setContentsMargins(0, 0, 0, 0)
         ml.addRow("Campaign folders", campaigns)
-        arc_panel = QWidget()
-        al = QVBoxLayout(arc_panel)
-        al.setContentsMargins(0, 0, 0, 0)
-        arc_preview = QLabel(self._refarc_preview_html())
-        arc_preview.setWordWrap(True)
-        arc_preview.setTextFormat(Qt.TextFormat.RichText)
-        al.addWidget(arc_preview)
         hub_panel = QWidget()
         hl = QVBoxLayout(hub_panel)
         hl.setContentsMargins(0, 0, 0, 0)
@@ -1170,7 +1159,6 @@ class Workspace(QMainWindow):
         stack = QStackedWidget()
         stack.addWidget(bare_panel)
         stack.addWidget(multi_panel)
-        stack.addWidget(arc_panel)
         stack.addWidget(hub_panel)
         form.addRow(stack)
         note = QLabel()
@@ -1184,33 +1172,29 @@ class Workspace(QMainWindow):
             0: "A <b>complete</b>, ready-to-build journeys.toml — the hub menu warps straight to your entry field.",
             1: "Fork the campaigns first (<code>ff9mapkit import-chain</code>). This writes the hub + journey with "
                "the entry/links/seed <b>left to fill in</b> against your members.",
-            2: "Scaffolds the FF9 disc-1 story spine as a chained journey + a per-arc <code>import-chain</code> "
-               "fork playbook (the north-star fork-and-test harness). The hub defaults to <b>Mognet Central</b> "
-               "(the journey nexus). Not a one-click rebuild — fork each arc, fill the entry/links, deploy.",
-            3: "A journey SELECTOR: New Game lands on the hub and you pick which installed journey to play. "
+            2: "A journey SELECTOR: New Game lands on the hub and you pick which installed journey to play. "
                "Creates the empty hub; add a menu row per slice with <b>Add journey…</b> afterward. The hub "
                "defaults to <b>Mognet Central</b> (the journey nexus).",
         }
         def _toggle():
-            rbs = [bare_rb, multi_rb, arc_rb, hub_rb]
+            rbs = [bare_rb, multi_rb, hub_rb]
             idx = next((i for i, rb in enumerate(rbs) if rb.isChecked()), 0)
             stack.setCurrentIndex(idx)
-            # swap the borrow-art default to match the kind (the reference-arc + World-Hub fields default to
-            # Mognet Central, FF9's journey nexus) WITHOUT clobbering a value the user actually typed.
+            # swap the borrow-art default to match the kind (the World-Hub field defaults to Mognet Central,
+            # FF9's journey nexus) WITHOUT clobbering a value the user actually typed.
             cur = borrow.text().strip()
-            if idx in (2, 3) and cur in ("", "N11_HUT"):
+            if idx == 2 and cur in ("", "N11_HUT"):
                 borrow.setText(_RA.HUB_BORROW_BG)
-            elif idx not in (2, 3) and cur in ("", _RA.HUB_BORROW_BG):
+            elif idx != 2 and cur in ("", _RA.HUB_BORROW_BG):
                 borrow.setText("N11_HUT")
             note.setText(_NOTES[idx])
-        for rb in (bare_rb, multi_rb, arc_rb, hub_rb):
+        for rb in (bare_rb, multi_rb, hub_rb):
             rb.toggled.connect(_toggle)
         _toggle()
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        kind = ("bare" if bare_rb.isChecked() else "multi" if multi_rb.isChecked()
-                else "refarc" if arc_rb.isChecked() else "hub")
-        hub_name = name.text().strip() or {"refarc": "FF9 Disc 1", "hub": "World Hub"}.get(kind, "")
+        kind = "bare" if bare_rb.isChecked() else "multi" if multi_rb.isChecked() else "hub"
+        hub_name = name.text().strip() or {"hub": "World Hub"}.get(kind, "")
         try:
             self._new_journey(
                 hub_name, dest.text().strip() or self._default_new_dest(), kind=kind,
@@ -1750,6 +1734,7 @@ class Workspace(QMainWindow):
             ("Check", "command", self.on_check),
             ("Lint (CLI)", "command", self.run_cli_lint),
             ("Browse catalog (Info Hub)", "command", self._open_catalog),
+            ("Fork FF9 regions…", "command", self._fork_ff9_regions),
             ("Undo", "command", self._undo),
             ("Redo", "command", self._redo),
             ("Save All fields", "command", self._save_all),
@@ -4950,7 +4935,19 @@ def _smoke(win):
     rt = jref.read_text(encoding="utf-8")
     assert "import-chain 300" in rt and "ice_cavern" in rt and "--name-prefix" in rt, "the fork playbook is in the header"
     assert win.manifest.journeys[0].campaigns[:2] == ["alexandria", "evil_forest"], win.manifest.journeys[0].campaigns
-    assert "<b>" in win._refarc_preview_html() and "alexandria" in win._refarc_preview_html(), "the dialog preview renders"
+    # FF9 REGION CATALOG: "Browse FF9 regions…" (Import) + Ctrl-K "Fork FF9 regions" compose catalog regions
+    # into the Fork-a-region box -- one region alone (its seed + a suggested prefix), or several composed into ONE.
+    from .. import refarc as _RAcat
+    _aset = _RAcat.load_reference_arcs()
+    _imp = win.import_field
+    s1 = _imp._apply_region_selection(_aset, [_aset.arcs[0].key])
+    assert "," not in s1 and _imp.rg_prefix.text(), s1         # one region -> single seed + a suggested prefix
+    s2 = _imp._apply_region_selection(_aset, [_aset.arcs[0].key, _aset.arcs[1].key])
+    assert "," in s2 and _imp.seeds.text() == s2, s2           # several -> composed seeds fill the box
+    assert _imp.rg_prefix.text() == "", "a composed multi-region fork CLEARS the stale single-region prefix"
+    _imp.open_region_catalog = lambda: None                    # stub the modal so the route is headless-testable
+    win._fork_ff9_regions()                                    # Ctrl-K "Fork FF9 regions" -> Import tab + catalog
+    assert win.tabs.currentWidget() is _imp, "Fork FF9 regions switches to the Import tab"
     # the journey overview's Step-1 FORK panel: per-arc commands parsed from the header, none forked yet, and a
     # Fork button that runs import-chain (--out rewritten beside the manifest) right in the GUI (slice 3).
     assert "ice_cavern" in win._fork_cmds and win._fork_cmds["ice_cavern"].seed == 300, "fork commands parsed"
@@ -5228,7 +5225,7 @@ def _smoke(win):
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
           f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
-          f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork, argv-built) + Info Hub "
+          f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "

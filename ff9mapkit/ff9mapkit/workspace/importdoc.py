@@ -13,9 +13,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QRadioButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QVBoxLayout, QWidget,
 )
 
 
@@ -43,7 +44,8 @@ class ImportDoc(QWidget):
         root.addWidget(self._read_box())
         root.addStretch(1)
         self._buttons = [self.find_btn, self.preview_btn, self.import_btn, self.dryrun_btn,
-                         self.fork_region_btn, self.dlg_btn, self.save_btn, self.list_btn, self.tpl_btn]
+                         self.fork_region_btn, self.catalog_btn, self.dlg_btn, self.save_btn,
+                         self.list_btn, self.tpl_btn]
 
     # ------------------------------------------------------------------ fork-a-field
     def _fork_box(self):
@@ -156,8 +158,9 @@ class ImportDoc(QWidget):
         box = QGroupBox("Fork a region  (a connected multi-field chain → one campaign)")
         v = QVBoxLayout(box)
         lbl = QLabel("Fork a whole connected AREA at once — the workflow behind the disc-1 opening. Enter one "
-                     "or more seed fields; the chain forks everything they reach into a single campaign, with "
-                     "every door rewired in-fork. Dry-run first to see the blast radius.")
+                     "or more seed fields (or click Browse FF9 regions… for a catalog of FF9's areas — pick one, "
+                     "or several to compose into one campaign); the chain forks everything they reach into a "
+                     "single campaign, doors rewired in-fork. Dry-run first to see the blast radius.")
         lbl.setWordWrap(True)
         lbl.setStyleSheet(muted)
         v.addWidget(lbl)
@@ -165,7 +168,10 @@ class ImportDoc(QWidget):
         row.addWidget(QLabel("Seeds:"))
         self.seeds = QLineEdit()
         self.seeds.setPlaceholderText("field ids/names, comma-separated — e.g. 300  or  50,100,64")
+        self.catalog_btn = QPushButton("Browse FF9 regions…")
+        self.catalog_btn.clicked.connect(self.open_region_catalog)
         row.addWidget(self.seeds, 1)
+        row.addWidget(self.catalog_btn)
         v.addLayout(row)
         self.rg_whole = QCheckBox("Whole zone — fork every field in each seed's zone, not just door-reachable "
                                   "(catches cutscene-only screens; more fields/ids — Dry-run to preview)")
@@ -232,6 +238,67 @@ class ImportDoc(QWidget):
             whole_zone=self.rg_whole.isChecked(), verbatim=self.rg_verbatim.isChecked(),
             id_base=int(idb) if idb.isdigit() else None,
             name_prefix=self.rg_prefix.text().strip() or None, fresh_ids=self.rg_fresh.isChecked())
+
+    # ------------------------------------------------------------------ FF9 region catalog
+    def _apply_region_selection(self, arcset, keys):
+        """Compose the chosen catalog regions (``refarc.compose_region_fork``) into the Fork-a-region box:
+        seeds (one region, or several composed into one campaign) + a suggested name prefix. Returns the seeds
+        string. Dialog-free so it's headlessly testable."""
+        from .. import refarc as RA
+        seeds, prefix, _n = RA.compose_region_fork(arcset, keys)
+        self.seeds.setText(seeds)
+        self.rg_prefix.setText(prefix)      # ALWAYS (a composed multi-region pick clears a stale single-region tag)
+        self.seeds.setFocus()
+        return seeds
+
+    def open_region_catalog(self):
+        """A pickable catalog of FF9's forkable regions (refarc's ``reference_arcs.toml``). Check ONE region to
+        fork it alone, or SEVERAL to compose their seeds into ONE campaign; 'Use selected' fills the Fork-a-
+        region box. Replaces the old New-Journey 'FF9 reference arc' (which scaffolded an incomplete multi-
+        campaign disc-1 journey) with a region-fork scaffold."""
+        from .. import refarc as RA
+        try:
+            arcset = RA.load_reference_arcs()
+        except Exception as e:                          # noqa: BLE001
+            return self._warn("Region catalog", f"Couldn't load the FF9 region catalog: {e}")
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Fork FF9 regions")
+        lay = QVBoxLayout(dlg)
+        intro = QLabel(f"<b>{arcset.title}</b> — pick FF9 regions to fork. Check ONE to fork it alone, or "
+                       "SEVERAL to compose their seeds into ONE campaign. 'Use selected' fills the Fork-a-region "
+                       "box (review id base / name prefix, then Dry-run or Fork).")
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color:{self.pal['muted']};")
+        lay.addWidget(intro)
+        lst = QListWidget()
+        for a in arcset.arcs:
+            it = QListWidgetItem(f"{a.name}   (seed {a.seed})")
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(Qt.CheckState.Unchecked)
+            it.setData(Qt.ItemDataRole.UserRole, a.key)
+            if a.note:
+                it.setToolTip(a.note)
+            lst.addItem(it)
+        lay.addWidget(lst)
+        foot = QLabel("Forking uses each region's seed + whole-zone. A region's curated zone / starting beat is "
+                      "NOT applied here — add a [startup] beat in the editor after forking (or use the CLI "
+                      "reference-arcs for a custom --zones).")
+        foot.setWordWrap(True)
+        foot.setStyleSheet(f"color:{self.pal['muted']};")
+        lay.addWidget(foot)
+        bb = QDialogButtonBox()
+        bb.addButton("Use selected", QDialogButtonBox.ButtonRole.AcceptRole)
+        bb.addButton(QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        keys = [lst.item(i).data(Qt.ItemDataRole.UserRole) for i in range(lst.count())
+                if lst.item(i).checkState() == Qt.CheckState.Checked]
+        if not keys:
+            return self._warn("No region", "Check at least one region to fork (or Cancel).")
+        self._apply_region_selection(arcset, keys)
 
     # ------------------------------------------------------------------ read & inspect
     def _read_box(self):

@@ -28,6 +28,28 @@ def test_id_bases_are_disjoint_and_prefixes_unique():
     assert len(set(prefixes.values())) == len(prefixes), "FBG/EVT name prefixes must be unique (by-name resolution)"
 
 
+def test_compose_region_fork_single_and_composed():
+    # the GUI "Fork FF9 regions" catalog: one region -> its seed + its tag; several -> composed seeds, no prefix
+    aset = refarc.load_reference_arcs()
+    a0, a1 = aset.arcs[0], aset.arcs[1]
+    seeds1, pfx1, n1 = refarc.compose_region_fork(aset, [a0.key])
+    assert seeds1 == str(a0.seed) and "," not in seeds1 and n1 == 1
+    assert pfx1 == refarc.arc_name_prefixes(aset)[a0.key]          # single -> the region's unique tag
+    seeds2, pfx2, n2 = refarc.compose_region_fork(aset, [a0.key, a1.key])
+    assert seeds2 == f"{a0.seed},{a1.seed}" and n2 == 2 and pfx2 == ""   # composed in CATALOG order, author names it
+    # order follows the CATALOG, not the selection order -- even for a 3-pick out-of-order selection
+    if len(aset.arcs) >= 5:
+        ks = [aset.arcs[4].key, aset.arcs[0].key, aset.arcs[2].key]
+        assert refarc.compose_region_fork(aset, ks)[0] == ",".join(str(aset.arcs[i].seed) for i in (0, 2, 4))
+    # unknown keys are silently dropped -> a lone real pick stays a SINGLE pick (still gets its tag)
+    assert refarc.compose_region_fork(aset, [a0.key, "__nope__"]) == (str(a0.seed), pfx1, 1)
+    assert refarc.compose_region_fork(aset, [a0.key, a0.key])[2] == 1     # duplicate keys collapse (set-dedup)
+    with pytest.raises(refarc.RefArcError):
+        refarc.compose_region_fork(aset, [])                      # nothing selected
+    with pytest.raises(refarc.RefArcError):
+        refarc.compose_region_fork(aset, ["__only_unknown__"])    # all unknown -> nothing to fork
+
+
 def test_fork_playbook_lines_are_runnable_import_chain_commands():
     aset = refarc.load_reference_arcs()
     pb = refarc.fork_playbook(aset)

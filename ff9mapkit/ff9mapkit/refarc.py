@@ -125,6 +125,24 @@ def arc_name_prefixes(arcset: ReferenceArcSet) -> dict:
     return out
 
 
+def compose_region_fork(arcset: ReferenceArcSet, selected_keys) -> "tuple[str, str, int]":
+    """Compose one or more catalog regions into a SINGLE region-fork spec for ``import-chain`` (the GUI's
+    "Fork FF9 regions" catalog) -- returns ``(seeds, name_prefix, n_regions)``.
+
+    ``seeds`` = the regions' ``seed`` fields comma-joined IN CATALOG ORDER. One key = fork that region alone;
+    several = compose their seeds into ONE campaign (whole-zone forks each seed's zone). ``name_prefix`` =
+    the region's unique tag for a single pick, else "" (the author names a composed campaign). NB: an arc's
+    optional ``zone``/``beat`` overrides are NOT applied here (seeds + whole-zone only) -- use the CLI fork
+    playbook for a custom ``--zones``, and add a ``[startup]`` beat in the editor after forking."""
+    keys = set(selected_keys)
+    sel = [a for a in arcset.arcs if a.key in keys]
+    if not sel:
+        raise RefArcError("select at least one region to fork")
+    seeds = ",".join(str(a.seed) for a in sel)
+    prefix = arc_name_prefixes(arcset)[sel[0].key] if len(sel) == 1 else ""
+    return seeds, prefix, len(sel)
+
+
 def arc_mod_folder(tag: str) -> str:
     """The stacked Memoria mod folder a forked arc deploys into. Each arc needs its OWN folder -- the journey
     assembler ABORTS if two campaigns share a ``mod_folder`` (it wholesale-replaces a folder per campaign).
