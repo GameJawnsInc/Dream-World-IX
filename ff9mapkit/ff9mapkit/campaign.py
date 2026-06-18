@@ -263,6 +263,9 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
             if (out / m.toml_rel).exists():
                 if m.real_id:
                     new_id[m.real_id] = m.new_id          # so re-forked members' Field(real)->fork resolve
+                    name_of[m.real_id] = m.name           # keep new_id/name_of CONSISTENT: a re-forked verbatim
+                    #   member's Field(carried) exit feeds the edge-synth `name_of[d]` below -- a carried id in
+                    #   new_id but absent from name_of crashes it (KeyError). real_id 0 never a Field() dest.
                 carried.append(m)
             else:
                 carried_missing.append(m)

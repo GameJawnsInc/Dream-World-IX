@@ -263,7 +263,9 @@ def test_write_campaign_stable_reuse_append_and_carry(tmp_path):
     # member the walk doesn't re-discover (a hand-appended out-of-band fork) is CARRIED at its id, and net-new
     # donors append ABOVE every prior id. Members are emitted id-sorted (so flag windows stay position-stable).
     result = _ice_walk()
-    plan1 = campaign.write_campaign(result, tmp_path, id_base=6000, name="ICE", mod_folder="FF9CustomMap-ow")
+    # VERBATIM (the real fork mode): exercises the edge-synth that crashed on a carried Field() destination.
+    plan1 = campaign.write_campaign(result, tmp_path, id_base=6000, name="ICE", mod_folder="FF9CustomMap-ow",
+                                    verbatim=True)
     ids1 = {m.real_id: m.new_id for m in plan1.members}
 
     # A synthetic prior: freeze two real donors at their fork-1 ids + a HAND-APPENDED out-of-band member (real
@@ -274,24 +276,34 @@ def test_write_campaign_stable_reuse_append_and_carry(tmp_path):
     blank = tmp_path / "BLANK_RM"          # a SOURCE-LESS prior member (real_id 0) -- must still be protected+carried
     blank.mkdir()
     (blank / "BLANK_RM.field.toml").write_text("[field]\nid = 6499\n", encoding="utf-8")
+    # A carried member that a RE-FORKED verbatim member warps to: Ice Cavern 306 has Field(652), and 652 (kuin)
+    # is out-of-zone so it's carried -> the edge-synth must resolve name_of[652] (regressions the KeyError where a
+    # carried id was in new_id but not name_of).
+    kuin = tmp_path / "KUIN_X"
+    kuin.mkdir()
+    (kuin / "KUIN_X.field.toml").write_text("[field]\nid = 6498\n", encoding="utf-8")
     prior = campaign.CampaignPlan(
         name="ICE", mod_folder="FF9CustomMap-ow", id_base=6000, flag_base=campaign.FIRST_SAFE_FLAG,
         flags_per_field=64, entry_name="IC_ENT", entry_entrance=0,
         members=[campaign.Member(300, ids1[300], "IC_ENT", "native", 0, "", "IC_ENT/IC_ENT.field.toml", False),
                  campaign.Member(301, ids1[301], "IC_STP", "native", 0, "", "IC_STP/IC_STP.field.toml", False),
                  campaign.Member(506, 6500, "OOB_DCK", "native", 0, "", "OOB_DCK/OOB_DCK.field.toml", False),
+                 campaign.Member(652, 6498, "KUIN_X", "native", 0, "", "KUIN_X/KUIN_X.field.toml", False),
                  campaign.Member(0, 6499, "BLANK_RM", "editable", 0, "", "BLANK_RM/BLANK_RM.field.toml", False)])
 
     plan2 = campaign.write_campaign(result, tmp_path, id_base=6000, name="ICE",
-                                    mod_folder="FF9CustomMap-ow", prior_plan=prior)
+                                    mod_folder="FF9CustomMap-ow", verbatim=True, prior_plan=prior)
     ids2 = {m.real_id: m.new_id for m in plan2.members}
     assert ids2[300] == ids1[300] and ids2[301] == ids1[301]    # frozen -> in-fork saves survive
     assert ids2[506] == 6500 and "OOB_DCK" in plan2.carried     # the out-of-band fork carried, not dropped
     assert "BLANK_RM" in plan2.carried                          # the SOURCE-LESS prior member carried too
+    assert "KUIN_X" in plan2.carried                            # the warped-to carried member (306->Field(652))
+    assert any(e["to"] == "KUIN_X" for e in plan2.edges)        # edge-synth resolved name_of[652] (no KeyError)
     assert plan2.entry_name == "IC_ENT"                         # prior entry preserved
-    newd = [m for m in plan2.members if m.real_id and m.real_id not in (300, 301, 506)]
+    carried_reals = (506, 652)                                  # carried prior members (+ source-less real_id 0)
+    newd = [m for m in plan2.members if m.real_id and m.real_id not in (300, 301, *carried_reals)]
     assert newd and all(m.new_id > 6500 for m in newd)          # net-new donors append above EVERY prior id (incl 6499)
-    assert 6499 not in [m.new_id for m in newd]                 # the source-less id was reserved, never reused
+    assert {6498, 6499, 6500}.isdisjoint(m.new_id for m in newd)  # carried/source-less ids reserved, never reused
     assert [m.new_id for m in plan2.members] == sorted(m.new_id for m in plan2.members)   # id-sorted
     assert len({m.new_id for m in plan2.members}) == len(plan2.members)                   # all distinct
     # the carried members are in the written manifest at their frozen ids
