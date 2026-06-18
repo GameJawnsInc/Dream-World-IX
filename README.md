@@ -23,6 +23,7 @@ The project is **Dream World IX**; the Python toolkit at its heart is the packag
 - **[ff9mapkit/README.md](ff9mapkit/README.md)** — the toolkit overview and command families.
 - **[ff9mapkit/docs/TUTORIAL.md](ff9mapkit/docs/TUTORIAL.md)** — a focused ~10-minute first-field walkthrough.
 - **[ff9mapkit/docs/FEATURES.md](ff9mapkit/docs/FEATURES.md)** — the full capability list.
+- **[Troubleshooting](ff9mapkit/docs/TROUBLESHOOTING.md)** & **[Known issues](ff9mapkit/docs/KNOWN_ISSUES.md)** — when something breaks or behaves unexpectedly.
 
 ### Quickstart
 

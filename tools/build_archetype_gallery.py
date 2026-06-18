@@ -24,7 +24,7 @@ from ff9mapkit.scene import bgi
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import model_field_usage as _mfu          # the model -> field-locations index (run --build once)
 
-IHTEST = Path(os.environ.get("IHTEST", r"C:\Users\skaki\AppData\Local\Temp\ihtest"))
+IHTEST = Path(os.environ.get("IHTEST", os.path.expandvars(r"%LOCALAPPDATA%\Temp\ihtest")))
 PER_BATCH = 8
 ROW_Z = 150                  # floor-0 row (where the Black Mage test was proven walkable)
 ROW_X = (-800, 800)          # on floor 0 (walkable x ~[-1050,1050] at this z)

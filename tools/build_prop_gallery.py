@@ -25,7 +25,7 @@ import extract_prop_poses as EP          # canonical pose per model (cached)
 import model_field_usage as MFU          # model -> field locations
 import build_debug_arena as _arena       # the big flat scrolling checkerboard stage (--arena; big props)
 
-IHTEST = Path(os.environ.get("IHTEST", r"C:\Users\skaki\AppData\Local\Temp\ihtest"))
+IHTEST = Path(os.environ.get("IHTEST", os.path.expandvars(r"%LOCALAPPDATA%\Temp\ihtest")))
 PER_BATCH = 6                              # props vary wildly in size; fewer + wider so big ones don't block
 ROW_Z, ROW_X, SPAWN = 150, (-1000, 1000), [0, 500]
 

@@ -24,7 +24,7 @@ from ff9mapkit import archetypes as AR
 from ff9mapkit import catalog as C
 from ff9mapkit.scene import bgi
 
-IHTEST = Path(os.environ.get("IHTEST", r"C:\Users\skaki\AppData\Local\Temp\ihtest"))
+IHTEST = Path(os.environ.get("IHTEST", os.path.expandvars(r"%LOCALAPPDATA%\Temp\ihtest")))
 PER_ROW = 8
 ROW_Z = 150
 ROW_X = (-800, 800)

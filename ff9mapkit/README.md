@@ -87,6 +87,9 @@ do** — and `build` compiles both. There's also a one-window [PySide6 Workspace
 - [`docs/PROVENANCE.md`](docs/PROVENANCE.md) — **the kit ships no game data**: how the base assets are
   regenerated from your own FF9 install (`extract-templates`), and why that's legally clean.
 - [`docs/TECHNICAL.md`](docs/TECHNICAL.md) — the hard problems solved (camera math, `.eb` format, import).
+- [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — terms used across the docs (walkmesh, gateway, fork, GLOB flag…).
+- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — common first-run failures → fixes.
+- [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) — beta limitations + the Workspace GUI gaps.
 - [`examples/vivi-hut/`](examples/vivi-hut) — a complete worked example.
 - [`blender/`](blender/README.md) — the **Blender add-on**: visually author the camera + walkmesh,
   then export a `field.toml` for `build` (Blender 4.2+/5.x).

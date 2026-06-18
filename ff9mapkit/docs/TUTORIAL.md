@@ -46,7 +46,7 @@ Open the `.field.toml` and uncomment the `[[npc]]` block (put `pos` inside the w
 ```toml
 [[npc]]
 name = "Greeter"
-preset = "vivi"
+archetype = "vivi"
 pos = [800, 200]          # within the printed walkmesh bounds
 dialogue = "Welcome to the room I just made."
 ```

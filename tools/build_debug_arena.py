@@ -16,7 +16,7 @@ sys.path.insert(0, KIT)
 from ff9mapkit.scene.arena import (build_arena, arena_toml, arena_scene_lines,   # noqa: F401
                                    PITCH, FOV, DIST, BACK_Y, FRONT_Y, BACK_SPAN)
 
-IHTEST = Path(os.environ.get("IHTEST", r"C:\Users\skaki\AppData\Local\Temp\ihtest"))
+IHTEST = Path(os.environ.get("IHTEST", os.path.expandvars(r"%LOCALAPPDATA%\Temp\ihtest")))
 
 
 def main():

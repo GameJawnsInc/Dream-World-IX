@@ -15,7 +15,7 @@ KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit")
 sys.path.insert(0, KIT)
 from ff9mapkit import catalog as C
 
-IHTEST = Path(os.environ.get("IHTEST", r"C:\Users\skaki\AppData\Local\Temp\ihtest"))
+IHTEST = Path(os.environ.get("IHTEST", os.path.expandvars(r"%LOCALAPPDATA%\Temp\ihtest")))
 ROW_Z, ROW_X, SPAWN = 150, (-800, 800), [0, 500]
 # (GEO name, pose action or None=default). chest/moogle need a real pose; tent/frog default fine.
 DEFAULT = [("GEO_ACC_F0_TBX", "close"), ("GEO_ACC_F0_TNT", None),
