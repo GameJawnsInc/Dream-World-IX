@@ -51,9 +51,26 @@ index ce07d3fc..4f3855c1 100644
          {
              if (fldMapNo == 64) // A. Castle/Public Seats
 diff --git a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
-index dd3078ae..7cea41fe 100644
+index dd3078ae..427f0795 100644
 --- a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
 +++ b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
+@@ -324,11 +324,11 @@ public partial class FieldMapActorController : HonoBehavior
+         if (this.isPlayer)
+         {
+             if (PersistenSingleton<EventEngine>.Instance.GetUserControl()
+-                || FF9StateSystem.Common.FF9.fldMapNo == 1751 // Iifa Tree/Inner Roots (entrance after elevator)
+-                || FF9StateSystem.Common.FF9.fldMapNo == 404 // Dali underground Entrance
+-                || (FF9StateSystem.Common.FF9.fldMapNo == 205 && this.originalActor.sid == 16) //Prima Vista/ Hallway(front of Steiner's cell), Steiner
+-                || (FF9StateSystem.Common.FF9.fldMapNo == 2150 && this.originalActor.sid == 13) //L. Castle/Royal Chamber, Zidane
+-                || (FF9StateSystem.Common.FF9.fldMapNo == 900 && this.originalActor.sid == 13)) //Treno/Pub, Dagger
++                || Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1751 // Iifa Tree/Inner Roots (entrance after elevator)
++                || Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 404 // Dali underground Entrance
++                || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 205 && this.originalActor.sid == 16) //Prima Vista/ Hallway(front of Steiner's cell), Steiner
++                || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2150 && this.originalActor.sid == 13) //L. Castle/Royal Chamber, Zidane
++                || (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 900 && this.originalActor.sid == 13)) //Treno/Pub, Dagger [ff9mapkit fork-fidelity]
+             {
+                 if (!PersistenSingleton<EventEngine>.Instance.GetUserControl() || copyLastPos)
+                     this.CopyLastPos();
 @@ -920,7 +920,7 @@ public partial class FieldMapActorController : HonoBehavior
      {
          if ((this.charFlags & 1) == 0)
