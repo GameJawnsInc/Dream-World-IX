@@ -14,8 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QRadioButton, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+    QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from ..editor import feedback as fb
@@ -46,7 +46,15 @@ class BuildDoc(QWidget):
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self):
-        v = QVBoxLayout(self)
+        # SCROLL the body: five target group boxes + the New-Game box stack tall, so a short window would
+        # cram them and inflate the central minimum height (blocking the bottom Output dock from growing).
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        inner = QWidget()
+        v = QVBoxLayout(inner)
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(10)
         row = QHBoxLayout()
@@ -84,6 +92,8 @@ class BuildDoc(QWidget):
         btns.addStretch(1)
         v.addLayout(btns)
         v.addStretch(1)
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
 
     def _field_box(self):
         box = QGroupBox("Build to (field)")

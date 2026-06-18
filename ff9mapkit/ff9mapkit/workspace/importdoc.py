@@ -15,8 +15,9 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QScrollArea,
+    QVBoxLayout, QWidget,
 )
 
 
@@ -30,7 +31,16 @@ class ImportDoc(QWidget):
         self.pal = pal
         self.kit = Path(kit_root)                      # `-m ff9mapkit` cwd (this worktree's package)
         self._run = run
-        root = QVBoxLayout(self)
+        # The tab body SCROLLS: this view stacks five tall group boxes, so a short window would otherwise
+        # cram/overlap them (and the inflated minimum height blocks the bottom Output dock from growing). The
+        # scroll area keeps THIS widget's min height small so the dock is resizable + the boxes never collide.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        inner = QWidget()
+        root = QVBoxLayout(inner)
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(10)
         intro = QLabel("Bring content in from your real FF9 install (needs UnityPy). Fork a single real field, "
@@ -43,6 +53,8 @@ class ImportDoc(QWidget):
         root.addWidget(self._region_box())
         root.addWidget(self._read_box())
         root.addStretch(1)
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
         self._buttons = [self.find_btn, self.preview_btn, self.import_btn, self.dryrun_btn,
                          self.fork_region_btn, self.catalog_btn, self.dlg_btn, self.save_btn,
                          self.list_btn, self.tpl_btn]
