@@ -580,13 +580,38 @@ entry = { campaign = "evil_forest", field = "EVF_START" }
 
 def test_render_deploy_playbook(tmp_path):
     p = _escape_ice(tmp_path)
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
     book = journey.render_deploy_playbook(journey.load_journeys(p), hub_toml="hub.field.toml")
     assert "deploy_campaign.py" in book and "--flag-base 8512" in book and "--flag-base 8640" in book
     assert "--no-warp" in book and "--mod-folder FF9CustomMap-evf" in book
     assert "deploy_journey.py" in book and "--apply-links" in book      # the link step
     assert "Field(652) -> Field(6100)" in book
-    assert "retarget_newgame_warp.py 4500" in book                      # New Game -> hub
+    # the hub + New-Game override go into a DEDICATED journey folder (not the ambient highest)
+    assert f"--id 4500 --mod-folder {plan.hub_folder}" in book          # hub field -> the hub folder
+    assert f"wire_newgame_from_stock.py 4500 --mod-folder {plan.hub_folder}" in book   # New Game -> hub
+    assert "retarget_newgame_warp.py" not in book                       # the no-op-prone retarget is gone
+    assert "FolderNames = " in book and plan.hub_folder in book         # the concrete stack line
     assert "'Treno' [treno] -> field 4501" in book                      # bare journey noted
+
+
+def test_deploy_plan_hub_folder_is_dedicated(tmp_path):
+    p = _escape_ice(tmp_path)
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
+    assert plan.hub_folder and plan.hub_folder.startswith("FF9CustomMap-")
+    assert plan.hub_folder not in {s.mod_folder for s in plan.campaign_steps}   # distinct -> no re-deploy clobber
+
+
+def test_deploy_plan_hub_folder_avoids_a_campaign_folder_collision(tmp_path):
+    # a hub named after a campaign would derive the SAME folder -> the loop must pick a distinct fallback so the
+    # hub deploy can't wholesale-clobber that campaign's folder.
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000, mod_folder="FF9CustomMap-arc")
+    hub = ('[hub]\nname = "arc"\nid = 4500\narea = 21\nborrow_bg = "GRGR_MAP420_GR_CEN_0"\n'
+           'camera = "camera_hub.bgx"\ntext_block = 8\n\n')                  # hub name "arc" -> base FF9CustomMap-arc
+    p = _write_manifest(tmp_path, hub + '[[journey]]\nid = "x"\ncampaigns = ["ca"]\n'
+                                  'entry = { campaign = "ca", field = "A1" }\n', with_hub=False)
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
+    assert plan.hub_folder == "FF9CustomMap-arc-hub"                            # base collided -> distinct fallback
+    assert plan.hub_folder not in {s.mod_folder for s in plan.campaign_steps}
 
 
 def test_apply_link_rewrites(tmp_path, monkeypatch):

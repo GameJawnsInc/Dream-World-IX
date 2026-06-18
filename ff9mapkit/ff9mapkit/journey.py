@@ -774,6 +774,11 @@ class JourneyDeployPlan:
     entry_field_id: "int | None" = None   # the resolved opening entry id IF the manifest has exactly ONE
     #                                        journey (else None) -- the "New Game -> straight into the opening,
     #                                        no hub menu" target (deploy_journey.py --newgame entry)
+    hub_folder: "str | None" = None       # the DEDICATED mod folder the hub field + the New-Game override deploy
+    #                                        into (FF9CustomMap-<hub token>) -- a journey-OWNED folder the user
+    #                                        stacks HIGHEST, NOT the ambient deploy-time highest (which a journey
+    #                                        re-stack/band-collision may drop) and NOT a campaign folder (whose
+    #                                        wholesale re-deploy would wipe the override).
 
 
 def seed_to_field_blocks(seed: "JourneySeed | None") -> dict:
@@ -900,8 +905,17 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
                 seam_kinds=sr["kinds"], retargetable=sr["retargetable"], note=sr["note"]))
     hub_id = int(manifest.hub["id"]) if manifest.hub.get("id") is not None else None
     single_entry = entry_ids[0] if len(manifest.journeys) == 1 else None    # "straight into the opening" target
-    return JourneyDeployPlan(hub_field_id=hub_id, campaign_steps=steps, links=links,
-                             bare_entries=bare, folder_conflicts=conflicts, entry_field_id=single_entry)
+    hub_folder = None
+    if hub_id is not None:                       # a dedicated journey-owned folder for the hub + New-Game override
+        from . import hub as _hub
+        base = f"FF9CustomMap-{_hub.name_token(manifest.hub.get('name', 'hub')).lower()}"
+        camp = {s.mod_folder for s in steps}     # keep it distinct from EVERY campaign folder (no re-deploy clobber)
+        hub_folder, i = base, 1                   # loop (not one-shot) so the fallback can't itself collide
+        while hub_folder in camp:
+            hub_folder = f"{base}-hub{'' if i == 1 else i}"
+            i += 1
+    return JourneyDeployPlan(hub_field_id=hub_id, campaign_steps=steps, links=links, bare_entries=bare,
+                             folder_conflicts=conflicts, entry_field_id=single_entry, hub_folder=hub_folder)
 
 
 def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.field.toml>",
@@ -919,7 +933,7 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
          "# Memoria.ini [Mod] FolderNames must STACK every folder below; the hub folder is HIGHEST.",
          f"# ONE-SHOT: `py tools/deploy_journey.py {jref} --apply` runs steps 1-3 (campaigns + links + hub) + "
          "seeds the entry + writes ONE revert. New Game is NOT touched (reach the hub via F6; add "
-         "--wire-newgame to opt in).",
+         "--newgame hub|entry to opt in).",
          ("# (the manual steps below do NOT apply [journey.seed] -- use --apply for a seeded journey)"
           if seeded else ""),
          ""]
@@ -969,18 +983,31 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
     else:
         L.append("#   (no cross-campaign links)")
     L.append("")
-    L.append("# 3. Emit + deploy the hub field (reach it via F6 -> Warp; New Game stays untouched):")
+    L.append(f"# 3. Emit + deploy the hub field into its OWN folder {plan.hub_folder!r} (reach it via F6 -> Warp; "
+             "New Game stays untouched):")
     L.append(f"py -m ff9mapkit assemble-journey {jref} --out {hub_toml}")
     if plan.hub_field_id is not None:
-        L.append(f"py tools/deploy_field.py {hub_toml} --id {plan.hub_field_id}   "
-                 f"# --mod-folder <the highest stacked folder>")
-        L.append(f"# OPTIONAL (SINGLE-OWNER -- replaces your current New-Game landing, e.g. a live World Hub):")
-        L.append(f"py tools/retarget_newgame_warp.py {plan.hub_field_id}   # New Game -> THIS hub")
+        L.append(f"py tools/deploy_field.py {hub_toml} --id {plan.hub_field_id} --mod-folder {plan.hub_folder}")
+        L.append("# OPTIONAL New-Game landing (SINGLE-OWNER -- replaces your current target; into the hub folder):")
+        L.append(f"py tools/wire_newgame_from_stock.py {plan.hub_field_id} --mod-folder {plan.hub_folder}"
+                 f"   # New Game -> the hub MENU")
+        if plan.entry_field_id is not None:
+            L.append(f"py tools/wire_newgame_from_stock.py {plan.entry_field_id} --mod-folder {plan.hub_folder}"
+                     f"   # New Game -> STRAIGHT into the opening (single arc; keeps the real FMV)")
     L.append("")
     if plan.bare_entries:
         L.append("# Bare single-field journeys (already deployed elsewhere -- the hub just warps to them):")
         for jid, name, eid in plan.bare_entries:
             L.append(f"#    {name!r} [{jid}] -> field {eid}")
+    folders = ([plan.hub_folder] if plan.hub_folder else []) + [s.mod_folder for s in plan.campaign_steps]
+    if folders:
+        L.append("# Memoria.ini [Mod] FolderNames (HIGHEST first), then your video/passthrough mods below:")
+        L.append("#   FolderNames = " + ", ".join(f'"{f}"' for f in folders) + ', "<your other mods, e.g. Moguri>"')
+    if plan.campaign_steps:
+        lo = min(s.id_lo for s in plan.campaign_steps)
+        hi = max(s.id_hi for s in plan.campaign_steps)
+        L.append(f"#   This journey uses field ids {lo}..{hi} -- REMOVE any OTHER custom-field folder that deploys "
+                 f"in that range (EventDB is GLOBAL -> a collision black-screens).")
     L.append("# Then RELAUNCH once (new ids register on a fresh launch) and PLAYTEST.")
     return "\n".join(L) + "\n"
 

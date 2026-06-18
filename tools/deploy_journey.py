@@ -8,8 +8,8 @@ A ``journeys.toml`` (``[hub]`` + bare/multi-campaign ``[[journey]]`` rows -- see
      ``--flag-base`` window, ``--no-warp`` (the hub owns New Game).
   2. the cross-campaign LINK rewrites -- the one journey-unique step: byte-patch each boundary member's
      deployed ``.eb`` ``Field(seam)`` exit -> the next campaign's entry id (this tool, ``--apply-links``).
-  3. ``assemble-journey`` -> the hub ``field.toml``, then ``deploy_field.py`` it + ``retarget_newgame_warp.py``
-     -> the hub.
+  3. ``assemble-journey`` -> the hub ``field.toml``, then ``deploy_field.py`` it into a DEDICATED journey-owned
+     hub folder; ``--newgame hub|entry`` then points New Game there (``wire_newgame_from_stock.py``).
 
 DEFAULT = a DRY-RUN: lint the manifest, print the resolved namespace + the ordered command PLAYBOOK (each
 step a proven tool you run + PLAYTEST in order -- "one change per in-game test", Hard Constraint §2).
@@ -160,6 +160,12 @@ def _apply_journey(manifest, plan, args) -> int:
         return 2
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     highest = _highest_folder(game)
+    # the hub field + the New-Game override go into a DEDICATED journey-owned folder (NOT the ambient deploy-time
+    # highest, which the user may drop when re-stacking FolderNames for the journey / to dodge a band collision;
+    # and NOT a campaign folder, whose wholesale re-deploy would wipe the override). The user stacks it HIGHEST.
+    # plan.hub_folder is always set here (hub_field_id was checked non-None above); `or highest` is an unreachable
+    # safety net (never the orphan-prone ambient highest in practice).
+    hub_folder = plan.hub_folder or highest
     captured: list = []                                   # per-step revert paths, in forward order
     SCROLL.mkdir(exist_ok=True)
     unified = SCROLL / "revert_journey.py"
@@ -226,10 +232,10 @@ def _apply_journey(manifest, plan, args) -> int:
     if not links_ok:
         return _abort("a cross-campaign link did not apply (see !! above)")
 
-    # (3) deploy the hub field (already emitted + build-checked in pre-flight step 0)
-    print("\n=== 3. hub ===")
+    # (3) deploy the hub field into its DEDICATED folder (already emitted + build-checked in pre-flight step 0)
+    print(f"\n=== 3. hub (folder {hub_folder}) ===")
     rc = _run([sys.executable, str(HERE / "deploy_field.py"), str(hub_toml),
-               "--id", str(plan.hub_field_id), "--mod-folder", highest])
+               "--id", str(plan.hub_field_id), "--mod-folder", hub_folder])
     if rc != 0:
         return _abort(f"deploy_field for the hub (id {plan.hub_field_id}) exited {rc}")
     cap = _capture(f"revert_deploy_{plan.hub_field_id}.py", f"revert_journey_hub_{plan.hub_field_id}.py")
@@ -237,28 +243,21 @@ def _apply_journey(manifest, plan, args) -> int:
         captured.append(cap)
     _flush()
 
-    # (4) OPTIONALLY point New Game at this journey. The field-70 override is SINGLE-OWNER, so this is OPT-IN
-    #     (else --apply would silently hijack an existing New-Game hub). Three modes (--newgame):
+    # (4) OPTIONALLY point New Game at this journey -- into the SAME dedicated hub folder (so it survives a
+    #     campaign re-deploy + isn't shadowed). SINGLE-OWNER, so it's OPT-IN (--newgame):
     #       none  -- New Game UNCHANGED (reach the hub via F6 -> Warp). DEFAULT.
-    #       hub   -- New Game -> the HUB selector menu (retarget the live override; keeps a SEAMLESS/no-FMV hub).
-    #       entry -- New Game -> straight into the OPENING field, no menu (the faithful single-arc path:
-    #                wire_newgame_from_stock keeps field-70's real opening FMV + fade, then warps the entry id).
-    if args.newgame == "hub":
-        print(f"\n=== 4. New Game -> hub (field {plan.hub_field_id}) ===")
-        rc = _run([sys.executable, str(HERE / "retarget_newgame_warp.py"), str(plan.hub_field_id)])
-        if rc != 0:
-            return _abort(f"retarget_newgame_warp exited {rc}")
-        cap = _capture("revert_newgame_retarget.py", "revert_journey_newgame.py")
-        if cap:
-            captured.append(cap)
-        _flush()
-    elif args.newgame == "entry":
-        if plan.entry_field_id is None:
+    #       hub   -- New Game -> the HUB selector menu.
+    #       entry -- New Game -> straight into the OPENING field, no menu (single-journey; keeps field-70's FMV).
+    #     Both create the field-70 override from STOCK into hub_folder (retarget no-ops on a fresh journey folder).
+    if args.newgame in ("hub", "entry"):
+        if args.newgame == "entry" and plan.entry_field_id is None:
             return _abort("--newgame entry needs a SINGLE-journey manifest (a multi-journey hub has no single "
                           "opening to land in -- use --newgame hub).")
-        print(f"\n=== 4. New Game -> opening (field {plan.entry_field_id}, no menu) ===")
-        rc = _run([sys.executable, str(HERE / "wire_newgame_from_stock.py"), str(plan.entry_field_id),
-                   "--mod-folder", highest])
+        target = plan.hub_field_id if args.newgame == "hub" else plan.entry_field_id
+        what = "the hub menu" if args.newgame == "hub" else "the opening, no menu"
+        print(f"\n=== 4. New Game -> {what} (field {target}, folder {hub_folder}) ===")
+        rc = _run([sys.executable, str(HERE / "wire_newgame_from_stock.py"), str(target),
+                   "--mod-folder", hub_folder])
         if rc != 0:
             return _abort(f"wire_newgame_from_stock exited {rc}")
         cap = _capture("revert_newgame_from_stock.py", "revert_journey_newgame.py")
@@ -269,8 +268,14 @@ def _apply_journey(manifest, plan, args) -> int:
         print("\n=== 4. New Game: SKIPPED (New Game UNCHANGED; --newgame hub|entry to opt in) ===")
 
     print("\n=== MANUAL STEPS (this tool cannot do these) ===")
-    print(f"1. Memoria.ini [Mod] FolderNames must STACK every campaign folder + the hub folder "
-          f"({highest!r} highest).")
+    folders = [hub_folder] + [s.mod_folder for s in plan.campaign_steps]
+    print("1. Memoria.ini [Mod] FolderNames -- STACK these (HIGHEST first), then your video/passthrough mods below:")
+    print("   FolderNames = " + ", ".join(f'"{f}"' for f in folders) + ', "<your other mods, e.g. Moguri>"')
+    if plan.campaign_steps:
+        lo = min(s.id_lo for s in plan.campaign_steps)
+        hi = max(s.id_hi for s in plan.campaign_steps)
+        print(f"   This journey uses field ids {lo}..{hi} -- REMOVE any OTHER custom-field folder that deploys in "
+              f"that range (EventDB is GLOBAL, so an overlap black-screens).")
     print("2. RELAUNCH once -- the new ids only register on a fresh launch.")
     if args.newgame == "hub":
         print(f"3. New Game now lands on the hub (field {plan.hub_field_id}); pick a journey, PLAYTEST.")
