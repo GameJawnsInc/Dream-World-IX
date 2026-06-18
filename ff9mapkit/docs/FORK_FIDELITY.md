@@ -243,15 +243,18 @@ Pick the fork's PURPOSE first; the mode and the carry/drop list follow.
 
 ### IMPOSSIBLE on stock Memoria — the genuine engine residuals
 
-All keyed on the real `fldMapNo`/FBG-name or a fixed compile-time structure with no `.eb` reach. A dev-only DLL patch
-would fix each; all declined (the only sanctioned custom DLL is the dev-only F6 menu; `s23` narrow-map is the
-proven-but-deliberately-unshipped template).
+All keyed on the real `fldMapNo`/FBG-name or a fixed compile-time structure with no `.eb` reach — so they are
+impossible on a *stock* engine. The shipped **`s23`–`s28` fork-donor remap patch set** (a custom Memoria build,
+bundled with the showcase) now restores most of them by wrapping the hardcoded `fldMapNo == N` gates with an
+effective-field-id; only the `s22` F6 debug menu remains dev-only. (This table predates the full `s23`–`s28`
+shipping decision — the current public summary of what's stock vs. patch-restored vs. genuinely blocked is in
+[`ENGINE.md`](ENGINE.md). The rows below mark what stays genuinely engine-blocked even with the patch set.)
 
 | # | Residual | Why engine-blocked | Stock band-aid |
 |---|----------|--------------------|----------------|
 | 1 | **Entry-camera ease elimination** | `SmoothCamDelay`/`SmoothCamActive` engine internals; player binds AFTER the snap window; `SmoothCamExcludeMaps` is a hardcoded real-id set (`FieldMap.cs:2532`); no `.eb` op re-arms it. **Universal across all synth modes** — verbatim only *hides* it behind a long real entry sequence. | `entry_settle` black-hold (faithful, not a kludge) + source-side `WARP_FADE`. Runtime `CameraStabilizer` is per-user (`Memoria.ini`) → a baked `Wait` can't adapt; offline default-stabilizer estimator is UNBUILT-not-impossible. |
 | 2 | **ATE seen-state + ATE80 trophy** on a custom id | `EMinigame.MappingATEID` is a hardcoded if/else on real `fldMapNo` → −1 for ≥4000; `AteCheck` lives on `AchievementState`, not `gEventGlobal`. The ATE itself *plays* fine (verbatim / `[ate]`); only the bookkeeping is lost. | Fork in-place on the real id (in tension with verbatim's normal ≥4000 mint). |
-| 3 | **Narrow-map letterbox masking** on a mint | `NarrowMapList.MapWidth` is a hardcoded `fldMapNo` table (ids ≤3100) → mint falls to `return 500` = not-narrow; the `ConditionalForceNarrow` escape ALSO requires a real-id match (`RestrictedWidthScenesList`). | Fork in-place (keeps `fldMapNo`); `s23` patch proven 2026-06-14, NOT shipped. → `project-ff9-narrow-map-fork-letterbox`. |
+| 3 | **Narrow-map letterbox masking** on a mint | `NarrowMapList.MapWidth` is a hardcoded `fldMapNo` table (ids ≤3100) → mint falls to `return 500` = not-narrow; the `ConditionalForceNarrow` escape ALSO requires a real-id match (`RestrictedWidthScenesList`). | Fork in-place (keeps `fldMapNo`), **or the shipped `s23` patch** (gives the fork the donor's exact tuned width). → `project-ff9-narrow-map-fork-letterbox`. |
 | 4 | **Chocobo live dig-HUD** on a minted fork of 2950–2952 | `EventHUD.cs:384` gates the live timer HUD on literal `fldMapNo==2950\|\|2951\|\|2952`. (The *instruction popup* is `FieldZoneId==945`-keyed → reachable via `--text-block 945`; only the live HUD is id-locked.) | Fork in-place on 2950–2952. |
 | 5 | **Field-70 FMV + ~12 per-actor anim tweaks** on a mint | `FieldMapActor.cs` has `fldMapNo`-keyed per-actor tweaks; FMV bound to the real id. *Generalizes:* any real-`fldMapNo`-gated engine behavior is lost on a mint. | Retarget the stock field-70 override rather than mint FMV behavior. |
 | 6 | **A brand-NEW FMV slot** (beyond FMV000–060) + paired audio | `MBG.MBGDiscTable` is a fixed `static readonly` jagged array `MBG.Seek` indexes directly — no `.eb` reach; `.akb` audio is name-keyed (doubly blocked). | Reuse/repoint an existing slot (`fmv-swap` proven on FMV000); the `.bytes` layer is open. |

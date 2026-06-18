@@ -31,8 +31,10 @@ save = ["pycryptodome>=3.10"]
 gui = ["PySide6>=6.5"]
 
 [project.urls]
-Homepage = "https://github.com/"          # filled in when published
-Repository = "https://github.com/"
+# Project "Dream World IX"; package stays "ff9mapkit". Confirm the slug after the GitHub repo rename.
+Homepage = "https://github.com/GameJawnsInc/Dream-World-IX"
+Repository = "https://github.com/GameJawnsInc/Dream-World-IX"
+Issues = "https://github.com/GameJawnsInc/Dream-World-IX/issues"
 
 [project.scripts]
 ff9mapkit = "ff9mapkit.cli:main"

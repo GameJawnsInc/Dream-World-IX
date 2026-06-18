@@ -8,8 +8,9 @@
 **`field.toml`** into a complete drop-in [Memoria](https://github.com/Albeoris/Memoria) mod — a
 brand-new *Final Fantasy IX* field with its camera, walkmesh, painted art, NPCs, dialogue,
 gateways, encounters, events, and cutscenes. It can also **import/fork any of FF9's ~674 real
-fields**, carrying their content faithfully. The output runs on a **stock, unmodified Memoria
-install** — no engine patching required to ship.
+fields**, carrying their content faithfully. A **novel** field runs on a **stock, unmodified
+Memoria install**; a **forked** field needs the small bundled engine patch set (`memoria-patches/`)
+for full fidelity — see [`ff9mapkit/docs/ENGINE.md`](ff9mapkit/docs/ENGINE.md).
 
 ---
 

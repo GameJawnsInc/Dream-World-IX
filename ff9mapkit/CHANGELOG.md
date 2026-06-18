@@ -5,8 +5,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-> **Battle-tuning lane** (rebased onto master 2026-06-16; the per-entry version labels below are this
-> lane's internal progression — the kit `__version__` is bumped past master's in lockstep).
+## [0.10.0] - 2026-06-18 — Public beta
+
+First public (beta) release of **Dream World IX** (the `ff9mapkit` toolkit). The entries below
+document the development history leading to this release; the per-entry version labels are the
+pre-release development progression.
 
 ### Added — raw17 `btlseq` NET-NEW sequence authoring: assembler + length-changing splice (0.9.90)
 The final raw17 tier: author choreography from scratch and splice it in, mirroring the proven `.eb`-AI
@@ -1971,5 +1974,5 @@ The full custom-field pipeline, proven end to end in real gameplay. See
 ### Notes
 - `0.9.x` unified the CLI and Blender add-on versions; the CLI was previously `0.1.0`.
 
-[Unreleased]: https://github.com/
-[0.9.3]: https://github.com/
+[Unreleased]: https://github.com/GameJawnsInc/Dream-World-IX/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/GameJawnsInc/Dream-World-IX/releases/tag/v0.10.0

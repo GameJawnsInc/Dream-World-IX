@@ -1,9 +1,10 @@
 # Engine requirements & notes
 
-## Runs on stock Memoria
+## Novel fields run on stock Memoria
 
-A field built by this kit needs **no engine modifications**. Everything it relies on already
-ships in [Memoria](https://github.com/Albeoris/Memoria):
+A **novel** field — built from scratch, or borrowing a real field's background art — needs **no
+engine modifications**. Everything it relies on already ships in
+[Memoria](https://github.com/Albeoris/Memoria):
 
 - the `FieldScene` **DictionaryPatch** directive that registers a custom field id
   (how the kit *mints* that id — area `>= 10`, BG-borrow vs custom scene — is in
@@ -21,7 +22,25 @@ bytecode** by the kit, not an engine change, so encounters work on stock Memoria
 3D scroll does the panning. No engine change.
 
 Install a built mod by copying its folder next to `FF9_Launcher.exe` (or zip it with
-`ff9mapkit pack`). No DLL is shipped or required.
+`ff9mapkit pack`). No DLL is required for a novel field.
+
+## Forked fields & the fidelity patch set
+
+A **forked** field (`import --verbatim` / `--native` / `--editable`) reproduces a real field on a
+custom id. Its *physical* layer — scene, walkmesh, camera, NPCs/props, dialogue, gateways,
+encounters — works on **stock Memoria**. But FF9 hardcodes a number of behaviors against the
+*original* field's id (`fldMapNo`), and those are lost when the fork runs under a new id:
+narrow-map letterbox masking, a few off-mesh / after-battle / per-actor fixes, the overworld→field
+entry redirect, and similar. They cannot be restored from script bytecode alone.
+
+The bundled engine patch set restores them: **[`memoria-patches/`](../../memoria-patches/) `s23`–`s28`**
+wrap the hardcoded `fldMapNo == N` engine gates with an *effective field id* so they fire for a
+custom fork, and `s23` gives a forked narrow field the donor's exact tuned width. These patches are
+applied to a local Memoria build; the showcase opening ships with that custom Memoria. (The `s22`
+F6 debug menu is a **dev-only** convenience and is *not* part of the shipped engine.)
+
+The full per-behavior breakdown — stock, patch-restored, or genuinely engine-blocked — is in
+[`FORK_FIDELITY.md`](FORK_FIDELITY.md) and [`FORK_IDGATE_MAP.md`](FORK_IDGATE_MAP.md).
 
 ## Optional engine polish (nice-to-have, not required)
 

@@ -19,6 +19,9 @@ tests/fixtures/*.bgi.bytes
 # --- local scratch / dev artifacts (not part of the kit) ---
 blender/human_testing/
 blender/debug_proj/
+# SE-derived scratch (a real field's camera/walkmesh dumped for ad-hoc inspection). NOT the
+# test SUITE, which lives in tests/ (plural) and IS tracked.
+test/
 
 # --- python / build cruft ---
 __pycache__/

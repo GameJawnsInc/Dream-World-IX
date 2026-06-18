@@ -55,14 +55,14 @@ desktop.ini
 reference/test2/
 reference/all-fields-export/
 reference/all-fields-import/
+# Single-field HW decompilation exports are SE-derived game logic/dialogue — never
+# commit them. Keep only the factual id/name index (reference/field-manifest.tsv).
+reference/field-*.txt
 
 # ── NOTE ───────────────────────────────────────────────────────────────
-# backups/ IS tracked on purpose (small text safety net). If you ever back
-# up a binary there, add an explicit ignore for it below:
-# backups/*.bin
-# Binary DLL/exe backups (e.g. Assembly-CSharp.dll.<label>.<timestamp>) — big &
-# regenerable from memoria-patches/ + a rebuild, so keep them on disk only.
-backups/*.dll.*
+# backups/ is NOT tracked (see the `backups/` rule further below) — it's a
+# local-only deploy/edit safety net (per-deploy snapshots, DLL/.eb/.mes backups).
+# Everything under it stays on disk only.
 backups/*.exe.*
 mod/custom-room-01/npc-script-new/**/atlas.png
 tools/*.regen.bgx
