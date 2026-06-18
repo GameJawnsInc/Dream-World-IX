@@ -21,9 +21,10 @@ Memoria**; a *forked* field needs our **custom Memoria** (the s23–s28 fork-don
 fork→donor logic redirects — so the shipped faithful-opening ships with custom Memoria, not stock. Likely the
 first practical reference for FF9 custom-field authoring.
 
-**North star — fork FIDELITY, not a release:** keep refining forked fields until the kit can recreate the
-*functioning game itself* from them. The measure: "fork a real field → does it play identically?" Do **not**
-frame work as "near-release" / "release prep" — that pressure is explicitly unwanted. The *physical* layer
+**North star — fork FIDELITY:** keep refining forked fields until the kit can recreate the
+*functioning game itself* from them. The measure: "fork a real field → does it play identically?" (★ 2026-06-18:
+the project is now moving toward a **PUBLIC BETA** as **Dream World IX** — see §2; fidelity stays the engineering
+goal, the beta is the distribution milestone, not a reason to cut fidelity corners.) The *physical* layer
 (scene/walkmesh/camera/mechanics/object-carry) is largely faithful + in-game proven; the *narrative-state*
 layer is the weak axis (a fork boots at scenario-zero). Honest gap map: **`ff9mapkit/docs/FORK_FIDELITY.md`**.
 Code lives at `ff9mapkit/` (package `ff9mapkit/ff9mapkit/`, Blender add-on `ff9mapkit/blender/`); the
@@ -42,10 +43,15 @@ dev-loop tools at repo-root `tools/`.
 - **Back up before editing any game/engine file** → `backups/<file>.<timestamp>`. The base
   game + the user's install are the only source of truth if we corrupt something.
 - **One change per in-game test.** When a build breaks, we need to know which edit did it.
-- **Commit FREELY — follow the FF-master merge discipline when hitting tested milestones. NOTHING PUBLIC** —
-  no `git push`/remote, no PRs, no PyPI, no forum/Discord posts. Local commits only. (Updated 2026-06-12: the
-  old "commit only when asked" gate is LIFTED — commit tested milestones via commit-on-feature-branch → FF
-  master (rebase-second); the no-public rule is unchanged. → `feedback-commit-freely`.)
+- **Commit FREELY — follow the FF-master merge discipline when hitting tested milestones.** Commit tested
+  milestones via commit-on-feature-branch → FF master (rebase-second). → `feedback-commit-freely`.
+- **PUBLIC BETA — the old "NOTHING PUBLIC" rule is being LIFTED (2026-06-18).** The project is moving to a
+  public GitHub beta as **Dream World IX** (the `ff9mapkit` package name is unchanged; only the project-root /
+  repo identity rebrands). The actual public push is **GATED** on: (1) the Dali fork playtesting cleanly, and
+  (2) a `git-filter-repo` history scrub of the Square-Enix-derived bytes still in git history (HEAD is clean;
+  history is NOT — the plan keeps the commit history and excises just the blobs). **Until BOTH are done: still
+  no public push / PR / PyPI / forum post.** Front-door (root README/LICENSE/DISCLAIMER), IP cleanup, branding,
+  and docs prep landed on the `public-beta-prep` branch. → `feedback-commit-freely`, `project-ff9-public-beta`.
 
 **I CAN own, end to end:** the field event script (`.eb` bytecode, authored in Python — no
 Hades Workshop), camera + walkmesh math, exits/gateways, triggers, flags, dialogue/text,
@@ -155,12 +161,16 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   old seamless/no-FMV hub path). ★ The override is WIPED by every `deploy_campaign` wholesale-replace of
   FF9CustomMap → RE-RUN `wire_newgame_from_stock.py 6000` after each opening re-deploy. Seamless no-FMV
   variant = `tools/skip_opening_fmv.py`. Mechanism + starting-state capstone → [[project-ff9-new-game-entry]].
-- **Versions:** kit `0.10.0`, Blender add-on `0.9.7`. **Provenance gate is CLEARED** — the
-  repo ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
+- **Versions:** kit `0.10.0`, Blender add-on `0.9.7`. **Provenance gate is CLEARED at HEAD** — the
+  working tree ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
   install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
-  `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad).
+  `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad). ⚠ **git HISTORY still contains
+  SE-derived blobs** (removed from HEAD but recoverable in old commits) → a `git-filter-repo` scrub
+  is REQUIRED before any public push (§2). Also removed at HEAD on `public-beta-prep`: a tracked
+  decompiled real field (`reference/field-0109-*.txt`) + the untracked `backups/` scratch.
 - **Open public item (do NOT act):** Memoria PR #1433 (FieldCreatorScene PNG-path fix) — left
-  as-is, irrelevant to the toolkit. Nothing else pending; standing constraint = nothing public.
+  as-is, irrelevant to the toolkit. Public-push stance: **lifted-but-GATED** (see §2 — Dali playtest
+  + the history scrub must both land first).
 
 ---
 
