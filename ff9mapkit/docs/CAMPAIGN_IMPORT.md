@@ -322,6 +322,21 @@ entry_entrance = 0
 - no two members write the same flag index unintentionally (the root-cause check, now cross-field);
 - distinct `text_block` per member (default 1073 is fine *because each custom field owns its own `.mes` at that block in its own mod folder* — but two members sharing a block in one folder would overwrite dialogue; worth a campaign assert). `lint_logic`'s `settable` vs `need_set` clash check (`build.lint_logic`) is the template.
 
+### 4.4 Stable re-allocation — saves survive a re-fork **[LANDED 2026-06-18]**
+
+The §4.2 allocation is **index-based** (`id = id_base + BFS-index`, flag window `= flag_base + position*K`). A naive re-fork (add a seed, `--whole-zone`, change `--max-fields`) re-walks in a different order → both shift → an in-game **SAVE goes stale** (it stores the field id + the GLOB story-flag bits at their old window). That's the public-beta save-compat trap.
+
+**Fix (`assign_ids(prior=, reserved_ids=)` + `write_campaign(prior_plan=)`):** re-forking into an `--out` that already holds a `campaign.toml` is **STABLE by default**:
+- a **re-discovered** donor keeps its **exact prior fork-id + member name**;
+- a **net-new** donor is **appended above every prior id** (never reusing one — `reserved_ids` protects *all* prior ids, including source-less / hand-appended members absent from the donor→id map), so a stale save can never land on the wrong field;
+- members are emitted **id-sorted**, so a re-discovered member keeps its **position** → its position-based **flag window survives** too (and new members, sorting to the end, take fresh windows *above* every prior one, disturbing none);
+- a prior member the new walk didn't re-discover (a hand-appended out-of-band fork like a missed cross-zone cutscene field — §2.7) is **carried** verbatim (files + id) so it isn't orphaned and its cross-link doesn't re-leak;
+- the prior **entry field** is preserved (a changed discovery order won't silently repoint New Game).
+
+`--fresh-ids` opts out (old index-based behavior). Guards warn on the save-breakers: the prior manifest being a **different campaign** (name mismatch / 0 donors re-discovered), a prior member whose **files vanished** (can't carry → later windows shift), or a changed **`--flag-base`/`--flags-per-field`** (ids stay stable but every flag window moves). Keep flag geometry constant across re-forks.
+
+**Known limitation — multi-campaign JOURNEYS:** stability above is per-campaign. The *journey* assembler packs each campaign's flag window back-to-back by member count (`journey._flag_windows`), so **appending a member to an EARLIER journey campaign shifts every LATER campaign's `flag_base`** → a save in a later campaign desyncs its story flags (ids still fine). Single-campaign re-forks (the opening) are fully stable; the journey flag-window pinning is a follow-up (reserve a padded per-campaign capacity in the manifest instead of deriving from live member count).
+
 ---
 
 ## 5. The export loop

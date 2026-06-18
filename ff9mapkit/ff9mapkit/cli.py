@@ -1062,16 +1062,52 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
         mod_folder = args.mod_folder or cfg.get("mod_folder") or "FF9CustomMap-ow"
         seed_zone = chain.zone_label(extract.ID_TO_FBG.get(seeds[0]))
         cname = args.campaign_name or f"{seed_zone.upper()}_CAMPAIGN"  # --swap-player validated at fn top (fail-fast)
+        # STABLE-ID mode: a re-fork reuses the EXISTING <out>/campaign.toml's donor->id+name map so an in-fork
+        # SAVE survives (default ON when --out already holds one; --fresh-ids opts out). Same dir only -- the
+        # carried member files live under --out, so reuse and re-fork share one tree.
+        prior_plan = None
+        prior_src = Path(args.out) / "campaign.toml"
+        if not getattr(args, "fresh_ids", False) and prior_src.exists():
+            try:
+                prior_plan = campaign.load_campaign(prior_src)
+            except Exception as e:                       # a corrupt/non-manifest toml -> fall back to fresh ids
+                print(f"warn: could not read {prior_src} for stable ids ({e}); allocating FRESH ids "
+                      f"(re-fork will shift them -- stale in-fork saves)", file=sys.stderr)
+        if prior_plan is not None:
+            # Loud guards: silently reusing the WRONG prior, or changing the flag geometry, corrupts saves.
+            if prior_plan.name and prior_plan.name != cname:
+                print(f"warn: --out holds campaign '{prior_plan.name}' but this fork is '{cname}' -- reusing its "
+                      f"ids for stable allocation. If that's not the same campaign, use --fresh-ids or a clean "
+                      f"--out.", file=sys.stderr)
+            if prior_plan.flag_base != args.flag_base or prior_plan.flags_per_field != args.flags_per_field:
+                print(f"warn: flag geometry changed (prior flag_base={prior_plan.flag_base}/"
+                      f"per_field={prior_plan.flags_per_field} -> now {args.flag_base}/{args.flags_per_field}); "
+                      f"ids stay stable but EVERY member's story-flag window shifts -- in-fork save flags will "
+                      f"desync. Keep them equal to preserve saves.", file=sys.stderr)
         try:
             plan = campaign.write_campaign(result, Path(args.out), id_base=id_base,
                         flag_base=args.flag_base, flags_per_field=args.flags_per_field,
                         name=cname, mod_folder=mod_folder, game=args.game, live_seams=args.live_seams,
                         verbatim=args.verbatim, swap_player=getattr(args, "swap_player", None),
                         neutralize_gestures=getattr(args, "neutralize_gestures", False),
-                        name_prefix=getattr(args, "name_prefix", "") or "")
+                        name_prefix=getattr(args, "name_prefix", "") or "", prior_plan=prior_plan)
         except (RuntimeError, FileNotFoundError, ValueError) as e:
             print(str(e), file=sys.stderr)
             return 2
+        if prior_plan is not None:
+            real_priors = sum(1 for m in prior_plan.members if m.real_id)
+            print(f"stable-ids: reused {len(plan.reused_ids)} prior id(s) from {prior_src}"
+                  + (f", appended {len(plan.appended_ids)} new (>{max([m.new_id for m in prior_plan.members], default=0)})"
+                     if plan.appended_ids else "")
+                  + (f", carried {len(plan.carried)} not-re-discovered ({', '.join(plan.carried)})" if plan.carried else "")
+                  + " -- in-fork saves survive this re-fork.")
+            if real_priors and not plan.reused_ids:      # nothing matched -> almost certainly the wrong manifest
+                print(f"  warn: 0 of {real_priors} prior donor(s) were re-discovered -- '{prior_src}' looks like a "
+                      f"DIFFERENT campaign. If so, use --fresh-ids or a clean --out (else its ids leak in).",
+                      file=sys.stderr)
+            for nm, fid in plan.carried_missing:
+                print(f"  warn: prior member {nm} (id {fid}) has no files on disk -- dropped; later members' "
+                      f"flag windows may shift. Re-append it or restore its dir.", file=sys.stderr)
         _print_campaign_summary(plan, args.out, verbatim=args.verbatim)
         cov_lines = chain.render_coverage(coverage)
         if cov_lines:
@@ -2513,6 +2549,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="WRITE the chain: emit campaign.toml + per-member field.tomls into this dir (P2)")
     ic.add_argument("--id-base", type=int, default=None, dest="id_base",
                     help="member i gets id_base+i (default: .ff9deploy.toml campaign_id_base, else 6000; >=4000)")
+    ic.add_argument("--fresh-ids", action="store_true", dest="fresh_ids",
+                    help="ignore any existing <out>/campaign.toml and re-allocate every id from id_base (the old "
+                         "index-based behavior). A re-fork then SHIFTS ids -> any in-fork SAVE goes stale. Default: "
+                         "STABLE ids -- reuse the prior donor->id+name map, append net-new donors above the max, so "
+                         "saves survive re-forking into the SAME --out.")
     ic.add_argument("--flag-base", type=int, default=FIRST_SAFE_FLAG, dest="flag_base",
                     help=f"campaign flag band start recorded in campaign.toml (default {FIRST_SAFE_FLAG}, "
                          f"the safe floor clear of real-FF9 chest flags)")

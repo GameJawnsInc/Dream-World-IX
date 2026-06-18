@@ -96,16 +96,40 @@ def member_name(folder: str, idx: int, taken: set, prefix: str = "") -> str:
     return f"{pfx}_{nm}" if pfx else nm
 
 
-def assign_ids(result, *, id_base: int, name_prefix: str = ""):
+def assign_ids(result, *, id_base: int, name_prefix: str = "", prior=None, reserved_ids=None):
     """(members_ids, new_id, name_of) for the FORKABLE nodes of a walk, in BFS discovery order.
-    members_ids[i] -> id_base + i; name_of[real] is the unique member name (``name_prefix`` namespaces it
-    globally so cross-campaign/cross-worktree forks of the same field don't collide on the deployed names)."""
+
+    Without ``prior`` (a fresh fork): ``members_ids[i] -> id_base + i``; ``name_of[real]`` is the unique
+    member name (``name_prefix`` namespaces it globally so cross-campaign/cross-worktree forks of the same
+    field don't collide on the deployed names).
+
+    With ``prior`` (a ``{source_real_id: (fork_id, member_name)}`` map from an existing campaign.toml --
+    STABLE-ID mode, the save-survives-a-re-fork path): a re-discovered donor keeps its EXACT prior fork-id +
+    name, and a net-NEW donor is APPENDED at the next id ABOVE every prior id (never reusing a prior id, so a
+    stale save can't land on the wrong field; the append-above-max rule also keeps every prior member's
+    POSITION when the caller emits members id-sorted -> its position-based flag window is stable too). Names
+    stay stable: prior names are reused verbatim and new names are disambiguated against them. ``reserved_ids``
+    (the new ids of EVERY prior member, including source-less / hand-appended ones NOT in ``prior``) are
+    protected from re-allocation so a net-new donor can never collide with one. ``prior={}`` + no
+    ``reserved_ids`` reproduces the original index-based allocation byte-for-byte."""
     from . import extract
     members_ids = [fid for fid, info in result.nodes.items() if info.get("found")]
-    new_id = {real: id_base + i for i, real in enumerate(members_ids)}
-    taken: set = set()
-    name_of = {real: member_name(extract.ID_TO_FBG[real], i, taken, name_prefix)
-               for i, real in enumerate(members_ids)}
+    prior = prior or {}
+    taken: set = {pname for (_pid, pname) in prior.values()}   # a new name can't collide with a reused one
+    used: set = {pid for (pid, _pname) in prior.values()} | set(reserved_ids or ())  # every prior id is off-limits
+    cursor = max([id_base - 1, *used]) + 1                      # net-new members append above EVERY prior id
+    new_id: dict = {}
+    name_of: dict = {}
+    for i, real in enumerate(members_ids):
+        if real in prior:                                      # re-discovered: freeze its id + name
+            new_id[real], name_of[real] = prior[real]
+        else:                                                  # net-new donor: a fresh non-colliding id
+            while cursor in used:
+                cursor += 1
+            new_id[real] = cursor
+            used.add(cursor)
+            cursor += 1
+            name_of[real] = member_name(extract.ID_TO_FBG[real], i, taken, name_prefix)
     return members_ids, new_id, name_of
 
 
@@ -197,7 +221,7 @@ def _collect_edges_seams(result, members_ids, new_id, name_of):
 def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, flags_per_field=64,
                    name: str, mod_folder: str, game=None, live_seams=False,
                    entry_entrance=0, verbatim=False, swap_player=None,
-                   neutralize_gestures=False, name_prefix="") -> CampaignPlan:
+                   neutralize_gestures=False, name_prefix="", prior_plan=None) -> CampaignPlan:
     """Fork the walk into ``out_dir``: a per-member subdir each + a top-level campaign.toml. Returns the
     CampaignPlan. Members in area>=10 BG-borrow; area<10 members fork as a NATIVE scene (own atlas+.bgs, no
     .bgx -- seamless, no in-game export needed). Both are fully offline; a field with no usable background
@@ -213,9 +237,35 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
     from ._fieldtext import EVENT_ID_TO_MES
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    members_ids, new_id, name_of = assign_ids(result, id_base=id_base, name_prefix=name_prefix)
+    # STABLE-ID mode: when re-forking on top of an existing campaign (``prior_plan``), freeze every
+    # re-discovered donor's prior fork-id + name and APPEND net-new donors above the highest prior id, so an
+    # in-fork SAVE survives the re-fork (it stores the field id + position-based story-flag window).
+    prior = {m.real_id: (m.new_id, m.name) for m in prior_plan.members if m.real_id} if prior_plan else None
+    # EVERY prior member's id is reserved (incl. source-less / hand-appended ones absent from `prior`), so a
+    # net-new donor can't collide with one even though only real donors can be re-discovered by name/id.
+    reserved = {m.new_id for m in prior_plan.members} if prior_plan else None
+    members_ids, new_id, name_of = assign_ids(result, id_base=id_base, name_prefix=name_prefix,
+                                              prior=prior, reserved_ids=reserved)
     if not members_ids:
         raise ValueError("no forkable fields in the walk -- nothing to fork (try a different seed/--zones)")
+    # Carry forward any prior member the new walk did NOT re-discover (a hand-appended out-of-band fork like a
+    # missed cross-zone cutscene field, OR a source-less blank-room/logic member) -- keep its files + id so
+    # (a) it isn't orphaned/dropped and its cross-link doesn't re-leak, and (b) other members' retargets to it
+    # still resolve. Carry only a member whose field.toml is still on disk; flag any whose files vanished
+    # (can't carry -> later members' positions/flag windows shift).
+    carried: list = []
+    carried_missing: list = []
+    if prior_plan:
+        discovered = set(members_ids)
+        for m in prior_plan.members:
+            if m.real_id and m.real_id in discovered:
+                continue                                  # re-discovered -> re-forked below with its frozen id
+            if (out / m.toml_rel).exists():
+                if m.real_id:
+                    new_id[m.real_id] = m.new_id          # so re-forked members' Field(real)->fork resolve
+                carried.append(m)
+            else:
+                carried_missing.append(m)
 
     swap_name = None
     if swap_player and verbatim:                             # the swap patches each member's verbatim donor .eb
@@ -285,9 +335,23 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
                     edges.append({"frm": name_of[real], "to": name_of[d], "entrance": 0,
                                   "story_conditional": False})
                     have.add((name_of[real], name_of[d]))
+    members.extend(carried)               # keep prior forks the new walk didn't re-discover (no orphan/re-leak)
+    members.sort(key=lambda m: m.new_id)  # id-sorted == position-stable: a re-discovered member keeps its index
+    #                                       -> its position-based story-flag window (flag_base + i*K) survives too.
+    #                                       Fresh fork: ids are id_base+i in walk order, so this is already sorted.
+    # Entry: the first-discovered (seed) member, BUT on a stable re-fork keep the PRIOR entry if that member
+    # still exists -- a changed discovery order must not silently repoint New Game / the journey entry.
+    entry_name = name_of[members_ids[0]]
+    if prior_plan and prior_plan.entry_name and any(m.name == prior_plan.entry_name for m in members):
+        entry_name = prior_plan.entry_name
     plan = CampaignPlan(name=name, mod_folder=mod_folder, id_base=id_base, flag_base=flag_base,
-                        flags_per_field=flags_per_field, entry_name=name_of[members_ids[0]],
+                        flags_per_field=flags_per_field, entry_name=entry_name,
                         entry_entrance=entry_entrance, members=members, edges=edges, seams=seams)
+    plan.stable_ids = bool(prior_plan)    # transient: re-fork reused the prior donor->id+name map
+    plan.reused_ids = sorted(r for r in members_ids if prior and r in prior)   # re-discovered, frozen id
+    plan.appended_ids = sorted(r for r in members_ids if not (prior and r in prior))  # net-new this fork
+    plan.carried = [m.name for m in carried]              # prior forks kept verbatim (not re-discovered)
+    plan.carried_missing = [(m.name, m.new_id) for m in carried_missing]  # prior forks whose files vanished
     plan.verbatim = bool(verbatim)        # PERSISTED: gates the declarative-only stacked-door lint (the donor
     #                                       .eb resolves story-conditional doors itself -- nothing to re-author)
     plan.verbatim_degraded = degraded     # transient build-time signal (NOT persisted): verbatim members
@@ -324,7 +388,8 @@ def render_campaign_toml(plan: CampaignPlan) -> str:
     if plan.verbatim:                             # verbatim members ship the donor .eb whole -> story-conditional
         L.append("verbatim        = true   # every member ships its donor's whole .eb (real logic + real doors)")
     L += ["",
-          "# Members in BFS discovery order; id = id_base + i."]
+          "# Members id-sorted. Fresh fork: id = id_base + BFS-index. Stable re-fork (--out had a prior",
+          "# campaign.toml): a re-discovered donor keeps its prior id+name; net-new donors append above the max."]
     for m in plan.members:
         L.append("[[field]]")
         L.append(f'name = "{m.name}"')

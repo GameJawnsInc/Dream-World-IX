@@ -98,6 +98,53 @@ def test_assign_ids_contiguous_and_named():
     assert name_of[300] == "IC_ENT" and name_of[303] == "IC_JMP"
 
 
+def test_assign_ids_fresh_matches_legacy():
+    # prior=None / {} reproduces the original index-based allocation byte-for-byte (no behavior change on a
+    # first fork).
+    a = campaign.assign_ids(_synthetic_result(), id_base=6000)
+    b = campaign.assign_ids(_synthetic_result(), id_base=6000, prior=None)
+    c = campaign.assign_ids(_synthetic_result(), id_base=6000, prior={})
+    assert a[1] == b[1] == c[1] == {300: 6000, 301: 6001, 302: 6002, 303: 6003}
+    assert a[2] == b[2] == c[2]
+
+
+def test_assign_ids_stable_reuses_prior_and_appends_above_max():
+    # STABLE-ID re-fork: a re-discovered donor keeps its exact prior id+name; a net-new donor appends ABOVE
+    # every prior id -- INCLUDING an unseen hand-appended one (6010) the walk doesn't rediscover -- so a stale
+    # save can never land on the wrong field.
+    prior = {300: (6000, "IC_ENT"), 301: (6001, "IC_STP"), 999: (6010, "OOB_DCK")}
+    members_ids, new_id, name_of = campaign.assign_ids(_synthetic_result(), id_base=6000, prior=prior)
+    assert members_ids == [300, 301, 302, 303]
+    assert new_id[300] == 6000 and new_id[301] == 6001                  # frozen ids
+    assert name_of[300] == "IC_ENT" and name_of[301] == "IC_STP"        # prior names reused verbatim
+    assert new_id[302] == 6011 and new_id[303] == 6012                  # appended above max prior id (6010)
+    assert 6010 not in new_id.values()                                 # never reuses a prior (even unseen) id
+    assert len(set(new_id.values())) == 4
+
+
+def test_assign_ids_reserved_protects_sourceless_prior_id():
+    # a source-less prior member (a blank-room/logic member with no real donor) isn't in `prior`, but its id
+    # must still be protected from reuse by a net-new donor -- passed via reserved_ids.
+    prior = {300: (6000, "IC_ENT")}                 # one real donor frozen
+    reserved = {6000, 6001}                          # 6001 = a source-less prior member's id (not in `prior`)
+    _, new_id, _ = campaign.assign_ids(_synthetic_result(), id_base=6000, prior=prior, reserved_ids=reserved)
+    assert new_id[300] == 6000                       # frozen
+    assert 6001 not in new_id.values()               # the reserved source-less id is never re-allocated
+    assert sorted(v for k, v in new_id.items() if k != 300) == [6002, 6003, 6004]   # net-new above max reserved
+
+
+def test_assign_ids_new_name_disambiguates_against_prior():
+    # a net-new member whose natural name was already claimed by a prior member must disambiguate (the `taken`
+    # set is seeded with every prior name) -- else two members collide on the deployed FBG/EVT token.
+    _, _, base = campaign.assign_ids(_synthetic_result(), id_base=6000)
+    nat302 = base[302]
+    prior = {300: (6000, nat302)}                                       # prior already holds 302's natural name
+    _, _, name_of = campaign.assign_ids(_synthetic_result(), id_base=6000, prior=prior)
+    assert name_of[300] == nat302
+    assert name_of[302] != nat302
+    assert len(set(name_of.values())) == 4
+
+
 def test_collect_edges_and_seams():
     r = _synthetic_result()
     members_ids, new_id, name_of = campaign.assign_ids(r, id_base=6000)
@@ -188,6 +235,70 @@ def test_real_ice_cavern_campaign(tmp_path):
     # all 13 are area<10 -> NATIVE fork (own atlas+.bgs, no .bgx; seamless, no in-game export needed)
     assert all(f["mode"] == "native" for f in d["field"])
     assert not any(f.get("needs_export") for f in d["field"])   # native ships bundle/mod art -> no stubs
+
+
+def _ice_walk():
+    from ff9mapkit import eventscan
+    bundle = extract.EventBundle()
+
+    def scan_fn(fid):
+        eb = bundle.eb_for_id(fid)
+        if eb is None:
+            return {"found": False}
+        w = eventscan.scan_all_warps(eb)
+        edges = [{"to": g["to"], "kind": chain.WALK_IN, "entrance": g["entrance"], "zone": g["zone"],
+                  "story_conditional": g["story_conditional"]} for g in w["walk_in"]]
+        edges += [{"to": s["to"], "kind": chain.SCRIPTED, "entrance": s["entrance"],
+                   "trigger": s["trigger"]} for s in w["scripted"]]
+        return {"found": True, "edges": edges, "overworld_exits": w["overworld_exits"],
+                "encounter": eventscan.scan_encounter(eb), "music": eventscan.scan_music(eb)}
+
+    return chain.walk(300, scan_fn, lambda fid: chain.zone_label(extract.ID_TO_FBG.get(int(fid))),
+                      forkable_fn=lambda f: int(f) in extract.ID_TO_FBG, zones=["iccv", "vgdl"])
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_write_campaign_stable_reuse_append_and_carry(tmp_path):
+    # Re-fork on top of an existing campaign: re-discovered donors keep their ids (saves survive), a prior
+    # member the walk doesn't re-discover (a hand-appended out-of-band fork) is CARRIED at its id, and net-new
+    # donors append ABOVE every prior id. Members are emitted id-sorted (so flag windows stay position-stable).
+    result = _ice_walk()
+    plan1 = campaign.write_campaign(result, tmp_path, id_base=6000, name="ICE", mod_folder="FF9CustomMap-ow")
+    ids1 = {m.real_id: m.new_id for m in plan1.members}
+
+    # A synthetic prior: freeze two real donors at their fork-1 ids + a HAND-APPENDED out-of-band member (real
+    # id 506, fork 6500) whose dir exists on disk but the walk never visits (mirrors the cargo-deck 506 fix).
+    oob = tmp_path / "OOB_DCK"
+    oob.mkdir()
+    (oob / "OOB_DCK.field.toml").write_text("[field]\nid = 6500\n", encoding="utf-8")
+    blank = tmp_path / "BLANK_RM"          # a SOURCE-LESS prior member (real_id 0) -- must still be protected+carried
+    blank.mkdir()
+    (blank / "BLANK_RM.field.toml").write_text("[field]\nid = 6499\n", encoding="utf-8")
+    prior = campaign.CampaignPlan(
+        name="ICE", mod_folder="FF9CustomMap-ow", id_base=6000, flag_base=campaign.FIRST_SAFE_FLAG,
+        flags_per_field=64, entry_name="IC_ENT", entry_entrance=0,
+        members=[campaign.Member(300, ids1[300], "IC_ENT", "native", 0, "", "IC_ENT/IC_ENT.field.toml", False),
+                 campaign.Member(301, ids1[301], "IC_STP", "native", 0, "", "IC_STP/IC_STP.field.toml", False),
+                 campaign.Member(506, 6500, "OOB_DCK", "native", 0, "", "OOB_DCK/OOB_DCK.field.toml", False),
+                 campaign.Member(0, 6499, "BLANK_RM", "editable", 0, "", "BLANK_RM/BLANK_RM.field.toml", False)])
+
+    plan2 = campaign.write_campaign(result, tmp_path, id_base=6000, name="ICE",
+                                    mod_folder="FF9CustomMap-ow", prior_plan=prior)
+    ids2 = {m.real_id: m.new_id for m in plan2.members}
+    assert ids2[300] == ids1[300] and ids2[301] == ids1[301]    # frozen -> in-fork saves survive
+    assert ids2[506] == 6500 and "OOB_DCK" in plan2.carried     # the out-of-band fork carried, not dropped
+    assert "BLANK_RM" in plan2.carried                          # the SOURCE-LESS prior member carried too
+    assert plan2.entry_name == "IC_ENT"                         # prior entry preserved
+    newd = [m for m in plan2.members if m.real_id and m.real_id not in (300, 301, 506)]
+    assert newd and all(m.new_id > 6500 for m in newd)          # net-new donors append above EVERY prior id (incl 6499)
+    assert 6499 not in [m.new_id for m in newd]                 # the source-less id was reserved, never reused
+    assert [m.new_id for m in plan2.members] == sorted(m.new_id for m in plan2.members)   # id-sorted
+    assert len({m.new_id for m in plan2.members}) == len(plan2.members)                   # all distinct
+    # the carried members are in the written manifest at their frozen ids
+    d2 = tomllib.loads((tmp_path / "campaign.toml").read_text(encoding="utf-8"))
+    carried = next(f for f in d2["field"] if f["source"] == 506)
+    assert carried["id"] == 6500 and carried["name"] == "OOB_DCK"
+    assert any(f["name"] == "BLANK_RM" and f["id"] == 6499 for f in d2["field"])
 
 
 # ---- P3: load_campaign + build_campaign -------------------------------------------------
