@@ -132,6 +132,24 @@ index b7f75242..230f9ddf 100644
                  this.zOffset = 700;
          }
      }
+diff --git a/Assembly-CSharp/Global/ff9/ff9.cs b/Assembly-CSharp/Global/ff9/ff9.cs
+index 24d6d401..539faae2 100644
+--- a/Assembly-CSharp/Global/ff9/ff9.cs
++++ b/Assembly-CSharp/Global/ff9/ff9.cs
+@@ -9158,7 +9158,12 @@ public static class ff9
+         switch (map.nextMode)
+         {
+             case 1:
+-                ff.fldMapNo = map.nextMapNo;
++                // s28 (fork-donor): the overworld->field entry sets the destination to a DONOR id (WMScriptDirector
++                // writes nextMapNo from world-map data, which the kit can't build-time remap like a field .eb's
++                // Field() op). Redirect to the fork sibling so a forked dungeon (Ice Cavern, etc.) is entered from
++                // the overworld. Gateless: ForkSiblingField is identity unless an UNAMBIGUOUS fork exists in the
++                // loaded ForkDonorPatch -> no-op without the fork mod / for un-forked ids.
++                ff.fldMapNo = (Int16)Memoria.DataPatchers.ForkSiblingField(map.nextMapNo);
+                 instance.mode = 1;
+                 instance.prevMode = 3;
+                 break;
 diff --git a/Assembly-CSharp/Global/fldfmv.cs b/Assembly-CSharp/Global/fldfmv.cs
 index b9c3c85a..3edd1a8f 100644
 --- a/Assembly-CSharp/Global/fldfmv.cs
