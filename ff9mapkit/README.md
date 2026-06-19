@@ -10,7 +10,7 @@ Author **novel custom field maps** for *Final Fantasy IX* (Steam, via the
 > **Feature-complete and in-game-verified.** The productized form of a proven
 > pipeline for minting brand-new playable FF9 fields, end to end. A **novel** field runs on a
 > **stock, unmodified Memoria install**; a **forked** field needs the small bundled engine patch
-> set for full fidelity (see [`docs/ENGINE.md`](docs/ENGINE.md)).
+> set for fork fidelity (see [`docs/ENGINE.md`](docs/ENGINE.md)).
 
 **Headline capabilities:** author **any camera angle** from scratch (single / scrolling / multi-camera)
 with a pixel-accurate paint guide · **fork any of ~674 real fields** — camera, walkmesh, art, *and* its

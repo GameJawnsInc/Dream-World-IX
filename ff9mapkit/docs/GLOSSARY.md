@@ -140,7 +140,7 @@ Terms are grouped by topic; within each group they build on each other.
 : The open-source FF9 engine layer this toolkit targets ([Memoria](https://github.com/Albeoris/Memoria),
   used by the Steam release). A **novel** field (built from scratch or BG-borrowing real art) runs on a
   **stock, unmodified Memoria**. A **forked** field needs a small bundled patch set
-  ([`memoria-patches/`](../../memoria-patches/), `s23`–`s28`) to restore the `fldMapNo`-keyed behaviors
+  ([`memoria-patches/`](../../memoria-patches/), `s23`/`s24`/`s29`) to restore the `fldMapNo`-keyed behaviors
   noted above. See [`ENGINE.md`](ENGINE.md) for exactly what's stock vs. patched.
 
 **p0data**

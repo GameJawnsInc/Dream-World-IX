@@ -10,7 +10,7 @@ brand-new *Final Fantasy IX* field with its camera, walkmesh, painted art, NPCs,
 gateways, encounters, events, and cutscenes. It can also **import/fork any of FF9's ~674 real
 fields**, carrying their content faithfully. A **novel** field runs on a **stock, unmodified
 Memoria install**; a **forked** field needs the small bundled engine patch set (`memoria-patches/`)
-for full fidelity — see [`ff9mapkit/docs/ENGINE.md`](ff9mapkit/docs/ENGINE.md).
+for fork fidelity — see [`ff9mapkit/docs/ENGINE.md`](ff9mapkit/docs/ENGINE.md).
 
 ---
 
@@ -30,7 +30,7 @@ Optional extras (pick what you need; details in §2):
 
 | Extra | Installs | Unlocks |
 |---|---|---|
-| `gui` | `PySide6 ≥ 6.5` | The desktop Workspace GUI (`apps/ff9_studio.pyw`). |
+| `gui` | `PySide6 ≥ 6.5` | The desktop Workspace GUI (`apps/ff9_workspace.pyw`). |
 | `save` | `pycryptodome ≥ 3.10` | `save-edit` (read/write FF9's AES-encrypted save). Imported lazily. |
 | `dev` | `pytest`, `pytest-xdist` | The offline test suite (`py -m pytest -n 6`). |
 
@@ -323,8 +323,8 @@ CLI does everything without it.**
 
 ```powershell
 pip install ff9mapkit[gui]      # or: py -m pip install PySide6
-py apps\ff9_studio.pyw          # the front door (shows a friendly prompt if PySide6 is missing)
-py apps\ff9_studio.pyw --smoke  # headless self-check: prints "workspace shell smoke ok: …"
+py apps\ff9_workspace.pyw          # the front door (shows a friendly prompt if PySide6 is missing)
+py apps\ff9_workspace.pyw --smoke  # headless self-check: prints "workspace shell smoke ok: …"
 ```
 
 The window is built around a **journey ▸ campaign ▸ field ▸ object** tree, a breadcrumb, a central

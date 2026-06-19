@@ -56,7 +56,8 @@ unmodified Memoria install** — no engine patching required.
 A **forked** field runs on stock Memoria for its *physical* layer (scene, walkmesh, camera, objects),
 but a handful of behaviors keyed to the original field's id — narrow-map letterboxing, a few
 after-battle / off-mesh fixes — need the small bundled engine patch set (`memoria-patches/`,
-`s23`–`s28`) for full fidelity. The showcase opening ships with that custom Memoria build. See
+`s23`/`s24`/`s29`) for fork fidelity. The showcase opening ships with that custom Memoria build
+(disc-1 gates are in-game proven; the newest late-disc gates are still being playtested). See
 **[ff9mapkit/docs/ENGINE.md](ff9mapkit/docs/ENGINE.md)** for exactly what's stock vs. enhanced.
 
 ## Legal & provenance

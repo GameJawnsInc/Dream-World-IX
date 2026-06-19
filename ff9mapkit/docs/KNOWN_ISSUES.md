@@ -13,7 +13,7 @@ It splits into two parts: **[the Workspace GUI](#part-a--the-workspace-gui)** an
 
 ## Part A — the Workspace GUI
 
-The desktop **Workspace** (`apps/ff9_studio.pyw`) folds the authoring tools into one PySide6 window.
+The desktop **Workspace** (`apps/ff9_workspace.pyw`) folds the authoring tools into one PySide6 window.
 It's entirely optional — the CLI does everything without it — and it's the youngest part of the kit,
 so it has the most gaps.
 
@@ -22,7 +22,7 @@ so it has the most gaps.
 There is **no `ff9mapkit gui` subcommand yet.** Launch the Workspace directly:
 
 ```powershell
-py apps\ff9_studio.pyw                  # the front door
+py apps\ff9_workspace.pyw                  # the front door
 # …or as a module:
 py -m ff9mapkit.workspace.shell
 ```
@@ -97,7 +97,7 @@ gateways, encounters) on stock Memoria too, but FF9 hardcodes a number of behavi
 *original* field's id — narrow-map letterbox masking, a few off-mesh / after-battle / per-actor
 fixes, the overworld→field entry redirect. Those are lost when the fork runs under a new id and
 **cannot be restored from script bytecode alone.** The bundled engine patch set
-([`memoria-patches/`](../../memoria-patches/), `s23`–`s28`) restores them for full fidelity, and the
+([`memoria-patches/`](../../memoria-patches/), `s23`/`s24`/`s29`) restores them for fork fidelity, and the
 showcase opening ships with that custom Memoria build. Exactly what's stock vs. patch-restored is in
 [`ENGINE.md`](ENGINE.md).
 
@@ -135,7 +135,7 @@ not a bug — the synthesized path trades that detail for editability.
 
 ## See also
 
-- [`ENGINE.md`](ENGINE.md) — stock vs. enhanced Memoria, and the `s23`–`s28` patch set.
+- [`ENGINE.md`](ENGINE.md) — stock vs. enhanced Memoria, and the `s23`/`s24`/`s29` patch set.
 - [`FORK_FIDELITY.md`](FORK_FIDELITY.md) — the full, honest map of what a fork does and doesn't reproduce.
 - [`FORMAT.md`](FORMAT.md) — the complete `field.toml` schema (every section above).
 - [`../../SETUP.md`](../../SETUP.md) — install, the dev loop, and the GUI overview.

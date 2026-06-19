@@ -195,3 +195,5 @@ scratch/
 # scratch; the kit recipe + the byte361/362 lift-config lives in git log + project memory, not these forks).
 tworoom/pand_lift/
 tworoom/pand_elv/
+# Treno Residence verbatim fork (SE-derived scene/.eb/.bgi bytes; local scratch)
+tworoom/treno_plat/

@@ -234,7 +234,7 @@ pip install -e ".[save]"        # or:  py -m pip install pycryptodome
 
 ### The GUI won't launch
 
-**Symptom.** `apps/ff9_studio.pyw` prints a prompt about a missing dependency, or nothing opens.
+**Symptom.** `apps/ff9_workspace.pyw` prints a prompt about a missing dependency, or nothing opens.
 
 **Cause.** The desktop Workspace is built on **PySide6**, an optional extra.
 
@@ -242,8 +242,8 @@ pip install -e ".[save]"        # or:  py -m pip install pycryptodome
 
 ```powershell
 pip install -e ".[gui]"         # or:  py -m pip install PySide6
-py apps\ff9_studio.pyw
-py apps\ff9_studio.pyw --smoke  # headless self-check
+py apps\ff9_workspace.pyw
+py apps\ff9_workspace.pyw --smoke  # headless self-check
 ```
 
 ---

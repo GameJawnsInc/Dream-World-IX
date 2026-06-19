@@ -33,11 +33,14 @@ encounters — works on **stock Memoria**. But FF9 hardcodes a number of behavio
 narrow-map letterbox masking, a few off-mesh / after-battle / per-actor fixes, the overworld→field
 entry redirect, and similar. They cannot be restored from script bytecode alone.
 
-The bundled engine patch set restores them: **[`memoria-patches/`](../../memoria-patches/) `s23`–`s28`**
+The bundled engine patch set restores them: **[`memoria-patches/`](../../memoria-patches/) `s23` / `s24` / `s29`**
 wrap the hardcoded `fldMapNo == N` engine gates with an *effective field id* so they fire for a
-custom fork, and `s23` gives a forked narrow field the donor's exact tuned width. These patches are
-applied to a local Memoria build; the showcase opening ships with that custom Memoria. (The `s22`
-F6 debug menu is a **dev-only** convenience and is *not* part of the shipped engine.)
+custom fork, and `s23` gives a forked narrow field the donor's exact tuned width. (`s24` folds in the
+intermediate fork-donor milestone steps; `s29` adds the late-game softlock gates — there is no separate
+`s25`–`s28` file.) These patches are applied to a local Memoria build; the showcase opening ships with
+that custom Memoria. The disc-1 gates are in-game proven; the newest late-disc (disc 2–4) softlock gates
+are still being playtested as those zones are forked. (The `s22` F6 debug menu is a **dev-only**
+convenience and is *not* part of the shipped engine.)
 
 The full per-behavior breakdown — stock, patch-restored, or genuinely engine-blocked — is in
 [`FORK_FIDELITY.md`](FORK_FIDELITY.md) and [`FORK_IDGATE_MAP.md`](FORK_IDGATE_MAP.md).

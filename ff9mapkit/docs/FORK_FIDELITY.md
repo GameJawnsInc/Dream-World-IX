@@ -244,9 +244,9 @@ Pick the fork's PURPOSE first; the mode and the carry/drop list follow.
 ### IMPOSSIBLE on stock Memoria — the genuine engine residuals
 
 All keyed on the real `fldMapNo`/FBG-name or a fixed compile-time structure with no `.eb` reach — so they are
-impossible on a *stock* engine. The shipped **`s23`–`s28` fork-donor remap patch set** (a custom Memoria build,
+impossible on a *stock* engine. The shipped **`s23`/`s24`/`s29` fork-donor remap patch set** (a custom Memoria build,
 bundled with the showcase) now restores most of them by wrapping the hardcoded `fldMapNo == N` gates with an
-effective-field-id; only the `s22` F6 debug menu remains dev-only. (This table predates the full `s23`–`s28`
+effective-field-id; only the `s22` F6 debug menu remains dev-only. (This table predates the full `s23`/`s24`/`s29`
 shipping decision — the current public summary of what's stock vs. patch-restored vs. genuinely blocked is in
 [`ENGINE.md`](ENGINE.md). The rows below mark what stays genuinely engine-blocked even with the patch set.)
 
