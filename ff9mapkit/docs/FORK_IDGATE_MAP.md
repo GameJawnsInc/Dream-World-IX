@@ -6,6 +6,28 @@
 
 **280 gates found · 265 lost on a custom-id fork** — SOFTLOCK 12 · FUNCTIONAL 142 · COSMETIC 111.
 
+## Remap status (task #19) — DEFERRED 2026-06-19
+
+The fix for any row below is mechanical: wrap its `fldMapNo == N` with `Memoria.DataPatchers.EffectiveFieldId(...)`
+(`memoria-patches/s24-fork-donor-remap.patch`; identity for real / un-forked ids — a fork registers
+`<forkId> <donorRealId>` in the kit-emitted `ForkDonorPatch.txt`). One line per gate. The hard part (finding
+them) is done — this doc IS the census.
+
+**SOFTLOCK: 2 of 12 wrapped, 10 DEFERRED.** All 10 remaining softlocks fire only at **disc-2-to-4 beats**, so
+they don't block the disc-1 opening (scratch_2). Do each the moment you fork its zone (immediate playtest proof),
+or batch the 10 mechanical wraps + one DLL rebuild when chasing full-game fidelity.
+- ✅ wrapped (s24, disc 1): **105 / 2504 / 2605** (`FieldMapActorController.cs:923` — off-mesh tri-snap = Dante
+  signmaker / Fork chest) · **100** (`DialogManager.cs:214` + `fldfmv.cs:112` — Puck-hits-Vivi flush + FMV).
+- ⬜ remaining: **1656** (disc 2, Iifa scroll crutch) · **768** (disc 2, Burmecia post-Beatrix reinit) ·
+  **2200 / 2207 / 2301 / 2362** (disc 3, Gulug / Oeilvert / Esto Gaza party-shape guards — an adjacent
+  `EventEngine.cs` cluster, one edit) · **2507** (disc 3, Ipsen DelayedActiveTri ladder/stair) · **2512**
+  (disc 3, Ipsen scroll crutch) · **3009 / 3010** (disc 4, Epilogue Stage AutoHide handoff).
+- ⚠ a party-shape guard (2200 / 2207 / 2301 / 2362) FORCES a party composition — wrapping it gives the fork that
+  same forced party (the intended fidelity, but verify it doesn't fight a `[party]` / `[startup]` seed).
+
+(Per-row behavior detail is the SOFTLOCK table just below. The FUNCTIONAL 142 / COSMETIC 111 tiers are
+lower-priority and mostly already wrapped only where they coincide with a softlock fix.)
+
 ## SOFTLOCK — a fork hangs / can't progress (patch these first)
 
 | field id(s) | site | behavior | notes |
