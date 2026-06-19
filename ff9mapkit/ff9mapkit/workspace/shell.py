@@ -154,7 +154,8 @@ def _render_journey_toml(*, hub_name, hub_id, borrow_bg, jid, jname, kind="bare"
               f'entry = {{ campaign = "{_toml_str(folders[0])}", field = "ENTRY_MEMBER" }}   '
               "# CHANGE: the member you start in",
               "",
-              "# One link per campaign boundary (N campaigns -> N-1 links). Uncomment + fill in the members:",
+              "# Cross-campaign warps AUTO-WIRE at deploy from the real .eb seams -- no [[journey.link]] needed.",
+              "# Add a row ONLY to OVERRIDE one (a custom connection the game lacks); else leave this out:",
               "# [[journey.link]]",
               f'# from = {{ campaign = "{_toml_str(folders[0])}", field = "BOUNDARY_MEMBER" }}',
               '# to = { campaign = "NEXT_FOLDER", field = "ARRIVAL_MEMBER", entrance = 0 }',
@@ -5277,11 +5278,14 @@ def _smoke(win):
     assert win._needs_reconcile(), "the scaffold still has ENTRY_MEMBER/link placeholders"
     assert win._reconcile_journey() is True, "reconcile filled the placeholders"
     assert not win._needs_reconcile(), "placeholders gone after reconcile"
-    rj = win.manifest.journeys[0]
-    assert rj.entry.field == "A1", rj.entry.field
-    assert [(l.src_campaign, l.src_field, l.dst.campaign, l.dst.field) for l in rj.links] == [
-        ("camp_a", "A2", "camp_b", "B1")], [(l.src_campaign, l.src_field) for l in rj.links]
-    assert win._reconcile_journey() is False, "reconcile is idempotent (nothing left to fill)"
+    j0 = win.manifest.journeys[0]
+    assert j0.entry.field == "A1", j0.entry.field
+    assert j0.links == [], "(i): reconcile writes NO link rows -- cross-campaign warps auto-wire at deploy"
+    from .. import journey as _J                                            # the wiring lives in resolve, not the toml
+    rj = _J.resolve_journey(j0, _J.load_campaign_plans(win.manifest))
+    assert ("camp_a", "A2", "camp_b", "B1") in {
+        (l["src_campaign"], l["src_field"], l["dst_campaign"], l["dst_field"]) for l in rj.links}, rj.links
+    assert win._reconcile_journey() is False, "reconcile is idempotent (entry set, nothing left to fill)"
     assert win.open_field(af) and win.manifest is None                    # leave journey mode for the rest
 
     # PHASE 0 -- VERBATIM logic-map surfacing: a [verbatim_eb] member badges its row, shows a read-only

@@ -78,9 +78,10 @@ class JourneyRef:
 
 @dataclass
 class JourneyLink:
-    """A cross-campaign hand-off: the boundary member ``src_field`` in ``src_campaign`` (an out-of-chain seam
-    -- the point where, in the live game, the player would leave for the world map) is realized as a live warp
-    into ``dst`` (the next campaign's entry). One link per campaign boundary (N campaigns -> N-1 links)."""
+    """A cross-campaign hand-off: the boundary member ``src_field`` in ``src_campaign`` is realized as a live
+    warp into ``dst``. This is an explicit OVERRIDE row; ALL other cross-campaign warps auto-wire from the real
+    ``.eb`` seams at deploy (:func:`auto_seam_links`), so a journey needs NO link rows and the wired set is the
+    full connectivity GRAPH, not N-1."""
     src_campaign: str
     src_field: str            # the boundary member name (handoff schema: from.field, alias from.seam)
     dst: JourneyRef
@@ -309,11 +310,53 @@ def _flag_windows(journey: Journey, plans: dict) -> "tuple[dict, int]":
     return windows, cur
 
 
+def auto_seam_links(campaigns, plain, *, exclude_members=frozenset()) -> list:
+    """EVERY cross-campaign warp the forked ``.eb`` seams imply, as resolved link dicts -- so a journey needs NO
+    ``[[journey.link]]`` rows: the deploy retargets each so a forked region's warps stay in-fork (leak-proof),
+    derived from the real game connectivity, not the listed order. ``plain`` = ``{folder: CampaignPlan}``;
+    ``exclude_members`` = ``(campaign, member)`` pairs an explicit ``[[journey.link]]`` already controls (an
+    author override takes the whole member). A FIELD seam self-describes (its ``to_real`` -> the sibling that
+    forks it; order-INDEPENDENT); a world-map exit, which names no destination, falls back to the listed order
+    (its campaign -> the NEXT campaign's entry). PURE."""
+    conn = campaign_connectivity(campaigns, plain)
+    by_real = {c: {m.real_id: m for m in plain[c].members if m.real_id} for c in campaigns if c in plain}
+    new_id = {c: {m.name: m.new_id for m in plain[c].members} for c in campaigns if c in plain}
+    out, warp_seen = [], set()
+    for a in campaigns:                              # (1) FIELD seams -> ONE link per distinct Field(to_real)
+        rec = conn.get(a)                            #     warp (else a member warping to N fields would leave
+        if not rec:                                  #     N-1 of them UN-retargeted -> leaks)
+            continue
+        for b, seams in rec["to"].items():
+            for frm, to_real, _k in seams:
+                sid = new_id[a].get(frm)             # guard: an orphaned seam's `frm` may be a stringified real id
+                if sid is None or (a, frm) in exclude_members or (a, frm, to_real) in warp_seen:
+                    continue                          # (not a member) -> skip, don't KeyError the whole deploy/lint
+                arr = by_real[b].get(to_real)
+                if arr is None:
+                    continue                          # one Field(to_real) -> ONE place (shared donor: first b wins)
+                warp_seen.add((a, frm, to_real))
+                out.append({"src_campaign": a, "src_field": frm, "src_id": sid,
+                            "dst_campaign": b, "dst_field": arr.name, "dst_id": arr.new_id, "dst_entrance": 0})
+    wired = {(d["src_campaign"], d["dst_campaign"]) for d in out}
+    for a, b in zip(campaigns, campaigns[1:]):        # (2) world-map exits -> fall back to the listed order
+        rec = conn.get(a)
+        if rec and rec.get("worldmap") and (a, b) not in wired and a in plain and b in plain:
+            wm = rec["worldmap"][0][0]
+            sid = new_id[a].get(wm)                   # same guard for a non-member world-map seam source
+            if sid is None or (a, wm) in exclude_members:
+                continue
+            out.append({"src_campaign": a, "src_field": wm, "src_id": sid,
+                        "dst_campaign": b, "dst_field": plain[b].entry_name,
+                        "dst_id": new_id[b][plain[b].entry_name], "dst_entrance": 0})
+    return out
+
+
 def resolve_journey(journey: Journey, plans: dict) -> ResolvedJourney:
     """Resolve a journey into the global namespace using the pre-loaded campaign plans (see
     :func:`load_campaign_plans`): the entry field id, per-campaign member id lists, assigned flag windows, and
-    each link's src/dst global ids. PURE over the manifest + plans (no game install). Assumes the campaigns
-    referenced exist in ``plans`` -- :func:`lint_manifest` validates that first."""
+    the cross-campaign links. Links are the explicit ``[[journey.link]]`` OVERRIDES + every other cross-campaign
+    warp AUTO-DERIVED from the real ``.eb`` seams (:func:`auto_seam_links`) -- so a journey deploys leak-proof
+    with no link rows. PURE over the manifest + plans (no game install)."""
     if journey.is_bare:
         return ResolvedJourney(journey=journey, entry_id=int(journey.entry.field),
                                campaign_ids={}, flag_windows={}, flag_high=FIRST_SAFE_FLAG, links=[])
@@ -323,19 +366,21 @@ def resolve_journey(journey: Journey, plans: dict) -> ResolvedJourney:
     campaign_ids = {f: [m.new_id for m in plans[f][0].members] for f in journey.campaigns}
     flag_windows, flag_high = _flag_windows(journey, plans)
 
-    links = []
-    for lk in journey.links:
+    links, override_members = [], set()
+    for lk in journey.links:                          # explicit links are OVERRIDES (the author takes the member)
         if _is_unfilled(lk.src_field) or _is_unfilled(lk.dst.field):
-            continue                                  # an un-filled FILL/BOUNDARY scaffold row -> not deployable
-            #                                           yet (lint flags it); skip so the rest still resolves
+            continue                                  # an un-filled FILL/BOUNDARY scaffold row -> skip (lint flags)
         src_plan, _ = plans[lk.src_campaign]
         dst_plan, _ = plans[lk.dst.campaign]
+        override_members.add((lk.src_campaign, lk.src_field))
         links.append({
             "src_campaign": lk.src_campaign, "src_field": lk.src_field,
             "src_id": _member_id(src_plan, lk.src_field, what=f"journey {journey.id!r} link from"),
             "dst_campaign": lk.dst.campaign, "dst_field": lk.dst.field,
             "dst_id": _member_id(dst_plan, lk.dst.field, what=f"journey {journey.id!r} link to"),
             "dst_entrance": lk.dst_entrance})
+    plain = {f: plans[f][0] for f in journey.campaigns if f in plans}
+    links.extend(auto_seam_links(journey.campaigns, plain, exclude_members=override_members))
     return ResolvedJourney(journey=journey, entry_id=entry_id, campaign_ids=campaign_ids,
                            flag_windows=flag_windows, flag_high=flag_high, links=links)
 
@@ -495,12 +540,12 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
             if lk.dst.campaign not in j.campaigns:
                 errors.append(f"journey {j.id!r}: link to campaign {lk.dst.campaign!r} not in this journey")
                 continue
-            if _is_unfilled(lk.src_field):
-                errors.append(f"journey {j.id!r}: the {lk.src_campaign!r} -> {lk.dst.campaign!r} link isn't "
-                              f"filled in yet -- replace the {lk.src_field!r} placeholder with the "
-                              f"{lk.src_campaign!r} member that leaves toward {lk.dst.campaign!r} ('Fill entry "
-                              f"from forks' couldn't auto-detect a boundary seam -- see the '# FILL:' note above "
-                              f"the link, or set from.field by hand).")
+            if _is_unfilled(lk.src_field) or _is_unfilled(lk.dst.field):
+                # an OBSOLETE leftover placeholder (a legacy file) -- cross-campaign links auto-wire from the
+                # real seams now, so it's not needed. Warn (don't block); resolve skips it.
+                warnings.append(f"journey {j.id!r}: a leftover {lk.src_field if _is_unfilled(lk.src_field) else lk.dst.field!r} "
+                                f"placeholder on the {lk.src_campaign!r} -> {lk.dst.campaign!r} link -- delete the "
+                                f"row; cross-campaign warps auto-wire at deploy from the real .eb connectivity.")
             elif lk.src_field not in names_by[lk.src_campaign]:
                 errors.append(f"journey {j.id!r}: link source {lk.src_field!r} is not a member of "
                               f"{lk.src_campaign!r}")
@@ -509,15 +554,12 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
                                 f"out-of-chain seam -- it's not a boundary, so there's nothing to retarget "
                                 f"into the next campaign (the assembler will inject a fresh warp instead).")
             dstf = lk.dst.field
-            if _is_unfilled(dstf):
-                errors.append(f"journey {j.id!r}: the {lk.src_campaign!r} -> {lk.dst.campaign!r} link target "
-                              f"isn't filled -- replace {dstf!r} with the {lk.dst.campaign!r} arrival member "
-                              f"(usually its entry field).")
-            elif isinstance(dstf, str) and dstf not in names_by[lk.dst.campaign]:
+            if not _is_unfilled(lk.src_field) and not _is_unfilled(dstf) \
+                    and isinstance(dstf, str) and dstf not in names_by[lk.dst.campaign]:
                 errors.append(f"journey {j.id!r}: link target {dstf!r} is not a member of {lk.dst.campaign!r}")
 
-        # connectivity: every campaign reachable from the entry campaign via links; link count = N-1
-        _lint_chain_connectivity(j, errors, warnings)
+        # connectivity: every campaign reachable from the entry over the AUTO-WIRED + override links
+        _lint_chain_connectivity(j, errors, warnings, plain={f: plans[f][0] for f in j.campaigns if f in plans})
 
     # seed range (== story_flags capstone; deeper item/party validation is story_flags' at apply-time)
     if j.seed.scenario is not None and not (0 <= j.seed.scenario <= SCENARIO_MAX):
@@ -537,19 +579,20 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
                         f"leak). scenario/party already seed cleanly that way.")
 
 
-def _lint_chain_connectivity(j: Journey, errors: list, warnings: list) -> None:
-    """A journey's campaigns must form a connected chain from the entry campaign via its links (else a listed
-    campaign is unreachable -- dead content). Warns on an unreachable campaign + on a link count that isn't the
-    expected N-1 for a simple chain."""
+def _lint_chain_connectivity(j: Journey, errors: list, warnings: list, *, plain=None) -> None:
+    """A journey's campaigns must be reachable from the entry campaign -- over the explicit ``[[journey.link]]``
+    OVERRIDES *and* the warps AUTO-WIRED from the real ``.eb`` seams (``plain`` = ``{folder: CampaignPlan}``).
+    An unreachable campaign means the game's real warps don't connect it in this set (a wrong region/entry).
+    NO link-count check: the journey wires the full connectivity GRAPH, so >N-1 links is normal + faithful."""
     if len(j.campaigns) <= 1:
-        if j.links:
-            warnings.append(f"journey {j.id!r}: {len(j.links)} link(s) but only {len(j.campaigns)} campaign "
-                            f"-- a single-campaign journey needs no links")
         return
     adj: dict = {c: set() for c in j.campaigns}
-    for lk in j.links:
-        if lk.src_campaign in adj and lk.dst.campaign in adj:
+    for lk in j.links:                               # explicit overrides
+        if lk.src_campaign in adj and lk.dst.campaign in adj and not _is_unfilled(lk.src_field):
             adj[lk.src_campaign].add(lk.dst.campaign)
+    if plain:                                        # + the auto-derived cross-campaign warps (the real graph)
+        for d in auto_seam_links(j.campaigns, plain):
+            adj[d["src_campaign"]].add(d["dst_campaign"])
     reached, stack = {j.entry.campaign}, [j.entry.campaign]
     while stack:
         for nxt in adj.get(stack.pop(), ()):
@@ -559,10 +602,11 @@ def _lint_chain_connectivity(j: Journey, errors: list, warnings: list) -> None:
     unreachable = [c for c in j.campaigns if c not in reached]
     if unreachable:
         warnings.append(f"journey {j.id!r}: campaign(s) {unreachable} unreachable from the entry campaign "
-                        f"{j.entry.campaign!r} via [[journey.link]]s -- add a link, or drop them.")
-    if len(j.links) != len(j.campaigns) - 1:
-        warnings.append(f"journey {j.id!r}: {len(j.links)} link(s) for {len(j.campaigns)} campaigns "
-                        f"(a simple chain has {len(j.campaigns) - 1}).")
+                        f"{j.entry.campaign!r} via [[journey.link]]s -- the game's real warps don't connect them "
+                        f"in this set (a wrong region/entry, or they join via an order-only world-map hop).")
+    # NB: NO link-count check. The journey wires the REAL connectivity GRAPH (every cross-campaign warp), so more
+    # than N-1 links is normal + faithful (you can walk between regions both ways, as in the game). Reachability
+    # above is the real test -- a missing connection shows up as an unreachable campaign, not a wrong count.
 
 
 # ---------------------------------------------------------------- hub fold-in (reuse hub.py's renderer)
@@ -780,18 +824,16 @@ def connection_targets(conn_rec) -> str:
                      for dst, seams in conn_rec["to"].items())
 
 
-def render_connectivity(folders, plans, *, links=None, conn=None) -> "list[str]":
+def render_connectivity(folders, plans, *, wired=frozenset(), conn=None) -> "list[str]":
     """Human report lines for :func:`campaign_connectivity`: each campaign and which siblings its real seams
-    reach + the warp kind, marking a reached sibling the chain does NOT link as an ALTERNATE route ('[not in
-    chain]', NOT an error -- the author may intend it) and surfacing out-of-journey leaks with ids. ``links`` =
-    the journey's ``[[journey.link]]`` rows (mark declared edges). ``conn`` = a precomputed map (else computed).
-    Only campaigns with an out-of-campaign seam are listed (a terminal campaign prints nothing). ``[]`` if
-    nothing is informative."""
+    reach + the warp kind, plus out-of-journey leaks (with ids). ``wired`` = the ``(src, dst)`` campaign pairs
+    actually wired (from the resolved links -- explicit + auto-derived); an edge NOT in it is flagged
+    ``[NOT wired]`` (rare -- a field seam always auto-wires; a non-adjacent overworld hop may not). ``conn`` = a
+    precomputed map (else computed). Only campaigns with an out-of-campaign seam are listed. ``[]`` if nothing."""
     if conn is None:
         conn = campaign_connectivity(folders, plans)
     if not conn:
         return []
-    declared = {(lk.src_campaign, lk.dst.campaign) for lk in (links or [])}
     rows = []
     for f in folders:
         rec = conn.get(f)
@@ -799,7 +841,7 @@ def render_connectivity(folders, plans, *, links=None, conn=None) -> "list[str]"
             continue
         bits = []
         for dst, seams in rec["to"].items():
-            tag = "" if (f, dst) in declared else "  [not in chain]"   # an alternate route, not a missing link
+            tag = "" if (f, dst) in wired else "  [NOT wired]"   # almost always wired (every field seam auto-wires)
             bits.append(f"-> {dst} (via {_field_list(seams)} {_kind_tag(seams)}){tag}")
         if rec["worldmap"]:
             bits.append(f"-> world map x{len(rec['worldmap'])}")
@@ -810,7 +852,7 @@ def render_connectivity(folders, plans, *, links=None, conn=None) -> "list[str]"
     if not rows:
         return []
     return ["real connectivity (from each forked campaign's .eb seams -- the actual warps, not zone/id order; "
-            "an unlinked sibling is an ALTERNATE route you can chain, not a missing link):"] + rows
+            "every field warp AUTO-WIRES at deploy, leak-proof):"] + rows
 
 
 def render_journey_plan(manifest: JourneyManifest) -> str:
@@ -839,20 +881,15 @@ def render_journey_plan(manifest: JourneyManifest) -> str:
             lo, hi, k = rj.flag_windows[folder]
             rng = f"{min(ids)}..{max(ids)}" if ids else "(empty)"
             out.append(f"    [{folder:<16}] ids {rng} ({len(ids)} fields)   flags {lo}..{hi} (K={k})")
-        for lk in rj.links:
-            out.append(f"    link  {lk['src_campaign']}/{lk['src_field']} (field {lk['src_id']})  "
-                       f"-->  {lk['dst_campaign']}/{lk['dst_field']} (field {lk['dst_id']})")
+        n_override = sum(1 for lk in j.links if not _is_unfilled(lk.src_field) and not _is_unfilled(lk.dst.field))
+        n_auto = len(rj.links) - n_override
+        out.append(f"    links: {len(rj.links)} cross-campaign warp(s) wired"
+                   + (f" ({n_override} override + {n_auto} auto from .eb seams)" if n_override else
+                      f" (all auto-derived from the real .eb seams -- no link rows)") + "; graph below")
         conn = campaign_connectivity(j.campaigns, _plain)        # the real warp graph, computed once per journey
-        for lk in j.links:                           # surface the boundaries reconcile couldn't auto-fill
-            if _is_unfilled(lk.src_field) or _is_unfilled(lk.dst.field):
-                hint = connection_targets(conn.get(lk.src_campaign))
-                out.append(f"    link  {lk.src_campaign} --> {lk.dst.campaign}   ** NOT FILLED ** "
-                           + (f"-- {lk.src_campaign} actually connects to: {hint} (its seams don't reach "
-                              f"{lk.dst.campaign}; reorder or set from.field by hand)"
-                              if hint else f"-- set the boundary member by hand (the {lk.src_campaign} "
-                              f"screen that leaves toward {lk.dst.campaign})"))
+        wired = {(d["src_campaign"], d["dst_campaign"]) for d in rj.links}   # explicit + auto-derived
         # the REAL connectivity from each campaign's .eb seams (zones/id order are a convenience, not a rule)
-        for line in render_connectivity(j.campaigns, _plain, links=j.links, conn=conn):
+        for line in render_connectivity(j.campaigns, _plain, wired=wired, conn=conn):
             out.append("    " + line)
         if j.seed.party:
             out.append(f"    party: {', '.join(j.seed.party)}")
@@ -1031,6 +1068,11 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
                 if prior is not None and prior != folder:
                     conflicts.append((plan.mod_folder, prior, folder))
                 folder_seen.setdefault(plan.mod_folder, folder)
+        # BATCH the field_remap links by source member: many cross-campaign warps land on ONE member's .eb
+        # (a cutscene hub like at_sln retargets ~14 Field()s), so merge them into a SINGLE multi-entry remap --
+        # one .eb patch + one backup per member (no per-link read-after-write accumulation). worldmap_inject
+        # links stay per-link (each body-replaces a distinct region).
+        field_groups: dict = {}                      # src_field -> merged remap (insertion-ordered)
         for lk in rj.links:
             src_plan = plans[lk["src_campaign"]][0]
             dst_plan = plans[lk["dst_campaign"]][0]
@@ -1038,13 +1080,33 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
             dst_real = next((m.real_id for m in dst_plan.members if m.new_id == lk["dst_id"]), None)
             sr = _seam_remap(src_plan, lk["src_field"], lk["dst_id"],
                              dst_reals=frozenset({dst_real}) if dst_real else frozenset())
+            if sr["mode"] == "field_remap" and sr["remap"]:
+                g = field_groups.get(lk["src_field"])
+                if g is None:
+                    g = field_groups[lk["src_field"]] = {"remap": {}, "lk": lk, "src_plan": src_plan,
+                                                          "kinds": set(), "dsts": []}
+                g["remap"].update(sr["remap"])           # merge {to_real: dst_id}; distinct to_reals never collide
+                g["kinds"].update(sr["kinds"])
+                g["dsts"].append(lk["dst_campaign"])
+            else:                                        # worldmap_inject / none -> one LinkRewrite per link
+                links.append(LinkRewrite(
+                    src_campaign=lk["src_campaign"], src_field=lk["src_field"], src_id=lk["src_id"],
+                    src_mod_folder=src_plan.mod_folder, eb_name=f"EVT_{lk['src_field']}",
+                    mode=sr["mode"], remap=sr["remap"],
+                    dst_campaign=lk["dst_campaign"], dst_field=str(lk["dst_field"]), dst_id=lk["dst_id"],
+                    dst_entrance=int(lk.get("dst_entrance", 0)),
+                    seam_kinds=sr["kinds"], retargetable=sr["retargetable"], note=sr["note"]))
+        for sf, g in field_groups.items():               # one merged field_remap LinkRewrite per source member
+            lk, n = g["lk"], len(g["remap"])
+            dcs = sorted(set(g["dsts"]))
             links.append(LinkRewrite(
-                src_campaign=lk["src_campaign"], src_field=lk["src_field"], src_id=lk["src_id"],
-                src_mod_folder=src_plan.mod_folder, eb_name=f"EVT_{lk['src_field']}",
-                mode=sr["mode"], remap=sr["remap"],
-                dst_campaign=lk["dst_campaign"], dst_field=str(lk["dst_field"]), dst_id=lk["dst_id"],
-                dst_entrance=int(lk.get("dst_entrance", 0)),
-                seam_kinds=sr["kinds"], retargetable=sr["retargetable"], note=sr["note"]))
+                src_campaign=lk["src_campaign"], src_field=sf, src_id=lk["src_id"],
+                src_mod_folder=g["src_plan"].mod_folder, eb_name=f"EVT_{sf}",
+                mode="field_remap", remap=dict(g["remap"]),
+                dst_campaign=dcs[0] if len(dcs) == 1 else f"{len(dcs)} campaigns",
+                dst_field=f"{n} warp(s)" if n > 1 else str(lk["dst_field"]), dst_id=lk["dst_id"],
+                dst_entrance=0, seam_kinds=sorted(g["kinds"]), retargetable=True,
+                note=f"{n} cross-campaign warp(s) -> {', '.join(dcs)}"))
     hub_id = int(manifest.hub["id"]) if manifest.hub.get("id") is not None else None
     single_entry = entry_ids[0] if len(manifest.journeys) == 1 else None    # "straight into the opening" target
     hub_folder = None
@@ -1240,7 +1302,8 @@ def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, ba
                     # path-relative slug so per-lang copies (same filename, different dir) don't collide
                     rel = p.relative_to(mod).as_posix().replace("/", "_")
                     bk = Path(backup_dir) / f"{lk.src_mod_folder}_{rel}.preLINK"
-                    bk.write_bytes(blob)
+                    if not bk.exists():               # keep the ORIGINAL: a member with several auto-wired warps
+                        bk.write_bytes(blob)           # gets multiple rewrites -- don't clobber the first backup
                     backups.append((str(p), str(bk)))
                 p.write_bytes(out)
             touched.append(str(p))

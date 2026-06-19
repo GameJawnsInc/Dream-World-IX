@@ -520,75 +520,30 @@ def parse_fork_commands(text: str) -> list:
 
 
 # --------------------------------------------------------------------------- STEP 2: reconcile after Fork-All
-# The scaffold ships `entry = {.. field = "ENTRY_MEMBER"}` + COMMENTED `[[journey.link]]` templates (STEP 2 =
-# "fill the member names from the forked campaigns"). Until filled, the journey hard-errors on the placeholder
-# + warns 0-of-(N-1) links. This automates STEP 2: once the campaigns are forked beside the journeys.toml, we
-# read each campaign.toml's REAL entry member + boundary seams and rewrite the placeholders in place.
+# The scaffold ships `entry = {.. field = "ENTRY_MEMBER"}` + COMMENTED `[[journey.link]]` templates. STEP 2 =
+# fill the ENTRY member from the forked entry campaign + strip the (now-pointless) link templates: cross-campaign
+# warps AUTO-WIRE at deploy from the real .eb seams (journey.auto_seam_links), so no link rows are written. We
+# read each forked campaign.toml beside the journeys.toml to fill the entry + preview the connectivity.
 @dataclass
 class ReconcileNote:
     level: str    # "filled" (an exact fill) | "verify" (a best-guess that needs a human eyeball) | "skip"
     text: str
 
 
-def _mk_link(src_c, src_f, dst_c, dst_f, *, comment=None):
-    return {"src_campaign": src_c, "src_field": src_f, "dst_campaign": dst_c, "dst_field": dst_f,
-            "comment": comment}
-
-
-def _pick_boundary(cur_plan, nxt_plan, cur, nxt, notes, conn_rec=None):
-    """Pick the boundary member of ``cur`` that hands off to ``nxt`` + the arrival member, the SAME way the
-    deploy step classifies a link (:func:`journey._seam_remap`, fed the next arc's real ids): a member with a
-    ``Field()`` door straight INTO ``nxt`` (PRECISE field_remap, exact arrival) wins; else a world-map exit
-    (worldmap_inject, arrival = ``nxt``'s entry -- NOT shadowed by the member's in-zone doors); else a lone
-    out-of-chain door repurposed to ``nxt`` (a VERIFY note). Returns a link dict (always -- a `fill`/`verify`
-    link still scaffolds the row so the journey lints + the human only edits one field). ``conn_rec`` =
-    ``cur``'s :func:`journey.campaign_connectivity` record, used to say where ``cur`` ACTUALLY connects when no
-    seam reaches ``nxt`` (the seed-id chain order may not match the real warps)."""
-    from . import journey as _journey
-    nxt_sources = {m.real_id: m.name for m in nxt_plan.members}     # real field id -> the next arc's member name
-    nxt_reals = frozenset(nxt_sources)                             # the next arc's donor ids (precise-door test)
-    nxt_entry = nxt_plan.entry_name
-    precise, overworld, other_fr = [], [], []
-    for m in cur_plan.members:
-        sr = _journey._seam_remap(cur_plan, m.name, 0, dst_reals=nxt_reals)   # dst_id dummy; read mode/remap
-        if sr["mode"] == "field_remap":
-            target = next(iter(sr["remap"]), None)                 # the chosen int seam target
-            (precise.append((m.name, nxt_sources[target])) if target in nxt_sources else other_fr.append(m.name))
-        elif sr["mode"] == "worldmap_inject":
-            overworld.append(m.name)
-    if precise:
-        nm, dst = precise[0]
-        if len(precise) > 1:                                       # a tie -> mark it inline so it's not silently picked
-            notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: {len(precise)} members exit into {nxt}; "
-                                       f"picked {nm!r}"))
-            return _mk_link(cur, nm, nxt, dst,
-                            comment=f"VERIFY: {len(precise)} members of {cur} exit into {nxt}; "
-                                    f"picked {nm} -> {dst}")
-        return _mk_link(cur, nm, nxt, dst)
-    if len(overworld) == 1:
-        return _mk_link(cur, overworld[0], nxt, nxt_entry)
-    if len(overworld) > 1:
-        notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: {len(overworld)} world-map exits {overworld}; "
-                                   f"picked {overworld[0]!r} -- confirm it's the one toward {nxt}"))
-        return _mk_link(cur, overworld[0], nxt, nxt_entry,
-                        comment=f"VERIFY: {cur} has {len(overworld)} world-map exits; confirm this is toward {nxt}")
-    where = _journey.connection_targets(conn_rec)              # where cur's REAL seams land (if anywhere)
-    if len(other_fr) == 1:
-        extra = f" ({cur} connects to {where})" if where else ""
-        notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: boundary {other_fr[0]!r} exits to a field "
-                                   f"outside {nxt} -- confirm the hand-off target{extra}"))
-        return _mk_link(cur, other_fr[0], nxt, nxt_entry,
-                        comment=f"VERIFY: {other_fr[0]} exits to a field outside {nxt}; confirm to.field{extra}")
-    if where:
-        notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: no seam reaches {nxt}, but {cur} DOES connect "
-                                   f"to: {where}. Your chain order may not match the real warps -- reorder the "
-                                   f"chain, or set from.field by hand."))
-        comment = f"FILL: no seam from {cur} reaches {nxt}; {cur} actually connects to {where} (reorder?)"
-    else:
-        notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: no boundary seam auto-found -- set from.field by "
-                                   f"hand (the member that leaves {cur} toward {nxt})"))
-        comment = f"FILL: the member that leaves {cur} toward {nxt} (no boundary seam auto-found)"
-    return _mk_link(cur, "BOUNDARY_MEMBER", nxt, nxt_entry, comment=comment)
+def _unreachable_campaigns(campaigns, entry, links) -> list:
+    """Campaigns NOT reachable from ``entry`` over the wired links (a BFS) -- a region the real warps don't
+    connect (so it's the wrong region, the wrong entry, or it needs an order-only overworld hop). Pure."""
+    adj: dict = {c: set() for c in campaigns}
+    for lk in links:
+        if lk["src_campaign"] in adj and lk["dst_campaign"] in adj:
+            adj[lk["src_campaign"]].add(lk["dst_campaign"])
+    reached, stack = {entry}, [entry]
+    while stack:
+        for nxt in adj.get(stack.pop(), ()):
+            if nxt not in reached:
+                reached.add(nxt)
+                stack.append(nxt)
+    return [c for c in campaigns if c not in reached]
 
 
 def _journey_block_range(lines, target_jidx):
@@ -610,20 +565,6 @@ _TMPL_PREFIXES = ("# [[journey.link]]", "# from = {", "# to = {", "# One link pe
 
 def _is_link_template(stripped: str) -> bool:
     return any(stripped.startswith(p) for p in _TMPL_PREFIXES)
-
-
-def _render_links(links):
-    out: list = []
-    for lk in links:
-        if lk.get("comment"):
-            out.append(f"# {lk['comment']}")
-        out.append("[[journey.link]]")
-        out.append(f'from = {{ campaign = "{_toml_str(lk["src_campaign"])}", '
-                   f'field = "{_toml_str(lk["src_field"])}" }}')
-        out.append(f'to = {{ campaign = "{_toml_str(lk["dst_campaign"])}", '
-                   f'field = "{_toml_str(lk["dst_field"])}", entrance = 0 }}')
-        out.append("")                                             # a blank line between adjacent link blocks
-    return out
 
 
 def reconcile_arc_journey(text: str, base_dir) -> "tuple[str, list]":
@@ -669,20 +610,17 @@ def reconcile_arc_journey(text: str, base_dir) -> "tuple[str, list]":
         return text, notes
 
     entry_member = plans[campaigns[0]].entry_name                  # the entry arc's REAL start member (exact)
-    pairs = list(zip(campaigns, campaigns[1:]))
-    unforked = sorted({c for pair in pairs for c in pair if c not in plans})
-    # Fill the link rows ATOMICALLY -- only once EVERY boundary's two campaigns are forked. A PARTIAL fill would
-    # strip the still-commented templates for the not-yet-forkable boundaries (losing them), and a later re-run
-    # would see the real rows it did write and bail (has_real_link) -- so those links could NEVER be filled. For
-    # an incremental fork-by-arc workflow we therefore keep ALL templates until the chain is complete, then fill
-    # them in one pass. (Entry only needs the first campaign, so it fills early regardless.)
+    unforked = sorted({c for c in campaigns if c not in plans})
+    # Fill the link rows ATOMICALLY -- only once EVERY campaign is forked (the connectivity graph needs all their
+    # .eb seams). A PARTIAL fill would strip the still-commented templates + a re-run would bail (has_real_link),
+    # so for the incremental fork-by-arc workflow we keep ALL templates until the chain is complete, then wire it
+    # in one pass. (Entry only needs the first campaign, so it fills early regardless.)
     links_complete = not unforked
+    derived, stranded = [], []
     if links_complete:
         from . import journey as _journey
-        conn = _journey.campaign_connectivity(campaigns, plans)    # the REAL warp graph (seams, not zones)
-        links = [_pick_boundary(plans[c], plans[n], c, n, notes, conn.get(c)) for (c, n) in pairs]
-    else:
-        links = []
+        derived = _journey.auto_seam_links(campaigns, plans)       # what the DEPLOY will auto-wire (preview only)
+        stranded = _unreachable_campaigns(campaigns, campaigns[0], derived)
 
     # ---- text surgery on the target journey block (leave everything else, incl. the header playbook, intact)
     lines = text.split("\n")
@@ -706,36 +644,26 @@ def reconcile_arc_journey(text: str, base_dir) -> "tuple[str, list]":
                 notes.append(ReconcileNote("skip", f"entry already set to {cur_field!r} -- left as-is"))
             break
 
-    # links: fill the whole set in ONE pass, and only when the block has NO real [[journey.link]] yet AND every
-    # boundary resolved (so an incremental fork keeps the templates intact + a re-run can complete the chain).
+    # LINKS auto-wire at DEPLOY from the real .eb connectivity (journey.auto_seam_links) -- so reconcile writes NO
+    # link rows. It strips the now-pointless commented templates + reports the graph the deploy will wire (the
+    # audit surface). An explicit [[journey.link]] is kept as an author OVERRIDE.
     has_real_link = any(ln.strip() == "[[journey.link]]" for ln in block)
-    if has_real_link:
-        notes.append(ReconcileNote("skip", "[[journey.link]] rows already present -- left as-is "
-                                   "(delete them to re-fill)"))
-    elif not links_complete:
-        notes.append(ReconcileNote("verify", f"links NOT filled yet -- fork {unforked} first, then re-run; the "
-                                   f"commented link templates are KEPT so a later run fills the whole chain"))
-    elif links:
-        kept, insert_at = [], None
-        for ln in block:
-            if _is_link_template(ln.strip()):
-                if insert_at is None:
-                    insert_at = len(kept)                          # splice the real rows where the template was
-                continue
-            kept.append(ln)
-        rendered = _render_links(links)
-        if insert_at is None:                                      # no template (hand-written) -> after `entry =`
-            ei = next((i for i, ln in enumerate(kept) if ln.strip().startswith("entry =")), None)
-            insert_at = (ei + 1) if ei is not None else len(kept)
-            rendered = [""] + rendered
-        block = kept[:insert_at] + rendered + kept[insert_at:]
-        n_verify = sum(1 for lk in links if lk.get("comment"))
-        notes.append(ReconcileNote("filled" if not n_verify else "verify",
-                                   f"{len(links)} link(s) filled" + (f" ({n_verify} need a look)" if n_verify else "")))
-        changed = True
+    if not links_complete:
+        notes.append(ReconcileNote("verify", f"fork {unforked} first to preview the auto-wired connectivity "
+                                   f"(cross-campaign links derive at DEPLOY from the seams -- no rows to fill)"))
+    else:
+        stripped = [ln for ln in block if not _is_link_template(ln.strip())]
+        if len(stripped) != len(block):                            # drop the leftover commented templates
+            block, changed = stripped, True
+        notes.append(ReconcileNote("filled", f"{len(derived)} cross-campaign warp(s) auto-wire at DEPLOY from the "
+                                   f"real .eb connectivity -- no link rows to fill"
+                                   + ("; existing [[journey.link]] kept as overrides" if has_real_link else "")))
+        if stranded:                                               # a region the real warps don't connect
+            notes.append(ReconcileNote("verify", f"no real warp connects {stranded} from the entry {campaigns[0]!r} "
+                                       f"-- the game doesn't link them in this set (wrong region/entry, or an "
+                                       f"order-only world-map hop). See the connectivity report."))
 
     if not changed:
-        notes.append(ReconcileNote("skip", "nothing to fill (entry + links already set)"))
         return text, notes
     return "\n".join(lines[:start] + block + lines[end:]), notes
 

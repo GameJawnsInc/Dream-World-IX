@@ -151,10 +151,10 @@ to = { campaign = "ice_cavern", field = "IC_ENT" }
                          "dst_entrance": 0}]
 
 
-def test_unfilled_boundary_placeholder_is_tolerated(tmp_path):
-    # reconcile leaves an UNRESOLVABLE boundary as an active link with a BOUNDARY_MEMBER placeholder. That must
-    # NOT crash resolve/overview (the bug: it hard-raised, blocking the whole journey) -- skip it + flag it.
-    _two_campaigns(tmp_path)
+def test_leftover_boundary_placeholder_is_tolerated(tmp_path):
+    # A legacy BOUNDARY_MEMBER placeholder must NOT crash resolve, and is now just an obsolete WARNING -- links
+    # auto-wire from the seams, so it's not needed. cb is still reached (via the auto-wired overworld hop).
+    _two_campaigns(tmp_path)                                       # ca has an overworld exit; cb forked
     p = _write_manifest(tmp_path, """
 [[journey]]
 id = "ff9disc1"
@@ -165,27 +165,13 @@ from = { campaign = "ca", field = "BOUNDARY_MEMBER" }
 to = { campaign = "cb", field = "B1" }
 """)
     m = journey.load_journeys(p)
-    plans = journey.load_campaign_plans(m)
-    rj = journey.resolve_journey(m.journeys[0], plans)            # must NOT raise
-    assert rj.entry_id == 6000 and rj.links == []                # the unfilled link is skipped, entry still resolves
-    plan_text = journey.render_journey_plan(m)                    # overview renders (was "Could not resolve")
-    assert "NOT FILLED" in plan_text and "ca --> cb" in plan_text
-    errors, _ = journey.lint_manifest(m)
-    assert any("isn't filled in yet" in e and "BOUNDARY_MEMBER" in e for e in errors)
-    assert not any("is neither a member name nor a field id" in e for e in errors)   # no confusing message
-    # the ARRIVAL_MEMBER (link target) placeholder is handled symmetrically
-    p2 = _write_manifest(tmp_path, """
-[[journey]]
-id = "ff9disc1"
-campaigns = ["ca", "cb"]
-entry = { campaign = "ca", field = "A1" }
-[[journey.link]]
-from = { campaign = "ca", field = "A2" }
-to = { campaign = "cb", field = "ARRIVAL_MEMBER" }
-""")
-    m2 = journey.load_journeys(p2)
-    assert journey.resolve_journey(m2.journeys[0], journey.load_campaign_plans(m2)).links == []
-    assert any("isn't filled" in e and "ARRIVAL_MEMBER" in e for e in journey.lint_manifest(m2)[0])
+    rj = journey.resolve_journey(m.journeys[0], journey.load_campaign_plans(m))   # must NOT raise
+    assert rj.entry_id == 6000
+    assert any(l["src_campaign"] == "ca" and l["dst_campaign"] == "cb" for l in rj.links)  # cb auto-wired
+    errors, warnings = journey.lint_manifest(m)
+    assert not any("BOUNDARY_MEMBER" in e for e in errors)        # no longer an ERROR (obsolete placeholder)
+    assert any("placeholder" in w and "auto-wire" in w for w in warnings)
+    assert not any("neither a member name nor a field id" in e for e in errors)
 
 
 def test_campaign_connectivity_from_real_seams(tmp_path):
@@ -203,15 +189,43 @@ def test_campaign_connectivity_from_real_seams(tmp_path):
     assert conn["ca"]["external"] == [("A1", 999, "scripted")]
     assert conn["cb"]["to"] == {} and conn["cb"]["worldmap"] == [("B1", "overworld")]
     assert journey.connection_targets(conn["ca"]) == "cb (via 200 scripted)"   # deduped + warp kind
-    # render flags a reached sibling the chain does NOT link as an ALTERNATE route + shows the leak ids
-    rep = "\n".join(journey.render_connectivity(["ca", "cb"], plans))
-    assert "ca:" in rep and "-> cb (via 200 scripted)" in rep and "[not in chain]" in rep
+    # an edge NOT in the wired set is flagged [NOT wired]; the leak id surfaces
+    rep = "\n".join(journey.render_connectivity(["ca", "cb"], plans))   # wired empty -> everything flagged
+    assert "ca:" in rep and "-> cb (via 200 scripted)" in rep and "[NOT wired]" in rep
     assert "leak(s) to unforked fields (999)" in rep                  # the external 999 surfaces with its id
-    # ...and DROPS the alternate-route tag once a link declares it
-    lk = journey.JourneyLink(src_campaign="ca", src_field="A2",
-                             dst=journey.JourneyRef(campaign="cb", field="B1"), dst_entrance=0)
-    rep2 = "\n".join(journey.render_connectivity(["ca", "cb"], plans, links=[lk]))
-    assert "-> cb (via 200 scripted)" in rep2 and "[not in chain]" not in rep2.split("ca:")[1].split("\n")[0]
+    # ...and DROPS the tag once that pair IS wired
+    rep2 = "\n".join(journey.render_connectivity(["ca", "cb"], plans, wired={("ca", "cb")}))
+    assert "-> cb (via 200 scripted)" in rep2 and "[NOT wired]" not in rep2.split("ca:")[1].split("\n")[0]
+
+
+def test_auto_seam_links_one_per_field_warp(tmp_path):
+    # a member warping to SEVERAL fields in a sibling must get ONE link PER field (else the others leak); a
+    # Field() to a donor forked by TWO siblings wires ONCE (first sibling -- no conflicting double-remap).
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000, sources={"A1": 100},
+                   seams=[{"frm": "A1", "to_real": tr, "kind": "scripted", "note": ""} for tr in (200, 201, 202, 300)])
+    _make_campaign(tmp_path, "cb", members=["B1", "B2", "B3"], id_base=6100,
+                   sources={"B1": 200, "B2": 201, "B3": 202})
+    _make_campaign(tmp_path, "cc", members=["C1"], id_base=6300, sources={"C1": 300})
+    plain = {k: campaign.load_campaign(tmp_path / k / "campaign.toml") for k in ("ca", "cb", "cc")}
+    links = journey.auto_seam_links(["ca", "cb", "cc"], plain)
+    a1 = [l for l in links if l["src_field"] == "A1"]
+    # 3 distinct warps into cb (200/201/202) + 1 into cc (300) = 4 links, each a DISTINCT arrival id
+    assert len(a1) == 4 and len({l["dst_id"] for l in a1}) == 4
+    assert {l["dst_field"] for l in a1 if l["dst_campaign"] == "cb"} == {"B1", "B2", "B3"}
+    # exclude_members suppresses the whole member
+    assert journey.auto_seam_links(["ca", "cb", "cc"], plain, exclude_members={("ca", "A1")}) == []
+
+
+def test_auto_seam_links_tolerates_orphaned_seam_frm(tmp_path):
+    # a seam whose `frm` is NOT a member (a stringified real id from a stale/hand-edited campaign.toml) must NOT
+    # KeyError the whole deploy/lint pipeline -- skip it. (review MEDIUM: new_id[a][frm] was a raw subscript.)
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000, sources={"A1": 100},
+                   seams=[{"frm": "GHOST", "to_real": 200, "kind": "scripted", "note": ""},     # frm not a member
+                          {"frm": "999", "to_real": "WORLDMAP", "kind": "overworld", "note": ""}])
+    _make_campaign(tmp_path, "cb", members=["B1"], id_base=6100, sources={"B1": 200})
+    plain = {k: campaign.load_campaign(tmp_path / k / "campaign.toml") for k in ("ca", "cb")}
+    links = journey.auto_seam_links(["ca", "cb"], plain)             # must NOT raise
+    assert all(l["src_field"] in {"A1"} for l in links)             # the GHOST/999 orphan seams are skipped
 
 
 def test_connectivity_shared_donor_names_all_siblings(tmp_path):
