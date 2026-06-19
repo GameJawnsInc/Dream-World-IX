@@ -944,3 +944,99 @@ to = { campaign = "zb", field = "B1" }
 """)
     lk = journey.build_deploy_plan(journey.load_journeys(p)).links[0]
     assert lk.mode == "field_remap" and lk.remap == {700: 6100}    # precise door into the next campaign
+
+
+# ---- pre-flight collision sweep (the "remove the superseded folder" report) --------------
+def _fake_game(tmp, foldernames, dicts):
+    """A throwaway game dir: Memoria.ini with a FolderNames line + a DictionaryPatch.txt per folder. ``dicts``
+    maps folder -> [(id, name), ...] (each becomes a FieldScene line)."""
+    g = tmp / "game"
+    g.mkdir(exist_ok=True)
+    fn = ", ".join(f'"{f}"' for f in foldernames)
+    (g / "Memoria.ini").write_text(f"[Mod]\nFolderNames = {fn}\n", encoding="utf-8", newline="\n")
+    for folder, rows in dicts.items():
+        d = g / folder
+        d.mkdir(parents=True, exist_ok=True)
+        body = "\n".join(f"FieldScene {i} 11 {nm} {nm} 33" for (i, nm) in rows)
+        (d / "DictionaryPatch.txt").write_text(body + "\n", encoding="utf-8", newline="\n")
+    return g
+
+
+def _intro_plan(tmp):
+    """A 2-campaign journey: ca -> FF9CustomMap-ca (6000..6001), cb -> FF9CustomMap-cb (6100..6101),
+    hub 4500 -> FF9CustomMap-world_hub."""
+    _make_campaign(tmp, "ca", members=["A1", "A2"], id_base=6000, mod_folder="FF9CustomMap-ca",
+                   sources={"A1": 100})
+    _make_campaign(tmp, "cb", members=["B1", "B2"], id_base=6100, mod_folder="FF9CustomMap-cb")
+    p = _write_manifest(tmp, """
+[[journey]]
+id = "intro"
+name = "Intro"
+campaigns = ["ca", "cb"]
+entry = { campaign = "ca", field = "A1" }
+""")
+    return journey.build_deploy_plan(journey.load_journeys(p))
+
+
+def test_preflight_clean_when_no_foreign_folder(tmp_path):
+    plan = _intro_plan(tmp_path)
+    g = _fake_game(tmp_path, ["FF9CustomMap-ca", "FF9CustomMap-cb", "FF9CustomMap-world_hub", "MoguriMain"], {})
+    col = journey.preflight_collisions(plan, g)
+    assert not col.has_blockers
+    assert journey.render_collision_report(col) == ""
+
+
+def test_preflight_flags_foreign_id_collision(tmp_path):
+    # a SUPERSEDED foreign folder still in FolderNames registers id 6000 (== ca's entry id) -> a blocker.
+    plan = _intro_plan(tmp_path)
+    g = _fake_game(tmp_path, ["FF9CustomMap-OLD", "FF9CustomMap-ca", "FF9CustomMap-cb"],
+                   {"FF9CustomMap-OLD": [(6000, "OLD_FIELD")]})
+    col = journey.preflight_collisions(plan, g)
+    assert col.has_blockers
+    assert "FF9CustomMap-OLD" in col.external_folders
+    assert any(i == 6000 and f == "FF9CustomMap-OLD" for (i, _mf, _nm, f, _ok, _on) in col.external_ids)
+    rep = journey.render_collision_report(col)
+    assert "FF9CustomMap-OLD" in rep and "remove" in rep.lower()
+
+
+def test_preflight_flags_foreign_hub_id_collision(tmp_path):
+    # the hub's own id (4500) clashing with a foreign folder is a blocker too (the -disc1 vs hub 4600 case).
+    plan = _intro_plan(tmp_path)
+    g = _fake_game(tmp_path, ["FF9CustomMap-OLDHUB", "FF9CustomMap-ca", "FF9CustomMap-cb"],
+                   {"FF9CustomMap-OLDHUB": [(4500, "OLD_HUB")]})
+    col = journey.preflight_collisions(plan, g)
+    assert col.has_blockers
+    assert any(i == 4500 for (i, *_rest) in col.external_ids)
+
+
+def test_preflight_excludes_this_journeys_own_folders(tmp_path):
+    # ca's OWN folder still holds 6100 (cb's sibling band, a prior re-banded deploy): NOT a blocker (it's
+    # wholesale-replaced) -- it surfaces only in stale_own, the informational "will be replaced" note.
+    plan = _intro_plan(tmp_path)
+    g = _fake_game(tmp_path, ["FF9CustomMap-ca", "FF9CustomMap-cb"],
+                   {"FF9CustomMap-ca": [(6100, "STALE")]})
+    col = journey.preflight_collisions(plan, g)
+    assert not col.has_blockers
+    assert any(f == "FF9CustomMap-ca" and 6100 in ids for (f, ids) in col.stale_own)
+    rep = journey.render_collision_report(col)
+    assert "FF9CustomMap-ca" in rep and "replaced" in rep.lower()
+
+
+def test_preflight_includes_hub_evt_name(tmp_path):
+    # the hub ships its own EVT_<token>.eb, so the name axis must sweep it vs foreign folders (review LOW #1).
+    plan = _intro_plan(tmp_path)
+    ids, eb, _scene = journey._journey_registrations(plan, hub_name="WORLD_HUB")
+    assert 4500 in ids                                       # hub id still covered (the ID axis)
+    assert eb.get("EVT_WORLD_HUB") == plan.hub_folder        # hub EVT name now on the NAME axis
+    # ...and without a hub_name the hub EVT name is simply absent (no crash, no false entry)
+    _ids2, eb2, _s2 = journey._journey_registrations(plan)
+    assert not any(k.startswith("EVT_WORLD_HUB") for k in eb2)
+
+
+def test_preflight_degrades_without_memoria_ini(tmp_path):
+    # no Memoria.ini -> empty stack -> nothing to collide with (graceful, like the deploystack helpers).
+    plan = _intro_plan(tmp_path)
+    g = tmp_path / "empty_game"
+    g.mkdir()
+    col = journey.preflight_collisions(plan, g)
+    assert not col.has_blockers and not col.stale_own

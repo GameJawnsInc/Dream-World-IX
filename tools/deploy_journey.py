@@ -46,6 +46,16 @@ from ff9mapkit import journey as J            # noqa: E402
 from ff9mapkit.config import find_game_path   # noqa: E402
 
 
+def _game_or_none():
+    """``find_game_path()`` RAISES ``ConfigError`` when no install resolves (it never returns None) -- but the
+    OPTIONAL pre-flight / the 'no FF9 install found' messages want a soft None, not an uncaught traceback (the
+    dry-run/Preview path must stay offline-safe on a machine without the game)."""
+    try:
+        return find_game_path()
+    except Exception:
+        return None
+
+
 def _render_revert(results: list, stamp: str) -> str:
     """A revert script that restores every backed-up boundary .eb the link step patched."""
     pairs = [(live, bkp) for r in results for live, bkp in r.get("backups", [])]
@@ -151,13 +161,25 @@ def _apply_journey(manifest, plan, args) -> int:
         for mf, a, b in plan.folder_conflicts:
             print(f"  {a!r} and {b!r} both -> {mf!r} -- give each its OWN mod_folder.", file=sys.stderr)
         return 2
-    game = find_game_path()
+    game = _game_or_none()
     if game is None:
         print("no FF9 install found -- can't deploy.", file=sys.stderr)
         return 2
     if plan.hub_field_id is None:
         print("ABORT: the manifest has no [hub] id to deploy New Game into.", file=sys.stderr)
         return 2
+
+    # PRE-FLIGHT collision sweep vs the live Memoria.ini FolderNames stack -- BEFORE building or touching
+    # anything. Catches the common trap (a SUPERSEDED prior journey still in FolderNames on this id band) with a
+    # crisp "remove these folder(s)" report instead of an opaque "deploy_campaign ... exited 2" mid-install. A
+    # collision against one of THIS journey's OWN folders is NOT a blocker (it's wholesale-replaced) -- the sweep
+    # excludes them, so what survives is a genuinely foreign folder the user must drop from FolderNames.
+    hub_name = manifest.hub.get("name") if manifest.hub else None
+    col = J.preflight_collisions(plan, game, hub_name=hub_name)
+    if col.has_blockers:
+        print("\n" + J.render_collision_report(col), file=sys.stderr)
+        return 2
+
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     highest = _highest_folder(game)
     # the hub field + the New-Game override go into a DEDICATED journey-owned folder (NOT the ambient deploy-time
@@ -210,12 +232,27 @@ def _apply_journey(manifest, plan, args) -> int:
         return 2
     print(f"  all {len(built)} campaign(s) + the hub build OK -> {hub_toml}  (camera: {info['spec'].camera})")
 
+    # authoritative collision re-check using the BUILT dists (FBG scene names are now known too -- the pre-build
+    # pass only saw ids + EVT names). Still BEFORE any install, so an abort here leaves zero game-file changes.
+    col = J.preflight_collisions(plan, game, dists=built, hub_name=hub_name)
+    if col.has_blockers:
+        print("\n" + J.render_collision_report(col), file=sys.stderr)
+        return 2
+    stale_note = J.render_collision_report(col)          # no blockers left -> just the "own folders replaced" note
+    if stale_note:
+        print("\n" + stale_note)
+
     # (1) INSTALL each prebuilt campaign dist -> its own stacked folder (--no-warp; the hub owns New Game).
     #     The dists are already built (step 0) with their seed + flag_base baked in, so this only installs.
+    # --allow-id-collision: the journey-level pre-flight above already proved global id-disjointness vs every
+    # FOREIGN FolderNames folder, and the assembler lints internal disjointness -- so the only id collision
+    # deploy_campaign's per-folder check can still see is a SIBLING folder mid-install (this journey's own folder
+    # holding a prior deploy, about to be replaced). Relaxing just the id check skips that transient false abort;
+    # the NAME check stays strict (it still catches a genuine cross-worktree FBG/EVT shadow).
     print("\n=== 1. install campaigns ===")
     for s in plan.campaign_steps:
         rc = _run([sys.executable, str(HERE / "deploy_campaign.py"), str(built[s.folder]),
-                   "--apply", "--no-warp", "--mod-folder", s.mod_folder])
+                   "--apply", "--no-warp", "--mod-folder", s.mod_folder, "--allow-id-collision"])
         if rc != 0:
             return _abort(f"deploy_campaign install for {s.folder} exited {rc}")
         cap = _capture("revert_campaign.py", f"revert_journey_campaign_{s.folder}.py")
@@ -333,7 +370,7 @@ def main(argv=None) -> int:
         return _apply_journey(manifest, plan, args)
 
     if args.apply_links:
-        game = find_game_path()
+        game = _game_or_none()
         if game is None:
             print("no FF9 install found -- can't apply link rewrites.", file=sys.stderr)
             return 2
@@ -346,6 +383,17 @@ def main(argv=None) -> int:
     # --- dry-run: the playbook ---
     hub_out = args.hub_out or str((jpath.parent / "hub.field.toml"))
     print(J.render_deploy_playbook(manifest, hub_toml=hub_out, journeys_ref=args.journeys))
+    # pre-flight the live FolderNames stack here too (Preview), so a superseded-folder collision shows up BEFORE
+    # the user commits to --apply -- not as a mid-deploy abort. This cheap (no-build) pass sweeps ids + EVT names
+    # only; an FBG-scene-name collision is verified by --apply's post-build re-check (it can't reach the game --
+    # deploy_campaign's strict name check is the backstop), so a clean Preview is a strong but not total signal.
+    game = _game_or_none()
+    if game is not None:
+        hub_name = manifest.hub.get("name") if manifest.hub else None
+        rep = J.render_collision_report(J.preflight_collisions(plan, game, hub_name=hub_name))
+        if rep:
+            print("\n" + rep)
+            print("(FBG scene-name collisions are only verified at --apply, after the offline build.)")
     print("DRY-RUN -- no game files touched. Either run the steps above one-by-one (PLAYTEST each), or run the "
           "whole thing with `--apply` (one unified revert).")
     return 0

@@ -1122,6 +1122,135 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
                              folder_conflicts=conflicts, entry_field_id=single_entry, hub_folder=hub_folder)
 
 
+# ---- pre-flight collision sweep (the "remove these stale folders" report, before any install) ----
+
+@dataclass
+class JourneyCollisions:
+    """Does this journey's FINAL set of registrations clash with the live ``Memoria.ini`` ``FolderNames`` stack?
+    Computed BEFORE any install (``EventDB`` is GLOBAL across folders -- a shared id loads the wrong ``.eb`` ->
+    black screen; CLAUDE.md §3).
+
+    ``external_*`` collide with a folder that is NOT part of this journey -- the real BLOCKER (a superseded prior
+    deploy / an unrelated mod on the same band); the fix is to drop that folder from ``FolderNames``.
+    ``stale_own`` are this journey's OWN folders that still hold a PRIOR deploy whose ids overlap a SIBLING's
+    final band -- harmless (each is wholesale-replaced on deploy), but they would trip ``deploy_campaign``'s
+    per-folder id check mid-install, which is exactly why ``deploy_journey`` relaxes THAT one check
+    (``--allow-id-collision``) once this external sweep comes back clean."""
+    external_ids: tuple = ()      # (id, my_folder, my_name, other_folder, other_kind, other_name)
+    external_names: tuple = ()    # (kind, name, my_folder, other_folder)
+    stale_own: tuple = ()         # (folder, (overlapping_ids, ...))
+    external_folders: tuple = ()  # the distinct external folders that collide (the "remove these" headline)
+
+    @property
+    def has_blockers(self) -> bool:
+        return bool(self.external_ids or self.external_names)
+
+
+def _journey_registrations(plan, *, dists=None, hub_name=None):
+    """This journey's FINAL registrations: ``{id: (mod_folder, name)}``, ``{eb_name: mod_folder}``,
+    ``{scene_name: mod_folder}``. Reads the built dists when given (authoritative, incl. FBG scene names), else
+    derives ids + ``EVT_<member>`` names straight from each campaign manifest (no build -- the dry-run path).
+    ``hub_name`` (the ``[hub] name``) adds the hub's own ``EVT_<token>`` to the name axis -- a BG-borrow hub
+    ships its ``.eb`` but NO novel FBG scene dir (it points at the borrowed real art), so EVT is its only own
+    name."""
+    from . import deploystack as _DS
+    ids: dict = {}
+    eb: dict = {}
+    scene: dict = {}
+    for s in plan.campaign_steps:
+        d = (dists or {}).get(s.folder)
+        if d is not None:                                  # authoritative: read what was actually built
+            d = Path(d)
+            for i, (_k, nm) in _DS.dictionary_ids_at(d).items():
+                ids[i] = (s.mod_folder, nm)
+            for nm in _DS.eb_names_at(d):
+                eb[nm] = s.mod_folder
+            for nm in _DS.scene_names_at(d):
+                scene[nm] = s.mod_folder
+        else:                                              # cheap pre-build derivation (ids + EVT names)
+            cp = _campaign.load_campaign(s.campaign_path)
+            for m in cp.members:
+                ids[m.new_id] = (s.mod_folder, m.name)
+                eb[f"EVT_{m.name}"] = s.mod_folder
+    if plan.hub_field_id is not None and plan.hub_folder:   # the hub registers its own id (+ EVT name) too
+        ids.setdefault(int(plan.hub_field_id), (plan.hub_folder, "hub"))
+        if hub_name:
+            eb.setdefault(f"EVT_{_hub.name_token(hub_name)}", plan.hub_folder)
+    return ids, eb, scene
+
+
+def preflight_collisions(plan, game_dir, *, dists=None, hub_name=None) -> JourneyCollisions:
+    """Sweep this journey's FINAL ids/names against the live ``Memoria.ini`` ``FolderNames`` stack BEFORE any
+    install. Folders this journey OWNS are excluded from the blocker set (each is wholesale-replaced); a
+    leftover/superseded FOREIGN folder on the same band is the real blocker. Read-only -- touches no game files.
+    Pass ``dists`` (``{folder: dist_dir}``) after the offline build for an authoritative pass (FBG names too),
+    and ``hub_name`` (the ``[hub] name``) to also sweep the hub's ``EVT_<token>`` vs foreign folders."""
+    from . import deploystack as _DS
+    game_dir = Path(game_dir)
+    ini = game_dir / "Memoria.ini"
+    order = _DS.parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+    own = {s.mod_folder for s in plan.campaign_steps}
+    if plan.hub_folder:
+        own.add(plan.hub_folder)
+    want_ids, want_eb, want_scene = _journey_registrations(plan, dists=dists, hub_name=hub_name)
+    ext_ids: list = []
+    ext_names: list = []
+    ext_folders: set = set()
+    for f in [x for x in order if x not in own]:           # only FOREIGN folders are blockers
+        their = _DS.dictionary_ids_at(game_dir / f)
+        for i in sorted(want_ids):
+            if i in their:
+                mf, nm = want_ids[i]
+                ok, on = their[i]
+                ext_ids.append((i, mf, nm, f, ok, on))
+                ext_folders.add(f)
+        their_eb = _DS.eb_names_at(game_dir / f)
+        for nm in sorted(want_eb):
+            if nm in their_eb:
+                ext_names.append(("eb", nm, want_eb[nm], f))
+                ext_folders.add(f)
+        their_sc = _DS.scene_names_at(game_dir / f)
+        for nm in sorted(want_scene):
+            if nm in their_sc:
+                ext_names.append(("scene", nm, want_scene[nm], f))
+                ext_folders.add(f)
+    # informational: which of THIS journey's OWN folders still hold a SIBLING's band (replaced on deploy)
+    own_final = set(want_ids)
+    stale: list = []
+    for s in plan.campaign_steps:
+        live = set(_DS.dictionary_ids_at(game_dir / s.mod_folder))
+        sib = sorted(i for i in live & own_final if want_ids[i][0] != s.mod_folder)
+        if sib:
+            stale.append((s.mod_folder, tuple(sib)))
+    return JourneyCollisions(tuple(ext_ids), tuple(ext_names), tuple(stale), tuple(sorted(ext_folders)))
+
+
+def render_collision_report(col: JourneyCollisions) -> str:
+    """A human-readable pre-flight report (``""`` when fully clean): names the superseded ``FolderNames``
+    folders to remove (the blocker), then notes this journey's own folders that will be replaced in place."""
+    from .chain import format_id_ranges
+    lines: list = []
+    if col.has_blockers:
+        lines.append("PRE-FLIGHT COLLISION: this journey re-registers ids/names that a Memoria.ini FolderNames "
+                     "folder NOT part of this journey still uses. FF9DBAll.EventDB is GLOBAL across folders, so a "
+                     "shared id loads the WRONG .eb (-> black screen).")
+        for (i, mf, nm, f, ok, on) in col.external_ids:
+            lines.append(f"  - id {i}  ({mf} '{nm}')  collides with  '{f}' ({ok} '{on}')")
+        for (kind, nm, mf, f) in col.external_names:
+            lines.append(f"  - {kind} name '{nm}'  ({mf})  collides with  '{f}'")
+        lines.append("FIX: remove the superseded folder(s) from Memoria.ini [Mod] FolderNames -- "
+                     + ", ".join(col.external_folders) + " -- then re-deploy (this journey re-registers those "
+                     "bands itself). No game files were touched.")
+    if col.stale_own:
+        if lines:
+            lines.append("")
+        lines.append("note: these of THIS journey's OWN folders still hold a prior deploy whose ids overlap a "
+                     "sibling; each is wholesale-replaced on deploy, so the per-folder id check is relaxed:")
+        for (f, ids) in col.stale_own:
+            lines.append(f"  - {f}: had id(s) {format_id_ranges(list(ids))}")
+    return "\n".join(lines)
+
+
 def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.field.toml>",
                            repo_rel: str = "", journeys_ref: "str | None" = None) -> str:
     """The ordered, copy-pasteable command sequence to deploy a journeys manifest in-game, built from the
