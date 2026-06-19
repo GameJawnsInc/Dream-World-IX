@@ -1859,8 +1859,15 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         control_line = ""
         content_tail = (
             "# --- VERBATIM .eb fork: this field ships its REAL event script WHOLE (entry-0 + every object +\n"
-            "# every gateway, slot layout intact) and runs the original logic, so the declarative blocks are\n"
-            "# NOT used here. Add a [startup] block to boot a chosen story beat (its gating then responds). ---\n"
+            "# every gateway, slot layout intact) and runs the original logic, so the declarative blocks below\n"
+            "# are NOT used here -- EXCEPT [startup], which presets STORY STATE before the real logic runs. A\n"
+            "# fork boots at scenario 0 (a fresh game), so the donor's gating sees no progress; uncomment + set\n"
+            "# the beat so it fires the right cast / cutscene / dialogue. (In a multi-field journey the seed\n"
+            "# usually lives in [journey.seed] instead -- it bakes into the ENTRY member's .eb right here.) ---\n"
+            "# [startup]\n"
+            "# scenario = 0          # the story beat = the ScenarioCounter (an int, or an \"area\" name)\n"
+            "# # flags = [ { flag = \"<name-or-index>\", value = 1 } ]   # story bits the real .eb gates on (name or index)\n"
+            "# # words = [ { byte = 236, value = 0 } ]                  # 16-bit words, e.g. the ATE-availability mask\n"
             "[verbatim_eb]\n"
             f'bin = "{name}.verbatim_eb.bin"\n'
             f"{text_line}"

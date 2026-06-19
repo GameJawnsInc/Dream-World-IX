@@ -106,7 +106,18 @@ def test_import_verbatim_ships_the_whole_donor_eb(tmp_path):
     from ff9mapkit import build, extract
     meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
     assert meta["imported_content"]["verbatim_eb"]
-    assert "[verbatim_eb]" in toml.read_text()
+    body = toml.read_text()
+    assert "[verbatim_eb]" in body
+    # #43: a verbatim fork ships a ready-to-uncomment [startup] stub (a fork boots at scenario 0; this is where
+    # you set the beat). It's commented so the build IGNORES it (the donor .eb runs as-is)...
+    assert "# [startup]" in body and "# scenario = 0" in body, "verbatim toml carries a commented [startup] stub"
+    assert "startup" not in build.FieldProject.load(toml).raw, "the stub is commented -> not active until uncommented"
+    # ...and uncommenting [startup]+scenario is well-formed TOML of the expected shape (the [startup] VALIDATOR
+    # itself is covered by test_startup.py).
+    import tomllib
+    su = tomllib.loads("[startup]\nscenario = 0\nflags = [ { flag = 184, value = 1 } ]\n"
+                       "words = [ { byte = 236, value = 0 } ]\n")["startup"]
+    assert su["scenario"] == 0 and su["flags"][0]["flag"] == 184 and su["words"][0]["byte"] == 236
     project = build.FieldProject.load(toml)
     donor = extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0")
     assert _vb.verbatim_eb(project) == donor                    # no retarget -> the whole donor .eb, verbatim
