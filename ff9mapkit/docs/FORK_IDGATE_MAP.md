@@ -6,27 +6,38 @@
 
 **280 gates found · 265 lost on a custom-id fork** — SOFTLOCK 12 · FUNCTIONAL 142 · COSMETIC 111.
 
-## Remap status (task #19) — DEFERRED 2026-06-19
+## Remap status (task #19) — ALL 12 SOFTLOCKs WRAPPED; 10 IN-GAME UNVERIFIED (2026-06-19)
 
-The fix for any row below is mechanical: wrap its `fldMapNo == N` with `Memoria.DataPatchers.EffectiveFieldId(...)`
-(`memoria-patches/s24-fork-donor-remap.patch`; identity for real / un-forked ids — a fork registers
-`<forkId> <donorRealId>` in the kit-emitted `ForkDonorPatch.txt`). One line per gate. The hard part (finding
-them) is done — this doc IS the census.
+Each fix is mechanical: wrap its `fldMapNo == N` with `Memoria.DataPatchers.EffectiveFieldId(...)` (identity for
+real / un-forked ids — a fork registers `<forkId> <donorRealId>` in the kit-emitted `ForkDonorPatch.txt`). s24
+wrapped the disc-1 pair; **`memoria-patches/s29-fork-donor-softlocks.patch` wraps the other 10** + 2 sibling
+gates an adversarial review found = **14 lines** (2507 & 1656 each have 2 sites; **2207 also gets
+`FieldMapActorController.cs:799`** = the collision-unstick-fallback skip; **3009/3010 also get
+`VoicePlayer.cs:251`** = the voice-acting twin of the AutoHide handoff, VA-mod-only). Built + deployed
+2026-06-19, compiles clean, identity-safe for the real game.
 
-**SOFTLOCK: 2 of 12 wrapped, 10 DEFERRED.** All 10 remaining softlocks fire only at **disc-2-to-4 beats**, so
-they don't block the disc-1 opening (scratch_2). Do each the moment you fork its zone (immediate playtest proof),
-or batch the 10 mechanical wraps + one DLL rebuild when chasing full-game fidelity.
-- ✅ wrapped (s24, disc 1): **105 / 2504 / 2605** (`FieldMapActorController.cs:923` — off-mesh tri-snap = Dante
-  signmaker / Fork chest) · **100** (`DialogManager.cs:214` + `fldfmv.cs:112` — Puck-hits-Vivi flush + FMV).
-- ⬜ remaining: **1656** (disc 2, Iifa scroll crutch) · **768** (disc 2, Burmecia post-Beatrix reinit) ·
-  **2200 / 2207 / 2301 / 2362** (disc 3, Gulug / Oeilvert / Esto Gaza party-shape guards — an adjacent
-  `EventEngine.cs` cluster, one edit) · **2507** (disc 3, Ipsen DelayedActiveTri ladder/stair) · **2512**
-  (disc 3, Ipsen scroll crutch) · **3009 / 3010** (disc 4, Epilogue Stage AutoHide handoff).
-- ⚠ a party-shape guard (2200 / 2207 / 2301 / 2362) FORCES a party composition — wrapping it gives the fork that
-  same forced party (the intended fidelity, but verify it doesn't fight a `[party]` / `[startup]` seed).
+⚠ **The 10 s29 wraps are NOT YET PROVEN IN-GAME.** They were BATCHED on the confidence that the transform is
+identical to the ~15 already-proven s24 wraps — all 10 fire only at **disc-2-to-4 beats**, past the current
+disc-1 playtest, so none could be verified yet. **Each still needs a per-site in-game check when its zone is
+forked**: fork the field at its beat (`[startup] scenario=N`), walk the cutscene, confirm no hang. Checklist:
 
-(Per-row behavior detail is the SOFTLOCK table just below. The FUNCTIONAL 142 / COSMETIC 111 tiers are
-lower-priority and mostly already wrapped only where they coincide with a softlock fix.)
+| | field | site | in-game check |
+|---|---|---|---|
+| ✅ s24 | 105 / 2504 / 2605 · 100 | `FieldMapActorController.cs:923` · `DialogManager.cs:214`+`fldfmv.cs` | proven earlier (disc 1) |
+| ⬜ s29 | 1656 | `FieldMap.cs:1495` + `:1972` | Iifa scroll: player binds, camera tracks |
+| ⬜ s29 | 768 | `EventEngine.updateModelsToBeAdded.cs:80` | Burmecia: after-Beatrix actors reposition |
+| ⬜ s29 | 2200 | `EventEngine.cs:657` | Gulug Stone party-clear, no leftover softlock |
+| ⬜ s29 | 2207 | `EventEngine.cs:667` + `FieldMapActorController.cs:799` | Oeilvert forced team + collision-unstick skip (Zidane summoned past stairs) |
+| ⬜ s29 | 2301 | `EventEngine.cs:687` | Esto Gaza priest cutscene (normal actor present) |
+| ⬜ s29 | 2362 | `EventEngine.cs:700` | Gulug bottom forced team |
+| ⬜ s29 | 2507 | `FieldMap.cs:102` + `:139` | Ipsen ladder/stair walkmesh + NPC-collision disable |
+| ⬜ s29 | 2512 | `FieldMap.cs:1966` | Ipsen scroll crutch |
+| ⬜ s29 | 3009 / 3010 | `Dialog.cs:820` / `:826` (+ `VoicePlayer.cs:251`, VA-only) | Epilogue Stage dialog control handoff |
+
+⚠ A party-shape guard (2200 / 2207 / 2301 / 2362) FORCES a party composition (gated on the exact ScenarioCounter)
+— so a fork gets that forced party at that beat. Intended fidelity, but verify it doesn't fight a `[party]` /
+`[startup]` seed. The Epilogue sibling **3011** is FUNCTIONAL (frame-skip / `ForceControlByEvent(true)`) — left
+unwrapped by scope; wrap it too if you fork the epilogue. FUNCTIONAL 142 / COSMETIC 111 tiers stay lower-priority.
 
 ## SOFTLOCK — a fork hangs / can't progress (patch these first)
 

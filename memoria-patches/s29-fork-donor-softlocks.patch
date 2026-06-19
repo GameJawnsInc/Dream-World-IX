@@ -1,0 +1,146 @@
+diff --git a/Assembly-CSharp/Global/Dialog/Dialog.cs b/Assembly-CSharp/Global/Dialog/Dialog.cs
+index 0e166dc0..a8e1e168 100644
+--- a/Assembly-CSharp/Global/Dialog/Dialog.cs
++++ b/Assembly-CSharp/Global/Dialog/Dialog.cs
+@@ -817,13 +817,13 @@ public class Dialog : MonoBehaviour
+     private IEnumerator AutoHide()
+     {
+         Single waitTime = (Single)this.endMode / Configuration.Graphics.FieldTPS;
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 3009)
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 3009) // [ff9mapkit fork-fidelity]
+         {
+             // Epilogue: Stage
+             DialogManager.Instance.ForceControlByEvent(false);
+             yield break;
+         }
+-        else if (FF9StateSystem.Common.FF9.fldMapNo == 3010)
++        else if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 3010) // [ff9mapkit fork-fidelity]
+         {
+             // Epilogue: Stage
+             DialogManager.Instance.ForceControlByEvent(false);
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+index 0d84d587..a82d190c 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+@@ -654,7 +654,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+             }
+ 
+             // Hotfix: clear the party right after obtaining the Gulug Stone, even if "AllCharactersAvailable = 2" (field "Palace/Dungeon"); the script normally takes care of adding characters back
+-            if (FF9StateSystem.Common.FF9.fldMapNo == 2200 && FF9StateSystem.EventState.ScenarioCounter == 9790 && FF9StateSystem.EventState.FieldEntrance == 114)
++            if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2200 && FF9StateSystem.EventState.ScenarioCounter == 9790 && FF9StateSystem.EventState.FieldEntrance == 114) // [ff9mapkit fork-fidelity]
+             {
+                 ff9play.FF9Play_SetParty(0, CharacterId.NONE);
+                 ff9play.FF9Play_SetParty(1, CharacterId.NONE);
+@@ -664,7 +664,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+             }
+             // Hotfix: force the party to be exactly Oeilvert's team when bringing the Gulug Stone back (field "Palace/Hall")
+             // Alt+F2 hack the team on that screen is disabled because that could cause another soft-lock a bit later
+-            if (FF9StateSystem.Common.FF9.fldMapNo == 2207 && FF9StateSystem.EventState.ScenarioCounter == 9835)
++            if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2207 && FF9StateSystem.EventState.ScenarioCounter == 9835) // [ff9mapkit fork-fidelity]
+             {
+                 CharacterId[] variableToCharacter = new CharacterId[]
+                 {
+@@ -684,7 +684,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+                 this.SetupPartyUID();
+             }
+             // Hotfix: make sure there is at least one normal character for the Esto Gaza Priest cutscene (field "Esto Gaza/Altar")
+-            if (FF9StateSystem.Common.FF9.fldMapNo == 2301 && FF9StateSystem.EventState.ScenarioCounter == 9910)
++            if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2301 && FF9StateSystem.EventState.ScenarioCounter == 9910) // [ff9mapkit fork-fidelity]
+             {
+                 Boolean shouldHack = !partychk((Int32)CharacterOldIndex.Garnet) && !partychk((Int32)CharacterOldIndex.Steiner) && !partychk((Int32)CharacterOldIndex.Freya) && !partychk((Int32)CharacterOldIndex.Quina) && !partychk((Int32)CharacterOldIndex.Amarant);
+                 if (shouldHack)
+@@ -697,7 +697,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+                 this.SetupPartyUID();
+             }
+             // Hotfix: force a normal team for the cutscene at the bottom of Gulug (field "Gulug/Path")
+-            if (FF9StateSystem.Common.FF9.fldMapNo == 2362 && FF9StateSystem.EventState.ScenarioCounter == 9950 && eBin.GetVariableValueInternal(FF9StateSystem.EventState.gEventGlobal, 3262, EBin.VariableType.Bit, 0) == 0)
++            if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2362 && FF9StateSystem.EventState.ScenarioCounter == 9950 && eBin.GetVariableValueInternal(FF9StateSystem.EventState.gEventGlobal, 3262, EBin.VariableType.Bit, 0) == 0) // [ff9mapkit fork-fidelity]
+             {
+                 Boolean shouldHack = !partychk((Int32)CharacterOldIndex.Zidane) || !partychk((Int32)CharacterOldIndex.Vivi);
+                 for (Int32 memberIndex = 0; memberIndex < 4; memberIndex++)
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.updateModelsToBeAdded.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.updateModelsToBeAdded.cs
+index 61865c0c..4237db34 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.updateModelsToBeAdded.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.updateModelsToBeAdded.cs
+@@ -77,7 +77,7 @@ public partial class EventEngine
+         }
+         this.requiredAddActor = false;
+         this.toBeAddedObjUIDList.Clear();
+-        if (wasField && this.gMode == 1 && this._ff9.fldMapNo == 768 && FF9StateSystem.Battle.battleMapIndex == 4)
++        if (wasField && this.gMode == 1 && Memoria.DataPatchers.EffectiveFieldId(this._ff9.fldMapNo) == 768 && FF9StateSystem.Battle.battleMapIndex == 4) // [ff9mapkit fork-fidelity]
+         {
+             // Burmecia/Palace, after the battle against Beatrix, fix #664
+             Actor brahne = (Actor)this.FindObjByUID(11);
+diff --git a/Assembly-CSharp/Global/Field/Map/FieldMap.cs b/Assembly-CSharp/Global/Field/Map/FieldMap.cs
+index e07646fc..e6d17007 100644
+--- a/Assembly-CSharp/Global/Field/Map/FieldMap.cs
++++ b/Assembly-CSharp/Global/Field/Map/FieldMap.cs
+@@ -99,7 +99,7 @@ public class FieldMap : HonoBehavior
+         this.attachList = new EBG_ATTACH_DEF[10];
+         this.isBattleBackupPos = false;
+         this.BG_init();
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 2507) // I. Castle/Stairwell, room with ladders and stairs
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2507) // I. Castle/Stairwell, room with ladders and stairs [ff9mapkit fork-fidelity]
+         {
+             base.StartCoroutine(this.DelayedActiveTri());
+         }
+@@ -136,7 +136,7 @@ public class FieldMap : HonoBehavior
+     private IEnumerator DelayedActiveTri()
+     {
+         yield return new WaitForSeconds(0.5f);
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 2507) // I. Castle/Stairwell, room with ladders and stairs
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2507) // I. Castle/Stairwell, room with ladders and stairs [ff9mapkit fork-fidelity]
+         {
+             FieldMapActorController[] facs = UnityEngine.Object.FindObjectsOfType<FieldMapActorController>();
+             for (Int32 i = 0; i < facs.Length; i++)
+@@ -1492,7 +1492,7 @@ public class FieldMap : HonoBehavior
+         this.startPoint.x = (float)this.curVRP.x;
+         this.startPoint.y = (float)this.curVRP.y;
+         Vector3 vertex = Vector3.zero;
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 1656 && this.playerController == null)
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 1656 && this.playerController == null) // [ff9mapkit fork-fidelity]
+         {
+             // Iifa Tree/Eidolon Moun, select Zidane
+             this.playerController = ((Actor)PersistenSingleton<EventEngine>.Instance.GetObjUID(8)).fieldMapActorController;
+@@ -1963,13 +1963,13 @@ public class FieldMap : HonoBehavior
+         if ((this.flags & FieldMapFlags.Generic7) != 0u || !this.IsActive || map == 70 || this.curCamIdx < 0 || this.curCamIdx > this.scene.cameraList.Count)
+             return;
+ 
+-        if (map == 2512 && this.playerController == null) // CrutchForIpsenMap EVT_IPSEN_IP_CNT_2
++        if (Memoria.DataPatchers.EffectiveFieldId(map) == 2512 && this.playerController == null) // CrutchForIpsenMap EVT_IPSEN_IP_CNT_2 [ff9mapkit fork-fidelity]
+         {
+             this.playerController = ((Actor)PersistenSingleton<EventEngine>.Instance.GetObjUID(2)).fieldMapActorController;
+             if (dbug) Log.Message("SceneService3DScroll | CrutchForIpsenMap");
+         }
+ 
+-        if (map == 1656) // CrutchForEvaMap EVT_EVA1_IF_PTS_1
++        if (Memoria.DataPatchers.EffectiveFieldId(map) == 1656) // CrutchForEvaMap EVT_EVA1_IF_PTS_1 [ff9mapkit fork-fidelity]
+         {
+             Int32 isNeedOffset = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(7385);
+             if (isNeedOffset == 1)
+diff --git a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
+index 427f0795..30b6708e 100644
+--- a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
++++ b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
+@@ -796,7 +796,7 @@ public partial class FieldMapActorController : HonoBehavior
+ 
+     private void CheckCollFallback()
+     {
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 2207 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 9840)
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2207 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 9840) // [ff9mapkit fork-fidelity]
+         {
+             // Palace/Hall, when Zidane is summoned "inside the room past the stairs"
+             return;
+diff --git a/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs b/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs
+index 9e6d1d98..db36e09f 100644
+--- a/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs
++++ b/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs
+@@ -248,7 +248,7 @@ public class VoicePlayer : SoundPlayer
+     {
+         if (dialog == specialDialog) specialDialog = null;
+         soundOfDialog.Remove(dialog);
+-        if (dialog.EndMode > 0 && FF9StateSystem.Common.FF9.fldMapNo != 3009 && FF9StateSystem.Common.FF9.fldMapNo != 3010)
++        if (dialog.EndMode > 0 && Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) != 3009 && Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) != 3010) // [ff9mapkit fork-fidelity]
+             return; // Timed dialog: let the dialog's own timed automatic closure handle it
+         while (dialog.CurrentState == Dialog.State.OpenAnimation || dialog.CurrentState == Dialog.State.TextAnimation)
+             Thread.Sleep(1000 / Configuration.Graphics.FieldTPS);

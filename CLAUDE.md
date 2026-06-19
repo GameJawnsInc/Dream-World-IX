@@ -124,7 +124,11 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   `Ff9mkDebugMenu.cs`; patch `memoria-patches/s22-debug-menu-f6.patch`) **+ the s24–s28 FORK-DONOR REMAP
   suite** (`memoria-patches/s24-fork-donor-remap.patch`: `ForkDonorPatch.txt` → `EffectiveFieldId`/
   `ForkSiblingField`/`IsForkField` wrapping the hardcoded `fldMapNo == N` engine gates so they fire for a
-  custom FORK id — incl. s28 overworld→fork entry + the No-Encounter wrap) **+ the s23 narrow-map fix**
+  custom FORK id — incl. s28 overworld→fork entry + the No-Encounter wrap) **+ s29** (`s29-fork-donor-softlocks.patch`,
+  2026-06-19: the SAME `EffectiveFieldId` wrap applied to the 10 remaining SOFTLOCK gates from the engine census
+  `ff9mapkit/docs/FORK_IDGATE_MAP.md` — Iifa/Burmecia/Gulug/Oeilvert/Esto-Gaza/Ipsen/Epilogue; built + deployed,
+  ⚠ **IN-GAME UNVERIFIED** — all fire at disc-2-to-4 beats, batched on confidence vs the proven s24 pattern; the
+  per-site checklist is in FORK_IDGATE_MAP.md) **+ the s23 narrow-map fix**
   (`memoria-patches/s23-narrow-map-fork-width.patch`, now SHIPPED — forked narrow fields no longer letterbox). Boosters are manual (ini cheats + F1–F4). **⚠ ENGINE-INDEPENDENCE IS SPLIT:** a *novel*
   field (BG-borrow / from-scratch, not impersonating a real id) runs on **stock** Memoria — but **a FORKED
   field REQUIRES the s23–s28 patches** (without them a custom-id fork loses Dante's off-mesh exemption, the
