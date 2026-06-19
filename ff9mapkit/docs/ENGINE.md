@@ -39,11 +39,31 @@ custom fork, and `s23` gives a forked narrow field the donor's exact tuned width
 intermediate fork-donor milestone steps; `s29` adds the late-game softlock gates — there is no separate
 `s25`–`s28` file.) These patches are applied to a local Memoria build; the showcase opening ships with
 that custom Memoria. The disc-1 gates are in-game proven; the newest late-disc (disc 2–4) softlock gates
-are still being playtested as those zones are forked. (The `s22` F6 debug menu is a **dev-only**
-convenience and is *not* part of the shipped engine.)
+are still being playtested as those zones are forked. (The `s22` F6 debug menu is a tester convenience —
+the beta engine bundle ships it, but it's not a fork-fidelity patch and isn't part of the
+upstream-candidate set.)
 
 The full per-behavior breakdown — stock, patch-restored, or genuinely engine-blocked — is in
 [`FORK_FIDELITY.md`](FORK_FIDELITY.md) and [`FORK_IDGATE_MAP.md`](FORK_IDGATE_MAP.md).
+
+## Installing the custom engine
+
+A **forked** field needs this engine; a **novel** field does not. Two ways to get it:
+
+1. **Pre-built bundle (easiest).** Download `dwix-custom-memoria-<version>.zip` from the project's
+   GitHub **Releases** and follow its `INSTALL.txt`: back up your `x64\FF9_Data\Managed\` and
+   `x86\FF9_Data\Managed\` DLLs, then copy the bundle's three managed DLLs (`Assembly-CSharp.dll`
+   + the matched `Memoria.Prime.dll` / `UnityEngine.UI.dll`) into **both** folders, overwriting.
+   The bundle is a compiled, **MIT-licensed** Memoria build (© Albeoris) plus the Dream World IX
+   patches, and ships **zero** game data. It's pinned to a specific Memoria base — if you run a much
+   newer Memoria and hit crashes, use option 2.
+2. **Build from source (version-robust).** Apply `memoria-patches/s23` + `s24` + `s29` to a
+   [Memoria](https://github.com/Albeoris/Memoria) source clone and compile `Assembly-CSharp` with
+   VS MSBuild; this matches whatever Memoria version you build against. The build replaces your
+   install's `Assembly-CSharp.dll`.
+
+The clean long-term fix is **upstreaming** `s23`/`s24`/`s29` into Memoria (they're small and
+`EffectiveFieldId`-gated, so stock-game behavior is untouched) — then no custom engine is needed at all.
 
 ## Optional engine polish (nice-to-have, not required)
 
