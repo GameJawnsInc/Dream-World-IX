@@ -95,6 +95,15 @@ def test_import_chain_args_single_toggles_and_optional_kwargs():
     assert a[a.index("--campaign-name") + 1] == "OPEN"
 
 
+def test_import_chain_args_ids_scopes_to_cluster():
+    # ids -> --ids (a story-state cluster); it SUPPRESSES --whole-zone even if whole_zone is also True
+    a = jobs.import_chain_args("100", out="/c", ids="100-117", whole_zone=True)
+    assert a[a.index("--ids") + 1] == "100-117" and "--whole-zone" not in a
+    # no ids -> whole_zone path (unchanged)
+    b = jobs.import_chain_args("100", out="/c", ids=None, whole_zone=True)
+    assert "--whole-zone" in b and "--ids" not in b
+
+
 # --------------------------------------------------------------------------- deploy / revert argv
 def test_build_argv_single_field():
     a = jobs.build_argv("X.field.toml", "/out")

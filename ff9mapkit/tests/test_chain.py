@@ -47,6 +47,51 @@ def test_zone_label():
     assert chain.zone_label("weird") == "weird"
 
 
+# ---- field-id clustering / range helpers (story-state visit splitting) ------------------
+def test_id_clusters_splits_on_big_gaps():
+    # Alexandria town's real visit boundaries: 100-117 opening, 1850-1865 return, 2050-2054, 2450-2457, 3000.
+    ids = list(range(100, 118)) + list(range(1850, 1866)) + [2050, 2051, 3000]
+    cl = chain.id_clusters(ids, gap=120)
+    assert [c[0] for c in cl] == [100, 1850, 2050, 3000]
+    assert cl[0] == list(range(100, 118))                       # the disc-1 cluster, whole
+    # within-visit gaps (<= gap) stay together; a bigger gap splits
+    assert chain.id_clusters([64, 65, 150, 151], gap=120) == [[64, 65, 150, 151]]   # gap 85 -> one visit
+    assert chain.id_clusters([64, 65, 200], gap=120) == [[64, 65], [200]]           # gap 135 -> split
+    assert chain.id_clusters([]) == []
+
+
+def test_id_range_roundtrip():
+    assert chain.format_id_ranges([100, 101, 102, 117, 150, 151]) == "100-102,117,150-151"
+    assert chain.format_id_ranges([]) == ""
+    assert chain.format_id_ranges([5, 5, 5]) == "5"             # dedup + single
+    for spec, want in [("100-117", list(range(100, 118))),
+                       ("50-63,65-67", [*range(50, 64), 65, 66, 67]),
+                       ("100, 200 , 300", [100, 200, 300]),
+                       ("3000", [3000]), ("", []), (None, [])]:
+        assert chain.parse_id_ranges(spec) == want, spec
+    # round-trip a non-contiguous set through both directions
+    s = {50, 51, 52, 65, 66, 67, 3000}
+    assert set(chain.parse_id_ranges(chain.format_id_ranges(s))) == s
+    # already-a-list passthrough + malformed guards
+    assert chain.parse_id_ranges([3, 1, 2, 2]) == [1, 2, 3]
+    import pytest
+    with pytest.raises(ValueError):
+        chain.parse_id_ranges("117-100")                        # reversed range
+    with pytest.raises(ValueError):
+        chain.parse_id_ranges("abc")
+
+
+def test_restrict_ids_bounds_the_walk_to_the_explicit_set():
+    # --ids: all zone 'a' fields door-connect ({1,2,3,4}); restricting to {1,2} must NOT pull in 3,4 via doors.
+    r = chain.walk([1, 2], _scan_fn, _zone_fn, restrict_ids={1, 2})
+    assert _ids(r) == {1, 2}                                    # exactly the explicit set, no door leak
+    assert not r.truncated                                     # bounded by the set, not a spurious max_fields cap
+    # the edge to the excluded sibling (2->3) is recorded as a portal so the connection is still visible
+    assert any(p["from"] == 2 and p["to"] == 3 and p["reason"] == "not-in-set" for p in r.portals)
+    # without the restriction the same seeds fork the whole connected zone (the leak the fix prevents)
+    assert _ids(chain.walk([1, 2], _scan_fn, _zone_fn)) == {1, 2, 3, 4}
+
+
 def test_walk_stays_in_seed_zone_by_default():
     # default stop_at_zone_boundary: seed zone 'a' only; the 4->10 edge into 'b' becomes a portal.
     r = chain.walk(1, _scan_fn, _zone_fn)

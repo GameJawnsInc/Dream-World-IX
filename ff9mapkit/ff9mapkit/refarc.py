@@ -38,11 +38,12 @@ ARC_ID_SPAN = 200
 # OVERFLOWS -> the deploy lint hard-errors. So the fork playbook emits a SMALLER `--flags-per-field` sized so
 # all arcs fit; arcs keep their full member count (the lever is the per-field reservation, not --max-fields).
 SAFE_FLAG_BUDGET = _flags.CHOICE_SCRATCH_FLOOR - _flags.FIRST_SAFE_FLAG     # bits the journey band has for campaigns
-# A --whole-zone fork can be bigger than the 25-field default cap (Alexandria's zone = 48 screens across discs);
-# 40 is an AVERAGE-arc estimate for sizing the flag budget -- the model's total (n_arcs * 40) OVERSHOOTS the real
-# sum (the 12 disc-1 zones total ~326), so the chosen flags-per-field is conservative + fits the safe band
-# (the deploy lint is the real backstop). NB: a big single zone (Lindblum = 124) fits the id band (ARC_ID_SPAN
-# = 200) but not this 40 estimate -- harmless, since the budget is checked on the TOTAL, not per-arc.
+# 40 is an AVERAGE-arc estimate for sizing the flag budget (n_arcs * 40); the chosen flags-per-field is then
+# conservative and the deploy lint checks the real TOTAL (the true backstop), not per-arc. A single arc CAN
+# exceed 40 -- a split-visit catalog region tops out at 48 (l_castle's disc-1 visit), and a whole-zone region
+# without `members` can be far bigger (Lindblum's full 124) -- but that only makes the per-arc estimate an
+# UNDERSHOOT, which the TOTAL-budget lint still catches. NB: splitting zones into visits REDUCED the worst-case
+# per-arc count (124 -> 48), so it shrank this gap rather than widening it.
 MAX_FIELDS_PER_ARC = 40
 
 # Default hub backdrop = MOGNET CENTRAL (real field 3100, FBG fbg_n56_mgnt_map810_mn_mog_0): FF9's Moogle
@@ -65,6 +66,8 @@ class ReferenceArc:
     seed: int                      # the REAL FF9 field id to import-chain from
     zone: "str | None" = None      # optional FBG token for `import-chain --zones` (default: the seed's own zone)
     beat: "int | None" = None      # optional ScenarioCounter to seed this arc's story state on entry
+    members: "list | None" = None  # explicit field ids to fork (ONE story-state cluster) -> import-chain --ids;
+    #                                None = fork the whole zone (--whole-zone). The generated catalog sets this.
     note: str = ""
 
 
@@ -93,10 +96,18 @@ def load_reference_arcs(path=None) -> ReferenceArcSet:
         if key in seen:
             raise RefArcError(f"duplicate arc key {key!r} (each arc = a distinct campaign folder)")
         seen.add(key)
+        members = None
+        if a.get("members") not in (None, "", []):
+            from . import chain
+            try:
+                members = chain.parse_id_ranges(a["members"]) or None
+            except (ValueError, TypeError) as e:
+                raise RefArcError(f"[[arc]] {key!r}: bad 'members' {a['members']!r} ({e})")
         arcs.append(ReferenceArc(
             key=key, name=str(a["name"]), seed=int(a["seed"]),
             zone=(str(a["zone"]).strip() or None) if a.get("zone") else None,
             beat=(int(a["beat"]) if a.get("beat") is not None else None),
+            members=members,
             note=str(a.get("note", ""))))
     if not arcs:
         raise RefArcError(f"{p}: no [[arc]] rows")
@@ -139,13 +150,18 @@ def _zone_area_label(fids, names) -> "str | None":
     return areas.most_common(1)[0][0] if areas else None
 
 
-def generate_zone_catalog(pattern=None) -> ReferenceArcSet:
+def generate_zone_catalog(pattern=None, *, split_visits=True, gap=None) -> ReferenceArcSet:
     """Derive a region catalog from the game's REAL zones: group every forkable field by its FBG zone token
-    (``extract.ID_TO_FBG`` + ``chain.zone_label``), and emit one [[arc]] per zone with a best-effort ENTRY seed
-    (prefer a field whose FBG marks an ENTrance -- so Evil Forest picks ef_ent 250, not the 152 cutscene -- else
-    the lowest id, which is the New-Game room for door-less zones like the Prima Vista). Names come from the
-    user-local HW manifest (else the zone token). ``pattern`` filters by zone token or area label. Ordered by
-    lowest field id (~ disc / story order). Accurate by construction -- no hand-drafted seeds to get wrong."""
+    (``extract.ID_TO_FBG`` + ``chain.zone_label``), then -- because FF9 stores a place's story states as
+    SEPARATE id clusters sharing one zone (Alexandria town = 100-117 opening, 1850-1865 return, ...) -- split
+    each zone into id-gap clusters and emit one [[arc]] per cluster (``split_visits``; pass False for one arc
+    per whole zone). Each arc carries explicit ``members`` (the cluster's ids) so its fork scopes to that ONE
+    visit via ``import-chain --ids`` instead of grabbing all 48 revisit screens -- the fork-time win. The first
+    (lowest-id) cluster keeps the clean name + key (the disc-1 visit you fork for an opening journey); later
+    visits get an ``(ids N+)`` suffix + a ``_N`` key. Seed = a cluster ENTrance field (so Evil Forest picks
+    ef_ent 250, not the 152 cutscene) else the cluster's lowest id (the New-Game room for door-less zones).
+    Names come from the user-local HW manifest (else the zone token). ``pattern`` filters by zone token or area
+    label. Ordered by lowest field id (~ disc / story order). Accurate by construction -- no hand-drafted seeds."""
     from . import extract, chain
     names = extract._manifest_field_names()
     zones: dict = {}
@@ -156,36 +172,61 @@ def generate_zone_catalog(pattern=None) -> ReferenceArcSet:
         if z and z != "?":
             zones.setdefault(z, []).append(int(fid))
     pat = pattern.lower().strip() if pattern else None
+    cgap = gap if gap is not None else chain.DEFAULT_CLUSTER_GAP
     arcs, used_keys = [], set()
     for z in sorted(zones, key=lambda zz: min(zones[zz])):
         fids = sorted(zones[z])
         area = _zone_area_label(fids, names)
         if pat and pat not in z.lower() and pat not in (area or "").lower():
             continue
-        ent = [f for f in fids if "ENT" in extract.ID_TO_FBG[f].upper()]   # an explicit ENTrance field wins
-        seed = ent[0] if ent else fids[0]                                  # else the lowest id (door-less zones)
-        name = area or z.upper()
-        key = _slug(area) or z                                            # readable folder key, deduped vs token
-        base_key, n = key, 2
-        while key in used_keys:
-            key = f"{base_key}_{z}" if n == 2 else f"{base_key}_{n}"
+        name0 = area or z.upper()
+        base_key, n = _slug(area) or z, 2                                 # readable folder key, deduped vs other zones
+        while base_key in used_keys:
+            base_key = f"{(_slug(area) or z)}_{z}" if n == 2 else f"{(_slug(area) or z)}_{n}"
             n += 1
-        used_keys.add(key)
-        note = (f"{len(fids)} fields ({fids[0]}..{fids[-1]}); zone '{z}'; "
-                f"seed = {'an ENTrance field' if ent else 'the lowest id'} -- verify if it mis-lands")
-        arcs.append(ReferenceArc(key=key, name=name, seed=seed, zone=z, note=note))
+        used_keys.add(base_key)
+        clusters = chain.id_clusters(fids, cgap) if split_visits else [fids]
+        for ci, cl in enumerate(clusters):
+            cfids = sorted(cl)
+            ent = [f for f in cfids if "ENT" in extract.ID_TO_FBG[f].upper()]   # an explicit ENTrance field wins
+            seed = ent[0] if ent else cfids[0]                                  # else the cluster's lowest id
+            if ci == 0:
+                key, name = base_key, name0
+            else:
+                key, name = f"{base_key}_{seed}", f"{name0} (ids {seed}+)"      # later visit -> suffixed
+                while key in used_keys:
+                    key += "_x"
+            used_keys.add(key)
+            visit = f", visit {ci + 1}/{len(clusters)}" if len(clusters) > 1 else ""
+            note = (f"{len(cfids)} fields ({cfids[0]}..{cfids[-1]}); zone '{z}'{visit}; "
+                    f"seed = {'an ENTrance field' if ent else 'the lowest id'} -- "
+                    f"{'verify the beat / ' if ci else ''}verify if it mis-lands")
+            members = cfids if split_visits else None   # no-split = the old whole-zone behavior (dynamic re-gather)
+            arcs.append(ReferenceArc(key=key, name=name, seed=seed, zone=z, members=members, note=note))
     if not arcs:
         raise RefArcError("no zones found (need extract.ID_TO_FBG; pattern matched nothing?)")
-    return ReferenceArcSet(title="FF9 -- all forkable zones (generated from the game)", arcs=arcs)
+    # distinct zones can share one manifest area label (Dali = vgdl/udft/airp; Prima Vista = tshp/bshp) -> the
+    # picker would show identical rows. Suffix the zone token onto any name shared across DIFFERENT zones.
+    name_zones: dict = {}
+    for a in arcs:
+        name_zones.setdefault(a.name, set()).add(a.zone)
+    for a in arcs:
+        if len(name_zones[a.name]) > 1:
+            a.name = f"{a.name} [{a.zone}]"
+    return ReferenceArcSet(title="FF9 -- all forkable zones, split by story-state visit (generated from the game)",
+                           arcs=arcs)
 
 
 def render_arc_table_toml(arcset: ReferenceArcSet) -> str:
     """Render a :class:`ReferenceArcSet` as a ``[[arc]]`` table (the inverse of :func:`load_reference_arcs`) --
     used to write the generated ``region-catalog.toml`` the picker reads."""
-    L = ["# FF9 REGION CATALOG -- GENERATED from the game's real zones (one [[arc]] = one forkable FBG zone, with",
-         "# its entry seed). The region PICKER reads this in preference to the hand-curated disc-1 spine.",
+    from . import chain
+    L = ["# FF9 REGION CATALOG -- GENERATED from the game's real zones (one [[arc]] = one forkable FBG zone, SPLIT",
+         "# by story-state visit: a place's revisits are separate id clusters sharing one zone, so Alexandria",
+         "# opening (100-117), return (1850+) and ruined (2450+) are distinct arcs). `members` scopes each fork",
+         "# to that ONE visit (import-chain --ids) instead of all the revisit screens -- the fork-time win.",
          "# Regenerate after a game change: `py -m ff9mapkit reference-arcs --regen`. EDIT FREELY -- correct a",
-         "# `seed` that mis-lands, rename, or add `beat = <ScenarioCounter>` to seed an arc's story state.",
+         "# `seed` that mis-lands, merge/split `members`, rename, or add `beat = <ScenarioCounter>` for an arc's state.",
          "",
          f'title = "{_toml_str(arcset.title)}"',
          ""]
@@ -196,6 +237,8 @@ def render_arc_table_toml(arcset: ReferenceArcSet) -> str:
         L.append(f"seed = {int(a.seed)}")
         if a.zone:
             L.append(f'zone = "{_toml_str(a.zone)}"')
+        if a.members:
+            L.append(f'members = "{chain.format_id_ranges(a.members)}"   # import-chain --ids (this visit only)')
         if a.beat is not None:
             L.append(f"beat = {int(a.beat)}")
         if a.note:
@@ -204,10 +247,12 @@ def render_arc_table_toml(arcset: ReferenceArcSet) -> str:
     return "\n".join(L) + "\n"
 
 
-def regenerate_region_catalog(out=None, pattern=None) -> "tuple[Path, int]":
+def regenerate_region_catalog(out=None, pattern=None, *, split_visits=True, gap=None) -> "tuple[Path, int]":
     """Generate the zone catalog + write it to ``out`` (default the shipped :data:`_REGION_DATA`).
-    Returns ``(path, n_regions)``. The picker then reads it via :func:`load_region_catalog`."""
-    arcset = generate_zone_catalog(pattern=pattern)
+    Returns ``(path, n_regions)``. ``split_visits`` (default) emits one arc per story-state cluster (the
+    fork-time win); ``False`` = one arc per whole zone. ``gap`` overrides the cluster id-gap threshold. The
+    picker then reads the file via :func:`load_region_catalog`."""
+    arcset = generate_zone_catalog(pattern=pattern, split_visits=split_visits, gap=gap)
     p = Path(out) if out else _REGION_DATA
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(render_arc_table_toml(arcset), encoding="utf-8", newline="\n")
@@ -241,10 +286,11 @@ def compose_region_fork(arcset: ReferenceArcSet, selected_keys) -> "tuple[str, s
     "Fork FF9 regions" catalog) -- returns ``(seeds, name_prefix, n_regions)``.
 
     ``seeds`` = the regions' ``seed`` fields comma-joined IN CATALOG ORDER. One key = fork that region alone;
-    several = compose their seeds into ONE campaign (whole-zone forks each seed's zone). ``name_prefix`` =
-    the region's unique tag for a single pick, else "" (the author names a composed campaign). NB: an arc's
-    optional ``zone``/``beat`` overrides are NOT applied here (seeds + whole-zone only) -- use the CLI fork
-    playbook for a custom ``--zones``, and add a ``[startup]`` beat in the editor after forking."""
+    several = compose their seeds into ONE campaign. ``name_prefix`` = the region's unique tag for a single
+    pick, else "" (the author names a composed campaign). The fork SCOPE (which fields) comes from
+    :func:`compose_region_ids` (each region's ``members`` -> ``--ids``); an arc's optional ``zone``/``beat``
+    overrides are NOT applied here -- use the CLI fork playbook for a custom ``--zones``, and add a
+    ``[startup]`` beat in the editor after forking."""
     keys = set(selected_keys)
     sel = [a for a in arcset.arcs if a.key in keys]
     if not sel:
@@ -252,6 +298,22 @@ def compose_region_fork(arcset: ReferenceArcSet, selected_keys) -> "tuple[str, s
     seeds = ",".join(str(a.seed) for a in sel)
     prefix = arc_name_prefixes(arcset)[sel[0].key] if len(sel) == 1 else ""
     return seeds, prefix, len(sel)
+
+
+def compose_region_ids(arcset: ReferenceArcSet, selected_keys) -> "str | None":
+    """The ``import-chain --ids`` member set for the selected regions (the union of each region's ``members``,
+    as a compact range string) -- so the Import-tab fork scopes to those story-state visits. ``None`` if ANY
+    selected region has no ``members`` (a hand-written whole-zone region) -> the caller falls back to
+    ``--whole-zone`` rather than fork a partial set."""
+    from . import chain
+    keys = set(selected_keys)
+    sel = [a for a in arcset.arcs if a.key in keys]
+    if not sel or any(not a.members for a in sel):
+        return None
+    union: set = set()
+    for a in sel:
+        union.update(a.members)
+    return chain.format_id_ranges(union) or None
 
 
 def arc_mod_folder(tag: str) -> str:
@@ -278,11 +340,14 @@ def fork_command(arc: ReferenceArc, *, id_base: int, tag: str, flags_per_field: 
     stacked folders), a unique ``--mod-folder`` (the assembler needs one folder per campaign), a
     ``--flags-per-field`` sized so the chain's flag windows fit the safe band, and ``--verbatim`` for the
     truest fork. ``tag`` is the arc's unique short slug driving the prefix + folder."""
+    from . import chain
     parts = [f"py -m ff9mapkit import-chain {arc.seed}", f"--out {arc.key}"]
     if arc.zone:
         parts.append(f"--zones {arc.zone}")
-    parts.append("--whole-zone")                 # fork the WHOLE zone, not just the seed's door-reachable slice
-    #                                              (cutscene zones don't door-connect -- the bytes are there)
+    if arc.members:                              # scope to ONE story-state cluster (explicit ids) -> lean + fast
+        parts.append(f"--ids {chain.format_id_ranges(arc.members)}")
+    else:                                        # no cluster -> fork the WHOLE zone, not just the door-reachable
+        parts.append("--whole-zone")             # slice (cutscene zones don't door-connect -- the bytes are there)
     if verbatim:
         parts.append("--verbatim")
     parts.append(f"--id-base {id_base}")

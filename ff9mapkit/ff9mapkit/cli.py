@@ -512,7 +512,8 @@ def _cmd_reference_arcs(args: argparse.Namespace) -> int:
                   file=sys.stderr)
             return 2
         try:
-            p, n = refarc.regenerate_region_catalog(out=args.out, pattern=args.pattern)
+            p, n = refarc.regenerate_region_catalog(out=args.out, pattern=args.pattern,
+                       split_visits=not args.no_split_visits, gap=args.gap)
         except refarc.RefArcError as e:
             print(str(e), file=sys.stderr)
             return 2
@@ -1030,7 +1031,35 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
 
-    if getattr(args, "whole_zone", False):       # seed EVERY forkable field in the seed's zone(s) -> the whole
+    restrict_ids = None                           # set by --ids: bound the walk to exactly the cluster
+    if getattr(args, "ids", None) and getattr(args, "whole_zone", False):
+        print("--ids and --whole-zone are mutually exclusive (--ids forks an explicit cluster; --whole-zone "
+              "forks the whole zone)", file=sys.stderr)
+        return 2
+    if getattr(args, "ids", None):                # fork EXACTLY this id set -> scope to one story-state cluster
+        try:
+            want = chain.parse_id_ranges(args.ids)
+        except ValueError as e:
+            print(f"--ids: {e}", file=sys.stderr)
+            return 2
+        live = extract.build_field_index(args.game, verbose=False)   # folder_lower -> bundle (LIVE-forkable only)
+        missing = [fid for fid in want if fid not in extract.ID_TO_FBG]
+        if missing:
+            print(f"--ids: {len(missing)} id(s) have no background field and were dropped: "
+                  f"{chain.format_id_ranges(missing)}", file=sys.stderr)
+        not_live = [fid for fid in want if fid in extract.ID_TO_FBG and fid not in seeds
+                    and extract.ID_TO_FBG[fid].lower() not in live]   # in the static table but no install bundle
+        if not_live:
+            print(f"--ids: {len(not_live)} id(s) have no live background bundle in this install and were "
+                  f"dropped: {chain.format_id_ranges(not_live)}", file=sys.stderr)
+        extra = sorted(fid for fid in want if fid not in seeds
+                       and fid in extract.ID_TO_FBG
+                       and extract.ID_TO_FBG[fid].lower() in live)    # skip table-only variants with NO live bundle
+        seeds = seeds + extra                     # original seed(s) FIRST -> entry_field stays the intended entry
+        restrict_ids = set(seeds)                 # bound the BFS to the cluster so a door can't pull in a
+        #                                           same-zone sibling visit (the leak finding #1 fix)
+        args.max_fields = max(args.max_fields, len(seeds))           # never truncate the cluster we asked for
+    elif getattr(args, "whole_zone", False):     # seed EVERY forkable field in the seed's zone(s) -> the whole
         live = extract.build_field_index(args.game, verbose=False)   # folder_lower -> bundle (LIVE-forkable only)
         seed_zones = {chain.zone_label(extract.ID_TO_FBG[s])          # zone forks, not just the door-reachable
                       for s in seeds if s in extract.ID_TO_FBG}       # slice (cutscene-only screens included)
@@ -1064,11 +1093,13 @@ def _cmd_import_chain(args: argparse.Namespace) -> int:
     result = chain.walk(seeds, scan_fn, zone_fn, forkable_fn=forkable_fn, max_hops=args.max_hops,
                         zones=zones, stop_at=stop_at, max_fields=args.max_fields,
                         follow_scripted=args.follow_scripted,
-                        stop_at_zone_boundary=not args.cross_zones)
+                        stop_at_zone_boundary=not args.cross_zones, restrict_ids=restrict_ids)
 
     def _zone_members(z):                         # all forkable fields in a zone (for the coverage hint)
         return [fid for fid, folder in extract.ID_TO_FBG.items() if chain.zone_label(folder) == z]
-    coverage = chain.zone_coverage(result, _zone_members)
+    # the coverage hint nudges toward --whole-zone for an under-forked zone; with --ids the partial fork is
+    # DELIBERATE (one story-state cluster), so the "you missed 30 fields" nudge would be misleading -> skip it.
+    coverage = {} if restrict_ids is not None else chain.zone_coverage(result, _zone_members)
 
     if args.out:                                  # P2 write mode: fork the chain into campaign/
         from . import campaign
@@ -2438,6 +2469,12 @@ def build_parser() -> argparse.ArgumentParser:
     ra.add_argument("--out", default=None, help="with --regen: write the catalog here (default: the shipped data file)")
     ra.add_argument("--pattern", default=None,
                     help="with --regen: only zones whose token/area matches (e.g. 'dali', 'alex')")
+    ra.add_argument("--no-split-visits", action="store_true", dest="no_split_visits",
+                    help="with --regen: one region per WHOLE zone (the old behavior) instead of one per "
+                         "story-state visit -- a region then forks every revisit screen (--whole-zone)")
+    ra.add_argument("--gap", type=int, default=None,
+                    help="with --regen: the field-id gap that separates story-state visits (default 120; "
+                         "smaller = split more finely, larger = merge nearby visits)")
     ra.add_argument("--force", action="store_true", help="with --emit, overwrite an existing journeys.toml")
     ra.add_argument("--hub-name", default="FF9 Disc 1", dest="hub_name", help="hub field display name (--emit)")
     ra.add_argument("--hub-id", type=int, default=4600, dest="hub_id", help="hub field id, >=4000 (--emit)")
@@ -2563,6 +2600,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="fork EVERY forkable field in the seed's zone(s), not just those door-reachable from the "
                          "seed -- captures cutscene-only / non-door-connected screens the walk misses (the seed "
                          "stays the entry). Raises --max-fields to fit the zone. Same as seeding an FBG substring.")
+    ic.add_argument("--ids", default=None, dest="ids",
+                    help="fork EXACTLY this set of field ids (a compact range string, e.g. 100-117 or "
+                         "100-117,150-167) instead of a whole zone -- scopes the fork to ONE story-state cluster "
+                         "(e.g. Alexandria's disc-1 opening, not all 48 revisit screens). The seed stays the "
+                         "entry; raises --max-fields to fit. Mutually exclusive with --whole-zone.")
     ic.add_argument("--dry-run", action="store_true", dest="dry_run",
                     help="just print the discovered graph (the default when --out is omitted)")
     # P2 write mode: --out flips import-chain from the read-only dry-run to forking the chain.

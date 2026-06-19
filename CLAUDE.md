@@ -204,7 +204,11 @@ real gameplay and reproducible in Python (zero Hades Workshop):
 - **Battle backgrounds:** author custom 3D battle maps — texture reskin, loose-FBX geometry, a net-new
   fightable scene, or a wholly-original `BBG_B###`; tune the fight (stats/positions/rewards/spawn) and the
   camera (`battle.toml` + `battle-import`/`-build`; a separate pillar from fields, no DLL rebuild).
-- **Campaigns:** `import-chain <seed>` forks a connected slice of the game into one drop-in mod; the
+- **Campaigns:** `import-chain <seed>` forks a connected slice of the game into one drop-in mod (`--whole-zone`
+  = the seed's whole zone; **`--ids <ranges>`** = an EXACT id set, scoping the fork to ONE story-state visit — a
+  place's revisits are separate id clusters sharing one zone, so `--ids 100-117` forks Alexandria's opening, not
+  all 48 revisit screens); the **region catalog** (`data/region_catalog.toml`, the "Browse FF9 regions" picker)
+  is generated split-by-visit (one region per cluster, each with a `members` range → `--ids`). The
   **Campaign Editor** IDE (navigator + graph + Map + authoring) edits the multi-field project. **`reference-arcs`**
   (CLI + a New-Journey "FF9 reference arc" option) scaffolds FF9's real story arcs (`data/reference_arcs.toml`, the
   disc-1 spine) into a chained `journeys.toml` + a per-arc `import-chain` fork playbook — the north-star fork-and-test

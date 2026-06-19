@@ -50,6 +50,40 @@ def test_compose_region_fork_single_and_composed():
         refarc.compose_region_fork(aset, ["__only_unknown__"])    # all unknown -> nothing to fork
 
 
+def test_members_roundtrip_and_fork_command_emits_ids(tmp_path):
+    # an arc WITH members forks just that cluster (--ids); WITHOUT, the whole zone (--whole-zone). Both round-trip.
+    aset = refarc.ReferenceArcSet(title="T", arcs=[
+        refarc.ReferenceArc(key="opening", name="Opening", seed=100, zone="alxt",
+                            members=[*range(100, 118), 150, 151]),     # non-contiguous cluster
+        refarc.ReferenceArc(key="whole", name="Whole", seed=300, zone="iccv")])     # no members
+    cmd_ids = refarc.fork_command(aset.arcs[0], id_base=6000, tag="OP", flags_per_field=32)
+    assert "--ids 100-117,150-151" in cmd_ids and "--whole-zone" not in cmd_ids
+    cmd_whole = refarc.fork_command(aset.arcs[1], id_base=6200, tag="WH", flags_per_field=32)
+    assert "--whole-zone" in cmd_whole and "--ids" not in cmd_whole
+    # render -> reload preserves members exactly (compact range string), and None stays None
+    p = tmp_path / "rc.toml"
+    p.write_text(refarc.render_arc_table_toml(aset), encoding="utf-8")
+    back = refarc.load_reference_arcs(p)
+    assert back.arcs[0].members == [*range(100, 118), 150, 151]
+    assert back.arcs[1].members is None
+    # a malformed members string is rejected loudly
+    p.write_text('title="x"\n[[arc]]\nkey="k"\nname="K"\nseed=1\nmembers="9-1"\n', encoding="utf-8")
+    with pytest.raises(refarc.RefArcError):
+        refarc.load_reference_arcs(p)
+
+
+def test_compose_region_ids_unions_and_falls_back():
+    aset = refarc.ReferenceArcSet(title="T", arcs=[
+        refarc.ReferenceArc(key="a", name="A", seed=100, zone="z", members=[100, 101, 102]),
+        refarc.ReferenceArc(key="b", name="B", seed=200, zone="z", members=[200, 201]),
+        refarc.ReferenceArc(key="whole", name="W", seed=300, zone="z")])   # no members
+    assert refarc.compose_region_ids(aset, ["a"]) == "100-102"
+    assert refarc.compose_region_ids(aset, ["a", "b"]) == "100-102,200-201"   # union of both clusters
+    assert refarc.compose_region_ids(aset, ["a", "whole"]) is None            # any whole-zone region -> fall back
+    assert refarc.compose_region_ids(aset, []) is None
+    assert refarc.compose_region_ids(aset, ["__nope__"]) is None
+
+
 def test_fork_playbook_lines_are_runnable_import_chain_commands():
     aset = refarc.load_reference_arcs()
     pb = refarc.fork_playbook(aset)
@@ -338,13 +372,50 @@ def test_fork_playbook_uses_whole_zone_and_fixed_seeds():
 def test_generate_zone_catalog_real_seeds():
     # derived from the game's real field->zone data -> accurate by construction (no hand-drafted seeds).
     cat = refarc.generate_zone_catalog()
-    byzone = {a.zone: a for a in cat.arcs}
-    assert byzone["tshp"].seed == 50            # Prima Vista opening (lowest id = cargo room = the New-Game entry)
-    assert byzone["evft"].seed == 250           # Evil Forest ENTRANCE via the _ENT heuristic, NOT the 152 cutscene
-    assert byzone["iccv"].seed == 300           # Ice Cavern entrance
-    assert byzone["alxt"].seed == 100           # Alexandria town (its own region, separate from Prima Vista)
-    assert "invalidfieldmapid" not in byzone    # field 70 (the FMV opening script, no real BG) is filtered out
+    primary = {}                                # the FIRST (lowest-id) cluster per zone = the disc-1 visit
+    for a in cat.arcs:
+        primary.setdefault(a.zone, a)
+    assert primary["tshp"].seed == 50           # Prima Vista opening (lowest id = cargo room = the New-Game entry)
+    assert primary["evft"].seed == 250          # Evil Forest ENTRANCE via the _ENT heuristic, NOT the 152 cutscene
+    assert primary["iccv"].seed == 300          # Ice Cavern entrance
+    assert primary["alxt"].seed == 100          # Alexandria town (its own region, separate from Prima Vista)
+    assert "invalidfieldmapid" not in primary   # field 70 (the FMV opening script, no real BG) is filtered out
     assert len(cat.arcs) > 30 and all(a.zone and a.seed > 0 for a in cat.arcs)
+
+
+def test_generate_zone_catalog_splits_visits():
+    # FF9 stores a place's revisits as separate id clusters -> one [[arc]] per visit, each scoped to its ids.
+    cat = refarc.generate_zone_catalog()
+    alxt = [a for a in cat.arcs if a.zone == "alxt"]
+    assert len(alxt) >= 4                                       # opening + the returns + the ending
+    opening = alxt[0]
+    assert opening.key == "alexandria" and opening.seed == 100  # the primary keeps the clean key/name + lowest id
+    assert opening.members == list(range(100, 118))             # the disc-1 cluster ONLY (18 fields, not all 48)
+    assert all(100 <= m <= 117 for a0 in [opening] for m in a0.members)
+    later = alxt[1]                                             # a later visit -> suffixed key/name, higher ids
+    assert later.key.startswith("alexandria_") and min(later.members) >= 1850
+    # one zone, every cluster member is disjoint from the others (no field forked twice within a zone)
+    seen = set()
+    for a in alxt:
+        assert not (set(a.members) & seen), f"{a.key} overlaps a sibling visit"
+        seen.update(a.members)
+    # and --no-split-visits restores one whole-zone arc (members=None -> --whole-zone dynamic re-gather) per zone
+    whole = refarc.generate_zone_catalog(split_visits=False)
+    walxt = [a for a in whole.arcs if a.zone == "alxt"]
+    assert len(walxt) == 1 and walxt[0].members is None
+    assert "--whole-zone" in refarc.fork_command(walxt[0], id_base=6000, tag="AL", flags_per_field=32)
+
+
+def test_generate_zone_catalog_disambiguates_cross_zone_names():
+    # distinct zones sharing one manifest area label (Dali = vgdl/udft/airp) get a [zone] suffix so the picker
+    # rows are distinguishable; a name unique to one zone is left clean.
+    cat = refarc.generate_zone_catalog()
+    names = [a.name for a in cat.arcs]
+    assert len(names) == len(set(names)), "every display name must be unique in the picker"
+    dali = [a for a in cat.arcs if a.zone in ("vgdl", "udft", "airp") and a.seed in (359, 404, 450)]
+    assert all(a.name.endswith(f"[{a.zone}]") for a in dali) and len(dali) == 3
+    alex = next(a for a in cat.arcs if a.key == "alexandria")
+    assert alex.name == "Alexandria"                            # unique to alxt -> no suffix
 
 
 def test_region_catalog_round_trips_and_ships_current():
@@ -375,6 +446,16 @@ def _two_arc_scaffold():
 
 def _arc_c():
     return refarc.ReferenceArc(key="arc_c", name="Arc C", seed=300, note="third")
+
+
+def test_append_region_with_members_emits_ids():
+    # a catalog region carries members -> its appended fork line scopes to that visit (--ids), not --whole-zone
+    arc = refarc.ReferenceArc(key="arc_c", name="Arc C", seed=300, zone="iccv",
+                              members=[*range(300, 312)], note="third")
+    out, _ = refarc.append_region_to_arc(_two_arc_scaffold(), arc)
+    cline = next(ln for ln in out.splitlines() if "--out arc_c" in ln)   # the NEW arc's fork line only
+    assert "--ids 300-311" in cline and "--whole-zone" not in cline
+    refarc.parse_fork_commands(out)                            # the playbook still round-trips
 
 
 def test_append_region_grows_campaigns_playbook_and_link():

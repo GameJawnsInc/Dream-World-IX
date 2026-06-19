@@ -149,7 +149,7 @@ def import_args(field, *, out, field_id, name=None, art="native", carry_npcs=Tru
     return args
 
 
-def import_chain_args(seeds, *, out=None, whole_zone=True, verbatim=True, id_base=None,
+def import_chain_args(seeds, *, out=None, whole_zone=True, ids=None, verbatim=True, id_base=None,
                       name_prefix=None, fresh_ids=False, flags_per_field=None, max_fields=None,
                       campaign_name=None):
     """The ``ff9mapkit import-chain ...`` argv for forking a CONNECTED REGION (a multi-field chain) into ONE
@@ -157,12 +157,16 @@ def import_chain_args(seeds, *, out=None, whole_zone=True, verbatim=True, id_bas
 
     ``seeds`` is the raw seed string ('300', '50,100,64', or an FBG substring). With no ``out`` it's the
     DRY-RUN (prints the blast radius + coverage, touches nothing) -- the region analogue of fork-report.
-    ``whole_zone`` seeds every field in each seed's zone (catches cutscene-only screens the door-walk misses;
-    it also auto-raises the walk's --max-fields to fit). ``verbatim`` ships each member's real .eb + .mes so
-    the chain runs the real logic. STABLE IDS are the kit DEFAULT (re-forking into an existing ``out`` reuses
-    its donor->id+name map so in-fork saves survive) -- ``fresh_ids`` opts out (re-number from scratch)."""
+    ``ids`` (a compact range string, e.g. '100-117') scopes the fork to an EXPLICIT id set -- one story-state
+    cluster of a revisited zone, not all its visits; it takes precedence over and suppresses ``whole_zone``.
+    Otherwise ``whole_zone`` seeds every field in each seed's zone (catches cutscene-only screens the door-walk
+    misses; it also auto-raises the walk's --max-fields to fit). ``verbatim`` ships each member's real .eb +
+    .mes so the chain runs the real logic. STABLE IDS are the kit DEFAULT (re-forking into an existing ``out``
+    reuses its donor->id+name map so in-fork saves survive) -- ``fresh_ids`` opts out (re-number from scratch)."""
     args = ["import-chain", str(seeds)]
-    if whole_zone:
+    if ids:                                # explicit cluster wins over whole-zone (the two are mutually exclusive)
+        args += ["--ids", str(ids)]
+    elif whole_zone:
         args.append("--whole-zone")
     if verbatim:
         args.append("--verbatim")

@@ -180,16 +180,18 @@ class ImportDoc(QWidget):
         row.addWidget(QLabel("Seeds:"))
         self.seeds = QLineEdit()
         self.seeds.setPlaceholderText("field ids/names, comma-separated — e.g. 300  or  50,100,64")
+        self._region_ids = None                  # cluster member ids from the last catalog pick (-> --ids); a
+        self.seeds.textEdited.connect(self._clear_region_ids)   # hand-edit clears it (the cluster no longer applies)
         self.catalog_btn = QPushButton("Browse FF9 regions…")
         self.catalog_btn.clicked.connect(self.open_region_catalog)
         row.addWidget(self.seeds, 1)
         row.addWidget(self.catalog_btn)
         v.addLayout(row)
-        self.rg_whole = QCheckBox("Whole zone — fork every field in each seed's zone, not just door-reachable "
-                                  "(catches cutscene-only screens; more fields/ids — Dry-run to preview)")
+        self.rg_whole = QCheckBox("Whole zone — fork ALL story-state visits of each seed's zone (override the "
+                                  "catalog's single-visit scope; more fields/ids — Dry-run to preview)")
         self.rg_verbatim = QCheckBox("Verbatim — each member ships its real script + dialogue, runs the real "
                                      "logic (recommended; uncheck to fork re-authorable members you rebuild yourself)")
-        self.rg_whole.setChecked(True)
+        self.rg_whole.setChecked(False)          # default = the catalog region's own visit (--ids, lean + fast)
         self.rg_verbatim.setChecked(True)
         v.addWidget(self.rg_whole)
         v.addWidget(self.rg_verbatim)
@@ -242,12 +244,21 @@ class ImportDoc(QWidget):
         v.addWidget(hint)
         return box
 
+    def _clear_region_ids(self, *_a):
+        """A hand-edit of the Seeds box drops the catalog cluster (its member ids no longer describe the seeds),
+        so the fork falls back to whole-zone for the typed seeds."""
+        self._region_ids = None
+
     def _region_args(self, *, out):
         from ..editor import jobs
         idb = self.rg_idbase.text().strip()
+        # Cluster scope (--ids) by default when a catalog region is picked; "Whole zone" overrides it, and a
+        # raw typed seed (no cluster) always forks whole-zone (its safe default -- catches cutscene screens).
+        whole = self.rg_whole.isChecked() or not self._region_ids
+        ids = None if whole else self._region_ids
         return jobs.import_chain_args(
             self.seeds.text().strip(), out=out,
-            whole_zone=self.rg_whole.isChecked(), verbatim=self.rg_verbatim.isChecked(),
+            whole_zone=whole, ids=ids, verbatim=self.rg_verbatim.isChecked(),
             id_base=int(idb) if idb.isdigit() else None,
             name_prefix=self.rg_prefix.text().strip() or None, fresh_ids=self.rg_fresh.isChecked())
 
@@ -259,6 +270,7 @@ class ImportDoc(QWidget):
         from .. import refarc as RA
         seeds, prefix, _n = RA.compose_region_fork(arcset, keys)
         self.seeds.setText(seeds)
+        self._region_ids = RA.compose_region_ids(arcset, keys)   # the picked visit(s)' ids -> --ids (lean fork)
         self.rg_prefix.setText(prefix)      # ALWAYS (a composed multi-region pick clears a stale single-region tag)
         self.seeds.setFocus()
         return seeds
@@ -284,7 +296,8 @@ class ImportDoc(QWidget):
         lay.addWidget(intro)
         lst = QListWidget()
         for a in arcset.arcs:
-            it = QListWidgetItem(f"{a.name}   (seed {a.seed})")
+            count = f"  ·  {len(a.members)} fields" if a.members else ""
+            it = QListWidgetItem(f"{a.name}   (seed {a.seed}{count})")
             it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             it.setCheckState(Qt.CheckState.Unchecked)
             it.setData(Qt.ItemDataRole.UserRole, a.key)
@@ -292,9 +305,9 @@ class ImportDoc(QWidget):
                 it.setToolTip(a.note)
             lst.addItem(it)
         lay.addWidget(lst)
-        foot = QLabel("Forking uses each region's seed + whole-zone. A region's curated zone / starting beat is "
-                      "NOT applied here — add a [startup] beat in the editor after forking (or use the CLI "
-                      "reference-arcs for a custom --zones).")
+        foot = QLabel("Each region forks just its OWN story-state visit (the revisits of a place are separate "
+                      "regions). Check 'Whole zone' on the Fork box to fork all visits instead. A region's "
+                      "starting beat isn't applied here — add a [startup] beat in the editor after forking.")
         foot.setWordWrap(True)
         foot.setStyleSheet(f"color:{self.pal['muted']};")
         lay.addWidget(foot)

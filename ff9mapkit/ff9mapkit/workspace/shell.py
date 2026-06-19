@@ -4938,6 +4938,20 @@ def _smoke(win):
     assert "--out" in icap[-1] and "--fresh-ids" not in icap[-1], icap[-1]
     assert icap[-1][icap[-1].index("--name-prefix") + 1] == "RG", icap[-1]
     assert icap[-1][icap[-1].index("--id-base") + 1] == "6500", icap[-1]
+    # CLUSTER SCOPE: picking a catalog region forks just THAT story-state visit (--ids), not the whole zone;
+    # a hand-edit of the Seeds box drops the cluster -> whole-zone fallback for the typed seeds.
+    from .. import refarc as _RA
+    _cat = _RA.load_region_catalog()
+    _clk = next((a.key for a in _cat.arcs if a.members), None)
+    if _clk:
+        imp._apply_region_selection(_cat, [_clk])
+        assert imp._region_ids, "catalog pick sets cluster ids"
+        imp.on_region_dryrun()
+        assert "--ids" in icap[-1] and "--whole-zone" not in icap[-1], icap[-1]
+        imp.seeds.setText("999"); imp.seeds.textEdited.emit("999")   # a hand-edit fires textEdited -> clears cluster
+        assert imp._region_ids is None, "textEdited wiring must drop the cluster"
+        imp.on_region_dryrun()
+        assert "--whole-zone" in icap[-1] and "--ids" not in icap[-1], icap[-1]
     imp.on_find()
     assert "list-fields" in icap[-1], icap[-1]
 
