@@ -535,13 +535,15 @@ def _mk_link(src_c, src_f, dst_c, dst_f, *, comment=None):
             "comment": comment}
 
 
-def _pick_boundary(cur_plan, nxt_plan, cur, nxt, notes):
+def _pick_boundary(cur_plan, nxt_plan, cur, nxt, notes, conn_rec=None):
     """Pick the boundary member of ``cur`` that hands off to ``nxt`` + the arrival member, the SAME way the
     deploy step classifies a link (:func:`journey._seam_remap`, fed the next arc's real ids): a member with a
     ``Field()`` door straight INTO ``nxt`` (PRECISE field_remap, exact arrival) wins; else a world-map exit
     (worldmap_inject, arrival = ``nxt``'s entry -- NOT shadowed by the member's in-zone doors); else a lone
     out-of-chain door repurposed to ``nxt`` (a VERIFY note). Returns a link dict (always -- a `fill`/`verify`
-    link still scaffolds the row so the journey lints + the human only edits one field)."""
+    link still scaffolds the row so the journey lints + the human only edits one field). ``conn_rec`` =
+    ``cur``'s :func:`journey.campaign_connectivity` record, used to say where ``cur`` ACTUALLY connects when no
+    seam reaches ``nxt`` (the seed-id chain order may not match the real warps)."""
     from . import journey as _journey
     nxt_sources = {m.real_id: m.name for m in nxt_plan.members}     # real field id -> the next arc's member name
     nxt_reals = frozenset(nxt_sources)                             # the next arc's donor ids (precise-door test)
@@ -570,15 +572,23 @@ def _pick_boundary(cur_plan, nxt_plan, cur, nxt, notes):
                                    f"picked {overworld[0]!r} -- confirm it's the one toward {nxt}"))
         return _mk_link(cur, overworld[0], nxt, nxt_entry,
                         comment=f"VERIFY: {cur} has {len(overworld)} world-map exits; confirm this is toward {nxt}")
+    where = _journey.connection_targets(conn_rec)              # where cur's REAL seams land (if anywhere)
     if len(other_fr) == 1:
+        extra = f" ({cur} connects to {where})" if where else ""
         notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: boundary {other_fr[0]!r} exits to a field "
-                                   f"outside {nxt} -- confirm the hand-off target"))
+                                   f"outside {nxt} -- confirm the hand-off target{extra}"))
         return _mk_link(cur, other_fr[0], nxt, nxt_entry,
-                        comment=f"VERIFY: {other_fr[0]} exits to a field outside {nxt}; confirm to.field")
-    notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: no single clear boundary seam -- set from.field by "
-                               f"hand (the member that leaves {cur} toward {nxt})"))
-    return _mk_link(cur, "BOUNDARY_MEMBER", nxt, nxt_entry,
-                    comment=f"FILL: the member that leaves {cur} toward {nxt} (no boundary seam auto-found)")
+                        comment=f"VERIFY: {other_fr[0]} exits to a field outside {nxt}; confirm to.field{extra}")
+    if where:
+        notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: no seam reaches {nxt}, but {cur} DOES connect "
+                                   f"to: {where}. Your chain order may not match the real warps -- reorder the "
+                                   f"chain, or set from.field by hand."))
+        comment = f"FILL: no seam from {cur} reaches {nxt}; {cur} actually connects to {where} (reorder?)"
+    else:
+        notes.append(ReconcileNote("verify", f"{cur} -> {nxt}: no boundary seam auto-found -- set from.field by "
+                                   f"hand (the member that leaves {cur} toward {nxt})"))
+        comment = f"FILL: the member that leaves {cur} toward {nxt} (no boundary seam auto-found)"
+    return _mk_link(cur, "BOUNDARY_MEMBER", nxt, nxt_entry, comment=comment)
 
 
 def _journey_block_range(lines, target_jidx):
@@ -667,7 +677,12 @@ def reconcile_arc_journey(text: str, base_dir) -> "tuple[str, list]":
     # an incremental fork-by-arc workflow we therefore keep ALL templates until the chain is complete, then fill
     # them in one pass. (Entry only needs the first campaign, so it fills early regardless.)
     links_complete = not unforked
-    links = [_pick_boundary(plans[c], plans[n], c, n, notes) for (c, n) in pairs] if links_complete else []
+    if links_complete:
+        from . import journey as _journey
+        conn = _journey.campaign_connectivity(campaigns, plans)    # the REAL warp graph (seams, not zones)
+        links = [_pick_boundary(plans[c], plans[n], c, n, notes, conn.get(c)) for (c, n) in pairs]
+    else:
+        links = []
 
     # ---- text surgery on the target journey block (leave everything else, incl. the header playbook, intact)
     lines = text.split("\n")

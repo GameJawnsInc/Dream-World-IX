@@ -249,6 +249,42 @@ def test_reconcile_fills_entry_and_links(tmp_path):
     assert any(n.level == "filled" and "entry" in n.text for n in notes)
 
 
+def test_reconcile_note_reports_real_connectivity(tmp_path):
+    # arc_a's only seam lands in arc_c (real 300), NOT the next arc_b -> reconcile can't fill arc_a->arc_b, and
+    # the note/FILL comment now say WHERE arc_a really connects (the seam oracle), so the chain order can be fixed.
+    # BOTH arc_a members warp to arc_c (real 300), NONE to arc_b -> other_fr>1 -> the BOUNDARY_MEMBER branch.
+    _write_forked_campaign(tmp_path, "arc_a", entry="A1", members=[("A1", 100, 6000), ("A2", 101, 6001)],
+                           seams=[("A1", 300, "scripted"), ("A2", 300, "scripted")])
+    _write_forked_campaign(tmp_path, "arc_b", entry="B1",
+                           members=[("B1", 200, 6100), ("B2", 201, 6101)], seams=[("B2", "WORLDMAP", "overworld")])
+    _write_forked_campaign(tmp_path, "arc_c", entry="C1",
+                           members=[("C1", 300, 6200), ("C2", 301, 6201)], seams=[])
+    out, notes = refarc.reconcile_arc_journey(_three_arc_scaffold(), tmp_path)
+    assert any("arc_a" in n.text and "arc_c (via 300 scripted)" in n.text for n in notes)   # connectivity hint + kind
+    assert "BOUNDARY_MEMBER" in out and "arc_a actually connects to arc_c" in out  # active scaffold + FILL note
+    # arc_b -> arc_c still auto-fills via its world-map exit (the hint only fires on a no-clear-boundary pair)
+    (tmp_path / "journeys.toml").write_text(out, encoding="utf-8")
+    j = journey.load_journeys(tmp_path / "journeys.toml")
+    assert ("arc_b", "B2", "arc_c") in [(l.src_campaign, l.src_field, l.dst.campaign) for l in j.journeys[0].links]
+
+
+def test_reconcile_other_fr_branch_carries_connectivity_hint(tmp_path):
+    # arc_a has exactly ONE member (A1) exiting to a field outside arc_b (real 300, forked by arc_c); A2 has no
+    # seam -> the other_fr==1 branch AUTO-FILLS the link with A1 AND its note now names where arc_a really goes.
+    _write_forked_campaign(tmp_path, "arc_a", entry="A1", members=[("A1", 100, 6000), ("A2", 101, 6001)],
+                           seams=[("A1", 300, "scripted")])
+    _write_forked_campaign(tmp_path, "arc_b", entry="B1", members=[("B1", 200, 6100), ("B2", 201, 6101)],
+                           seams=[("B2", "WORLDMAP", "overworld")])
+    _write_forked_campaign(tmp_path, "arc_c", entry="C1",
+                           members=[("C1", 300, 6200), ("C2", 301, 6201)], seams=[])
+    out, notes = refarc.reconcile_arc_journey(_three_arc_scaffold(), tmp_path)
+    assert any("exits to a field outside arc_b" in n.text and "arc_a connects to arc_c (via 300 scripted)" in n.text
+               for n in notes)
+    (tmp_path / "journeys.toml").write_text(out, encoding="utf-8")        # the link auto-fills with A1 (repurposed)
+    j = journey.load_journeys(tmp_path / "journeys.toml").journeys[0]
+    assert ("arc_a", "A1", "arc_b") in [(l.src_campaign, l.src_field, l.dst.campaign) for l in j.links]
+
+
 def test_reconcile_skips_when_not_forked(tmp_path):
     # no campaign folders on disk yet -> a 'skip' note pointing at STEP 1, and the text is unchanged.
     text = _three_arc_scaffold()

@@ -711,6 +711,108 @@ def render_selector_hub_toml(*, hub_name="World Hub", hub_id=4600, borrow_bg=Non
     return "\n".join(L) + "\n"
 
 
+# ---------------------------------------------------------------- real connectivity (the seam oracle)
+# Zones / id order are an ORGANIZING convenience, never a constraint -- a custom chain can run in any order the
+# author wants. So we derive how campaigns ACTUALLY connect from the real warps in each forked .eb (the seams the
+# fork already records), not from zone tokens or seed-id adjacency. This tells the author where a campaign really
+# hands off (which may be a non-adjacent or non-chronological sibling) without forcing the game into our pattern.
+def campaign_connectivity(folders, plans) -> dict:
+    """The cross-campaign warp graph read from each forked campaign's actual ``.eb`` seams (scripted / overworld
+    / portal), NOT from zones or id order. ``folders`` = the journey's campaign list; ``plans`` = a
+    ``{folder: CampaignPlan}`` map (unforked folders simply absent). Returns ``{folder: {"to": {dst_folder:
+    [(frm, to_real, kind), ...]}, "external": [(frm, to_real, kind), ...], "worldmap": [(frm, kind), ...]}}`` --
+    where each campaign's seams land: a SIBLING campaign in this journey, an unforked real field (a leak / a
+    boundary out of the journey), or the world map. PURE over the plans."""
+    owner: dict = {}                                 # real field id -> [campaigns that fork it] (a donor id MAY be
+    for f in folders:                                #   forked by >1 sibling -- distinct new_ids, same real_id)
+        p = plans.get(f)
+        if p is None:
+            continue
+        for m in p.members:
+            if m.real_id:
+                owner.setdefault(int(m.real_id), []).append(f)
+    out: dict = {}
+    for f in folders:
+        p = plans.get(f)
+        if p is None:
+            continue
+        rec = {"to": {}, "external": [], "worldmap": []}
+        for s in p.seams:
+            frm, kind, tr = s.get("frm"), (s.get("kind") or "scripted"), s.get("to_real")
+            if tr == "WORLDMAP":
+                rec["worldmap"].append((frm, kind))
+                continue
+            try:
+                tr = int(tr)
+            except (TypeError, ValueError):
+                continue
+            owners = owner.get(tr, [])
+            siblings = [d for d in owners if d != f]
+            if not owners:
+                rec["external"].append((frm, tr, kind))      # lands in a field NO journey campaign forks (a leak)
+            for d in siblings:                                # name EVERY sibling that forks the target (not just one)
+                rec["to"].setdefault(d, []).append((frm, tr, kind))
+            # owners == [f] only -> a seam back into the same campaign; not a cross-campaign edge
+        out[f] = rec
+    return out
+
+
+def _field_list(seams, limit=4) -> str:
+    """A compact, de-duplicated, sorted list of the real field ids in a seam list: ``'200,202,206 ...'``."""
+    ids = sorted({t for _, t, _ in seams})
+    return ",".join(str(t) for t in ids[:limit]) + (" ..." if len(ids) > limit else "")
+
+
+def _kind_tag(seams) -> str:
+    """The warp KIND across a seam list -- ``scripted`` (a story/cutscene Field(), maybe gated) vs ``portal`` (a
+    door edge) vs mixed -- so a one-time cutscene warp isn't mistaken for a freely-walkable connection."""
+    kinds = sorted({k for _, _, k in seams})
+    return kinds[0] if len(kinds) == 1 else "mixed"
+
+
+def connection_targets(conn_rec) -> str:
+    """One-line 'dst (via 204,209 scripted); other (via 55,67 scripted)' summary of a single campaign's
+    ``campaign_connectivity`` record -- the siblings its seams reach + the warp kind, for a reconcile/lint hint.
+    ``''`` if it reaches no sibling."""
+    if not conn_rec or not conn_rec.get("to"):
+        return ""
+    return "; ".join(f"{dst} (via {_field_list(seams)} {_kind_tag(seams)})"
+                     for dst, seams in conn_rec["to"].items())
+
+
+def render_connectivity(folders, plans, *, links=None, conn=None) -> "list[str]":
+    """Human report lines for :func:`campaign_connectivity`: each campaign and which siblings its real seams
+    reach + the warp kind, marking a reached sibling the chain does NOT link as an ALTERNATE route ('[not in
+    chain]', NOT an error -- the author may intend it) and surfacing out-of-journey leaks with ids. ``links`` =
+    the journey's ``[[journey.link]]`` rows (mark declared edges). ``conn`` = a precomputed map (else computed).
+    Only campaigns with an out-of-campaign seam are listed (a terminal campaign prints nothing). ``[]`` if
+    nothing is informative."""
+    if conn is None:
+        conn = campaign_connectivity(folders, plans)
+    if not conn:
+        return []
+    declared = {(lk.src_campaign, lk.dst.campaign) for lk in (links or [])}
+    rows = []
+    for f in folders:
+        rec = conn.get(f)
+        if rec is None:                              # not forked yet -> omit (don't pad the report)
+            continue
+        bits = []
+        for dst, seams in rec["to"].items():
+            tag = "" if (f, dst) in declared else "  [not in chain]"   # an alternate route, not a missing link
+            bits.append(f"-> {dst} (via {_field_list(seams)} {_kind_tag(seams)}){tag}")
+        if rec["worldmap"]:
+            bits.append(f"-> world map x{len(rec['worldmap'])}")
+        if rec["external"]:                          # out-of-journey leaks: ALWAYS shown, with ids (leak-hunting)
+            bits.append(f"-> {len(rec['external'])} leak(s) to unforked fields ({_field_list(rec['external'])})")
+        if bits:                                     # skip a terminal campaign with no out-of-campaign seams
+            rows.append(f"  {f}: " + "  ".join(bits))
+    if not rows:
+        return []
+    return ["real connectivity (from each forked campaign's .eb seams -- the actual warps, not zone/id order; "
+            "an unlinked sibling is an ALTERNATE route you can chain, not a missing link):"] + rows
+
+
 def render_journey_plan(manifest: JourneyManifest) -> str:
     """A human-readable view of the assembled namespace: each journey, its entry global id + hub seed, and (for
     a multi-campaign arc) its campaigns' id bands + flag windows + resolved cross-campaign links. Backs the
@@ -724,6 +826,7 @@ def render_journey_plan(manifest: JourneyManifest) -> str:
         plans = load_campaign_plans(manifest)
     except JourneyError as e:
         return "\n".join(out) + f"\n!! cannot resolve campaigns: {e}\n"
+    _plain = {f: p for f, (p, _) in plans.items()}   # {folder: CampaignPlan} for campaign_connectivity
     for j in manifest.journeys:
         rj = resolve_journey(j, plans)
         seed = f"  seed scenario={j.hub_scenario}" if j.hub_scenario is not None else ""
@@ -739,11 +842,18 @@ def render_journey_plan(manifest: JourneyManifest) -> str:
         for lk in rj.links:
             out.append(f"    link  {lk['src_campaign']}/{lk['src_field']} (field {lk['src_id']})  "
                        f"-->  {lk['dst_campaign']}/{lk['dst_field']} (field {lk['dst_id']})")
+        conn = campaign_connectivity(j.campaigns, _plain)        # the real warp graph, computed once per journey
         for lk in j.links:                           # surface the boundaries reconcile couldn't auto-fill
             if _is_unfilled(lk.src_field) or _is_unfilled(lk.dst.field):
+                hint = connection_targets(conn.get(lk.src_campaign))
                 out.append(f"    link  {lk.src_campaign} --> {lk.dst.campaign}   ** NOT FILLED ** "
-                           f"-- set the boundary member by hand (the {lk.src_campaign} screen that leaves "
-                           f"toward {lk.dst.campaign})")
+                           + (f"-- {lk.src_campaign} actually connects to: {hint} (its seams don't reach "
+                              f"{lk.dst.campaign}; reorder or set from.field by hand)"
+                              if hint else f"-- set the boundary member by hand (the {lk.src_campaign} "
+                              f"screen that leaves toward {lk.dst.campaign})"))
+        # the REAL connectivity from each campaign's .eb seams (zones/id order are a convenience, not a rule)
+        for line in render_connectivity(j.campaigns, _plain, links=j.links, conn=conn):
+            out.append("    " + line)
         if j.seed.party:
             out.append(f"    party: {', '.join(j.seed.party)}")
         out.append("")

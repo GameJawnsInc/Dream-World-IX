@@ -188,6 +188,43 @@ to = { campaign = "cb", field = "ARRIVAL_MEMBER" }
     assert any("isn't filled" in e and "ARRIVAL_MEMBER" in e for e in journey.lint_manifest(m2)[0])
 
 
+def test_campaign_connectivity_from_real_seams(tmp_path):
+    # the oracle reads each campaign's REAL .eb seams (not zones/id order): a seam landing in a sibling's donor
+    # id -> a cross-campaign edge; one landing nowhere-forked -> external; WORLDMAP -> world map.
+    _make_campaign(tmp_path, "ca", members=["A1", "A2"], id_base=6000, sources={"A1": 100, "A2": 101},
+                   seams=[{"frm": "A2", "to_real": 200, "kind": "scripted", "note": ""},   # -> cb (real 200)
+                          {"frm": "A2", "to_real": 200, "kind": "scripted", "note": ""},   # dup target (dedup display)
+                          {"frm": "A1", "to_real": 999, "kind": "scripted", "note": ""}])  # forked by nobody -> external
+    _make_campaign(tmp_path, "cb", members=["B1", "B2"], id_base=6100, sources={"B1": 200, "B2": 201},
+                   seams=[{"frm": "B1", "to_real": "WORLDMAP", "kind": "overworld", "note": ""}])
+    plans = {k: campaign.load_campaign(tmp_path / k / "campaign.toml") for k in ("ca", "cb")}
+    conn = journey.campaign_connectivity(["ca", "cb"], plans)
+    assert list(conn["ca"]["to"]) == ["cb"] and conn["ca"]["to"]["cb"][0] == ("A2", 200, "scripted")
+    assert conn["ca"]["external"] == [("A1", 999, "scripted")]
+    assert conn["cb"]["to"] == {} and conn["cb"]["worldmap"] == [("B1", "overworld")]
+    assert journey.connection_targets(conn["ca"]) == "cb (via 200 scripted)"   # deduped + warp kind
+    # render flags a reached sibling the chain does NOT link as an ALTERNATE route + shows the leak ids
+    rep = "\n".join(journey.render_connectivity(["ca", "cb"], plans))
+    assert "ca:" in rep and "-> cb (via 200 scripted)" in rep and "[not in chain]" in rep
+    assert "leak(s) to unforked fields (999)" in rep                  # the external 999 surfaces with its id
+    # ...and DROPS the alternate-route tag once a link declares it
+    lk = journey.JourneyLink(src_campaign="ca", src_field="A2",
+                             dst=journey.JourneyRef(campaign="cb", field="B1"), dst_entrance=0)
+    rep2 = "\n".join(journey.render_connectivity(["ca", "cb"], plans, links=[lk]))
+    assert "-> cb (via 200 scripted)" in rep2 and "[not in chain]" not in rep2.split("ca:")[1].split("\n")[0]
+
+
+def test_connectivity_shared_donor_names_all_siblings(tmp_path):
+    # a donor real id (300) forked by TWO siblings (cb, cc) -> a seam landing there names BOTH, not last-wins.
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000, sources={"A1": 100},
+                   seams=[{"frm": "A1", "to_real": 300, "kind": "scripted", "note": ""}])
+    _make_campaign(tmp_path, "cb", members=["B1"], id_base=6100, sources={"B1": 300})   # forks real 300
+    _make_campaign(tmp_path, "cc", members=["C1"], id_base=6200, sources={"C1": 300})   # ALSO forks real 300
+    plans = {k: campaign.load_campaign(tmp_path / k / "campaign.toml") for k in ("ca", "cb", "cc")}
+    conn = journey.campaign_connectivity(["ca", "cb", "cc"], plans)
+    assert set(conn["ca"]["to"]) == {"cb", "cc"}                      # both siblings named (not just the last)
+
+
 def test_resolve_bare(tmp_path):
     p = _write_manifest(tmp_path, '[[journey]]\nid = "treno"\nentry = 4501\nset_scenario = 7550\n')
     m = journey.load_journeys(p)
