@@ -18,18 +18,28 @@ Until both are done: no push, no remote, no public flip.
 
 ---
 
-## 1. One-time history scrub (`git filter-repo`)
+## 1. Archive the original, then clone it for the scrub (Pattern 3)
 
-The repo keeps its full commit history (messages/dates/graph preserved); the scrub only excises the
-contents of Square-Enix-derived blobs. `git filter-repo` **rewrites every branch**, so do this with the
-feature branches quiesced (merged or accepted as rewritten — it's all local).
+The current `FFIX` repo stays **private and untouched** as the full-history archive (it holds the
+SE-derived bytes). The scrub runs on a throwaway **clone**, which becomes the public repo — so the
+destructive rewrite never touches your only copy.
+
+`git filter-repo` preserves the commit history (messages, authors, dates, branch graph) and only
+**rewrites the commit SHAs** to drop the excised blob contents — your build log stays intact.
 
 Install once: `pip install git-filter-repo`.
 
 ```bash
-# from the repo root, all branches quiesced
-git bundle create ../dwix-pre-scrub.bundle --all     # SAFETY NET (restore: git clone ../dwix-pre-scrub.bundle restored)
+# (recommended) an extra off-machine snapshot of the original -- keep PRIVATE:
+git bundle create ../dwix-archive.bundle --all       # restore: git clone ../dwix-archive.bundle
 
+# make an independent clone of master OUTSIDE the original repo, and scrub THAT:
+cd ..
+git clone --no-local -b master FFIX-editor_gui Dream-World-IX
+cd Dream-World-IX
+git remote remove origin                             # detach from the private archive
+
+# scrub the clone:
 git filter-repo --force --invert-paths \
   --path backups \
   --path mod \
@@ -81,14 +91,22 @@ Treat this as **verify-and-iterate**, not one-shot-trust. (Claude can run this v
 
 ---
 
-## 3. Publish sequence (only after §0–§2 are green)
+## 3. Publish sequence (only after §0–§2 are green) — run from inside the scrubbed `Dream-World-IX/` clone
 
-1. On GitHub, rename the repo `FFIX` → `Dream-World-IX`.
-2. Re-point the remote (filter-repo dropped it):
-   `git remote add origin https://github.com/GameJawnsInc/Dream-World-IX.git`
-   (the `pyproject.toml` / `CHANGELOG.md` slug already matches this URL).
-3. Push the scrubbed history: `git push --force --all` then `git push --force --tags`.
-4. Tag the beta: `git tag -a v1.0.0b1 -m "Dream World IX 1.0.0b1 — first public beta"` then push the tag.
+1. On GitHub, create a **new, empty, private** repo `GameJawnsInc/Dream-World-IX` (private for now;
+   you flip it public in step 5). Leave the original `FFIX` repo **private** as the permanent archive.
+2. Point the clone at it and push master (the pyproject/CHANGELOG slug already matches this URL):
+   ```bash
+   git remote add origin https://github.com/GameJawnsInc/Dream-World-IX.git
+   git push -u origin master
+   ```
+   (Only `master` goes public — a clean public repo. The archive keeps every branch.)
+3. Tag the beta and push it:
+   ```bash
+   git tag -a v1.0.0b1 -m "Dream World IX 1.0.0b1 — first public beta"
+   git push origin v1.0.0b1
+   ```
+4. Sanity-check the GitHub repo (README renders, no stray branches, no game bytes in the tree).
 5. Flip the repository to **public**.
 6. (Optional) Build + publish to PyPI: `python -m build && twine upload dist/*` (version `1.0.0b1`).
 
