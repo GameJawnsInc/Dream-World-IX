@@ -393,7 +393,7 @@ class ImportDoc(QWidget):
         self._busy(True)
         started = self._run([sys.executable, "-m", "ff9mapkit", *args], cwd=self.kit, subject=subject,
                             ok_headline=f"{subject} — done", ok_next=ok_next,
-                            fail_hint="See the Output tab (importing needs UnityPy + your FF9 install).",
+                            fail_hint="See the Output panel (importing needs UnityPy + your FF9 install).",
                             on_finished=lambda _code: self._busy(False))
         if not started:
             self._busy(False)                          # a job was already running; nothing started

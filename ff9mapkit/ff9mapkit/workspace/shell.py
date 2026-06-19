@@ -434,15 +434,27 @@ class Workspace(QMainWindow):
         split.setStretchFactor(1, 1)
         self.setCentralWidget(central)
 
-    def _build_dock(self):
-        dock = QDockWidget("Output  /  Problems")
-        dock.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea)
-        self.dock_tabs = QTabWidget()
-        self.dock_tabs.setDocumentMode(True)
+    def _dock_header(self, text):
+        """A small bold caption for a dock panel (replaces the old tab labels, since both panels now show
+        at once)."""
+        lab = QLabel(text)
+        lab.setStyleSheet(f"color:{self.pal['text']};font-weight:600;")
+        return lab
 
-        prob_page = QWidget()
+    def _build_dock(self):
+        # Problems + Output were tabs (one visible at a time), but they're almost always wanted TOGETHER (a
+        # job streams to Output while its verdict lands in Problems). So show both side-by-side in one dock,
+        # split by a draggable divider.
+        dock = QDockWidget("Problems  ·  Output")
+        dock.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea)
+        self.dock = dock
+        split = QSplitter(Qt.Horizontal)
+
+        prob_page = QWidget()                       # left: the lint verdict banner + the Problems rows
         pv = QVBoxLayout(prob_page)
         pv.setContentsMargins(8, 8, 8, 8)
+        pv.setSpacing(6)
+        pv.addWidget(self._dock_header("Problems"))
         self.banner = QLabel("")
         self.banner.setVisible(False)
         self.banner.setWordWrap(True)
@@ -451,14 +463,32 @@ class Workspace(QMainWindow):
         pv.addWidget(self.problems, 1)
         self.problems_page = prob_page
 
+        out_page = QWidget()                        # right: the streamed process/console output
+        ov = QVBoxLayout(out_page)
+        ov.setContentsMargins(8, 8, 8, 8)
+        ov.setSpacing(6)
+        ov.addWidget(self._dock_header("Output"))
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
+        ov.addWidget(self.output, 1)
 
-        self.dock_tabs.addTab(prob_page, "Problems")
-        self.dock_tabs.addTab(self.output, "Output")
-        dock.setWidget(self.dock_tabs)
+        split.addWidget(prob_page)
+        split.addWidget(out_page)
+        split.setSizes([360, 720])                  # Output starts wider (build/deploy logs run long); draggable
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
+        self.dock_split = split
+
+        dock.setWidget(split)
         self.addDockWidget(Qt.BottomDockWidgetArea, dock)
         dock.setMinimumHeight(150)
+
+    def _raise_dock(self):
+        """Both panels are always visible now (side-by-side splitter), so 'focus Problems/Output' just means
+        make sure the dock itself is shown -- e.g. if the user floated or closed it."""
+        if getattr(self, "dock", None) is not None:
+            self.dock.setVisible(True)
+            self.dock.raise_()
 
     def _welcome(self):
         w = QTextEdit()
@@ -705,7 +735,7 @@ class Workspace(QMainWindow):
         if self.run_job(self._fork_argv(key), cwd=KIT, subject=f"Fork {key} (import-chain {pf.seed})",
                         ok_headline=f"Forked {key} → {self.manifest.root / key}",
                         ok_next="The arc folder exists now; the journey lint clears it. Fill the entry (links auto-wire).",
-                        fail_hint="import-chain needs UnityPy + your FF9 install. See the Output tab.",
+                        fail_hint="import-chain needs UnityPy + your FF9 install. See the Output panel.",
                         on_finished=lambda code: self._after_fork()):
             self._mark_fork_running(key)           # immediate 'Forking…' feedback (the job streams to Output)
         else:
@@ -1390,7 +1420,7 @@ class Workspace(QMainWindow):
         """Sink for the docked save editors' Preview/Apply output -> the bottom Output panel (console's
         natural home), so a docked save doc doesn't spend its body height on its own console box."""
         self.output.setPlainText(text)
-        self.dock_tabs.setCurrentWidget(self.output)
+        self._raise_dock()
 
     def _open_save(self):
         """Open a save into BOTH save documents (story state + item/equip) -- a cross-cutting document,
@@ -4255,10 +4285,10 @@ class Workspace(QMainWindow):
             it = QListWidgetItem(f"{'✕' if p.severity == fb.ERROR else '⚠'}  {p.message}")
             it.setForeground(QBrush(QColor(self.pal["error"] if p.severity == fb.ERROR else self.pal["warn"])))
             self.problems.addItem(it)
-        self.dock_tabs.setCurrentWidget(self.problems_page)
+        self._raise_dock()
 
     def run_job(self, argv, *, cwd=None, subject="Job", ok_headline=None, ok_next="",
-                fail_hint="See the Output tab.", on_finished=None):
+                fail_hint="See the Output panel.", on_finished=None):
         """Run ONE streaming subprocess job (lint / build / deploy / import): stream its stdout into the
         Output panel, then post a returncode verdict to Problems. ``argv[0]`` is the program. Returns
         ``False`` (and starts nothing) if a job is already running, else ``True``; ``on_finished(code)``
@@ -4269,7 +4299,7 @@ class Workspace(QMainWindow):
         self._job = (subject, ok_headline, ok_next, fail_hint, on_finished)
         self.output.clear()
         self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
-        self.dock_tabs.setCurrentWidget(self.output)
+        self._raise_dock()
         self.act_lint_cli.setEnabled(False)
         self.proc = QProcess(self)
         self.proc.setProgram(str(argv[0]))
@@ -4295,7 +4325,7 @@ class Workspace(QMainWindow):
     def _proc_done(self, code, _status):
         self.act_lint_cli.setEnabled(self.campaign_path is not None)
         subject, ok_headline, ok_next, fail_hint, on_finished = getattr(
-            self, "_job", ("Job", None, "", "See the Output tab.", None))
+            self, "_job", ("Job", None, "", "See the Output panel.", None))
         v = fb.from_returncode(code, subject=subject, ok_headline=ok_headline, ok_next=ok_next,
                                fail_hint=fail_hint)
         self._show_problems(v, [])
