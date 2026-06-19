@@ -151,6 +151,43 @@ to = { campaign = "ice_cavern", field = "IC_ENT" }
                          "dst_entrance": 0}]
 
 
+def test_unfilled_boundary_placeholder_is_tolerated(tmp_path):
+    # reconcile leaves an UNRESOLVABLE boundary as an active link with a BOUNDARY_MEMBER placeholder. That must
+    # NOT crash resolve/overview (the bug: it hard-raised, blocking the whole journey) -- skip it + flag it.
+    _two_campaigns(tmp_path)
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "ff9disc1"
+campaigns = ["ca", "cb"]
+entry = { campaign = "ca", field = "A1" }
+[[journey.link]]
+from = { campaign = "ca", field = "BOUNDARY_MEMBER" }
+to = { campaign = "cb", field = "B1" }
+""")
+    m = journey.load_journeys(p)
+    plans = journey.load_campaign_plans(m)
+    rj = journey.resolve_journey(m.journeys[0], plans)            # must NOT raise
+    assert rj.entry_id == 6000 and rj.links == []                # the unfilled link is skipped, entry still resolves
+    plan_text = journey.render_journey_plan(m)                    # overview renders (was "Could not resolve")
+    assert "NOT FILLED" in plan_text and "ca --> cb" in plan_text
+    errors, _ = journey.lint_manifest(m)
+    assert any("isn't filled in yet" in e and "BOUNDARY_MEMBER" in e for e in errors)
+    assert not any("is neither a member name nor a field id" in e for e in errors)   # no confusing message
+    # the ARRIVAL_MEMBER (link target) placeholder is handled symmetrically
+    p2 = _write_manifest(tmp_path, """
+[[journey]]
+id = "ff9disc1"
+campaigns = ["ca", "cb"]
+entry = { campaign = "ca", field = "A1" }
+[[journey.link]]
+from = { campaign = "ca", field = "A2" }
+to = { campaign = "cb", field = "ARRIVAL_MEMBER" }
+""")
+    m2 = journey.load_journeys(p2)
+    assert journey.resolve_journey(m2.journeys[0], journey.load_campaign_plans(m2)).links == []
+    assert any("isn't filled" in e and "ARRIVAL_MEMBER" in e for e in journey.lint_manifest(m2)[0])
+
+
 def test_resolve_bare(tmp_path):
     p = _write_manifest(tmp_path, '[[journey]]\nid = "treno"\nentry = 4501\nset_scenario = 7550\n')
     m = journey.load_journeys(p)

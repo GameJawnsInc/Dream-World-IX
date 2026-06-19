@@ -266,12 +266,26 @@ def load_campaign_plans(manifest: JourneyManifest) -> dict:
     return plans
 
 
+# The scaffold placeholders a freshly-built / just-reconciled journey leaves for the human to fill: an entry
+# (ENTRY_MEMBER) or a link boundary the reconcile couldn't auto-detect (BOUNDARY_MEMBER source / ARRIVAL_MEMBER
+# target). They are NOT errors in the data -- they are "fill me" markers, so resolve SKIPS them (the rest of
+# the journey still resolves) and lint reports them as actionable "not filled yet", not "bad member name".
+UNFILLED_PLACEHOLDERS = frozenset({"ENTRY_MEMBER", "BOUNDARY_MEMBER", "ARRIVAL_MEMBER"})
+
+
+def _is_unfilled(fieldref) -> bool:
+    return isinstance(fieldref, str) and fieldref in UNFILLED_PLACEHOLDERS
+
+
 def _member_id(plan: "_campaign.CampaignPlan", fieldref, *, what: str) -> int:
     """Resolve a member NAME (preferred) or a raw id against a campaign's members -> the global field id.
     A name must match a member; a raw int passes through (lint flags a raw id that isn't a member)."""
     by_name = {m.name: m for m in plan.members}
     if isinstance(fieldref, str) and fieldref in by_name:
         return by_name[fieldref].new_id
+    if _is_unfilled(fieldref):
+        raise JourneyError(f"{what}: still the {fieldref!r} placeholder -- fill it with a real member name "
+                           f"('Fill entry from forks' couldn't auto-detect it; pick the member by hand)")
     try:
         return int(fieldref)
     except (TypeError, ValueError):
@@ -311,6 +325,9 @@ def resolve_journey(journey: Journey, plans: dict) -> ResolvedJourney:
 
     links = []
     for lk in journey.links:
+        if _is_unfilled(lk.src_field) or _is_unfilled(lk.dst.field):
+            continue                                  # an un-filled FILL/BOUNDARY scaffold row -> not deployable
+            #                                           yet (lint flags it); skip so the rest still resolves
         src_plan, _ = plans[lk.src_campaign]
         dst_plan, _ = plans[lk.dst.campaign]
         links.append({
@@ -478,7 +495,13 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
             if lk.dst.campaign not in j.campaigns:
                 errors.append(f"journey {j.id!r}: link to campaign {lk.dst.campaign!r} not in this journey")
                 continue
-            if lk.src_field not in names_by[lk.src_campaign]:
+            if _is_unfilled(lk.src_field):
+                errors.append(f"journey {j.id!r}: the {lk.src_campaign!r} -> {lk.dst.campaign!r} link isn't "
+                              f"filled in yet -- replace the {lk.src_field!r} placeholder with the "
+                              f"{lk.src_campaign!r} member that leaves toward {lk.dst.campaign!r} ('Fill entry "
+                              f"from forks' couldn't auto-detect a boundary seam -- see the '# FILL:' note above "
+                              f"the link, or set from.field by hand).")
+            elif lk.src_field not in names_by[lk.src_campaign]:
                 errors.append(f"journey {j.id!r}: link source {lk.src_field!r} is not a member of "
                               f"{lk.src_campaign!r}")
             elif not _member_has_seam(plans[lk.src_campaign][0], lk.src_field):
@@ -486,7 +509,11 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
                                 f"out-of-chain seam -- it's not a boundary, so there's nothing to retarget "
                                 f"into the next campaign (the assembler will inject a fresh warp instead).")
             dstf = lk.dst.field
-            if isinstance(dstf, str) and dstf not in names_by[lk.dst.campaign]:
+            if _is_unfilled(dstf):
+                errors.append(f"journey {j.id!r}: the {lk.src_campaign!r} -> {lk.dst.campaign!r} link target "
+                              f"isn't filled -- replace {dstf!r} with the {lk.dst.campaign!r} arrival member "
+                              f"(usually its entry field).")
+            elif isinstance(dstf, str) and dstf not in names_by[lk.dst.campaign]:
                 errors.append(f"journey {j.id!r}: link target {dstf!r} is not a member of {lk.dst.campaign!r}")
 
         # connectivity: every campaign reachable from the entry campaign via links; link count = N-1
@@ -712,6 +739,11 @@ def render_journey_plan(manifest: JourneyManifest) -> str:
         for lk in rj.links:
             out.append(f"    link  {lk['src_campaign']}/{lk['src_field']} (field {lk['src_id']})  "
                        f"-->  {lk['dst_campaign']}/{lk['dst_field']} (field {lk['dst_id']})")
+        for lk in j.links:                           # surface the boundaries reconcile couldn't auto-fill
+            if _is_unfilled(lk.src_field) or _is_unfilled(lk.dst.field):
+                out.append(f"    link  {lk.src_campaign} --> {lk.dst.campaign}   ** NOT FILLED ** "
+                           f"-- set the boundary member by hand (the {lk.src_campaign} screen that leaves "
+                           f"toward {lk.dst.campaign})")
         if j.seed.party:
             out.append(f"    party: {', '.join(j.seed.party)}")
         out.append("")
