@@ -577,14 +577,15 @@ class Workspace(QMainWindow):
         if any(j.campaigns for j in self.manifest.journeys):       # a multi-campaign journey -> grow it + STEP-2 fill
             addregion = QPushButton("Add region to arc…")
             addregion.setToolTip("Append an FF9 region (its own forked campaign) to this chain — the bottom-up "
-                                 "fork-a-region-at-a-time loop. Allocates a disjoint id band; reconcile wires the link.")
+                                 "fork-a-region-at-a-time loop. Allocates a disjoint id band; links auto-wire at deploy.")
             addregion.clicked.connect(self.on_add_region_to_arc)
             addrow.addWidget(addregion)
-            fillb = QPushButton("Fill entry & links from forks")
-            fillb.setToolTip("STEP 2: replace the ENTRY_MEMBER / link placeholders with the real member names of "
-                             "the forked campaigns (run after Fork all). Idempotent.")
+            fillb = QPushButton("Fill entry from forks")
+            fillb.setToolTip("STEP 2: fill the ENTRY member from the forked entry campaign + clear the obsolete "
+                             "link templates. Cross-campaign warps AUTO-WIRE at deploy from the real .eb seams -- "
+                             "no link rows to fill. Run after Fork all. Idempotent.")
             if self._needs_reconcile():
-                fillb.setObjectName("accent")          # highlight while placeholders remain
+                fillb.setObjectName("accent")          # highlight while the ENTRY_MEMBER placeholder remains
             fillb.clicked.connect(self.on_reconcile_journey)
             addrow.addWidget(fillb)
         addrow.addStretch(1)
@@ -703,7 +704,7 @@ class Workspace(QMainWindow):
         pf = self._fork_cmds[key]
         if self.run_job(self._fork_argv(key), cwd=KIT, subject=f"Fork {key} (import-chain {pf.seed})",
                         ok_headline=f"Forked {key} → {self.manifest.root / key}",
-                        ok_next="The arc folder exists now; the journey lint clears it. Fill its entry/links.",
+                        ok_next="The arc folder exists now; the journey lint clears it. Fill the entry (links auto-wire).",
                         fail_hint="import-chain needs UnityPy + your FF9 install. See the Output tab.",
                         on_finished=lambda code: self._after_fork()):
             self._mark_fork_running(key)           # immediate 'Forking…' feedback (the job streams to Output)
@@ -754,12 +755,12 @@ class Workspace(QMainWindow):
         if self._on_journey_overview():
             self._mount_journey_overview()
             self._lint_journey()
-            # all arcs forked but the entry/links are still templates -> nudge STEP 2 (the lint shows the
-            # ENTRY_MEMBER error; the 'Fill entry & links from forks' button resolves it from the forks).
+            # all arcs forked but the entry is still a placeholder -> nudge STEP 2 (the lint shows the
+            # ENTRY_MEMBER error; the 'Fill entry from forks' button resolves it; links auto-wire at deploy).
             folders = getattr(self, "_fork_order", [])
             if folders and all(self._campaign_forked(f) for f in folders) and self._needs_reconcile():
-                self.statusBar().showMessage("All arcs forked — click ‘Fill entry & links from forks’ to "
-                                             "resolve the entry/link placeholders (STEP 2).")
+                self.statusBar().showMessage("All arcs forked — click ‘Fill entry from forks’ to "
+                                             "set the entry (STEP 2; cross-campaign links auto-wire at deploy).")
 
     def _lint_journey(self):
         """Lint the open journeys.toml -> the Problems dock (the GLOBAL id/flag-disjointness guarantee)."""
@@ -869,7 +870,7 @@ class Workspace(QMainWindow):
     # ---- grow a multi-campaign arc: add an FF9 region (refarc.append_region_to_arc) ----
     def _has_multi_arc(self) -> bool:
         """True iff the open manifest has a multi-campaign journey (``campaigns = [...]``) -- the gate for
-        'Add region to arc' + 'Fill entry & links from forks'."""
+        'Add region to arc' + 'Fill entry from forks'."""
         return self.manifest is not None and any(j.campaigns for j in self.manifest.journeys)
 
     def _pick_regions(self, *, title="Add region to arc", exclude=None):
@@ -960,7 +961,7 @@ class Workspace(QMainWindow):
             self.output.appendPlainText("Add region to arc:\n  " + "\n  ".join(log))
             self.open_journey(self.journey_root)         # re-lint + re-list (now owns Problems)
             self.statusBar().showMessage(f"Added {len(added)} region(s): {', '.join(added)} — fork them "
-                                         "(Fork panel), then 'Fill entry & links from forks'")
+                                         "(Fork panel), then 'Fill entry from forks'")
             return True
         except (ValueError, tomllib.TOMLDecodeError, OSError) as e:
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't add the region"),
@@ -1888,7 +1889,7 @@ class Workspace(QMainWindow):
             cmds.insert(2, ("Add journey to hub…", "command", self.on_add_journey_row))
             if any(j.campaigns for j in self.manifest.journeys):
                 cmds.insert(3, ("Add region to arc…", "command", self.on_add_region_to_arc))
-                cmds.insert(4, ("Fill entry & links from forks…", "command", self.on_reconcile_journey))
+                cmds.insert(4, ("Fill entry from forks…", "command", self.on_reconcile_journey))
         content = []
 
         def walk(item):

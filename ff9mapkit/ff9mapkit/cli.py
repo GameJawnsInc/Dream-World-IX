@@ -537,8 +537,8 @@ def _cmd_reference_arcs(args: argparse.Namespace) -> int:
             aset, hub_name=args.hub_name, hub_id=args.hub_id, borrow_bg=args.borrow_bg, id_base=args.id_base),
             encoding="utf-8", newline="\n")
         print(f"wrote {jpath}  ({len(aset.arcs)} arcs, hub id {args.hub_id})")
-        print("Next: fork each arc (the import-chain playbook is in the file header), fill the entry/links from "
-              "the forked member names, then deploy (Build & Deploy -> this file, or "
+        print("Next: fork each arc (the import-chain playbook is in the file header), fill the entry from "
+              "the forked entry campaign (links auto-wire at deploy), then deploy (Build & Deploy -> this file, or "
               f"`py tools/deploy_journey.py {jpath.as_posix()} --apply`).")
         return 0
     if args.playbook:
@@ -2461,8 +2461,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="WRITE a journeys.toml scaffold (the arcs as a chained journey + the fork playbook) into DIR")
     ra.add_argument("--playbook", action="store_true", help="print ONLY the import-chain fork commands")
     ra.add_argument("--reconcile", default=None, metavar="JOURNEYS_TOML",
-                    help="STEP 2: fill an emitted journeys.toml's entry/link placeholders from the campaigns "
-                         "forked beside it (run after forking; writes in place). Ignores --table.")
+                    help="STEP 2: fill an emitted journeys.toml's ENTRY placeholder from the campaigns forked "
+                         "beside it + clear the obsolete link templates (cross-campaign warps auto-wire at "
+                         "deploy). Run after forking; writes in place. Ignores --table.")
     ra.add_argument("--regen", action="store_true",
                     help="REGENERATE the region PICKER's catalog (every forkable zone -> its entry seed) from the "
                          "game's real field->zone data, into the shipped data/region_catalog.toml")

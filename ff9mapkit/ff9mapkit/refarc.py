@@ -820,6 +820,6 @@ def append_region_to_arc(text: str, arc: ReferenceArc, *, journey_index=None) ->
         return text, [ReconcileNote("skip", f"the edit would not parse ({e}) -- left unchanged")]
     notes.insert(0, ReconcileNote("filled", f"added region {arc.key!r}: id band {next_base}, prefix {tag}, "
                                   f"folder {arc_mod_folder(tag)}"))
-    notes.append(ReconcileNote("verify", "fork it (Step 1 -- the Fork panel now lists it), then "
-                               "'Fill entry & links from forks' to wire the boundary"))
+    notes.append(ReconcileNote("verify", "fork it (Step 1 -- the Fork panel now lists it); its warps auto-wire "
+                               "into the chain at deploy (no boundary to fill)"))
     return new_text, notes
