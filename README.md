@@ -15,6 +15,8 @@ faithfully. Likely the first practical reference for FF9 custom-field authoring.
 The project is **Dream World IX**; the Python toolkit at its heart is the package **`ff9mapkit`**
 (that name is unchanged — you `pip install` and `import` it as `ff9mapkit`).
 
+Claude Code was used heavily as a coding in the process of creating this project.
+
 ---
 
 ## Start here
