@@ -213,6 +213,12 @@ def generate_zone_catalog(pattern=None, *, split_visits=True, gap=None) -> Refer
     for a in arcs:
         if len(name_zones[a.name]) > 1:
             a.name = f"{a.name} [{a.zone}]"
+    # Order by the visit's ENTRY seed = game-chronological order: FF9 assigned field ids in rough story/disc
+    # order (disc-1 zones 50-700, mid-game 1000-2500, endings 3000+), so this scatters a place's revisits to
+    # their real story positions (Alexandria opening 100, return 1850, ending 3000) instead of bunching every
+    # visit of one place together -- the right order for forking an arc in sequence. (A proxy, not a curated
+    # chronology; the toml is editable to nudge any region that lands out of order.)
+    arcs.sort(key=lambda a: a.seed)
     return ReferenceArcSet(title="FF9 -- all forkable zones, split by story-state visit (generated from the game)",
                            arcs=arcs)
 

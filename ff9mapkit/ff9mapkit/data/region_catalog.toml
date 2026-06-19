@@ -16,68 +16,12 @@ members = "50-63,65-67"   # import-chain --ids (this visit only)
 note = "17 fields (50..67); zone 'tshp', visit 1/2; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
-key = "prima_vista_3008"
-name = "Prima Vista (ids 3008+)"
-seed = 3008
-zone = "tshp"
-members = "3008-3010"   # import-chain --ids (this visit only)
-note = "3 fields (3008..3010); zone 'tshp', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
 key = "a_castle"
 name = "A. Castle"
 seed = 64
 zone = "alxc"
 members = "64,68-69,150-151,153-167"   # import-chain --ids (this visit only)
 note = "20 fields (64..167); zone 'alxc', visit 1/7; seed = the lowest id -- verify if it mis-lands"
-
-[[arc]]
-key = "a_castle_932"
-name = "A. Castle (ids 932+)"
-seed = 932
-zone = "alxc"
-members = "932"   # import-chain --ids (this visit only)
-note = "1 fields (932..932); zone 'alxc', visit 2/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "a_castle_1200"
-name = "A. Castle (ids 1200+)"
-seed = 1200
-zone = "alxc"
-members = "1200-1227,1250"   # import-chain --ids (this visit only)
-note = "29 fields (1200..1250); zone 'alxc', visit 3/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "a_castle_1800"
-name = "A. Castle (ids 1800+)"
-seed = 1800
-zone = "alxc"
-members = "1800-1803,1805-1824,1866"   # import-chain --ids (this visit only)
-note = "25 fields (1800..1866); zone 'alxc', visit 4/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "a_castle_2001"
-name = "A. Castle (ids 2001+)"
-seed = 2001
-zone = "alxc"
-members = "2001-2009"   # import-chain --ids (this visit only)
-note = "9 fields (2001..2009); zone 'alxc', visit 5/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "a_castle_2400"
-name = "A. Castle (ids 2400+)"
-seed = 2400
-zone = "alxc"
-members = "2400-2406,2458"   # import-chain --ids (this visit only)
-note = "8 fields (2400..2458); zone 'alxc', visit 6/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "a_castle_3002"
-name = "A. Castle (ids 3002+)"
-seed = 3002
-zone = "alxc"
-members = "3002-3003,3005"   # import-chain --ids (this visit only)
-note = "3 fields (3002..3005); zone 'alxc', visit 7/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
 
 [[arc]]
 key = "alexandria"
@@ -88,36 +32,12 @@ members = "100-117"   # import-chain --ids (this visit only)
 note = "18 fields (100..117); zone 'alxt', visit 1/5; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
-key = "alexandria_1850"
-name = "Alexandria (ids 1850+)"
-seed = 1850
-zone = "alxt"
-members = "1850-1865"   # import-chain --ids (this visit only)
-note = "16 fields (1850..1865); zone 'alxt', visit 2/5; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "alexandria_2050"
-name = "Alexandria (ids 2050+)"
-seed = 2050
-zone = "alxt"
-members = "2050-2054"   # import-chain --ids (this visit only)
-note = "5 fields (2050..2054); zone 'alxt', visit 3/5; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "alexandria_2450"
-name = "Alexandria (ids 2450+)"
-seed = 2450
-zone = "alxt"
-members = "2450-2457"   # import-chain --ids (this visit only)
-note = "8 fields (2450..2457); zone 'alxt', visit 4/5; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "alexandria_3000"
-name = "Alexandria (ids 3000+)"
-seed = 3000
-zone = "alxt"
-members = "3000"   # import-chain --ids (this visit only)
-note = "1 fields (3000..3000); zone 'alxt', visit 5/5; seed = the lowest id -- verify the beat / verify if it mis-lands"
+key = "prima_vista_bshp"
+name = "Prima Vista [bshp]"
+seed = 200
+zone = "bshp"
+members = "200-209"   # import-chain --ids (this visit only)
+note = "10 fields (200..209); zone 'bshp'; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
 key = "evil_forest"
@@ -126,14 +46,6 @@ seed = 250
 zone = "evft"
 members = "152,250-262"   # import-chain --ids (this visit only)
 note = "14 fields (152..262); zone 'evft'; seed = an ENTrance field -- verify if it mis-lands"
-
-[[arc]]
-key = "prima_vista_bshp"
-name = "Prima Vista [bshp]"
-seed = 200
-zone = "bshp"
-members = "200-209"   # import-chain --ids (this visit only)
-note = "10 fields (200..209); zone 'bshp'; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
 key = "ice_cavern"
@@ -192,30 +104,6 @@ members = "550-576,600-620"   # import-chain --ids (this visit only)
 note = "48 fields (550..620); zone 'ldbm', visit 1/4; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
-key = "l_castle_1300"
-name = "L. Castle (ids 1300+)"
-seed = 1300
-zone = "ldbm"
-members = "1300-1315,1350-1370"   # import-chain --ids (this visit only)
-note = "37 fields (1300..1370); zone 'ldbm', visit 2/4; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "l_castle_2100"
-name = "L. Castle (ids 2100+)"
-seed = 2100
-zone = "ldbm"
-members = "2100-2114,2150-2155,2157-2173"   # import-chain --ids (this visit only)
-note = "38 fields (2100..2173); zone 'ldbm', visit 3/4; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "l_castle_3006"
-name = "L. Castle (ids 3006+)"
-seed = 3006
-zone = "ldbm"
-members = "3006"   # import-chain --ids (this visit only)
-note = "1 fields (3006..3006); zone 'ldbm', visit 4/4; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
 key = "marsh"
 name = "Marsh"
 seed = 650
@@ -240,28 +128,12 @@ members = "750-769"   # import-chain --ids (this visit only)
 note = "20 fields (750..769); zone 'brmc', visit 1/2; seed = an ENTrance field -- verify if it mis-lands"
 
 [[arc]]
-key = "burmecia_3004"
-name = "Burmecia (ids 3004+)"
-seed = 3004
-zone = "brmc"
-members = "3004"   # import-chain --ids (this visit only)
-note = "1 fields (3004..3004); zone 'brmc', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
 key = "s_gate"
 name = "S. Gate"
 seed = 800
 zone = "stgt"
 members = "800-816"   # import-chain --ids (this visit only)
 note = "17 fields (800..816); zone 'stgt', visit 1/2; seed = the lowest id -- verify if it mis-lands"
-
-[[arc]]
-key = "s_gate_3007"
-name = "S. Gate (ids 3007+)"
-seed = 3007
-zone = "stgt"
-members = "3007"   # import-chain --ids (this visit only)
-note = "1 fields (3007..3007); zone 'stgt', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
 
 [[arc]]
 key = "n_gate"
@@ -280,12 +152,12 @@ members = "900-916,930-931"   # import-chain --ids (this visit only)
 note = "19 fields (900..931); zone 'trno', visit 1/2; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
-key = "treno_1900"
-name = "Treno (ids 1900+)"
-seed = 1900
-zone = "trno"
-members = "1900-1917"   # import-chain --ids (this visit only)
-note = "18 fields (1900..1917); zone 'trno', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
+key = "a_castle_932"
+name = "A. Castle (ids 932+)"
+seed = 932
+zone = "alxc"
+members = "932"   # import-chain --ids (this visit only)
+note = "1 fields (932..932); zone 'alxc', visit 2/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
 
 [[arc]]
 key = "gargan_roo"
@@ -320,20 +192,12 @@ members = "1150-1153"   # import-chain --ids (this visit only)
 note = "4 fields (1150..1153); zone 'rdrs', visit 1/3; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
-key = "red_rose_2756"
-name = "Red Rose (ids 2756+)"
-seed = 2756
-zone = "rdrs"
-members = "2756"   # import-chain --ids (this visit only)
-note = "1 fields (2756..2756); zone 'rdrs', visit 2/3; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
-key = "red_rose_2932"
-name = "Red Rose (ids 2932+)"
-seed = 2932
-zone = "rdrs"
-members = "2932"   # import-chain --ids (this visit only)
-note = "1 fields (2932..2932); zone 'rdrs', visit 3/3; seed = the lowest id -- verify the beat / verify if it mis-lands"
+key = "a_castle_1200"
+name = "A. Castle (ids 1200+)"
+seed = 1200
+zone = "alxc"
+members = "1200-1227,1250"   # import-chain --ids (this visit only)
+note = "29 fields (1200..1250); zone 'alxc', visit 3/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
 
 [[arc]]
 key = "pinnacle_rocks"
@@ -342,6 +206,14 @@ seed = 1255
 zone = "pncl"
 members = "1251-1256"   # import-chain --ids (this visit only)
 note = "6 fields (1251..1256); zone 'pncl'; seed = an ENTrance field -- verify if it mis-lands"
+
+[[arc]]
+key = "l_castle_1300"
+name = "L. Castle (ids 1300+)"
+seed = 1300
+zone = "ldbm"
+members = "1300-1315,1350-1370"   # import-chain --ids (this visit only)
+note = "37 fields (1300..1370); zone 'ldbm', visit 2/4; seed = the lowest id -- verify the beat / verify if it mis-lands"
 
 [[arc]]
 key = "fossil_roo"
@@ -358,14 +230,6 @@ seed = 1450
 zone = "bmvl"
 members = "1450-1464"   # import-chain --ids (this visit only)
 note = "15 fields (1450..1464); zone 'bmvl', visit 1/2; seed = an ENTrance field -- verify if it mis-lands"
-
-[[arc]]
-key = "mage_village_3050"
-name = "Mage Village (ids 3050+)"
-seed = 3050
-zone = "bmvl"
-members = "3050-3059"   # import-chain --ids (this visit only)
-note = "10 fields (3050..3059); zone 'bmvl', visit 2/2; seed = an ENTrance field -- verify the beat / verify if it mis-lands"
 
 [[arc]]
 key = "conde_petie"
@@ -400,14 +264,6 @@ members = "1650-1659,1663,1757-1759"   # import-chain --ids (this visit only)
 note = "14 fields (1650..1759); zone 'iftr', visit 1/2; seed = an ENTrance field -- verify if it mis-lands"
 
 [[arc]]
-key = "iifa_tree_3001"
-name = "Iifa Tree (ids 3001+)"
-seed = 3001
-zone = "iftr"
-members = "3001"   # import-chain --ids (this visit only)
-note = "1 fields (3001..3001); zone 'iftr', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
-
-[[arc]]
 key = "brahne_s_fleet"
 name = "Brahne’s Fleet"
 seed = 1660
@@ -422,6 +278,30 @@ seed = 1750
 zone = "ifug"
 members = "1750-1756"   # import-chain --ids (this visit only)
 note = "7 fields (1750..1756); zone 'ifug'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "a_castle_1800"
+name = "A. Castle (ids 1800+)"
+seed = 1800
+zone = "alxc"
+members = "1800-1803,1805-1824,1866"   # import-chain --ids (this visit only)
+note = "25 fields (1800..1866); zone 'alxc', visit 4/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
+key = "alexandria_1850"
+name = "Alexandria (ids 1850+)"
+seed = 1850
+zone = "alxt"
+members = "1850-1865"   # import-chain --ids (this visit only)
+note = "16 fields (1850..1865); zone 'alxt', visit 2/5; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
+key = "treno_1900"
+name = "Treno (ids 1900+)"
+seed = 1900
+zone = "trno"
+members = "1900-1917"   # import-chain --ids (this visit only)
+note = "18 fields (1900..1917); zone 'trno', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
 
 [[arc]]
 key = "quan_s"
@@ -440,6 +320,22 @@ members = "2000"   # import-chain --ids (this visit only)
 note = "1 fields (2000..2000); zone 'hlg2'; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
+key = "a_castle_2001"
+name = "A. Castle (ids 2001+)"
+seed = 2001
+zone = "alxc"
+members = "2001-2009"   # import-chain --ids (this visit only)
+note = "9 fields (2001..2009); zone 'alxc', visit 5/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
+key = "alexandria_2050"
+name = "Alexandria (ids 2050+)"
+seed = 2050
+zone = "alxt"
+members = "2050-2054"   # import-chain --ids (this visit only)
+note = "5 fields (2050..2054); zone 'alxt', visit 3/5; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
 key = "invincible"
 name = "Invincible"
 seed = 2055
@@ -448,12 +344,12 @@ members = "2055"   # import-chain --ids (this visit only)
 note = "1 fields (2055..2055); zone 'invb', visit 1/2; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
-key = "invincible_2750"
-name = "Invincible (ids 2750+)"
-seed = 2750
-zone = "invb"
-members = "2750-2754"   # import-chain --ids (this visit only)
-note = "5 fields (2750..2754); zone 'invb', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
+key = "l_castle_2100"
+name = "L. Castle (ids 2100+)"
+seed = 2100
+zone = "ldbm"
+members = "2100-2114,2150-2155,2157-2173"   # import-chain --ids (this visit only)
+note = "38 fields (2100..2173); zone 'ldbm', visit 3/4; seed = the lowest id -- verify the beat / verify if it mis-lands"
 
 [[arc]]
 key = "palace"
@@ -496,6 +392,22 @@ members = "2350-2365"   # import-chain --ids (this visit only)
 note = "16 fields (2350..2365); zone 'glgv'; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
+key = "a_castle_2400"
+name = "A. Castle (ids 2400+)"
+seed = 2400
+zone = "alxc"
+members = "2400-2406,2458"   # import-chain --ids (this visit only)
+note = "8 fields (2400..2458); zone 'alxc', visit 6/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
+key = "alexandria_2450"
+name = "Alexandria (ids 2450+)"
+seed = 2450
+zone = "alxt"
+members = "2450-2457"   # import-chain --ids (this visit only)
+note = "8 fields (2450..2457); zone 'alxt', visit 4/5; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
 key = "i_castle"
 name = "I. Castle"
 seed = 2500
@@ -536,12 +448,28 @@ members = "2700-2720"   # import-chain --ids (this visit only)
 note = "21 fields (2700..2720); zone 'pdmn'; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
+key = "invincible_2750"
+name = "Invincible (ids 2750+)"
+seed = 2750
+zone = "invb"
+members = "2750-2754"   # import-chain --ids (this visit only)
+note = "5 fields (2750..2754); zone 'invb', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
 key = "hilda_garde_3"
 name = "Hilda Garde 3"
 seed = 2755
 zone = "hlg3"
 members = "2755,2850-2854,2931"   # import-chain --ids (this visit only)
 note = "7 fields (2755..2931); zone 'hlg3'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "red_rose_2756"
+name = "Red Rose (ids 2756+)"
+seed = 2756
+zone = "rdrs"
+members = "2756"   # import-chain --ids (this visit only)
+note = "1 fields (2756..2756); zone 'rdrs', visit 2/3; seed = the lowest id -- verify the beat / verify if it mis-lands"
 
 [[arc]]
 key = "daguerreo"
@@ -568,6 +496,14 @@ members = "2900-2930,2933-2934"   # import-chain --ids (this visit only)
 note = "33 fields (2900..2934); zone 'cysw'; seed = an ENTrance field -- verify if it mis-lands"
 
 [[arc]]
+key = "red_rose_2932"
+name = "Red Rose (ids 2932+)"
+seed = 2932
+zone = "rdrs"
+members = "2932"   # import-chain --ids (this visit only)
+note = "1 fields (2932..2932); zone 'rdrs', visit 3/3; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
 key = "chocobo_s_paradise"
 name = "Chocobo’s Paradise"
 seed = 2950
@@ -576,12 +512,76 @@ members = "2950-2955"   # import-chain --ids (this visit only)
 note = "6 fields (2950..2955); zone 'chcb'; seed = the lowest id -- verify if it mis-lands"
 
 [[arc]]
+key = "alexandria_3000"
+name = "Alexandria (ids 3000+)"
+seed = 3000
+zone = "alxt"
+members = "3000"   # import-chain --ids (this visit only)
+note = "1 fields (3000..3000); zone 'alxt', visit 5/5; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
+key = "iifa_tree_3001"
+name = "Iifa Tree (ids 3001+)"
+seed = 3001
+zone = "iftr"
+members = "3001"   # import-chain --ids (this visit only)
+note = "1 fields (3001..3001); zone 'iftr', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
+key = "a_castle_3002"
+name = "A. Castle (ids 3002+)"
+seed = 3002
+zone = "alxc"
+members = "3002-3003,3005"   # import-chain --ids (this visit only)
+note = "3 fields (3002..3005); zone 'alxc', visit 7/7; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
+key = "burmecia_3004"
+name = "Burmecia (ids 3004+)"
+seed = 3004
+zone = "brmc"
+members = "3004"   # import-chain --ids (this visit only)
+note = "1 fields (3004..3004); zone 'brmc', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
+key = "l_castle_3006"
+name = "L. Castle (ids 3006+)"
+seed = 3006
+zone = "ldbm"
+members = "3006"   # import-chain --ids (this visit only)
+note = "1 fields (3006..3006); zone 'ldbm', visit 4/4; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
+key = "s_gate_3007"
+name = "S. Gate (ids 3007+)"
+seed = 3007
+zone = "stgt"
+members = "3007"   # import-chain --ids (this visit only)
+note = "1 fields (3007..3007); zone 'stgt', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
+key = "prima_vista_3008"
+name = "Prima Vista (ids 3008+)"
+seed = 3008
+zone = "tshp"
+members = "3008-3010"   # import-chain --ids (this visit only)
+note = "3 fields (3008..3010); zone 'tshp', visit 2/2; seed = the lowest id -- verify the beat / verify if it mis-lands"
+
+[[arc]]
 key = "ending"
 name = "Ending"
 seed = 3011
 zone = "endg"
 members = "3011-3012"   # import-chain --ids (this visit only)
 note = "2 fields (3011..3012); zone 'endg'; seed = the lowest id -- verify if it mis-lands"
+
+[[arc]]
+key = "mage_village_3050"
+name = "Mage Village (ids 3050+)"
+seed = 3050
+zone = "bmvl"
+members = "3050-3059"   # import-chain --ids (this visit only)
+note = "10 fields (3050..3059); zone 'bmvl', visit 2/2; seed = an ENTrance field -- verify the beat / verify if it mis-lands"
 
 [[arc]]
 key = "mognet_central"
