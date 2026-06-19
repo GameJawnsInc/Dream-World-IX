@@ -2201,11 +2201,24 @@ class Workspace(QMainWindow):
         self._active_save = None                   # ...and Ctrl-S has nothing to save until a form mounts
         self._save_btn = None
         self._reset_btn = None
-        while self.doc_host_lay.count():
-            it = self.doc_host_lay.takeAt(0)
+        self._clear_layout(self.doc_host_lay)
+
+    def _clear_layout(self, lay):
+        """Empty a layout, deleting its widgets AND recursing into nested sub-layouts. ``takeAt`` pops a nested
+        layout (e.g. the journey overview's button row, added via ``addLayout``) off the parent, but its child
+        widgets stay PARENTED to the host widget and keep painting -- the 'journey buttons leak into the Script /
+        marker / gateway panels' bug -- unless we descend and delete them too. Spacer items (``addStretch``) are
+        neither widget nor layout, so ``takeAt`` removing them is enough."""
+        while lay.count():
+            it = lay.takeAt(0)
             w = it.widget()
-            if w:
+            if w is not None:
                 w.deleteLater()
+                continue
+            sub = it.layout()
+            if sub is not None:
+                self._clear_layout(sub)
+                sub.deleteLater()
 
     def _doc_placeholder(self, text):
         self._clear_doc()
@@ -5269,11 +5282,24 @@ def _smoke(win):
     win.tree.setCurrentItem(jroot)
     ov = [w for w in win.doc_host.findChildren(QPlainTextEdit) if w.isReadOnly()]
     assert any("Alpha Arc" in w.toPlainText() and "5000" in w.toPlainText() for w in ov), "overview renders the plan"
+    # REGRESSION (nested-layout leak): the overview's action buttons live in a NESTED QHBoxLayout (addLayout),
+    # so _clear_doc must delete THOSE widgets too -- else 'Add journey…' etc. leak into the next panel (the
+    # Script / marker / gateway leak the user hit). Capture them while the overview is up...
+    from PySide6.QtCore import QEvent
+    _JLABELS = {"Add journey…", "Add region to arc…", "Fill entry from forks"}
+    _jbuttons = [b for b in win.doc_host.findChildren(QPushButton) if b.text() in _JLABELS]
+    assert _jbuttons, "overview shows its journey-action buttons"
     win.on_check()                                         # Check lints the manifest -> Problems (no crash)
     # DRILL IN: opening the campaign node loads it (single-campaign editor); the journey stays remembered
     win._on_tree_double(cnode)
     assert win.plan is not None and win.plan.name == "Camp1" and win.manifest is not None, "drilled into the campaign"
     assert "ROOMA" in win.member_paths
+    # _clear_doc deleteLater()'d the journey buttons; flush EACH one's DeferredDelete (processEvents alone won't
+    # run it) -- per-receiver so we don't disturb other pending deletions -- then assert none survive in doc_host.
+    for _b in _jbuttons:
+        QApplication.sendPostedEvents(_b, QEvent.Type.DeferredDelete)
+    assert not ({b.text() for b in win.doc_host.findChildren(QPushButton)} & _JLABELS), \
+        "journey buttons must NOT leak into the drilled-in campaign panel (nested-layout clear)"
     assert win.journey_name == "Test Hub", "drill-in KEEPS the journey label (no reverse-search rename/loss)"
     # the journey row (always present -- the label is kept) sits above the campaign; it returns to the overview
     jrow = win._root_items[0]
