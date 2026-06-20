@@ -105,6 +105,13 @@ To read real FF9 dialogue inside the Workspace, use the **Import** view: its **"
 the Output panel. The same view's fork options carry a real field's dialogue verbatim ("Real dialogue,
 verbatim") or bring it in as editable `[[npc]]` stubs to re-author ("Dialogue as editable [[npc]] stubs").
 
+> **Editing a fork's *existing* line (the Script panel)?** Rewriting a verbatim fork's shipped dialogue
+> saves a `[[logic_edit]]` — **"(saved)" means recorded, not deployed.** You must rebuild + redeploy
+> (`deploy_field` / `deploy_campaign` / `deploy_journey --apply`) for the new line to reach the game, and
+> watch for the **text-block shadow** (a higher `Memoria.ini FolderNames` folder that also defines the
+> field's block serves the OLD text — the deploy prints a `TEXT SHADOWED:` warning). Full detail:
+> [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md#a-dialogue-edit-can-be-saved-yet-still-show-the-old-line-in-game-text-block-shadow).
+
 ---
 
 ## How the import works (the two read directions)

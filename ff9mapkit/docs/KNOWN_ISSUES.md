@@ -80,6 +80,33 @@ real field" value (a FBG/MAPID like `N11_HUT`). Fuller custom hub art — settin
 `area` and `borrow_field` explicitly — is done by editing the generated `journeys.toml` afterward.
 See [`JOURNEYS.md`](JOURNEYS.md).
 
+### A dialogue edit can be "(saved)" yet still show the old line in-game (text-block shadow)
+
+Rewriting a verbatim fork's shipped dialogue in the **Script** panel and seeing **"(saved)"** only means
+the edit is recorded in the field's `field.toml` (as a `[[logic_edit]]`). Two more things have to be true
+for it to appear in-game:
+
+1. **Rebuild + redeploy.** GUI save does **not** touch the `.mes` — the build rewrites it. Re-run
+   `py tools/deploy_field.py …` (single field) or, for a journey/campaign member,
+   `py tools/deploy_campaign.py <campaign.toml> --apply` / `py tools/deploy_journey.py <journeys.toml> --apply`,
+   then **F6 → Reload field** (or relaunch). An F6 reload *without* a redeploy just re-reads the stale `.mes`.
+
+2. **No text-block shadow.** A field reads dialogue from `field/<text_block>.mes`, and the engine serves
+   that block from the **highest-priority** folder in `Memoria.ini FolderNames`. Campaign members and
+   worktree test slots all default to the shared block **1073**, so if a higher-priority folder (a churned
+   master `FF9CustomMap`, a leftover prior-journey folder, …) also defines 1073, it **shadows** your
+   edit — the engine shows *that* folder's old text, not yours. (The same gotcha hits `[[on_entry]]` lines.)
+
+The deploy step guards this: `deploy_field` **and** `deploy_campaign` / `deploy_journey` run the text-block
+**shadow check** and print a `TEXT SHADOWED: …` warning that names the blocking folder and a safe alternative
+block; the Script panel also flags a dialogue edit on the shared default 1073 as a heads-up. **Fixes:**
+deploy your folder higher in `FolderNames`, remove the higher folder's copy of the block, or pin a unique
+`[field] text_block` (any real mesID no higher folder defines). Diagnose directly:
+
+```powershell
+py -c "from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning; from ff9mapkit.config import find_game_path; print(shadow_warning(check_text_block_shadow(find_game_path(None), '<your-mod-folder>', <block>)) or 'clear')"
+```
+
 ---
 
 ## Part B — engine & authoring limitations
