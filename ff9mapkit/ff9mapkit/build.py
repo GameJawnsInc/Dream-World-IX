@@ -500,6 +500,37 @@ def _validate_logic_edits(project: FieldProject, problems: list) -> None:
         problems.append(f"[[logic_edit]] could not be validated: {type(ex).__name__}: {ex}")
 
 
+_SHARED_DEFAULT_TEXT_BLOCK = 1073   # campaign members + worktree test slots all default here -> shadow-prone
+
+
+def shared_text_block_hint_for(edits, text_block) -> "str | None":
+    """A non-blocking pre-flight hint (str|None): a dialogue rewrite (a ``[[logic_edit]]`` with ``kind="text"``)
+    shipped on the shared default ``text_block`` 1073 is liable to be SHADOWED in a stacked/journey deploy -- a
+    higher-priority ``Memoria.ini`` ``FolderNames`` folder that also defines 1073 wins, so the engine shows the
+    OLD line, not the edit (the "saved but old text in-game" surprise). STATIC + offline; the AUTHORITATIVE
+    check is at deploy time (``deploy_field`` / ``deploy_campaign`` run ``deploystack.check_text_block_shadow``
+    against the LIVE stack -- which is the only place the target mod folder is known). ``None`` when N/A."""
+    has_text = any(isinstance(e, dict) and e.get("kind") == "text" for e in (edits or []))
+    try:
+        tb = int(text_block) if text_block is not None else _SHARED_DEFAULT_TEXT_BLOCK
+    except (TypeError, ValueError):
+        tb = _SHARED_DEFAULT_TEXT_BLOCK
+    if not has_text or tb != _SHARED_DEFAULT_TEXT_BLOCK:
+        return None
+    return ("dialogue is rewritten on the shared default text_block 1073 -- in a stacked/journey deploy a "
+            "higher-priority Memoria.ini FolderNames folder that also defines 1073 SHADOWS it (the engine shows "
+            "the OLD line, not your edit). The deploy step checks this against the live stack; to be safe, pin a "
+            "unique [field] text_block. (docs/KNOWN_ISSUES.md: text-block shadow.)")
+
+
+def shared_text_block_hint(project: FieldProject) -> "str | None":
+    """:func:`shared_text_block_hint_for` for a built :class:`FieldProject` (its logic edits + text block)."""
+    try:
+        return shared_text_block_hint_for(project.logic_edits(), project.text_block)
+    except Exception:  # noqa: BLE001 -- a hint must never break a build/lint/GUI save
+        return None
+
+
 def _validate_logic_adds(project: FieldProject, problems: list) -> None:
     """OFFLINE dry-run of [[logic_add]] (Phase-4a length-changing prepends) so a bad/unsafe add -- or an add on
     a non-verbatim field -- surfaces in `lint`/the Workspace Check, not only at full build. Mirrors the build's

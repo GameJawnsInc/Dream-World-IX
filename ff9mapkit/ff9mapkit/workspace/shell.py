@@ -2625,8 +2625,17 @@ class Workspace(QMainWindow):
         self._touch(member)
         self._checkpoint(member, f"edit {site.group}", f"logic_n:{entry}:{tag}")
         self._mount_logic_node(member, entry, tag)              # re-render with the pending state
+        notes = []
+        try:                                                   # best-effort text-shadow pre-flight (never blocks)
+            from .. import build as _build
+            tb = (doc.data.get("field") or {}).get("text_block")
+            hint = _build.shared_text_block_hint_for(cand, tb)
+            if hint:
+                notes = [fb.Problem(fb.WARN, hint)]
+        except Exception:                                      # noqa: BLE001
+            notes = []
         self._show_problems(fb.Verdict(fb.OK,
-                            f"{member}: {site.label} → {self._logic_value_str(site, new)} (unsaved)"), [])
+                            f"{member}: {site.label} → {self._logic_value_str(site, new)} (unsaved)"), notes)
 
     def _revert_logic_site(self, member, entry, tag, site):
         from .. import logic_edit as LE

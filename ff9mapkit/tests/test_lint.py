@@ -11,7 +11,19 @@ from __future__ import annotations
 
 import pytest
 
-from ff9mapkit.build import FieldProject, LintReport, lint_all, lint_flag_bands
+from ff9mapkit.build import FieldProject, LintReport, lint_all, lint_flag_bands, shared_text_block_hint_for
+
+
+def test_shared_text_block_hint_flags_dialogue_edit_on_default_block():
+    """The text-shadow pre-flight: a dialogue rewrite on the shared default block 1073 is shadow-prone."""
+    txt = [{"kind": "text", "entry": 0, "tag": 1, "txid": 34, "old": "Sure is dark...", "text": "Sure is spooky..."}]
+    assert shared_text_block_hint_for(txt, 1073)                     # text edit on the shared default -> hint
+    assert "text-block shadow" in shared_text_block_hint_for(txt, 1073)
+    assert shared_text_block_hint_for(txt, 7001) is None             # a unique block -> no shadow risk -> clear
+    assert shared_text_block_hint_for(txt, None)                     # missing block defaults to 1073 -> hint
+    assert shared_text_block_hint_for([{"kind": "field", "to": 5}], 1073) is None   # non-text edit -> clear
+    assert shared_text_block_hint_for([], 1073) is None              # no edits -> clear
+    assert shared_text_block_hint_for(None, 1073) is None            # robust to None
 
 # A minimal, fully-offline custom scene (quad walkmesh + pitch camera -> resolves with no art/install).
 # Spawn centred, NPC well inside the floor -> no placement noise. Flag 200 is unmapped free space.
