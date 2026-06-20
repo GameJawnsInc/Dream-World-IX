@@ -15,6 +15,23 @@ from ff9mapkit.campaign import CampaignPlan, Member
 from ff9mapkit.flags import CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG
 
 
+def test_shared_text_blocks_flags_cross_campaign_collisions(tmp_path):
+    """A dialogue text block (mesID) shipped by >1 campaign dist collides when the folders stack."""
+    import types
+    def _dist(name, blocks):
+        d = tmp_path / name / "FF9_Data" / "embeddedasset" / "text" / "us" / "field"
+        d.mkdir(parents=True)
+        for b in blocks:
+            (d / f"{b}.mes").write_text("x", encoding="utf-8")
+        return tmp_path / name
+    dists = {"prim": _dist("prim", [2]), "acas": _dist("acas", [2, 3]), "evil": _dist("evil", [4])}
+    steps = [types.SimpleNamespace(folder=k, mod_folder=f"FF9CustomMap-{k}") for k in dists]
+    # block 2 is shipped by BOTH prim + acas -> collision; 3 (acas-only) + 4 (evil-only) are clear
+    assert journey.shared_text_blocks(steps, dists) == [(2, ("FF9CustomMap-acas", "FF9CustomMap-prim"))]
+    assert journey.shared_text_blocks(steps, {}) == []                          # no dists -> nothing to compare
+    assert journey.shared_text_blocks(steps, {"prim": dists["prim"]}) == []     # single campaign -> no collision
+
+
 # ---- fixture builders (no game) ---------------------------------------------------------
 def _make_campaign(root, folder, *, members, id_base, flags_per_field=64, entry=None,
                    seams=None, edges=None, mod_folder="FF9CustomMap-test", sources=None):

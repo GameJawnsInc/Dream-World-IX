@@ -107,6 +107,17 @@ deploy your folder higher in `FolderNames`, remove the higher folder's copy of t
 py -c "from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning; from ff9mapkit.config import find_game_path; print(shadow_warning(check_text_block_shadow(find_game_path(None), '<your-mod-folder>', <block>)) or 'clear')"
 ```
 
+**Multi-campaign journeys add a sharper version.** A field's text block is its donor's numeric mesID, and a
+journey namespaces scene/`.eb` *names* (`--name-prefix`) but **not** these mesIDs. So two campaigns whose donors
+share a mesID (e.g. Prima Vista and A. Castle both inheriting block `2`) ship `field/2.mes` into *different*
+folders with *different* text — stacked, the engine serves one folder's copy for both, and no `FolderNames`
+order satisfies both. `deploy_journey` now **warns** (`TEXT-BLOCK COLLISION: block N shipped by …`, computed by
+comparing the built campaign dists, so it's caught regardless of stack order). The full cure — a disjoint
+text-block window per campaign — is a known **deferred** follow-up: a distinct textid only registers if it's
+already a key in the engine's `MesDB` (else `DataPatchers` skips the field and it never loads), and the bundled
+engine has no custom-mesID registration. Until that lands, the workaround is the `FolderNames` order above
+(accepting that a shared block favors whichever campaign sits highest).
+
 ---
 
 ## Part B — engine & authoring limitations

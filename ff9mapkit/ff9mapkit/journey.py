@@ -1168,6 +1168,7 @@ class JourneyCollisions:
     external_names: tuple = ()    # (kind, name, my_folder, other_folder)
     stale_own: tuple = ()         # (folder, (overlapping_ids, ...))
     external_folders: tuple = ()  # the distinct external folders that collide (the "remove these" headline)
+    shared_blocks: tuple = ()     # (block, (mod_folder, ...)) -- text blocks shipped by >1 of THIS journey's campaigns
 
     @property
     def has_blockers(self) -> bool:
@@ -1205,6 +1206,27 @@ def _journey_registrations(plan, *, dists=None, hub_name=None):
         if hub_name:
             eb.setdefault(f"EVT_{_hub.name_token(hub_name)}", plan.hub_folder)
     return ids, eb, scene
+
+
+def shared_text_blocks(campaign_steps, dists) -> list:
+    """Text blocks (dialogue mesIDs) shipped by MORE THAN ONE of a journey's campaign dists. Each such block
+    COLLIDES when the folders stack: the engine serves ONE folder's ``field/<block>.mes`` for every field that
+    references that block, so the lower-priority campaigns' fields render the WRONG text (this bit a verbatim
+    [[logic_edit]] dialogue rewrite -- it built into the right folder but a sibling campaign on the same block
+    won the stack). Computed from the BUILT dists (``{folder: dist_dir}``), so it's independent of the
+    ``Memoria.ini`` ``FolderNames`` order -- which is exactly why a per-folder / live-stack shadow check misses it.
+    Returns ``[(block, (mod_folder, ...)), ...]`` sorted by block (``[]`` => disjoint, all clear)."""
+    from . import deploystack as _DS
+    from .config import LANGS as _LANGS
+    block_folders: dict = {}
+    for s in campaign_steps:
+        d = (dists or {}).get(s.folder)
+        if d is None:
+            continue
+        blocks = set().union(*(_DS.blocks_at(d, L) for L in _LANGS))
+        for b in blocks:
+            block_folders.setdefault(int(b), set()).add(s.mod_folder)
+    return [(b, tuple(sorted(fs))) for b, fs in sorted(block_folders.items()) if len(fs) > 1]
 
 
 def preflight_collisions(plan, game_dir, *, dists=None, hub_name=None) -> JourneyCollisions:
@@ -1250,7 +1272,11 @@ def preflight_collisions(plan, game_dir, *, dists=None, hub_name=None) -> Journe
         sib = sorted(i for i in live & own_final if want_ids[i][0] != s.mod_folder)
         if sib:
             stale.append((s.mod_folder, tuple(sib)))
-    return JourneyCollisions(tuple(ext_ids), tuple(ext_names), tuple(stale), tuple(sorted(ext_folders)))
+    # text-block (mesID) collisions AMONG this journey's OWN campaigns (needs the built dists to read the .mes
+    # stems). Informational, not a blocker: a shared block shows the WRONG text, it doesn't black-screen.
+    shared = shared_text_blocks(plan.campaign_steps, dists) if dists else []
+    return JourneyCollisions(tuple(ext_ids), tuple(ext_names), tuple(stale), tuple(sorted(ext_folders)),
+                             tuple(shared))
 
 
 def render_collision_report(col: JourneyCollisions) -> str:
@@ -1276,6 +1302,20 @@ def render_collision_report(col: JourneyCollisions) -> str:
                      "sibling; each is wholesale-replaced on deploy, so the per-folder id check is relaxed:")
         for (f, ids) in col.stale_own:
             lines.append(f"  - {f}: had id(s) {format_id_ranges(list(ids))}")
+    if col.shared_blocks:
+        if lines:
+            lines.append("")
+        lines.append("TEXT-BLOCK COLLISION: these dialogue text blocks (mesIDs) are shipped by MORE THAN ONE of "
+                     "this journey's campaigns. Stacked, the engine serves ONE folder's field/<block>.mes for ALL "
+                     "of them -- the lower-priority campaigns' fields show the WRONG text (incl. [[logic_edit]] "
+                     "dialogue rewrites), and no FolderNames order satisfies all of them:")
+        for (b, fs) in col.shared_blocks:
+            lines.append(f"  - block {b}: {', '.join(fs)}")
+        lines.append("FIX: a shared mesID can't satisfy all campaigns at once -- order Memoria.ini FolderNames "
+                     "so the campaign whose dialogue matters most for each block is HIGHEST (it wins; the others' "
+                     "fields on that block show its text). The full cure -- a disjoint text-block window per "
+                     "campaign -- needs custom mesIDs registered in MesDB (a deferred engine follow-up); see "
+                     "docs/KNOWN_ISSUES.md.")
     return "\n".join(lines)
 
 
