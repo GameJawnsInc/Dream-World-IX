@@ -54,7 +54,7 @@ sys.path.insert(0, str(KIT))
 
 from ff9mapkit import campaign as C            # noqa: E402
 from ff9mapkit import deploystack as DS        # noqa: E402
-from ff9mapkit.config import ModLayout, find_game_path  # noqa: E402
+from ff9mapkit.config import ModLayout, find_game_path, LANGS  # noqa: E402
 
 
 def _worktree_cfg() -> dict:
@@ -266,6 +266,9 @@ def main(argv=None) -> int:
         print("  !! " + cwarn.replace("\n", "\n     "))
     print("  name check: EVT names checked now vs the FolderNames stack; FBG scene names are also verified at "
           "--apply (vs the built dist), so --apply may catch a collision a clean dry-run did not.")
+    print("  text-shadow check: each member's dialogue .mes block is verified at --apply (vs the built dist) "
+          "against the FolderNames stack -- a block a higher folder also defines makes the engine show the OLD "
+          "text (incl. [[logic_edit]] rewrites). It WARNS (doesn't abort).")
     if plan.needs_export and not args.allow_artless:
         print(f"REFUSING: members need in-game art (export + re-fork, or --allow-artless): {plan.needs_export}",
               file=sys.stderr)
@@ -315,6 +318,18 @@ def main(argv=None) -> int:
             print("\nABORTING before install (no game files touched). Use ids no other stacked folder registers "
                   "(your .ff9deploy.toml band), or pass --allow-id-collision to install anyway.", file=sys.stderr)
             return 2
+
+    # (1.7) text-block SHADOW check: a dialogue .mes block this campaign ships that a HIGHER-priority FolderNames
+    #       folder ALSO defines -> the engine serves THAT folder's .mes, so dialogue (incl. [[logic_edit]] text
+    #       rewrites) shows the OLD line (the §4 text-shadow gotcha -- the "dialog checker" deploy_field already
+    #       runs per-field but the campaign/journey path skipped). WARN, don't abort: unlike a name/id collision it
+    #       doesn't crash, it's fixable post-deploy (reorder FolderNames / re-fork the block), and the block may be
+    #       intentionally shared. Checks the BUILT dist's actual blocks (across langs) vs the live stack.
+    _dist_blocks = set().union(*(DS.blocks_at(dist_root, L) for L in LANGS))
+    twarn = DS.text_shadow_warning(
+        DS.check_text_block_shadows(game, mod_folder, _dist_blocks, folder_names=order), mod_folder)
+    if twarn:
+        print("\n  !! " + twarn)
 
     # (2) bootstrap a fresh mod folder so the snapshot has something to copy (deploy_field pattern)
     live_root.mkdir(parents=True, exist_ok=True)

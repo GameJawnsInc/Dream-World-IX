@@ -8,6 +8,7 @@ the shadow detection by stack order, the valid-alternative suggestions, and grac
 from __future__ import annotations
 
 from ff9mapkit.deploystack import (parse_folder_names, check_text_block_shadow, shadow_warning,
+                                   check_text_block_shadows, text_shadow_warning, blocks_at,
                                    check_csv_shadow, HIGHEST_WINS_CSVS)
 
 
@@ -84,6 +85,37 @@ def test_shadow_warning_text(tmp_path):
     w = shadow_warning(r)
     assert w and "TEXT SHADOWED" in w and "'A'" in w and "187" in w
     assert shadow_warning(check_text_block_shadow(g, "A", 1073)) is None   # clear -> no warning
+
+
+# ---- batch text-block shadow (the campaign/journey deploy guard) ------------------------------
+def test_blocks_at_reads_a_root_mes_stems(tmp_path):
+    g = _stack(tmp_path)
+    assert blocks_at(g / "B", "us") == {1073, 200}
+    assert blocks_at(g / "C", "us") == {1073, 187}
+    assert blocks_at(g / "nope", "us") == set()             # missing root -> empty, no error
+
+
+def test_check_text_block_shadows_flags_only_the_shadowed(tmp_path):
+    g = _stack(tmp_path)
+    # a campaign deploying into 'C' that ships blocks 1073 (shared) + 187 (unique to C): only 1073 is shadowed
+    reports = check_text_block_shadows(g, "C", {1073, 187})
+    assert [r.text_block for r in reports] == [1073] and reports[0].shadowed_by == "A"
+    # blocks 200 (defined by higher 'B') + 187 (free): only 200 shadowed, by 'B'
+    reports2 = check_text_block_shadows(g, "C", {200, 187})
+    assert [(r.text_block, r.shadowed_by) for r in reports2] == [(200, "B")]
+
+
+def test_check_text_block_shadows_clear_when_highest_or_unlisted(tmp_path):
+    g = _stack(tmp_path)
+    assert check_text_block_shadows(g, "A", {1073, 200, 187}) == []     # highest -> nothing higher
+    assert check_text_block_shadows(g, "FF9CustomMap-zz", {1073}) == [] # unlisted target -> no false alarm
+
+
+def test_text_shadow_warning_text(tmp_path):
+    g = _stack(tmp_path)
+    w = text_shadow_warning(check_text_block_shadows(g, "C", {1073}), "C")
+    assert w and "TEXT SHADOWED" in w and "block 1073" in w and "'A'" in w
+    assert text_shadow_warning([], "C") is None                         # clear -> no warning
 
 
 # ---- the highest-wins CSV (InitialItems.csv) shadow guard -------------------------------------

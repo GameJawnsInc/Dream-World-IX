@@ -51,9 +51,10 @@ def parse_folder_names(memoria_ini_text: str) -> list:
     return []
 
 
-def _blocks_in(game_dir: Path, folder: str, lang: str) -> set:
-    """The field text-block ids (``.mes`` file stems) a mod folder defines for ``lang``."""
-    d = ModLayout(game_dir / folder).text_field_dir(lang)
+def blocks_at(root, lang: str = "us") -> set:
+    """The field text-block ids (``.mes`` file stems) a mod/dist ROOT defines for ``lang`` -- mirrors
+    :func:`eb_names_at` / :func:`scene_names_at`, so a built campaign dist can be checked before install."""
+    d = ModLayout(Path(root)).text_field_dir(lang)
     out = set()
     if d.is_dir():
         for p in d.glob("*.mes"):
@@ -62,6 +63,11 @@ def _blocks_in(game_dir: Path, folder: str, lang: str) -> set:
             except ValueError:
                 pass
     return out
+
+
+def _blocks_in(game_dir: Path, folder: str, lang: str) -> set:
+    """The field text-block ids (``.mes`` file stems) a mod folder defines for ``lang``."""
+    return blocks_at(Path(game_dir) / folder, lang)
 
 
 def check_text_block_shadow(game_dir, target_folder: str, text_block: int, lang: str = "us",
@@ -99,6 +105,47 @@ def shadow_warning(report: ShadowReport, mod_folder: str | None = None) -> str |
     return (f"TEXT SHADOWED: block {report.text_block} is also defined by '{report.shadowed_by}', which is "
             f"HIGHER priority than '{target}' in Memoria.ini FolderNames -- the engine will show "
             f"'{report.shadowed_by}'s text, not yours.{fix}")
+
+
+def check_text_block_shadows(game_dir, target_folder: str, text_blocks, lang: str = "us",
+                             folder_names: list | None = None) -> list:
+    """Batch :func:`check_text_block_shadow` -- which of ``text_blocks`` deployed into ``target_folder`` would be
+    SHADOWED by a higher-priority folder? Returns only the SHADOWED :class:`ShadowReport`\\ s (``[]`` => all
+    clear). Reads the ``FolderNames`` stack ONCE (vs once per block). Used by ``deploy_campaign`` to give every
+    member's text block the shadow guard a single-field ``deploy_field`` already runs. Degrades to ``[]`` when the
+    stack can't be read or the target isn't listed (no false alarm)."""
+    game_dir = Path(game_dir)
+    order = folder_names
+    if order is None:
+        ini = game_dir / "Memoria.ini"
+        order = parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+    higher = order[:order.index(target_folder)] if target_folder in order else []
+    blocks_by_folder = {f: _blocks_in(game_dir, f, lang) for f in order}
+    higher_blocks = set().union(*(blocks_by_folder[f] for f in higher)) if higher else set()
+    valid = set().union(*blocks_by_folder.values()) if blocks_by_folder else set()
+    out: list = []
+    for tb in sorted({int(b) for b in text_blocks}):
+        shadowed_by = next((f for f in higher if tb in blocks_by_folder.get(f, set())), None)
+        if shadowed_by is not None:
+            suggestions = sorted(valid - higher_blocks - {tb})[:6]
+            out.append(ShadowReport(target_folder, tb, lang, shadowed_by, suggestions, order))
+    return out
+
+
+def text_shadow_warning(reports: list, target_folder: str) -> str | None:
+    """A human-readable multi-line warning for shadowed text blocks (the batch analogue of
+    :func:`shadow_warning`), or ``None`` when clear."""
+    if not reports:
+        return None
+    lines = [f"TEXT SHADOWED: {len(reports)} text block(s) this deploy puts in '{target_folder}' are ALSO "
+             f"defined by a HIGHER-priority Memoria.ini FolderNames folder -- the engine serves that folder's "
+             f".mes, not yours, so dialogue (incl. [[logic_edit]] text rewrites) shows the OLD text:"]
+    for r in reports:
+        alt = f" -- safe alt: text_block {r.suggestions[0]}" if r.suggestions else ""
+        lines.append(f"  - block {r.text_block} shadowed by '{r.shadowed_by}'{alt}")
+    lines.append("Fix: deploy this campaign's folder HIGHER in Memoria.ini FolderNames, remove the higher folder's "
+                 "copy of the block, or re-fork with a text_block no higher folder defines.")
+    return "\n".join(lines)
 
 
 # Relative paths (within a mod folder) of the CSVs the engine reads HIGHEST-PRIORITY-WINS (whole-file): the
