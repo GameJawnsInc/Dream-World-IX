@@ -441,7 +441,7 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
     if deep:
         for folder, (plan, cdir) in plans.items():
             try:
-                cerr, cwarn = _campaign.lint_campaign(plan, cdir)
+                cerr, cwarn = _campaign.lint_campaign(plan, cdir, in_journey=True)
             except (_campaign.CampaignError, ValueError) as e:
                 errors.append(f"campaign {folder!r}: {e}")
                 continue
@@ -559,7 +559,20 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
                 errors.append(f"journey {j.id!r}: link target {dstf!r} is not a member of {lk.dst.campaign!r}")
 
         # connectivity: every campaign reachable from the entry over the AUTO-WIRED + override links
-        _lint_chain_connectivity(j, errors, warnings, plain={f: plans[f][0] for f in j.campaigns if f in plans})
+        plain = {f: plans[f][0] for f in j.campaigns if f in plans}
+        _lint_chain_connectivity(j, errors, warnings, plain=plain)
+        # LEAK check (single- AND multi-campaign): a forked field whose carried Field()/door warps the player to a
+        # field NO journey campaign forks -> a forced exit into the un-forked real game (a grey/unskippable cutscene
+        # warp there softlocks). Sibling-aware via campaign_connectivity; 'menu'/world-map excluded.
+        conn = campaign_connectivity(j.campaigns, plain)
+        for folder in j.campaigns:
+            leaks = sorted({tid for _f, tid, knd in (conn.get(folder) or {}).get("external", [])
+                            if knd in ("scripted", "portal")})
+            if leaks:
+                shown = ",".join(str(t) for t in leaks[:6]) + (" ..." if len(leaks) > 6 else "")
+                warnings.append(f"journey {j.id!r}: campaign {folder!r} warps to UN-FORKED field(s) {shown} -- a "
+                                f"forked field exits the journey into the real game; a grey/unskippable cutscene "
+                                f"warp there softlocks. Fork those fields in or redirect the warp.")
 
     # seed range (== story_flags capstone; deeper item/party validation is story_flags' at apply-time)
     if j.seed.scenario is not None and not (0 <= j.seed.scenario <= SCENARIO_MAX):

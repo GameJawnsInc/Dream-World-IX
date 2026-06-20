@@ -390,6 +390,25 @@ def test_lint_bad_seam(tmp_path):
     assert campaign.lint_campaign(ok, tmp_path)[0] == []
 
 
+def test_lint_flags_leak_to_unforked_field(tmp_path):
+    # a scripted seam to a field NO member forks (to_member absent/None) = a LEAK warning (the Qu's Marsh class)
+    leak = _lint_plan(tmp_path, seams=[{"frm": "A", "to_real": 652, "kind": "scripted"}])
+    _, w = campaign.lint_campaign(leak, tmp_path)
+    assert any("LEAK" in x and "652" in x for x in w), w
+    # an out-of-chain door (portal) is a leak too
+    door = _lint_plan(tmp_path, seams=[{"frm": "B", "to_real": 700, "kind": "portal"}])
+    assert any("LEAK" in x and "700" in x for x in campaign.lint_campaign(door, tmp_path)[1])
+    # a seam to a MEMBER (to_member set) is NOT a leak
+    ok = _lint_plan(tmp_path, seams=[{"frm": "A", "to_real": 6001, "kind": "scripted", "to_member": "B"}])
+    assert not any("LEAK" in x for x in campaign.lint_campaign(ok, tmp_path)[1])
+    # menu (shop) + overworld/world-map seams are NOT leaks (the engine returns / intended boundary)
+    benign = _lint_plan(tmp_path, seams=[{"frm": "A", "to_real": 100, "kind": "menu"},
+                                         {"frm": "A", "to_real": "WORLDMAP", "kind": "overworld"}])
+    assert not any("LEAK" in x for x in campaign.lint_campaign(benign, tmp_path)[1])
+    # SUPPRESSED inside a multi-campaign journey (sibling targets read as non-members here)
+    assert not any("LEAK" in x for x in campaign.lint_campaign(leak, tmp_path, in_journey=True)[1])
+
+
 def test_lint_duplicate_member_names(tmp_path):
     dup = [campaign.Member(300, 6000, "A", "borrow", 11, "", "A/A.field.toml", False),
            campaign.Member(301, 6001, "A", "borrow", 11, "", "A/A.field.toml", False)]   # same name

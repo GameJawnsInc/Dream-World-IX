@@ -616,7 +616,7 @@ def _member_flags_from_toml(member_raw: dict):
     return produced, consumed
 
 
-def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
+def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False) -> tuple:
     """Validate a campaign without building. Returns ``(errors, warnings)``; errors abort build-all,
     warnings are advisory. Pure manifest + member-toml read (no game install). For the empty forks
     import-chain produces, the structural checks fire and the flag checks are silent (correct)."""
@@ -678,6 +678,25 @@ def lint_campaign(plan: CampaignPlan, manifest_dir) -> tuple:
         tm = s.get("to_member")
         if tm and tm not in names:
             warnings.append(f"seam from {s.get('frm')!r}: to_member {tm!r} is not a member (stale name?)")
+
+    # (c2) LEAK to an UN-FORKED field: a seam whose target no member forks (to_member is None) and that's a real
+    # FIELD warp -- a scripted cutscene/ATE Field() or an out-of-chain door. The verbatim fork carries that
+    # Field() un-remapped, so the player is sent OUT to the real (un-forked) game; a GREY/unskippable cutscene
+    # warp there softlocks the journey (the exact class that warped a forked Dali ATE into Qu's Marsh). Excludes
+    # 'menu' (shops return) and 'overworld'/WORLDMAP (an intended world-map boundary). SUPPRESSED inside a
+    # multi-campaign journey -- a sibling campaign's field reads as a non-member here; journey.campaign_connectivity
+    # is the sibling-aware check there.
+    if not in_journey:
+        leaks = sorted({(str(s.get("frm")), int(s["to_real"])) for s in plan.seams
+                        if s.get("kind") in ("scripted", "portal")
+                        and isinstance(s.get("to_real"), int) and s.get("to_member") is None},
+                       key=lambda p: (p[1], p[0]))
+        if leaks:
+            shown = "; ".join(f"{frm}->{tid}" for frm, tid in leaks[:6]) + (" ..." if len(leaks) > 6 else "")
+            warnings.append(f"{len(leaks)} LEAK(S) out of the campaign ({shown}) -- a forked member's carried "
+                            f"Field()/door warps the player to an UN-FORKED field (the real game); a "
+                            f"grey/unskippable cutscene warp there softlocks. Fork those fields in "
+                            f"(import-chain --whole-zone or add the seed) or redirect/neutralize the warp.")
 
     member_raw = {}                               # (e) member field.toml exists, within the campaign folder
     for m in plan.members:
