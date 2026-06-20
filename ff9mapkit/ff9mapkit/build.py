@@ -2421,7 +2421,11 @@ def _appended_txid_base(project: FieldProject, langs) -> int:
         ids = _dialogue.parse_mes(body) if body else {}
         if ids:
             max_txid = max(max_txid, max(ids))
-    return max(max_txid + 1, _textcarry.CARRY_BASE_TXID)
+    # When several members SHARE a text_block, they fork the SAME donor `.mes` so this base is IDENTICAL
+    # across them -- their appended on_entry/logic_add lines would land on the same txids and collide in the
+    # one shared file. build_mod hands each such member a disjoint `suffix_txid_offset` window so both the
+    # appended `.mes` line AND the `.eb` WindowSync (which read this base together) stay in sync and disjoint.
+    return max(max_txid + 1, _textcarry.CARRY_BASE_TXID) + getattr(project, "suffix_txid_offset", 0)
 
 
 def _on_entry_message_count(project: FieldProject) -> int:
@@ -3527,6 +3531,13 @@ class FieldResult:
     battle_bgm: list = _dc_field(default_factory=list)   # extra (scene, song) pairs from [[battle_bgm]]
     fbg: str = ""
     warnings: list = _dc_field(default_factory=list)
+    name: str = ""                  # the member name (for shared-text_block reconcile error messages)
+    text_block: int = 1073          # the field's mesID -- the `field/<text_block>.mes` key (may be SHARED)
+    # per-language .mes pieces, written by build_mod (NOT build_field) so members that SHARE a text_block
+    # merge instead of last-writer-wins clobbering: {lang: (base, inplace, suffix)} where `base` is the
+    # donor/synth body, `inplace` is base with its in-place rewrites (logic_edit text / menu_row), and
+    # `suffix` is its APPENDED lines (on_entry / logic_add show_line / textcarry). See _reconcile_mes.
+    mes_parts: dict = _dc_field(default_factory=dict)
 
 
 def _autofill_ladder_landing_y(project: FieldProject, wmesh) -> None:
@@ -3717,36 +3728,44 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     elif verbatim_edits or project.logic_adds():            # [verbatim_eb] present but no `bin` -> nothing composed
         warnings.append(f"[[logic_edit]]/[[logic_add]] on {project.name} were NOT applied -- no verbatim .eb was "
                         "composed ([verbatim_eb] is missing its `bin`). Add the fork's .eb bin or remove the edits.")
+    # per-language .mes is composed in pieces here but WRITTEN by build_mod (_write_field_mes), so members
+    # that share a text_block (the donor's real mesID -- common in a campaign: e.g. the whole Lindblum Castle
+    # is one shared message file 22) merge their edits instead of last-writer-wins clobbering each other's
+    # `field/<text_block>.mes`. base = the donor/synth body; inplace = base + in-place rewrites; suffix = the
+    # appended lines (their own high txids).
+    mes_parts: dict = {}
     for lang in langs:
         if verbatim_bytes is not None:
             eb = verbatim_bytes
-            # the donor's WHOLE text (index-txids) + any appended [[on_entry]] narration lines (high txids)
-            lang_body = _verbatim.verbatim_mes(project, lang) or ""
+            # the donor's WHOLE text (index-txids); base is shared across every member of this text_block
+            base = _verbatim.verbatim_mes(project, lang) or ""
+            inplace = base
             if verbatim_edits:                                  # Phase-2 dialogue-string rewrites (per language)
                 from . import logic_edit as _logic_edit
-                lang_body = _logic_edit.apply_logic_text_edits(lang_body, verbatim_edits, lang)
+                inplace = _logic_edit.apply_logic_text_edits(inplace, verbatim_edits, lang)
             if menu_row_plan:                                   # [[logic_add]] menu_row: splice the row label in
                 from . import logic_add as _logic_add
                 # ORDER MATTERS: the menu row is spliced into the donor's index-implicit body BEFORE the
-                # [[on_entry]]/[[logic_add]] message suffixes are appended below -- those carry [TXID=] markers,
-                # which verified_mes_splice rejects. Keep the splice ahead of the `+ oe_suffix + la_suffix`.
+                # [[on_entry]]/[[logic_add]] message suffixes -- those carry [TXID=] markers, which
+                # verified_mes_splice rejects. Keep the splice in `inplace`, ahead of the `suffix` append.
                 try:
-                    lang_body = _logic_add.apply_menu_row_text(lang_body, menu_row_plan, lang, warnings=warnings)
+                    inplace = _logic_add.apply_menu_row_text(inplace, menu_row_plan, lang, warnings=warnings)
                 except _logic_add.LogicAddError as ex:          # match Check: a clean failure, not a traceback
                     raise BuildError(f"[[logic_add]] menu_row in {project.name}: {ex}")
-            lang_body = lang_body + oe_suffix.get(lang, "") + la_suffix.get(lang, "")
+            suffix = oe_suffix.get(lang, "") + la_suffix.get(lang, "")   # appended [[on_entry]]/[[logic_add]]
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
                               choice_txids=choice_txids, on_entry_txids=on_entry_txids,
                               ate_txids=ate_txids)
-            lang_body = mes_body
+            base = mes_body or ""
+            inplace = base
+            suffix = ""
             if carry_plan:
                 from .content import textcarry as _textcarry
-                lang_body = (mes_body or "") + _textcarry.carried_mes_body(carry_plan, lang)
+                suffix = _textcarry.carried_mes_body(carry_plan, lang)
         layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
-        if lang_body:
-            layout.mes_path(lang, project.text_block).write_text(lang_body, encoding="utf-8", newline="\n")
+        mes_parts[lang] = (base, inplace, suffix)
 
     bg_mapid = borrow_bg if borrow_bg else project.name
     dict_line = f"FieldScene {project.id} {project.area} {bg_mapid} {project.name} {project.text_block}"
@@ -3757,7 +3776,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # [[battle_bgm]]: extra scene-keyed battle songs (a verbatim fork's carried scripted/boss battles -- the
     # custom fldMapNo loses the engine's (field, scene) lookup, so the build reproduces each via Music:).
     bgm_pairs = [(int(b["scene"]), int(b["song"])) for b in project.raw.get("battle_bgm", [])]
-    return FieldResult(dict_line=dict_line, battle=battle, battle_bgm=bgm_pairs, fbg=fbg, warnings=warnings)
+    return FieldResult(dict_line=dict_line, battle=battle, battle_bgm=bgm_pairs, fbg=fbg, warnings=warnings,
+                       name=project.name, text_block=project.text_block, mes_parts=mes_parts)
 
 
 def _field_name(project) -> str:
@@ -4035,12 +4055,137 @@ def _emit_item_text(projects) -> tuple:
         raise BuildError(str(ex))
 
 
+_SHARED_SUFFIX_STRIDE = 256     # per-member disjoint window for appended on_entry/logic_add txids on a SHARED
+#   text_block (far above any field's message count; base ~1000 + N*256 stays well under the u16 txid ceiling)
+
+
+def _reconcile_mes(text_block: int, lang: str, members: list) -> str:
+    """Compose ONE ``field/<text_block>.mes`` for ``lang`` from every member that SHARES this mesID.
+
+    A field loads its dialogue by ``text_block`` (the 6th DictionaryPatch token), so several members of one
+    campaign legitimately share a block -- the whole Lindblum Castle is message file 22. The old per-member
+    write (build_field -> ``mes_path``) had each member overwrite that single file, so the LAST-written member
+    won and a sibling's plain copy silently CLOBBERED an edited member's ``[[logic_edit]]`` / ``[[on_entry]]``
+    text (the regression this fixes). Every member of a real shared block forks the SAME donor message file,
+    so plain members are byte-identical to the shared ``base`` and an edited member diverges only at the txids
+    it touched. This reconciles them: the shared base + the union of in-place rewrites + the union of appended
+    suffixes. It raises :class:`BuildError` on a true conflict (two members rewrite the same line differently,
+    members carry different base text for the block, or two appends collide on a txid) -- never silently drops
+    an edit. ``members`` = ``[(name, base, inplace, suffix)]``."""
+    from .dialogue import parse_mes
+    from . import logic_edit as _logic_edit
+    members = [m for m in members if (m[1] or m[2] or m[3])]            # drop fully-empty contributors
+    if not members:
+        return ""
+    bases = {b for _n, b, _i, _s in members if b}
+    if len(bases) > 1:                                                 # not the same donor message file
+        names = ", ".join(sorted(n for n, b, _i, _s in members if b))
+        raise BuildError(f"members ({names}) share text_block {text_block} but carry DIFFERENT base dialogue "
+                         f"({lang}) -- one shared .mes can't hold both, so one would silently overwrite the "
+                         f"other. This happens with verbatim members forked from different message files, or "
+                         f"two SYNTHESIZED fields that each author dialogue while keeping the kit-default "
+                         f"text_block 1073. Give them distinct text_blocks (a member ships its own .mes only "
+                         f"when its textid is a distinct real MesDB key).")
+    base = next(iter(bases)) if bases else members[0][2]               # all-synth members have base==""
+    base_entries = parse_mes(base)
+    merged = base
+    owner: dict = {}                                                   # txid -> (member, new_text) applied
+    for name, _b, inplace, _s in members:                             # in-place rewrites of donor txids
+        if not inplace or inplace == base:
+            continue                                                  # a plain member (no divergence)
+        for txid, ent in parse_mes(inplace).items():
+            be = base_entries.get(txid)
+            if be is None:
+                raise BuildError(f"member {name}: an in-place .mes edit on text_block {text_block} ({lang}) "
+                                 f"adds a new txid {txid} -- expected only rewrites of existing donor lines.")
+            if ent.text == be.text:
+                continue                                              # this txid unchanged by this member
+            if txid in owner:
+                if owner[txid][1] != ent.text:
+                    raise BuildError(f"members {owner[txid][0]} and {name} both rewrite txid {txid} of shared "
+                                     f"text_block {text_block} ({lang}) to different text -- consolidate the "
+                                     f"edits onto one member or split the block.")
+                continue                                              # identical rewrite -> apply once
+            merged = _logic_edit.verified_mes_splice(merged, txid, ent.text, lang=lang)
+            owner[txid] = (name, ent.text)
+    # appended lines (on_entry / logic_add / textcarry): union, dedup identical, guard txid collisions. Each
+    # member gets a DISJOINT suffix-txid window (build_mod's suffix_txid_offset), so order-independence is
+    # real: sort the deduped suffixes by their first appended txid -> the merged bytes don't depend on the
+    # project list order (deterministic output).
+    seen_suffix: set = set()
+    suffix_owner: dict = dict.fromkeys(parse_mes(merged), None)       # txid -> member (None = the donor body)
+    pending = []                                                      # (min_txid, suffix) to append, sorted
+    for name, _b, _i, suffix in members:
+        if not suffix or suffix in seen_suffix:
+            continue                                                  # dedup an identical append
+        seen_suffix.add(suffix)
+        stxids = list(parse_mes(suffix))
+        for txid in stxids:
+            if txid in suffix_owner and suffix_owner[txid] != name:
+                other = suffix_owner[txid] or "the donor body"
+                raise BuildError(f"member {name}: an appended .mes line txid {txid} on text_block {text_block} "
+                                 f"({lang}) collides with {other} -- appended lines on a shared text_block "
+                                 f"need unique txids (build_mod assigns disjoint windows; a collision here means "
+                                 f"a hand-set text_block or txid).")
+            suffix_owner[txid] = name
+        pending.append((min(stxids) if stxids else 0, suffix))
+    tail = "".join(s for _t, s in sorted(pending, key=lambda p: p[0]))
+    return merged + tail
+
+
+def _assign_suffix_offsets(projects) -> None:
+    """Give each member that SHARES a text_block a disjoint ``suffix_txid_offset`` window, so their appended
+    on_entry/logic_add lines occupy non-overlapping txid ranges in the single shared ``.mes`` (their
+    donor-derived :func:`_appended_txid_base` is otherwise identical -> a collision). Members on a UNIQUE block
+    (the common case) keep offset 0 -> byte-identical output. Mutates ``projects`` in place (set before build)."""
+    by_block: dict = {}
+    for p in projects:
+        by_block.setdefault(p.text_block, []).append(p)
+    for members in by_block.values():
+        if len(members) > 1:
+            for i, p in enumerate(members):
+                p.suffix_txid_offset = i * _SHARED_SUFFIX_STRIDE
+
+
+def _write_field_mes(results: list, layout, langs) -> None:
+    """Write each field's ``field/<text_block>.mes`` ONCE per language, reconciling members that share a
+    text_block (:func:`_reconcile_mes`). A block with a single contributing member takes a fast path that
+    writes its exact bytes (``inplace + suffix``) -- so every non-shared field is byte-identical to the old
+    per-member write (no golden-test churn); only genuinely shared blocks go through the merge."""
+    groups: dict = {}                                                 # (text_block, lang) -> [(name, parts)]
+    for r in results:
+        for lang, parts in r.mes_parts.items():
+            groups.setdefault((r.text_block, lang), []).append((r.name, parts))
+    for (text_block, lang), members in groups.items():
+        if len(members) == 1:
+            _name, (_base, inplace, suffix) = members[0]
+            body = inplace + suffix
+        else:
+            body = _reconcile_mes(text_block, lang, [(n, b, i, s) for n, (b, i, s) in members])
+        if body:
+            layout.mes_path(lang, text_block).write_text(body, encoding="utf-8", newline="\n")
+
+
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
               langs=LANGS, entry_project=None) -> dict:
     """Build one or more fields into a mod at ``out_root``; write the registration files. ``entry_project``
     (a campaign's entry member) makes the mod-global new-game-state lint precise -- see :func:`_emit_start_state`."""
     layout = ModLayout(Path(out_root).resolve())
+    # Within-build distinct-identity guard: a field's .eb / FBG scene / mapconfig are keyed by its `name`
+    # (EVT_<name>, FBG_N<area>_<name>) and its registration by `id`, both written once per member -- two
+    # members sharing either would silently clobber. Fail loud (the cross-FOLDER case is deploystack's job;
+    # this is the within-ONE-build case for a hand-authored campaign).
+    _dup_names = sorted({p.name for p in projects if [q.name for q in projects].count(p.name) > 1})
+    if _dup_names:
+        raise BuildError(f"two campaign members share the field name(s) {_dup_names} -- their EVT_<name>.eb / "
+                         f"FBG scene / mapconfig would clobber each other. Rename one.")
+    _dup_ids = sorted({p.id for p in projects if [q.id for q in projects].count(p.id) > 1})
+    if _dup_ids:
+        raise BuildError(f"two campaign members share the field id(s) {_dup_ids} -- their DictionaryPatch "
+                         f"registration would clobber. Give each a distinct id.")
+    _assign_suffix_offsets(projects)                    # disjoint on_entry/logic_add txid windows on shared blocks
     results = [build_field(p, layout, langs=langs) for p in projects]
+    _write_field_mes(results, layout, langs)            # shared-text_block-safe .mes (was per-member in build_field)
 
     layout.dictionary_patch.write_text(
         "\n".join(r.dict_line for r in results) + "\n", encoding="utf-8", newline="\n")
