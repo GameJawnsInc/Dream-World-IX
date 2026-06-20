@@ -6,34 +6,41 @@ the sibling ``ff9mapkit/`` folder as an empty PEP-420 namespace package, shadowi
 so ``from . import __version__`` fails. ``__main__.py`` detects that shadow and repoints at the real
 package. (On a clean site-packages install there's no shadow and ``-m`` works anyway, so this passes
 either way -- it only fails if the shadow repair regresses.)
+
+The precondition -- "``python -m ff9mapkit`` is runnable as an installed package" -- is probed at
+RUNTIME by actually running it from a neutral dir, NOT via ``importlib.metadata``: a stray
+``ff9mapkit.egg-info`` left in the tree (or xdist worker metadata leakage) makes
+``importlib.metadata.distribution`` report "installed" even when the package isn't importable from
+elsewhere, which used to make this test flakily FAIL under ``pytest -n`` instead of skipping. Running
+the subprocess is the source of truth, so the result is deterministic regardless of how the suite is run.
 """
 
 from __future__ import annotations
 
-import importlib.metadata
 import subprocess
 import sys
 
 import pytest
 
 
-def _installed() -> bool:
-    """True if ff9mapkit is pip-installed (in site-packages). The namespace-shadow REPAIR only has a real
-    package to repoint at when there IS an install; with no install (a deliberate multi-worktree setup --
-    run from the kit root instead), `-m ff9mapkit` from a FOREIGN dir resolves nothing, so the scenario is
-    moot and the test skips."""
-    try:
-        importlib.metadata.distribution("ff9mapkit")
-        return True
-    except importlib.metadata.PackageNotFoundError:
-        return False
+def _dash_m_version(cwd) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, "-m", "ff9mapkit", "--version"],
+                          cwd=cwd, capture_output=True, text=True)
 
 
-@pytest.mark.skipif(not _installed(), reason="ff9mapkit not pip-installed; `-m` from a foreign dir needs an "
-                                             "install (run from the kit root). Uninstalled for multi-worktree.")
 def test_dash_m_runs_under_namespace_shadow(tmp_path):
-    (tmp_path / "ff9mapkit").mkdir()           # an empty dir named ff9mapkit -> the shadow trap
-    r = subprocess.run([sys.executable, "-m", "ff9mapkit", "--version"],
-                       cwd=tmp_path, capture_output=True, text=True)
+    # The shadow-repair scenario is only meaningful when `python -m ff9mapkit` is actually runnable as an
+    # installed package. Probe that from a NEUTRAL dir (no shadow) by really running it -- robust to a stray
+    # egg-info / xdist metadata leakage (metadata presence != importable). If it isn't runnable here (a
+    # multi-worktree no-install setup -- run from the kit root instead), the scenario is moot, so skip.
+    neutral = tmp_path / "neutral"
+    neutral.mkdir()
+    if _dash_m_version(neutral).returncode != 0:
+        pytest.skip("`python -m ff9mapkit` not runnable as an install here; namespace-shadow repair is moot")
+
+    # The shadow trap: an empty dir named ff9mapkit shadows the real install as a PEP-420 namespace package.
+    shadow = tmp_path / "shadow"
+    (shadow / "ff9mapkit").mkdir(parents=True)
+    r = _dash_m_version(shadow)
     assert r.returncode == 0, f"stdout={r.stdout!r}\nstderr={r.stderr!r}"
     assert "ff9mapkit" in (r.stdout + r.stderr)
