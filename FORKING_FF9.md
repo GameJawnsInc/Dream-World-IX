@@ -93,15 +93,13 @@ end to end. Start small (a couple of arcs); you can always add more later.
 > **Note:** Right now I create a mod folder for each region you fork. This will be fixed in the future, but
 > for now you just have to deal with it — the old paradigm wasn't compatible with forking the entire game.
 
-7. Because of the old paradigm, you need to go to `Memoria.ini` (in your game install folder) and fix the
-   `FolderNames` line to set the mod load order (or do it through the Memoria launcher). Here's what mine
-   looks like:
+7. Add the new mod folders to the `FolderNames` line in `Memoria.ini` (the deploy's console output lists
+   exactly which ones — or use the Memoria launcher). Their **order no longer matters for dialogue** — each
+   forked region now gets its own text blocks — so you just need them all present. For example:
 
    ```ini
    FolderNames = "FF9CustomMap-prim", "FF9CustomMap-aca2", "FF9CustomMap-acas", "FF9CustomMap-alex", "FF9CustomMap-camp", "FF9CustomMap-evil", "FF9CustomMap-mars", "FF9CustomMap-pri2", "MoguriMain", "MoguriVideo"
    ```
-
-   This is warned about in the console output after deploying.
 
 ## Part 7 — See if it worked
 
