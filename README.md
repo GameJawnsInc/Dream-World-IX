@@ -21,6 +21,7 @@ Claude Code was used heavily as a coding agent in the process of creating this p
 
 ## Start here
 
+- **[FORKING_FF9.md](FORKING_FF9.md)** — a guided GUI walkthrough: fork a slice of FF9, change a line of dialogue, and play it back. The fastest end-to-end taste of the toolkit.
 - **[SETUP.md](SETUP.md)** — install, configure, the dev loop, and your first field. **Read this first.**
 - **[ff9mapkit/README.md](ff9mapkit/README.md)** — the toolkit overview and command families.
 - **[ff9mapkit/docs/TUTORIAL.md](ff9mapkit/docs/TUTORIAL.md)** — a focused ~10-minute first-field walkthrough.
