@@ -14,8 +14,8 @@ Grounded against the live codebase (citations inline) and a **live byte-trace of
   (12 offline tests, no game needed). `import-chain 300 --zones iccv,vgdl` reproduces the trace: 13 fields, the 305 hub + 307 branch,
   the 306→Marsh / 308→309 scripted seams, the 300/311/312 overworld exits, and per-screen encounters — and auto-flags 307's
   same-zone twin exits `STORY-COND`.
-- **Worktree id allocation** (this overworld worktree, `C:\gd\FFIX-overworld`; updated for master's field-id-band commit `1faf929`):
-  mod folder **`FF9CustomMap-ow`**, **dev/test scratch band** (`pack.py` 30000–32767, capped at the Int16 `fldMapNo` max 32767):
+- **Dev/test id allocation** (the field-id bands, capped at the Int16 `fldMapNo` max 32767):
+  a per-worktree mod folder + a **dev/test scratch band** (`pack.py` 30000–32767):
   single-field test slot **30003** (after master 30000 / -bb 30001 / -ih 30002), campaign dev block **30100** (Ice Cavern → 30100–30112).
   Pinned in `.ff9deploy.toml`. A *shipped* campaign would instead claim a `pack.suggest_base` block in the 4000–9899 content band; dev/test
   campaigns stay in scratch. (Memoria.ini `FolderNames` + the mod folder are added at deploy time, P4 — everything through P3 is offline.)

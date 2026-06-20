@@ -5,10 +5,15 @@
 # Usage: eb_disasm.py <file.eb.bytes> [entryIndex]
 import re, sys, os
 
-MEM = r"C:\gd\FFIX\Memoria\Assembly-CSharp\Global\Event\Engine\EventEngineUtils.cs"
-DOC = r"C:\gd\FFIX\Memoria\Assembly-CSharp\Global\Event\Engine\EventEngine.DoEventCode.cs"
+# Point FF9_MEMORIA_SRC at the root of your Memoria source clone (the dir holding Assembly-CSharp/).
+_MEMORIA_SRC = os.environ.get("FF9_MEMORIA_SRC", "")
+MEM = os.path.join(_MEMORIA_SRC, r"Assembly-CSharp\Global\Event\Engine\EventEngineUtils.cs")
+DOC = os.path.join(_MEMORIA_SRC, r"Assembly-CSharp\Global\Event\Engine\EventEngine.DoEventCode.cs")
 
 def load_tables():
+    if not _MEMORIA_SRC:
+        sys.exit("eb_disasm: set FF9_MEMORIA_SRC to your Memoria source clone root "
+                 "(the dir holding Assembly-CSharp/) so the opcode tables can be parsed.")
     src = open(MEM, encoding='utf-8', errors='replace').read()
     # opArgCount : SByte[]
     m = re.search(r"opArgCount\s*=\s*new\s+SByte\[\]\s*\{(.*?)\}", src, re.S)

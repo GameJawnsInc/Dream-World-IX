@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo/ff9mapkit
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 
 STAMP = "20260602-153427"
-REPO = Path(__file__).resolve().parents[3]   # C:/gd/FFIX
+REPO = Path(__file__).resolve().parents[3]   # repo root
 BKP = REPO / "backups"
 mod = ModLayout(find_game_path() / "FF9CustomMap")
 

@@ -112,9 +112,9 @@
   <main><!-- rendered from the JS below --></main>
 
   <footer>
-    Each command <code>cd</code>s into the repo first, so it works from any prompt. Tiles marked
+    Run these from the repo root (commands that need it <code>cd</code> into the package dir). Tiles marked
     <span style="color:var(--accent)">▸ fill in arguments</span> open a form; the rest copy on click.
-    Tools live in <code>C:/gd/FFIX/tools/</code>; the CLI is <code>py -m ff9mapkit</code>.
+    Tools live in <code>tools/</code>; the CLI is <code>py -m ff9mapkit</code>.
     Find a field name with <b>list-fields</b> (map codes look like <code>ALXC / GRGR / GLGV / TRNO</code>).
   </footer>
 
@@ -123,8 +123,10 @@
 
   <script>
     // Forward slashes work fine in PowerShell + Python on Windows.
-    var ROOT = 'C:/gd/FFIX';
-    var CD = 'cd ' + ROOT + '; ';                 // prefix so commands run from any prompt
+    // Commands assume you launch them from the Dream World IX repo root. Set ROOT to an
+    // absolute repo path if you'd rather copy commands that run from any prompt.
+    var ROOT = '.';
+    var CD = 'cd ' + ROOT + '; ';                 // no-op from the repo root; set ROOT to make it absolute
     var CDKIT = 'cd ' + ROOT + '/ff9mapkit; ';    // pytest runs from the package dir
 
     // A tile is: { title, desc, cmd, [args] }.

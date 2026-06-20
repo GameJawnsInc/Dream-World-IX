@@ -19,8 +19,9 @@ from ff9mapkit.config import find_game_path, ModLayout, LANGS
 from ff9mapkit.eb import EbScript, edit, disasm
 from PIL import Image, ImageDraw
 
-SRC = Path(sys.argv[1] if len(sys.argv) > 1 else
-           r"C:/gd/FFIX/ff9mapkit/blender/debug_proj/scroll_test")
+if len(sys.argv) <= 1:
+    sys.exit("usage: python tools/deploy_user_scroll.py <path-to-blender-scroll-export-dir>")
+SRC = Path(sys.argv[1])
 NAME, FID = "MY_ROOM", 4003
 S = 4
 

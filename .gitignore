@@ -15,6 +15,29 @@ FINAL FANTASY IX/
 **/*.bundle
 **/AssetBundles/
 
+# ── Game-byte file FORMATS — defense-in-depth provenance net ────────────
+# The per-directory rules elsewhere in this file catch game bytes in the KNOWN
+# output dirs (campaigns/, imported/, scene/eb/, …). These blanket extension
+# rules are the belt-and-suspenders backstop: the toolkit's whole job is to
+# extract/fork Square-Enix game bytes, so a stray `ff9mapkit import` into an
+# ad-hoc dir followed by `git add -A` must NOT be able to re-contaminate this
+# provenance-clean public repo. Everything in these formats is ignored by
+# default; the kit's OWN authored content is re-included by exact path below.
+# (Already-tracked files are unaffected by ignore rules — the negations just
+#  keep `git add` / `git check-ignore` clean for the kept hut quad + 1073.mes.
+#  *.raw16 / *.raw17 / *.fbx are covered by global rules further below.)
+*.eb.bytes
+*.bgx
+*.bgi.bytes
+*.bgs
+*.mes
+# Re-include ONLY the kit-authored, provenance-clean content that ships publicly:
+# the hut demo field (FBG_N11_HUT_* art + EVT_HUT_* scripts) + our custom 1073.mes.
+!/release/FF9CustomMap/StreamingAssets/assets/resources/FieldMaps/FBG_N11_HUT_*/*.bgx
+!/release/FF9CustomMap/StreamingAssets/assets/resources/FieldMaps/FBG_N11_HUT_*/*.bgi.bytes
+!/release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/*/EVT_HUT_*.eb.bytes
+!/release/FF9CustomMap/FF9_Data/embeddedasset/text/*/field/1073.mes
+
 # ── Tool clones (keep Memoria / Hades Workshop checkouts separate) ──────
 memoria/
 Memoria/

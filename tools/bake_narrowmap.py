@@ -7,11 +7,16 @@ Memoria clone. Run this when the Memoria source's MapWidthList changes.
 
     py tools/bake_narrowmap.py [<path to NarrowMapList.cs>]
 """
+import os
 import re
 import sys
 from pathlib import Path
 
-DEFAULT_SRC = Path(r"C:\gd\FFIX\Memoria\Assembly-CSharp\Global\Field\Map\NarrowMapList.cs")
+# Point FF9_MEMORIA_SRC at the root of your Memoria source clone (the dir holding Assembly-CSharp/),
+# or pass the NarrowMapList.cs path as the first argument.
+_MEMORIA_SRC = os.environ.get("FF9_MEMORIA_SRC")
+DEFAULT_SRC = (Path(_MEMORIA_SRC) / "Assembly-CSharp/Global/Field/Map/NarrowMapList.cs"
+               if _MEMORIA_SRC else None)
 OUT = Path(__file__).resolve().parent.parent / "ff9mapkit" / "ff9mapkit" / "_narrowmap_data.py"
 
 HEADER = '''"""Field PSX screen-WIDTHS, baked from Memoria NarrowMapList.MapWidthList (provenance-clean: Memoria
@@ -27,6 +32,9 @@ FORK_DEFAULT_WIDTH = 500   # NarrowMapList.MapWidth() returns this for an unlist
 
 def main():
     src = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SRC
+    if src is None:
+        raise SystemExit("usage: py tools/bake_narrowmap.py <path to NarrowMapList.cs>  "
+                         "(or set FF9_MEMORIA_SRC to your Memoria clone root)")
     text = src.read_text(encoding="utf-8", errors="replace")
     block = re.search(r"MapWidthList\s*=\s*\{(.*?)\};", text, re.S)
     if not block:
