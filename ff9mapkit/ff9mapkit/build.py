@@ -176,6 +176,14 @@ class FieldProject:
         return int(self.field.get("text_block", 1073))
 
     @property
+    def register_text_block(self) -> bool:
+        """True when this field's ``text_block`` is a CUSTOM mesID the build must register in MesDB (via a
+        DictionaryPatch ``MessageFile`` line) so DataPatchers' FieldScene gate (``!MesDB.ContainsKey(mesID)``)
+        passes. Set by the journey cross-campaign text-block remap (:func:`campaign._remap_text_blocks`); off by
+        default -- the kit default 1073 is a real base block already in MesDB."""
+        return bool(self.field.get("register_text_block", False))
+
+    @property
     def fbg(self) -> str:
         return fbg_name(self.area, self.name)
 
@@ -3564,6 +3572,7 @@ class FieldResult:
     warnings: list = _dc_field(default_factory=list)
     name: str = ""                  # the member name (for shared-text_block reconcile error messages)
     text_block: int = 1073          # the field's mesID -- the `field/<text_block>.mes` key (may be SHARED)
+    register_text_block: bool = False   # custom mesID -> emit a MessageFile line so the FieldScene gate passes
     # per-language .mes pieces, written by build_mod (NOT build_field) so members that SHARE a text_block
     # merge instead of last-writer-wins clobbering: {lang: (base, inplace, suffix)} where `base` is the
     # donor/synth body, `inplace` is base with its in-place rewrites (logic_edit text / menu_row), and
@@ -3808,7 +3817,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # custom fldMapNo loses the engine's (field, scene) lookup, so the build reproduces each via Music:).
     bgm_pairs = [(int(b["scene"]), int(b["song"])) for b in project.raw.get("battle_bgm", [])]
     return FieldResult(dict_line=dict_line, battle=battle, battle_bgm=bgm_pairs, fbg=fbg, warnings=warnings,
-                       name=project.name, text_block=project.text_block, mes_parts=mes_parts)
+                       name=project.name, text_block=project.text_block, mes_parts=mes_parts,
+                       register_text_block=project.register_text_block)
 
 
 def _field_name(project) -> str:
@@ -4197,6 +4207,18 @@ def _write_field_mes(results: list, layout, langs) -> None:
             layout.mes_path(lang, text_block).write_text(body, encoding="utf-8", newline="\n")
 
 
+def _dictionary_lines(results) -> list:
+    """The DictionaryPatch lines for a built mod: a ``MessageFile <block> <name>`` registration for each distinct
+    CUSTOM text block (``register_text_block``), THEN the per-field ``FieldScene`` lines. A custom mesID must be
+    registered or DataPatchers SKIPS the FieldScene (`if (!MesDB.ContainsKey(mesID)) continue;` -> "invalid
+    message file ID" -> the field never loads); the name is just a MesDB label (the field text loads by NUMERIC
+    mesID via field/<block>.mes). Base blocks (e.g. the default 1073) are already in MesDB and ship no line. This
+    is what unblocks disjoint per-campaign text-block windows (campaign._remap_text_blocks) -- the cross-campaign
+    text-shadow cure."""
+    mes_reg = sorted({r.text_block for r in results if getattr(r, "register_text_block", False)})
+    return [f"MessageFile {b} MES_DWIX_{b}" for b in mes_reg] + [r.dict_line for r in results]
+
+
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
               langs=LANGS, entry_project=None) -> dict:
     """Build one or more fields into a mod at ``out_root``; write the registration files. ``entry_project``
@@ -4218,8 +4240,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     results = [build_field(p, layout, langs=langs) for p in projects]
     _write_field_mes(results, layout, langs)            # shared-text_block-safe .mes (was per-member in build_field)
 
-    layout.dictionary_patch.write_text(
-        "\n".join(r.dict_line for r in results) + "\n", encoding="utf-8", newline="\n")
+    layout.dictionary_patch.write_text("\n".join(_dictionary_lines(results)) + "\n", encoding="utf-8", newline="\n")
 
     # BattlePatch.txt = the per-encounter BGM block (Battle:/Music:) + the Phase-4 by-name enemy/attack/scene
     # tuning blocks ([[battle_patch]] / [[battle_enemy]] / [[battle_attack]]). Both are mod-global reflection

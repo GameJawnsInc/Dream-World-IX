@@ -215,7 +215,8 @@ def _apply_journey(manifest, plan, args) -> int:
         seednote = f" + seed {s.seed_blocks}" if s.seed_blocks else ""
         print(f"  building {s.folder} (flag_base {s.flag_base}{seednote}) -> {dist}")
         try:
-            C.build_campaign(s.campaign_path, out=dist, flag_base=s.flag_base, seed_blocks=s.seed_blocks)
+            C.build_campaign(s.campaign_path, out=dist, flag_base=s.flag_base, seed_blocks=s.seed_blocks,
+                             text_block_base=s.text_block_base)
         except Exception as e:                            # CampaignError / BuildError / ... -- abort cleanly
             print(f"\nABORT (no game files touched): campaign {s.folder} does not build -- {e}", file=sys.stderr)
             return 2

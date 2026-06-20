@@ -158,6 +158,7 @@ class ResolvedJourney:
     flag_windows: dict                   # folder -> (lo, hi, per_field)
     flag_high: int                       # high-water flag index (exclusive) within this journey
     links: list                          # [{src_campaign, src_field, src_id, dst_campaign, dst_field, dst_id}]
+    text_block_windows: dict = None      # folder -> base custom mesID of its disjoint text-block window
 
 
 # ---------------------------------------------------------------- loading (pure, tk-free)
@@ -317,6 +318,25 @@ def _flag_windows(journey: Journey, plans: dict) -> "tuple[dict, int]":
     return windows, cur
 
 
+# A journey's campaigns stack together, so their dialogue text blocks (donor mesIDs) must not collide -- the
+# engine serves ONE folder's field/<block>.mes per mesID. Give each campaign a DISJOINT window of CUSTOM mesIDs
+# laid end-to-end from this base (well above real FF9 mesIDs + the kit default 1073); each block is registered
+# via a DictionaryPatch MessageFile line (build_mod). build_campaign(text_block_base=) does the per-campaign remap.
+TEXT_BLOCK_BASE = 20000
+
+def _text_block_windows(journey: Journey, plans: dict) -> dict:
+    """``{folder: base_mesID}`` -- each campaign's disjoint custom text-block window base, laid end-to-end from
+    :data:`TEXT_BLOCK_BASE`. A campaign's span is its member count (at most one distinct block per member), so
+    windows never overlap. Mirrors :func:`_flag_windows`; the cross-campaign text-shadow cure."""
+    windows: dict = {}
+    cur = TEXT_BLOCK_BASE
+    for folder in journey.campaigns:
+        plan, _ = plans[folder]
+        windows[folder] = cur
+        cur += max(1, len(plan.members))
+    return windows
+
+
 def auto_seam_links(campaigns, plain, *, exclude_members=frozenset()) -> list:
     """EVERY cross-campaign warp the forked ``.eb`` seams imply, as resolved link dicts -- so a journey needs NO
     ``[[journey.link]]`` rows: the deploy retargets each so a forked region's warps stay in-fork (leak-proof),
@@ -366,12 +386,14 @@ def resolve_journey(journey: Journey, plans: dict) -> ResolvedJourney:
     with no link rows. PURE over the manifest + plans (no game install)."""
     if journey.is_bare:
         return ResolvedJourney(journey=journey, entry_id=int(journey.entry.field),
-                               campaign_ids={}, flag_windows={}, flag_high=FIRST_SAFE_FLAG, links=[])
+                               campaign_ids={}, flag_windows={}, flag_high=FIRST_SAFE_FLAG, links=[],
+                               text_block_windows={})
 
     entry_plan, _ = plans[journey.entry.campaign]
     entry_id = _member_id(entry_plan, journey.entry.field, what=f"journey {journey.id!r} entry")
     campaign_ids = {f: [m.new_id for m in plans[f][0].members] for f in journey.campaigns}
     flag_windows, flag_high = _flag_windows(journey, plans)
+    text_block_windows = _text_block_windows(journey, plans)
 
     links, override_members = [], set()
     for lk in journey.links:                          # explicit links are OVERRIDES (the author takes the member)
@@ -389,7 +411,8 @@ def resolve_journey(journey: Journey, plans: dict) -> ResolvedJourney:
     plain = {f: plans[f][0] for f in journey.campaigns if f in plans}
     links.extend(auto_seam_links(journey.campaigns, plain, exclude_members=override_members))
     return ResolvedJourney(journey=journey, entry_id=entry_id, campaign_ids=campaign_ids,
-                           flag_windows=flag_windows, flag_high=flag_high, links=links)
+                           flag_windows=flag_windows, flag_high=flag_high, links=links,
+                           text_block_windows=text_block_windows)
 
 
 # ---------------------------------------------------------------- lint (the namespace guarantee)
@@ -940,6 +963,7 @@ class CampaignDeployStep:
     flag_base: int
     members: int
     seed_blocks: "dict | None" = None    # the [journey.seed] capstone (entry campaign only; build_campaign seed=)
+    text_block_base: int = 0             # disjoint custom text-block window base (0 => no remap); build_campaign(text_block_base=)
 
 
 @dataclass
@@ -1086,11 +1110,12 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
             if folder not in done_folders:
                 ids = rj.campaign_ids[folder]
                 lo, _hi, _k = rj.flag_windows[folder]
+                tb_base = (rj.text_block_windows or {}).get(folder, 0)
                 seed_blocks = seed_to_field_blocks(j.seed) if folder == j.entry.campaign else {}
                 steps.append(CampaignDeployStep(
                     folder=folder, campaign_path=_campaign_path(manifest.root, folder),
                     mod_folder=plan.mod_folder, id_lo=min(ids), id_hi=max(ids), flag_base=lo,
-                    members=len(ids), seed_blocks=seed_blocks or None))
+                    members=len(ids), seed_blocks=seed_blocks or None, text_block_base=tb_base))
                 done_folders.add(folder)
                 prior = folder_seen.get(plan.mod_folder)
                 if prior is not None and prior != folder:

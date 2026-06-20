@@ -107,16 +107,18 @@ deploy your folder higher in `FolderNames`, remove the higher folder's copy of t
 py -c "from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning; from ff9mapkit.config import find_game_path; print(shadow_warning(check_text_block_shadow(find_game_path(None), '<your-mod-folder>', <block>)) or 'clear')"
 ```
 
-**Multi-campaign journeys add a sharper version.** A field's text block is its donor's numeric mesID, and a
-journey namespaces scene/`.eb` *names* (`--name-prefix`) but **not** these mesIDs. So two campaigns whose donors
-share a mesID (e.g. Prima Vista and A. Castle both inheriting block `2`) ship `field/2.mes` into *different*
-folders with *different* text — stacked, the engine serves one folder's copy for both, and no `FolderNames`
-order satisfies both. `deploy_journey` now **warns** (`TEXT-BLOCK COLLISION: block N shipped by …`, computed by
-comparing the built campaign dists, so it's caught regardless of stack order). The full cure — a disjoint
-text-block window per campaign — is a known **deferred** follow-up: a distinct textid only registers if it's
-already a key in the engine's `MesDB` (else `DataPatchers` skips the field and it never loads), and the bundled
-engine has no custom-mesID registration. Until that lands, the workaround is the `FolderNames` order above
-(accepting that a shared block favors whichever campaign sits highest).
+**Multi-campaign journeys had a sharper version — now cured.** A field's text block is its donor's numeric
+mesID, and a journey namespaces scene/`.eb` *names* (`--name-prefix`) but historically **not** these mesIDs, so
+two campaigns whose donors shared a mesID (e.g. Prima Vista and A. Castle both inheriting block `2`) collided on
+`field/2.mes` — stacked, the engine served one folder's copy for both. The deploy now gives **each campaign a
+disjoint custom text-block window** (`journey._text_block_windows` → `build_campaign(text_block_base=)`):
+it remaps that campaign's blocks into its window and registers each with a DictionaryPatch `MessageFile <id>`
+line so the engine's `MesDB` gate passes (the engine already supported this — the kit simply never emitted it).
+So a fresh journey deploy has no cross-campaign text collision, regardless of `FolderNames` order.
+`deploy_journey` still **warns** (`TEXT-BLOCK COLLISION: block N shipped by …`, by comparing the built campaign
+dists) as a backstop — e.g. if you hand-stack a mix of old (un-windowed) and new folders. For that case, reorder
+`FolderNames` so the campaign whose dialogue matters most sits highest, or re-deploy the whole journey so every
+campaign gets a window.
 
 ---
 

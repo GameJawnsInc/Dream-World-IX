@@ -32,6 +32,18 @@ def test_shared_text_blocks_flags_cross_campaign_collisions(tmp_path):
     assert journey.shared_text_blocks(steps, {"prim": dists["prim"]}) == []     # single campaign -> no collision
 
 
+def test_text_block_windows_disjoint_per_campaign():
+    """Each campaign gets a disjoint custom text-block window, laid end-to-end (span = member count) -- so no two
+    campaigns can land on the same mesID. The cross-campaign text-shadow cure's window assignment."""
+    import types
+    j = types.SimpleNamespace(campaigns=["a", "b", "c"])
+    plans = {"a": (types.SimpleNamespace(members=[0, 1, 2]), None),     # 3 members -> span 3
+             "b": (types.SimpleNamespace(members=[0]), None),           # 1 member  -> span 1
+             "c": (types.SimpleNamespace(members=[0, 1]), None)}        # 2 members -> span 2
+    base = journey.TEXT_BLOCK_BASE
+    assert journey._text_block_windows(j, plans) == {"a": base, "b": base + 3, "c": base + 4}
+
+
 # ---- fixture builders (no game) ---------------------------------------------------------
 def _make_campaign(root, folder, *, members, id_base, flags_per_field=64, entry=None,
                    seams=None, edges=None, mod_folder="FF9CustomMap-test", sources=None):

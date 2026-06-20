@@ -13,6 +13,20 @@ import pytest
 from ff9mapkit import campaign, chain, extract
 
 
+def test_remap_text_blocks_disjoint_window_preserves_sharing():
+    """JOURNEY cure: distinct donor blocks -> a packed custom window; members that SHARE a block stay shared
+    (remapped together); each field is marked for MesDB registration (build_mod emits its MessageFile line)."""
+    class _P:                                       # a minimal FieldProject stand-in (text_block + raw['field'])
+        def __init__(self, b): self.raw = {"field": {"text_block": b}}
+        @property
+        def text_block(self): return int(self.raw["field"].get("text_block", 1073))
+    a, b, c = _P(2), _P(2), _P(3)                   # a + b share donor block 2; c is on block 3
+    remap = campaign._remap_text_blocks([a, b, c], 20000)
+    assert remap == {2: 20000, 3: 20001}            # distinct originals -> packed window
+    assert a.text_block == 20000 and b.text_block == 20000 and c.text_block == 20001   # sharing preserved
+    assert all(p.raw["field"]["register_text_block"] for p in (a, b, c))
+
+
 # ---- retarget logic (monkeypatched scan_content, no game) -------------------------------
 def _fake_content(gateways, encounter=None):
     return {"gateways": gateways, "music": None, "encounter": encounter,

@@ -127,3 +127,16 @@ def test_build_mod_rejects_duplicate_member_names(tmp_path):
     q = FieldProject.load(EXAMPLE)                     # same name + id
     with pytest.raises(BuildError, match="share the field name"):
         build_mod([p, q], tmp_path)
+
+
+def test_dictionary_lines_registers_only_custom_blocks():
+    """A custom text block (register_text_block) gets a MessageFile line so DataPatchers' FieldScene gate passes;
+    base blocks (1073) don't. One line per DISTINCT custom block, before the FieldScene lines."""
+    import types
+    from ff9mapkit.build import _dictionary_lines
+    R = lambda tb, reg, nm: types.SimpleNamespace(text_block=tb, register_text_block=reg, dict_line=f"FieldScene {nm}")
+    results = [R(1073, False, "A"), R(20000, True, "B"), R(20000, True, "C"), R(20001, True, "D")]
+    lines = _dictionary_lines(results)
+    assert lines[:2] == ["MessageFile 20000 MES_DWIX_20000", "MessageFile 20001 MES_DWIX_20001"]   # distinct, sorted
+    assert lines[2:] == ["FieldScene A", "FieldScene B", "FieldScene C", "FieldScene D"]            # then the scenes
+    assert not any("MessageFile 1073" in l for l in lines)                                          # base -> no line

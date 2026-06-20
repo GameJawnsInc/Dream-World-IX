@@ -513,8 +513,24 @@ def apply_seed_blocks(raw: dict, blocks: dict) -> None:
         raw["equipment"] = blocks["equipment"]
 
 
+def _remap_text_blocks(projects, base: int) -> dict:
+    """JOURNEY cross-campaign text-shadow cure: remap this campaign's dialogue text blocks into a DISJOINT custom
+    mesID window ``[base, base + distinct_blocks)``. Each DISTINCT original block (the donor mesID, shared by
+    zone-mates) maps to ``base + idx``, so members that SHARED a block keep sharing the remapped one
+    (intra-campaign :func:`build._reconcile_mes` preserved) while no sibling campaign's window can collide. Marks
+    each field for MesDB registration (``build_mod`` emits a DictionaryPatch ``MessageFile`` line so DataPatchers'
+    FieldScene gate passes; the .mes ships at ``field/<remapped>.mes``). Returns ``{original: remapped}``."""
+    distinct = sorted({p.text_block for p in projects})
+    remap = {b: int(base) + i for i, b in enumerate(distinct)}
+    for p in projects:
+        fld = p.raw.setdefault("field", {})
+        fld["text_block"] = remap[p.text_block]            # follows to the FieldScene textid + field/<id>.mes
+        fld["register_text_block"] = True
+    return remap
+
+
 def build_campaign(campaign_path, out=None, *, author="", description="", allow_artless=False,
-                   flag_base=None, seed_blocks=None) -> dict:
+                   flag_base=None, seed_blocks=None, text_block_base=None) -> dict:
     """Compile every member of a campaign.toml into ONE staged Memoria mod (DictionaryPatch + BattlePatch +
     ModDescription + per-field assets), reusing build.build_mod. Returns build_mod's dict + ``plan``/``out``.
     Does NOT deploy (P4). ``out`` defaults to ``<campaign-dir>/dist``.
@@ -563,6 +579,9 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         # textids only become needed -- AND valid -- once a member SHIPS its own .mes for dialogue; doing
         # that safely (a custom .mes that registers its id in MesDB) is a follow-up, not done here.
         projects.append(proj)
+
+    if text_block_base:                                   # JOURNEY: a disjoint custom text-block window for this
+        _remap_text_blocks(projects, text_block_base)     # campaign (the cross-campaign text-shadow cure)
 
     # each member's per-member flag_base was set on its FieldProject above; build_script's _FlagAlloc packs
     # that member's auto chest/event/cutscene/choice flags into its own disjoint block (no cross-field alias).
