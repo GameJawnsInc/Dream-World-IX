@@ -53,6 +53,23 @@ def _write_manifest(root, body, *, with_hub=True):
     return p
 
 
+def test_lint_journey_leak_kind_and_exits(tmp_path):
+    # ca leaks to 999 via a SCRIPTED warp (-> FORCED) and to 888 via a PORTAL door (-> walk-out); neither is forked
+    _make_campaign(tmp_path, "ca", members=["A1", "A2"], id_base=6000, sources={"A1": 100, "A2": 101},
+                   seams=[{"frm": "A1", "to_real": 999, "kind": "scripted", "note": ""},
+                          {"frm": "A2", "to_real": 888, "kind": "portal", "note": ""}])
+    body = ('[[journey]]\nid = "j"\nname = "J"\ncampaigns = ["ca"]\n'
+            'entry = { campaign = "ca", field = "A1" }\n')
+    _, warns = journey.lint_manifest(journey.load_journeys(_write_manifest(tmp_path, body)))
+    assert any("999" in w and "FORCED" in w for w in warns), warns       # scripted leak -> FORCED (softlock)
+    assert any("888" in w and "door" in w for w in warns), warns         # portal leak -> walk-out door
+    # declaring both as intended boundaries silences them
+    m2 = journey.load_journeys(_write_manifest(tmp_path, body + "exits = [999, 888]\n"))
+    assert m2.journeys[0].exits == (999, 888)
+    _, warns2 = journey.lint_manifest(m2)
+    assert not any("999" in w or "888" in w for w in warns2), warns2
+
+
 # ---- loader (structural) ----------------------------------------------------------------
 def test_load_bare_and_multi(tmp_path):
     _make_campaign(tmp_path, "evil_forest", members=["EVF_START", "EVF_EXIT"], id_base=6000,

@@ -117,7 +117,12 @@ that campaign's graph (kind overworld/portal/scripted/menu — `campaign.campaig
 Hub       { name, id, borrow_bg, area, borrow_field, camera, text_block, prompt, stay_text,
             player_model, player_spawn, narrator, narrator_model, narrator_pos, entry_settle? }
 Journey   { id, name, entry: int | Ref, set_scenario?: int,        # set_scenario = HUB-SIDE beat (gen-hub)
-            campaigns?: [folder], seed?: Seed, links?: [Link] }    # the ?-marked fields = the ARC form only
+            campaigns?: [folder], seed?: Seed, links?: [Link],     # the ?-marked fields = the ARC form only
+            exits?: [int] }                                        # DECLARED intended-boundary field ids: a forked
+            #                                                        field's warp to one is the arc's edge (a deliberate
+            #                                                        exit to vanilla / a not-yet-forked next zone), so
+            #                                                        the leak lint stays quiet about it -- leaving only
+            #                                                        the UNdeclared (real-bug) leaks, e.g. a grey ATE.
 Ref       { campaign: folder, field: member_name | int }          # resolves to a global field id at assemble
 Link      { from: {campaign, seam}, to: Ref }
 Seed      { scenario, party, inventory?, equipment? }             # DESTINATION-SIDE story_flags capstone

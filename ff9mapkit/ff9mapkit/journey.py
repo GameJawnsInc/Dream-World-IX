@@ -115,6 +115,9 @@ class Journey:
     links: list                          # [JourneyLink]
     set_scenario: "int | None" = None    # bare-row hub-side beat seed (the proven single-field lever)
     entrance: "int | None" = None        # arrival entrance into the entry field (frames the entry camera)
+    exits: tuple = ()                    # DECLARED intended-boundary field ids: a forked field's warp to one of
+                                         #   these is the arc's edge (a deliberate exit to vanilla / a not-yet-forked
+                                         #   next zone), NOT a bug -> the leak lint stays quiet about it.
 
     @property
     def is_bare(self) -> bool:
@@ -233,11 +236,15 @@ def load_journeys(path) -> JourneyManifest:
                                f"(links chain campaigns; this journey has none)")
         sc = j.get("set_scenario")
         ent = j.get("entrance")
+        try:
+            exits = tuple(int(x) for x in (j.get("exits") or []))
+        except (TypeError, ValueError):
+            raise JourneyError(f"journey {jid!r}: 'exits' must be a list of field ids (ints)")
         journeys.append(Journey(
             id=jid, name=str(j.get("name") or _hub._humanize(jid)), campaigns=campaigns, entry=entry,
             seed=_seed_from(j.get("seed")), links=links,
             set_scenario=int(sc) if sc is not None else None,
-            entrance=int(ent) if ent is not None else None))
+            entrance=int(ent) if ent is not None else None, exits=exits))
 
     return JourneyManifest(hub=dict(data.get("hub", {})), journeys=journeys, path=p)
 
@@ -562,17 +569,25 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
         plain = {f: plans[f][0] for f in j.campaigns if f in plans}
         _lint_chain_connectivity(j, errors, warnings, plain=plain)
         # LEAK check (single- AND multi-campaign): a forked field whose carried Field()/door warps the player to a
-        # field NO journey campaign forks -> a forced exit into the un-forked real game (a grey/unskippable cutscene
-        # warp there softlocks). Sibling-aware via campaign_connectivity; 'menu'/world-map excluded.
+        # field NO journey campaign forks -> an exit into the un-forked real game. A SCRIPTED (forced cutscene/ATE)
+        # one SOFTLOCKS; a PORTAL (walk-out door) is more often the arc's intended edge. A target DECLARED in the
+        # journey's `exits = [...]` is an intended boundary -> stays quiet. Sibling-aware via campaign_connectivity.
         conn = campaign_connectivity(j.campaigns, plain)
+        _ids = lambda s: ",".join(str(t) for t in sorted(s)[:8]) + (" ..." if len(s) > 8 else "")
         for folder in j.campaigns:
-            leaks = sorted({tid for _f, tid, knd in (conn.get(folder) or {}).get("external", [])
-                            if knd in ("scripted", "portal")})
-            if leaks:
-                shown = ",".join(str(t) for t in leaks[:6]) + (" ..." if len(leaks) > 6 else "")
-                warnings.append(f"journey {j.id!r}: campaign {folder!r} warps to UN-FORKED field(s) {shown} -- a "
-                                f"forked field exits the journey into the real game; a grey/unskippable cutscene "
-                                f"warp there softlocks. Fork those fields in or redirect the warp.")
+            ext = [(tid, knd) for _f, tid, knd in (conn.get(folder) or {}).get("external", [])
+                   if knd in ("scripted", "portal") and tid not in j.exits]
+            forced = {tid for tid, knd in ext if knd == "scripted"}
+            doors = {tid for tid, knd in ext if knd == "portal"}
+            if forced:
+                warnings.append(f"journey {j.id!r}: campaign {folder!r} has a FORCED warp to un-forked field(s) "
+                                f"{_ids(forced)} -- a carried cutscene/ATE Field() exits the journey into the real "
+                                f"game; a grey/unskippable one SOFTLOCKS the player. Fork those in, redirect the "
+                                f"warp, or declare it intended via the journey's `exits = [...]`.")
+            if doors:
+                warnings.append(f"journey {j.id!r}: campaign {folder!r} has a walk-out door to un-forked field(s) "
+                                f"{_ids(doors)} -- likely the arc's edge; fork the next zone or declare it intended "
+                                f"via `exits = [...]`.")
 
     # seed range (== story_flags capstone; deeper item/party validation is story_flags' at apply-time)
     if j.seed.scenario is not None and not (0 <= j.seed.scenario <= SCENARIO_MAX):

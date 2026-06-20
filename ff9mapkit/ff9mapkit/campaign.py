@@ -687,16 +687,20 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False)
     # multi-campaign journey -- a sibling campaign's field reads as a non-member here; journey.campaign_connectivity
     # is the sibling-aware check there.
     if not in_journey:
-        leaks = sorted({(str(s.get("frm")), int(s["to_real"])) for s in plan.seams
-                        if s.get("kind") in ("scripted", "portal")
-                        and isinstance(s.get("to_real"), int) and s.get("to_member") is None},
-                       key=lambda p: (p[1], p[0]))
-        if leaks:
-            shown = "; ".join(f"{frm}->{tid}" for frm, tid in leaks[:6]) + (" ..." if len(leaks) > 6 else "")
-            warnings.append(f"{len(leaks)} LEAK(S) out of the campaign ({shown}) -- a forked member's carried "
-                            f"Field()/door warps the player to an UN-FORKED field (the real game); a "
-                            f"grey/unskippable cutscene warp there softlocks. Fork those fields in "
-                            f"(import-chain --whole-zone or add the seed) or redirect/neutralize the warp.")
+        bad = sorted({(int(s["to_real"]), s.get("kind"), str(s.get("frm"))) for s in plan.seams
+                      if s.get("kind") in ("scripted", "portal")
+                      and isinstance(s.get("to_real"), int) and s.get("to_member") is None})
+        forced = [(frm, tid) for tid, k, frm in bad if k == "scripted"]   # carried cutscene/ATE Field() -> softlock
+        doors = [(frm, tid) for tid, k, frm in bad if k == "portal"]      # walk-out door -> often the arc's edge
+        if forced:
+            shown = "; ".join(f"{frm}->{tid}" for frm, tid in forced[:6]) + (" ..." if len(forced) > 6 else "")
+            warnings.append(f"{len(forced)} FORCED leak(s) out of the campaign ({shown}) -- a carried cutscene/ATE "
+                            f"Field() warps the player to an UN-FORKED field (the real game); a grey/unskippable "
+                            f"one SOFTLOCKS. Fork those in (import-chain --whole-zone) or redirect the warp.")
+        if doors:
+            shown = "; ".join(f"{frm}->{tid}" for frm, tid in doors[:6]) + (" ..." if len(doors) > 6 else "")
+            warnings.append(f"{len(doors)} walk-out door(s) to un-forked field(s) ({shown}) -- likely the "
+                            f"campaign's edge; fork the next zone, or accept it as the boundary.")
 
     member_raw = {}                               # (e) member field.toml exists, within the campaign folder
     for m in plan.members:
