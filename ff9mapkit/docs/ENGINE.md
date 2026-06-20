@@ -44,7 +44,9 @@ the beta engine bundle ships it, but it's not a fork-fidelity patch and isn't pa
 upstream-candidate set.)
 
 The full per-behavior breakdown — stock, patch-restored, or genuinely engine-blocked — is in
-[`FORK_FIDELITY.md`](FORK_FIDELITY.md) and [`FORK_IDGATE_MAP.md`](FORK_IDGATE_MAP.md).
+[`FORK_FIDELITY.md`](FORK_FIDELITY.md) and [`FORK_IDGATE_MAP.md`](FORK_IDGATE_MAP.md); the per-file status
+of every patch in `memoria-patches/` (live vs dev-tool vs superseded vs upstream) is in
+[`memoria-patches/README.md`](../../memoria-patches/README.md).
 
 ## Installing the custom engine
 

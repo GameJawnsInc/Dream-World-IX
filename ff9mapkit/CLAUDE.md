@@ -1,4 +1,8 @@
 
+> **Archived development journal — NOT current documentation.** A single dev-session note kept for
+> history; the canonical agent brief is the repo-root [`../CLAUDE.md`](../CLAUDE.md), and users should
+> start with [`README.md`](README.md) / [`docs/`](docs/). The current narrative lives in `git log`.
+
 ### 2026-06-04 — Session 18 (cont) — Blender editable-fork reshape PARITY (offline; awaits Blender+in-game check)
 
 **Closed the gap flagged above: the Blender add-on now round-trips an `import --editable` fork identically to the CLI** (so the visual loop matches the engine-proven CLI loop). All offline; the bpy UI + final in-game alignment are the human's per Hard-Constraint §2.

@@ -94,7 +94,7 @@ Treat this as **verify-and-iterate**, not one-shot-trust. (Claude can run this v
 ## 3. Publish sequence (only after §0–§2 are green) — run from inside the scrubbed `Dream-World-IX/` clone
 
 1. On GitHub, create a **new, empty, private** repo `GameJawnsInc/Dream-World-IX` (private for now;
-   you flip it public in step 5). Leave the original `FFIX` repo **private** as the permanent archive.
+   you flip it public in step 6). Leave the original `FFIX` repo **private** as the permanent archive.
 2. Point the clone at it and push master (the pyproject/CHANGELOG slug already matches this URL):
    ```bash
    git remote add origin https://github.com/GameJawnsInc/Dream-World-IX.git
@@ -106,9 +106,22 @@ Treat this as **verify-and-iterate**, not one-shot-trust. (Claude can run this v
    git tag -a v1.0.0b1 -m "Dream World IX 1.0.0b1 — first public beta"
    git push origin v1.0.0b1
    ```
-4. Sanity-check the GitHub repo (README renders, no stray branches, no game bytes in the tree).
-5. Flip the repository to **public**.
-6. (Optional) Build + publish to PyPI: `python -m build && twine upload dist/*` (version `1.0.0b1`).
+4. **Build + attach the custom-engine bundle.** Forked fields need it, and
+   [`ENGINE.md`](ff9mapkit/docs/ENGINE.md) tells users to download it from Releases — so the asset MUST
+   exist when the repo goes public, or every fork's install path dead-ends.
+   - Build the fork-fidelity engine: apply `memoria-patches/` `s23` + `s24` + `s29` (plus `s22` for the
+     F6 dev menu) to a Memoria source clone and compile `Assembly-CSharp` (see ENGINE.md "Build from
+     source"; the per-file map is `memoria-patches/README.md`).
+   - Assemble `dwix-custom-memoria-1.0.0b1.zip` = the three managed DLLs (`Assembly-CSharp.dll` + the
+     matched `Memoria.Prime.dll` / `UnityEngine.UI.dll`) + an `INSTALL.txt` + MIT/Albeoris attribution.
+     (A pre-built bundle already exists at `dwix-custom-memoria-1.0.0b1.zip` outside the repo — rebuild
+     only if the patch set or the Memoria base changed.)
+   - **Verify the zip ships zero game bytes**, then create the GitHub Release for `v1.0.0b1` and upload it
+     as a Release asset. Keep the asset filename in lockstep with ENGINE.md's download instruction.
+5. Sanity-check the GitHub repo (README renders, no stray branches, no game bytes in the tree).
+6. Flip the repository to **public**.
+7. (Optional) Publish to PyPI: run `python -m twine check dist/*` first (the metadata + README-render
+   gate), then `python -m build && twine upload dist/*` (version `1.0.0b1`).
 
 ---
 

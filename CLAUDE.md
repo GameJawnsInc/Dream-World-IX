@@ -1,5 +1,10 @@
 # CLAUDE.md — FF9 Custom-Field Toolkit (`ff9mapkit`, Memoria Engine)
 
+> **Internal development brief — for AI coding agents (Claude Code), NOT user documentation.** This file
+> orients an agent working *on* the toolkit; it is not a guide to *using* it, and it may reference local
+> machine paths and dev workflow. **If you're here to use Dream World IX, start with**
+> [`README.md`](README.md), [`SETUP.md`](SETUP.md), and the docs in [`ff9mapkit/docs/`](ff9mapkit/docs/).
+
 > **The working brief — keep it lean.** It holds only durable, every-session facts. The project's
 > narrative lives in `git log` (descriptive, ~1 commit per feature) and the deep recipes in the
 > project-memory files (§9); don't reproduce them here. As work lands, update **§5 (current state)**
