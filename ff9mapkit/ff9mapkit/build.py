@@ -1409,14 +1409,37 @@ def validate(project: FieldProject) -> list[str]:
     return problems
 
 
+# Synthesize-path CONTENT blocks (build_script injects these). A VERBATIM fork ([verbatim_eb]) runs the
+# donor's real .eb and BYPASSES build_script, so any of these authored on one is silently DROPPED at build --
+# a verbatim fork already ships the donor's own NPCs/doors/cutscenes. ([encounter] is handled separately: on a
+# verbatim fork it still feeds the battle BGM, it just doesn't inject the SetRandomBattles trigger.)
+_VERBATIM_IGNORED_BLOCKS = {
+    "music": "[music]", "cutscene": "[cutscene]", "npc": "[[npc]]", "gateway": "[[gateway]]",
+    "event": "[[event]]", "choice": "[[choice]]", "marker": "[[marker]]",
+}
+
+
 def lint_logic(project: FieldProject) -> list[str]:
-    """Story/flag sanity checks on the merged project -- catch logic that silently can't work as rooms
+    """Story/flag sanity checks on the merged project -- catch logic/content that silently can't work as rooms
     grow. Advisory (returned as build warnings; the `lint` CLI exits non-zero on any). Checks:
+      * synthesize-path content authored on a VERBATIM fork (silently dropped -- the donor's real .eb runs);
       * a `requires_flag` (appears/fires when SET) that NO event ever sets -> dead content;
       * an explicit flag index that collides with an auto-allocated `once`-event flag (base 200+);
       * duplicate entity names (the scene<->field merge key would be ambiguous)."""
     raw = project.raw
     out = []
+    if "verbatim_eb" in raw:                       # a verbatim fork runs the donor's real .eb (build_script,
+        dropped = [lbl for key, lbl in _VERBATIM_IGNORED_BLOCKS.items() if raw.get(key)]   # which injects these,
+        if dropped:                                                                        # is bypassed)
+            out.append("verbatim fork: " + ", ".join(dropped) + (" is" if len(dropped) == 1 else " are")
+                       + " ignored -- the field runs the donor's real .eb, so the synthesize path that would "
+                       "inject them is skipped. Author them on a synthesized / re-authorable field (a verbatim "
+                       "fork already carries the donor's own NPCs / doors / cutscenes).")
+        if raw.get("encounter"):
+            out.append("verbatim fork: [encounter] does NOT add random battles here -- the SetRandomBattles "
+                       "trigger is injected only on the synthesize path (bypassed by a verbatim fork). The "
+                       "donor's own encounters still play; on a verbatim fork [encounter] only sets the battle "
+                       "BGM. Fork re-authorable (or author a synthesized field) to ADD encounters.")
     _auto = _FlagAlloc(getattr(project, "flag_base", None))   # mirror build_script's auto-allocation EXACTLY
 
     # flags that can ever become SET: event set_flag targets + each once-event's guard flag.

@@ -119,6 +119,31 @@ def test_lint_warns_on_ungated_co_zone_gateways(tmp_path):
     assert _warns(base + f'[[gateway]]\nto = 4100\nzone = {Z}\n') == []
 
 
+# ------------------------------------------------- lint_logic: synth content dropped on a verbatim fork
+
+def test_lint_warns_synth_content_dropped_on_verbatim_fork(tmp_path):
+    # a verbatim fork ([verbatim_eb]) runs the donor's real .eb -> build_script (which injects [encounter]/
+    # [[npc]]/...) is bypassed, so authored synth content is silently dropped. Warn before the user wonders why
+    # their added NPC / encounter never appears (the exact verbatim-encounter confusion this guards).
+    from ff9mapkit.build import lint_logic
+    body = ('[field]\nid = 4003\nname = "VTEST"\narea = 11\n\n'
+            '[verbatim_eb]\nbin = "donor.bin"\n\n'
+            '[encounter]\nscene = 67\n\n'
+            '[[npc]]\nname = "Guy"\n')
+    w = lint_logic(_load(tmp_path, body=body))
+    assert any("verbatim fork" in s and "[[npc]]" in s for s in w), w            # synth content dropped
+    assert any("does NOT add random battles" in s for s in w), w                 # encounter: BGM only here
+
+
+def test_lint_no_verbatim_warning_on_a_synthesized_field(tmp_path):
+    # the SAME blocks on a synthesized field (no [verbatim_eb]) ARE injected -> no verbatim warning
+    from ff9mapkit.build import lint_logic
+    body = ('[field]\nid = 4003\nname = "STEST"\narea = 11\n\n'
+            '[encounter]\nscene = 67\n\n'
+            '[[npc]]\nname = "Guy"\n')
+    assert not any("verbatim fork" in s for s in lint_logic(_load(tmp_path, body=body)))
+
+
 # ---------------------------------------------------------------- lint_all (the unified pass)
 
 def test_lint_all_clean_field_is_ok(tmp_path):
