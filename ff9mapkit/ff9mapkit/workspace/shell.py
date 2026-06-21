@@ -3273,6 +3273,16 @@ class Workspace(QMainWindow):
             self.tree.setCurrentItem(it)
             self.tree.scrollToItem(it)
 
+    def _refresh_single_dim(self, member, section):
+        """Re-colour a single section's tree node after a save: dim while the section is ABSENT from the doc,
+        normal once it's authored. Saving a single edits the doc in place WITHOUT rebuilding the subtree
+        (unlike delete -> _refresh_objects), so its node would otherwise keep the stale 'absent' grey."""
+        it = self._object_item(member, section)
+        if it is None:
+            return
+        present = section in self._doc(member).data
+        it.setForeground(0, QBrush(QColor(self.pal["text" if present else "muted"])))
+
     def _confirm(self, title, text):
         """A yes/no confirm (the smoke stubs this). Destructive actions gate on it."""
         return QMessageBox.question(self, title, text) == QMessageBox.StandardButton.Yes
@@ -3435,6 +3445,8 @@ class Workspace(QMainWindow):
         self._checkpoint(member, f"edit {key or section}", key or section)   # the saved fold is one undo step
         self._show_problems(fb.Verdict(fb.OK, f"Saved {member} · {key or section}",
                                        f"wrote {self.member_paths[member].name}"), [])
+        if single and section in dict(_SINGLE):     # un-dim a just-authored optional single's tree node
+            self._refresh_single_dim(member, section)
         if not single and "name" in entity:        # a renamed list entity -> refresh ITS tree row (located
             it = self._object_item(member, key)     # by key, NOT the selection -- a save needn't be selected)
             if it is not None:
@@ -4434,12 +4446,17 @@ def _smoke(win):
     saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
     assert saved["field"]["id"] == 30100 and saved["field"]["name"] == "IC_ENT", saved
     # [party] mounts via the SAME single-table path (registered in _SINGLES); STRLIST add/remove -> a real list
+    pnode = win._object_item("IC_ENT", "party")
+    assert pnode is not None and pnode.foreground(0).color().name().lower() == \
+        QColor(win.pal["muted"]).name().lower(), "an unauthored [party] node is dimmed"
     win._open_editor("IC_ENT", "object", "party")
     assert win._save_ctx["single"] and win._save_ctx["section"] == "party"
     win._save_ctx["getters"]["add"] = lambda: "Steiner, Beatrix"      # as if typed into the add field
     win._save()
     saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
     assert saved["party"]["add"] == ["Steiner", "Beatrix"], saved
+    assert pnode.foreground(0).color().name().lower() == QColor(win.pal["text"]).name().lower(), \
+        "saving [party] un-dims its tree node (no full subtree rebuild on save)"
     # [startup] mounts the same single-table way; SCENARIOREF -> a beat int, FLAGDICTLIST -> a {flag,value} list
     win._open_editor("IC_ENT", "object", "startup")
     assert win._save_ctx["section"] == "startup"
