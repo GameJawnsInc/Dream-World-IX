@@ -404,7 +404,8 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.story_state, "Story State")
         self.item_equip = ItemEquipDoc(self.pal, output=self._save_output)         # gil/inventory/equip (5b-ii)
         self.tabs.addTab(self.item_equip, "Item & Equip")
-        self.battle = BattleDoc(self.pal, output=self._save_output, problems=self._show_problems)   # encounter editor
+        self.battle = BattleDoc(self.pal, output=self._save_output, problems=self._show_problems,
+                                run=self.run_job, kit_root=KIT)            # encounter editor + Fork battle…
         self.tabs.addTab(self.battle, "Battle")
         # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
         # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
@@ -4976,6 +4977,24 @@ def _smoke(win):
     win.battle._add_enemy()                                               # a new [[scene.enemy]] at the next slot
     assert len(win.battle._enemies()) == 2 and win.battle._enemies()[1]["slot"] == 1
     win.battle._check()                                                   # validate_battle -> Problems (no crash)
+    # Fork battle: the battle-import argv + auto-open wiring (stub the runner -> no subprocess / install)
+    forked = {}
+
+    def _fake_battle_run(argv, *, cwd=None, on_finished=None, **_kw):
+        forked["argv"] = list(argv)
+        fout = Path(argv[argv.index("--out") + 1])
+        fout.mkdir(parents=True, exist_ok=True)
+        (fout / "battle.toml").write_text('[battlemap]\nbbg = "BBG_B042"\n', encoding="utf-8")
+        if on_finished:
+            on_finished(0)                                               # a clean battle-import -> auto-open
+        return True
+
+    win.battle._run, win.battle.kit = _fake_battle_run, d
+    win.battle._run_fork("BBG_B042", str(d / "forked_fight"), fork_scene="EF_R007")
+    assert forked["argv"][3:] == ["battle-import", "BBG_B042", "--out", str(d / "forked_fight"),
+                                  "--fork-scene", "EF_R007"], forked["argv"]
+    assert win.battle.path == (d / "forked_fight" / "battle.toml")        # auto-opened the forked result
+    assert win.battle.data["battlemap"]["bbg"] == "BBG_B042"
 
     # 6b: Build & Deploy + Import documents -- argv-building + in-process Check (no real subprocess launched)
     assert win.tabs.indexOf(win.build_deploy) >= 0 and win.tabs.indexOf(win.import_field) >= 0
@@ -5585,8 +5604,8 @@ def _smoke(win):
           f"objects, breadcrumb, EDITOR forms (NPC+field+party+startup round-trip) + cutscene/choice sub-editors + "
           f"catalog picker (+ scene-id) + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
-          f"{win.item_equip.targets[0]['report'].gil}) + Battle doc (encounter/enemy + save round-trip) + "
-          f"ADD list items (NPC/gateway/choice) + UNDO/REDO "
+          f"{win.item_equip.targets[0]['report'].gil}) + Battle doc (encounter/enemy + save round-trip + "
+          f"fork-battle auto-open) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "

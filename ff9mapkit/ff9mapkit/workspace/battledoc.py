@@ -13,12 +13,13 @@ this document TUNES one.
 """
 from __future__ import annotations
 
+import sys
 import tomllib
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMessageBox, QPushButton, QScrollArea,
-    QSplitter, QVBoxLayout, QWidget,
+    QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QMessageBox, QPushButton, QScrollArea, QSplitter, QVBoxLayout, QWidget,
 )
 
 from ..editor import battle_forms as bf
@@ -34,11 +35,13 @@ class BattleDoc(QWidget):
     """Author a battle.toml. ``output`` streams text to the bottom Output dock; ``problems`` posts the Check
     verdict + rows to the Problems dock (the same callbacks :class:`BuildDoc` takes)."""
 
-    def __init__(self, palette, *, output=None, problems=None):
+    def __init__(self, palette, *, output=None, problems=None, run=None, kit_root=None):
         super().__init__()
         self.pal = palette
         self._output = output
         self._problems = problems
+        self._run = run                  # shell.run_job: streams a CLI job (battle-import) to the Output dock
+        self.kit = Path(kit_root) if kit_root else None    # `-m ff9mapkit` cwd (so the local pkg shadows)
         self.path = None                 # Path of the open battle.toml
         self.data = {}                   # the loaded dict (battlemap / scene / scene.enemy[])
         self._nodes = []                 # [(kind, idx)] parallel to the node-list rows
@@ -53,8 +56,13 @@ class BattleDoc(QWidget):
         self.open_btn = QPushButton("Open battle.toml…")
         self.open_btn.clicked.connect(self.browse)
         top.addWidget(self.open_btn)
-        self.path_lbl = QLabel("No battle map open — Open a battle.toml "
-                               "(make one with `ff9mapkit battle-import`).")
+        self.fork_btn = QPushButton("Fork battle…")
+        self.fork_btn.setToolTip("Fork a real FF9 battle background into a new editable battle.toml, then open it")
+        self.fork_btn.clicked.connect(self._fork_dialog)
+        self.fork_btn.setEnabled(self._run is not None and self.kit is not None)
+        top.addWidget(self.fork_btn)
+        self.path_lbl = QLabel("No battle map open — Open a battle.toml, or Fork one from a real FF9 "
+                               "battle background.")
         self.path_lbl.setStyleSheet(f"color:{self.pal['muted']};")
         top.addWidget(self.path_lbl, 1)
         outer.addLayout(top)
@@ -255,3 +263,71 @@ class BattleDoc(QWidget):
         elif self._output is not None:
             body = "\n".join(errs + warns)
             self._output(f"{clean or subject}{(chr(10) + body) if body else ''}\n")
+
+    # ------------------------------------------------------------------ fork a real battle background
+    def _fork_argv(self, bbg, out, fork_scene=None):
+        """The ``ff9mapkit battle-import`` argv that forks a real BBG's geometry into an editable battle.toml."""
+        a = [sys.executable, "-m", "ff9mapkit", "battle-import", str(bbg), "--out", str(out)]
+        if fork_scene:
+            a += ["--fork-scene", str(fork_scene)]
+        return a
+
+    def _run_fork(self, bbg, out, fork_scene=None):
+        """Shell out battle-import (streams to the Output dock) and AUTO-OPEN the result on success."""
+        if not self._run or not self.kit:
+            return
+        Path(out).mkdir(parents=True, exist_ok=True)
+        self._run(self._fork_argv(bbg, out, fork_scene), cwd=self.kit, subject=f"Fork battle {bbg}",
+                  ok_headline=f"Forked {bbg} → {out}", ok_next="Opening the new battle.toml…",
+                  fail_hint="Forking a battle needs UnityPy + your FF9 install (like forking a field).",
+                  on_finished=lambda code: self._after_fork(code, out))
+
+    def _after_fork(self, code, out):
+        """battle-import done -> open the battle.toml it wrote (only on a clean exit)."""
+        toml = Path(out) / "battle.toml"
+        if code == 0 and toml.is_file():
+            self.load(str(toml))
+
+    def _pick_out(self, line_edit):
+        d = QFileDialog.getExistingDirectory(self, "Folder to write the battle into")
+        if d:
+            line_edit.setText(d)
+
+    def _fork_dialog(self):
+        if not self._run or not self.kit:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Fork a battle background")
+        form = QFormLayout(dlg)
+        bbg = QLineEdit()
+        bbg.setPlaceholderText("BBG_B013  (run `ff9mapkit battle-list` to browse)")
+        form.addRow("Background (BBG)", bbg)
+        donor = QLineEdit()
+        donor.setPlaceholderText("optional — e.g. EF_R007 (mints a brand-new, separately-triggerable scene)")
+        form.addRow("Fork scene", donor)
+        outrow = QWidget()
+        oh = QHBoxLayout(outrow)
+        oh.setContentsMargins(0, 0, 0, 0)
+        out = QLineEdit(str(Path.home() / "ff9field" / "fight"))
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(lambda: self._pick_out(out))
+        oh.addWidget(out, 1)
+        oh.addWidget(browse)
+        form.addRow("Write to", outrow)
+        hint = QLabel("Forks the real BBG's geometry into an editable battle.toml (needs UnityPy + your FF9 "
+                      "install). A bare BBG OVERRIDES that real map; add a Fork scene to mint a new one. The "
+                      "result opens here when it's done.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        form.addRow(hint)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        b, o = bbg.text().strip(), out.text().strip()
+        if not b or not o:
+            QMessageBox.warning(self, "Fork battle", "Enter a BBG name and an output folder.")
+            return
+        self._run_fork(b, o, donor.text().strip() or None)
