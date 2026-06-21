@@ -118,7 +118,8 @@ def latest_journey_revert(repo_root):
 
 # --------------------------------------------------------------------------- import argv (FFIX Import)
 def import_args(field, *, out, field_id, name=None, art="native", carry_npcs=True, carry_text=True,
-                dialogue_stubs=False, save_moogle=False, verbatim=False):
+                dialogue_stubs=False, save_moogle=False, verbatim=False,
+                swap_player=None, neutralize_gestures=False):
     """The ``ff9mapkit import ...`` argv for a field fork (no ``py -m ff9mapkit`` prefix).
 
     ``verbatim`` = the TRUEST fork (``--verbatim``): ship the donor's whole ``.eb`` + ``.mes`` and run the
@@ -127,10 +128,19 @@ def import_args(field, *, out, field_id, name=None, art="native", carry_npcs=Tru
     and we emit ONLY ``--verbatim`` (a short, honest command). ``art``/carry below are the RE-AUTHORABLE path:
     ``art`` is 'native' (--native) / 'borrow' (neither flag) / 'editable' (--editable); the carry flags map to
     the fidelity options, and --carry-text / --save-moogle imply --graft-player-funcs (kit-enforced, passed
-    explicitly so the command reads honestly)."""
+    explicitly so the command reads honestly).
+
+    ``swap_player`` (--swap-player WHO) changes who you WALK as -- a playable name or any GEO model; it implies
+    ``--verbatim`` in the CLI, so the flags go BEFORE the verbatim early-return (they apply to either path).
+    ``neutralize_gestures`` (--neutralize-gestures) rewrites the swapped rig's scripted gestures to idle; the
+    CLI requires it be paired with ``swap_player`` (the GUI guards this before building the argv)."""
     args = ["import", str(field), "--out", str(out), "--id", str(field_id)]
     if name:
         args += ["--name", str(name)]
+    if swap_player:
+        args += ["--swap-player", str(swap_player)]
+    if neutralize_gestures:
+        args.append("--neutralize-gestures")
     if verbatim:
         args.append("--verbatim")
         return args
@@ -151,7 +161,7 @@ def import_args(field, *, out, field_id, name=None, art="native", carry_npcs=Tru
 
 def import_chain_args(seeds, *, out=None, whole_zone=True, ids=None, verbatim=True, id_base=None,
                       name_prefix=None, fresh_ids=False, flags_per_field=None, max_fields=None,
-                      campaign_name=None):
+                      campaign_name=None, swap_player=None, neutralize_gestures=False):
     """The ``ff9mapkit import-chain ...`` argv for forking a CONNECTED REGION (a multi-field chain) into ONE
     campaign -- the workflow behind the disc-1 opening, now a GUI action.
 
@@ -162,7 +172,11 @@ def import_chain_args(seeds, *, out=None, whole_zone=True, ids=None, verbatim=Tr
     Otherwise ``whole_zone`` seeds every field in each seed's zone (catches cutscene-only screens the door-walk
     misses; it also auto-raises the walk's --max-fields to fit). ``verbatim`` ships each member's real .eb +
     .mes so the chain runs the real logic. STABLE IDS are the kit DEFAULT (re-forking into an existing ``out``
-    reuses its donor->id+name map so in-fork saves survive) -- ``fresh_ids`` opts out (re-number from scratch)."""
+    reuses its donor->id+name map so in-fork saves survive) -- ``fresh_ids`` opts out (re-number from scratch).
+
+    ``swap_player`` (--swap-player WHO) plays the WHOLE chain as one character/model (implies --verbatim);
+    ``neutralize_gestures`` (--neutralize-gestures) stands cleanly through cutscene gestures (requires a swap;
+    the GUI guards that before building the argv)."""
     args = ["import-chain", str(seeds)]
     if ids:                                # explicit cluster wins over whole-zone (the two are mutually exclusive)
         args += ["--ids", str(ids)]
@@ -170,6 +184,10 @@ def import_chain_args(seeds, *, out=None, whole_zone=True, ids=None, verbatim=Tr
         args.append("--whole-zone")
     if verbatim:
         args.append("--verbatim")
+    if swap_player:
+        args += ["--swap-player", str(swap_player)]
+    if neutralize_gestures:
+        args.append("--neutralize-gestures")
     if out:
         args += ["--out", str(out)]
     if id_base is not None:

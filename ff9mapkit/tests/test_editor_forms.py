@@ -43,6 +43,12 @@ def test_parse_zone_requires_4_or_5_points():
                         "zone": [[-700, -2400], [700, -2400], [700, -1900], [-700, -1900]]}),
     (forms.ENCOUNTER_SPEC, {"scene": 67, "freq": 200, "battle_music": 0}),
     (forms.MUSIC_SPEC, {"song": 9}),
+    (forms.PARTY_SPEC, {"add": ["Steiner", "Beatrix"], "remove": ["Eiko"]}),
+    (forms.PARTY_SPEC, {"add": ["vivi", 3]}),                       # mixed name + CharacterOldIndex round-trips
+    (forms.STARTUP_SPEC, {"scenario": 2600,
+                          "flags": [{"flag": "boss_dead", "value": 1}, {"flag": 8001, "value": 0}]}),
+    (forms.STARTUP_SPEC, {"scenario": "dali",                       # area name + the advanced word/byte levers
+                          "words": [{"byte": 236, "value": 65280}], "bytes": [{"byte": 361, "value": 4}]}),
     (forms.FIELD_SPEC, {"id": 4003, "name": "ROOM", "area": 11, "text_block": 1073}),
     (forms.CHOICE_SPEC, {"npc": "Vivi", "prompt": "What'll it be?", "tail": "UPR"}),
     (forms.CHOICE_SPEC, {"zone": [[300, -400], [700, -400], [700, -800], [300, -800]],
@@ -213,3 +219,46 @@ def test_flag_fields_roundtrip_names_and_advertise_catalog():
 def test_flagref_index_still_roundtrips():
     e = forms.build_entity(forms.NPC_SPEC, {"name": "v", "requires_flag": "8700"})
     assert e["requires_flag"] == 8700                              # a numeric index stays an int
+
+
+# ---- [party]: STRLIST (comma/space-separated member names or indices) --------------------
+def test_parse_strlist_names_indices_and_empty():
+    assert forms.parse_strlist("") is None
+    assert forms.parse_strlist("   ") is None
+    assert forms.parse_strlist("Steiner, Beatrix") == ["Steiner", "Beatrix"]
+    assert forms.parse_strlist("vivi steiner") == ["vivi", "steiner"]   # whitespace-separated too
+    assert forms.parse_strlist("vivi, 3") == ["vivi", 3]                # a numeric token -> int
+
+
+def test_party_spec_builds_party_table_and_omits_empty():
+    e = forms.build_entity(forms.PARTY_SPEC, {"add": "Steiner, Beatrix", "remove": ""})
+    assert e == {"add": ["Steiner", "Beatrix"]}                    # empty remove omitted; add is a real list
+
+
+def test_encounter_scene_advertises_the_battle_scene_catalog():
+    # the scene field stays an INT (build wants a numeric scene id) but advertises the 'scene' catalog so the
+    # editor renders a Browse picker; the picker returns the id (want_id) for this INT field.
+    scene = next(f for f in forms.ENCOUNTER_SPEC if f.key == "scene")
+    assert scene.kind == forms.INT and scene.catalog == "scene"
+
+
+# ---- [startup]: scenario beat + list-of-table flag/word/byte writes -----------------------
+def test_parse_flagdictlist_rows_names_and_indices():
+    assert forms.parse_flagdictlist("") is None
+    assert forms.parse_flagdictlist("boss_dead, 1; 8001, 0") == [
+        {"flag": "boss_dead", "value": 1}, {"flag": 8001, "value": 0}]
+    assert forms.parse_flagdictlist("gate") == [{"flag": "gate", "value": 1}]   # bare name -> value 1
+
+
+def test_parse_bytedictlist_rows_need_byte_and_value():
+    assert forms.parse_bytedictlist("") is None
+    assert forms.parse_bytedictlist("236, 65280; 361, 4") == [
+        {"byte": 236, "value": 65280}, {"byte": 361, "value": 4}]
+    with pytest.raises(ValueError):
+        forms.parse_bytedictlist("236")                  # a row needs both byte AND value
+
+
+def test_startup_spec_omits_empty_and_keeps_scenario_zero():
+    # an all-empty startup form writes nothing (a no-op [startup]); scenario 0 is a real beat, not "empty"
+    assert forms.build_entity(forms.STARTUP_SPEC, {"scenario": "", "flags": "", "words": "", "bytes": ""}) == {}
+    assert forms.build_entity(forms.STARTUP_SPEC, {"scenario": "0"}) == {"scenario": 0}

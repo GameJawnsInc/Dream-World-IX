@@ -18,8 +18,11 @@ from dataclasses import dataclass
 from .. import archetypes as _archetypes
 
 # field kinds
-STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE, ITEMCOUNT, FLAGREF, FLAGPAIR = (
-    "str", "int", "optint", "bool", "preset", "coord", "pair", "zone", "itemcount", "flagref", "flagpair")
+STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE, ITEMCOUNT, FLAGREF, FLAGPAIR, STRLIST = (
+    "str", "int", "optint", "bool", "preset", "coord", "pair", "zone", "itemcount", "flagref", "flagpair",
+    "strlist")
+# [startup] kinds: a scenario beat (number or area name), and the two list-of-table levers it carries
+SCENARIOREF, FLAGDICTLIST, BYTEDICTLIST = "scenarioref", "flagdictlist", "bytedictlist"
 # cutscene-step kinds: a movement target (a name OR "x, z"), a route (list of those), a gesture (name OR id)
 POINT, PATH, ANIM = "point", "path", "anim"
 
@@ -90,12 +93,28 @@ EVENT_SPEC = [
           catalog="flag"),
 ]
 ENCOUNTER_SPEC = [
-    Field("scene", "Battle scene id", INT, "e.g. 67 = Evil Forest"),
+    Field("scene", "Battle scene id", INT, "e.g. 67 = Evil Forest", catalog="scene"),
     Field("freq", "Frequency (0-255)", OPTINT, "default 255"),
     Field("battle_music", "Battle music id", OPTINT, "default 0 = battle theme"),
 ]
 MUSIC_SPEC = [
     Field("song", "Field BGM song id", INT, "e.g. 9 = Vivi's Theme"),
+]
+PARTY_SPEC = [
+    Field("add", "Add members", STRLIST,
+          "playable characters to ADD to the party at field load (names or 0-11), e.g. Steiner, Beatrix"),
+    Field("remove", "Remove members", STRLIST,
+          "playable characters to REMOVE at field load, e.g. Eiko"),
+]
+STARTUP_SPEC = [
+    Field("scenario", "Scenario beat", SCENARIOREF,
+          "assert the story beat this field stands for: a number (0-32767) or an area name (e.g. dali)"),
+    Field("flags", "Set story flags", FLAGDICTLIST,
+          'story bits to assert at load: "name, 1; other, 0" (name or index; value 0 or 1)'),
+    Field("words", "Word writes (advanced)", BYTEDICTLIST,
+          'save-backed 16-bit writes "byte, value; ...", e.g. the ATE mask 236, 65280 (rarely needed)'),
+    Field("bytes", "Byte writes (advanced)", BYTEDICTLIST,
+          'save-backed single-byte writes "byte, value; ...", e.g. 361, 4 (rarely needed)'),
 ]
 CUTSCENE_SPEC = [
     Field("actor", "Actor NPC", STR, "an [[npc]] name; blank = narration"),
@@ -142,6 +161,10 @@ SECTION_HELP = {
     "dialogue": "Text options. Auto-wrap breaks long dialogue lines to fit the screen (FF9 won't).",
     "encounter": "Random battles on this field (battle scene id + frequency + battle music).",
     "music": "The field's background music (a song id, e.g. 9 = Vivi's Theme).",
+    "party": "Who's in the party (menu + battle) on this field -- add/remove playable characters at load. "
+             "Separate from who you WALK as (an Import option).",
+    "startup": "Assert the story beat this field boots in (a forked field starts at scenario zero): set the "
+               "scenario and any story flags, unconditionally, at field load.",
     "cutscene": "A scripted scene. Steps run in order with control locked; an 'actor' NPC can walk/emote.",
     "npc": "People who stand in the room: a model (preset), a line of dialogue, optional story gate.",
     "gateway": "An exit zone -> another field (the door the player walks into).",
@@ -285,6 +308,62 @@ def format_flagpair(v):
     return "" if not v else f"{v[0]}, {int(v[1]) if len(v) > 1 else 1}"
 
 
+def parse_strlist(s):
+    """A comma/space-separated list of names or ids -> a list (a numeric token -> int, else the name
+    string); empty -> None. Round-trips with :func:`format_strlist`. Used by ``[party]`` add/remove --
+    each token is a character name or a 0..11 CharacterOldIndex (resolved at build, like FLAGREF)."""
+    s = _str(s).strip()
+    if s == "":
+        return None
+    toks = [t for t in re.split(r"[,\s]+", s) if t]
+    if not toks:
+        return None
+    return [int(t) if t.lstrip("-").isdigit() else t for t in toks]
+
+
+def format_strlist(v):
+    return ", ".join(str(x) for x in v)
+
+
+def parse_flagdictlist(s):
+    """[startup] flags: semicolon/newline rows, each ``"flag, value"`` -> a list of ``{flag, value}`` dicts
+    (flag = int index or a [[flag]] NAME; value defaults to 1). Empty -> None. Round-trips with
+    :func:`format_flagdictlist`; reuses :func:`parse_flagpair` per row so a bare name means value 1."""
+    s = _str(s).strip()
+    if s == "":
+        return None
+    out = []
+    for row in re.split(r"[;\n]+", s):
+        if not row.strip():
+            continue
+        pair = parse_flagpair(row)                  # "flag, value" -> [flag, value] (name or idx; default 1)
+        out.append({"flag": pair[0], "value": pair[1]})
+    return out or None
+
+
+def format_flagdictlist(v):
+    return "; ".join(f"{d['flag']}, {int(d.get('value', 1))}" for d in v)
+
+
+def parse_bytedictlist(s):
+    """[startup] words/bytes: semicolon/newline rows, each ``"byte, value"`` -> a list of ``{byte, value}``
+    dicts (both whole numbers). Empty -> None. Round-trips with :func:`format_bytedictlist`."""
+    s = _str(s).strip()
+    if s == "":
+        return None
+    out = []
+    for row in re.split(r"[;\n]+", s):
+        if not row.strip():
+            continue
+        nums = _ints(row, 2, "byte write")          # "byte, value" -> [byte, value]
+        out.append({"byte": nums[0], "value": nums[1]})
+    return out or None
+
+
+def format_bytedictlist(v):
+    return "; ".join(f"{int(d['byte'])}, {int(d['value'])}" for d in v)
+
+
 def _is_int(s):
     return bool(re.fullmatch(r"-?\d+", str(s).strip()))
 
@@ -348,6 +427,14 @@ def _parse_field(kind, raw):
         return parse_flagref(raw)
     if kind == FLAGPAIR:
         return parse_flagpair(raw)
+    if kind == STRLIST:
+        return parse_strlist(raw)
+    if kind == SCENARIOREF:
+        return parse_flagref(raw)                   # a beat number -> int, an area name -> str (resolved at build)
+    if kind == FLAGDICTLIST:
+        return parse_flagdictlist(raw)
+    if kind == BYTEDICTLIST:
+        return parse_bytedictlist(raw)
     raise ValueError(f"unknown field kind {kind!r}")
 
 
@@ -386,8 +473,14 @@ def entity_to_values(spec, entity: dict) -> dict:
             vals[f.key] = format_itemcount(v)
         elif f.kind == FLAGPAIR:
             vals[f.key] = format_flagpair(v)
+        elif f.kind == STRLIST:
+            vals[f.key] = format_strlist(v)
+        elif f.kind == FLAGDICTLIST:
+            vals[f.key] = format_flagdictlist(v)
+        elif f.kind == BYTEDICTLIST:
+            vals[f.key] = format_bytedictlist(v)
         else:
-            vals[f.key] = str(v)              # FLAGREF (int or name), STR, INT, OPTINT, PRESET
+            vals[f.key] = str(v)              # FLAGREF/SCENARIOREF (int or name), STR, INT, OPTINT, PRESET
     return vals
 
 

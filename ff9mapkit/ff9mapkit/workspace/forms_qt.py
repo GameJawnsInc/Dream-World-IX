@@ -105,9 +105,10 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
     err_style = f"color:{palette['error']};font-size:11px;"
 
     def browse(field, getter, setter):
-        name = pick(field.catalog, getter())
-        if name:
-            setter(name)
+        # a numeric field (e.g. the encounter battle scene, an INT) wants the picked entry's id, not its name
+        val = pick(field.catalog, getter(), want_id=field.kind in (forms.INT, forms.OPTINT))
+        if val:
+            setter(val)
 
     for f in spec:
         box = QWidget()
@@ -209,7 +210,7 @@ class CatalogPicker(QDialog):
     """A modal Info-Hub catalog picker: search + a result list, returning the chosen entry NAME. Reuses
     the same ``infohub.browse`` spine as the tkinter editor's picker (archetype/creature/item/flag/...)."""
 
-    def __init__(self, parent, kinds, initial, plan, palette, *, browse=False, limit=300):
+    def __init__(self, parent, kinds, initial, plan, palette, *, browse=False, limit=300, want_id=False):
         super().__init__(parent)
         self.setWindowTitle("Browse the catalog" if browse else "Pick from the catalog")
         self.resize(560, 460)
@@ -217,6 +218,7 @@ class CatalogPicker(QDialog):
         self.plan = plan
         self.browse = browse                           # browse mode: "Use this" copies the name + stays open
         self.limit = limit
+        self.want_id = want_id                         # a numeric field (e.g. encounter scene) wants the id back
         self.result = None
         self._entries = []
         lay = QVBoxLayout(self)
@@ -276,15 +278,17 @@ class CatalogPicker(QDialog):
             QApplication.clipboard().setText(e.name)
             self.info.setText(f"Copied “{e.name}” [{e.kind}] to the clipboard.")
             return
-        self.result = e.name
+        # a numeric field (want_id) takes the entry's id (e.g. a battle scene #67 -> "67"); else its name
+        self.result = str(e.ident) if self.want_id and e.ident is not None else e.name
         self.accept()
 
 
-def pick_catalog(parent, catalog, initial, plan, palette):
-    """Open :class:`CatalogPicker` for a comma-separated ``catalog`` string; return the chosen name or
-    None. The shell passes this (curried with its window/plan/palette) as ``build_form``'s ``pick``."""
+def pick_catalog(parent, catalog, initial, plan, palette, *, want_id=False):
+    """Open :class:`CatalogPicker` for a comma-separated ``catalog`` string; return the chosen NAME (or the
+    entry's numeric id as a string when ``want_id`` -- for an INT field like an encounter's battle scene),
+    or None. The shell passes this (curried with its window/plan/palette) as ``build_form``'s ``pick``."""
     kinds = [k.strip() for k in catalog.split(",")] if catalog else None
-    dlg = CatalogPicker(parent, kinds, initial, plan, palette)
+    dlg = CatalogPicker(parent, kinds, initial, plan, palette, want_id=want_id)
     dlg.exec()
     return dlg.result
 

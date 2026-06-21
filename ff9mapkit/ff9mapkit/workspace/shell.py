@@ -49,11 +49,13 @@ REPO = KIT.parent                                  # the repo root (holds tools/
 # (cutscene steps + choice options are list-in-list sub-editors -- a Phase-4b follow-up.)
 _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "music": forms.MUSIC_SPEC,
                  "dialogue": forms.DIALOGUE_SPEC, "npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC,
-                 "event": forms.EVENT_SPEC, "marker": forms.MARKER_SPEC}
-_SINGLES = ("field", "encounter", "music", "dialogue")
+                 "event": forms.EVENT_SPEC, "marker": forms.MARKER_SPEC, "party": forms.PARTY_SPEC,
+                 "startup": forms.STARTUP_SPEC}
+_SINGLES = ("field", "encounter", "music", "dialogue", "party", "startup")
 
 # object groups inside a field.toml, mirroring the tkinter editor's tree (editor/app.py).
-_SINGLE = [("dialogue", "Dialogue"), ("encounter", "Encounter"), ("music", "Music"), ("cutscene", "Cutscene")]
+_SINGLE = [("dialogue", "Dialogue"), ("encounter", "Encounter"), ("music", "Music"), ("cutscene", "Cutscene"),
+           ("party", "Party"), ("startup", "Startup beat")]
 _LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("marker", "Markers"),
           ("choice", "Choices")]
 _LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "marker": "Marker", "choice": "Choice"}
@@ -3317,9 +3319,10 @@ class Workspace(QMainWindow):
         self._show_problems(fb.Verdict(fb.OK, f"Deleted {label} from {member}",
                                        f"wrote {self.member_paths[member].name}"), [])
 
-    def _pick(self, catalog, current):
-        """``build_form``'s picker: open the Qt catalog picker over the open campaign's context."""
-        return pick_catalog(self, catalog, current, self.plan, self.pal)
+    def _pick(self, catalog, current, want_id=False):
+        """``build_form``'s picker: open the Qt catalog picker over the open campaign's context. ``want_id``
+        returns the picked entry's numeric id (for an INT field like the encounter battle scene)."""
+        return pick_catalog(self, catalog, current, self.plan, self.pal, want_id=want_id)
 
     def _header(self, title, note=None):
         lbl = QLabel(title)
@@ -4430,6 +4433,22 @@ def _smoke(win):
     win._save()
     saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
     assert saved["field"]["id"] == 30100 and saved["field"]["name"] == "IC_ENT", saved
+    # [party] mounts via the SAME single-table path (registered in _SINGLES); STRLIST add/remove -> a real list
+    win._open_editor("IC_ENT", "object", "party")
+    assert win._save_ctx["single"] and win._save_ctx["section"] == "party"
+    win._save_ctx["getters"]["add"] = lambda: "Steiner, Beatrix"      # as if typed into the add field
+    win._save()
+    saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
+    assert saved["party"]["add"] == ["Steiner", "Beatrix"], saved
+    # [startup] mounts the same single-table way; SCENARIOREF -> a beat int, FLAGDICTLIST -> a {flag,value} list
+    win._open_editor("IC_ENT", "object", "startup")
+    assert win._save_ctx["section"] == "startup"
+    win._save_ctx["getters"]["scenario"] = lambda: "2600"
+    win._save_ctx["getters"]["flags"] = lambda: "boss_dead, 1"
+    win._save()
+    saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
+    assert saved["startup"]["scenario"] == 2600 and \
+        saved["startup"]["flags"] == [{"flag": "boss_dead", "value": 1}], saved
     # H1: commit-on-switch keeps uncommitted form edits (no Save) -- simulate a widget edit, then switch
     win._open_editor("IC_ENT", "object", "npc:0")
     win._save_ctx["getters"]["dialogue"] = lambda: "EDITED ON SWITCH"   # as if the user typed it
@@ -4728,6 +4747,13 @@ def _smoke(win):
     from .forms_qt import CatalogPicker
     pk = CatalogPicker(win, ["archetype", "creature"], "vivi", win.plan, win.pal)
     assert "vivi" in [e.name for e in pk._entries], [e.name for e in pk._entries]
+    # the encounter battle-scene picker: a 'scene' catalog over an INT field returns the entry's ID (want_id),
+    # so a picked scene lands an INT-parseable scene id in the form (not its name)
+    sk = CatalogPicker(win, ["scene"], "", win.plan, win.pal, want_id=True)
+    assert sk._entries and all(e.kind == "scene" for e in sk._entries), "scene catalog lists battle scenes"
+    sk.lst.setCurrentRow(0)
+    sk._ok()
+    assert sk.result == str(sk._entries[0].ident) and int(sk.result) == sk._entries[0].ident, sk.result
     # the Info Hub LIBRARY (sectioned, replacing the all-in-one flat browse): a category sidebar with
     # counts, a per-section searchable list, and a rich detail pane (infohub.detail, not just the summary)
     from .forms_qt import CatalogLibrary
@@ -5477,8 +5503,8 @@ def _smoke(win):
         add_ok = True
 
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
-          f"objects, breadcrumb, EDITOR forms (NPC+field round-trip) + cutscene/choice sub-editors + "
-          f"catalog picker + Open Field (standalone authored) + Save docs (Story State SC "
+          f"objects, breadcrumb, EDITOR forms (NPC+field+party+startup round-trip) + cutscene/choice sub-editors + "
+          f"catalog picker (+ scene-id) + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
           f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "

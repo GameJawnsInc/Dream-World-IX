@@ -124,6 +124,27 @@ class ImportDoc(QWidget):
         v.addWidget(self.carry_box)
         self._sync_mode()       # verbatim is default -> dim the art/carry boxes (verbatim carries them itself)
 
+        # Walk as (player swap): who you CONTROL in the fork, decoupled from [party] MEMBERSHIP. Applies to
+        # EITHER fork mode (the CLI forces --verbatim when set), so it lives OUTSIDE the verbatim-only carry box.
+        swap = QHBoxLayout()
+        swap.addWidget(QLabel("Walk as:"))
+        self.swap_player = QComboBox()
+        self.swap_player.setEditable(True)
+        self.swap_player.addItems(["", "zidane", "vivi", "steiner", "garnet", "freya", "quina", "eiko",
+                                   "amarant"])
+        self.swap_player.setCurrentText("")
+        swap.addWidget(self.swap_player, 1)
+        self.neutralize = QCheckBox("Neutralize scripted gestures")
+        swap.addWidget(self.neutralize)
+        v.addLayout(swap)
+        swap_hint = QLabel("Optional: control a different character (a playable name) or any model (a GEO id, "
+                           "e.g. a moogle 199) instead of the field's real player. Implies a verbatim fork. On "
+                           "a story field the swapped rig's scripted GESTURES glitch — tick Neutralize to stand "
+                           "cleanly (it won't emote), or fork a free-roam field.")
+        swap_hint.setWordWrap(True)
+        swap_hint.setStyleSheet(f"color:{self.pal['muted']};")
+        v.addWidget(swap_hint)
+
         out = QHBoxLayout()
         out.addWidget(QLabel("Write to:"))
         self.out = QLineEdit(str(self.kit.parent / "imported"))
@@ -195,6 +216,23 @@ class ImportDoc(QWidget):
         self.rg_verbatim.setChecked(True)
         v.addWidget(self.rg_whole)
         v.addWidget(self.rg_verbatim)
+        # Walk as (player swap) for the WHOLE chain -- the region analogue of the single-fork swap.
+        rswap = QHBoxLayout()
+        rswap.addWidget(QLabel("Walk as:"))
+        self.rg_swap = QComboBox()
+        self.rg_swap.setEditable(True)
+        self.rg_swap.addItems(["", "zidane", "vivi", "steiner", "garnet", "freya", "quina", "eiko", "amarant"])
+        self.rg_swap.setCurrentText("")
+        rswap.addWidget(self.rg_swap, 1)
+        self.rg_neutralize = QCheckBox("Neutralize scripted gestures")
+        rswap.addWidget(self.rg_neutralize)
+        v.addLayout(rswap)
+        swap_hint = QLabel("Optional: play the WHOLE chain as a different character (a playable name) or any "
+                           "model (a GEO id). Implies verbatim; cutscene members' scripted gestures glitch — "
+                           "tick Neutralize to stand cleanly through them.")
+        swap_hint.setWordWrap(True)
+        swap_hint.setStyleSheet(muted)
+        v.addWidget(swap_hint)
         out = QHBoxLayout()
         out.addWidget(QLabel("Write campaign to:"))
         self.rg_out = QLineEdit(str(self.kit.parent / "campaign"))
@@ -256,11 +294,21 @@ class ImportDoc(QWidget):
         # raw typed seed (no cluster) always forks whole-zone (its safe default -- catches cutscene screens).
         whole = self.rg_whole.isChecked() or not self._region_ids
         ids = None if whole else self._region_ids
+        swap = self.rg_swap.currentText().strip()
         return jobs.import_chain_args(
             self.seeds.text().strip(), out=out,
-            whole_zone=whole, ids=ids, verbatim=self.rg_verbatim.isChecked(),
+            whole_zone=whole, ids=ids, verbatim=self.rg_verbatim.isChecked() or bool(swap),
             id_base=int(idb) if idb.isdigit() else None,
-            name_prefix=self.rg_prefix.text().strip() or None, fresh_ids=self.rg_fresh.isChecked())
+            name_prefix=self.rg_prefix.text().strip() or None, fresh_ids=self.rg_fresh.isChecked(),
+            swap_player=swap or None, neutralize_gestures=self.rg_neutralize.isChecked())
+
+    def _region_swap_ok(self):
+        """False (after a warning) if Neutralize is ticked with no 'Walk as' character -- the CLI rejects that."""
+        if self.rg_neutralize.isChecked() and not self.rg_swap.currentText().strip():
+            self._warn("Neutralize needs a character",
+                       "Pick a 'Walk as' character first — Neutralize only applies with a swap.")
+            return False
+        return True
 
     # ------------------------------------------------------------------ FF9 region catalog
     def _apply_region_selection(self, arcset, keys):
@@ -417,6 +465,8 @@ class ImportDoc(QWidget):
     def on_region_dryrun(self):
         if not self.seeds.text().strip():
             return self._warn("No seeds", "Enter one or more seed field ids/names to preview the region fork.")
+        if not self._region_swap_ok():
+            return
         self._kit(self._region_args(out=None), subject="Region dry-run",
                   ok_next="Review the BLAST RADIUS + any under-forked zones, then Fork region.")
 
@@ -427,6 +477,8 @@ class ImportDoc(QWidget):
         out = self.rg_out.text().strip()
         if not out:
             return self._warn("No output folder", "Pick a folder to write the campaign into.")
+        if not self._region_swap_ok():
+            return
         idb = self.rg_idbase.text().strip()
         if idb and not idb.isdigit():
             return self._warn("Bad id base", "id base must be a number (e.g. 6000) — or blank for the default.")
@@ -462,17 +514,25 @@ class ImportDoc(QWidget):
         except ValueError:
             return self._warn("Bad field id", "Field id must be a number (e.g. 4003).")
         Path(out).mkdir(parents=True, exist_ok=True)
-        verbatim = self.mode_verbatim.isChecked()
+        swap = self.swap_player.currentText().strip()
+        neutralize = self.neutralize.isChecked()
+        if neutralize and not swap:
+            return self._warn("Neutralize needs a character",
+                              "Pick a 'Walk as' character first — Neutralize rewrites the swapped rig's "
+                              "gestures, so it only applies with a swap.")
+        verbatim = self.mode_verbatim.isChecked() or bool(swap)   # --swap-player forces verbatim in the CLI
         args = jobs.import_args(field, out=str(Path(out).resolve()), field_id=fid,
                                 name=self.name.text().strip() or None, art=self._art(),
                                 carry_npcs=self.carry_npcs.isChecked(), carry_text=self.carry_text.isChecked(),
                                 dialogue_stubs=self.dialogue_stubs.isChecked(),
-                                save_moogle=self.save_moogle.isChecked(), verbatim=verbatim)
+                                save_moogle=self.save_moogle.isChecked(), verbatim=verbatim,
+                                swap_player=swap or None, neutralize_gestures=neutralize)
+        swapped = f", walking as {swap}" if swap else ""
         mode = "verbatim — real script + dialogue, real logic" if verbatim else "re-authorable carry"
         self._kit(args, subject=f"Import {field}",
-                  ok_next=f"Forked ({mode}) to {out}. Open it on the Build & Deploy tab to compile + deploy"
-                          + ("; then add a [startup] beat (Editor tab → the field's Field form) so it boots the "
-                             "right story state instead of scenario zero." if verbatim else "."))
+                  ok_next=f"Forked ({mode}{swapped}) to {out}. Open it on the Build & Deploy tab to compile + "
+                          "deploy" + ("; then add a [startup] beat (Editor tab → the field's Field form) so it "
+                             "boots the right story state instead of scenario zero." if verbatim else "."))
 
     def on_view_dialogue(self):
         field = self.dlg_field.text().strip()

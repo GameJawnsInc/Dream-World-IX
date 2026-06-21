@@ -53,6 +53,24 @@ def test_import_args_verbatim_native_default_combo():
     assert a == ["import", "100", "--out", "/o", "--id", "4003", "--verbatim"]
 
 
+def test_import_args_swap_player_lands_before_verbatim_return():
+    # --swap-player implies --verbatim in the CLI, so the swap flags must land BEFORE the verbatim short-
+    # circuit (the GUI sends verbatim=True when a swap is set). --neutralize-gestures rides along.
+    a = jobs.import_args("100", out="/o", field_id=4003, verbatim=True,
+                         swap_player="vivi", neutralize_gestures=True)
+    assert a == ["import", "100", "--out", "/o", "--id", "4003",
+                 "--swap-player", "vivi", "--neutralize-gestures", "--verbatim"]
+
+
+def test_import_args_swap_player_emitted_on_reauthorable_path_too():
+    # a swap on the re-authorable path still emits the flags (the CLI forces verbatim there); a bare model
+    # id works as WHO, and --neutralize-gestures is omitted unless ticked.
+    a = jobs.import_args("100", out="/o", field_id=4003, art="native", carry_npcs=False, carry_text=False,
+                         swap_player="199")
+    assert a[a.index("--swap-player") + 1] == "199" and "--native" in a
+    assert "--neutralize-gestures" not in a
+
+
 # --------------------------------------------------------------------------- import-chain (region fork) argv
 def test_import_chain_args_dryrun_default_whole_zone_verbatim():
     # no out -> the DRY-RUN (blast-radius preview); whole-zone + verbatim are the GUI defaults
@@ -93,6 +111,15 @@ def test_import_chain_args_single_toggles_and_optional_kwargs():
     a = jobs.import_chain_args("300", out="/c", flags_per_field=16, max_fields=40, campaign_name="OPEN")
     assert a[a.index("--flags-per-field") + 1] == "16" and a[a.index("--max-fields") + 1] == "40"
     assert a[a.index("--campaign-name") + 1] == "OPEN"
+
+
+def test_import_chain_args_swap_player_and_neutralize():
+    # play the whole chain as one character; --neutralize-gestures rides along when ticked
+    a = jobs.import_chain_args("300", out="/c", swap_player="vivi", neutralize_gestures=True)
+    assert a[a.index("--swap-player") + 1] == "vivi" and "--neutralize-gestures" in a
+    # no swap -> neither flag is emitted (the common case)
+    b = jobs.import_chain_args("300", out="/c")
+    assert "--swap-player" not in b and "--neutralize-gestures" not in b
 
 
 def test_import_chain_args_ids_scopes_to_cluster():
