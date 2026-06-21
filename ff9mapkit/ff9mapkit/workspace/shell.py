@@ -35,6 +35,7 @@ from ..editor import forms
 from ..editor import jobs
 from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import pick_palette
+from .battledoc import BattleDoc
 from .builddoc import BuildDoc
 from .forms_qt import build_form, pick_catalog, read
 from .importdoc import ImportDoc
@@ -403,6 +404,8 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.story_state, "Story State")
         self.item_equip = ItemEquipDoc(self.pal, output=self._save_output)         # gil/inventory/equip (5b-ii)
         self.tabs.addTab(self.item_equip, "Item & Equip")
+        self.battle = BattleDoc(self.pal, output=self._save_output, problems=self._show_problems)   # encounter editor
+        self.tabs.addTab(self.battle, "Battle")
         # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
         # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
         self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems)
@@ -4951,6 +4954,29 @@ def _smoke(win):
     win.item_equip._edit("gil", True)
     assert _si2.inspect(str(esp))[0][1].gil == 99999, "a declined Apply leaves the save untouched"
 
+    # BATTLE DOCUMENT (Phase 3): open a battle.toml, edit the encounter-first nodes, save round-trips
+    import tomllib as _tl
+    bdir = d / "fight"
+    bdir.mkdir()
+    (bdir / "BBG_B013.fbx").write_text("dummy", encoding="utf-8")          # so validate_battle's fbx check passes
+    btoml = bdir / "battle.toml"
+    btoml.write_text('[battlemap]\nbbg = "BBG_B013"\nfbx = "BBG_B013.fbx"\n\n'
+                     '[scene]\nmonster_count = 2\n\n[[scene.enemy]]\nslot = 0\nhp = 500\n', encoding="utf-8")
+    assert win.battle.load(str(btoml))
+    assert win.battle._nodes[0][0] == "battlemap" and win.battle._nodes[1][0] == "scene"
+    assert any(k == "enemy" for k, _ in win.battle._nodes), win.battle._nodes
+    win.battle.nodes.setCurrentRow(0)                                      # the Map form mounts
+    assert win.battle._ctx["kind"] == "battlemap"
+    erow = next(i for i, (k, _) in enumerate(win.battle._nodes) if k == "enemy")
+    win.battle.nodes.setCurrentRow(erow)                                  # drill into the enemy slot
+    assert win.battle._ctx["kind"] == "enemy"
+    win.battle._ctx["getters"]["hp"] = lambda: "777"                      # as if typed into HP
+    win.battle._save()
+    assert _tl.loads(btoml.read_text(encoding="utf-8"))["scene"]["enemy"][0]["hp"] == 777   # round-trips to disk
+    win.battle._add_enemy()                                               # a new [[scene.enemy]] at the next slot
+    assert len(win.battle._enemies()) == 2 and win.battle._enemies()[1]["slot"] == 1
+    win.battle._check()                                                   # validate_battle -> Problems (no crash)
+
     # 6b: Build & Deploy + Import documents -- argv-building + in-process Check (no real subprocess launched)
     assert win.tabs.indexOf(win.build_deploy) >= 0 and win.tabs.indexOf(win.import_field) >= 0
     bd = win.build_deploy
@@ -5559,7 +5585,8 @@ def _smoke(win):
           f"objects, breadcrumb, EDITOR forms (NPC+field+party+startup round-trip) + cutscene/choice sub-editors + "
           f"catalog picker (+ scene-id) + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
-          f"{win.item_equip.targets[0]['report'].gil}) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
+          f"{win.item_equip.targets[0]['report'].gil}) + Battle doc (encounter/enemy + save round-trip) + "
+          f"ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
