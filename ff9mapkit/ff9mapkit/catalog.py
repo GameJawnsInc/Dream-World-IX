@@ -240,6 +240,20 @@ def battle_scenes(query=None) -> list:
     return sorted((nm, sid) for nm, sid in SCENES.items() if not q or q in nm.lower())
 
 
+_SCENE_BY_ID = None
+
+
+def scene_name(scene_id) -> "str | None":
+    """The published BSC_ name for an encounter id, or None if the id isn't in the table (the table is the
+    full published name<->id map, NOT a guarantee the scene's DATA loads -- e.g. the BSC_B3_* model bucket)."""
+    global _SCENE_BY_ID
+    if _SCENE_BY_ID is None:
+        _SCENE_BY_ID = {}
+        for nm, sid in SCENES.items():
+            _SCENE_BY_ID.setdefault(sid, nm)        # first name wins if an id has aliases
+    return _SCENE_BY_ID.get(int(scene_id))
+
+
 def resolve_scene(name_or_id) -> int:
     """Resolve a battle-scene NAME (BSC_..) or id to its numeric encounter id. A raw id passes through
     unchanged (the table isn't exhaustive of every valid id). Raises ValueError on an unknown name."""

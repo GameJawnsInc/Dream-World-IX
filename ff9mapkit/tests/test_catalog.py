@@ -141,6 +141,16 @@ def test_battle_scenes_and_resolve():
         C.resolve_scene("BSC_NOPE")
 
 
+def test_scene_name_reverse_lookup():
+    # id -> published BSC_ name (powers the Inspector's read-only encounter line). The name reveals the
+    # bucket -- BSC_EF_* is a real region encounter, BSC_B3_* is the model bucket that may not load.
+    assert C.scene_name(67) == "BSC_EF_R007"             # canonical Evil Forest encounter
+    assert C.scene_name(472) == "BSC_B3_160"             # a model-bucket id (the InitBattleScene-crash kind)
+    assert C.scene_name(10_000_000) is None              # not in the published table
+    name, sid = C.battle_scenes()[0]
+    assert C.scene_name(sid) is not None                 # round-trips with battle_scenes
+
+
 def test_battle_scenes_filter():
     ac = C.battle_scenes("AC_")
     assert ac and all("ac_" in nm.lower() for nm, _ in ac)

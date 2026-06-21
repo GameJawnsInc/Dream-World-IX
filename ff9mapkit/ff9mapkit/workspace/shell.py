@@ -3893,6 +3893,7 @@ class Workspace(QMainWindow):
             lines.append(f"field id: {(doc.data.get('field') or {}).get('id')}")
         if doc is not None:
             lines.append(self._rollup(doc.data))
+            lines += self._battle_party_lines(doc.data)     # encounter scene / [party] / [startup] read-only detail
             if doc.data.get("verbatim_eb"):             # explain the empty rollup BEFORE it confuses (the orig. Q)
                 lines.append(self._muted("verbatim fork — content is in the shipped .eb, not these lists; "
                                          "see 'Script (verbatim .eb)'"))
@@ -3926,6 +3927,40 @@ class Workspace(QMainWindow):
         if data.get("music"):
             bits.append("BGM")
         return self._muted("contents: " + (", ".join(bits) if bits else "empty"))
+
+    def _battle_party_lines(self, data):
+        """Read-only battle/party summary lines for a field's Inspector card: the encounter scene (id + its
+        resolved BSC_ name, so a debug-bucket id like BSC_B3_* is visible at a glance), the [party] add/remove
+        roster, and the [startup] beat. All offline -- no install, no battle-scene DATA read."""
+        from .. import catalog as _cat
+        from ..content import party as _party
+        lines = []
+        enc = data.get("encounter")
+        if isinstance(enc, dict) and enc.get("scene") is not None:
+            sid = enc.get("scene")
+            nm = _cat.scene_name(sid) if isinstance(sid, int) else None
+            lines.append(self._muted(f"encounter: scene {sid}" + (f" — {nm}" if nm else "")
+                                     + f" · freq {enc.get('freq', 255)}"))
+        pty = data.get("party")
+        if isinstance(pty, dict) and (pty.get("add") or pty.get("remove")):
+            def _who(m):
+                return _party.CHAR_OLD_INDEX.get(m, str(m)) if isinstance(m, int) else str(m)
+            roster = ([f"+{_who(m)}" for m in pty.get("add", []) or []]
+                      + [f"−{_who(m)}" for m in pty.get("remove", []) or []])
+            lines.append(self._muted("party: " + ", ".join(roster)))
+        su = data.get("startup")
+        if isinstance(su, dict) and (su.get("scenario") is not None or su.get("flags")):
+            bits = []
+            sc = su.get("scenario")
+            if sc is not None:
+                from .. import flags as _flags
+                beat = getattr(_flags, "SCENARIO_MILESTONES", {}).get(sc) if isinstance(sc, int) else None
+                bits.append(f"scenario {sc}" + (f" ({beat})" if beat else ""))
+            nf = len(su.get("flags", []) or [])
+            if nf:
+                bits.append(f"{nf} flag{'' if nf == 1 else 's'}")
+            lines.append(self._muted("startup: " + " · ".join(bits)))
+        return lines
 
     def _field_xrefs(self, name):
         """The member's doors as clickable cross-references -- the SAME edges the Map draws, resolved from the
@@ -4576,6 +4611,7 @@ def _smoke(win):
     win.tree.setCurrentItem(win._member_items["IC_ENT"])
     ib = win.insp_body.text()
     assert "contents:" in ib, ib
+    assert "party:" in ib and "Steiner" in ib, ib                  # read-only [party] roster (saved earlier)
     assert "exits to:" in ib and 'href="goto:IC_COR"' in ib, ib    # clickable member link
     # the goto link navigates: feeding it to the link dispatch selects that member in the tree
     win._inspect_link("goto:IC_COR")
