@@ -64,6 +64,58 @@ def donor_baseline(raw16: bytes, enemy: dict):
     return t, [(label, getattr(mon, attr)) for attr, label in _BASELINE_FIELDS]
 
 
+import re as _re
+
+_STRT_RE = _re.compile(r"^\[STRT=[^\]]*\]")
+
+
+def _mes_strings(mes_bytes: bytes):
+    """The battle ``.mes`` strings in order (index = the AA_DATA name id), the ``[STRT=..]`` prefix stripped."""
+    out = []
+    for chunk in mes_bytes.decode("utf-8", "replace").split("[ENDN]"):
+        if chunk.strip():
+            out.append(_STRT_RE.sub("", chunk).strip())
+    return out
+
+
+def donor_ai_facts(eb_bytes: bytes, raw16_bytes: bytes = None, mes_bytes: bytes = None):
+    """``(attacks, ai_funcs)`` for the forked scene -- the indices/entries the AI-phase form needs, or None if the
+    ``.eb`` doesn't parse. ``attacks`` = ``[(index, name)]`` (the ``then``/``else`` values; names resolved from the
+    ``.mes`` when given). ``ai_funcs`` = ``[(entry, type, tag, role, n_attacks)]`` per enemy-AI function -- a function
+    with EXACTLY ONE ``Attack`` is the ``ai_phase``-able target. Pure (no I/O) so it unit-tests without Qt."""
+    from ..battle.battleai import _decode_func_pretty, _tag_role
+    from ..eb.model import EbScript
+    try:
+        eb = EbScript.from_bytes(eb_bytes)
+    except Exception:                                       # noqa: BLE001 -- a truncated / non-battle eb
+        return None
+    ai_funcs = []
+    for e in eb.entries:
+        if e.empty or e.index == 0:                         # entry 0 = Main_Init (spawn binding, not an enrage target)
+            continue
+        for f in e.funcs:
+            try:
+                n_atk = sum(1 for _o, mn, _ops in _decode_func_pretty(eb.data, f.abs_start, min(f.abs_end, len(eb.data)))
+                            if mn == "Attack")
+            except Exception:                               # noqa: BLE001 -- malformed bytecode in one func
+                n_atk = -1
+            ai_funcs.append((e.index, e.index - 1, f.tag, _tag_role(f.tag), n_atk))
+    attacks = []
+    if raw16_bytes:
+        try:
+            from ..battle import scene_codec as _sc
+            scene = _sc.parse_scene(raw16_bytes)
+            # the battle .mes lists the `typ_count` enemy-TYPE names first, then the `atk_count` ATTACK names
+            # (AA_DATA.name is 0/unused for the display) -> attack i is string[typ_count + i].
+            strings = _mes_strings(mes_bytes) if mes_bytes else []
+            base = scene.typ_count
+            for i in range(len(scene.attacks)):
+                attacks.append((i, strings[base + i] if 0 <= base + i < len(strings) else "?"))
+        except Exception:                                   # noqa: BLE001
+            attacks = []
+    return attacks, ai_funcs
+
+
 def donor_scene_facts(raw16: bytes):
     """[(label, value)...] of the forked scene's CURRENT encounter rules (flags decoded to names) + its
     pattern/type/attack counts, for a read-only hint above the Formation form. None if the bytes don't parse.
@@ -293,6 +345,10 @@ class BattleDoc(QWidget):
             facts = self._donor_scene_facts()               # the donor's current rules + counts
             if facts is not None:
                 self.host_lay.addWidget(self._facts_panel("Donor scene (the fork you're tuning)", facts))
+        elif kind == _AIPHASE:
+            ai = self._donor_ai_facts()                     # the entry/tag + attack indices the form needs
+            if ai is not None:
+                self.host_lay.addWidget(self._ai_facts_panel(*ai))
         form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal)
         self.host_lay.addWidget(form)
         self.host_lay.addStretch(1)
@@ -324,6 +380,45 @@ class BattleDoc(QWidget):
             return donor_scene_facts(p.read_bytes())
         except OSError:
             return None
+
+    def _donor_ai_facts(self):
+        p = self._donor_scene_path()                        # scene/dbfile0000.raw16.bytes -> the scene/ dir
+        if not p or not p.is_file():
+            return None
+        eb = p.parent / "eb" / "us.eb.bytes"
+        if not eb.is_file():
+            return None
+        mes = p.parent / "mes" / "us.mes"
+        try:
+            return donor_ai_facts(eb.read_bytes(), p.read_bytes(), mes.read_bytes() if mes.is_file() else None)
+        except OSError:
+            return None
+
+    def _ai_facts_panel(self, attacks, ai_funcs):
+        import html
+        box = QGroupBox("Donor AI (this fork) — indices for the form below")
+        v = QVBoxLayout(box)
+        v.setContentsMargins(8, 4, 8, 4)
+        v.setSpacing(3)
+        enrage = [f"entry {e} tag {t}" for (e, _ty, t, _r, n) in ai_funcs if n == 1]   # exactly one Attack
+        e_txt = " · ".join(enrage) if enrage else "none — no AI function has exactly one Attack (use ai_insert)"
+        e_lbl = QLabel(f"<b>Enrage-able</b> (entry / tag): {html.escape(e_txt)}")
+        e_lbl.setWordWrap(True)
+        e_lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        v.addWidget(e_lbl)
+        if attacks:
+            atk = " · ".join(f"{i}={html.escape(str(nm))}" for i, nm in attacks)
+            a_lbl = QLabel(f"<b>Attacks</b> (then / else): {atk}")
+            a_lbl.setWordWrap(True)
+            a_lbl.setStyleSheet(f"color:{self.pal['muted']};")
+            v.addWidget(a_lbl)
+        other = [f"entry {e} tag {t} ({n} atk)" for (e, _ty, t, _r, n) in ai_funcs if n != 1]
+        if other:
+            o_lbl = QLabel(f"other AI funcs: {html.escape(' · '.join(other))}")
+            o_lbl.setWordWrap(True)
+            o_lbl.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+            v.addWidget(o_lbl)
+        return box
 
     def _baseline_panel(self, type_no, pairs):
         return self._facts_panel(f"Donor baseline — enemy type {type_no} (the forked stats you're tuning from)", pairs)

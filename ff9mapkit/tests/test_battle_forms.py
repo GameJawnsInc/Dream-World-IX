@@ -118,6 +118,12 @@ def test_donor_baseline_resolves_type_and_reads_stats():
     assert donor_baseline(raw16, {"slot": 0})[0] == 0
 
 
+def test_mes_strings_splits_and_strips_prefixes():
+    from ff9mapkit.workspace.battledoc import _mes_strings
+    raw = b"[STRT=33,1]Goblin[ENDN][STRT=27,1]Fang[ENDN][STRT=28,1]Knife[ENDN]"
+    assert _mes_strings(raw) == ["Goblin", "Fang", "Knife"]   # [STRT=..] stripped, split on [ENDN], trailing empty dropped
+
+
 def test_donor_scene_facts_decodes_flags_and_counts():
     from ff9mapkit.battle import scene_codec as sc
     from ff9mapkit.workspace.battledoc import donor_scene_facts

@@ -136,6 +136,20 @@ def test_battle_text_faithful_per_language():
     assert z["mes_note"] is None and len(z["mes"]["us"]) < 4000   # battle text, NOT the field-text collision
 
 
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+def test_donor_ai_facts_lists_entries_and_named_attacks():
+    # the AI-phase readout helper: the scene's attack table (names resolved from the .mes) + the AI functions,
+    # flagging the ai_phase-able ones (exactly one Attack). Reuses the disassembler + scene_codec.
+    from ff9mapkit.battle import extract
+    from ff9mapkit.workspace.battledoc import donor_ai_facts
+    a = extract.read_scene_assets("EF_R007")
+    facts = donor_ai_facts(a["eb"]["us"], a["raw16"], a["mes"]["us"])
+    assert facts is not None
+    attacks, ai_funcs = facts
+    assert any("Knife" in str(nm) for _i, nm in attacks)         # attack names resolved from the .mes
+    assert ai_funcs and any(n == 1 for *_h, n in ai_funcs)       # at least one enrage-able function (one Attack)
+
+
 # ----------------------------------------------------------------- install-gated: camera codec on a real donor
 @pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
 @pytest.mark.parametrize("donor", ["EF_R007"])
