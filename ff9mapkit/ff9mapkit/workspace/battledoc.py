@@ -46,6 +46,7 @@ class BattleDoc(QWidget):
         self.data = {}                   # the loaded dict (battlemap / scene / scene.enemy[])
         self._nodes = []                 # [(kind, idx)] parallel to the node-list rows
         self._ctx = None                 # {kind, idx, spec, getters} for the mounted form's Save
+        self._install_lists = {}         # cache: install-gated BBG / scene lists (read p0data once per session)
         self._build_ui()
 
     # ------------------------------------------------------------------ UI
@@ -293,18 +294,80 @@ class BattleDoc(QWidget):
         if d:
             line_edit.setText(d)
 
+    @staticmethod
+    def _browse_row(line_edit, on_browse):
+        """A line edit + a 'Browse…' button in one row (for the install-gated BBG / scene pickers)."""
+        row = QWidget()
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addWidget(line_edit, 1)
+        b = QPushButton("Browse…")
+        b.clicked.connect(on_browse)
+        h.addWidget(b)
+        return row
+
+    def _pick_install_list(self, title, loader, target, cache_key):
+        """Browse an INSTALL-gated list (BBGs / battle scenes, read from p0data via UnityPy) into ``target``.
+        Reads the install on first use (a brief wait), cached per session; a clean warning if the install /
+        UnityPy is absent (so a no-install workstation degrades gracefully instead of tracing back)."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication
+        rows = self._install_lists.get(cache_key)
+        if rows is None:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                rows = list(loader())
+            except Exception as e:                         # noqa: BLE001 -- no install / no UnityPy / read error
+                QApplication.restoreOverrideCursor()
+                return QMessageBox.warning(self, title, f"Couldn't read {title.lower()} — forking a battle "
+                                           f"needs UnityPy + your FF9 install.\n\n{type(e).__name__}: {e}")
+            finally:
+                QApplication.restoreOverrideCursor()
+            self._install_lists[cache_key] = rows
+        if not rows:
+            return QMessageBox.information(self, title, f"No {title.lower()} found in your install.")
+        name = self._choose(title, rows)
+        if name:
+            target.setText(name)
+
+    def _choose(self, title, rows):
+        """A simple searchable single-pick list dialog over ``rows`` (names); the chosen name, or None."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.resize(360, 460)
+        lay = QVBoxLayout(dlg)
+        q = QLineEdit()
+        q.setPlaceholderText("Filter…")
+        lay.addWidget(q)
+        lst = QListWidget()
+        lst.addItems(rows)
+        lay.addWidget(lst, 1)
+        q.textChanged.connect(lambda t: (lst.clear(), lst.addItems([r for r in rows if t.lower() in r.lower()])))
+        lst.itemDoubleClicked.connect(lambda _i: dlg.accept())
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        it = lst.currentItem()
+        return it.text() if it else None
+
     def _fork_dialog(self):
         if not self._run or not self.kit:
             return
+        from ..battle import extract as _ex
         dlg = QDialog(self)
         dlg.setWindowTitle("Fork a battle background")
         form = QFormLayout(dlg)
         bbg = QLineEdit()
-        bbg.setPlaceholderText("BBG_B013  (run `ff9mapkit battle-list` to browse)")
-        form.addRow("Background (BBG)", bbg)
+        bbg.setPlaceholderText("BBG_B013  (Browse… to pick from your install)")
+        form.addRow("Background (BBG)", self._browse_row(
+            bbg, lambda: self._pick_install_list("Battle backgrounds", _ex.list_battle_maps, bbg, "bbg")))
         donor = QLineEdit()
         donor.setPlaceholderText("optional — e.g. EF_R007 (mints a brand-new, separately-triggerable scene)")
-        form.addRow("Fork scene", donor)
+        form.addRow("Fork scene", self._browse_row(
+            donor, lambda: self._pick_install_list("Battle scenes", _ex.list_battle_scenes, donor, "scene")))
         outrow = QWidget()
         oh = QHBoxLayout(outrow)
         oh.setContentsMargins(0, 0, 0, 0)

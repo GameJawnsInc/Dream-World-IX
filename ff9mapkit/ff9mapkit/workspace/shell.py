@@ -4995,6 +4995,19 @@ def _smoke(win):
                                   "--fork-scene", "EF_R007"], forked["argv"]
     assert win.battle.path == (d / "forked_fight" / "battle.toml")        # auto-opened the forked result
     assert win.battle.data["battlemap"]["bbg"] == "BBG_B042"
+    # Fork-dialog Browse: an install-gated list -> _choose -> fills the field; read once, then CACHED
+    from PySide6.QtWidgets import QLineEdit as _QLE
+    _calls = []
+
+    def _bbg_loader():
+        _calls.append(1)
+        return ["BBG_B013", "BBG_B042"]
+
+    win.battle._choose = lambda _title, rows: rows[0] if rows else None
+    _bbg_edit = _QLE()
+    win.battle._pick_install_list("Battle backgrounds", _bbg_loader, _bbg_edit, "bbg")
+    win.battle._pick_install_list("Battle backgrounds", _bbg_loader, _bbg_edit, "bbg")   # cached: loader NOT re-run
+    assert _bbg_edit.text() == "BBG_B013" and len(_calls) == 1, (_bbg_edit.text(), _calls)
 
     # 6b: Build & Deploy + Import documents -- argv-building + in-process Check (no real subprocess launched)
     assert win.tabs.indexOf(win.build_deploy) >= 0 and win.tabs.indexOf(win.import_field) >= 0
@@ -5605,7 +5618,7 @@ def _smoke(win):
           f"catalog picker (+ scene-id) + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
           f"{win.item_equip.targets[0]['report'].gil}) + Battle doc (encounter/enemy + save round-trip + "
-          f"fork-battle auto-open) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
+          f"fork-battle auto-open + install-list browse) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
