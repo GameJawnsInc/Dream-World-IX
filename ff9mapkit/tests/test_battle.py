@@ -567,6 +567,31 @@ def test_camera_tweak_reports_no_headroom_when_distance_is_clamped():
     assert out[31] == 0 and "no change" in report[0]      # the silent-clamp case is now flagged
 
 
+def test_classify_battle_mes_anchors_english_duplicate_and_japanese():
+    from ff9mapkit.battle.extract import _classify_battle_mes
+    en = b"[STRT=33,1]Goblin[ENDN][STRT=27,1]Fang[ENDN]"
+    fr = b"[STRT=40,1]Gobelin[ENDN][STRT=38,1]Meiden[ENDN]"
+    jp = "[STRT=37,1]ゴブリン[ENDN]".encode("utf-8")
+    field = b"[STRT=69,9][TBLE=1,2,3]" + b"x" * 50000   # a FIELD-text block that collides on the same mesID
+    mes, note = _classify_battle_mes([fr, en, jp, en, field], 67)   # en is the us==uk duplicate
+    assert mes["us"] == en and mes["uk"] == en          # the byte-identical duplicate = English
+    assert mes["jp"] == jp                               # CJK = Japanese
+    assert mes["fr"] == fr                               # best-effort European (a _lang_of marker hit)
+    assert note is None
+    assert field not in mes.values()                    # the field-text collision is dropped
+
+
+def test_classify_battle_mes_warns_when_english_unidentifiable():
+    from ff9mapkit.battle.extract import _classify_battle_mes
+    fr = b"[STRT=20,1]Pile[ENDN][STRT=28,1]Face[ENDN]"   # no _lang_of marker, no duplicate
+    es = b"[STRT=20,1]Ton[ENDN][STRT=20,1]Son[ENDN]"
+    jp = "ゴブリン".encode("utf-8")
+    mes, note = _classify_battle_mes([fr, es, jp], 74)   # mirrors the collided Zorn/Thorn id
+    assert note and "ENGLISH" in note and "74" in note
+    assert mes["jp"] == jp                               # jp still anchored by CJK
+    assert all(v is not None for v in mes.values())      # ships a best-effort fallback (never crashes / no field text)
+
+
 def test_camera_opening_indices():
     assert camera_data.opening_indices(0) == [0]
     assert camera_data.opening_indices(2) == [2]

@@ -1181,6 +1181,8 @@ def _cmd_battle_import(args: argparse.Namespace) -> int:
         s = meta["scene"]
         print(f"  forked scene {s['donor']} (id {s['donor_id']}): raw16 {s['raw16']}B + raw17 {s['raw17']}B"
               f" + eb/mes x{s['langs']}  -> MINT (scene_id {args.id})")
+        if s.get("mes_note"):
+            print(f"warning: {s['mes_note']}", file=sys.stderr)
     print(f"  wrote  : {toml}  (+ {meta['bbg']}.fbx + image#.png"
           f"{' + scene/' if meta.get('scene') else ''})")
     nxt = ("edit %s.fbx in Blender / repaint PNGs, then: ff9mapkit battle-build %s" % (meta['bbg'], toml))

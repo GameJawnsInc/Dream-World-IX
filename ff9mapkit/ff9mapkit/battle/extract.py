@@ -207,8 +207,9 @@ def _grab(env, suffixes: dict) -> dict:
 
 
 def _lang_of(text: str):
-    """Classify a battle-text variant by language signature. All langs share entry COUNT/order (indices
-    are language-independent), so this only picks WHICH localized strings to ship per language."""
+    """A BEST-EFFORT content classifier for a battle-text variant -- the European markers are scene-specific
+    (drawn from the Goblin scene), so this only RELIABLY recognises Japanese (CJK) + a few stock words; the
+    English/duplicate + CJK anchors in :func:`_classify_battle_mes` do the heavy lifting now."""
     if any("぀" <= c <= "ヿ" or "一" <= c <= "鿿" for c in text):
         return "jp"
     if "Coltellata" in text or "Niente" in text:
@@ -222,6 +223,56 @@ def _lang_of(text: str):
     if "Goblin" in text and "Fang" in text:
         return "en"
     return None
+
+
+# A battle <id>.mes in resources.assets carries NO language path (env.container is empty) and the variant ORDER
+# is not consistent across scenes, so the languages are picked STRUCTURALLY, not by position:
+_MES_FIELD_MARKER = b"[TBLE="    # the SAME numeric mesID also names FIELD dialogue blocks (a [TBLE= string table,
+_MES_BATTLE_MAX = 8192          # tens of KB); battle text is small + has no [TBLE= -> drop the field collisions.
+
+
+def _has_cjk(raw: bytes) -> bool:
+    return any("぀" <= c <= "ヿ" or "一" <= c <= "鿿" for c in raw.decode("utf-8", "replace"))
+
+
+def _classify_battle_mes(variants: list, donor_id: int) -> tuple:
+    """Map the ``{donor_id}.mes`` TextAsset variants (a list of raw bytes, all sharing the name) to per-language
+    battle text -> ``({lang: bytes}, note)``. Reliable structural anchors (the order/content are NOT):
+      * DROP field-text collisions (``[TBLE=`` blocks -- the same mesID also names field dialogue).
+      * ``jp`` = the CJK variant; ``en`` (us+uk) = the byte-IDENTICAL duplicate FF9 ships for the two English
+        locales -- a scene-independent signal.
+      * ``it/fr/es/gr`` = a best-effort :func:`_lang_of` match, else English.
+    ``note`` warns when the English variant can't be confidently identified (a name-collided / partially
+    localised id), so the fork surfaces it instead of silently shipping the wrong language (the bug this fixes)."""
+    battle = [b for b in variants if _MES_FIELD_MARKER not in b and len(b) <= _MES_BATTLE_MAX]
+    if not battle:
+        battle = list(variants)                          # don't lose everything if the filter is too strict
+    jp = next((b for b in battle if _has_cjk(b)), None)
+    counts: dict = {}
+    for b in battle:
+        counts[b] = counts.get(b, 0) + 1
+    eng = next((b for b, c in counts.items() if c >= 2), None)        # us == uk duplicate = English
+    if eng is None:
+        eng = next((b for b in battle if _lang_of(b.decode("utf-8", "replace")) == "en"), None)
+    by: dict = {}
+    for b in battle:
+        if b == jp or b == eng:
+            continue
+        lang = _lang_of(b.decode("utf-8", "replace"))
+        if lang in ("it", "fr", "es", "gr"):
+            by.setdefault(lang, b)
+    latin = eng or next((b for b in battle if b is not jp), None) or jp
+    note = None
+    if eng is None:
+        note = (f"battle text {donor_id}.mes: couldn't confidently identify the ENGLISH variant among "
+                f"{len(battle)} candidate(s) -- a name-collided or partially-localised scene id; the US/UK "
+                f"text is a best-effort guess, so VERIFY the enemy names in-game (or pick another donor scene)")
+    pick = {"us": eng, "uk": eng, "jp": jp,
+            "fr": by.get("fr"), "it": by.get("it"), "es": by.get("es"), "gr": by.get("gr")}
+    mes = {l: (pick.get(l) or latin) for l in config.LANGS}
+    if any(v is None for v in mes.values()):
+        raise ValueError(f"battle text {donor_id}.mes: no usable variants found in resources.assets")
+    return mes, note
 
 
 def read_scene_assets(donor, game=None) -> dict:
@@ -262,31 +313,19 @@ def read_scene_assets(donor, game=None) -> dict:
     if missing:
         raise ValueError(f"battle eb for {donor!r} missing langs: {missing}")
 
-    # battle text: <donor_id>.mes lives in resources.assets, one per language
+    # battle text: <donor_id>.mes lives in resources.assets, one per language (NO language path -> classified
+    # structurally; the same mesID also names field dialogue, so field collisions are dropped). See _classify_battle_mes.
     ra = config.find_game_path(game) / "x64" / "FF9_Data" / "resources.assets"
     if not ra.exists():
         ra = config.find_game_path(game) / "FF9_Data" / "resources.assets"
     env_ra = UnityPy.load(str(ra))
-    by, eng = {}, None
     from ..extract import _raw_bytes
-    for o in env_ra.objects:
-        if o.type.name != "TextAsset":
-            continue
-        d = o.read()
-        if d.m_Name != f"{donor_id}.mes":
-            continue
-        raw = _raw_bytes(d)
-        lang = _lang_of(raw.decode("utf-8", "replace"))
-        if lang == "en":
-            eng = raw
-        elif lang:
-            by[lang] = raw
-    if eng is None and not by:
+    variants = [_raw_bytes(d) for o in env_ra.objects if o.type.name == "TextAsset"
+                for d in [o.read()] if d.m_Name == f"{donor_id}.mes"]
+    if not variants:
         raise ValueError(f"battle text {donor_id}.mes not found in resources.assets")
-    pick = {"us": eng, "uk": eng, "fr": by.get("fr"), "gr": by.get("gr"),
-            "it": by.get("it"), "es": by.get("es"), "jp": by.get("jp")}
-    mes = {l: (pick.get(l) or eng or next(iter(by.values()))) for l in config.LANGS}
-    return {"raw16": raw16, "raw17": raw17, "donor_id": donor_id, "eb": eb, "mes": mes}
+    mes, mes_note = _classify_battle_mes(variants, donor_id)
+    return {"raw16": raw16, "raw17": raw17, "donor_id": donor_id, "eb": eb, "mes": mes, "mes_note": mes_note}
 
 
 def write_scene_assets(out_dir, donor, game=None) -> dict:
@@ -303,7 +342,8 @@ def write_scene_assets(out_dir, donor, game=None) -> dict:
         (sdir / "eb" / f"{lang}.eb.bytes").write_bytes(a["eb"][lang])
         (sdir / "mes" / f"{lang}.mes").write_bytes(a["mes"][lang])
     return {"donor": donor.upper(), "donor_id": a["donor_id"],
-            "raw16": len(a["raw16"]), "raw17": len(a["raw17"]), "langs": len(config.LANGS)}
+            "raw16": len(a["raw16"]), "raw17": len(a["raw17"]), "langs": len(config.LANGS),
+            "mes_note": a.get("mes_note")}
 
 
 def list_battle_scenes(pattern=None, game=None) -> list[str]:
