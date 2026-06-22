@@ -123,7 +123,8 @@ class ImportDoc(QWidget):
         for c in (self.carry_npcs, self.carry_text, self.dialogue_stubs, self.save_moogle):
             cv.addWidget(c)
         v.addWidget(self.carry_box)
-        self._sync_mode()       # verbatim is default -> dim the art/carry boxes (verbatim carries them itself)
+        # NB: the initial _sync_mode() is deferred to the END of this method -- it now reads swap_player +
+        # writes mode_chip, neither of which exists yet here.
 
         # Walk as (player swap): who you CONTROL in the fork, decoupled from [party] MEMBERSHIP. Applies to
         # EITHER fork mode (the CLI forces --verbatim when set), so it lives OUTSIDE the verbatim-only carry box.
@@ -134,6 +135,7 @@ class ImportDoc(QWidget):
         self.swap_player.addItems(["", "zidane", "vivi", "steiner", "garnet", "freya", "quina", "eiko",
                                    "amarant"])
         self.swap_player.setCurrentText("")
+        self.swap_player.currentTextChanged.connect(self._sync_mode)   # a Walk-as FORCES verbatim -> reflect it live
         swap.addWidget(self.swap_player, 1)
         self.neutralize = QCheckBox("Neutralize scripted gestures")
         swap.addWidget(self.neutralize)
@@ -154,6 +156,9 @@ class ImportDoc(QWidget):
         out.addWidget(self.out, 1)
         out.addWidget(browse)
         v.addLayout(out)
+        self.mode_chip = QLabel("")             # live 'what will ACTUALLY run' -- the mode can be forced by Walk-as
+        self.mode_chip.setWordWrap(True)
+        v.addWidget(self.mode_chip)
         ids = QHBoxLayout()
         ids.addWidget(QLabel("Field id:"))
         self.fid = QLineEdit("4003")
@@ -171,20 +176,46 @@ class ImportDoc(QWidget):
         hint = QLabel("→ then deploy what you made on the Build & Deploy tab.")
         hint.setStyleSheet(f"color:{self.pal['muted']};")
         v.addWidget(hint)
+        self._sync_mode()       # now swap_player + mode_chip exist: set art/carry visibility + the resolved-mode chip
         return box
 
     def _art(self):
         return "borrow" if self.art_borrow.isChecked() else "editable" if self.art_editable.isChecked() else "native"
 
+    def _effective_verbatim(self):
+        """What the fork will ACTUALLY be. A non-empty 'Walk as' FORCES verbatim regardless of the mode radio
+        (the CLI requires --verbatim for --swap-player), so the true mode is mode_verbatim OR a swap."""
+        swap = self.swap_player.currentText().strip() if hasattr(self, "swap_player") else ""
+        return self.mode_verbatim.isChecked() or bool(swap)
+
     def _sync_mode(self, *_):
-        """Verbatim carries every NPC/prop/line + implies --native, so the art + carry boxes are IRRELEVANT --
-        HIDE them (a greyed box reads as 'blocked', a hidden one as 'not part of this choice') + pin art to
-        Native so a later switch back to Re-authorable starts from the recommended scene mode."""
-        verbatim = self.mode_verbatim.isChecked()
+        """Keep the UI honest about what will run. Verbatim carries every NPC/prop/line + implies --native, so
+        the art + carry boxes are IRRELEVANT -- HIDE them (a greyed box reads as 'blocked', a hidden one as
+        'not part of this choice') + pin art to Native. Crucially this keys off EFFECTIVE verbatim (mode OR a
+        Walk-as), so setting 'Walk as' visibly hides the editable scene/carry options (they won't apply) -- you
+        can never pick 'Editable scene' and silently get verbatim."""
+        verbatim = self._effective_verbatim()
         self.art_box.setVisible(not verbatim)
         self.carry_box.setVisible(not verbatim)
         if verbatim:
             self.art_native.setChecked(True)
+        if hasattr(self, "mode_chip"):
+            self._refresh_mode_chip()
+
+    def _refresh_mode_chip(self):
+        """The live 'Will fork: …' label by the Import button -- so you SEE the resolved mode before clicking,
+        and the Walk-as override is never silent."""
+        swap = self.swap_player.currentText().strip()
+        forced = bool(swap) and not self.mode_verbatim.isChecked()
+        if self._effective_verbatim():
+            txt = "Will fork: VERBATIM" + (" — forced by ‘Walk as’ (editable-scene / carry options ignored)"
+                                           if forced else " (real script + dialogue, not editable content)")
+            col = self.pal["warn"] if forced else self.pal["accent"]
+        else:
+            txt = "Will fork: RE-AUTHORABLE (editable [[npc]]/content)"
+            col = self.pal["accent"]
+        self.mode_chip.setText(txt)
+        self.mode_chip.setStyleSheet(f"color:{col};font-weight:600;")
 
     # ------------------------------------------------------------------ fork-a-region (import-chain)
     def _region_box(self):

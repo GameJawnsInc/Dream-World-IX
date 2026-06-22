@@ -5677,14 +5677,25 @@ def _smoke(win):
     imp.on_import()
     assert icap[-1][:5] == [sys.executable, "-m", "ff9mapkit", "import", "100"], icap[-1]
     assert "--verbatim" in icap[-1] and "--graft-player-funcs" not in icap[-1], icap[-1]
+    assert "VERBATIM" in imp.mode_chip.text(), imp.mode_chip.text()  # the live resolved-mode chip names what runs
     _ni = icap[-1].index("--name")
     assert icap[-1][_ni:_ni + 2] == ["--name", "MYFORK"], icap[-1]   # Name field -> argv passthrough
     imp.mode_authorable.setChecked(True)                         # RE-AUTHORABLE: the boxes appear
     assert not imp.art_box.isHidden() and not imp.carry_box.isHidden(), "authorable shows scene/carry"
+    assert "RE-AUTHORABLE" in imp.mode_chip.text(), imp.mode_chip.text()
     imp.art_editable.setChecked(True)
     imp.carry_text.setChecked(True)
     imp.on_import()
     assert "--verbatim" not in icap[-1] and "--editable" in icap[-1] and "--carry-text" in icap[-1], icap[-1]
+    # import-verbatim-bug fix: a 'Walk as' swap FORCES verbatim even in Re-authorable mode -> the editable
+    # scene / carry boxes HIDE (you can't pick 'Editable scene' and silently get verbatim) + the chip says so.
+    imp.swap_player.setCurrentText("vivi")
+    assert imp.art_box.isHidden() and imp.carry_box.isHidden(), "a Walk-as hides the editable/carry options"
+    assert "VERBATIM" in imp.mode_chip.text() and "Walk as" in imp.mode_chip.text(), imp.mode_chip.text()
+    imp.on_import()
+    assert "--verbatim" in icap[-1] and "--swap-player" in icap[-1] and "--editable" not in icap[-1], icap[-1]
+    imp.swap_player.setCurrentText("")                           # clearing Walk-as restores the editable options
+    assert not imp.art_box.isHidden() and "RE-AUTHORABLE" in imp.mode_chip.text(), imp.mode_chip.text()
     imp.mode_verbatim.setChecked(True)                           # back to verbatim: re-hide + re-pin Native
     assert imp.art_box.isHidden() and imp.art_native.isChecked(), "verbatim re-pins Native"
     # FORK A REGION (import-chain, the disc-1 workflow)
