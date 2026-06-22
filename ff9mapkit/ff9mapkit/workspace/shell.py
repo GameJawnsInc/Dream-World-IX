@@ -287,6 +287,7 @@ class Workspace(QMainWindow):
         self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
         self._content_crumbs = []                  # cached tree-driven trail -> restored when returning to a content tab
         self._content_chip = None                  # cached chip mode for the SELECTED node (hub/journey/campaign/field)
+        self._loose_parent = (None, None, None)    # (campaign.toml, member, name) when a loose field is a campaign member
         self.setWindowTitle("Dream World IX — Workspace")
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
@@ -1319,6 +1320,7 @@ class Workspace(QMainWindow):
             return
         self.plan = self.campaign_path = self.journey_name = None
         self.manifest = self.journey_root = self._journey_label_path = self._loose = None
+        self._loose_parent = (None, None, None)
         self.member_paths = {}
         self._docs = {}
         self._clean = {}
@@ -1730,6 +1732,7 @@ class Workspace(QMainWindow):
         self.manifest = None                       # a standalone field leaves any journey context
         self.journey_root = None
         self._loose = name
+        self._loose_parent = self._field_parent_campaign(path)   # is this loose field actually a campaign member?
         self.member_paths = {name: path.resolve()}
         self._docs = {name: doc}
         self._clean = {name: copy.deepcopy(doc.data)}
@@ -1756,6 +1759,42 @@ class Workspace(QMainWindow):
         mi.addChild(self._mk("__lazy__", "loading…"))   # lazy object load on expand (same as a member)
         mi.setExpanded(True)
         self._refresh_dirty_marks()                     # reserve the icon slot from the first paint
+
+    def _field_parent_campaign(self, field_path):
+        """If a standalone field.toml is actually a MEMBER of a campaign, return (campaign.toml, member_name,
+        campaign_name); else (None, None, None). Reverse-searches campaign.toml in the field's own dir + up to
+        2 ancestors and matches by RESOLVED member path (mirrors open_campaign's member_paths resolution) -- so
+        a loosely-opened member can jump UP into its full campaign context (the spine made two-way; do-now #5)."""
+        try:
+            field_path = Path(field_path).resolve()
+        except Exception:                              # noqa: BLE001
+            return (None, None, None)
+        d = field_path.parent
+        for _ in range(3):                             # the field's own dir, then up to 2 ancestors
+            ct = d / "campaign.toml"
+            if ct.is_file():
+                try:
+                    plan = C.load_campaign(ct)
+                    for m in plan.members:
+                        if (ct.parent / m.toml_rel).resolve() == field_path:
+                            return (ct, m.name, plan.name)
+                except Exception:                      # noqa: BLE001  -- a malformed campaign.toml just doesn't match
+                    pass
+            if d.parent == d:
+                break
+            d = d.parent
+        return (None, None, None)
+
+    def _open_parent_campaign(self):
+        """The upward jump: promote the open loose field into its parent campaign -- open the campaign, then
+        select THIS field within it, so you keep editing the same field but now WITH the Map / cross-refs /
+        siblings (today journey->campaign is one-way; this makes field->campaign traversable too)."""
+        ct, member, _name = self._loose_parent
+        if ct is None:
+            return
+        if self.open_campaign(ct) and member in getattr(self, "_member_items", {}):
+            self._select_member(member)
+            self.tabs.setCurrentWidget(self.doc_scroll)   # you were editing the field -> its Editor, not the Map
 
     def open_campaign(self, path, *, keep_journey=False) -> bool:
         if not self._maybe_prompt_unsaved():
@@ -4179,6 +4218,8 @@ class Workspace(QMainWindow):
             self.on_set_journey_seed(href[len("jseed:"):])
         elif href.startswith("jtuning:"):
             self.on_set_journey_tuning(href[len("jtuning:"):])
+        elif href == "openparent":
+            self._open_parent_campaign()
 
     def _goto_battle_scene(self, sid_text):
         """Cross-tab jump from a field's [[encounter]] to the Battle tab. battle.toml is a standalone SIBLING
@@ -4284,6 +4325,10 @@ class Workspace(QMainWindow):
                           self._muted(f"source: real field {m.real_id} · mode: {m.mode}")]
         elif doc is not None:
             lines.append(f"field id: {(doc.data.get('field') or {}).get('id')}")
+        if self.plan is None and name == self._loose and self._loose_parent[0] is not None:
+            cname = self._loose_parent[2] or self._loose_parent[0].parent.name   # the upward jump (do-now #5)
+            lines.append(f'▣ part of campaign <b>{_esc(str(cname))}</b> — '
+                         + self._link("openparent", "Open the campaign (full context)"))
         if doc is not None:
             lines.append(self._rollup(doc.data))
             lines += self._battle_party_lines(doc.data)     # encounter scene / [party] / [startup] read-only detail
@@ -6192,6 +6237,20 @@ def _smoke(win):
         assert "ALEXFORK" not in win._unsaved(), "save cleared the dot"
         add_ok = True
 
+    # do-now #5: a loosely-opened campaign MEMBER detects its parent + can jump UP into the full campaign
+    # (the spine made two-way). Re-open the early IC campaign (still on disk) to grab a real member path.
+    assert win.open_campaign(d / "campaign.toml")
+    _memberp = win.member_paths["IC_ENT"]
+    assert win.open_field(_memberp) and win._loose, "opened a campaign member as a standalone field"
+    assert win._loose_parent[0] is not None and win._loose_parent[1] == "IC_ENT", win._loose_parent
+    win.tree.setCurrentItem(win._member_items[win._loose])             # select it -> the Inspector offers the jump
+    assert 'href="openparent"' in win.insp_body.text(), win.insp_body.text()
+    win._open_parent_campaign()
+    assert win.plan is not None and win._loose is None, "the upward jump opened the parent campaign"
+    assert win._payload(win.tree.currentItem())[1] == "IC_ENT", "and kept us on the same field"
+    # a TRULY standalone field (no parent campaign) shows no jump
+    assert win.open_field(af) and win._loose_parent[0] is None, "a standalone field has no parent campaign"
+
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field+party+startup round-trip) + cutscene/choice sub-editors + "
           f"catalog picker (+ scene-id) + Open Field (standalone authored) + Save docs (Story State SC "
@@ -6204,7 +6263,8 @@ def _smoke(win):
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs + encounter->Battle jump) + "
           f"persistent CHIP names the SELECTED node's type (hub/journey/campaign/field) + breadcrumb truthful "
           f"per-tab (content/battle/save/build) + distinct hub⌂/journey◆ glyphs + type tooltips + Close-to-empty + "
-          f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing') + JOURNEY mode "
+          f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing') + "
+          f"loose-field→parent-campaign upward jump + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
