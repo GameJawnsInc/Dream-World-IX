@@ -442,13 +442,16 @@ def _donor_battle_song(field_id, enc, game):
 
 def _donor_battle_bgm_pairs(eb_bytes, field_id, game):
     """``(scene, song)`` pairs for a VERBATIM fork: the donor's SCRIPTED battle scenes
-    (``Battle``/``BattleEx``, :func:`eventscan.scan_battle_scenes`) whose real song is NON-ZERO -- a
-    boss/special battle theme. A mint's custom ``fldMapNo`` misses the engine's ``(field, scene)`` BGM
-    lookup, so the carried ``Battle`` op would play the field BGM instead of the boss theme; each pair makes
-    the build emit a SCENE-keyed ``Music:`` line (``BtlBgmPatcherMapper``) that reproduces it regardless of
-    the custom id. Song 0 (the standard Battle Theme) is skipped -- it's the build default and would override
-    the scene's BGM globally for no gain. ``[]`` when nothing qualifies. Best-effort: never raises (BGM is a
-    nicety, must not block a fork) -- so a missing install / no UnityPy just yields ``[]``."""
+    (``Battle``/``BattleEx``, :func:`eventscan.scan_battle_scenes`) with their REAL song -- INCLUDING song 0
+    (the standard Battle Theme). A mint's custom ``fldMapNo`` misses the engine's ``(field, scene)`` BGM
+    lookup, so the carried ``Battle`` op gets no song and the field BGM bleeds into the battle (often
+    silence); each pair makes the build emit a SCENE-keyed ``Music:`` line (``BtlBgmPatcherMapper``) that
+    reproduces the donor's song regardless of the custom id. Song 0 IS emitted: a verbatim fork has no
+    declarative ``[encounter]`` default to fall back on, so a song-0 scripted battle (e.g. the Baku tutorial
+    fight, field 50 scene 336) is SILENT without an explicit ``Music: 0``. Only an UNMAPPED scene (``song``
+    is ``None`` -- e.g. the staged-play sword fight, which intentionally keeps the play BGM) is skipped.
+    ``[]`` when nothing qualifies. Best-effort: never raises (BGM is a nicety, must not block a fork) -- so a
+    missing install / no UnityPy just yields ``[]``."""
     if field_id is None:
         return []
     try:
@@ -456,7 +459,7 @@ def _donor_battle_bgm_pairs(eb_bytes, field_id, game):
         pairs = []
         for scene in eventscan.scan_battle_scenes(eb_bytes):
             song = _bbgm.song(field_id, scene, game)
-            if song:                                         # non-zero special/boss theme only
+            if song is not None:                             # the donor's real song, 0 (Battle Theme) included
                 pairs.append((scene, song))
         return pairs
     except Exception:                                        # noqa: BLE001 -- BGM detection never blocks the fork
@@ -469,7 +472,8 @@ def _render_battle_bgm_blocks(pairs) -> str:
         return ""
     out = ["# --- Donor BATTLE BGM for the SCRIPTED battles this verbatim fork triggers: a mint loses the\n"
            "# engine's (field, scene) song lookup, so each scene-keyed Music: line reproduces the donor's\n"
-           "# real (boss/special) battle theme on the custom id. (FORK_FIDELITY.md #6.) ---"]
+           "# real battle theme on the custom id -- including song 0 (the standard Battle Theme), without\n"
+           "# which a song-0 scripted battle like the Baku tutorial fight is SILENT. (FORK_FIDELITY.md #6.) ---"]
     out += [f"[[battle_bgm]]\nscene = {scene}\nsong = {song}" for scene, song in pairs]
     return "\n\n".join(out)
 

@@ -107,11 +107,14 @@ def test_scan_battle_scenes_finds_inserted_battle_op_masking_high_bit():
 
 
 # ---- the verbatim battle-bgm carry: pairs + block render ----------------------------------------
-def test_donor_battle_bgm_pairs_keeps_nonzero_skips_zero_and_unknown(monkeypatch):
+def test_donor_battle_bgm_pairs_keeps_real_songs_incl_zero_skips_only_unmapped(monkeypatch):
+    # song 0 (the standard Battle Theme) MUST be carried: a verbatim fork has no [encounter] default, so a
+    # song-0 scripted battle (e.g. the Baku tutorial, field 50 scene 336) is SILENT without a Music: 0 line.
+    # Only an UNMAPPED scene (None -- e.g. the staged-play fight that keeps the play BGM) is skipped.
     monkeypatch.setattr(eventscan, "scan_battle_scenes", lambda eb: [330, 67, 999])
-    songs = {(656, 330): 35, (656, 67): 0}      # 67 -> 0 (default), 999 -> None (unmapped)
+    songs = {(656, 330): 35, (656, 67): 0}      # 330 -> 35 (boss), 67 -> 0 (Battle Theme), 999 -> None (unmapped)
     monkeypatch.setattr(battle_bgm, "song", lambda fid, sc, game=None: songs.get((fid, sc)))
-    assert extract._donor_battle_bgm_pairs(b"\x00", 656, None) == [(330, 35)]
+    assert extract._donor_battle_bgm_pairs(b"\x00", 656, None) == [(330, 35), (67, 0)]
     assert extract._donor_battle_bgm_pairs(b"\x00", None, None) == []   # no donor id -> nothing
 
 
