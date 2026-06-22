@@ -94,6 +94,14 @@ def test_flag_bands_warns_handshake_and_scratch(tmp_path):
     assert lint_flag_bands(_load(tmp_path, set_flag=16320, requires_flag=200))     # choice_scratch
 
 
+# ---------------------------------------------------------------- lint_logic: model-bucket encounter scene
+def test_lint_warns_on_model_bucket_encounter_scene(tmp_path):
+    from ff9mapkit.build import lint_logic
+    body = '[field]\nid = 4003\nname = "T"\narea = 11\n\n[encounter]\nscene = {scene}\n'
+    assert any("MODEL-BUCKET" in w for w in lint_logic(_load(tmp_path, body=body.format(scene=472))))   # BSC_B3_*
+    assert not any("MODEL-BUCKET" in w for w in lint_logic(_load(tmp_path, body=body.format(scene=67))))  # real EF
+
+
 # ---------------------------------------------------------------- lint_logic: story-branch doors (#2)
 
 def test_lint_warns_on_ungated_co_zone_gateways(tmp_path):

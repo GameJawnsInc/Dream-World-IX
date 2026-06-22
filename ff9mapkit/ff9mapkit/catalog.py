@@ -234,10 +234,27 @@ def npc_anims(name_or_id, *, use_catalog: bool = True) -> dict:
 
 
 # ----------------------------------------------------------- battle scenes ---
-def battle_scenes(query=None) -> list:
-    """``[(name, id), ...]`` sorted by name; ``query`` filters by name substring (case-insensitive)."""
+def _is_model_bucket(name) -> bool:
+    """A ``BSC_B3_*`` name is the MODEL bucket (176 entries) -- a model holder, NOT a fightable encounter.
+    Picking one as a field's random-battle scene crashes in-game (``InitBattleScene`` null-ref; see the
+    ``scene_name`` note + ``eb/opcodes.py``). The two scene namespaces are disjoint (this published BSC_ table
+    vs the install's region-coded loadable set), so there's no install cross-ref -- this name rule IS the guard."""
+    return bool(name) and str(name).upper().startswith("BSC_B3_")
+
+
+def battle_scenes(query=None, *, include_model_bucket=False) -> list:
+    """``[(name, id), ...]`` sorted by name; ``query`` filters by name substring (case-insensitive). The
+    ``BSC_B3_*`` MODEL bucket (176 non-fightable model holders that crash as an encounter) is EXCLUDED by
+    default -- it's not a pickable encounter; pass ``include_model_bucket=True`` for the raw table."""
     q = (query or "").lower()
-    return sorted((nm, sid) for nm, sid in SCENES.items() if not q or q in nm.lower())
+    return sorted((nm, sid) for nm, sid in SCENES.items()
+                  if (include_model_bucket or not _is_model_bucket(nm)) and (not q or q in nm.lower()))
+
+
+def is_model_bucket_scene(scene_id) -> bool:
+    """True if an encounter id resolves to a ``BSC_B3_*`` model-bucket name (not fightable) -- the build/Check
+    lint uses this to flag a hand-authored or mis-picked ``[encounter] scene``."""
+    return _is_model_bucket(scene_name(scene_id))
 
 
 _SCENE_BY_ID = None

@@ -131,8 +131,12 @@ def test_npc_anims_empty_for_non_field_model():
 # --- battle scenes -----------------------------------------------------------
 def test_battle_scenes_and_resolve():
     rows = C.battle_scenes()
-    assert len(rows) == 856
-    assert all(nm.startswith("BSC_") for nm, _ in rows)
+    assert len(rows) == 680                              # the 176 BSC_B3_* MODEL bucket is excluded by default
+    assert all(nm.startswith("BSC_") and not nm.startswith("BSC_B3_") for nm, _ in rows)
+    assert len(C.battle_scenes(include_model_bucket=True)) == 856   # the raw published table
+    # the model-bucket ids the picker now HIDES (they crash in-game) are still flagged by is_model_bucket_scene
+    assert C.is_model_bucket_scene(472) and C.is_model_bucket_scene(524)
+    assert not C.is_model_bucket_scene(67)               # a real Evil Forest encounter is fightable
     name, sid = rows[0]
     assert C.resolve_scene(name) == sid
     assert C.resolve_scene(67) == 67                     # a raw id passes through

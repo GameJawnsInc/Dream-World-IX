@@ -1440,6 +1440,17 @@ def lint_logic(project: FieldProject) -> list[str]:
                        "trigger is injected only on the synthesize path (bypassed by a verbatim fork). The "
                        "donor's own encounters still play; on a verbatim fork [encounter] only sets the battle "
                        "BGM. Fork re-authorable (or author a synthesized field) to ADD encounters.")
+    enc = raw.get("encounter")                     # a model-bucket [encounter] scene crashes in-game (the picker
+    if isinstance(enc, dict) and enc.get("scene") is not None:   # hides these, but a hand-authored id can still slip)
+        from . import catalog as _cat
+        try:
+            sid = _cat.resolve_scene(enc["scene"])
+            if _cat.is_model_bucket_scene(sid):
+                out.append(f"[encounter] scene {enc['scene']!r} -> {_cat.scene_name(sid)} is a MODEL-BUCKET id "
+                           f"(BSC_B3_*), not a fightable encounter -- it crashes in-game (InitBattleScene "
+                           f"null-ref). Pick a real battle scene (the encounter picker hides the model bucket).")
+        except ValueError:
+            pass                                   # an unknown name is a separate resolve_scene error at build
     _auto = _FlagAlloc(getattr(project, "flag_base", None))   # mirror build_script's auto-allocation EXACTLY
 
     # flags that can ever become SET: event set_flag targets + each once-event's guard flag.
