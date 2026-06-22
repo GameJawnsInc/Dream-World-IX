@@ -107,7 +107,8 @@ class ImportDoc(QWidget):
         av = QVBoxLayout(self.art_box)
         self.art_native = QRadioButton("Native — seamless, faithful occlusion + lighting; ANY field (recommended)")
         self.art_borrow = QRadioButton("BG-borrow — reuse the real art via DictionaryPatch (fast; area ≥ 10)")
-        self.art_editable = QRadioButton("Editable scene — repaintable per-depth layers (needs an in-game export)")
+        self.art_editable = QRadioButton("Editable scene — repaintable per-depth layers, but SEAM-PRONE "
+                                         "(to repaint seamlessly, fork Native + use ‘Repaint a native fork’ below)")
         self.art_native.setChecked(True)
         for r in (self.art_native, self.art_borrow, self.art_editable):
             av.addWidget(r)
@@ -465,15 +466,16 @@ class ImportDoc(QWidget):
         v = QVBoxLayout(box)
         lbl = QLabel("A NATIVE fork ships its background as a tile-packed atlas.png — awkward to paint by hand. "
                      "Unpack it into spatial Overlay*.png layers (one per depth band, the same picture the engine "
-                     "renders), repaint them in any editor, then Pack them back into atlas.png — seamless, no game "
-                     "needed. The atlas stays byte-identical until you actually change a layer.")
+                     "renders), repaint them in any editor, then Pack them back into atlas.png — SEAMLESS, no game "
+                     "needed. The atlas stays byte-identical until you actually change a layer. THEN deploy the "
+                     "NATIVE *.field.toml (not an editable .bgx fork — those are seam-prone).")
         lbl.setWordWrap(True)
         lbl.setStyleSheet(muted)
         v.addWidget(lbl)
         row = QHBoxLayout()
         row.addWidget(QLabel("Native project:"))
         self.rp_proj = QLineEdit()
-        self.rp_proj.setPlaceholderText("the fork folder — has scene.bgs.bytes + atlas.png + a *.field.toml")
+        self.rp_proj.setPlaceholderText("the NATIVE fork folder or its .field.toml — needs scene.bgs.bytes + atlas.png")
         rb = QPushButton("Browse…")
         rb.clicked.connect(self.browse_repaint)
         row.addWidget(self.rp_proj, 1)
@@ -489,8 +491,9 @@ class ImportDoc(QWidget):
         btns.addStretch(1)
         btns.addWidget(self.rp_pack_btn)
         v.addLayout(btns)
-        hint = QLabel("Native forks only (BG-borrow reuses the real art; an editable scene already ships "
-                      "repaintable per-depth PNGs). → then deploy on Build & Deploy to see the repaint in-game.")
+        hint = QLabel("Native forks only — this is the seamless+repaintable path. (BG-borrow reuses the real "
+                      "art; an editable .bgx fork is repaintable too but SEAM-PRONE.) → then deploy the NATIVE "
+                      "field.toml on Build & Deploy to see the repaint in-game.")
         hint.setWordWrap(True)
         hint.setStyleSheet(muted)
         v.addWidget(hint)

@@ -1940,21 +1940,40 @@ _REPAINT_MANIFEST = "repaint.manifest.json"
 
 
 def _native_project_paths(project_dir):
-    """``(field_cfg, bgs_path, atlas_path)`` for a native project dir. Reads the field.toml's
-    ``[field] bgs``/``atlas`` (a native fork always sets them), falling back to the writer's defaults
-    (``scene.bgs.bytes`` / ``atlas.png``). ``field_cfg`` is the parsed ``[field]`` table (carries
-    ``atlas_tile_size`` when the fork recorded it). Raises ``FileNotFoundError`` if not a native scene."""
+    """``(proj_dir, field_cfg, bgs_path, atlas_path)`` for a native scene. ``project_dir`` may be a project
+    DIRECTORY or a specific ``*.field.toml``. When a directory holds several field.tomls (e.g. a native AND an
+    editable fork of the same field side by side), the one that DECLARES a native scene (``[field] bgs`` +
+    ``atlas``) is chosen -- so the repaint never silently grabs an editable/.bgx fork that merely shares the
+    folder's ``atlas.png``. ``field_cfg`` carries ``atlas_tile_size`` when the fork recorded it. Raises
+    ``FileNotFoundError`` (with a pointer to native) if the project is editable/BG-borrow, not native."""
     import tomllib  # noqa: PLC0415
-    proj = Path(project_dir)
-    tomls = sorted(proj.glob("*.field.toml"))
-    fcfg = tomllib.loads(tomls[0].read_text(encoding="utf-8")).get("field", {}) if tomls else {}
+    p = Path(project_dir)
+    if p.is_file() and p.name.endswith(".field.toml"):       # an explicit field.toml -> use exactly it
+        proj = p.parent
+        cfgs = [(p, tomllib.loads(p.read_text(encoding="utf-8")).get("field", {}))]
+    else:
+        proj = p
+        cfgs = [(t, tomllib.loads(t.read_text(encoding="utf-8")).get("field", {}))
+                for t in sorted(proj.glob("*.field.toml"))]
+    native = [(t, f) for t, f in cfgs if f.get("bgs") and f.get("atlas")]
+    if native:
+        _ftoml, fcfg = native[0]
+    elif cfgs:                                               # field.toml(s) present but none native
+        raise FileNotFoundError(
+            f"{proj}: no NATIVE scene here -- {cfgs[0][0].name} ships no [field] bgs/atlas, so it's an "
+            f"editable (.bgx) or BG-borrow fork. repaint-native is for NATIVE forks; editable (.bgx) scenes "
+            f"are seam-prone by design (the seamless+repaintable path is native). Re-fork with native art "
+            f"(`ff9mapkit import <field>`, the default) into a FRESH folder and repaint that -- then deploy "
+            f"its native field.toml.")
+    else:
+        fcfg = {}
     bgs_path = proj / fcfg.get("bgs", "scene.bgs.bytes")
     atlas_path = proj / fcfg.get("atlas", "atlas.png")
     if not bgs_path.is_file() or not atlas_path.is_file():
         raise FileNotFoundError(
             f"{proj}: not a native scene project (need a {bgs_path.name} + {atlas_path.name}). "
             f"Fork one with `ff9mapkit import <field>` (native is the default).")
-    return fcfg, bgs_path, atlas_path
+    return proj, fcfg, bgs_path, atlas_path
 
 
 def _derive_native_tile_size(bgs_bytes: bytes, atlas_w: int, atlas_h: int) -> int:
@@ -1983,8 +2002,7 @@ def export_native_repaint(project_dir, out_dir=None) -> dict:
     Repaint any layer, then :func:`repack_native_atlas`. Returns a summary dict. Self-contained: operates
     only on the project's own scene.bgs.bytes + atlas.png (no game/UnityPy needed)."""
     from PIL import Image  # noqa: PLC0415
-    proj = Path(project_dir)
-    fcfg, bgs_path, atlas_path = _native_project_paths(proj)
+    proj, fcfg, bgs_path, atlas_path = _native_project_paths(project_dir)
     out = Path(out_dir) if out_dir is not None else proj / "repaint"
     out.mkdir(parents=True, exist_ok=True)
     bgs_bytes = bgs_path.read_bytes()
@@ -2015,8 +2033,7 @@ def repack_native_atlas(project_dir, repaint_dir=None, *, backup=True) -> dict:
     to ``backups/<atlas>.<timestamp>`` first. Returns a summary dict."""
     from datetime import datetime  # noqa: PLC0415
     from PIL import Image  # noqa: PLC0415
-    proj = Path(project_dir)
-    fcfg, bgs_path, atlas_path = _native_project_paths(proj)
+    proj, fcfg, bgs_path, atlas_path = _native_project_paths(project_dir)
     rp = Path(repaint_dir) if repaint_dir is not None else proj / "repaint"
     if not rp.is_dir():
         raise FileNotFoundError(f"{rp}: no repaint layers -- run `export_native_repaint` first.")

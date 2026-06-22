@@ -258,6 +258,41 @@ def test_export_requires_a_native_project(tmp_path):
         extract.export_native_repaint(tmp_path / "bare")
 
 
+def test_repaint_prefers_the_native_toml_in_a_mixed_folder(tmp_path):
+    # a native AND an editable fork of the same field can share a folder (the real ALXT_NATIVE + ALXT_EDIT
+    # case): the repaint must target the NATIVE one, not the editable .bgx fork that merely shares atlas.png.
+    from ff9mapkit import extract
+    proj, _ = _synth_native_project(tmp_path)                  # writes NAT.field.toml (native) + bgs + atlas
+    (proj / "AAA_EDIT.field.toml").write_text(                 # alphabetically BEFORE "NAT" -- the old bug picked this
+        '[field]\nid = 4003\nname = "AAA_EDIT"\narea = 11\n[[layers]]\nimage = "layer_0.png"\nz = 0\n',
+        encoding="utf-8")
+    rep = extract.export_native_repaint(proj)                  # must pick the native fork
+    assert rep["overlays"] == 1 and rep["tile_size"] == 16
+
+
+def test_repaint_rejects_an_editable_only_project(tmp_path):
+    # an editable/.bgx fork (field.toml with [[layers]], no [field] bgs/atlas) -- even with a stray atlas.png
+    # in the folder -- must be REFUSED with a pointer to native, not silently repacked.
+    from ff9mapkit import extract
+    from PIL import Image
+    d = tmp_path / "edit"
+    d.mkdir()
+    (d / "E.field.toml").write_text(
+        '[field]\nid = 4003\nname = "E"\narea = 11\n[[layers]]\nimage = "l.png"\nz = 0\n', encoding="utf-8")
+    Image.new("RGBA", (64, 64)).save(d / "atlas.png")         # a stray atlas (as in the user's mixed folder)
+    (d / "scene.bgs.bytes").write_bytes(_make_bgs([[(0, 0)]]))
+    with pytest.raises(FileNotFoundError, match="editable"):
+        extract.export_native_repaint(d)
+
+
+def test_repaint_accepts_an_explicit_field_toml(tmp_path):
+    from ff9mapkit import extract
+    proj, _ = _synth_native_project(tmp_path)
+    rep = extract.export_native_repaint(proj / "NAT.field.toml")   # point at the file directly
+    assert rep["overlays"] == 1
+    assert (proj / "repaint" / "Overlay0.png").is_file()
+
+
 def test_derive_native_tile_size_picks_the_largest_that_fits(tmp_path):
     from ff9mapkit import extract
     data = _make_bgs([[(0, 0), (16, 0), (32, 0), (0, 16)]])     # 4 tiles, base-16 pixel offsets
