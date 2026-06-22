@@ -275,6 +275,67 @@ def _classify_battle_mes(variants: list, donor_id: int) -> tuple:
     return mes, note
 
 
+def _ff9_data_dir(game=None):
+    """The FF9_Data dir holding ``mainData`` + ``resources.assets`` (x64 build, with a non-x64 fallback)."""
+    d = config.find_game_path(game) / "x64" / "FF9_Data"
+    if not (d / "resources.assets").exists():
+        d = config.find_game_path(game) / "FF9_Data"
+    return d
+
+
+def _read_battle_text(donor_id, game=None) -> tuple:
+    """Read each language's battle ``<id>.mes`` by its REAL resource path -- the faithful, collision-safe read.
+
+    The engine fetches battle text via ``AssetManager.LoadString("EmbeddedAsset/Text/<LANG>/Battle/<id>.mes")``
+    -> ``Resources.Load`` (FF9TextTool.GetBattleText / EmbadedTextResources.GetCurrentPath). That resource path
+    -> asset mapping is the ResourceManager's ``m_Container`` (in ``mainData``; its PPtrs resolve into
+    ``resources.assets``). Reading by that path gives the EXACT per-language text -- no content heuristics, no
+    order assumptions, and the FIELD text at ``.../Field/<id>`` no longer collides with the same numeric mesID.
+    Falls back to the structural classifier only if the index can't be read. Returns ``({lang: bytes}, note)``."""
+    UnityPy = _unitypy()
+    from ..extract import _raw_bytes
+    data_dir = _ff9_data_dir(game)
+    try:                                                     # mainData + resources.assets so the PPtrs resolve
+        env = UnityPy.load(str(data_dir / "mainData"), str(data_dir / "resources.assets"))
+        rm = next((o.read() for o in env.objects
+                   if getattr(getattr(o, "type", None), "name", "") == "ResourceManager"), None)
+        if rm is None:
+            raise LookupError("no ResourceManager in mainData")
+        index = {str(path).lower(): ptr for path, ptr in rm.m_Container}
+    except Exception as ex:                                  # noqa: BLE001 -- index unreadable -> heuristic scan
+        return _classify_from_scan(donor_id, game, note_prefix=f"battle-text index unreadable ({ex}); ")
+    mes, missing = {}, []
+    for lang in config.LANGS:
+        ptr = index.get(f"embeddedasset/text/{lang}/battle/{donor_id}.mes")
+        if ptr is None:
+            missing.append(lang)
+        else:
+            mes[lang] = _raw_bytes(ptr.read())
+    if not mes:                                             # the id isn't in the battle-text index at all
+        return _classify_from_scan(donor_id, game,
+                                   note_prefix=f"no battle-text path for id {donor_id} in the index; ")
+    fill = mes.get("us") or mes.get("uk") or next(iter(mes.values()))   # rare: a lang absent -> use English
+    for lang in missing:
+        mes[lang] = fill
+    note = (f"battle text {donor_id}.mes: language(s) {', '.join(missing)} absent from the index -- used English"
+            if missing else None)
+    return {l: mes[l] for l in config.LANGS}, note
+
+
+def _classify_from_scan(donor_id, game, *, note_prefix=""):
+    """FALLBACK only (the ResourceManager index couldn't be read): the name-scan + structural classifier. Less
+    faithful (en/jp anchored, European best-effort) but keeps the fork working. See :func:`_classify_battle_mes`."""
+    UnityPy = _unitypy()
+    from ..extract import _raw_bytes
+    env_ra = UnityPy.load(str(_ff9_data_dir(game) / "resources.assets"))
+    variants = [_raw_bytes(d) for o in env_ra.objects if o.type.name == "TextAsset"
+                for d in [o.read()] if d.m_Name == f"{donor_id}.mes"]
+    if not variants:
+        raise ValueError(f"battle text {donor_id}.mes not found in resources.assets")
+    mes, note = _classify_battle_mes(variants, donor_id)
+    return mes, (note_prefix + note if note else (note_prefix or None))
+
+
 def read_scene_assets(donor, game=None) -> dict:
     """Fork a real battle SCENE's gameplay+sequence+text out of the install (for a tier-c mint).
 
@@ -313,18 +374,8 @@ def read_scene_assets(donor, game=None) -> dict:
     if missing:
         raise ValueError(f"battle eb for {donor!r} missing langs: {missing}")
 
-    # battle text: <donor_id>.mes lives in resources.assets, one per language (NO language path -> classified
-    # structurally; the same mesID also names field dialogue, so field collisions are dropped). See _classify_battle_mes.
-    ra = config.find_game_path(game) / "x64" / "FF9_Data" / "resources.assets"
-    if not ra.exists():
-        ra = config.find_game_path(game) / "FF9_Data" / "resources.assets"
-    env_ra = UnityPy.load(str(ra))
-    from ..extract import _raw_bytes
-    variants = [_raw_bytes(d) for o in env_ra.objects if o.type.name == "TextAsset"
-                for d in [o.read()] if d.m_Name == f"{donor_id}.mes"]
-    if not variants:
-        raise ValueError(f"battle text {donor_id}.mes not found in resources.assets")
-    mes, mes_note = _classify_battle_mes(variants, donor_id)
+    # battle text: read each language's <id>.mes by its REAL resource path (faithful + collision-safe).
+    mes, mes_note = _read_battle_text(donor_id, game=game)
     return {"raw16": raw16, "raw17": raw17, "donor_id": donor_id, "eb": eb, "mes": mes, "mes_note": mes_note}
 
 

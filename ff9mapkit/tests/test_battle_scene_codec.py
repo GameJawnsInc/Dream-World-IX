@@ -116,6 +116,26 @@ def test_golden_roundtrip_real_donor(donor):
     assert len(scene.attacks) == scene.atk_count
 
 
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+def test_battle_text_faithful_per_language():
+    # the FULLY-FAITHFUL read: each language's <id>.mes resolved by its real EmbeddedAsset/Text/<lang>/Battle/<id>
+    # resource path (the ResourceManager index), not a content heuristic -> every language is exact.
+    from ff9mapkit.battle import extract
+    from ff9mapkit.battle.extract import _has_cjk
+    a = extract.read_scene_assets("EF_R007")
+    mes = a["mes"]
+    assert b"Goblin" in mes["us"] and b"Fang" in mes["us"]      # English
+    assert b"Duende" in mes["es"]                               # Spanish (a content heuristic would miss this)
+    assert b"Gobelin" in mes["fr"]                              # French
+    assert b"Isegrim" in mes["gr"]                              # German
+    assert _has_cjk(mes["jp"])                                  # Japanese
+    assert a["mes_note"] is None                                # faithful -> no warning
+    # the NAME-COLLIDED id (battle 74 also names a ~50 KB field-text block) now resolves the English BATTLE text
+    z = extract.read_scene_assets("AC_E031")
+    assert b"Zorn" in z["mes"]["us"] and b"Thorn" in z["mes"]["us"]
+    assert z["mes_note"] is None and len(z["mes"]["us"]) < 4000   # battle text, NOT the field-text collision
+
+
 # ----------------------------------------------------------------- install-gated: camera codec on a real donor
 @pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
 @pytest.mark.parametrize("donor", ["EF_R007"])
