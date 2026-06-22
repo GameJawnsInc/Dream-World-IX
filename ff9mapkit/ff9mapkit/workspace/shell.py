@@ -879,6 +879,61 @@ class Workspace(QMainWindow):
                                 [fb.Problem(fb.ERROR, str(e))])
             return False
 
+    def on_set_journey_seed(self, jid):
+        """Edit a journey's ``[journey.seed]`` -- its BASE PARTY + start beat (the destination-side story_flags
+        capstone). A dialog prefilled from the current seed. For a BARE single-field journey the party seed
+        won't apply (warned -> set it on the entry field's [party]); the start beat still applies hub-side."""
+        if self.manifest is None or not self.journey_root:
+            return
+        j = next((x for x in self.manifest.journeys if x.id == jid), None)
+        if j is None:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Base party / seed — {jid}")
+        form = QFormLayout(dlg)
+        party = QLineEdit(", ".join(j.seed.party))
+        party.setPlaceholderText("Zidane, Vivi, Dagger   (character names, comma-separated)")
+        scenario = QLineEdit("" if j.seed.scenario is None else str(j.seed.scenario))
+        scenario.setPlaceholderText("optional story beat (the seed scenario)")
+        form.addRow("Base party", party)
+        form.addRow("Start beat", scenario)
+        if j.is_bare:
+            note = QLabel("⚠ This is a BARE single-field journey: the base PARTY won't apply (it's injected into "
+                          "a MULTI-campaign entry's script at deploy). Set the party on the entry FIELD's [party] "
+                          "in the Editor instead. The start beat still seeds hub-side.")
+            note.setStyleSheet(f"color:{self.pal['warn']};")
+        else:
+            note = QLabel("The base party + start beat seed the journey's entry member at deploy (the story_flags "
+                          "capstone). Zidane is implicit — New Game already seeds him in slot 0.")
+            note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setWordWrap(True)
+        form.addRow(note)
+        form.addRow(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._apply_journey_seed(jid, scenario.text().strip(), party.text().strip())
+
+    def _apply_journey_seed(self, jid, scenario_text, party_text) -> bool:
+        """Validate + upsert journey ``jid``'s ``[journey.seed]`` in the open hub, then re-open (re-lint +
+        re-list). Returns True on success. The dialog-free core of :meth:`on_set_journey_seed` (headlessly
+        testable). ``party_text`` is a comma-separated name list; blank scenario clears the start beat."""
+        import tomllib
+        from .. import journey as J
+        try:
+            party = [p.strip() for p in str(party_text).split(",") if p.strip()]
+            sc = int(scenario_text) if str(scenario_text).strip() else None
+            text = J.set_journey_seed(Path(self.journey_root).read_text(encoding="utf-8"), jid,
+                                      scenario=sc, party=party)
+            tomllib.loads(text)                    # belt-and-suspenders: the result must still parse
+            Path(self.journey_root).write_text(text, encoding="utf-8", newline="\n")
+            self.open_journey(self.journey_root)   # re-lint (the bare-party warning surfaces here) + re-list
+            self.statusBar().showMessage(f"Set base party / seed for '{jid}'")
+            return True
+        except (ValueError, J.JourneyError, tomllib.TOMLDecodeError, OSError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't set the journey seed"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return False
+
     def on_remove_journey_row(self, jid):
         """Confirm + remove a hub menu row (the dialog/Delete-key entry to :meth:`_remove_journey_row`)."""
         if self._confirm(f"Remove journey '{jid}'",
@@ -3186,8 +3241,9 @@ class Workspace(QMainWindow):
             acts = [("Add journey…", self.on_add_journey_row)]   # the hub root: add a menu row (selector builder)
             if self._has_multi_arc():                            # a multi-campaign arc -> grow it region-by-region
                 acts.append(("Add region to arc…", self.on_add_region_to_arc))
-            if p[0] == "journey" and ":" in (p[2] or ""):        # a journey row: also offer Remove (Delete-key)
+            if p[0] == "journey" and ":" in (p[2] or ""):        # a journey row: seed it + offer Remove (Delete-key)
                 jid = p[2].split(":", 1)[1]
+                acts.append(("Set base party / seed…", lambda j=jid: self.on_set_journey_seed(j)))
                 acts.append((f"Remove journey '{jid}'", lambda j=jid: self.on_remove_journey_row(j)))
             return acts
         if p and p[0] == "campaign" and self.plan is not None and self.campaign_path is not None:
@@ -3874,9 +3930,22 @@ class Workspace(QMainWindow):
                     f"unreachable: {len(g.unreachable)} · dead-ends: {len(g.dead_ends)}"]
         if kind == "journey":
             back = (self.manifest is not None) or (self._journey_label_path is not None)
-            return ["a playable arc (see docs/JOURNEYS.md)",
-                    self._muted("double-click to open the whole journey" if back
-                                else "authoring is the overworld / World-Hub lane")]
+            lines = ["a playable arc (see docs/JOURNEYS.md)"]
+            j = None
+            if self.manifest is not None and key and ":" in key:     # a specific [[journey]] row (not the hub root)
+                j = next((x for x in self.manifest.journeys if x.id == key.split(":", 1)[1]), None)
+            if j is not None:
+                lines.append(self._muted("single-field journey" if j.is_bare
+                                         else f"{len(j.campaigns)}-campaign arc"))
+                if j.seed.party:
+                    lines.append(f"base party: {', '.join(j.seed.party)}")
+                if j.hub_scenario is not None:
+                    lines.append(self._muted(f"start beat: {j.hub_scenario}"))
+                lines.append(self._muted("right-click → Set base party / seed…"))
+            else:
+                lines.append(self._muted("double-click to open the whole journey" if back
+                                         else "authoring is the overworld / World-Hub lane"))
+            return lines
         if kind == "group" and field:
             return self._inspect_group(field, key)
         if kind == "object" and field:
@@ -5473,6 +5542,16 @@ def _smoke(win):
     assert any(lbl == "Add journey…" for lbl, _ in win._context_actions(win.tree.topLevelItem(0)))
     _jrow = win.tree.topLevelItem(0).child(0)                            # the first [[journey]] node
     assert any(lbl.startswith("Remove journey") for lbl, _ in win._context_actions(_jrow)), win._payload(_jrow)
+    assert any(lbl == "Set base party / seed…" for lbl, _ in win._context_actions(_jrow)), "seed action offered"
+    # Set base party / seed: upsert [journey.seed], round-trips; bare-journey party warns; Inspector + clear work
+    assert win._apply_journey_seed("dali", "2600", "Zidane, Vivi") is True
+    _dj = next(j for j in win.manifest.journeys if j.id == "dali")
+    assert _dj.seed.party == ["Zidane", "Vivi"] and _dj.seed.scenario == 2600
+    assert any("BARE single-field journey" in w for w in _Jh.lint_manifest(win.manifest)[1]), "bare-party warns"
+    assert any("base party: Zidane, Vivi" in s for s in win._inspect_build("journey", "@journey:dali", None))
+    assert win._apply_journey_seed("dali", "", "") is True                # clearing both removes the [journey.seed]
+    assert next(j for j in win.manifest.journeys if j.id == "dali").seed.is_empty
+    assert win._apply_journey_seed("nope", "", "Vivi") is False           # a missing journey fails gracefully
     assert "Add journey to hub…" in [e[0] for e in win._command_index()]
     try:                                                   # clobber guard: an existing manifest is refused
         win._new_journey("Again", d / "jnew")
@@ -5711,7 +5790,7 @@ def _smoke(win):
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
-          f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc) + VERBATIM logic-map subtree + in-place edit panel "
+          f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
           f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")

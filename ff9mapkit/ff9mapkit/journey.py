@@ -619,6 +619,12 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
     for pc in j.seed.party:
         if not isinstance(pc, str) or not pc.strip():
             errors.append(f"journey {j.id!r}: [journey.seed] party entries must be character names (got {pc!r})")
+    if j.is_bare and [p for p in j.seed.party if isinstance(p, str) and p.strip().lower() != "zidane"]:
+        warnings.append(f"journey {j.id!r}: [journey.seed] party is set but this is a BARE single-field journey "
+                        f"-- the party seed is injected into a MULTI-campaign entry's .eb at deploy, so it WON'T "
+                        f"take effect for a bare row (only the seed scenario applies, hub-side). Put the base "
+                        f"party on the entry FIELD's own [party]/[startup] (the Editor tab), or make this a "
+                        f"multi-campaign journey.")
     if j.seed.raw.get("inventory") is not None or j.seed.raw.get("start_inventory") is not None \
             or j.seed.raw.get("equipment") is not None:
         warnings.append(f"journey {j.id!r}: [journey.seed] inventory/equipment map to the MOD-GLOBAL New-Game "
@@ -758,6 +764,65 @@ def remove_journey_row(text: str, jid: str) -> str:
                 lines.pop()
             return ("\n".join(lines) + "\n") if lines else "\n"
     raise JourneyError(f"no journey {jid!r} to remove in this manifest")
+
+
+def render_journey_seed(*, scenario=None, party=None) -> str:
+    """One ``[journey.seed]`` sub-table -- the destination-side story_flags capstone (the beat + base party a
+    journey starts at). Pure text; returns ``""`` when neither is set. ``party`` = character names (the build
+    drops ``Zidane``, whom New Game already seeds in slot 0)."""
+    party = [str(p).strip() for p in (party or []) if str(p).strip()]
+    if scenario is None and not party:
+        return ""
+    L = ["[journey.seed]                       # the story-state capstone this journey starts at"]
+    if scenario is not None:
+        L.append(f"scenario = {int(scenario)}        # the story beat to seed on entry")
+    if party:
+        arr = ", ".join(f'"{_toml_str(p)}"' for p in party)
+        L.append(f"party = [{arr}]   # the base party; applied to a MULTI-campaign entry's .eb at deploy")
+    return "\n".join(L) + "\n"
+
+
+_SEED_HDR = re.compile(r"\s*\[\s*journey\.seed\s*\]\s*(#.*)?$")
+
+
+def set_journey_seed(text: str, jid: str, *, scenario=None, party=None) -> str:
+    """Upsert journey ``jid``'s ``[journey.seed]`` in a journeys.toml's TEXT, preserving its other rows /
+    sub-tables / comments. An existing seed is REPLACED in place (or REMOVED when scenario+party are both
+    empty). The seed is placed before the block's first sub-table (``[journey.seed]`` / ``[[journey.link]]``),
+    so it reads right after the journey's scalar rows. Pure text. Raises :class:`JourneyError` if no journey
+    with that id is present."""
+    party = [str(p).strip() for p in (party or []) if str(p).strip()]
+    lines = text.splitlines()
+    starts = [i for i, ln in enumerate(lines) if _JOURNEY_HDR.match(ln)]
+    for k, s in enumerate(starts):
+        end = starts[k + 1] if k + 1 < len(starts) else len(lines)
+        bid = None
+        for ln in lines[s:end]:
+            m = re.match(r'\s*id\s*=\s*"([^"]*)"', ln)
+            if m:
+                bid = m.group(1)
+                break
+        if bid != jid:
+            continue
+        for i in range(s, end):                            # 1) strip an existing [journey.seed] (header .. next
+            if _SEED_HDR.match(lines[i]):                  #    sub-table header / block end)
+                j = i + 1
+                while j < end and not lines[j].lstrip().startswith("["):
+                    j += 1
+                del lines[i:j]
+                end -= (j - i)
+                break
+        seed = render_journey_seed(scenario=scenario, party=party)   # 2) insert the fresh seed (if any) before
+        if seed:                                                     #    the block's first remaining sub-table
+            ins = end
+            for i in range(s + 1, end):
+                if lines[i].lstrip().startswith("["):
+                    ins = i
+                    break
+            lines[ins:ins] = [""] + seed.rstrip("\n").split("\n")
+        out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines))            # never pile up blank lines
+        return out.rstrip("\n") + "\n"
+    raise JourneyError(f"no journey {jid!r} to seed in this manifest")
 
 
 def render_selector_hub_toml(*, hub_name="World Hub", hub_id=4600, borrow_bg=None, hub_area=None,

@@ -407,6 +407,68 @@ def test_remove_journey_row_keeps_other_subtables(tmp_path):
     assert [j.id for j in m.journeys] == ["a"] and m.journeys[0].seed.scenario == 2600, "a's seed survived"
 
 
+def test_render_journey_seed():
+    assert journey.render_journey_seed() == ""                                   # nothing set -> empty
+    t = journey.render_journey_seed(scenario=2600, party=["Zidane", "Vivi", ""])  # blanks dropped
+    assert t.startswith("[journey.seed]") and "scenario = 2600" in t and 'party = ["Zidane", "Vivi"]' in t
+    assert all(ord(c) < 128 for c in t)
+
+
+def test_set_journey_seed_upserts_and_removes(tmp_path):
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000)
+    base = ('[hub]\nname = "H"\nid = 4600\n\n'
+            '[[journey]]\nid = "a"\ncampaigns = ["ca"]\nentry = { campaign = "ca", field = "A1" }\n\n'
+            '[[journey]]\nid = "z"\nname = "Z"\nentry = 4200\n')
+    p = tmp_path / "journeys.toml"
+    # ADD a seed to the multi-campaign journey 'a', preserving the bare journey 'z'
+    t = journey.set_journey_seed(base, "a", scenario=2600, party=["Zidane", "Vivi"])
+    p.write_text(t, encoding="utf-8")
+    m = journey.load_journeys(p)
+    ja = next(j for j in m.journeys if j.id == "a")
+    assert ja.seed.scenario == 2600 and ja.seed.party == ["Zidane", "Vivi"]
+    assert [j.id for j in m.journeys] == ["a", "z"], "the other journey survived"
+    # REPLACE (a single seed table, new values)
+    t2 = journey.set_journey_seed(t, "a", scenario=2700, party=["Zidane", "Vivi", "Dagger"])
+    assert t2.count("[journey.seed]") == 1
+    p.write_text(t2, encoding="utf-8")
+    ja2 = next(j for j in journey.load_journeys(p).journeys if j.id == "a")
+    assert ja2.seed.scenario == 2700 and ja2.seed.party == ["Zidane", "Vivi", "Dagger"]
+    # REMOVE (both empty)
+    t3 = journey.set_journey_seed(t2, "a", scenario=None, party=[])
+    assert "[journey.seed]" not in t3
+    p.write_text(t3, encoding="utf-8")
+    assert next(j for j in journey.load_journeys(p).journeys if j.id == "a").seed.is_empty
+    with pytest.raises(journey.JourneyError):
+        journey.set_journey_seed(t3, "nope", scenario=1)
+
+
+def test_set_journey_seed_preserves_links(tmp_path):
+    # a multi-campaign journey with a [[journey.link]] keeps it when the seed is upserted (seed inserts BEFORE it)
+    _make_campaign(tmp_path, "ca", members=["A1", "A2"], id_base=6000)
+    _make_campaign(tmp_path, "cb", members=["B1"], id_base=6100)
+    base = ('[hub]\nname = "H"\nid = 4600\n\n'
+            '[[journey]]\nid = "a"\ncampaigns = ["ca", "cb"]\n'
+            'entry = { campaign = "ca", field = "A1" }\n'
+            '[[journey.link]]\nfrom = { campaign = "ca", field = "A2" }\nto = { campaign = "cb", field = "B1" }\n')
+    t = journey.set_journey_seed(base, "a", party=["Vivi"])
+    assert "[[journey.link]]" in t and t.index("[journey.seed]") < t.index("[[journey.link]]")
+    p = tmp_path / "journeys.toml"
+    p.write_text(t, encoding="utf-8")
+    ja = next(j for j in journey.load_journeys(p).journeys if j.id == "a")
+    assert ja.seed.party == ["Vivi"] and len(ja.links) == 1
+
+
+def test_lint_warns_bare_journey_party(tmp_path):
+    # a BARE journey with a seed party -> warn (it won't apply at deploy; only a multi-campaign entry injects it)
+    t = (journey.render_selector_hub_toml(hub_name="Hub") + "\n"
+         + journey.render_journey_row("a", "A", 4100))
+    t = journey.set_journey_seed(t, "a", party=["Vivi"])
+    p = tmp_path / "j.toml"
+    p.write_text(t, encoding="utf-8")
+    _err, warn = journey.lint_manifest(journey.load_journeys(p))
+    assert any("BARE single-field journey" in w for w in warn), warn
+
+
 def test_lint_warns_on_duplicate_bare_entry(tmp_path):
     t = (journey.render_selector_hub_toml(hub_name="Hub")
          + "\n" + journey.render_journey_row("a", "A", 4100)
