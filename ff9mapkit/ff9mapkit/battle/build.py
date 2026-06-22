@@ -123,6 +123,52 @@ def _resolve_reskins(scene_cfg: dict, *, game=None):
     return (dict(scene_cfg, enemy=resolved), warns) if touched else (scene_cfg, [])
 
 
+# the mod-GLOBAL player/ability CSV-delta blocks a battle.toml may ALSO carry (the same blocks a field.toml
+# can -- build._emit_battle_data / _emit_character_data / _emit_ability_features). Carried here so a battle
+# fork can tune the PARTY that fights it in the SAME deployable doc; emitted by build_battle_mod.
+_PLAYER_CSV_KEYS = ("battle_action", "status", "status_set", "magic_sword_set", "character", "leveling",
+                    "ability_gem", "command_set", "character_param", "learn", "ability_feature")
+
+
+def _aslist(v):
+    """A TOML block that may be a single table or a list of tables -> always a list (never traceback)."""
+    return v if isinstance(v, list) else ([] if v is None else [v])
+
+
+def player_csv_problems(raw: dict) -> list[str]:
+    """Offline structural + range lint for the player/ability CSV-delta blocks on a battle.toml (empty => OK).
+    Mirrors the field build's block (``build.lint_logic``); the validators are install-free (name->id + base-row
+    resolution happens at build, which has the install). Reused so the field side and the battle side stay in
+    lockstep."""
+    from . import abilityfeatures as _af
+    from . import actiondelta as _ad
+    from . import characterdelta as _cd
+    problems: list[str] = []
+    for q, ba in enumerate(_aslist(raw.get("battle_action"))):
+        problems += [f"[[battle_action]] #{q}: {p}" for p in _ad.validate_entry(ba, kind="battle_action")]
+    for q, st in enumerate(_aslist(raw.get("status"))):
+        problems += [f"[[status]] #{q}: {p}" for p in _ad.validate_entry(st, kind="status")]
+    if raw.get("status_set"):
+        problems += [f"[[status_set]]: {p}" for p in _ad.validate_status_sets(raw.get("status_set"))]
+    if raw.get("magic_sword_set"):
+        problems += [f"[[magic_sword_set]]: {p}" for p in _ad.validate_magic_sword_sets(raw.get("magic_sword_set"))]
+    for q, c in enumerate(_aslist(raw.get("character"))):
+        problems += [f"[[character]] #{q}: {p}" for p in _cd.validate_character(c)]
+    for q, lv in enumerate(_aslist(raw.get("leveling"))):
+        problems += [f"[[leveling]] #{q}: {p}" for p in _cd.validate_leveling(lv)]
+    for q, ag in enumerate(_aslist(raw.get("ability_gem"))):
+        problems += [f"[[ability_gem]] #{q}: {p}" for p in _cd.validate_ability_gem(ag)]
+    for q, cp in enumerate(_aslist(raw.get("character_param"))):
+        problems += [f"[[character_param]] #{q}: {p}" for p in _cd.validate_character_param(cp)]
+    for q, cs in enumerate(_aslist(raw.get("command_set"))):
+        problems += [f"[[command_set]] #{q}: {p}" for p in _cd.validate_command_set(cs)]
+    for q, ln in enumerate(_aslist(raw.get("learn"))):
+        problems += [f"[[learn]] #{q}: {p}" for p in _cd.validate_learn(ln)]
+    if raw.get("ability_feature"):
+        problems += _af.validate_blocks(raw.get("ability_feature"))
+    return problems
+
+
 def validate_battle(project: BattleProject) -> list[str]:
     """Return human-readable problems (empty => OK)."""
     problems: list[str] = []
@@ -229,6 +275,7 @@ def validate_battle(project: BattleProject) -> list[str]:
                         pass
                 if seq_inserts:
                     problems += [f"[[scene.seq_insert]]: {p}" for p in _seqauthor.validate_inserts(r17, seq_inserts)]
+    problems += player_csv_problems(project.raw)            # mod-global player/ability CSV deltas (optional)
     return problems
 
 
@@ -396,13 +443,70 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
                         written=written, lint=lint)
 
 
+def _emit_player_data(projects, layout, *, game=None) -> tuple:
+    """Emit the mod-GLOBAL player/ability CSV deltas every battle.toml carries (``[[battle_action]]`` ..
+    ``[[ability_feature]]``) into ``layout``, aggregating across all built battle maps -- the SAME emitters the
+    field build uses (``actiondelta.write_battle_data`` / ``characterdelta.write_character_data`` /
+    ``abilityfeatures.write_ability_features``). Returns ``(written_paths, warnings)``. The CSV emitters READ the
+    install's base CSVs (whole-row merge); a bad block raises BattleBuildError (the build, not the game, fails)."""
+    from . import abilityfeatures as _af
+    from . import actiondelta as _ad
+    from . import characterdelta as _cd
+
+    def _all(key):
+        out = []
+        for p in projects:
+            out += _aslist(p.raw.get(key))
+        return out or None
+
+    actions, statuses = _all("battle_action"), _all("status")
+    status_sets, magic_sword_sets = _all("status_set"), _all("magic_sword_set")
+    characters, levelings, ability_gems = _all("character"), _all("leveling"), _all("ability_gem")
+    character_params, command_sets, learns = _all("character_param"), _all("command_set"), _all("learn")
+    features = _all("ability_feature")
+    if not any((actions, statuses, status_sets, magic_sword_sets, characters, levelings, ability_gems,
+                character_params, command_sets, learns, features)):
+        return [], []
+    written, warnings = [], []
+    try:
+        if actions or statuses or status_sets or magic_sword_sets:
+            warnings += _ad.write_battle_data(layout, actions=actions, statuses=statuses,
+                                              status_sets=status_sets, magic_sword_sets=magic_sword_sets, game=game)
+            written += [layout.actions_csv] if actions else []
+            written += [layout.status_data_csv] if statuses else []
+            written += [layout.status_sets_csv] if status_sets else []
+            written += [layout.magic_sword_sets_csv] if magic_sword_sets else []
+        if characters or levelings or ability_gems or character_params or command_sets or learns:
+            warnings += _cd.write_character_data(layout, characters=characters, levelings=levelings,
+                                                 ability_gems=ability_gems, character_params=character_params,
+                                                 command_sets=command_sets, learns=learns, game=game)
+            written += [layout.base_stats_csv] if characters else []
+            written += [layout.leveling_csv] if levelings else []
+            written += [layout.ability_gems_csv] if ability_gems else []
+            written += [layout.character_parameters_csv] if character_params else []
+            written += [layout.command_sets_csv] if command_sets else []
+            written += [layout.abilities_csv(pname) for pname in (_cd._group_learns(learns) if learns else ())]
+        if features:
+            warnings += _af.write_ability_features(layout, features, game=game)
+            if layout.ability_features_txt.is_file():
+                written.append(layout.ability_features_txt)
+    except (_ad.ActionDeltaError, _cd.CharacterDeltaError, _af.AbilityFeatureError) as ex:
+        raise BattleBuildError(str(ex))
+    warnings.append("player/ability CSV deltas on a battle.toml are mod-GLOBAL (always-on, not scene-scoped) "
+                    "and merge with any field.toml's same blocks -- in a multi-folder campaign the "
+                    "highest-priority folder's copy wins")
+    return [p for p in written if p.is_file()], warnings
+
+
 def build_battle_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="", game=None) -> dict:
     """Build battle map(s) into a mod at ``out_root``; write/append the registration files. ``game`` (an FF9
-    install dir) is only consulted by an enemy re-skin (`[[scene.enemy]] model =`), which reads a donor model
-    block live from the install; None = the default resolution ($FF9_GAME_PATH / config / common Steam paths)."""
+    install dir) is consulted by an enemy re-skin (`[[scene.enemy]] model =`, a live donor model read) AND by
+    the player/ability CSV deltas (`[[battle_action]]` .. `[[ability_feature]]`, a live base-CSV read); None =
+    the default resolution ($FF9_GAME_PATH / config / common Steam paths)."""
     layout = ModLayout(Path(out_root).resolve())
     layout.root.mkdir(parents=True, exist_ok=True)
     results = [build_battlemap(p, layout, game=game) for p in projects]
+    player_written, player_warns = _emit_player_data(projects, layout, game=game)
 
     dlines = [r.dict_line for r in results if r.dict_line]
     if dlines:
@@ -434,6 +538,6 @@ def build_battle_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", 
 
     return {"root": str(layout.root), "maps": [r.bbg for r in results],
             "dictionary": dlines, "battle_patch": bplines,
-            "written": [str(p) for r in results for p in r.written],
-            "warnings": [w for r in results for w in r.warnings],
+            "written": [str(p) for r in results for p in r.written] + [str(p) for p in player_written],
+            "warnings": [w for r in results for w in r.warnings] + player_warns,
             "lint": [str(f) for r in results for f in r.lint]}

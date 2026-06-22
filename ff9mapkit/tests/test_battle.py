@@ -137,6 +137,74 @@ def test_validate_battle_rejects_both_mint_and_repoint(tmp_path):
     assert any("only ONE" in p for p in validate_battle(proj))
 
 
+def test_validate_battle_lints_player_csv_blocks(tmp_path):
+    # the mod-global player/ability CSV deltas a battle.toml may carry are lint-checked by validate_battle
+    # (install-free: value range + structure). A bad [[character]] stat and a bad [[battle_action]] are caught.
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[character]]
+        character = "Vivi"
+        strength = 999            # Byte stat, max 255
+
+        [[battle_action]]
+        action = "Fire"
+        category = 999            # Byte column, max 255
+    ''')
+    probs = validate_battle(proj)
+    assert any("[[character]]" in p and "out of range" in p for p in probs)
+    assert any("[[battle_action]]" in p and "out of range" in p for p in probs)
+
+
+def test_validate_battle_passes_valid_offline_player_block(tmp_path):
+    # [[status_set]] is fully offline (no base CSV read) -> a valid one lints clean
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[status_set]]
+        id = 39
+        name = "Venom"
+        statuses = ["Poison"]
+    ''')
+    assert validate_battle(proj) == []
+
+
+def test_build_battle_emits_offline_player_csv(tmp_path):
+    # the emit wiring: a [[status_set]] (offline; no install) is written into the layout, listed in
+    # info["written"], and the mod-global caveat is surfaced as a warning.
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[status_set]]
+        id = 39
+        name = "Venom"
+        statuses = ["Poison"]
+    ''')
+    out = tmp_path / "dist"
+    info = build_battle_mod([proj], out)
+    layout = ModLayout(out)
+    assert layout.status_sets_csv.is_file()
+    assert str(layout.status_sets_csv) in info["written"]
+    assert any("mod-GLOBAL" in w for w in info["warnings"])
+    body = layout.status_sets_csv.read_text(encoding="cp1252")
+    assert "Venom;39;" in body
+
+
+def test_build_battle_no_player_blocks_emits_no_csv(tmp_path):
+    # a plain override build touches NO player CSV file and adds NO mod-global warning (the install isn't read)
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+    ''')
+    info = build_battle_mod([proj], tmp_path / "dist")
+    layout = ModLayout(tmp_path / "dist")
+    assert not layout.status_sets_csv.exists() and not layout.base_stats_csv.exists()
+    assert not any("mod-GLOBAL" in w for w in info["warnings"])
+
+
 def test_build_override_copies_fbx_no_patch_lines(tmp_path):
     proj = _write_project(tmp_path, '''
         [battlemap]
