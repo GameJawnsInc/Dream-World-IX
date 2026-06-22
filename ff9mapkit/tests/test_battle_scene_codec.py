@@ -150,6 +150,26 @@ def test_donor_ai_facts_lists_entries_and_named_attacks():
     assert ai_funcs and any(n == 1 for *_h, n in ai_funcs)       # at least one enrage-able function (one Attack)
 
 
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+def test_patch_sites_helpers_list_real_donor_sites():
+    # the Browse-sites pickers behind the [[scene.ai_patch]] / [[scene.seq_patch]] forms: every patchable
+    # offset in the forked eb (AI constants) / raw17 (choreography operands), each carrying (offset, value,
+    # where, lo, hi[, seq]) so the picker can fill the form's Offset + the OLD-value guard.
+    from ff9mapkit.battle import extract
+    from ff9mapkit.workspace.battledoc import ai_patch_sites, seq_patch_sites
+    a = extract.read_scene_assets("EF_R007")
+    ai = ai_patch_sites(a["eb"]["us"])
+    assert ai and all(len(r) == 5 for r in ai)
+    assert all(lo == 0 and hi > 0 for (_off, _val, _w, lo, hi) in ai)   # an unsigned AI constant: 0..vmax
+    assert len({r[0] for r in ai}) == len(ai)                           # offsets are unique (the picker keys on them)
+    sq = seq_patch_sites(a["raw17"])
+    assert sq and all(len(r) == 6 for r in sq)
+    assert all(lo <= val <= hi for (_off, val, _w, lo, hi, _seq) in sq)  # the operand sits in its own field range
+    assert all(isinstance(seq, int) for *_h, seq in sq)                 # a canonical owning attack/sub for each
+    # a non-scene blob => clean None (the form degrades to "type an offset by hand" rather than tracing back)
+    assert ai_patch_sites(b"not an eb") is None and seq_patch_sites(b"\x00\x01\x02") is None
+
+
 # ----------------------------------------------------------------- install-gated: camera codec on a real donor
 @pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
 @pytest.mark.parametrize("donor", ["EF_R007"])

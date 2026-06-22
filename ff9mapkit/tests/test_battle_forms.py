@@ -24,6 +24,10 @@ from ff9mapkit.editor import forms
                      "flags": ["back_attack", "no_escape"], "camera_yaw": 15.0, "camera_zoom": 1.5}),
     # [[scene.ai_phase]]: the boss-enrage branch (note the 'else' key)
     (bf.AI_PHASE_SPEC, {"entry": 1, "tag": 1, "stat": "hp", "below": 0.5, "then": 2, "else": 0}),
+    # [[scene.ai_patch]] / [[scene.seq_patch]]: same-length constant patches (the cite-an-offset tier)
+    (bf.AI_PATCH_SPEC, {"at": 1234, "old": 50, "new": 80}),
+    (bf.SEQ_PATCH_SPEC, {"at": 88, "old": 10, "new": 20}),
+    (bf.SEQ_PATCH_SPEC, {"at": 88, "old": 10, "new": 20, "seq": 3}),     # the optional owning-attack cross-check
     # [[scene.enemy]]: stats + element/status affinities + 4-item rewards + flags + placement + re-skin
     (bf.ENEMY_SPEC, {"slot": 0, "type": 0, "hp": 1500, "mp": 80, "gil": 999, "exp": 250,
                      "speed": 20, "strength": 18, "magic": 5, "spirit": 12, "level": 12,
@@ -86,7 +90,8 @@ def test_char_tint_is_a_three_int_list():
 
 
 def test_specs_have_no_duplicate_keys():
-    for spec in (bf.BATTLEMAP_SPEC, bf.SCENE_SPEC, bf.ENEMY_SPEC):
+    for spec in (bf.BATTLEMAP_SPEC, bf.SCENE_SPEC, bf.ENEMY_SPEC, bf.AI_PHASE_SPEC,
+                 bf.AI_PATCH_SPEC, bf.SEQ_PATCH_SPEC):
         keys = [f.key for f in spec]
         assert len(keys) == len(set(keys)), keys
 

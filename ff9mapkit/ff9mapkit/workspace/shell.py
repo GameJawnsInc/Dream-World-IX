@@ -4994,6 +4994,32 @@ def _smoke(win):
     _bap = _tl.loads(btoml.read_text(encoding="utf-8"))["scene"]["ai_phase"][0]
     assert _bap == {"entry": 1, "tag": 5, "stat": "hp", "below": 0.5, "then": 3, "else": 0}, _bap
     win.battle._check()                                                   # validate_battle -> Problems (no crash)
+    # Same-length patches (cite-an-offset): add an [[scene.ai_patch]] + a [[scene.seq_patch]], round-trip to disk
+    win.battle._pick_patch_kind = lambda: "ai_patch"                      # stub the AI/seq chooser dialog
+    win.battle._add_patch()
+    assert any(k == "ai_patch" for k, _ in win.battle._nodes) and win.battle._ctx["kind"] == "ai_patch"
+    win.battle._ctx["getters"].update(at=lambda: "1234", old=lambda: "50", new=lambda: "80")
+    win.battle._save()
+    assert _tl.loads(btoml.read_text(encoding="utf-8"))["scene"]["ai_patch"][0] == {"at": 1234, "old": 50, "new": 80}
+    win.battle._pick_patch_kind = lambda: "seq_patch"
+    win.battle._add_patch()
+    assert win.battle._ctx["kind"] == "seq_patch"
+    win.battle._ctx["getters"].update(at=lambda: "88", old=lambda: "10", new=lambda: "20", seq=lambda: "3")
+    win.battle._save()
+    assert _tl.loads(btoml.read_text(encoding="utf-8"))["scene"]["seq_patch"][0] == \
+        {"at": 88, "old": 10, "new": 20, "seq": 3}
+    # this battle.toml is a bare-BBG OVERRIDE (no forked scene/), so the Browse-sites picker degrades to None
+    assert win.battle._donor_patch_sites("ai_patch") is None and win.battle._donor_patch_sites("seq_patch") is None
+    # Browse-sites glue: a picked donor site fills Offset (at) + the OLD guard, KEEPING the user's typed `new`
+    # (the commit-before-remount path that must not let the stale form widgets clobber the filled offset)
+    win.battle._donor_patch_sites = lambda kind: [(1000, 42, "entry1/tag5 Wait arg0", 0, 255)]   # stub the donor read
+    win.battle._choose = lambda _title, rows: rows[0]                     # stub the picker dialog -> first site
+    arow = next(i for i, (k, _) in enumerate(win.battle._nodes) if k == "ai_patch")
+    win.battle.nodes.setCurrentRow(arow)                                  # mount the ai_patch form
+    win.battle._ctx["getters"]["new"] = lambda: "80"                      # the user's typed value to preserve
+    win.battle._browse_sites("ai_patch")
+    assert win.battle.data["scene"]["ai_patch"][0] == {"at": 1000, "old": 42, "new": 80}
+    assert win.battle._ctx["kind"] == "ai_patch"                          # remounted on the same patch form
     # Player/ability tuning branch (mod-global): add a [[character]] row, edit a stat, save round-trips
     win.battle._pick_player_table = lambda: "character"                   # stub the picker dialog
     win.battle._add_player()

@@ -31,6 +31,7 @@ from ..editor import model as _model
 from .forms_qt import build_form, read
 
 _MAP, _SCENE, _ENEMY, _AIPHASE = "battlemap", "scene", "enemy", "ai_phase"
+_AIPATCH, _SEQPATCH = "ai_patch", "seq_patch"
 
 # MonParm attribute -> compact label, for the read-only DONOR BASELINE shown above an enemy form: the forked
 # enemy's CURRENT scalar stats, so an override reads against what it's changing FROM. Scalars only (the element
@@ -116,6 +117,30 @@ def donor_ai_facts(eb_bytes: bytes, raw16_bytes: bytes = None, mes_bytes: bytes 
     return attacks, ai_funcs
 
 
+def ai_patch_sites(eb_bytes: bytes):
+    """``[(offset, value, where, lo, hi)]`` for every patchable AI constant in a forked scene's ``.eb`` (the
+    sites an ``[[scene.ai_patch]]`` cites), or None if the bytes don't parse. ``lo``/``hi`` bound a same-length
+    ``new``. Pure (no I/O) so it unit-tests without Qt; the document wraps it with the file read + the picker."""
+    from ..battle import aipatch as _ap
+    try:
+        sites = _ap.constant_sites(eb_bytes)
+    except _ap.AiPatchError:
+        return None
+    return [(s.offset, s.value, s.where, 0, s.vmax) for s in sites]
+
+
+def seq_patch_sites(raw17_bytes: bytes):
+    """``[(offset, value, where, lo, hi, seq)]`` for every patchable raw17 sequence operand (the sites a
+    ``[[scene.seq_patch]]`` cites), or None if the bytes don't parse. ``seq`` = the canonical owning attack/sub.
+    Pure (no I/O) so it unit-tests without Qt."""
+    from ..battle import seqpatch as _sp
+    try:
+        sites = _sp.constant_sites(raw17_bytes)
+    except _sp.SeqPatchError:
+        return None
+    return [(s.offset, s.value, s.where, s.vmin, s.vmax, s.sub_no) for s in sites]
+
+
 def donor_scene_facts(raw16: bytes):
     """[(label, value)...] of the forked scene's CURRENT encounter rules (flags decoded to names) + its
     pattern/type/attack counts, for a read-only hint above the Formation form. None if the bytes don't parse.
@@ -185,6 +210,13 @@ class BattleDoc(QWidget):
         self.add_aiphase_btn.clicked.connect(self._add_ai_phase)
         self.add_aiphase_btn.setEnabled(False)
         lv.addWidget(self.add_aiphase_btn)
+        self.add_patch_btn = QPushButton("Add AI / sequence patch…")
+        self.add_patch_btn.setToolTip("Add a SAME-LENGTH constant patch: rewrite one AI literal (an HP threshold "
+                                      "/ attack index) or one choreography operand (a Wait/Anim/Camera value) in "
+                                      "place — cite an offset with 'Browse sites…' (mint-only)")
+        self.add_patch_btn.clicked.connect(self._add_patch)
+        self.add_patch_btn.setEnabled(False)
+        lv.addWidget(self.add_patch_btn)
         self.add_player_btn = QPushButton("Add party/ability tuning…")
         self.add_player_btn.setToolTip("Tune a PLAYER-side table (stats / abilities / status / leveling) — "
                                        "mod-global, deployed with this battle")
@@ -264,6 +296,7 @@ class BattleDoc(QWidget):
         self._rebuild_nodes()
         self.add_enemy_btn.setEnabled(True)
         self.add_aiphase_btn.setEnabled(True)
+        self.add_patch_btn.setEnabled(True)
         self.add_player_btn.setEnabled(True)
         self.check_btn.setEnabled(True)
         if self.nodes.count():
@@ -275,6 +308,12 @@ class BattleDoc(QWidget):
 
     def _ai_phases(self):
         return (self.data.get("scene") or {}).get("ai_phase", []) or []
+
+    def _ai_patches(self):
+        return (self.data.get("scene") or {}).get("ai_patch", []) or []
+
+    def _seq_patches(self):
+        return (self.data.get("scene") or {}).get("seq_patch", []) or []
 
     def _add_header(self, text):
         """A non-selectable separator row in the node list (a tree-section header)."""
@@ -305,6 +344,18 @@ class BattleDoc(QWidget):
                 self.nodes.addItem(f"AI phase  ·  entry {p.get('entry', '?')} "
                                    f"{p.get('stat', 'hp')}<{p.get('below', 0.5)}")
                 self._nodes.append((_AIPHASE, i))
+        ai_patches = self._ai_patches()
+        if ai_patches:                                     # same-length AI constant patches (cite-an-offset)
+            self._add_header("— AI constant patches —")
+            for i, p in enumerate(ai_patches):
+                self.nodes.addItem(f"AI patch  ·  @{p.get('at', '?')}  {p.get('old', '?')}→{p.get('new', '?')}")
+                self._nodes.append((_AIPATCH, i))
+        seq_patches = self._seq_patches()
+        if seq_patches:                                    # same-length raw17 choreography operand patches
+            self._add_header("— Sequence patches (choreography) —")
+            for i, p in enumerate(seq_patches):
+                self.nodes.addItem(f"Seq patch  ·  @{p.get('at', '?')}  {p.get('old', '?')}→{p.get('new', '?')}")
+                self._nodes.append((_SEQPATCH, i))
         player = self._player_rows()
         if player:                                         # the mod-global PLAYER side, under its own header
             self._add_header("— Party & abilities (mod-global) —")
@@ -329,6 +380,12 @@ class BattleDoc(QWidget):
         elif kind == _AIPHASE:
             if 0 <= idx < len(self._ai_phases()):
                 self._mount(_AIPHASE, idx, bf.AI_PHASE_SPEC, self._ai_phases()[idx])
+        elif kind == _AIPATCH:
+            if 0 <= idx < len(self._ai_patches()):
+                self._mount(_AIPATCH, idx, bf.AI_PATCH_SPEC, self._ai_patches()[idx])
+        elif kind == _SEQPATCH:
+            if 0 <= idx < len(self._seq_patches()):
+                self._mount(_SEQPATCH, idx, bf.SEQ_PATCH_SPEC, self._seq_patches()[idx])
         elif kind in bf.PLAYER_SPECS:                      # a player/ability tuning row
             lst = self.data.get(kind) or []
             if 0 <= idx < len(lst):
@@ -349,6 +406,8 @@ class BattleDoc(QWidget):
             ai = self._donor_ai_facts()                     # the entry/tag + attack indices the form needs
             if ai is not None:
                 self.host_lay.addWidget(self._ai_facts_panel(*ai))
+        elif kind in (_AIPATCH, _SEQPATCH):                 # a "Browse sites…" picker fills the offset + guard
+            self.host_lay.addWidget(self._sites_panel(kind))
         form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal)
         self.host_lay.addWidget(form)
         self.host_lay.addStretch(1)
@@ -393,6 +452,86 @@ class BattleDoc(QWidget):
             return donor_ai_facts(eb.read_bytes(), p.read_bytes(), mes.read_bytes() if mes.is_file() else None)
         except OSError:
             return None
+
+    # ------------------------------------------------------------------ same-length patch sites (read-only picker)
+    def _donor_patch_blob(self, kind):
+        """The forked-scene source a same-length patch ADDRESSES: the AI ``.eb`` (ai_patch) / the raw17
+        (seq_patch). None for a non-mint override (no forked ``scene/`` dir)."""
+        sp = self._donor_scene_path()                       # scene/dbfile0000.raw16.bytes -> the scene/ dir
+        if not sp:
+            return None
+        sd = sp.parent
+        return sd / "eb" / "us.eb.bytes" if kind == _AIPATCH else sd / "btlseq.raw17.bytes"
+
+    def _donor_patch_sites(self, kind):
+        """``[(offset, value, where, lo, hi[, seq])]`` the patch form can cite, or None (no forked scene /
+        unparsable bytes). Wraps the pure :func:`ai_patch_sites` / :func:`seq_patch_sites` with the file read."""
+        p = self._donor_patch_blob(kind)
+        if not p or not p.is_file():
+            return None
+        try:
+            blob = p.read_bytes()
+        except OSError:
+            return None
+        return ai_patch_sites(blob) if kind == _AIPATCH else seq_patch_sites(blob)
+
+    def _sites_panel(self, kind):
+        """A read-only header above the patch form: how many sites the fork exposes + a 'Browse sites…' button
+        that fills Offset + Current value (so the user never needs `battle-ai`/`battle-seq --sites`)."""
+        which = "AI constants" if kind == _AIPATCH else "sequence operands"
+        box = QGroupBox("Donor sites — pick an offset to patch")
+        v = QVBoxLayout(box)
+        v.setContentsMargins(8, 4, 8, 4)
+        v.setSpacing(4)
+        sites = self._donor_patch_sites(kind)
+        if sites is None:
+            note = QLabel("No forked scene to read — a same-length patch only applies to a MINTED fork (re-fork "
+                          "WITH a Fork scene). You can still type an offset by hand, but it won't take effect here.")
+            note.setWordWrap(True)
+            note.setStyleSheet(f"color:{self.pal['warn']};")
+            v.addWidget(note)
+            return box
+        row = QHBoxLayout()
+        lbl = QLabel(f"{len(sites)} patchable {which} in this fork.")
+        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        row.addWidget(lbl, 1)
+        btn = QPushButton("Browse sites…")
+        btn.setEnabled(bool(sites))
+        btn.clicked.connect(lambda: self._browse_sites(kind))
+        row.addWidget(btn)
+        v.addLayout(row)
+        return box
+
+    def _browse_sites(self, kind):
+        """Pick a donor site → fill the current patch form's Offset (``at``) + Current value (``old``) guard
+        (and, for seq, the owning ``seq``). Commits the user's typed ``new`` first, then remounts the form."""
+        if not self._ctx or self._ctx["kind"] != kind:
+            return
+        sites = self._donor_patch_sites(kind)
+        if not sites:
+            return
+        rows, by_disp = [], {}
+        for s in sites:
+            offset, value, where, lo, hi = s[0], s[1], s[2], s[3], s[4]
+            disp = f"@{offset}  ·  now {value}  ·  {where}  ·  {lo}–{hi}"
+            rows.append(disp)
+            by_disp[disp] = s
+        chosen = self._choose("Patchable sites", rows)
+        if not chosen:
+            return
+        s = by_disp[chosen]
+        idx = self._ctx["idx"]
+        self._commit_active()                               # fold the user's typed `new` into the dict first
+        tgt = self._target(kind, idx)
+        tgt["at"], tgt["old"] = int(s[0]), int(s[1])
+        if kind == _SEQPATCH and len(s) > 5:                # default the owning-attack cross-check
+            tgt["seq"] = int(s[5])
+        self._rebuild_nodes()                               # the node label shows at / old
+        self.nodes.blockSignals(True)                       # restore the highlight WITHOUT re-committing the
+        self._select_node(kind, idx)                        # (now stale) old form's widgets over our new values
+        self.nodes.blockSignals(False)
+        spec = bf.AI_PATCH_SPEC if kind == _AIPATCH else bf.SEQ_PATCH_SPEC
+        self._mount(kind, idx, spec, tgt)                   # remount fresh so the form shows the filled offset/old
 
     def _ai_facts_panel(self, attacks, ai_funcs):
         import html
@@ -446,6 +585,10 @@ class BattleDoc(QWidget):
             return self._enemies()[idx]
         if kind == _AIPHASE:
             return self._ai_phases()[idx]
+        if kind == _AIPATCH:
+            return self._ai_patches()[idx]
+        if kind == _SEQPATCH:
+            return self._seq_patches()[idx]
         return self.data[kind][idx]                        # a player/ability tuning table row
 
     def _fold(self, ctx) -> bool:
@@ -495,6 +638,39 @@ class BattleDoc(QWidget):
         phases.append({"entry": 1, "tag": 5, "stat": "hp", "below": 0.5, "then": 1, "else": 0})
         self._rebuild_nodes()
         self._select_node(_AIPHASE, len(phases) - 1)
+
+    def _add_patch(self):
+        if not self.data:
+            return
+        self._commit_active()
+        kind = self._pick_patch_kind()
+        if not kind:
+            return
+        lst = self.data.setdefault("scene", {}).setdefault(kind, [])
+        lst.append({"at": 0, "old": 0, "new": 0})          # Browse sites… fills at/old against the donor
+        self._rebuild_nodes()
+        self._select_node(kind, len(lst) - 1)              # land on the new patch's form (+ its Browse panel)
+
+    def _pick_patch_kind(self):
+        """A small dialog to choose AI-constant vs sequence patch. Returns the kind key, or None."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add a same-length patch")
+        lay = QVBoxLayout(dlg)
+        lbl = QLabel("Which same-length patch? Both cite a byte offset (use 'Browse sites…' on the form) and "
+                     "guard on the value there now — mint-only, applied to the forked scene.")
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+        combo = QComboBox()
+        combo.addItem("AI constant  ·  [[scene.ai_patch]]  (HP threshold / attack index / Wait)", _AIPATCH)
+        combo.addItem("Choreography  ·  [[scene.seq_patch]]  (a Wait / Anim / Camera operand)", _SEQPATCH)
+        lay.addWidget(combo)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return combo.currentData()
 
     def _add_player(self):
         if not self.data:

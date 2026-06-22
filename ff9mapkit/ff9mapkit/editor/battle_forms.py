@@ -15,8 +15,10 @@ specs here mirror that:
 The scalar stats are int fields; the element/status/drop/flags lists are :data:`~forms.STRLIST` (the same
 comma-separated name list ``[party]`` uses); placement is a :data:`~forms.COORD`. The player-side CSV tuning
 tables (``[[battle_action]]`` / ``[[status]]`` / ``[[character]]`` / ...) are a SEPARATE, scene-independent
-spec set (a later sub-increment); they don't belong on a per-enemy slot. The advanced ``[scene]`` camera
-floats and the ``ai_*`` / ``seq_*`` disassembly tiers are likewise out of this declarative spec.
+spec set (now wired -- see :data:`PLAYER_TABLES`); they don't belong on a per-enemy slot. The high-level AI
+branch (:data:`AI_PHASE_SPEC`) and the SAME-LENGTH constant patches (:data:`AI_PATCH_SPEC` /
+:data:`SEQ_PATCH_SPEC`, the "cite an offset" tier) have flat specs here; the length-CHANGING authoring
+(``ai_function`` / ``ai_insert`` / ``seq_replace`` / ``seq_insert``) stays CLI-only (the disassemble/splice tier).
 """
 from __future__ import annotations
 
@@ -36,6 +38,28 @@ AI_PHASE_SPEC = [
     Field("else", "Attack when above", INT, "enemy_attack[] index used while ABOVE the threshold (the normal move)"),
 ]
 
+# [[scene.ai_patch]] -- a SAME-LENGTH enemy-AI constant patch (aipatch.apply_ai_patches): rewrite ONE numeric
+# literal in the AI bytecode in place -- an HP threshold a phase compares, the attack index a turn selects, a
+# `Wait` count -- with no byte movement. Addressed by BYTE OFFSET (from `battle-ai --sites`, or the form's
+# "Browse sites…" picker) + an OLD-value guard so a stale offset fails LOUD instead of corrupting a byte. The
+# bytecode is language-identical, so one patch hits every language's eb.
+AI_PATCH_SPEC = [
+    Field("at", "Offset", INT, "the byte offset of the AI constant — use 'Browse sites…' (or `battle-ai --sites`)"),
+    Field("old", "Current value", INT, "the value the eb has there NOW — the guard (Browse sites… fills it)"),
+    Field("new", "New value", INT, "the value to write (must fit the SAME byte width — a literal patch can't widen)"),
+]
+
+# [[scene.seq_patch]] -- a SAME-LENGTH raw17 attack-CHOREOGRAPHY operand patch (seqpatch.apply_seq_patches):
+# retime a `Wait` / `MoveTo*` frame count, swap an `Anim` code or a `SetCamera` id, in place. Byte OFFSET (from
+# `battle-seq --sites`, or "Browse sites…") + an OLD guard; `seq` is the optional owning attack/sub index (a
+# cross-check the picker pre-fills, NOT required). raw17 is language-independent, so the patch applies once.
+SEQ_PATCH_SPEC = [
+    Field("at", "Offset", INT, "the byte offset of the sequence operand — use 'Browse sites…' (or `battle-seq --sites`)"),
+    Field("old", "Current value", INT, "the value the raw17 has there NOW — the guard (Browse sites… fills it)"),
+    Field("new", "New value", INT, "the value to write (must fit the SAME field width + signedness)"),
+    Field("seq", "Owning attack", OPTINT, "optional cross-check: the attack/sub index that owns this operand"),
+]
+
 # [battlemap] -- the map identity (validate_battle: bbg is required + must look like BBG_B013; scene_id needs
 # scene_name; scene_id (mint) and repoint_scene are mutually exclusive; char_tint/shadow are cosmetic).
 BATTLEMAP_SPEC = [
@@ -53,8 +77,9 @@ BATTLEMAP_SPEC = [
 
 # [scene] -- the FORMATION. monster_count is the keystone: it recomposes every pattern and unlocks per-slot
 # editing, so it reads first in the form. `flags` are the encounter RULES (header scene_flags); the camera_*
-# floats nudge the OPENING-camera pose (raw17, in place). (Full camera keyframes + the ai_*/seq_* tiers are
-# still out of this spec.)
+# floats nudge the OPENING-camera pose (raw17, in place). The AI / sequence edits live in their own sibling
+# tables ([[scene.ai_phase]] / [[scene.ai_patch]] / [[scene.seq_patch]]), not on this form; full camera
+# keyframes + the length-changing ai_*/seq_* authoring stay CLI-only.
 SCENE_SPEC = [
     Field("monster_count", "Monster count", OPTINT,
           "how many enemies spawn (1-4) -- SET THIS to compose the formation + unlock per-slot edits"),
