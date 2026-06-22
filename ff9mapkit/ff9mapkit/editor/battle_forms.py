@@ -22,6 +22,19 @@ from __future__ import annotations
 
 from .forms import COORD, FLOAT, INT, OPTINT, STR, STRLIST, Field
 
+# [[scene.ai_phase]] -- a high-level "enrage below X% stat" AI branch (aiauthor.apply_ai_phases GENERATES the
+# HP-threshold branch + splices it before the function's Attack). Flat: the attack-index variable is inferred,
+# so the author only gives the entry/function + the threshold + the two attack indices.
+AI_PHASE_SPEC = [
+    Field("entry", "Enemy AI entry", INT,
+          "the .eb AI entry for the enemy type (often 1 + the slot's type; `battle-ai <donor>` lists them)"),
+    Field("tag", "AI function", INT, "which function to enrage: 1=Main, 6=Counter, 7=ATB, 9=Dying (usually 1)"),
+    Field("stat", "Threshold stat", STR, "hp / mp / at (default hp)"),
+    Field("below", "Enrage below", FLOAT, "a unit fraction 1/N: 0.5 = half, 0.25 = quarter, 0.2 = a fifth (default 0.5)"),
+    Field("then", "Attack when below", INT, "enemy_attack[] index used WHILE below the threshold (the enrage move)"),
+    Field("else", "Attack when above", INT, "enemy_attack[] index used while ABOVE the threshold (the normal move)"),
+]
+
 # [battlemap] -- the map identity (validate_battle: bbg is required + must look like BBG_B013; scene_id needs
 # scene_name; scene_id (mint) and repoint_scene are mutually exclusive; char_tint/shadow are cosmetic).
 BATTLEMAP_SPEC = [

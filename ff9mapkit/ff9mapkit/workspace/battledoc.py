@@ -30,7 +30,7 @@ from ..editor import forms
 from ..editor import model as _model
 from .forms_qt import build_form, read
 
-_MAP, _SCENE, _ENEMY = "battlemap", "scene", "enemy"
+_MAP, _SCENE, _ENEMY, _AIPHASE = "battlemap", "scene", "enemy", "ai_phase"
 
 # MonParm attribute -> compact label, for the read-only DONOR BASELINE shown above an enemy form: the forked
 # enemy's CURRENT scalar stats, so an override reads against what it's changing FROM. Scalars only (the element
@@ -127,6 +127,12 @@ class BattleDoc(QWidget):
         self.add_enemy_btn.clicked.connect(self._add_enemy)
         self.add_enemy_btn.setEnabled(False)
         lv.addWidget(self.add_enemy_btn)
+        self.add_aiphase_btn = QPushButton("Add AI phase")
+        self.add_aiphase_btn.setToolTip("Add a boss-enrage AI branch: switch the enemy's attack when a stat "
+                                        "drops below a fraction (mint-only)")
+        self.add_aiphase_btn.clicked.connect(self._add_ai_phase)
+        self.add_aiphase_btn.setEnabled(False)
+        lv.addWidget(self.add_aiphase_btn)
         self.add_player_btn = QPushButton("Add party/ability tuning…")
         self.add_player_btn.setToolTip("Tune a PLAYER-side table (stats / abilities / status / leveling) — "
                                        "mod-global, deployed with this battle")
@@ -205,6 +211,7 @@ class BattleDoc(QWidget):
         self._ctx = None
         self._rebuild_nodes()
         self.add_enemy_btn.setEnabled(True)
+        self.add_aiphase_btn.setEnabled(True)
         self.add_player_btn.setEnabled(True)
         self.check_btn.setEnabled(True)
         if self.nodes.count():
@@ -213,6 +220,9 @@ class BattleDoc(QWidget):
 
     def _enemies(self):
         return (self.data.get("scene") or {}).get("enemy", []) or []
+
+    def _ai_phases(self):
+        return (self.data.get("scene") or {}).get("ai_phase", []) or []
 
     def _add_header(self, text):
         """A non-selectable separator row in the node list (a tree-section header)."""
@@ -236,6 +246,13 @@ class BattleDoc(QWidget):
         for i, e in enumerate(self._enemies()):
             self.nodes.addItem(f"Enemy slot {e.get('slot', i)}")
             self._nodes.append((_ENEMY, i))
+        phases = self._ai_phases()
+        if phases:                                         # boss-enrage AI branches (per-scene, mint-only)
+            self._add_header("— AI phases (boss enrage) —")
+            for i, p in enumerate(phases):
+                self.nodes.addItem(f"AI phase  ·  entry {p.get('entry', '?')} "
+                                   f"{p.get('stat', 'hp')}<{p.get('below', 0.5)}")
+                self._nodes.append((_AIPHASE, i))
         player = self._player_rows()
         if player:                                         # the mod-global PLAYER side, under its own header
             self._add_header("— Party & abilities (mod-global) —")
@@ -257,6 +274,9 @@ class BattleDoc(QWidget):
         elif kind == _ENEMY:
             if 0 <= idx < len(self._enemies()):
                 self._mount(_ENEMY, idx, bf.ENEMY_SPEC, self._enemies()[idx])
+        elif kind == _AIPHASE:
+            if 0 <= idx < len(self._ai_phases()):
+                self._mount(_AIPHASE, idx, bf.AI_PHASE_SPEC, self._ai_phases()[idx])
         elif kind in bf.PLAYER_SPECS:                      # a player/ability tuning row
             lst = self.data.get(kind) or []
             if 0 <= idx < len(lst):
@@ -329,6 +349,8 @@ class BattleDoc(QWidget):
             return self.data.setdefault("scene", {})
         if kind == _ENEMY:
             return self._enemies()[idx]
+        if kind == _AIPHASE:
+            return self._ai_phases()[idx]
         return self.data[kind][idx]                        # a player/ability tuning table row
 
     def _fold(self, ctx) -> bool:
@@ -369,6 +391,15 @@ class BattleDoc(QWidget):
         self._rebuild_nodes()
         # land on the new enemy's form (the last ENEMY row, before any player header/rows)
         self._select_node(_ENEMY, len(enemies) - 1)
+
+    def _add_ai_phase(self):
+        if not self.data:
+            return
+        self._commit_active()
+        phases = self.data.setdefault("scene", {}).setdefault("ai_phase", [])
+        phases.append({"entry": 1, "tag": 1, "stat": "hp", "below": 0.5, "then": 1, "else": 0})
+        self._rebuild_nodes()
+        self._select_node(_AIPHASE, len(phases) - 1)
 
     def _add_player(self):
         if not self.data:

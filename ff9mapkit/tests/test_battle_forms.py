@@ -22,6 +22,8 @@ from ff9mapkit.editor import forms
     # [scene]: the formation + the encounter rules (flags) + opening-camera tweak floats
     (bf.SCENE_SPEC, {"monster_count": 4, "camera": 0, "ap": 120, "pattern": 0,
                      "flags": ["back_attack", "no_escape"], "camera_yaw": 15.0, "camera_zoom": 1.5}),
+    # [[scene.ai_phase]]: the boss-enrage branch (note the 'else' key)
+    (bf.AI_PHASE_SPEC, {"entry": 1, "tag": 1, "stat": "hp", "below": 0.5, "then": 2, "else": 0}),
     # [[scene.enemy]]: stats + element/status affinities + 4-item rewards + flags + placement + re-skin
     (bf.ENEMY_SPEC, {"slot": 0, "type": 0, "hp": 1500, "mp": 80, "gil": 999, "exp": 250,
                      "speed": 20, "strength": 18, "magic": 5, "spirit": 12, "level": 12,
