@@ -50,13 +50,13 @@ dev-loop tools at repo-root `tools/`.
 - **One change per in-game test.** When a build breaks, we need to know which edit did it.
 - **Commit FREELY — follow the FF-master merge discipline when hitting tested milestones.** Commit tested
   milestones via commit-on-feature-branch → FF master (rebase-second). → `feedback-commit-freely`.
-- **PUBLIC BETA — the old "NOTHING PUBLIC" rule is being LIFTED (2026-06-18).** The project is moving to a
-  public GitHub beta as **Dream World IX** (the `ff9mapkit` package name is unchanged; only the project-root /
-  repo identity rebrands). The actual public push is **GATED** on: (1) the Dali fork playtesting cleanly, and
-  (2) a `git-filter-repo` history scrub of the Square-Enix-derived bytes still in git history (HEAD is clean;
-  history is NOT — the plan keeps the commit history and excises just the blobs). **Until BOTH are done: still
-  no public push / PR / PyPI / forum post.** Front-door (root README/LICENSE/DISCLAIMER), IP cleanup, branding,
-  and docs prep landed on the `public-beta-prep` branch. → `feedback-commit-freely`, `project-ff9-public-beta`.
+- **PUBLIC BETA — ★ SHIPPED (2026-06-22). The repo is LIVE on public GitHub as Dream World IX (1.0.0b1).** The
+  old "NOTHING PUBLIC" gate is CLEARED: both conditions were met (the history scrub of SE-derived blobs + the
+  Dali playtest) and the user pushed. So public PRs / issues / a PyPI release / forum posts are now FAIR GAME —
+  but still treat outward-facing actions (a release, a forum post, a PR to Memoria) as confirm-first unless the
+  user has asked. The front-door (root README/LICENSE/DISCLAIMER), IP cleanup, and branding shipped. Fidelity
+  stays the engineering north star; the beta is the distribution milestone, not a reason to cut corners.
+  → `feedback-commit-freely`, `project-ff9-public-beta`, `project-release-readiness`.
 
 **I CAN own, end to end:** the field event script (`.eb` bytecode, authored in Python — no
 Hades Workshop), camera + walkmesh math, exits/gateways, triggers, flags, dialogue/text,
@@ -177,9 +177,8 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   SE-derived blobs** (removed from HEAD but recoverable in old commits) → a `git-filter-repo` scrub
   is REQUIRED before any public push (§2). Also removed at HEAD on `public-beta-prep`: a tracked
   decompiled real field (`reference/field-0109-*.txt`) + the untracked `backups/` scratch.
-- **Open public item (do NOT act):** Memoria PR #1433 (FieldCreatorScene PNG-path fix) — left
-  as-is, irrelevant to the toolkit. Public-push stance: **lifted-but-GATED** (see §2 — Dali playtest
-  + the history scrub must both land first).
+- **Public status: LIVE (1.0.0b1 on public GitHub, 2026-06-22 — see §2).** The push happened; the gate is
+  cleared. (Memoria PR #1433, FieldCreatorScene PNG-path fix — still left as-is, irrelevant to the toolkit.)
 
 ---
 
