@@ -22,7 +22,7 @@ from PySide6.QtCore import Qt, QProcess, QSize
 from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QFormLayout,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
+    QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTextEdit,
     QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -449,7 +449,7 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.import_field, "Import")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
-        # so it doesn't fire mid-construction (current index is the Welcome tab, which _on_tab_changed no-ops).
+        # so it doesn't fire mid-construction (current index is the Home tab, which _on_tab_changed no-ops).
         self.tabs.currentChanged.connect(self._on_tab_changed)
         split.addWidget(self.tabs)
 
@@ -535,22 +535,104 @@ class Workspace(QMainWindow):
             self.dock.raise_()
 
     def _welcome(self):
-        w = QTextEdit()
-        w.setReadOnly(True)
-        w.setHtml(
-            "<h2>FF9 Map Kit — Workspace</h2>"
-            "<p>The modern shell. <b>New Field…</b> (Ctrl-N) scaffolds a fresh walkable room and "
-            "<b>New Campaign…</b> (Ctrl-Shift-N) starts an empty arc — or <b>Open Campaign…</b> / "
-            "<b>Open Field…</b> an existing <code>campaign.toml</code> / <code>field.toml</code>. The "
-            "left tree shows <b>journey ▸ campaign ▸ field ▸ object</b>, the breadcrumb tracks where you "
-            "are, and <b>Check</b> fills the Problems dock.</p>"
-            "<p>One window, every tool: <b>Editor</b> (fields, NPCs, gateways, cutscenes, choices) · "
-            "<b>Map</b> · <b>Story State</b> + <b>Item &amp; Equip</b> save editors · <b>Build &amp; "
-            "Deploy</b> · <b>Import</b> (fork a real field). Press <b>Ctrl-K</b> to jump anywhere; "
-            "<b>Ctrl-Z</b> / <b>Ctrl-Shift-Z</b> undo &amp; redo your edits.</p>"
-            "<p style='color:gray'>This shell wraps the same tk-free backends the kit's CLI uses.</p>")
-        self._welcome_tab = w                      # kept so Close can return here
-        self.tabs.addTab(w, "Welcome")
+        """The 'Start here' HOME (do-now #4): a live front door that names every entry point in hierarchy
+        order — the .toml spine top-down (journey ▸ campaign ▸ field) + the off-spine starts (battle / import /
+        save) — each a real button on the existing open/new handlers, plus a 'Currently editing …' line. Answers
+        'where do I start / do I need a journey?' at the moment of entry. Tab index 0, shown on cold start."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        v = QVBoxLayout(body)
+        v.setContentsMargins(30, 26, 30, 26)
+        v.setSpacing(10)
+        title = QLabel("Dream World IX — Workspace")
+        title.setStyleSheet("font-size:18px;font-weight:700;")
+        v.addWidget(title)
+        self._home_status = QLabel("")
+        self._home_status.setWordWrap(True)
+        self._home_status.setTextFormat(Qt.TextFormat.RichText)
+        v.addWidget(self._home_status)
+        intro = QLabel("Start at <b>any</b> level — they nest (journey ▸ campaign ▸ field ▸ object), but none "
+                       "<i>requires</i> the one above. A <b>journey</b> is the front door (the whole arc); you "
+                       "can also open a single campaign or field directly.")
+        intro.setWordWrap(True)
+        intro.setTextFormat(Qt.TextFormat.RichText)
+        intro.setStyleSheet(f"color:{self.pal['muted']};")
+        v.addWidget(intro)
+        v.addWidget(self._home_section("The project spine — top-down"))
+        v.addWidget(self._home_row("◆ Journey", "the whole arc: a hub + member campaigns + links (the front door)",
+                                   [("Open…", self.on_open_journey), ("New…", self.on_new_journey)]))
+        v.addWidget(self._home_row("▣ Campaign", "a connected chain of fields",
+                                   [("Open…", self.on_open_campaign), ("New…", self.on_new_campaign)]))
+        v.addWidget(self._home_row("● Field", "one explorable screen (edit it standalone)",
+                                   [("Open…", self.on_open_field), ("New…", self.on_new_field)]))
+        v.addWidget(self._home_section("Off to the side"))
+        v.addWidget(self._home_row("⚔ Battle", "a battle background / encounter — a referenced sibling of a field",
+                                   [("Go to Battle", lambda: self.tabs.setCurrentWidget(self.battle))]))
+        v.addWidget(self._home_row("⤵ Import", "fork a real FF9 field into a new project",
+                                   [("Go to Import", lambda: self.tabs.setCurrentWidget(self.import_field))]))
+        v.addWidget(self._home_row("◈ Save", "edit a real save's story flags / items / equipment (orthogonal state)",
+                                   [("Open Save…", self._open_save)]))
+        v.addStretch(1)
+        hint = QLabel("Press <b>Ctrl-K</b> to jump anywhere · <b>Close</b> (toolbar) returns here.")
+        hint.setTextFormat(Qt.TextFormat.RichText)
+        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        v.addWidget(hint)
+        scroll.setWidget(body)
+        self._welcome_tab = scroll                 # kept so Close can return here
+        self.tabs.addTab(scroll, "Home")
+        self._refresh_home_status()
+
+    def _home_section(self, text):
+        lab = QLabel(text)
+        lab.setStyleSheet(f"color:{self.pal['muted']};font-weight:600;margin-top:8px;")
+        return lab
+
+    def _home_row(self, title, desc, buttons):
+        """One entry-point row: a glyph+name + one-line description on the left, its action button(s) on the
+        right (the same glyphs as the tree/breadcrumb, so the visual language is consistent)."""
+        box = QWidget()
+        h = QHBoxLayout(box)
+        h.setContentsMargins(0, 0, 0, 0)
+        col = QWidget()
+        cv = QVBoxLayout(col)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(1)
+        t = QLabel(title)
+        t.setStyleSheet("font-weight:600;")
+        d = QLabel(desc)
+        d.setWordWrap(True)
+        d.setStyleSheet(f"color:{self.pal['muted']};")
+        cv.addWidget(t)
+        cv.addWidget(d)
+        h.addWidget(col, 1)
+        for label, cb in buttons:
+            b = QPushButton(label)
+            b.clicked.connect(lambda _=False, c=cb: c())
+            h.addWidget(b)
+        return box
+
+    def _current_target(self):
+        """(name, level-label) of what's currently open — for the Home 'Currently editing' line. (None, None)
+        when the Workspace is empty."""
+        if self.manifest is not None and self.plan is None:
+            return (self.journey_name, "Journey")
+        if self.plan is not None:
+            return (self.plan.name, "Campaign")
+        if self._loose is not None:
+            return (self._loose, "Field")
+        return (None, None)
+
+    def _refresh_home_status(self):
+        """Update the Home 'Currently editing …' line (called when Home is shown, so it's always fresh)."""
+        if not hasattr(self, "_home_status"):
+            return
+        name, level = self._current_target()
+        if name is None:
+            self._home_status.setText(self._muted("Nothing open yet — pick a starting point below."))
+        else:
+            self._home_status.setText(f"Currently editing a <b>{level}</b>: {_esc(str(name))}.")
 
     # ---- item helpers ----
     @staticmethod
@@ -2118,9 +2200,11 @@ class Workspace(QMainWindow):
         elif w is self.build_deploy:
             self.crumb.set([bc.Crumb("build", w.crumb_label())])
             self._set_chip("build")
-        else:                                      # Import / Welcome -> project context, but no edit-target chip
+        else:                                      # Import / Home -> project context, but no edit-target chip
             self.crumb.set(self._content_crumbs)
             self._set_chip(None)
+            if w is self._welcome_tab:              # Home: refresh the 'Currently editing …' line on show
+                self._refresh_home_status()
 
     def _on_tree_double(self, item, _col=0):
         """Double-click = explicit 'open': a field/object -> the Editor; a campaign/journey root -> the Map;
@@ -5940,10 +6024,16 @@ def _smoke(win):
     win._on_tree_double(win.tree.topLevelItem(0).child(0).child(0))     # drill into camp1 (plan+manifest set)
     assert win.plan is not None and win.manifest is not None, "drilled into journey+campaign"
     assert win.open_field(af) and win.manifest is None and win.plan is None, "Open Field escapes a drilled-in journey"
+    win._refresh_home_status()                                          # do-now #4: Home reflects what's open
+    assert "Currently editing" in win._home_status.text() and "Field" in win._home_status.text()
     win._close_project()
     assert win.manifest is None and win.plan is None and win._loose is None and win.tree.topLevelItemCount() == 0, \
         "Close returns to the empty Workspace"
     assert win.crumb._chip.isHidden(), "Close clears the doc-mode chip"
+    # do-now #4: the 'Start here' Home resets its status after Close + names every entry point as a real button
+    assert "Nothing open" in win._home_status.text(), "Home resets its status after Close"
+    _home_btns = {b.text() for b in win._welcome_tab.findChildren(QPushButton)}
+    assert {"Open…", "New…", "Go to Battle", "Go to Import", "Open Save…"} <= _home_btns, _home_btns
 
     # RECONCILE (STEP 2): a reference-arc scaffold's ENTRY_MEMBER + link placeholders fill from the forked
     # campaigns beside it -- camp_a/A2 has a scripted Field() seam to 200 (== camp_b/B1's source) -> PRECISE.
@@ -6114,7 +6204,7 @@ def _smoke(win):
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs + encounter->Battle jump) + "
           f"persistent CHIP names the SELECTED node's type (hub/journey/campaign/field) + breadcrumb truthful "
           f"per-tab (content/battle/save/build) + distinct hub⌂/journey◆ glyphs + type tooltips + Close-to-empty + "
-          f"drilled-in Open-Field escape + JOURNEY mode "
+          f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing') + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
