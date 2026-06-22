@@ -17,9 +17,11 @@ import sys
 import tomllib
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QMessageBox, QPushButton, QScrollArea, QSplitter, QVBoxLayout, QWidget,
+    QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
+    QSplitter, QVBoxLayout, QWidget,
 )
 
 from ..editor import battle_forms as bf
@@ -29,6 +31,37 @@ from ..editor import model as _model
 from .forms_qt import build_form, read
 
 _MAP, _SCENE, _ENEMY = "battlemap", "scene", "enemy"
+
+# MonParm attribute -> compact label, for the read-only DONOR BASELINE shown above an enemy form: the forked
+# enemy's CURRENT scalar stats, so an override reads against what it's changing FROM. Scalars only (the element
+# / status masks need decoding -- a later pass); the keys line up with ENEMY_SPEC so the panel sits next to the
+# matching form rows.
+_BASELINE_FIELDS = [
+    ("hp", "HP"), ("mp", "MP"), ("strength", "Str"), ("magic", "Mag"), ("speed", "Spd"), ("spirit", "Spr"),
+    ("level", "Lv"), ("phys_def", "P.def"), ("phys_evade", "P.eva"), ("mag_def", "M.def"),
+    ("mag_evade", "M.eva"), ("hit_rate", "Hit"), ("category", "Cat"), ("blue_magic", "Blue"),
+    ("gil", "Gil"), ("exp", "EXP"), ("win_card", "Card"),
+]
+
+
+def donor_baseline(raw16: bytes, enemy: dict):
+    """``(type_no, [(label, value)...])`` for an enemy slot's TYPE from a forked scene's raw16, or None when the
+    type can't be resolved / the bytes don't parse. PURE (no I/O) so it unit-tests without Qt; the document
+    wraps it with the file read. The type is the slot's explicit ``type``, else pattern-0's put at that slot."""
+    try:
+        from ..battle import scene_codec as _sc
+        scene = _sc.parse_scene(raw16)
+    except Exception:                                       # noqa: BLE001 -- a truncated / non-scene raw16
+        return None
+    t = enemy.get("type")
+    if t is None:
+        slot = enemy.get("slot")
+        if scene.patterns and isinstance(slot, int) and 0 <= slot < 4:
+            t = scene.patterns[0].puts[slot].type_no
+    if not isinstance(t, int) or not (0 <= t < len(scene.monsters)):
+        return None
+    mon = scene.monsters[t]
+    return t, [(label, getattr(mon, attr)) for attr, label in _BASELINE_FIELDS]
 
 
 class BattleDoc(QWidget):
@@ -79,6 +112,12 @@ class BattleDoc(QWidget):
         self.add_enemy_btn.clicked.connect(self._add_enemy)
         self.add_enemy_btn.setEnabled(False)
         lv.addWidget(self.add_enemy_btn)
+        self.add_player_btn = QPushButton("Add party/ability tuning…")
+        self.add_player_btn.setToolTip("Tune a PLAYER-side table (stats / abilities / status / leveling) — "
+                                       "mod-global, deployed with this battle")
+        self.add_player_btn.clicked.connect(self._add_player)
+        self.add_player_btn.setEnabled(False)
+        lv.addWidget(self.add_player_btn)
         split.addWidget(left)
 
         right = QWidget()
@@ -146,6 +185,7 @@ class BattleDoc(QWidget):
         self._ctx = None
         self._rebuild_nodes()
         self.add_enemy_btn.setEnabled(True)
+        self.add_player_btn.setEnabled(True)
         self.check_btn.setEnabled(True)
         if self.nodes.count():
             self.nodes.setCurrentRow(0)
@@ -153,6 +193,17 @@ class BattleDoc(QWidget):
 
     def _enemies(self):
         return (self.data.get("scene") or {}).get("enemy", []) or []
+
+    def _add_header(self, text):
+        """A non-selectable separator row in the node list (a tree-section header)."""
+        item = QListWidgetItem(text)
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self.nodes.addItem(item)
+        self._nodes.append((None, None))                   # keep _nodes parallel to the list rows
+
+    def _player_rows(self):
+        """[(table_key, index, entry)] for every player/ability tuning entry the battle.toml carries."""
+        return [(key, i, e) for key in bf.PLAYER_SPECS for i, e in enumerate(self.data.get(key) or [])]
 
     def _rebuild_nodes(self):
         self.nodes.blockSignals(True)
@@ -165,6 +216,12 @@ class BattleDoc(QWidget):
         for i, e in enumerate(self._enemies()):
             self.nodes.addItem(f"Enemy slot {e.get('slot', i)}")
             self._nodes.append((_ENEMY, i))
+        player = self._player_rows()
+        if player:                                         # the mod-global PLAYER side, under its own header
+            self._add_header("— Party & abilities (mod-global) —")
+            for key, i, e in player:
+                self.nodes.addItem(f"{bf.PLAYER_LABEL[key]}  ·  {e.get(bf.PLAYER_SELECTOR[key], i)}")
+                self._nodes.append((key, i))
         self.nodes.blockSignals(False)
 
     # ------------------------------------------------------------------ node -> form
@@ -177,23 +234,66 @@ class BattleDoc(QWidget):
             self._mount(_MAP, None, bf.BATTLEMAP_SPEC, self.data.setdefault("battlemap", {}))
         elif kind == _SCENE:
             self._mount(_SCENE, None, bf.SCENE_SPEC, self.data.setdefault("scene", {}))
-        elif 0 <= idx < len(self._enemies()):
-            self._mount(_ENEMY, idx, bf.ENEMY_SPEC, self._enemies()[idx])
+        elif kind == _ENEMY:
+            if 0 <= idx < len(self._enemies()):
+                self._mount(_ENEMY, idx, bf.ENEMY_SPEC, self._enemies()[idx])
+        elif kind in bf.PLAYER_SPECS:                      # a player/ability tuning row
+            lst = self.data.get(kind) or []
+            if 0 <= idx < len(lst):
+                self._mount(kind, idx, bf.PLAYER_SPECS[kind], lst[idx])
+        # kind is None -> a separator header: nothing to mount
 
     def _mount(self, kind, idx, spec, entity):
         self._clear()
+        if kind == _ENEMY:
+            base = self._donor_baseline(entity)             # read-only "what you're tuning from" panel
+            if base is not None:
+                self.host_lay.addWidget(self._baseline_panel(*base))
         form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal)
         self.host_lay.addWidget(form)
         self.host_lay.addStretch(1)
         self._ctx = {"kind": kind, "idx": idx, "spec": spec, "getters": getters}
         self.save_btn.setEnabled(True)
 
+    # ------------------------------------------------------------------ donor baseline (read-only)
+    def _donor_scene_path(self):
+        """The forked scene's raw16 (the donor enemy stats), or None for an override/repoint battle.toml that
+        has no forked ``scene/`` dir. Mirrors ``BattleProject.scene_dir`` = the toml's folder / ``scene``."""
+        if not self.path:
+            return None
+        return self.path.parent / "scene" / "dbfile0000.raw16.bytes"
+
+    def _donor_baseline(self, enemy):
+        p = self._donor_scene_path()
+        if not p or not p.is_file():
+            return None
+        try:
+            return donor_baseline(p.read_bytes(), enemy)
+        except OSError:
+            return None
+
+    def _baseline_panel(self, type_no, pairs):
+        box = QGroupBox(f"Donor baseline — enemy type {type_no} (the forked stats you're tuning from)")
+        grid = QGridLayout(box)
+        grid.setContentsMargins(8, 4, 8, 4)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(2)
+        per_row = 6
+        for i, (label, val) in enumerate(pairs):
+            r, c = divmod(i, per_row)
+            cell = QLabel(f"{label} <b>{val}</b>")
+            cell.setStyleSheet(f"color:{self.pal['muted']};")
+            grid.addWidget(cell, r, c)
+        return box
+
     def _target(self, kind, idx):
         if kind == _MAP:
             return self.data.setdefault("battlemap", {})
         if kind == _SCENE:
             return self.data.setdefault("scene", {})
-        return self._enemies()[idx]
+        if kind == _ENEMY:
+            return self._enemies()[idx]
+        return self.data[kind][idx]                        # a player/ability tuning table row
 
     def _fold(self, ctx) -> bool:
         """Apply the form's values to its target dict in place (pop the spec keys, keep any non-spec keys --
@@ -231,7 +331,46 @@ class BattleDoc(QWidget):
         used = {e.get("slot") for e in enemies}
         enemies.append({"slot": next((s for s in range(4) if s not in used), len(enemies))})
         self._rebuild_nodes()
-        self.nodes.setCurrentRow(len(self._nodes) - 1)     # land on the new enemy's form
+        # land on the new enemy's form (the last ENEMY row, before any player header/rows)
+        self._select_node(_ENEMY, len(enemies) - 1)
+
+    def _add_player(self):
+        if not self.data:
+            return
+        self._commit_active()
+        key = self._pick_player_table()
+        if not key:
+            return
+        self.data.setdefault(key, []).append(dict(bf.PLAYER_DEFAULT[key]))
+        self._rebuild_nodes()
+        self._select_node(key, len(self.data[key]) - 1)    # land on the new row's form
+
+    def _select_node(self, kind, idx):
+        for r, node in enumerate(self._nodes):
+            if node == (kind, idx):
+                self.nodes.setCurrentRow(r)
+                return
+
+    def _pick_player_table(self):
+        """A small dialog to pick which player/ability table to add a row to. Returns its key, or None."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add party / ability tuning")
+        lay = QVBoxLayout(dlg)
+        lbl = QLabel("Tune which player-side table? It's mod-GLOBAL — deployed with this battle and applied "
+                     "to the whole game.")
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+        combo = QComboBox()
+        for key, label, *_ in bf.PLAYER_TABLES:
+            combo.addItem(label, key)
+        lay.addWidget(combo)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return combo.currentData()
 
     def _write(self) -> bool:
         try:

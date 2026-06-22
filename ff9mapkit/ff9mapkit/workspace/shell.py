@@ -4977,6 +4977,16 @@ def _smoke(win):
     win.battle._add_enemy()                                               # a new [[scene.enemy]] at the next slot
     assert len(win.battle._enemies()) == 2 and win.battle._enemies()[1]["slot"] == 1
     win.battle._check()                                                   # validate_battle -> Problems (no crash)
+    # Player/ability tuning branch (mod-global): add a [[character]] row, edit a stat, save round-trips
+    win.battle._pick_player_table = lambda: "character"                   # stub the picker dialog
+    win.battle._add_player()
+    assert win.battle.data["character"][-1] == {"character": "Zidane"}
+    assert any(k == "character" for k, _ in win.battle._nodes), win.battle._nodes
+    assert win.battle._ctx["kind"] == "character"                         # landed on the new row's form
+    win.battle._ctx["getters"]["strength"] = lambda: "99"                 # as if typed into Strength
+    win.battle._save()
+    _bsaved = _tl.loads(btoml.read_text(encoding="utf-8"))
+    assert _bsaved["character"][0] == {"character": "Zidane", "strength": 99}, _bsaved.get("character")
     # Fork battle: the battle-import argv + auto-open wiring (stub the runner -> no subprocess / install)
     forked = {}
 
