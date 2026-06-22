@@ -468,7 +468,9 @@ def build_entity(spec, values: dict) -> dict:
                 out[f.key] = b
             continue
         v = _parse_field(f.kind, values.get(f.key, ""))
-        if v is not None:
+        if v is None and f.kind == INT:                # INT is the REQUIRED int kind (OPTINT is the optional one):
+            raise ValueError(f"{f.label or f.key}: a whole number is required")   # a blank one is an error, not a
+        if v is not None:                              # silent drop (the GUI callers surface this as 'fix the field')
             out[f.key] = v
     return out
 

@@ -66,6 +66,16 @@ def test_empty_optionals_are_omitted():
     assert e == {"name": "A"}                          # only the set field survives
 
 
+def test_blank_required_int_errors():
+    # INT is the REQUIRED int kind: a blank one is an error (not a silent drop), so a missing slot / ai_phase
+    # then/else can't reach disk as an omitted key. OPTINT stays optional.
+    spec = [forms.Field("id", "Field ID", forms.INT), forms.Field("note", "Note", forms.STR),
+            forms.Field("extra", "Extra", forms.OPTINT)]
+    with pytest.raises(ValueError):
+        forms.build_entity(spec, {"id": "", "note": "hi", "extra": ""})
+    assert forms.build_entity(spec, {"id": "5", "note": "", "extra": ""}) == {"id": 5}   # provided -> fine
+
+
 def test_once_bool_omitted_when_default_true():
     # once defaults to True -> omitted; once=False -> written
     on = forms.build_entity(forms.EVENT_SPEC, {"name": "e", "message": "m", "once": True})
