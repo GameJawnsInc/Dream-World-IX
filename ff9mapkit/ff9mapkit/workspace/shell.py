@@ -596,11 +596,13 @@ class Workspace(QMainWindow):
                     cn.setIcon(0, self._blank_icon)
                     jn.addChild(cn)
 
-    def _mount_journey_overview(self):
+    def _mount_journey_overview(self, selected_jid=None):
         """Show the resolved journey plan (campaigns, entry ids, flag windows, cross-campaign links) in the
         doc area -- read-only; render_journey_plan is the same view as `lint-journey --graph`. Below it, a
         'Fork the arcs' panel surfaces the Step-1 fork playbook (per-arc status + a Fork button) so a fresh
-        reference-arc scaffold reads as 'next steps', not just a red lint error."""
+        reference-arc scaffold reads as 'next steps', not just a red lint error. When ``selected_jid`` names a
+        specific [[journey]] row, a per-journey action row (seed / tuning / remove) is mounted -- the same
+        authoring that used to live ONLY in the tree right-click menu, now a visible compartment."""
         self._clear_doc()
         self._set_editor_tab("Journey")
         self._header(self.journey_name, "The assembled journey plan. Open a campaign in the tree to edit it; "
@@ -626,6 +628,8 @@ class Workspace(QMainWindow):
             addrow.addWidget(fillb)
         addrow.addStretch(1)
         self.doc_host_lay.addLayout(addrow)
+        if selected_jid is not None:
+            self._mount_journey_row_actions(selected_jid)
         self._mount_fork_panel()                   # Step-1 fork helper (only if the manifest has campaigns)
         box = QPlainTextEdit()
         box.setReadOnly(True)
@@ -635,6 +639,35 @@ class Workspace(QMainWindow):
         except Exception as e:                     # noqa: BLE001
             box.setPlainText(f"Could not resolve the journey plan:\n{e}")
         self.doc_host_lay.addWidget(box, 1)
+
+    def _mount_journey_row_actions(self, jid):
+        """A visible per-journey action row (mounted when a specific [[journey]] row is selected): Set base
+        party / seed, Set tuning, Remove -- the journey-tier authoring that was previously reachable ONLY
+        from the tree right-click menu. Wired to the same callbacks the context menu binds."""
+        j = next((x for x in self.manifest.journeys if x.id == jid), None)
+        if j is None:
+            return
+        row = QHBoxLayout()
+        lbl = QLabel(f"Journey ‘{j.name or j.id}’:")
+        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        row.addWidget(lbl)
+        seed_b = QPushButton("Set base party / seed…")
+        seed_b.setToolTip("Edit [journey.seed] — the base party + start beat seeded into the entry member at "
+                          "deploy (the story-flags capstone)")
+        seed_b.clicked.connect(lambda _=False, j=jid: self.on_set_journey_seed(j))
+        row.addWidget(seed_b)
+        tune_b = QPushButton("Set tuning…")
+        tune_b.setToolTip("Edit [journey.tuning] — the mod-global player / ability CSV deltas (BaseStats / "
+                          "abilities / leveling)")
+        tune_b.clicked.connect(lambda _=False, j=jid: self.on_set_journey_tuning(j))
+        row.addWidget(tune_b)
+        rm_b = QPushButton("Remove journey")
+        rm_b.setToolTip("Remove this [[journey]] menu row from the hub (the installed slice it points to is "
+                        "NOT deleted)")
+        rm_b.clicked.connect(lambda _=False, j=jid: self.on_remove_journey_row(j))
+        row.addWidget(rm_b)
+        row.addStretch(1)
+        self.doc_host_lay.addLayout(row)
 
     # ---- Step-1 fork helper (run import-chain per arc, from the journey overview) ----
     def _campaign_forked(self, folder) -> bool:
@@ -1948,7 +1981,8 @@ class Workspace(QMainWindow):
         elif kind == "jbare":
             self.insp_body.setText(self._muted("a bare single-field journey — the hub warps straight to this field"))
         else:                                      # jset / journey -> the resolved plan overview
-            self._mount_journey_overview()
+            jid = _key.split(":", 1)[1] if kind == "journey" and _key and ":" in _key else None
+            self._mount_journey_overview(selected_jid=jid)
             self.insp_body.setText("<br>".join([
                 f"{len(self.manifest.journeys)} journey(s)",
                 self._muted("Check lints the global id/flag namespace → Problems")]))
@@ -3913,15 +3947,45 @@ class Workspace(QMainWindow):
             self.statusBar().showMessage(f"Copied path: {self._inspect_path}", 4000)
 
     def _inspect_link(self, href):
-        """Inspector hyperlink dispatch: 'copy' -> copy the file path; 'goto:<member>' -> select that field."""
+        """Inspector hyperlink dispatch: 'copy' -> copy the file path; 'goto:battle:<id>' -> jump to the
+        Battle tab for an encounter's scene; 'goto:<member>' -> select that field; 'jseed:'/'jtuning:<id>' ->
+        the journey seed / tuning editors (the same callbacks the journey button row + right-click bind)."""
         if href == "copy":
             self._copy_inspect_path("copy")
+        elif href.startswith("goto:battle:"):
+            self._goto_battle_scene(href[len("goto:battle:"):])
         elif href.startswith("goto:"):
             self._select_member(href[len("goto:"):])
+        elif href.startswith("jseed:"):
+            self.on_set_journey_seed(href[len("jseed:"):])
+        elif href.startswith("jtuning:"):
+            self.on_set_journey_tuning(href[len("jtuning:"):])
+
+    def _goto_battle_scene(self, sid_text):
+        """Cross-tab jump from a field's [[encounter]] to the Battle tab. battle.toml is a standalone SIBLING
+        with no on-disk back-link from the field, so we can't reliably locate the authoring file -- switch to
+        the Battle tab and, if it already has that scene open, confirm it; else nudge toward Fork battle…
+        (fail-soft: never block, never guess a file)."""
+        self.tabs.setCurrentWidget(self.battle)
+        try:
+            sid = int(sid_text)
+        except (TypeError, ValueError):
+            return
+        open_sid = self.battle.open_scene_id() if hasattr(self.battle, "open_scene_id") else None
+        if open_sid == sid:
+            self.statusBar().showMessage(f"Battle tab — scene {sid} (this battle.toml authors it).", 5000)
+        else:
+            self.statusBar().showMessage(
+                f"Battle tab — scene {sid} isn't open here. Open its battle.toml, or use Fork battle… to "
+                f"author it.", 7000)
 
     def _goto_link(self, member):
-        return (f'<a href="goto:{_esc(member)}" style="color:{self.pal["accent"]};'
-                f'text-decoration:none;">{_esc(member)}</a>')
+        return self._link(f"goto:{member}", member)
+
+    def _link(self, href, label):
+        """An inspector hyperlink (accent-coloured, no underline) routed through :meth:`_inspect_link`."""
+        return (f'<a href="{_esc(href)}" style="color:{self.pal["accent"]};'
+                f'text-decoration:none;">{_esc(label)}</a>')
 
     def _muted(self, s):
         return f'<span style="color:{self.pal["muted"]};">{s}</span>'
@@ -3977,7 +4041,8 @@ class Workspace(QMainWindow):
                     lines.append(self._muted(f"tuning: {nrows} player-CSV row(s)"))
                 if j.hub_scenario is not None:
                     lines.append(self._muted(f"start beat: {j.hub_scenario}"))
-                lines.append(self._muted("right-click → Set base party / seed… / Set tuning…"))
+                lines.append(self._link(f"jseed:{j.id}", "Set base party / seed…") + self._muted(" · ")
+                             + self._link(f"jtuning:{j.id}", "Set tuning…"))
             else:
                 lines.append(self._muted("double-click to open the whole journey" if back
                                          else "authoring is the overworld / World-Hub lane"))
@@ -4048,8 +4113,11 @@ class Workspace(QMainWindow):
         if isinstance(enc, dict) and enc.get("scene") is not None:
             sid = enc.get("scene")
             nm = _cat.scene_name(sid) if isinstance(sid, int) else None
-            lines.append(self._muted(f"encounter: scene {sid}" + (f" — {nm}" if nm else "")
-                                     + f" · freq {enc.get('freq', 255)}"))
+            scene_txt = f"scene {sid}" + (f" — {nm}" if nm else "")
+            # the resolved scene is the field's one cross-edge to a battle.toml -> make it a Battle-tab jump
+            scene_seg = self._link(f"goto:battle:{sid}", scene_txt) if isinstance(sid, int) else _esc(scene_txt)
+            lines.append(self._muted("encounter: ") + scene_seg
+                         + self._muted(f" · freq {enc.get('freq', 255)}"))
         pty = data.get("party")
         if isinstance(pty, dict) and (pty.get("add") or pty.get("remove")):
             def _who(m):
@@ -4727,6 +4795,19 @@ def _smoke(win):
     assert win._payload(win.tree.currentItem())[1] == "IC_COR", "a cross-ref link selects the field"
     # IC_COR is reached-from IC_ENT (the reverse edge), also clickable
     assert "reached from:" in win.insp_body.text() and 'href="goto:IC_ENT"' in win.insp_body.text()
+    # CROSS-TAB (do-now #2): a field's [[encounter]] scene is the field's ONE edge to a battle.toml -- the
+    # resolved scene line is a clickable jump to the Battle tab (fail-soft: switches the tab, nudges if no
+    # battle.toml authoring it is open).
+    pdoc0 = win._doc("IC_ENT")
+    pdoc0.data["encounter"] = {"scene": 67, "freq": 64}
+    win.tree.setCurrentItem(win._member_items["IC_ENT"])
+    eb = win.insp_body.text()
+    assert 'href="goto:battle:67"' in eb and "BSC_EF_R007" in eb, eb
+    win._inspect_link("goto:battle:67")
+    assert win.tabs.currentWidget() is win.battle, "the encounter scene link jumps to the Battle tab"
+    win.tabs.setCurrentWidget(win.doc_scroll)                 # restore for the rest of the inspector smoke
+    del pdoc0.data["encounter"]
+    win.tree.setCurrentItem(win._member_items["IC_ENT"])      # re-select with the probe encounter removed
     # per-ENTITY summaries: probe an NPC (with an HTML-ish name for the escaping path) + a member gateway,
     # a real-FF9 gateway, and an out-of-campaign gateway, then clean up
     pdoc = win._doc("IC_ENT")
@@ -5585,6 +5666,13 @@ def _smoke(win):
     assert _dj.seed.party == ["Zidane", "Vivi"] and _dj.seed.scenario == 2600
     assert any("BARE single-field journey" in w for w in _Jh.lint_manifest(win.manifest)[1]), "bare-party warns"
     assert any("base party: Zidane, Vivi" in s for s in win._inspect_build("journey", "@journey:dali", None))
+    # do-now #3: the journey-tier authoring is now a VISIBLE compartment, not right-click-only -- the Inspector
+    # card carries clickable seed/tuning links (routed through _inspect_link) + the overview mounts a per-journey
+    # action button row when a [[journey]] row is selected.
+    _jcard = "<br>".join(win._inspect_build("journey", "@journey:dali", None))
+    assert 'href="jseed:dali"' in _jcard and 'href="jtuning:dali"' in _jcard, _jcard
+    assert "right-click" not in _jcard, "seed/tuning are clickable now, not a right-click hint"
+    win._mount_journey_overview(selected_jid="dali")                      # mounts _mount_journey_row_actions (no crash)
     assert win._apply_journey_seed("dali", "", "") is True                # clearing both removes the [journey.seed]
     assert next(j for j in win.manifest.journeys if j.id == "dali").seed.is_empty
     assert win._apply_journey_seed("nope", "", "Vivi") is False           # a missing journey fails gracefully
@@ -5851,8 +5939,8 @@ def _smoke(win):
           f"install-list browse) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
-          f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
-          f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning) + VERBATIM logic-map subtree + in-place edit panel "
+          f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs + encounter->Battle jump) + JOURNEY mode "
+          f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
           f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")

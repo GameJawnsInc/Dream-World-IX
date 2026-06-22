@@ -277,6 +277,18 @@ class BattleDoc(QWidget):
         self.host_lay.addWidget(lbl)
         self.host_lay.addStretch(1)
 
+    def open_scene_id(self):
+        """The minted battle-scene id of the open battle.toml (``[battlemap] scene_id``), or None. Lets the
+        shell answer 'is the field's encounter scene the one open here?' for the encounter->Battle jump."""
+        return ((self.data or {}).get("battlemap") or {}).get("scene_id")
+
+    def crumb_label(self):
+        """A short 'you are editing X' label for the breadcrumb when the Battle tab is active."""
+        if self.path is None:
+            return "no battle map open"
+        sid = self.open_scene_id()
+        return Path(self.path).stem + (f" — scene {sid}" if sid is not None else "")
+
     # ------------------------------------------------------------------ load
     def browse(self):
         f, _ = QFileDialog.getOpenFileName(self, "Open a battle.toml", "", "TOML (*.toml)")
