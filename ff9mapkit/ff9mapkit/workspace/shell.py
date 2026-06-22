@@ -1740,8 +1740,11 @@ class Workspace(QMainWindow):
                                     _add(_read(mp))
             elif self.plan is not None:                                # CAMPAIGN: shared flags + each member
                 _add({"flag": getattr(self.plan, "flags", []) or []})
-                for mp in self.member_paths.values():
-                    if Path(mp).is_file():
+                for name, mp in self.member_paths.items():
+                    doc = self._docs.get(name)                         # prefer the IN-MEMORY doc (picks up unsaved edits)
+                    if doc is not None:
+                        _add(doc.data)
+                    elif Path(mp).is_file():
                         _add(_read(mp))
             elif self._loose is not None:                              # LOOSE single field
                 doc = self._docs.get(self._loose)
@@ -2315,6 +2318,8 @@ class Workspace(QMainWindow):
         elif w in (self.story_state, self.item_equip):
             self.crumb.set([bc.Crumb(bc.SAVE, w.crumb_label())])
             self._set_chip("save")
+            if w is self.story_state:                  # re-read the open project's [[flag]] names on each view
+                self._refresh_flag_names()             # so the annotation is current no matter the open/edit order
         elif w is self.build_deploy:
             self.crumb.set([bc.Crumb("build", w.crumb_label())])
             self._set_chip("build")
@@ -6375,8 +6380,10 @@ def _smoke(win):
     _fb = bytearray(2048); _fb[8520 >> 3] |= 1 << (8520 & 7)
     _frep = _flags.decode_gEventGlobal(bytes(_fb))
     assert "8520=got_sword" in _flags.render_report(_frep, names=win._project_flag_names())
-    win.story_state.set_flag_names(win._project_flag_names())     # push as the shell does on open
-    assert win.story_state.flag_names == {8520: "got_sword"}
+    # robustness: just VIEWING Story State re-reads the open project's flags (no open/edit-order dependence)
+    win.tabs.setCurrentWidget(win.story_state)
+    assert win.story_state.flag_names == {8520: "got_sword"}, win.story_state.flag_names
+    win.tabs.setCurrentWidget(win.doc_scroll)
     win._close_project()
     assert win.story_state.flag_names == {}, "Close drops the authored-flag annotation"
 
