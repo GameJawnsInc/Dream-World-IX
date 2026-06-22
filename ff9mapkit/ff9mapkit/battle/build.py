@@ -186,6 +186,11 @@ def validate_battle(project: BattleProject) -> list[str]:
         problems.append("[battlemap] set only ONE of scene_id (mint) or repoint_scene")
     if project.scene_id is not None and not project.scene_name:
         problems.append("[battlemap] scene_id (mint) also needs scene_name")
+    if project.raw.get("scene") and not project.is_mint:     # the silent-no-op footgun the user hit
+        problems.append("[scene] tuning (formation / stats / camera / flags) needs a MINTED scene -- this "
+                        "battle.toml has no scene_id+scene_name, so it's a bare-BBG OVERRIDE (map geometry only) "
+                        "and every [scene] edit is SILENTLY IGNORED. Re-fork WITH a 'Fork scene' (e.g. EF_R007) "
+                        "to mint a tuneable scene, then your stats/camera/flags apply.")
     if project.is_mint:
         sd = project.scene_dir
         need = [sd / "dbfile0000.raw16.bytes", sd / "btlseq.raw17.bytes"]
@@ -356,11 +361,16 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
             except ValueError as ex:
                 raise BattleBuildError(f"camera keyframe authoring failed: {ex}")
         if scene_cfg and any(k in scene_cfg for k in ("camera_yaw", "camera_pitch", "camera_zoom")):
-            raw17 = _camera_data.tweak_opening(                 # tier i: offset (composes over keyframes)
+            raw17, cam_report = _camera_data.tweak_opening(     # tier i: offset (composes over keyframes)
                 raw17, cam_idx,
                 yaw_deg=float(scene_cfg.get("camera_yaw", 0)),
                 pitch_deg=float(scene_cfg.get("camera_pitch", 0)),
                 zoom=float(scene_cfg.get("camera_zoom", 1.0)))
+            warnings += [f"camera tweak: {r}" for r in cam_report]   # so it's NOT silent (the user's debug pain)
+            if scene_cfg.get("camera") is None and len(raw16) > 10 and raw16[10] >= 3:
+                warnings.append("camera tweak: [scene] camera is unpinned and this scene's opening camera is "
+                                "RANDOM -- the tweak hits cameras 0/1/2 but the engine may play another; pin "
+                                "[scene] camera = 0/1/2 so the tweak lands on the camera that actually plays")
         if scene_cfg and scene_cfg.get("seq_patch"):            # same-length attack-sequence operand patches FIRST
             try:                                                # (its offsets are into the un-repacked body region)
                 raw17, sp_warns = _seqpatch.apply_seq_patches(raw17, scene_cfg["seq_patch"])

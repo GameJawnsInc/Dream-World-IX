@@ -80,28 +80,43 @@ def _campos_fields(raw17, cam_index):
                 off += 4
 
 
-def tweak_opening(raw17, cam_indices, *, yaw_deg=0.0, pitch_deg=0.0, zoom=1.0) -> bytes:
+def tweak_opening(raw17, cam_indices, *, yaw_deg=0.0, pitch_deg=0.0, zoom=1.0) -> tuple:
     """Rotate (yaw_deg around the target), tilt (pitch_deg), and/or zoom (distance x ``zoom``) the opening
-    camera(s) ``cam_indices`` in place. Returns new raw17 bytes (same length). Pure byte edit, no repack."""
+    camera(s) ``cam_indices`` in place. Returns ``(new_raw17_bytes, report)`` -- ``report`` is a list of
+    human lines (one per touched camera: keyframe count + a representative distance before->after) so the
+    build can SURFACE what the tweak did instead of failing silently. Same length (no offset repack)."""
     if zoom <= 0:
         raise CameraEditError(f"camera_zoom {zoom} must be > 0")
     b = bytearray(raw17)
     dyaw = round(yaw_deg / 360.0 * _YAW_FULL)
     dpitch = round(pitch_deg / 360.0 * _PITCH_FULL)
-    touched = 0
+    touched, report = 0, []
     for idx in cam_indices:
+        n_kf, d_before, d_after = 0, None, None
         for p_off, o_off, d_off in _campos_fields(b, idx):
+            if d_before is None:
+                d_before = b[d_off]
             if dpitch:
                 b[p_off] = (b[p_off] + dpitch) % _PITCH_FULL
             if dyaw:
                 b[o_off] = (b[o_off] + dyaw) % _YAW_FULL
             if zoom != 1.0:
                 b[d_off] = max(0, min(255, round(b[d_off] * zoom)))
+            if d_after is None:
+                d_after = b[d_off]
+            n_kf += 1
             touched += 1
+        if n_kf:
+            note = f"camera {idx}: {n_kf} keyframe(s)"
+            if zoom != 1.0:
+                note += f", distance {d_before}->{d_after}"
+                if d_before == d_after:
+                    note += " (no change -- the distance byte had no headroom to scale)"
+            report.append(note)
     if touched == 0:
         raise CameraEditError(f"no cameraPosition keyframes found in cameras {list(cam_indices)} "
                               f"(this raw17 has {camera_count(raw17)} cameras)")
-    return bytes(b)
+    return bytes(b), report
 
 
 def opening_indices(camera_selector) -> list:

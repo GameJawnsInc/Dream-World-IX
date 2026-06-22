@@ -196,7 +196,12 @@ class BattleDoc(QWidget):
             return False
         self.path = Path(path)
         self.data = data
-        self.path_lbl.setText(str(self.path))
+        bm = data.get("battlemap", {})
+        is_mint = bm.get("scene_id") is not None and bool(bm.get("scene_name"))
+        mode = (f"minted scene {bm.get('scene_id')} — [scene] tuning applies" if is_mint
+                else "MAP-ONLY override — [scene] tuning (stats/camera/flags) needs a Fork scene to apply")
+        self.path_lbl.setText(f"{self.path}    ·    {mode}")
+        self.path_lbl.setStyleSheet(f"color:{self.pal['muted' if is_mint else 'warn']};")
         self._ctx = None
         self._rebuild_nodes()
         self.add_enemy_btn.setEnabled(True)

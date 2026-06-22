@@ -186,6 +186,20 @@ def test_raw_int_flags_survive_the_gui_strlist_roundtrip():
     assert _encode_scene_flags(["back_attack"], 0x04) == 0x06          # 0x04 preserved + back_attack (0x02)
 
 
+def test_validate_battle_blocks_scene_tuning_on_a_bare_override(tmp_path):
+    # the user-hit footgun: [scene] tuning on a bare-BBG override (no scene_id+scene_name) is silently ignored
+    # at build -> validate refuses it with a 'needs a Fork scene' message instead.
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [scene]
+        camera_zoom = 1.5
+        monster_count = 2
+    ''')
+    assert any("needs a MINTED scene" in p and "Fork scene" in p for p in validate_battle(proj))
+
+
 def test_validate_battle_flags_bad_camera_zoom(tmp_path):
     _write_scene(tmp_path)                                            # mint scene assets present -> scene is validated
     proj = _write_project(tmp_path, '''
@@ -540,11 +554,17 @@ def _raw17_cam(pitch=0x40, ori=0x10, dist=0x14):
 
 def test_camera_tweak_yaw_pitch_zoom():
     raw = _raw17_cam(pitch=0x40, ori=0x10, dist=0x14)
-    out = camera_data.tweak_opening(raw, [0], yaw_deg=180, pitch_deg=45, zoom=2.0)
+    out, report = camera_data.tweak_opening(raw, [0], yaw_deg=180, pitch_deg=45, zoom=2.0)
     assert len(out) == len(raw)                            # in place, no length change (no offset repack)
     assert out[29] == (0x10 + 0x20) % 0x40                 # yaw 180deg -> orientation +0x20
     assert out[28] == (0x40 + 0x10) % 0x80                 # pitch 45deg -> pitch +0x10
     assert out[31] == 0x14 * 2                             # zoom x2 -> distance doubled
+    assert report and "camera 0" in report[0] and "distance 20->40" in report[0]   # observable, not silent
+
+
+def test_camera_tweak_reports_no_headroom_when_distance_is_clamped():
+    out, report = camera_data.tweak_opening(_raw17_cam(dist=0), [0], zoom=3.0)   # 0 * 3 = 0, no change
+    assert out[31] == 0 and "no change" in report[0]      # the silent-clamp case is now flagged
 
 
 def test_camera_opening_indices():
