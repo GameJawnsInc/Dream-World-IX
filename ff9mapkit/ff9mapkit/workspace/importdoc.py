@@ -26,11 +26,12 @@ class ImportDoc(QWidget):
     job to the Output panel + posts a verdict); ``problems`` = ``shell._show_problems`` (unused here -- the
     shell-outs have only a stream + a return code, so the verdict comes from run_job)."""
 
-    def __init__(self, pal, kit_root, *, run, problems=None):
+    def __init__(self, pal, kit_root, *, run, problems=None, on_forked=None):
         super().__init__()
         self.pal = pal
         self.kit = Path(kit_root)                      # `-m ff9mapkit` cwd (this worktree's package)
         self._run = run
+        self._on_forked = on_forked                    # called with the output DIR on a clean fork -> shell opens it
         # The tab body SCROLLS: this view stacks five tall group boxes, so a short window would otherwise
         # cram/overlap them (and the inflated minimum height blocks the bottom Output dock from growing). The
         # scroll area keeps THIS widget's min height small so the dock is resizable + the boxes never collide.
@@ -436,13 +437,21 @@ class ImportDoc(QWidget):
         for btn in self._buttons:
             btn.setEnabled(not b)
 
-    def _kit(self, args, *, subject, ok_next=""):
-        """Stream ``py -m ff9mapkit <args>`` from the kit root into the Output panel via run_job."""
+    def _kit(self, args, *, subject, ok_next="", forked=None):
+        """Stream ``py -m ff9mapkit <args>`` from the kit root into the Output panel via run_job. When
+        ``forked`` is the output DIR of a fork job, a clean exit fires ``on_forked`` so the shell opens the
+        forked project (the Import->author handoff, instead of 'now go open it on Build & Deploy')."""
         self._busy(True)
+
+        def _done(code):
+            self._busy(False)
+            if code == 0 and forked is not None and self._on_forked is not None:
+                self._on_forked(forked)
+
         started = self._run([sys.executable, "-m", "ff9mapkit", *args], cwd=self.kit, subject=subject,
                             ok_headline=f"{subject} — done", ok_next=ok_next,
                             fail_hint="See the Output panel (importing needs UnityPy + your FF9 install).",
-                            on_finished=lambda _code: self._busy(False))
+                            on_finished=_done)
         if not started:
             self._busy(False)                          # a job was already running; nothing started
 
@@ -484,8 +493,9 @@ class ImportDoc(QWidget):
             return self._warn("Bad id base", "id base must be a number (e.g. 6000) — or blank for the default.")
         Path(out).mkdir(parents=True, exist_ok=True)
         self._kit(self._region_args(out=str(Path(out).resolve())), subject=f"Fork region {seeds}",
-                  ok_next=f"Forked the chain to {out}. Open its campaign.toml on Build & Deploy → Deploy; then to "
-                          f"make New Game start here, use Build & Deploy → New Game entry (point it at the entry "
+                  forked=str(Path(out).resolve()),
+                  ok_next=f"Forked the chain to {out} — it opens automatically here. Then Build & Deploy → Deploy; "
+                          f"to make New Game start here, use Build & Deploy → New Game entry (point it at the entry "
                           f"id) and relaunch.")
 
     def on_find(self):
@@ -529,10 +539,10 @@ class ImportDoc(QWidget):
                                 swap_player=swap or None, neutralize_gestures=neutralize)
         swapped = f", walking as {swap}" if swap else ""
         mode = "verbatim — real script + dialogue, real logic" if verbatim else "re-authorable carry"
-        self._kit(args, subject=f"Import {field}",
-                  ok_next=f"Forked ({mode}{swapped}) to {out}. Open it on the Build & Deploy tab to compile + "
-                          "deploy" + ("; then add a [startup] beat (Editor tab → the field's Field form) so it "
-                             "boots the right story state instead of scenario zero." if verbatim else "."))
+        self._kit(args, subject=f"Import {field}", forked=str(Path(out).resolve()),
+                  ok_next=f"Forked ({mode}{swapped}) to {out} — it opens automatically here; Build & Deploy is "
+                          "pre-aimed at it" + ("; then add a [startup] beat (Editor tab → the field's Field form) "
+                             "so it boots the right story state instead of scenario zero." if verbatim else "."))
 
     def on_view_dialogue(self):
         field = self.dlg_field.text().strip()

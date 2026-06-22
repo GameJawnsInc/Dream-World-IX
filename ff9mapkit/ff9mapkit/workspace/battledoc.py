@@ -161,13 +161,14 @@ class BattleDoc(QWidget):
     """Author a battle.toml. ``output`` streams text to the bottom Output dock; ``problems`` posts the Check
     verdict + rows to the Problems dock (the same callbacks :class:`BuildDoc` takes)."""
 
-    def __init__(self, palette, *, output=None, problems=None, run=None, kit_root=None):
+    def __init__(self, palette, *, output=None, problems=None, run=None, kit_root=None, on_open=None):
         super().__init__()
         self.pal = palette
         self._output = output
         self._problems = problems
         self._run = run                  # shell.run_job: streams a CLI job (battle-import) to the Output dock
         self.kit = Path(kit_root) if kit_root else None    # `-m ff9mapkit` cwd (so the local pkg shadows)
+        self._on_open = on_open          # called with the battle.toml path on open/fork -> shell pre-aims Build & Deploy
         self.path = None                 # Path of the open battle.toml
         self.data = {}                   # the loaded dict (battlemap / scene / scene.enemy[])
         self._nodes = []                 # [(kind, idx)] parallel to the node-list rows
@@ -326,6 +327,8 @@ class BattleDoc(QWidget):
         self.check_btn.setEnabled(True)
         if self.nodes.count():
             self.nodes.setCurrentRow(0)
+        if self._on_open:
+            self._on_open(self.path)                       # pre-aim Build & Deploy at this battle.toml
         return True
 
     @staticmethod

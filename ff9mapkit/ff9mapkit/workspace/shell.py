@@ -440,13 +440,15 @@ class Workspace(QMainWindow):
         self.item_equip = ItemEquipDoc(self.pal, output=self._save_output)         # gil/inventory/equip (5b-ii)
         self.tabs.addTab(self.item_equip, "Item & Equip")
         self.battle = BattleDoc(self.pal, output=self._save_output, problems=self._show_problems,
-                                run=self.run_job, kit_root=KIT)            # encounter editor + Fork battle…
+                                run=self.run_job, kit_root=KIT,            # encounter editor + Fork battle…
+                                on_open=self._on_battle_open)              # opening/forking a battle.toml pre-aims Build & Deploy
         self.tabs.addTab(self.battle, "Battle")
         # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
         # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
         self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems)
         self.tabs.addTab(self.build_deploy, "Build & Deploy")
-        self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems)
+        self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
+                                      on_forked=self._import_forked)       # a clean fork auto-opens its project
         self.tabs.addTab(self.import_field, "Import")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
@@ -1795,6 +1797,27 @@ class Workspace(QMainWindow):
         if self.open_campaign(ct) and member in getattr(self, "_member_items", {}):
             self._select_member(member)
             self.tabs.setCurrentWidget(self.doc_scroll)   # you were editing the field -> its Editor, not the Map
+
+    def _on_battle_open(self, path):
+        """A battle.toml opened/forked on the Battle tab -> pre-aim Build & Deploy at it (do-now #6), so it's
+        ready when you switch there. Mirrors how opening a field/campaign/journey pre-aims Build & Deploy."""
+        self.build_deploy.set_target(path)
+        self.statusBar().showMessage(f"Build & Deploy aimed at {Path(path).name}", 4000)
+
+    def _import_forked(self, out_dir):
+        """An Import fork finished cleanly -> open the project it wrote (a campaign.toml, else a single
+        field.toml), so the Import→author handoff is ONE step instead of 'now go open it on Build & Deploy'
+        (do-now #6). open_campaign/open_field also pre-aim Build & Deploy, so it's immediately buildable."""
+        out = Path(out_dir)
+        if (out / "campaign.toml").is_file():
+            self.open_campaign(out / "campaign.toml")
+            return
+        for pat in ("*.field.toml", "field.toml", "*/*.field.toml"):
+            hits = sorted(out.glob(pat))
+            if hits:
+                self.open_field(hits[0])
+                return
+        self.statusBar().showMessage(f"Imported to {out} — no campaign.toml / field.toml found to open.", 6000)
 
     def open_campaign(self, path, *, keep_journey=False) -> bool:
         if not self._maybe_prompt_unsaved():
@@ -5428,6 +5451,8 @@ def _smoke(win):
     btoml.write_text('[battlemap]\nbbg = "BBG_B013"\nfbx = "BBG_B013.fbx"\n\n'
                      '[scene]\nmonster_count = 2\n\n[[scene.enemy]]\nslot = 0\nhp = 500\n', encoding="utf-8")
     assert win.battle.load(str(btoml))
+    # do-now #6: opening a battle.toml on the Battle tab PRE-AIMS Build & Deploy at it (cross-tab handoff)
+    assert Path(win.build_deploy.path.text()) == btoml, win.build_deploy.path.text()
     assert win.battle._nodes[0][0] == "battlemap" and win.battle._nodes[1][0] == "scene"
     assert any(k == "enemy" for k, _ in win.battle._nodes), win.battle._nodes
     win.battle.nodes.setCurrentRow(0)                                      # the Map form mounts
@@ -5547,6 +5572,7 @@ def _smoke(win):
                                   "--fork-scene", "EF_R007"], forked["argv"]
     assert win.battle.path == (d / "forked_fight" / "battle.toml")        # auto-opened the forked result
     assert win.battle.data["battlemap"]["bbg"] == "BBG_B042"
+    assert Path(win.build_deploy.path.text()) == d / "forked_fight" / "battle.toml", "fork pre-aims Build & Deploy"
     # Fork-dialog Browse: an install-gated list -> _choose -> fills the field; read once, then CACHED
     from PySide6.QtWidgets import QLineEdit as _QLE
     _calls = []
@@ -6250,6 +6276,11 @@ def _smoke(win):
     assert win._payload(win.tree.currentItem())[1] == "IC_ENT", "and kept us on the same field"
     # a TRULY standalone field (no parent campaign) shows no jump
     assert win.open_field(af) and win._loose_parent[0] is None, "a standalone field has no parent campaign"
+    # do-now #6: an Import fork auto-opens the project it wrote (here, the dir holding the IC campaign.toml) --
+    # the Import->author handoff in one step instead of 'now go open it on Build & Deploy'.
+    win._close_project()
+    win._import_forked(d)
+    assert win.plan is not None and win.campaign_path == d / "campaign.toml", "an Import fork auto-opens its campaign"
 
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field+party+startup round-trip) + cutscene/choice sub-editors + "
@@ -6264,7 +6295,7 @@ def _smoke(win):
           f"persistent CHIP names the SELECTED node's type (hub/journey/campaign/field) + breadcrumb truthful "
           f"per-tab (content/battle/save/build) + distinct hub⌂/journey◆ glyphs + type tooltips + Close-to-empty + "
           f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing') + "
-          f"loose-field→parent-campaign upward jump + JOURNEY mode "
+          f"loose-field→parent-campaign upward jump + battle.toml/Import fork pre-aim+auto-open Build&Deploy + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
