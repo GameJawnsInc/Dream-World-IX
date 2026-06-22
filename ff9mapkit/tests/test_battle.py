@@ -137,6 +137,55 @@ def test_validate_battle_rejects_both_mint_and_repoint(tmp_path):
     assert any("only ONE" in p for p in validate_battle(proj))
 
 
+def _scene_raw16(flags=0):
+    """A minimal 1-pattern / 1-type raw16 with put[0] -> type 0 (targetable) and a given header Flags word."""
+    from ff9mapkit.battle import scene_codec as sc
+    mon = sc.MonParm.unpack(bytes(116))
+    puts = [sc.Put(0, 1, 0, 0, 0, 0, 0, 0)] + [sc.Put(0, 0, 0, 0, 0, 0, 0, 0) for _ in range(3)]
+    pat = sc.Pattern(rate=100, monster_count=1, camera=0, pad0=0, ap=10, puts=puts)
+    head = bytes([0, 1, 1, 0]) + struct.pack("<H", flags) + b"\x00\x00"   # Ver/Pat/Typ/Atk + Flags(2) + pad(2)
+    return sc.serialize_scene(sc.Scene(head=head, patterns=[pat], monsters=[mon], attacks=[], tail=b""))
+
+
+def test_apply_scene_flags_sets_named_bits_and_preserves_others():
+    from ff9mapkit.battle.scene_data import apply_scene_edits
+    raw = _scene_raw16(flags=0x04)                            # an unknown bit 2 set -> must survive
+    out, _ = apply_scene_edits(raw, {"flags": ["back_attack", "no_escape"]})
+    fl = struct.unpack_from("<H", out, 4)[0]
+    assert fl & 0x02 and fl & 0x20                            # back_attack + no_escape set
+    assert fl & 0x04                                         # the unknown bit is preserved
+    assert not (fl & 0x01) and not (fl & 0x08)               # preemptive / no_exp cleared (not named)
+
+
+def test_apply_scene_flags_raw_int_and_absent():
+    from ff9mapkit.battle.scene_data import apply_scene_edits
+    raw = _scene_raw16(flags=0x04)
+    out, _ = apply_scene_edits(raw, {"flags": 0x09})         # a raw int REPLACES the whole word
+    assert struct.unpack_from("<H", out, 4)[0] == 0x09
+    out2, _ = apply_scene_edits(raw, {})                     # absent -> the donor's header is kept verbatim
+    assert struct.unpack_from("<H", out2, 4)[0] == 0x04
+
+
+def test_apply_scene_flags_unknown_name_errors():
+    from ff9mapkit.battle.scene_data import apply_scene_edits, SceneEditError
+    with pytest.raises(SceneEditError):
+        apply_scene_edits(_scene_raw16(), {"flags": ["nope"]})
+
+
+def test_raw_int_flags_survive_the_gui_strlist_roundtrip():
+    # a hand-authored raw-int `flags = 9` opened+saved in the GUI normalises to the one-int list [9] (STRLIST
+    # re-parse); the encoders must read [9] as the raw word 9, NOT a flag NAMED "9" (the review-found regression).
+    from ff9mapkit.editor import battle_forms as bf, forms
+    from ff9mapkit.battle.scene_data import _encode_flags, _encode_scene_flags
+    se = forms.build_entity(bf.SCENE_SPEC, forms.entity_to_values(bf.SCENE_SPEC, {"flags": 9}))
+    assert se["flags"] == [9] and _encode_scene_flags(se["flags"], 0x04) == 9
+    ee = forms.build_entity(bf.ENEMY_SPEC, forms.entity_to_values(bf.ENEMY_SPEC, {"slot": 0, "flags": 9}))
+    assert ee["flags"] == [9] and _encode_flags(ee["flags"], 0) == 9
+    # a multi-int list ORs to one raw word; a name list still takes the named-bit path (preserving other bits)
+    assert _encode_scene_flags([1, 2], 0) == 3
+    assert _encode_scene_flags(["back_attack"], 0x04) == 0x06          # 0x04 preserved + back_attack (0x02)
+
+
 def test_validate_battle_lints_player_csv_blocks(tmp_path):
     # the mod-global player/ability CSV deltas a battle.toml may carry are lint-checked by validate_battle
     # (install-free: value range + structure). A bad [[character]] stat and a bad [[battle_action]] are caught.

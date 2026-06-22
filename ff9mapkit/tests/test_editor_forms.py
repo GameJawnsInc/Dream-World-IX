@@ -230,6 +230,14 @@ def test_parse_strlist_names_indices_and_empty():
     assert forms.parse_strlist("vivi, 3") == ["vivi", 3]                # a numeric token -> int
 
 
+def test_format_strlist_handles_a_scalar_without_crashing():
+    # a hand-authored TOML may give a STRLIST key a scalar (a bare name, or a raw-int escape hatch like a
+    # scene/enemy `flags = 9`) -- format it as-is, never iterate it into chars / TypeError on an int.
+    assert forms.format_strlist(["a", "b"]) == "a, b"
+    assert forms.format_strlist(9) == "9"                               # raw int -> "9" (no TypeError)
+    assert forms.format_strlist("Steiner") == "Steiner"                 # bare string -> itself (not "S, t, e…")
+
+
 def test_party_spec_builds_party_table_and_omits_empty():
     e = forms.build_entity(forms.PARTY_SPEC, {"add": "Steiner, Beatrix", "remove": ""})
     assert e == {"add": ["Steiner", "Beatrix"]}                    # empty remove omitted; add is a real list

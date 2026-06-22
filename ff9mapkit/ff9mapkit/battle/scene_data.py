@@ -58,6 +58,14 @@ _MON_STATUS_FIELDS = {"resist_status": 0, "auto_status": 4, "initial_status": 8}
 _MON_FLAGS_OFF = 48
 _MON_FLAG_NAMES = {"die_atk": 1, "die_dmg": 2, "non_dying_boss": 4}
 
+# [scene]-level Flags (the scene header @4, a u16) -- the ENCOUNTER RULES. Named bits from BTL_SCENE scene_flags
+# (scene_codec: preemptive = SpecialStart bit0, back_attack bit1, no_exp bit3, can't-escape = Runaway bit5).
+# Authoring a `[scene] flags` list CLEARS these 4 known bits then ORs the named ones (any OTHER header bit is
+# preserved); a raw int REPLACES the whole word. Absent -> the donor's header flags are kept verbatim.
+_SCENE_FLAGS_OFF = 4
+_SCENE_FLAG_NAMES = {"preemptive": 0x01, "back_attack": 0x02, "no_exp": 0x08, "no_escape": 0x20}
+_SCENE_FLAG_MASK = 0x01 | 0x02 | 0x08 | 0x20
+
 # RE-SKIN: the (offset, length) byte ranges of the MODEL + display fields, copied VERBATIM from a real donor
 # enemy so a forked enemy's BODY looks like a different creature while keeping its own gameplay. The appearance
 # is a self-consistent group: Geo (the model), Mot[6] (six GLOBAL animation ids = the IDLE/DAMAGE/DEATH motions,
@@ -138,6 +146,10 @@ def apply_scene_edits(raw16: bytes, scene: dict) -> tuple[bytes, list[str]]:
     b = bytearray(raw16)
     warnings: list[str] = []
     enemies = scene.get("enemy", [])
+
+    if "flags" in scene:                                    # [scene] ENCOUNTER RULES -> the header Flags u16
+        cur = struct.unpack_from("<H", b, _SCENE_FLAGS_OFF)[0]
+        struct.pack_into("<H", b, _SCENE_FLAGS_OFF, _encode_scene_flags(scene["flags"], cur))
 
     cam = None
     if "camera" in scene:
@@ -284,6 +296,8 @@ def _encode_flags(value, slot) -> int:
     if not isinstance(names, list):
         raise SceneEditError(f"slot {slot} flags must be a name / list of names {sorted(_MON_FLAG_NAMES)} "
                              f"or a raw int")
+    if names and all(isinstance(n, int) and not isinstance(n, bool) for n in names):
+        return _or_raw_bits(names, lambda n: f"slot {slot} flags {n} out of range (0-65535)")  # the [9] round-trip of `flags = 9`
     bits = 0
     for nm in names:
         key = str(nm).strip().lower()
@@ -291,6 +305,41 @@ def _encode_flags(value, slot) -> int:
             raise SceneEditError(f"slot {slot} unknown enemy flag {nm!r}; known: {sorted(_MON_FLAG_NAMES)} "
                                  f"(or pass a raw int)")
         bits |= _MON_FLAG_NAMES[key]
+    return bits
+
+
+def _or_raw_bits(ints, err) -> int:
+    """OR a list of raw u16 ints into one flag word (the GUI round-trip of a raw-int `flags = N`: a STRLIST
+    re-parses `N` to the one-int list `[N]`, which must mean the same raw word, not a flag NAMED `N`)."""
+    word = 0
+    for n in ints:
+        if not 0 <= n <= 0xFFFF:
+            raise SceneEditError(err(n))
+        word |= n
+    return word
+
+
+def _encode_scene_flags(value, current: int) -> int:
+    """A ``[scene] flags`` value -> the new header Flags u16. A list of NAMES (``_SCENE_FLAG_NAMES``) CLEARS the
+    4 known bits in ``current`` then ORs the named ones (preserving any other header bit); a raw int REPLACES the
+    whole word. The encounter RULES: preemptive / back_attack / no_exp / no_escape (can't-flee)."""
+    if isinstance(value, bool):
+        raise SceneEditError("[scene] flags can't be a boolean (use a name list or a raw int)")
+    if isinstance(value, int):
+        if not 0 <= value <= 0xFFFF:
+            raise SceneEditError(f"[scene] flags {value} out of range (0-65535)")
+        return value
+    names = [value] if isinstance(value, str) else value
+    if not isinstance(names, list):
+        raise SceneEditError(f"[scene] flags must be a name / list of names {sorted(_SCENE_FLAG_NAMES)} or a raw int")
+    if names and all(isinstance(n, int) and not isinstance(n, bool) for n in names):
+        return _or_raw_bits(names, lambda n: f"[scene] flags {n} out of range (0-65535)")  # the [9] round-trip of `flags = 9`
+    bits = current & ~_SCENE_FLAG_MASK
+    for nm in names:
+        key = str(nm).strip().lower()
+        if key not in _SCENE_FLAG_NAMES:
+            raise SceneEditError(f"[scene] unknown flag {nm!r}; known: {sorted(_SCENE_FLAG_NAMES)} (or a raw int)")
+        bits |= _SCENE_FLAG_NAMES[key]
     return bits
 
 

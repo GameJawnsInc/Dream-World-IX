@@ -38,13 +38,16 @@ BATTLEMAP_SPEC = [
 ]
 
 # [scene] -- the FORMATION. monster_count is the keystone: it recomposes every pattern and unlocks per-slot
-# editing, so it reads first in the form. (The camera floats + ai_*/seq_* sub-tables are out of this spec.)
+# editing, so it reads first in the form. `flags` are the encounter RULES (header scene_flags). (The camera
+# floats + ai_*/seq_* sub-tables are still out of this spec.)
 SCENE_SPEC = [
     Field("monster_count", "Monster count", OPTINT,
           "how many enemies spawn (1-4) -- SET THIS to compose the formation + unlock per-slot edits"),
     Field("camera", "Camera", OPTINT, "opening camera: 0-2 = a fixed PSX pose, >=3 = random"),
     Field("ap", "AP reward", OPTINT, "the gameplay AP this fight awards"),
     Field("pattern", "Pattern", OPTINT, "which formation pattern to tune (default 0)"),
+    Field("flags", "Encounter rules", STRLIST,
+          "scene RULES (any of): back_attack, preemptive, no_escape, no_exp -- absent keeps the donor's"),
 ]
 
 # [[scene.enemy]] -- one formation slot's enemy. Stats are per-TYPE: two slots sharing a type share ALL stats.

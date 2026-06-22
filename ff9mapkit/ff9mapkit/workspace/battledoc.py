@@ -64,6 +64,21 @@ def donor_baseline(raw16: bytes, enemy: dict):
     return t, [(label, getattr(mon, attr)) for attr, label in _BASELINE_FIELDS]
 
 
+def donor_scene_facts(raw16: bytes):
+    """[(label, value)...] of the forked scene's CURRENT encounter rules (flags decoded to names) + its
+    pattern/type/attack counts, for a read-only hint above the Formation form. None if the bytes don't parse.
+    Pure (no I/O). The decoded flag names match the `[scene] flags` vocabulary so the user can edit against them."""
+    try:
+        from ..battle import scene_codec as _sc
+        scene = _sc.parse_scene(raw16)
+    except Exception:                                       # noqa: BLE001
+        return None
+    on = [name for name, active in (("back_attack", scene.back_attack), ("preemptive", scene.preemptive),
+                                    ("no_escape", not scene.can_escape), ("no_exp", scene.no_exp)) if active]
+    return [("Current flags", ", ".join(on) or "(none)"), ("Patterns", scene.pat_count),
+            ("Enemy types", scene.typ_count), ("Attacks", scene.atk_count)]
+
+
 class BattleDoc(QWidget):
     """Author a battle.toml. ``output`` streams text to the bottom Output dock; ``problems`` posts the Check
     verdict + rows to the Problems dock (the same callbacks :class:`BuildDoc` takes)."""
@@ -249,6 +264,10 @@ class BattleDoc(QWidget):
             base = self._donor_baseline(entity)             # read-only "what you're tuning from" panel
             if base is not None:
                 self.host_lay.addWidget(self._baseline_panel(*base))
+        elif kind == _SCENE:
+            facts = self._donor_scene_facts()               # the donor's current rules + counts
+            if facts is not None:
+                self.host_lay.addWidget(self._facts_panel("Donor scene (the fork you're tuning)", facts))
         form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal)
         self.host_lay.addWidget(form)
         self.host_lay.addStretch(1)
@@ -272,13 +291,25 @@ class BattleDoc(QWidget):
         except OSError:
             return None
 
+    def _donor_scene_facts(self):
+        p = self._donor_scene_path()
+        if not p or not p.is_file():
+            return None
+        try:
+            return donor_scene_facts(p.read_bytes())
+        except OSError:
+            return None
+
     def _baseline_panel(self, type_no, pairs):
-        box = QGroupBox(f"Donor baseline — enemy type {type_no} (the forked stats you're tuning from)")
+        return self._facts_panel(f"Donor baseline — enemy type {type_no} (the forked stats you're tuning from)", pairs)
+
+    def _facts_panel(self, title, pairs, per_row=6):
+        """A read-only grid of (label, value) facts in a titled box (the donor enemy baseline / scene rules)."""
+        box = QGroupBox(title)
         grid = QGridLayout(box)
         grid.setContentsMargins(8, 4, 8, 4)
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(2)
-        per_row = 6
         for i, (label, val) in enumerate(pairs):
             r, c = divmod(i, per_row)
             cell = QLabel(f"{label} <b>{val}</b>")

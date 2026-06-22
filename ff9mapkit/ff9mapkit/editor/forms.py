@@ -322,6 +322,11 @@ def parse_strlist(s):
 
 
 def format_strlist(v):
+    # a STRLIST is normally a list, but a hand-authored TOML may give a scalar (a bare name, or a raw-int
+    # escape hatch like `flags = 9`) -- show it as-is instead of iterating it (which would split a string into
+    # chars / TypeError on an int).
+    if not isinstance(v, (list, tuple)):
+        return str(v)
     return ", ".join(str(x) for x in v)
 
 

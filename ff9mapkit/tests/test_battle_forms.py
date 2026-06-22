@@ -19,8 +19,9 @@ from ff9mapkit.editor import forms
     (bf.BATTLEMAP_SPEC, {"bbg": "BBG_B013", "repoint_scene": 67}),
     (bf.BATTLEMAP_SPEC, {"bbg": "BBG_B999", "scene_id": 5000, "scene_name": "MYFIGHT",
                          "char_tint": [128, 64, 200], "shadow": 40}),
-    # [scene]: the formation
-    (bf.SCENE_SPEC, {"monster_count": 4, "camera": 0, "ap": 120, "pattern": 0}),
+    # [scene]: the formation + the encounter rules (flags)
+    (bf.SCENE_SPEC, {"monster_count": 4, "camera": 0, "ap": 120, "pattern": 0,
+                     "flags": ["back_attack", "no_escape"]}),
     # [[scene.enemy]]: stats + element/status affinities + 4-item rewards + flags + placement + re-skin
     (bf.ENEMY_SPEC, {"slot": 0, "type": 0, "hp": 1500, "mp": 80, "gil": 999, "exp": 250,
                      "speed": 20, "strength": 18, "magic": 5, "spirit": 12, "level": 12,
@@ -113,6 +114,21 @@ def test_donor_baseline_resolves_type_and_reads_stats():
     assert d["HP"] == 1500 and d["Str"] == 22 and d["Mag"] == 7 and d["Gil"] == 84 and d["Lv"] == 12
     # no explicit type -> resolved from pattern-0's put at the slot (put[0] -> type 0)
     assert donor_baseline(raw16, {"slot": 0})[0] == 0
+
+
+def test_donor_scene_facts_decodes_flags_and_counts():
+    from ff9mapkit.battle import scene_codec as sc
+    from ff9mapkit.workspace.battledoc import donor_scene_facts
+    mon = sc.MonParm.unpack(bytes(116))
+    pat = sc.Pattern(100, 1, 0, 0, 10, [sc.Put(0, 1, 0, 0, 0, 0, 0, 0)] + [sc.Put(0, 0, 0, 0, 0, 0, 0, 0)] * 3)
+    # header flags 0x22 = back_attack (0x02) + can't-escape/Runaway (0x20)
+    import struct
+    head = bytes([0, 1, 1, 0]) + struct.pack("<H", 0x22) + b"\x00\x00"
+    raw16 = sc.serialize_scene(sc.Scene(head=head, patterns=[pat], monsters=[mon], attacks=[], tail=b""))
+    d = dict(donor_scene_facts(raw16))
+    assert d["Current flags"] == "back_attack, no_escape"
+    assert d["Patterns"] == 1 and d["Enemy types"] == 1 and d["Attacks"] == 0
+    assert donor_scene_facts(b"\x00\x01") is None             # truncated -> None, no crash
 
 
 def test_donor_baseline_none_when_type_out_of_range_or_unparseable():
