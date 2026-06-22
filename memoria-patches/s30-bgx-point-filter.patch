@@ -1,0 +1,24 @@
+diff --git a/Assembly-CSharp/Global/BGSCENE_DEF.cs b/Assembly-CSharp/Global/BGSCENE_DEF.cs
+index 1e42a31d..4905700b 100644
+--- a/Assembly-CSharp/Global/BGSCENE_DEF.cs
++++ b/Assembly-CSharp/Global/BGSCENE_DEF.cs
+@@ -301,6 +301,19 @@ public class BGSCENE_DEF
+         else if (operation == "Image" && arguments.Length >= 1)
+         {
+             bgOverlay.memoriaImage = AssetManager.LoadFromDisc<Texture2D>(AssetManager.UsePathWithDefaultFolder(this.memoriaDirectory, arguments[0]));
++            // Dream World IX (s30): point-sample .bgx overlay textures, mirroring the native atlas at
++            // InitPSXTextureAtlas (filterMode = Point, wrapMode = Clamp). A cut depth-layer tile loaded
++            // via LoadImage defaults to Bilinear, so a UV tap straddling the tile's opaque/transparent
++            // edge averages in transparency = a 1px seam at every tile/depth-layer boundary (very visible
++            // on wide scrolling fields). Point sampling snaps each tap to the nearest texel = no seam, the
++            // same mechanism stock/Moguri/native already use. The .memnfo FilterMode hook that could do this
++            // from a kit file is dummied in stock Memoria, so it is set here. Scoped to field-bg overlays
++            // only; UI/model textures are untouched.
++            if (bgOverlay.memoriaImage != null)
++            {
++                bgOverlay.memoriaImage.filterMode = FilterMode.Point;
++                bgOverlay.memoriaImage.wrapMode = TextureWrapMode.Clamp;
++            }
+             if (bgOverlay.memoriaMaterial != null)
+                 bgOverlay.memoriaMaterial.mainTexture = bgOverlay.memoriaImage;
+         }
