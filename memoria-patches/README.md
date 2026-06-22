@@ -20,12 +20,6 @@ the original field's tuned behavior. This is the set that makes a forked field p
 | `s24-fork-donor-remap.patch` | The fork→donor remap suite (`EffectiveFieldId` / `ForkSiblingField` / `IsForkField`) — off-mesh exemptions, the fake-battle return field, overworld→fork entry, the no-encounter wrap, and the rest. Folds in the intermediate s25–s28 milestone steps; there is **no separate s25–s28 file**. |
 | `s29-fork-donor-softlocks.patch` | The same `EffectiveFieldId` wrap on the remaining late-game (disc 2–4) softlock gates (Iifa / Burmecia / Gulug / Oeilvert / Esto Gaza / Ipsen / Epilogue). Disc-1 gates are in-game proven; these late-disc gates are still being playtested as those zones are forked. |
 
-## Rendering quality — SHIPPED in the bundle
-
-| File | What it fixes |
-|---|---|
-| `s30-bgx-point-filter.patch` | Point-samples `.bgx` field-background overlay textures (`FilterMode.Point` + `Clamp` at `BGSCENE_DEF.ProcessMemoriaOverlay`), mirroring what the native atlas already does in `InitPSXTextureAtlas`. Without it, an `import --editable` (repaintable per-depth `.bgx`) field loads its layers **Bilinear**, so a cut depth-layer tile bleeds into transparency at its edge = a 1px **seam** at every tile/depth boundary — very visible on wide scrolling fields (e.g. Alexandria field 100, 36 layers). Point sampling is the same mechanism stock/Moguri/`--native` use; this is the *faithful* seam fix (the `.memnfo` FilterMode hook that could do it from a kit file is dummied in stock Memoria). Scoped to field-bg overlays only — UI/model textures keep Bilinear. ⚠ **IN-GAME UNVERIFIED** as of this commit (awaiting a wide-field A/B playtest). Also a clean **upstream candidate** (benefits any Memoria custom-`.bgx` field). Follow-up once proven: the kit's `_edge_bleed` workaround (`extract.py`) becomes redundant and can be dropped. |
-
 ## Dev tooling — shipped in the bundle, but NOT a fidelity patch
 
 | File | What it is |
