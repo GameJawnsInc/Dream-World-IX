@@ -31,6 +31,12 @@ FINAL FANTASY IX/
 *.bgi.bytes
 *.bgs
 *.mes
+# SE-derived field ART — the packed game atlas + the engine's per-overlay field-art export + the native-repaint
+# round-trip's spatial layers/manifest. The kit authors NONE of these names, so a blanket ignore can't catch
+# our own content (the hut ships .bgx, re-included by path above). -> C7 provenance, project-ff9-native-repaint-workflow.
+atlas.png
+Overlay*.png
+repaint.manifest.json
 # Re-include ONLY the kit-authored, provenance-clean content that ships publicly:
 # the hut demo field (FBG_N11_HUT_* art + EVT_HUT_* scripts) + our custom 1073.mes.
 !/release/FF9CustomMap/StreamingAssets/assets/resources/FieldMaps/FBG_N11_HUT_*/*.bgx

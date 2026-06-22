@@ -1784,6 +1784,7 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
                            f"(use `ff9mapkit import {field}` for a BG-borrow fork instead).")
     (out / "atlas.png").write_bytes(atlas_bytes)
     meta["atlas_source"] = atlas_src
+    meta["atlas_tile_size"] = _active_tilesize(game)         # the TileSize the atlas was packed at (repaint round-trip)
     name = name or (meta["mapid"].split("_")[0] + "_NATIVE")
     safe_area = safe_custom_area(meta["area"])
     remap_note = ("" if safe_area == meta["area"] else
@@ -1903,6 +1904,7 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         f"{_area_title_hide_lines(meta, verbatim=verbatim)}"
         f'bgs = "scene.bgs.bytes"   # NATIVE scene (per-tile depth) -> seamless render, NO .bgx / no tile seams\n'
         f'atlas = "atlas.png"\n'
+        f'atlas_tile_size = {meta["atlas_tile_size"]}   # TileSize the atlas is packed at -- `ff9mapkit repaint-native` round-trips it\n'
         + ('mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights + shadows) for 3D models\n'
            if mc_bytes else "")
         + "\n"
@@ -1920,6 +1922,141 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
     p.write_text(toml, encoding="utf-8", newline="\n")
     meta["field_toml"] = str(p)
     return meta, p
+
+
+# --------------------------------------------------------------------------- native-art repaint round-trip
+# A native fork ships its OWN atlas.png (the seamless render path), but the atlas is TILE-PACKED -- a grid
+# of (TileSize+4) cells in global sprite-index order, NOT a spatial picture -- so it's awkward to repaint by
+# hand. These two functions are a SPATIAL<->ATLAS round-trip: `export_native_repaint` unpacks the atlas into
+# the engine's own per-overlay `Overlay{i}.png` layers (each a spatial picture of one depth layer, exactly
+# what Moguri's PSD pipeline edits); the artist repaints those; `repack_native_atlas` blits them back into
+# atlas.png (the inverse of bgart.assemble_overlay -> bgart.repack_overlay), writing only CHANGED cells (each
+# re-bled into its 2px margin) so an unmodified pack is byte-exact and a re-pack is idempotent. Per-OVERLAY
+# granularity sidesteps the two hazards a single flat composite would hit: spatially-overlapping tiles from
+# different depth layers (a flat picture can hold only the front one) and multi-camera fields (one atlas,
+# many camera canvases). Fully self-contained: operates on the project's own scene.bgs.bytes + atlas.png, no
+# game/UnityPy/ini needed -> provenance-clean and machine-independent. -> project-ff9-native-repaint-workflow.
+_REPAINT_MANIFEST = "repaint.manifest.json"
+
+
+def _native_project_paths(project_dir):
+    """``(field_cfg, bgs_path, atlas_path)`` for a native project dir. Reads the field.toml's
+    ``[field] bgs``/``atlas`` (a native fork always sets them), falling back to the writer's defaults
+    (``scene.bgs.bytes`` / ``atlas.png``). ``field_cfg`` is the parsed ``[field]`` table (carries
+    ``atlas_tile_size`` when the fork recorded it). Raises ``FileNotFoundError`` if not a native scene."""
+    import tomllib  # noqa: PLC0415
+    proj = Path(project_dir)
+    tomls = sorted(proj.glob("*.field.toml"))
+    fcfg = tomllib.loads(tomls[0].read_text(encoding="utf-8")).get("field", {}) if tomls else {}
+    bgs_path = proj / fcfg.get("bgs", "scene.bgs.bytes")
+    atlas_path = proj / fcfg.get("atlas", "atlas.png")
+    if not bgs_path.is_file() or not atlas_path.is_file():
+        raise FileNotFoundError(
+            f"{proj}: not a native scene project (need a {bgs_path.name} + {atlas_path.name}). "
+            f"Fork one with `ff9mapkit import <field>` (native is the default).")
+    return fcfg, bgs_path, atlas_path
+
+
+def _derive_native_tile_size(bgs_bytes: bytes, atlas_w: int, atlas_h: int) -> int:
+    """The TileSize the atlas was packed at, derived from the atlas dims + the field's sprite layout:
+    the LARGEST candidate whose every tile cell fits inside the atlas. The extractor sizes the atlas
+    tightly to the active TileSize (vanilla 32 / Moguri 64), so largest-that-fits is unambiguous (a
+    smaller size always fits too but leaves the atlas mostly empty; a larger one overflows)."""
+    for ts in (128, 64, 32, 16):
+        if atlas_w // (ts + 4) == 0:                          # a cell wider than the atlas can't pack -> skip
+            continue
+        _, ov = bgs.parse_overlays(bgs_bytes)
+        bgs.resolve_sprites(bgs_bytes, ov, atlas_w, ts)
+        sprites = [s for o in ov for s in o.sprites]
+        if sprites and max(s.atlasX for s in sprites) + ts <= atlas_w \
+                and max(s.atlasY for s in sprites) + ts <= atlas_h:
+            return ts
+    return 64
+
+
+def export_native_repaint(project_dir, out_dir=None) -> dict:
+    """Unpack a native fork's tile-packed ``atlas.png`` into per-overlay spatial layers for repainting.
+
+    Writes ``Overlay{i}.png`` (one tight spatial picture per background depth layer, the same artifact
+    Memoria's ``[Export] Field=1`` dumps and Moguri's PSD pipeline edits) + a ``repaint.manifest.json``
+    (records the TileSize so the repack is unambiguous) under ``<out_dir>`` (default ``<project>/repaint/``).
+    Repaint any layer, then :func:`repack_native_atlas`. Returns a summary dict. Self-contained: operates
+    only on the project's own scene.bgs.bytes + atlas.png (no game/UnityPy needed)."""
+    from PIL import Image  # noqa: PLC0415
+    proj = Path(project_dir)
+    fcfg, bgs_path, atlas_path = _native_project_paths(proj)
+    out = Path(out_dir) if out_dir is not None else proj / "repaint"
+    out.mkdir(parents=True, exist_ok=True)
+    bgs_bytes = bgs_path.read_bytes()
+    atlas = Image.open(atlas_path).convert("RGBA")
+    ts = int(fcfg.get("atlas_tile_size") or _derive_native_tile_size(bgs_bytes, atlas.width, atlas.height))
+    _, overlays = bgs.parse_overlays(bgs_bytes)
+    bgs.resolve_sprites(bgs_bytes, overlays, atlas.width, ts)
+    imgs = bgart.assemble_overlays(atlas, overlays, ts)
+    n = 0
+    for i, im in imgs.items():
+        im.save(out / f"Overlay{i}.png")
+        n += 1
+    manifest = {"tile_size": ts, "atlas_width": atlas.width, "atlas_height": atlas.height,
+                "overlays": len(overlays), "atlas": atlas_path.name, "bgs": bgs_path.name}
+    (out / _REPAINT_MANIFEST).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return {"dir": str(out), "overlays": n, "tile_size": ts,
+            "atlas_size": [atlas.width, atlas.height]}
+
+
+def repack_native_atlas(project_dir, repaint_dir=None, *, backup=True) -> dict:
+    """Repaint round-trip's second half: blit the edited ``Overlay{i}.png`` layers back into the native
+    fork's ``atlas.png``. The inverse of :func:`export_native_repaint`. The current ``atlas.png`` IS the
+    base: each layer cell is written ONLY where it differs from the cell already there (and its edge is
+    re-bled into the 2px margin), so an unmodified layer is a byte-exact no-op and re-running is
+    idempotent -- no separate pristine copy to corrupt. Only overlays whose PNG is present are touched;
+    the rest keep their cells. A hand-edited PNG that isn't the exported size is rescaled to fit (a
+    uniform multiple is downscaled with a note; a mismatched aspect raises). Backs up the current atlas
+    to ``backups/<atlas>.<timestamp>`` first. Returns a summary dict."""
+    from datetime import datetime  # noqa: PLC0415
+    from PIL import Image  # noqa: PLC0415
+    proj = Path(project_dir)
+    fcfg, bgs_path, atlas_path = _native_project_paths(proj)
+    rp = Path(repaint_dir) if repaint_dir is not None else proj / "repaint"
+    if not rp.is_dir():
+        raise FileNotFoundError(f"{rp}: no repaint layers -- run `export_native_repaint` first.")
+    man_path = rp / _REPAINT_MANIFEST
+    manifest = json.loads(man_path.read_text(encoding="utf-8")) if man_path.is_file() else {}
+    bgs_bytes = bgs_path.read_bytes()
+    original_bytes = atlas_path.read_bytes()                  # for the pre-overwrite backup
+    atlas = Image.open(atlas_path).convert("RGBA")            # the current atlas IS the base (no separate pristine)
+    ts = int(manifest.get("tile_size") or fcfg.get("atlas_tile_size")
+             or _derive_native_tile_size(bgs_bytes, atlas.width, atlas.height))
+    _, overlays = bgs.parse_overlays(bgs_bytes)
+    bgs.resolve_sprites(bgs_bytes, overlays, atlas.width, ts)
+    written = touched = rescaled = 0
+    notes = []
+    for i, ov in enumerate(overlays):
+        png = rp / f"Overlay{i}.png"
+        if not png.is_file():
+            continue
+        im = Image.open(png).convert("RGBA")
+        exp = bgart.overlay_size(ov.sprites, ts)
+        if tuple(im.size) != exp:
+            kx, ky = im.size[0] / exp[0], im.size[1] / exp[1]
+            if kx == ky and kx > 0:                          # uniform scale (e.g. painted 2x) -> downscale to fit
+                im = im.resize(exp, Image.LANCZOS)
+                rescaled += 1
+                notes.append(f"Overlay{i}: rescaled {png.name} {kx:g}x to {exp[0]}x{exp[1]}")
+            else:
+                raise ValueError(
+                    f"Overlay{i}.png is {tuple(im.size)} but its tiles need {exp} (non-uniform scale); "
+                    f"re-export the layers or match the exported size.")
+        written += bgart.repack_overlay(atlas, im, ov.sprites, ts)
+        touched += 1
+    if backup and written:                                   # back up only when we actually change the atlas
+        bdir = proj / "backups"
+        bdir.mkdir(exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        (bdir / f"{atlas_path.name}.{stamp}").write_bytes(original_bytes)
+    atlas.save(atlas_path)
+    return {"atlas": str(atlas_path), "overlays_repacked": touched, "cells_written": written,
+            "rescaled": rescaled, "tile_size": ts, "notes": notes}
 
 
 def write_field_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,

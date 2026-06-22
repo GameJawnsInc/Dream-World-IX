@@ -52,13 +52,14 @@ class ImportDoc(QWidget):
         root.addWidget(intro)
         root.addWidget(self._fork_box())
         root.addWidget(self._region_box())
+        root.addWidget(self._repaint_box())
         root.addWidget(self._read_box())
         root.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
         self._buttons = [self.find_btn, self.preview_btn, self.import_btn, self.dryrun_btn,
-                         self.fork_region_btn, self.catalog_btn, self.dlg_btn, self.save_btn,
-                         self.list_btn, self.tpl_btn]
+                         self.fork_region_btn, self.catalog_btn, self.rp_unpack_btn, self.rp_pack_btn,
+                         self.dlg_btn, self.save_btn, self.list_btn, self.tpl_btn]
 
     # ------------------------------------------------------------------ fork-a-field
     def _fork_box(self):
@@ -457,6 +458,65 @@ class ImportDoc(QWidget):
         v.addLayout(tpl)
         return box
 
+    # ------------------------------------------------------------------ repaint a native fork
+    def _repaint_box(self):
+        muted = f"color:{self.pal['muted']};"
+        box = QGroupBox("Repaint a native fork's art  (seamless HD round-trip)")
+        v = QVBoxLayout(box)
+        lbl = QLabel("A NATIVE fork ships its background as a tile-packed atlas.png — awkward to paint by hand. "
+                     "Unpack it into spatial Overlay*.png layers (one per depth band, the same picture the engine "
+                     "renders), repaint them in any editor, then Pack them back into atlas.png — seamless, no game "
+                     "needed. The atlas stays byte-identical until you actually change a layer.")
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(muted)
+        v.addWidget(lbl)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Native project:"))
+        self.rp_proj = QLineEdit()
+        self.rp_proj.setPlaceholderText("the fork folder — has scene.bgs.bytes + atlas.png + a *.field.toml")
+        rb = QPushButton("Browse…")
+        rb.clicked.connect(self.browse_repaint)
+        row.addWidget(self.rp_proj, 1)
+        row.addWidget(rb)
+        v.addLayout(row)
+        btns = QHBoxLayout()
+        self.rp_unpack_btn = QPushButton("1. Unpack to layers")
+        self.rp_unpack_btn.clicked.connect(self.on_repaint_unpack)
+        self.rp_pack_btn = QPushButton("2. Pack into atlas")
+        self.rp_pack_btn.setObjectName("accent")
+        self.rp_pack_btn.clicked.connect(self.on_repaint_pack)
+        btns.addWidget(self.rp_unpack_btn)
+        btns.addStretch(1)
+        btns.addWidget(self.rp_pack_btn)
+        v.addLayout(btns)
+        hint = QLabel("Native forks only (BG-borrow reuses the real art; an editable scene already ships "
+                      "repaintable per-depth PNGs). → then deploy on Build & Deploy to see the repaint in-game.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(muted)
+        v.addWidget(hint)
+        return box
+
+    def browse_repaint(self):
+        d = QFileDialog.getExistingDirectory(self, "The native fork project folder")
+        if d:
+            self.rp_proj.setText(d)
+
+    def on_repaint_unpack(self):
+        proj = self.rp_proj.text().strip()
+        if not proj:
+            return self._warn("No project", "Pick the native fork project folder (it has scene.bgs.bytes + "
+                              "atlas.png). Forking a field above with Native art produces one.")
+        self._kit(["repaint-native", str(Path(proj).resolve())], subject="Unpack repaint layers",
+                  ok_next="Repaint the Overlay*.png files in the project's repaint/ folder, then Pack into atlas.")
+
+    def on_repaint_pack(self):
+        proj = self.rp_proj.text().strip()
+        if not proj:
+            return self._warn("No project", "Pick the native fork project folder first, then Unpack to layers.")
+        self._kit(["repaint-native", str(Path(proj).resolve()), "--pack"], subject="Pack atlas",
+                  ok_next="Repacked the layers into atlas.png (the old one is backed up) — deploy the project on "
+                          "Build & Deploy to see the repaint in-game.")
+
     # ------------------------------------------------------------------ run helpers
     def _confirm(self, title, text):
         return QMessageBox.question(self, title, text) == QMessageBox.StandardButton.Yes
@@ -570,6 +630,8 @@ class ImportDoc(QWidget):
                                 swap_player=swap or None, neutralize_gestures=neutralize)
         swapped = f", walking as {swap}" if swap else ""
         mode = "verbatim — real script + dialogue, real logic" if verbatim else "re-authorable carry"
+        if self._art() == "native":                  # a native fork is repaintable -> pre-aim the repaint box at it
+            self.rp_proj.setText(str(Path(out).resolve()))
         self._kit(args, subject=f"Import {field}", forked=str(Path(out).resolve()),
                   ok_next=f"Forked ({mode}{swapped}) to {out} — it opens automatically here; Build & Deploy is "
                           "pre-aimed at it" + ("; then add a [startup] beat (Editor tab → the field's Field form) "

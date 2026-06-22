@@ -5775,6 +5775,21 @@ def _smoke(win):
     assert not imp.art_box.isHidden() and "RE-AUTHORABLE" in imp.mode_chip.text(), imp.mode_chip.text()
     imp.mode_verbatim.setChecked(True)                           # back to verbatim: re-hide + re-pin Native
     assert imp.art_box.isHidden() and imp.art_native.isChecked(), "verbatim re-pins Native"
+    # REPAINT a native fork (the atlas<->layers round-trip): the native imports above pre-aimed the box
+    assert imp.rp_unpack_btn in imp._buttons and imp.rp_pack_btn in imp._buttons   # _busy disables them
+    assert imp.rp_proj.text() == str((d / "imp_out").resolve()), "a native import pre-aims the repaint box"
+    _rp_warn, _rw0 = [], imp._warn
+    imp._warn = lambda *a: _rp_warn.append(a)
+    imp.rp_proj.setText("")
+    _m = len(icap)
+    imp.on_repaint_unpack()                                      # empty-project GUARD: warn, start no job
+    assert _rp_warn and len(icap) == _m, "empty repaint project starts no job"
+    imp._warn = _rw0
+    imp.rp_proj.setText(str(d / "nat_proj"))
+    imp.on_repaint_unpack()
+    assert icap[-1][3:] == ["repaint-native", str((d / "nat_proj").resolve())], icap[-1]
+    imp.on_repaint_pack()
+    assert icap[-1][3:] == ["repaint-native", str((d / "nat_proj").resolve()), "--pack"], icap[-1]
     # FORK A REGION (import-chain, the disc-1 workflow)
     assert imp.dryrun_btn in imp._buttons and imp.fork_region_btn in imp._buttons   # _busy disables them
     imp.seeds.setText("")                                        # empty-seeds GUARD: no job may start

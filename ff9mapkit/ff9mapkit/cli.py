@@ -623,6 +623,37 @@ def _cmd_export_art(args: argparse.Namespace) -> int:
     return 0 if res["fields"] else 1
 
 
+def _cmd_repaint_native(args: argparse.Namespace) -> int:
+    """SPATIAL<->ATLAS repaint round-trip for a NATIVE fork: unpack the tile-packed atlas.png into
+    per-overlay spatial layers (default), or --pack the (edited) layers back into atlas.png. No game
+    needed -- operates on the project's own scene.bgs.bytes + atlas.png (provenance-clean)."""
+    from . import extract
+    _safe_console()
+    try:
+        from PIL import Image  # noqa: F401, PLC0415 - the round-trip needs Pillow
+    except ImportError:
+        print("repaint-native needs Pillow (pip install Pillow).", file=sys.stderr)
+        return 2
+    try:
+        if args.pack:
+            res = extract.repack_native_atlas(args.project, args.from_dir, backup=not args.no_backup)
+            for note in res["notes"]:
+                print(f"  {note}")
+            print(f"repacked {res['overlays_repacked']} layer(s), {res['cells_written']} tile(s) changed "
+                  f"(TileSize {res['tile_size']}) -> {res['atlas']}")
+            print("Next: deploy the project -> the repainted background shows in-game."
+                  if res["cells_written"] else "No tiles changed (the layers match the atlas) -- nothing to do.")
+        else:
+            res = extract.export_native_repaint(args.project, args.out)
+            print(f"unpacked {res['overlays']} layer(s) (TileSize {res['tile_size']}, atlas "
+                  f"{res['atlas_size'][0]}x{res['atlas_size'][1]}) -> {res['dir']}")
+            print(f"Next: repaint any Overlay*.png, then: ff9mapkit repaint-native {args.project} --pack")
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return 0
+
+
 def _cmd_import_all(args: argparse.Namespace) -> int:
     """Bulk-import a foldered, Blender-ready archive of fields -- whole game (--all), a zone (--pattern),
     or a campaign.toml. Lightweight model-against projects by default; --editable for repaintable scenes."""
@@ -2512,6 +2543,18 @@ def build_parser() -> argparse.ArgumentParser:
                          "--composite: each field -> <out>/<FBG>.png. For a gallery use --out reference/all-fields-export.")
     ea.add_argument("--no-atlas", action="store_true", help="(raw mode) don't also dump the source atlas.png")
     ea.set_defaults(func=_cmd_export_art)
+
+    rp = sub.add_parser("repaint-native", help="repaint a native fork's background: unpack its tile-packed "
+                        "atlas into spatial layers, then --pack the edited layers back (seamless HD, no game)")
+    rp.add_argument("project", help="a native fork project dir (has scene.bgs.bytes + atlas.png + a *.field.toml)")
+    rp.add_argument("--pack", action="store_true",
+                    help="blit the (edited) repaint/Overlay*.png layers BACK into atlas.png (else: unpack them)")
+    rp.add_argument("--out", default=None,
+                    help="(unpack) where to write the spatial layers + manifest (default: <project>/repaint/)")
+    rp.add_argument("--from", dest="from_dir", default=None,
+                    help="(--pack) the repaint dir holding the edited layers (default: <project>/repaint/)")
+    rp.add_argument("--no-backup", action="store_true", help="(--pack) don't back up the current atlas.png first")
+    rp.set_defaults(func=_cmd_repaint_native)
 
     iaa = sub.add_parser("import-all", help="bulk-import a foldered, Blender-ready archive of fields -- whole "
                          "game / a zone / a campaign (lightweight by default; needs UnityPy)")
