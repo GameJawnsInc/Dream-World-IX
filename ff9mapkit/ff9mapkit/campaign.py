@@ -488,11 +488,13 @@ def validate_ids(plan: CampaignPlan):
 
 
 def apply_seed_blocks(raw: dict, blocks: dict) -> None:
-    """Merge story-flags capstone blocks (``startup`` / ``party`` / ``start_inventory`` / ``equipment``) into a
-    member's ``FieldProject.raw`` IN PLACE -- additive (scenario replaces, flags + party-adds union, the bag /
-    equipment lists replace). The journey assembler's seed lever (:func:`ff9mapkit.journey.seed_to_field_blocks`
-    produces ``blocks``): it seeds a journey's ENTRY member without rewriting its forked field.toml on disk, so
-    the fork stays clean and a re-deploy is idempotent. Empty ``blocks`` -> no mutation (byte-identical build)."""
+    """Merge story-flags capstone blocks (``startup`` / ``party`` / ``start_inventory`` / ``equipment``) AND a
+    journey ``[journey.tuning]`` bundle (``player_csv``) into a member's ``FieldProject.raw`` IN PLACE -- additive
+    (scenario replaces, flags + party-adds union, the bag / equipment lists replace, the player CSV blocks EXTEND).
+    The journey assembler's levers (:func:`ff9mapkit.journey.seed_to_field_blocks` /
+    :func:`ff9mapkit.journey.tuning_to_field_blocks` produce ``blocks``) seed a journey's ENTRY member without
+    rewriting its forked field.toml on disk, so the fork stays clean and a re-deploy is idempotent. Empty
+    ``blocks`` -> no mutation (byte-identical build)."""
     if not blocks:
         return
     if "startup" in blocks:
@@ -511,6 +513,9 @@ def apply_seed_blocks(raw: dict, blocks: dict) -> None:
         raw["start_inventory"] = blocks["start_inventory"]
     if "equipment" in blocks:
         raw["equipment"] = blocks["equipment"]
+    if "player_csv" in blocks:                            # [journey.tuning]: the mod-global player/ability CSV
+        for block, rows in blocks["player_csv"].items():  # blocks EXTEND the entry member's same-named blocks (a
+            raw[block] = list(raw.get(block, [])) + list(rows)   # fork rarely has its own -> usually just sets them)
 
 
 def _remap_text_blocks(projects, base: int) -> dict:
@@ -540,10 +545,11 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     journey run together -- they must not clobber each other's bits; :mod:`ff9mapkit.journey`). Applied
     before lint, so the per-member auto-flag blocks + the safe-band checks both use the override.
 
-    ``seed_blocks`` (the journey ``[journey.seed]`` capstone): a dict of ``startup``/``party``/
-    ``start_inventory``/``equipment`` blocks merged into the ENTRY member's project before build
-    (:func:`apply_seed_blocks`) -- so the journey boots at its seeded beat/party (the ``.eb`` channel) without
-    rewriting the forked entry field.toml. ``None`` -> no seeding."""
+    ``seed_blocks`` (the journey ``[journey.seed]`` capstone + ``[journey.tuning]``): a dict of ``startup``/
+    ``party``/``start_inventory``/``equipment``/``player_csv`` blocks merged into the ENTRY member's project
+    before build (:func:`apply_seed_blocks`) -- so the journey boots at its seeded beat/party AND its mod-global
+    player tuning (the ``.eb`` + CSV channels) without rewriting the forked entry field.toml. ``None`` -> no
+    seeding."""
     from .build import FieldProject, build_mod
     campaign_path = Path(campaign_path)
     manifest_dir = campaign_path.parent

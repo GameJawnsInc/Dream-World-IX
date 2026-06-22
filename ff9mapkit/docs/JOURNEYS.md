@@ -90,6 +90,16 @@ set_scenario = 0                                                # optional hub-s
   party     = ["Zidane", "Vivi"]       #   -> story_flags [party]
   # inventory / equipment per the [startup] / [start_inventory] / [[equipment]] capstone
 
+  # MOD-GLOBAL player/ability balance (BaseStats / abilities / leveling), the SAME blocks a field.toml carries,
+  # namespaced under the journey. Injected into the ENTRY member's field.toml at deploy (no new emitter); the
+  # engine reads ONE Data/*.csv per mod, so this is per-journey-clean for a single-journey hub.
+  [[journey.tuning.character]]         # -> BaseStats.csv
+  character = "Vivi"
+  magic     = 50
+  [[journey.tuning.battle_action]]     # -> Actions.csv  (also: status / leveling / ability_gem / command_set / ...)
+  action    = "Fire"
+  power     = 40
+
   [[journey.link]]                     # how evil_forest hands the player to ice_cavern (the elided world-map leg)
   from = { campaign = "evil_forest", seam = "forest_exit" }     # a seam in evil_forest's campaign graph
   to   = { campaign = "ice_cavern",  field = "IC_ENT" }         # the entry member of ice_cavern

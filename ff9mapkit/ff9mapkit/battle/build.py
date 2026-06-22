@@ -505,9 +505,11 @@ def _emit_player_data(projects, layout, *, game=None) -> tuple:
                 written.append(layout.ability_features_txt)
     except (_ad.ActionDeltaError, _cd.CharacterDeltaError, _af.AbilityFeatureError) as ex:
         raise BattleBuildError(str(ex))
-    warnings.append("player/ability CSV deltas on a battle.toml are mod-GLOBAL (always-on, not scene-scoped) "
-                    "and merge with any field.toml's same blocks -- in a multi-folder campaign the "
-                    "highest-priority folder's copy wins")
+    warnings.append("player/ability CSV deltas on a battle.toml are mod-GLOBAL (always-on, not scene-scoped) and "
+                    "merge with any field.toml's same blocks (highest-priority folder wins in a multi-folder "
+                    "campaign). The canonical home for mod-global tuning is a field.toml or a journey "
+                    "[journey.tuning] block; the battle.toml carrier is a rare edge case (tuning the party that "
+                    "fights THIS battle in the same deployable doc)")
     return [p for p in written if p.is_file()], warnings
 
 

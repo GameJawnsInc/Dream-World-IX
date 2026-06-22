@@ -915,6 +915,74 @@ def test_lint_seed_inventory_warns(tmp_path):
     assert errors == [] and any("MOD-GLOBAL New-Game CSVs" in w for w in warnings)
 
 
+# ---- [journey.tuning]: mod-global player/ability CSV deltas at the journey level -------------------------
+def test_tuning_to_field_blocks():
+    tuning = {"character": [{"character": "Vivi", "magic": 50}],
+              "battle_action": [{"action": "Fire", "power": 40}],
+              "bogus": [{"x": 1}]}                                    # unknown block -> dropped (lint warns)
+    assert journey.tuning_to_field_blocks(tuning) == {
+        "player_csv": {"character": [{"character": "Vivi", "magic": 50}],
+                       "battle_action": [{"action": "Fire", "power": 40}]}}
+    assert journey.tuning_to_field_blocks({}) == {}
+    assert journey.tuning_to_field_blocks({"bogus": [{}]}) == {}      # only-unknown -> empty (no player_csv)
+
+
+def test_apply_seed_blocks_merges_player_csv():
+    raw = {"field": {"id": 6000}, "character": [{"character": "Zidane", "strength": 30}]}
+    campaign.apply_seed_blocks(raw, {"player_csv": {"character": [{"character": "Vivi", "magic": 50}],
+                                                    "leveling": [{"level": 1, "exp": 10}]}})
+    assert raw["character"] == [{"character": "Zidane", "strength": 30},     # EXTENDS the member's own block
+                                {"character": "Vivi", "magic": 50}]
+    assert raw["leveling"] == [{"level": 1, "exp": 10}]                      # a fresh block is just set
+
+
+def test_build_deploy_plan_tuning_to_entry(tmp_path):
+    _two_campaigns(tmp_path)                                          # ca (entry), cb
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["ca", "cb"]
+entry = { campaign = "ca", field = "A1" }
+[[journey.tuning.character]]
+character = "Vivi"
+magic = 55
+[[journey.link]]
+from = { campaign = "ca", field = "A2" }
+to = { campaign = "cb", field = "B1" }
+""")
+    m = journey.load_journeys(p)
+    assert m.journeys[0].tuning["character"] == [{"character": "Vivi", "magic": 55}]   # parsed onto the journey
+    by = {s.folder: s for s in journey.build_deploy_plan(m).campaign_steps}
+    assert by["ca"].seed_blocks["player_csv"]["character"] == [{"character": "Vivi", "magic": 55}]
+    assert by["cb"].seed_blocks is None                              # the non-entry campaign gets no tuning
+
+
+def test_lint_journey_tuning(tmp_path):
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000)
+    # a valid tuning block lints clean of ERRORS + warns it's mod-global
+    p = _write_manifest(tmp_path, '[[journey]]\nid = "x"\ncampaigns = ["ca"]\n'
+                                  'entry = { campaign = "ca", field = "A1" }\n'
+                                  '[[journey.tuning.character]]\ncharacter = "Vivi"\nmagic = 50\n')
+    errors, warnings = journey.lint_manifest(journey.load_journeys(p))
+    assert errors == [] and any("[journey.tuning] writes MOD-GLOBAL" in w for w in warnings), (errors, warnings)
+    # an UNKNOWN tuning block (a typo) -> an error
+    p2 = _write_manifest(tmp_path, '[[journey]]\nid = "y"\ncampaigns = ["ca"]\n'
+                                   'entry = { campaign = "ca", field = "A1" }\n'
+                                   '[[journey.tuning.charcter]]\ncharacter = "Vivi"\n')
+    e2, _w2 = journey.lint_manifest(journey.load_journeys(p2))
+    assert any("unknown block" in e for e in e2), e2
+
+
+def test_lint_bare_journey_tuning_warns(tmp_path):
+    t = (journey.render_selector_hub_toml(hub_name="Hub") + "\n"
+         + journey.render_journey_row("a", "A", 4100)
+         + '\n[[journey.tuning.character]]\ncharacter = "Vivi"\nmagic = 50\n')
+    p = tmp_path / "j.toml"
+    p.write_text(t, encoding="utf-8")
+    _e, warn = journey.lint_manifest(journey.load_journeys(p))
+    assert any("BARE single-field journey" in w and "[journey.tuning]" in w for w in warn), warn
+
+
 def test_render_playbook_shows_seed_and_oneshot(tmp_path):
     _two_campaigns(tmp_path)
     p = _write_manifest(tmp_path, """

@@ -115,6 +115,8 @@ class Journey:
     links: list                          # [JourneyLink]
     set_scenario: "int | None" = None    # bare-row hub-side beat seed (the proven single-field lever)
     entrance: "int | None" = None        # arrival entrance into the entry field (frames the entry camera)
+    tuning: dict = field(default_factory=dict)   # [journey.tuning]: mod-GLOBAL player/ability CSV deltas (the same
+    #                                  blocks a field.toml carries), injected into the entry member at deploy
     exits: tuple = ()                    # DECLARED intended-boundary field ids: a forked field's warp to one of
                                          #   these is the arc's edge (a deliberate exit to vanilla / a not-yet-forked
                                          #   next zone), NOT a bug -> the leak lint stays quiet about it.
@@ -203,6 +205,17 @@ def _seed_from(raw) -> JourneySeed:
     return JourneySeed(scenario=int(sc) if sc is not None else None, party=party, raw=dict(raw))
 
 
+def _tuning_from(raw) -> dict:
+    """Normalize a ``[journey.tuning]`` table -> ``{block: [rows]}`` (a single inline table is coerced to a
+    1-list, like a field.toml block). Structural only; unknown block names + bad rows are :func:`lint_manifest`'s
+    job (so ``load_journeys`` stays a pure parse). ``None`` -> ``{}``."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise JourneyError(f"[journey.tuning] must be a table (got {type(raw).__name__})")
+    return {k: (v if isinstance(v, list) else [v]) for k, v in raw.items()}
+
+
 def load_journeys(path) -> JourneyManifest:
     """Parse a ``journeys.toml`` into a :class:`JourneyManifest`. Raises :class:`JourneyError` on a STRUCTURAL
     problem (not a manifest; a journey missing ``id``/``entry``; a multi-campaign row whose ``entry`` isn't a
@@ -245,7 +258,8 @@ def load_journeys(path) -> JourneyManifest:
             id=jid, name=str(j.get("name") or _hub._humanize(jid)), campaigns=campaigns, entry=entry,
             seed=_seed_from(j.get("seed")), links=links,
             set_scenario=int(sc) if sc is not None else None,
-            entrance=int(ent) if ent is not None else None, exits=exits))
+            entrance=int(ent) if ent is not None else None,
+            tuning=_tuning_from(j.get("tuning")), exits=exits))
 
     return JourneyManifest(hub=dict(data.get("hub", {})), journeys=journeys, path=p)
 
@@ -634,6 +648,24 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
                         f"items = [[\"Potion\", 5]] gil = 200 flag = <N>` block to the entry member's "
                         f"field.toml -- scripted, once-gated, baked into the entry fork's own .eb (no global "
                         f"leak). scenario/party already seed cleanly that way.")
+
+    # [journey.tuning] -- mod-global player/ability CSV deltas injected into the entry member at deploy
+    if j.tuning:
+        from .battle.build import _PLAYER_CSV_KEYS, player_csv_problems
+        unknown = [k for k in j.tuning if k not in _PLAYER_CSV_KEYS]
+        if unknown:
+            errors.append(f"journey {j.id!r}: [journey.tuning] unknown block(s) {unknown} -- valid blocks: "
+                          f"{', '.join(_PLAYER_CSV_KEYS)}")
+        errors += [f"journey {j.id!r}: [journey.tuning] {p}"     # structural lint (install-free; names resolve at build)
+                   for p in player_csv_problems({k: v for k, v in j.tuning.items() if k in _PLAYER_CSV_KEYS})]
+        warnings.append(f"journey {j.id!r}: [journey.tuning] writes MOD-GLOBAL player/ability CSVs (read once at "
+                        f"New Game, ONE set per mod) -- clean for a single-journey hub; in a MULTI-journey hub "
+                        f"every journey shares them (highest-folder-wins), so per-journey tuning can't be isolated.")
+        if j.is_bare:
+            warnings.append(f"journey {j.id!r}: [journey.tuning] is set but this is a BARE single-field journey -- "
+                            f"it's injected into a MULTI-campaign entry member's field.toml at deploy, so it WON'T "
+                            f"apply to a bare row. Put the deltas on the entry FIELD's own field.toml, or make this "
+                            f"a multi-campaign journey.")
 
 
 def _lint_chain_connectivity(j: Journey, errors: list, warnings: list, *, plain=None) -> None:
@@ -1107,6 +1139,17 @@ def seed_to_field_blocks(seed: "JourneySeed | None") -> dict:
     return blocks
 
 
+def tuning_to_field_blocks(tuning: dict) -> dict:
+    """Translate a journey's ``[journey.tuning]`` into the mod-GLOBAL player/ability CSV blocks the FIELD build
+    already emits -- the SAME keys a field.toml carries (``battle_action`` .. ``ability_feature``), so they ride
+    the proven seed -> entry-member -> field-emitter channel with NO new emitter. Returns ``{"player_csv":
+    {block: rows}}`` for the KNOWN blocks present, or ``{}`` (empty tuning / only unknown keys -- those are a
+    lint warning). :func:`apply_seed_blocks` merges the ``player_csv`` bundle onto the entry member's raw."""
+    from .battle.build import _PLAYER_CSV_KEYS                # the canonical block list (don't re-enumerate)
+    blocks = {k: list(tuning[k]) for k in _PLAYER_CSV_KEYS if tuning.get(k)}
+    return {"player_csv": blocks} if blocks else {}
+
+
 def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: int, *,
                 dst_reals=frozenset()) -> dict:
     """Resolve a boundary member's onward seam into the cross-campaign link MODE. Returns a dict
@@ -1176,7 +1219,10 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
                 ids = rj.campaign_ids[folder]
                 lo, _hi, _k = rj.flag_windows[folder]
                 tb_base = (rj.text_block_windows or {}).get(folder, 0)
-                seed_blocks = seed_to_field_blocks(j.seed) if folder == j.entry.campaign else {}
+                seed_blocks = {}
+                if folder == j.entry.campaign:            # the entry member carries the seed AND the [tuning] CSVs
+                    seed_blocks = dict(seed_to_field_blocks(j.seed))
+                    seed_blocks.update(tuning_to_field_blocks(j.tuning))
                 steps.append(CampaignDeployStep(
                     folder=folder, campaign_path=_campaign_path(manifest.root, folder),
                     mod_folder=plan.mod_folder, id_lo=min(ids), id_hi=max(ids), flag_base=lo,
