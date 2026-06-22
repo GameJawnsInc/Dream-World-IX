@@ -50,21 +50,23 @@ REPO = KIT.parent                                  # the repo root (holds tools/
 # (cutscene steps + choice options are list-in-list sub-editors -- a Phase-4b follow-up.)
 _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "music": forms.MUSIC_SPEC,
                  "dialogue": forms.DIALOGUE_SPEC, "npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC,
-                 "event": forms.EVENT_SPEC, "marker": forms.MARKER_SPEC, "party": forms.PARTY_SPEC,
-                 "startup": forms.STARTUP_SPEC}
+                 "event": forms.EVENT_SPEC, "flag": forms.FLAG_SPEC, "marker": forms.MARKER_SPEC,
+                 "party": forms.PARTY_SPEC, "startup": forms.STARTUP_SPEC}
 _SINGLES = ("field", "encounter", "music", "dialogue", "party", "startup")
 
 # object groups inside a field.toml, mirroring the tkinter editor's tree (editor/app.py).
 _SINGLE = [("dialogue", "Dialogue"), ("encounter", "Encounter"), ("music", "Music"), ("cutscene", "Cutscene"),
            ("party", "Party"), ("startup", "Startup beat")]
-_LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("marker", "Markers"),
-          ("choice", "Choices")]
-_LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "marker": "Marker", "choice": "Choice"}
+_LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("flag", "Flags"),
+          ("marker", "Markers"), ("choice", "Choices")]
+_LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "flag": "Flag",
+                  "marker": "Marker", "choice": "Choice"}
 # the default new entity per list kind -- mirrors the tkinter editor's _add_entity (editor/app.py).
 _LIST_DEFAULTS = {
     "npc": {"name": "NPC", "preset": "vivi", "dialogue": "..."},
     "gateway": {"name": "door", "to": 100, "entrance": 0},
     "event": {"name": "event", "message": "..."},
+    "flag": {"name": "flag", "index": 8512},          # a save-persistent story flag (name -> gEventGlobal bit)
     "marker": {"name": "spot", "pos": [0, 0]},
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
 }
@@ -4720,6 +4722,14 @@ class Workspace(QMainWindow):
                         from .. import flags
                         if flags.is_reserved(int(f0)):
                             warn(f"set_flag writes a reserved bit ({f0})")
+            elif kind == "flag":                           # mirror collect_flag_defs: the index must be in-band
+                from .. import flags
+                idx = obj.get("index")
+                if isinstance(idx, (int, str)) and str(idx).lstrip("-").isdigit():
+                    n = int(idx)
+                    if not (flags.FIRST_SAFE_FLAG <= n < flags.CHOICE_SCRATCH_FLOOR):
+                        warn(f"flag index {n} is outside the safe custom band "
+                             f"[{flags.FIRST_SAFE_FLAG}, {flags.CHOICE_SCRATCH_FLOOR})")
             elif kind == "encounter":
                 sc = obj.get("scene")
                 if sc is not None and not ((isinstance(sc, int) and not isinstance(sc, bool))
@@ -5041,6 +5051,14 @@ def _smoke(win):
     assert win._doc("IC_ENT").data["gateway"][-1]["to"] == 100 and win._save_ctx["section"] == "gateway"
     win._add_list_item("IC_ENT", "choice")             # a choice routes to the choice sub-editor
     assert win._doc("IC_ENT").data["choice"][-1]["prompt"] == "What'll it be?"
+    win._add_list_item("IC_ENT", "flag")               # the [[flag]] section (audit #7 -> story flags are GUI-authorable)
+    assert win._doc("IC_ENT").data["flag"][-1] == {"name": "flag", "index": 8512} and win._save_ctx["section"] == "flag"
+    assert forms.build_entity(forms.FLAG_SPEC, {"name": "got_sword", "index": "8520"}) == {"name": "got_sword", "index": 8520}
+    assert win._node_problems("flag", {"name": "x", "index": 8520}, "IC_ENT") == []   # in-band: clean
+    assert win._node_problems("flag", {"name": "x", "index": 100}, "IC_ENT")          # out-of-band: warns
+    win._confirm = lambda *a: True
+    win._delete_object("IC_ENT", "flag", single=False, idx=len(win._doc("IC_ENT").data["flag"]) - 1, label="Flag")
+    assert "flag" not in win._doc("IC_ENT").data                                       # cleaned up
     # DELETE a list entity: removes it, writes the file, refreshes the tree, lands on the group
     win._confirm = lambda *a: True                     # stub the destructive confirm (headless)
     n_after_add = len(win._doc("IC_ENT").data["npc"])
@@ -6368,7 +6386,7 @@ def _smoke(win):
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
           f"{win.item_equip.targets[0]['report'].gil}) + Battle doc (encounter/enemy + save round-trip + "
           f"ai_phase/ai_patch/seq_patch forms + Browse-sites fill + Remove-selected + fork-battle auto-open + "
-          f"install-list browse) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
+          f"install-list browse) + ADD list items (NPC/gateway/choice/FLAG section + band-lint) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs + encounter->Battle jump) + "

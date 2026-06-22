@@ -126,6 +126,12 @@ MARKER_SPEC = [
     Field("name", "Name", STR, "a label; reference it in a cutscene as walk = \"<name>\""),
     Field("pos", "Position (x, z)", COORD, "where it sits on the floor; or place it in Blender"),
 ]
+FLAG_SPEC = [
+    Field("name", "Name", STR, "the story-flag name you reference in events / gateways / choices "
+          "(set_flag, show-while-unset, …)"),
+    Field("index", "gEventGlobal bit", INT, "a save-persistent bit in the custom band [8512, 16320); "
+          "Story State labels a set bit with this name"),
+]
 CHOICE_SPEC = [
     Field("npc", "NPC", STR, "talk-triggered: the [[npc]] name (set npc OR zone, not both)"),
     Field("zone", "Zone (x z; x z; ...)", ZONE, "zone trigger: 4 corners (a lever); or place in Blender"),
