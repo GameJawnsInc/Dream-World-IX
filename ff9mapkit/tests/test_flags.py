@@ -202,6 +202,36 @@ def test_render_report_smoke():
     assert "Chests opened   : 8" in out and "chest_opened" in out
 
 
+def test_project_flag_names_identity_and_failsafe():
+    # a named [[flag]] index is an ABSOLUTE gEventGlobal bit -> identity map (never flag-window offset)
+    raw = {"flag": [{"name": "got_sword", "index": 8520}, {"name": "door_open", "index": 8521}]}
+    assert flags.project_flag_names(raw) == {8520: "got_sword", 8521: "door_open"}
+    # fail-safe: a malformed / out-of-band table yields {} (no annotation, never a WRONG one)
+    assert flags.project_flag_names({}) == {}
+    assert flags.project_flag_names({"flag": [{"name": "x"}]}) == {}                  # missing index
+    assert flags.project_flag_names({"flag": [{"name": "y", "index": 100}]}) == {}    # outside the safe band
+    # two names on the SAME index -> an explicit ambiguity sentinel, never a silent pick
+    assert flags.project_flag_names({"flag": [{"name": "a", "index": 8530},
+                                              {"name": "b", "index": 8530}]}) == {8530: "<ambiguous: a / b>"}
+
+
+def test_render_report_annotates_named_flag_and_is_byte_identical_without_names():
+    b = bytearray(2048)
+    b[8520 >> 3] |= 1 << (8520 & 7)                   # set custom-band bit 8520
+    rep = flags.decode_gEventGlobal(bytes(b))
+    assert 8520 in rep.set_bits
+    bare = flags.render_report(rep)
+    assert flags.render_report(rep, names=None) == bare == flags.render_report(rep, names={})  # no-project unchanged
+    assert "8520" in bare and "got_sword" not in bare
+    assert "8520=got_sword" in flags.render_report(rep, names={8520: "got_sword"})
+    assert "ghost" not in flags.render_report(rep, names={9000: "ghost"})             # never label an UNSET bit
+    # the diff renderer annotates the same way (and stays byte-identical with no names)
+    rep0 = flags.decode_gEventGlobal(bytes(2048))
+    diff = flags.diff_reports(rep0, rep)
+    assert flags.render_diff(diff) == flags.render_diff(diff, names={})
+    assert "8520=got_sword" in flags.render_diff(diff, names={8520: "got_sword"})
+
+
 # ---- flags-diff: the A -> B story-state delta (what a beat / session wrote) --------------
 def test_diff_reports_set_cleared_scenario_words_chests():
     a = bytearray(2048)

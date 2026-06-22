@@ -694,6 +694,7 @@ class Workspace(QMainWindow):
         self._mount_journey_overview()
         self.tabs.setCurrentWidget(self.doc_scroll)
         self.statusBar().showMessage(f"Journey {self.journey_name} — {len(manifest.journeys)} journey(s) — {path}")
+        self._refresh_flag_names()                 # re-annotate an already-open Story State save with this journey
         return True
 
     def _populate_journey(self):
@@ -1338,6 +1339,7 @@ class Workspace(QMainWindow):
         self.crumb.set([])
         self.crumb.set_chip("")
         self.act_check.setEnabled(False)
+        self.story_state.set_flag_names({})        # no project -> drop the authored-flag labels
         self.tabs.setCurrentWidget(self._welcome_tab)
         self.statusBar().showMessage("Closed — open a journey, campaign, or field to begin.")
 
@@ -1703,6 +1705,55 @@ class Workspace(QMainWindow):
         self.output.setPlainText(text)
         self._raise_dock()
 
+    def _project_flag_names(self) -> dict:
+        """``{absolute gEventGlobal bit: authored [[flag]] name}`` for the OPEN project (loose field / campaign /
+        journey), to annotate the Story State save view (audit #7). A named ``[[flag]] index`` is ABSOLUTE --
+        never offset by a campaign/journey flag-window -- so this is a pure identity map (no offset math, the
+        whole no-mislabel guarantee). Fail-safe: ANY error -> ``{}`` (no annotation rather than a wrong one).
+        A cross-source index collision -> an ``<ambiguous>`` sentinel, never a silent pick."""
+        import tomllib
+        from .. import flags as _flags
+        seen: dict = {}
+
+        def _add(raw):
+            for idx, name in _flags.project_flag_names(raw).items():
+                prev = seen.get(idx)
+                seen[idx] = name if prev in (None, name) else "<ambiguous>"
+
+        def _read(p):
+            with open(p, "rb") as fh:
+                return tomllib.load(fh)
+
+        try:
+            if self.manifest is not None and self.plan is None:        # JOURNEY: every member of every campaign
+                for j in self.manifest.journeys:
+                    for folder in (j.campaigns or []):
+                        ct = self.manifest.root / folder / "campaign.toml"
+                        if ct.is_file():
+                            plan = C.load_campaign(ct)
+                            _add({"flag": getattr(plan, "flags", []) or []})
+                            for m in plan.members:
+                                mp = ct.parent / m.toml_rel
+                                if mp.is_file():
+                                    _add(_read(mp))
+            elif self.plan is not None:                                # CAMPAIGN: shared flags + each member
+                _add({"flag": getattr(self.plan, "flags", []) or []})
+                for mp in self.member_paths.values():
+                    if Path(mp).is_file():
+                        _add(_read(mp))
+            elif self._loose is not None:                              # LOOSE single field
+                doc = self._docs.get(self._loose)
+                if doc is not None:
+                    _add(doc.data)
+        except Exception:                                              # noqa: BLE001 -- fail-safe to no annotation
+            return {}
+        return seen
+
+    def _refresh_flag_names(self):
+        """Re-push the open project's authored flag names to Story State, so an already-loaded save re-annotates
+        when you open/close/switch a project (and clears to bare numbers when nothing is open)."""
+        self.story_state.set_flag_names(self._project_flag_names())
+
     def _open_save(self):
         """Open a save into BOTH save documents (story state + item/equip) -- a cross-cutting document,
         not a field. The two read different parts of the same file via different backends."""
@@ -1713,6 +1764,7 @@ class Workspace(QMainWindow):
             return
         self.story_state.load(f)
         self.item_equip.load(f)
+        self.story_state.set_flag_names(self._project_flag_names())   # annotate with the open project's [[flag]] names
         self.tabs.setCurrentWidget(self.story_state)
 
     def open_field(self, path) -> bool:
@@ -1749,6 +1801,7 @@ class Workspace(QMainWindow):
         self.statusBar().showMessage(f"{name} — standalone field — {path}")
         self._select_member(name)
         self.tabs.setCurrentWidget(self.doc_scroll)   # a standalone field has no map -> show its Editor
+        self._refresh_flag_names()                    # re-annotate an already-open Story State save with this field
         return True
 
     def _populate_field(self, name):
@@ -1856,6 +1909,7 @@ class Workspace(QMainWindow):
         if entry:
             self._select_member(entry)
         self.tabs.setCurrentWidget(self.map)       # open a campaign -> land on its Map (its overview)
+        self._refresh_flag_names()                 # re-annotate an already-open Story State save with this campaign
         return True
 
     def _journey_label(self):
@@ -6292,6 +6346,21 @@ def _smoke(win):
     win._close_project()
     win._import_forked(d)
     assert win.plan is not None and win.campaign_path == d / "campaign.toml", "an Import fork auto-opens its campaign"
+    # do-now #7: Story State annotates custom-band bits with the OPEN project's authored [[flag]] names. A
+    # named [[flag]] index is an ABSOLUTE bit (no flag-window offset), so the resolver is a pure identity map.
+    _fdir = Path(tempfile.mkdtemp())
+    _ff = _fdir / "FLAGFIELD.field.toml"
+    _ff.write_text('[field]\nid = 4055\nname = "FLAGFIELD"\narea = 12\n\n[[flag]]\nname = "got_sword"\nindex = 8520\n',
+                   encoding="utf-8")
+    assert win.open_field(_ff) and win._project_flag_names() == {8520: "got_sword"}, win._project_flag_names()
+    from .. import flags as _flags
+    _fb = bytearray(2048); _fb[8520 >> 3] |= 1 << (8520 & 7)
+    _frep = _flags.decode_gEventGlobal(bytes(_fb))
+    assert "8520=got_sword" in _flags.render_report(_frep, names=win._project_flag_names())
+    win.story_state.set_flag_names(win._project_flag_names())     # push as the shell does on open
+    assert win.story_state.flag_names == {8520: "got_sword"}
+    win._close_project()
+    assert win.story_state.flag_names == {}, "Close drops the authored-flag annotation"
 
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field+party+startup round-trip) + cutscene/choice sub-editors + "

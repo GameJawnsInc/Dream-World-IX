@@ -301,6 +301,40 @@ def collect_flag_defs(raw: dict) -> dict:
     return out
 
 
+def project_flag_names(raw: dict) -> dict:
+    """``{absolute_gEventGlobal_bit: display_name}`` from a project's ``[[flag]]`` table -- for ANNOTATING a
+    save's custom-band bits with the modder's own names in the Story State view. A named ``[[flag]] index`` is
+    an ABSOLUTE gEventGlobal bit: it is NEVER offset by any campaign/journey flag-window (only the nameless
+    auto-flags carry a deployed base), so the save stores it at exactly ``index`` in every mode -- this is a
+    pure identity map, no offset arithmetic. Fail-safe: a malformed table (``collect_flag_defs`` raises) ->
+    ``{}`` (no annotation rather than a wrong one). A duplicate index under different names -> an explicit
+    ambiguity sentinel (never a silent pick)."""
+    try:
+        collect_flag_defs(raw)                 # validate band + duplicate-name exactly as the build does
+    except (ValueError, TypeError):
+        return {}
+    seen: dict = {}                            # idx -> [names], to flag a cross-name index collision
+    for fdef in raw.get("flag", []) or []:
+        try:
+            idx, name = int(fdef["index"]), str(fdef["name"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        names = seen.setdefault(idx, [])
+        if name not in names:
+            names.append(name)
+    return {idx: (names[0] if len(names) == 1 else "<ambiguous: " + " / ".join(names) + ">")
+            for idx, names in seen.items()}
+
+
+def _fmt_bits(bits, names=None) -> str:
+    """Render a bit list (capped at 20, matching the existing summary cap) -- labelling any bit present in
+    ``names`` as ``bit=name``. With ``names`` empty/None the output is byte-identical to ``str(bits[:20])`` +
+    the ' ...' elision, so an un-annotated report is unchanged."""
+    names = names or {}
+    shown = [f"{b}={names[b]}" if b in names else str(b) for b in bits[:20]]
+    return "[" + ", ".join(shown) + "]" + (" ..." if len(bits) > 20 else "")
+
+
 def collect_safe_flag_indices(raw: dict) -> set:
     """Every SAFE-BAND gEventGlobal bit index the project references as a story flag -- ``[[flag]]`` defs,
     ``[startup].flags``, and every content section's flag fields (``requires_flag``/``flag``/``set_flag``/
@@ -527,8 +561,10 @@ def _group_set_bits(set_bits):
     return by_region, custom, unmapped, n_story
 
 
-def render_report(rep: SaveReport, *, show_bits: bool = False) -> str:
-    """A human-readable summary of a decoded save."""
+def render_report(rep: SaveReport, *, show_bits: bool = False, names: dict | None = None) -> str:
+    """A human-readable summary of a decoded save. ``names`` (an optional ``{absolute_bit: authored_name}`` map,
+    e.g. from :func:`project_flag_names` for the open project) labels matching custom-band bits; empty/None
+    leaves the output byte-identical."""
     L = ["FF9 gEventGlobal (story state)", "=" * 32]
     ms = f"  ->  {rep.milestone[1]} (>= {rep.milestone[0]})" if rep.milestone else "  (before the first milestone)"
     L.append(f"ScenarioCounter : {rep.scenario_counter}{ms}")
@@ -547,7 +583,7 @@ def render_report(rep: SaveReport, *, show_bits: bool = False) -> str:
     for name, bits in sorted(by_region.items()):
         L.append(f"  [{name}] {len(bits)} bit(s)")
     if custom:
-        L.append(f"  [custom 8512+] {len(custom)} bit(s): {custom[:20]}{' ...' if len(custom) > 20 else ''}")
+        L.append(f"  [custom 8512+] {len(custom)} bit(s): {_fmt_bits(custom, names)}")
     if show_bits and unmapped:
         L.append(f"  [unmapped] {unmapped}")
     return "\n".join(L)
@@ -601,8 +637,9 @@ def diff_reports(a: SaveReport, b: SaveReport) -> FlagDiff:
         bits_set=sorted(sb - sa), bits_cleared=sorted(sa - sb), words_changed=words)
 
 
-def render_diff(diff: FlagDiff, *, show_bits: bool = False) -> str:
-    """A human-readable A -> B story-state delta (the output of :func:`diff_reports`)."""
+def render_diff(diff: FlagDiff, *, show_bits: bool = False, names: dict | None = None) -> str:
+    """A human-readable A -> B story-state delta (the output of :func:`diff_reports`). ``names`` labels matching
+    custom-band bits (see :func:`render_report`); empty/None leaves the output byte-identical."""
     def beat(v):
         m = nearest_milestone(v)
         return f"{v} ({m[1]})" if m else f"{v}"
@@ -627,7 +664,7 @@ def render_diff(diff: FlagDiff, *, show_bits: bool = False) -> str:
         for name, bs in sorted(by_region.items()):
             L.append(f"  [{name}] {len(bs)} bit(s): {bs[:20]}{' ...' if len(bs) > 20 else ''}")
         if custom:
-            L.append(f"  [custom 8512+] {len(custom)} bit(s): {custom[:20]}{' ...' if len(custom) > 20 else ''}")
+            L.append(f"  [custom 8512+] {len(custom)} bit(s): {_fmt_bits(custom, names)}")
         if unmapped:
             L.append(f"  [unmapped] {len(unmapped)}" + (f": {unmapped}" if show_bits else " bit(s)"))
     if diff.empty:

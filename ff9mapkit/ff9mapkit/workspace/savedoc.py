@@ -37,6 +37,7 @@ class StoryStateDoc(QWidget):
         self.reports = []          # [(label, SaveReport)] for the loaded save (A)
         self.blocks = []           # editable block per report (None unless an encrypted .dat)
         self.path = ""
+        self.flag_names = {}       # {absolute bit: authored [[flag]] name} from the OPEN project (annotation only)
         self.reports_b = []        # the compare-against save (B)
 
         v = QVBoxLayout(self)
@@ -146,6 +147,14 @@ class StoryStateDoc(QWidget):
         """A short 'you are editing X' label for the breadcrumb when the Story State tab is active."""
         return os.path.basename(self.path) if self.path else "no save loaded"
 
+    def set_flag_names(self, names):
+        """Push the OPEN project's ``{absolute bit: authored [[flag]] name}`` map (the shell builds it) so the
+        Inspect/Diff views label custom-band bits with the modder's names. Re-renders the current slot so an
+        already-open save picks up a newly-opened project. Empty == no annotation (the doc stands alone)."""
+        self.flag_names = dict(names or {})
+        if self.reports:
+            self._on_slot()
+
     def load(self, path, select=0) -> bool:
         try:
             self.reports = _save.inspect(path)
@@ -190,7 +199,7 @@ class StoryStateDoc(QWidget):
         if not (0 <= i < len(self.reports)):
             return
         label, rep = self.reports[i]
-        self.inspect.setPlainText(f"{label}\n\n" + _flags.render_report(rep))
+        self.inspect.setPlainText(f"{label}\n\n" + _flags.render_report(rep, names=self.flag_names))
         blk = self.blocks[i] if i < len(self.blocks) else None
         if blk is None:
             self.edit_target.setText("Editing disabled — load the encrypted SavedData_ww.dat (read-only).")
@@ -230,7 +239,8 @@ class StoryStateDoc(QWidget):
             self.diff_txt.setPlainText(f"B slot {j} out of range (B has {len(reps_b)}).")
             return
         (la, ra), (lb, rb) = self.reports[i], reps_b[j]
-        self.diff_txt.setPlainText(f"A: {la}\nB: {lb}\n\n" + _flags.render_diff(_flags.diff_reports(ra, rb)))
+        self.diff_txt.setPlainText(f"A: {la}\nB: {lb}\n\n"
+                                   + _flags.render_diff(_flags.diff_reports(ra, rb), names=self.flag_names))
 
     # ---- edit (write) ----
     def _confirm(self, detail) -> bool:
