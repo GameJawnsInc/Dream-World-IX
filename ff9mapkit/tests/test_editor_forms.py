@@ -230,6 +230,15 @@ def test_parse_strlist_names_indices_and_empty():
     assert forms.parse_strlist("vivi, 3") == ["vivi", 3]                # a numeric token -> int
 
 
+def test_parse_optfloat_number_and_empty():
+    assert forms.parse_optfloat("") is None
+    assert forms.parse_optfloat("   ") is None
+    assert forms.parse_optfloat("1.5") == 1.5
+    assert forms.parse_optfloat("-30") == -30.0
+    with pytest.raises(ValueError):
+        forms.parse_optfloat("abc")
+
+
 def test_format_strlist_handles_a_scalar_without_crashing():
     # a hand-authored TOML may give a STRLIST key a scalar (a bare name, or a raw-int escape hatch like a
     # scene/enemy `flags = 9`) -- format it as-is, never iterate it into chars / TypeError on an int.

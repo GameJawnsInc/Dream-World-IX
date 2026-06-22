@@ -4976,6 +4976,16 @@ def _smoke(win):
     assert _tl.loads(btoml.read_text(encoding="utf-8"))["scene"]["enemy"][0]["hp"] == 777   # round-trips to disk
     win.battle._add_enemy()                                               # a new [[scene.enemy]] at the next slot
     assert len(win.battle._enemies()) == 2 and win.battle._enemies()[1]["slot"] == 1
+    # Formation form: the encounter-rules STRLIST + a FLOAT camera tweak round-trip (keeping the enemy list)
+    srow = next(i for i, (k, _) in enumerate(win.battle._nodes) if k == "scene")
+    win.battle.nodes.setCurrentRow(srow)
+    assert win.battle._ctx["kind"] == "scene"
+    win.battle._ctx["getters"]["flags"] = lambda: "no_escape"
+    win.battle._ctx["getters"]["camera_zoom"] = lambda: "1.5"             # a FLOAT field
+    win.battle._save()
+    _bscene = _tl.loads(btoml.read_text(encoding="utf-8"))["scene"]
+    assert _bscene["flags"] == ["no_escape"] and _bscene["camera_zoom"] == 1.5
+    assert len(_bscene["enemy"]) == 2                                     # the enemy list survived the scene save
     win.battle._check()                                                   # validate_battle -> Problems (no crash)
     # Player/ability tuning branch (mod-global): add a [[character]] row, edit a stat, save round-trips
     win.battle._pick_player_table = lambda: "character"                   # stub the picker dialog

@@ -19,9 +19,9 @@ from ff9mapkit.editor import forms
     (bf.BATTLEMAP_SPEC, {"bbg": "BBG_B013", "repoint_scene": 67}),
     (bf.BATTLEMAP_SPEC, {"bbg": "BBG_B999", "scene_id": 5000, "scene_name": "MYFIGHT",
                          "char_tint": [128, 64, 200], "shadow": 40}),
-    # [scene]: the formation + the encounter rules (flags)
+    # [scene]: the formation + the encounter rules (flags) + opening-camera tweak floats
     (bf.SCENE_SPEC, {"monster_count": 4, "camera": 0, "ap": 120, "pattern": 0,
-                     "flags": ["back_attack", "no_escape"]}),
+                     "flags": ["back_attack", "no_escape"], "camera_yaw": 15.0, "camera_zoom": 1.5}),
     # [[scene.enemy]]: stats + element/status affinities + 4-item rewards + flags + placement + re-skin
     (bf.ENEMY_SPEC, {"slot": 0, "type": 0, "hp": 1500, "mp": 80, "gil": 999, "exp": 250,
                      "speed": 20, "strength": 18, "magic": 5, "spirit": 12, "level": 12,

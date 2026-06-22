@@ -23,6 +23,7 @@ STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE, ITEMCOUNT, FLAGREF, FLAGPAIR,
     "strlist")
 # [startup] kinds: a scenario beat (number or area name), and the two list-of-table levers it carries
 SCENARIOREF, FLAGDICTLIST, BYTEDICTLIST = "scenarioref", "flagdictlist", "bytedictlist"
+FLOAT = "float"        # an OPTIONAL float (e.g. battle camera tweak offsets); empty -> None, like OPTINT
 # cutscene-step kinds: a movement target (a name OR "x, z"), a route (list of those), a gesture (name OR id)
 POINT, PATH, ANIM = "point", "path", "anim"
 
@@ -225,6 +226,16 @@ def parse_optint(s):
         raise ValueError(f"expected a whole number, got {s!r}")
 
 
+def parse_optfloat(s):
+    s = _str(s).strip()
+    if s == "":
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        raise ValueError(f"expected a number, got {s!r}")
+
+
 def parse_coord(s):
     return None if _str(s).strip() == "" else _ints(s, 2, "position")
 
@@ -420,6 +431,8 @@ def _parse_field(kind, raw):
             raise ValueError(f"expected a whole number, got {s!r}")
     if kind == OPTINT:
         return parse_optint(raw)
+    if kind == FLOAT:
+        return parse_optfloat(raw)
     if kind == COORD:
         return parse_coord(raw)
     if kind == PAIR:

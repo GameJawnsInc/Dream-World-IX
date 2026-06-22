@@ -20,7 +20,7 @@ floats and the ``ai_*`` / ``seq_*`` disassembly tiers are likewise out of this d
 """
 from __future__ import annotations
 
-from .forms import COORD, INT, OPTINT, STR, STRLIST, Field
+from .forms import COORD, FLOAT, INT, OPTINT, STR, STRLIST, Field
 
 # [battlemap] -- the map identity (validate_battle: bbg is required + must look like BBG_B013; scene_id needs
 # scene_name; scene_id (mint) and repoint_scene are mutually exclusive; char_tint/shadow are cosmetic).
@@ -38,8 +38,9 @@ BATTLEMAP_SPEC = [
 ]
 
 # [scene] -- the FORMATION. monster_count is the keystone: it recomposes every pattern and unlocks per-slot
-# editing, so it reads first in the form. `flags` are the encounter RULES (header scene_flags). (The camera
-# floats + ai_*/seq_* sub-tables are still out of this spec.)
+# editing, so it reads first in the form. `flags` are the encounter RULES (header scene_flags); the camera_*
+# floats nudge the OPENING-camera pose (raw17, in place). (Full camera keyframes + the ai_*/seq_* tiers are
+# still out of this spec.)
 SCENE_SPEC = [
     Field("monster_count", "Monster count", OPTINT,
           "how many enemies spawn (1-4) -- SET THIS to compose the formation + unlock per-slot edits"),
@@ -48,6 +49,9 @@ SCENE_SPEC = [
     Field("pattern", "Pattern", OPTINT, "which formation pattern to tune (default 0)"),
     Field("flags", "Encounter rules", STRLIST,
           "scene RULES (any of): back_attack, preemptive, no_escape, no_exp -- absent keeps the donor's"),
+    Field("camera_yaw", "Camera yaw °", FLOAT, "rotate the opening camera by this many degrees (+/-, default 0)"),
+    Field("camera_pitch", "Camera pitch °", FLOAT, "tilt the opening camera by this many degrees (+/-, default 0)"),
+    Field("camera_zoom", "Camera zoom ×", FLOAT, "scale the opening camera distance (>0; 1.0 = unchanged)"),
 ]
 
 # [[scene.enemy]] -- one formation slot's enemy. Stats are per-TYPE: two slots sharing a type share ALL stats.

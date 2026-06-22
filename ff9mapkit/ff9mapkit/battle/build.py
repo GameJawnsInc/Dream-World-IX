@@ -200,6 +200,9 @@ def validate_battle(project: BattleProject) -> list[str]:
             problems += _scene_data.validate_scene(
                 (sd / "dbfile0000.raw16.bytes").read_bytes(), project.raw["scene"])
             sc = project.raw["scene"] if isinstance(project.raw["scene"], dict) else {}
+            if isinstance(sc.get("camera_zoom"), (int, float)) and not isinstance(sc["camera_zoom"], bool) \
+                    and sc["camera_zoom"] <= 0:           # tweak_opening raises on zoom<=0 -> catch it offline
+                problems.append("[scene] camera_zoom must be > 0 (1.0 = unchanged)")
             from . import reskin as _reskin           # re-skin SHAPE check (model vs model_scene); install-free
             for e in sc.get("enemy", []):             # (the donor read/name resolution happens at build -- needs the install)
                 if isinstance(e, dict) and any(e.get(k) is not None for k in ("model", "model_scene", "model_type")):

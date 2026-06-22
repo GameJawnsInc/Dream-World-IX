@@ -186,6 +186,20 @@ def test_raw_int_flags_survive_the_gui_strlist_roundtrip():
     assert _encode_scene_flags(["back_attack"], 0x04) == 0x06          # 0x04 preserved + back_attack (0x02)
 
 
+def test_validate_battle_flags_bad_camera_zoom(tmp_path):
+    _write_scene(tmp_path)                                            # mint scene assets present -> scene is validated
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+        scene_id = 5000
+        scene_name = "FIGHT"
+
+        [scene]
+        camera_zoom = 0.0
+    ''')
+    assert any("camera_zoom must be > 0" in p for p in validate_battle(proj))
+
+
 def test_validate_battle_lints_player_csv_blocks(tmp_path):
     # the mod-global player/ability CSV deltas a battle.toml may carry are lint-checked by validate_battle
     # (install-free: value range + structure). A bad [[character]] stat and a bad [[battle_action]] are caught.
