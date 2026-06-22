@@ -51,7 +51,7 @@ SCENE_SPEC = [
           "scene RULES (any of): back_attack, preemptive, no_escape, no_exp -- absent keeps the donor's"),
     Field("camera_yaw", "Camera yaw °", FLOAT, "rotate the opening camera by this many degrees (+/-, default 0)"),
     Field("camera_pitch", "Camera pitch °", FLOAT, "tilt the opening camera by this many degrees (+/-, default 0)"),
-    Field("camera_zoom", "Camera zoom ×", FLOAT, "scale the opening camera distance (>0; 1.0 = unchanged)"),
+    Field("camera_zoom", "Camera zoom ×", FLOAT, "magnify the opening camera (>1 zooms IN, <1 zooms OUT; 1.0 = unchanged)"),
 ]
 
 # [[scene.enemy]] -- one formation slot's enemy. Stats are per-TYPE: two slots sharing a type share ALL stats.

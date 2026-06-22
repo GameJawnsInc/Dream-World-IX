@@ -558,12 +558,12 @@ def test_camera_tweak_yaw_pitch_zoom():
     assert len(out) == len(raw)                            # in place, no length change (no offset repack)
     assert out[29] == (0x10 + 0x20) % 0x40                 # yaw 180deg -> orientation +0x20
     assert out[28] == (0x40 + 0x10) % 0x80                 # pitch 45deg -> pitch +0x10
-    assert out[31] == 0x14 * 2                             # zoom x2 -> distance doubled
-    assert report and "camera 0" in report[0] and "distance 20->40" in report[0]   # observable, not silent
+    assert out[31] == 0x14 // 2                            # zoom x2 MAGNIFIES -> distance HALVED (closer)
+    assert report and "camera 0" in report[0] and "distance 20->10" in report[0]   # observable, not silent
 
 
 def test_camera_tweak_reports_no_headroom_when_distance_is_clamped():
-    out, report = camera_data.tweak_opening(_raw17_cam(dist=0), [0], zoom=3.0)   # 0 * 3 = 0, no change
+    out, report = camera_data.tweak_opening(_raw17_cam(dist=0), [0], zoom=3.0)   # 0 / 3 = 0, no change
     assert out[31] == 0 and "no change" in report[0]      # the silent-clamp case is now flagged
 
 

@@ -81,7 +81,8 @@ def _campos_fields(raw17, cam_index):
 
 
 def tweak_opening(raw17, cam_indices, *, yaw_deg=0.0, pitch_deg=0.0, zoom=1.0) -> tuple:
-    """Rotate (yaw_deg around the target), tilt (pitch_deg), and/or zoom (distance x ``zoom``) the opening
+    """Rotate (yaw_deg around the target), tilt (pitch_deg), and/or zoom (MAGNIFY: ``zoom`` > 1 moves the camera
+    CLOSER -- distance / zoom -- so it reads like a real camera zoom, not a distance scale) the opening
     camera(s) ``cam_indices`` in place. Returns ``(new_raw17_bytes, report)`` -- ``report`` is a list of
     human lines (one per touched camera: keyframe count + a representative distance before->after) so the
     build can SURFACE what the tweak did instead of failing silently. Same length (no offset repack)."""
@@ -101,7 +102,7 @@ def tweak_opening(raw17, cam_indices, *, yaw_deg=0.0, pitch_deg=0.0, zoom=1.0) -
             if dyaw:
                 b[o_off] = (b[o_off] + dyaw) % _YAW_FULL
             if zoom != 1.0:
-                b[d_off] = max(0, min(255, round(b[d_off] * zoom)))
+                b[d_off] = max(0, min(255, round(b[d_off] / zoom)))   # zoom>1 -> closer (magnify), like a real zoom
             if d_after is None:
                 d_after = b[d_off]
             n_kf += 1
