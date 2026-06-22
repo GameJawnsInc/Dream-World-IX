@@ -18,8 +18,9 @@ from dataclasses import dataclass
 # badges). BATTLE / SAVE are the two OFF-spine doc families -- a battle.toml is a referenced SIBLING of a
 # field, a save doc is ORTHOGONAL game state -- so the breadcrumb can name them on their own tabs too.
 JOURNEY, CAMPAIGN, FIELD, OBJECT = "journey", "campaign", "field", "object"
+HUB = "hub"                                   # the journeys.toml root (the CONTAINER of journeys, above a journey)
 BATTLE, SAVE = "battle", "save"
-GLYPH = {JOURNEY: "◆", CAMPAIGN: "▣", FIELD: "●", OBJECT: "▸", BATTLE: "⚔", SAVE: "◈"}
+GLYPH = {HUB: "⌂", JOURNEY: "◆", CAMPAIGN: "▣", FIELD: "●", OBJECT: "▸", BATTLE: "⚔", SAVE: "◈"}
 
 
 @dataclass(frozen=True)

@@ -72,6 +72,18 @@ _ROLE = Qt.UserRole                                # per-item payload: (kind, la
 _DETAIL = Qt.UserRole + 1                           # read-only decoded detail (logic-map nodes): list[str]
 _LOGIC_KINDS = ("logic_root", "logic_entry", "logic_node")   # read-only logic-map nodes (not editable)
 
+# Hover help per tree-node KIND -- so a glyph is never the ONLY cue to what a row is (the icons read alike).
+_KIND_HELP = {
+    "jset": "Hub — the journeys.toml front door (the menu of playable journeys)",
+    "journey": "Journey — one playable arc (a hub menu row)",
+    "jcampaign": "Campaign — a member arc of this journey (double-click to open it)",
+    "jbare": "Field — a bare single-field journey (warps straight to this field)",
+    "campaign": "Campaign — a chain of fields",
+    "field": "Field — one explorable screen",
+    "group": "A list of objects in this field",
+    "object": "An object in this field (NPC / gateway / event / …)",
+}
+
 
 def _badge(node) -> str:
     """A leading health glyph for a campaign member (mirrors the tkinter navigator)."""
@@ -274,6 +286,7 @@ class Workspace(QMainWindow):
         self._undo_base = {}                       # member -> deepcopy(doc.data) at the last checkpoint
         self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
         self._content_crumbs = []                  # cached tree-driven trail -> restored when returning to a content tab
+        self._content_chip = None                  # cached chip mode for the SELECTED node (hub/journey/campaign/field)
         self.setWindowTitle("Dream World IX — Workspace")
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
@@ -307,6 +320,11 @@ class Workspace(QMainWindow):
         act_open_save.setToolTip("Open a game save to edit story state / items / equipment")
         act_open_save.triggered.connect(self._open_save)
         tb.addAction(act_open_save)
+        self.act_close = QAction("Close", self)
+        self.act_close.setToolTip("Close the open project and return to the empty Workspace — the way OUT of any "
+                                  "journey / campaign / field, from any tab")
+        self.act_close.triggered.connect(self._close_project)
+        tb.addAction(self.act_close)
         tb.addSeparator()
         self.act_undo = QAction("Undo", self)
         self.act_undo.setToolTip("Undo (Ctrl+Z)")
@@ -531,6 +549,7 @@ class Workspace(QMainWindow):
             "Deploy</b> · <b>Import</b> (fork a real field). Press <b>Ctrl-K</b> to jump anywhere; "
             "<b>Ctrl-Z</b> / <b>Ctrl-Shift-Z</b> undo &amp; redo your edits.</p>"
             "<p style='color:gray'>This shell wraps the same tk-free backends the kit's CLI uses.</p>")
+        self._welcome_tab = w                      # kept so Close can return here
         self.tabs.addTab(w, "Welcome")
 
     # ---- item helpers ----
@@ -538,6 +557,9 @@ class Workspace(QMainWindow):
     def _mk(kind, label, key="", glyph=""):
         it = QTreeWidgetItem([f"{glyph} {label}".strip()])
         it.setData(0, _ROLE, (kind, label, key))
+        help_ = _KIND_HELP.get(kind)
+        if help_:
+            it.setToolTip(0, help_)                # hover names the TYPE -- the glyph isn't the only cue
         return it
 
     @staticmethod
@@ -595,7 +617,7 @@ class Workspace(QMainWindow):
         self.tree.clear()
         self._root_items = []
         self._member_items = {}
-        jset = self._mk("jset", self.journey_name, "@journeys", "◆")
+        jset = self._mk("jset", self.journey_name, "@journeys", "⌂")   # the HUB glyph -- distinct from a journey's ◆
         jset.setForeground(0, QBrush(QColor(self.pal["accent"])))
         jset.setIcon(0, self._blank_icon)
         self.tree.addTopLevelItem(jset)
@@ -1201,10 +1223,37 @@ class Workspace(QMainWindow):
             self.open_campaign(Path(f))
 
     def on_open_field(self):
+        # default to ALL .toml (the old "*.field.toml" default HID a plainly-named field.toml -> "nothing happened")
         f, _ = QFileDialog.getOpenFileName(self, "Open a field.toml", "",
-                                           "Field (*.field.toml);;TOML (*.toml);;All files (*)")
+                                           "Field / TOML (*.toml);;Field only (*.field.toml);;All files (*)")
         if f:
             self.open_field(Path(f))
+
+    def _close_project(self):
+        """The escape hatch: close whatever is open (journey / campaign / loose field) and return to the empty
+        Workspace, from ANY tab. Prompts for unsaved edits first. This is the visible 'way out' -- previously
+        the only exit was Open Field (which silently no-ops if its file dialog is cancelled)."""
+        if not self._maybe_prompt_unsaved():
+            return
+        self.plan = self.campaign_path = self.journey_name = None
+        self.manifest = self.journey_root = self._journey_label_path = self._loose = None
+        self.member_paths = {}
+        self._docs = {}
+        self._clean = {}
+        self._touched = set()
+        self._reset_history()
+        self.tree.clear()
+        self._member_items = {}
+        self._root_items = []
+        self._clear_doc()
+        self.map.clear()
+        self._content_crumbs = []
+        self._content_chip = None
+        self.crumb.set([])
+        self.crumb.set_chip("")
+        self.act_check.setEnabled(False)
+        self.tabs.setCurrentWidget(self._welcome_tab)
+        self.statusBar().showMessage("Closed — open a journey, campaign, or field to begin.")
 
     # ---- create new (field / campaign / member) ----
     def _default_new_dest(self) -> str:
@@ -1972,7 +2021,8 @@ class Workspace(QMainWindow):
         self._content_crumbs = bc.trail(self.journey_name, self.plan.name if self.plan else None,
                                         field, obj_label, obj_key or "")
         self.crumb.set(self._content_crumbs)
-        self._set_chip(self._content_mode())
+        self._content_chip = self._chip_for_kind(p[0]) if p else None
+        self._set_chip(self._content_chip)
         self._inspect(item, p, field)
         if field and getattr(self, "map", None) is not None:
             self.map.highlight(field)              # keep the Map in sync, but DON'T steal the active tab
@@ -1995,9 +2045,10 @@ class Workspace(QMainWindow):
         self.insp_title.setText(label)
         self.insp_body.setToolTip("")
         self._inspect_path = None
-        self._content_crumbs = bc.trail(self.journey_name, None, None, None, "")
+        self._content_crumbs = self._journey_crumbs(item)     # full hub▸journey▸campaign trail to THIS node
         self.crumb.set(self._content_crumbs)
-        self._set_chip(self._content_mode())
+        self._content_chip = self._chip_for_kind(kind)        # the chip names the SELECTED row's type
+        self._set_chip(self._content_chip)
         if kind == "jcampaign":
             self.insp_body.setText("<br>".join([
                 self._muted("a member campaign of this journey"),
@@ -2012,20 +2063,17 @@ class Workspace(QMainWindow):
                 self._muted("Check lints the global id/flag namespace → Problems")]))
 
     # ---- do-now #1: the persistent edit-target indicator (breadcrumb + doc-mode chip), truthful per tab ----
-    def _content_mode(self):
-        """The open CONTENT document's level (the spine), for the chip on the Editor/Map tabs: 'journey' (a
-        loaded hub, not drilled in), 'campaign' (a plan open), 'field' (a loose standalone field), or None."""
-        if self.manifest is not None and self.plan is None:
-            return "journey"
-        if self.plan is not None:
-            return "campaign"
-        if self._loose is not None:
-            return "field"
-        return None
+    @staticmethod
+    def _chip_for_kind(kind):
+        """The chip MODE for a selected tree node's payload kind -- so the chip names the SELECTED thing's
+        TYPE (HUB / JOURNEY / CAMPAIGN / FIELD), not just the open document. Objects/groups/logic nodes read
+        as FIELD (you're editing within a field)."""
+        return {"jset": "hub", "journey": "journey", "jcampaign": "campaign", "campaign": "campaign",
+                "jbare": "field", "field": "field"}.get(kind, "field")
 
     def _set_chip(self, mode):
         """Drive the breadcrumb's left chip from a mode name (battle = warn-coloured to read as off-spine)."""
-        chips = {"journey": ("JOURNEY", "accent"), "campaign": ("CAMPAIGN", "accent"),
+        chips = {"hub": ("HUB", "accent"), "journey": ("JOURNEY", "accent"), "campaign": ("CAMPAIGN", "accent"),
                  "field": ("FIELD", "accent"), "battle": ("BATTLE", "warn"),
                  "save": ("SAVE", "accent"), "build": ("BUILD", "accent")}
         spec = chips.get(mode)
@@ -2035,17 +2083,32 @@ class Workspace(QMainWindow):
         label, ckey = spec
         self.crumb.set_chip(label, self.pal.get(ckey, self.pal["accent"]))
 
+    def _journey_crumbs(self, item):
+        """The full hub▸journey▸campaign/field trail to a selected JOURNEY-mode tree node (each crumb keyed by
+        its payload so :meth:`_on_crumb` can navigate to it). The leaf is where you are; its ancestors are the
+        containment chain -- so the breadcrumb tells the whole 'which is which' story, not just the hub name."""
+        level_for = {"jset": bc.HUB, "journey": bc.JOURNEY, "jcampaign": bc.CAMPAIGN, "jbare": bc.FIELD}
+        chain = []
+        node = item
+        while node is not None:
+            pp = self._payload(node)
+            if pp:
+                chain.append(bc.Crumb(level_for.get(pp[0], bc.OBJECT), pp[1], pp[2]))
+            node = node.parent()
+        chain.reverse()
+        return chain
+
     def _on_tab_changed(self, _idx=None):
         """Keep the breadcrumb + chip truthful on EVERY tab. Content tabs (Editor/Map) restore the cached
-        tree-driven journey▸campaign▸field▸object trail; each self-contained doc tab (Battle/Save/Build) names
-        what IT edits via its own ``crumb_label()``; Import/Welcome show the project context with no edit chip
-        (they don't edit the open doc)."""
+        tree-driven journey▸campaign▸field▸object trail + the selected node's chip; each self-contained doc tab
+        (Battle/Save/Build) names what IT edits via its own ``crumb_label()``; Import/Welcome show the project
+        context with no edit chip (they don't edit the open doc)."""
         if not hasattr(self, "tabs"):
             return
         w = self.tabs.currentWidget()
         if w in (self.doc_scroll, self.map):
             self.crumb.set(self._content_crumbs)
-            self._set_chip(self._content_mode())
+            self._set_chip(self._content_chip)
         elif w is self.battle:
             self.crumb.set([bc.Crumb(bc.BATTLE, w.crumb_label())])
             self._set_chip("battle")
@@ -4540,9 +4603,9 @@ class Workspace(QMainWindow):
             self.tree.scrollToItem(mi)
 
     def _on_crumb(self, crumb):
-        if crumb.level == bc.FIELD:
+        if crumb.level == bc.FIELD and self.manifest is None:    # a campaign-mode field crumb -> select the member
             self._select_member(crumb.key)
-        elif crumb.level in (bc.JOURNEY, bc.CAMPAIGN):
+        elif crumb.level in (bc.JOURNEY, bc.CAMPAIGN, bc.HUB) or crumb.level == bc.FIELD:
             # select the matching root row
             root = self.tree.topLevelItem(0)
             target = crumb.key
@@ -4882,7 +4945,7 @@ def _smoke(win):
     win.tree.setCurrentItem(win._member_items["IC_ENT"])      # re-select with the probe encounter removed
     # do-now #1: the persistent doc-mode CHIP + breadcrumb stay truthful on EVERY tab (the indicator used to
     # update only on tree selection -> it lied on the 5 self-contained doc tabs). A campaign is open here.
-    assert not win.crumb._chip.isHidden() and win.crumb._chip.text() == "CAMPAIGN", win.crumb._chip.text()
+    assert not win.crumb._chip.isHidden() and win.crumb._chip.text() == "FIELD", win.crumb._chip.text()
     _field_trail = list(win._content_crumbs)
     win.tabs.setCurrentWidget(win.battle)
     assert win.crumb._chip.text() == "BATTLE", "the Battle tab names itself as the edit target"
@@ -4893,7 +4956,7 @@ def _smoke(win):
     win.tabs.setCurrentWidget(win.import_field)
     assert win.crumb._chip.isHidden(), "Import shows project context but NO edit-target chip"
     win.tabs.setCurrentWidget(win.doc_scroll)                 # back to the Editor -> the field trail is RESTORED
-    assert win.crumb._chip.text() == "CAMPAIGN" and win._content_crumbs == _field_trail, "content trail restored"
+    assert win.crumb._chip.text() == "FIELD" and win._content_crumbs == _field_trail, "content trail restored"
     # per-ENTITY summaries: probe an NPC (with an HTML-ish name for the escaping path) + a member gateway,
     # a real-FF9 gateway, and an out-of-campaign gateway, then clean up
     pdoc = win._doc("IC_ENT")
@@ -5827,6 +5890,19 @@ def _smoke(win):
     assert win._payload(jnode) == ("journey", "Alpha Arc", "@journey:alpha"), win._payload(jnode)
     cnode = jnode.child(0)
     assert win._payload(cnode) == ("jcampaign", "camp1", "camp1"), win._payload(cnode)
+    # ITERATION 2 (playtest feedback): the hub/journey/campaign rows must read DISTINCTLY -- the hub glyph (⌂)
+    # differs from a journey's (◆), and every row carries a TYPE tooltip (the glyph isn't the only cue).
+    assert jroot.text(0).startswith("⌂") and jnode.text(0).startswith("◆"), (jroot.text(0), jnode.text(0))
+    assert "Hub" in jroot.toolTip(0) and "Journey" in jnode.toolTip(0) and "Campaign" in cnode.toolTip(0)
+    # the CHIP names the SELECTED row's type (not just the open document), and the breadcrumb deepens to it
+    win.tree.setCurrentItem(jroot)
+    assert win.crumb._chip.text() == "HUB", win.crumb._chip.text()
+    win.tree.setCurrentItem(jnode)
+    assert win.crumb._chip.text() == "JOURNEY"
+    win.tree.setCurrentItem(cnode)
+    assert win.crumb._chip.text() == "CAMPAIGN"
+    assert [c.label for c in win._content_crumbs] == ["Test Hub", "Alpha Arc", "camp1"], \
+        "the breadcrumb shows the full hub▸journey▸campaign trail to the selected row"
     # selecting the root mounts the resolved-plan overview in the doc area (read-only)
     win.tree.setCurrentItem(jroot)
     ov = [w for w in win.doc_host.findChildren(QPlainTextEdit) if w.isReadOnly()]
@@ -5858,6 +5934,16 @@ def _smoke(win):
     # opening a plain field afterwards drops the journey context
     assert win.open_field(af) and win.manifest is None, "a standalone field leaves journey mode"
     assert "Open Journey…" in [e[0] for e in win._command_index()]
+    # ITERATION 2 (playtest feedback): the user's exact stuck-state -- Open Field from a DRILLED-IN
+    # (journey+campaign) state must escape, AND the toolbar Close returns to the empty Workspace from any mode.
+    assert win.open_journey(jdir / "arc.toml") and win.manifest is not None
+    win._on_tree_double(win.tree.topLevelItem(0).child(0).child(0))     # drill into camp1 (plan+manifest set)
+    assert win.plan is not None and win.manifest is not None, "drilled into journey+campaign"
+    assert win.open_field(af) and win.manifest is None and win.plan is None, "Open Field escapes a drilled-in journey"
+    win._close_project()
+    assert win.manifest is None and win.plan is None and win._loose is None and win.tree.topLevelItemCount() == 0, \
+        "Close returns to the empty Workspace"
+    assert win.crumb._chip.isHidden(), "Close clears the doc-mode chip"
 
     # RECONCILE (STEP 2): a reference-arc scaffold's ENTRY_MEMBER + link placeholders fill from the forked
     # campaigns beside it -- camp_a/A2 has a scripted Field() seam to 200 (== camp_b/B1's source) -> PRECISE.
@@ -6026,7 +6112,9 @@ def _smoke(win):
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs + encounter->Battle jump) + "
-          f"persistent doc-mode CHIP + breadcrumb truthful per-tab (content/battle/save/build) + JOURNEY mode "
+          f"persistent CHIP names the SELECTED node's type (hub/journey/campaign/field) + breadcrumb truthful "
+          f"per-tab (content/battle/save/build) + distinct hub⌂/journey◆ glyphs + type tooltips + Close-to-empty + "
+          f"drilled-in Open-Field escape + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
