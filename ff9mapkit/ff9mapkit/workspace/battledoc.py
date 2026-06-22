@@ -400,9 +400,9 @@ class BattleDoc(QWidget):
         v = QVBoxLayout(box)
         v.setContentsMargins(8, 4, 8, 4)
         v.setSpacing(3)
-        enrage = [f"entry {e} tag {t}" for (e, _ty, t, _r, n) in ai_funcs if n == 1]   # exactly one Attack
+        enrage = [f"entry {e}, function {t}" for (e, _ty, t, _r, n) in ai_funcs if n == 1]   # exactly one Attack
         e_txt = " · ".join(enrage) if enrage else "none — no AI function has exactly one Attack (use ai_insert)"
-        e_lbl = QLabel(f"<b>Enrage-able</b> (entry / tag): {html.escape(e_txt)}")
+        e_lbl = QLabel(f"<b>Enrage-able</b> → set <b>Enemy AI entry</b> / <b>AI function</b> to: {html.escape(e_txt)}")
         e_lbl.setWordWrap(True)
         e_lbl.setStyleSheet(f"color:{self.pal['muted']};")
         v.addWidget(e_lbl)
@@ -412,7 +412,7 @@ class BattleDoc(QWidget):
             a_lbl.setWordWrap(True)
             a_lbl.setStyleSheet(f"color:{self.pal['muted']};")
             v.addWidget(a_lbl)
-        other = [f"entry {e} tag {t} ({n} atk)" for (e, _ty, t, _r, n) in ai_funcs if n != 1]
+        other = [f"entry {e} fn {t} ({n} atk)" for (e, _ty, t, _r, n) in ai_funcs if n != 1]
         if other:
             o_lbl = QLabel(f"other AI funcs: {html.escape(' · '.join(other))}")
             o_lbl.setWordWrap(True)
