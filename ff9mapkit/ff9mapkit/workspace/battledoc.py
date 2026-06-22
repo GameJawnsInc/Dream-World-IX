@@ -492,7 +492,7 @@ class BattleDoc(QWidget):
             return
         self._commit_active()
         phases = self.data.setdefault("scene", {}).setdefault("ai_phase", [])
-        phases.append({"entry": 1, "tag": 1, "stat": "hp", "below": 0.5, "then": 1, "else": 0})
+        phases.append({"entry": 1, "tag": 5, "stat": "hp", "below": 0.5, "then": 1, "else": 0})
         self._rebuild_nodes()
         self._select_node(_AIPHASE, len(phases) - 1)
 

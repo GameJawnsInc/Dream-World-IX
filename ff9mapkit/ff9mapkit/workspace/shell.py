@@ -4992,7 +4992,7 @@ def _smoke(win):
     win.battle._ctx["getters"]["then"] = lambda: "3"
     win.battle._save()
     _bap = _tl.loads(btoml.read_text(encoding="utf-8"))["scene"]["ai_phase"][0]
-    assert _bap == {"entry": 1, "tag": 1, "stat": "hp", "below": 0.5, "then": 3, "else": 0}, _bap
+    assert _bap == {"entry": 1, "tag": 5, "stat": "hp", "below": 0.5, "then": 3, "else": 0}, _bap
     win.battle._check()                                                   # validate_battle -> Problems (no crash)
     # Player/ability tuning branch (mod-global): add a [[character]] row, edit a stat, save round-trips
     win.battle._pick_player_table = lambda: "character"                   # stub the picker dialog

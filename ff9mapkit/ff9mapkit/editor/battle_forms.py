@@ -28,7 +28,8 @@ from .forms import COORD, FLOAT, INT, OPTINT, STR, STRLIST, Field
 AI_PHASE_SPEC = [
     Field("entry", "Enemy AI entry", INT,
           "the .eb AI entry for the enemy type (often 1 + the slot's type; `battle-ai <donor>` lists them)"),
-    Field("tag", "AI function", INT, "which function to enrage: 1=Main, 6=Counter, 7=ATB, 9=Dying (usually 1)"),
+    Field("tag", "AI function", INT, "which AI function has the single Attack — the readout's 'Enrage-able' line "
+          "shows it (usually 5, the per-turn attack executor; 1=Main, 6=Counter, 7=ATB, 9=Dying)"),
     Field("stat", "Threshold stat", STR, "hp / mp / at (default hp)"),
     Field("below", "Enrage below", FLOAT, "a unit fraction 1/N: 0.5 = half, 0.25 = quarter, 0.2 = a fifth (default 0.5)"),
     Field("then", "Attack when below", INT, "enemy_attack[] index used WHILE below the threshold (the enrage move)"),
