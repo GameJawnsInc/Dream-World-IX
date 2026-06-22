@@ -14,9 +14,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# the four hierarchy levels, outermost -> innermost, with a leading glyph (matches the navigator badges).
+# the four containment-spine levels, outermost -> innermost, with a leading glyph (matches the navigator
+# badges). BATTLE / SAVE are the two OFF-spine doc families -- a battle.toml is a referenced SIBLING of a
+# field, a save doc is ORTHOGONAL game state -- so the breadcrumb can name them on their own tabs too.
 JOURNEY, CAMPAIGN, FIELD, OBJECT = "journey", "campaign", "field", "object"
-GLYPH = {JOURNEY: "◆", CAMPAIGN: "▣", FIELD: "●", OBJECT: "▸"}
+BATTLE, SAVE = "battle", "save"
+GLYPH = {JOURNEY: "◆", CAMPAIGN: "▣", FIELD: "●", OBJECT: "▸", BATTLE: "⚔", SAVE: "◈"}
 
 
 @dataclass(frozen=True)

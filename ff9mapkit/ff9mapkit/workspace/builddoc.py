@@ -226,6 +226,12 @@ class BuildDoc(QWidget):
         return box
 
     # ------------------------------------------------------------------ kind detection + rendering
+    def crumb_label(self):
+        """A short 'you are deploying X' label for the breadcrumb when the Build & Deploy tab is active --
+        the detected kind + the target file name (or a no-target hint)."""
+        p = self.path.text().strip().strip('"')
+        return f"{self.kind} · {Path(p).name}" if p else "no build target"
+
     def set_target(self, path):
         """Point the doc at a project file (the shell calls this when a campaign/field opens, so Build &
         Deploy is pre-aimed at what you're working on)."""

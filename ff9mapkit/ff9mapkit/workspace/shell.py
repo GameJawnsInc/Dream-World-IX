@@ -193,13 +193,28 @@ class BreadcrumbBar(QWidget):
         self.on_nav = None
         self._lay = QHBoxLayout(self)
         self._lay.setContentsMargins(12, 6, 12, 6)
-        self._lay.setSpacing(3)
+        self._lay.setSpacing(6)
         self.setStyleSheet(f"background:{pal['surface']};border-bottom:1px solid {pal['border']};")
+        self._chip = QLabel("")                    # a PERSISTENT left-anchored doc-mode chip (never cleared by set)
+        self._chip.setVisible(False)
+        self._lay.addWidget(self._chip)
         self.set([])
 
+    def set_chip(self, text, color=None):
+        """The always-visible 'what am I editing' chip (JOURNEY / CAMPAIGN / FIELD / BATTLE / SAVE / BUILD).
+        Empty text hides it. Persists across :meth:`set` so it stays truthful on every tab."""
+        if not text:
+            self._chip.setVisible(False)
+            return
+        col = color or self.pal["accent"]
+        self._chip.setText(text)
+        self._chip.setStyleSheet(
+            f"background:{col};color:#ffffff;border-radius:3px;padding:1px 7px;font-weight:600;")
+        self._chip.setVisible(True)
+
     def set(self, crumbs):
-        while self._lay.count():
-            w = self._lay.takeAt(0).widget()
+        while self._lay.count() > 1:               # keep index 0 (the persistent chip); clear the trail after it
+            w = self._lay.takeAt(1).widget()
             if w:
                 w.deleteLater()
         if not crumbs:
@@ -258,6 +273,7 @@ class Workspace(QMainWindow):
         self._redo_stack = []                      # [_UndoRec] -- undone edits (Ctrl-Shift-Z re-applies)
         self._undo_base = {}                       # member -> deepcopy(doc.data) at the last checkpoint
         self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
+        self._content_crumbs = []                  # cached tree-driven trail -> restored when returning to a content tab
         self.setWindowTitle("Dream World IX — Workspace")
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
@@ -413,6 +429,10 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.build_deploy, "Build & Deploy")
         self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems)
         self.tabs.addTab(self.import_field, "Import")
+        # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
+        # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
+        # so it doesn't fire mid-construction (current index is the Welcome tab, which _on_tab_changed no-ops).
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         split.addWidget(self.tabs)
 
         insp = QWidget()
@@ -1949,8 +1969,10 @@ class Workspace(QMainWindow):
         obj_label = obj_key = None
         if field_item is not None and item is not field_item and p:
             obj_label, obj_key = p[1], p[2]
-        self.crumb.set(bc.trail(self.journey_name, self.plan.name if self.plan else None,
-                                field, obj_label, obj_key or ""))
+        self._content_crumbs = bc.trail(self.journey_name, self.plan.name if self.plan else None,
+                                        field, obj_label, obj_key or "")
+        self.crumb.set(self._content_crumbs)
+        self._set_chip(self._content_mode())
         self._inspect(item, p, field)
         if field and getattr(self, "map", None) is not None:
             self.map.highlight(field)              # keep the Map in sync, but DON'T steal the active tab
@@ -1973,7 +1995,9 @@ class Workspace(QMainWindow):
         self.insp_title.setText(label)
         self.insp_body.setToolTip("")
         self._inspect_path = None
-        self.crumb.set(bc.trail(self.journey_name, None, None, None, ""))
+        self._content_crumbs = bc.trail(self.journey_name, None, None, None, "")
+        self.crumb.set(self._content_crumbs)
+        self._set_chip(self._content_mode())
         if kind == "jcampaign":
             self.insp_body.setText("<br>".join([
                 self._muted("a member campaign of this journey"),
@@ -1986,6 +2010,54 @@ class Workspace(QMainWindow):
             self.insp_body.setText("<br>".join([
                 f"{len(self.manifest.journeys)} journey(s)",
                 self._muted("Check lints the global id/flag namespace → Problems")]))
+
+    # ---- do-now #1: the persistent edit-target indicator (breadcrumb + doc-mode chip), truthful per tab ----
+    def _content_mode(self):
+        """The open CONTENT document's level (the spine), for the chip on the Editor/Map tabs: 'journey' (a
+        loaded hub, not drilled in), 'campaign' (a plan open), 'field' (a loose standalone field), or None."""
+        if self.manifest is not None and self.plan is None:
+            return "journey"
+        if self.plan is not None:
+            return "campaign"
+        if self._loose is not None:
+            return "field"
+        return None
+
+    def _set_chip(self, mode):
+        """Drive the breadcrumb's left chip from a mode name (battle = warn-coloured to read as off-spine)."""
+        chips = {"journey": ("JOURNEY", "accent"), "campaign": ("CAMPAIGN", "accent"),
+                 "field": ("FIELD", "accent"), "battle": ("BATTLE", "warn"),
+                 "save": ("SAVE", "accent"), "build": ("BUILD", "accent")}
+        spec = chips.get(mode)
+        if spec is None:
+            self.crumb.set_chip("")
+            return
+        label, ckey = spec
+        self.crumb.set_chip(label, self.pal.get(ckey, self.pal["accent"]))
+
+    def _on_tab_changed(self, _idx=None):
+        """Keep the breadcrumb + chip truthful on EVERY tab. Content tabs (Editor/Map) restore the cached
+        tree-driven journey▸campaign▸field▸object trail; each self-contained doc tab (Battle/Save/Build) names
+        what IT edits via its own ``crumb_label()``; Import/Welcome show the project context with no edit chip
+        (they don't edit the open doc)."""
+        if not hasattr(self, "tabs"):
+            return
+        w = self.tabs.currentWidget()
+        if w in (self.doc_scroll, self.map):
+            self.crumb.set(self._content_crumbs)
+            self._set_chip(self._content_mode())
+        elif w is self.battle:
+            self.crumb.set([bc.Crumb(bc.BATTLE, w.crumb_label())])
+            self._set_chip("battle")
+        elif w in (self.story_state, self.item_equip):
+            self.crumb.set([bc.Crumb(bc.SAVE, w.crumb_label())])
+            self._set_chip("save")
+        elif w is self.build_deploy:
+            self.crumb.set([bc.Crumb("build", w.crumb_label())])
+            self._set_chip("build")
+        else:                                      # Import / Welcome -> project context, but no edit-target chip
+            self.crumb.set(self._content_crumbs)
+            self._set_chip(None)
 
     def _on_tree_double(self, item, _col=0):
         """Double-click = explicit 'open': a field/object -> the Editor; a campaign/journey root -> the Map;
@@ -4808,6 +4880,20 @@ def _smoke(win):
     win.tabs.setCurrentWidget(win.doc_scroll)                 # restore for the rest of the inspector smoke
     del pdoc0.data["encounter"]
     win.tree.setCurrentItem(win._member_items["IC_ENT"])      # re-select with the probe encounter removed
+    # do-now #1: the persistent doc-mode CHIP + breadcrumb stay truthful on EVERY tab (the indicator used to
+    # update only on tree selection -> it lied on the 5 self-contained doc tabs). A campaign is open here.
+    assert not win.crumb._chip.isHidden() and win.crumb._chip.text() == "CAMPAIGN", win.crumb._chip.text()
+    _field_trail = list(win._content_crumbs)
+    win.tabs.setCurrentWidget(win.battle)
+    assert win.crumb._chip.text() == "BATTLE", "the Battle tab names itself as the edit target"
+    win.tabs.setCurrentWidget(win.story_state)
+    assert win.crumb._chip.text() == "SAVE", "the Save tab names itself"
+    win.tabs.setCurrentWidget(win.build_deploy)
+    assert win.crumb._chip.text() == "BUILD", "the Build & Deploy tab names itself"
+    win.tabs.setCurrentWidget(win.import_field)
+    assert win.crumb._chip.isHidden(), "Import shows project context but NO edit-target chip"
+    win.tabs.setCurrentWidget(win.doc_scroll)                 # back to the Editor -> the field trail is RESTORED
+    assert win.crumb._chip.text() == "CAMPAIGN" and win._content_crumbs == _field_trail, "content trail restored"
     # per-ENTITY summaries: probe an NPC (with an HTML-ish name for the escaping path) + a member gateway,
     # a real-FF9 gateway, and an out-of-campaign gateway, then clean up
     pdoc = win._doc("IC_ENT")
@@ -5939,7 +6025,8 @@ def _smoke(win):
           f"install-list browse) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
-          f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs + encounter->Battle jump) + JOURNEY mode "
+          f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs + encounter->Battle jump) + "
+          f"persistent doc-mode CHIP + breadcrumb truthful per-tab (content/battle/save/build) + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "

@@ -142,6 +142,10 @@ class StoryStateDoc(QWidget):
         if f:
             self.load(f)
 
+    def crumb_label(self):
+        """A short 'you are editing X' label for the breadcrumb when the Story State tab is active."""
+        return os.path.basename(self.path) if self.path else "no save loaded"
+
     def load(self, path, select=0) -> bool:
         try:
             self.reports = _save.inspect(path)
@@ -447,6 +451,10 @@ class ItemEquipDoc(QWidget):
                                            _save.default_save_dir() or "", "FF9 save (*.dat);;All files (*)")
         if f:
             self.load(f)
+
+    def crumb_label(self):
+        """A short 'you are editing X' label for the breadcrumb when the Item & Equip tab is active."""
+        return os.path.basename(self.path) if self.path else "no save loaded"
 
     def load(self, path, select=0) -> bool:
         try:
