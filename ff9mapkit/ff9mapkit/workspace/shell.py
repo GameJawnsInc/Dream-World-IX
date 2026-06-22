@@ -4974,6 +4974,7 @@ def _smoke(win):
     win.battle._ctx["getters"]["hp"] = lambda: "777"                      # as if typed into HP
     win.battle._save()
     assert _tl.loads(btoml.read_text(encoding="utf-8"))["scene"]["enemy"][0]["hp"] == 777   # round-trips to disk
+    assert win.battle.nodes.currentRow() == erow and win.battle.del_btn.isEnabled()   # Save keeps the row + Remove armed
     win.battle._add_enemy()                                               # a new [[scene.enemy]] at the next slot
     assert len(win.battle._enemies()) == 2 and win.battle._enemies()[1]["slot"] == 1
     # Formation form: the encounter-rules STRLIST + a FLOAT camera tweak round-trip (keeping the enemy list)
@@ -5030,6 +5031,40 @@ def _smoke(win):
     win.battle._save()
     _bsaved = _tl.loads(btoml.read_text(encoding="utf-8"))
     assert _bsaved["character"][0] == {"character": "Zidane", "strength": 99}, _bsaved.get("character")
+    # the saved battle.toml uses REAL sections (not the field.toml inline `scene = {...}` collision) — readable + round-trips
+    _btext = btoml.read_text(encoding="utf-8")
+    assert "[scene]" in _btext and "[[scene.enemy]]" in _btext and "[[scene.ai_phase]]" in _btext
+    assert "scene = {" not in _btext, _btext[:200]
+    # Check must NOT persist: add an enemy in-memory, Check, the on-disk enemy count is unchanged (Save is the only writer)
+    _disk_before = len(_tl.loads(_btext)["scene"]["enemy"])
+    win.battle._add_enemy()
+    win.battle._check()
+    assert len(_tl.loads(btoml.read_text(encoding="utf-8"))["scene"]["enemy"]) == _disk_before, "Check wrote an unsaved Add"
+    win.battle._enemies().pop()                                          # drop the unsaved scratch enemy before the delete tests
+    win.battle._rebuild_nodes()
+    # Remove selected: every list row (player / scene sub-table / enemy) is deletable; Map/Formation are not.
+    win.battle._confirm_delete = lambda _label: True                     # stub the confirm dialog -> Yes
+    win.battle.nodes.setCurrentRow(0)                                    # Map (a singleton) — not removable
+    assert not win.battle.del_btn.isEnabled()
+    crow = next(i for i, (k, _) in enumerate(win.battle._nodes) if k == "character")
+    win.battle.nodes.setCurrentRow(crow)
+    assert win.battle.del_btn.isEnabled()                               # a list row arms Remove
+    win.battle._delete_selected()
+    assert "character" not in win.battle.data                           # the emptied top-level [[character]] is popped
+    assert not any(k == "character" for k, _ in win.battle._nodes)
+    assert not win.battle.del_btn.isEnabled()                           # landed on Map (no sibling left) -> disabled
+    prow = next(i for i, (k, _) in enumerate(win.battle._nodes) if k == "ai_patch")
+    win.battle.nodes.setCurrentRow(prow)
+    win.battle._delete_selected()
+    assert "ai_patch" not in win.battle.data["scene"]                   # the emptied [scene] sub-table is popped
+    e0 = next(i for i, (k, _) in enumerate(win.battle._nodes) if k == "enemy")
+    win.battle.nodes.setCurrentRow(e0)
+    win.battle._delete_selected()
+    assert len(win.battle._enemies()) == 1                              # a non-empty list keeps its remaining rows
+    win.battle._save()                                                  # the removals persist to disk
+    _adel = _tl.loads(btoml.read_text(encoding="utf-8"))
+    assert "character" not in _adel and "ai_patch" not in _adel.get("scene", {})
+    assert len(_adel["scene"]["enemy"]) == 1
     # Fork battle: the battle-import argv + auto-open wiring (stub the runner -> no subprocess / install)
     forked = {}
 
@@ -5671,7 +5706,8 @@ def _smoke(win):
           f"catalog picker (+ scene-id) + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
           f"{win.item_equip.targets[0]['report'].gil}) + Battle doc (encounter/enemy + save round-trip + "
-          f"fork-battle auto-open + install-list browse) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
+          f"ai_phase/ai_patch/seq_patch forms + Browse-sites fill + Remove-selected + fork-battle auto-open + "
+          f"install-list browse) + ADD list items (NPC/gateway/choice) + UNDO/REDO "
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "

@@ -18,6 +18,7 @@ import tomllib
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
@@ -200,6 +201,14 @@ class BattleDoc(QWidget):
         self.nodes = QListWidget()
         self.nodes.currentRowChanged.connect(self._on_node)
         lv.addWidget(self.nodes, 1)
+        self.del_btn = QPushButton("Remove selected")
+        self.del_btn.setToolTip("Remove the selected enemy slot / AI phase / patch / party-mod row "
+                                "(the [battlemap] and [scene] tables can't be removed; applied on Save)")
+        self.del_btn.clicked.connect(self._delete_selected)
+        self.del_btn.setEnabled(False)
+        lv.addWidget(self.del_btn)
+        del_sc = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.nodes, activated=self._delete_selected)
+        del_sc.setContext(Qt.ShortcutContext.WidgetShortcut)   # Delete only when the node list has focus
         self.add_enemy_btn = QPushButton("Add enemy slot")
         self.add_enemy_btn.clicked.connect(self._add_enemy)
         self.add_enemy_btn.setEnabled(False)
@@ -284,6 +293,10 @@ class BattleDoc(QWidget):
         if "battlemap" not in data:
             QMessageBox.warning(self, "Not a battle map", f"{Path(path).name} has no [battlemap] table.")
             return False
+        shape = self._shape_problem(data)                  # a hand-corrupted list section would crash node mounting
+        if shape:
+            QMessageBox.warning(self, "Can't open this battle.toml", f"{Path(path).name}: {shape}")
+            return False
         self.path = Path(path)
         self.data = data
         bm = data.get("battlemap", {})
@@ -302,6 +315,22 @@ class BattleDoc(QWidget):
         if self.nodes.count():
             self.nodes.setCurrentRow(0)
         return True
+
+    @staticmethod
+    def _shape_problem(data):
+        """A message if a known list section isn't a list of tables (so a hand-corrupted battle.toml is rejected
+        cleanly instead of crashing _rebuild_nodes / form mounting), else None. battle-import output is well-formed;
+        this only catches hand edits. The accessors below then trust the shape (they return the REAL list to mutate)."""
+        scene = data.get("scene")
+        if scene is not None and not isinstance(scene, dict):
+            return f"[scene] must be a table (got {type(scene).__name__})"
+        scene = scene or {}
+        pairs = [(f"scene.{k}", scene.get(k)) for k in ("enemy", "ai_phase", "ai_patch", "seq_patch")]
+        pairs += [(k, data.get(k)) for k in bf.PLAYER_SPECS]
+        for name, v in pairs:
+            if v is not None and (not isinstance(v, list) or not all(isinstance(e, dict) for e in v)):
+                return f"[[{name}]] must be a list of tables (got {type(v).__name__})"
+        return None
 
     def _enemies(self):
         return (self.data.get("scene") or {}).get("enemy", []) or []
@@ -365,11 +394,19 @@ class BattleDoc(QWidget):
         self.nodes.blockSignals(False)
 
     # ------------------------------------------------------------------ node -> form
+    @staticmethod
+    def _deletable(kind):
+        """A list-row node (enemy / ai_phase / ai_patch / seq_patch / a player-table row) can be removed; the
+        [battlemap] / [scene] singletons + section headers cannot."""
+        return kind in (_ENEMY, _AIPHASE, _AIPATCH, _SEQPATCH) or kind in bf.PLAYER_SPECS
+
     def _on_node(self, row):
         if not (0 <= row < len(self._nodes)):
+            self.del_btn.setEnabled(False)
             return
         self._commit_active()                              # fold any pending edit before switching
         kind, idx = self._nodes[row]
+        self.del_btn.setEnabled(self._deletable(kind))     # Remove targets list rows, not Map/Formation/headers
         if kind == _MAP:
             self._mount(_MAP, None, bf.BATTLEMAP_SPEC, self.data.setdefault("battlemap", {}))
         elif kind == _SCENE:
@@ -521,8 +558,12 @@ class BattleDoc(QWidget):
             return
         s = by_disp[chosen]
         idx = self._ctx["idx"]
-        self._commit_active()                               # fold the user's typed `new` into the dict first
+        if not self._commit_active():                       # fold the user's typed `new` first -- but if it's
+            self._post(["Fix the highlighted value before browsing sites."], [], "Browse sites")
+            return                                          # invalid, bail (don't silently revert it to default)
         tgt = self._target(kind, idx)
+        if tgt is None:
+            return
         tgt["at"], tgt["old"] = int(s[0]), int(s[1])
         if kind == _SEQPATCH and len(s) > 5:                # default the owning-attack cross-check
             tgt["seq"] = int(s[5])
@@ -577,28 +618,27 @@ class BattleDoc(QWidget):
         return box
 
     def _target(self, kind, idx):
+        """The dict a (kind, idx) node edits, or None if the index is out of range (a stale _ctx after its row
+        was removed) -- so the shared commit primitive can no-op instead of raising."""
         if kind == _MAP:
             return self.data.setdefault("battlemap", {})
         if kind == _SCENE:
             return self.data.setdefault("scene", {})
-        if kind == _ENEMY:
-            return self._enemies()[idx]
-        if kind == _AIPHASE:
-            return self._ai_phases()[idx]
-        if kind == _AIPATCH:
-            return self._ai_patches()[idx]
-        if kind == _SEQPATCH:
-            return self._seq_patches()[idx]
-        return self.data[kind][idx]                        # a player/ability tuning table row
+        getter = {_ENEMY: self._enemies, _AIPHASE: self._ai_phases,
+                  _AIPATCH: self._ai_patches, _SEQPATCH: self._seq_patches}.get(kind)
+        lst = getter() if getter else (self.data.get(kind) if kind in bf.PLAYER_SPECS else None)
+        return lst[idx] if isinstance(lst, list) and 0 <= idx < len(lst) else None
 
     def _fold(self, ctx) -> bool:
         """Apply the form's values to its target dict in place (pop the spec keys, keep any non-spec keys --
-        e.g. the [scene] form must not drop the enemy list). Returns False on an invalid value (no change)."""
+        e.g. the [scene] form must not drop the enemy list). Returns False on an invalid value / stale target."""
         try:
             entity = forms.build_entity(ctx["spec"], read(ctx["getters"]))
         except ValueError:
             return False
         tgt = self._target(ctx["kind"], ctx["idx"])
+        if tgt is None:                                    # the row this form pointed at is gone -> nothing to commit
+            return False
         for f in ctx["spec"]:
             tgt.pop(f.key, None)
         tgt.update(entity)
@@ -617,6 +657,8 @@ class BattleDoc(QWidget):
         if not self._write():
             return
         self._rebuild_nodes()                              # a slot's number may have changed
+        if self._ctx:                                      # re-highlight the saved row + re-arm Remove (clear()
+            self._select_node(self._ctx["kind"], self._ctx["idx"])   # left currentRow at -1 with del_btn stale)
         self._post([], [], "Save", clean=f"Saved {self.path.name}")
 
     def _add_enemy(self):
@@ -689,6 +731,61 @@ class BattleDoc(QWidget):
                 self.nodes.setCurrentRow(r)
                 return
 
+    # ------------------------------------------------------------------ delete a list row
+    def _delete_selected(self):
+        """Remove the selected list row (enemy / ai_phase / ai_patch / seq_patch / a player-table row) after a
+        confirm. In-memory like the Add actions — persisted on Save. Map / Formation / headers are not removable."""
+        row = self.nodes.currentRow()
+        if not (0 <= row < len(self._nodes)):
+            return
+        kind, idx = self._nodes[row]
+        if not self._deletable(kind):
+            return
+        if not self._confirm_delete(self.nodes.item(row).text()):
+            return
+        if not self._delete_node(kind, idx):               # bad index (parallel lists drifted) -> keep the form
+            return
+        self._ctx = None                                   # success: the mounted form's row is gone -> don't commit it
+        self._rebuild_nodes()
+        siblings = [r for r, (k, _i) in enumerate(self._nodes) if k == kind]
+        target = siblings[min(idx, len(siblings) - 1)] if siblings else 0   # a remaining sibling, else Map
+        if 0 <= target < self.nodes.count():
+            self.nodes.setCurrentRow(target)               # -> _on_node mounts it (or Map) + re-arms del_btn
+
+    def _delete_node(self, kind, idx) -> bool:
+        """Drop ``(kind, idx)`` from its backing list, popping an emptied container key so the saved TOML stays
+        clean (no ``ai_phase = []``). Returns False on a bad kind/index."""
+        if kind == _ENEMY:
+            lst, scene_key = self._enemies(), "enemy"
+        elif kind == _AIPHASE:
+            lst, scene_key = self._ai_phases(), "ai_phase"
+        elif kind == _AIPATCH:
+            lst, scene_key = self._ai_patches(), "ai_patch"
+        elif kind == _SEQPATCH:
+            lst, scene_key = self._seq_patches(), "seq_patch"
+        elif kind in bf.PLAYER_SPECS:
+            lst, scene_key = (self.data.get(kind) or []), None
+        else:
+            return False
+        if not (0 <= idx < len(lst)):
+            return False
+        del lst[idx]
+        if scene_key is not None:                          # a [scene] sub-table: pop it from scene when emptied
+            scene = self.data.get("scene") or {}
+            if scene_key in scene and not scene[scene_key]:
+                scene.pop(scene_key, None)
+            if isinstance(scene, dict) and not scene:       # the last sub-table gone + no scalars -> drop empty [scene]
+                self.data.pop("scene", None)
+        elif kind in self.data and not self.data[kind]:    # a top-level player table: pop the [[<kind>]] array
+            self.data.pop(kind, None)
+        return True
+
+    def _confirm_delete(self, label) -> bool:
+        r = QMessageBox.question(self, "Remove", f"Remove “{label.strip()}”?\n\n(Applied when you Save.)",
+                                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                 QMessageBox.StandardButton.No)
+        return r == QMessageBox.StandardButton.Yes
+
     def _pick_player_table(self):
         """A small dialog to pick which player/ability table to add a row to. Returns its key, or None."""
         dlg = QDialog(self)
@@ -711,8 +808,10 @@ class BattleDoc(QWidget):
         return combo.currentData()
 
     def _write(self) -> bool:
-        try:
-            self.path.write_text(_model.dumps(self.data), encoding="utf-8", newline="\n")
+        try:                                               # a battle.toml: [scene] is a big FORMATION table, NOT
+            text = _model.dumps(self.data, inline_table_keys=frozenset(),   # the field.toml inline Blender-ref --
+                                root_order=("battlemap", "scene"))          # so emit real [scene]/[[scene.enemy]]
+            self.path.write_text(text, encoding="utf-8", newline="\n")      # sections (+ lead with the map id)
             return True
         except Exception as e:                             # noqa: BLE001
             self._post([f"Save failed: {e}"], [], "Save")
@@ -721,13 +820,11 @@ class BattleDoc(QWidget):
     def _check(self):
         if not self.path:
             return
-        self._commit_active()
-        if not self._write():                              # Check implies persisting the current form first
-            return
-        errs = []
+        self._commit_active()                              # validate WHAT'S SHOWN; Check does NOT persist (Save is
+        errs = []                                          # the only writer -- so "applied on Save" stays true)
         try:
             from ..battle.build import BattleProject, validate_battle
-            errs = list(validate_battle(BattleProject.load(self.path)))
+            errs = list(validate_battle(BattleProject(self.data, self.path.parent)))   # the in-memory dict
         except Exception as e:                             # noqa: BLE001
             errs = [f"{type(e).__name__}: {e}"]
         self._post(errs, [], f"Check {self.path.name}", clean=f"{self.path.name} — no problems")

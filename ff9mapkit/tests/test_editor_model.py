@@ -57,6 +57,23 @@ def test_dumps_output_is_canonically_ordered():
     assert text.index("[field]") < text.index("[cutscene]")     # field before cutscene
 
 
+def test_dumps_inline_table_keys_and_root_order_override():
+    # a battle.toml uses a DIFFERENT schema: 'scene' is a big FORMATION table, not the field.toml inline
+    # Blender-ref, so it must emit as real [scene]/[[scene.enemy]] sections (a name collision with field.toml).
+    bdata = {"battlemap": {"bbg": "BBG_B013"},
+             "scene": {"monster_count": 2, "enemy": [{"slot": 0, "hp": 500}], "ai_phase": [{"entry": 1}]},
+             "character": [{"character": "Zidane", "strength": 99}]}
+    # the field.toml default WOULD inline 'scene' (it's in _INLINE_TABLE_KEYS) -> demonstrate the collision...
+    assert "scene = {" in model.dumps(bdata)
+    # ...and the battle override emits sections instead, leading with the map identity, and round-trips.
+    text = model.dumps(bdata, inline_table_keys=frozenset(), root_order=("battlemap", "scene"))
+    assert "scene = {" not in text
+    assert "[scene]" in text and "[[scene.enemy]]" in text and "[[scene.ai_phase]]" in text
+    assert "[[character]]" in text
+    assert text.index("[battlemap]") < text.index("[scene]")    # map identity leads
+    assert tomllib.loads(text) == bdata                         # lossless
+
+
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.name)
 def test_dumps_roundtrips_bundled_examples(path):
     orig = tomllib.loads(path.read_text(encoding="utf-8"))

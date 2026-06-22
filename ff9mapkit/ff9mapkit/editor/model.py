@@ -71,21 +71,21 @@ def _fmt_inline_aot(key, items) -> str:
     return "\n".join(lines)
 
 
-def _ordered_items(table):
+def _ordered_items(table, root_order=_ROOT_ORDER):
     """(key, value) pairs in canonical root order first (for the top level), else insertion order."""
     keys = list(table.keys())
-    if any(k in _ROOT_ORDER for k in keys):
-        rank = {k: i for i, k in enumerate(_ROOT_ORDER)}
-        keys.sort(key=lambda k: (rank.get(k, len(_ROOT_ORDER)), ))   # stable: unknown keep order
+    if any(k in root_order for k in keys):
+        rank = {k: i for i, k in enumerate(root_order)}
+        keys.sort(key=lambda k: (rank.get(k, len(root_order)), ))   # stable: unknown keep order
     return [(k, table[k]) for k in keys]
 
 
-def _emit_table(path, table, out, *, ordered=False):
+def _emit_table(path, table, out, *, ordered=False, inline_keys=_INLINE_TABLE_KEYS, root_order=_ROOT_ORDER):
     """Emit one table's scalars/inline values, then its sub-tables / arrays-of-tables as sections."""
-    items = _ordered_items(table) if ordered else list(table.items())
+    items = _ordered_items(table, root_order) if ordered else list(table.items())
     deferred = []
     for k, v in items:
-        if isinstance(v, dict) and k not in _INLINE_TABLE_KEYS:
+        if isinstance(v, dict) and k not in inline_keys:
             deferred.append((k, v, "table"))
         elif _is_aot(v) and k not in _INLINE_AOT_KEYS:
             deferred.append((k, v, "aot"))
@@ -98,18 +98,24 @@ def _emit_table(path, table, out, *, ordered=False):
         if kind == "table":
             out.append("")
             out.append(f"[{sub}]")
-            _emit_table(sub, v, out)
+            _emit_table(sub, v, out, inline_keys=inline_keys, root_order=root_order)
         else:
             for elem in v:
                 out.append("")
                 out.append(f"[[{sub}]]")
-                _emit_table(sub, elem, out)
+                _emit_table(sub, elem, out, inline_keys=inline_keys, root_order=root_order)
 
 
-def dumps(data: dict) -> str:
-    """Serialize a field.toml dict to TOML text (round-trip-safe; canonical section order)."""
+def dumps(data: dict, *, inline_table_keys=_INLINE_TABLE_KEYS, root_order=_ROOT_ORDER) -> str:
+    """Serialize a TOML dict to text (round-trip-safe; canonical section order).
+
+    ``inline_table_keys`` / ``root_order`` default to the field.toml schema. A document with a DIFFERENT schema
+    overrides them -- e.g. a **battle.toml** passes ``inline_table_keys=frozenset()`` so its big ``[scene]``
+    FORMATION table (+ ``[[scene.enemy]]`` etc.) emit as real sections, not one ``scene = {...}`` line (the
+    field.toml ``scene`` is a small inline Blender-ref, a name collision), and ``root_order=("battlemap","scene")``
+    to lead with the map identity."""
     out: list[str] = []
-    _emit_table("", data, out, ordered=True)
+    _emit_table("", data, out, ordered=True, inline_keys=inline_table_keys, root_order=root_order)
     return "\n".join(out).strip("\n") + "\n"
 
 
