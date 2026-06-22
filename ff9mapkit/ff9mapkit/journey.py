@@ -814,7 +814,67 @@ def render_journey_seed(*, scenario=None, party=None) -> str:
     return "\n".join(L) + "\n"
 
 
+def render_journey_tuning(tuning) -> str:
+    """Render a journey's ``[journey.tuning]`` as ``[[journey.tuning.<block>]]`` array-of-tables text (the KNOWN
+    player/ability CSV blocks, in canonical order; unknown keys dropped -- they only lint-warn). Pure text;
+    ``""`` when nothing is set."""
+    from .battle.build import _PLAYER_CSV_KEYS
+    from .editor.model import _fmt_value
+    out: list = []
+    for block in _PLAYER_CSV_KEYS:
+        for row in (tuning.get(block) or []):
+            if not isinstance(row, dict):
+                continue
+            out.append(f"[[journey.tuning.{block}]]")
+            for key, val in row.items():
+                out.append(f"{key} = {_fmt_value(val)}")
+            out.append("")
+    return ("\n".join(out).rstrip("\n") + "\n") if out else ""
+
+
 _SEED_HDR = re.compile(r"\s*\[\s*journey\.seed\s*\]\s*(#.*)?$")
+_TUNING_HDR = re.compile(r"\s*\[\[?\s*journey\.tuning\.")   # any [[journey.tuning.<block>]] row table
+# A complete single-line TOML TABLE header (`[a.b]` / `[[a.b]]`) -- used to bound a sub-table strip. Excludes a
+# comma so a multi-line value array's `[ "x", "y" ]` / `[1, 2]` line isn't mistaken for a header (the line-based
+# scanner is otherwise blind to value context; journeys.toml has no multi-line-string fields, so that residual is
+# unreachable via the kit's schema).
+_TABLE_HDR = re.compile(r"""\s*\[\[?\s*['"A-Za-z0-9_][^\],]*\]\]?\s*(#.*)?$""")
+
+
+def set_journey_tuning(text: str, jid: str, tuning) -> str:
+    """Upsert journey ``jid``'s ``[journey.tuning]`` in a journeys.toml's TEXT, preserving its other rows /
+    ``[journey.seed]`` / ``[[journey.link]]`` / their comments. ALL existing ``[[journey.tuning.*]]`` tables are
+    REPLACED by ``tuning`` (or removed when it renders empty), so any comment that sat WITHIN the old tuning
+    tables is regenerated, not retained. Inserted at the END of the journey block. Pure text. Raises
+    :class:`JourneyError` if no journey with that id is present."""
+    lines = text.splitlines()
+    starts = [i for i, ln in enumerate(lines) if _JOURNEY_HDR.match(ln)]
+    for k, s in enumerate(starts):
+        end = starts[k + 1] if k + 1 < len(starts) else len(lines)
+        bid = None
+        for ln in lines[s:end]:
+            m = re.match(r'\s*id\s*=\s*"([^"]*)"', ln)
+            if m:
+                bid = m.group(1)
+                break
+        if bid != jid:
+            continue
+        i = s                                              # 1) strip EVERY [[journey.tuning.*]] table in the block
+        while i < end:
+            if _TUNING_HDR.match(lines[i]):
+                j = i + 1
+                while j < end and not _TABLE_HDR.match(lines[j]):   # stop at the next real header, not a value-array line
+                    j += 1
+                del lines[i:j]
+                end -= (j - i)                             # recheck the line now at i (don't advance)
+            else:
+                i += 1
+        rendered = render_journey_tuning(tuning)           # 2) insert the fresh tuning at the block end
+        if rendered:
+            lines[end:end] = [""] + rendered.rstrip("\n").split("\n")
+        out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines))
+        return out.rstrip("\n") + "\n"
+    raise JourneyError(f"no journey {jid!r} to tune in this manifest")
 
 
 def set_journey_seed(text: str, jid: str, *, scenario=None, party=None) -> str:
@@ -837,9 +897,9 @@ def set_journey_seed(text: str, jid: str, *, scenario=None, party=None) -> str:
         if bid != jid:
             continue
         for i in range(s, end):                            # 1) strip an existing [journey.seed] (header .. next
-            if _SEED_HDR.match(lines[i]):                  #    sub-table header / block end)
+            if _SEED_HDR.match(lines[i]):                  #    real TABLE header / block end -- NOT a value-array line)
                 j = i + 1
-                while j < end and not lines[j].lstrip().startswith("["):
+                while j < end and not _TABLE_HDR.match(lines[j]):
                     j += 1
                 del lines[i:j]
                 end -= (j - i)
@@ -848,7 +908,7 @@ def set_journey_seed(text: str, jid: str, *, scenario=None, party=None) -> str:
         if seed:                                                     #    the block's first remaining sub-table
             ins = end
             for i in range(s + 1, end):
-                if lines[i].lstrip().startswith("["):
+                if _TABLE_HDR.match(lines[i]):
                     ins = i
                     break
             lines[ins:ins] = [""] + seed.rstrip("\n").split("\n")

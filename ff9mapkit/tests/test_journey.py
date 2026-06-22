@@ -983,6 +983,86 @@ def test_lint_bare_journey_tuning_warns(tmp_path):
     assert any("BARE single-field journey" in w and "[journey.tuning]" in w for w in warn), warn
 
 
+def test_render_journey_tuning():
+    t = journey.render_journey_tuning({"character": [{"character": "Vivi", "magic": 50}],
+                                       "battle_action": [{"action": "Fire", "power": 40}]})
+    assert "[[journey.tuning.character]]" in t and 'character = "Vivi"' in t and "magic = 50" in t
+    assert "[[journey.tuning.battle_action]]" in t
+    assert journey.render_journey_tuning({}) == "" and all(ord(c) < 128 for c in t)
+
+
+def test_set_journey_tuning_upserts_preserving_seed(tmp_path):
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000)
+    base = ('[hub]\nname = "H"\nid = 4600\n\n'
+            '[[journey]]\nid = "a"\ncampaigns = ["ca"]\nentry = { campaign = "ca", field = "A1" }\n'
+            '[journey.seed]\nparty = ["Zidane", "Vivi"]\n\n'
+            '[[journey]]\nid = "z"\nname = "Z"\nentry = 4200\n')
+    p = tmp_path / "journeys.toml"
+    # ADD tuning to journey 'a' — its seed AND journey 'z' survive
+    t = journey.set_journey_tuning(base, "a", {"character": [{"character": "Vivi", "magic": 50}]})
+    p.write_text(t, encoding="utf-8")
+    ja = next(j for j in journey.load_journeys(p).journeys if j.id == "a")
+    assert ja.tuning["character"] == [{"character": "Vivi", "magic": 50}]
+    assert ja.seed.party == ["Zidane", "Vivi"] and [j.id for j in journey.load_journeys(p).journeys] == ["a", "z"]
+    # REPLACE: multiple blocks + multiple rows; the seed STILL survives
+    t2 = journey.set_journey_tuning(t, "a", {"character": [{"character": "Vivi", "magic": 60},
+                                                           {"character": "Dagger", "magic": 30}],
+                                             "leveling": [{"level": 1, "exp": 10}]})
+    assert t2.count("[[journey.tuning.character]]") == 2 and t2.count("[[journey.tuning.leveling]]") == 1
+    p.write_text(t2, encoding="utf-8")
+    ja2 = next(j for j in journey.load_journeys(p).journeys if j.id == "a")
+    assert len(ja2.tuning["character"]) == 2 and ja2.tuning["leveling"] == [{"level": 1, "exp": 10}]
+    assert ja2.seed.party == ["Zidane", "Vivi"]
+    # REMOVE: empty tuning strips every [[journey.tuning.*]]
+    t3 = journey.set_journey_tuning(t2, "a", {})
+    assert "[[journey.tuning" not in t3
+    p.write_text(t3, encoding="utf-8")
+    assert next(j for j in journey.load_journeys(p).journeys if j.id == "a").tuning == {}
+    with pytest.raises(journey.JourneyError):
+        journey.set_journey_tuning(t3, "nope", {"character": [{"character": "Vivi"}]})
+
+
+def test_set_journey_tuning_preserves_seed_and_link(tmp_path):
+    # the real multi-campaign case: a [journey.seed] + a [[journey.link]] both survive a tuning upsert, and the
+    # inserted [[journey.tuning.*]] stays parented to this journey (after the link, not re-parented to the next one)
+    _make_campaign(tmp_path, "ca", members=["A1", "A2"], id_base=6000)
+    _make_campaign(tmp_path, "cb", members=["B1"], id_base=6100)
+    base = ('[hub]\nname = "H"\nid = 4600\n\n'
+            '[[journey]]\nid = "a"\ncampaigns = ["ca", "cb"]\nentry = { campaign = "ca", field = "A1" }\n'
+            '[journey.seed]\nparty = ["Zidane", "Vivi"]\n'
+            '[[journey.link]]\nfrom = { campaign = "ca", field = "A2" }\nto = { campaign = "cb", field = "B1" }\n')
+    t = journey.set_journey_tuning(base, "a", {"character": [{"character": "Vivi", "magic": 50}]})
+    p = tmp_path / "journeys.toml"
+    p.write_text(t, encoding="utf-8")
+    ja = journey.load_journeys(p).journeys[0]
+    assert ja.seed.party == ["Zidane", "Vivi"] and len(ja.links) == 1 and ja.links[0].src_field == "A2"
+    assert ja.tuning["character"] == [{"character": "Vivi", "magic": 50}]
+
+
+def test_set_journey_tuning_strips_multiline_array_no_orphan(tmp_path):
+    # a hand-authored tuning table with a MULTI-LINE value array must be stripped WHOLE (the strip stops at the
+    # next real table header, not at the array's '[' line) -> no orphaned ']' lines -> the result still parses
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000)
+    base = ('[hub]\nname = "H"\nid = 4600\n\n'
+            '[[journey]]\nid = "a"\ncampaigns = ["ca"]\nentry = { campaign = "ca", field = "A1" }\n'
+            '[[journey.tuning.battle_action]]\naction = "Fire"\nelement = [\n  "Fire",\n  "Ice",\n]\n'
+            '[journey.seed]\nparty = ["Zidane"]\n')
+    t = journey.set_journey_tuning(base, "a", {"leveling": [{"level": 1, "exp": 10}]})
+    import tomllib
+    tomllib.loads(t)                                                 # MUST NOT raise (the old strip orphaned the array)
+    p = tmp_path / "journeys.toml"
+    p.write_text(t, encoding="utf-8")
+    ja = journey.load_journeys(p).journeys[0]
+    assert "battle_action" not in ja.tuning and ja.tuning["leveling"] == [{"level": 1, "exp": 10}]
+    assert ja.seed.party == ["Zidane"]                              # the seed (after the multi-line table) survived
+
+
+def test_render_journey_tuning_handles_nested_block():
+    # a nested block (learn) is in _PLAYER_CSV_KEYS, so render emits it (the dialog carries it through verbatim)
+    t = journey.render_journey_tuning({"learn": [{"character": "Vivi", "abilities": ["Fire", "Blizzard"]}]})
+    assert "[[journey.tuning.learn]]" in t and 'abilities = ["Fire", "Blizzard"]' in t
+
+
 def test_render_playbook_shows_seed_and_oneshot(tmp_path):
     _two_campaigns(tmp_path)
     p = _write_manifest(tmp_path, """

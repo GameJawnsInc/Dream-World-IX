@@ -929,9 +929,41 @@ class Workspace(QMainWindow):
             self.open_journey(self.journey_root)   # re-lint (the bare-party warning surfaces here) + re-list
             self.statusBar().showMessage(f"Set base party / seed for '{jid}'")
             return True
-        except (ValueError, J.JourneyError, tomllib.TOMLDecodeError, OSError) as e:
+        except (ValueError, TypeError, J.JourneyError, tomllib.TOMLDecodeError, OSError) as e:
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't set the journey seed"),
                                 [fb.Problem(fb.ERROR, str(e))])
+            return False
+
+    def on_set_journey_tuning(self, jid):
+        """Edit a journey's ``[journey.tuning]`` -- the mod-GLOBAL player/ability CSV deltas (BaseStats /
+        abilities / leveling) -- in a modal editor that reuses the battle Party & abilities forms. For a BARE
+        journey it won't apply (warned in the dialog + the lint)."""
+        if self.manifest is None or not self.journey_root:
+            return
+        j = next((x for x in self.manifest.journeys if x.id == jid), None)
+        if j is None:
+            return
+        from .tuningdialog import TuningDialog
+        dlg = TuningDialog(self, self.pal, jid, j.tuning, is_bare=j.is_bare)
+        if dlg.exec() != QDialog.DialogCode.Accepted or dlg.result_tuning is None:
+            return                                         # cancelled (accept-with-empty -> {} clears the tuning)
+        self._apply_journey_tuning(jid, dlg.result_tuning)
+
+    def _apply_journey_tuning(self, jid, tuning) -> bool:
+        """Write journey ``jid``'s ``[journey.tuning]`` back to the open hub + re-open (re-lint surfaces the
+        mod-global / bare warnings). Returns True on success. The dialog-free core (headlessly testable)."""
+        import tomllib
+        from .. import journey as J
+        try:
+            text = J.set_journey_tuning(Path(self.journey_root).read_text(encoding="utf-8"), jid, tuning)
+            tomllib.loads(text)                            # belt-and-suspenders: the result must still parse
+            Path(self.journey_root).write_text(text, encoding="utf-8", newline="\n")
+            self.open_journey(self.journey_root)           # re-lint + re-list
+            self.statusBar().showMessage(f"Set tuning for '{jid}'")
+            return True
+        except (ValueError, TypeError, J.JourneyError, tomllib.TOMLDecodeError, OSError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't set the journey tuning"),   # TypeError: an
+                                [fb.Problem(fb.ERROR, str(e))])                             # unserializable value
             return False
 
     def on_remove_journey_row(self, jid):
@@ -3244,6 +3276,7 @@ class Workspace(QMainWindow):
             if p[0] == "journey" and ":" in (p[2] or ""):        # a journey row: seed it + offer Remove (Delete-key)
                 jid = p[2].split(":", 1)[1]
                 acts.append(("Set base party / seed…", lambda j=jid: self.on_set_journey_seed(j)))
+                acts.append(("Set tuning (player stats)…", lambda j=jid: self.on_set_journey_tuning(j)))
                 acts.append((f"Remove journey '{jid}'", lambda j=jid: self.on_remove_journey_row(j)))
             return acts
         if p and p[0] == "campaign" and self.plan is not None and self.campaign_path is not None:
@@ -3939,9 +3972,12 @@ class Workspace(QMainWindow):
                                          else f"{len(j.campaigns)}-campaign arc"))
                 if j.seed.party:
                     lines.append(f"base party: {', '.join(j.seed.party)}")
+                if j.tuning:
+                    nrows = sum(len(v) for v in j.tuning.values() if isinstance(v, list))
+                    lines.append(self._muted(f"tuning: {nrows} player-CSV row(s)"))
                 if j.hub_scenario is not None:
                     lines.append(self._muted(f"start beat: {j.hub_scenario}"))
-                lines.append(self._muted("right-click → Set base party / seed…"))
+                lines.append(self._muted("right-click → Set base party / seed… / Set tuning…"))
             else:
                 lines.append(self._muted("double-click to open the whole journey" if back
                                          else "authoring is the overworld / World-Hub lane"))
@@ -5552,6 +5588,32 @@ def _smoke(win):
     assert win._apply_journey_seed("dali", "", "") is True                # clearing both removes the [journey.seed]
     assert next(j for j in win.manifest.journeys if j.id == "dali").seed.is_empty
     assert win._apply_journey_seed("nope", "", "Vivi") is False           # a missing journey fails gracefully
+    # Set tuning (player stats): the TuningDialog add/fold/accept logic + the apply round-trip (reuses PLAYER_TABLES)
+    from .tuningdialog import TuningDialog as _TD
+    _td = _TD(win, win.pal, "dali", {}, is_bare=True)
+    _td._pick_table = lambda: "character"                                # stub the table chooser
+    _td._add()
+    assert _td._ctx["block"] == "character"                              # landed on the new row's form
+    _td._ctx["getters"]["character"] = lambda: "Vivi"
+    _td._ctx["getters"]["magic"] = lambda: "55"
+    _td._accept()
+    assert _td.result_tuning == {"character": [{"character": "Vivi", "magic": 55}]}, _td.result_tuning
+    # the dialog edits only the 7 form tables but must CARRY THROUGH the nested hand-authored blocks (learn / ...)
+    _td3 = _TD(win, win.pal, "dali", {"learn": [{"character": "Vivi", "abilities": ["Fire"]}]}, is_bare=True)
+    _td3._pick_table = lambda: "character"
+    _td3._add()
+    _td3._ctx["getters"]["character"] = lambda: "Dagger"
+    _td3._accept()
+    assert _td3.result_tuning["learn"] == [{"character": "Vivi", "abilities": ["Fire"]}], "nested block preserved"
+    assert _td3.result_tuning["character"] == [{"character": "Dagger"}]
+    _jrow2 = win.tree.topLevelItem(0).child(0)                           # re-fetch (re-opens rebuilt the tree)
+    assert any(lbl == "Set tuning (player stats)…" for lbl, _ in win._context_actions(_jrow2)), "tuning action offered"
+    assert win._apply_journey_tuning("dali", _td.result_tuning) is True
+    assert next(j for j in win.manifest.journeys if j.id == "dali").tuning["character"] == [{"character": "Vivi", "magic": 55}]
+    assert any("[journey.tuning] writes MOD-GLOBAL" in w for w in _Jh.lint_manifest(win.manifest)[1])
+    assert any("tuning: 1 player-CSV row" in s for s in win._inspect_build("journey", "@journey:dali", None))
+    assert win._apply_journey_tuning("dali", {}) is True                 # empty clears every [[journey.tuning.*]]
+    assert next(j for j in win.manifest.journeys if j.id == "dali").tuning == {}
     assert "Add journey to hub…" in [e[0] for e in win._command_index()]
     try:                                                   # clobber guard: an existing manifest is refused
         win._new_journey("Again", d / "jnew")
@@ -5790,7 +5852,7 @@ def _smoke(win):
           f"(form/add/delete/cutscene + redo-invalidation) + New Field/Campaign + Add-field "
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs) + JOURNEY mode "
-          f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed) + VERBATIM logic-map subtree + in-place edit panel "
+          f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
           f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
