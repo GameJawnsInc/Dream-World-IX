@@ -388,37 +388,65 @@ def _lang_score(text: str, lang: str) -> int:
     return hits - 3 * cjk                              # a CJK block is never a romance/germanic match
 
 
-def _field_text_blocks(want_txids, lang: str, game=None, zone_id: Optional[int] = None) -> list:
-    """Sorted candidate ``.mes`` blocks for a field: ``(coverage, lang_score, raw_body, {txid: MesEntry})``,
-    best first. A field's text file is ``<zone-id>.mes`` (named by the field's text-zone id, not its map id).
-    With ``zone_id`` it reads that block (picking the requested LANGUAGE among its per-lang copies); otherwise
-    it scans every ``<n>.mes`` and keeps the block that best covers ``want_txids`` (a field references a
-    contiguous range, so the best-overlap block is its own), tie-broken by language. Returns ``[]`` -- never
-    raises. Shared by :func:`_load_field_text` (parsed map) and :func:`extract_field_mes` (raw body)."""
+_MES_INDEX: dict = {}    # {resources.assets path: {zone_id: [raw .mes body, ...]}} -- scanned ONCE, reused
+
+
+def _mes_index(game=None) -> dict:
+    """``{zone_id: [raw .mes body, ...]}`` from resources.assets, scanned ONCE and cached by path.
+
+    Reading every TextAsset's typetree out of resources.assets is the dominant cost of a verbatim fork's
+    text carry (~half the wall time), and `import-chain` paid it afresh for every language of every member.
+    Building this index once turns each later lookup -- any language, any of a chain's ~80 members -- into a
+    dict lookup instead of a full UnityPy scan. ``{}`` when the install/UnityPy can't be read; a ``None``
+    resources.assets is honored on EVERY call (checked before the cache), so a missing install isn't masked
+    by a prior successful build."""
     from . import extract
     ra = _resources_assets(game)
     if ra is None:
-        return []
+        return {}
+    key = str(ra)
+    cached = _MES_INDEX.get(key)
+    if cached is not None:
+        return cached
+    idx: dict = {}
     try:
         UnityPy = extract._unitypy()
-        env = UnityPy.load(str(ra))
+        env = UnityPy.load(key)
     except Exception:                                  # noqa: BLE001 -- missing UnityPy / unreadable asset
-        return []
-    want = set(t for t in (want_txids or []) if t is not None)
-    cands = []                                         # (coverage, lang_score, raw, parsed)
+        return {}
     for o in env.objects:
         if o.type.name != "TextAsset":
             continue
         try:
             d = o.read()
             m = _MES_NAME_RE.match(getattr(d, "m_Name", "") or "")
-            if not m or (zone_id is not None and int(m.group(1)) != int(zone_id)):
+            if not m:
                 continue
             body = extract._raw_bytes(d)
-            raw = body.decode("utf-8", "replace") if body else ""
-            parsed = parse_mes(raw)
+            idx.setdefault(int(m.group(1)), []).append(body.decode("utf-8", "replace") if body else "")
         except Exception:                              # noqa: BLE001 -- skip an unreadable block
             continue
+    _MES_INDEX[key] = idx
+    return idx
+
+
+def _field_text_blocks(want_txids, lang: str, game=None, zone_id: Optional[int] = None) -> list:
+    """Sorted candidate ``.mes`` blocks for a field: ``(coverage, lang_score, raw_body, {txid: MesEntry})``,
+    best first. A field's text file is ``<zone-id>.mes`` (named by the field's text-zone id, not its map id).
+    With ``zone_id`` it reads that block (picking the requested LANGUAGE among its per-lang copies); otherwise
+    it scans every ``<n>.mes`` and keeps the block that best covers ``want_txids`` (a field references a
+    contiguous range, so the best-overlap block is its own), tie-broken by language. Reads from the cached
+    :func:`_mes_index` (one scan, reused). Returns ``[]`` -- never raises. Shared by :func:`_load_field_text`
+    (parsed map) and :func:`extract_field_mes` (raw body)."""
+    want = set(t for t in (want_txids or []) if t is not None)
+    idx = _mes_index(game)
+    if zone_id is not None:
+        raws = idx.get(int(zone_id), [])
+    else:
+        raws = [r for rs in idx.values() for r in rs]
+    cands = []                                         # (coverage, lang_score, raw, parsed)
+    for raw in raws:
+        parsed = parse_mes(raw)
         cov = len(want & set(parsed)) if want else len(parsed)
         if zone_id is None and want and cov == 0:      # auto-detect: ignore blocks that share no txid at all
             continue
@@ -448,6 +476,27 @@ def extract_field_mes(field, lang: str = "us", game=None, zone_id: Optional[int]
     # (the default sort prefers the longest block, which silently handed every language the German variant).
     real = [c for c in cands if len(c[2]) > 1000] or cands   # the real per-language blocks, not padding stubs
     return max(real, key=lambda c: c[1])[2] if real else None
+
+
+def extract_field_mes_all_langs(field, game=None, zone_id: Optional[int] = None) -> dict:
+    """``{lang: body}`` for EVERY language in ONE scan -- the verbatim fork's text carry, batched. Equivalent
+    to :func:`extract_field_mes` per language (same block, same per-language pick) but it resolves the zone's
+    blocks once and re-scores them for each lang, instead of a fresh full resources.assets scan per language.
+    That collapses a verbatim fork's 7 text scans into 1; across an import-chain (~80 members) it's the
+    single biggest fork-speed win. Returns only the languages that resolve to a non-empty body."""
+    from ._fieldtext import EVENT_ID_TO_MES
+    from .config import LANGS
+    fid = _resolve_field_id(field)
+    if zone_id is None:
+        zone_id = EVENT_ID_TO_MES.get(fid)
+    cands = _field_text_blocks(None, "us", game=game, zone_id=zone_id)   # lang-agnostic; re-scored per lang below
+    real = [c for c in cands if len(c[2]) > 1000] or cands   # the real per-language blocks, not padding stubs
+    out: dict = {}
+    for L in LANGS:
+        best = max(real, key=lambda c: _lang_score(c[2], L), default=None)
+        if best is not None and best[2]:
+            out[L] = best[2]
+    return out
 
 
 def read_field_dialogue(field, lang: str = "us", game=None, zone_id: Optional[int] = None) -> list:

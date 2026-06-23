@@ -253,6 +253,31 @@ def test_text_source_status_reports_missing_install(monkeypatch):
     assert s != "ok" and "resources.assets" in s
 
 
+def _text_ready():
+    try:
+        import UnityPy  # noqa: F401
+        return D._resources_assets(None) is not None
+    except Exception:
+        return False
+
+
+def test_mes_index_honors_missing_install_every_call(monkeypatch):
+    """A None resources.assets yields an empty index on EVERY call -- the cache (keyed by path) never masks a
+    missing install, so the no-install text path stays empty even after a prior successful build elsewhere."""
+    monkeypatch.setattr(D, "_resources_assets", lambda game=None: None)
+    assert D._mes_index() == {}
+    assert D._field_text_blocks(None, "us", zone_id=1073) == []
+
+
+@pytest.mark.skipif(not _text_ready(), reason="needs the FF9 install + UnityPy")
+def test_extract_field_mes_all_langs_parity_and_resolves_every_language():
+    """The batched all-langs carry (ONE scan) matches the per-language path and resolves all 7 languages --
+    the import-chain fork-speed win must not change WHICH block each language gets."""
+    all7 = D.extract_field_mes_all_langs("50")            # field 50 = the Prima Vista cargo opening
+    assert all7.get("us") == D.extract_field_mes("50", "us")   # parity with the single-lang path
+    assert set(all7) >= {"us", "uk", "fr", "gr", "it", "es", "jp"}   # every language resolved in one scan
+
+
 def test_dialogue_cli_reviews_a_whole_campaign(tmp_path, capsys):
     """`ff9mapkit dialogue <campaign.toml>` auto-detects the manifest and reviews every member field."""
     import argparse

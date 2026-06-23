@@ -1828,7 +1828,6 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         import json as _json
 
         from . import dialogue as _dlg
-        from .config import LANGS
         from .content import verbatim as _vb
         from .eb import EbScript
         donor_eb = extract_event_script(field, game=game)
@@ -1855,8 +1854,9 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
             "# The Field() exits below point at REAL fields (live seams back into the game). To redirect any to\n"
             "# your own fork, set its id and uncomment the table (omit a line to keep that exit a live seam):\n")
         # ship the donor's WHOLE text per language: the verbatim .eb's index-txids resolve straight into it
-        # (no remap, unlike --carry-text). Per-lang is coarse (the dialogue reader groups langs) but us is right.
-        mes_by_lang = {L: b for L in LANGS if (b := _dlg.extract_field_mes(field, L, game=game))}
+        # (no remap, unlike --carry-text). ONE batched scan of all 7 langs (was 7 full resources.assets scans
+        # per member -- the dominant import-chain cost); per-lang is coarse but us is right.
+        mes_by_lang = _dlg.extract_field_mes_all_langs(field, game=game)
         text_line = ""
         if mes_by_lang:
             (out / f"{name}.verbatim_mes.json").write_text(_json.dumps(mes_by_lang), encoding="utf-8")
