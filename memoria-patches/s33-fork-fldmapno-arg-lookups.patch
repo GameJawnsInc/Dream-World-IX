@@ -1,0 +1,74 @@
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+index 7f498a9a..0ab5abfb 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+@@ -533,7 +533,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+         this._ff9Sys = PersistenSingleton<FF9StateSystem>.Instance;
+         BinaryReader br = new BinaryReader(new MemoryStream(ebFileData));
+         this.SetupCodeParam(br);
+-        this._ff9.mapNameStr = FF9TextTool.LocationName(this._ff9.fldMapNo);
++        this._ff9.mapNameStr = FF9TextTool.LocationName(Memoria.DataPatchers.EffectiveFieldId(this._ff9.fldMapNo)); // [ff9mapkit] fork inherits the donor's menu LOCATION name (loc_name.mes is field-id-keyed)
+         this._defaultMapName = this._ff9.mapNameStr;
+         switch (this._ff9Sys.mode)
+         {
+diff --git a/Assembly-CSharp/Global/battle/BattleSwirl.cs b/Assembly-CSharp/Global/battle/BattleSwirl.cs
+index f33620bd..05fab9b3 100644
+--- a/Assembly-CSharp/Global/battle/BattleSwirl.cs
++++ b/Assembly-CSharp/Global/battle/BattleSwirl.cs
+@@ -88,7 +88,7 @@ public class BattleSwirl : MonoBehaviour
+     private void RequestPlayBattleEncounterSongForField()
+     {
+         FF9StateSystem.Battle.IsPlayFieldBGMInCurrentBattle = true;
+-        Int32 songid = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForFieldMap, FF9StateSystem.Common.FF9.fldMapNo, FF9StateSystem.Field.FF9Field.loc.map.nextMapNo);
++        Int32 songid = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForFieldMap, Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo), FF9StateSystem.Field.FF9Field.loc.map.nextMapNo); // [ff9mapkit] fork falls back to the donor's field battle BGM (the BattlePatch override still fires first)
+         Int32 currentMusicId = FF9Snd.GetCurrentMusicId();
+         if (songid == -1 || songid == currentMusicId)
+             return;
+diff --git a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
+index f5a53fed..192b988b 100644
+--- a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
++++ b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
+@@ -311,7 +311,7 @@ public class HonoluluFieldMain : HonoBehavior
+                         }
+                     }
+                     // Suspend field music/sounds as soon as the battle swirl starts, not when the battle music starts
+-                    Int32 btlMusicid = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForFieldMap, FF9StateSystem.Common.FF9.fldMapNo, FF9StateSystem.Field.FF9Field.loc.map.nextMapNo);
++                    Int32 btlMusicid = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForFieldMap, Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo), FF9StateSystem.Field.FF9Field.loc.map.nextMapNo); // [ff9mapkit] fork falls back to the donor's field battle BGM
+                     Int32 currentMusicId = FF9Snd.GetCurrentMusicId();
+                     if (btlMusicid != -1 && btlMusicid != currentMusicId)
+                         FF9Snd.ff9fldsnd_song_suspend(currentMusicId);
+diff --git a/Assembly-CSharp/Global/BGSCENE_DEF.cs b/Assembly-CSharp/Global/BGSCENE_DEF.cs
+index 1e42a31d..80f843b4 100644
+--- a/Assembly-CSharp/Global/BGSCENE_DEF.cs
++++ b/Assembly-CSharp/Global/BGSCENE_DEF.cs
+@@ -944,7 +944,7 @@ public class BGSCENE_DEF
+                 2252, // Oeilvert/Hall
+                 2714 // Pand./Maze
+             };
+-            this.combineMeshes = list.Contains(FF9StateSystem.Common.FF9.fldMapNo);
++            this.combineMeshes = list.Contains((Int16)Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo)); // [ff9mapkit] fork inherits the donor's mesh-combine render path (Crystal World / Iifa / Oeilvert / Pand. Maze)
+             if (this.combineMeshes && !Configuration.Import.Field)
+             {
+                 this.LoadLocalizationInfo(newName, path);
+diff --git a/Assembly-CSharp/Global/Field/Map/FieldMap.cs b/Assembly-CSharp/Global/Field/Map/FieldMap.cs
+index d3e0e55f..3a33ba22 100644
+--- a/Assembly-CSharp/Global/Field/Map/FieldMap.cs
++++ b/Assembly-CSharp/Global/Field/Map/FieldMap.cs
+@@ -410,7 +410,7 @@ public class FieldMap : HonoBehavior
+         this.walkMesh.ProcessBGI();
+         this.walkMesh.UpdateActiveCameraWalkmesh();
+         SmoothCamDelay = 4;
+-        SmoothCamActive = (!SmoothCamExcludeMaps.Contains(FF9StateSystem.Common.FF9.fldMapNo));
++        SmoothCamActive = (!SmoothCamExcludeMaps.Contains(Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo))); // [ff9mapkit] fork inherits the donor's smooth-cam exclusion
+         String camIdxIfCam = this.scene.cameraList.Count > 1 ? "-" + this.camIdx : "";
+         PlayerWindow.Instance.SetTitle($"Map: {FF9StateSystem.Common.FF9.fldMapNo}{camIdxIfCam} ({FF9StateSystem.Common.FF9.mapNameStr}) | Index/Counter: {PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.MAP_INDEX_SVR)}/{PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR)} | Loc: {FF9StateSystem.Common.FF9.fldLocNo}");
+         if (dbug) Log.Message(" |_ SetCurrentCameraIndex | ShaderMulX: " + ShaderMulX + " | bgCamera.depthOffset: " + bgCamera.depthOffset + " | bgCamera.vrpMaxX " + bgCamera.vrpMaxX + " | bgCamera.depthOffset: " + bgCamera.depthOffset + " | this.scene.maxX: " + this.scene.maxX);
+@@ -455,7 +455,7 @@ public class FieldMap : HonoBehavior
+         this.walkMesh.CreateProjectedWalkMesh();
+         this.walkMesh.BGI_simInit();
+         SmoothCamDelay = 6;
+-        SmoothCamActive = !SmoothCamExcludeMaps.Contains(FF9StateSystem.Common.FF9.fldMapNo);
++        SmoothCamActive = !SmoothCamExcludeMaps.Contains(Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo)); // [ff9mapkit] fork inherits the donor's smooth-cam exclusion
+         FPSManager.DelayMainLoop(Time.realtimeSinceStartup - loadStartTime);
+         if (dbug) Log.Message("_ LoadFieldMap | ShaderMulX: " + ShaderMulX + " | bgCamera.depthOffset: " + bgCamera.depthOffset + " | bgCamera.vrpMaxX " + bgCamera.vrpMaxX + " | bgCamera.depthOffset: " + bgCamera.depthOffset + " | this.scene.maxX: " + this.scene.maxX);
+     }
