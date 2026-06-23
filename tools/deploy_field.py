@@ -132,7 +132,10 @@ for L in LANGS:
 dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines()
       if ln.strip() and ln.split()[1:2] != [str(FID)]]
 dp.append(info["dictionary"][0])
+dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
+if info.get("location_lines"):                  # the directive is read from DictionaryPatch at LAUNCH, not on F6
+    print(f"  + {info['location_lines'][0]}  -> RELAUNCH to apply (DictionaryPatch is read at launch, not F6)")
 # Item-data CSV deltas: mod-GLOBAL files build_mod emits when the field carries [start_inventory]/[[equipment]]
 # (the new-game starting bag/gear, read at NEW-GAME init) or [[shop]] (custom shop inventories, merged by id).
 # Deployed only when present, each reversibly (backup pre-existing / delete a newly-created one on revert).

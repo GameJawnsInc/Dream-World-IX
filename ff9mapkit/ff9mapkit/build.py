@@ -4347,4 +4347,8 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
 
     return {"root": str(layout.root), "fields": [r.fbg for r in results],
             "dictionary": [r.dict_line for r in results],
+            # extra per-field DictionaryPatch directive lines (currently `LocationName <id> <title>` from
+            # [field] location) -- NOT folded into "dictionary" (which is the one-FieldScene-line-per-field view
+            # used for field counts / [0] summaries). deploy_field.py / deploy_campaign append these too.
+            "location_lines": [r.location_line for r in results if r.location_line],
             "warnings": [w for r in results for w in r.warnings] + start_warnings}

@@ -77,18 +77,22 @@ def test_field_location_emits_locationname_directive(tmp_path):
     (spaces, '/') survives, and the directive line follows the field's own FieldScene line in the written file."""
     proj = FieldProject.load(EXAMPLE)
     proj.field["location"] = "  Prima Vista/Cargo Room  "   # surrounding/interior whitespace is collapsed
-    build_mod([proj], tmp_path, mod_name="FF9CustomMap")
+    info = build_mod([proj], tmp_path, mod_name="FF9CustomMap")
     dp = ModLayout(tmp_path).dictionary_patch.read_text(encoding="utf-8")
     lines = [l for l in dp.splitlines() if l.strip()]
     assert f"LocationName {proj.id} Prima Vista/Cargo Room" in lines
     i = next(k for k, l in enumerate(lines) if l.startswith(f"FieldScene {proj.id} "))
     assert lines[i + 1] == f"LocationName {proj.id} Prima Vista/Cargo Room"   # right after its FieldScene line
     assert dp.count("LocationName ") == 1
+    # build_mod also surfaces it in info["location_lines"] -- deploy_field.py appends THESE to the stacked live
+    # DictionaryPatch (it reconstructs from info, not by copying the built file, so it must see the directive).
+    assert info["location_lines"] == [f"LocationName {proj.id} Prima Vista/Cargo Room"]
 
 
 def test_field_location_absent_emits_no_directive(built):
-    out, _ = built
+    out, info = built
     assert "LocationName " not in ModLayout(out).dictionary_patch.read_text(encoding="utf-8")
+    assert info["location_lines"] == []
 
 
 def test_build_scene_and_walkmesh(built):
