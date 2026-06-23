@@ -138,8 +138,15 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   per-field event gates use a local alias `Int16 mapNo = fldMapNo`, not the literal `fldMapNo` a grep censused.
   Wraps every gate via a new `effMapNo` (non-gate uses stay raw). Restores the per-field scripted-WALK
   destination corrections, found via the field-6003 "Blank jumps in hole" occlusion bug — without the
-  `destX 250→330` fixup the jumping characters land off-spot and draw ON TOP of the ground; built + deployed,
-  ⚠ **IN-GAME UNVERIFIED**) **+ the s23 narrow-map fix**
+  `destX 250→330` fixup the jumping characters land off-spot and draw ON TOP of the ground; ★ **IN-GAME PROVEN**
+  for the WALK position) **+ s31** (`s31-fork-name-keyed-overlay-offset.patch`, 2026-06-23: the SAME 6003 bug had
+  a SECOND cause s30 didn't cover — a whole **NAME-string-keyed** gate class the id-based `EffectiveFieldId` suite
+  can't reach. `FieldMapExtraOffset` tunes per-field overlay z-offsets keyed on the FBG NAME (`mapExtraOffsetList.txt`),
+  so a fork's deployed name misses the donor's row (field 53's overlay-29 `dz=-100`) and the floor stops occluding
+  the falling characters. Adds `DataPatchers.EffectiveFieldName(name)` — resolves a fork's FBG name → its donor's
+  via the id remap + the global `eventIDToFBGID` table — and routes `SetOffset`/`UpdateOverlayOffset` through it on
+  a dict miss. ★ **IN-GAME PROVEN 2026-06-23**; fixes the whole name-keyed-offset class for every fork. Durable
+  lesson: the fork-gate census must cover **name-keyed** gates too, not just id gates) **+ the s23 narrow-map fix**
   (`memoria-patches/s23-narrow-map-fork-width.patch`, now SHIPPED — forked narrow fields no longer letterbox). Boosters are manual (ini cheats + F1–F4). **⚠ ENGINE-INDEPENDENCE IS SPLIT:** a *novel*
   field (BG-borrow / from-scratch, not impersonating a real id) runs on **stock** Memoria — but **a FORKED
   field REQUIRES the s23–s28 patches** (without them a custom-id fork loses Dante's off-mesh exemption, the
