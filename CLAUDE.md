@@ -146,7 +146,15 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   the falling characters. Adds `DataPatchers.EffectiveFieldName(name)` — resolves a fork's FBG name → its donor's
   via the id remap + the global `eventIDToFBGID` table — and routes `SetOffset`/`UpdateOverlayOffset` through it on
   a dict miss. ★ **IN-GAME PROVEN 2026-06-23**; fixes the whole name-keyed-offset class for every fork. Durable
-  lesson: the fork-gate census must cover **name-keyed** gates too, not just id gates) **+ the s23 narrow-map fix**
+  lesson: the fork-gate census must cover **name-keyed** gates too, not just id gates) **+ s32** (`s32-fork-name-gates.patch`,
+  2026-06-23: a follow-up 4-agent census found the REST of the name-keyed class — 7 more sites wrapped with the same
+  `EffectiveFieldName` lever (generalized to resolve by the PASSED NAME, correct even at cross-field call sites like
+  the SPS `ChangeFieldOrigin`). Tier-A gameplay-breaking on a fork: the Iifa minigame player+menu-control unlock (×2)
+  + the space-scene menu unlock (`UIManager.cs`), the Iifa rain offset (`FieldRainRenderer.cs`), the Oeilvert
+  star-display shader (`BGSCENE_DEF.cs`); Tier-B: SPS sprite z-offsets (`FieldMapSPSExtraOffset.cs`) + the Treasure-Hall
+  +8px nudge (`FieldMap.cs`). All identity-safe for real fields. DEFERRED: the area-title localized-atlas gates (would
+  make a fork load an `atlas_us` variant it may not ship). ⚠ IN-GAME UNVERIFIED — the affected fields are late-game,
+  verify as those zones get forked) **+ the s23 narrow-map fix**
   (`memoria-patches/s23-narrow-map-fork-width.patch`, now SHIPPED — forked narrow fields no longer letterbox). Boosters are manual (ini cheats + F1–F4). **⚠ ENGINE-INDEPENDENCE IS SPLIT:** a *novel*
   field (BG-borrow / from-scratch, not impersonating a real id) runs on **stock** Memoria — but **a FORKED
   field REQUIRES the s23–s28 patches** (without them a custom-id fork loses Dante's off-mesh exemption, the

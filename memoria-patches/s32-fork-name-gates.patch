@@ -1,0 +1,81 @@
+diff --git a/Assembly-CSharp/Global/UI/UIManager.cs b/Assembly-CSharp/Global/UI/UIManager.cs
+index 2180c8f2..62ff7210 100644
+--- a/Assembly-CSharp/Global/UI/UIManager.cs
++++ b/Assembly-CSharp/Global/UI/UIManager.cs
+@@ -431,7 +431,7 @@ public class UIManager : PersistenSingleton<UIManager>
+         this.IsPlayerControlEnable = isEnable;
+         if (this.UnityScene == UIManager.Scene.Field)
+         {
+-            Boolean is1655Scene = FF9StateSystem.Field.SceneName == "FBG_N31_IFTR_MAP556_IF_PTS_0" && !this.IsLoading;
++            Boolean is1655Scene = Memoria.DataPatchers.EffectiveFieldName(FF9StateSystem.Field.SceneName) == "FBG_N31_IFTR_MAP556_IF_PTS_0" && !this.IsLoading; // [ff9mapkit] fork inherits the donor's control-unlock
+             Boolean isTelescopeScene = EventHUD.CurrentHUD == MinigameHUD.Telescope;
+             if (is1655Scene || isTelescopeScene)
+             {
+@@ -490,13 +490,13 @@ public class UIManager : PersistenSingleton<UIManager>
+         this.IsMenuControlEnable = isEnable;
+         if (this.UnityScene == UIManager.Scene.Field)
+         {
+-            Boolean is1655Scene = FF9StateSystem.Field.SceneName == "FBG_N31_IFTR_MAP556_IF_PTS_0";
++            Boolean is1655Scene = Memoria.DataPatchers.EffectiveFieldName(FF9StateSystem.Field.SceneName) == "FBG_N31_IFTR_MAP556_IF_PTS_0"; // [ff9mapkit] fork inherits the donor's menu-unlock
+             if (is1655Scene && this.state == UIManager.UIState.FieldHUD)
+             {
+                 isEnable = true;
+                 this.IsMenuControlEnable = true;
+             }
+-            Boolean isSpaceScene = FF9StateSystem.Field.SceneName == "FBG_N45_CYSW_MAPX21_CW_SPC_1";
++            Boolean isSpaceScene = Memoria.DataPatchers.EffectiveFieldName(FF9StateSystem.Field.SceneName) == "FBG_N45_CYSW_MAPX21_CW_SPC_1"; // [ff9mapkit] fork inherits the donor's menu-unlock
+             if (isSpaceScene && this.state == UIManager.UIState.FieldHUD)
+             {
+                 isEnable = true;
+diff --git a/Assembly-CSharp/Global/Field/FieldRainRenderer.cs b/Assembly-CSharp/Global/Field/FieldRainRenderer.cs
+index 3bcbf766..157407d6 100644
+--- a/Assembly-CSharp/Global/Field/FieldRainRenderer.cs
++++ b/Assembly-CSharp/Global/Field/FieldRainRenderer.cs
+@@ -30,7 +30,7 @@ public class FieldRainRenderer : MonoBehaviour
+         String b = "FBG_N32_IFUG_MAP568_IU_SDV_0";
+         this.isIifaTreeMap = false;
+         this.posOffset = Vector3.zero;
+-        if (FF9StateSystem.Field.SceneName == b)
++        if (Memoria.DataPatchers.EffectiveFieldName(FF9StateSystem.Field.SceneName) == b) // [ff9mapkit] fork inherits the Iifa rain offset
+         {
+             this.isIifaTreeMap = true;
+             this.posOffset = new Vector3(1000f, 0f, 1000f);
+diff --git a/Assembly-CSharp/Global/BGSCENE_DEF.cs b/Assembly-CSharp/Global/BGSCENE_DEF.cs
+index 1e42a31d..adb005bf 100644
+--- a/Assembly-CSharp/Global/BGSCENE_DEF.cs
++++ b/Assembly-CSharp/Global/BGSCENE_DEF.cs
+@@ -1882,7 +1882,7 @@ public class BGSCENE_DEF
+         if (nameWithDepth)
+             meshGo.name += $"_Depth({this.curZ + bgOverlay.curZ + bgSprite.depth:D5})";
+         String shaderName = bgSprite.trans != 0 ? $"abr_{Math.Min(3, (Int32)bgSprite.alpha)}" : "abr_none";
+-        if (fieldMap.mapName == "FBG_N39_UUVL_MAP671_UV_DEP_0" && bgOverlay.indnum == 14u) // Oeilvert/Star Display
++        if (Memoria.DataPatchers.EffectiveFieldName(fieldMap.mapName) == "FBG_N39_UUVL_MAP671_UV_DEP_0" && bgOverlay.indnum == 14u) // Oeilvert/Star Display ([ff9mapkit] fork inherits the shader override)
+             shaderName = "abr_none";
+         meshGo.name += $"_[{shaderName}]";
+         meshRenderer.material = this.materialList[shaderName];
+diff --git a/Assembly-CSharp/Global/Field/Map/FieldMapSPSExtraOffset.cs b/Assembly-CSharp/Global/Field/Map/FieldMapSPSExtraOffset.cs
+index 8aa807e9..79fa4586 100644
+--- a/Assembly-CSharp/Global/Field/Map/FieldMapSPSExtraOffset.cs
++++ b/Assembly-CSharp/Global/Field/Map/FieldMapSPSExtraOffset.cs
+@@ -33,6 +33,8 @@ public class FieldMapSPSExtraOffset
+ 
+     public void SetSPSOffset(String name, List<SPSEffect> spsList)
+     {
++        if (!this.offsetDict.ContainsKey(name)) // [ff9mapkit] a FORK's FBG name isn't in this name-keyed table -> use its donor's
++            name = Memoria.DataPatchers.EffectiveFieldName(name);
+         if (this.offsetDict.ContainsKey(name))
+         {
+             FieldMapSPSExtraOffset.SPSExtraOffset[] offsetList = this.offsetDict[name];
+diff --git a/Assembly-CSharp/Global/Field/Map/FieldMap.cs b/Assembly-CSharp/Global/Field/Map/FieldMap.cs
+index d3e0e55f..7e8f63cd 100644
+--- a/Assembly-CSharp/Global/Field/Map/FieldMap.cs
++++ b/Assembly-CSharp/Global/Field/Map/FieldMap.cs
+@@ -1354,7 +1354,7 @@ public class FieldMap : HonoBehavior
+                     }
+                 }
+                 cacheLocalPos.y += 16f;
+-                if (this.mapName == "FBG_N18_GTRE_MAP360_GT_GRD_0") // map 1000
++                if (Memoria.DataPatchers.EffectiveFieldName(this.mapName) == "FBG_N18_GTRE_MAP360_GT_GRD_0") // map 1000 ([ff9mapkit] fork inherits the +8px overlay nudge)
+                     cacheLocalPos.x += 8f;
+                 cacheLocalPos.x -= (this.scene.scrX + bgOverlay.curX);
+                 cacheLocalPos.y -= (this.scene.scrY + bgOverlay.curY);

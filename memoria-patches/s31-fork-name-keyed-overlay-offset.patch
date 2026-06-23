@@ -1,37 +1,51 @@
 diff --git a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
 --- a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
 +++ b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
-@@ -47,6 +47,21 @@ namespace Memoria.Configuration
-         public static Int32 EffectiveFieldId(Int32 fldMapNo)
+@@ -48,6 +48,38 @@
          {
              return ForkDonorMap.TryGetValue(fldMapNo, out Int32 donor) ? donor : fldMapNo;
          }
-
-+        // The donor real field's FBG NAME for the CURRENT field if it is a fork, else `name` unchanged. Use at
-+        // the NAME-string-keyed gates the id-based EffectiveFieldId can't reach (FieldMapExtraOffset's per-field
-+        // overlay z-offsets, etc.): a fork's deployed FBG name differs from the donor's, so a name-keyed dict
-+        // misses and the fork loses the tuned offset (e.g. field 53's overlay-29 dz=-100 that occludes a
-+        // character falling into a hole). Resolves the fork's name to the donor's via the id remap + the global
-+        // id->FBG-name table (which holds real fields + the forks DataPatchers registers). [ff9mapkit fork-fidelity]
++
++        // The donor real field's FBG NAME for a FORK field's FBG name, else `name` unchanged. The name-space
++        // analogue of EffectiveFieldId, for the NAME-string-keyed gates the id-based wrap can't reach: a fork's
++        // deployed FBG name differs from the donor's, so a name-keyed dict lookup or a hardcoded mapName == "FBG_"
++        // compare misses the donor's tuned entry. Examples it restores: FieldMapExtraOffset/FieldMapSPSExtraOffset
++        // overlay z-offsets (e.g. field 53's overlay-29 dz=-100 that occludes a character falling into a hole),
++        // the Iifa minigame player-control unlock, the Iifa rain offset, the Oeilvert star-display shader. Resolves
++        // by the PASSED NAME (not the current fldMapNo) so it is correct even at cross-field call sites like the SPS
++        // ChangeFieldOrigin: fork name -> fork id (reverse of the global id->FBG-name table) -> EffectiveFieldId ->
++        // donor name. Identity for real (non-forked) fields. [ff9mapkit fork-fidelity]
 +        public static String EffectiveFieldName(String name)
 +        {
-+            Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
-+            Int32 donor = EffectiveFieldId(fld);
-+            if (donor != fld && EventEngineUtils.eventIDToFBGID.TryGetValue(donor, out String donorName))
-+                return donorName;
++            if (String.IsNullOrEmpty(name))
++                return name;
++            Int32 count = EventEngineUtils.eventIDToFBGID.Count;
++            if (FBGNameToId == null || FBGNameToIdBuiltForCount != count) // built once after the forks register; rebuilt only if the table grows
++            {
++                FBGNameToId = new Dictionary<String, Int32>(count);
++                foreach (KeyValuePair<Int32, String> kv in EventEngineUtils.eventIDToFBGID)
++                    FBGNameToId[kv.Value] = kv.Key;
++                FBGNameToIdBuiltForCount = count;
++            }
++            if (FBGNameToId.TryGetValue(name, out Int32 id))
++            {
++                Int32 donor = EffectiveFieldId(id);
++                if (donor != id && EventEngineUtils.eventIDToFBGID.TryGetValue(donor, out String donorName))
++                    return donorName;
++            }
 +            return name;
 +        }
-+
++        private static Dictionary<String, Int32> FBGNameToId;
++        private static Int32 FBGNameToIdBuiltForCount = -1;
+ 
          // True if this id is one of our forked field ids.
          public static Boolean IsForkField(Int32 fieldNo)
-         {
-             return ForkDonorMap.ContainsKey(fieldNo);
-         }
 diff --git a/Assembly-CSharp/Global/Field/Map/FieldMapExtraOffset.cs b/Assembly-CSharp/Global/Field/Map/FieldMapExtraOffset.cs
+index ef953608..8f0308ae 100644
 --- a/Assembly-CSharp/Global/Field/Map/FieldMapExtraOffset.cs
 +++ b/Assembly-CSharp/Global/Field/Map/FieldMapExtraOffset.cs
 @@ -53,6 +53,8 @@ public class FieldMapExtraOffset
-
+ 
      public void SetOffset(String name, List<BGOVERLAY_DEF> overlayList)
      {
 +        if (!this.offsetDict.ContainsKey(name)) // [ff9mapkit] a FORK's FBG name isn't in this name-keyed table -> use its donor's
@@ -40,7 +54,7 @@ diff --git a/Assembly-CSharp/Global/Field/Map/FieldMapExtraOffset.cs b/Assembly-
          {
              FieldMapExtraOffset.ExtraOffset[] array = this.offsetDict[name];
 @@ -81,6 +83,8 @@ public class FieldMapExtraOffset
-
+ 
      public void UpdateOverlayOffset(String name, Int32 overlayIndex, ref Int16 dz)
      {
 +        if (!this.notMoveDict.ContainsKey(name)) // [ff9mapkit] a FORK's FBG name isn't in this name-keyed table -> use its donor's
