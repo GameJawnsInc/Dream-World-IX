@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-index 7f498a9a..0ab5abfb 100644
+index 7f498a9a..c75eeb63 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 @@ -533,7 +533,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
@@ -7,10 +7,54 @@ index 7f498a9a..0ab5abfb 100644
          BinaryReader br = new BinaryReader(new MemoryStream(ebFileData));
          this.SetupCodeParam(br);
 -        this._ff9.mapNameStr = FF9TextTool.LocationName(this._ff9.fldMapNo);
-+        this._ff9.mapNameStr = FF9TextTool.LocationName(Memoria.DataPatchers.EffectiveFieldId(this._ff9.fldMapNo)); // [ff9mapkit] fork inherits the donor's menu LOCATION name (loc_name.mes is field-id-keyed)
++        this._ff9.mapNameStr = FF9TextTool.FieldLocationName(this._ff9.fldMapNo); // [ff9mapkit] own-id title (authored/override) else donor's (loc_name.mes is field-id-keyed)
          this._defaultMapName = this._ff9.mapNameStr;
          switch (this._ff9Sys.mode)
          {
+diff --git a/Assembly-CSharp/Global/MainMenuUI.cs b/Assembly-CSharp/Global/MainMenuUI.cs
+index c52c3d5d..0b138cde 100644
+--- a/Assembly-CSharp/Global/MainMenuUI.cs
++++ b/Assembly-CSharp/Global/MainMenuUI.cs
+@@ -494,7 +494,7 @@ public class MainMenuUI : UIScene
+     {
+         this.gilLabel.rawText = Localization.GetWithDefault("GilSymbol").Replace("%", FF9StateSystem.Common.FF9.party.gil.ToString());
+         if (PersistenSingleton<UIManager>.Instance.UnityScene == UIManager.Scene.Field)
+-            this.locationNameLabel.rawText = FF9TextTool.LocationName(FF9StateSystem.Common.FF9.fldMapNo);
++            this.locationNameLabel.rawText = FF9TextTool.FieldLocationName(FF9StateSystem.Common.FF9.fldMapNo); // [ff9mapkit] own-id title (authored/override) else donor's
+         else if (PersistenSingleton<UIManager>.Instance.UnityScene == UIManager.Scene.World)
+             this.locationNameLabel.rawText = FF9TextTool.WorldLocationText(PersistenSingleton<EventEngine>.Instance.GetSysvar(192));
+         else
+diff --git a/Assembly-CSharp/Assets/Sources/Scripts/UI/Common/FF9TextTool.cs b/Assembly-CSharp/Assets/Sources/Scripts/UI/Common/FF9TextTool.cs
+index cf870d43..9333f46a 100644
+--- a/Assembly-CSharp/Assets/Sources/Scripts/UI/Common/FF9TextTool.cs
++++ b/Assembly-CSharp/Assets/Sources/Scripts/UI/Common/FF9TextTool.cs
+@@ -571,6 +571,26 @@ namespace Assets.Sources.Scripts.UI.Common
+             return result;
+         }
+ 
++        // [ff9mapkit] The menu/title LOCATION name for a field id, with fork-fidelity + custom-title support:
++        // loc_name.mes is keyed by the REAL field id, so a custom/forked id (>=4000) has no entry and shows BLANK.
++        // Try the field's OWN id first -- a mod can patch loc_name.mes to AUTHOR a custom field's title, or to
++        // OVERRIDE a fork's -- and only when that is empty fall back to the fork's DONOR id (a plain fork then
++        // inherits the donor's location name). Identity for a real field (its own id hits). Used by EventEngine
++        // (mapNameStr) and MainMenuUI (the in-field menu LOCATION label, which looks up by field id directly).
++        public static String FieldLocationName(Int32 fldMapNo)
++        {
++            if (Memoria.DataPatchers.TryGetCustomLocationName(fldMapNo, out String custom) && !String.IsNullOrEmpty(custom))
++                return custom; // an authored "LocationName <id> <title>" (custom field title / fork override)
++            String result = LocationName(fldMapNo);
++            if (String.IsNullOrEmpty(result))
++            {
++                Int32 donor = Memoria.DataPatchers.EffectiveFieldId(fldMapNo);
++                if (donor != fldMapNo)
++                    result = LocationName(donor);
++            }
++            return result;
++        }
++
+         public static Boolean IsBattleTextLoaded => MainBatch.battleText != null;
+ 
+         public static String BattleText(Int32 id)
 diff --git a/Assembly-CSharp/Global/battle/BattleSwirl.cs b/Assembly-CSharp/Global/battle/BattleSwirl.cs
 index f33620bd..05fab9b3 100644
 --- a/Assembly-CSharp/Global/battle/BattleSwirl.cs
@@ -72,3 +116,35 @@ index d3e0e55f..3a33ba22 100644
          FPSManager.DelayMainLoop(Time.realtimeSinceStartup - loadStartTime);
          if (dbug) Log.Message("_ LoadFieldMap | ShaderMulX: " + ShaderMulX + " | bgCamera.depthOffset: " + bgCamera.depthOffset + " | bgCamera.vrpMaxX " + bgCamera.vrpMaxX + " | bgCamera.depthOffset: " + bgCamera.depthOffset + " | this.scene.maxX: " + this.scene.maxX);
      }
+diff --git a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
+--- a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
++++ b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
+@@ -81,6 +81,14 @@
+         private static Dictionary<String, Int32> FBGNameToId;
+         private static Int32 FBGNameToIdBuiltForCount = -1;
+ 
++        // [ff9mapkit] Authored menu/title LOCATION titles by field id, from the "LocationName <id> <title>"
++        // DictionaryPatch directive. Kept here (not in FF9TextTool.DisplayBatch.locationName) because that dict is
++        // Clear()ed + reloaded on every language load, which would wipe an injected entry; this survives. Consulted
++        // FIRST by FF9TextTool.FieldLocationName, so it authors a title on a from-scratch custom field AND overrides
++        // a fork's inherited donor title. Higher-priority mod folders win (later assignment overwrites).
++        private static readonly Dictionary<Int32, String> CustomLocationNames = new Dictionary<Int32, String>();
++        public static Boolean TryGetCustomLocationName(Int32 fieldId, out String title) => CustomLocationNames.TryGetValue(fieldId, out title);
++
+         // True if this id is one of our forked field ids.
+         public static Boolean IsForkField(Int32 fieldNo)
+         {
+@@ -461,6 +469,13 @@
+                     if (FF9BattleDB.MapModel == null)
+                         continue;
+                     FF9BattleDB.MapModel[entry[1]] = entry[2];
++                }
++                else if (String.Equals(entry[0], "LocationName") && entry.Length >= 3)
++                {
++                    // eg.: LocationName 6003 Prima Vista/Cargo Room  -- the menu/title place-name for a custom or
++                    // forked field id (loc_name.mes is keyed by the REAL id, so a custom id is blank without this).
++                    if (Int32.TryParse(entry[1], out Int32 locId))
++                        CustomLocationNames[locId] = String.Join(" ", entry, 2, entry.Length - 2);
+                 }
+                 else if (String.Equals(entry[0], "FieldScene") && entry.Length >= 6)
+                 {

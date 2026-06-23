@@ -42,8 +42,9 @@ purely additive. Keep both files in the same folder (asset paths resolve there).
 | `title` | | human title (used as the scene comment). |
 | `borrow_bg` | | **BG-borrow:** a real field's `MAPID` (e.g. `"FBG_N15_BWLB"`) whose art/walkmesh/camera the engine renders while running *your* `.eb` — no custom scene shipped. With it, `[camera]`/`[walkmesh]`/`[[layers]]` are unneeded (the borrowed `camera.bgx` still drives movement/scroll/content guidance). Without it (and no `[field] bgs`) the build ships a full custom scene. The central reuse-a-real-room key. |
 | `hide_area_title` | | `true` hides a borrowed room's localized **area-title overlay** from frame 1 (`ShowTile` off) — for a hub/synthesized field that BG-borrows an area-title room (Ice Cavern, Mognet Central) but isn't that place. Range auto-resolved from the borrowed FBG, or set `area_title_overlays = [lo, hi]`. No-op if the borrow has no title. |
+| `location` | | the **in-game menu LOCATION** place-name (the card shown bottom-left in the main menu, e.g. `"Prima Vista/Cargo Room"`). FF9's `loc_name.mes` is keyed by the REAL field id, so a custom/forked id shows **blank** without this. Sets a from-scratch field's place-name, or **overrides** a fork's inherited donor title. *(Distinct from `title`, which is only a build-time scene comment — this is what the player sees.)* Emits a `LocationName <id> <text>` directive; needs the **s33** custom engine. |
 
-The DictionaryPatch line emitted is: `FieldScene <id> <area> <name> <name> <text_block>`.
+The DictionaryPatch line emitted is: `FieldScene <id> <area> <name> <name> <text_block>` (plus a `LocationName <id> <text>` line when `[field] location` is set).
 
 ### Field-id namespace
 Custom ids share one namespace across all installed mods. Convention: `>= 4000`, each mod

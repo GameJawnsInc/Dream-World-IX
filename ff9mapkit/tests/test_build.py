@@ -71,6 +71,26 @@ def test_build_dictionary_and_mes_and_description(built):
     assert "<InstallationPath>FF9CustomMap</InstallationPath>" in L.mod_description.read_text()
 
 
+def test_field_location_emits_locationname_directive(tmp_path):
+    """[field] location authors the menu/title place-name via a `LocationName <id> <title>` DictionaryPatch
+    directive (engine: DataPatchers.CustomLocationNames -> FF9TextTool.FieldLocationName). A multi-word title
+    (spaces, '/') survives, and the directive line follows the field's own FieldScene line in the written file."""
+    proj = FieldProject.load(EXAMPLE)
+    proj.field["location"] = "  Prima Vista/Cargo Room  "   # surrounding/interior whitespace is collapsed
+    build_mod([proj], tmp_path, mod_name="FF9CustomMap")
+    dp = ModLayout(tmp_path).dictionary_patch.read_text(encoding="utf-8")
+    lines = [l for l in dp.splitlines() if l.strip()]
+    assert f"LocationName {proj.id} Prima Vista/Cargo Room" in lines
+    i = next(k for k, l in enumerate(lines) if l.startswith(f"FieldScene {proj.id} "))
+    assert lines[i + 1] == f"LocationName {proj.id} Prima Vista/Cargo Room"   # right after its FieldScene line
+    assert dp.count("LocationName ") == 1
+
+
+def test_field_location_absent_emits_no_directive(built):
+    out, _ = built
+    assert "LocationName " not in ModLayout(out).dictionary_patch.read_text(encoding="utf-8")
+
+
 def test_build_scene_and_walkmesh(built):
     out, _ = built
     fm = ModLayout(out).fieldmap_dir("FBG_N11_HUT_INT")

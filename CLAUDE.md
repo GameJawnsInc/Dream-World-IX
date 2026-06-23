@@ -158,11 +158,15 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   native forks — cosmetic, needs 7 localized sidecars/fork, not worth it. ⚠ s32 IN-GAME UNVERIFIED — the affected
   fields are late-game, verify as those zones get forked) **+ s33** (`s33-fork-fldmapno-arg-lookups.patch`, 2026-06-23:
   a THIRD fork-gate class — `fldMapNo` as a per-field LOOKUP ARGUMENT (not a `== N` compare or a name key). Found via
-  the blank menu **LOCATION** field on a fork: `EventEngine.cs:536` `FF9TextTool.LocationName(fldMapNo)` (loc_name.mes
-  is field-id-keyed) → fork's custom id → empty → blank. Wraps the arg with `EffectiveFieldId`; a sweep added 5 siblings:
+  the blank menu **LOCATION** field on a fork: `loc_name.mes` is field-id-keyed, looked up at TWO sites — `EventEngine.cs:536`
+  (`mapNameStr`, the title) and `MainMenuUI.cs:497` (the in-field menu label, a SEPARATE direct call the title-bar fix
+  missed) → fork's custom id → empty → blank. Adds `FF9TextTool.FieldLocationName(fldMapNo)` = own-id-then-donor, routes
+  both through it. ★ Also AUTHORABLE: a new `LocationName <id> <title>` DictionaryPatch directive (`DataPatchers.CustomLocationNames`,
+  consulted first by `FieldLocationName`, survives language reloads) backs the kit's **`[field] location = "…"`** —
+  authors a from-scratch field's place-name OR overrides a fork's inherited donor title. A sweep added 4 siblings:
   field→battle BGM fallback (`BattleSwirl`/`HonoluluFieldMain`, the BattlePatch override still wins), mesh-combine path
   (`BGSCENE_DEF`, the 6 complex fields), smooth-cam exclusion (`FieldMap` ×2). Deferred: moogle auto-save (optional
-  setting only), field-audio preset + model swap (cosmetic). ★ the LOCATION fix is the reported bug; siblings IN-GAME
+  setting only), field-audio preset + model swap (cosmetic). ★ the menu LOCATION fix is the reported bug; siblings IN-GAME
   UNVERIFIED) **+ the s23 narrow-map fix**
   (`memoria-patches/s23-narrow-map-fork-width.patch`, now SHIPPED — forked narrow fields no longer letterbox). Boosters are manual (ini cheats + F1–F4). **⚠ ENGINE-INDEPENDENCE IS SPLIT:** a *novel*
   field (BG-borrow / from-scratch, not impersonating a real id) runs on **stock** Memoria — but **a FORKED

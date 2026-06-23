@@ -3607,6 +3607,7 @@ class FieldResult:
     name: str = ""                  # the member name (for shared-text_block reconcile error messages)
     text_block: int = 1073          # the field's mesID -- the `field/<text_block>.mes` key (may be SHARED)
     register_text_block: bool = False   # custom mesID -> emit a MessageFile line so the FieldScene gate passes
+    location_line: str | None = None    # authored `LocationName <id> <title>` directive ([field] location)
     # per-language .mes pieces, written by build_mod (NOT build_field) so members that SHARE a text_block
     # merge instead of last-writer-wins clobbering: {lang: (base, inplace, suffix)} where `base` is the
     # donor/synth body, `inplace` is base with its in-place rewrites (logic_edit text / menu_row), and
@@ -3843,6 +3844,15 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     bg_mapid = borrow_bg if borrow_bg else project.name
     dict_line = f"FieldScene {project.id} {project.area} {bg_mapid} {project.name} {project.text_block}"
+    # [field] location = "Prima Vista/Cargo Room" -> the menu/title LOCATION place-name. The engine's loc_name.mes
+    # is keyed by the REAL field id, so a custom/forked id is blank without this; the `LocationName <id> <title>`
+    # DictionaryPatch directive authors it (and OVERRIDES a fork's inherited donor title). Engine: DataPatchers
+    # CustomLocationNames -> FF9TextTool.FieldLocationName. One line; newlines stripped (line-based patch file).
+    location_line = None
+    _loc_title = project.field.get("location")
+    if _loc_title is not None and str(_loc_title).strip():
+        _loc_title = " ".join(str(_loc_title).split())   # collapse whitespace/newlines to single spaces
+        location_line = f"LocationName {project.id} {_loc_title}"
     battle = None
     if "encounter" in project.raw:
         e = project.raw["encounter"]
@@ -3852,7 +3862,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     bgm_pairs = [(int(b["scene"]), int(b["song"])) for b in project.raw.get("battle_bgm", [])]
     return FieldResult(dict_line=dict_line, battle=battle, battle_bgm=bgm_pairs, fbg=fbg, warnings=warnings,
                        name=project.name, text_block=project.text_block, mes_parts=mes_parts,
-                       register_text_block=project.register_text_block)
+                       register_text_block=project.register_text_block, location_line=location_line)
 
 
 def _field_name(project) -> str:
@@ -4250,7 +4260,12 @@ def _dictionary_lines(results) -> list:
     is what unblocks disjoint per-campaign text-block windows (campaign._remap_text_blocks) -- the cross-campaign
     text-shadow cure."""
     mes_reg = sorted({r.text_block for r in results if getattr(r, "register_text_block", False)})
-    return [f"MessageFile {b} MES_DWIX_{b}" for b in mes_reg] + [r.dict_line for r in results]
+    field_lines: list[str] = []
+    for r in results:
+        field_lines.append(r.dict_line)
+        if getattr(r, "location_line", None):    # [field] location -> the LocationName <id> <title> directive
+            field_lines.append(r.location_line)
+    return [f"MessageFile {b} MES_DWIX_{b}" for b in mes_reg] + field_lines
 
 
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
