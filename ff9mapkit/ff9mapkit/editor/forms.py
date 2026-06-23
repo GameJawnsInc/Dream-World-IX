@@ -47,6 +47,8 @@ FIELD_SPEC = [
     Field("area", "Area", INT, "must be >= 10 (lower areas don't render in-game)"),
     Field("text_block", "Text block", OPTINT, "leave at 1073 unless you know you need another"),
     Field("title", "Title", STR, "a human label for your own notes (optional)"),
+    Field("location", "Location", STR, 'the in-game menu place-name (the "LOCATION" card), e.g. "Pimp House"; '
+                                       "blank = a fork inherits its donor's, a new field shows none"),
     Field("borrow_bg", "Borrow BG", STR, "advanced: reuse a real field's art; leave blank otherwise"),
 ]
 NPC_SPEC = [

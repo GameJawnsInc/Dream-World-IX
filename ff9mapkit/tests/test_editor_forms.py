@@ -50,6 +50,8 @@ def test_parse_zone_requires_4_or_5_points():
     (forms.STARTUP_SPEC, {"scenario": "dali",                       # area name + the advanced word/byte levers
                           "words": [{"byte": 236, "value": 65280}], "bytes": [{"byte": 361, "value": 4}]}),
     (forms.FIELD_SPEC, {"id": 4003, "name": "ROOM", "area": 11, "text_block": 1073}),
+    (forms.FIELD_SPEC, {"id": 4003, "name": "ROOM", "area": 11, "text_block": 1073,
+                        "location": "Pimp House"}),     # the menu LOCATION title round-trips through the form
     (forms.CHOICE_SPEC, {"npc": "Vivi", "prompt": "What'll it be?", "tail": "UPR"}),
     (forms.CHOICE_SPEC, {"zone": [[300, -400], [700, -400], [700, -800], [300, -800]],
                          "prompt": "Pull the lever?", "once": False}),
