@@ -6,6 +6,14 @@
 
 **280 gates found · 265 lost on a custom-id fork** — SOFTLOCK 12 · FUNCTIONAL 142 · COSMETIC 111.
 
+> ⚠ **CENSUS BLIND SPOT (s30, 2026-06-22):** the sweep grepped the literal `fldMapNo == N`, so it MISSED
+> every gate that goes through a LOCAL ALIAS. `EventEngine.DoEventCode.cs` aliases `Int16 mapNo =
+> FF9StateSystem.Common.FF9.fldMapNo` and has **~150** `mapNo == N` gates (per-field cutscene fixups — e.g. the
+> `MOVE`/Walk destination corrections), none in the count above. Found via the field-6003 (donor 53) "Blank jumps
+> in hole" occlusion bug: without the `mapNo == 53` `destX 250→330` walk fixup the jumping characters land off-spot
+> and draw ON TOP of the ground. `s30-doeventcode-fork-walk.patch` wraps the whole file via a new `effMapNo`.
+> LESSON: re-sweep for `<alias> == N` where `<alias> = ...fldMapNo` too, not just the literal token.
+
 ## Remap status (task #19) — ALL 12 SOFTLOCKs WRAPPED; 10 IN-GAME UNVERIFIED (2026-06-19)
 
 Each fix is mechanical: wrap its `fldMapNo == N` with `Memoria.DataPatchers.EffectiveFieldId(...)` (identity for

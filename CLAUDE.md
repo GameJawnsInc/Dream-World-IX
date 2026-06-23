@@ -133,7 +133,13 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   2026-06-19: the SAME `EffectiveFieldId` wrap applied to the 10 remaining SOFTLOCK gates from the engine census
   `ff9mapkit/docs/FORK_IDGATE_MAP.md` — Iifa/Burmecia/Gulug/Oeilvert/Esto-Gaza/Ipsen/Epilogue; built + deployed,
   ⚠ **IN-GAME UNVERIFIED** — all fire at disc-2-to-4 beats, batched on confidence vs the proven s24 pattern; the
-  per-site checklist is in FORK_IDGATE_MAP.md) **+ the s23 narrow-map fix**
+  per-site checklist is in FORK_IDGATE_MAP.md) **+ s30** (`s30-doeventcode-fork-walk.patch`, 2026-06-22: the
+  `EffectiveFieldId` wrap on `EventEngine.DoEventCode.cs` — the file the s24 census MISSED because its ~150
+  per-field event gates use a local alias `Int16 mapNo = fldMapNo`, not the literal `fldMapNo` a grep censused.
+  Wraps every gate via a new `effMapNo` (non-gate uses stay raw). Restores the per-field scripted-WALK
+  destination corrections, found via the field-6003 "Blank jumps in hole" occlusion bug — without the
+  `destX 250→330` fixup the jumping characters land off-spot and draw ON TOP of the ground; built + deployed,
+  ⚠ **IN-GAME UNVERIFIED**) **+ the s23 narrow-map fix**
   (`memoria-patches/s23-narrow-map-fork-width.patch`, now SHIPPED — forked narrow fields no longer letterbox). Boosters are manual (ini cheats + F1–F4). **⚠ ENGINE-INDEPENDENCE IS SPLIT:** a *novel*
   field (BG-borrow / from-scratch, not impersonating a real id) runs on **stock** Memoria — but **a FORKED
   field REQUIRES the s23–s28 patches** (without them a custom-id fork loses Dante's off-mesh exemption, the
