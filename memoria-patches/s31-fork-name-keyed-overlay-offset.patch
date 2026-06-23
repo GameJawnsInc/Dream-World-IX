@@ -1,0 +1,50 @@
+diff --git a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
+--- a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
++++ b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
+@@ -47,6 +47,21 @@ namespace Memoria.Configuration
+         public static Int32 EffectiveFieldId(Int32 fldMapNo)
+         {
+             return ForkDonorMap.TryGetValue(fldMapNo, out Int32 donor) ? donor : fldMapNo;
+         }
+
++        // The donor real field's FBG NAME for the CURRENT field if it is a fork, else `name` unchanged. Use at
++        // the NAME-string-keyed gates the id-based EffectiveFieldId can't reach (FieldMapExtraOffset's per-field
++        // overlay z-offsets, etc.): a fork's deployed FBG name differs from the donor's, so a name-keyed dict
++        // misses and the fork loses the tuned offset (e.g. field 53's overlay-29 dz=-100 that occludes a
++        // character falling into a hole). Resolves the fork's name to the donor's via the id remap + the global
++        // id->FBG-name table (which holds real fields + the forks DataPatchers registers). [ff9mapkit fork-fidelity]
++        public static String EffectiveFieldName(String name)
++        {
++            Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++            Int32 donor = EffectiveFieldId(fld);
++            if (donor != fld && EventEngineUtils.eventIDToFBGID.TryGetValue(donor, out String donorName))
++                return donorName;
++            return name;
++        }
++
+         // True if this id is one of our forked field ids.
+         public static Boolean IsForkField(Int32 fieldNo)
+         {
+             return ForkDonorMap.ContainsKey(fieldNo);
+         }
+diff --git a/Assembly-CSharp/Global/Field/Map/FieldMapExtraOffset.cs b/Assembly-CSharp/Global/Field/Map/FieldMapExtraOffset.cs
+--- a/Assembly-CSharp/Global/Field/Map/FieldMapExtraOffset.cs
++++ b/Assembly-CSharp/Global/Field/Map/FieldMapExtraOffset.cs
+@@ -53,6 +53,8 @@ public class FieldMapExtraOffset
+
+     public void SetOffset(String name, List<BGOVERLAY_DEF> overlayList)
+     {
++        if (!this.offsetDict.ContainsKey(name)) // [ff9mapkit] a FORK's FBG name isn't in this name-keyed table -> use its donor's
++            name = Memoria.DataPatchers.EffectiveFieldName(name);
+         if (this.offsetDict.ContainsKey(name))
+         {
+             FieldMapExtraOffset.ExtraOffset[] array = this.offsetDict[name];
+@@ -81,6 +83,8 @@ public class FieldMapExtraOffset
+
+     public void UpdateOverlayOffset(String name, Int32 overlayIndex, ref Int16 dz)
+     {
++        if (!this.notMoveDict.ContainsKey(name)) // [ff9mapkit] a FORK's FBG name isn't in this name-keyed table -> use its donor's
++            name = Memoria.DataPatchers.EffectiveFieldName(name);
+         if (this.notMoveDict.ContainsKey(name))
+         {
+             for (Int32 i = 0; i < (Int32)this.notMoveDict[name].Length; i++)
