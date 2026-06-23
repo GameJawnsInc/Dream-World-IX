@@ -1728,33 +1728,38 @@ def merge_dists(dist_dirs, *, out, folder_name, entry_dist=None) -> dict:
     dirs = [Path(d) for d in dist_dirs]
     entry = Path(entry_dist) if entry_dist is not None else None
     ordered = [d for d in dirs if d != entry] + ([entry] if entry in dirs else [])   # entry LAST -> its CSVs win
-    PATCHES = ("DictionaryPatch.txt", "BattlePatch.txt", "TextPatch.txt")             # additive -> concatenate
-    SKIP = set(PATCHES) | {"ModDescription.xml"}                                       # handled below / one only
-    parts: dict = {p: [] for p in PATCHES}
+    # ANY root "*Patch.txt" is an ADDITIVE Memoria patch read per-folder (DictionaryPatch / BattlePatch /
+    # TextPatch / ForkDonorPatch -- the fork-fidelity donor map for Dante's off-mesh exemption etc.) -> they MUST
+    # be CONCATENATED, not last-wins-copied, or every non-entry campaign's directives are lost. The pattern auto-
+    # covers any future *Patch.txt, so the merge can't silently drop one (the bug ForkDonorPatch first exposed).
+    def _is_patch(name: str) -> bool:
+        return name.endswith("Patch.txt")
+    parts: dict = {}                                                                  # patch filename -> [chunks]
     for d in ordered:
         if not d.is_dir():
             continue
         for item in sorted(d.iterdir()):                                              # EVERY top-level item:
-            if item.name in SKIP:                                                     #   StreamingAssets/ AND
-                if item.name in parts and item.is_file():                             #   FF9_Data/ (the <mesid>.mes
-                    txt = item.read_text(encoding="utf-8").rstrip("\n")               #   dialogue text!) + any other
-                    if txt.strip():                                                   #   dir, unioned entry-last
-                        parts[item.name].append(txt)
+            if item.is_file() and _is_patch(item.name):                               #   *Patch.txt -> concatenate
+                txt = item.read_text(encoding="utf-8").rstrip("\n")
+                if txt.strip():
+                    parts.setdefault(item.name, []).append(txt)
                 continue
-            dst = out / item.name
-            if item.is_dir():
-                shutil.copytree(item, dst, dirs_exist_ok=True)   # disjoint per-field assets union; CSVs -> entry wins
+            if item.name == "ModDescription.xml":                                     #   written once below
+                continue
+            dst = out / item.name                                                     #   StreamingAssets/, FF9_Data/
+            if item.is_dir():                                                         #   (<mesid>.mes dialogue!),
+                shutil.copytree(item, dst, dirs_exist_ok=True)   # disjoint assets union; CSVs -> entry (last) wins
             else:
-                shutil.copyfile(item, dst)
+                shutil.copyfile(item, dst)                                            #   any other root file
     for name, chunks in parts.items():
-        if chunks:
-            (out / name).write_text("\n".join(chunks) + "\n", encoding="utf-8", newline="\n")
+        (out / name).write_text("\n".join(chunks) + "\n", encoding="utf-8", newline="\n")
     (out / "ModDescription.xml").write_text(
         f"<Mod>\n    <Name>{folder_name}</Name>\n    <Author></Author>\n"
         f"    <InstallationPath>{folder_name}</InstallationPath>\n    <Category></Category>\n"
         f"    <Description>Merged journey (single folder) by ff9mapkit</Description>\n</Mod>\n",
         encoding="utf-8", newline="\n")
-    n_fields = sum(1 for line in "\n".join(parts["DictionaryPatch.txt"]).splitlines()
+    n_fields = sum(1 for line in "\n".join(parts.get("DictionaryPatch.txt", [])).splitlines()
                    if line.strip().startswith("FieldScene"))
     return {"dist": str(out), "dists_merged": len(dirs), "fields": n_fields,
-            "battle_lines": sum(c.count("Battle:") for c in parts["BattlePatch.txt"])}
+            "patch_files": sorted(parts),
+            "battle_lines": sum(c.count("Battle:") for c in parts.get("BattlePatch.txt", []))}

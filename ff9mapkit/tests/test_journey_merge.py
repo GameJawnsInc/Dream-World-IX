@@ -28,6 +28,10 @@ def _mkdist(root, *, fields, battle, csv_marker, asset, mesid, item_text=False):
         "\n".join(f"FieldScene {i} 11 N{i} N{i} 20000" for i in fields) + "\n", encoding="utf-8")
     (root / "BattlePatch.txt").write_text(
         "\n".join(f"Battle: {s}\nMusic: 0" for s in battle) + "\n", encoding="utf-8")
+    # ForkDonorPatch.txt: the per-campaign fork->donor map (Dante's off-mesh exemption etc.) -- ADDITIVE
+    (root / "ForkDonorPatch.txt").write_text(
+        "# ff9mapkit fork-fidelity: <forkId> <donorRealId>\n"
+        + "\n".join(f"{i} {i - 6000}" for i in fields) + "\n", encoding="utf-8")
     if item_text:
         (root / "TextPatch.txt").write_text(f">DATABASE find/replace {asset}\n", encoding="utf-8")
     (root / "ModDescription.xml").write_text("<Mod></Mod>", encoding="utf-8")
@@ -58,6 +62,11 @@ def test_merge_dists_unions_assets_concats_patches_entry_csv_wins(tmp_path):
 
     tp = (out / "TextPatch.txt").read_text(encoding="utf-8")                                   # item-text concatenated
     assert "FBG_A" in tp and "FBG_B" in tp
+
+    # ★ the Dante regression: ForkDonorPatch is ADDITIVE -> BOTH campaigns' fork->donor maps must survive
+    # (entry-last-wins-copy kept only the entry's, silently breaking every other campaign's special-case gates).
+    fd = (out / "ForkDonorPatch.txt").read_text(encoding="utf-8")
+    assert "6000 0" in fd and "6200 200" in fd and "6201 201" in fd                            # campaign A AND B maps
 
     csv = out / "StreamingAssets" / "Data" / "Items" / "InitialItems.csv"
     assert csv.read_text(encoding="utf-8") == "CAMPAIGN_B_ENTRY"                                # entry dist (last) wins
