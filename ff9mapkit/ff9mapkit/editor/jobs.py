@@ -258,7 +258,8 @@ def fork_command_argv(command, *, out_abs=None):
     return [sys.executable, "-m", "ff9mapkit", *parts]
 
 
-def deploy_journey_argv(repo_root, journeys, *, apply=False, newgame="none", wire_newgame=False, apply_links=False):
+def deploy_journey_argv(repo_root, journeys, *, apply=False, newgame="none", wire_newgame=False, apply_links=False,
+                        single_folder=False):
     """Deploy (or dry-run) a multi-campaign journey manifest via ``tools/deploy_journey.py``.
 
     Default (no flags) = a DRY-RUN that lints + prints the ordered deploy playbook (no game files touched).
@@ -267,11 +268,15 @@ def deploy_journey_argv(repo_root, journeys, *, apply=False, newgame="none", wir
     lands -- SINGLE-OWNER, replaces the current target: ``"none"`` (unchanged, reach the hub via F6), ``"hub"``
     (the hub selector menu, seamless), or ``"entry"`` (STRAIGHT into the opening field, no menu -- single-journey
     only; keeps the real opening FMV). ``wire_newgame=True`` is a back-compat alias for ``newgame="hub"``.
-    ``apply_links`` = re-apply ONLY the cross-campaign link ``.eb`` remaps (run after a campaign re-deploy)."""
+    ``apply_links`` = re-apply ONLY the cross-campaign link ``.eb`` remaps (run after a campaign re-deploy).
+    ``single_folder`` (with ``apply``) = MERGE the whole journey into ONE stacked mod folder (a single
+    FolderNames entry) instead of one folder per campaign."""
     mode = newgame if (newgame and newgame != "none") else "none"
     a = [sys.executable, _tool(repo_root, "deploy_journey.py"), str(journeys)]
     if apply:
         a.append("--apply")
+        if single_folder:
+            a.append("--single-folder")
         if mode != "none":
             a += ["--newgame", mode]
         elif wire_newgame:                    # back-compat alias (deploy_journey maps --wire-newgame -> hub)

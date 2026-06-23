@@ -157,6 +157,12 @@ class BuildDoc(QWidget):
             self.jg.addButton(rb)
             rb.toggled.connect(self._update_journey_hint)
             jv.addWidget(rb)
+        # Single mod folder: merge the whole journey into ONE FolderNames entry (one-shot deploy only)
+        self.cb_single_folder = QCheckBox("Single mod folder — merge the whole journey into ONE FolderNames "
+                                          "entry (instead of one folder per campaign)")
+        self.cb_single_folder.setToolTip("Cleaner one-folder install. Trade-off: re-deploying re-merges the "
+                                         "whole journey — you lose cheap per-campaign re-deploy.")
+        jv.addWidget(self.cb_single_folder)
         # New-Game landing: meaningful only for the one-shot deploy (single-owner) -> disabled otherwise
         self.ng_group = QGroupBox("New Game landing (one-shot deploy — single-owner)")
         ngv = QVBoxLayout(self.ng_group)
@@ -329,9 +335,14 @@ class BuildDoc(QWidget):
         elif self.rb_jour_links.isChecked():
             msg = ("→ re-applies ONLY the cross-campaign link .eb remaps (run after a campaign re-deploy "
                    "wholesale-replaces its folder and wipes the links). The campaigns must already be deployed.")
+        elif self.cb_single_folder.isChecked():
+            msg = ("→ one-shot, SINGLE FOLDER: build every campaign + the hub, MERGE them into one stacked mod "
+                   "folder (one Memoria.ini entry), apply the cross-campaign links, optional New Game — one "
+                   "unified revert. Cleaner install; re-deploying re-merges the whole journey.")
         else:
             msg = ("→ one-shot: each campaign → its own stacked folder, the cross-campaign links, then the hub "
                    "field — one unified revert. You then stack the folders in Memoria.ini and relaunch once.")
+        self.cb_single_folder.setEnabled(apply_on)
         self.ng_group.setEnabled(apply_on)
         # "straight into the opening" needs a single-journey manifest (a multi-journey hub has no single opening)
         single = self.manifest is not None and len(self.manifest.journeys) == 1
@@ -511,24 +522,32 @@ class BuildDoc(QWidget):
                              ok_next="Relaunch and playtest the campaign boundary.")
             return
         mode = self._journey_newgame_mode()
+        single = self.cb_single_folder.isChecked()
         name = (self.manifest.hub.get("name") if self.manifest and self.manifest.hub else None) or Path(path).stem
         njourneys = len(self.manifest.journeys) if self.manifest else "?"
         route = {"hub": "New Game will land on the hub MENU (single-owner — replaces the current New-Game target).",
                  "entry": "New Game will land STRAIGHT in the opening field, no menu (single-owner — replaces the "
                           "current target; keeps the real opening FMV).",
                  "none": "New Game is left UNCHANGED — reach the hub via F6 → Warp."}[mode]
+        layout = ("MERGED into ONE stacked mod folder (a single FolderNames entry)" if single
+                  else "every campaign into its own stacked mod folder")
+        folders_note = ("Reversible via one unified revert. You then add the ONE merged folder to Memoria.ini "
+                        "(remove the journey's old per-campaign folders) and relaunch once." if single else
+                        "Reversible via one unified revert. You must then STACK the folders in Memoria.ini and "
+                        "relaunch once.")
         if self._confirm("Deploy journey",
-                         f"Deploy journey '{name}' ({njourneys} journey(s)) in one shot — every campaign into "
-                         f"its own stacked mod folder, the cross-campaign links, then the hub field?\n\n{route}\n\n"
-                         "Reversible via one unified revert. You must then STACK the folders in Memoria.ini and "
-                         "relaunch once."):
+                         f"Deploy journey '{name}' ({njourneys} journey(s)) in one shot — {layout}, the "
+                         f"cross-campaign links, then the hub field?\n\n{route}\n\n{folders_note}"):
             reach = {"hub": "New Game → the hub menu", "entry": "New Game → straight into the opening",
                      "none": "F6 → Warp to the hub"}[mode]
-            self._stream(jobs.deploy_journey_argv(self.repo, path, apply=True, newgame=mode), cwd=self.repo,
-                         subject="Deploy journey",
-                         ok_headline=f"Deployed journey '{name}'",
-                         ok_next=f"Stack every campaign + hub folder in Memoria.ini [Mod] FolderNames, relaunch "
-                                 f"once, then {reach}. Playtest.")
+            stackmsg = (f"Add the ONE merged folder to Memoria.ini [Mod] FolderNames (drop the old per-campaign "
+                        f"ones), relaunch once, then {reach}. Playtest." if single else
+                        f"Stack every campaign + hub folder in Memoria.ini [Mod] FolderNames, relaunch once, "
+                        f"then {reach}. Playtest.")
+            self._stream(jobs.deploy_journey_argv(self.repo, path, apply=True, newgame=mode, single_folder=single),
+                         cwd=self.repo, subject="Deploy journey",
+                         ok_headline=f"Deployed journey '{name}'" + (" (single folder)" if single else ""),
+                         ok_next=stackmsg)
 
     def _go_battle(self, battle):
         trig = self.trigger.text().strip()

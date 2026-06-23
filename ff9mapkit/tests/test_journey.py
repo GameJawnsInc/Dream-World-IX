@@ -830,6 +830,26 @@ def test_apply_link_rewrites(tmp_path, monkeypatch):
     assert len(r["backups"]) == 2 and all(Path(bk).read_bytes().startswith(b"ORIG") for _, bk in r["backups"])
 
 
+def test_apply_link_rewrites_mod_folder_override(tmp_path, monkeypatch):
+    # single-folder deploy: every campaign's .eb lives in ONE merged folder, so mod_folder_override points the
+    # link rewrites THERE (not the link's per-campaign src_mod_folder, which doesn't exist in single-folder mode).
+    from ff9mapkit.content import verbatim
+    p = _escape_ice(tmp_path)
+    plan = journey.build_deploy_plan(journey.load_journeys(p))
+    game = tmp_path / "game"
+    merged = "FF9CustomMap-merged"
+    ebdir = game / merged / "US" / "field"                     # the boundary .eb is in the MERGED folder...
+    ebdir.mkdir(parents=True)
+    (ebdir / "EVT_EVF_EXIT.eb.bytes").write_bytes(b"ORIG-US")
+    # ...and the link's own per-campaign folder (FF9CustomMap-evf) does NOT exist -> only the override can find it
+    monkeypatch.setattr(verbatim, "remap_fields",
+                        lambda data, remap: b"PATCHED" if remap == {652: 6100} else data)
+    res = journey.apply_link_rewrites(plan, game, backup_dir=tmp_path / "bk", mod_folder_override=merged)
+    r = res[0]
+    assert r["found"] and r["langs"] == 1
+    assert (ebdir / "EVT_EVF_EXIT.eb.bytes").read_bytes() == b"PATCHED"
+
+
 def test_build_campaign_flag_base_override(tmp_path):
     # the override reaches lint BEFORE build: an unsafe base fails the safe-band check (proves it applied)
     _make_campaign(tmp_path, "ca", members=["A1", "A2"], id_base=6000)

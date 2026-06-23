@@ -1655,15 +1655,18 @@ def _worldmap_region_funcs(eb_bytes: bytes) -> list:
     return hits
 
 
-def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, backup_dir=None) -> list:
+def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, backup_dir=None,
+                        mod_folder_override=None) -> list:
     """Apply each retargetable :class:`LinkRewrite` to the boundary member's DEPLOYED ``.eb`` (every language
     copy under ``<game>/<src_mod_folder>``) -- the one journey-unique in-game step. Two modes:
       * ``field_remap`` -- ``content.verbatim.remap_fields`` patches the ``Field(to_real)`` literal -> dst,
         length-preserving.
       * ``worldmap_inject`` -- ``eb.edit.replace_function_body`` swaps each WorldMap walk-out region handler
         for the proven ``Field(dst)`` warp body (the elided world-map leg), reusing the region's zone.
-    Returns ``[{eb, mode, langs, regions, backups, found}]``. ``dry_run`` reports without writing; each
-    patched file is backed up to ``backup_dir`` first (reversibility -- Hard Constraint §2)."""
+    ``mod_folder_override`` (the SINGLE-FOLDER deploy): every campaign's ``.eb`` lives in ONE merged folder,
+    so look there instead of each link's per-campaign ``src_mod_folder``. Returns
+    ``[{eb, mode, langs, regions, backups, found}]``. ``dry_run`` reports without writing; each patched file
+    is backed up to ``backup_dir`` first (reversibility -- Hard Constraint §2)."""
     from .content.verbatim import remap_fields
     from .eb import edit as _edit
     game_root = Path(game_root)
@@ -1671,7 +1674,7 @@ def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, ba
     for lk in plan.links:
         if not lk.retargetable:
             continue
-        mod = game_root / lk.src_mod_folder
+        mod = game_root / (mod_folder_override or lk.src_mod_folder)
         ebs = sorted(mod.rglob(f"{lk.eb_name}.eb.bytes")) if mod.is_dir() else []
         body = _worldmap_warp_body(lk.dst_id, lk.dst_entrance) if lk.mode == "worldmap_inject" else None
         touched, backups, regions = [], [], 0
@@ -1704,3 +1707,54 @@ def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, ba
                         "langs": len(touched), "regions": regions, "files": touched, "backups": backups,
                         "found": bool(touched)})
     return results
+
+
+def merge_dists(dist_dirs, *, out, folder_name, entry_dist=None) -> dict:
+    """Union built mod dists into ONE merged dist at ``out`` -- the single-folder journey install (one stacked
+    ``FolderNames`` entry instead of one per campaign). The journey GUARANTEES id / FBG-scene / EVT / text-block
+    disjointness across every campaign (the §8 namespace job + the 20000+ text-block windows), so the
+    per-field assets union with no clobber: ``StreamingAssets`` (FieldMaps, event scripts, ``<mesid>.mes`` text,
+    mapconfig) is copied from each dist into one tree. The root ``DictionaryPatch.txt`` + ``BattlePatch.txt`` are
+    CONCATENATED verbatim (NOT deduped -- ``Music: 0`` repeats legitimately per song-0 battle, and every
+    FieldScene/MessageFile line is already unique by the disjointness guarantee). The one real collision is the
+    FIXED-PATH start-state CSVs (``StreamingAssets/Data/...``): the New-Game seed must be ONE campaign's, so
+    ``entry_dist`` is applied LAST and wins. Writes one ``ModDescription.xml`` (``InstallationPath`` =
+    ``folder_name``). Pure/offline -- no game touched. Returns a summary dict."""
+    import shutil  # noqa: PLC0415
+    out = Path(out)
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    dirs = [Path(d) for d in dist_dirs]
+    entry = Path(entry_dist) if entry_dist is not None else None
+    ordered = [d for d in dirs if d != entry] + ([entry] if entry in dirs else [])   # entry LAST -> its CSVs win
+    PATCHES = ("DictionaryPatch.txt", "BattlePatch.txt", "TextPatch.txt")             # additive -> concatenate
+    SKIP = set(PATCHES) | {"ModDescription.xml"}                                       # handled below / one only
+    parts: dict = {p: [] for p in PATCHES}
+    for d in ordered:
+        if not d.is_dir():
+            continue
+        for item in sorted(d.iterdir()):                                              # EVERY top-level item:
+            if item.name in SKIP:                                                     #   StreamingAssets/ AND
+                if item.name in parts and item.is_file():                             #   FF9_Data/ (the <mesid>.mes
+                    txt = item.read_text(encoding="utf-8").rstrip("\n")               #   dialogue text!) + any other
+                    if txt.strip():                                                   #   dir, unioned entry-last
+                        parts[item.name].append(txt)
+                continue
+            dst = out / item.name
+            if item.is_dir():
+                shutil.copytree(item, dst, dirs_exist_ok=True)   # disjoint per-field assets union; CSVs -> entry wins
+            else:
+                shutil.copyfile(item, dst)
+    for name, chunks in parts.items():
+        if chunks:
+            (out / name).write_text("\n".join(chunks) + "\n", encoding="utf-8", newline="\n")
+    (out / "ModDescription.xml").write_text(
+        f"<Mod>\n    <Name>{folder_name}</Name>\n    <Author></Author>\n"
+        f"    <InstallationPath>{folder_name}</InstallationPath>\n    <Category></Category>\n"
+        f"    <Description>Merged journey (single folder) by ff9mapkit</Description>\n</Mod>\n",
+        encoding="utf-8", newline="\n")
+    n_fields = sum(1 for line in "\n".join(parts["DictionaryPatch.txt"]).splitlines()
+                   if line.strip().startswith("FieldScene"))
+    return {"dist": str(out), "dists_merged": len(dirs), "fields": n_fields,
+            "battle_lines": sum(c.count("Battle:") for c in parts["BattlePatch.txt"])}
