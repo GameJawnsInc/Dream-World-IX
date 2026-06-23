@@ -283,6 +283,17 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   ★ **IN-GAME PROVEN by A/B (2026-06-14):** two native Mognet Central (3100) forks — id 30006 *without* the hide shows
   the static "Mognet Central" card (the leak is real for native forks), id 30005 *with* the auto-emitted hide shows
   no card (the suppression works).
+  ✅ **Engine name-keyed gates — investigated + closed (2026-06-23, no fix needed for English).** The s32 census
+  flagged two name-keyed engine gates for the area title; a follow-up engine read RESOLVED them as a non-issue:
+  `FieldMap.SetFieldMapAtlasName` (the `atlas_<lang>` rename) has **zero runtime callers** (dead code — the runtime
+  atlas load is a flat `Load("atlas")`, `BGSCENE_DEF.cs:839`), so the feared "fork loads a localized atlas it doesn't
+  ship" path does not exist; the title lettering is in the base `atlas.png` (exactly why the 30006 A/B above renders
+  it). `FieldMapLocalizeAreaTitle.GetInfo` runtime use is only `LoadLocalizationInfo` (`BGSCENE_DEF.cs:886`), which
+  **returns early for US/English** and otherwise loads a `_<lang>.bgs` title-*geometry* sidecar from the field's own
+  folder. So the ONLY residual gap is **non-English localized title geometry on a native/editable fork** (it shows the
+  English title to JP/FR/… players); closing it needs the kit to ship the donor's 7 `_<lang>.bgs` sidecars per fork +
+  a `GetInfo` `EffectiveFieldName` wrap — cosmetic, non-English-only, **intentionally not done**. BG-borrow and
+  same-name (donor-named) forks already get localized titles (their `path`/name resolve to the donor bundle).
 - **Scenario cutscene roster / warp-directors carried as standing NPCs** — HANDLED on synth (`_loop_warps` drops any
   LOOP firing `Field()`; 2-shopkeeper→1 proven) and BG-borrow (carries no `.eb`). ⚠ The destructive synth-drop keys
   on `Field()` (0x2B) ONLY — **deliberately narrow** (spares animated props + the save-Moogle puppet, per worklist

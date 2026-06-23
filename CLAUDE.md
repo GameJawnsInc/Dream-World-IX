@@ -152,9 +152,11 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   the SPS `ChangeFieldOrigin`). Tier-A gameplay-breaking on a fork: the Iifa minigame player+menu-control unlock (×2)
   + the space-scene menu unlock (`UIManager.cs`), the Iifa rain offset (`FieldRainRenderer.cs`), the Oeilvert
   star-display shader (`BGSCENE_DEF.cs`); Tier-B: SPS sprite z-offsets (`FieldMapSPSExtraOffset.cs`) + the Treasure-Hall
-  +8px nudge (`FieldMap.cs`). All identity-safe for real fields. DEFERRED: the area-title localized-atlas gates (would
-  make a fork load an `atlas_us` variant it may not ship). ⚠ IN-GAME UNVERIFIED — the affected fields are late-game,
-  verify as those zones get forked) **+ the s23 narrow-map fix**
+  +8px nudge (`FieldMap.cs`). All identity-safe for real fields. The 2 area-title gates were INVESTIGATED + left as a
+  FALSE ALARM (no fix): `SetFieldMapAtlasName` (`atlas_<lang>` rename) is DEAD CODE (0 callers), English titles already
+  render on forks from the base `atlas` (in-game proven); the only gap is non-English `_<lang>.bgs` title GEOMETRY on
+  native forks — cosmetic, needs 7 localized sidecars/fork, not worth it. ⚠ s32 IN-GAME UNVERIFIED — the affected
+  fields are late-game, verify as those zones get forked) **+ the s23 narrow-map fix**
   (`memoria-patches/s23-narrow-map-fork-width.patch`, now SHIPPED — forked narrow fields no longer letterbox). Boosters are manual (ini cheats + F1–F4). **⚠ ENGINE-INDEPENDENCE IS SPLIT:** a *novel*
   field (BG-borrow / from-scratch, not impersonating a real id) runs on **stock** Memoria — but **a FORKED
   field REQUIRES the s23–s28 patches** (without them a custom-id fork loses Dante's off-mesh exemption, the
