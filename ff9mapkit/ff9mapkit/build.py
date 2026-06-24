@@ -2642,38 +2642,44 @@ def _verbatim_event_message_count(project: FieldProject) -> int:
     return sum(1 for ev in (project.raw.get("event", []) or []) if ev.get("message"))
 
 
-def _chest_received_line(ch: dict) -> str:
-    """The CENTERED window-7 "Received X" line a ``[[chest]]`` shows when opened, byte-grounded on field 407:
-    a ``[WDTH=...]`` window code + ``[IMME]`` (immediate, no type-on) + leading/trailing spaces center the box.
-    An author-supplied ``message`` is used VERBATIM (they own the codes); a gil chest defaults to ``[NUMB=0]
-    Gil!`` and an item chest to ``[ITEM=0]!`` (the tag renders the bound amount/name from text slot 0, which
-    the chest's ``SetTextVariable(0, payload)`` binds at open time). Pre-formatted -> callers must NOT wrap it
-    (wrapping would split the ``[WDTH]``/``[ITEM]`` tags). Shared by the synth (:func:`collect_text`) and
-    verbatim (:func:`_verbatim_chest_messages`) text channels so both paths render an identical box."""
+def _chest_received_box(ch: dict) -> tuple[str, tuple, str]:
+    """The real FF9 item-get window a ``[[chest]]`` shows when opened, as ``(text, strt, tail)`` -- byte-grounded
+    on fields 200/407 (item txid 51, gil txid 53). The ``[STRT=width,lines]`` geometry is what FF9 uses to
+    AUTO-CENTER a system window; ``mes_entry``'s dialogue default ``(10, 1)`` + ``TAIL=UPR`` instead pin the box
+    to the TOP-RIGHT corner (the reported bug). ``TAIL=DEFT`` matches the real boxes. Text = ``[WDTH=...][IMME]``
+    + a leading/trailing newline (the box's 3 lines) + the item/gil tag (``[ITEM=0]``/gold ``[NUMB=0] Gil``),
+    rendered from text slot 0 which the chest's ``SetTextVariable(0, payload)`` binds at open time; pre-formatted,
+    so callers must NOT wrap it. An author ``message`` is used VERBATIM (they own the codes) with the item
+    geometry by default -- override the centering with ``box = [width, lines]``. Shared by the synth
+    (:func:`collect_text`) and verbatim (:func:`_verbatim_chest_messages`) channels so both render an identical box."""
     if ch.get("message"):
-        return ch["message"]
+        box = ch.get("box") or (69, 3)
+        return ch["message"], (int(box[0]), int(box[1])), "DEFT"
     if "gil" in ch:
-        return "[WDTH=0,86,14,0,-1][IMME]\n Received [NUMB=0] Gil! \n"
-    return "[WDTH=0,69,14,0,-1][IMME]\n Received [ITEM=0]! \n"
+        return "[WDTH=0,86,64,0,-1][IMME]\n Received [C8B040][HSHD][NUMB=0] Gil[C8C8C8][HSHD]! \n", (86, 3), "DEFT"
+    return "[WDTH=0,69,14,0,-1][IMME]\n Received [ITEM=0]! \n", (69, 3), "DEFT"
 
 
 def _verbatim_chest_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     """For a verbatim fork's ``[[chest]]`` blocks: every chest shows a window-7 "Received X" box, so each
     gets a txid ABOVE the donor `.mes` + the on_entry/logic_add/npc/event blocks (all disjoint), plus the
-    per-language `.mes` lines to append. The line itself comes from :func:`_chest_received_line` (the same
-    centered box the synth path uses). Returns ``(txid_by_chest_index, suffix_by_lang)``."""
+    per-language `.mes` lines to append. The box (text + auto-centering ``[STRT]`` geometry + ``DEFT`` tail)
+    comes from :func:`_chest_received_box` (the same centered box the synth path uses). Returns
+    ``(txid_by_chest_index, suffix_by_lang)``."""
     chests = project.raw.get("chest", []) or []
     if not chests:
         return {}, {}
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
             + _logic_add_message_count(project) + _verbatim_npc_message_count(project)
             + _verbatim_event_message_count(project))
-    lines, tails, txid_by_idx = [], [], {}
+    lines, tails, strts, txid_by_idx = [], [], [], {}
     for k, ch in enumerate(chests):
-        lines.append(_chest_received_line(ch))
-        tails.append(ch.get("tail"))
+        text, strt, tail = _chest_received_box(ch)
+        lines.append(text)
+        tails.append(ch.get("tail") or tail)
+        strts.append(strt)
         txid_by_idx[k] = base + k
-    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails, strts=strts)
     return txid_by_idx, {lang: suffix for lang in langs}
 
 
@@ -3887,7 +3893,7 @@ def collect_text(project: FieldProject):
 
     Lines are auto-wrapped to fit the screen (FF9 doesn't wrap; see content.text) unless
     ``[dialogue] wrap = false``; a line that already fits is left byte-identical."""
-    lines, tails = [], []
+    lines, tails, strts = [], [], []          # strts: per-line [STRT] window geometry (None -> default (10,1))
     npc_pos, ev_pos, cs_pos = {}, {}, []
     oe_pos = {}                               # on_entry hook idx -> message line
     ch_prompt_pos, ch_reply_pos = {}, {}      # choice idx -> prompt line; (choice, opt) -> reply line
@@ -3900,11 +3906,13 @@ def collect_text(project: FieldProject):
             line = _text.wrap_text(line, wrap)[0]
         lines.append(line)
         tails.append(src.get("tail"))
+        strts.append(None)
         return len(lines) - 1
 
-    def _add_raw(line, tail):
+    def _add_raw(line, tail, strt=None):
         lines.append(line)                    # pre-assembled (e.g. a choice prompt) -- added verbatim
         tails.append(tail)
+        strts.append(strt)                    # a system window (chest box) passes its real centering geometry
         return len(lines) - 1
 
     for i, n in enumerate(project.raw.get("npc", [])):
@@ -3957,15 +3965,17 @@ def collect_text(project: FieldProject):
         for oi, o in enumerate(ate["options"]):
             if o.get("reply"):
                 ate_reply_pos[oi] = _add(o, o["reply"])
-    # treasure chests: each [[chest]] shows a centered window-7 "Received X" box (its own .mes entry). Added
-    # LAST (after ate) so a field with no chest keeps the previous layout byte-identical. Pre-formatted with
-    # [WDTH]/[IMME], so added VERBATIM (NOT auto-wrapped -- wrapping would split the window/item tags).
+    # treasure chests: each [[chest]] shows the real FF9 item-get box (its own .mes entry). Added LAST (after
+    # ate) so a field with no chest keeps the previous layout byte-identical. Pre-formatted ([WDTH]/[IMME]), so
+    # added VERBATIM (NOT auto-wrapped). Its (width, lines) STRT geometry + DEFT tail AUTO-CENTER the box --
+    # mes_entry's dialogue default (10,1)/UPR would pin it to the top-right corner.
     ch_pos = {}
     for k, ch in enumerate(project.raw.get("chest", [])):
-        ch_pos[k] = _add_raw(_chest_received_line(ch), ch.get("tail"))
+        text, strt, tail = _chest_received_box(ch)
+        ch_pos[k] = _add_raw(text, ch.get("tail") or tail, strt=strt)
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}
-    body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails)
+    body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
     cutscene_txids = [mapping[p] for p in cs_pos]

@@ -60,13 +60,16 @@ def mes_entry(text: str, txid: int, *, strt: tuple = (10, 1), tail: str = DEFAUL
     return f"_[TXID={txid}][STRT={strt_s}][TAIL={tail}]{text}[ENDN]"
 
 
-def build_mes(lines, *, start_txid: int = DEFAULT_BASE_TXID, tails=None) -> tuple[str, dict]:
+def build_mes(lines, *, start_txid: int = DEFAULT_BASE_TXID, tails=None, strts=None) -> tuple[str, dict]:
     """Build a ``.mes`` file body from an ordered list of dialogue strings.
 
     Returns ``(text, mapping)`` where ``mapping[i]`` is the TXID assigned to ``lines[i]`` (so a
     caller can point each NPC's WindowSync at the right id). TXIDs are ``start_txid + i``.
     ``tails`` (optional) is a per-line list of TAIL codes; ``None``/missing entries use
-    :data:`DEFAULT_TAIL`, so existing callers stay byte-identical.
+    :data:`DEFAULT_TAIL`. ``strts`` (optional) is a per-line ``(x, y)`` window geometry; ``None``/missing
+    entries use ``mes_entry``'s default ``(10, 1)`` -- so existing callers stay byte-identical. (A FF9
+    *system* window like the chest's item-get box auto-CENTERS from its ``[STRT=width,lines]``, so it must
+    pass its real geometry, not the dialogue default.)
     """
     entries = []
     mapping = {}
@@ -74,7 +77,8 @@ def build_mes(lines, *, start_txid: int = DEFAULT_BASE_TXID, tails=None) -> tupl
         txid = start_txid + i
         mapping[i] = txid
         tail = (tails[i] if tails and i < len(tails) and tails[i] else DEFAULT_TAIL)
-        entries.append(mes_entry(line, txid, tail=tail))
+        strt = (strts[i] if strts and i < len(strts) and strts[i] else (10, 1))
+        entries.append(mes_entry(line, txid, strt=strt, tail=tail))
     return "\n".join(entries) + "\n", mapping
 
 

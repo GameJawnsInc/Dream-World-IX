@@ -711,7 +711,10 @@ def test_synth_item_chest_full_contraption(tmp_path):
     mes, chest_txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\n')
     txid = chest_txids[0]
     assert txid >= text.DEFAULT_BASE_TXID                          # a real id in the synth 500-block
-    assert "[WDTH=0,69,14,0,-1][IMME]" in mes and "Received [ITEM=0]!" in mes   # centered + immediate, in the .mes
+    # the REAL FF9 item-get box (field 200/407 txid 51): [STRT=69,3] (width,lines) + DEFT tail AUTO-CENTER it;
+    # mes_entry's dialogue default (10,1)/UPR would pin it to the top-right corner (the reported bug).
+    assert "[STRT=69,3][TAIL=DEFT][WDTH=0,69,14,0,-1][IMME]" in mes and "Received [ITEM=0]!" in mes
+    assert "[STRT=10,1]" not in mes.split("[ENDN]")[0]            # the chest line is NOT the dialogue default
     assert opcodes.set_stand_animation(7338) in eb and opcodes.set_stand_animation(7339) in eb  # open/closed poses
     assert opcodes.encode(0x4B, 1, 40, 45) in eb                  # SetObjectLogicalSize -> the collision box
     assert opcodes.run_animation(7336) in eb                      # lid-open clip (the tag-3 open handler)
@@ -722,10 +725,25 @@ def test_synth_item_chest_full_contraption(tmp_path):
 def test_synth_gil_chest_uses_numb_box(tmp_path):
     from ff9mapkit import eblint
     mes, chest_txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 500\n')
-    assert "Received [NUMB=0] Gil!" in mes
+    # the real gil box (field 200/407 txid 53): own STRT=86,3 geometry, WDTH height 64, gold-coloured number.
+    assert "[STRT=86,3][TAIL=DEFT][WDTH=0,86,64,0,-1][IMME]" in mes
+    assert "[NUMB=0] Gil" in mes
     assert event.give_gil(500) in eb                              # the payload is gil, not an item
     assert opcodes.window_sync(7, 0, chest_txids[0]) in eb
     assert eblint.errors(eblint.lint_eb(eb)) == _synth_baseline_errors(tmp_path)
+
+
+def test_chest_received_box_matches_real_field_geometry():
+    # byte-grounded on real fields 200/407: item txid 51 [STRT=69,3] WDTH=0,69,14,0,-1; gil txid 53 [STRT=86,3]
+    # WDTH=0,86,64,0,-1; both TAIL=DEFT (the geometry auto-centers the system window). A `message` defaults to
+    # the item geometry, overridable with box = [width, lines].
+    from ff9mapkit.build import _chest_received_box
+    it_text, it_strt, it_tail = _chest_received_box({"item": "Potion"})
+    assert it_strt == (69, 3) and it_tail == "DEFT" and it_text.startswith("[WDTH=0,69,14,0,-1][IMME]")
+    gi_text, gi_strt, gi_tail = _chest_received_box({"gil": 500})
+    assert gi_strt == (86, 3) and gi_tail == "DEFT" and "[WDTH=0,86,64,0,-1]" in gi_text and "[NUMB=0] Gil" in gi_text
+    m_text, m_strt, m_tail = _chest_received_box({"message": "[WDTH=0,40,14,0,-1][IMME]\n Hi \n", "box": [40, 3]})
+    assert m_strt == (40, 3) and m_tail == "DEFT" and m_text.startswith("[WDTH=0,40,14")
 
 
 def test_synth_chestless_field_has_no_chest(tmp_path):
