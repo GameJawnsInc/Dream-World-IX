@@ -42,16 +42,22 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
                 dialogue_text_id: int | None = None, slot: int | None = None,
                 attach_to: int | None = None, bone: int = 11,
                 spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
-                gate_flag: int | None = None, gate_require_set: bool = True) -> bytes:
+                gate_flag: int | None = None, gate_require_set: bool = True,
+                reserve_party_band: bool = False) -> bytes:
     """Place a prop ``model`` at world (x, z), held at ``pose`` (an animation id), head-tracking OFF.
 
     ``attach_to`` (a carrying object's uid = its entry slot) binds this prop to that object's ``bone``
     so it follows it -- the real held-item recipe ``AttachObject(self_uid, carrier_uid, bone)`` (bone
     defaults to 11, the right hand the shipping cup uses). The prop's own uid IS its entry slot, so the
     slot is resolved up front. ``dialogue_text_id`` makes it readable; ``face``/``gate_flag`` as usual.
+    ``reserve_party_band`` (the VERBATIM-fork path) seats the prop BELOW the party-character band (only for
+    a STATIC prop; an ``attach_to`` held item resolves its slot up front and is unsupported there).
     Returns new ``.eb`` bytes."""
     anims = {k: pose for k in ANIM_ORDER}                       # all five gesture slots = the (held) pose
     if attach_to is not None:                                   # ATTACHED: bind to the carrier's bone
+        if reserve_party_band:
+            raise ValueError("inject_prop: attach_to (held item) is not supported with reserve_party_band "
+                             "(its uid is its slot, resolved before the band-aware insert)")
         if slot is None:
             slot = EbScript.from_bytes(data).first_free_slot()  # the prop's uid == its slot (= attachedUid)
         tail = opcodes.encode(ATTACH_OBJECT, slot, int(attach_to), int(bone))
@@ -65,4 +71,5 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
                       talk_text_id=(dialogue_text_id if dialogue_text_id is not None else 62),
                       init_tail=tail, slot=slot, bare=(dialogue_text_id is None),
                       spawn_wait_n=spawn_wait_n, spawn_wait_occurrence=spawn_wait_occurrence,
-                      gate_flag=gate_flag, gate_require_set=gate_require_set)
+                      gate_flag=gate_flag, gate_require_set=gate_require_set,
+                      reserve_party_band=reserve_party_band)

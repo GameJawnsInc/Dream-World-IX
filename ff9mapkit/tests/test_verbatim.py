@@ -199,6 +199,31 @@ def test_build_field_verbatim_with_npc_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_with_prop_end_to_end(tmp_path):
+    # Add a VISIBLE [[prop]] (a chest model) to a verbatim fork: build must seat the prop object below the
+    # band (SetModel 0x2F present, no talk tag-3) and lint clean.
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    project = build.FieldProject.load(toml)
+    project.raw["prop"] = [{"prop": "chest", "pos": [0, 0]}]
+    assert build.validate(project) == []
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        assert s.entry_count == donor.entry_count + 1
+        pr = s.entry(band_lo)
+        assert not pr.empty and pr.func_by_tag(3) is None and any(
+            i.op == 0x2F for f in pr.funcs for i in s.instrs(f)), "bare prop with a SetModel, below the band"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_event_end_to_end(tmp_path):
     # Add a NEW [[event]] chest to a verbatim fork: build must seat the event region(s) BELOW the band, give
     # the item (AddItem 0x48), and APPEND the "found" message to every language's .mes at a high txid.

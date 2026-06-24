@@ -180,6 +180,20 @@ def test_events_seated_below_band():
     assert _errors(out) == _errors(data)
 
 
+def test_prop_seated_below_band():
+    from ff9mapkit.content import prop as _prop
+    data = _alex100()
+    n = EbScript.from_bytes(data).entry_count
+    band_lo = n - BAND
+    out = _prop.inject_prop(data, 0, 2600, model=8, pose=148, reserve_party_band=True)
+    eb = EbScript.from_bytes(out)
+    assert eb.entry_count == n + 1
+    pr = eb.entry(band_lo)
+    assert not pr.empty and pr.func_by_tag(3) is None         # a BARE prop: no talk func (set-dressing)
+    assert any(i.op == 0x2F for f in pr.funcs for i in eb.instrs(f)), "has SetModel"
+    assert _errors(out) == _errors(data)
+
+
 def test_mixed_content_stacks_below_band_and_lints_clean():
     """NPC + gateway + events all seated below the band compose: the count grows by the total, the donor's
     character bodies are still recoverable (only +k band-ref remap), and the whole .eb lints clean."""

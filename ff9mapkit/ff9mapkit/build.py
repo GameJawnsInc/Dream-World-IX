@@ -2747,6 +2747,48 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
     return eb
 
 
+def _inject_verbatim_props(project: FieldProject, eb: bytes, *, warnings) -> bytes:
+    """Inject each authored ``[[prop]]`` (static set-dressing: a chest / barrel / sign / save-moogle model,
+    head-tracking OFF) into a VERBATIM fork, seated BELOW the donor's party-character band. The visible
+    half of a real chest (pair with an ``[[event]]`` trigger zone for the reward). Resolves a named prop
+    archetype (single or composite) or a raw ``model`` + ``pose`` exactly as the synthesize path. NOT wired
+    on verbatim (v1): an ``attach_to`` held item (its uid is its slot, fixed before the band insert) and a
+    readable ``dialogue`` prop -- both warned + the prop is added bare. Returns the new bytes."""
+    props = project.raw.get("prop", []) or []
+    if not props:
+        return eb
+    for p in props:
+        if "pos" not in p:
+            warnings.append(f"[[prop]] {p.get('prop') or p.get('model') or '?'} has no pos -- skipped on the "
+                            "verbatim fork.")
+            continue
+        if p.get("attach_to") is not None:
+            warnings.append("[[prop]] attach_to= (a held item bound to an NPC's bone) is NOT wired on a "
+                            "verbatim fork -- skipped.")
+            continue
+        if p.get("dialogue") is not None:
+            warnings.append("[[prop]] dialogue= (a readable prop) is not wired on a verbatim fork yet -- the "
+                            "prop is added as bare set-dressing.")
+        pos = p["pos"]
+        x, z, face = int(pos[0]), int(pos[1]), p.get("face")
+        gf, gs = _gate_of(p)
+        name = p.get("prop")
+        if name is not None and _prop_archetypes.is_composite(name):
+            parts = _prop_archetypes.resolve_composite(name)
+        elif name is not None:
+            mid, pose = _prop_archetypes.resolve(name)
+            if p.get("pose") is not None:
+                pose = _resolve_prop_pose(mid, p["pose"])
+            parts = [(mid, pose, 0, 0)]
+        else:
+            mid = resolve_npc_model(p.get("model"))
+            parts = [(mid, _resolve_prop_pose(mid, p.get("pose")), 0, 0)]
+        for mid, pose, dx, dz in parts:
+            eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face,
+                                   gate_flag=gf, gate_require_set=gs, reserve_party_band=True)
+    return eb
+
+
 def _inject_verbatim_gateways(project: FieldProject, eb: bytes, *, warnings) -> bytes:
     """Inject each authored ``[[gateway]]`` (a new exit/door) into a VERBATIM fork, seated BELOW the
     donor's party-character band (:func:`ff9mapkit.content.gateway.inject_gateway` with
@@ -4015,6 +4057,15 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             if _npc_errs:
                 raise BuildError(f"[[npc]] broke the composed .eb of {project.name}: "
                                  f"{[str(e) for e in _npc_errs]}")
+        # [[prop]] -- add NEW static set-dressing (chest/barrel/sign models) to the verbatim fork (object
+        # entries below the band, like [[npc]] but no talk/turn). The visible half of a real chest.
+        if project.raw.get("prop"):
+            from . import eblint as _eblint
+            verbatim_bytes = _inject_verbatim_props(project, verbatim_bytes, warnings=warnings)
+            _pr_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+            if _pr_errs:
+                raise BuildError(f"[[prop]] broke the composed .eb of {project.name}: "
+                                 f"{[str(e) for e in _pr_errs]}")
         # [[gateway]] -- add NEW exits/doors to the verbatim fork (same below-band seating as [[npc]]).
         if project.raw.get("gateway"):
             from . import eblint as _eblint
