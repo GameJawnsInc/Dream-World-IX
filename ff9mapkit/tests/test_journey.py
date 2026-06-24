@@ -1316,3 +1316,27 @@ def test_preflight_degrades_without_memoria_ini(tmp_path):
     g.mkdir()
     col = journey.preflight_collisions(plan, g)
     assert not col.has_blockers and not col.stale_own
+
+
+def test_journey_global_flags_round_trip_and_lint(tmp_path):
+    # the JOURNEY-GLOBAL [[flag]] tier: set_manifest_flags writes (idempotent), load parses, manifest_flag_names
+    # maps name->index (the build propagation), and lint enforces safe-band + above-all-campaign-windows + unique.
+    _make_campaign(tmp_path, "ca", members=["A1", "A2"], id_base=6000, sources={"A1": 100, "A2": 101})
+    body = ('[[journey]]\nid = "j"\nname = "J"\ncampaigns = ["ca"]\n'
+            'entry = { campaign = "ca", field = "A1" }\n')
+    jp = _write_manifest(tmp_path, body)
+    journey.set_manifest_flags(jp, [{"name": "met_quina", "index": 12000}])
+    journey.set_manifest_flags(jp, [{"name": "met_quina", "index": "12000"}])   # idempotent + str coerced
+    txt = jp.read_text(encoding="utf-8")
+    assert txt.count("[[flag]]") == 1 and 'id = "j"' in txt and "[hub]" in txt   # no accumulation; manifest intact
+    m = journey.load_journeys(jp)
+    assert m.flags == [{"name": "met_quina", "index": 12000}]
+    assert journey.manifest_flag_names(m) == {"met_quina": 12000}                # the cross-campaign propagation map
+    assert not any("journey-global" in e for e in journey.lint_manifest(m, deep=False)[0])   # 12000 is above the window
+    # below the campaign's flag window (its members occupy from FIRST_SAFE_FLAG) -> rejected
+    m.flags = [{"name": "x", "index": FIRST_SAFE_FLAG + 1}]
+    assert any("journey-global" in e and "campaign's flag window" in e for e in journey.lint_manifest(m, deep=False)[0])
+    m.flags = [{"name": "a", "index": 100}]                                      # out of the safe band
+    assert any("journey-global" in e and "safe band" in e for e in journey.lint_manifest(m, deep=False)[0])
+    m.flags = [{"name": "a", "index": 12000}, {"name": "b", "index": 12000}]     # duplicate index
+    assert any("journey-global" in e and "used by two" in e for e in journey.lint_manifest(m, deep=False)[0])

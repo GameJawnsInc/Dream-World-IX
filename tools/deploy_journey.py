@@ -218,7 +218,7 @@ def _apply_journey(manifest, plan, args) -> int:
         print(f"  building {s.folder} (flag_base {s.flag_base}{seednote}) -> {dist}")
         try:
             C.build_campaign(s.campaign_path, out=dist, flag_base=s.flag_base, seed_blocks=s.seed_blocks,
-                             text_block_base=s.text_block_base)
+                             text_block_base=s.text_block_base, extra_flag_names=J.manifest_flag_names(manifest))
         except Exception as e:                            # CampaignError / BuildError / ... -- abort cleanly
             print(f"\nABORT (no game files touched): campaign {s.folder} does not build -- {e}", file=sys.stderr)
             return 2
@@ -400,7 +400,7 @@ def _apply_journey_single(manifest, plan, args) -> int:
         print(f"  building {s.folder} (flag_base {s.flag_base}) -> {dist}")
         try:
             C.build_campaign(s.campaign_path, out=dist, flag_base=s.flag_base, seed_blocks=s.seed_blocks,
-                             text_block_base=s.text_block_base)
+                             text_block_base=s.text_block_base, extra_flag_names=J.manifest_flag_names(manifest))
         except Exception as e:
             print(f"\nABORT (no game files touched): campaign {s.folder} does not build -- {e}", file=sys.stderr)
             return 2

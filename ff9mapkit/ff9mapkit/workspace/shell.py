@@ -1753,6 +1753,30 @@ class Workspace(QMainWindow):
         self._populate()
         self.statusBar().showMessage(f"saved {len(self.plan.flags)} shared flag(s) to {self.plan.name}")
 
+    def on_journey_shared_flags(self):
+        """Journey hub root -> edit the journey-GLOBAL [[flag]] table in journeys.toml (the whole-game shared
+        tier; propagated to every campaign of every journey by name at deploy). Saved via journey.set_manifest_
+        flags (validated like the campaign tier)."""
+        if not self.journey_root:
+            return
+        from .. import journey as J
+        try:
+            manifest = J.load_journeys(self.journey_root)
+        except Exception as e:                               # noqa: BLE001 -- a malformed manifest -> clean error
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't read journeys.toml"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return
+        new = self._edit_shared_flags("Shared flags — journey (whole game)", list(manifest.flags or []))
+        if new is None:
+            return
+        try:
+            J.set_manifest_flags(self.journey_root, new)
+        except (C.CampaignError, ValueError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't save journey flags"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return
+        self.statusBar().showMessage(f"saved {len(new)} journey-global flag(s) to {Path(self.journey_root).name}")
+
     def on_add_field(self):
         """Add field… dialog (from the campaign root's right-click) -> scaffold a blank member + select it."""
         if self.plan is None or self.campaign_path is None:
@@ -3742,6 +3766,8 @@ class Workspace(QMainWindow):
         p = self._payload(item)
         if p and p[0] in ("jset", "journey") and self.manifest is not None:
             acts = [("Add journey…", self.on_add_journey_row)]   # the hub root: add a menu row (selector builder)
+            if p[0] == "jset":                                   # the hub ROOT: edit journey-GLOBAL shared flags
+                acts.append(("Shared flags…", self.on_journey_shared_flags))
             if self._has_multi_arc():                            # a multi-campaign arc -> grow it region-by-region
                 acts.append(("Add region to arc…", self.on_add_region_to_arc))
             if p[0] == "journey" and ":" in (p[2] or ""):        # a journey row: seed it + offer Remove (Delete-key)
@@ -6478,6 +6504,11 @@ def _smoke(win):
     assert win.manifest is not None and win.plan is None and win.journey_name == "Test Hub"
     jroot = win.tree.topLevelItem(0)                       # journeys-manifest root -> journey -> member campaign
     assert win._payload(jroot)[0] == "jset"
+    # the journey hub ROOT edits journey-GLOBAL [[flag]] (the whole-game shared tier) -- action + backend round-trip
+    assert "Shared flags…" in [lb for lb, _ in win._context_actions(jroot)], win._context_actions(jroot)
+    from .. import journey as _J
+    _J.set_manifest_flags(win.journey_root, [{"name": "met_quina", "index": 12000}])
+    assert _J.load_journeys(win.journey_root).flags == [{"name": "met_quina", "index": 12000}]
     jnode = jroot.child(0)
     assert win._payload(jnode) == ("journey", "Alpha Arc", "@journey:alpha"), win._payload(jnode)
     cnode = jnode.child(0)

@@ -137,10 +137,12 @@ class Journey:
 class JourneyManifest:
     """A whole ``journeys.toml``: the ``[hub]`` presentation table (raw dict; :mod:`ff9mapkit.hub` owns its
     schema) + the parsed journeys + the manifest path (its parent is the project root the campaign folders are
-    relative to)."""
+    relative to). ``flags`` = the top-level ``[[flag]]`` table: JOURNEY-GLOBAL named story flags (the whole-game
+    tier -- shared across EVERY campaign, propagated to every member by name; cross-campaign story state)."""
     hub: dict
     journeys: list                       # [Journey]
     path: Path
+    flags: list = field(default_factory=list)   # [{name, index}] journey-global named flags (cross-campaign)
 
     @property
     def root(self) -> Path:
@@ -261,7 +263,9 @@ def load_journeys(path) -> JourneyManifest:
             entrance=int(ent) if ent is not None else None,
             tuning=_tuning_from(j.get("tuning")), exits=exits))
 
-    return JourneyManifest(hub=dict(data.get("hub", {})), journeys=journeys, path=p)
+    flags = [{"name": str(f.get("name", "")), "index": f.get("index")}
+             for f in (data.get("flag", []) or []) if isinstance(f, dict)]
+    return JourneyManifest(hub=dict(data.get("hub", {})), journeys=journeys, path=p, flags=flags)
 
 
 # ---------------------------------------------------------------- resolution
@@ -541,7 +545,97 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
     for j in manifest.journeys:
         _lint_journey(j, plans, errors, warnings)
 
+    # (g) JOURNEY-GLOBAL flags (manifest [[flag]], the whole-game shared tier): each a unique name + a unique
+    #     index in the safe band AND ABOVE every journey's campaign windows (so it can't collide with any
+    #     member's auto once-flag). Propagated to every member by name at build (build_campaign extra_flag_names).
+    if manifest.flags:
+        def _jflag_high(j):
+            cur = FIRST_SAFE_FLAG
+            for folder in j.campaigns:
+                e = plans.get(folder)
+                plan = e[0] if isinstance(e, tuple) else e
+                if plan is not None:
+                    cur += max(1, len(plan.members)) * plan.flags_per_field
+            return cur
+        max_high = max((_jflag_high(j) for j in manifest.journeys if not j.is_bare), default=FIRST_SAFE_FLAG)
+        seen_n, seen_i = set(), set()
+        for f in manifest.flags:
+            nm = str(f.get("name", "")).strip()
+            if not nm:
+                errors.append("journey-global [[flag]]: a flag needs a name")
+                continue
+            if nm in seen_n:
+                errors.append(f"journey-global flag {nm!r} is declared twice")
+            seen_n.add(nm)
+            idx = f.get("index")
+            if not (isinstance(idx, int) and not isinstance(idx, bool)):
+                errors.append(f"journey-global flag {nm!r} needs an integer index")
+                continue
+            if not (FIRST_SAFE_FLAG <= idx < CHOICE_SCRATCH_FLOOR):
+                errors.append(f"journey-global flag {nm!r} index {idx} is outside the safe band "
+                              f"[{FIRST_SAFE_FLAG}, {CHOICE_SCRATCH_FLOOR})")
+            elif idx < max_high:
+                errors.append(f"journey-global flag {nm!r} index {idx} falls inside a campaign's flag window "
+                              f"(< {max_high}) -- put journey-global flags ABOVE every campaign (>= {max_high}).")
+            if idx in seen_i:
+                errors.append(f"journey-global flag index {idx} is used by two flags")
+            seen_i.add(idx)
+
     return errors, warnings
+
+
+def manifest_flag_names(manifest: JourneyManifest) -> dict:
+    """``{normalized name: index}`` for the journey-GLOBAL ``[[flag]]`` table -- the names propagated to every
+    campaign member at build (:func:`ff9mapkit.campaign.build_campaign` ``extra_flag_names``) so ANY field can
+    gate on a cross-campaign flag. Normalized like the campaign name map; ``{}`` on a malformed table."""
+    from .flags import collect_flag_defs
+    try:
+        return collect_flag_defs({"flag": manifest.flags})
+    except ValueError:
+        return {}
+
+
+_FLAG_HEADER_MARK = "# Journey-global story flags"   # our rendered header line; stripped on re-write (no accumulation)
+
+
+def render_manifest_flags(flags) -> str:
+    """The journey-GLOBAL ``[[flag]]`` block(s) for ``journeys.toml`` (whole-game shared named flags). Empty
+    list -> ``""`` (no block)."""
+    if not flags:
+        return ""
+    out = [f"{_FLAG_HEADER_MARK} -- shared across EVERY campaign (cross-campaign state); the bit is global, the name "
+           "lets any field gate by it."]
+    for f in flags:
+        out += ["[[flag]]", f'name = "{f["name"]}"', f"index = {int(f['index'])}", ""]
+    return "\n".join(out).rstrip() + "\n"
+
+
+def set_manifest_flags(path, flags) -> None:
+    """Write the journey-GLOBAL ``[[flag]]`` table into ``journeys.toml`` -- replacing any existing top-level
+    ``[[flag]]`` blocks, preserving the rest of the file (the GUI text-edits journeys.toml; there's no full
+    re-render). ``flags`` = ``[{name, index}]``, validated like a campaign's shared flags (safe band, unique)."""
+    from . import campaign as _campaign
+    cleaned = _campaign.validate_shared_flags(flags)
+    p = Path(path)
+    lines = p.read_text(encoding="utf-8").splitlines()
+    kept, i, n = [], 0, len(lines)
+    while i < n:                                          # strip every existing top-level [[flag]] block + our header
+        if lines[i].lstrip().startswith(_FLAG_HEADER_MARK):    # our own rendered header comment (don't accumulate it)
+            i += 1
+            continue
+        if lines[i].strip() == "[[flag]]":
+            i += 1
+            while i < n and lines[i].strip() and not lines[i].lstrip().startswith("["):
+                i += 1                                    # its key lines (name/index), up to the next table / blank
+            if i < n and not lines[i].strip():
+                i += 1                                    # swallow one separator blank line
+            continue
+        kept.append(lines[i])
+        i += 1
+    body = "\n".join(kept).rstrip("\n")
+    block = render_manifest_flags(cleaned)
+    new = (body + "\n\n" + block) if block else (body + "\n")
+    p.write_text(new if new.endswith("\n") else new + "\n", encoding="utf-8", newline="\n")
 
 
 def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None:

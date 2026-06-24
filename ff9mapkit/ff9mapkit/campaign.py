@@ -535,7 +535,7 @@ def _remap_text_blocks(projects, base: int) -> dict:
 
 
 def build_campaign(campaign_path, out=None, *, author="", description="", allow_artless=False,
-                   flag_base=None, seed_blocks=None, text_block_base=None) -> dict:
+                   flag_base=None, seed_blocks=None, text_block_base=None, extra_flag_names=None) -> dict:
     """Compile every member of a campaign.toml into ONE staged Memoria mod (DictionaryPatch + BattlePatch +
     ModDescription + per-field assets), reusing build.build_mod. Returns build_mod's dict + ``plan``/``out``.
     Does NOT deploy (P4). ``out`` defaults to ``<campaign-dir>/dist``.
@@ -562,6 +562,8 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     out = Path(out) if out else (manifest_dir / "dist")
 
     campaign_names = collect_flag_defs({"flag": plan.flags})   # shared [[flag]] names (lint already validated)
+    for nm, idx in (extra_flag_names or {}).items():           # journey-GLOBAL named flags (cross-CAMPAIGN gates);
+        campaign_names.setdefault(nm, idx)                     # the campaign's own name wins on a clash (journey lint forbids it)
     projects = []
     for i, m in enumerate(plan.members):
         toml_path = (manifest_dir / m.toml_rel).resolve()      # member subdir -> sidecars resolve via base_dir
