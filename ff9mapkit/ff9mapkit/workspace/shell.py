@@ -6520,6 +6520,15 @@ def _smoke(win):
     assert win._payload(jnode) == ("journey", "Alpha Arc", "@journey:alpha"), win._payload(jnode)
     cnode = jnode.child(0)
     assert win._payload(cnode) == ("jcampaign", "camp1", "camp1"), win._payload(cnode)
+    # drilling into a journey's campaign keeps BOTH contexts (open_campaign keep_journey=True sets self.plan AND
+    # keeps self.manifest) -> the flag picker spans ALL THREE tiers there. Set self.plan directly (no tree churn,
+    # so jroot/jnode stay valid) to mirror that state and assert campaign-shared + journey-global both show.
+    _saved_plan = win.plan
+    win.plan = C.load_campaign(jdir / "camp1" / "campaign.toml")
+    win.plan.flags = [{"name": "camp_flag", "index": 8530}]
+    _picker = {f.get("name") for f in win._flag_pick_context().flags}
+    assert "camp_flag" in _picker and "met_quina" in _picker, _picker   # campaign-shared AND journey-global both show
+    win.plan = _saved_plan
     # ITERATION 2 (playtest feedback): the hub/journey/campaign rows must read DISTINCTLY -- the hub glyph (⌂)
     # differs from a journey's (◆), and every row carries a TYPE tooltip (the glyph isn't the only cue).
     assert jroot.text(0).startswith("⌂") and jnode.text(0).startswith("◆"), (jroot.text(0), jnode.text(0))
