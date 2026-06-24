@@ -972,6 +972,41 @@ def _save_plan(plan: CampaignPlan, manifest_dir) -> Path:
     return p
 
 
+def validate_shared_flags(flags) -> list:
+    """Normalize + validate a campaign's SHARED named flags (a list of ``{name, index}``): non-empty unique
+    names, integer indices that are UNIQUE and in the provably-safe custom band ``[FIRST_SAFE_FLAG,
+    CHOICE_SCRATCH_FLOOR)`` (so a shared flag can't collide with FF9's real bits or the choice scratch).
+    Returns the cleaned list; raises :class:`CampaignError` on the first problem."""
+    out, seen_n, seen_i = [], set(), set()
+    for f in flags or []:
+        nm = str((f or {}).get("name", "")).strip()
+        if not nm:
+            raise CampaignError("a shared flag needs a name")
+        if nm in seen_n:
+            raise CampaignError(f"duplicate shared-flag name {nm!r}")
+        try:
+            idx = int(f.get("index"))
+        except (TypeError, ValueError):
+            raise CampaignError(f"shared flag {nm!r} needs an integer index")
+        if not (FIRST_SAFE_FLAG <= idx < CHOICE_SCRATCH_FLOOR):
+            raise CampaignError(f"shared flag {nm!r} index {idx} is outside the safe band "
+                                f"[{FIRST_SAFE_FLAG}, {CHOICE_SCRATCH_FLOOR})")
+        if idx in seen_i:
+            raise CampaignError(f"shared-flag index {idx} is used by two flags")
+        seen_n.add(nm)
+        seen_i.add(idx)
+        out.append({"name": nm, "index": idx})
+    return out
+
+
+def set_shared_flags(plan: CampaignPlan, manifest_dir, flags) -> Path:
+    """Replace the campaign's SHARED ``[[flag]]`` table (cross-field named story flags every member gates by
+    name) + re-render campaign.toml. ``flags`` = a list of ``{name, index}``; validated by
+    :func:`validate_shared_flags`. The build already hands these names to every member (``flag_names``)."""
+    plan.flags = validate_shared_flags(flags)
+    return _save_plan(plan, manifest_dir)
+
+
 def _next_member_id(plan: CampaignPlan) -> int:
     """Next free member id: max existing + 1 (ids needn't be contiguous; removes leave gaps), or id_base
     for the first member. Never renumbers existing members (that would rewrite their retargeted gateways)."""

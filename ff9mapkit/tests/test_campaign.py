@@ -611,6 +611,21 @@ def test_new_campaign_empty_round_trips(tmp_path):
     assert loaded.name == "MYGAME" and loaded.id_base == 30100 and loaded.members == []
 
 
+def test_set_shared_flags_round_trips_and_validates(tmp_path):
+    plan = campaign.new_campaign("ARC", "M", tmp_path, id_base=30100)
+    campaign.set_shared_flags(plan, tmp_path, [{"name": "boss_dead", "index": 8530},
+                                               {"name": "got_key", "index": "8531"}])   # str index coerced
+    assert plan.flags == [{"name": "boss_dead", "index": 8530}, {"name": "got_key", "index": 8531}]
+    assert campaign.load_campaign(tmp_path / "campaign.toml").flags == plan.flags         # persisted to disk
+    # validation: out-of-band, duplicate name, duplicate index, missing name all rejected
+    with pytest.raises(campaign.CampaignError): campaign.validate_shared_flags([{"name": "x", "index": 100}])
+    with pytest.raises(campaign.CampaignError):
+        campaign.validate_shared_flags([{"name": "a", "index": 8530}, {"name": "a", "index": 8531}])
+    with pytest.raises(campaign.CampaignError):
+        campaign.validate_shared_flags([{"name": "a", "index": 8530}, {"name": "b", "index": 8530}])
+    with pytest.raises(campaign.CampaignError): campaign.validate_shared_flags([{"name": "", "index": 8530}])
+
+
 def test_add_blank_fields_and_edges_offline(tmp_path):
     plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
     a = campaign.add_field(plan, tmp_path, name="HUB")                 # blank member (no game)

@@ -1685,6 +1685,74 @@ class Workspace(QMainWindow):
         self.statusBar().showMessage(f"Added {member.name} (id {member.new_id}) to {self.plan.name}")
         return member
 
+    def _edit_shared_flags(self, title, flags):
+        """A small modal editor for a SHARED [[flag]] table (name + safe-band index) -- rows + Add/Remove.
+        Returns the edited list of ``{name, index}`` (strings; the backend validates) on OK, else None. Used
+        for BOTH the campaign-level and journey-level shared-flag editors (the global story-flag tier the
+        per-field Flags section isn't for)."""
+        from PySide6.QtWidgets import (QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
+        from .. import flags as _flags
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.resize(460, 360)
+        lay = QVBoxLayout(dlg)
+        note = QLabel(f"Named story flags shared across fields. The bit is GLOBAL (one gEventGlobal save "
+                      f"array) — the name just lets every field gate by it. Pick an index in the safe band "
+                      f"[{_flags.FIRST_SAFE_FLAG}, {_flags.CHOICE_SCRATCH_FLOOR}).")
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color:{self.pal['muted']};")
+        lay.addWidget(note)
+        tbl = QTableWidget(0, 2)
+        tbl.setHorizontalHeaderLabels(["Name", "Index"])
+        tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+
+        def add_row(name="", index=_flags.FIRST_SAFE_FLAG):
+            r = tbl.rowCount()
+            tbl.insertRow(r)
+            tbl.setItem(r, 0, QTableWidgetItem(str(name)))
+            tbl.setItem(r, 1, QTableWidgetItem(str(index)))
+
+        for f in (flags or []):
+            add_row(f.get("name", ""), f.get("index", _flags.FIRST_SAFE_FLAG))
+        lay.addWidget(tbl)
+        btns = QHBoxLayout()
+        addb = QPushButton("+ Add flag")
+        addb.clicked.connect(lambda: add_row())
+        rmb = QPushButton("− Remove")
+        rmb.clicked.connect(lambda: tbl.removeRow(tbl.currentRow()) if tbl.currentRow() >= 0 else None)
+        btns.addWidget(addb)
+        btns.addWidget(rmb)
+        btns.addStretch(1)
+        lay.addLayout(btns)
+        lay.addWidget(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        out = []
+        for r in range(tbl.rowCount()):
+            nm = (tbl.item(r, 0).text() if tbl.item(r, 0) else "").strip()
+            ix = (tbl.item(r, 1).text() if tbl.item(r, 1) else "").strip()
+            if nm or ix:
+                out.append({"name": nm, "index": ix})
+        return out
+
+    def on_campaign_shared_flags(self):
+        """Campaign root -> edit the SHARED [[flag]] table in campaign.toml (cross-field named flags every
+        member gates by name). Saved via campaign.set_shared_flags (validated) + the tree re-renders."""
+        if self.plan is None or self.campaign_path is None:
+            return
+        new = self._edit_shared_flags(f"Shared flags — {self.plan.name}", list(self.plan.flags or []))
+        if new is None:
+            return
+        try:
+            C.set_shared_flags(self.plan, self.campaign_path.parent, new)
+        except (C.CampaignError, ValueError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't save shared flags"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return
+        self._populate()
+        self.statusBar().showMessage(f"saved {len(self.plan.flags)} shared flag(s) to {self.plan.name}")
+
     def on_add_field(self):
         """Add field… dialog (from the campaign root's right-click) -> scaffold a blank member + select it."""
         if self.plan is None or self.campaign_path is None:
@@ -3683,7 +3751,8 @@ class Workspace(QMainWindow):
                 acts.append((f"Remove journey '{jid}'", lambda j=jid: self.on_remove_journey_row(j)))
             return acts
         if p and p[0] == "campaign" and self.plan is not None and self.campaign_path is not None:
-            return [("Add field…", self.on_add_field)]      # the campaign root: scaffold a new member
+            return [("Add field…", self.on_add_field),      # the campaign root: scaffold a new member
+                    ("Shared flags…", self.on_campaign_shared_flags)]   # cross-field named story flags
         fa = self._ancestor_field(item)
         if not p or fa is None:
             return []
@@ -5296,8 +5365,11 @@ def _smoke(win):
     # tree right-click / Delete-key context actions: Add on a group, Delete on an entity, Remove a single
     grp = win._object_item("IC_ENT", "npc", kind="group")
     assert [lb for lb, _ in win._context_actions(grp)] == ["Add NPC"], win._context_actions(grp)
-    # the campaign ROOT offers 'Add field…' (scaffold a new member); the Delete key ignores it (not Delete/Remove)
-    assert [lb for lb, _ in win._context_actions(win._root_items[0])] == ["Add field…"]
+    # the campaign ROOT offers 'Add field…' + 'Shared flags…'; the Delete key ignores them (not Delete/Remove)
+    assert [lb for lb, _ in win._context_actions(win._root_items[0])] == ["Add field…", "Shared flags…"]
+    # campaign shared [[flag]] are GUI-editable (campaign.set_shared_flags): the cross-field named-flag tier
+    C.set_shared_flags(win.plan, win.campaign_path.parent, [{"name": "arc_flag", "index": 8530}])
+    assert {"name": "arc_flag", "index": 8530} in win.plan.flags, "campaign shared flag saved"
     ent_item = win._object_item("IC_ENT", "npc:0")
     assert ent_item and win._context_actions(ent_item)[0][0] == "Delete NPC"
     cs_item = win._object_item("IC_ENT", "cutscene")                     # the (always-shown) Cutscene node
