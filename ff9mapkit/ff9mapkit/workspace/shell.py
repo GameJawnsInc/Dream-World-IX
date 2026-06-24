@@ -1685,19 +1685,24 @@ class Workspace(QMainWindow):
         self.statusBar().showMessage(f"Added {member.name} (id {member.new_id}) to {self.plan.name}")
         return member
 
-    def _edit_shared_flags(self, title, flags):
+    def _edit_shared_flags(self, title, flags, *, floor=None, reserved=frozenset()):
         """A small modal editor for a SHARED [[flag]] table (name + safe-band index) -- rows + Add/Remove.
         Returns the edited list of ``{name, index}`` (strings; the backend validates) on OK, else None. Used
-        for BOTH the campaign-level and journey-level shared-flag editors (the global story-flag tier the
-        per-field Flags section isn't for)."""
+        for BOTH the campaign-level and journey-level shared-flag editors. ``floor`` (default FIRST_SAFE_FLAG)
+        + ``reserved`` (indices used by OTHER tiers / windows) drive the AUTO index a new row gets -- the next
+        free value at/above ``floor`` not already used here or reserved -- so two new flags can't default to the
+        SAME bit (the cross-tier-collision footgun)."""
         from PySide6.QtWidgets import (QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
         from .. import flags as _flags
+        floor = int(floor) if floor is not None else _flags.FIRST_SAFE_FLAG
+        reserved = set(reserved)
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
         dlg.resize(460, 360)
         lay = QVBoxLayout(dlg)
         note = QLabel(f"Named story flags shared across fields. The bit is GLOBAL (one gEventGlobal save "
-                      f"array) — the name just lets every field gate by it. Pick an index in the safe band "
+                      f"array) — the name just lets every field gate by it. A new flag auto-picks the next free "
+                      f"index at/above {floor} (clear of the other tiers + the auto-flag windows); safe band "
                       f"[{_flags.FIRST_SAFE_FLAG}, {_flags.CHOICE_SCRATCH_FLOOR}).")
         note.setWordWrap(True)
         note.setStyleSheet(f"color:{self.pal['muted']};")
@@ -1707,14 +1712,27 @@ class Workspace(QMainWindow):
         tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
-        def add_row(name="", index=_flags.FIRST_SAFE_FLAG):
+        def _used_indices():
+            out = set()
+            for r in range(tbl.rowCount()):
+                t = tbl.item(r, 1)
+                if t and t.text().strip().lstrip("-").isdigit():
+                    out.add(int(t.text().strip()))
+            return out
+
+        def add_row(name="", index=None):
+            if index is None:                            # a NEW flag: smallest free index >= floor, not reused
+                taken = _used_indices() | reserved
+                index = floor
+                while index in taken:
+                    index += 1
             r = tbl.rowCount()
             tbl.insertRow(r)
             tbl.setItem(r, 0, QTableWidgetItem(str(name)))
             tbl.setItem(r, 1, QTableWidgetItem(str(index)))
 
         for f in (flags or []):
-            add_row(f.get("name", ""), f.get("index", _flags.FIRST_SAFE_FLAG))
+            add_row(f.get("name", ""), f.get("index", floor))
         lay.addWidget(tbl)
         btns = QHBoxLayout()
         addb = QPushButton("+ Add flag")
@@ -1738,17 +1756,38 @@ class Workspace(QMainWindow):
 
     def on_campaign_shared_flags(self):
         """Campaign root -> edit the SHARED [[flag]] table in campaign.toml (cross-field named flags every
-        member gates by name). Saved via campaign.set_shared_flags (validated) + the tree re-renders."""
+        member gates by name). New flags auto-pick an index ABOVE the member auto-flag blocks + clear of any
+        open journey's global flags; a collision is blocked before save. Saved via campaign.set_shared_flags."""
         if self.plan is None or self.campaign_path is None:
             return
-        new = self._edit_shared_flags(f"Shared flags — {self.plan.name}", list(self.plan.flags or []))
+        K = getattr(self.plan, "flags_per_field", 64)
+        floor = self.plan.flag_base + len(self.plan.members) * K      # above the per-member auto-flag blocks
+        reserved = {f["index"] for f in (getattr(self.manifest, "flags", None) or [])
+                    if isinstance(f.get("index"), int) and not isinstance(f.get("index"), bool)}  # journey-global
+        new = self._edit_shared_flags(f"Shared flags — {self.plan.name}", list(self.plan.flags or []),
+                                      floor=floor, reserved=reserved)
         if new is None:
             return
         try:
-            C.set_shared_flags(self.plan, self.campaign_path.parent, new)
+            cleaned = C.validate_shared_flags(new)                    # safe band + within-tier unique
         except (C.CampaignError, ValueError) as e:
-            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't save shared flags"),
-                                [fb.Problem(fb.ERROR, str(e))])
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't save shared flags"), [fb.Problem(fb.ERROR, str(e))])
+            return
+        probs = []                                                   # the member-window + cross-tier collisions
+        for f in cleaned:
+            if f["index"] < floor:
+                probs.append(f"flag {f['name']!r} index {f['index']} is inside the member auto-flag window "
+                             f"(< {floor}) — pick >= {floor}.")
+            if f["index"] in reserved:
+                probs.append(f"flag {f['name']!r} index {f['index']} collides with a journey-global flag "
+                             f"(same global bit) — pick a different index.")
+        if probs:
+            self._show_problems(fb.Verdict(fb.ERROR, "Flag collision"), [fb.Problem(fb.ERROR, p) for p in probs])
+            return
+        try:
+            C.set_shared_flags(self.plan, self.campaign_path.parent, cleaned)
+        except (C.CampaignError, ValueError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't save shared flags"), [fb.Problem(fb.ERROR, str(e))])
             return
         self._populate()
         self.statusBar().showMessage(f"saved {len(self.plan.flags)} shared flag(s) to {self.plan.name}")
@@ -1766,17 +1805,29 @@ class Workspace(QMainWindow):
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't read journeys.toml"),
                                 [fb.Problem(fb.ERROR, str(e))])
             return
-        new = self._edit_shared_flags("Shared flags — journey (whole game)", list(manifest.flags or []))
+        floor, reserved = J.shared_flag_reservation(manifest)        # above all campaign windows + clear of campaign flags
+        new = self._edit_shared_flags("Shared flags — journey (whole game)", list(manifest.flags or []),
+                                      floor=floor, reserved=reserved)
         if new is None:
             return
         try:
-            J.set_manifest_flags(self.journey_root, new)
+            manifest.flags = C.validate_shared_flags(new)            # safe band + within-tier unique
+        except (C.CampaignError, ValueError) as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Couldn't save journey flags"), [fb.Problem(fb.ERROR, str(e))])
+            return
+        flag_errs = [e for e in J.lint_manifest(manifest, deep=False)[0]    # the FULL cross-tier collision lint
+                     if "shared-flag index" in e or "journey-global flag" in e]
+        if flag_errs:
+            self._show_problems(fb.Verdict(fb.ERROR, "Flag collision"), [fb.Problem(fb.ERROR, e) for e in flag_errs])
+            return
+        try:
+            J.set_manifest_flags(self.journey_root, manifest.flags)
             self.manifest = J.load_journeys(self.journey_root)   # refresh in-session manifest -> picker/lint see them
         except (C.CampaignError, ValueError, J.JourneyError) as e:
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't save journey flags"),
                                 [fb.Problem(fb.ERROR, str(e))])
             return
-        self.statusBar().showMessage(f"saved {len(new)} journey-global flag(s) to {Path(self.journey_root).name}")
+        self.statusBar().showMessage(f"saved {len(manifest.flags)} journey-global flag(s) to {Path(self.journey_root).name}")
 
     def on_add_field(self):
         """Add field… dialog (from the campaign root's right-click) -> scaffold a blank member + select it."""

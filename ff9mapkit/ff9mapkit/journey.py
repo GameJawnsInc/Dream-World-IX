@@ -581,6 +581,25 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
                 errors.append(f"journey-global flag index {idx} is used by two flags")
             seen_i.add(idx)
 
+    # (g2) CROSS-TIER explicit-flag disjointness: every campaign's shared [[flag]] + the journey-global [[flag]]
+    #      are ABSOLUTE bits in the one global array, so two declaring the SAME index alias (set one -> the other
+    #      reads set). The per-tier lints only check within-tier; this catches campaign-vs-campaign AND
+    #      campaign-vs-journey collisions (e.g. a campaign flag and a journey flag both left at the 8512 default).
+    owner_of: dict = {}
+    def _claim_flag(idx, who):
+        if not (isinstance(idx, int) and not isinstance(idx, bool)):
+            return
+        if idx in owner_of and owner_of[idx] != who:
+            errors.append(f"shared-flag index {idx} is declared by BOTH {owner_of[idx]} and {who} -- they alias "
+                          f"the same global gEventGlobal bit; give each shared flag a distinct index.")
+        else:
+            owner_of.setdefault(idx, who)
+    for folder, (plan, _) in plans.items():
+        for f in (getattr(plan, "flags", None) or []):
+            _claim_flag(f.get("index"), f"campaign {folder!r} flag {f.get('name')!r}")
+    for f in manifest.flags:
+        _claim_flag(f.get("index"), f"journey-global flag {f.get('name')!r}")
+
     return errors, warnings
 
 
@@ -593,6 +612,28 @@ def manifest_flag_names(manifest: JourneyManifest) -> dict:
         return collect_flag_defs({"flag": manifest.flags})
     except ValueError:
         return {}
+
+
+def shared_flag_reservation(manifest: JourneyManifest) -> "tuple[int, set]":
+    """``(floor, reserved)`` for picking a NEW journey-global flag index in the GUI: ``floor`` = above every
+    journey's campaign windows (so it can't hit a member's auto once-flag), ``reserved`` = every campaign's
+    already-used shared-flag index (so a journey flag can't alias a campaign-shared one). Best-effort -- a
+    campaign that doesn't load is skipped (lint is the authoritative net)."""
+    from . import campaign as _campaign
+    floor, reserved = FIRST_SAFE_FLAG, set()
+    for j in manifest.journeys:
+        cur = FIRST_SAFE_FLAG
+        for folder in j.campaigns:
+            try:
+                plan = _campaign.load_campaign(manifest.root / folder / "campaign.toml")
+            except Exception:                            # noqa: BLE001 -- unreadable member -> skip (lint flags it)
+                continue
+            cur += max(1, len(plan.members)) * plan.flags_per_field
+            for f in (plan.flags or []):
+                if isinstance(f.get("index"), int) and not isinstance(f.get("index"), bool):
+                    reserved.add(f["index"])
+        floor = max(floor, cur)
+    return floor, reserved
 
 
 _FLAG_HEADER_MARK = "# Journey-global story flags"   # our rendered header line; stripped on re-write (no accumulation)

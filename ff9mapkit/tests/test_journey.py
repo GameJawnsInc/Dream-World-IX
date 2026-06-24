@@ -1340,3 +1340,20 @@ def test_journey_global_flags_round_trip_and_lint(tmp_path):
     assert any("journey-global" in e and "safe band" in e for e in journey.lint_manifest(m, deep=False)[0])
     m.flags = [{"name": "a", "index": 12000}, {"name": "b", "index": 12000}]     # duplicate index
     assert any("journey-global" in e and "used by two" in e for e in journey.lint_manifest(m, deep=False)[0])
+
+
+def test_journey_cross_tier_flag_collision(tmp_path):
+    # a campaign-shared flag and a journey-global flag at the SAME index alias the same global bit -> (g2) catches it
+    _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000, sources={"A1": 100})
+    cplan = campaign.load_campaign(tmp_path / "ca" / "campaign.toml")
+    campaign.set_shared_flags(cplan, tmp_path / "ca", [{"name": "camp_1", "index": 12000}])
+    body = '[[journey]]\nid = "j"\ncampaigns = ["ca"]\nentry = { campaign = "ca", field = "A1" }\n'
+    jp = _write_manifest(tmp_path, body)
+    journey.set_manifest_flags(jp, [{"name": "camp_2", "index": 12000}])      # SAME index as the campaign flag
+    errs = journey.lint_manifest(journey.load_journeys(jp), deep=False)[0]
+    assert any("shared-flag index 12000" in e and "BOTH" in e for e in errs), errs
+    journey.set_manifest_flags(jp, [{"name": "camp_2", "index": 12001}])      # distinct -> clean
+    assert not any("shared-flag index" in e for e in journey.lint_manifest(journey.load_journeys(jp), deep=False)[0])
+    # shared_flag_reservation: floor is above the campaign window; the campaign's 12000 is reserved (auto-avoid)
+    floor, reserved = journey.shared_flag_reservation(journey.load_journeys(jp))
+    assert floor > FIRST_SAFE_FLAG and 12000 in reserved
