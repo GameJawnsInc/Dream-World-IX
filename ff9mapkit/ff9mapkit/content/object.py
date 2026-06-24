@@ -246,6 +246,21 @@ def insert_entry_before_band(data, entry_bytes, *, band_size: int = PARTY_BAND_S
     return out, band_lo
 
 
+def seat_entry(data, entry_bytes, *, reserve_party_band: bool = False, slot=None):
+    """Place a new entry and return ``(new_bytes, slot)`` -- the shared allocator behind every content
+    injector (NPC / region / gateway / event). On the SYNTHESIZE path it appends into a free slot (a blank
+    field has spare NPC slots); on a VERBATIM fork (``reserve_party_band``) it INSERTS just below the engine's
+    reserved party-character band (:func:`insert_entry_before_band`), so the new entry is a true below-band
+    NPC/region and the 9 characters stay the top slots. Sequential calls compose: each insert shifts the band
+    up one and remaps band refs, leaving earlier-seated entries (which sit below the band) untouched."""
+    if reserve_party_band:
+        return insert_entry_before_band(data, entry_bytes)
+    eb = EbScript.from_bytes(data)
+    if slot is None:
+        slot = eb.first_free_slot()
+    return edit.append_entry(data, slot, entry_bytes), slot
+
+
 def graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map=None, out_skipped=None) -> bytes:
     """Graft each spec's VERBATIM object entry into ``data`` and arm it. ``specs`` come from
     :func:`ff9mapkit.eventscan.scan_objects_verbatim` (entry bytes inline) or an import sidecar (a ``bin``

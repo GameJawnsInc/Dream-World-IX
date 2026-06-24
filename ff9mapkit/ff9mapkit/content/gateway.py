@@ -35,7 +35,7 @@ def quad_zone(corners) -> list:
 def inject_gateway(eb_bytes, target: int, *, entrance: int = 0, zone, slot: int | None = None,
                    spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                    gate_flag: int | None = None, gate_require_set: bool = True,
-                   on_exit_body: bytes = b"") -> bytes:
+                   on_exit_body: bytes = b"", reserve_party_band: bool = False) -> bytes:
     """Inject an exit gateway to ``Field(target)`` arriving at ``entrance``. Returns new bytes.
 
     ``gate_flag`` (a GlobBool index) locks the exit behind a story flag: the region's trigger returns
@@ -58,10 +58,8 @@ def inject_gateway(eb_bytes, target: int, *, entrance: int = 0, zone, slot: int 
     struct.pack_into("<H", tpl, REL_ENTRANCE, entrance)
     struct.pack_into("<H", tpl, REL_FIELD, target)
 
-    eb = EbScript.from_bytes(eb_bytes)
-    if slot is None:
-        slot = eb.first_free_slot()
-    out = edit.append_entry(eb_bytes, slot, bytes(tpl))
+    from . import object as _object             # local: object imports region -> avoid the top-level cycle
+    out, slot = _object.seat_entry(eb_bytes, bytes(tpl), reserve_party_band=reserve_party_band, slot=slot)
     out = edit.activate(out, opcodes.init_region(slot, 0), spawn_wait_n=spawn_wait_n,
                         spawn_wait_occurrence=spawn_wait_occurrence)
     # Order matters: prepend the on-exit writes first, then the flag gate, so the final Range reads

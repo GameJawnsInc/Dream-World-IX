@@ -261,16 +261,11 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
         table = struct.pack("<HH", 0, nf0) + struct.pack("<HH", 1, nf1) + struct.pack("<HH", 3, nf2)
         entry_bytes = bytes([NPC_ENTRY_TYPE, 3]) + table + body0 + bytes(body1) + f2
 
-    # 7) append + spawn (shift-free): overwrite a Main_Init Wait(n) with InitObject(slot,0). On a verbatim
-    # fork (reserve_party_band) the NPC is seated BELOW the reserved party-character band instead of into a
-    # blank free slot (which on a real field is an unused CHARACTER slot the engine would mis-read).
-    if reserve_party_band:
-        from . import object as _object
-        out, slot = _object.insert_entry_before_band(data, entry_bytes)
-    else:
-        if slot is None:
-            slot = eb.first_free_slot()
-        out = edit.append_entry(data, slot, entry_bytes)
+    # 7) seat + spawn (shift-free): overwrite a Main_Init Wait(n) with InitObject(slot,0). On a verbatim
+    # fork (reserve_party_band) seat_entry inserts the NPC BELOW the reserved party-character band instead of
+    # into a blank free slot (which on a real field is an unused CHARACTER slot the engine would mis-read).
+    from . import object as _object
+    out, slot = _object.seat_entry(data, entry_bytes, reserve_party_band=reserve_party_band, slot=slot)
     out = edit.activate(out, opcodes.init_object(slot, 0), spawn_wait_n=spawn_wait_n,
                         spawn_wait_occurrence=spawn_wait_occurrence)
     return out

@@ -149,22 +149,26 @@ def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_C
 def inject_event(data, *, zone, body: bytes, once_flag: int | None = None,
                  requires_flag: int | None = None, requires_set: bool = True,
                  flag_class=EVENT_FLAG_CLASS, slot=None, spawn_wait_n: int = 2,
-                 spawn_wait_occurrence: int = 0):
+                 spawn_wait_occurrence: int = 0, reserve_party_band: bool = False):
     """Inject ONE walk-in event region (armed at load via InitRegion-over-Wait). Returns
     ``(new_bytes, slot)``. For several events prefer :func:`inject_events` (one shared arm entry)."""
     range_body = event_range_body(body, once_flag, flag_class, requires_flag, requires_set)
     return _region.inject_region(data, zone, range_body, slot=slot, activate=True,
-                                 spawn_wait_n=spawn_wait_n, spawn_wait_occurrence=spawn_wait_occurrence)
+                                 spawn_wait_n=spawn_wait_n, spawn_wait_occurrence=spawn_wait_occurrence,
+                                 reserve_party_band=reserve_party_band)
 
 
 def inject_events(data, events, *, flag_class=EVENT_FLAG_CLASS, spawn_wait_n: int = 2,
-                  spawn_wait_occurrence: int = 0) -> bytes:
+                  spawn_wait_occurrence: int = 0, reserve_party_band: bool = False) -> bytes:
     """Inject many events through a single arming entry. ``events`` is a list of dicts with keys
     ``zone`` (corners), ``body`` (composed action bytes), ``once_flag`` (int or None).
 
     Each event becomes a region (appended, not auto-armed); one type-0 code entry then ``InitRegion``s
     them all and is activated once via ``InitCode`` over a Main_Init ``Wait`` filler -- so N events
-    cost ONE filler, not N. Returns new .eb bytes."""
+    cost ONE filler, not N. ``reserve_party_band`` (the VERBATIM-fork path): every region AND the arm
+    entry are seated BELOW the reserved party-character band. The arm's ``InitRegion`` targets the region
+    SLOTS, which sit below the band and so are never shifted by a later below-band insert -> stay valid.
+    Returns new .eb bytes."""
     events = list(events)
     if not events:
         return data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
@@ -174,13 +178,14 @@ def inject_events(data, events, *, flag_class=EVENT_FLAG_CLASS, spawn_wait_n: in
         rb = event_range_body(ev["body"], ev.get("once_flag"), flag_class,
                               ev.get("requires_flag"), ev.get("requires_set", True),
                               space_item=ev.get("space_item"))
-        out, slot = _region.inject_region(out, ev["zone"], rb, activate=False)
+        out, slot = _region.inject_region(out, ev["zone"], rb, activate=False,
+                                          reserve_party_band=reserve_party_band)
         region_slots.append(slot)
 
     arm = b"".join(opcodes.init_region(s, 0) for s in region_slots) + opcodes.RETURN
     arm_entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + arm
-    arm_slot = EbScript.from_bytes(out).first_free_slot()
-    out = edit.append_entry(out, arm_slot, arm_entry)
+    from . import object as _object             # local: object imports region -> avoid the top-level cycle
+    out, arm_slot = _object.seat_entry(out, arm_entry, reserve_party_band=reserve_party_band)
     out = edit.activate(out, opcodes.init_code(arm_slot, 0), spawn_wait_n=spawn_wait_n,
                         spawn_wait_occurrence=spawn_wait_occurrence)
     return out

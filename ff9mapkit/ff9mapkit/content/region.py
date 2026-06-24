@@ -299,19 +299,19 @@ def prepend_range_gate(data, slot: int, gate_bytes: bytes) -> bytes:
 
 def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, activate: bool = True,
                   spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0, init_extra: bytes = b"",
-                  tag: int = RANGE_TAG, init_body: bytes | None = None):
+                  tag: int = RANGE_TAG, init_body: bytes | None = None, reserve_party_band: bool = False):
     """Append a conditional region (Init=SetRegion(zone) + ``init_extra``, Range=range_body) into a
     free slot.
 
     Returns ``(new_bytes, slot)``. If ``activate`` (default), the region is turned on at field load
     by overwriting a Main_Init ``Wait(n)`` filler with ``InitRegion(slot, 0)`` -- shift-free. Pass
     ``activate=False`` for a zone that another zone enables at runtime (the switch-pair toggle).
-    ``init_extra`` runs in the region's Init on each load (e.g. a flag reset for once-per-visit)."""
-    eb = EbScript.from_bytes(data)
-    if slot is None:
-        slot = eb.first_free_slot()
+    ``init_extra`` runs in the region's Init on each load (e.g. a flag reset for once-per-visit).
+    ``reserve_party_band`` (the VERBATIM-fork path): seat the region BELOW the engine's reserved
+    party-character band instead of into a free slot (else it lands in an unused character slot)."""
+    from . import object as _object             # local: object imports region -> avoid the top-level cycle
     entry = build_region_entry(zone, range_body, init_extra=init_extra, tag=tag, init_body=init_body)
-    out = edit.append_entry(data, slot, entry)
+    out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band, slot=slot)
     if activate:
         out = edit.activate(out, opcodes.init_region(slot, 0), spawn_wait_n=spawn_wait_n,
                             spawn_wait_occurrence=spawn_wait_occurrence)

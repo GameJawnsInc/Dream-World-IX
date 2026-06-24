@@ -1412,11 +1412,11 @@ def validate(project: FieldProject) -> list[str]:
 # Synthesize-path CONTENT blocks (build_script injects these). A VERBATIM fork ([verbatim_eb]) runs the
 # donor's real .eb and BYPASSES build_script, so any of these authored on one is silently DROPPED at build --
 # a verbatim fork already ships the donor's own NPCs/doors/cutscenes. ([encounter] is handled separately: on a
-# verbatim fork it still feeds the battle BGM, it just doesn't inject the SetRandomBattles trigger. [[npc]] is
-# NOT here: a NEW self-contained NPC IS added to a verbatim fork -- seated below the donor's party-character
-# band -- by _inject_verbatim_npcs in build_field.)
+# verbatim fork it still feeds the battle BGM, it just doesn't inject the SetRandomBattles trigger. [[npc]] and
+# [[gateway]] are NOT here: a NEW self-contained NPC / exit IS added to a verbatim fork -- seated below the
+# donor's party-character band -- by _inject_verbatim_npcs / _inject_verbatim_gateways in build_field.)
 _VERBATIM_IGNORED_BLOCKS = {
-    "music": "[music]", "cutscene": "[cutscene]", "gateway": "[[gateway]]",
+    "music": "[music]", "cutscene": "[cutscene]",
     "event": "[[event]]", "choice": "[[choice]]", "marker": "[[marker]]",
 }
 
@@ -2667,6 +2667,28 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
     return eb
 
 
+def _inject_verbatim_gateways(project: FieldProject, eb: bytes, *, warnings) -> bytes:
+    """Inject each authored ``[[gateway]]`` (a new exit/door) into a VERBATIM fork, seated BELOW the
+    donor's party-character band (:func:`ff9mapkit.content.gateway.inject_gateway` with
+    ``reserve_party_band``). Adds a brand-new region the donor didn't have -- the kit authors the whole
+    warp logic, so there is no #14-style entanglement. Useful for stitching custom content into a forked
+    base-game field (a door from a real room into your own field). ``gate_flag`` / ``set_scenario`` /
+    ``set_flags`` work as on the synthesize path. Returns the new bytes."""
+    gateways = project.raw.get("gateway", []) or []
+    if not gateways:
+        return eb
+    names = _story_names(project)
+    for gw in gateways:
+        zone = gw["zone"]
+        if len(zone) == 4:
+            zone = _gw.quad_zone(zone)
+        gf, gs = _gate_of(gw)
+        eb = _gw.inject_gateway(eb, int(gw["to"]), entrance=int(gw.get("entrance", 0)),
+                                zone=[tuple(p) for p in zone], gate_flag=gf, gate_require_set=gs,
+                                on_exit_body=_gateway_on_exit_body(gw, names), reserve_party_band=True)
+    return eb
+
+
 def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
     """The verbatim fork's ``.eb`` exactly as the ``[[logic_edit]]`` applier sees it: the donor bytes with the
     ``[verbatim_eb] retarget`` Field-remap (``verbatim.verbatim_eb``) + the field-load inserts
@@ -3912,6 +3934,14 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             if _npc_errs:
                 raise BuildError(f"[[npc]] broke the composed .eb of {project.name}: "
                                  f"{[str(e) for e in _npc_errs]}")
+        # [[gateway]] -- add NEW exits/doors to the verbatim fork (same below-band seating as [[npc]]).
+        if project.raw.get("gateway"):
+            from . import eblint as _eblint
+            verbatim_bytes = _inject_verbatim_gateways(project, verbatim_bytes, warnings=warnings)
+            _gw_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+            if _gw_errs:
+                raise BuildError(f"[[gateway]] broke the composed .eb of {project.name}: "
+                                 f"{[str(e) for e in _gw_errs]}")
         # a [[shop]] OPENER (a standalone `zone` region, or an `[[npc]] opens_shop`) is synthesized in
         # build_script, which the verbatim path bypasses -- so it is NOT injected here (the donor's own
         # logic ships instead). The inventory CSV still ships (mod-write stage). Warn so it isn't a silent

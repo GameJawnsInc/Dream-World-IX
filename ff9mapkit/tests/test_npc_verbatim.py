@@ -140,3 +140,70 @@ def test_synth_path_unchanged_by_new_param():
     a = _npc.inject_npc(data, 100, 200, model=None)
     b = _npc.inject_npc(data, 100, 200, model=None, reserve_party_band=False)
     assert a == b
+
+
+# ----------------------------------------------- regions: a NEW [[gateway]] / [[event]] below the band
+
+def _errors(b):
+    return [i for i in eblint.lint_eb(b) if i.level == "error"]
+
+
+def _quad(x0, z0, x1, z1):
+    from ff9mapkit.content import gateway as _gw
+    return _gw.quad_zone([(x0, z0), (x1, z0), (x1, z1), (x0, z1)])
+
+
+def test_gateway_seated_below_band():
+    from ff9mapkit.content import gateway as _gw
+    data = _alex100()
+    n = EbScript.from_bytes(data).entry_count
+    band_lo = n - BAND
+    out = _gw.inject_gateway(data, 4100, zone=_quad(0, 0, 100, 100), reserve_party_band=True)
+    eb = EbScript.from_bytes(out)
+    assert eb.entry_count == n + 1
+    reg = eb.entry(band_lo)
+    assert not reg.empty and reg.type == 1                     # a region entry, below the (shifted) band
+    assert any(i.op == 0x2B and i.imm(0) == 4100 for f in reg.funcs for i in eb.instrs(f)), "warps to 4100"
+    assert _errors(out) == _errors(data)
+
+
+def test_events_seated_below_band():
+    from ff9mapkit.content import event as _event
+    data = _alex100()
+    n = EbScript.from_bytes(data).entry_count
+    specs = [{"zone": [(0, 0), (100, 0), (100, 100), (0, 100)], "body": _event.give_gil(100), "once_flag": 8000},
+             {"zone": [(200, 0), (300, 0), (300, 100), (200, 100)], "body": _event.give_item(1, 1),
+              "once_flag": 8001}]
+    out = _event.inject_events(data, specs, reserve_party_band=True)
+    eb = EbScript.from_bytes(out)
+    assert eb.entry_count == n + 3                             # 2 event regions + 1 shared arm entry
+    assert _errors(out) == _errors(data)
+
+
+def test_mixed_content_stacks_below_band_and_lints_clean():
+    """NPC + gateway + events all seated below the band compose: the count grows by the total, the donor's
+    character bodies are still recoverable (only +k band-ref remap), and the whole .eb lints clean."""
+    from ff9mapkit.content import gateway as _gw
+    from ff9mapkit.content import event as _event
+    data = _alex100()
+    eb0 = EbScript.from_bytes(data)
+    n = eb0.entry_count
+    band_lo = n - BAND
+    band_bodies = {k: _entry_body(eb0, k) for k in range(band_lo, n)}
+
+    out = _npc.inject_npc(data, 0, 2600, model=None, reserve_party_band=True)
+    out = _gw.inject_gateway(out, 4100, zone=_quad(0, 0, 100, 100), reserve_party_band=True)
+    out = _event.inject_events(out, [{"zone": [(0, 0), (100, 0), (100, 100), (0, 100)],
+                                      "body": _event.give_gil(50), "once_flag": 8000}], reserve_party_band=True)
+    eb = EbScript.from_bytes(out)
+    assert eb.entry_count == n + 4                             # npc + gateway + (1 event region + 1 arm)
+    assert _errors(out) == _errors(data)
+    assert eb.to_bytes() == out                                # round-trip identity
+    # every donor character body survived (shifted up by the 4 inserts, content == donor + band-ref remap)
+    shifted = data
+    for d in range(4):
+        cur = EbScript.from_bytes(shifted).entry_count
+        shifted = _object.shift_slot_refs(shifted, cur - BAND, cur - 1, 1)
+    eb_sh = EbScript.from_bytes(shifted)
+    for k in range(band_lo, n):
+        assert _entry_body(eb, k + 4) == _entry_body(eb_sh, k), f"character {k}->{k+4} content drifted"
