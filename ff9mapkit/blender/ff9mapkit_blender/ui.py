@@ -29,6 +29,11 @@ class FF9MK_PT_panel(bpy.types.Panel):
         row.operator("ff9mk.import_field", icon="IMPORT", text="Import Field")
         if p.borrow_bg:
             layout.label(text=f"forked from {p.borrow_bg} (BG-borrow)", icon="LINKED")
+        elif p.verbatim_fork:
+            layout.label(text="verbatim fork: place markers only -- the real walkmesh ships untouched",
+                         icon="LOCKED")
+            layout.label(text="logic stays in your field.toml (joined by name); Export won't touch it",
+                         icon="INFO")
         elif p.editable_fork:
             layout.label(text="editable fork (custom scene): reshape + repaint, then Export",
                          icon="MOD_MULTIRES")
@@ -122,10 +127,9 @@ class FF9MK_PT_panel(bpy.types.Panel):
         if mk == "npc":
             col = box.column(align=True)
             col.label(text=f"{ao.name} (move to position)")
-            for key in ("ff9_name", "ff9_preset"):
-                if key in ao:
-                    col.prop(ao, f'["{key}"]', text=key[4:])
-            col.label(text="dialogue/logic: author in the field.toml (joined by name)", icon="INFO")
+            if "ff9_name" in ao:
+                col.prop(ao, '["ff9_name"]', text="name")
+            col.label(text="model + dialogue/logic: author in the field.toml (joined by name)", icon="INFO")
         elif mk == "gateway":
             col = box.column(align=True)
             col.label(text=f"{ao.name} (move/scale over the exit)")

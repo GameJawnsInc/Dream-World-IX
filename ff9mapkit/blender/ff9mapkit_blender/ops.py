@@ -79,6 +79,14 @@ class FF9MKProps(bpy.types.PropertyGroup):
     # ships obj+links+frame=world (no character offset) so a reshape stays connected. False = a
     # from-scratch novel room (re-posable camera, flat walkmesh + character_offset).
     editable_fork: bpy.props.BoolProperty(name="Editable Fork", default=False)
+    # set by "Import FF9 Field" for a VERBATIM/faithful fork: a field whose field.toml ships the REAL
+    # .bgi walkmesh byte-for-byte (`[walkmesh] bgi = "walkmesh.bgi"`, connectivity preserved). Export
+    # writes ONLY the spatial markers (NPC/gateway/event spawns) + keeps the verbatim .bgi untouched;
+    # it NEVER re-emits the walkmesh as an .obj. The obj round-trip would route the multi-floor mesh
+    # through bgi.build's rebuild_neighbors (links by shared vertex INDEX), and FF9 floors use disjoint
+    # per-floor vertex sets, so cross-floor seams vanish and the player strands on the spawn floor
+    # (proven on field 50's cargo deck: 1 connected component -> 7, 2 of 3 floors stranded).
+    verbatim_fork: bpy.props.BoolProperty(name="Verbatim Fork", default=False)
     pitch: bpy.props.FloatProperty(name="Pitch", default=48.0, min=0.0, max=89.0)
     distance: bpy.props.FloatProperty(name="Distance", default=4500.0, min=1.0)
     fov: bpy.props.FloatProperty(name="FOV", default=42.2, min=1.0, max=170.0)
@@ -225,8 +233,9 @@ def _import_content(context, field_cfg, scene_cfg):
     for n in bridge.merge_import_entities(field_cfg, scene_cfg, "npc"):
         nm = n.get("name") or "NPC"
         if n.get("pos") and ("npc", nm) not in existing:
-            # marker = spatial only (model + position); dialogue stays in the field.toml logic file
-            add_empty("npc", nm, n["pos"][0], n["pos"][1], {"ff9_preset": n.get("preset")})
+            # marker = spatial only (name + position); the model/dialogue/logic stays in the field.toml,
+            # joined to this marker by name -- the spatial editor never carries the model (preset/model).
+            add_empty("npc", nm, n["pos"][0], n["pos"][1], {})
             made["npc"] = made.get("npc", 0) + 1
     for m in bridge.merge_import_entities(field_cfg, scene_cfg, "marker"):
         nm = m.get("name") or "waypoint"
@@ -498,6 +507,7 @@ class FF9MK_OT_setup_scene(bpy.types.Operator):
         p = context.scene.ff9mapkit
         p.borrow_bg = ""               # a fresh scene is a from-scratch novel room, not a fork
         p.editable_fork = False
+        p.verbatim_fork = False
         coll = context.collection
         # camera
         cam_obj = bpy.data.objects.get(CAMERA_NAME)
@@ -941,13 +951,12 @@ def _collect_markers(context):
         if mk == "spawn":
             spawn = bridge.marker_floor_pos(obj.matrix_world.translation)
         elif mk == "npc":
-            # spatial only: name + model + position. Dialogue/logic is authored in the field.toml
-            # (the logic side), joined to this marker by name -- the Blender add-on never carries it.
+            # spatial only: name + position. The model + dialogue/logic is authored in the field.toml
+            # (the logic side), joined to this marker by name -- the Blender add-on never carries it,
+            # so the model (preset/model) lives ONLY in the field.toml, never in this spatial marker.
             n = {"pos": bridge.marker_floor_pos(obj.matrix_world.translation)}
             if obj.get("ff9_name"):
                 n["name"] = obj["ff9_name"]
-            if obj.get("ff9_preset"):
-                n["preset"] = obj["ff9_preset"]
             npcs.append(n)
         elif mk == "gateway" and obj.type == "MESH":
             zone = _zone_corners(obj)
@@ -999,9 +1008,9 @@ def _collect_waypoints(context):
 class FF9MK_OT_add_npc(bpy.types.Operator):
     bl_idname = "ff9mk.add_npc"
     bl_label = "Add NPC"
-    bl_description = ("Drop an NPC marker (Empty) at the 3D cursor on the floor. Pick its model with "
-                      "ff9_preset in Object Properties > Custom Properties; its dialogue/logic is "
-                      "authored in the field.toml (the logic side), joined to this marker by name")
+    bl_description = ("Drop an NPC marker (Empty) at the 3D cursor on the floor. The marker carries only "
+                      "its NAME + position; its model + dialogue/logic is authored in the field.toml "
+                      "(the GUI/logic side), joined to this marker by name")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -1011,10 +1020,10 @@ class FF9MK_OT_add_npc(bpy.types.Operator):
         e.location = _cursor_floor(context)
         e[MARKER_KEY] = "npc"
         e["ff9_name"] = "NPC"
-        e["ff9_preset"] = "vivi"
         _link_active(context, e)
-        self.report({"INFO"}, f"added NPC '{e.name}' — set its model (ff9_preset) in Custom Properties; "
-                              "author its dialogue/logic in the field.toml (joined by name)")
+        self.report({"INFO"}, f"added NPC marker '{e.name}' — rename it (ff9_name), then author its "
+                              "model + dialogue in the field.toml under [[npc]] name = \"<this name>\" "
+                              "(omit the model and it clones the player)")
         return {"FINISHED"}
 
 
@@ -1269,10 +1278,20 @@ class FF9MK_OT_import_field(bpy.types.Operator):
             _pose_camera_from_ff9(co, ci, ci.range[0] > 384 or ci.range[1] > 448)
             extra_cams.append((co, ci))
 
-        # EDITABLE (--editable) fork = a custom scene with no borrow_bg. Load its per-depth art
+        # Classify the imported fork by HOW its field.toml ships the walkmesh:
+        #   * borrow_bg set          -> BG-borrow (the engine renders the real field's art+walkmesh).
+        #   * [walkmesh] bgi = "..." -> VERBATIM/faithful fork: the real .bgi ships byte-for-byte.
+        #       Export keeps it verbatim and writes ONLY spatial markers -- re-emitting the walkmesh as
+        #       .obj rebuilds neighbor links by shared vertex index and disconnects multi-floor seams,
+        #       so the player strands on the spawn floor (the field-50 cargo-deck bug). Keying on the
+        #       `bgi=` line (not just the .eb being verbatim) also protects a faithful non-verbatim-eb
+        #       fork, which ships the same connectivity-critical real walkmesh.
+        #   * otherwise              -> EDITABLE (--editable) custom scene (obj walkmesh, repaintable).
+        p.verbatim_fork = (not bool(p.borrow_bg)) and bool(cfg.get("walkmesh", {}).get("bgi"))
+        # EDITABLE fork = a custom scene with no borrow_bg AND no verbatim bgi. Load its per-depth art
         # ([[layers]]) as the camera backdrop + the field's layer list (with shaders) so you model
         # against the real room AND re-export keeps the occlusion + light/shadow blends intact.
-        p.editable_fork = not bool(p.borrow_bg)
+        p.editable_fork = (not bool(p.borrow_bg)) and not p.verbatim_fork
         p.layers.clear()
         try:
             cam_obj.data.background_images.clear()
@@ -1465,6 +1484,35 @@ class FF9MK_OT_export_field(bpy.types.Operator):
                                       borrow_bg=p.borrow_bg, events=events,
                                       markers=_collect_waypoints(context))
             self.report({"INFO"}, f"BG-borrow fork of {p.borrow_bg}: scene.toml written"
+                                  f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
+                                  f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
+            return {"FINISHED"}
+
+        if p.verbatim_fork:
+            # VERBATIM/faithful fork: the field.toml ships the REAL .bgi walkmesh byte-for-byte
+            # ([walkmesh] bgi = "walkmesh.bgi", connectivity preserved). Write ONLY the spatial markers
+            # (NPC/gateway/event spawns + waypoints) and preserve the exact extracted camera; the
+            # walkmesh is NEVER re-emitted as an .obj. Re-emitting it would route the multi-floor mesh
+            # through bgi.build's rebuild_neighbors (links by shared vertex INDEX) and FF9 floors use
+            # disjoint per-floor vertex sets -> cross-floor seams vanish and the player strands on the
+            # spawn floor. CRITICAL: emit NO [walkmesh] key here -- build's _merge_scene treats walkmesh
+            # as a scene-owned scalar (_SCENE_SCALAR), so a [walkmesh] line in the scene.toml would
+            # REPLACE the field.toml's verbatim bgi=. Omitting it leaves the hand-authored bgi=
+            # authoritative, and _write_split_files only stubs the field.toml when ABSENT, so the
+            # author's [verbatim_eb]/[startup]/[walkmesh] logic file is never clobbered.
+            cbgx = os.path.join(out, "camera.bgx")
+            if not os.path.isfile(cbgx):
+                with open(cbgx, "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write(bgx.build(c, [], header_comment=f"{p.field_name} camera (verbatim fork)"))
+            npcs, gateways, spawn, events = _collect_markers(context)
+            scene_body = '[camera]\nborrow = "camera.bgx"\n'
+            if p.scroll_enabled:
+                scene_body += "[camera.scroll]\nenabled = true\n"
+            stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events,
+                                      markers=_collect_waypoints(context))
+            self.report({"INFO"}, f"verbatim fork {p.field_name}: spatial markers written "
+                                  f"({len(npcs)} NPC(s), {len(gateways)} gateway(s), {len(events)} "
+                                  f"event(s)) -- the verbatim walkmesh ships untouched"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
                                   f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
             return {"FINISHED"}

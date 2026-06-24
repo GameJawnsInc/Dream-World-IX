@@ -687,8 +687,10 @@ def field_logic_stub(meta, npcs=(), gateways=(), events=()):
         L.append("[[npc]]")
         if n.get("name"):
             L.append(f"name = {_toml_str(n['name'])}")
-        if n.get("preset"):
-            L.append(f"preset = {_toml_str(n['preset'])}")
+        # model is LOGIC, not spatial -- set it HERE (not in the Blender marker). preset = a character
+        # name ("vivi") OR model = <id>. Omit it and the NPC CLONES THE PLAYER model (e.g. Zidane).
+        L.append(f"preset = {_toml_str(n['preset'])}" if n.get("preset")
+                 else '# preset = "vivi"   # or: model = <id>. Omit -> clones the player (e.g. Zidane)')
         L.append(f"dialogue = {_toml_str(n.get('dialogue') or '...')}")
         L.append("# requires_flag = 200   # gate this NPC on a story flag (appears when set)")
         L.append("")
