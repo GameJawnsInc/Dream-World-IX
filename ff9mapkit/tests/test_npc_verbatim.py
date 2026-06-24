@@ -194,6 +194,58 @@ def test_prop_seated_below_band():
     assert _errors(out) == _errors(data)
 
 
+def test_chest_below_band_pose_branch_and_open_handler():
+    from ff9mapkit.content import chest as _chest
+    data = _alex100()
+    n = EbScript.from_bytes(data).entry_count
+    band_lo = n - BAND
+    out = _chest.inject_chest(data, 0, 2600, flag_idx=8400, item="Potion", count=1,
+                              received_text_id=1000, reserve_party_band=True)
+    eb = EbScript.from_bytes(out)
+    assert eb.entry_count == n + 1
+    e = eb.entry(band_lo)
+    f0, f3 = e.func_by_tag(0), e.func_by_tag(3)
+    assert f0 is not None and f3 is not None
+    # Init: the chest model + the TWO-ARM flag-gated pose branch (open 7338 + closed 7339)
+    poses = [i.imm(0) for i in eb.instrs(f0) if i.op == 0x33]
+    assert 7338 in poses and 7339 in poses, poses
+    assert any(i.op == 0x2F and i.imm(0) == 75 for i in eb.instrs(f0)), "SetModel(chest 75)"
+    # collision: SetObjectLogicalSize(1,40,45) + the solid SetObjectFlags(49 closed / 57 open) per arm
+    i0 = list(eb.instrs(f0))
+    assert any(i.op == 0x4B and list(i.args) == [1, 40, 45] for i in i0), "SetObjectLogicalSize collision box"
+    flags0 = [i.imm(0) for i in i0 if i.op == 0x93]
+    assert 49 in flags0 and 57 in flags0, flags0   # closed=solid+talkable, open=solid+disable-talk
+    # tag-3 open: lid animation 7336 + AddItem + a window-7 Received box + the disable-talk latch (57)
+    i3 = list(eb.instrs(f3))
+    assert any(i.op == 0x40 and i.imm(0) == 7336 for i in i3), "RunAnimation(lid-open)"
+    assert any(i.op == 0x48 for i in i3), "AddItem"
+    assert any(i.op == 0x1F and i.imm(0) == 7 for i in i3), "WindowSync window-7 (Received box)"
+    assert any(i.op == 0x93 and i.imm(0) == 57 for i in i3), "disable-talk after open (no more '!')"
+    sfx = [list(i.args)[:2] for i in i3 if i.op == 0xC8]      # the lid-creak RunSoundCode3 (637/638)
+    assert [53248, 637] in sfx and [53248, 638] in sfx, sfx
+    assert _errors(out) == _errors(data)
+
+
+def test_chest_gil_variant_lints_clean():
+    from ff9mapkit.content import chest as _chest
+    data = _alex100()
+    out = _chest.inject_chest(data, 0, 2600, flag_idx=8401, gil=500, received_text_id=1000,
+                              reserve_party_band=True)
+    s = EbScript.from_bytes(out)
+    assert s.entry_count == EbScript.from_bytes(data).entry_count + 1
+    assert _errors(out) == _errors(data)
+
+
+def test_chest_requires_exactly_one_payload():
+    from ff9mapkit.content import chest as _chest
+    import pytest as _pytest
+    data = _alex100()
+    with _pytest.raises(ValueError):
+        _chest.inject_chest(data, 0, 0, flag_idx=8400)                       # neither
+    with _pytest.raises(ValueError):
+        _chest.inject_chest(data, 0, 0, flag_idx=8400, item="Potion", gil=5)  # both
+
+
 def test_mixed_content_stacks_below_band_and_lints_clean():
     """NPC + gateway + events all seated below the band compose: the count grows by the total, the donor's
     character bodies are still recoverable (only +k band-ref remap), and the whole .eb lints clean."""

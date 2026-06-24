@@ -199,6 +199,36 @@ def test_build_field_verbatim_with_npc_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_with_chest_end_to_end(tmp_path):
+    # A real [[chest]] on a verbatim fork: ONE object below the band with a flag-gated pose Init (the two
+    # SetStandAnimation open/closed = the savable open-state), a tag-3 open handler (RunAnimation lid 7336 +
+    # AddItem 0x48 + window-7 Received), and a "Received [ITEM=0]!" line appended to the .mes.
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    project = build.FieldProject.load(toml)
+    project.raw["chest"] = [{"pos": [0, 0], "item": "Potion", "count": 1}]
+    assert build.validate(project) == []
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        assert s.entry_count == donor.entry_count + 1
+        e = s.entry(band_lo)
+        poses = [i.imm(0) for i in s.instrs(e.func_by_tag(0)) if i.op == 0x33]
+        assert 7338 in poses and 7339 in poses, poses              # the open/closed savable pose branch
+        assert any(i.op == 0x40 and i.imm(0) == 7336 for i in s.instrs(e.func_by_tag(3))), "lid animation"
+        assert any(i.op == 0x48 for i in s.instrs(e.func_by_tag(3))), "AddItem"
+    mes = [p for p in out.rglob("*.mes")]
+    assert mes and any("Received" in p.read_text(encoding="utf-8") for p in mes), "Received line shipped"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_prop_end_to_end(tmp_path):
     # Add a VISIBLE [[prop]] (a chest model) to a verbatim fork: build must seat the prop object below the
     # band (SetModel 0x2F present, no talk tag-3) and lint clean.

@@ -224,9 +224,31 @@ def cond_ate_select(avail_class, avail_idx: int, select_mask: int = KEY_SELECT) 
 MOVEMENT_GATE = bytes([EXPR_OP, 0x7A, 0x02, T_END, JMP_TRUE, 0x01, 0x00, opcodes.RETURN[0]])
 
 
+JMP_UNCOND = 0x01    # the undocumented UNCONDITIONAL relative jump (operand = signed i16 skip), CLAUDE.md s7.
+                     # The engine is uniformly IP-relative, so 0x01 <i16> skips <i16> bytes unconditionally --
+                     # the hop the two-arm if/else uses to jump over the else-body after the then-body.
+
+
+def jump(skip: int) -> bytes:
+    """An unconditional relative jump over ``skip`` bytes -> ``01 <skip:i16>``."""
+    return bytes([JMP_UNCOND]) + _i16(skip)
+
+
 def if_block(cond: bytes, body: bytes) -> bytes:
     """``if (cond) { body }`` -> cond + ``02 <len(body):i16>`` (jump-if-false past body) + body."""
     return cond + bytes([JMP_FALSE]) + _i16(len(body)) + body
+
+
+def if_else(cond: bytes, then_body: bytes, else_body: bytes) -> bytes:
+    """``if (cond) { then_body } else { else_body }`` -- the explicit TWO-ARM branch.
+
+    Emits ``cond + 02 <len(then)+3> + then_body + 01 <len(else)> + else_body``: the JMP_FALSE skips the
+    then-body AND the 3-byte unconditional hop (landing on else); when cond is true the then-body runs and
+    the hop jumps over else. Byte-grounded on the real treasure-chest Init pose branch (fields 200/407:
+    ``05{flag} 02 <7> SetStandAnimation(open) 01 <4> SetStandAnimation(closed)`` -- the savable open/closed
+    pose). The kit had only single-jump ``if_block``/``if_not_block``; this is the missing else arm."""
+    hop = jump(len(else_body))
+    return cond + bytes([JMP_FALSE]) + _i16(len(then_body) + len(hop)) + then_body + hop + else_body
 
 
 def if_not_block(cond: bytes, body: bytes) -> bytes:
