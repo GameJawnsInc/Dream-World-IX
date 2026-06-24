@@ -10,11 +10,13 @@ Targets **Blender 4.2+ / 5.x**.
 
 ## Install
 
-```bash
-python build_addon.py        # -> dist/ff9mapkit_blender-0.9.12.zip
-```
+**Two ways to get the add-on zip:**
 
-Then install it as an **extension** (the Blender 4.2+/5.x way — the zip is an extension with
+1. **Download (easiest)** — grab the latest `ff9mapkit_blender-*.zip` from the project's
+   [GitHub **Releases**](https://github.com/GameJawnsInc/Dream-World-IX/releases) page.
+2. **Build from source** — run `python build_addon.py` (writes `dist/ff9mapkit_blender-<version>.zip`).
+
+Then install the zip as an **extension** (the Blender 4.2+/5.x way — it's an extension with
 `blender_manifest.toml` at its root):
 
 > **Edit → Preferences → Get Extensions → ▾ (top-right) → Install from Disk…** → pick the zip.

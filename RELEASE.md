@@ -120,6 +120,9 @@ Treat this as **verify-and-iterate**, not one-shot-trust. (Claude can run this v
      the patch set or the Memoria base changed. The b1 bundle was s23/s24/s29; b2 adds s30–s33.)
    - **Verify the zip ships zero game bytes**, then create the GitHub Release for `v1.0.0b2` and upload it
      as a Release asset. Keep the asset filename in lockstep with ENGINE.md's download instruction.
+   - **(Convenience) also attach the Blender add-on zip.** Build it with `ff9mapkit/blender/build_addon.py`
+     and upload `ff9mapkit_blender-<version>.zip` alongside the engine bundle, so users can install the
+     add-on without cloning + building (blender/README.md offers both the Releases download and the build).
 5. Sanity-check the GitHub repo (README renders, no stray branches, no game bytes in the tree).
 6. Flip the repository to **public**.
 7. (Optional) Publish to PyPI: run `python -m twine check dist/*` first (the metadata + README-render
