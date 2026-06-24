@@ -5,6 +5,31 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+## [1.0.0b2] - 2026-06-24 — verbatim-fork spatial authoring + engine refresh
+
+Toolkit + engine-bundle refresh on top of the first public beta.
+
+### Added — place additive content on a verbatim fork, visually
+- **Verbatim-aware Blender export**: an imported verbatim/faithful fork (its `field.toml` ships
+  `[walkmesh] bgi=`) now exports the spatial markers ONLY and keeps the real `.bgi` byte-exact — it
+  never round-trips the walkmesh through the `.obj` path (which rebuilds neighbor links by shared
+  vertex index and strands multi-floor seams). Closes a latent footgun where a verbatim fork
+  mis-detected as editable and shipped a fragmenting walkmesh on export.
+- The Blender spatial NPC marker now carries **name + position only**; the model/dialogue is authored
+  in the `field.toml` (joined by name). The misleading `preset` field is gone.
+- **Workspace** surfaces a scene-placed (`scene.toml`) NPC/marker with no `[[npc]]`/`[[marker]]`
+  definition as a **"needs definition"** tree node + count badge, with one-click **Define**; a
+  **Refresh (F5)** re-reads the `scene.toml` after a Blender re-export without re-opening the field.
+- `lint_logic` warns a bare NPC (no model/preset/archetype) will clone the player model.
+- Blender add-on **0.9.20**.
+
+### Changed — engine bundle (`dwix-custom-memoria-1.0.0b2.zip`)
+- Rebuilt with the full live fork-fidelity set **s23–s33** (was s23/s24/s29 in 1.0.0b1): adds the
+  DoEventCode scripted-walk positions (s30), the name-keyed overlay/control/menu gates (s31/s32), and
+  the `fldMapNo`-argument lookups incl. the authorable in-field LOCATION name (s33). Disc-1 + the
+  walk/occlusion/menu fixes are in-game proven; s32 and the s33 sibling sweeps ship unverified
+  (identity-safe for real fields).
+
 ## [1.0.0b1] - 2026-06-19 — Dream World IX public beta
 
 First public (beta) release of **Dream World IX** (the `ff9mapkit` toolkit). The entries below
@@ -1974,5 +1999,6 @@ The full custom-field pipeline, proven end to end in real gameplay. See
 ### Notes
 - `0.9.x` unified the CLI and Blender add-on versions; the CLI was previously `0.1.0`.
 
-[Unreleased]: https://github.com/GameJawnsInc/Dream-World-IX/compare/v1.0.0b1...HEAD
+[Unreleased]: https://github.com/GameJawnsInc/Dream-World-IX/compare/v1.0.0b2...HEAD
+[1.0.0b2]: https://github.com/GameJawnsInc/Dream-World-IX/compare/v1.0.0b1...v1.0.0b2
 [1.0.0b1]: https://github.com/GameJawnsInc/Dream-World-IX/releases/tag/v1.0.0b1

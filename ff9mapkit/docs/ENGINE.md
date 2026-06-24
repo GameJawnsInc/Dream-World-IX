@@ -33,15 +33,18 @@ encounters — works on **stock Memoria**. But FF9 hardcodes a number of behavio
 narrow-map letterbox masking, a few off-mesh / after-battle / per-actor fixes, the overworld→field
 entry redirect, and similar. They cannot be restored from script bytecode alone.
 
-The bundled engine patch set restores them: **[`memoria-patches/`](../../memoria-patches/) `s23` / `s24` / `s29`**
-wrap the hardcoded `fldMapNo == N` engine gates with an *effective field id* so they fire for a
-custom fork, and `s23` gives a forked narrow field the donor's exact tuned width. (`s24` folds in the
-intermediate fork-donor milestone steps; `s29` adds the late-game softlock gates — there is no separate
-`s25`–`s28` file.) These patches are applied to a local Memoria build; the showcase opening ships with
-that custom Memoria. The disc-1 gates are in-game proven; the newest late-disc (disc 2–4) softlock gates
-are still being playtested as those zones are forked. (The `s22` F6 debug menu is a tester convenience —
-the beta engine bundle ships it, but it's not a fork-fidelity patch and isn't part of the
-upstream-candidate set.)
+The bundled engine patch set restores them: **[`memoria-patches/`](../../memoria-patches/) `s23`–`s33`**
+wrap the hardcoded `fldMapNo` engine gates with an *effective field id* (and an *effective field name*)
+so they fire for a custom fork, and `s23` gives a forked narrow field the donor's exact tuned width.
+(`s24` folds in the intermediate fork-donor milestone steps — there is no separate `s25`–`s28` file;
+`s29` adds the late-game softlock gates; `s30`–`s33` extend the same idea to the gate classes the first
+census missed — DoEventCode scripted-walk positions, name-keyed overlay/control/menu gates, and
+`fldMapNo`-argument lookups incl. the in-field LOCATION name.) These patches are applied to a local
+Memoria build; the showcase opening ships with that custom Memoria. The disc-1 gates plus the s30/s31
+walk+occlusion and s33 menu-LOCATION fixes are in-game proven; the late-disc s29 softlock gates, s32, and
+the s33 sibling sweeps are still being playtested as those zones are forked. (The `s22` F6 debug menu is a
+tester convenience — the beta engine bundle ships it, but it's not a fork-fidelity patch and isn't part of
+the upstream-candidate set.)
 
 The full per-behavior breakdown — stock, patch-restored, or genuinely engine-blocked — is in
 [`FORK_FIDELITY.md`](FORK_FIDELITY.md) and [`FORK_IDGATE_MAP.md`](FORK_IDGATE_MAP.md); the per-file status
@@ -59,12 +62,12 @@ A **forked** field needs this engine; a **novel** field does not. Two ways to ge
    The bundle is a compiled, **MIT-licensed** Memoria build (© Albeoris) plus the Dream World IX
    patches, and ships **zero** game data. It's pinned to a specific Memoria base — if you run a much
    newer Memoria and hit crashes, use option 2.
-2. **Build from source (version-robust).** Apply `memoria-patches/s23` + `s24` + `s29` to a
+2. **Build from source (version-robust).** Apply `memoria-patches/s23` + `s24` + `s29` + `s30` + `s31` + `s32` + `s33` to a
    [Memoria](https://github.com/Albeoris/Memoria) source clone and compile `Assembly-CSharp` with
    VS MSBuild; this matches whatever Memoria version you build against. The build replaces your
    install's `Assembly-CSharp.dll`.
 
-The clean long-term fix is **upstreaming** `s23`/`s24`/`s29` into Memoria (they're small and
+The clean long-term fix is **upstreaming** `s23`–`s33` into Memoria (they're small and
 `EffectiveFieldId`-gated, so stock-game behavior is untouched) — then no custom engine is needed at all.
 
 ## Optional engine polish (nice-to-have, not required)

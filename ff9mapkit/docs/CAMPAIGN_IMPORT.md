@@ -184,7 +184,7 @@ ff9mapkit import <X> --native --verbatim --id <next-free> --name OPEN_<NAME> --o
 #    wholesale replace):
 py tools/deploy_field.py <campaign>/OPEN_<NAME>/OPEN_<NAME>.field.toml --id <next-free> --name OPEN_<NAME> --mod-folder FF9CustomMap
 py tools/deploy_field.py <campaign>/<LEAKING>/<LEAKING>.field.toml      --id <leaking-id> --name <LEAKING> --mod-folder FF9CustomMap
-# 4. Append "<next-free> <X>" to the live ForkDonorPatch.txt  (so the s23/s24/s29 id-gate remaps fire)
+# 4. Append "<next-free> <X>" to the live ForkDonorPatch.txt  (so the s23–s33 id-gate remaps fire)
 # 5. RELAUNCH (a brand-new id registers its DictionaryPatch line only at launch)
 ```
 

@@ -137,7 +137,7 @@ gateways, encounters) on stock Memoria too, but FF9 hardcodes a number of behavi
 *original* field's id — narrow-map letterbox masking, a few off-mesh / after-battle / per-actor
 fixes, the overworld→field entry redirect. Those are lost when the fork runs under a new id and
 **cannot be restored from script bytecode alone.** The bundled engine patch set
-([`memoria-patches/`](../../memoria-patches/), `s23`/`s24`/`s29`) restores them for fork fidelity, and the
+([`memoria-patches/`](../../memoria-patches/), `s23`–`s33`) restores them for fork fidelity, and the
 showcase opening ships with that custom Memoria build. Exactly what's stock vs. patch-restored is in
 [`ENGINE.md`](ENGINE.md).
 
@@ -175,7 +175,7 @@ not a bug — the synthesized path trades that detail for editability.
 
 ## See also
 
-- [`ENGINE.md`](ENGINE.md) — stock vs. enhanced Memoria, and the `s23`/`s24`/`s29` patch set.
+- [`ENGINE.md`](ENGINE.md) — stock vs. enhanced Memoria, and the `s23`–`s33` patch set.
 - [`FORK_FIDELITY.md`](FORK_FIDELITY.md) — the full, honest map of what a fork does and doesn't reproduce.
 - [`FORMAT.md`](FORMAT.md) — the complete `field.toml` schema (every section above).
 - [`../../SETUP.md`](../../SETUP.md) — install, the dev loop, and the GUI overview.

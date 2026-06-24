@@ -1,7 +1,9 @@
 # Releasing Dream World IX
 
 Maintainer runbook for cutting a public release of **Dream World IX** (the `ff9mapkit` toolkit).
-Nothing here is automated — each step is deliberate. Current target: **`1.0.0b1`** (first public beta).
+Nothing here is automated — each step is deliberate. Current target: **`1.0.0b2`**. The first-publish
+steps (create the public repo, push `master`, flip to public — steps 1–2, 5–6 below) are **one-time and
+already done** for `1.0.0b1`; a subsequent release is just tag + engine bundle + (optional) PyPI.
 
 > **HEAD is already provenance-clean** — only the kit's own hut demo quad is tracked. The work below
 > is about git **history** (which still holds Square-Enix-derived blobs) and the mechanics of going public.
@@ -103,25 +105,25 @@ Treat this as **verify-and-iterate**, not one-shot-trust. (Claude can run this v
    (Only `master` goes public — a clean public repo. The archive keeps every branch.)
 3. Tag the beta and push it:
    ```bash
-   git tag -a v1.0.0b1 -m "Dream World IX 1.0.0b1 — first public beta"
-   git push origin v1.0.0b1
+   git tag -a v1.0.0b2 -m "Dream World IX 1.0.0b2 — verbatim-fork spatial authoring + engine s23–s33"
+   git push origin v1.0.0b2
    ```
 4. **Build + attach the custom-engine bundle.** Forked fields need it, and
    [`ENGINE.md`](ff9mapkit/docs/ENGINE.md) tells users to download it from Releases — so the asset MUST
    exist when the repo goes public, or every fork's install path dead-ends.
-   - Build the fork-fidelity engine: apply `memoria-patches/` `s23` + `s24` + `s29` (plus `s22` for the
-     F6 dev menu) to a Memoria source clone and compile `Assembly-CSharp` (see ENGINE.md "Build from
-     source"; the per-file map is `memoria-patches/README.md`).
-   - Assemble `dwix-custom-memoria-1.0.0b1.zip` = the three managed DLLs (`Assembly-CSharp.dll` + the
+   - Build the fork-fidelity engine: apply `memoria-patches/` `s23` + `s24` + `s29` + `s30` + `s31` +
+     `s32` + `s33` (plus `s22` for the F6 dev menu) to a Memoria source clone and compile `Assembly-CSharp`
+     (see ENGINE.md "Build from source"; the per-file map is `memoria-patches/README.md`).
+   - Assemble `dwix-custom-memoria-1.0.0b2.zip` = the three managed DLLs (`Assembly-CSharp.dll` + the
      matched `Memoria.Prime.dll` / `UnityEngine.UI.dll`) + an `INSTALL.txt` + MIT/Albeoris attribution.
-     (A pre-built bundle already exists at `dwix-custom-memoria-1.0.0b1.zip` outside the repo — rebuild
-     only if the patch set or the Memoria base changed.)
-   - **Verify the zip ships zero game bytes**, then create the GitHub Release for `v1.0.0b1` and upload it
+     (A pre-built bundle exists at `dwix-custom-memoria-1.0.0b2.zip` outside the repo — rebuild only if
+     the patch set or the Memoria base changed. The b1 bundle was s23/s24/s29; b2 adds s30–s33.)
+   - **Verify the zip ships zero game bytes**, then create the GitHub Release for `v1.0.0b2` and upload it
      as a Release asset. Keep the asset filename in lockstep with ENGINE.md's download instruction.
 5. Sanity-check the GitHub repo (README renders, no stray branches, no game bytes in the tree).
 6. Flip the repository to **public**.
 7. (Optional) Publish to PyPI: run `python -m twine check dist/*` first (the metadata + README-render
-   gate), then `python -m build && twine upload dist/*` (version `1.0.0b1`).
+   gate), then `python -m build && twine upload dist/*` (version `1.0.0b2`).
 
 ---
 
@@ -129,8 +131,9 @@ Treat this as **verify-and-iterate**, not one-shot-trust. (Claude can run this v
 
 - **Version form.** `pyproject.toml` carries the PEP 440 string `1.0.0b1`; the CHANGELOG header, git tag,
   and URLs all use the same. Bump it there + add a dated CHANGELOG section for each subsequent release.
-- **Engine honesty.** The shipped fork-fidelity engine is the bundled `s23` / `s24` / `s29` patch set
-  (see `ff9mapkit/docs/ENGINE.md`). Disc-1 gates are in-game proven; the newest late-disc (s29) softlock
-  gates are still being playtested — keep that caveat accurate as zones are verified.
+- **Engine honesty.** The shipped fork-fidelity engine is the bundled `s23`–`s33` patch set
+  (see `ff9mapkit/docs/ENGINE.md`). Disc-1 gates plus the s30/s31 walk+occlusion and s33 menu-LOCATION
+  fixes are in-game proven; the late-disc s29 softlock gates, s32, and the s33 sibling sweeps ship
+  unverified (identity-safe for real fields) — keep that caveat accurate as zones are verified.
 - **Scratch hygiene.** `tworoom/treno_plat/` (SE-derived fork scratch) is gitignored; never `git add -A`
   it in before the scrub.
