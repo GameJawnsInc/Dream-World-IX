@@ -119,6 +119,31 @@ set_scenario = 0                                                # optional hub-s
 that campaign's graph (kind overworld/portal/scripted/menu — `campaign.campaign_graph`); the assembler
 **rewrites its target** to `to`'s field after id assignment. One link per campaign boundary.
 
+### Journey-global story flags (`[[flag]]`)
+
+A **top-level `[[flag]]`** table in `journeys.toml` declares **journey-global** named story flags — the
+**whole-game** tier, shared across **every campaign** of the manifest and propagated to every member by name
+at deploy (so any field, in any campaign, can `requires_flag = "<name>"` it). This is the top of the
+**flag-scope hierarchy**, all of which are the *same* global `gEventGlobal` bit array — only the *naming
+scope* differs:
+
+| scope | declared in | shared with | edit in GUI |
+|---|---|---|---|
+| field-local | `field.toml` `[[flag]]` | one field (e.g. a chest's opened bit) | the field's **Flags** tree section |
+| campaign-shared | `campaign.toml` `[[flag]]` | every member of one campaign | campaign root → **Shared flags…** |
+| journey-global | `journeys.toml` `[[flag]]` | every campaign of one journey | journey hub root → **Shared flags…** |
+
+```toml
+[[flag]]                 # journey-global: cross-campaign story state
+name  = "met_quina"
+index = 12000            # safe band [8512, 16320) AND above every campaign's flag window
+```
+
+Each index must be in the safe custom band **and ABOVE every campaign's auto-flag window** (so it can't
+collide with a member's auto once-flags) — `lint-journey` enforces this and the unique-name/index rules.
+Most shared state is **campaign-shared** (a campaign is a self-contained arc; cross-arc progression usually
+rides the scenario counter); reach for journey-global only for a flag genuinely read across campaigns.
+
 ---
 
 ## 3. Data model (suggested)
