@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..19194b75
+index 00000000..85370037
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,704 @@
+@@ -0,0 +1,759 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -47,6 +47,8 @@ index 00000000..19194b75
 +    private Vector2 _scroll;
 +    private Int32 _tab;
 +    private String _warpText = "5000";
++    private String _entranceText = "";       // [ff9mapkit] optional arrival entrance for the warp (blank = leave FieldEntrance as-is)
++    private String _scenarioText = "";       // [ff9mapkit] optional ScenarioCounter to set before the warp (blank = leave as-is) -- seed a story beat to reach a story-gated fork
 +    private String _txText = "0";
 +    private String _tzText = "0";
 +    private String _flagText = "8000";
@@ -64,6 +66,8 @@ index 00000000..19194b75
 +    private const Int32 WarpFadeFrames = 24;     // FF9Wipe fade-out duration (matches the gateway FadeFilter)
 +    private const Single WarpFadeWait = 0.9f;    // seconds to let the fade finish before the map change
 +    private Int32 _pendingWarpMap = -1;          // >= 0 while a faded warp is in flight
++    private Int32 _pendingWarpEntrance = -1;     // [ff9mapkit] >= 0 -> set FieldEntrance before the map change (faithful gateway arrival)
++    private Int32 _pendingWarpScenario = -1;     // [ff9mapkit] >= 0 -> set ScenarioCounter before the map change (seed a story beat)
 +    private Single _pendingWarpTimer;
 +    private Boolean _pendingWarpReset;
 +
@@ -197,6 +201,24 @@ index 00000000..19194b75
 +        if (GUILayout.Button("Go", _button, GUILayout.Width(64f)))
 +            WarpTo(_warpText);
 +        GUILayout.EndHorizontal();
++        // [ff9mapkit] Arrival entrance: a real gateway sets FieldEntrance just before Field(target), so the
++        // destination .eb places the player at that door + inits the scroll/camera there. A bare F6 warp left
++        // it stale -> you always landed at entry 0 (the "wrong end" + scrolling-field drift). Set it to arrive
++        // as if through a specific door (blank = leave the current value). Try 0,1,2... to find the right door;
++        // the Flags tab readout shows the live FieldEntrance so you can confirm which one took.
++        GUILayout.BeginHorizontal();
++        GUILayout.Label("arrive via entrance", _label, GUILayout.Width(140f));
++        _entranceText = GUILayout.TextField(_entranceText, 4, _field, GUILayout.Width(56f));
++        GUILayout.EndHorizontal();
++        // [ff9mapkit] Set ScenarioCounter before the warp: seed a STORY BEAT so a story-gated fork loads in the
++        // right state (a cold fork boots at scenario 0). Blank = leave it. "Set now" applies it to the CURRENT
++        // field without warping. The Flags tab readout shows the live ScenarioCounter + its beat name.
++        GUILayout.BeginHorizontal();
++        GUILayout.Label("set scenario", _label, GUILayout.Width(140f));
++        _scenarioText = GUILayout.TextField(_scenarioText, 6, _field, GUILayout.Width(56f));
++        if (GUILayout.Button("Set now", _button, GUILayout.Width(64f)))
++            SetScenarioNow();
++        GUILayout.EndHorizontal();
 +        foreach (KeyValuePair<Int32, String> kv in RegisteredFields())
 +            if (GUILayout.Button(kv.Key + "   " + kv.Value, _button))
 +                Warp(kv.Key, false);
@@ -329,6 +351,10 @@ index 00000000..19194b75
 +            PersistenSingleton<EventEngine>.Instance.SetUserControl(false);
 +            SceneDirector.FF9Wipe_FadeOutEx(WarpFadeFrames);
 +            _pendingWarpMap = mapNo;
++            // [ff9mapkit] stash the chosen arrival entrance (blank/invalid -> -1 = leave FieldEntrance as-is)
++            _pendingWarpEntrance = Int32.TryParse(_entranceText, out Int32 entr) && entr >= 0 ? entr : -1;
++            // [ff9mapkit] stash the chosen ScenarioCounter (blank/invalid -> -1 = leave it as-is)
++            _pendingWarpScenario = Int32.TryParse(_scenarioText, out Int32 scn) && scn >= 0 ? scn : -1;
 +            _pendingWarpReset = resetFlags;
 +            _pendingWarpTimer = WarpFadeWait;
 +            _open = false;
@@ -359,6 +385,15 @@ index 00000000..19194b75
 +                ClearFlagState();
 +            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
 +            ee.SetUserControl(false);
++            // [ff9mapkit] arrive as if through a chosen door: set FieldEntrance the way a gateway does, just
++            // before the map change, so the destination .eb branches to that entrance (placement + scroll init).
++            if (_pendingWarpEntrance >= 0)
++                FF9StateSystem.EventState.FieldEntrance = _pendingWarpEntrance;
++            // [ff9mapkit] seed the story beat before the map loads, so a story-gated fork's Main_Init reads the
++            // right ScenarioCounter (a cold fork otherwise boots at 0). Set BEFORE SetNextMap so the new field's
++            // entry logic sees it. (A fork that bakes its own [startup] scenario would re-overwrite this on entry.)
++            if (_pendingWarpScenario >= 0)
++                FF9StateSystem.EventState.ScenarioCounter = _pendingWarpScenario;
 +            ee.SetNextMap(mapNo);
 +            FF9StateSystem.Field.FF9Field.loc.map.nextMode = 1;
 +            PersistenSingleton<FF9StateSystem>.Instance.attr |= 8u;
@@ -366,6 +401,26 @@ index 00000000..19194b75
 +        catch (Exception err)
 +        {
 +            _status = "warp failed: " + err.Message;
++        }
++    }
++
++    // [ff9mapkit] Set the ScenarioCounter on the CURRENT field without warping (then F6 -> Reload field to let
++    // the field's Main_Init re-derive its state from the new beat). Handy to nudge a story-gated fork in place.
++    private void SetScenarioNow()
++    {
++        if (!Int32.TryParse(_scenarioText, out Int32 scn) || scn < 0)
++        {
++            _status = "scenario: enter a non-negative number";
++            return;
++        }
++        try
++        {
++            FF9StateSystem.EventState.ScenarioCounter = scn;
++            _status = "ScenarioCounter = " + scn + "  (F6 -> Reload field to apply)";
++        }
++        catch (Exception err)
++        {
++            _status = "set scenario failed: " + err.Message;
 +        }
 +    }
 +

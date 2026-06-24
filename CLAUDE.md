@@ -178,7 +178,9 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   `tools/restore_memoria_dll.py baseline`; true stock = re-run the patcher.
 - **F6 debug menu** (dev build, in **FIELD and BATTLE** — in-game proven 2026-06-09): a draggable tabbed
   IMGUI popup —
-  **Warp** (reload field · warp to any registered custom id ≥4000) ·
+  **Warp** (reload field · warp to any registered custom id ≥4000 · seed an **arrival entrance** + a
+  **ScenarioCounter** on the warp — set `FieldEntrance`/scenario before the map change to reach a story-gated
+  fork at the right beat through the right door; a "Set now" button sets the scenario on the current field) ·
   **Move** (teleport to x,z · right-click the field to copy the floor (x,z) under the cursor) ·
   **Cheats** (booster toggles · full-heal · give item/gil) ·
   **Flags** (get/set/clear a `gEventGlobal` story flag · snapshot/restore · reset-all) ·
