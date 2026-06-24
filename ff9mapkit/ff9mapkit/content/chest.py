@@ -39,13 +39,10 @@ CHEST_FLAGS_INIT = 5         # SetObjectFlags initial: show(1) + collide-NPC(4) 
 CHEST_FLAGS_CLOSED = 49      # show(1) + can't-walk-through(16) + don't-hide(32): solid + talkable (-> "!")
 CHEST_FLAGS_OPEN = 57       # CHEST_FLAGS_CLOSED + disable-talk(8): solid but NO "!" / inert once looted
 CHEST_FLAG_CLASS = _region.GLOB_BOOL   # 0xC4 -- save-persistent gEventGlobal bool
-CHEST_FLAG_BASE = 8400        # opened-flag auto band -- DELIBERATELY inside FF9's own treasure-chest
-                              # bitfield (flags.py CHEST_FLAG_LO..HI = 8376..8511): these ARE chest-opened
-                              # bits, so the kit chest reuses that save-region. SINGLE-FIELD allocation only
-                              # (CHEST_FLAG_BASE+k) -- it is NOT per-member-partitioned, so a CAMPAIGN member
-                              # must pin an explicit `flag = N` (build.validate enforces it) or two members'
-                              # auto chests alias. Clear of the event 8000 / cutscene 8100 / choice 8200 /
-                              # on_entry 8300 once-flag bands.
+# The opened-flag is REQUIRED (no auto-allocation): inject_chest takes it as `flag_idx`, and build.validate
+# enforces a DEFINED flag in the safe custom band [flags.FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR) -- so it can't
+# shift on reorder (a positional bit would) or collide with FF9's own chest bitfield ([8376, 8511]). A named
+# [[flag]] is the ergonomic, campaign-unique choice.
 
 SET_MODEL = 0x2F
 SET_OBJECT_LOGICAL_SIZE = 0x4B

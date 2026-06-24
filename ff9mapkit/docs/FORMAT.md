@@ -483,11 +483,16 @@ save-persistent flag** so the chest stays open across saves and reloads. Byte-gr
 [[chest]]                 # an item chest
 pos = [0, 80]             # where the chest model sits (on the walkmesh; usually placed in Blender)
 item = ["Potion", 1]      # [item id-or-name, count]
+flag = "chest_potion"     # REQUIRED: the opened-flag (a [[flag]] name, recommended)
 
 [[chest]]                 # a gil chest
 pos = [120, 80]
 gil = 250
-flag = 8520               # REQUIRED in a campaign member (see note); auto in a single field
+flag = 8521               # ...or a raw safe-band index (>= 8512)
+
+[[flag]]                  # define the named opened-flag
+name  = "chest_potion"
+index = 8520
 ```
 
 | key | meaning |
@@ -495,7 +500,7 @@ flag = 8520               # REQUIRED in a campaign member (see note); auto in a 
 | `pos` | `[x, z]` — where the chest model sits on the floor. It has **solid collision** (the player can't walk through it); place it where the player can reach to press it. |
 | `item` | `[item, count]` — the reward; `item` is an **id or a name** (`"Potion"`, also gear). Set **`item` OR `gil`**, not both. |
 | `gil` | gil reward instead of an item. |
-| `flag` | the save-persistent **opened-flag** bit — the chest re-poses OPEN once looted, forever. A **`[[flag]]` name or an index**. **Auto** in a single field (FF9's own chest bitfield, `8400+`); a **campaign member MUST set an explicit one** (a named `[[flag]]` is easiest — the auto band isn't per-member, so two members' auto chests would alias and corrupt the save, and the build refuses a flag-less campaign chest). |
+| `flag` | **REQUIRED** — the save-persistent **opened-flag** bit (the chest re-poses OPEN once looted, forever). A **`[[flag]]` name** (recommended) or a **safe-band index `≥ 8512`**. It's *not* auto-allocated: a positional auto bit would shift if you reorder chests, and FF9's real chest bitfield (`8376–8511`) may already be set in a player's save — a defined safe-band flag is resilient to both. A named `[[flag]]` is also campaign-unique by name. |
 | `requires_flag` / `requires_flag_clear` | OPTIONAL story gate (a `[[flag]]` name or index) — the chest only **appears** while that flag is SET / CLEAR (a quest-reward chest that materializes after a beat). Distinct from `flag` (the opened bit). Same gating as `[[npc]]`/`[[event]]`. |
 | `face` | OPTIONAL facing `0–255` (`0`=south, `64`=west, `128`=north, `192`=east) — rotate the chest model. |
 | `message` | OPTIONAL — replace *"Received \<item\>!"* with your own text (you own the `[WDTH]`/window codes). |

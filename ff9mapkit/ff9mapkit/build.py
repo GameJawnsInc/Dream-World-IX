@@ -757,7 +757,6 @@ def validate(project: FieldProject) -> list[str]:
         for k in ("received", "require_space"):
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
-    from .content import chest as _chest
     for k, ch in enumerate(project.raw.get("chest", [])):
         if len(ch.get("pos", []) or []) < 2:
             problems.append(f"[[chest]] #{k} needs a pos = [x, z] (where the chest sits)")
@@ -768,19 +767,22 @@ def validate(project: FieldProject) -> list[str]:
                 _items.resolve(ch["item"][0] if isinstance(ch["item"], list) else ch["item"])
             except (ValueError, IndexError, TypeError) as e:
                 problems.append(f"[[chest]] #{k} item: {e}")
-        # campaign safety: the chest opened-flag auto-allocates at a FIXED CHEST_FLAG_BASE+k (FF9's own chest
-        # bitfield -- single-field-correct), but that band is NOT per-member-partitioned, so two members' auto
-        # chests would BOTH get bit 8400 and alias (looting one marks the other opened -> save corruption). A
-        # campaign member must therefore pin an explicit flag = N (the same rule [[on_entry]] follows -- the
-        # per-member flag block is reserved for auto event/cutscene/choice flags, so there is no auto slot here).
+        # the opened-flag must be a DEFINED story flag in the safe custom band -- NOT a positional auto bit
+        # (which would shift when chests are reordered) and NOT FF9's real chest bitfield [8376, 8511] (which a
+        # player's existing save may already have set). A named [[flag]] is easiest (readable + campaign-unique);
+        # a raw safe-band index works too. (`flag` is resolved name->int at load, so by here it's int or absent.)
         _flag = ch.get("flag")
-        if (getattr(project, "flag_base", None) is not None
-                and not (isinstance(_flag, int) and not isinstance(_flag, bool))):
+        if _flag is None:
             problems.append(
-                f"[[chest]] #{k} in a campaign member needs an explicit flag = N -- a save-persistent "
-                f"gEventGlobal bit UNIQUE across the whole campaign. The auto chest-flag band "
-                f"({_chest.CHEST_FLAG_BASE}+) is shared, not per-member, so two members' auto chests would "
-                f"alias. Pick a free index (e.g. a shared [[flag]]'s index) the campaign doesn't otherwise use.")
+                f"[[chest]] #{k} needs a flag -- a DEFINED save bit for its opened state. Add a named [[flag]] "
+                f"(e.g. flag = \"chest_{k}\" + [[flag]] name = \"chest_{k}\", index = {_flags.FIRST_SAFE_FLAG}) "
+                f"or a safe-band index; an auto bit isn't resilient to reordering or to a player's save state.")
+        elif isinstance(_flag, int) and not isinstance(_flag, bool) and not (
+                _flags.FIRST_SAFE_FLAG <= _flag < _flags.CHOICE_SCRATCH_FLOOR):
+            problems.append(
+                f"[[chest]] #{k} flag {_flag} is outside the safe custom band [{_flags.FIRST_SAFE_FLAG}, "
+                f"{_flags.CHOICE_SCRATCH_FLOOR}) -- pick an index there (or a named [[flag]]) so it can't "
+                f"collide with FF9's real chest bits ([{_flags.CHEST_FLAG_LO}, {_flags.CHEST_FLAG_HI}]) or other state.")
     # [start_inventory] / [[equipment]] -- new-game starting state (mod-global CSV deltas on the entry field)
     si = project.raw.get("start_inventory")
     if si is not None:
@@ -2688,10 +2690,10 @@ def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
     """Inject each authored ``[[chest]]`` (a real openable, savable treasure chest) into the field's ``.eb``.
     Each chest is ONE object whose Init pose is gated on a save-persistent opened-flag (the chest stays open
     across saves) and whose press handler animates the lid, gives the item/gil, shows the Received box, and
-    latches the flag (:func:`ff9mapkit.content.chest.inject_chest`). The opened-flag auto-allocates in the
-    CHEST_FLAG band (>=8400, disjoint from event/cutscene/choice/on_entry); override with an explicit integer
-    ``flag`` (REQUIRED for a campaign, where the per-field ``+k`` auto-index would alias a sibling's chest in
-    the global ``gEventGlobal`` bitfield). Exactly one of ``item``/``gil`` per chest.
+    latches the flag (:func:`ff9mapkit.content.chest.inject_chest`). Every chest REQUIRES a defined opened-flag
+    -- a named ``[[flag]]`` (resolved name->int at load) or a safe-band index; ``validate()`` enforces it is
+    present + in the safe band (no positional auto bit, no FF9-real-chest-bit collision -- the resilient choice).
+    Exactly one of ``item``/``gil`` per chest.
 
     Shared by BOTH paths: ``reserve_party_band=True`` seats each chest BELOW the donor's reserved party-
     character band (the verbatim fork); ``False`` appends it (the synthesize path, which has no such band).
@@ -2710,7 +2712,10 @@ def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
         if has_item == has_gil:
             raise BuildError(f"[[chest]] #{k} in {project.name} needs exactly one of item= or gil=.")
         flag = ch.get("flag")
-        flag_idx = int(flag) if isinstance(flag, int) and not isinstance(flag, bool) else _chest.CHEST_FLAG_BASE + k
+        if not (isinstance(flag, int) and not isinstance(flag, bool)):    # validate() enforces this up front;
+            raise BuildError(f"[[chest]] #{k} in {project.name} needs a defined flag (the opened-state save "
+                             f"bit -- a named [[flag]] or a safe-band index).")    # belt-and-suspenders here
+        flag_idx = int(flag)
         txid = chest_txids.get(k, _text.DEFAULT_BASE_TXID)
         pos = ch["pos"]
         kw = ({"item": ch["item"][0] if isinstance(ch["item"], list) else ch["item"],

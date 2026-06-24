@@ -4855,6 +4855,14 @@ class Workspace(QMainWindow):
                         warn(f"unknown item '{it}'")
                 if len(obj.get("pos", []) or []) < 2:
                     warn("a chest needs a pos = [x, z]")
+                fl = obj.get("flag")                        # the opened-flag is REQUIRED + must be safe-band
+                if fl is None or (isinstance(fl, str) and not fl.strip()):
+                    warn("a chest needs a flag (a [[flag]] name or safe-band index) for its opened state")
+                elif (isinstance(fl, int) and not isinstance(fl, bool)) or (isinstance(fl, str) and fl.strip().lstrip("-").isdigit()):
+                    from .. import flags
+                    if not (flags.FIRST_SAFE_FLAG <= int(fl) < flags.CHOICE_SCRATCH_FLOOR):
+                        warn(f"chest flag {fl} is outside the safe band [{flags.FIRST_SAFE_FLAG}, "
+                             f"{flags.CHOICE_SCRATCH_FLOOR}) -- use a name or a safe index")
             elif kind == "flag":                           # mirror collect_flag_defs: the index must be in-band
                 from .. import flags
                 idx = obj.get("index")
@@ -5361,13 +5369,15 @@ def _smoke(win):
     from ..flags import CHEST_FLAG_LO as _CFLO
     assert win._node_problems("event", {"set_flag": [_CFLO, 1]}, "IC_ENT"), "a reserved set_flag bit warns"
     assert win._node_problems("event", {"set_flag": [8520, 1]}, "IC_ENT") == [], "a safe-band flag is clean"
-    # [[chest]]: exactly one of item|gil, a known item, a pos -- mirrors build.validate
-    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1]}, "IC_ENT") == [], "a valid item chest is clean"
-    assert win._node_problems("chest", {"pos": [0, 0], "gil": 100}, "IC_ENT") == [], "a valid gil chest is clean"
-    assert win._node_problems("chest", {"pos": [0, 0], "item": ["NoSuchItem", 1]}, "IC_ENT"), "an unknown chest item warns"
-    assert win._node_problems("chest", {"pos": [0, 0]}, "IC_ENT"), "a chest with no payload warns"
-    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "gil": 5}, "IC_ENT"), "item+gil warns"
-    assert win._node_problems("chest", {"item": ["Potion", 1]}, "IC_ENT"), "a chest with no pos warns"
+    # [[chest]]: exactly one of item|gil, a known item, a pos, a DEFINED safe-band flag -- mirrors build.validate
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "flag": 8520}, "IC_ENT") == [], "a valid item chest is clean"
+    assert win._node_problems("chest", {"pos": [0, 0], "gil": 100, "flag": "loot"}, "IC_ENT") == [], "a named-flag gil chest is clean"
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["NoSuchItem", 1], "flag": 8520}, "IC_ENT"), "an unknown chest item warns"
+    assert win._node_problems("chest", {"pos": [0, 0], "flag": 8520}, "IC_ENT"), "a chest with no payload warns"
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "gil": 5, "flag": 8520}, "IC_ENT"), "item+gil warns"
+    assert win._node_problems("chest", {"item": ["Potion", 1], "flag": 8520}, "IC_ENT"), "a chest with no pos warns"
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1]}, "IC_ENT"), "a chest with no flag warns"
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "flag": 8400}, "IC_ENT"), "an out-of-band chest flag warns"
     # the build does int(scene): a non-numeric scene can't build -> warn; a numeric id passes
     assert win._node_problems("encounter", {"scene": "NoSuchScene"}, "IC_ENT"), "a non-numeric scene warns"
     assert win._node_problems("encounter", {"scene": 67}, "IC_ENT") == [], "a numeric scene id passes"

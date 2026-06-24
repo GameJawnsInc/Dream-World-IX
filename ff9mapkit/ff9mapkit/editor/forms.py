@@ -100,9 +100,9 @@ CHEST_SPEC = [
     Field("item", "Reward item (id/name, count)", ITEMCOUNT, 'the treasure, e.g. "Potion, 1" (set item OR gil)',
           catalog="item"),
     Field("gil", "Reward gil", OPTINT, "give gil instead of an item (set item OR gil)"),
-    Field("flag", "Opened-flag", FLAGREF, "save bit that marks it looted (it stays open across saves) -- a "
-          "[[flag]] name or index; auto in a single field, but a campaign member needs an explicit one so "
-          "members don't alias", catalog="flag"),
+    Field("flag", "Opened-flag", FLAGREF, "REQUIRED save bit that marks it looted (it stays open across "
+          "saves) -- a [[flag]] name (recommended) or a safe-band index >= 8512. Not auto-allocated, so it's "
+          "resilient to reordering + a player's save state", catalog="flag"),
     Field("requires_flag", "Appears when flag set", FLAGREF,
           "story gate: the chest only appears after this flag (name or index) is set", catalog="flag"),
     Field("requires_flag_clear", "Appears when flag clear", FLAGREF,

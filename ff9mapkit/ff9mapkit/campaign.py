@@ -575,8 +575,8 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         # Per-member once-flag base so member i's auto event/cutscene/choice flags can't alias a
         # sibling's (the per-field-counter-resets-per-build bug). Block = [flag_base + i*K, +K), packed
         # by build._FlagAlloc. lint_campaign asserts every block is in the provably-safe band. (A [[chest]]'s
-        # opened-flag is NOT auto-packed here -- its band is FF9's fixed chest bitfield, not per-member, so a
-        # campaign chest must pin an explicit flag = N; build.validate enforces it.)
+        # opened-flag is NOT auto-packed here -- build.validate REQUIRES every chest to pin a DEFINED safe-band
+        # flag, a named [[flag]] or index; campaign members share the flag NAME space, so name it.)
         proj.flag_base = plan.flag_base + i * plan.flags_per_field
         proj.flags_per_field = plan.flags_per_field     # the overflow guard's per-member block width
         # Do NOT override text_block to a per-member id. The FieldScene textid (6th DictionaryPatch token)
@@ -593,8 +593,8 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
 
     # each member's per-member flag_base was set on its FieldProject above; build_script's _FlagAlloc packs
     # that member's auto event/cutscene/choice flags into its own disjoint block (no cross-field alias). A
-    # [[chest]] opened-flag is the exception -- it is NOT auto-packed (FF9's fixed chest bitfield), so a
-    # campaign chest needs an explicit flag = N (build.validate rejects a flag-less chest in a member).
+    # [[chest]] opened-flag is the exception -- it is never auto-allocated; build.validate REQUIRES every chest
+    # to define a safe-band flag (a named [[flag]] is campaign-unique by name), so chests can't alias.
     # the entry member's project (by member index) -> precise non-entry lint for the mod-global new-game blocks
     entry_project = next((projects[i] for i, m in enumerate(plan.members) if m.name == plan.entry_name), None)
     if seed_blocks and entry_project is not None:        # the journey [journey.seed] capstone, on the entry only

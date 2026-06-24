@@ -708,7 +708,7 @@ def test_synth_item_chest_full_contraption(tmp_path):
     # the SAME contraption the verbatim path builds, now appended to a synthesized field: a flag-gated
     # open/closed pose Init + collision box + a press-to-open handler that gives the item and shows a box.
     from ff9mapkit import eblint
-    mes, chest_txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\n')
+    mes, chest_txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\nflag = 8520\n')
     txid = chest_txids[0]
     assert txid >= text.DEFAULT_BASE_TXID                          # a real id in the synth 500-block
     # the REAL FF9 item-get box (field 200/407 txid 51): [STRT=69,3] (width,lines) + DEFT tail AUTO-CENTER it;
@@ -724,7 +724,7 @@ def test_synth_item_chest_full_contraption(tmp_path):
 
 def test_synth_gil_chest_uses_numb_box(tmp_path):
     from ff9mapkit import eblint
-    mes, chest_txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 500\n')
+    mes, chest_txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 500\nflag = 8520\n')
     # the real gil box (field 200/407 txid 53): own STRT=86,3 geometry, WDTH height 64, gold-coloured number.
     assert "[STRT=86,3][TAIL=DEFT][WDTH=0,86,64,0,-1][IMME]" in mes
     assert "[NUMB=0] Gil" in mes
@@ -755,44 +755,40 @@ def test_synth_chestless_field_has_no_chest(tmp_path):
 
 def test_synth_chest_validation(tmp_path):
     from ff9mapkit import build
-    def _probs(body):
+    def _cp(body):                                  # the [[chest]]-specific problems only
         p = tmp_path / "z.field.toml"
         p.write_text(_CHEST_BASE + body, encoding="utf-8")
-        return build.validate(build.FieldProject.load(p))
-    assert any("exactly one" in s for s in _probs('[[chest]]\npos = [0, 0]\n'))                        # no payload
-    assert any("exactly one" in s for s in _probs('[[chest]]\npos = [0, 0]\nitem = "Potion"\ngil = 5\n'))  # both
-    assert any("pos" in s for s in _probs('[[chest]]\nitem = "Potion"\n'))                             # no pos
+        return [s for s in build.validate(build.FieldProject.load(p)) if "[[chest]]" in s]
+    assert any("exactly one" in s for s in _cp('[[chest]]\npos = [0, 0]\nflag = 8520\n'))                  # no payload
+    assert any("exactly one" in s for s in _cp('[[chest]]\npos = [0, 0]\nitem = "Potion"\ngil = 5\nflag = 8520\n'))
+    assert any("pos" in s for s in _cp('[[chest]]\nitem = "Potion"\nflag = 8520\n'))                       # no pos
 
 
-def test_synth_chest_campaign_requires_explicit_flag(tmp_path):
-    # the chest opened-flag auto-allocates at a SHARED CHEST_FLAG_BASE+k (not per-member), so a campaign member
-    # must pin flag = N or two members' auto chests alias -> save corruption. Single-field auto-alloc stays fine.
-    from ff9mapkit import build, campaign
-    def _flag_probs(body, *, campaign_member):
+def test_chest_requires_defined_safe_band_flag(tmp_path):
+    # the opened-flag is REQUIRED (no positional auto bit) and must be in the safe band (not FF9's real chest
+    # bitfield) -- resilient to reordering + a player's save. A named [[flag]] or a safe index both pass.
+    from ff9mapkit import build
+    def _cp(body):
         p = tmp_path / "z.field.toml"
         p.write_text(_CHEST_BASE + body, encoding="utf-8")
-        proj = build.FieldProject.load(p)
-        if campaign_member:
-            proj.flag_base = campaign.FIRST_SAFE_FLAG
-            proj.flags_per_field = 64
-        return [s for s in build.validate(proj) if "campaign member needs an explicit flag" in s]
-    chest = '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\n'
-    assert _flag_probs(chest, campaign_member=True)                        # flag-less campaign chest -> rejected
-    assert not _flag_probs(chest + "flag = 8520\n", campaign_member=True)  # explicit flag -> accepted
-    assert not _flag_probs(chest, campaign_member=False)                   # single-field auto-flag -> fine
+        return [s for s in build.validate(build.FieldProject.load(p)) if "[[chest]]" in s]
+    base = '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\n'
+    assert any("needs a flag" in s for s in _cp(base))                     # no flag -> rejected
+    assert any("safe" in s for s in _cp(base + "flag = 8400\n"))           # FF9 chest-bitfield index -> rejected
+    assert not _cp(base + "flag = 8520\n")                                 # a safe-band index -> clean
+    assert not _cp(base + 'flag = "t"\n\n[[flag]]\nname = "t"\nindex = 8520\n')   # a named [[flag]] -> clean
 
 
 def test_synth_chest_flag_by_name_resolves(tmp_path):
-    # a [[chest]] flag = "<name>" resolves to the [[flag]] index at load (so a campaign chest can be NAMED,
-    # not a raw bit) -- and the named flag counts as "explicit" for the campaign guard. An unknown name raises.
+    # a [[chest]] flag = "<name>" resolves to the [[flag]] index at load (the ergonomic, campaign-unique
+    # choice); an unknown name raises at load (flags.resolve), never silently falling back.
     from ff9mapkit import build
     p = tmp_path / "z.field.toml"
     p.write_text(_CHEST_BASE + '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\nflag = "treasure_a"\n\n'
                  '[[flag]]\nname = "treasure_a"\nindex = 8520\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert proj.raw["chest"][0]["flag"] == 8520                            # named opened-flag resolved at load
-    proj.flag_base, proj.flags_per_field = 8512, 64                        # a campaign member: the NAME is explicit
-    assert not [s for s in build.validate(proj) if "campaign member needs an explicit flag" in s]
+    assert not [s for s in build.validate(proj) if "[[chest]]" in s]       # a named safe-band flag validates clean
 
 
 def test_synth_gated_chest_has_appearance_gate(tmp_path):
@@ -800,14 +796,14 @@ def test_synth_gated_chest_has_appearance_gate(tmp_path):
     # flag_gate (early-return), so the chest is absent until that story flag is set -- a quest-reward chest.
     from ff9mapkit.content import region
     _mes, _txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\n'
-                                    'flag = 8450\nrequires_flag = 8520\n')
-    assert region.flag_gate(region.GLOB_BOOL, 8520, require_set=True) in eb
+                                    'flag = 8520\nrequires_flag = 8521\n')
+    assert region.flag_gate(region.GLOB_BOOL, 8521, require_set=True) in eb
 
 
 def test_synth_chest_face_passes_through(tmp_path):
     # face rotates the chest model -- the Init's facing const carries the value (128 is distinctive; a
     # default face=0 chest wouldn't emit it).
     from ff9mapkit.content.npc import _d9_const
-    _mes, _txids, eb128 = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 100\nface = 128\n')
-    _mes, _txids, eb0 = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 100\n')
+    _mes, _txids, eb128 = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 100\nface = 128\nflag = 8520\n')
+    _mes, _txids, eb0 = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 100\nflag = 8520\n')
     assert _d9_const(6, 128) in eb128 and _d9_const(6, 128) not in eb0    # the facing value reaches the Init

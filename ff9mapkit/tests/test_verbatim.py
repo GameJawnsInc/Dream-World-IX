@@ -209,7 +209,7 @@ def test_build_field_verbatim_with_chest_end_to_end(tmp_path):
     _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
     donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
     project = build.FieldProject.load(toml)
-    project.raw["chest"] = [{"pos": [0, 0], "item": "Potion", "count": 1}]
+    project.raw["chest"] = [{"pos": [0, 0], "item": "Potion", "count": 1, "flag": 8520}]
     assert build.validate(project) == []
     out = tmp_path / "mod"
     build.build_mod([project], out, mod_name="FF9CustomMap")
