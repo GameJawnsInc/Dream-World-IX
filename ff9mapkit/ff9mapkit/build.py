@@ -2716,7 +2716,9 @@ def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
         kw = ({"item": ch["item"][0] if isinstance(ch["item"], list) else ch["item"],
                "count": int(ch["item"][1]) if isinstance(ch["item"], list) and len(ch["item"]) > 1
                else int(ch.get("count", 1))} if has_item else {"gil": int(ch["gil"])})
+        gf, gs = _gate_of(ch)                          # an OPTIONAL appearance gate (requires_flag[_clear])
         eb = _chest.inject_chest(eb, int(pos[0]), int(pos[1]), flag_idx=flag_idx, received_text_id=txid,
+                                 face=int(ch.get("face", 0)), gate=(gf, gs) if gf is not None else None,
                                  reserve_party_band=reserve_party_band, **kw)
     return eb
 

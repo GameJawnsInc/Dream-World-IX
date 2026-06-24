@@ -100,8 +100,14 @@ CHEST_SPEC = [
     Field("item", "Reward item (id/name, count)", ITEMCOUNT, 'the treasure, e.g. "Potion, 1" (set item OR gil)',
           catalog="item"),
     Field("gil", "Reward gil", OPTINT, "give gil instead of an item (set item OR gil)"),
-    Field("flag", "Opened-flag", OPTINT, "save bit that marks it looted (it stays open across saves); auto in a "
-          "single field, but a campaign member needs an explicit free index so members don't alias"),
+    Field("flag", "Opened-flag", FLAGREF, "save bit that marks it looted (it stays open across saves) -- a "
+          "[[flag]] name or index; auto in a single field, but a campaign member needs an explicit one so "
+          "members don't alias", catalog="flag"),
+    Field("requires_flag", "Appears when flag set", FLAGREF,
+          "story gate: the chest only appears after this flag (name or index) is set", catalog="flag"),
+    Field("requires_flag_clear", "Appears when flag clear", FLAGREF,
+          "the chest only appears while this flag (name or index) is unset", catalog="flag"),
+    Field("face", "Facing (0-255)", OPTINT, "rotate the chest model (0=south, 64=west, 128=north, 192=east)"),
     Field("message", "Custom box text", STR, "advanced: replace the 'Received <item>!' box (you own the "
           "[WDTH]/codes); blank = the real FF9 box"),
     Field("box", "Box size (width, lines)", PAIR, "advanced: centers a custom message, e.g. 69, 3"),

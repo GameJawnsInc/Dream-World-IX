@@ -4686,7 +4686,7 @@ class Workspace(QMainWindow):
                 out.append(m(f"pos: {_esc(e['pos'])}"))
             if e.get("flag") is not None:
                 out.append(m(f"opened-flag: {_esc(e['flag'])}"))
-            return out
+            return out + self._gate_lines(e)
         if section == "marker":
             out = [f"marker: {_esc(e.get('name', '?'))}"]
             if e.get("pos") is not None:

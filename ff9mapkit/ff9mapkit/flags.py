@@ -270,7 +270,8 @@ _FLAG_INDEX_KEYS = ("requires_flag", "requires_flag_clear", "flag")
 # keys whose value is a [index, value] pair (resolve element 0).
 _FLAG_PAIR_KEYS = ("set_flag",)
 # the content sections whose items (and nested options/steps) carry flag fields.
-_FLAG_SECTIONS = ("event", "npc", "gateway", "prop", "choice", "cutscene", "on_entry")
+# (``chest``: its ``flag`` = the opened-bit + ``requires_flag``/``requires_flag_clear`` = the appearance gate.)
+_FLAG_SECTIONS = ("event", "npc", "gateway", "prop", "choice", "cutscene", "on_entry", "chest")
 
 
 def _norm(s) -> str:

@@ -70,12 +70,20 @@ def chest_lid_sfx() -> bytes:
 
 
 def build_chest_init(*, x: int, z: int, flag_idx: int, model: int = CHEST_MODEL, animset: int | None = None,
-                     face: int = 0, open_pose: int = OPEN_POSE, closed_pose: int = CLOSED_POSE) -> bytes:
+                     face: int = 0, open_pose: int = OPEN_POSE, closed_pose: int = CLOSED_POSE,
+                     gate=None) -> bytes:
     """The chest Init (tag 0), opcode-faithful to the real chest, with the SAVABLE open-state: a two-arm
     pose+flags branch on the opened flag -- the OPEN pose + the inert(disable-talk) flags when SET, the
-    CLOSED pose + the talkable flags when CLEAR. Always shown; the collision (size + flags) is unconditional."""
+    CLOSED pose + the talkable flags when CLEAR. The collision (size + flags) is unconditional. ``gate`` =
+    ``(flag_index, require_set)`` prepends a story-flag gate (same as an NPC's): the chest is ABSENT unless
+    that APPEARANCE flag is in state -- a quest-reward chest that only materializes after a beat (distinct
+    from ``flag_idx``, the OPENED bit)."""
     animset_v, _hf, _ls = _npc._npc_object_params(model, animset)
-    parts = [
+    parts = []
+    if gate is not None:
+        gf, gset = gate
+        parts.append(_region.flag_gate(_region.GLOB_BOOL, gf, require_set=gset))
+    parts += [
         _npc._d9_const(0, x), _npc._d9_const(4, z), _npc._d9_const(6, face), _npc._d9_const(2, 0),
         bytes([SET_MODEL, 0x00]) + struct.pack("<H", int(model) & 0xFFFF) + bytes([animset_v & 0xFF]),
         _npc._CREATE_OBJECT, _npc._TURN_INSTANT,
@@ -113,12 +121,13 @@ def build_chest_open(flag_idx: int, *, give: bytes, received_text_id: int, paylo
 
 
 def inject_chest(data, x, z, *, flag_idx: int, item=None, gil=None, count: int = 1,
-                 received_text_id: int = 62, model: int = CHEST_MODEL, face: int = 0,
+                 received_text_id: int = 62, model: int = CHEST_MODEL, face: int = 0, gate=None,
                  reserve_party_band: bool = False, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0):
     """Inject an openable, savable treasure chest at world (x, z) -- ONE object (tag 0 Init + tag 3 open).
     Exactly one of ``item`` (id/name + ``count``) or ``gil`` (amount). ``flag_idx`` (a GLOB_BOOL save index)
     is the opened bit -- it drives the Init open/closed pose+flags and the open handler's once-guard + latch.
-    Returns new ``.eb`` bytes."""
+    ``face`` rotates the model; ``gate`` = ``(flag_index, require_set)`` makes the chest's APPEARANCE
+    story-gated (absent unless that flag is in state). Returns new ``.eb`` bytes."""
     if (item is None) == (gil is None):
         raise ValueError("inject_chest needs exactly one of item= or gil=")
     if item is not None:
@@ -126,7 +135,7 @@ def inject_chest(data, x, z, *, flag_idx: int, item=None, gil=None, count: int =
         give, payload = _event.give_item(item_id, count), item_id
     else:
         give, payload = _event.give_gil(int(gil)), int(gil)
-    init = build_chest_init(x=int(x), z=int(z), flag_idx=flag_idx, model=model, face=face)
+    init = build_chest_init(x=int(x), z=int(z), flag_idx=flag_idx, model=model, face=int(face), gate=gate)
     openb = build_chest_open(flag_idx, give=give, received_text_id=received_text_id, payload_value=payload)
     if len(openb) < 9:                              # IsActuallyTalkable polls tag3[ip+7/8]; keep it >= 9 bytes
         openb += b"\x00" * (9 - len(openb))

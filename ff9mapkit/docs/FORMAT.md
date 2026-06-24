@@ -495,7 +495,9 @@ flag = 8520               # REQUIRED in a campaign member (see note); auto in a 
 | `pos` | `[x, z]` — where the chest model sits on the floor. It has **solid collision** (the player can't walk through it); place it where the player can reach to press it. |
 | `item` | `[item, count]` — the reward; `item` is an **id or a name** (`"Potion"`, also gear). Set **`item` OR `gil`**, not both. |
 | `gil` | gil reward instead of an item. |
-| `flag` | the save-persistent **opened-flag** bit — the chest re-poses OPEN once looted, forever. **Auto** in a single field (FF9's own chest bitfield, `8400+`); a **campaign member MUST set an explicit free index** (the auto band isn't per-member, so two members' auto chests would alias and corrupt the save — the build refuses it). |
+| `flag` | the save-persistent **opened-flag** bit — the chest re-poses OPEN once looted, forever. A **`[[flag]]` name or an index**. **Auto** in a single field (FF9's own chest bitfield, `8400+`); a **campaign member MUST set an explicit one** (a named `[[flag]]` is easiest — the auto band isn't per-member, so two members' auto chests would alias and corrupt the save, and the build refuses a flag-less campaign chest). |
+| `requires_flag` / `requires_flag_clear` | OPTIONAL story gate (a `[[flag]]` name or index) — the chest only **appears** while that flag is SET / CLEAR (a quest-reward chest that materializes after a beat). Distinct from `flag` (the opened bit). Same gating as `[[npc]]`/`[[event]]`. |
+| `face` | OPTIONAL facing `0–255` (`0`=south, `64`=west, `128`=north, `192`=east) — rotate the chest model. |
 | `message` | OPTIONAL — replace *"Received \<item\>!"* with your own text (you own the `[WDTH]`/window codes). |
 | `box` | OPTIONAL `[width, lines]` — centers a custom `message` (the `[STRT]` geometry FF9 auto-centers from; the built-in item/gil boxes already carry the real field's). |
 | `tail` | OPTIONAL window-pointer corner (default `DEFT`, the centered system box). |

@@ -780,3 +780,34 @@ def test_synth_chest_campaign_requires_explicit_flag(tmp_path):
     assert _flag_probs(chest, campaign_member=True)                        # flag-less campaign chest -> rejected
     assert not _flag_probs(chest + "flag = 8520\n", campaign_member=True)  # explicit flag -> accepted
     assert not _flag_probs(chest, campaign_member=False)                   # single-field auto-flag -> fine
+
+
+def test_synth_chest_flag_by_name_resolves(tmp_path):
+    # a [[chest]] flag = "<name>" resolves to the [[flag]] index at load (so a campaign chest can be NAMED,
+    # not a raw bit) -- and the named flag counts as "explicit" for the campaign guard. An unknown name raises.
+    from ff9mapkit import build
+    p = tmp_path / "z.field.toml"
+    p.write_text(_CHEST_BASE + '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\nflag = "treasure_a"\n\n'
+                 '[[flag]]\nname = "treasure_a"\nindex = 8520\n', encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert proj.raw["chest"][0]["flag"] == 8520                            # named opened-flag resolved at load
+    proj.flag_base, proj.flags_per_field = 8512, 64                        # a campaign member: the NAME is explicit
+    assert not [s for s in build.validate(proj) if "campaign member needs an explicit flag" in s]
+
+
+def test_synth_gated_chest_has_appearance_gate(tmp_path):
+    # requires_flag gates the chest's APPEARANCE (distinct from the opened-flag): its Init starts with a
+    # flag_gate (early-return), so the chest is absent until that story flag is set -- a quest-reward chest.
+    from ff9mapkit.content import region
+    _mes, _txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\n'
+                                    'flag = 8450\nrequires_flag = 8520\n')
+    assert region.flag_gate(region.GLOB_BOOL, 8520, require_set=True) in eb
+
+
+def test_synth_chest_face_passes_through(tmp_path):
+    # face rotates the chest model -- the Init's facing const carries the value (128 is distinctive; a
+    # default face=0 chest wouldn't emit it).
+    from ff9mapkit.content.npc import _d9_const
+    _mes, _txids, eb128 = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 100\nface = 128\n')
+    _mes, _txids, eb0 = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 100\n')
+    assert _d9_const(6, 128) in eb128 and _d9_const(6, 128) not in eb0    # the facing value reaches the Init
