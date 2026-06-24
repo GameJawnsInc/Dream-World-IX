@@ -1442,6 +1442,13 @@ def lint_logic(project: FieldProject) -> list[str]:
                        "trigger is injected only on the synthesize path (bypassed by a verbatim fork). The "
                        "donor's own encounters still play; on a verbatim fork [encounter] only sets the battle "
                        "BGM. Fork re-authorable (or author a synthesized field) to ADD encounters.")
+    for i, n in enumerate(raw.get("npc", []) or []):   # a bare NPC (no model/preset/archetype) CLONES the player
+        if isinstance(n, dict) and not any(n.get(k) not in (None, "")
+                                           for k in ("model", "preset", "archetype")):
+            who = n.get("name") or f"#{i}"
+            out.append(f"NPC {who!r} has no model/preset -- it will CLONE THE PLAYER model (e.g. Zidane). "
+                       f"Set preset = \"<character>\" or model = <id> for a different character. (Often a "
+                       f"spatial marker placed in Blender whose [[npc]] logic was never authored.)")
     enc = raw.get("encounter")                     # a model-bucket [encounter] scene crashes in-game (the picker
     if isinstance(enc, dict) and enc.get("scene") is None and (enc.get("freq") is not None
                                                                or enc.get("battle_music") is not None):

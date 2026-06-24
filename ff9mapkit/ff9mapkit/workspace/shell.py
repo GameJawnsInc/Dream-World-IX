@@ -347,6 +347,14 @@ class Workspace(QMainWindow):
         self.act_check.triggered.connect(self.on_check)
         self.act_check.setEnabled(False)
         tb.addAction(self.act_check)
+        self.act_refresh = QAction("Refresh", self)
+        self.act_refresh.setShortcut(QKeySequence(Qt.Key_F5))
+        self.act_refresh.setToolTip("Re-read the Blender-owned scene.toml from disk (after a re-export) and "
+                                    "rebuild the tree — updates the 'needs definition' nodes + counts and the "
+                                    "Inspector WITHOUT re-opening the field. Your unsaved field.toml edits are "
+                                    "kept (only the scene side is re-read). (F5)")
+        self.act_refresh.triggered.connect(self.on_refresh_scene)
+        tb.addAction(self.act_refresh)                  # always enabled: a benign read; no-ops if nothing's loaded
         self.act_lint_cli = QAction("Lint (CLI)", self)
         self.act_lint_cli.triggered.connect(self.run_cli_lint)
         self.act_lint_cli.setEnabled(False)
@@ -2179,10 +2187,20 @@ class Workspace(QMainWindow):
             member_item.addChild(it)
         for key, label in _LISTS:
             lst = data.get(key, []) or []
-            grp = self._mk("group", f"{label} ({len(lst)})", key)
+            # NPCs/markers are SPLIT field/scene by name: a Blender-placed (scene.toml) entity with no
+            # matching field.toml definition silently ships a DEFAULT (a bare NPC clones the player, e.g.
+            # Zidane). Surface each as a 'needs definition' node + badge the count so the gap shows in the
+            # tree BEFORE build; double-click / right-click → Define authors its logic, joined by name.
+            undef = self._undefined_spatial(name, key) if key in ("npc", "marker") else []
+            glabel = f"{label} ({len(lst)})" + (f"  ·  +{len(undef)} spatial" if undef else "")
+            grp = self._mk("group", glabel, key)        # key stays the section name (Add/refresh match on it)
             for i, e in enumerate(lst):
                 lbl = forms.choice_summary(e) if key == "choice" else (e.get("name") or f"#{i}")
                 grp.addChild(self._mk("object", lbl, f"{key}:{i}"))
+            for nm in undef:
+                un = self._mk("undef_spatial", f"{nm}  (needs definition)", f"{key}:{nm}")
+                un.setForeground(0, QBrush(QColor(self.pal["warn"])))
+                grp.addChild(un)
             member_item.addChild(grp)
         if data.get("verbatim_eb"):                    # a VERBATIM fork: the lists above are empty BY DESIGN --
             # the real content lives in the shipped .eb. Badge the row + add a read-only logic-map subtree.
@@ -2235,6 +2253,8 @@ class Workspace(QMainWindow):
                 self._open_editor(member, "field", "field")
             elif p[0] == "logic_node":             # a verbatim routine -> the in-place [[logic_edit]] panel
                 self._open_editor(member, "logic_node", p[2])
+            elif p[0] == "undef_spatial":          # a scene-placed entity with no field def -> inspect only
+                pass                               # (the Inspector explains; double-click / context = Define)
             elif p[0] not in _LOGIC_KINDS:         # an object/group under it -> edit by its key
                 self._open_editor(member, p[0], p[2])
             #                                        (logic_root / logic_entry are containers -> inspector only)
@@ -2336,6 +2356,12 @@ class Workspace(QMainWindow):
         if not p:
             return
         kind = p[0]
+        if kind == "undef_spatial":                # define a scene-placed entity: create its field.toml row
+            fa = self._ancestor_field(item)
+            if fa is not None:
+                section, nm = p[2].split(":", 1)
+                self._add_list_item(self._payload(fa)[1], section, name=nm)
+            return
         if kind == "jcampaign":                    # drill from the journey into a member campaign (editable)
             self._open_member_campaign(p[2])
             return
@@ -3665,6 +3691,10 @@ class Workspace(QMainWindow):
         if kind == "group" and key in _LIST_DEFAULTS:                        # NPCs (n) -> Add NPC
             sing = _LIST_SINGULAR.get(key, key)
             return [(f"Add {sing}", lambda: self._add_list_item(member, key))]
+        if kind == "undef_spatial":                                          # scene-placed, no field def -> Define
+            section, nm = key.split(":", 1)
+            sing = _LIST_SINGULAR.get(section, section)
+            return [(f"Define {sing} '{nm}'", lambda: self._add_list_item(member, section, name=nm))]
         if kind == "object" and ":" in key:                                  # npc:2 / choice:0 -> Delete
             section, idx = key.split(":")
             sing = _LIST_SINGULAR.get(section, section)
@@ -3694,14 +3724,19 @@ class Workspace(QMainWindow):
                 cb()
                 return
 
-    def _add_list_item(self, member, kind):
+    def _add_list_item(self, member, kind, name=None):
         """Append a default entity to ``member``'s ``kind`` list, refresh the tree, and open the new item's
-        editor (so you land straight in the form to fill it in)."""
+        editor (so you land straight in the form to fill it in). ``name`` overrides the default name -- used
+        by 'Define' on a scene-placed (Blender) entity, so the new logic row joins the scene position BY
+        NAME (the field/scene merge key)."""
         if not self._commit_active_ck():             # fold+checkpoint any pending edit first (its own step);
             return                                   # an invalid open form blocks adding (fix it first)
         doc = self._doc(member)
         lst = doc.data.setdefault(kind, [])
-        lst.append(copy.deepcopy(_LIST_DEFAULTS[kind]))
+        new = copy.deepcopy(_LIST_DEFAULTS[kind])
+        if name is not None:                          # 'Define' a scene-placed entity -> match its name
+            new["name"] = name
+        lst.append(new)
         idx = len(lst) - 1
         self._touch(member)                           # the new default entity is an unsaved change
         self._checkpoint(member, f"add {_LIST_SINGULAR.get(kind, kind)}", f"{kind}:{idx}")  # the add = one step
@@ -3719,6 +3754,45 @@ class Workspace(QMainWindow):
         mi.takeChildren()
         self._load_objects(mi)
         mi.setExpanded(True)
+
+    def on_refresh_scene(self):
+        """Re-read the Blender-owned scene.toml(s) from disk and rebuild the affected object subtree(s), so a
+        re-export from Blender updates the dependent GUI state -- the 'needs definition' nodes + counts, the
+        choice/cutscene name-resolution, the Inspector -- WITHOUT re-opening the field. The editable field.toml
+        docs are NOT reloaded, so unsaved GUI edits are preserved (only the scene side is re-read from disk)."""
+        if not self._commit_active_ck():               # fold a pending edit first; a bad open form blocks refresh
+            return
+        item = self.tree.currentItem()
+        fa = self._ancestor_field(item) if item is not None else None
+        sel = None
+        if fa is not None:                             # a field (or a node under it) is selected -> just that field
+            targets = [self._payload(fa)[1]]
+            p = self._payload(item)
+            if item is not fa and p and p[0] in ("object", "group", "undef_spatial"):
+                sel = (p[0], p[2])                     # remember the row to re-select after the rebuild
+        elif self._loose:
+            targets = [self._loose]
+        else:                                          # campaign/journey root (or nothing) -> every loaded member
+            targets = list(getattr(self, "_member_items", {}).keys())
+        refreshed = 0
+        for m in targets:
+            self._scene_names.pop(m, None)             # force a fresh scene.toml read (don't trust mtime alone)
+            mi = getattr(self, "_member_items", {}).get(m)
+            if mi is None:
+                continue
+            if mi.childCount() and (self._payload(mi.child(0)) or (None,))[0] == "__lazy__":
+                continue                               # never expanded -> nothing built; it reads fresh on expand
+            self.tree.blockSignals(True)               # rebuild without spurious selection churn
+            self._refresh_objects(m)
+            self.tree.blockSignals(False)
+            refreshed += 1
+        if fa is not None and refreshed:               # restore the selection (the rebuilt nodes are NEW items)
+            m = targets[0]
+            it = self._object_item(m, sel[1], kind=sel[0]) if sel else None
+            self.tree.setCurrentItem(it or getattr(self, "_member_items", {}).get(m))
+        self.statusBar().showMessage(
+            f"refreshed {refreshed} field(s) from disk — Blender scene.toml re-read" if refreshed
+            else "nothing to refresh (no loaded field on screen)")
 
     def _object_item(self, member, key, kind="object"):
         """The QTreeWidgetItem of ``kind`` ('object'|'group') with ``key`` under ``member``, or None (walks
@@ -4371,6 +4445,14 @@ class Workspace(QMainWindow):
     def _inspect_build(self, kind, key, field):
         if kind == "field":
             return self._inspect_field(field)
+        if kind == "undef_spatial":
+            section, nm = key.split(":", 1)
+            sing = _LIST_SINGULAR.get(section, section)
+            return [f"<b>{_esc(nm)}</b> is placed in the scene.toml (Blender) but has no "
+                    f"<code>[[{section}]]</code> definition here.",
+                    self._muted("It builds with a DEFAULT — a bare NPC clones the player model (e.g. Zidane)."),
+                    self._muted(f"Double-click (or right-click → Define {sing}) to author its model + "
+                                f"dialogue; it joins this marker by name.")]
         if kind == "campaign" and self.plan is not None:
             g = C.campaign_graph(self.plan)
             return [f"{len(self.plan.members)} fields", f"entry: {g.entry or '(none)'}",
@@ -4697,6 +4779,21 @@ class Workspace(QMainWindow):
             return {n.get("name") for n in (data.get(sec, []) or []) if isinstance(n, dict) and n.get("name")}
         return {"npc": field("npc") | s_npc, "marker": field("marker") | s_mk}
 
+    def _undefined_spatial(self, member, section):
+        """Names placed in the sibling scene.toml (Blender) for ``section`` (npc|marker) with NO matching
+        ``[[section]]`` definition in the field.toml -- they build with a DEFAULT (a bare NPC clones the
+        player model, e.g. Zidane). The tree surfaces them so you author the model/dialogue HERE, joined by
+        name. Sorted; empty when there's no sibling scene.toml or every scene entity is already defined."""
+        s_npc, s_mk = self._scene_entity_names(member)
+        scene = s_npc if section == "npc" else (s_mk if section == "marker" else frozenset())
+        if not scene:
+            return []
+        doc = self._safe_doc(member)
+        data = doc.data if doc else {}
+        defined = {e.get("name") for e in (data.get(section, []) or [])
+                   if isinstance(e, dict) and e.get("name")}
+        return sorted(scene - defined)
+
     def _node_problems(self, kind, obj, member):
         """Per-node problems computed DIRECTLY from the kit's pure predicates, MIRRORING what the build
         actually accepts (so the Inspector never contradicts Check): an unknown archetype/preset (or, when
@@ -4966,6 +5063,10 @@ def _smoke(win):
         (d / m.toml_rel).write_text(
             f'[field]\nid = {m.new_id}\nname = "{m.name}"\narea = 11\n\n[[npc]]\nname = "Guard"\n',
             encoding="utf-8")
+    # IC_COR gets a Blender-placed (scene.toml) NPC with NO field.toml [[npc]] def -> the GUI must surface
+    # 'Patrol' as 'needs definition' (else build silently ships a player-clone). 'Guard' IS defined.
+    (d / "IC_COR" / "IC_COR.scene.toml").write_text('[[npc]]\nname = "Patrol"\npos = [120, 60]\n',
+                                                     encoding="utf-8")
 
     assert win.open_campaign(d / "campaign.toml")
     camp = win.tree.topLevelItem(0)                       # no journeys.toml -> campaign is the root
@@ -5284,6 +5385,38 @@ def _smoke(win):
     win.tree.blockSignals(False)
     win._mark_clean("IC_ENT")
     win.tree.setCurrentItem(win._member_items["IC_ENT"])
+    # do-now: undefined SPATIAL entity surfacing. IC_COR's scene.toml places 'Patrol' (no [[npc]] def) ->
+    # its NPCs group gains a 'needs definition' node + a count badge; Define creates the field.toml row so
+    # the model/dialogue is authored (joined by name) instead of silently shipping a player-clone.
+    win._refresh_objects("IC_COR")                         # deterministic fresh object subtree (sees the scene.toml)
+    assert win._undefined_spatial("IC_COR", "npc") == ["Patrol"]
+    cor_grp = win._object_item("IC_COR", "npc", kind="group")
+    assert "+1 spatial" in win._payload(cor_grp)[1], win._payload(cor_grp)[1]
+    undef = next((cor_grp.child(i) for i in range(cor_grp.childCount())
+                  if win._payload(cor_grp.child(i))[0] == "undef_spatial"), None)
+    assert undef is not None and win._payload(undef)[2] == "npc:Patrol"
+    assert win._context_actions(undef)[0][0] == "Define NPC 'Patrol'"
+    win.tree.setCurrentItem(undef)                          # selecting it EXPLAINS in the Inspector (no editor)
+    assert "Patrol" in win.insp_title.text() and "definition" in win.insp_body.text()
+    n0 = len(win._doc("IC_COR").data.get("npc", []))
+    win._add_list_item("IC_COR", "npc", name="Patrol")     # Define -> a real [[npc]] 'Patrol' (joins by name)
+    assert win._doc("IC_COR").data["npc"][-1]["name"] == "Patrol"
+    assert len(win._doc("IC_COR").data["npc"]) == n0 + 1
+    assert win._undefined_spatial("IC_COR", "npc") == []   # now defined -> the 'needs definition' node is gone
+    win._mark_clean("IC_COR")
+    # Refresh (F5): a Blender re-export rewrites the scene.toml -> Refresh re-reads it + rebuilds the tree
+    # WITHOUT re-opening the field (forcing a fresh read even if the mtime is unchanged within the second).
+    (Path(win.member_paths["IC_COR"]).parent / "IC_COR.scene.toml").write_text(
+        '[[npc]]\nname = "Patrol"\npos = [120, 60]\n[[npc]]\nname = "Sentinel"\npos = [40, 40]\n',
+        encoding="utf-8")
+    win.tree.setCurrentItem(win._member_items["IC_COR"])   # select IC_COR so Refresh targets it
+    win.on_refresh_scene()
+    assert win._undefined_spatial("IC_COR", "npc") == ["Sentinel"]   # Patrol stays defined; Sentinel is new
+    cor_grp2 = win._object_item("IC_COR", "npc", kind="group")
+    assert "+1 spatial" in win._payload(cor_grp2)[1], win._payload(cor_grp2)[1]
+    assert any(win._payload(cor_grp2.child(i))[2] == "npc:Sentinel"
+               for i in range(cor_grp2.childCount())), "Refresh surfaced the re-exported NPC"
+    win._mark_clean("IC_COR")
     # the unsaved-dot icon must not resize tree rows (uniform height + small icon -> no jump on save)
     assert win.tree.uniformRowHeights() and win.tree.iconSize() == QSize(12, 12)
     # (b) the Editor tab reflects what's open; placeholder resets it
