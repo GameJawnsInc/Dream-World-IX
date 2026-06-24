@@ -136,6 +136,29 @@ dp += info.get("location_lines", [])           # [field] location -> LocationNam
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
 if info.get("location_lines"):                  # the directive is read from DictionaryPatch at LAUNCH, not on F6
     print(f"  + {info['location_lines'][0]}  -> RELAUNCH to apply (DictionaryPatch is read at launch, not F6)")
+
+# ForkDonorPatch.txt: a VERBATIM fork needs its `<forkId> <donorRealId>` mapping so the engine's fork-donor
+# remap suite (s24-s33: off-mesh exemptions, the NAME-keyed overlay-occlusion offsets, scroll binds, ...) still
+# fires for the custom id. deploy_field historically did NOT emit this (only deploy_campaign did), so a verbatim
+# fork deployed here lost ALL fork-donor behaviors -- most visibly, character-vs-overlay OCCLUSION broke for the
+# whole donor field (s31 FieldMapExtraOffset can't resolve the fork name -> donor). Emit it (merged non-clobbering
+# so other ids' mappings survive, reversible). Read at LAUNCH -> RELAUNCH to apply.
+fork_revert_code = ""
+_donor = B._verbatim_donor_id(proj)
+_fdp = live.root / "ForkDonorPatch.txt"
+if "verbatim_eb" in proj.raw and _donor and _donor != FID:
+    _had_fdp = _fdp.exists()
+    if _had_fdp:
+        shutil.copyfile(_fdp, BK / f"ForkDonorPatch.txt.preDEPLOY.{STAMP}")
+    _cur = [ln for ln in (_fdp.read_text(encoding="utf-8").splitlines() if _had_fdp else [])
+            if ln.strip() and not ln.lstrip().startswith("#") and ln.split()[0:1] != [str(FID)]]
+    _cur.append(f"{FID} {_donor}")
+    _fdp.write_text("# ff9mapkit fork-fidelity: <forkId> <donorRealId>\n" + "\n".join(_cur) + "\n",
+                    encoding="utf-8", newline="\n")
+    fork_revert_code = ('\nshutil.copyfile(BK/f"ForkDonorPatch.txt.preDEPLOY.{STAMP}", live.root/"ForkDonorPatch.txt")'
+                        if _had_fdp else
+                        '\n_pf = live.root/"ForkDonorPatch.txt"\nif _pf.exists(): _pf.unlink()')
+    print(f"  + ForkDonorPatch.txt ({FID} -> donor {_donor}; RELAUNCH to apply -- read at launch, not F6)")
 # Item-data CSV deltas: mod-GLOBAL files build_mod emits when the field carries [start_inventory]/[[equipment]]
 # (the new-game starting bag/gear, read at NEW-GAME init) or [[shop]] (custom shop inventories, merged by id).
 # Deployed only when present, each reversibly (backup pre-existing / delete a newly-created one on revert).
@@ -272,8 +295,8 @@ for L in LANGS:
     p=live.eb_path(L,"EVT_{name}.eb.bytes")
     if p.exists(): p.unlink()
     mb=BK/f"{{L}}-{text_block}.mes.preDEPLOY.{{STAMP}}"
-    if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}{tp_revert_code}
-print("reverted: DictionaryPatch + dialogue + start-state CSVs + BattlePatch + TextPatch restored; {name} removed.")
+    if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}{tp_revert_code}{fork_revert_code}
+print("reverted: DictionaryPatch + dialogue + start-state CSVs + BattlePatch + TextPatch + ForkDonorPatch restored; {name} removed.")
 '''
 (OUT / f"revert_deploy_{FID}.py").write_text(revert, encoding="utf-8", newline="\n")    # per-id revert
 (OUT / "revert_deploy.py").write_text(revert, encoding="utf-8", newline="\n")            # generic = latest deploy

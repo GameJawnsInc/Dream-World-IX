@@ -1882,7 +1882,9 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
             "# # words = [ { byte = 236, value = 0 } ]                  # 16-bit words, e.g. the ATE-availability mask\n"
             "[verbatim_eb]\n"
             f'bin = "{name}.verbatim_eb.bin"\n'
-            f"{text_line}"
+            + (f"donor = {_donor_fid}   # the real field this is forked from (for engine-hotfix warnings)\n"
+               if _donor_fid is not None else "")
+            + f"{text_line}"
             f"{rt_intro}{rt_text}"
             + (("\n\n" + bgm_blocks) if bgm_blocks else ""))
         meta["imported_content"] = {"verbatim_eb": True, "field_exits": dests, "text": bool(mes_by_lang),

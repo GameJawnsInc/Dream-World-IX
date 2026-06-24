@@ -1412,9 +1412,11 @@ def validate(project: FieldProject) -> list[str]:
 # Synthesize-path CONTENT blocks (build_script injects these). A VERBATIM fork ([verbatim_eb]) runs the
 # donor's real .eb and BYPASSES build_script, so any of these authored on one is silently DROPPED at build --
 # a verbatim fork already ships the donor's own NPCs/doors/cutscenes. ([encounter] is handled separately: on a
-# verbatim fork it still feeds the battle BGM, it just doesn't inject the SetRandomBattles trigger.)
+# verbatim fork it still feeds the battle BGM, it just doesn't inject the SetRandomBattles trigger. [[npc]] is
+# NOT here: a NEW self-contained NPC IS added to a verbatim fork -- seated below the donor's party-character
+# band -- by _inject_verbatim_npcs in build_field.)
 _VERBATIM_IGNORED_BLOCKS = {
-    "music": "[music]", "cutscene": "[cutscene]", "npc": "[[npc]]", "gateway": "[[gateway]]",
+    "music": "[music]", "cutscene": "[cutscene]", "gateway": "[[gateway]]",
     "event": "[[event]]", "choice": "[[choice]]", "marker": "[[marker]]",
 }
 
@@ -2563,6 +2565,106 @@ def _logic_add_message_plan(project: FieldProject, langs) -> tuple[dict, dict]:
         txid_by_idx[idx] = base + j
     suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
     return txid_by_idx, {lang: suffix for lang in langs}
+
+
+def _logic_add_message_count(project: FieldProject) -> int:
+    """How many ``[[logic_add]]`` adds show an appended `.mes` line (so the ``[[npc]]`` talk-text block can
+    sit above them -- every appended id stays disjoint)."""
+    from . import logic_add as _logic_add
+    return len(_logic_add.plan_messages(project.logic_adds()))
+
+
+def _verbatim_npc_messages(project: FieldProject, langs) -> tuple[dict, dict]:
+    """For a verbatim fork's authored ``[[npc]]`` dialogue: give each voiced NPC's talk line a txid ABOVE the
+    donor `.mes` + the ``[[on_entry]]`` and ``[[logic_add]]`` message blocks (all disjoint), plus the
+    per-language `.mes` lines to append. The injected NPC's ``_SpeakBTN`` ``WindowSync`` resolves into the
+    appended entry, so it speaks. Returns ``(txid_by_npc_index, suffix_by_lang)`` keyed by the index into
+    ``project.raw['npc']``; ``({}, {})`` when no ``[[npc]]`` carries dialogue. Single-block (the same text for
+    every language, like the other appenders -- the `.eb` is injected once, language-identical)."""
+    voiced = [(i, n) for i, n in enumerate(project.raw.get("npc", []) or []) if n.get("dialogue")]
+    if not voiced:
+        return {}, {}
+    base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
+            + _logic_add_message_count(project))
+    wrap = _wrap_width(project)
+    lines, tails, txid_by_idx = [], [], {}
+    for j, (i, n) in enumerate(voiced):
+        line = _text.with_speaker(n.get("speaker"), n["dialogue"])
+        if wrap is not None:
+            line = _text.wrap_text(line, wrap)[0]
+        lines.append(line)
+        tails.append(n.get("tail"))
+        txid_by_idx[i] = base + j
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    return txid_by_idx, {lang: suffix for lang in langs}
+
+
+# Two engine maps special-case a specific object uid in a hardcoded hotfix (EventEngine.DoEventCode.cs:150/159
+# -- obj.uid == 14 / == 20). Seating an NPC below the party band shifts those uids by one, desyncing the
+# hotfix -- so warn when a [[npc]] is added to a fork of one of these donors.
+_UID_HOTFIX_DONORS = frozenset((900, 2803))
+
+
+def _verbatim_donor_id(project: FieldProject):
+    """Best-effort donor field id of a verbatim fork (for engine-hotfix warnings). ``import --verbatim``
+    records it as ``[verbatim_eb] donor``; ``None`` when an older fork's toml lacks it (the warn is then
+    skipped -- only fields 900/2803 are affected, so a missing hint just means no warn)."""
+    for blk, key in (("verbatim_eb", "donor"), ("field", "source_field"), ("field", "borrow_field")):
+        v = (project.raw.get(blk) or {}).get(key)
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str) and v.isdigit():
+            return int(v)
+    return None
+
+
+def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, warnings) -> bytes:
+    """Inject each authored ``[[npc]]`` into a VERBATIM fork's `.eb`, seated BELOW the donor's reserved
+    party-character band (:func:`ff9mapkit.content.object.insert_entry_before_band` shifts the 9 character
+    slots up one and remaps every reference to them). Talk text rides the appended-`.mes` channel
+    (``npc_txids``). Model/animset/anims resolve exactly as on the synthesize path. Features that need the
+    synthesize machinery (``opens_shop`` / ``holds`` / a dialogue ``[[choice]]`` / a cutscene actor) are NOT
+    wired on a verbatim fork -- warned + skipped. Returns the new bytes."""
+    npcs = project.raw.get("npc", []) or []
+    if not npcs:
+        return eb
+    donor = _verbatim_donor_id(project)
+    if donor in _UID_HOTFIX_DONORS:
+        warnings.append(f"[[npc]] on a fork of field {donor}: this donor has an engine uid-keyed hotfix "
+                        "(DoEventCode); seating an NPC below the party band shifts character uids and may "
+                        "desync it. Verify in-game.")
+    choice_npcs = {c.get("npc") for c in project.raw.get("choice", []) if c.get("npc")}
+    for i, n in enumerate(npcs):
+        name = n.get("name") or f"#{i}"
+        if "pos" not in n:
+            warnings.append(f"[[npc]] '{name}' has no pos -- skipped on the verbatim fork.")
+            continue
+        for feat in ("opens_shop", "holds"):
+            if n.get(feat) is not None:
+                warnings.append(f"[[npc]] '{name}' {feat}= is NOT wired on a verbatim fork (needs the "
+                                "synthesize path); the NPC is added as a plain talk NPC.")
+        if name in choice_npcs:
+            warnings.append(f"[[npc]] '{name}' has a dialogue [[choice]], which is ignored on a verbatim fork "
+                            "-- the NPC speaks its plain `dialogue` line instead.")
+        kwargs: dict = {}
+        arch = n.get("archetype") or n.get("preset")
+        if arch is not None:
+            model, animset, anims, _dlg = _archetypes.resolve(arch)
+            kwargs.update(model=model, animset=animset, anims=anims)
+        else:
+            mid = resolve_npc_model(n.get("model"))
+            anims = n.get("anims")
+            if mid is not None and not anims:
+                anims = _catalog.npc_anims(mid) or None
+            kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
+        gf, gs = _gate_of(n)
+        txid = npc_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
+        pos = n["pos"]
+        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, gate_flag=gf,
+                             gate_require_set=gs, reserve_party_band=True, **kwargs)
+    return eb
 
 
 def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
@@ -3753,6 +3855,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     verbatim_bytes, oe_suffix = compose_verbatim_eb(project, langs=langs, warnings=warnings)
     verbatim_edits = project.logic_edits()
     la_suffix: dict = {}                                        # [[logic_add]] show_line / message lines (per lang)
+    npc_suffix: dict = {}                                       # [[npc]] talk lines added to a verbatim fork (per lang)
     menu_row_plan: list = []                                    # [[logic_add]] menu_row .mes row splices (per lang)
     if verbatim_bytes is not None:
         # Phase-2 in-place value edits ([[logic_edit]]): run LAST -- the applier self-locates by entry/tag/op +
@@ -3796,6 +3899,19 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             if _la_errs:
                 raise BuildError(f"[[logic_add]] broke the composed .eb of {project.name}: "
                                  f"{[str(e) for e in _la_errs]}")
+        # [[npc]] -- add NEW self-contained NPCs to the verbatim fork. Runs LAST (after [[logic_edit]]/
+        # [[logic_add]], which locate by donor slot/entry index) so those passes see the donor's original
+        # layout; the band-aware insert then shifts the 9 character slots up one + remaps refs. Talk text
+        # rides the appended-.mes channel (above the on_entry/logic_add blocks). The composed .eb is re-linted
+        # (a broken insertion fails the build, never ships).
+        if project.raw.get("npc"):
+            from . import eblint as _eblint
+            _npc_txids, npc_suffix = _verbatim_npc_messages(project, langs)
+            verbatim_bytes = _inject_verbatim_npcs(project, verbatim_bytes, _npc_txids, warnings=warnings)
+            _npc_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+            if _npc_errs:
+                raise BuildError(f"[[npc]] broke the composed .eb of {project.name}: "
+                                 f"{[str(e) for e in _npc_errs]}")
         # a [[shop]] OPENER (a standalone `zone` region, or an `[[npc]] opens_shop`) is synthesized in
         # build_script, which the verbatim path bypasses -- so it is NOT injected here (the donor's own
         # logic ships instead). The inventory CSV still ships (mod-write stage). Warn so it isn't a silent
@@ -3834,7 +3950,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                     inplace = _logic_add.apply_menu_row_text(inplace, menu_row_plan, lang, warnings=warnings)
                 except _logic_add.LogicAddError as ex:          # match Check: a clean failure, not a traceback
                     raise BuildError(f"[[logic_add]] menu_row in {project.name}: {ex}")
-            suffix = oe_suffix.get(lang, "") + la_suffix.get(lang, "")   # appended [[on_entry]]/[[logic_add]]
+            suffix = (oe_suffix.get(lang, "") + la_suffix.get(lang, "")   # appended [[on_entry]]/[[logic_add]]
+                      + npc_suffix.get(lang, ""))                          # + [[npc]] talk lines
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,

@@ -195,8 +195,16 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                gate_flag: int | None = None, gate_require_set: bool = True,
                intro: bytes | None = None, speak_body: bytes | None = None,
-               init_tail: bytes | None = None, bare: bool = False) -> bytes:
+               init_tail: bytes | None = None, bare: bool = False,
+               reserve_party_band: bool = False) -> bytes:
     """Inject an NPC at world (x, z). Returns new .eb bytes.
+
+    ``reserve_party_band`` (the VERBATIM-fork path): a real field packs its NPC slots and reserves the
+    LAST 9 entry slots for the playable characters (addressed positionally by the engine), so the kit's
+    ``first_free_slot`` would seat the NPC inside that band = the engine reads it as a character. With this
+    set, the NPC is inserted BELOW the band instead (the 9 character slots shift up one, every reference to
+    them remapped +1 -- :func:`ff9mapkit.content.object.insert_entry_before_band`). Leave False on the
+    synthesize path (a blank field has free NPC slots; behaviour is byte-identical to before).
 
     ``gate_flag`` (a GlobBool index) makes the NPC conditional: its Init returns early -- so it never
     creates its model and is absent/non-interactable -- unless the flag is in the required state
@@ -253,10 +261,16 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
         table = struct.pack("<HH", 0, nf0) + struct.pack("<HH", 1, nf1) + struct.pack("<HH", 3, nf2)
         entry_bytes = bytes([NPC_ENTRY_TYPE, 3]) + table + body0 + bytes(body1) + f2
 
-    # 7) append + spawn (shift-free): overwrite a Main_Init Wait(n) with InitObject(slot,0)
-    if slot is None:
-        slot = eb.first_free_slot()
-    out = edit.append_entry(data, slot, entry_bytes)
+    # 7) append + spawn (shift-free): overwrite a Main_Init Wait(n) with InitObject(slot,0). On a verbatim
+    # fork (reserve_party_band) the NPC is seated BELOW the reserved party-character band instead of into a
+    # blank free slot (which on a real field is an unused CHARACTER slot the engine would mis-read).
+    if reserve_party_band:
+        from . import object as _object
+        out, slot = _object.insert_entry_before_band(data, entry_bytes)
+    else:
+        if slot is None:
+            slot = eb.first_free_slot()
+        out = edit.append_entry(data, slot, entry_bytes)
     out = edit.activate(out, opcodes.init_object(slot, 0), spawn_wait_n=spawn_wait_n,
                         spawn_wait_occurrence=spawn_wait_occurrence)
     return out

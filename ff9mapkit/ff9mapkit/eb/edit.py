@@ -117,6 +117,44 @@ def append_entry(data, slot: int, entry_bytes: bytes) -> bytes:
     return bytes(b)
 
 
+def insert_entry_at(data, at_index: int, entry_bytes: bytes) -> bytes:
+    """Insert a NEW entry as slot ``at_index``, shifting the slot records at ``>= at_index`` up one index.
+
+    Unlike :func:`append_entry` (fill an existing empty slot / grow the table at the END), this makes room
+    for a new slot in the MIDDLE of the table: one 8-byte slot record is inserted before all entry bodies,
+    so every existing body shifts down 8 bytes (its ``off`` += 8) and the records at ``>= at_index`` take a
+    new, one-higher slot INDEX; the entry count (header byte 3) is bumped and the new body is appended at
+    end-of-file. Returns new bytes; the inserted entry's slot index is ``at_index``.
+
+    Because the existing entries at/after ``at_index`` are RENUMBERED, any bytecode that references them by
+    raw slot/uid index is now stale -- the caller must remap those FIRST (see
+    :func:`ff9mapkit.content.object.insert_entry_before_band`, which uses this to seat a new NPC just below
+    the engine's reserved party-character band).
+    """
+    b = bytearray(_as_bytes(data))
+    n = b[3]
+    if not 0 <= at_index <= n:
+        raise ValueError(f"at_index {at_index} out of range 0..{n}")
+    if n + 1 > ENTRY_TABLE_MAX:
+        raise ValueError(f"entry table already at the {ENTRY_TABLE_MAX}-slot max")
+    for i in range(n):                                # one slot record inserted before the bodies ->
+        so = ENTRY_TABLE_OFF + i * ENTRY_SLOT_SIZE    # every existing body moves down 8 bytes
+        if u16(b, so + 2) > 0:
+            set_u16(b, so, u16(b, so) + ENTRY_SLOT_SIZE)
+    ins_pos = ENTRY_TABLE_OFF + at_index * ENTRY_SLOT_SIZE
+    b[ins_pos:ins_pos] = bytes(ENTRY_SLOT_SIZE)       # the new (empty) record; pushes later records up one index
+    b[3] = n + 1
+    new_off = len(b) - ENTRY_TABLE_OFF                # the new body goes at EOF (after the just-grown table)
+    b += entry_bytes
+    set_u16(b, ins_pos, new_off)
+    set_u16(b, ins_pos + 2, len(entry_bytes))
+    b[ins_pos + 4] = 0  # loc
+    b[ins_pos + 5] = 0  # flags
+    b[ins_pos + 6] = 0  # pad
+    b[ins_pos + 7] = 0
+    return bytes(b)
+
+
 def add_function(data, entry_index: int, tag: int, body: bytes) -> bytes:
     """Add a function ``(tag, body)`` to an EXISTING entry.
 

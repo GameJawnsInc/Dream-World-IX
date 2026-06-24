@@ -160,6 +160,45 @@ def test_build_field_verbatim_with_logic_edit_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_with_npc_end_to_end(tmp_path):
+    # Add a NEW self-contained [[npc]] to a verbatim fork: build must (1) seat the NPC entry BELOW the donor's
+    # 9-slot party-character band (so the entry count grows by 1 and the NPC is below the band), (2) ship a
+    # _SpeakBTN WindowSync at a high appended txid, and (3) APPEND the NPC's dialogue line to every language's
+    # .mes at that txid. This is the [[npc]]-on-verbatim wiring (was in _VERBATIM_IGNORED_BLOCKS).
+    from ff9mapkit import build, extract, dialogue
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    project = build.FieldProject.load(toml)
+    project.raw["npc"] = [{"name": "Guide", "preset": "vivi", "pos": [100, 200],
+                           "dialogue": "Welcome to the modded fork!"}]
+    assert build.validate(project) == []                        # Check agrees offline (incl. the txid plan)
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")     # must not raise
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    # the NPC seated below the band -> one more entry than the donor, NPC at slot N_donor-9
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE
+    win_txids = set()
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        assert s.entry_count == donor.entry_count + 1, "the NPC entry was added below the band"
+        assert not s.entry(band_lo).empty and s.entry(band_lo).func_by_tag(3) is not None, "NPC talk at band_lo"
+        for e in s.entries:
+            if e.empty:
+                continue
+            for f in e.funcs:
+                for i in s.instrs(f):
+                    if i.op == 0x1F and i.imm(2) is not None and i.imm(2) >= 1000:
+                        win_txids.add(i.imm(2))
+    assert win_txids, "the NPC _SpeakBTN WindowSync was injected at an appended txid"
+    mes = [p for p in out.rglob("*.mes")]
+    assert mes and any("Welcome to the modded fork!" in p.read_text(encoding="utf-8") for p in mes), \
+        "the NPC dialogue shipped in the appended .mes"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_show_line_end_to_end(tmp_path):
     # Phase 4b show_line: a [[logic_add]] that SHOWS a line must (1) build clean, (2) ship a WindowSync into
     # the verbatim .eb at a txid ABOVE the donor text, and (3) APPEND that line to every language's .mes at

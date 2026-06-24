@@ -173,6 +173,79 @@ def _arm(data, slot, arg, needs_d9):
     return edit.activate(data, opcodes.init_object(slot, arg))
 
 
+# --- party-band-aware NPC insertion (add a NEW kit NPC to a VERBATIM fork) -----------------------
+# The engine reserves the LAST `PARTY_BAND_SIZE` entry slots for the 9 playable characters, addressed
+# POSITIONALLY (the character with event id `e` is the entry at slot `sSourceObjN-9+e`; EventEngine.cs
+# SetupPartyUID + the comment "9 entry slots are reserved at the end of the entry list"). An NPC is, by
+# the engine's own definition (`GetNumberNPC`: `sid < sSourceObjN-9`), an object BELOW that band. So a new
+# NPC can't just take eb.first_free_slot() (which on a real field is an unused CHARACTER slot inside the
+# band -- 818/818 real fields, measured); it must be seated below the band, pushing the 9 characters up one
+# slot each. That renumber is transparent to the engine's UID indirection but NOT to the ~790/818 fields
+# that reference a band character by RAW slot/uid (Main_Init `InitObject`s each present character by its raw
+# slot) -- those are remapped +1 here.
+PARTY_BAND_SIZE = 9
+_SPECIAL_UIDS = frozenset((eventscan.UID_PLAYER, eventscan.UID_SELF, *eventscan.PARTY_UIDS))
+
+
+def shift_slot_refs(data, lo: int, hi: int, delta: int) -> bytes:
+    """Add ``delta`` to every RAW slot/uid reference whose value is in ``[lo, hi]`` (inclusive), across
+    every entry -- the same-length operand patch that keeps references valid when a contiguous block of
+    entry SLOTS is renumbered. Reuses the decoder-derived operand surface (:data:`ff9mapkit.eventscan.REF_OPS`
+    slot/uid args + the ``op78`` obj-uid expression token), the SAME one :func:`remap_entry_refs` uses for a
+    grafted entry -- here over a value RANGE rather than one moved index. Engine specials (250 player / 255
+    self / 251-254 party) and a uid-0 slot-alias on ``Init*`` are never touched."""
+    eb = EbScript.from_bytes(data)
+    b = bytearray(eb.to_bytes())
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                spec = eventscan.REF_OPS.get(ins.op)
+                if spec:
+                    for kind in ("slot", "uid"):
+                        for ai in spec.get(kind, ()):
+                            if ai >= len(ins.arg_is_expr) or ins.arg_is_expr[ai]:
+                                continue
+                            val = ins.imm(ai)
+                            if val is None or not lo <= val <= hi:
+                                continue
+                            if kind == "uid" and (val in _SPECIAL_UIDS
+                                                  or (ins.op in eventscan.INIT_OPS and val == 0)):
+                                continue
+                            if argsize(ins.op, ai) != 1:        # only same-length 1-byte operands are patchable
+                                continue
+                            bo = _arg_byte_offset(ins, ai)
+                            if bo is not None:
+                                b[ins.off + bo] = (val + delta) & 0xFF
+            for off in expr_obj_uid_offsets(eb.data, f.abs_start, f.abs_end):   # op78 sibling-uid reads
+                v = eb.data[off]
+                if v not in _SPECIAL_UIDS and lo <= v <= hi:
+                    b[off] = (v + delta) & 0xFF
+    return bytes(b)
+
+
+def insert_entry_before_band(data, entry_bytes, *, band_size: int = PARTY_BAND_SIZE):
+    """Insert ``entry_bytes`` as a NEW object entry at the slot JUST BELOW the reserved party-character
+    band (the last ``band_size`` slots); return ``(new_data, new_slot)``.
+
+    Two steps: (1) ``+1``-remap every reference to a band slot (``[N-band_size, N-1]``) across the whole
+    script -- the characters' slot index rises by one when we make room below them; (2) insert the new entry
+    at index ``N-band_size`` (:func:`ff9mapkit.eb.edit.insert_entry_at`), shifting the band records up one and
+    bumping the entry count. The 9 character BODIES are byte-identical afterward (only their slot index +
+    table offset change), and ``new_slot == N-band_size`` is below the now-shifted band, so the engine
+    counts it as an NPC (``GetNumberNPC``: ``sid < sSourceObjN-9``). The caller arms it from Main_Init.
+    Raises if there is no full band to insert below (entry count <= ``band_size``)."""
+    eb = EbScript.from_bytes(data)
+    n = eb.entry_count
+    band_lo = n - band_size
+    if band_lo < 1:
+        raise ValueError(f"field has only {n} entries; need > {band_size} to seat an NPC below the party band")
+    shifted = shift_slot_refs(data, band_lo, n - 1, 1)
+    out = edit.insert_entry_at(shifted, band_lo, entry_bytes)
+    return out, band_lo
+
+
 def graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map=None, out_skipped=None) -> bytes:
     """Graft each spec's VERBATIM object entry into ``data`` and arm it. ``specs`` come from
     :func:`ff9mapkit.eventscan.scan_objects_verbatim` (entry bytes inline) or an import sidecar (a ``bin``

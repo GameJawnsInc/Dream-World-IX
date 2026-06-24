@@ -130,17 +130,28 @@ def test_lint_warns_on_ungated_co_zone_gateways(tmp_path):
 # ------------------------------------------------- lint_logic: synth content dropped on a verbatim fork
 
 def test_lint_warns_synth_content_dropped_on_verbatim_fork(tmp_path):
-    # a verbatim fork ([verbatim_eb]) runs the donor's real .eb -> build_script (which injects [encounter]/
-    # [[npc]]/...) is bypassed, so authored synth content is silently dropped. Warn before the user wonders why
-    # their added NPC / encounter never appears (the exact verbatim-encounter confusion this guards).
+    # a verbatim fork ([verbatim_eb]) runs the donor's real .eb -> build_script (which injects [cutscene]/
+    # [[gateway]]/...) is bypassed, so that authored synth content is silently dropped. Warn before the user
+    # wonders why their added door / cutscene never appears.
     from ff9mapkit.build import lint_logic
     body = ('[field]\nid = 4003\nname = "VTEST"\narea = 11\n\n'
             '[verbatim_eb]\nbin = "donor.bin"\n\n'
             '[encounter]\nscene = 67\n\n'
-            '[[npc]]\nname = "Guy"\n')
+            '[[gateway]]\nname = "door"\n')
     w = lint_logic(_load(tmp_path, body=body))
-    assert any("verbatim fork" in s and "[[npc]]" in s for s in w), w            # synth content dropped
-    assert any("does NOT add random battles" in s for s in w), w                 # encounter: BGM only here
+    assert any("verbatim fork" in s and "[[gateway]]" in s for s in w), w         # synth content dropped
+    assert any("does NOT add random battles" in s for s in w), w                  # encounter: BGM only here
+
+
+def test_lint_does_not_warn_npc_dropped_on_verbatim_fork(tmp_path):
+    # [[npc]] is NOW supported on a verbatim fork (seated below the party band by _inject_verbatim_npcs), so
+    # it must NOT be reported as dropped -- the regression guard for removing it from _VERBATIM_IGNORED_BLOCKS.
+    from ff9mapkit.build import lint_logic
+    body = ('[field]\nid = 4003\nname = "VTEST"\narea = 11\n\n'
+            '[verbatim_eb]\nbin = "donor.bin"\n\n'
+            '[[npc]]\nname = "Guy"\npos = [0, 0]\n')
+    w = lint_logic(_load(tmp_path, body=body))
+    assert not any("[[npc]]" in s and "ignored" in s for s in w), w
 
 
 def test_lint_no_verbatim_warning_on_a_synthesized_field(tmp_path):
