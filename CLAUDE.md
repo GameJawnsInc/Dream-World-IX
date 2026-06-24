@@ -420,7 +420,8 @@ trigger (entry cutscenes run from the `.eb`). → `project_ff9_mint_gotchas`, `f
   fix landed for BOTH paths: the "Received X" box rendered TOP-RIGHT because `mes_entry` forced a dialogue default
   `[STRT=10,1][TAIL=UPR]`; FF9 auto-centers a system window from its `[STRT=width,lines]` geometry, so the chest box
   now passes the real field 200/407 geometry (item `[STRT=69,3]`, gil `[STRT=86,3]`, `TAIL=DEFT`) via a new per-line
-  `strts=` on `content.text.build_mes` (built `.mes` byte-matches the real box; re-test pending). Campaign caveat (enforced
+  `strts=` on `content.text.build_mes` (built `.mes` byte-matches the real box). ★ FULLY IN-GAME PROVEN 2026-06-24
+  on BOTH paths (save + collision + animation + centered box). Campaign caveat (enforced
   by `build.validate`, fixed an aliasing blocker an adversarial review caught): a campaign-member chest must pin
   an explicit `flag = N` — the auto `CHEST_FLAG_BASE` (8400, inside FF9's real chest bitfield) is NOT
   per-member-partitioned, so two members' auto chests would alias → save corruption. → [[project-ff9-npc-on-verbatim]].
