@@ -1771,7 +1771,8 @@ class Workspace(QMainWindow):
             return
         try:
             J.set_manifest_flags(self.journey_root, new)
-        except (C.CampaignError, ValueError) as e:
+            self.manifest = J.load_journeys(self.journey_root)   # refresh in-session manifest -> picker/lint see them
+        except (C.CampaignError, ValueError, J.JourneyError) as e:
             self._show_problems(fb.Verdict(fb.ERROR, "Couldn't save journey flags"),
                                 [fb.Problem(fb.ERROR, str(e))])
             return
@@ -3978,15 +3979,18 @@ class Workspace(QMainWindow):
         return pick_catalog(self, catalog, current, ctx, self.pal, want_id=want_id)
 
     def _flag_pick_context(self):
-        """A picker context whose ``.flags`` = the OPEN FIELD's own ``[[flag]]`` defs + any open campaign's
-        shared flags (deduped by name), and ``.members`` from the campaign. Duck-typed for ``infohub.browse``,
-        so the flag Browse lists a single field's OWN flags too -- not just a campaign's shared ones."""
+        """A picker context whose ``.flags`` covers the WHOLE flag hierarchy in scope: the OPEN FIELD's own
+        ``[[flag]]`` defs + the open campaign's shared flags + the open journey's GLOBAL flags
+        (``self.manifest.flags``, set in journey mode where ``self.plan`` is None), deduped by name. ``.members``
+        from the campaign. Duck-typed for ``infohub.browse`` so the flag Browse lists everything a field can
+        legitimately gate on, not just one tier."""
         from types import SimpleNamespace
         flags, seen = [], set()
         member = (self._save_ctx or {}).get("member")
         doc = self._safe_doc(member) if member else None
-        for src in (((doc.data.get("flag") if doc else None) or []),
-                    (getattr(self.plan, "flags", None) or [])):
+        for src in (((doc.data.get("flag") if doc else None) or []),     # field-local
+                    (getattr(self.plan, "flags", None) or []),            # campaign-shared
+                    (getattr(self.manifest, "flags", None) or [])):       # journey-global (whole game)
             for f in src:
                 nm = f.get("name") if isinstance(f, dict) else None
                 if nm and nm not in seen:
@@ -6508,7 +6512,10 @@ def _smoke(win):
     assert "Shared flags…" in [lb for lb, _ in win._context_actions(jroot)], win._context_actions(jroot)
     from .. import journey as _J
     _J.set_manifest_flags(win.journey_root, [{"name": "met_quina", "index": 12000}])
-    assert _J.load_journeys(win.journey_root).flags == [{"name": "met_quina", "index": 12000}]
+    win.manifest = _J.load_journeys(win.journey_root)      # the save reloads the in-session manifest (GUI does this)
+    assert win.manifest.flags == [{"name": "met_quina", "index": 12000}]
+    # journey-GLOBAL flags also reach the flag Browse picker (so a member field can gate on a cross-campaign flag)
+    assert any(f.get("name") == "met_quina" for f in win._flag_pick_context().flags), "journey flag in the picker"
     jnode = jroot.child(0)
     assert win._payload(jnode) == ("journey", "Alpha Arc", "@journey:alpha"), win._payload(jnode)
     cnode = jnode.child(0)
