@@ -764,8 +764,9 @@ def _verdict_line(rep: ForkReport) -> str:
     else:
         reco = "--native (a faithful diorama; nothing story-bound to carry)"
     parts.append(f"Recommended: {reco}.")
-    # The lost-on-a-mint steer -- only the NON-auto-reproduced losses are fork-in-place-worthy.
-    losses = [lbl for lbl, det in rep.lost_on_mint if "auto-reproduced" not in det]
+    # The lost-on-a-mint steer -- only the NON-reproduced losses are fork-in-place-worthy ("auto-reproduced on
+    # fork" via a toggle prepend, or "reproduced by the engine fork-donor remap", both mean it's NOT lost).
+    losses = [lbl for lbl, det in rep.lost_on_mint if "reproduced" not in det]
     if losses:
         parts.append(f"Loses {', '.join(losses)} on a custom id -- fork IN-PLACE on the real id to keep (see Lost on mint).")
     return " ".join(parts)

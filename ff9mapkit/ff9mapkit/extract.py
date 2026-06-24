@@ -1486,6 +1486,13 @@ def _walkmesh_hotfix_line(field) -> str:
         h = _wh.info(_resolve_field_id(field))
     except Exception:
         return ""
+    if h is not None and h.engine_remapped:
+        # The shipped engine reproduces this hotfix for the fork id (s29 EffectiveFieldId, original timing) -- a
+        # Main_Init toggle prepend would mis-time it (it fires before the field's props settle onto these tris,
+        # snapping them a floor down -- the Ipsen 2507 chests). So emit NO toggle; note why for the reader.
+        return (f"# {h.name}: load-time walkmesh hotfix reproduced by the engine fork-donor remap (s29,\n"
+                f"# EffectiveFieldId, original timing) -- NOT a walkmesh_tri_toggles prepend (which would mis-time\n"
+                f"# prop placement). Nothing to author here. ({h.source})\n")
     if not (h and h.auto):
         return ""
     arr = ", ".join(f"[{t}, {s}]" for t, s in h.toggles)

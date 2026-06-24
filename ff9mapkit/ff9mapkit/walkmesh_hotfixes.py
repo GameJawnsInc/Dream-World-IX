@@ -44,6 +44,12 @@ class Hotfix:
     ``tris``    : every triangle index the hotfix touches (for reporting, incl. the non-auto kinds).
     ``note``    : what it does + the runtime condition + (for non-auto) the reproduction recipe.
     ``source``  : the Memoria source location.
+    ``engine_remapped`` : the SHIPPED custom engine already reproduces this hotfix faithfully for a fork (its
+                  ``fldMapNo`` gate is wrapped with ``EffectiveFieldId``, so it fires for the fork id too) WITH the
+                  original timing -- so the kit must NOT also prepend a Main_Init toggle. Set when the engine hotfix
+                  is DELAYED (e.g. 2507's ``DelayedActiveTri`` runs 0.5s after load): the at-load toggle prepend
+                  fires BEFORE the field's own props settle onto those tris, snapping them to the wrong floor (the
+                  Ipsen chests dropped a level). Reproduce delayed hotfixes via the engine remap, not the prepend.
     """
 
     field_id: int
@@ -53,11 +59,14 @@ class Hotfix:
     source: str
     toggles: tuple = ()
     tris: tuple = ()
+    engine_remapped: bool = False
 
     @property
     def auto(self) -> bool:
-        """True when the build can reproduce this hotfix wholesale via a Main_Init tri-toggle prepend."""
-        return self.kind == "load_time" and bool(self.toggles)
+        """True when the build SHOULD reproduce this hotfix via a Main_Init tri-toggle prepend. False for an
+        ``engine_remapped`` hotfix: the shipped engine already reproduces it for the fork id (correct timing),
+        and the at-load prepend would mis-time it (see ``engine_remapped``)."""
+        return self.kind == "load_time" and bool(self.toggles) and not self.engine_remapped
 
 
 _HOTFIXES = {
@@ -76,12 +85,15 @@ _HOTFIXES = {
                  "At field load the engine deactivates one triangle (a disc-3 room-layout block). Unconditional.",
                  "FieldMap.cs:119-122", toggles=((69, 0),), tris=(69,)),
     2507: Hotfix(2507, "I. Castle/Stairwell (ladders + stairs)", "load_time",
-                 "0.5s after load the engine deactivates four stairwell triangles AND drops every non-player "
-                 "NPC's walkmesh collision. The TRIANGLE part is reproduced (deactivated at load); the "
-                 "NPC-collision-disable part is NOT reproduced by the toggle prepend (a minor residual -- NPCs "
-                 "keep collision; the player-path geometry is the triangle part).",
+                 "0.5s AFTER load the engine deactivates four stairwell triangles AND drops every non-player NPC's "
+                 "walkmesh collision (DelayedActiveTri). ENGINE-REMAPPED: the s29 fork-donor patch wraps this gate "
+                 "with EffectiveFieldId, so it fires for the fork id too -- with the original 0.5s delay AND the "
+                 "NPC-collision drop. The kit must NOT also prepend an at-load toggle: tris 174/175/177/178 are the "
+                 "FLOOR the two treasure-chest props snap onto, and the real field's 0.5s delay lets them settle "
+                 "FIRST, then removes the tris. An at-load prepend removes them BEFORE the chests place, snapping "
+                 "the chests a floor down (★ caught in-game 2026-06-23). So reproduce via the engine remap only.",
                  "FieldMap.cs:139-148", toggles=((174, 0), (175, 0), (177, 0), (178, 0)),
-                 tris=(174, 175, 177, 178)),
+                 tris=(174, 175, 177, 178), engine_remapped=True),
 
     # --- EVENT-CODE one-shot (locatable trigger; reproducible-but-bespoke; NOT auto-applied) ----------------
     450: Hotfix(450, "Dali/Field (Grandma's initial position)", "event_code",

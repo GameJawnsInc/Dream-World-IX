@@ -79,8 +79,13 @@ def lost_on_mint(field) -> list:
     out = []
     h = _wh.info(f)
     if h is not None:
-        out.append(("walkmesh hotfix",
-                    f"{h.name} ({'auto-reproduced on fork' if h.auto else 'fork-in-place'})"))
+        if h.engine_remapped:
+            repro = "reproduced by the engine fork-donor remap"
+        elif h.auto:
+            repro = "auto-reproduced on fork"
+        else:
+            repro = "fork-in-place"
+        out.append(("walkmesh hotfix", f"{h.name} ({repro})"))
     if loses_letterbox(f):
         out.append(("narrow-map letterbox",
                     f"real width {_WIDTHS[f]} < widescreen; a fork renders widescreen "

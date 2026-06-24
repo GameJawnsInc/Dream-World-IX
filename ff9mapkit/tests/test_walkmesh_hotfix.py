@@ -109,3 +109,32 @@ def test_fork_report_lost_on_mint_includes_walkmesh():
     assert forkreport.analyze_eb(eb, field_id=0).lost_on_mint == []   # fixture id -> nothing
     txt = forkreport.format_report(forkreport.analyze_eb(eb, field_id=2803))
     assert "Lost on mint" in txt and "walkmesh hotfix" in txt
+
+
+# --- engine-remapped (2507 Ipsen): a DELAYED hotfix the s29 engine reproduces; the kit must NOT also prepend a
+#     toggle, which fires at LOAD -- before the field's treasure chests settle onto those tris -- dropping them a
+#     floor (caught in-game 2026-06-23). engine_remapped -> auto False -> no toggle, but still catalogued/reported.
+def test_catalog_engine_remapped_2507_not_auto():
+    h = WH.info(2507)
+    assert h is not None and h.kind == "load_time" and h.engine_remapped
+    assert h.toggles == ((174, 0), (175, 0), (177, 0), (178, 0))  # catalogued for reporting ...
+    assert not h.auto and WH.load_time_toggles(2507) == []        # ... but NOT auto-emitted (engine reproduces it)
+    assert WH.info(2356).auto and WH.info(2161).auto              # the at-load hotfixes stay auto-reproduced
+
+
+def test_extract_no_toggle_line_for_engine_remapped():
+    from ff9mapkit.extract import _walkmesh_hotfix_line
+    line = _walkmesh_hotfix_line(2507)
+    assert "walkmesh_tri_toggles = [" not in line                 # no ACTIVE directive (a prepend would mis-time chests)
+    assert all(ln.lstrip().startswith("#") for ln in line.splitlines() if ln.strip())  # only comments
+    assert "engine fork-donor remap" in line                      # documented as engine-reproduced
+    assert "walkmesh_tri_toggles = [[78, 0]" in _walkmesh_hotfix_line(2356)   # a normal auto hotfix still authors it
+
+
+def test_fork_report_engine_remapped_wording():
+    eb = data.blank_field_bytes("us")
+    rep = forkreport.analyze_eb(eb, field_id=2507)
+    det = dict(rep.lost_on_mint).get("walkmesh hotfix")
+    assert det is not None and "reproduced by the engine fork-donor remap" in det
+    assert "auto-reproduced" not in det and "fork-in-place" not in det
+    assert "reproduced by the engine fork-donor remap" in forkreport.format_report(rep)
