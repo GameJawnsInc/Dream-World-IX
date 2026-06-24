@@ -409,11 +409,12 @@ trigger (entry cutscenes run from the `.eb`). → `project_ff9_mint_gotchas`, `f
   tag-3 IS the field's quest logic, inseparable). Use **`--verbatim`**; read what an NPC does with
   **`fork-report --explain`**. (#13, the story-event director/roster problem, is separate; its CORE is now
   in-game proven — `--verbatim` + `[startup]` shows a beat-correct rotating roster — see §10.)
-  → [[project-ff9-fork-fidelity-worklist]]. **NOT a dead end** (don't re-conflate): ADDING a NEW *self-contained*
-  kit `[[npc]]` (own model + own kit talk text, no field-global deps) to a **verbatim** fork IS supported — it's
-  a different problem #14 never tested. Seated BELOW the engine's reserved last-9 party-character band
-  (`inject_npc(reserve_party_band=)` → `object.insert_entry_before_band` + a +1 band-ref remap; in-game proven
-  2026-06-24). → [[project-ff9-npc-on-verbatim]].
+  → [[project-ff9-fork-fidelity-worklist]]. **NOT a dead end** (don't re-conflate): ADDING NEW *self-contained*
+  kit content to a **verbatim** fork IS supported — a different problem #14 never tested. The whole additive set
+  — **`[[npc]]` · `[[gateway]]` (new exits) · `[[event]]` (item/gil/flag zones) · `[[prop]]` · `[[chest]]`
+  (a real openable, savable treasure chest)** — seats BELOW the engine's reserved last-9 party-character band via
+  the shared `object.seat_entry(reserve_party_band=)` (`insert_entry_before_band` + a +1 band-ref remap), each
+  re-linted after injection. ALL in-game proven 2026-06-24. → [[project-ff9-npc-on-verbatim]].
 
 ---
 
