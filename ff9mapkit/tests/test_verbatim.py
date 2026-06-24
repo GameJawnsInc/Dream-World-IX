@@ -199,6 +199,30 @@ def test_build_field_verbatim_with_npc_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_with_event_end_to_end(tmp_path):
+    # Add a NEW [[event]] chest to a verbatim fork: build must seat the event region(s) BELOW the band, give
+    # the item (AddItem 0x48), and APPEND the "found" message to every language's .mes at a high txid.
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    project = build.FieldProject.load(toml)
+    project.raw["event"] = [{"zone": [[0, 0], [100, 0], [100, 100], [0, 100]], "give_item": ["Potion", 1],
+                             "message": "You found a Potion!", "once": True}]
+    assert build.validate(project) == []
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        assert s.entry_count >= donor.entry_count + 2          # >=1 event region + the shared arm entry
+        assert any(i.op == 0x48 for e in s.entries if not e.empty for f in e.funcs for i in s.instrs(f)), "AddItem"
+    mes = [p for p in out.rglob("*.mes")]
+    assert mes and any("You found a Potion!" in p.read_text(encoding="utf-8") for p in mes), "event .mes shipped"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_show_line_end_to_end(tmp_path):
     # Phase 4b show_line: a [[logic_add]] that SHOWS a line must (1) build clean, (2) ship a WindowSync into
     # the verbatim .eb at a txid ABOVE the donor text, and (3) APPEND that line to every language's .mes at

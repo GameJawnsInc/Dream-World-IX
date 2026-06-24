@@ -1412,12 +1412,12 @@ def validate(project: FieldProject) -> list[str]:
 # Synthesize-path CONTENT blocks (build_script injects these). A VERBATIM fork ([verbatim_eb]) runs the
 # donor's real .eb and BYPASSES build_script, so any of these authored on one is silently DROPPED at build --
 # a verbatim fork already ships the donor's own NPCs/doors/cutscenes. ([encounter] is handled separately: on a
-# verbatim fork it still feeds the battle BGM, it just doesn't inject the SetRandomBattles trigger. [[npc]] and
-# [[gateway]] are NOT here: a NEW self-contained NPC / exit IS added to a verbatim fork -- seated below the
-# donor's party-character band -- by _inject_verbatim_npcs / _inject_verbatim_gateways in build_field.)
+# verbatim fork it still feeds the battle BGM, it just doesn't inject the SetRandomBattles trigger. [[npc]],
+# [[gateway]] and [[event]] are NOT here: a NEW self-contained NPC / exit / chest-trigger IS added to a verbatim
+# fork -- seated below the donor's party-character band -- by _inject_verbatim_{npcs,gateways,events}.)
 _VERBATIM_IGNORED_BLOCKS = {
     "music": "[music]", "cutscene": "[cutscene]",
-    "event": "[[event]]", "choice": "[[choice]]", "marker": "[[marker]]",
+    "choice": "[[choice]]", "marker": "[[marker]]",
 }
 
 
@@ -2565,6 +2565,86 @@ def _logic_add_message_plan(project: FieldProject, langs) -> tuple[dict, dict]:
         txid_by_idx[idx] = base + j
     suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
     return txid_by_idx, {lang: suffix for lang in langs}
+
+
+def _verbatim_npc_message_count(project: FieldProject) -> int:
+    """How many ``[[npc]]`` carry dialogue (the size of the verbatim NPC appended-text block, so the
+    ``[[event]]`` block can sit above it)."""
+    return sum(1 for n in (project.raw.get("npc", []) or []) if n.get("dialogue"))
+
+
+def _verbatim_event_messages(project: FieldProject, langs) -> tuple[dict, dict]:
+    """For a verbatim fork's authored ``[[event]]`` messages (a chest's "You found X" line): give each a
+    txid ABOVE the donor `.mes` + the on_entry/logic_add/npc blocks (all disjoint), plus the per-language
+    `.mes` lines to append. Returns ``(txid_by_event_index, suffix_by_lang)`` keyed by the index into
+    ``project.raw['event']``; ``({}, {})`` when no event shows a message. (A ``received`` event still needs a
+    ``message``; ``received`` only styles it as the window-7 item box.)"""
+    voiced = [(j, ev) for j, ev in enumerate(project.raw.get("event", []) or []) if ev.get("message")]
+    if not voiced:
+        return {}, {}
+    base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
+            + _logic_add_message_count(project) + _verbatim_npc_message_count(project))
+    wrap = _wrap_width(project)
+    lines, tails, txid_by_idx = [], [], {}
+    for k, (j, ev) in enumerate(voiced):
+        line = _text.with_speaker(ev.get("speaker"), ev["message"])
+        if wrap is not None:
+            line = _text.wrap_text(line, wrap)[0]
+        lines.append(line)
+        tails.append(ev.get("tail"))
+        txid_by_idx[j] = base + k
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    return txid_by_idx, {lang: suffix for lang in langs}
+
+
+def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict, *, warnings) -> bytes:
+    """Inject each authored ``[[event]]`` (chest / gil / story-flag / trigger) into a VERBATIM fork, every
+    region seated BELOW the donor's party-character band (:func:`ff9mapkit.content.event.inject_events` with
+    ``reserve_party_band``). Mirrors the synthesize-path event loop (give/remove item, gil, set_flag, an
+    optional ``message`` + the ``received`` item box, ``once`` dedup-flag, ``requires_flag`` gate,
+    ``require_space`` chest guard). Auto ``once`` flags come from the same per-category band ``_FlagAlloc``
+    the synth path uses (disjoint from the on_entry/choice bands). NOT carried (v1): the live reveal of a
+    flag-gated ``[[npc]]`` (it still updates on field re-entry). Returns the new bytes."""
+    events = project.raw.get("event", []) or []
+    if not events:
+        return eb
+    auto = _FlagAlloc(getattr(project, "flag_base", None))
+    specs, flag_counter = [], 0
+    for j, ev in enumerate(events):
+        if "zone" not in ev:
+            warnings.append(f"[[event]] #{j} has no zone -- skipped on the verbatim fork.")
+            continue
+        parts = []
+        item_id = _items.resolve(ev["give_item"][0]) if "give_item" in ev else None
+        if "give_item" in ev:
+            gi = ev["give_item"]
+            parts.append(_event.give_item(item_id, int(gi[1]) if len(gi) > 1 else 1))
+        if "remove_item" in ev:
+            ri = ev["remove_item"]
+            parts.append(_event.take_item(ri[0], int(ri[1]) if len(ri) > 1 else 1))
+        if "gil" in ev:
+            parts.append(_event.give_gil(int(ev["gil"])))
+        if "set_flag" in ev:
+            sf = ev["set_flag"]
+            parts.append(_event.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
+        if j in event_txids:
+            if ev.get("received") and item_id is not None:
+                parts.append(opcodes.set_text_variable(0, item_id))
+                parts.append(_event.message(event_txids[j], window=7, flags=0))
+            else:
+                parts.append(_event.message(event_txids[j]))
+        once_flag = None
+        if ev.get("once", True):
+            if (auto.base is not None and "flag" not in ev and flag_counter >= EVENTS_PER_FIELD):
+                raise BuildError(f"field {project.name}: more than {EVENTS_PER_FIELD} auto-flagged 'once' "
+                                 "[[event]]s overflow this campaign member's flag block -- set flag = N on some.")
+            once_flag = int(ev["flag"]) if "flag" in ev else auto.event(flag_counter)
+            flag_counter += 1
+        gf, gs = _gate_of(ev)
+        space_item = item_id if ev.get("require_space") and item_id is not None else None
+        specs.append({"zone": [tuple(p) for p in ev["zone"][:4]], "body": b"".join(parts),
+                      "once_flag": once_flag, "requires_flag": gf, "requires_set": gs, "space_item": space_item})
+    return _event.inject_events(eb, specs, reserve_party_band=True) if specs else eb
 
 
 def _logic_add_message_count(project: FieldProject) -> int:
@@ -3878,6 +3958,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     verbatim_edits = project.logic_edits()
     la_suffix: dict = {}                                        # [[logic_add]] show_line / message lines (per lang)
     npc_suffix: dict = {}                                       # [[npc]] talk lines added to a verbatim fork (per lang)
+    event_suffix: dict = {}                                     # [[event]] message lines added to a verbatim fork (per lang)
     menu_row_plan: list = []                                    # [[logic_add]] menu_row .mes row splices (per lang)
     if verbatim_bytes is not None:
         # Phase-2 in-place value edits ([[logic_edit]]): run LAST -- the applier self-locates by entry/tag/op +
@@ -3942,6 +4023,16 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             if _gw_errs:
                 raise BuildError(f"[[gateway]] broke the composed .eb of {project.name}: "
                                  f"{[str(e) for e in _gw_errs]}")
+        # [[event]] -- add NEW chests / gil / story-flag triggers to the verbatim fork (region entries below
+        # the band; message text via the appended-.mes channel, above the npc block).
+        if project.raw.get("event"):
+            from . import eblint as _eblint
+            _ev_txids, event_suffix = _verbatim_event_messages(project, langs)
+            verbatim_bytes = _inject_verbatim_events(project, verbatim_bytes, _ev_txids, warnings=warnings)
+            _ev_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+            if _ev_errs:
+                raise BuildError(f"[[event]] broke the composed .eb of {project.name}: "
+                                 f"{[str(e) for e in _ev_errs]}")
         # a [[shop]] OPENER (a standalone `zone` region, or an `[[npc]] opens_shop`) is synthesized in
         # build_script, which the verbatim path bypasses -- so it is NOT injected here (the donor's own
         # logic ships instead). The inventory CSV still ships (mod-write stage). Warn so it isn't a silent
@@ -3981,7 +4072,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                 except _logic_add.LogicAddError as ex:          # match Check: a clean failure, not a traceback
                     raise BuildError(f"[[logic_add]] menu_row in {project.name}: {ex}")
             suffix = (oe_suffix.get(lang, "") + la_suffix.get(lang, "")   # appended [[on_entry]]/[[logic_add]]
-                      + npc_suffix.get(lang, ""))                          # + [[npc]] talk lines
+                      + npc_suffix.get(lang, "")                           # + [[npc]] talk lines
+                      + event_suffix.get(lang, ""))                        # + [[event]] message lines
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
