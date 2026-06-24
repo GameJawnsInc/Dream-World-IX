@@ -3874,9 +3874,30 @@ class Workspace(QMainWindow):
                                        f"wrote {self.member_paths[member].name}"), [])
 
     def _pick(self, catalog, current, want_id=False):
-        """``build_form``'s picker: open the Qt catalog picker over the open campaign's context. ``want_id``
-        returns the picked entry's numeric id (for an INT field like the encounter battle scene)."""
-        return pick_catalog(self, catalog, current, self.plan, self.pal, want_id=want_id)
+        """``build_form``'s picker: open the Qt catalog picker over the open campaign's context. For the
+        ``flag`` catalog it ALSO surfaces the OPEN FIELD's own ``[[flag]]`` table (so Browse isn't empty on a
+        standalone field). ``want_id`` returns the picked entry's numeric id (e.g. an encounter battle scene)."""
+        ctx = self.plan
+        if catalog and "flag" in [k.strip() for k in catalog.split(",")]:
+            ctx = self._flag_pick_context()
+        return pick_catalog(self, catalog, current, ctx, self.pal, want_id=want_id)
+
+    def _flag_pick_context(self):
+        """A picker context whose ``.flags`` = the OPEN FIELD's own ``[[flag]]`` defs + any open campaign's
+        shared flags (deduped by name), and ``.members`` from the campaign. Duck-typed for ``infohub.browse``,
+        so the flag Browse lists a single field's OWN flags too -- not just a campaign's shared ones."""
+        from types import SimpleNamespace
+        flags, seen = [], set()
+        member = (self._save_ctx or {}).get("member")
+        doc = self._safe_doc(member) if member else None
+        for src in (((doc.data.get("flag") if doc else None) or []),
+                    (getattr(self.plan, "flags", None) or [])):
+            for f in src:
+                nm = f.get("name") if isinstance(f, dict) else None
+                if nm and nm not in seen:
+                    seen.add(nm)
+                    flags.append(f)
+        return SimpleNamespace(flags=flags, members=(getattr(self.plan, "members", None) or []))
 
     def _header(self, title, note=None):
         lbl = QLabel(title)
@@ -5251,6 +5272,8 @@ def _smoke(win):
     assert win._doc("IC_ENT").data["choice"][-1]["prompt"] == "What'll it be?"
     win._add_list_item("IC_ENT", "flag")               # the [[flag]] section (audit #7 -> story flags are GUI-authorable)
     assert win._doc("IC_ENT").data["flag"][-1] == {"name": "flag", "index": 8512} and win._save_ctx["section"] == "flag"
+    # the flag Browse picker surfaces the OPEN FIELD's own [[flag]] (not just a campaign's shared flags)
+    assert any(f.get("name") == "flag" for f in win._flag_pick_context().flags), "a field's [[flag]] reaches the flag picker"
     assert forms.build_entity(forms.FLAG_SPEC, {"name": "got_sword", "index": "8520"}) == {"name": "got_sword", "index": 8520}
     assert win._node_problems("flag", {"name": "x", "index": 8520}, "IC_ENT") == []   # in-band: clean
     assert win._node_problems("flag", {"name": "x", "index": 100}, "IC_ENT")          # out-of-band: warns
