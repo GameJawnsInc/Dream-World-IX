@@ -3908,6 +3908,7 @@ class Workspace(QMainWindow):
         self._header(f"{member}  ·  {key}", forms.SECTION_HELP.get(section))
         tab = (entity.get("name") if not single else None) or _LIST_SINGULAR.get(section) or section.title()
         self._set_editor_tab(str(tab)[:24])
+        self._scene_pos_banner(member, section, entity, single=single)
         form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal, pick=self._pick,
                                    wrap_width=self._wrap_width(member), on_change=lambda m=member: self._on_form_change(m))
         self.doc_host_lay.addWidget(form)
@@ -3923,6 +3924,25 @@ class Workspace(QMainWindow):
             delete = (f"Remove {section}",
                       lambda: self._delete_object(member, section, single=True, label=section))
         self._add_save(self._save, delete)
+
+    def _scene_pos_banner(self, member, section, entity, *, single):
+        """When an NPC/marker/gateway/event is placed in BLENDER, its position/zone lives in the scene.toml
+        (the build overlays it, scene wins) -- so the field-only form would show a blank Position even though
+        it IS placed. Surface that scene-owned value read-only so it isn't invisible. (Positions are authored
+        in Blender; F5 re-reads the scene.toml after a re-export.)"""
+        if single or section not in ("npc", "marker", "gateway", "event"):
+            return
+        spatial = self._scene_positions(member).get((section, entity.get("name")))
+        if spatial is None:
+            return
+        fld = "zone" if section in ("gateway", "event") else "position"
+        msg = f"📍 Placed in Blender — {fld} {spatial} comes from the scene.toml (edit it there; F5 to refresh)."
+        if entity.get("zone" if section in ("gateway", "event") else "pos"):
+            msg += f" This OVERRIDES the {fld} field below (scene wins)."
+        note = QLabel(msg)
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color:{self.pal['muted']};")
+        self.doc_host_lay.addWidget(note)
 
     def _add_save(self, handler, delete=None):
         self._active_save = handler                            # Ctrl-S saves the mounted form
@@ -4756,21 +4776,33 @@ class Workspace(QMainWindow):
 
     def _scene_entity_names(self, member):
         """``(npc names, marker names)`` from the sibling ``<stem>.scene.toml`` (the Blender-owned spatial
-        file -- entity lists are SPLIT field/scene by name, so an NPC/marker can be scene-ONLY). Cached by
-        the file's mtime so a Blender re-export is picked up; a missing sibling -> empty (uncached)."""
+        file -- entity lists are SPLIT field/scene by name, so an NPC/marker can be scene-ONLY)."""
+        npc, mk, _pos = self._read_scene(member)
+        return npc, mk
+
+    def _scene_positions(self, member):
+        """``{(section, name): spatial}`` -- the Blender-owned position (npc/marker ``pos``) or zone
+        (gateway/event ``zone``) for each named scene entity. The build OVERLAYS these onto the field.toml
+        entity (scene wins per-key, :func:`build._merge_entities`), so the editor surfaces them read-only --
+        otherwise a Blender-placed entity's Position shows blank in the form even though it IS placed."""
+        return self._read_scene(member)[2]
+
+    def _read_scene(self, member):
+        """Read + cache the sibling ``<stem>.scene.toml`` -> ``(npc_names, marker_names, {(sec,name): spatial})``.
+        Cached by the file's mtime so a Blender re-export is picked up; a missing sibling -> empties (uncached)."""
         path = self.member_paths.get(member)
         if not path:
-            return frozenset(), frozenset()
+            return frozenset(), frozenset(), {}
         name = Path(path).name                              # <x>.field.toml -> <x>.scene.toml (build's convention)
         stem = name[:-len(".field.toml")] if name.endswith(".field.toml") else Path(path).stem
         sib = Path(path).parent / f"{stem}.scene.toml"
         try:
             mtime = sib.stat().st_mtime
         except OSError:
-            return frozenset(), frozenset()                 # no sibling -> don't cache (a later export is seen)
+            return frozenset(), frozenset(), {}             # no sibling -> don't cache (a later export is seen)
         cached = self._scene_names.get(member)
         if cached and cached[0] == mtime:
-            return cached[1], cached[2]
+            return cached[1], cached[2], cached[3]
         try:
             import tomllib
             sd = tomllib.loads(sib.read_text(encoding="utf-8"))
@@ -4780,8 +4812,14 @@ class Workspace(QMainWindow):
                         if isinstance(n, dict) and n.get("name"))
         mk = frozenset(n.get("name") for n in (sd.get("marker", []) or [])
                        if isinstance(n, dict) and n.get("name"))
-        self._scene_names[member] = (mtime, npc, mk)
-        return npc, mk
+        posmap = {}                                          # the Blender-owned spatial value per named entity
+        for sec in ("npc", "gateway", "event", "marker"):
+            spatial_key = "zone" if sec in ("gateway", "event") else "pos"
+            for n in (sd.get(sec, []) or []):
+                if isinstance(n, dict) and n.get("name") and n.get(spatial_key) is not None:
+                    posmap[(sec, n["name"])] = n[spatial_key]
+        self._scene_names[member] = (mtime, npc, mk, posmap)
+        return npc, mk, posmap
 
     def _field_entity_names(self, member):
         """``{'npc': set, 'marker': set}`` of entity NAMES for a field, MERGED from its live field.toml
@@ -5392,8 +5430,13 @@ def _smoke(win):
     # SCENE.TOML-AWARE reference checks: a choice/cutscene reference resolves against BOTH the field.toml
     # NPCs/markers AND the sibling scene.toml (Blender-owned) -- so a scene-placed entity isn't falsely flagged.
     pdoc.data["npc"].append({"name": "Ref", "preset": "vivi"})       # a field.toml NPC
-    (d / "IC_ENT" / "IC_ENT.scene.toml").write_text(                 # a scene-ONLY NPC + marker
-        '[[npc]]\nname = "SceneGuy"\n[[marker]]\nname = "spot1"\n', encoding="utf-8")
+    (d / "IC_ENT" / "IC_ENT.scene.toml").write_text(                 # a scene-ONLY NPC + marker, with positions
+        '[[npc]]\nname = "SceneGuy"\npos = [123, -45]\n[[marker]]\nname = "spot1"\npos = [10, 20]\n', encoding="utf-8")
+    # the Blender-owned scene.toml POSITIONS surface read-only (a Blender-placed entity isn't a blank Position)
+    assert win._scene_positions("IC_ENT").get(("npc", "SceneGuy")) == [123, -45], "scene NPC pos read"
+    win._scene_pos_banner("IC_ENT", "npc", {"name": "SceneGuy"}, single=False)   # no raise; adds a read-only note
+    assert any(isinstance(w, QLabel) and "Placed in Blender" in w.text()
+               for w in win.doc_host.findChildren(QLabel)), "the scene-position banner is shown"
     assert win._node_problems("choice", {"npc": "Ref"}, "IC_ENT") == [], "a field.toml NPC reference is clean"
     assert win._node_problems("choice", {"npc": "SceneGuy"}, "IC_ENT") == [], "a scene.toml NPC reference is clean"
     assert win._node_problems("choice", {"npc": "Nope"}, "IC_ENT"), "a missing NPC reference warns"
