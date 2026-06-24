@@ -472,6 +472,41 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 
 ---
 
+## `[[chest]]` (optional, repeatable)
+
+A real **openable treasure chest** — a model the player walks up to and **presses** to open: it plays the
+lid animation + SFX, gives a fixed **item or gil**, shows FF9's centered *"Received …!"* box, and **latches a
+save-persistent flag** so the chest stays open across saves and reloads. Byte-grounded on FF9's real chests
+(fields 200/407, model 75 `GEO_ACC_F0_TBX`); it works on a from-scratch field **and** a `--verbatim` fork.
+
+```toml
+[[chest]]                 # an item chest
+pos = [0, 80]             # where the chest model sits (on the walkmesh; usually placed in Blender)
+item = ["Potion", 1]      # [item id-or-name, count]
+
+[[chest]]                 # a gil chest
+pos = [120, 80]
+gil = 250
+flag = 8520               # REQUIRED in a campaign member (see note); auto in a single field
+```
+
+| key | meaning |
+|---|---|
+| `pos` | `[x, z]` — where the chest model sits on the floor. It has **solid collision** (the player can't walk through it); place it where the player can reach to press it. |
+| `item` | `[item, count]` — the reward; `item` is an **id or a name** (`"Potion"`, also gear). Set **`item` OR `gil`**, not both. |
+| `gil` | gil reward instead of an item. |
+| `flag` | the save-persistent **opened-flag** bit — the chest re-poses OPEN once looted, forever. **Auto** in a single field (FF9's own chest bitfield, `8400+`); a **campaign member MUST set an explicit free index** (the auto band isn't per-member, so two members' auto chests would alias and corrupt the save — the build refuses it). |
+| `message` | OPTIONAL — replace *"Received \<item\>!"* with your own text (you own the `[WDTH]`/window codes). |
+| `box` | OPTIONAL `[width, lines]` — centers a custom `message` (the `[STRT]` geometry FF9 auto-centers from; the built-in item/gil boxes already carry the real field's). |
+| `tail` | OPTIONAL window-pointer corner (default `DEFT`, the centered system box). |
+
+> **`[[chest]]` vs the `[[event]]` chest-behavior.** `[[event]]` with `received = true` + `require_space = true`
+> is a *barebones* reward **zone** — no model, no animation, you just walk over an invisible trigger.
+> `[[chest]]` is the **real contraption**: a visible, solid, openable chest model with the lid animation + SFX
+> and a savable open state. Use `[[chest]]` for an actual treasure chest, the `[[event]]` form for an invisible pickup.
+
+---
+
 ## `[[event]]` (optional, repeatable)
 
 A region the player **walks into** that fires authored logic — show a message, give an item / gil,
@@ -507,10 +542,11 @@ once = false
 | `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
 
 > An event needs at least one action. The same conditional-region primitive underlies chests, story
-> flags, and one-time triggers. A faithful treasure chest is `give_item` + `received = true` +
+> flags, and one-time triggers. An invisible **reward zone** is `give_item` + `received = true` +
 > `require_space = true` + `once = true` — which compiles to FF9's exact chest shape
 > `if (GetItemCount < 99) { if (!opened) { opened = 1; AddItem; SetTextVariable; window-7 "Received …!" } }`
-> (effects before the acknowledgement; dedup flag first; verified byte-for-byte against real fields).
+> (effects before the acknowledgement; dedup flag first; verified byte-for-byte against real fields). For a
+> real openable chest **model** (lid animation, solid collision, the centered box), use [`[[chest]]`](#chest-optional-repeatable) instead.
 
 ### Story flags & branching
 

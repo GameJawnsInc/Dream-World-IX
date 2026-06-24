@@ -95,6 +95,18 @@ EVENT_SPEC = [
     Field("requires_flag_clear", "Fires when flag clear", FLAGREF, "only fires while this flag is unset",
           catalog="flag"),
 ]
+CHEST_SPEC = [
+    Field("pos", "Position (x, z)", COORD, "where the chest sits on the floor; usually placed in Blender"),
+    Field("item", "Reward item (id/name, count)", ITEMCOUNT, 'the treasure, e.g. "Potion, 1" (set item OR gil)',
+          catalog="item"),
+    Field("gil", "Reward gil", OPTINT, "give gil instead of an item (set item OR gil)"),
+    Field("flag", "Opened-flag", OPTINT, "save bit that marks it looted (it stays open across saves); auto in a "
+          "single field, but a campaign member needs an explicit free index so members don't alias"),
+    Field("message", "Custom box text", STR, "advanced: replace the 'Received <item>!' box (you own the "
+          "[WDTH]/codes); blank = the real FF9 box"),
+    Field("box", "Box size (width, lines)", PAIR, "advanced: centers a custom message, e.g. 69, 3"),
+    Field("tail", "Window tail", STR, "advanced: pointer corner (default DEFT = the centered system box)"),
+]
 ENCOUNTER_SPEC = [
     Field("scene", "Battle scene id", OPTINT, "e.g. 67 = Evil Forest; blank = no random battles",
           catalog="scene"),
@@ -179,6 +191,8 @@ SECTION_HELP = {
     "npc": "People who stand in the room: a model (preset), a line of dialogue, optional story gate.",
     "gateway": "An exit zone -> another field (the door the player walks into).",
     "event": "A walk-in trigger: show a message, give an item/gil, or set a story flag.",
+    "chest": "An openable, savable treasure chest: a model you PRESS to open -> it gives an item/gil, shows the "
+             "centered 'Received' box, and stays open across saves.",
     "marker": "Named points on the floor. A cutscene walk/path can reach them by name (no coords).",
     "choice": "Talk to an NPC -> a menu -> branch. Each option can reply, give item/gil, set a flag.",
 }

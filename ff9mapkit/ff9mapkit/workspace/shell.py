@@ -50,22 +50,23 @@ REPO = KIT.parent                                  # the repo root (holds tools/
 # (cutscene steps + choice options are list-in-list sub-editors -- a Phase-4b follow-up.)
 _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "music": forms.MUSIC_SPEC,
                  "dialogue": forms.DIALOGUE_SPEC, "npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC,
-                 "event": forms.EVENT_SPEC, "flag": forms.FLAG_SPEC, "marker": forms.MARKER_SPEC,
-                 "party": forms.PARTY_SPEC, "startup": forms.STARTUP_SPEC}
+                 "event": forms.EVENT_SPEC, "chest": forms.CHEST_SPEC, "flag": forms.FLAG_SPEC,
+                 "marker": forms.MARKER_SPEC, "party": forms.PARTY_SPEC, "startup": forms.STARTUP_SPEC}
 _SINGLES = ("field", "encounter", "music", "dialogue", "party", "startup")
 
 # object groups inside a field.toml, mirroring the tkinter editor's tree (editor/app.py).
 _SINGLE = [("dialogue", "Dialogue"), ("encounter", "Encounter"), ("music", "Music"), ("cutscene", "Cutscene"),
            ("party", "Party"), ("startup", "Startup beat")]
-_LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("flag", "Flags"),
+_LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("chest", "Chests"), ("flag", "Flags"),
           ("marker", "Markers"), ("choice", "Choices")]
-_LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "flag": "Flag",
+_LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "chest": "Chest", "flag": "Flag",
                   "marker": "Marker", "choice": "Choice"}
 # the default new entity per list kind -- mirrors the tkinter editor's _add_entity (editor/app.py).
 _LIST_DEFAULTS = {
     "npc": {"name": "NPC", "preset": "vivi", "dialogue": "..."},
     "gateway": {"name": "door", "to": 100, "entrance": 0},
     "event": {"name": "event", "message": "..."},
+    "chest": {"pos": [0, 0], "item": ["Potion", 1]},
     "flag": {"name": "flag", "index": 8512},          # a save-persistent story flag (name -> gEventGlobal bit)
     "marker": {"name": "spot", "pos": [0, 0]},
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
@@ -4526,7 +4527,7 @@ class Workspace(QMainWindow):
         """A one-line 'what's in this field' tally -- the content the tree groups hide behind their counts."""
         bits = []
         for sect, sing in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event"),
-                           ("marker", "marker"), ("choice", "choice")):
+                           ("chest", "chest"), ("marker", "marker"), ("choice", "choice")):
             n = len(data.get(sect, []) or [])
             if n:
                 bits.append(f"{n} {sing}{'' if n == 1 else 's'}")
@@ -4673,6 +4674,19 @@ class Workspace(QMainWindow):
                 out.append(m(f"sets flag: {_esc(e['set_flag'])}"))
             out.append(m(f"once: {str(e.get('once', True)).lower()}"))
             return out + self._gate_lines(e)
+        if section == "chest":
+            if e.get("item") is not None:
+                reward = f"item {_esc(e['item'])}"
+            elif e.get("gil") is not None:
+                reward = f"{_esc(e['gil'])} gil"
+            else:
+                reward = "?"
+            out = [f"chest → {reward}"]
+            if e.get("pos") is not None:
+                out.append(m(f"pos: {_esc(e['pos'])}"))
+            if e.get("flag") is not None:
+                out.append(m(f"opened-flag: {_esc(e['flag'])}"))
+            return out
         if section == "marker":
             out = [f"marker: {_esc(e.get('name', '?'))}"]
             if e.get("pos") is not None:
@@ -4831,6 +4845,16 @@ class Workspace(QMainWindow):
                         from .. import flags
                         if flags.is_reserved(int(f0)):
                             warn(f"set_flag writes a reserved bit ({f0})")
+            elif kind == "chest":                          # mirror build.validate's [[chest]] checks
+                has_item, has_gil = obj.get("item") is not None, obj.get("gil") is not None
+                if has_item == has_gil:
+                    warn("a chest needs exactly one of item or gil")
+                if has_item:
+                    it = obj["item"][0] if isinstance(obj["item"], (list, tuple)) and obj["item"] else obj["item"]
+                    if not self._name_ok("item", it):
+                        warn(f"unknown item '{it}'")
+                if len(obj.get("pos", []) or []) < 2:
+                    warn("a chest needs a pos = [x, z]")
             elif kind == "flag":                           # mirror collect_flag_defs: the index must be in-band
                 from .. import flags
                 idx = obj.get("index")
@@ -4884,7 +4908,7 @@ class Workspace(QMainWindow):
         doc = self._safe_doc(member)
         data = doc.data if doc else {}
         n = 0
-        for section in ("npc", "event", "choice"):
+        for section in ("npc", "event", "chest", "choice"):
             for e in (data.get(section, []) or []):
                 if isinstance(e, dict) and self._node_problems(section, e, member):
                     n += 1
@@ -5337,6 +5361,13 @@ def _smoke(win):
     from ..flags import CHEST_FLAG_LO as _CFLO
     assert win._node_problems("event", {"set_flag": [_CFLO, 1]}, "IC_ENT"), "a reserved set_flag bit warns"
     assert win._node_problems("event", {"set_flag": [8520, 1]}, "IC_ENT") == [], "a safe-band flag is clean"
+    # [[chest]]: exactly one of item|gil, a known item, a pos -- mirrors build.validate
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1]}, "IC_ENT") == [], "a valid item chest is clean"
+    assert win._node_problems("chest", {"pos": [0, 0], "gil": 100}, "IC_ENT") == [], "a valid gil chest is clean"
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["NoSuchItem", 1]}, "IC_ENT"), "an unknown chest item warns"
+    assert win._node_problems("chest", {"pos": [0, 0]}, "IC_ENT"), "a chest with no payload warns"
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "gil": 5}, "IC_ENT"), "item+gil warns"
+    assert win._node_problems("chest", {"item": ["Potion", 1]}, "IC_ENT"), "a chest with no pos warns"
     # the build does int(scene): a non-numeric scene can't build -> warn; a numeric id passes
     assert win._node_problems("encounter", {"scene": "NoSuchScene"}, "IC_ENT"), "a non-numeric scene warns"
     assert win._node_problems("encounter", {"scene": 67}, "IC_ENT") == [], "a numeric scene id passes"
