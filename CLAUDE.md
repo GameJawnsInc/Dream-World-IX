@@ -414,7 +414,12 @@ trigger (entry cutscenes run from the `.eb`). → `project_ff9_mint_gotchas`, `f
   — **`[[npc]]` · `[[gateway]]` (new exits) · `[[event]]` (item/gil/flag zones) · `[[prop]]` · `[[chest]]`
   (a real openable, savable treasure chest)** — seats BELOW the engine's reserved last-9 party-character band via
   the shared `object.seat_entry(reserve_party_band=)` (`insert_entry_before_band` + a +1 band-ref remap), each
-  re-linted after injection. ALL in-game proven 2026-06-24. → [[project-ff9-npc-on-verbatim]].
+  re-linted after injection. ALL in-game proven 2026-06-24. **`[[chest]]` is now ALSO wired on the SYNTHESIZE
+  path** (from-scratch fields, not just verbatim forks; shares `_chest_received_line`/`_inject_chests`, text in
+  the field's own `.mes` via `collect_text` — offline-verified, ⚠ awaiting playtest). Campaign caveat (enforced
+  by `build.validate`, fixed an aliasing blocker an adversarial review caught): a campaign-member chest must pin
+  an explicit `flag = N` — the auto `CHEST_FLAG_BASE` (8400, inside FF9's real chest bitfield) is NOT
+  per-member-partitioned, so two members' auto chests would alias → save corruption. → [[project-ff9-npc-on-verbatim]].
 
 ---
 

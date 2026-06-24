@@ -49,7 +49,7 @@ def _build_zone_choice(tmp_path, build, extra=""):
         '[[choice.options]]\ntext = "Yes"\nset_flag = [8001, 1]\n'
         '[[choice.options]]\ntext = "No"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    _, _, _, _, ctx, _, _ = build.collect_text(proj)
+    _, _, _, _, ctx, _, _, _ = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     return EbScript.from_bytes(eb), eb
 
@@ -123,7 +123,7 @@ def test_zone_choice_pre_choose_disabled_emits_pchm_and_mask(tmp_path):
         '[[choice.options]]\ntext = "B"\ndisabled = true\n'
         '[[choice.options]]\ntext = "C"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, _, _, ctx, _, _ = build.collect_text(proj)
+    mes, _, _, _, ctx, _, _, _ = build.collect_text(proj)
     assert "[PCHM=3,2]" in mes
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     assert opcodes.enable_dialog_choices(0b101, 0) in eb        # row 1 masked off, default 0
@@ -144,7 +144,7 @@ def test_zone_choice_flag_gated_builds_dynamic_mask_expression(tmp_path):
         '[[choice.options]]\ntext = "Use key"\nrequires_flag = 8001\n'
         '[[choice.options]]\ntext = "Leave"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, _, _, ctx, _, _ = build.collect_text(proj)
+    mes, _, _, _, ctx, _, _, _ = build.collect_text(proj)
     assert "[PCHM=3,2]" in mes
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     sc = region.MASK_SCRATCH_IDX
@@ -353,7 +353,7 @@ def test_event_sets_flag_before_message(tmp_path):
         '[[event]]\nname="key"\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\n'
         'message="Found it!"\nset_flag=[8001,1]\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    _, _, et, _, _, _, _ = build.collect_text(proj)
+    _, _, et, _, _, _, _, _ = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, event_txids=et)
     setflag = region.set_var(region.GLOB_BOOL, 8001, 1)
     msg = opcodes.window_sync(1, 128, et[0])
@@ -379,7 +379,7 @@ def test_event_received_window_and_space_check(tmp_path):
         '[[event]]\nname="chest"\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\n'
         'give_item=[236,1]\nreceived=true\nrequire_space=true\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, et, _, _, _, _ = build.collect_text(proj)
+    mes, _, et, _, _, _, _, _ = build.collect_text(proj)
     assert "Received [ITEM=0]!" in mes                              # canonical item-get text
     eb = build.build_script(proj, "us", {}, event_txids=et)
     assert opcodes.set_text_variable(0, 236) in eb                 # SetTextVariable(0, item)
@@ -672,3 +672,93 @@ def test_held_poses_catalog_shape_and_beatrix():
     from ff9mapkit._held_poses import HELD_POSES
     assert HELD_POSES[(AR.resolve("beatrix")[0], PA.resolve("save_the_queen")[0])] == (16, 1894, 2978)
     assert all(len(v) == 3 and all(isinstance(x, int) for x in v) for v in HELD_POSES.values())
+
+
+# --------------------------------------------------------------------------- [[chest]] on the synth path
+# The openable/savable treasure chest (proven on verbatim forks) on a FROM-SCRATCH field: collect_text gives
+# its centered "Received X" box a txid in the field's own 500-block; build_script appends the chest object.
+_CHEST_BASE = (
+    '[field]\nid = 4003\nname = "Z"\narea = 11\ntext_block = 1073\n\n'
+    '[camera]\npitch = 45\nfov = 42.2\n\n'
+    '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+)
+
+
+def _build_synth(tmp_path, body):
+    """Build a from-scratch field (CHEST_BASE + body) through collect_text -> build_script (the synth path)."""
+    from ff9mapkit import build
+    p = tmp_path / "z.field.toml"
+    p.write_text(_CHEST_BASE + body, encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    mes, _n, _e, _c, _ch, _o, _a, chest_txids = build.collect_text(proj)
+    eb = build.build_script(proj, "us", {}, chest_txids=chest_txids)
+    return mes, chest_txids, eb
+
+
+def _synth_baseline_errors(tmp_path):
+    """eblint errors for a CONTENT-FREE synth field (the blank field's own baseline -- e.g. an empty Loop --
+    which the synth path never lints at build time). A chest that adds NO error beyond this is structurally
+    clean, the same before/after comparison the verbatim injectors use."""
+    from ff9mapkit import build, eblint
+    _m, _t, eb = _build_synth(tmp_path, "")
+    return eblint.errors(eblint.lint_eb(eb))
+
+
+def test_synth_item_chest_full_contraption(tmp_path):
+    # the SAME contraption the verbatim path builds, now appended to a synthesized field: a flag-gated
+    # open/closed pose Init + collision box + a press-to-open handler that gives the item and shows a box.
+    from ff9mapkit import eblint
+    mes, chest_txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\n')
+    txid = chest_txids[0]
+    assert txid >= text.DEFAULT_BASE_TXID                          # a real id in the synth 500-block
+    assert "[WDTH=0,69,14,0,-1][IMME]" in mes and "Received [ITEM=0]!" in mes   # centered + immediate, in the .mes
+    assert opcodes.set_stand_animation(7338) in eb and opcodes.set_stand_animation(7339) in eb  # open/closed poses
+    assert opcodes.encode(0x4B, 1, 40, 45) in eb                  # SetObjectLogicalSize -> the collision box
+    assert opcodes.run_animation(7336) in eb                      # lid-open clip (the tag-3 open handler)
+    assert opcodes.window_sync(7, 0, txid) in eb                  # window-7 Received box -> the .mes line
+    assert eblint.errors(eblint.lint_eb(eb)) == _synth_baseline_errors(tmp_path)   # adds no new error
+
+
+def test_synth_gil_chest_uses_numb_box(tmp_path):
+    from ff9mapkit import eblint
+    mes, chest_txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 500\n')
+    assert "Received [NUMB=0] Gil!" in mes
+    assert event.give_gil(500) in eb                              # the payload is gil, not an item
+    assert opcodes.window_sync(7, 0, chest_txids[0]) in eb
+    assert eblint.errors(eblint.lint_eb(eb)) == _synth_baseline_errors(tmp_path)
+
+
+def test_synth_chestless_field_has_no_chest(tmp_path):
+    # the chest code path is inert when no [[chest]] -> no txid allocated, no chest opcodes leak in
+    _mes, chest_txids, eb = _build_synth(tmp_path, '[[npc]]\nname = "V"\npos = [0, 0]\npreset = "vivi"\n')
+    assert chest_txids == {}
+    assert opcodes.encode(0x4B, 1, 40, 45) not in eb              # no chest collision box -> no chest injected
+
+
+def test_synth_chest_validation(tmp_path):
+    from ff9mapkit import build
+    def _probs(body):
+        p = tmp_path / "z.field.toml"
+        p.write_text(_CHEST_BASE + body, encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+    assert any("exactly one" in s for s in _probs('[[chest]]\npos = [0, 0]\n'))                        # no payload
+    assert any("exactly one" in s for s in _probs('[[chest]]\npos = [0, 0]\nitem = "Potion"\ngil = 5\n'))  # both
+    assert any("pos" in s for s in _probs('[[chest]]\nitem = "Potion"\n'))                             # no pos
+
+
+def test_synth_chest_campaign_requires_explicit_flag(tmp_path):
+    # the chest opened-flag auto-allocates at a SHARED CHEST_FLAG_BASE+k (not per-member), so a campaign member
+    # must pin flag = N or two members' auto chests alias -> save corruption. Single-field auto-alloc stays fine.
+    from ff9mapkit import build, campaign
+    def _flag_probs(body, *, campaign_member):
+        p = tmp_path / "z.field.toml"
+        p.write_text(_CHEST_BASE + body, encoding="utf-8")
+        proj = build.FieldProject.load(p)
+        if campaign_member:
+            proj.flag_base = campaign.FIRST_SAFE_FLAG
+            proj.flags_per_field = 64
+        return [s for s in build.validate(proj) if "campaign member needs an explicit flag" in s]
+    chest = '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\n'
+    assert _flag_probs(chest, campaign_member=True)                        # flag-less campaign chest -> rejected
+    assert not _flag_probs(chest + "flag = 8520\n", campaign_member=True)  # explicit flag -> accepted
+    assert not _flag_probs(chest, campaign_member=False)                   # single-field auto-flag -> fine

@@ -572,9 +572,11 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
                 f"member {m.name} needs in-game art before build: export it once (Memoria.ini [Export] "
                 f"Field=1) + re-fork --editable, or pass --allow-artless to build it with no background.")
         proj = FieldProject.load(toml_path, flag_names=campaign_names)   # members gate by shared flag NAME
-        # Per-member once-flag base so member i's auto chest/event/cutscene/choice flags can't alias a
+        # Per-member once-flag base so member i's auto event/cutscene/choice flags can't alias a
         # sibling's (the per-field-counter-resets-per-build bug). Block = [flag_base + i*K, +K), packed
-        # by build._FlagAlloc. lint_campaign asserts every block is in the provably-safe band.
+        # by build._FlagAlloc. lint_campaign asserts every block is in the provably-safe band. (A [[chest]]'s
+        # opened-flag is NOT auto-packed here -- its band is FF9's fixed chest bitfield, not per-member, so a
+        # campaign chest must pin an explicit flag = N; build.validate enforces it.)
         proj.flag_base = plan.flag_base + i * plan.flags_per_field
         proj.flags_per_field = plan.flags_per_field     # the overflow guard's per-member block width
         # Do NOT override text_block to a per-member id. The FieldScene textid (6th DictionaryPatch token)
@@ -590,7 +592,9 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         _remap_text_blocks(projects, text_block_base)     # campaign (the cross-campaign text-shadow cure)
 
     # each member's per-member flag_base was set on its FieldProject above; build_script's _FlagAlloc packs
-    # that member's auto chest/event/cutscene/choice flags into its own disjoint block (no cross-field alias).
+    # that member's auto event/cutscene/choice flags into its own disjoint block (no cross-field alias). A
+    # [[chest]] opened-flag is the exception -- it is NOT auto-packed (FF9's fixed chest bitfield), so a
+    # campaign chest needs an explicit flag = N (build.validate rejects a flag-less chest in a member).
     # the entry member's project (by member index) -> precise non-entry lint for the mod-global new-game blocks
     entry_project = next((projects[i] for i, m in enumerate(plan.members) if m.name == plan.entry_name), None)
     if seed_blocks and entry_project is not None:        # the journey [journey.seed] capstone, on the entry only

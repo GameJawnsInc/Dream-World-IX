@@ -757,6 +757,30 @@ def validate(project: FieldProject) -> list[str]:
         for k in ("received", "require_space"):
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
+    from .content import chest as _chest
+    for k, ch in enumerate(project.raw.get("chest", [])):
+        if len(ch.get("pos", []) or []) < 2:
+            problems.append(f"[[chest]] #{k} needs a pos = [x, z] (where the chest sits)")
+        if ("item" in ch) == ("gil" in ch):
+            problems.append(f"[[chest]] #{k} needs exactly one of item = ... or gil = ...")
+        if "item" in ch:
+            try:
+                _items.resolve(ch["item"][0] if isinstance(ch["item"], list) else ch["item"])
+            except (ValueError, IndexError, TypeError) as e:
+                problems.append(f"[[chest]] #{k} item: {e}")
+        # campaign safety: the chest opened-flag auto-allocates at a FIXED CHEST_FLAG_BASE+k (FF9's own chest
+        # bitfield -- single-field-correct), but that band is NOT per-member-partitioned, so two members' auto
+        # chests would BOTH get bit 8400 and alias (looting one marks the other opened -> save corruption). A
+        # campaign member must therefore pin an explicit flag = N (the same rule [[on_entry]] follows -- the
+        # per-member flag block is reserved for auto event/cutscene/choice flags, so there is no auto slot here).
+        _flag = ch.get("flag")
+        if (getattr(project, "flag_base", None) is not None
+                and not (isinstance(_flag, int) and not isinstance(_flag, bool))):
+            problems.append(
+                f"[[chest]] #{k} in a campaign member needs an explicit flag = N -- a save-persistent "
+                f"gEventGlobal bit UNIQUE across the whole campaign. The auto chest-flag band "
+                f"({_chest.CHEST_FLAG_BASE}+) is shared, not per-member, so two members' auto chests would "
+                f"alias. Pick a free index (e.g. a shared [[flag]]'s index) the campaign doesn't otherwise use.")
     # [start_inventory] / [[equipment]] -- new-game starting state (mod-global CSV deltas on the entry field)
     si = project.raw.get("start_inventory")
     if si is not None:
@@ -2139,6 +2163,15 @@ def _validate_content_placement(project: FieldProject, wmesh, warnings: list) ->
                 warnings.append(
                     f"event #{k}: zone centre ({int(cx)}, {int(cz)}) is off the walkmesh -- "
                     f"the player may not be able to walk into it.")
+    # a chest is a solid object the player walks up to (like an NPC, it may sit just past the floor's back
+    # edge), so only HARD-warn when it's grossly off -- well outside the floor footprint = the player can't
+    # reach it to press X. A near-edge chest is fine (it has its own collision box).
+    for k, ch in enumerate(project.raw.get("chest", [])):
+        p = ch.get("pos")
+        if p and off(p[0], p[1]) and gross_off(p[0], p[1]):
+            warnings.append(
+                f"[[chest]] #{k} at ({int(p[0])}, {int(p[1])}) is far off the walkmesh (well outside the "
+                f"floor footprint) -- the player won't be able to reach it. Put it on, or just behind, the floor.")
     for j, lad in enumerate(project.raw.get("ladder", [])):
         if not lad.get("navigable"):
             continue                                         # the 2-tag bidirectional path lands on its own zones
@@ -2609,12 +2642,26 @@ def _verbatim_event_message_count(project: FieldProject) -> int:
     return sum(1 for ev in (project.raw.get("event", []) or []) if ev.get("message"))
 
 
+def _chest_received_line(ch: dict) -> str:
+    """The CENTERED window-7 "Received X" line a ``[[chest]]`` shows when opened, byte-grounded on field 407:
+    a ``[WDTH=...]`` window code + ``[IMME]`` (immediate, no type-on) + leading/trailing spaces center the box.
+    An author-supplied ``message`` is used VERBATIM (they own the codes); a gil chest defaults to ``[NUMB=0]
+    Gil!`` and an item chest to ``[ITEM=0]!`` (the tag renders the bound amount/name from text slot 0, which
+    the chest's ``SetTextVariable(0, payload)`` binds at open time). Pre-formatted -> callers must NOT wrap it
+    (wrapping would split the ``[WDTH]``/``[ITEM]`` tags). Shared by the synth (:func:`collect_text`) and
+    verbatim (:func:`_verbatim_chest_messages`) text channels so both paths render an identical box."""
+    if ch.get("message"):
+        return ch["message"]
+    if "gil" in ch:
+        return "[WDTH=0,86,14,0,-1][IMME]\n Received [NUMB=0] Gil! \n"
+    return "[WDTH=0,69,14,0,-1][IMME]\n Received [ITEM=0]! \n"
+
+
 def _verbatim_chest_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     """For a verbatim fork's ``[[chest]]`` blocks: every chest shows a window-7 "Received X" box, so each
     gets a txid ABOVE the donor `.mes` + the on_entry/logic_add/npc/event blocks (all disjoint), plus the
-    per-language `.mes` lines to append. Item chests default to ``"Received [ITEM=0]!"`` (the ``[ITEM=0]``
-    tag renders the item name from text slot 0, which the chest's ``SetTextVariable(0,item)`` binds); gil
-    chests default to ``"Found some gil!"``. Returns ``(txid_by_chest_index, suffix_by_lang)``."""
+    per-language `.mes` lines to append. The line itself comes from :func:`_chest_received_line` (the same
+    centered box the synth path uses). Returns ``(txid_by_chest_index, suffix_by_lang)``."""
     chests = project.raw.get("chest", []) or []
     if not chests:
         return {}, {}
@@ -2623,38 +2670,35 @@ def _verbatim_chest_messages(project: FieldProject, langs) -> tuple[dict, dict]:
             + _verbatim_event_message_count(project))
     lines, tails, txid_by_idx = [], [], {}
     for k, ch in enumerate(chests):
-        # The real FF9 item-get box is CENTERED via a [WDTH=...] window code + [IMME] (immediate, no type-on)
-        # + leading/trailing spaces, byte-grounded on field 407 (Received [ITEM=0]! / Received [NUMB=0] Gil!).
-        # An author-supplied `message` is used VERBATIM (they own the codes); the line is pre-formatted, so it
-        # is NOT auto-wrapped (wrapping would split the [WDTH]/[ITEM] tags).
-        if ch.get("message"):
-            line = ch["message"]
-        elif "gil" in ch:
-            line = "[WDTH=0,86,14,0,-1][IMME]\n Received [NUMB=0] Gil! \n"
-        else:
-            line = "[WDTH=0,69,14,0,-1][IMME]\n Received [ITEM=0]! \n"
-        lines.append(line)
+        lines.append(_chest_received_line(ch))
         tails.append(ch.get("tail"))
         txid_by_idx[k] = base + k
     suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
     return txid_by_idx, {lang: suffix for lang in langs}
 
 
-def _inject_verbatim_chests(project: FieldProject, eb: bytes, chest_txids: dict, *, warnings) -> bytes:
-    """Inject each authored ``[[chest]]`` (a real openable, savable treasure chest) into a VERBATIM fork,
-    seated BELOW the donor's party-character band. Each chest is ONE object whose Init pose is gated on a
-    save-persistent opened-flag (the chest stays open across saves) and whose press handler animates the
-    lid, gives the item/gil, shows the Received box, and latches the flag
-    (:func:`ff9mapkit.content.chest.inject_chest`). The opened-flag auto-allocates in the CHEST_FLAG band
-    (>=8400, disjoint from event/cutscene/choice/on_entry); override with an explicit integer ``flag``.
-    Exactly one of ``item``/``gil`` per chest. Returns the new bytes."""
+def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
+                   reserve_party_band: bool, warnings=None) -> bytes:
+    """Inject each authored ``[[chest]]`` (a real openable, savable treasure chest) into the field's ``.eb``.
+    Each chest is ONE object whose Init pose is gated on a save-persistent opened-flag (the chest stays open
+    across saves) and whose press handler animates the lid, gives the item/gil, shows the Received box, and
+    latches the flag (:func:`ff9mapkit.content.chest.inject_chest`). The opened-flag auto-allocates in the
+    CHEST_FLAG band (>=8400, disjoint from event/cutscene/choice/on_entry); override with an explicit integer
+    ``flag`` (REQUIRED for a campaign, where the per-field ``+k`` auto-index would alias a sibling's chest in
+    the global ``gEventGlobal`` bitfield). Exactly one of ``item``/``gil`` per chest.
+
+    Shared by BOTH paths: ``reserve_party_band=True`` seats each chest BELOW the donor's reserved party-
+    character band (the verbatim fork); ``False`` appends it (the synthesize path, which has no such band).
+    ``validate()`` guarantees ``pos`` + exactly-one-payload up front, so the defensive guards here only fire
+    on a programmatic caller; ``warnings`` (optional) collects a skipped pos-less chest. Returns new bytes."""
     chests = project.raw.get("chest", []) or []
     if not chests:
         return eb
     from .content import chest as _chest
     for k, ch in enumerate(chests):
         if "pos" not in ch:
-            warnings.append(f"[[chest]] #{k} has no pos -- skipped on the verbatim fork.")
+            if warnings is not None:
+                warnings.append(f"[[chest]] #{k} has no pos -- skipped.")
             continue
         has_item, has_gil = "item" in ch, "gil" in ch
         if has_item == has_gil:
@@ -2667,7 +2711,7 @@ def _inject_verbatim_chests(project: FieldProject, eb: bytes, chest_txids: dict,
                "count": int(ch["item"][1]) if isinstance(ch["item"], list) and len(ch["item"]) > 1
                else int(ch.get("count", 1))} if has_item else {"gil": int(ch["gil"])})
         eb = _chest.inject_chest(eb, int(pos[0]), int(pos[1]), flag_idx=flag_idx, received_text_id=txid,
-                                 reserve_party_band=True, **kw)
+                                 reserve_party_band=reserve_party_band, **kw)
     return eb
 
 
@@ -2916,7 +2960,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None,
                  cutscene_txids: list | None = None, walkmesh=None,
                  choice_txids: dict | None = None, on_entry_txids: dict | None = None,
-                 ate_txids: dict | None = None) -> bytes:
+                 ate_txids: dict | None = None, chest_txids: dict | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
     _auto = _FlagAlloc(getattr(project, "flag_base", None))
     event_txids = event_txids or {}
@@ -2924,6 +2968,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     choice_txids = choice_txids or {}
     on_entry_txids = on_entry_txids or {}
     ate_txids = ate_txids or {}
+    chest_txids = chest_txids or {}
     # a choice attached to an NPC (choice.npc == npc.name) replaces that NPC's talk with a branch.
     choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []))
                      if "npc" in ch}
@@ -3155,6 +3200,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                           "body": b"".join(parts), "once_flag": once_flag,
                           "requires_flag": gf, "requires_set": gs, "space_item": space_item})
         eb = _event.inject_events(eb, specs)
+
+    # treasure chests: an openable, savable chest (one object -- a save-flag-gated open/closed pose Init + a
+    # press-to-open handler that animates the lid, gives the item/gil, shows the centered "Received X" box,
+    # and latches the opened-flag). Self-contained objects with no cross-refs, so appended (no party-band
+    # reserve on the synthesize path -- a from-scratch field has no reserved character band). Absent -> none.
+    eb = _inject_chests(project, eb, chest_txids, reserve_party_band=False)
 
     # zone-triggered choices: a region the player triggers for a choice menu (a lever / sign).
     #   trigger="action" (default): press-action-in-quad (tag 3). Edge-triggered by the button, so it
@@ -3826,12 +3877,13 @@ def _wrap_width(project: FieldProject):
 
 
 def collect_text(project: FieldProject):
-    """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids). All
-    field text (NPC dialogue, event messages, cutscene 'say' lines, choice prompts + replies, on-entry
-    messages) shares one .mes block, in that order (so a field with no events/cutscene/choices/on_entry
-    is byte-identical to the old layout). ``cutscene_txids`` is a list (one per 'say' step);
-    ``choice_txids[c]`` = ``{"prompt": id, "replies": {opt_index: id}}``; ``on_entry_txids[k]`` = the
-    txid of hook ``k``'s message (only for hooks that have one).
+    """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
+    chest_txids). All field text (NPC dialogue, event messages, cutscene 'say' lines, choice prompts +
+    replies, on-entry messages, the ATE menu, chest "Received X" boxes) shares one .mes block, in that order
+    (so a field with no events/cutscene/choices/on_entry/ate/chests is byte-identical to the old layout).
+    ``cutscene_txids`` is a list (one per 'say' step); ``choice_txids[c]`` = ``{"prompt": id, "replies":
+    {opt_index: id}}``; ``on_entry_txids[k]`` = the txid of hook ``k``'s message (only for hooks that have
+    one); ``chest_txids[k]`` = the txid of chest ``k``'s Received box.
 
     Lines are auto-wrapped to fit the screen (FF9 doesn't wrap; see content.text) unless
     ``[dialogue] wrap = false``; a line that already fits is left byte-identical."""
@@ -3905,8 +3957,14 @@ def collect_text(project: FieldProject):
         for oi, o in enumerate(ate["options"]):
             if o.get("reply"):
                 ate_reply_pos[oi] = _add(o, o["reply"])
+    # treasure chests: each [[chest]] shows a centered window-7 "Received X" box (its own .mes entry). Added
+    # LAST (after ate) so a field with no chest keeps the previous layout byte-identical. Pre-formatted with
+    # [WDTH]/[IMME], so added VERBATIM (NOT auto-wrapped -- wrapping would split the window/item tags).
+    ch_pos = {}
+    for k, ch in enumerate(project.raw.get("chest", [])):
+        ch_pos[k] = _add_raw(_chest_received_line(ch), ch.get("tail"))
     if not lines:
-        return "", {}, {}, [], {}, {}, {}
+        return "", {}, {}, [], {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
@@ -3919,7 +3977,8 @@ def collect_text(project: FieldProject):
     ate_txids = ({"prompt": mapping[ate_prompt_pos],
                   "replies": {oi: mapping[p] for oi, p in ate_reply_pos.items()}}
                  if ate_prompt_pos is not None else {})
-    return body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids
+    chest_txids = {k: mapping[p] for k, p in ch_pos.items()}
+    return body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids
 
 
 # --------------------------------------------------------------------------- the build
@@ -4051,7 +4110,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     # faithful text carry: the donor's referenced dialogue, shipped VERBATIM per language and APPENDED after
     # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
@@ -4164,7 +4223,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if project.raw.get("chest"):
             from . import eblint as _eblint
             _ch_txids, chest_suffix = _verbatim_chest_messages(project, langs)
-            verbatim_bytes = _inject_verbatim_chests(project, verbatim_bytes, _ch_txids, warnings=warnings)
+            verbatim_bytes = _inject_chests(project, verbatim_bytes, _ch_txids,
+                                            reserve_party_band=True, warnings=warnings)
             _ch_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
             if _ch_errs:
                 raise BuildError(f"[[chest]] broke the composed .eb of {project.name}: "
@@ -4215,7 +4275,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
                               choice_txids=choice_txids, on_entry_txids=on_entry_txids,
-                              ate_txids=ate_txids)
+                              ate_txids=ate_txids, chest_txids=chest_txids)
             base = mes_body or ""
             inplace = base
             suffix = ""
