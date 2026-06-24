@@ -807,3 +807,35 @@ def test_synth_chest_face_passes_through(tmp_path):
     _mes, _txids, eb128 = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 100\nface = 128\nflag = 8520\n')
     _mes, _txids, eb0 = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\ngil = 100\nflag = 8520\n')
     assert _d9_const(6, 128) in eb128 and _d9_const(6, 128) not in eb0    # the facing value reaches the Init
+
+
+def test_chest_variant_table_and_resolver():
+    # the 4 TBX chest variants, decoded byte-for-byte from real fields (workflow-verified): F0/F2 share the 73xx
+    # clips, F1/F3 share the low ids. resolve_chest_variant -> (model, neutral, open, closed, lid).
+    import pytest as _pt
+    from ff9mapkit.content import chest as C
+    assert C.resolve_chest_variant() == (75, 7340, 7338, 7339, 7336)        # default = F0 (the proven wooden chest)
+    assert C.resolve_chest_variant("F1") == (91, 4, 1, 3, 22)
+    assert C.resolve_chest_variant("f2") == (701, 7340, 7338, 7339, 7336)   # case-insensitive; F2 shares F0's clips
+    assert C.resolve_chest_variant(702) == (702, 4, 1, 3, 22)               # by raw id (F3)
+    with _pt.raises(ValueError): C.resolve_chest_variant("F9")              # unknown variant name
+    with _pt.raises(ValueError): C.resolve_chest_variant(999)               # an id with no known animations
+
+
+def test_synth_chest_model_variant_uses_its_animations(tmp_path):
+    # model = "F1" emits SetModel(91) + the F1 poses (neutral 4 / open 1 / closed 3) + lid 22 -- NOT F0's 73xx.
+    from ff9mapkit.eb import EbScript
+    _mes, _txids, eb = _build_synth(tmp_path,
+        '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\nflag = 8520\nmodel = "F1"\n')
+    s = EbScript.from_bytes(eb)
+    ent = next(e for e in s.entries if not e.empty and e.func_by_tag(0)
+               and any(i.op == 0x2F and i.imm(0) == 91 for i in s.instrs(e.func_by_tag(0))))
+    assert {i.imm(0) for i in s.instrs(ent.func_by_tag(0)) if i.op == 0x33} == {4, 1, 3}   # F1 poses, not F0's
+    assert any(i.op == 0x40 and i.imm(0) == 22 for i in s.instrs(ent.func_by_tag(3))), "F1 lid animation"
+
+
+def test_chest_unknown_model_rejected(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "z.field.toml"
+    p.write_text(_CHEST_BASE + '[[chest]]\npos = [0, 0]\nitem = "Potion"\nflag = 8520\nmodel = "F9"\n', encoding="utf-8")
+    assert any("[[chest]]" in s and "model" in s for s in build.validate(build.FieldProject.load(p)))

@@ -4682,6 +4682,8 @@ class Workspace(QMainWindow):
             else:
                 reward = "?"
             out = [f"chest → {reward}"]
+            if e.get("model"):
+                out.append(m(f"model: {_esc(e['model'])}"))
             if e.get("pos") is not None:
                 out.append(m(f"pos: {_esc(e['pos'])}"))
             if e.get("flag") is not None:
@@ -4855,6 +4857,12 @@ class Workspace(QMainWindow):
                         warn(f"unknown item '{it}'")
                 if len(obj.get("pos", []) or []) < 2:
                     warn("a chest needs a pos = [x, z]")
+                if "model" in obj:                          # the F0..F3 variant (or a raw TBX id) must be known
+                    from ..content import chest as _chest
+                    try:
+                        _chest.resolve_chest_variant(obj["model"])
+                    except ValueError:
+                        warn(f"unknown chest model '{obj['model']}' (use F0..F3 or 75/91/701/702)")
                 fl = obj.get("flag")                        # the opened-flag is REQUIRED + must be safe-band
                 if fl is None or (isinstance(fl, str) and not fl.strip()):
                     warn("a chest needs a flag (a [[flag]] name or safe-band index) for its opened state")

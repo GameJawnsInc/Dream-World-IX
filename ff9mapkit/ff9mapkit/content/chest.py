@@ -56,6 +56,40 @@ ITEM_JINGLE = 108            # the item-get jingle the real chest plays when the
 SFX_BANK = 53248             # 0xD000 -- the sound bank the chest SFX live in
 SFX_PARAMS = (0, 128, 125)   # the pan/volume params (byte-faithful to fields 200/407)
 
+# The 4 FF9 treasure-chest models (GEO_ACC_F0..F3_TBX) and their per-model animation ids -- decoded byte-for-byte
+# from real fields (the Init's [neutral, open, closed] SetStandAnimation order + the tag-2 lid RunAnimation) and
+# independently cross-verified across many fields, anchored to the in-game-proven F0 chest. The chest OBJECT is
+# otherwise byte-identical across models (same collision LogSize 1,40,45, flags 5->49, opened-flag branch), so
+# only the model id + these 4 animation ids vary. Two schemes: F0/F2 share the 73xx clips, F1/F3 share the low ids.
+# tuple = (model_id, neutral_pose, open_pose, closed_pose, lid_anim).
+CHEST_VARIANTS = {
+    "F0": (75,  7340, 7338, 7339, 7336),   # GEO_ACC_F0_TBX -- the default wooden chest (in-game proven)
+    "F1": (91,  4,    1,    3,    22),      # GEO_ACC_F1_TBX
+    "F2": (701, 7340, 7338, 7339, 7336),   # GEO_ACC_F2_TBX -- same clip scheme as F0
+    "F3": (702, 4,    1,    3,    22),      # GEO_ACC_F3_TBX -- same clip scheme as F1
+}
+_VARIANT_BY_MODEL = {tup[0]: tup for tup in CHEST_VARIANTS.values()}    # model id -> the same 5-tuple
+
+
+def resolve_chest_variant(model=None):
+    """Resolve a ``[[chest]] model`` to ``(model_id, neutral_pose, open_pose, closed_pose, lid_anim)``.
+    ``model`` is a variant NAME ("F0".."F3", case-insensitive), a raw model id (75/91/701/702), or ``None``
+    (= the default F0 wooden chest). Raises ``ValueError`` on an unknown model -- its open/closed/lid animation
+    ids aren't known, and a bare model swap (keeping F0's 73xx clips) would play the wrong / no lid + pose."""
+    if model is None or model == "":
+        return CHEST_VARIANTS["F0"]
+    if isinstance(model, str) and not model.strip().lstrip("-").isdigit():
+        key = model.strip().upper()
+        if key not in CHEST_VARIANTS:
+            raise ValueError(f"unknown chest model {model!r} -- use one of {sorted(CHEST_VARIANTS)} "
+                             f"(the F0..F3 treasure-chest variants) or a raw model id {sorted(_VARIANT_BY_MODEL)}")
+        return CHEST_VARIANTS[key]
+    mid = int(model)
+    if mid not in _VARIANT_BY_MODEL:
+        raise ValueError(f"chest model id {mid} has no known open/closed/lid animations -- use a TBX chest "
+                         f"variant {sorted(CHEST_VARIANTS)} (ids {sorted(_VARIANT_BY_MODEL)})")
+    return _VARIANT_BY_MODEL[mid]
+
 
 def chest_lid_sfx() -> bytes:
     """The lid-creak open SFX, byte-faithful to the real chest (fields 200/407): SetAnimationFlags(1,0) +
@@ -67,8 +101,8 @@ def chest_lid_sfx() -> bytes:
 
 
 def build_chest_init(*, x: int, z: int, flag_idx: int, model: int = CHEST_MODEL, animset: int | None = None,
-                     face: int = 0, open_pose: int = OPEN_POSE, closed_pose: int = CLOSED_POSE,
-                     gate=None) -> bytes:
+                     face: int = 0, neutral_pose: int = NEUTRAL_POSE, open_pose: int = OPEN_POSE,
+                     closed_pose: int = CLOSED_POSE, gate=None) -> bytes:
     """The chest Init (tag 0), opcode-faithful to the real chest, with the SAVABLE open-state: a two-arm
     pose+flags branch on the opened flag -- the OPEN pose + the inert(disable-talk) flags when SET, the
     CLOSED pose + the talkable flags when CLEAR. The collision (size + flags) is unconditional. ``gate`` =
@@ -85,7 +119,7 @@ def build_chest_init(*, x: int, z: int, flag_idx: int, model: int = CHEST_MODEL,
         bytes([SET_MODEL, 0x00]) + struct.pack("<H", int(model) & 0xFFFF) + bytes([animset_v & 0xFF]),
         _npc._CREATE_OBJECT, _npc._TURN_INSTANT,
         opcodes.encode(SET_OBJECT_LOGICAL_SIZE, *CHEST_LOGICAL_SIZE),     # the collision box
-        opcodes.set_stand_animation(NEUTRAL_POSE),
+        opcodes.set_stand_animation(neutral_pose),
         opcodes.encode(SET_OBJECT_FLAGS, CHEST_FLAGS_INIT),
         opcodes.encode(SET_HEAD_FOCUS_MASK, 2, 0),
         _region.if_else(_region.cond_truthy(CHEST_FLAG_CLASS, flag_idx),
@@ -118,22 +152,26 @@ def build_chest_open(flag_idx: int, *, give: bytes, received_text_id: int, paylo
 
 
 def inject_chest(data, x, z, *, flag_idx: int, item=None, gil=None, count: int = 1,
-                 received_text_id: int = 62, model: int = CHEST_MODEL, face: int = 0, gate=None,
+                 received_text_id: int = 62, model="F0", face: int = 0, gate=None,
                  reserve_party_band: bool = False, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0):
     """Inject an openable, savable treasure chest at world (x, z) -- ONE object (tag 0 Init + tag 3 open).
     Exactly one of ``item`` (id/name + ``count``) or ``gil`` (amount). ``flag_idx`` (a GLOB_BOOL save index)
     is the opened bit -- it drives the Init open/closed pose+flags and the open handler's once-guard + latch.
-    ``face`` rotates the model; ``gate`` = ``(flag_index, require_set)`` makes the chest's APPEARANCE
-    story-gated (absent unless that flag is in state). Returns new ``.eb`` bytes."""
+    ``model`` picks the chest VARIANT (a name "F0".."F3" or a raw id 75/91/701/702 -- :func:`resolve_chest_variant`
+    supplies its own open/closed/neutral pose + lid clip). ``face`` rotates the model; ``gate`` =
+    ``(flag_index, require_set)`` makes the chest's APPEARANCE story-gated. Returns new ``.eb`` bytes."""
     if (item is None) == (gil is None):
         raise ValueError("inject_chest needs exactly one of item= or gil=")
+    model_id, neutral_pose, open_pose, closed_pose, lid_anim = resolve_chest_variant(model)
     if item is not None:
         item_id = _items.resolve(item)
         give, payload = _event.give_item(item_id, count), item_id
     else:
         give, payload = _event.give_gil(int(gil)), int(gil)
-    init = build_chest_init(x=int(x), z=int(z), flag_idx=flag_idx, model=model, face=int(face), gate=gate)
-    openb = build_chest_open(flag_idx, give=give, received_text_id=received_text_id, payload_value=payload)
+    init = build_chest_init(x=int(x), z=int(z), flag_idx=flag_idx, model=model_id, face=int(face), gate=gate,
+                            neutral_pose=neutral_pose, open_pose=open_pose, closed_pose=closed_pose)
+    openb = build_chest_open(flag_idx, give=give, received_text_id=received_text_id, payload_value=payload,
+                             open_anim=lid_anim, open_pose=open_pose)
     if len(openb) < 9:                              # IsActuallyTalkable polls tag3[ip+7/8]; keep it >= 9 bytes
         openb += b"\x00" * (9 - len(openb))
     table_len = 2 * 4

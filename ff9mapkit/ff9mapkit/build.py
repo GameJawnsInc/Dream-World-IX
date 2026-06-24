@@ -757,6 +757,7 @@ def validate(project: FieldProject) -> list[str]:
         for k in ("received", "require_space"):
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
+    from .content import chest as _chest
     for k, ch in enumerate(project.raw.get("chest", [])):
         if len(ch.get("pos", []) or []) < 2:
             problems.append(f"[[chest]] #{k} needs a pos = [x, z] (where the chest sits)")
@@ -767,6 +768,11 @@ def validate(project: FieldProject) -> list[str]:
                 _items.resolve(ch["item"][0] if isinstance(ch["item"], list) else ch["item"])
             except (ValueError, IndexError, TypeError) as e:
                 problems.append(f"[[chest]] #{k} item: {e}")
+        if "model" in ch:                              # the F0..F3 variant (or a raw TBX id) must be known
+            try:
+                _chest.resolve_chest_variant(ch["model"])
+            except ValueError as e:
+                problems.append(f"[[chest]] #{k} model: {e}")
         # the opened-flag must be a DEFINED story flag in the safe custom band -- NOT a positional auto bit
         # (which would shift when chests are reordered) and NOT FF9's real chest bitfield [8376, 8511] (which a
         # player's existing save may already have set). A named [[flag]] is easiest (readable + campaign-unique);
@@ -2723,7 +2729,8 @@ def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
                else int(ch.get("count", 1))} if has_item else {"gil": int(ch["gil"])})
         gf, gs = _gate_of(ch)                          # an OPTIONAL appearance gate (requires_flag[_clear])
         eb = _chest.inject_chest(eb, int(pos[0]), int(pos[1]), flag_idx=flag_idx, received_text_id=txid,
-                                 face=int(ch.get("face", 0)), gate=(gf, gs) if gf is not None else None,
+                                 model=ch.get("model") or "F0", face=int(ch.get("face", 0)),
+                                 gate=(gf, gs) if gf is not None else None,
                                  reserve_party_band=reserve_party_band, **kw)
     return eb
 

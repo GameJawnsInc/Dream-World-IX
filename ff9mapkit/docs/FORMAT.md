@@ -498,6 +498,7 @@ index = 8520
 | key | meaning |
 |---|---|
 | `pos` | `[x, z]` — where the chest model sits on the floor. It has **solid collision** (the player can't walk through it); place it where the player can reach to press it. |
+| `model` | OPTIONAL chest **variant** — FF9 has four treasure-chest looks for different regions: `"F0"` (default, the wooden chest), `"F1"`, `"F2"`, `"F3"` (or a raw id `75`/`91`/`701`/`702`). Each carries its own lid animation + open/closed poses (decoded from the real game); the rest of the chest is identical. Try them to see which look fits your field. |
 | `item` | `[item, count]` — the reward; `item` is an **id or a name** (`"Potion"`, also gear). Set **`item` OR `gil`**, not both. |
 | `gil` | gil reward instead of an item. |
 | `flag` | **REQUIRED** — the save-persistent **opened-flag** bit (the chest re-poses OPEN once looted, forever). A **`[[flag]]` name** (recommended) or a **safe-band index `≥ 8512`**. It's *not* auto-allocated: a positional auto bit would shift if you reorder chests, and FF9's real chest bitfield (`8376–8511`) may already be set in a player's save — a defined safe-band flag is resilient to both. A named `[[flag]]` is also campaign-unique by name. |
