@@ -96,12 +96,13 @@ EVENT_SPEC = [
           catalog="flag"),
 ]
 ENCOUNTER_SPEC = [
-    Field("scene", "Battle scene id", INT, "e.g. 67 = Evil Forest", catalog="scene"),
+    Field("scene", "Battle scene id", OPTINT, "e.g. 67 = Evil Forest; blank = no random battles",
+          catalog="scene"),
     Field("freq", "Frequency (0-255)", OPTINT, "default 255"),
     Field("battle_music", "Battle music id", OPTINT, "default 0 = battle theme"),
 ]
 MUSIC_SPEC = [
-    Field("song", "Field BGM song id", INT, "e.g. 9 = Vivi's Theme"),
+    Field("song", "Field BGM song id", OPTINT, "e.g. 9 = Vivi's Theme; blank = no field music"),
 ]
 PARTY_SPEC = [
     Field("add", "Add members", STRLIST,

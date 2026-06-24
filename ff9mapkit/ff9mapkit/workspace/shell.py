@@ -3837,7 +3837,8 @@ class Workspace(QMainWindow):
                                    wrap_width=self._wrap_width(member), on_change=lambda m=member: self._on_form_change(m))
         self.doc_host_lay.addWidget(form)
         self._save_ctx = {"member": member, "key": key, "spec": spec, "getters": getters,
-                          "single": single, "section": section, "idx": idx}
+                          "single": single, "section": section, "idx": idx,
+                          "mounted": read(getters)}     # at-mount baseline -> an UNCHANGED form needs no fold
         delete = None
         if not single:                                         # a list entity (npc/gateway/event/marker)
             lbl = _LIST_SINGULAR.get(section, section)
@@ -3930,6 +3931,12 @@ class Workspace(QMainWindow):
         on the form. Cutscene steps / choice options are already mutated live; this covers the header form."""
         ctx = self._save_ctx
         if not ctx:
+            return True
+        # UNCHANGED form -> nothing to fold. Compared getter-to-getter against the at-mount baseline (no
+        # build_entity, so no parse), this lets you navigate AWAY from a form you never touched even if a
+        # REQUIRED field is blank/invalid on disk -- the soft-lock that trapped you on an untouched Field
+        # form (blank id) when you clicked another section. A real edit still validates + blocks below.
+        if "mounted" in ctx and read(ctx["getters"]) == ctx["mounted"]:
             return True
         try:
             entity = forms.build_entity(ctx["spec"], read(ctx["getters"]))
@@ -5044,6 +5051,13 @@ def _smoke(win):
     win._save_ctx["getters"]["id"] = lambda: "not-a-number"
     assert win._commit_active() is False
     win._open_editor("IC_ENT", "field", "field")       # re-mount clears the simulated bad value
+    # H1b REGRESSION (the Music/Encounter/Party soft-lock, general form): navigating AWAY from an UNTOUCHED
+    # form must NOT block even when a REQUIRED field is blank on disk -- you never edited it, so there's
+    # nothing to fold. (Edited-to-invalid above still blocks; this is the don't-trap-the-bystander case.)
+    win._save_ctx["getters"]["id"] = lambda: ""        # as if this field's id were blank on disk...
+    win._save_ctx["mounted"]["id"] = ""                # ...and the form was MOUNTED that way (untouched)
+    assert win._commit_active() is True                # no soft-lock: the switch proceeds
+    win._open_editor("IC_ENT", "field", "field")       # re-mount to a clean state
     # ADD list items: the group header's Add button appends a default entity, refreshes the tree, and opens
     # the new item's form (so authoring a brand-new NPC/gateway/choice works, not just editing existing ones)
     nbefore = len(win._doc("IC_ENT").data.get("npc", []))

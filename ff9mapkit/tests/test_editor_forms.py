@@ -42,7 +42,9 @@ def test_parse_zone_requires_4_or_5_points():
                         "set_flag": [200, 1], "once": False,
                         "zone": [[-700, -2400], [700, -2400], [700, -1900], [-700, -1900]]}),
     (forms.ENCOUNTER_SPEC, {"scene": 67, "freq": 200, "battle_music": 0}),
+    (forms.ENCOUNTER_SPEC, {}),                                     # no encounter -> empty section (no soft-lock)
     (forms.MUSIC_SPEC, {"song": 9}),
+    (forms.MUSIC_SPEC, {}),                                         # no field music -> empty section (no soft-lock)
     (forms.PARTY_SPEC, {"add": ["Steiner", "Beatrix"], "remove": ["Eiko"]}),
     (forms.PARTY_SPEC, {"add": ["vivi", 3]}),                       # mixed name + CharacterOldIndex round-trips
     (forms.STARTUP_SPEC, {"scenario": 2600,
@@ -66,6 +68,15 @@ def test_empty_optionals_are_omitted():
     e = forms.build_entity(forms.NPC_SPEC, {"name": "A", "preset": "", "dialogue": "", "pos": "",
                                             "model": "", "animset": "", "requires_flag": ""})
     assert e == {"name": "A"}                          # only the set field survives
+
+
+def test_empty_optional_single_forms_do_not_raise():
+    # regression: the Music/Encounter forms' key field is OPTINT, so opening one on a field that has none
+    # and leaving (or saving) yields an EMPTY entity -- it must NOT raise (a blank required INT did,
+    # soft-locking the form on "fix it before leaving this form"). An empty section is then skipped by the
+    # commit/save paths (and the build skips an [encounter]/[music] with no scene/song).
+    assert forms.build_entity(forms.MUSIC_SPEC, {"song": ""}) == {}
+    assert forms.build_entity(forms.ENCOUNTER_SPEC, {"scene": "", "freq": "", "battle_music": ""}) == {}
 
 
 def test_blank_required_int_errors():
@@ -265,10 +276,10 @@ def test_party_spec_builds_party_table_and_omits_empty():
 
 
 def test_encounter_scene_advertises_the_battle_scene_catalog():
-    # the scene field stays an INT (build wants a numeric scene id) but advertises the 'scene' catalog so the
-    # editor renders a Browse picker; the picker returns the id (want_id) for this INT field.
+    # the scene field is OPTINT (blank = no encounter, so opening the form on a battle-less field doesn't
+    # soft-lock) but advertises the 'scene' catalog so the editor renders a Browse picker that returns the id.
     scene = next(f for f in forms.ENCOUNTER_SPEC if f.key == "scene")
-    assert scene.kind == forms.INT and scene.catalog == "scene"
+    assert scene.kind == forms.OPTINT and scene.catalog == "scene"
 
 
 # ---- [startup]: scenario beat + list-of-table flag/word/byte writes -----------------------

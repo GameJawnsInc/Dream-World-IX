@@ -1441,6 +1441,10 @@ def lint_logic(project: FieldProject) -> list[str]:
                        "donor's own encounters still play; on a verbatim fork [encounter] only sets the battle "
                        "BGM. Fork re-authorable (or author a synthesized field) to ADD encounters.")
     enc = raw.get("encounter")                     # a model-bucket [encounter] scene crashes in-game (the picker
+    if isinstance(enc, dict) and enc.get("scene") is None and (enc.get("freq") is not None
+                                                               or enc.get("battle_music") is not None):
+        out.append("[encounter] has freq/battle_music but no scene -- it does nothing (scene is the battle this "
+                   "field runs; freq/battle_music only tune it). Set a Battle scene id, or clear the section.")
     if isinstance(enc, dict) and enc.get("scene") is not None:   # hides these, but a hand-authored id can still slip)
         from . import catalog as _cat
         try:
@@ -2619,7 +2623,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # would apply by real fldMapNo but skips on a custom id (e.g. Gulug's broken-wall block). Prepended to
     # Main_Init; absent -> byte-identical.
     eb = _apply_walkmesh_hotfix(project, eb)
-    has_encounter = "encounter" in project.raw
+    # scene is optional in the form (blank = no random battles): an [encounter] with no scene is inert
+    # (nothing to fire / no BGM / no reinit), so gate on the scene actually being present.
+    _enc_raw = project.raw.get("encounter")
+    has_encounter = isinstance(_enc_raw, dict) and _enc_raw.get("scene") is not None
 
     # larger-than-screen scrolling: enable the field's camera services (Active flag) so the engine's
     # 3D scroll follows the player. The wide Range + scroll Viewport come from the camera/scene.
@@ -3193,8 +3200,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                    scenes=e.get("scenes"))
         eb = _reinit.add_reinit(eb, with_fade=True)
 
-    # field music
-    if "music" in project.raw:
+    # field music (song is optional -- a [music] section with no song = no field music, skip it)
+    if project.raw.get("music", {}).get("song") is not None:
         song = int(project.raw["music"]["song"])
         eb = _music.add_field_music(eb, song)
         if has_encounter:  # resume after battle
@@ -3854,8 +3861,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         _loc_title = " ".join(str(_loc_title).split())   # collapse whitespace/newlines to single spaces
         location_line = f"LocationName {project.id} {_loc_title}"
     battle = None
-    if "encounter" in project.raw:
-        e = project.raw["encounter"]
+    e = project.raw.get("encounter")
+    if isinstance(e, dict) and e.get("scene") is not None:   # scene is optional (blank = no encounter)
         battle = (int(e["scene"]), int(e.get("battle_music", 0)))
     # [[battle_bgm]]: extra scene-keyed battle songs (a verbatim fork's carried scripted/boss battles -- the
     # custom fldMapNo loses the engine's (field, scene) lookup, so the build reproduces each via Music:).
