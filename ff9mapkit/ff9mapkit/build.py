@@ -217,6 +217,11 @@ class FieldProject:
         staged ``sps/`` bins); a plain/synthesized field has none and the build stays byte-identical."""
         return self.raw.get("sps_edit", []) or []
 
+    def sps_blocks(self):
+        """The ``[[sps]]`` list (Tier-2 from-scratch effects -- a new ``<id>.sps.bytes`` over a reused/borrowed
+        ``spt.tcb``, triggered by an injected ``RunSPSCode``), or ``[]`` when none -- byte-identical absent."""
+        return self.raw.get("sps", []) or []
+
 
 # --------------------------------------------------------------------------- validation
 
@@ -552,6 +557,40 @@ def _validate_sps_edits(project: FieldProject, problems: list) -> None:
         problems += [f"[[sps_edit]] sps={sid}: {p}" for p in _se.validate_sps_edits(data, edits, sps_id=sid)]
 
 
+def _validate_sps_blocks(project: FieldProject, problems: list) -> None:
+    """OFFLINE dry-run of [[sps]] (Tier-2 from-scratch effects): each block resolves to a valid .sps (copy_from /
+    inline) + a valid placement, with a unique id disjoint from any carried sps/ effect. Donor reads are
+    install-gated, so an unreadable copy_from/borrow degrades to a clean message. Mirrors _validate_sps_edits."""
+    blocks = project.sps_blocks()
+    if not blocks:
+        return
+    from .sps import author as _author
+    try:
+        _author._block_list(blocks)                         # container shape ([[sps]], not [sps])
+    except _author.SpsAuthorError as ex:
+        problems.append(f"[[sps]] {ex}")
+        return
+    ids = []
+    for b in blocks:
+        if not isinstance(b.get("id"), int) or isinstance(b.get("id"), bool):
+            problems.append(f"[[sps]] every effect needs an integer `id`; got {b.get('id')!r}")
+            return
+        ids.append(b["id"])
+    dups = {i for i in ids if ids.count(i) > 1}
+    if dups:
+        problems.append(f"[[sps]] duplicate effect id(s) {sorted(dups)} -- each [[sps]] needs a unique id")
+    sps_src = project.path("sps")                           # an authored id must not shadow a carried donor effect
+    if sps_src.is_dir():
+        carried = {int(p.name[: -len(".sps.bytes")]) for p in sps_src.glob("*.sps.bytes")
+                   if p.name[: -len(".sps.bytes")].isdigit()}
+        clash = sorted(set(ids) & carried)
+        if clash:
+            problems.append(f"[[sps]] id(s) {clash} collide with a carried donor effect of the same id -- "
+                            "pick a free id (the custom band, e.g. 5000+).")
+    for b in blocks:
+        problems += [f"[[sps]] id={b['id']}: {p}" for p in _author.validate_sps_block(b)]
+
+
 _SHARED_DEFAULT_TEXT_BLOCK = 1073   # campaign members + worktree test slots all default here -> shadow-prone
 
 
@@ -671,6 +710,7 @@ def validate(project: FieldProject) -> list[str]:
     _validate_logic_edits(project, problems)
     _validate_logic_adds(project, problems)
     _validate_sps_edits(project, problems)
+    _validate_sps_blocks(project, problems)
     story_names = _story_names(project)
     f = project.field
     for key in ("id", "name", "area"):
@@ -2559,6 +2599,72 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
     return _onentry.inject_on_entries(eb, hooks)
 
 
+def _apply_sps_triggers(project: FieldProject, eb: bytes, *, warnings: list | None = None) -> bytes:
+    """Inject the ``RunSPSCode`` create+place trigger for each ``[[sps]]`` (Tier-2 from-scratch effect) into
+    ``eb`` -- one ``InitCode`` code-entry so the effects spawn at field load (the same arming as ``[[on_entry]]``).
+    Shared by the synthesize path (:func:`build_script`) and the verbatim path (:func:`compose_verbatim_eb`). The
+    bin + tcb are written separately by :func:`_write_authored_sps`. No ``[[sps]]`` -> unchanged (byte-identical)."""
+    blocks = project.sps_blocks()
+    if not blocks:
+        return eb
+    from .sps import author as _author
+    from .content import sps_trigger as _spstrig
+    taken = {b["slot"] for b in blocks if isinstance(b.get("slot"), int)}
+    nxt = _author.DEFAULT_SLOT
+    specs = []
+    try:
+        for b in blocks:
+            slot = b.get("slot")
+            if not isinstance(slot, int) or isinstance(slot, bool):
+                while nxt in taken and nxt >= 0:            # auto-assign a distinct slot, top-down
+                    nxt -= 1
+                slot, _ = nxt, taken.add(nxt)
+                nxt -= 1
+            specs.append(_author.trigger_spec(b, slot=slot))
+    except _author.SpsAuthorError as ex:                    # validate() should have caught this already
+        raise BuildError(f"[[sps]] in {project.name}: {ex}")
+    return _spstrig.inject_sps_triggers(eb, specs)
+
+
+def _write_authored_sps(project: FieldProject, layout: "ModLayout", fbg: str, *,
+                        game=None, warnings: list | None = None) -> None:
+    """Write each ``[[sps]]`` block's authored ``<id>.sps.bytes`` (codec.build/copy_from) + supply its
+    ``spt.tcb`` into ``FieldMaps/<fbg>/`` -- the asset half of the Tier-2 creator (the trigger half is
+    :func:`_apply_sps_triggers`). Route A only: the tcb is REUSED (the field already carries one) or BORROWED
+    from a donor field. No ``[[sps]]`` -> no-op. Install-gated borrows degrade to a warning (the effect won't
+    draw without its texture, but the build still produces the bin)."""
+    blocks = project.sps_blocks()
+    if not blocks:
+        return
+    from .sps import author as _author, codec as _spscodec, catalog as _spscat
+    fm = layout.fieldmap_dir(fbg)
+    fm.mkdir(parents=True, exist_ok=True)
+    warns = warnings if warnings is not None else []
+    borrowed: dict = {}                                     # donor token -> tcb bytes (read once)
+    for b in blocks:
+        sid = b["id"]
+        try:
+            model = _author.build_sps_from_block(b)
+        except (_author.SpsAuthorError, _spscodec.SpsCodecError) as ex:
+            raise BuildError(f"[[sps]] id={sid} in {project.name}: {ex}")
+        (fm / f"{sid}.sps.bytes").write_bytes(_spscodec.serialize(model))
+        mode, token = _author.tcb_source(b)
+        tcb_path = fm / "spt.tcb.bytes"
+        if mode == "reuse":
+            if not tcb_path.is_file():
+                warns.append(f"[[sps]] id={sid}: texture=reuse but the field carries no spt.tcb -- the effect "
+                             "won't draw. Use copy_from / texture.borrow_tcb, or fork the field with --native.")
+        else:                                              # borrow a donor's tcb
+            if token not in borrowed:
+                borrowed[token] = _spscat.load_tcb(token, game=game)
+            tcb = borrowed[token]
+            if tcb is None:
+                warns.append(f"[[sps]] id={sid}: could not read donor {token!r}'s spt.tcb (no install / unknown "
+                             "field) -- the bin is written but the effect won't draw until the tcb is present.")
+            elif not tcb_path.is_file():                   # don't clobber a carried tcb (a fork already has one)
+                tcb_path.write_bytes(tcb)
+
+
 def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto) -> bytes:
     """Synthesize the field's ``[ate]`` block (an Active Time Event) into ``eb``: a SELECT-polling menu
     code-entry (opened by the real ``usercontrol AND avail AND B_KEYON(SELECT)`` gate) + the Main_Init
@@ -3018,6 +3124,8 @@ def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
                             lambda: _apply_on_entry(project, eb, oe_msg_txids,
                                                     _FlagAlloc(getattr(project, "flag_base", None)),
                                                     warnings=warnings))
+    eb = _field_load_inject("[[sps]]", project.name,
+                            lambda: _apply_sps_triggers(project, eb, warnings=warnings))
     return eb, oe_suffix
 
 
@@ -3342,6 +3450,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # verbatim fork carries the real one in the donor .eb; docs/FORK_FIDELITY.md #10). Each hook is
     # a code entry armed by InitCode in Main_Init. Absent -> no injection (byte-identical).
     eb = _apply_on_entry(project, eb, on_entry_txids, _auto)
+    eb = _apply_sps_triggers(project, eb)                   # [[sps]] Tier-2 create+place triggers (synth path)
 
     # [ate]: synthesize an Active Time Event -- the blinking "Active Time Event" prompt + a SELECT-opened
     # winATE menu that branches to each row's body (a reply line / warp). A menu code-entry (the SELECT
@@ -4195,6 +4304,11 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         cutscene_wmesh = ref
         if ref is not None:
             _validate_content_placement(project, ref, warnings)
+
+    # [[sps]] Tier-2 from-scratch effects: write each authored <id>.sps.bytes + supply its tcb into the FBG
+    # folder (path-agnostic -- works on native / custom-scene / borrow). The RunSPSCode triggers are emitted
+    # separately into the .eb (synth: build_script; verbatim: compose_verbatim_eb). No [[sps]] -> no-op.
+    _write_authored_sps(project, layout, fbg, warnings=warnings)
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---

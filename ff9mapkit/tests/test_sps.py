@@ -240,6 +240,133 @@ def test_infohub_sps_absent_without_context():
     assert "sps" not in infohub.KINDS                       # stays out of the install-free static cache
 
 
+# ----------------------------------------------------------------- Tier 2: from-scratch creator (sps.author)
+def test_author_inline_builds_and_tcb_source():
+    from ff9mapkit.sps import author
+    blk = {"id": 5001, "texture": {"borrow_tcb": "303", "tpage": {"tp": 0, "tx": 8, "ty": 1},
+                                   "clut": {"cluty": 251, "clutx": 20}},
+           "size": [9, 9], "uv": [[0, 96], [32, 96]], "rgb": [[255, 200, 80], [255, 120, 0]],
+           "frames": [[{"pos": [0, 0], "uv": 0, "rgb": 0}], [{"pos": [2, -1], "uv": 1, "rgb": 1}]]}
+    m = author.build_sps_from_block(blk)
+    assert m.frame_count == 2 and m.tpage == {"TP": 0, "ABR": 0, "TY": 1, "TX": 8}
+    assert m.uv_table == [(0, 96), (32, 96)] and m.rgb_table == [(255, 200, 80, 0), (255, 120, 0, 0)]
+    assert author.tcb_source(blk) == ("borrow", "303")
+    assert lint.lint_sps(m) == []
+
+
+def test_author_copy_from_clone_with_geometry_override():
+    from ff9mapkit.sps import author
+    donor = _synthetic()
+    blk = {"id": 5000, "copy_from": {"field": "X", "sps": 1},
+           "frames": [[{"pos": [5, 5], "uv": 0, "rgb": 1}]]}
+    m = author.build_sps_from_block(blk, donor_loader=lambda field, sid: donor)
+    assert m.rgb_table == donor.rgb_table and m.uv_table == donor.uv_table   # texture/colours cloned
+    assert [(p.pos_x, p.pos_y, p.uv_index, p.rgb_index) for p in m.frames[0]] == [(5, 5, 0, 1)]  # geometry re-authored
+    assert author.tcb_source(blk) == ("borrow", "X")
+
+
+def test_author_rejects_png_route_b_and_bad_blocks():
+    from ff9mapkit.sps import author
+    with pytest.raises(author.SpsAuthorError):
+        author.build_sps_from_block({"id": 5000, "texture": {"png": "x.png"}})    # Route B needs an engine patch
+    msgs = author.validate_sps_block({"id": 5000})                                # no geometry source
+    assert msgs and "inline effect needs" in msgs[0]
+
+
+def test_trigger_spec_pos_slot_and_raw_y():
+    from ff9mapkit.sps import author
+    assert author.trigger_spec({"id": 5000, "pos": [10, 20, -30], "slot": 8, "abr": 1}) == {
+        "slot": 8, "sps_id": 5000, "pos": (10, 20, -30), "abr": 1}
+    s2 = author.trigger_spec({"id": 5001, "pos": [10, -30], "y": 20})            # [x,z] + separate y
+    assert s2["pos"] == (10, 20, -30) and s2["slot"] == author.DEFAULT_SLOT      # default high slot
+    with pytest.raises(author.SpsAuthorError):
+        author.trigger_spec({"id": 5002, "slot": 99})                            # slot out of 0..15
+
+
+def test_sps_trigger_ops_emit_load_pos_abr_framerate():
+    from ff9mapkit.content import sps_trigger
+    from ff9mapkit.eb import opcodes
+    ops = sps_trigger.sps_trigger_ops(slot=14, sps_id=5000, pos=(10, 20, -30), abr=1, framerate=16)
+    assert opcodes.encode(0xB3, 14, 130, 5000, 0, 0) in ops     # LOAD
+    assert opcodes.encode(0xB3, 14, 135, 10, 20, -30) in ops    # POS -- raw +Y (engine negates it)
+    assert opcodes.encode(0xB3, 14, 156, 1, 0, 0) in ops        # ABR additive
+    assert opcodes.encode(0xB3, 14, 160, 16, 0, 0) in ops       # FRAMERATE 1x
+
+
+def test_validate_sps_blocks_wiring(tmp_path):
+    from ff9mapkit import build
+    inline = {"id": 5000, "texture": {"tpage": 0x18, "clut": 0x3ED1}, "size": [9, 9],
+              "uv": [[0, 96]], "rgb": [[255, 255, 255]], "frames": [[{"pos": [0, 0], "uv": 0, "rgb": 0}]]}
+
+    class _Stub:
+        field = {}
+        def __init__(self, blocks): self._b = blocks
+        def sps_blocks(self): return self._b
+        def path(self, p): return tmp_path / p
+
+    good = []
+    build._validate_sps_blocks(_Stub([inline]), good)
+    assert good == []
+    dup = []
+    build._validate_sps_blocks(_Stub([inline, dict(inline)]), dup)
+    assert any("duplicate" in m for m in dup)
+    png = []
+    build._validate_sps_blocks(_Stub([{"id": 5000, "texture": {"png": "x.png"}}]), png)
+    assert any("Route B" in m for m in png)
+
+
+_SPS_FIELD_TOML = """
+[field]
+id = 4003
+name = "SPSROOM"
+area = 11
+text_block = 1073
+
+[camera]
+pitch = 45
+
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+
+[player]
+spawn = [0, -300]
+
+[[sps]]
+id = 5000
+texture = { borrow_tcb = "303", tpage = { tp = 0, tx = 8, ty = 1 }, clut = { cluty = 251, clutx = 20 } }
+size = [9, 9]
+uv = [[0, 96], [32, 96]]
+rgb = [[255, 200, 80], [255, 120, 0]]
+frames = [ [ {pos = [0, 0], uv = 0, rgb = 0} ], [ {pos = [2, -1], uv = 1, rgb = 1} ] ]
+pos = [0, 40, -200]
+slot = 14
+abr = 1
+framerate = 16
+"""
+
+
+def test_build_synth_field_with_authored_sps(tmp_path):
+    # End-to-end (no install needed -- inline geometry; the tcb borrow only warns offline): the authored
+    # <id>.sps.bytes lands in the FBG folder and the .eb carries the armed RunSPSCode create+place trigger.
+    from ff9mapkit.build import FieldProject, build_mod, validate
+    from ff9mapkit.config import ModLayout
+    from ff9mapkit.eb import EbScript, opcodes
+    p = tmp_path / "f.field.toml"
+    p.write_text(_SPS_FIELD_TOML, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []             # inline [[sps]] validates with no install
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    fm = next(d for d in out.rglob("FieldMaps/*") if d.is_dir() and "SPSROOM" in d.name)
+    binp = fm / "5000.sps.bytes"
+    assert binp.is_file()
+    m = codec.parse(binp.read_bytes())
+    assert m.frame_count == 2 and lint.lint_sps(m) == []
+    eb = ModLayout(out).eb_path("us", "EVT_SPSROOM.eb.bytes").read_bytes()
+    assert opcodes.encode(0xB3, 14, 130, 5000, 0, 0) in eb   # LOAD effect 5000 into slot 14
+    assert opcodes.encode(0xB3, 14, 135, 0, 40, -200) in eb  # POS -- raw +Y
+    assert EbScript.from_bytes(eb) is not None               # the injected .eb still parses
+
+
 # ----------------------------------------------------------------- install-gated golden round-trip
 def _can_read_donor() -> bool:
     try:
@@ -321,3 +448,13 @@ def test_infohub_sps_preview_from_real_sidecar(tmp_path):
     det = infohub.detail(ents[0], sps_context={"ICJ": d})
     assert dict(det.facts)["kind"] == "SPS field effect"
     assert det.preview_png and Path(det.preview_png).is_file()   # the preview actually rendered
+
+
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+def test_author_copy_from_real_donor():
+    # Tier-2 copy_from with the LIVE loader: clone Ice-Cavern fire 2266 -> a valid, lint-clean from-scratch model.
+    from ff9mapkit.sps import author
+    blk = {"id": 5000, "copy_from": {"field": "fbg_n05_iccv_map088_ic_jmp_0", "sps": 2266}, "pos": [0, 0, 0]}
+    m = author.build_sps_from_block(blk)
+    assert m.frame_count >= 1 and m.tpage["TP"] == 0
+    assert author.tcb_source(blk) == ("borrow", "fbg_n05_iccv_map088_ic_jmp_0")

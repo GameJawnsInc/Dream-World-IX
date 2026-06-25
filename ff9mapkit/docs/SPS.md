@@ -84,8 +84,55 @@ the donor `.sps` bins are copied into `FieldMaps/<FBG>/` (`spt.tcb` and unmatche
   texture gate (PNG-override or a regenerated `spt.tcb`) — a Tier 2 follow-up.
 - **Playback speed / blend mode** — frame-rate (`FRAMERATE`) and additive/subtractive blend (`ABR`) are
   `RunSPSCode` operands in the `.eb`, not `.sps` bin fields, so they're an `.eb`-edit follow-up.
-- **From-scratch effects** — `codec.build(...)` can already emit a valid `.sps` from scratch; a GUI creator over it
-  is Tier 2/3.
+- **From-scratch effects** — that's Tier 2 below.
+
+---
+
+## Tier 2 — create a new effect (`[[sps]]`)
+
+Author a **brand-new** effect on a field and have it draw in-game — no DLL. A `[[sps]]` block defines the effect's
+geometry (clone a real donor effect and re-author its animation, or build every byte inline) over a **reused or
+borrowed** `spt.tcb` texture (**Route A**). The build writes `<id>.sps.bytes` + supplies the `spt.tcb` into the
+field's `FieldMaps/<FBG>/`, and injects a `RunSPSCode` create+place trigger into the field's `.eb` so the effect
+spawns on field load. Works on any field path (native fork / custom scene / BG-borrow).
+
+```toml
+# Easiest: clone a real donor effect's texture + colours, re-author the animation.
+[[sps]]
+id        = 5000
+copy_from = { field = "303", sps = 2266 }   # take tpage/clut/uv/rgb/size from Ice-Cavern fire 2266
+frames = [                                  # optional: a new quad-cloud animation over the cloned pixels
+  [ {pos = [-30, 0], uv = 0, rgb = 3}, {pos = [0, 4], uv = 1, rgb = 1}, {pos = [30, 0], uv = 2, rgb = 5} ],
+  [ {pos = [-30, 2], uv = 1, rgb = 2}, {pos = [0, 8], uv = 2, rgb = 0}, {pos = [30, 2], uv = 0, rgb = 4} ],
+]
+pos       = [0, 40, -200]   # world x, y, z (the engine negates y); or [x, z] with a separate y = N
+slot      = 14              # SPS slot 0..15 (omit -> auto-assigned top-down from 15)
+abr       = 1               # blend: 0=50%add 1=add 2=sub 3=25%add
+framerate = 16              # 16 = 1x
+
+# Power user: borrow a donor's tcb, author every byte via codec.build.
+[[sps]]
+id      = 5001
+texture = { borrow_tcb = "303", tpage = { tp = 0, tx = 8, ty = 1 }, clut = { cluty = 251, clutx = 20 } }
+size    = [9, 9]            # [h_raw, w_raw]
+uv      = [[0, 96], [32, 96]]              # the UV atlas cells (into the borrowed tcb)
+rgb     = [[255, 200, 80], [255, 120, 0]]  # the colour ramp
+frames  = [ [ {pos = [0, 0], uv = 0, rgb = 0} ], [ {pos = [2, -1], uv = 1, rgb = 1} ] ]
+pos     = [0, 0, 0]
+slot    = 13
+```
+
+`id` must be unique and not collide with a carried donor effect (use the custom band, e.g. `5000+`). A bad block
+fails the **build** (surfaced in `ff9mapkit lint` / the Workspace Problems console). Verify with `deploy_field` →
+F6. Programmatic surface: `sps.author.build_sps_from_block` / `tcb_source` / `trigger_spec`;
+`content.sps_trigger.inject_sps_triggers` emits the `.eb` trigger.
+
+### Route B — genuinely new art (not yet)
+
+Drawing pixels that **don't already exist** in any `spt.tcb` needs a custom `FieldMaps/FieldSPS/<id>.png`. The
+engine resolves a field effect's texture through a **hardcoded** `SPSConst.SPSTexture` dictionary (no data hook),
+so a new id never looks for its PNG — Route B requires a small Memoria patch (a `spsId`-keyed PNG fallback) to the
+shipped engine. A `texture = { png = ... }` block is rejected today with that pointer. Tracked as a follow-up.
 
 ---
 

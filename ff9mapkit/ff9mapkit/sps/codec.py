@@ -24,7 +24,8 @@ Format facts (all little-endian; frame-table values are ABSOLUTE file offsets):
   skips a constant ``0x0010`` separator word that sits between the two tables).
 * UV table @ ``pt`` : ``rgb_offset`` x ``(u8 uvx, u8 uvy)``; a prim's UV cell = entry ``texpos & 0x0F``.
 * RGB table @ ``rgb`` : stride-4 ``(u8 r, u8 g, u8 b, u8 pad)`` ramp colors; a prim's color = entry
-  ``texpos >> 4`` (the runtime multiplies it by the instance ``fade``; ``pad`` is the PSX STP bit -- keep 0).
+  ``texpos >> 4`` (the runtime multiplies it by the instance ``fade``). The 4th ``pad`` byte is NOT read by
+  the colour path (stride-4, only r/g/b consumed) -- real files carry 0 or 1; the codec preserves it verbatim.
 * Each frame block @ its offset: ``u8 prim_count`` then ``prim_count`` x 3-byte prim
   ``(i8 pos_x, i8 pos_y, u8 texpos)`` -- runtime world pos = ``pos << 2`` (so +-508 units), ``texpos`` packs
   the UV index (low nibble) + RGB index (high nibble).

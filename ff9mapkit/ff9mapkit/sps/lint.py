@@ -42,9 +42,7 @@ def lint_sps(model: _codec.Sps) -> list[str]:
                 problems.append(f"frame {fi} prim {pi}: pos ({p.pos_x},{p.pos_y}) out of i8 range (-128..127)")
 
     for ri, entry in enumerate(model.rgb_table):
-        r, g, b, pad = entry
-        if pad != 0:
-            problems.append(f"rgb_table[{ri}]: pad byte {pad} must be 0 (PSX STP bit)")
+        r, g, b, _pad = entry      # the 4th (stride-4) byte is unused by the colour path; real files use 0 or 1
         if not all(0 <= c <= 255 for c in (r, g, b)):
             problems.append(f"rgb_table[{ri}]: colour {(r, g, b)} channel out of 0..255")
     return problems
