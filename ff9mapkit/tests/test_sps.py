@@ -310,6 +310,24 @@ def test_author_template_errors():
                                     donor_loader=lambda f, s: _synthetic())
 
 
+def test_author_carried_clone_reuses_texture(tmp_path):
+    # copy_from = { sps = N } (no field) clones one of THIS field's carried effects + reuses its tcb (the fix
+    # for adding an effect to a fork that carries its own texture -- a cross-field template can't render there).
+    from ff9mapkit.sps import author
+    d = tmp_path / "sps"
+    d.mkdir()
+    (d / "42.sps.bytes").write_bytes(_raw())                 # the field's own carried effect 42
+    loader = author.make_donor_loader(d)
+    blk = {"id": 5000, "copy_from": {"sps": 42}, "pos": [10, 20]}
+    m = author.build_sps_from_block(blk, donor_loader=loader)
+    assert m.rgb_table == _synthetic().rgb_table             # cloned the carried geometry
+    assert author.tcb_source(blk) == ("reuse", None)         # reuses the carried tcb -- no texture conflict
+    bad = author.validate_sps_block({"id": 5000, "copy_from": {"sps": 99}, "pos": [0, 0]}, donor_loader=loader)
+    assert bad and "carries no 99" in bad[0]                 # helpful: lists what it DOES carry
+    nodir = author.validate_sps_block({"id": 5000, "copy_from": {"sps": 42}, "pos": [0, 0]})
+    assert nodir and "carried" in nodir[0].lower()           # the bare loader explains it needs the sidecar
+
+
 def test_author_rejects_png_route_b_and_bad_blocks():
     from ff9mapkit.sps import author
     with pytest.raises(author.SpsAuthorError):
@@ -397,7 +415,11 @@ def test_autoground_sps_fills_floor_y():
 
     class _WM:
         def height_at(self, x, z):
-            return 1909 if (x, z) == (2354, -3372) else None
+            if (x, z) == (2354, -3372):
+                return 1909
+            if (x, z) == (0, 0):
+                return 0                                   # a FLAT floor at Y=0 (must still ground, not skip)
+            return None
 
     class _Proj:
         def __init__(self, blocks): self.raw = {"sps": blocks}
@@ -407,6 +429,7 @@ def test_autoground_sps_fills_floor_y():
         {"id": 5001, "pos": [100, 200]},                  # off-mesh -> warn, no y
         {"id": 5002, "pos": [2354, -3372], "y": 50},      # explicit y -> respected
         {"id": 5003, "pos": [2354, 0, -3372]},            # full [x,y,z] -> respected
+        {"id": 5004, "pos": [0, 0]},                      # flat floor at Y=0 -> y filled to 0 (not skipped)
     ]
     warns = []
     build._autoground_sps(_Proj(blocks), _WM(), warns)
@@ -414,6 +437,7 @@ def test_autoground_sps_fills_floor_y():
     assert "y" not in blocks[1] and any("off the walkmesh" in w for w in warns)
     assert blocks[2]["y"] == 50                            # explicit respected
     assert "y" not in blocks[3] and blocks[3]["pos"] == [2354, 0, -3372]
+    assert blocks[4]["y"] == 0                             # a legit floor of 0 grounds (the `if h:` -> `is not None` fix)
 
 
 def test_build_synth_field_with_authored_sps(tmp_path):

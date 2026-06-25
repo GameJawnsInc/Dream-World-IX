@@ -104,9 +104,17 @@ id       = 5000
 template = "fire"
 pos      = [2354, -3372]    # [x, z] -> auto-grounded to the floor
 
-# Clone a specific donor effect's texture + colours, re-author the animation.
+# Clone one of THIS field's OWN carried effects (a fork that ships its own sps/ + spt.tcb). Reuses the
+# carried texture, so it always renders -- the right choice on a native/verbatim fork. `ff9mapkit sps
+# <field>` lists the ids it carries.
 [[sps]]
 id        = 5001
+copy_from = { sps = 42 }                    # no `field` -> clone the field's own effect 42 (reuse its texture)
+pos       = [800, 226]
+
+# Clone a specific DONOR field's effect (for a field that does NOT carry its own texture -- BG-borrow / synth).
+[[sps]]
+id        = 5002
 copy_from = { field = "303", sps = 2266 }   # take tpage/clut/uv/rgb/size from Ice-Cavern fire 2266
 frames = [                                  # optional: a new quad-cloud animation over the cloned pixels
   [ {pos = [-30, 0], uv = 0, rgb = 3}, {pos = [0, 4], uv = 1, rgb = 1}, {pos = [30, 0], uv = 2, rgb = 5} ],
@@ -119,7 +127,7 @@ framerate = 16              # 16 = 1x
 
 # Power user: borrow a donor's tcb, author every byte via codec.build.
 [[sps]]
-id      = 5002
+id      = 5003
 texture = { borrow_tcb = "303", tpage = { tp = 0, tx = 8, ty = 1 }, clut = { cluty = 251, clutx = 20 } }
 size    = [9, 9]            # [h_raw, w_raw]
 uv      = [[0, 96], [32, 96]]              # the UV atlas cells (into the borrowed tcb)

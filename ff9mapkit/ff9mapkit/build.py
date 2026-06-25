@@ -580,15 +580,28 @@ def _validate_sps_blocks(project: FieldProject, problems: list) -> None:
     if dups:
         problems.append(f"[[sps]] duplicate effect id(s) {sorted(dups)} -- each [[sps]] needs a unique id")
     sps_src = project.path("sps")                           # an authored id must not shadow a carried donor effect
-    if sps_src.is_dir():
-        carried = {int(p.name[: -len(".sps.bytes")]) for p in sps_src.glob("*.sps.bytes")
-                   if p.name[: -len(".sps.bytes")].isdigit()}
-        clash = sorted(set(ids) & carried)
-        if clash:
-            problems.append(f"[[sps]] id(s) {clash} collide with a carried donor effect of the same id -- "
-                            "pick a free id (the custom band, e.g. 5000+).")
+    carried = sorted(int(p.name[: -len(".sps.bytes")]) for p in sps_src.glob("*.sps.bytes")
+                     if p.name[: -len(".sps.bytes")].isdigit()) if sps_src.is_dir() else []
+    clash = sorted(set(ids) & set(carried))
+    if clash:
+        problems.append(f"[[sps]] id(s) {clash} collide with a carried donor effect of the same id -- "
+                        "pick a free id (the custom band, e.g. 5000+).")
+    # A field that carries its OWN spt.tcb can host only effects that reuse THAT texture: the engine loads one
+    # texture per scene, so a cross-field template / copy_from (a different field's pixels) silently won't render.
+    carries_tcb = sps_src.is_dir() and (sps_src / "spt.tcb.bytes").is_file()
+    loader = _author.make_donor_loader(project.path("sps"))   # so copy_from = { sps = N } validates offline
     for b in blocks:
-        problems += [f"[[sps]] id={b['id']}: {p}" for p in _author.validate_sps_block(b)]
+        problems += [f"[[sps]] id={b['id']}: {p}" for p in _author.validate_sps_block(b, donor_loader=loader)]
+        if carries_tcb:
+            try:
+                mode, token = _author.tcb_source(b)
+            except _author.SpsAuthorError:
+                continue                                    # a malformed block -- already reported above
+            if mode == "borrow":
+                problems.append(f"[[sps]] id={b['id']}: this field carries its OWN texture (spt.tcb), so a "
+                                f"cross-field template / copy_from (here from {token!r}) samples the WRONG pixels "
+                                f"and won't render. Clone one of THIS field's effects instead -- "
+                                f"copy_from = {{ sps = N }} -- it carries: {carried or 'none'}.")
 
 
 _SHARED_DEFAULT_TEXT_BLOCK = 1073   # campaign members + worktree test slots all default here -> shadow-prone
@@ -2641,10 +2654,11 @@ def _write_authored_sps(project: FieldProject, layout: "ModLayout", fbg: str, *,
     fm.mkdir(parents=True, exist_ok=True)
     warns = warnings if warnings is not None else []
     borrowed: dict = {}                                     # donor token -> tcb bytes (read once)
+    loader = _author.make_donor_loader(project.path("sps"))   # field=None -> clone a carried effect
     for b in blocks:
         sid = b["id"]
         try:
-            model = _author.build_sps_from_block(b)
+            model = _author.build_sps_from_block(b, donor_loader=loader)
         except (_author.SpsAuthorError, _spscodec.SpsCodecError) as ex:
             raise BuildError(f"[[sps]] id={sid} in {project.name}: {ex}")
         (fm / f"{sid}.sps.bytes").write_bytes(_spscodec.serialize(model))
@@ -2661,8 +2675,14 @@ def _write_authored_sps(project: FieldProject, layout: "ModLayout", fbg: str, *,
             if tcb is None:
                 warns.append(f"[[sps]] id={sid}: could not read donor {token!r}'s spt.tcb (no install / unknown "
                              "field) -- the bin is written but the effect won't draw until the tcb is present.")
-            elif not tcb_path.is_file():                   # don't clobber a carried tcb (a fork already has one)
+            elif not tcb_path.is_file():                   # the field carries no tcb yet -> install the borrowed one
                 tcb_path.write_bytes(tcb)
+            else:                                          # the field ALREADY carries its OWN tcb -> a hard conflict
+                warns.append(f"[[sps]] id={sid}: this field already carries its OWN spt.tcb, so the borrowed "
+                             f"texture from {token!r} can't be installed (the engine loads ONE texture per scene) "
+                             "-- a template / cross-field copy_from will sample the WRONG pixels and likely not "
+                             "render. Clone one of THIS field's carried effects instead: copy_from = { sps = <id> } "
+                             "(see `ff9mapkit sps <this field>` for its effect ids).")
 
 
 def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto) -> bytes:
@@ -4213,7 +4233,7 @@ def _autoground_sps(project: FieldProject, wmesh, warnings: list | None = None) 
         if not (isinstance(pos, list) and len(pos) == 2) or "y" in b:
             continue                                        # explicit y or a full [x,y,z] -> respect it
         h = wmesh.height_at(int(pos[0]), int(pos[1])) if wmesh is not None else None
-        if h:
+        if h is not None:                                   # a real floor height (INCLUDING a flat floor at 0)
             b["y"] = int(h)                                 # +floorY (the SPS double-negation rule)
         elif warnings is not None:
             warnings.append(f"[[sps]] id={b.get('id')}: pos {pos} is off the walkmesh (or no walkmesh) -- "

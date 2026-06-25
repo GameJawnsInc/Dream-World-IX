@@ -68,8 +68,33 @@ def _int(b, key, ctx):
     return v
 
 
+def make_donor_loader(carried_dir=None):
+    """A ``donor_loader`` for :func:`build_sps_from_block`: ``field=None`` -> clone a CARRIED effect (read
+    ``carried_dir/<sps>.sps.bytes`` -- reuses the field's own texture, no tcb conflict); else load from the
+    install. The build passes ``carried_dir = <member>/sps`` so ``copy_from = {{ sps = N }}`` works."""
+    from pathlib import Path
+
+    def loader(field_token, sps_id):
+        if field_token is not None:
+            return _default_donor_loader(field_token, sps_id)
+        if carried_dir is None:
+            raise SpsAuthorError(f"copy_from sps={sps_id} (no field) clones a CARRIED effect, which needs the "
+                                 "field's sps/ sidecar -- not available here")
+        d = Path(carried_dir)
+        p = d / f"{int(sps_id)}.sps.bytes"
+        if not p.is_file():
+            avail = sorted(x.name[: -len('.sps.bytes')] for x in d.glob("*.sps.bytes")) if d.is_dir() else []
+            raise SpsAuthorError(f"copy_from sps={sps_id}: this field carries no {sps_id}.sps.bytes "
+                                 f"(carried effects: {avail or 'none'})")
+        return _codec.parse(p.read_bytes())
+    return loader
+
+
 def _default_donor_loader(field_token, sps_id) -> _codec.Sps:
     """Load donor ``field``'s effect ``sps_id`` to a codec model, live from the install (for ``copy_from``)."""
+    if field_token is None:
+        raise SpsAuthorError(f"copy_from sps={sps_id} (no field) clones a CARRIED effect -- needs the field's "
+                             "sps/ sidecar (use the build path, not the bare loader)")
     from . import catalog as _cat
     rows = _cat.list_field_sps(field_token)
     entry = next((e for e in rows if e.sps_id == int(sps_id)), None)
@@ -138,7 +163,7 @@ def build_sps_from_block(block: dict, *, donor_loader=None) -> _codec.Sps:
         if "texture" in block or "uv" in block:
             raise SpsAuthorError(f"{ctx}: template/copy_from is exclusive with an inline texture/uv "
                                  "(it reuses the donor's). frames/rgb/size are allowed as overrides.")
-        model = copy.deepcopy(loader(cf["field"], cf["sps"]))
+        model = copy.deepcopy(loader(cf.get("field"), cf["sps"]))   # field=None -> a carried-effect clone
         model.frame_offsets = None                          # re-laid canonically on serialize
         model.tail = b""
         if "frames" in block:                               # optional geometry / colour / size overrides
@@ -198,8 +223,10 @@ def _resolve_clone_source(block: dict, ctx: str):
         return {"field": t.field, "sps": t.sps}
     if has_cf:
         cf = block["copy_from"]
-        if not (isinstance(cf, dict) and "field" in cf and "sps" in cf):
-            raise SpsAuthorError(f"{ctx}: copy_from must be {{ field = <token>, sps = <id> }}")
+        if not (isinstance(cf, dict) and "sps" in cf):
+            raise SpsAuthorError(f"{ctx}: copy_from must be {{ sps = <id> }} (clone one of THIS field's carried "
+                                 "effects, reusing its texture) or {{ field = <token>, sps = <id> }} (clone a "
+                                 "donor field's effect)")
         return cf
     return None
 
@@ -209,6 +236,8 @@ def tcb_source(block: dict) -> tuple[str, str | None]:
     ``texture.borrow_tcb``) or ``("reuse", None)`` (use the field's already-carried tcb)."""
     cf = _resolve_clone_source(block, "[[sps]]")
     if cf is not None:
+        if cf.get("field") is None:                # a carried-effect clone (copy_from = { sps = N })
+            return "reuse", None                   # reuses the field's already-carried tcb -- no conflict
         return "borrow", str(cf["field"])
     tex = block.get("texture") or {}
     if tex.get("borrow_tcb") is not None:
