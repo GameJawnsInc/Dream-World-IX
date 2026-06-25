@@ -2305,6 +2305,45 @@ def _cmd_scenes(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sps(args: argparse.Namespace) -> int:
+    """List / decode / preview a field's SPS particle effects (fire/smoke/magic). Install-gated (UnityPy)."""
+    from .sps import catalog as SC
+    rows = SC.list_field_sps(args.field)
+    if not rows:
+        print(f"no SPS effects for field {args.field!r} (needs the FF9 install + UnityPy, and a field that "
+              "carries .sps effects). `ff9mapkit list-fields` lists field tokens.", file=sys.stderr)
+        return 0
+    if args.id is None and not args.png and not args.gif:
+        print(f"{len(rows)} SPS effect(s) in {rows[0].folder}. Each <id> is a RunSPSCode effect:\n")
+        for e in rows:
+            print(f"  {e.sps_id:>5}  {e.sps_id}.sps")
+        print(f"\nDecode one:  ff9mapkit sps {args.field} --id {rows[0].sps_id}"
+              f"\nPreview:     ff9mapkit sps {args.field} --id {rows[0].sps_id} --png out.png")
+        return 0
+    target = args.id if args.id is not None else rows[0].sps_id
+    entry = next((e for e in rows if e.sps_id == target), None)
+    if entry is None:
+        print(f"field {args.field} has no SPS effect {target} (have: {[e.sps_id for e in rows]})", file=sys.stderr)
+        return 2
+    sps = SC.load_sps(entry)
+    print(f"SPS effect {target} in {entry.folder}:")
+    for label, value in SC.effect_facts(sps):
+        print(f"  {label:<16} {value}")
+    if args.png or args.gif:
+        tcb = SC.load_tcb(args.field)
+        if tcb is None:
+            print("  (no spt.tcb for this field -- cannot render a textured preview)", file=sys.stderr)
+            return 2
+        from .sps import render
+        if args.png:
+            render.save_png(render.render_strip(sps, tcb, scale=args.scale), args.png)
+            print(f"  wrote {args.png} (a {sps.frame_count}-frame contact sheet)")
+        if args.gif:
+            render.save_gif(sps, tcb, args.gif, scale=args.scale)
+            print(f"  wrote {args.gif} (~15 fps loop)")
+    return 0
+
+
 def _cmd_archetypes(args: argparse.Namespace) -> int:
     """List built-in NPC archetypes -- place a common NPC by one name."""
     from . import archetypes as A
@@ -2866,6 +2905,14 @@ def build_parser() -> argparse.ArgumentParser:
     sc = sub.add_parser("scenes", help="list FF9 battle-scene (encounter) ids by name")
     sc.add_argument("pattern", nargs="?", default=None, help="name substring (e.g. alex, evil, b3)")
     sc.set_defaults(func=_cmd_scenes)
+
+    sp = sub.add_parser("sps", help="list/decode/preview a field's SPS particle effects (fire/smoke/magic); needs UnityPy")
+    sp.add_argument("field", help="a field id or FBG/mapid token (see `ff9mapkit list-fields`)")
+    sp.add_argument("--id", type=int, default=None, help="decode ONE effect by id (full facts)")
+    sp.add_argument("--png", metavar="OUT", help="render the effect's frames to a contact-sheet PNG")
+    sp.add_argument("--gif", metavar="OUT", help="render the effect to an animated GIF (~15 fps)")
+    sp.add_argument("--scale", type=int, default=3, help="preview pixel scale (default 3)")
+    sp.set_defaults(func=_cmd_sps)
 
     ct = sub.add_parser("catalog", help="search every reference catalog (models/items/scenes/fields) by name")
     ct.add_argument("query", help="substring to search across all catalogs")

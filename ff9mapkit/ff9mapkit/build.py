@@ -211,6 +211,12 @@ class FieldProject:
         .eb), or ``[]`` when none -- a plain/synthesized field has none and the build stays byte-identical."""
         return self.raw.get("logic_add", []) or []
 
+    def sps_edits(self):
+        """The ``[[sps_edit]]`` list (Tier-1 re-skin of a carried ``.sps`` effect -- recolour/tint/scale/
+        reposition), or ``[]`` when none. Only applies on the native-scene branch (it edits the donor's
+        staged ``sps/`` bins); a plain/synthesized field has none and the build stays byte-identical."""
+        return self.raw.get("sps_edit", []) or []
+
 
 # --------------------------------------------------------------------------- validation
 
@@ -508,6 +514,44 @@ def _validate_logic_edits(project: FieldProject, problems: list) -> None:
         problems.append(f"[[logic_edit]] could not be validated: {type(ex).__name__}: {ex}")
 
 
+def _validate_sps_edits(project: FieldProject, problems: list) -> None:
+    """OFFLINE dry-run of [[sps_edit]] (Tier-1 re-skin of a carried .sps) so a bad/drifted edit -- or an edit on
+    a field that carries no .sps -- surfaces in `lint`/the Workspace Check, not only at full build. [[sps_edit]]
+    only applies on the NATIVE-scene branch (it edits the donor's staged sps/ bins). Mirrors _validate_logic_edits."""
+    edits = project.sps_edits()
+    if not edits:
+        return
+    from .sps import edit as _se
+    try:
+        _se._edit_list(edits)                            # container shape ([[sps_edit]], not [sps_edit])
+    except _se.SpsEditError as ex:
+        problems.append(f"[[sps_edit]] {ex}")
+        return
+    for e in edits:                                      # every edit needs an integer `sps` selector
+        if not isinstance(e.get("sps"), int) or isinstance(e.get("sps"), bool):
+            problems.append(f"[[sps_edit]] every edit needs an integer `sps` selector (the effect <id>); "
+                            f"got {e.get('sps')!r}")
+            return
+    if not project.field.get("bgs"):
+        problems.append("[[sps_edit]] only applies to a NATIVE-scene fork ([field] bgs -- the path that carries "
+                        "the donor's .sps effects); this field has none, so the edits would be ignored.")
+        return
+    sps_src = project.path("sps")
+    if not sps_src.is_dir():
+        problems.append("[[sps_edit]] present but no sps/ sidecar was carried (the donor has no SPS effects, or "
+                        "it was forked without --native). Nothing to re-skin.")
+        return
+    staged = {p.name for p in sps_src.iterdir() if p.name.endswith(".sps.bytes")}
+    for sid in sorted({e["sps"] for e in edits}):
+        base = f"{sid}.sps.bytes"
+        if base not in staged:
+            problems.append(f"[[sps_edit]] sps={sid}: no {base} in the field's sps/ sidecar "
+                            f"(staged: {sorted(staged)})")
+            continue
+        data = (sps_src / base).read_bytes()
+        problems += [f"[[sps_edit]] sps={sid}: {p}" for p in _se.validate_sps_edits(data, edits, sps_id=sid)]
+
+
 _SHARED_DEFAULT_TEXT_BLOCK = 1073   # campaign members + worktree test slots all default here -> shadow-prone
 
 
@@ -626,6 +670,7 @@ def validate(project: FieldProject) -> list[str]:
     problems = []
     _validate_logic_edits(project, problems)
     _validate_logic_adds(project, problems)
+    _validate_sps_edits(project, problems)
     story_names = _story_names(project)
     f = project.field
     for key in ("id", "name", "area"):
@@ -4089,9 +4134,28 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         # bin and the effect never draws). The importer staged them in <member>/sps/. -> project-ff9-sps-fork.
         sps_src = project.path("sps")
         if sps_src.is_dir():
+            # Tier-1 re-skin: an [[sps_edit]] transforms a donor effect bin IN FLIGHT (recolour/tint/scale/
+            # reposition) before it lands in FieldMaps/<FBG>/. spt.tcb + any unmatched .sps pass through
+            # verbatim. validate() already dry-ran these, so this is the belt-and-suspenders apply. -> sps.edit.
+            sps_edits = project.sps_edits()
+            from .sps import edit as _sps_edit
             for sf in sorted(sps_src.iterdir()):
-                if sf.is_file():
-                    shutil.copyfile(sf, fm / sf.name)
+                if not sf.is_file():
+                    continue
+                dst = fm / sf.name
+                if sps_edits and sf.name.endswith(".sps.bytes"):
+                    try:
+                        sid = int(sf.name[: -len(".sps.bytes")])
+                    except ValueError:
+                        sid = None
+                    if sid is not None:
+                        try:
+                            edited = _sps_edit.apply_sps_edits(sf.read_bytes(), sps_edits, sps_id=sid)
+                        except _sps_edit.SpsEditError as ex:
+                            raise BuildError(f"[[sps_edit]] in {project.name} sps {sid}: {ex}")
+                        dst.write_bytes(edited)
+                        continue
+                shutil.copyfile(sf, dst)
         # the field's 3D-model LIGHTING (MapConfigData: per-floor lights + shadows + per-object colors),
         # shipped under the fork's event name so the engine lights the models like the real field. Loaded
         # by the SAME event name as the .eb (MapConfiguration.LoadMapConfigData) -> EVT_<name>.bytes.
