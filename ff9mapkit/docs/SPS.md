@@ -105,7 +105,7 @@ frames = [                                  # optional: a new quad-cloud animati
   [ {pos = [-30, 0], uv = 0, rgb = 3}, {pos = [0, 4], uv = 1, rgb = 1}, {pos = [30, 0], uv = 2, rgb = 5} ],
   [ {pos = [-30, 2], uv = 1, rgb = 2}, {pos = [0, 8], uv = 2, rgb = 0}, {pos = [30, 2], uv = 0, rgb = 4} ],
 ]
-pos       = [0, 40, -200]   # world x, y, z (the engine negates y); or [x, z] with a separate y = N
+pos       = [2354, -3372]   # [x, z] -> the kit AUTO-GROUNDS y from the walkmesh floor (recommended)
 slot      = 14              # SPS slot 0..15 (omit -> auto-assigned top-down from 15)
 abr       = 1               # blend: 0=50%add 1=add 2=sub 3=25%add
 framerate = 16              # 16 = 1x
@@ -126,6 +126,18 @@ slot    = 13
 fails the **build** (surfaced in `ff9mapkit lint` / the Workspace Problems console). Verify with `deploy_field` →
 F6. Programmatic surface: `sps.author.build_sps_from_block` / `tcb_source` / `trigger_spec`;
 `content.sps_trigger.inject_sps_triggers` emits the `.eb` trigger.
+
+### Placement (the floor-Y rule)
+
+`pos` is the effect's **world** position. Prefer `pos = [x, z]` and let the kit fill the height from the walkmesh
+(`_autoground_sps`) — the effect drops onto the floor at `(x, z)`. If you set `y` yourself (`pos = [x, y, z]` or
+`pos = [x, z]` + `y = N`), note the engine's double-negation: a `RunSPSCode POS` negates Arg1, **and** the render
+frame negates the walkmesh Y, so the `y` that lands an effect **on** the floor is `+height_at(x, z)` (positive),
+and a *smaller* `y` floats it **up**. Effects are 2D billboards drawn in screen space with no depth-push op (the
+engine's `zOffset` is a hardcoded per-field hack), so an effect only shows where its world position isn't behind
+foreground scene geometry — place it in open space, not tucked against a wall. (In-game proven 2026-06-25 on a
+forked Ice Cavern; the offline `scene.cam.project` / `to_canvas` replica of `PSX.CalculateGTE_RTPT_POS` predicts
+exactly where an effect lands, for debugging placement without launching the game.)
 
 ### Route B — genuinely new art (not yet)
 

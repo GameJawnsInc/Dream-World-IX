@@ -4198,6 +4198,29 @@ def _autofill_ladder_landing_y(project: FieldProject, wmesh) -> None:
                     lad[key] = [int(p[0]), int(p[1]), -int(h)]
 
 
+def _autoground_sps(project: FieldProject, wmesh, warnings: list | None = None) -> None:
+    """Fill an OMITTED ``[[sps]]`` effect height from the walkmesh, so an author can write ``pos = [x, z]``
+    and the kit drops the effect onto the floor at (x, z). The SPS POS op double-negates (engine ``pos.y =
+    -Arg1`` AND the render frame negates the walkmesh Y), so the block ``y`` that lands ON the floor is
+    ``+height_at(x, z)`` (positive) -- the in-game-proven rule. Only fills a 2-element ``pos`` with no explicit
+    ``y``; an author-supplied ``y`` (or a 3-element ``pos``) is respected. Off-mesh / no walkmesh -> a warning
+    (the effect would float at y=0)."""
+    blocks = project.raw.get("sps") or []
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        pos = b.get("pos")
+        if not (isinstance(pos, list) and len(pos) == 2) or "y" in b:
+            continue                                        # explicit y or a full [x,y,z] -> respect it
+        h = wmesh.height_at(int(pos[0]), int(pos[1])) if wmesh is not None else None
+        if h:
+            b["y"] = int(h)                                 # +floorY (the SPS double-negation rule)
+        elif warnings is not None:
+            warnings.append(f"[[sps]] id={b.get('id')}: pos {pos} is off the walkmesh (or no walkmesh) -- "
+                            "could not auto-ground; the effect floats at y=0. Give an explicit y, or a "
+                            "pos = [x, y, z].")
+
+
 def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> FieldResult:
     """Write one field's assets into the mod ``layout``. Returns its registration info."""
     problems = validate(project)
@@ -4305,9 +4328,11 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if ref is not None:
             _validate_content_placement(project, ref, warnings)
 
-    # [[sps]] Tier-2 from-scratch effects: write each authored <id>.sps.bytes + supply its tcb into the FBG
-    # folder (path-agnostic -- works on native / custom-scene / borrow). The RunSPSCode triggers are emitted
-    # separately into the .eb (synth: build_script; verbatim: compose_verbatim_eb). No [[sps]] -> no-op.
+    # [[sps]] Tier-2 from-scratch effects: auto-ground any pos=[x,z] from the walkmesh (so authors needn't
+    # hand-compute floor heights), then write each authored <id>.sps.bytes + supply its tcb into the FBG folder
+    # (path-agnostic -- works on native / custom-scene / borrow). The RunSPSCode triggers are emitted separately
+    # into the .eb (synth: build_script; verbatim: compose_verbatim_eb). No [[sps]] -> no-op.
+    _autoground_sps(project, cutscene_wmesh, warnings)
     _write_authored_sps(project, layout, fbg, warnings=warnings)
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y

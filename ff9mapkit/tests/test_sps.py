@@ -345,6 +345,32 @@ framerate = 16
 """
 
 
+def test_autoground_sps_fills_floor_y():
+    # pos = [x, z] (no y) -> the kit fills y = +floorY from the walkmesh (the in-game-proven SPS sign);
+    # an explicit y / a 3-element pos is respected; off-mesh warns.
+    from ff9mapkit import build
+
+    class _WM:
+        def height_at(self, x, z):
+            return 1909 if (x, z) == (2354, -3372) else None
+
+    class _Proj:
+        def __init__(self, blocks): self.raw = {"sps": blocks}
+
+    blocks = [
+        {"id": 5000, "pos": [2354, -3372]},               # 2-list, no y -> auto-ground
+        {"id": 5001, "pos": [100, 200]},                  # off-mesh -> warn, no y
+        {"id": 5002, "pos": [2354, -3372], "y": 50},      # explicit y -> respected
+        {"id": 5003, "pos": [2354, 0, -3372]},            # full [x,y,z] -> respected
+    ]
+    warns = []
+    build._autoground_sps(_Proj(blocks), _WM(), warns)
+    assert blocks[0]["y"] == 1909                          # +floorY filled
+    assert "y" not in blocks[1] and any("off the walkmesh" in w for w in warns)
+    assert blocks[2]["y"] == 50                            # explicit respected
+    assert "y" not in blocks[3] and blocks[3]["pos"] == [2354, 0, -3372]
+
+
 def test_build_synth_field_with_authored_sps(tmp_path):
     # End-to-end (no install needed -- inline geometry; the tcb borrow only warns offline): the authored
     # <id>.sps.bytes lands in the FBG folder and the .eb carries the armed RunSPSCode create+place trigger.
