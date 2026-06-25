@@ -247,6 +247,8 @@ def test_sps_spec_form_roundtrips():
     assert forms.build_entity(forms.SPS_SPEC, forms.entity_to_values(forms.SPS_SPEC, full)) == full
     minimal = {"id": 5000, "template": "fire", "pos": [0, 0]}    # optionals omitted when blank
     assert forms.build_entity(forms.SPS_SPEC, forms.entity_to_values(forms.SPS_SPEC, minimal)) == minimal
+    carried = {"id": 5000, "clone_sps": 42, "pos": [800, 226]}   # the carried-effect form path
+    assert forms.build_entity(forms.SPS_SPEC, forms.entity_to_values(forms.SPS_SPEC, carried)) == carried
 
 
 def test_infohub_sps_templates_browse_detail_snippet():
@@ -326,6 +328,12 @@ def test_author_carried_clone_reuses_texture(tmp_path):
     assert bad and "carries no 99" in bad[0]                 # helpful: lists what it DOES carry
     nodir = author.validate_sps_block({"id": 5000, "copy_from": {"sps": 42}, "pos": [0, 0]})
     assert nodir and "carried" in nodir[0].lower()           # the bare loader explains it needs the sidecar
+    # clone_sps = N is the form-friendly flat alias for copy_from = { sps = N }
+    alias = {"id": 5000, "clone_sps": 42, "pos": [10, 20]}
+    assert author.build_sps_from_block(alias, donor_loader=loader).rgb_table == _synthetic().rgb_table
+    assert author.tcb_source(alias) == ("reuse", None)
+    with pytest.raises(author.SpsAuthorError):               # mutually exclusive with template
+        author.build_sps_from_block({"id": 5000, "clone_sps": 42, "template": "fire"}, donor_loader=loader)
 
 
 def test_author_rejects_png_route_b_and_bad_blocks():

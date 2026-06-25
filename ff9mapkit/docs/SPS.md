@@ -157,9 +157,11 @@ exactly where an effect lands, for debugging placement without launching the gam
 ### In the Workspace GUI
 
 Two surfaces, no hand-written TOML needed:
-- **Editor → a field's "Effects" section** — add/edit `[[sps]]` effects with a form (id · template · position ·
-  slot · blend · frame-rate). The **Template** field has a **Browse** button into the Info Hub picker (preview
-  included); the position auto-grounds. Saves into the field's `field.toml`, like NPCs/events.
+- **Editor → a field's "Effects" section** — add/edit `[[sps]]` effects with a form (id · base · position ·
+  slot · blend · frame-rate). Pick the base via **Browse** (with preview thumbnails): **Template** (a cross-field
+  preset, for a field without its own texture) or **Clone carried effect** (this field's OWN effects — the right
+  base on a native/verbatim fork that carries its texture). Position auto-grounds; blend defaults to additive.
+  Saves into the field's `field.toml`, like NPCs/events.
 - **Info Hub → "SPS templates"** — browse the presets with **live preview thumbnails**; *Copy snippet* gives a
   ready `[[sps]]` block. (The companion **"SPS effects"** section browses a fork's *carried* effects for
   `[[sps_edit]]` re-skins.)

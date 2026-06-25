@@ -210,11 +210,18 @@ def _size(s, ctx):
 
 
 def _resolve_clone_source(block: dict, ctx: str):
-    """A ``template`` name or an explicit ``copy_from`` -> a ``{field, sps}`` donor to clone, or ``None`` for
-    an inline effect. ``template`` and ``copy_from`` are mutually exclusive."""
+    """A ``template`` name / a ``clone_sps`` carried-effect id / an explicit ``copy_from`` -> a donor to clone,
+    or ``None`` for an inline effect. The three are mutually exclusive. ``clone_sps = N`` is the form-friendly
+    flat alias for ``copy_from = {{ sps = N }}`` (clone one of THIS field's carried effects)."""
     has_t, has_cf = "template" in block, "copy_from" in block
-    if has_t and has_cf:
-        raise SpsAuthorError(f"{ctx}: use either `template` OR `copy_from`, not both")
+    has_clone = block.get("clone_sps") is not None
+    if sum((has_t, has_cf, has_clone)) > 1:
+        raise SpsAuthorError(f"{ctx}: use ONE of `template` / `clone_sps` / `copy_from`")
+    if has_clone:
+        v = block["clone_sps"]
+        if not isinstance(v, int) or isinstance(v, bool):
+            raise SpsAuthorError(f"{ctx}: clone_sps must be a carried-effect id (integer), got {v!r}")
+        return {"sps": v}                                   # field=None -> a carried-effect clone
     if has_t:
         from . import templates as _tpl
         try:

@@ -120,8 +120,11 @@ SPS_SPEC = [
     Field("id", "Effect ID", INT, "a unique number for this effect (use >= 5000; must not clash with a "
           "carried donor effect)"),
     Field("template", "Template", STR, 'a named preset -- fire / bonfire / smoke / sparkle / embers / glimmer '
-          '(Browse to pick + preview). Leave blank to set copy_from / inline in the .toml for a custom base.',
-          catalog="sps_template"),
+          '(Browse to pick + preview). For a field that does NOT carry its own texture (BG-borrow / synth). On '
+          'a fork that ships its own effects, use "Clone carried effect" instead.', catalog="sps_template"),
+    Field("clone_sps", "Clone carried effect", OPTINT, "Browse THIS field's own effects + preview one -- clones "
+          "it, reusing the field's texture (the right base on a native/verbatim fork). Use this OR Template.",
+          catalog="sps"),
     Field("pos", "Position (x, z)", COORD, "where it sits on the floor; the height is AUTO-GROUNDED from the "
           "walkmesh (place it in OPEN space, not behind a wall, or it's hidden by the scene)"),
     Field("slot", "SPS slot", OPTINT, "0-15; blank = auto-assigned (top-down from 15, to dodge a fork's effects)"),

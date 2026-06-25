@@ -17,6 +17,7 @@ import collections
 import html
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
@@ -210,12 +211,14 @@ class CatalogPicker(QDialog):
     """A modal Info-Hub catalog picker: search + a result list, returning the chosen entry NAME. Reuses
     the same ``infohub.browse`` spine as the tkinter editor's picker (archetype/creature/item/flag/...)."""
 
-    def __init__(self, parent, kinds, initial, plan, palette, *, browse=False, limit=300, want_id=False):
+    def __init__(self, parent, kinds, initial, plan, palette, *, browse=False, limit=300, want_id=False,
+                 sps_context=None):
         super().__init__(parent)
         self.setWindowTitle("Browse the catalog" if browse else "Pick from the catalog")
         self.resize(560, 460)
         self.kinds = kinds
         self.plan = plan
+        self.sps_context = sps_context                 # the open field's carried effects (for the 'sps' kind)
         self.browse = browse                           # browse mode: "Use this" copies the name + stays open
         self.limit = limit
         self.want_id = want_id                         # a numeric field (e.g. encounter scene) wants the id back
@@ -235,6 +238,10 @@ class CatalogPicker(QDialog):
         self.info.setWordWrap(True)
         self.info.setStyleSheet(f"color:{palette['muted']};")
         lay.addWidget(self.info)
+        self.preview = QLabel()                        # a thumbnail for kinds that render one (SPS effects/templates)
+        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview.setFixedHeight(0)                 # collapsed until an entry has a preview
+        lay.addWidget(self.preview)
         bar = QHBoxLayout()
         use = QPushButton("Copy name" if browse else "Use this")
         use.setObjectName("accent")
@@ -251,7 +258,7 @@ class CatalogPicker(QDialog):
     def _refresh(self):
         try:
             self._entries = infohub.browse(self.q.text(), kinds=self.kinds, limit=self.limit,
-                                           campaign_context=self.plan)
+                                           campaign_context=self.plan, sps_context=self.sps_context)
         except Exception:                              # noqa: BLE001 -- a catalog needing data we lack
             self._entries = []
         self.lst.clear()
@@ -263,9 +270,24 @@ class CatalogPicker(QDialog):
         self.info.setText(f"{len(self._entries)} match(es){where}{note}")
 
     def _describe(self, row):
-        if 0 <= row < len(self._entries):
-            e = self._entries[row]
-            self.info.setText(f"{e.name}  [{e.kind}]  —  {e.summary}")
+        if not (0 <= row < len(self._entries)):
+            return
+        e = self._entries[row]
+        self.info.setText(f"{e.name}  [{e.kind}]  —  {e.summary}")
+        png = None
+        if e.kind in ("sps", "sps_template"):          # render a thumbnail for an effect / template
+            try:
+                png = infohub.detail(e, sps_context=self.sps_context).preview_png
+            except Exception:                          # noqa: BLE001 -- preview is best-effort
+                png = None
+        if png:
+            pm = QPixmap(png)
+            if not pm.isNull():
+                self.preview.setFixedHeight(140)
+                self.preview.setPixmap(pm.scaledToHeight(132, Qt.TransformationMode.SmoothTransformation))
+                return
+        self.preview.clear()
+        self.preview.setFixedHeight(0)
 
     def _ok(self):
         row = self.lst.currentRow()
@@ -283,12 +305,13 @@ class CatalogPicker(QDialog):
         self.accept()
 
 
-def pick_catalog(parent, catalog, initial, plan, palette, *, want_id=False):
+def pick_catalog(parent, catalog, initial, plan, palette, *, want_id=False, sps_context=None):
     """Open :class:`CatalogPicker` for a comma-separated ``catalog`` string; return the chosen NAME (or the
     entry's numeric id as a string when ``want_id`` -- for an INT field like an encounter's battle scene),
-    or None. The shell passes this (curried with its window/plan/palette) as ``build_form``'s ``pick``."""
+    or None. The shell passes this (curried with its window/plan/palette) as ``build_form``'s ``pick``.
+    ``sps_context`` (the open field's carried effects) makes the ``sps`` kind browse THIS field's effects."""
     kinds = [k.strip() for k in catalog.split(",")] if catalog else None
-    dlg = CatalogPicker(parent, kinds, initial, plan, palette, want_id=want_id)
+    dlg = CatalogPicker(parent, kinds, initial, plan, palette, want_id=want_id, sps_context=sps_context)
     dlg.exec()
     return dlg.result
 

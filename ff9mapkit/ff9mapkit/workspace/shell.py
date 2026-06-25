@@ -4045,11 +4045,24 @@ class Workspace(QMainWindow):
     def _pick(self, catalog, current, want_id=False):
         """``build_form``'s picker: open the Qt catalog picker over the open campaign's context. For the
         ``flag`` catalog it ALSO surfaces the OPEN FIELD's own ``[[flag]]`` table (so Browse isn't empty on a
-        standalone field). ``want_id`` returns the picked entry's numeric id (e.g. an encounter battle scene)."""
-        ctx = self.plan
-        if catalog and "flag" in [k.strip() for k in catalog.split(",")]:
-            ctx = self._flag_pick_context()
-        return pick_catalog(self, catalog, current, ctx, self.pal, want_id=want_id)
+        standalone field); for the ``sps`` catalog it surfaces the open field's OWN carried effects (so the
+        Effects form's "Clone carried effect" Browse shows 42/43 with previews). ``want_id`` returns the picked
+        entry's numeric id (e.g. an encounter battle scene, or a carried effect)."""
+        kinds = [k.strip() for k in catalog.split(",")] if catalog else []
+        ctx = self._flag_pick_context() if "flag" in kinds else self.plan
+        sps_ctx = self._current_field_sps_context() if "sps" in kinds else None
+        return pick_catalog(self, catalog, current, ctx, self.pal, want_id=want_id, sps_context=sps_ctx)
+
+    def _current_field_sps_context(self):
+        """``{member: sps_dir}`` for the field whose form is OPEN, if it carries a ``sps/`` sidecar -- so the
+        Effects form's carried-effect Browse lists THIS field's effects. ``None`` if none/unknown."""
+        from pathlib import Path
+        member = (self._save_ctx or {}).get("member")
+        p = self.member_paths.get(member) if member else None
+        if not p:
+            return None
+        d = Path(p).parent / "sps"
+        return {member: d} if d.is_dir() and any(d.glob("*.sps.bytes")) else None
 
     def _flag_pick_context(self):
         """A picker context whose ``.flags`` covers the WHOLE flag hierarchy in scope: the OPEN FIELD's own
