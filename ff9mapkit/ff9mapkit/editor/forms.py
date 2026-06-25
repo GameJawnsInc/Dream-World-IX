@@ -125,7 +125,8 @@ SPS_SPEC = [
     Field("pos", "Position (x, z)", COORD, "where it sits on the floor; the height is AUTO-GROUNDED from the "
           "walkmesh (place it in OPEN space, not behind a wall, or it's hidden by the scene)"),
     Field("slot", "SPS slot", OPTINT, "0-15; blank = auto-assigned (top-down from 15, to dodge a fork's effects)"),
-    Field("abr", "Blend mode", OPTINT, "0 = 50% add · 1 = add (fire/smoke) · 2 = subtract · 3 = 25% add; blank = leave default"),
+    Field("abr", "Blend mode", OPTINT, "blank = additive (the right glow for fire/smoke). 0 = 50% add · "
+          "1 = add · 2 = subtract · 3 = 25% add · 15 = opaque"),
     Field("framerate", "Frame rate", OPTINT, "16 = 1x (normal ~15 fps loop); smaller = slower; blank = default"),
 ]
 ENCOUNTER_SPEC = [

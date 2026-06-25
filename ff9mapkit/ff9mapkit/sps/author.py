@@ -44,6 +44,7 @@ from .lint import lint_sps
 
 # placement defaults: a high SPS slot avoids colliding with a donor's low-slot effects on a verbatim fork
 DEFAULT_SLOT = 15
+DEFAULT_ABR = 1           # ADDITIVE -- particle effects glow; the engine default (ABR_OFF) renders opaque black boxes
 SCALE_ONE = 4096
 FRAMERATE_ONE = 16
 
@@ -263,7 +264,11 @@ def trigger_spec(block: dict, *, slot: int | None = None) -> dict:
             raise SpsAuthorError(f"{ctx}: pos {k}={v} out of the i16 range RunSPSCode carries")
     spec = {"slot": slot if slot is not None else int(block.get("slot", DEFAULT_SLOT)),
             "sps_id": sid, "pos": (x, y, z)}
-    for key in ("abr", "framerate", "scale"):
+    # ABR default = ADDITIVE (1): a particle effect should glow (transparent black, additive brights). The
+    # engine's own default is ABR_OFF = OPAQUE, which renders the quads as solid black boxes -- never right for
+    # a flame/smoke/glow. Set abr explicitly for another blend (0=50%add, 2=sub, 3=25%add, >=4/15 = opaque).
+    spec["abr"] = _int(block, "abr", ctx) if "abr" in block else DEFAULT_ABR
+    for key in ("framerate", "scale"):
         if key in block:
             spec[key] = _int(block, key, ctx)
     if not 0 <= spec["slot"] <= 15:

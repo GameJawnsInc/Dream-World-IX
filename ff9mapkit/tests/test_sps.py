@@ -342,6 +342,8 @@ def test_trigger_spec_pos_slot_and_raw_y():
         "slot": 8, "sps_id": 5000, "pos": (10, 20, -30), "abr": 1}
     s2 = author.trigger_spec({"id": 5001, "pos": [10, -30], "y": 20})            # [x,z] + separate y
     assert s2["pos"] == (10, 20, -30) and s2["slot"] == author.DEFAULT_SLOT      # default high slot
+    assert s2["abr"] == author.DEFAULT_ABR == 1   # ABR defaults to ADDITIVE (else the engine renders opaque boxes)
+    assert author.trigger_spec({"id": 5002, "pos": [0, 0], "abr": 15})["abr"] == 15   # explicit opaque respected
     with pytest.raises(author.SpsAuthorError):
         author.trigger_spec({"id": 5002, "slot": 99})                            # slot out of 0..15
 
