@@ -2307,6 +2307,15 @@ def _cmd_scenes(args: argparse.Namespace) -> int:
 
 def _cmd_sps(args: argparse.Namespace) -> int:
     """List / decode / preview a field's SPS particle effects (fire/smoke/magic). Install-gated (UnityPy)."""
+    if getattr(args, "templates", False):
+        from .sps import templates as T
+        print("Tier-2 [[sps]] effect templates (use as: template = \"<name>\"):\n")
+        for name, desc, field, sid in T.list_templates():
+            print(f"  {name:<10} {desc:<34} (clones {field} #{sid})")
+        return 0
+    if not args.field:
+        print("give a field token (or --templates). e.g. `ff9mapkit sps 303`", file=sys.stderr)
+        return 2
     from .sps import catalog as SC
     rows = SC.list_field_sps(args.field)
     if not rows:
@@ -2907,7 +2916,8 @@ def build_parser() -> argparse.ArgumentParser:
     sc.set_defaults(func=_cmd_scenes)
 
     sp = sub.add_parser("sps", help="list/decode/preview a field's SPS particle effects (fire/smoke/magic); needs UnityPy")
-    sp.add_argument("field", help="a field id or FBG/mapid token (see `ff9mapkit list-fields`)")
+    sp.add_argument("field", nargs="?", default=None, help="a field id or FBG/mapid token (see `ff9mapkit list-fields`)")
+    sp.add_argument("--templates", action="store_true", help="list the [[sps]] creator templates (fire/smoke/...)")
     sp.add_argument("--id", type=int, default=None, help="decode ONE effect by id (full facts)")
     sp.add_argument("--png", metavar="OUT", help="render the effect's frames to a contact-sheet PNG")
     sp.add_argument("--gif", metavar="OUT", help="render the effect to an animated GIF (~15 fps)")

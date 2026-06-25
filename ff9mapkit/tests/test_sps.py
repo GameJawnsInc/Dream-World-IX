@@ -265,6 +265,30 @@ def test_author_copy_from_clone_with_geometry_override():
     assert author.tcb_source(blk) == ("borrow", "X")
 
 
+def test_author_template_resolves_to_donor():
+    from ff9mapkit.sps import author, templates
+    donor = _synthetic()
+    seen = {}
+    def loader(field, sid):
+        seen["args"] = (field, sid)
+        return donor
+    blk = {"id": 5000, "template": "fire"}
+    m = author.build_sps_from_block(blk, donor_loader=loader)
+    t = templates.TEMPLATES["fire"]
+    assert seen["args"] == (t.field, t.sps)                  # template -> its donor (field, sps)
+    assert m.rgb_table == donor.rgb_table                    # cloned the donor's texture/colours
+    assert author.tcb_source(blk) == ("borrow", t.field)     # tcb borrowed from the template's donor
+
+
+def test_author_template_errors():
+    from ff9mapkit.sps import author
+    with pytest.raises(author.SpsAuthorError):                # unknown template
+        author.build_sps_from_block({"id": 5000, "template": "nope"}, donor_loader=lambda f, s: _synthetic())
+    with pytest.raises(author.SpsAuthorError):                # template + copy_from both
+        author.build_sps_from_block({"id": 5000, "template": "fire", "copy_from": {"field": "x", "sps": 1}},
+                                    donor_loader=lambda f, s: _synthetic())
+
+
 def test_author_rejects_png_route_b_and_bad_blocks():
     from ff9mapkit.sps import author
     with pytest.raises(author.SpsAuthorError):
@@ -484,3 +508,12 @@ def test_author_copy_from_real_donor():
     m = author.build_sps_from_block(blk)
     assert m.frame_count >= 1 and m.tpage["TP"] == 0
     assert author.tcb_source(blk) == ("borrow", "fbg_n05_iccv_map088_ic_jmp_0")
+
+
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+def test_all_templates_build_from_install():
+    # every curated template's donor (field token + sps id) must resolve + build a valid effect.
+    from ff9mapkit.sps import author, templates
+    for name in templates.TEMPLATES:
+        m = author.build_sps_from_block({"id": 5000, "template": name})
+        assert m.frame_count >= 1 and lint.lint_sps(m) == [], f"template {name!r} did not build clean"

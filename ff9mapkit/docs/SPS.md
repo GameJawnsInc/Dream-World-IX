@@ -97,9 +97,16 @@ field's `FieldMaps/<FBG>/`, and injects a `RunSPSCode` create+place trigger into
 spawns on field load. Works on any field path (native fork / custom scene / BG-borrow).
 
 ```toml
-# Easiest: clone a real donor effect's texture + colours, re-author the animation.
+# Easiest: a named TEMPLATE (a curated preset -- `ff9mapkit sps --templates` lists them:
+# fire / bonfire / smoke / sparkle / embers / glimmer). Drop it on the floor and you're done.
 [[sps]]
-id        = 5000
+id       = 5000
+template = "fire"
+pos      = [2354, -3372]    # [x, z] -> auto-grounded to the floor
+
+# Clone a specific donor effect's texture + colours, re-author the animation.
+[[sps]]
+id        = 5001
 copy_from = { field = "303", sps = 2266 }   # take tpage/clut/uv/rgb/size from Ice-Cavern fire 2266
 frames = [                                  # optional: a new quad-cloud animation over the cloned pixels
   [ {pos = [-30, 0], uv = 0, rgb = 3}, {pos = [0, 4], uv = 1, rgb = 1}, {pos = [30, 0], uv = 2, rgb = 5} ],
@@ -112,7 +119,7 @@ framerate = 16              # 16 = 1x
 
 # Power user: borrow a donor's tcb, author every byte via codec.build.
 [[sps]]
-id      = 5001
+id      = 5002
 texture = { borrow_tcb = "303", tpage = { tp = 0, tx = 8, ty = 1 }, clut = { cluty = 251, clutx = 20 } }
 size    = [9, 9]            # [h_raw, w_raw]
 uv      = [[0, 96], [32, 96]]              # the UV atlas cells (into the borrowed tcb)

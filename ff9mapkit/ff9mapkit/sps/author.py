@@ -132,16 +132,16 @@ def build_sps_from_block(block: dict, *, donor_loader=None) -> _codec.Sps:
                              "registration patch -- not yet supported. Use copy_from / texture.borrow_tcb (Route A).")
     loader = donor_loader or _default_donor_loader
 
-    if "copy_from" in block:
-        if "texture" in block or "uv" in block or "rgb" in block:
-            raise SpsAuthorError(f"{ctx}: copy_from is exclusive with inline texture/uv/rgb")
-        cf = block["copy_from"]
-        if not (isinstance(cf, dict) and "field" in cf and "sps" in cf):
-            raise SpsAuthorError(f"{ctx}: copy_from must be {{ field = <token>, sps = <id> }}")
+    # A geometry source: a named TEMPLATE or an explicit copy_from -> a (field, sps) donor to clone; else inline.
+    cf = _resolve_clone_source(block, ctx)
+    if cf is not None:
+        if "texture" in block or "uv" in block:
+            raise SpsAuthorError(f"{ctx}: template/copy_from is exclusive with an inline texture/uv "
+                                 "(it reuses the donor's). frames/rgb/size are allowed as overrides.")
         model = copy.deepcopy(loader(cf["field"], cf["sps"]))
         model.frame_offsets = None                          # re-laid canonically on serialize
         model.tail = b""
-        if "frames" in block:
+        if "frames" in block:                               # optional geometry / colour / size overrides
             model.frames = _parse_frames(block["frames"], ctx)
         if "rgb" in block:
             model.rgb_table = [(*_rgb3(c, ctx), 0) for c in block["rgb"]]
@@ -183,11 +183,33 @@ def _size(s, ctx):
     return s[0], s[1]
 
 
+def _resolve_clone_source(block: dict, ctx: str):
+    """A ``template`` name or an explicit ``copy_from`` -> a ``{field, sps}`` donor to clone, or ``None`` for
+    an inline effect. ``template`` and ``copy_from`` are mutually exclusive."""
+    has_t, has_cf = "template" in block, "copy_from" in block
+    if has_t and has_cf:
+        raise SpsAuthorError(f"{ctx}: use either `template` OR `copy_from`, not both")
+    if has_t:
+        from . import templates as _tpl
+        try:
+            t = _tpl.resolve(block["template"])
+        except KeyError:
+            raise SpsAuthorError(f"{ctx}: unknown template {block['template']!r} (known: {sorted(_tpl.TEMPLATES)})")
+        return {"field": t.field, "sps": t.sps}
+    if has_cf:
+        cf = block["copy_from"]
+        if not (isinstance(cf, dict) and "field" in cf and "sps" in cf):
+            raise SpsAuthorError(f"{ctx}: copy_from must be {{ field = <token>, sps = <id> }}")
+        return cf
+    return None
+
+
 def tcb_source(block: dict) -> tuple[str, str | None]:
-    """How to supply the effect's ``spt.tcb``: ``("borrow", donor_token)`` (``copy_from`` or
+    """How to supply the effect's ``spt.tcb``: ``("borrow", donor_token)`` (a ``template`` / ``copy_from`` /
     ``texture.borrow_tcb``) or ``("reuse", None)`` (use the field's already-carried tcb)."""
-    if "copy_from" in block:
-        return "borrow", str(block["copy_from"]["field"])
+    cf = _resolve_clone_source(block, "[[sps]]")
+    if cf is not None:
+        return "borrow", str(cf["field"])
     tex = block.get("texture") or {}
     if tex.get("borrow_tcb") is not None:
         return "borrow", str(tex["borrow_tcb"])
