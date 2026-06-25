@@ -295,13 +295,13 @@ def pick_catalog(parent, catalog, initial, plan, palette, *, want_id=False):
 
 # friendly section names for the Info Hub library sidebar (one per catalog 'kind').
 _KIND_LABEL = {
-    "field": "Campaign fields", "flag": "Campaign flags",
+    "field": "Campaign fields", "flag": "Campaign flags", "sps": "SPS effects",
     "archetype": "Archetypes", "creature": "Creatures", "composite": "Composites",
     "prop": "Props", "model": "Models", "item": "Items", "scene": "Battle scenes",
     "storyflag": "Story flags",
 }
-# sidebar order: the open campaign's OWN content first, then the static catalogs (in infohub.KINDS order).
-_LIBRARY_ORDER = ("field", "flag") + infohub.KINDS
+# sidebar order: the open project's OWN content first (fields/flags/SPS effects), then the static catalogs.
+_LIBRARY_ORDER = ("field", "flag", "sps") + infohub.KINDS
 
 
 def _esc(s) -> str:
@@ -321,13 +321,15 @@ _HUB_HELP = {
     "storyflag": "FF9's built-in story-state registry — named engine vars, scenario beats, reserved bit regions.",
     "field": "the fields in the OPEN campaign (this section shows only when a campaign is loaded).",
     "flag": "the named story flags in the OPEN campaign.",
+    "sps": "the particle effects (fire/smoke/magic) a native fork carries in its <code>sps/</code> sidecar — "
+           "decode + preview them, and copy a <code>[[sps_edit]]</code> re-skin block.",
 }
 
 
 def _hub_help_html() -> str:
     """The Info Hub help text: a one-line intro, the per-section glossary (static catalogs first, the
     campaign-only sections last), and how Copy name / Copy snippet are used."""
-    order = list(infohub.KINDS) + ["field", "flag"]
+    order = list(infohub.KINDS) + ["field", "flag", "sps"]
     rows = "".join(f'<p style="margin:4px 0;"><b>{_KIND_LABEL.get(k, k)}</b> — {_HUB_HELP[k]}</p>'
                    for k in order if k in _HUB_HELP)
     return (
@@ -351,12 +353,13 @@ class CatalogLibrary(QDialog):
     name' / 'Copy snippet' put text on the clipboard; nothing is returned (the in-form picker stays
     :class:`CatalogPicker`)."""
 
-    def __init__(self, parent, plan, palette):
+    def __init__(self, parent, plan, palette, sps_context=None):
         super().__init__(parent)
         self.setWindowTitle("Info Hub — catalog library")
         self.resize(900, 580)
         self.plan = plan
         self.pal = palette
+        self.sps_context = sps_context                     # {label: sps_dir} of the open project's carried effects
         self._entries = []
         self._kind = None                                  # the selected section's kind (None = All)
         self._cat_kinds = []                               # sidebar row -> kind (or None for 'All')
@@ -432,7 +435,8 @@ class CatalogLibrary(QDialog):
         """One browse over the cached catalogs -> per-kind counts -> the sidebar sections (only non-empty
         kinds; the campaign's own field/flag sections appear only when a campaign is open)."""
         try:
-            allent = infohub.browse("", kinds=None, limit=None, campaign_context=self.plan)
+            allent = infohub.browse("", kinds=None, limit=None, campaign_context=self.plan,
+                                    sps_context=self.sps_context)
         except Exception:                                  # noqa: BLE001 -- a catalog needing data we lack
             allent = []
         counts = collections.Counter(e.kind for e in allent)
@@ -453,7 +457,8 @@ class CatalogLibrary(QDialog):
     def _refresh_list(self):
         kinds = None if self._kind is None else [self._kind]
         try:
-            self._entries = infohub.browse(self.q.text(), kinds=kinds, limit=None, campaign_context=self.plan)
+            self._entries = infohub.browse(self.q.text(), kinds=kinds, limit=None, campaign_context=self.plan,
+                                           sps_context=self.sps_context)
         except Exception:                                  # noqa: BLE001
             self._entries = []
         self.lst.clear()
@@ -476,7 +481,7 @@ class CatalogLibrary(QDialog):
             self.detail.setHtml("")
             return
         try:
-            d = infohub.detail(e, campaign_context=self.plan)
+            d = infohub.detail(e, campaign_context=self.plan, sps_context=self.sps_context)
         except Exception:                                  # noqa: BLE001 -- degrade to the one-line summary
             self.detail.setHtml(f"<b>{_esc(e.name)}</b> [{_esc(e.kind)}]<br>{_esc(e.summary)}")
             return
@@ -509,6 +514,10 @@ class CatalogLibrary(QDialog):
         if d.locations:
             loc = ", ".join(f"{nm} ({fid})" for fid, nm in d.locations[:24])
             h.append(f'<p><b>Appears in</b><br><span style="color:{muted};">{_esc(loc)}</span></p>')
+        if getattr(d, "preview_png", None):
+            from pathlib import Path
+            h.append(f'<p style="margin-top:6px;"><b>Preview</b><br>'
+                     f'<img src="file:///{Path(d.preview_png).as_posix()}" width="220"></p>')
         if d.snippet:
             h.append(f'<p style="margin-top:8px;"><b>Use it</b></p>'
                      f'<pre style="background:{self.pal["surface_btn"]};padding:6px;'

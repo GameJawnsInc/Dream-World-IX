@@ -55,6 +55,7 @@ class Detail:
     aliases: list = _dc_field(default_factory=list)    # other names mapping to the same model
     locations: Optional[list] = None                   # [(field_id, name)] iff a usage_fn was supplied
     snippet: str = ""
+    preview_png: Optional[str] = None                  # a rendered preview image path (SPS effects)
 
 
 # ----------------------------------------------------------------- helpers ---
@@ -230,23 +231,118 @@ def _campaign_entries(plan) -> list:
     return out
 
 
+# -------------------------------------------------------------------- SPS layer ---
+# Field particle effects (fire/smoke/magic) browsable as the ADDITIVE 'sps' kind a frontend exposes via
+# ``sps_context`` -- a {label: sps_dir} map of the OPEN project's carried ``sps/`` sidecars (the effects a
+# native fork ships + can ``[[sps_edit]]``). Install-FREE: it reads the project's own staged ``.sps``/
+# ``spt.tcb`` files, never the install (the spine stays game-free). Each entry stashes its ``.sps`` path in
+# ``Entry.model`` so :func:`detail` is self-contained. -> [[project-ff9-sps-authoring]], docs/SPS.md.
+def _sps_dir_map(sps_context) -> dict:
+    """Normalise ``sps_context`` to ``{label: Path}``. Accepts a {label: dir} map, a single dir path, or a
+    list of (label, dir) / dirs. Drops anything that isn't a real directory."""
+    from pathlib import Path
+    out: dict = {}
+    if sps_context is None:
+        return out
+    items = sps_context.items() if isinstance(sps_context, dict) else (
+        [(None, sps_context)] if isinstance(sps_context, (str, Path)) else list(sps_context))
+    for label, d in items:
+        if d is None:
+            label, d = None, label                      # a bare list of dirs
+        p = Path(d)
+        if p.is_dir():
+            out[str(label) if label is not None else p.parent.name] = p
+    return out
+
+
+def _sps_entries(sps_context) -> list:
+    """``Entry(kind='sps')`` for every ``<id>.sps.bytes`` in the open project's carried ``sps/`` sidecars.
+    The entry's ``model`` holds the ``.sps`` file path (so detail/preview need no re-resolution)."""
+    dirs = _sps_dir_map(sps_context)
+    multi = len(dirs) > 1
+    out = []
+    for label, d in dirs.items():
+        for f in sorted(d.glob("*.sps.bytes")):
+            stem = f.name[: -len(".sps.bytes")]
+            try:
+                sid = int(stem)
+            except ValueError:
+                continue
+            name = f"{label}:{sid}" if multi else str(sid)
+            out.append(Entry("sps", name, str(f), f"SPS effect #{sid} (carried by {label})", sid))
+    return out
+
+
+_SPS_PREVIEW_DIR = None
+
+
+def _sps_preview_png(sps, tcb, key: str) -> Optional[str]:
+    """Render a single representative frame to a cached PNG (dark-flattened so it's visible on any pane) and
+    return its path, or ``None`` if rendering isn't possible (no Pillow). Local imports keep the spine light."""
+    global _SPS_PREVIEW_DIR
+    try:
+        import re as _re
+        import tempfile
+        from pathlib import Path
+        from .sps import render as _render
+        if _SPS_PREVIEW_DIR is None:
+            _SPS_PREVIEW_DIR = Path(tempfile.gettempdir()) / "ff9mapkit_sps_preview"
+            _SPS_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+        from PIL import Image  # noqa: PLC0415
+        frame = _render.render_frame(sps, tcb, sps.frame_count // 2, scale=4)   # a developed mid frame
+        flat = Image.new("RGBA", frame.size, (34, 34, 34, 255))                 # dark tile -> always visible
+        flat.alpha_composite(frame)
+        dest = _SPS_PREVIEW_DIR / (_re.sub(r"[^0-9A-Za-z_.-]", "_", key) + ".png")
+        flat.convert("RGB").save(dest)
+        return str(dest)
+    except Exception:  # noqa: BLE001 -- preview is best-effort; never break detail
+        return None
+
+
+def _sps_detail(entry: Entry) -> Detail:
+    """Decode one carried effect (``entry.model`` is its ``.sps`` path) -> facts + a rendered preview + a
+    ``[[sps_edit]]`` snippet. Reads the sibling ``spt.tcb.bytes`` for the texture."""
+    from pathlib import Path
+    from .sps import catalog as _spscat, codec as _spscodec
+    d = Detail(name=entry.name, kind="sps", model=None, model_id=entry.ident, snippet=snippet(entry))
+    path = Path(entry.model) if entry.model else None
+    if path is None or not path.is_file():
+        d.facts = [("kind", "SPS field effect"), ("id", str(entry.ident)), ("note", "bin not found")]
+        return d
+    try:
+        sps = _spscodec.parse(path.read_bytes())
+    except Exception as ex:  # noqa: BLE001
+        d.facts = [("kind", "SPS field effect"), ("id", str(entry.ident)), ("error", str(ex))]
+        return d
+    d.facts = _spscat.effect_facts(sps)
+    tcb_path = path.parent / "spt.tcb.bytes"
+    if tcb_path.is_file():
+        d.preview_png = _sps_preview_png(sps, tcb_path.read_bytes(), f"{path.parent.name}_{entry.ident}")
+    return d
+
+
 # --------------------------------------------------------------- public API ---
-def browse(query: str = "", kinds=None, limit=200, campaign_context=None) -> list:
+def browse(query: str = "", kinds=None, limit=200, campaign_context=None, sps_context=None) -> list:
     """Search every catalog + archetype table at once. ``query`` = a case-insensitive substring of an
     entry's name / model / SUMMARY (the summary folds in the comment description + friendly names, so you
     can search by what a thing IS); ``kinds`` restricts to a subset of :data:`KINDS`; ``limit`` caps the
     result (curated/named kinds come first) or ``None`` for no cap. The Info Hub's 'grab anything by name'.
 
     When ``campaign_context`` (a campaign.CampaignPlan) is given, that campaign's member fields are ALSO
-    searchable as kind='field' entries, listed FIRST; with no context the result is exactly as before."""
+    searchable as kind='field' entries, listed FIRST; with no context the result is exactly as before.
+    When ``sps_context`` (a {label: sps_dir} map of the open project's carried ``sps/`` sidecars) is given,
+    the project's SPS effects are searchable as kind='sps' entries (install-free)."""
     q = (query or "").strip().lower()
     field_entries = _campaign_entries(campaign_context) if campaign_context is not None else []
+    sps_entries = _sps_entries(sps_context) if sps_context is not None else []
     if kinds:
         want = set(kinds)
     else:
-        want = set(KINDS) | ({"field", "flag"} if campaign_context is not None else set())
+        want = set(KINDS) | ({"field", "flag"} if campaign_context is not None else set()) \
+            | ({"sps"} if sps_entries else set())
     # no context -> iterate the cached list directly (no copy), preserving today's behavior exactly
-    entries = (field_entries + _all_entries()) if field_entries else _all_entries()
+    extra = field_entries + sps_entries
+    entries = (extra + _all_entries()) if extra else _all_entries()
     out = []
     for e in entries:
         if e.kind not in want:
@@ -288,6 +384,10 @@ def snippet(entry: Entry) -> str:
         return f'give_item = [{e.ident}, 1]  # {e.name} -- e.g. an [[event]] reward'
     if e.kind == "scene":
         return f'[encounter]\nscene = {e.ident}  # {e.name}'
+    if e.kind == "sps":                                # a carried field effect -> a re-skin starter block
+        return (f'[[sps_edit]]\nsps = {e.ident}        # re-skin this effect over its carried texture\n'
+                f'kind = "tint"\nmul = [0, 0, 512]    # recolour the whole ramp (256 == identity; this -> blue)\n'
+                f'# other kinds: recolor_ramp / scale / reposition -- see docs/SPS.md')
     if e.kind == "field":                              # a campaign member -- not a paste-able toml block
         return f"# campaign field: {e.name} (id {e.ident})"
     if e.kind == "flag":                               # a shared named story flag -> the gate line
@@ -338,13 +438,15 @@ def _field_detail(entry: Entry, plan) -> Detail:
     return d
 
 
-def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=None) -> Detail:
+def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=None, sps_context=None) -> Detail:
     """Resolve an :class:`Entry` to its full :class:`Detail`. ``usage_fn(model_id) -> [(field_id, name),
     ...]`` is an optional hook a frontend passes to add 'where it appears in real FF9' (the spine stays
     install-free -- field-usage needs the game); errors from it degrade to ``locations = None``. When the
     entry is a campaign member (kind='field') and ``campaign_context`` (a CampaignPlan) is given, the
     detail is the member's place in the chain (doors/seams/reachability)."""
     e = entry
+    if e.kind == "sps":                                # a carried field effect (decode + preview)
+        return _sps_detail(e)
     if e.kind == "field":
         return _field_detail(e, campaign_context)
     if e.kind == "flag":                               # a shared named story flag (cross-field gate)

@@ -2593,7 +2593,21 @@ class Workspace(QMainWindow):
         ready field.toml snippet). Replaces the old all-in-one flat browse list; the in-form picker stays
         `CatalogPicker`."""
         from .forms_qt import CatalogLibrary
-        CatalogLibrary(self, self.plan, self.pal).exec()
+        CatalogLibrary(self, self.plan, self.pal, sps_context=self._sps_context()).exec()
+
+    def _sps_context(self):
+        """``{member: sps_dir}`` for every open field that carries a ``sps/`` sidecar (a native fork's particle
+        effects) -- the install-free context the Info Hub's 'SPS effects' section browses. ``None`` if none."""
+        from pathlib import Path
+        ctx = {}
+        try:
+            for member, p in (getattr(self, "member_paths", None) or {}).items():
+                d = Path(p).parent / "sps"
+                if d.is_dir() and any(d.glob("*.sps.bytes")):
+                    ctx[member] = d
+        except Exception:                                  # noqa: BLE001 -- never block opening the catalog
+            return None
+        return ctx or None
 
     def _save_shortcut(self):
         """Ctrl-S: save the mounted form (the same as clicking its Save button)."""

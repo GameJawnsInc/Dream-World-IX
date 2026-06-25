@@ -8,6 +8,8 @@ against actual Square-Enix bytes. -> [[project-ff9-sps-authoring]].
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from ff9mapkit.sps import codec, edit, lint
@@ -216,6 +218,28 @@ def test_build_validate_sps_edits_wiring(tmp_path):
     assert miss and "no 7.sps.bytes" in miss[0]
 
 
+# ----------------------------------------------------------------- Info Hub SPS layer (infohub, pure)
+def test_infohub_sps_entries_detail_snippet_pure(tmp_path):
+    from ff9mapkit import infohub
+    d = tmp_path / "sps"
+    d.mkdir()
+    (d / "242.sps.bytes").write_bytes(_raw())
+    ctx = {"ICEC": d}
+    ents = infohub.browse("", kinds=["sps"], sps_context=ctx)
+    assert [e.ident for e in ents] == [242] and ents[0].kind == "sps"
+    det = infohub.detail(ents[0], sps_context=ctx)
+    facts = dict(det.facts)
+    assert facts["kind"] == "SPS field effect" and facts["frames"] == "1"
+    snip = infohub.snippet(ents[0])
+    assert "[[sps_edit]]" in snip and "sps = 242" in snip
+
+
+def test_infohub_sps_absent_without_context():
+    from ff9mapkit import infohub
+    assert infohub.browse("", kinds=["sps"]) == []          # no context -> no sps entries
+    assert "sps" not in infohub.KINDS                       # stays out of the install-free static cache
+
+
 # ----------------------------------------------------------------- install-gated golden round-trip
 def _can_read_donor() -> bool:
     try:
@@ -278,3 +302,22 @@ def test_render_real_effect_to_image():
     img = render.render_frame(sps, tcb, 0, scale=2)
     assert img.mode == "RGBA" and img.size[0] > 0 and img.size[1] > 0
     assert img.getbbox() is not None                        # something was actually drawn (non-empty)
+
+
+@pytest.mark.skipif(not _can_read_donor(), reason="needs the FF9 install + UnityPy (p0data2.bin)")
+def test_infohub_sps_preview_from_real_sidecar(tmp_path):
+    # end-to-end: a staged native fork's sps/ sidecar -> Info Hub facts + a rendered preview PNG on disk.
+    pytest.importorskip("PIL")
+    from ff9mapkit import extract, infohub
+    try:
+        extract.write_native_project("fbg_n05_iccv_map088_ic_jmp_0", tmp_path / "m", name="ICJ", verbatim=True)
+    except (ValueError, KeyError, FileNotFoundError) as ex:
+        pytest.skip(f"donor not readable: {ex}")
+    d = tmp_path / "m" / "sps"
+    if not d.is_dir():
+        pytest.skip("donor staged no sps/ sidecar")
+    ents = infohub.browse("", kinds=["sps"], sps_context={"ICJ": d})
+    assert ents and all(e.kind == "sps" for e in ents)
+    det = infohub.detail(ents[0], sps_context={"ICJ": d})
+    assert dict(det.facts)["kind"] == "SPS field effect"
+    assert det.preview_png and Path(det.preview_png).is_file()   # the preview actually rendered
