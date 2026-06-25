@@ -240,6 +240,27 @@ def test_infohub_sps_absent_without_context():
     assert "sps" not in infohub.KINDS                       # stays out of the install-free static cache
 
 
+def test_sps_spec_form_roundtrips():
+    # the Editor "Effects" form spec round-trips an [[sps]] block (build_entity . entity_to_values == identity)
+    from ff9mapkit.editor import forms
+    full = {"id": 5000, "template": "fire", "pos": [100, -200], "slot": 14, "abr": 1, "framerate": 16}
+    assert forms.build_entity(forms.SPS_SPEC, forms.entity_to_values(forms.SPS_SPEC, full)) == full
+    minimal = {"id": 5000, "template": "fire", "pos": [0, 0]}    # optionals omitted when blank
+    assert forms.build_entity(forms.SPS_SPEC, forms.entity_to_values(forms.SPS_SPEC, minimal)) == minimal
+
+
+def test_infohub_sps_templates_browse_detail_snippet():
+    # the curated templates are a STATIC, install-free Info Hub kind (the listing); detail/snippet too.
+    from ff9mapkit import infohub
+    from ff9mapkit.sps import templates
+    ents = infohub.browse("", kinds=["sps_template"])
+    assert {e.name for e in ents} == set(templates.TEMPLATES) and all(e.kind == "sps_template" for e in ents)
+    snip = infohub.snippet(ents[0])
+    assert "[[sps]]" in snip and f'template = "{ents[0].name}"' in snip
+    facts = dict(infohub.detail(next(e for e in ents if e.name == "fire")).facts)
+    assert facts["kind"] == "SPS effect template" and "clones" in facts
+
+
 # ----------------------------------------------------------------- Tier 2: from-scratch creator (sps.author)
 def test_author_inline_builds_and_tcb_source():
     from ff9mapkit.sps import author

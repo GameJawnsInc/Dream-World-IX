@@ -146,6 +146,16 @@ foreground scene geometry — place it in open space, not tucked against a wall.
 forked Ice Cavern; the offline `scene.cam.project` / `to_canvas` replica of `PSX.CalculateGTE_RTPT_POS` predicts
 exactly where an effect lands, for debugging placement without launching the game.)
 
+### In the Workspace GUI
+
+Two surfaces, no hand-written TOML needed:
+- **Editor → a field's "Effects" section** — add/edit `[[sps]]` effects with a form (id · template · position ·
+  slot · blend · frame-rate). The **Template** field has a **Browse** button into the Info Hub picker (preview
+  included); the position auto-grounds. Saves into the field's `field.toml`, like NPCs/events.
+- **Info Hub → "SPS templates"** — browse the presets with **live preview thumbnails**; *Copy snippet* gives a
+  ready `[[sps]]` block. (The companion **"SPS effects"** section browses a fork's *carried* effects for
+  `[[sps_edit]]` re-skins.)
+
 ### Route B — genuinely new art (not yet)
 
 Drawing pixels that **don't already exist** in any `spt.tcb` needs a custom `FieldMaps/FieldSPS/<id>.png`. The

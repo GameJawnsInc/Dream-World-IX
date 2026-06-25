@@ -296,6 +296,7 @@ def pick_catalog(parent, catalog, initial, plan, palette, *, want_id=False):
 # friendly section names for the Info Hub library sidebar (one per catalog 'kind').
 _KIND_LABEL = {
     "field": "Campaign fields", "flag": "Campaign flags", "sps": "SPS effects",
+    "sps_template": "SPS templates",
     "archetype": "Archetypes", "creature": "Creatures", "composite": "Composites",
     "prop": "Props", "model": "Models", "item": "Items", "scene": "Battle scenes",
     "storyflag": "Story flags",
@@ -323,6 +324,8 @@ _HUB_HELP = {
     "flag": "the named story flags in the OPEN campaign.",
     "sps": "the particle effects (fire/smoke/magic) a native fork carries in its <code>sps/</code> sidecar — "
            "decode + preview them, and copy a <code>[[sps_edit]]</code> re-skin block.",
+    "sps_template": "ready-made particle effects (fire/smoke/sparkle/…) for the Tier-2 creator — preview one, "
+                    "then add it to a field as an <code>[[sps]]</code> block (or pick it in the Effects form).",
 }
 
 

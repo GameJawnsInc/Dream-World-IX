@@ -51,16 +51,17 @@ REPO = KIT.parent                                  # the repo root (holds tools/
 _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "music": forms.MUSIC_SPEC,
                  "dialogue": forms.DIALOGUE_SPEC, "npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC,
                  "event": forms.EVENT_SPEC, "chest": forms.CHEST_SPEC, "flag": forms.FLAG_SPEC,
-                 "marker": forms.MARKER_SPEC, "party": forms.PARTY_SPEC, "startup": forms.STARTUP_SPEC}
+                 "marker": forms.MARKER_SPEC, "party": forms.PARTY_SPEC, "startup": forms.STARTUP_SPEC,
+                 "sps": forms.SPS_SPEC}
 _SINGLES = ("field", "encounter", "music", "dialogue", "party", "startup")
 
 # object groups inside a field.toml, mirroring the tkinter editor's tree (editor/app.py).
 _SINGLE = [("dialogue", "Dialogue"), ("encounter", "Encounter"), ("music", "Music"), ("cutscene", "Cutscene"),
            ("party", "Party"), ("startup", "Startup beat")]
 _LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("chest", "Chests"), ("flag", "Flags"),
-          ("marker", "Markers"), ("choice", "Choices")]
+          ("marker", "Markers"), ("choice", "Choices"), ("sps", "Effects")]
 _LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "chest": "Chest", "flag": "Flag",
-                  "marker": "Marker", "choice": "Choice"}
+                  "marker": "Marker", "choice": "Choice", "sps": "Effect"}
 # the default new entity per list kind -- mirrors the tkinter editor's _add_entity (editor/app.py).
 _LIST_DEFAULTS = {
     "npc": {"name": "NPC", "preset": "vivi", "dialogue": "..."},
@@ -70,6 +71,7 @@ _LIST_DEFAULTS = {
     "flag": {"name": "flag", "index": 8512},          # a save-persistent story flag (name -> gEventGlobal bit)
     "marker": {"name": "spot", "pos": [0, 0]},
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
+    "sps": {"id": 5000, "template": "fire", "pos": [0, 0]},   # a from-scratch particle effect (Tier-2 creator)
 }
 _ROLE = Qt.UserRole                                # per-item payload: (kind, label, key)
 _DETAIL = Qt.UserRole + 1                           # read-only decoded detail (logic-map nodes): list[str]
@@ -2340,7 +2342,13 @@ class Workspace(QMainWindow):
             glabel = f"{label} ({len(lst)})" + (f"  ·  +{len(undef)} spatial" if undef else "")
             grp = self._mk("group", glabel, key)        # key stays the section name (Add/refresh match on it)
             for i, e in enumerate(lst):
-                lbl = forms.choice_summary(e) if key == "choice" else (e.get("name") or f"#{i}")
+                if key == "choice":
+                    lbl = forms.choice_summary(e)
+                elif key == "sps":                          # effects have no name: label by template/base + id
+                    base = e.get("template") or (e.get("copy_from") or {}).get("sps") or "custom"
+                    lbl = f"{base} ({e.get('id', '?')})"
+                else:
+                    lbl = e.get("name") or f"#{i}"
                 grp.addChild(self._mk("object", lbl, f"{key}:{i}"))
             for nm in undef:
                 un = self._mk("undef_spatial", f"{nm}  (needs definition)", f"{key}:{nm}")

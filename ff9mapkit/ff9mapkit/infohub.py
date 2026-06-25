@@ -27,7 +27,7 @@ from . import prop_archetypes as _props
 from .content.npc import PRESETS as _CHAR_PRESETS    # vivi / zidane -- explicit, byte-golden
 
 # the kinds the Info Hub indexes, listed in browse priority order (curated/named first, raw + reference last)
-KINDS = ("archetype", "creature", "composite", "prop", "model", "item", "scene", "storyflag")
+KINDS = ("archetype", "creature", "composite", "prop", "model", "item", "scene", "storyflag", "sps_template")
 
 
 @dataclass(frozen=True)
@@ -131,7 +131,17 @@ def _build_entries() -> list:
     for nm, sid in _cat.battle_scenes():                              # battle scenes (encounters)
         out.append(Entry("scene", nm, None, f"battle scene #{sid}", sid))
     out += _storyflag_entries()                                       # FF9 story-flag registry (reference)
+    out += _sps_template_entries()                                    # Tier-2 [[sps]] creator presets
     return out
+
+
+def _sps_template_entries() -> list:
+    """The curated ``[[sps]]`` effect templates (``sps.templates``) as a static, install-free kind -- the
+    names + descriptions list with no install; the detail-pane PREVIEW renders the donor effect lazily
+    (install-gated). The entry's ``model`` stashes the donor ``field:sps`` for that preview."""
+    from .sps import templates as _tpl
+    return [Entry("sps_template", name, f"{field}:{sid}", f"effect template -- {desc}", sid)
+            for name, desc, field, sid in _tpl.list_templates()]
 
 
 _ENTRY_CACHE: Optional[list] = None
@@ -299,6 +309,27 @@ def _sps_preview_png(sps, tcb, key: str) -> Optional[str]:
         return None
 
 
+def _sps_template_detail(entry: Entry) -> Detail:
+    """A ``[[sps]]`` template: facts + a rendered preview of the donor effect it clones (install-gated; the
+    listing stays install-free, only this lazy detail reads the install)."""
+    from .sps import catalog as _spscat, codec as _spscodec
+    d = Detail(name=entry.name, kind="sps_template", model=None, model_id=entry.ident, snippet=snippet(entry))
+    field, _, sid = (entry.model or "").partition(":")
+    d.facts = [("kind", "SPS effect template"), ("use", f'template = "{entry.name}"'), ("clones", f"{field} #{sid}")]
+    try:
+        rows = _spscat.list_field_sps(field)
+        ent = next((r for r in rows if r.sps_id == int(sid)), None)
+        if ent is not None:
+            sps = _spscat.load_sps(ent)
+            d.facts += [(k, v) for k, v in _spscat.effect_facts(sps) if k != "kind"]   # keep the template's kind
+            tcb = _spscat.load_tcb(field)
+            if tcb is not None:
+                d.preview_png = _sps_preview_png(sps, tcb, f"tpl_{entry.name}")
+    except Exception:  # noqa: BLE001 -- install-gated preview; degrade to facts-only offline
+        pass
+    return d
+
+
 def _sps_detail(entry: Entry) -> Detail:
     """Decode one carried effect (``entry.model`` is its ``.sps`` path) -> facts + a rendered preview + a
     ``[[sps_edit]]`` snippet. Reads the sibling ``spt.tcb.bytes`` for the texture."""
@@ -384,6 +415,9 @@ def snippet(entry: Entry) -> str:
         return f'give_item = [{e.ident}, 1]  # {e.name} -- e.g. an [[event]] reward'
     if e.kind == "scene":
         return f'[encounter]\nscene = {e.ident}  # {e.name}'
+    if e.kind == "sps_template":                       # a creator preset -> a ready [[sps]] block
+        return (f'[[sps]]\nid = 5000\ntemplate = "{e.name}"\n'
+                f'pos = [0, 0]        # [x, z] -- auto-grounded onto the floor')
     if e.kind == "sps":                                # a carried field effect -> a re-skin starter block
         return (f'[[sps_edit]]\nsps = {e.ident}        # re-skin this effect over its carried texture\n'
                 f'kind = "tint"\nmul = [0, 0, 512]    # recolour the whole ramp (256 == identity; this -> blue)\n'
@@ -445,6 +479,8 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
     entry is a campaign member (kind='field') and ``campaign_context`` (a CampaignPlan) is given, the
     detail is the member's place in the chain (doors/seams/reachability)."""
     e = entry
+    if e.kind == "sps_template":                       # a creator preset (decode + preview the donor)
+        return _sps_template_detail(e)
     if e.kind == "sps":                                # a carried field effect (decode + preview)
         return _sps_detail(e)
     if e.kind == "field":
