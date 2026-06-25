@@ -60,13 +60,16 @@ SFX_PARAMS = (0, 128, 125)   # the pan/volume params (byte-faithful to fields 20
 # from real fields (the Init's [neutral, open, closed] SetStandAnimation order + the tag-2 lid RunAnimation) and
 # independently cross-verified across many fields, anchored to the in-game-proven F0 chest. The chest OBJECT is
 # otherwise byte-identical across models (same collision LogSize 1,40,45, flags 5->49, opened-flag branch), so
-# only the model id + these 4 animation ids vary. Two schemes: F0/F2 share the 73xx clips, F1/F3 share the low ids.
-# tuple = (model_id, neutral_pose, open_pose, closed_pose, lid_anim).
+# only the model id + these 4 animation ids vary. Two clip schemes: F0/F2 share the 73xx clips, F1/F3 share the
+# low ids. ★ Extracting the FBX+textures from p0data (models/1/<id>/) confirms only TWO DISTINCT LOOKS: F1 (91) and
+# F3 (702) are byte-identical (same mesh + both textures); F0 (75) and F2 (701) share the mesh + one texture and
+# differ ONLY in F2's other texture being a ~magenta UNUSED dummy -> renders the same as F0. F2/F3 are per-zone
+# duplicate ids kept here for fidelity; author with F0/F1 for the two real looks. tuple = (model_id, neutral, open, closed, lid).
 CHEST_VARIANTS = {
     "F0": (75,  7340, 7338, 7339, 7336),   # GEO_ACC_F0_TBX -- the default wooden chest (in-game proven)
-    "F1": (91,  4,    1,    3,    22),      # GEO_ACC_F1_TBX
-    "F2": (701, 7340, 7338, 7339, 7336),   # GEO_ACC_F2_TBX -- same clip scheme as F0
-    "F3": (702, 4,    1,    3,    22),      # GEO_ACC_F3_TBX -- same clip scheme as F1
+    "F1": (91,  4,    1,    3,    22),      # GEO_ACC_F1_TBX -- the 2nd real look
+    "F2": (701, 7340, 7338, 7339, 7336),   # GEO_ACC_F2_TBX -- F0 with a magenta dummy texture (looks identical to F0)
+    "F3": (702, 4,    1,    3,    22),      # GEO_ACC_F3_TBX -- byte-identical to F1
 }
 _VARIANT_BY_MODEL = {tup[0]: tup for tup in CHEST_VARIANTS.values()}    # model id -> the same 5-tuple
 

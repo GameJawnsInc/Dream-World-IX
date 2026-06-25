@@ -97,8 +97,9 @@ EVENT_SPEC = [
 ]
 CHEST_SPEC = [
     Field("pos", "Position (x, z)", COORD, "where the chest sits on the floor; usually placed in Blender"),
-    Field("model", "Chest model", STR, "which treasure-chest model: F0 (default, wooden) / F1 / F2 / F3 -- the "
-          "game's 4 regional chest looks; or a raw id (75/91/701/702)"),
+    Field("model", "Chest model", STR, "treasure-chest model. TWO real looks: F0 (default, wooden) = F2, and "
+          "F1 = F3 (the game ships per-zone duplicate ids; F2 only differs by an unused dummy texture). Or a "
+          "raw id (75/91/701/702)"),
     Field("item", "Reward item (id/name, count)", ITEMCOUNT, 'the treasure, e.g. "Potion, 1" (set item OR gil)',
           catalog="item"),
     Field("gil", "Reward gil", OPTINT, "give gil instead of an item (set item OR gil)"),
