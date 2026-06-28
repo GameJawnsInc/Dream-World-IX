@@ -1569,9 +1569,9 @@ def validate(project: FieldProject) -> list[str]:
 # [[gateway]] and [[event]] are NOT here: a NEW self-contained NPC / exit / chest-trigger IS added to a verbatim
 # fork -- seated below the donor's party-character band -- by _inject_verbatim_{npcs,gateways,events}.)
 _VERBATIM_IGNORED_BLOCKS = {
-    "cutscene": "[cutscene]",
-    "choice": "[[choice]]", "marker": "[[marker]]",
-}   # [music] is NOT here: on a verbatim fork it REPLACES the donor's field BGM in place (music.replace_field_music)
+    "cutscene": "[cutscene]", "marker": "[[marker]]",
+}   # NOT here: [music] REPLACES the donor BGM in place; a [[choice]] with `npc =` is wired to that NPC's talk
+    # (a zone [[choice]] with no `npc` is still unwired -- warned separately in lint_logic).
 
 
 def lint_logic(project: FieldProject) -> list[str]:
@@ -1595,6 +1595,12 @@ def lint_logic(project: FieldProject) -> list[str]:
                        "trigger is injected only on the synthesize path (bypassed by a verbatim fork). The "
                        "donor's own encounters still play; on a verbatim fork [encounter] only sets the battle "
                        "BGM. Fork re-authorable (or author a synthesized field) to ADD encounters.")
+        npc_names = {n.get("name") for n in (raw.get("npc", []) or []) if n.get("name")}
+        for c, ch in enumerate(raw.get("choice", []) or []):   # a ZONE [[choice]] (no npc=) isn't wired on verbatim;
+            if ch.get("npc") not in npc_names:                 # an NPC-attached one IS (talk -> menu -> branch)
+                out.append(f"verbatim fork: [[choice]] #{c} is a ZONE choice (no `npc =` naming an added [[npc]]) "
+                           "-- only an NPC-attached [[choice]] is wired on a verbatim fork. Attach it to an "
+                           "[[npc]] (set `npc = \"<name>\"`), or author the zone trigger on a synthesized field.")
     for i, n in enumerate(raw.get("npc", []) or []):   # a bare NPC (no model/preset/archetype) CLONES the player
         if isinstance(n, dict) and not any(n.get(k) not in (None, "")
                                            for k in ("model", "preset", "archetype")):
@@ -2885,6 +2891,56 @@ def _verbatim_chest_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     return txid_by_idx, {lang: suffix for lang in langs}
 
 
+def _verbatim_chest_message_count(project: FieldProject) -> int:
+    """How many ``[[chest]]`` Received-X lines the verbatim channel appends (so the NPC-choice block sits above)."""
+    return len(project.raw.get("chest", []) or [])
+
+
+def _verbatim_choice_messages(project: FieldProject, langs) -> tuple[dict, dict]:
+    """For a verbatim fork's NPC-attached ``[[choice]]`` menus: build each choice's PROMPT entry (the
+    ``[CHOO]`` prompt + option rows, prefixed with the pre_choose ``[PCHM]``/``[PCHC]`` tag) + each option's
+    optional ``reply`` line, at txids ABOVE the donor `.mes` + the on_entry/logic_add/npc/event/chest blocks
+    (all disjoint). Only a choice whose ``npc`` names an injected ``[[npc]]`` is built (a zone choice is not
+    wired on verbatim). Returns ``(choice_txids, suffix_by_lang)`` with ``choice_txids[c] = {"prompt": id,
+    "replies": {oi: id}}`` keyed by the index into ``project.raw['choice']`` -- the same shape the synthesize
+    path hands to inject_npc. ``({}, {})`` when no NPC choice is present. The script side (pre_choose mask +
+    branch) is byte-identical to the synth path; only the TEXT routes through the appended channel here."""
+    choices = project.raw.get("choice", []) or []
+    npc_names = {n.get("name") for n in (project.raw.get("npc", []) or []) if n.get("name")}
+    voiced = [(c, ch) for c, ch in enumerate(choices) if ch.get("npc") in npc_names]
+    if not voiced:
+        return {}, {}
+    base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
+            + _logic_add_message_count(project) + _verbatim_npc_message_count(project)
+            + _verbatim_event_message_count(project) + _verbatim_chest_message_count(project))
+    wrap = _wrap_width(project)
+    lines, tails, choice_txids = [], [], {}
+    for c, ch in voiced:
+        q = _text.with_speaker(ch.get("speaker"), ch.get("prompt", ""))
+        if wrap is not None:
+            q = _text.wrap_text(q, wrap)[0]
+        opts = [str(o.get("text", "")) for o in ch.get("options", [])]
+        pre_tag = _choice.pre_choose(ch)[1]                  # [PCHC]/[PCHM] config tag (default/cancel/hide)
+        prompt_line = pre_tag + q + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(opts)
+        if ch.get("instant"):                                # [IMME] = pop the menu fully drawn (FF9 shop menus)
+            prompt_line += _text.CHOICE_IMME
+        prompt_txid = base + len(lines)                      # build_mes assigns base + line-index, in order
+        lines.append(prompt_line)
+        tails.append(ch.get("tail"))
+        replies = {}
+        for oi, o in enumerate(ch.get("options", [])):
+            if o.get("reply"):
+                line = _text.with_speaker(o.get("speaker"), o["reply"])
+                if wrap is not None:
+                    line = _text.wrap_text(line, wrap)[0]
+                replies[oi] = base + len(lines)
+                lines.append(line)
+                tails.append(o.get("tail"))
+        choice_txids[c] = {"prompt": prompt_txid, "replies": replies}
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    return choice_txids, {lang: suffix for lang in langs}
+
+
 def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
                    reserve_party_band: bool, warnings=None) -> bytes:
     """Inject each authored ``[[chest]]`` (a real openable, savable treasure chest) into the field's ``.eb``.
@@ -3032,14 +3088,15 @@ def _verbatim_donor_id(project: FieldProject):
     return None
 
 
-def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, warnings) -> bytes:
+def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, choice_txids=None, warnings) -> bytes:
     """Inject each authored ``[[npc]]`` into a VERBATIM fork's `.eb`, seated BELOW the donor's reserved
     party-character band (:func:`ff9mapkit.content.object.insert_entry_before_band` shifts the 9 character
     slots up one and remaps every reference to them). Talk text rides the appended-`.mes` channel
     (``npc_txids``). Model/animset/anims resolve exactly as on the synthesize path. ``opens_shop`` IS wired (a
-    shopkeeper talk body: optional greeting -> ``Menu(2, id)``; may point at a vanilla shop 0-31). Features that
-    still need the synthesize machinery (``holds`` / a dialogue ``[[choice]]`` / a cutscene actor) are NOT wired
-    on a verbatim fork -- warned + skipped. Returns the new bytes."""
+    shopkeeper talk body: optional greeting -> ``Menu(2, id)``; may point at a vanilla shop 0-31). A dialogue
+    ``[[choice]]`` (``npc =`` this NPC) IS wired -- talk -> menu -> branch, its prompt/reply text on the appended
+    `.mes` channel (``_verbatim_choice_messages``). Features that still need the synthesize machinery (``holds`` /
+    a cutscene actor) are NOT wired on a verbatim fork -- warned + skipped. Returns the new bytes."""
     npcs = project.raw.get("npc", []) or []
     if not npcs:
         return eb
@@ -3048,7 +3105,10 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
         warnings.append(f"[[npc]] on a fork of field {donor}: this donor has an engine uid-keyed hotfix "
                         "(DoEventCode); seating an NPC below the party band shifts character uids and may "
                         "desync it. Verify in-game.")
-    choice_npcs = {c.get("npc") for c in project.raw.get("choice", []) if c.get("npc")}
+    choice_txids = choice_txids or {}
+    # NPC-attached [[choice]]s with a built prompt entry (the verbatim text channel) -> a talk-to-branch body
+    choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []) or [])
+                     if ch.get("npc") and c in choice_txids}
     for i, n in enumerate(npcs):
         name = n.get("name") or f"#{i}"
         if "pos" not in n:
@@ -3058,9 +3118,6 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
             warnings.append(f"[[npc]] '{name}' holds= (a held prop on the NPC's bone) is NOT wired on a "
                             "verbatim fork (the held item's uid is its slot, fixed before the band insert) "
                             "-- skipped.")
-        if name in choice_npcs:
-            warnings.append(f"[[npc]] '{name}' has a dialogue [[choice]], which is ignored on a verbatim fork "
-                            "-- the NPC speaks its plain `dialogue` line instead.")
         kwargs: dict = {}
         arch = n.get("archetype") or n.get("preset")
         if arch is not None:
@@ -3074,10 +3131,19 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
             kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
         gf, gs = _gate_of(n)
         txid = npc_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
-        # opens_shop: a shopkeeper talk body ((optional greeting ->) Menu(2, id)) REPLACES the plain WindowSync.
-        # The greeting is this NPC's own `dialogue` line (txid above); no dialogue -> straight to the shop.
+        # talk body: a dialogue [[choice]] (talk -> menu -> branch) OR opens_shop (talk -> Menu(2,id)) REPLACES
+        # the plain WindowSync (validate forbids both on one NPC). Else the default WindowSync(dialogue) is used.
         sb = None
-        if n.get("opens_shop") is not None:
+        if name in choice_by_npc:
+            c, ch = choice_by_npc[name]
+            ct = choice_txids[c]
+            replies = ct.get("replies", {})
+            opt_bodies = [_choice.option_body(o, replies.get(oi))
+                          for oi, o in enumerate(ch.get("options", []))]
+            setup, _ = _choice.pre_choose(ch)
+            sb = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup)
+        elif n.get("opens_shop") is not None:
+            # the greeting is this NPC's own `dialogue` line (txid above); no dialogue -> straight to the shop.
             sb = _shop.shop_speak_body(int(n["opens_shop"]),
                                        greeting_txid=txid if n.get("dialogue") else None)
         pos = n["pos"]
@@ -4412,6 +4478,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     npc_suffix: dict = {}                                       # [[npc]] talk lines added to a verbatim fork (per lang)
     event_suffix: dict = {}                                     # [[event]] message lines added to a verbatim fork (per lang)
     chest_suffix: dict = {}                                     # [[chest]] Received-X lines added to a verbatim fork (per lang)
+    choice_suffix: dict = {}                                    # [[npc]]-attached [[choice]] prompt/reply lines (per lang)
     menu_row_plan: list = []                                    # [[logic_add]] menu_row .mes row splices (per lang)
     if verbatim_bytes is not None:
         # [music] song -- REPLACE the donor's field BGM in place (a length-preserving operand swap), so a fork can
@@ -4480,7 +4547,9 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if project.raw.get("npc"):
             from . import eblint as _eblint
             _npc_txids, npc_suffix = _verbatim_npc_messages(project, langs)
-            verbatim_bytes = _inject_verbatim_npcs(project, verbatim_bytes, _npc_txids, warnings=warnings)
+            _choice_txids, choice_suffix = _verbatim_choice_messages(project, langs)   # NPC [[choice]] menu text
+            verbatim_bytes = _inject_verbatim_npcs(project, verbatim_bytes, _npc_txids,
+                                                   choice_txids=_choice_txids, warnings=warnings)
             _npc_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
             if _npc_errs:
                 raise BuildError(f"[[npc]] broke the composed .eb of {project.name}: "
@@ -4564,7 +4633,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             suffix = (oe_suffix.get(lang, "") + la_suffix.get(lang, "")   # appended [[on_entry]]/[[logic_add]]
                       + npc_suffix.get(lang, "")                           # + [[npc]] talk lines
                       + event_suffix.get(lang, "")                         # + [[event]] message lines
-                      + chest_suffix.get(lang, ""))                        # + [[chest]] Received-X lines
+                      + chest_suffix.get(lang, "")                         # + [[chest]] Received-X lines
+                      + choice_suffix.get(lang, ""))                       # + NPC [[choice]] prompt/reply lines
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,

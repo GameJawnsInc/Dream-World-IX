@@ -231,6 +231,43 @@ def test_build_field_verbatim_with_opens_shop_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_with_npc_choice_end_to_end(tmp_path):
+    # An NPC dialogue [[choice]] ADDED to a verbatim fork: the below-band NPC's tag-3 talk body opens a menu
+    # (a WindowSync prompt + a GetChoose branch) whose rows give an item / gil; the prompt + option rows +
+    # replies ship on the appended-.mes channel (a [CHOO] entry). The verbatim choice wiring (was dropped).
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    project = build.FieldProject.load(toml)
+    project.raw["npc"] = [{"name": "Quizzer", "preset": "vivi", "pos": [100, 200]}]
+    project.raw["choice"] = [{"npc": "Quizzer", "prompt": "What'll it be?", "options": [
+        {"text": "A Potion", "give_item": ["Potion", 1], "reply": "Here you go!"},
+        {"text": "Some gil", "gil": 100, "reply": "Spend it well."},
+        {"text": "Nothing"}]}]
+    assert build.validate(project) == []                         # Check agrees offline
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")     # must not raise
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        assert s.entry_count == donor.entry_count + 1            # the choice NPC seated below the band
+        tag3 = s.entry(band_lo).func_by_tag(3)
+        assert tag3 is not None, "the choice NPC has a tag-3 talk body"
+        ops = [i.op for i in s.instrs(tag3)]
+        assert 0x1F in ops, "the choice prompt WindowSync"
+        assert 0x48 in ops, "option 0 gives an item (AddItem)"
+        assert 0xCE in ops, "option 1 gives gil (give_gil)"
+    mes = [p for p in out.rglob("*.mes")]
+    blob = "".join(p.read_text(encoding="utf-8") for p in mes)
+    assert "What'll it be?" in blob and "A Potion" in blob and "Here you go!" in blob, "the choice text shipped"
+    assert "[CHOO]" in blob, "the [CHOO] menu tag is in the appended choice entry"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_chest_end_to_end(tmp_path):
     # A real [[chest]] on a verbatim fork: ONE object below the band with a flag-gated pose Init (the two
     # SetStandAnimation open/closed = the savable open-state), a tag-3 open handler (RunAnimation lid 7336 +
