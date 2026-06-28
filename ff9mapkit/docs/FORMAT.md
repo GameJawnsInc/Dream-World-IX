@@ -1250,3 +1250,8 @@ The lines are deduped by scene across the whole mod (the patch is scene-keyed an
 | key | meaning |
 |---|---|
 | `song` | field BGM song-play id (e.g. `9` = Vivi's Theme). Plays on entry, and resumes after battle if there's an encounter. |
+
+Works on **synthesize** *and* **verbatim** forks, by different mechanisms:
+
+- **Synthesize** (from-scratch field): appends a tiny init entry `{RunSoundCode(0, song); return}` and activates it on room entry (+ a tag-10 copy so it resumes after battle).
+- **Verbatim fork**: **REPLACES** the donor's own field BGM in place — every immediate `RunSoundCode(0, <donorSong>)` play (Main_Init *and* any after-battle/tag-10 resume) is rewritten to `song`, a length-preserving operand swap. The new track replaces, never stacks. A play that uses a *different* song id (e.g. a cutscene that swaps the track) is untouched. If the donor is silent or scores its BGM by a computed value (no immediate `RunSoundCode(0, song)`), there is nothing to replace — the build errors and `lint` flags it (author a synthesized field to *add* music to a silent room).

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import struct
 
-from ..eb import EbScript, edit, opcodes
+from ..eb import EbScript, disasm, edit, opcodes
 
 REINIT_TAG = 10
 
@@ -41,3 +41,47 @@ def add_music_to_reinit(eb_bytes, song: int) -> bytes:
     if f is None:
         raise ValueError("entry 0 has no tag-10 handler (run content.reinit.add_reinit first)")
     return edit.insert_bytes(eb_bytes, f.abs_start, opcodes.run_sound_code(0, song))
+
+
+def replace_field_music(eb_bytes, new_song: int, *, old_song: int | None = None):
+    """REPLACE the field's BGM in place: overwrite every immediate ``RunSoundCode(0, old_song)`` play's song
+    operand with ``new_song`` (a length-preserving 2-byte swap). For a VERBATIM fork this rewrites the donor's
+    OWN field-BGM call(s) -- the Main_Init play plus any after-battle/tag-10 resume that re-issues the SAME song
+    -- so the new track REPLACES rather than stacks (unlike :func:`add_field_music`, which appends a second
+    play). ``old_song`` defaults to :func:`ff9mapkit.eventscan.scan_music` (the donor's field BGM). A play whose
+    song is a DIFFERENT id (e.g. a cutscene that swaps the track) is untouched -- only the field BGM is rescored.
+
+    Returns ``(out_bytes, n_patched, old_song)``. ``n_patched == 0`` with ``old_song is None`` means the donor
+    has no immediate field BGM to replace (silent, or its BGM is set by a computed value); ``old_song == new_song``
+    is a no-op (``n_patched == 0``, ``old_song`` echoed). The caller owns the empty case (error / append a track)."""
+    from .. import eventscan as _es
+    from .object import _arg_byte_offset                  # decoder-derived operand byte offset (handles argflag)
+    if old_song is None:
+        old_song = _es.scan_music(eb_bytes)
+    if old_song is None:                                  # silent donor / expression-computed -> nothing to swap
+        return bytes(eb_bytes), 0, None
+    old_song, new_song = int(old_song), int(new_song)
+    if old_song == new_song:                              # already the desired track -> idempotent no-op
+        return bytes(eb_bytes), 0, old_song
+    OP, SONG = _es.RUN_SOUND_CODE, 1                      # operand 1 = song-play id (operand 0 = sound code; 0 = play)
+    width = disasm.argsize(OP, SONG)                      # 2 bytes (song id)
+    eb = EbScript.from_bytes(eb_bytes)
+    buf = bytearray(eb_bytes)
+    seen: set = set()                                    # entry 0's tag-0/tag-10 can enumerate one shared func
+    n = 0                                                # region twice -> dedupe by offset (two real plays differ)
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op != OP or ins.imm(0) != 0 or ins.imm(1) != old_song:
+                    continue                              # not an immediate field-BGM play of the donor's song
+                if ins.off in seen:
+                    continue
+                bo = _arg_byte_offset(ins, SONG)          # None iff a preceding operand is an expression
+                if bo is None:
+                    continue
+                seen.add(ins.off)
+                buf[ins.off + bo:ins.off + bo + width] = new_song.to_bytes(width, "little")
+                n += 1
+    return bytes(buf), n, old_song

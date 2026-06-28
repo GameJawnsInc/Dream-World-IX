@@ -717,6 +717,28 @@ def dry_run_logic_adds(project: FieldProject) -> "str | None":
         return f"{type(ex).__name__}: {ex}"
 
 
+def _validate_music(project: FieldProject, problems: list) -> None:
+    """OFFLINE check: a [music] song on a VERBATIM fork REPLACES the donor's field BGM in place (at build via
+    music.replace_field_music). Surface the no-replaceable-BGM case (a silent / expression-scored donor) in
+    `lint`/the Workspace Check, not only at build. On a SYNTHESIZE field [music] is injected by build_script
+    (a fresh play, always valid), so there is nothing to pre-check there."""
+    song = (project.raw.get("music") or {}).get("song")
+    if song is None or "verbatim_eb" not in project.raw:
+        return
+    try:
+        base, _suffix = compose_verbatim_eb(project)
+        if base is None:                                  # no `bin` -- a separate, already-reported gap
+            return
+        from .content import music as _music
+        _out, n, old = _music.replace_field_music(base, int(song))
+        if n == 0 and old is None:
+            problems.append("[music] song: this verbatim fork's donor has no replaceable field BGM (no immediate "
+                            "RunSoundCode(0, song) -- it is silent or scores its BGM by a computed value). [music] "
+                            "on a verbatim fork REPLACES the donor's track; author a synthesized field to ADD one.")
+    except Exception:                                     # noqa: BLE001 -- never crash validate (e.g. a missing bin)
+        return                                            # a compose failure is surfaced by the other validators
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
@@ -724,6 +746,7 @@ def validate(project: FieldProject) -> list[str]:
     _validate_logic_adds(project, problems)
     _validate_sps_edits(project, problems)
     _validate_sps_blocks(project, problems)
+    _validate_music(project, problems)
     story_names = _story_names(project)
     f = project.field
     for key in ("id", "name", "area"):
@@ -1546,9 +1569,9 @@ def validate(project: FieldProject) -> list[str]:
 # [[gateway]] and [[event]] are NOT here: a NEW self-contained NPC / exit / chest-trigger IS added to a verbatim
 # fork -- seated below the donor's party-character band -- by _inject_verbatim_{npcs,gateways,events}.)
 _VERBATIM_IGNORED_BLOCKS = {
-    "music": "[music]", "cutscene": "[cutscene]",
+    "cutscene": "[cutscene]",
     "choice": "[[choice]]", "marker": "[[marker]]",
-}
+}   # [music] is NOT here: on a verbatim fork it REPLACES the donor's field BGM in place (music.replace_field_music)
 
 
 def lint_logic(project: FieldProject) -> list[str]:
@@ -4384,6 +4407,23 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     chest_suffix: dict = {}                                     # [[chest]] Received-X lines added to a verbatim fork (per lang)
     menu_row_plan: list = []                                    # [[logic_add]] menu_row .mes row splices (per lang)
     if verbatim_bytes is not None:
+        # [music] song -- REPLACE the donor's field BGM in place (a length-preserving operand swap), so a fork can
+        # re-score its room. Unlike the synthesize path (which APPENDS a play), a verbatim fork already carries the
+        # donor's RunSoundCode(0, song) in Main_Init (+ any tag-10 resume), so we OVERWRITE it -- the new track
+        # replaces, never stacks. Runs first (pristine donor bytes); same eblint gate as the additive blocks below.
+        _msong = (project.raw.get("music") or {}).get("song")
+        if _msong is not None:
+            from . import eblint as _eblint
+            verbatim_bytes, _n_music, _old_song = _music.replace_field_music(verbatim_bytes, int(_msong))
+            if _n_music == 0 and _old_song is None:
+                raise BuildError(
+                    f"[music] song in {project.name}: the donor field has no replaceable field BGM (no immediate "
+                    f"RunSoundCode(0, song) -- it is silent or sets its BGM by a computed value). On a verbatim "
+                    f"fork [music] REPLACES the donor's track; to ADD music to a silent room, author a synthesized "
+                    f"field.")
+            _ms_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+            if _ms_errs:
+                raise BuildError(f"[music] broke the composed .eb of {project.name}: {[str(e) for e in _ms_errs]}")
         # Phase-2 in-place value edits ([[logic_edit]]): run LAST -- the applier self-locates by entry/tag/op +
         # the old value (re-decoding the FINAL bytes), so the field-load inserts above don't invalidate it. Each
         # edit is length-preserving, so the composed .eb is re-validated by the Phase-3 linter; a broken edit

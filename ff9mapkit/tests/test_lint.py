@@ -130,30 +130,34 @@ def test_lint_warns_on_ungated_co_zone_gateways(tmp_path):
 # ------------------------------------------------- lint_logic: synth content dropped on a verbatim fork
 
 def test_lint_warns_synth_content_dropped_on_verbatim_fork(tmp_path):
-    # a verbatim fork ([verbatim_eb]) runs the donor's real .eb -> build_script (which injects [music]/
-    # [cutscene]/...) is bypassed, so that authored synth content is silently dropped. Warn before the user
-    # wonders why their added music / cutscene never takes effect. (NOTE: [[npc]] and [[gateway]] are NOT
-    # dropped -- they're seated below the party band -- so this asserts a STILL-ignored block.)
+    # a verbatim fork ([verbatim_eb]) runs the donor's real .eb -> build_script (which injects [cutscene]/
+    # [[choice]]/...) is bypassed, so that authored synth content is silently dropped. Warn before the user
+    # wonders why their added cutscene never takes effect. (NOTE: [[npc]]/[[gateway]] seat below the party band
+    # and [music] REPLACES the donor BGM in place -- none of those are dropped -- so this asserts a STILL-ignored
+    # block.)
     from ff9mapkit.build import lint_logic
     body = ('[field]\nid = 4003\nname = "VTEST"\narea = 11\n\n'
             '[verbatim_eb]\nbin = "donor.bin"\n\n'
             '[encounter]\nscene = 67\n\n'
-            '[music]\nsong = 9\n')
+            '[cutscene]\nsteps = []\n')
     w = lint_logic(_load(tmp_path, body=body))
-    assert any("verbatim fork" in s and "[music]" in s for s in w), w             # synth content dropped
+    assert any("verbatim fork" in s and "[cutscene]" in s for s in w), w           # synth content dropped
     assert any("does NOT add random battles" in s for s in w), w                  # encounter: BGM only here
 
 
 def test_lint_does_not_warn_supported_blocks_dropped_on_verbatim_fork(tmp_path):
-    # [[npc]] and [[gateway]] are NOW supported on a verbatim fork (seated below the party band), so neither
-    # may be reported as dropped -- the regression guard for removing them from _VERBATIM_IGNORED_BLOCKS.
+    # [[npc]]/[[gateway]] (seated below the party band) and [music] (REPLACES the donor BGM in place) are NOW
+    # supported on a verbatim fork, so none may be reported as dropped -- the regression guard for removing
+    # them from _VERBATIM_IGNORED_BLOCKS.
     from ff9mapkit.build import lint_logic
     body = ('[field]\nid = 4003\nname = "VTEST"\narea = 11\n\n'
             '[verbatim_eb]\nbin = "donor.bin"\n\n'
+            '[music]\nsong = 9\n\n'
             '[[npc]]\nname = "Guy"\npos = [0, 0]\n\n'
             '[[gateway]]\nto = 4100\nzone = [[0,0],[1,0],[1,1],[0,1]]\n')
     w = lint_logic(_load(tmp_path, body=body))
     assert not any(("[[npc]]" in s or "[[gateway]]" in s) and "ignored" in s for s in w), w
+    assert not any("[music]" in s and "ignored" in s for s in w), w               # [music] no longer dropped
 
 
 def test_lint_no_verbatim_warning_on_a_synthesized_field(tmp_path):
