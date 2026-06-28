@@ -3036,9 +3036,10 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
     """Inject each authored ``[[npc]]`` into a VERBATIM fork's `.eb`, seated BELOW the donor's reserved
     party-character band (:func:`ff9mapkit.content.object.insert_entry_before_band` shifts the 9 character
     slots up one and remaps every reference to them). Talk text rides the appended-`.mes` channel
-    (``npc_txids``). Model/animset/anims resolve exactly as on the synthesize path. Features that need the
-    synthesize machinery (``opens_shop`` / ``holds`` / a dialogue ``[[choice]]`` / a cutscene actor) are NOT
-    wired on a verbatim fork -- warned + skipped. Returns the new bytes."""
+    (``npc_txids``). Model/animset/anims resolve exactly as on the synthesize path. ``opens_shop`` IS wired (a
+    shopkeeper talk body: optional greeting -> ``Menu(2, id)``; may point at a vanilla shop 0-31). Features that
+    still need the synthesize machinery (``holds`` / a dialogue ``[[choice]]`` / a cutscene actor) are NOT wired
+    on a verbatim fork -- warned + skipped. Returns the new bytes."""
     npcs = project.raw.get("npc", []) or []
     if not npcs:
         return eb
@@ -3053,10 +3054,10 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
         if "pos" not in n:
             warnings.append(f"[[npc]] '{name}' has no pos -- skipped on the verbatim fork.")
             continue
-        for feat in ("opens_shop", "holds"):
-            if n.get(feat) is not None:
-                warnings.append(f"[[npc]] '{name}' {feat}= is NOT wired on a verbatim fork (needs the "
-                                "synthesize path); the NPC is added as a plain talk NPC.")
+        if n.get("holds") is not None:
+            warnings.append(f"[[npc]] '{name}' holds= (a held prop on the NPC's bone) is NOT wired on a "
+                            "verbatim fork (the held item's uid is its slot, fixed before the band insert) "
+                            "-- skipped.")
         if name in choice_npcs:
             warnings.append(f"[[npc]] '{name}' has a dialogue [[choice]], which is ignored on a verbatim fork "
                             "-- the NPC speaks its plain `dialogue` line instead.")
@@ -3073,9 +3074,15 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
             kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
         gf, gs = _gate_of(n)
         txid = npc_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
+        # opens_shop: a shopkeeper talk body ((optional greeting ->) Menu(2, id)) REPLACES the plain WindowSync.
+        # The greeting is this NPC's own `dialogue` line (txid above); no dialogue -> straight to the shop.
+        sb = None
+        if n.get("opens_shop") is not None:
+            sb = _shop.shop_speak_body(int(n["opens_shop"]),
+                                       greeting_txid=txid if n.get("dialogue") else None)
         pos = n["pos"]
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, gate_flag=gf,
-                             gate_require_set=gs, reserve_party_band=True, **kwargs)
+                             gate_require_set=gs, speak_body=sb, reserve_party_band=True, **kwargs)
     return eb
 
 
@@ -4516,17 +4523,17 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             if _ch_errs:
                 raise BuildError(f"[[chest]] broke the composed .eb of {project.name}: "
                                  f"{[str(e) for e in _ch_errs]}")
-        # a [[shop]] OPENER (a standalone `zone` region, or an `[[npc]] opens_shop`) is synthesized in
-        # build_script, which the verbatim path bypasses -- so it is NOT injected here (the donor's own
-        # logic ships instead). The inventory CSV still ships (mod-write stage). Warn so it isn't a silent
-        # no-op; wire the opener on a synthesized field, or open the shop from the donor's own carried logic.
+        # a STANDALONE [[shop]]/[[synthesis]] `zone` opener (a press-region) is synthesized in build_script,
+        # which the verbatim path bypasses -- so it is NOT injected here. (An [[npc]] opens_shop IS wired, above
+        # by _inject_verbatim_npcs.) The inventory/recipe CSV still ships (mod-write stage). Warn so the zone
+        # opener isn't a silent no-op; use an [[npc]] opens_shop instead, or author the zone on a synthesized field.
         _shop_openers = ([s for s in project.raw.get("shop", []) if s.get("zone")]
-                         + [b for b in project.raw.get("synthesis", []) if b.get("zone")]
-                         + [n for n in project.raw.get("npc", []) if n.get("opens_shop") is not None])
+                         + [b for b in project.raw.get("synthesis", []) if b.get("zone")])
         if _shop_openers:
-            warnings.append("[[shop]]/[[synthesis]] opener (zone region / [[npc]] opens_shop) is NOT injected into "
+            warnings.append("a standalone [[shop]]/[[synthesis]] `zone` opener (a press-region) is NOT injected into "
                             "a verbatim fork -- the donor's own .eb ships instead; the inventory/recipe CSV is still "
-                            "written. Author the opener on a synthesized field if you need it.")
+                            "written. Use an [[npc]] opens_shop (which IS wired), or author the zone on a synthesized "
+                            "field.")
     elif verbatim_edits or project.logic_adds():            # [verbatim_eb] present but no `bin` -> nothing composed
         warnings.append(f"[[logic_edit]]/[[logic_add]] on {project.name} were NOT applied -- no verbatim .eb was "
                         "composed ([verbatim_eb] is missing its `bin`). Add the fork's .eb bin or remove the edits.")

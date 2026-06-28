@@ -199,6 +199,38 @@ def test_build_field_verbatim_with_npc_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_with_opens_shop_end_to_end(tmp_path):
+    # A shopkeeper [[npc]] opens_shop ADDED to a verbatim fork: the NPC seated below the band gets a tag-3 talk
+    # body that (greets, then) opens the shop -- Menu(2, id) (op 0x75) -- and the custom [[shop]] inventory ships
+    # in ShopItems.csv. The verbatim opener wiring (was warned + skipped; now passes speak_body to inject_npc).
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    project = build.FieldProject.load(toml)
+    project.raw["shop"] = [{"id": 40, "comment": "Test", "sells": ["Potion", "Hi-Potion", "Phoenix Down"]}]
+    project.raw["npc"] = [{"name": "Merchant", "preset": "vivi", "pos": [100, 200],
+                           "dialogue": "Care to buy?", "opens_shop": 40}]
+    assert build.validate(project) == []                         # Check agrees offline
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")     # must not raise
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        assert s.entry_count == donor.entry_count + 1            # merchant seated below the band
+        tag3 = s.entry(band_lo).func_by_tag(3)
+        assert tag3 is not None, "merchant has a tag-3 talk body"
+        menus = [(i.imm(0), i.imm(1)) for i in s.instrs(tag3) if i.op == 0x75]
+        assert (2, 40) in menus, f"merchant tag-3 should open shop 40 via Menu(2,40); got {menus}"
+        assert any(i.op == 0x1F for i in s.instrs(tag3)), "the dialogue greeting (WindowSync) precedes the shop open"
+    csv = list(out.rglob("ShopItems.csv"))
+    assert csv and ";40;" in csv[0].read_text(encoding="utf-8"), "the custom shop 40 inventory shipped to ShopItems.csv"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_chest_end_to_end(tmp_path):
     # A real [[chest]] on a verbatim fork: ONE object below the band with a flag-gated pose Init (the two
     # SetStandAnimation open/closed = the savable open-state), a tag-3 open handler (RunAnimation lid 7336 +
