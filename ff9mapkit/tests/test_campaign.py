@@ -546,6 +546,23 @@ def test_lint_resolves_named_gates(tmp_path):
     assert any("ghost_flag" in e for e in errors3)
 
 
+def test_lint_resolves_journey_global_gate(tmp_path):
+    # The journey-GLOBAL flag tier: a member gating on a flag declared ONLY in journeys.toml (NOT a campaign
+    # [[flag]]) must resolve via extra_flag_names. Before the fix lint_campaign ignored that map, so it rejected
+    # the gate as "unknown flag name" -- and because build_campaign lints first, that ERROR blocked the journey
+    # deploy end-to-end (lint disagreed with build, which DID propagate the name). Regression guard.
+    plan = _lint_plan(tmp_path, member_content={
+        "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = "gate_b"\n'})
+    # (a) WITHOUT the journey-global name (the standalone lint-campaign path) -> the same hard error as a ghost
+    errs_no, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("gate_b" in e and "unknown flag name" in e for e in errs_no), errs_no
+    # (b) WITH the journey-global name (exactly what the journey deploy passes) -> resolves cleanly, and is NOT
+    #     flagged "permanently locked" (its producer is a sibling campaign / the [journey.seed], not in THIS one)
+    errs_yes, warns_yes = campaign.lint_campaign(plan, tmp_path, extra_flag_names={"gate_b": 12000})
+    assert not any("gate_b" in e for e in errs_yes), errs_yes
+    assert not any("permanently locked" in w for w in warns_yes), warns_yes
+
+
 def test_lint_safe_band_default_is_clean(tmp_path):
     # the new default flag_base (FIRST_SAFE_FLAG=8512) is clear of all real-FF9 usage -> no band errors
     plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])
@@ -825,6 +842,34 @@ def test_real_build_all(tmp_path):
     fdp = [ln for ln in (dist / "ForkDonorPatch.txt").read_text(encoding="utf-8").splitlines()
            if ln.strip() and not ln.startswith("#")]
     assert sorted(fdp) == ["30100 300", "30101 301"]
+
+
+def test_build_campaign_seeds_and_gates_journey_global_flag(tmp_path):
+    # The journey deploy's EXACT call: build_campaign(extra_flag_names=, seed_blocks=) where the entry member
+    # GATES a door on a journey-global flag AND the [journey.seed] SETS that flag by NAME. One build exercises
+    # the three bugs that broke the journey-global tier end-to-end: (1) lint_campaign ignored extra_flag_names;
+    # (2) build_campaign didn't pass them to its own lint; (3) apply_seed_blocks injected the seed's named
+    # [startup] flag AFTER FieldProject.load resolved names, so build.validate saw it as "unknown flag name".
+    plan = campaign.new_campaign("XG", "FF9CustomMap-xg", tmp_path, id_base=30100)
+    campaign.add_field(plan, tmp_path, name="SETTER")           # blank room (offline), becomes the entry
+    campaign.add_field(plan, tmp_path, name="ROOM2")            # door target
+    setter = tmp_path / "SETTER" / "setter.field.toml"
+    setter.write_text(
+        setter.read_text(encoding="utf-8")
+        + '\n[[gateway]]\nto = 30101\nentrance = 0\n'
+          'zone = [[-1100,-2400],[1100,-2400],[1100,-1750],[-1100,-1750]]\n'
+          'requires_flag = "gate_b"\n',                         # the door resolves the journey-global name (bugs 1+2)
+        encoding="utf-8", newline="\n")
+    names = {"gate_b": 12000}                                   # journey-global, above the campaign window
+    seed = {"startup": {"flags": [{"flag": "gate_b", "value": 1}]}}   # the seed SETS it by NAME (bug 3)
+    try:
+        campaign.build_campaign(tmp_path / "campaign.toml", out=tmp_path / "dist",
+                                extra_flag_names=names, seed_blocks=seed)
+    except FileNotFoundError as e:                              # base templates not extracted on this machine
+        if "extract-templates" in str(e):
+            pytest.skip("base templates not extracted (run ff9mapkit extract-templates)")
+        raise
+    assert (tmp_path / "dist" / "DictionaryPatch.txt").is_file()
 
 
 # ---- read-only resolved graph (campaign_graph + render_graph; pure, no game) ------------

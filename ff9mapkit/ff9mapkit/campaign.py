@@ -556,7 +556,7 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     plan = load_campaign(campaign_path)
     if flag_base is not None:                              # journey-assigned disjoint flag window
         plan.flag_base = int(flag_base)
-    lint_errors, lint_warnings = lint_campaign(plan, manifest_dir)
+    lint_errors, lint_warnings = lint_campaign(plan, manifest_dir, extra_flag_names=extra_flag_names)
     if lint_errors:
         raise CampaignError("campaign lint failed:\n  - " + "\n  - ".join(lint_errors))
     out = Path(out) if out else (manifest_dir / "dist")
@@ -601,6 +601,11 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     entry_project = next((projects[i] for i, m in enumerate(plan.members) if m.name == plan.entry_name), None)
     if seed_blocks and entry_project is not None:        # the journey [journey.seed] capstone, on the entry only
         apply_seed_blocks(entry_project.raw, seed_blocks)
+        # the seed can introduce flag NAMES (a journey-global [[flag]] or a campaign-shared one) into the entry's
+        # [startup] AFTER FieldProject.load already resolved the on-disk names -> resolve again so the seeded
+        # names become indices too (idempotent: an already-resolved int passes through). Else build.validate
+        # rejects the seeded `flags = [{flag = "<name>"}]` as "unknown flag name".
+        resolve_project_flags(entry_project.raw, extra_names=campaign_names)
     info = build_mod(projects, out, mod_name=plan.mod_folder, author=author, description=description,
                      entry_project=entry_project)
     # [ff9mapkit] fork-fidelity: ForkDonorPatch.txt maps each custom-id fork -> its donor real field id, so
@@ -647,10 +652,16 @@ def _member_flags_from_toml(member_raw: dict):
     return produced, consumed
 
 
-def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False) -> tuple:
+def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
+                  extra_flag_names=None) -> tuple:
     """Validate a campaign without building. Returns ``(errors, warnings)``; errors abort build-all,
     warnings are advisory. Pure manifest + member-toml read (no game install). For the empty forks
-    import-chain produces, the structural checks fire and the flag checks are silent (correct)."""
+    import-chain produces, the structural checks fire and the flag checks are silent (correct).
+
+    ``extra_flag_names`` (the JOURNEY tier): name->index for journey-GLOBAL ``[[flag]]``s, so a member
+    that gates on a cross-CAMPAIGN flag (set by a sibling campaign or the ``[journey.seed]``) RESOLVES
+    here instead of failing as "unknown flag name" -- mirrors ``build_campaign``'s own propagation so
+    lint and build AGREE. ``None`` -> campaign-own names only (the standalone ``lint-campaign`` path)."""
     from collections import defaultdict
     manifest_dir = Path(manifest_dir)
     errors, warnings = [], []
@@ -781,13 +792,20 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False)
                             f"requires_flag on each in its field.toml, else the engine resolves only one")
 
     if not errors:                                 # (h) cross-field flag dependencies (NAME gates included)
+        # journey-GLOBAL flag names (manifest [[flag]]) are resolvable here too -- a member may gate on a
+        # cross-CAMPAIGN flag SET by a sibling campaign (or the [journey.seed]); without them the member's
+        # `requires_flag = "<journey-global>"` mis-reads as "unknown flag name" and BLOCKS the deploy (the
+        # exact lint/build disagreement that broke the journey-global tier). The campaign's own name wins.
+        jglobal = dict(extra_flag_names or {})     # name -> absolute index
+        known = {**jglobal, **shared}
+        jglobal_idx = set(jglobal.values())
         producers, consumers = {}, []
         for m in plan.members:
             raw = member_raw.get(m.name)
             if raw is None:
                 continue
-            try:                                   # resolve member-own + shared NAME gates -> indices, so a
-                resolve_project_flags(raw, extra_names=shared)   # name-based dependency is seen (not skipped)
+            try:                                   # resolve member-own + shared + journey-global NAME gates ->
+                resolve_project_flags(raw, extra_names=known)   # indices, so a name dependency is seen (not skipped)
             except ValueError as ex:               # a gate on a name defined NOWHERE -> the build would fail too
                 errors.append(f"member {m.name}: {ex}")
                 continue
@@ -797,7 +815,7 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False)
             for idx in cons:
                 consumers.append((idx, m.name))
         for idx, who in consumers:
-            if idx not in producers:
+            if idx not in producers and idx not in jglobal_idx:  # a journey-global gate is set cross-campaign
                 warnings.append(f"member {who}: requires explicit flag {idx}, but no member sets it -- "
                                 f"the gate is permanently locked")
         for idx, who in sorted(producers.items()):

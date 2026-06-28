@@ -1342,6 +1342,27 @@ def test_journey_global_flags_round_trip_and_lint(tmp_path):
     assert any("journey-global" in e and "used by two" in e for e in journey.lint_manifest(m, deep=False)[0])
 
 
+def test_lint_manifest_deep_resolves_journey_global_gate(tmp_path):
+    # THE deploy gate: deploy_journey lints BEFORE it builds, so lint_manifest(deep=True) must hand each campaign
+    # the journey-global flag names -- else a member's `requires_flag = "<journey-global>"` fails campaign-lint as
+    # "unknown flag name", a manifest ERROR that aborts the deploy (even though the build WOULD resolve it). The
+    # journey-global tier was unit-tested only at deep=False, so this end-to-end member-resolution gap shipped.
+    _make_campaign(tmp_path, "cb", members=["A", "B"], id_base=6000)
+    (tmp_path / "cb" / "B" / "B.field.toml").write_text(
+        '[field]\nid = 6001\nname = "B"\narea = 11\ntext_block = 1073\n'
+        '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = "gate_b"\n',
+        encoding="utf-8", newline="\n")
+    body = '[[journey]]\nid = "j"\ncampaigns = ["cb"]\nentry = { campaign = "cb", field = "A" }\n'
+    jp = _write_manifest(tmp_path, body)
+    journey.set_manifest_flags(jp, [{"name": "gate_b", "index": 12000}])
+    errors, _ = journey.lint_manifest(journey.load_journeys(jp), deep=True)
+    assert not any("gate_b" in e and "unknown flag name" in e for e in errors), errors
+    # control: WITHOUT the journey-global [[flag]], the member can't resolve gate_b -> the deploy-blocking error
+    _write_manifest(tmp_path, body)                               # rewrite manifest with NO [[flag]] table
+    errors2, _ = journey.lint_manifest(journey.load_journeys(jp), deep=True)
+    assert any("gate_b" in e and "unknown flag name" in e for e in errors2), errors2
+
+
 def test_journey_cross_tier_flag_collision(tmp_path):
     # a campaign-shared flag and a journey-global flag at the SAME index alias the same global bit -> (g2) catches it
     _make_campaign(tmp_path, "ca", members=["A1"], id_base=6000, sources={"A1": 100})

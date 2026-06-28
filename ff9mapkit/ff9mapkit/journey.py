@@ -485,11 +485,13 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
         errors.append(str(e))
         return errors, warnings                  # can't resolve ids without the plans -- stop here
 
-    # (c) per-campaign lint (structure/flags/art) -- prefix each finding with its folder
+    # (c) per-campaign lint (structure/flags/art) -- prefix each finding with its folder. Hand each campaign
+    #     the journey-GLOBAL flag names so a member gating on a cross-campaign flag RESOLVES (lint == build).
+    jflags = manifest_flag_names(manifest) if manifest.flags else {}
     if deep:
         for folder, (plan, cdir) in plans.items():
             try:
-                cerr, cwarn = _campaign.lint_campaign(plan, cdir, in_journey=True)
+                cerr, cwarn = _campaign.lint_campaign(plan, cdir, in_journey=True, extra_flag_names=jflags)
             except (_campaign.CampaignError, ValueError) as e:
                 errors.append(f"campaign {folder!r}: {e}")
                 continue
