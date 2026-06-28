@@ -268,6 +268,33 @@ def test_build_field_verbatim_with_npc_choice_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_with_readable_prop_end_to_end(tmp_path):
+    # A readable [[prop]] (dialogue=) ADDED to a verbatim fork: the below-band prop object is NON-bare -- it
+    # gets a tag-3 WindowSync into the appended-.mes channel, so it reads when examined (vs silent set-dressing).
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    project = build.FieldProject.load(toml)
+    project.raw["prop"] = [{"prop": "chest", "pos": [100, 200], "dialogue": "A weathered old chest. It won't budge."}]
+    assert build.validate(project) == []                         # Check agrees offline
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")     # must not raise
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        assert s.entry_count == donor.entry_count + 1            # a single readable prop seated below the band
+        tag3 = s.entry(band_lo).func_by_tag(3)
+        assert tag3 is not None, "the readable prop has a tag-3 talk body (NOT bare set-dressing)"
+        assert any(i.op == 0x1F for i in s.instrs(tag3)), "the prop's dialogue WindowSync"
+    mes = [p for p in out.rglob("*.mes")]
+    assert any("A weathered old chest." in p.read_text(encoding="utf-8") for p in mes), "prop dialogue shipped in .mes"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_chest_end_to_end(tmp_path):
     # A real [[chest]] on a verbatim fork: ONE object below the band with a flag-gated pose Init (the two
     # SetStandAnimation open/closed = the savable open-state), a tag-3 open handler (RunAnimation lid 7336 +

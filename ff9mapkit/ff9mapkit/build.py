@@ -2941,6 +2941,45 @@ def _verbatim_choice_messages(project: FieldProject, langs) -> tuple[dict, dict]
     return choice_txids, {lang: suffix for lang in langs}
 
 
+def _verbatim_choice_message_count(project: FieldProject) -> int:
+    """Number of `.mes` lines the NPC-choice block appends (1 prompt + 1 per option with a ``reply``, per
+    NPC-attached choice) -- so a block stacked above it (prop dialogue) sits at a disjoint window."""
+    choices = project.raw.get("choice", []) or []
+    npc_names = {n.get("name") for n in (project.raw.get("npc", []) or []) if n.get("name")}
+    return sum(1 + sum(1 for o in ch.get("options", []) if o.get("reply"))
+               for ch in choices if ch.get("npc") in npc_names)
+
+
+def _verbatim_prop_messages(project: FieldProject, langs) -> tuple[dict, dict]:
+    """For a verbatim fork's readable ``[[prop]]`` (a prop with ``dialogue``): give each a txid ABOVE the
+    donor `.mes` + the on_entry/logic_add/npc/event/chest/choice blocks (all disjoint), plus the per-language
+    `.mes` lines to append. The prop's tag-3 ``WindowSync`` resolves into the appended entry, so it reads.
+    Returns ``(txid_by_prop_index, suffix_by_lang)`` keyed by the index into ``project.raw['prop']``;
+    ``({}, {})`` when no prop carries dialogue. Single-block (the same text for every language)."""
+    # match what _inject_verbatim_props actually seats (it skips a pos-less / attach_to prop), so no orphan
+    # .mes line is emitted for a prop that never injects. Keyed by the RAW index j (the injector looks up the
+    # same j), so a skipped earlier prop can't misalign a later one.
+    voiced = [(j, p) for j, p in enumerate(project.raw.get("prop", []) or [])
+              if p.get("dialogue") and "pos" in p and p.get("attach_to") is None]
+    if not voiced:
+        return {}, {}
+    base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
+            + _logic_add_message_count(project) + _verbatim_npc_message_count(project)
+            + _verbatim_event_message_count(project) + _verbatim_chest_message_count(project)
+            + _verbatim_choice_message_count(project))
+    wrap = _wrap_width(project)
+    lines, tails, txid_by_idx = [], [], {}
+    for k, (j, p) in enumerate(voiced):
+        line = _text.with_speaker(p.get("speaker"), p["dialogue"])
+        if wrap is not None:
+            line = _text.wrap_text(line, wrap)[0]
+        lines.append(line)
+        tails.append(p.get("tail"))
+        txid_by_idx[j] = base + k
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    return txid_by_idx, {lang: suffix for lang in langs}
+
+
 def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
                    reserve_party_band: bool, warnings=None) -> bytes:
     """Inject each authored ``[[chest]]`` (a real openable, savable treasure chest) into the field's ``.eb``.
@@ -3152,17 +3191,20 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
     return eb
 
 
-def _inject_verbatim_props(project: FieldProject, eb: bytes, *, warnings) -> bytes:
+def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *, warnings) -> bytes:
     """Inject each authored ``[[prop]]`` (static set-dressing: a chest / barrel / sign / save-moogle model,
     head-tracking OFF) into a VERBATIM fork, seated BELOW the donor's party-character band. The visible
     half of a real chest (pair with an ``[[event]]`` trigger zone for the reward). Resolves a named prop
-    archetype (single or composite) or a raw ``model`` + ``pose`` exactly as the synthesize path. NOT wired
-    on verbatim (v1): an ``attach_to`` held item (its uid is its slot, fixed before the band insert) and a
-    readable ``dialogue`` prop -- both warned + the prop is added bare. Returns the new bytes."""
+    archetype (single or composite) or a raw ``model`` + ``pose`` exactly as the synthesize path. A readable
+    ``dialogue`` prop IS wired (a tag-3 ``WindowSync`` into the appended-`.mes` channel via
+    ``_verbatim_prop_messages``; on a composite the dialogue rides the ANCHOR part). NOT wired on verbatim:
+    an ``attach_to`` held item (its uid is its slot, fixed before the band insert) -- warned + skipped.
+    Returns the new bytes."""
     props = project.raw.get("prop", []) or []
     if not props:
         return eb
-    for p in props:
+    prop_txids = prop_txids or {}
+    for j, p in enumerate(props):
         if "pos" not in p:
             warnings.append(f"[[prop]] {p.get('prop') or p.get('model') or '?'} has no pos -- skipped on the "
                             "verbatim fork.")
@@ -3171,12 +3213,10 @@ def _inject_verbatim_props(project: FieldProject, eb: bytes, *, warnings) -> byt
             warnings.append("[[prop]] attach_to= (a held item bound to an NPC's bone) is NOT wired on a "
                             "verbatim fork -- skipped.")
             continue
-        if p.get("dialogue") is not None:
-            warnings.append("[[prop]] dialogue= (a readable prop) is not wired on a verbatim fork yet -- the "
-                            "prop is added as bare set-dressing.")
         pos = p["pos"]
         x, z, face = int(pos[0]), int(pos[1]), p.get("face")
         gf, gs = _gate_of(p)
+        dtxid = prop_txids.get(j) if p.get("dialogue") else None   # a readable prop -> a tag-3 WindowSync
         name = p.get("prop")
         if name is not None and _prop_archetypes.is_composite(name):
             parts = _prop_archetypes.resolve_composite(name)
@@ -3188,8 +3228,9 @@ def _inject_verbatim_props(project: FieldProject, eb: bytes, *, warnings) -> byt
         else:
             mid = resolve_npc_model(p.get("model"))
             parts = [(mid, _resolve_prop_pose(mid, p.get("pose")), 0, 0)]
-        for mid, pose, dx, dz in parts:
+        for pi, (mid, pose, dx, dz) in enumerate(parts):     # the dialogue rides the ANCHOR part (pi == 0) only
             eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face,
+                                   dialogue_text_id=(dtxid if pi == 0 else None),
                                    gate_flag=gf, gate_require_set=gs, reserve_party_band=True)
     return eb
 
@@ -4479,6 +4520,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     event_suffix: dict = {}                                     # [[event]] message lines added to a verbatim fork (per lang)
     chest_suffix: dict = {}                                     # [[chest]] Received-X lines added to a verbatim fork (per lang)
     choice_suffix: dict = {}                                    # [[npc]]-attached [[choice]] prompt/reply lines (per lang)
+    prop_suffix: dict = {}                                      # readable [[prop]] dialogue lines (per lang)
     menu_row_plan: list = []                                    # [[logic_add]] menu_row .mes row splices (per lang)
     if verbatim_bytes is not None:
         # [music] song -- REPLACE the donor's field BGM in place (a length-preserving operand swap), so a fork can
@@ -4555,10 +4597,12 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                 raise BuildError(f"[[npc]] broke the composed .eb of {project.name}: "
                                  f"{[str(e) for e in _npc_errs]}")
         # [[prop]] -- add NEW static set-dressing (chest/barrel/sign models) to the verbatim fork (object
-        # entries below the band, like [[npc]] but no talk/turn). The visible half of a real chest.
+        # entries below the band, like [[npc]] but no talk/turn). The visible half of a real chest. A prop
+        # with `dialogue` is READABLE (a tag-3 WindowSync into the appended-.mes channel).
         if project.raw.get("prop"):
             from . import eblint as _eblint
-            verbatim_bytes = _inject_verbatim_props(project, verbatim_bytes, warnings=warnings)
+            _prop_txids, prop_suffix = _verbatim_prop_messages(project, langs)
+            verbatim_bytes = _inject_verbatim_props(project, verbatim_bytes, _prop_txids, warnings=warnings)
             _pr_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
             if _pr_errs:
                 raise BuildError(f"[[prop]] broke the composed .eb of {project.name}: "
@@ -4634,7 +4678,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                       + npc_suffix.get(lang, "")                           # + [[npc]] talk lines
                       + event_suffix.get(lang, "")                         # + [[event]] message lines
                       + chest_suffix.get(lang, "")                         # + [[chest]] Received-X lines
-                      + choice_suffix.get(lang, ""))                       # + NPC [[choice]] prompt/reply lines
+                      + choice_suffix.get(lang, "")                        # + NPC [[choice]] prompt/reply lines
+                      + prop_suffix.get(lang, ""))                         # + readable [[prop]] dialogue lines
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
