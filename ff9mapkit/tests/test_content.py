@@ -220,22 +220,32 @@ def test_music_on_entry_and_reinit():
 
 
 def test_music_replace_field_music():
-    # REPLACE the field BGM in place (the verbatim-fork rescore): every immediate RunSoundCode(0, old) play
-    # -> new, length-preserved, structurally intact -- the donor's track is overwritten, not stacked.
+    # REPLACE the field BGM in place (the verbatim-fork rescore): every immediate field-BGM RunSoundCode --
+    # the PLAY (code 0) AND the LOAD (code 1792) of the donor's song -> new, length-preserved, intact.
     from ff9mapkit import eventscan
-    base = music.add_field_music(CLEAN, 9)               # a field that plays song 9
+    from ff9mapkit.eb import edit as _edit
+    base = music.add_field_music(CLEAN, 9)               # a field that PLAYs song 9
     out, n, old = music.replace_field_music(base, 42)    # old auto-detected via scan_music
     assert (old, n) == (9, 1) and len(out) == len(base)
     assert eventscan.scan_music(out) == 42               # the swap took; 9 -> 42
     assert EbScript.from_bytes(out).to_bytes() == out    # entry table / structure intact (length-preserving)
+    # the LOAD must be rescored TOO -- PLAY alone leaves the OLD song loaded + audible (the Ice Cavern fork bug).
+    # a field that LOADs (code 1792) + PLAYs song 9: BOTH calls rescore (n == 2) and no PLAY/LOAD of 9 survives.
+    mi = EbScript.from_bytes(base).entry(0).func_by_tag(0)
+    loaded = _edit.insert_bytes(base, mi.abs_start, opcodes.run_sound_code(music.SONG_LOAD, 9))
+    out2, n2, _ = music.replace_field_music(loaded, 42)
+    assert n2 == 2
+    eb2 = EbScript.from_bytes(out2)
+    assert not [i for e in eb2.entries if not e.empty for f in e.funcs for i in eb2.instrs(f)
+                if i.op == 0xC5 and i.imm(0) in (music.SONG_PLAY, music.SONG_LOAD) and i.imm(1) == 9]
     # BOTH plays rescored (the Main_Init play AND the after-battle tag-10 resume) -> no silence after battle
     two = music.add_music_to_reinit(reinit.add_reinit(music.add_field_music(CLEAN, 9), with_fade=True), 9)
-    out2, n2, _ = music.replace_field_music(two, 42)
-    assert n2 == 2 and eventscan.scan_music(out2) == 42
+    out3, n3, _ = music.replace_field_music(two, 42)
+    assert n3 == 2 and eventscan.scan_music(out3) == 42
     # idempotent no-op when old == new; empty result when the field has no immediate BGM to replace
     assert music.replace_field_music(base, 9) == (bytes(base), 0, 9)
-    nope, n3, old3 = music.replace_field_music(CLEAN, 42)
-    assert n3 == 0 and old3 is None and nope == bytes(CLEAN)
+    nope, n4, old4 = music.replace_field_music(CLEAN, 42)
+    assert n4 == 0 and old4 is None and nope == bytes(CLEAN)
 
 
 def test_region_primitives_match_real_field_bytes():

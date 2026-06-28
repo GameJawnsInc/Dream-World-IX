@@ -16,6 +16,14 @@ from ..eb import EbScript, disasm, edit, opcodes
 
 REINIT_TAG = 10
 
+# RunSoundCode (0xC5) sound-codes that select the AUDIBLE field BGM (FF9Snd.cs FF9AllSoundDispatch).
+# A field rescore MUST rewrite BOTH: PLAY starts the song, but LOAD is what makes the song's data
+# resident -- patch PLAY alone and the OLD song stays loaded and keeps playing even when PLAY asks for
+# the new one (the Ice Cavern fork bug: Main_Init does PLAY(60) AND LOAD(60), only PLAY was swapped).
+SONG_PLAY = 0       # FF9SOUND_SONG_PLAY
+SONG_LOAD = 1792    # FF9SOUND_SONG_LOAD (0x0700)
+_BGM_CODES = (SONG_PLAY, SONG_LOAD)
+
 
 def _music_entry(song: int) -> bytes:
     code = opcodes.run_sound_code(0, song) + opcodes.RETURN
@@ -44,12 +52,14 @@ def add_music_to_reinit(eb_bytes, song: int) -> bytes:
 
 
 def replace_field_music(eb_bytes, new_song: int, *, old_song: int | None = None):
-    """REPLACE the field's BGM in place: overwrite every immediate ``RunSoundCode(0, old_song)`` play's song
-    operand with ``new_song`` (a length-preserving 2-byte swap). For a VERBATIM fork this rewrites the donor's
-    OWN field-BGM call(s) -- the Main_Init play plus any after-battle/tag-10 resume that re-issues the SAME song
-    -- so the new track REPLACES rather than stacks (unlike :func:`add_field_music`, which appends a second
-    play). ``old_song`` defaults to :func:`ff9mapkit.eventscan.scan_music` (the donor's field BGM). A play whose
-    song is a DIFFERENT id (e.g. a cutscene that swaps the track) is untouched -- only the field BGM is rescored.
+    """REPLACE the field's BGM in place: overwrite the song operand of every immediate field-BGM ``RunSoundCode``
+    -- both the PLAY (``code 0``) AND the LOAD (``code 1792``) of the donor's BGM song id -- with ``new_song``
+    (a length-preserving 2-byte swap). For a VERBATIM fork this rewrites the donor's OWN field-BGM calls (the
+    Main_Init load+play plus any after-battle/tag-10 resume), so the new track REPLACES rather than stacks
+    (unlike :func:`add_field_music`, which appends a play). Rescoring the LOAD is essential: PLAY alone leaves the
+    OLD song resident, so the engine keeps playing it. ``old_song`` defaults to :func:`ff9mapkit.eventscan.scan_music`
+    (the donor's field BGM, found via its PLAY). A call referencing a DIFFERENT song id (a cutscene track / an
+    SFX) is untouched -- only the field BGM song is rescored.
 
     Returns ``(out_bytes, n_patched, old_song)``. ``n_patched == 0`` with ``old_song is None`` means the donor
     has no immediate field BGM to replace (silent, or its BGM is set by a computed value); ``old_song == new_song``
@@ -63,7 +73,7 @@ def replace_field_music(eb_bytes, new_song: int, *, old_song: int | None = None)
     old_song, new_song = int(old_song), int(new_song)
     if old_song == new_song:                              # already the desired track -> idempotent no-op
         return bytes(eb_bytes), 0, old_song
-    OP, SONG = _es.RUN_SOUND_CODE, 1                      # operand 1 = song-play id (operand 0 = sound code; 0 = play)
+    OP, SONG = _es.RUN_SOUND_CODE, 1                      # operand 1 = song id (operand 0 = sound-code: PLAY 0 / LOAD 1792)
     width = disasm.argsize(OP, SONG)                      # 2 bytes (song id)
     eb = EbScript.from_bytes(eb_bytes)
     buf = bytearray(eb_bytes)
@@ -74,8 +84,8 @@ def replace_field_music(eb_bytes, new_song: int, *, old_song: int | None = None)
             continue
         for f in e.funcs:
             for ins in eb.instrs(f):
-                if ins.op != OP or ins.imm(0) != 0 or ins.imm(1) != old_song:
-                    continue                              # not an immediate field-BGM play of the donor's song
+                if ins.op != OP or ins.imm(0) not in _BGM_CODES or ins.imm(1) != old_song:
+                    continue                              # not a PLAY/LOAD of the donor's field-BGM song id
                 if ins.off in seen:
                     continue
                 bo = _arg_byte_offset(ins, SONG)          # None iff a preceding operand is an expression
