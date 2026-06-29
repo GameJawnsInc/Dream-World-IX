@@ -87,6 +87,29 @@ if (-not $uv) {
 }
 Write-Host "Using uv at: $uv"
 
+# --- 1c. Self-heal a DANGLING managed-Python minor-version junction ----------
+# uv links `cpython-<minor>-...` -> `cpython-<patch>-...` with a Windows JUNCTION. A run previously
+# blocked by RedirectionGuard (Inno < this fix) can leave that junction dangling, and uv's --reinstall
+# will NOT replace it (astral-sh/uv#19622). Clear ONLY a dangling one (target unreachable), and delete
+# the REPARSE POINT ONLY -- never Remove-Item -Recurse, which can follow the link into the real patch dir.
+function Clear-DanglingPythonLink {
+  param([string] $Ver)
+  $roots = @("$env:APPDATA\uv\python", "$env:LOCALAPPDATA\uv\python")
+  if ($env:UV_PYTHON_INSTALL_DIR) { $roots = ,"$env:UV_PYTHON_INSTALL_DIR" + $roots }
+  foreach ($root in ($roots | Select-Object -Unique)) {
+    $link = Join-Path $root "cpython-$Ver-windows-x86_64-none"
+    if (Test-Path -LiteralPath $link) {
+      $it = Get-Item -LiteralPath $link -Force
+      $isLink = [bool]($it.Attributes -band [IO.FileAttributes]::ReparsePoint)
+      if ($isLink -and -not (Test-Path -LiteralPath (Join-Path $link "python.exe"))) {
+        Write-Host "Clearing a dangling Python minor-version junction: $link"
+        try { [System.IO.Directory]::Delete($link, $false) } catch {}
+      }
+    }
+  }
+}
+Clear-DanglingPythonLink -Ver $PythonVersion
+
 # --- 2. Provision the managed CPython (isolated step) ------------------------
 Write-Host "Provisioning Python $PythonVersion (the first run downloads it)..."
 & $uv python install $PythonVersion

@@ -30,6 +30,14 @@ DefaultDirName={localappdata}\Dream World IX
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+; THE FIX for uv "os error 448 / untrusted mount point": Inno Setup 6.7.0+ enables Windows
+; RedirectionGuard on the Setup process by default, and the child powershell -> uv inherits it via
+; the process token. RedirectionGuard blocks traversal of NTFS junctions created by a non-admin user --
+; and uv's managed-Python minor-version link IS such a junction, so `uv tool install` fails (works from
+; a normal shell, fails only under the installer). For a PrivilegesRequired=lowest installer the
+; mitigation buys ~nothing (the user owns both the junction and the target), so we turn it off.
+; Refs: Inno Setup 6.7.0 what's-new; MSRC RedirectionGuard; astral-sh/uv#19622.
+RedirectionGuard=no
 OutputBaseFilename=DreamWorldIX-Setup
 LicenseFile=..\ff9mapkit\LICENSE
 WizardStyle=modern
