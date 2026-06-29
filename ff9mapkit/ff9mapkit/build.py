@@ -1572,9 +1572,11 @@ def validate(project: FieldProject) -> list[str]:
 # [[gateway]] and [[event]] are NOT here: a NEW self-contained NPC / exit / chest-trigger IS added to a verbatim
 # fork -- seated below the donor's party-character band -- by _inject_verbatim_{npcs,gateways,events}.)
 _VERBATIM_IGNORED_BLOCKS = {
-    "cutscene": "[cutscene]", "marker": "[[marker]]",
+    "marker": "[[marker]]",
 }   # NOT here: [music] REPLACES the donor BGM in place; a [[choice]] with `npc =` is wired to that NPC's talk
-    # (a zone [[choice]] with no `npc` is still unwired -- warned separately in lint_logic).
+    # (a zone [[choice]] with no `npc` is still unwired -- warned separately in lint_logic). A MULTI-ACTOR
+    # [cutscene] (actor = [...]) IS wired (a below-band conductor, _inject_verbatim_conductor) -- only a
+    # single-actor / narration cutscene stays unwired (warned below in lint_logic).
 
 
 def lint_logic(project: FieldProject) -> list[str]:
@@ -1593,6 +1595,11 @@ def lint_logic(project: FieldProject) -> list[str]:
                        + " ignored -- the field runs the donor's real .eb, so the synthesize path that would "
                        "inject them is skipped. Author them on a synthesized / re-authorable field (a verbatim "
                        "fork already carries the donor's own NPCs / doors / cutscenes).")
+        _cs = raw.get("cutscene")          # a MULTI-ACTOR conductor IS wired on verbatim; legacy/narration is not
+        if _cs is not None and not isinstance(_cs.get("actor"), list):
+            out.append("verbatim fork: a single-actor or narration [cutscene] is ignored -- only a MULTI-ACTOR "
+                       "conductor (actor = [\"a\", \"b\", ...]) is wired on a verbatim fork; the donor's real .eb "
+                       "carries its own cutscenes.")
         if raw.get("encounter"):
             out.append("verbatim fork: [encounter] does NOT add random battles here -- the SetRandomBattles "
                        "trigger is injected only on the synthesize path (bypassed by a verbatim fork). The "
@@ -2983,6 +2990,48 @@ def _verbatim_prop_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     return txid_by_idx, {lang: suffix for lang in langs}
 
 
+def _verbatim_prop_message_count(project: FieldProject) -> int:
+    """How many readable ``[[prop]]`` dialogue lines the verbatim channel appends (so the cutscene block sits above)."""
+    return sum(1 for p in (project.raw.get("prop", []) or [])
+               if p.get("dialogue") and "pos" in p and p.get("attach_to") is None)
+
+
+def _verbatim_cutscene_message_count(project: FieldProject) -> int:
+    """How many multi-actor conductor ``say`` lines the verbatim channel appends (the LAST appended block)."""
+    cs = project.raw.get("cutscene")
+    if not (cs and isinstance(cs.get("actor"), list)):
+        return 0
+    return sum(1 for s in (cs.get("steps") or []) if "say" in s)
+
+
+def _verbatim_cutscene_messages(project: FieldProject, langs) -> tuple[list, dict]:
+    """For a verbatim fork's MULTI-ACTOR ``[cutscene]`` conductor: each ``say`` step's line, at txids ABOVE the
+    donor `.mes` + every other appended block (on_entry/logic_add/npc/event/chest/choice/prop -- all disjoint).
+    Returns ``(txids, suffix_by_lang)`` where ``txids`` is a LIST in say-step order (what the conductor's
+    ``compile_steps`` consumes positionally). ``([], {})`` when there are no say steps."""
+    cs = project.raw.get("cutscene")
+    if not (cs and isinstance(cs.get("actor"), list)):
+        return [], {}
+    say_steps = [s for s in (cs.get("steps") or []) if "say" in s]
+    if not say_steps:
+        return [], {}
+    base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
+            + _logic_add_message_count(project) + _verbatim_npc_message_count(project)
+            + _verbatim_event_message_count(project) + _verbatim_chest_message_count(project)
+            + _verbatim_choice_message_count(project) + _verbatim_prop_message_count(project))
+    wrap = _wrap_width(project)
+    lines, tails, txids = [], [], []
+    for s in say_steps:
+        line = _text.with_speaker(s.get("speaker"), s["say"])
+        if wrap is not None:
+            line = _text.wrap_text(line, wrap)[0]
+        txids.append(base + len(lines))
+        lines.append(line)
+        tails.append(s.get("tail"))
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    return txids, {lang: suffix for lang in langs}
+
+
 def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
                    reserve_party_band: bool, warnings=None) -> bytes:
     """Inject each authored ``[[chest]]`` (a real openable, savable treasure chest) into the field's ``.eb``.
@@ -3130,18 +3179,23 @@ def _verbatim_donor_id(project: FieldProject):
     return None
 
 
-def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, choice_txids=None, warnings) -> bytes:
+def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, choice_txids=None, warnings):
     """Inject each authored ``[[npc]]`` into a VERBATIM fork's `.eb`, seated BELOW the donor's reserved
     party-character band (:func:`ff9mapkit.content.object.insert_entry_before_band` shifts the 9 character
     slots up one and remaps every reference to them). Talk text rides the appended-`.mes` channel
     (``npc_txids``). Model/animset/anims resolve exactly as on the synthesize path. ``opens_shop`` IS wired (a
     shopkeeper talk body: optional greeting -> ``Menu(2, id)``; may point at a vanilla shop 0-31). A dialogue
     ``[[choice]]`` (``npc =`` this NPC) IS wired -- talk -> menu -> branch, its prompt/reply text on the appended
-    `.mes` channel (``_verbatim_choice_messages``). Features that still need the synthesize machinery (``holds`` /
-    a cutscene actor) are NOT wired on a verbatim fork -- warned + skipped. Returns the new bytes."""
+    `.mes` channel (``_verbatim_choice_messages``). Features that still need the synthesize machinery (``holds``)
+    are NOT wired on a verbatim fork -- warned + skipped.
+
+    Returns ``(new_bytes, npc_slots)`` -- ``npc_slots`` maps each injected NPC name -> its below-band entry slot
+    (== its runtime uid; each insert sits at ``entry_count - PARTY_BAND_SIZE`` and earlier inserts stay put), so
+    the multi-actor cutscene conductor can address its actors by uid."""
     npcs = project.raw.get("npc", []) or []
+    npc_slots: dict = {}
     if not npcs:
-        return eb
+        return eb, npc_slots
     donor = _verbatim_donor_id(project)
     if donor in _UID_HOTFIX_DONORS:
         warnings.append(f"[[npc]] on a fork of field {donor}: this donor has an engine uid-keyed hotfix "
@@ -3189,9 +3243,41 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
             sb = _shop.shop_speak_body(int(n["opens_shop"]),
                                        greeting_txid=txid if n.get("dialogue") else None)
         pos = n["pos"]
+        slot = EbScript.from_bytes(eb).entry_count - _object.PARTY_BAND_SIZE   # the slot this insert will take
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, gate_flag=gf,
                              gate_require_set=gs, speak_body=sb, reserve_party_band=True, **kwargs)
-    return eb
+        if n.get("name"):
+            npc_slots[n["name"]] = slot                                       # name -> uid (stable below the band)
+    return eb, npc_slots
+
+
+def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict, cutscene_txids, *, warnings) -> bytes:
+    """Inject a MULTI-ACTOR ``[cutscene]`` conductor into a VERBATIM fork: ONE director code entry, seated
+    BELOW the donor's party band (so the 9 characters stay the top slots), that drives the additive ``[[npc]]``
+    actors -- by their below-band uids in ``npc_slots`` -- and the player (250) via the ``*Ex`` opcodes. say /
+    turn / anim are wired; WALK is deferred on verbatim (it needs a walk tag on the actor's below-band entry --
+    a follow-up) and is skipped with a warning. The conductor is injected LAST, after every other additive
+    block, so the actor uids are settled. Returns the new bytes."""
+    cs = project.raw.get("cutscene")
+    if not (cs and isinstance(cs.get("actor"), list) and cs.get("actor")):
+        return eb
+    steps = _resolve_conductor_steps(cs["steps"], project)
+    if any("walk" in s for s in steps):
+        n_walk = sum(1 for s in steps if "walk" in s)
+        warnings.append(f"[cutscene] {n_walk} walk beat(s) are not yet wired on a verbatim fork -- skipped "
+                        "(turn/anim/say work; walk works on a synthesized field).")
+        steps = [s for s in steps if "walk" not in s]
+    auto = _FlagAlloc(getattr(project, "flag_base", None))   # campaign-safe once-flag (matches the other verbatim blocks)
+    c_fclass, c_fidx = _cutscene.once_flag_for(cs)
+    if auto.base is not None and "flag" not in cs and cs.get("once", True):
+        c_fidx = auto.cutscene()
+    return _conductor.inject_conductor(
+        eb, steps, npc_slots, cutscene_txids,
+        once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
+        warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
+        owns_control=bool(cs.get("owns_control", True)),
+        exit_warp=(int(cs["exit_warp"]) if cs.get("exit_warp") else None),
+        reserve_party_band=True)
 
 
 def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *, warnings) -> bytes:
@@ -4646,6 +4732,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     chest_suffix: dict = {}                                     # [[chest]] Received-X lines added to a verbatim fork (per lang)
     choice_suffix: dict = {}                                    # [[npc]]-attached [[choice]] prompt/reply lines (per lang)
     prop_suffix: dict = {}                                      # readable [[prop]] dialogue lines (per lang)
+    cutscene_suffix: dict = {}                                  # multi-actor [cutscene] conductor say lines (per lang)
+    _verbatim_npc_slots: dict = {}                              # injected NPC name -> below-band uid (for the conductor)
     menu_row_plan: list = []                                    # [[logic_add]] menu_row .mes row splices (per lang)
     if verbatim_bytes is not None:
         # [music] song -- REPLACE the donor's field BGM in place (a length-preserving operand swap), so a fork can
@@ -4715,8 +4803,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             from . import eblint as _eblint
             _npc_txids, npc_suffix = _verbatim_npc_messages(project, langs)
             _choice_txids, choice_suffix = _verbatim_choice_messages(project, langs)   # NPC [[choice]] menu text
-            verbatim_bytes = _inject_verbatim_npcs(project, verbatim_bytes, _npc_txids,
-                                                   choice_txids=_choice_txids, warnings=warnings)
+            verbatim_bytes, _verbatim_npc_slots = _inject_verbatim_npcs(
+                project, verbatim_bytes, _npc_txids, choice_txids=_choice_txids, warnings=warnings)
             _npc_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
             if _npc_errs:
                 raise BuildError(f"[[npc]] broke the composed .eb of {project.name}: "
@@ -4761,6 +4849,19 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             if _ch_errs:
                 raise BuildError(f"[[chest]] broke the composed .eb of {project.name}: "
                                  f"{[str(e) for e in _ch_errs]}")
+        # [cutscene] -- a MULTI-ACTOR conductor (one director code entry below the band) that drives the additive
+        # [[npc]] actors (by their below-band uids in _verbatim_npc_slots) + the player (250). Injected LAST so the
+        # actor uids are settled; say lines ride the appended-.mes channel (the topmost block). say/turn/anim are
+        # wired -- walk is deferred on verbatim (skipped with a warning). (project-ff9-cutscene-multiactor)
+        if isinstance((project.raw.get("cutscene") or {}).get("actor"), list):
+            from . import eblint as _eblint
+            _cs_txids, cutscene_suffix = _verbatim_cutscene_messages(project, langs)
+            verbatim_bytes = _inject_verbatim_conductor(project, verbatim_bytes, _verbatim_npc_slots,
+                                                        _cs_txids, warnings=warnings)
+            _cs_errs = _eblint.errors(_eblint.lint_eb(verbatim_bytes))
+            if _cs_errs:
+                raise BuildError(f"[cutscene] conductor broke the composed .eb of {project.name}: "
+                                 f"{[str(e) for e in _cs_errs]}")
         # a STANDALONE [[shop]]/[[synthesis]] `zone` opener (a press-region) is synthesized in build_script,
         # which the verbatim path bypasses -- so it is NOT injected here. (An [[npc]] opens_shop IS wired, above
         # by _inject_verbatim_npcs.) The inventory/recipe CSV still ships (mod-write stage). Warn so the zone
@@ -4804,7 +4905,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                       + event_suffix.get(lang, "")                         # + [[event]] message lines
                       + chest_suffix.get(lang, "")                         # + [[chest]] Received-X lines
                       + choice_suffix.get(lang, "")                        # + NPC [[choice]] prompt/reply lines
-                      + prop_suffix.get(lang, ""))                         # + readable [[prop]] dialogue lines
+                      + prop_suffix.get(lang, "")                          # + readable [[prop]] dialogue lines
+                      + cutscene_suffix.get(lang, ""))                     # + multi-actor [cutscene] say lines
         else:
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,

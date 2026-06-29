@@ -268,6 +268,45 @@ def test_build_field_verbatim_with_npc_choice_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_with_cutscene_conductor_end_to_end(tmp_path):
+    # A MULTI-ACTOR [cutscene] conductor ADDED to a verbatim fork: a below-band DIRECTOR code entry drives two
+    # additive NPCs (by their below-band uids) + the player (250) via the *Ex opcodes; say lines ship on the
+    # appended-.mes channel. (Previously [cutscene] was dropped entirely on a verbatim fork.)
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    project = build.FieldProject.load(toml)
+    project.raw["npc"] = [{"name": "lefty", "preset": "vivi", "pos": [100, 200], "dialogue": "."},
+                          {"name": "righty", "preset": "vivi", "pos": [300, 200], "dialogue": "."}]
+    project.raw["cutscene"] = {"once": True, "actor": ["lefty", "righty", "player"], "steps": [
+        {"actor": "lefty", "turn": 128},
+        {"actor": "lefty", "say": "We exist on a verbatim fork."},
+        {"actor": "righty", "anim": "glad"},
+        {"actor": "righty", "say": "Driven by one below-band conductor."},
+        {"actor": "player", "say": "Neat."}]}
+    assert build.validate(project) == []                         # Check agrees offline
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")     # must not raise
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE        # lefty=band_lo, righty=band_lo+1, conductor=band_lo+2
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        assert s.entry_count == donor.entry_count + 3            # 2 NPCs + 1 conductor seated below the band
+        cond = s.entry(band_lo + 2).func_by_tag(0)               # the conductor's single director function
+        assert cond is not None
+        speak_uids = {i.imm(0) for i in s.instrs(cond) if i.op == 0x95}   # WindowSyncEx targets, by uid
+        assert band_lo in speak_uids and 250 in speak_uids       # lefty (below-band uid) + the player speak by id
+        ops = [i.op for i in s.instrs(cond)]
+        assert 0x87 in ops and 0xBD in ops                       # TurnInstantEx + RunAnimationEx (drive actors by id)
+        assert 0x2D in ops and 0x2E in ops                       # control lock + release
+    blob = "".join(p.read_text(encoding="utf-8") for p in out.rglob("*.mes"))
+    assert "We exist on a verbatim fork." in blob and "Neat." in blob    # say lines shipped on the appended channel
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_readable_prop_end_to_end(tmp_path):
     # A readable [[prop]] (dialogue=) ADDED to a verbatim fork: the below-band prop object is NON-bare -- it
     # gets a tag-3 WindowSync into the appended-.mes channel, so it reads when examined (vs silent set-dressing).

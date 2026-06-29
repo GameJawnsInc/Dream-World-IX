@@ -27,6 +27,7 @@ from __future__ import annotations
 import struct
 
 from ..eb import EbScript, cmdasm, edit, opcodes
+from . import object as _object        # seat_entry (verbatim below-party-band seating)
 from . import region as _region
 from . import event as _event
 from . import cutscene as _cutscene   # shared: once_flag_for / DEFAULT_WARMUP / ANIM_HOLD / REORDER_WAIT / say
@@ -198,15 +199,19 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
 def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None = None,
                      flag_class=_region.GLOB_BOOL, warmup: int = _cutscene.DEFAULT_WARMUP,
                      owns_control: bool = True, exit_warp: int | None = None, say_flags: int = 128,
-                     walk_calls=None, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
-    """Append the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init
-    (over a Wait filler), exactly like a narration cutscene. Returns new .eb bytes. ``walk_calls`` (a dict
-    ``step_index -> (uid, tag)``) maps each ``walk`` step to its pre-generated per-actor walk tag."""
+                     walk_calls=None, reserve_party_band: bool = False,
+                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
+    """Seat the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init (over a
+    Wait filler), exactly like a narration cutscene. Returns new .eb bytes. ``walk_calls`` (a dict
+    ``step_index -> (uid, tag)``) maps each ``walk`` step to its pre-generated per-actor walk tag.
+
+    ``reserve_party_band``: on a VERBATIM fork the donor's last 9 slots are the playable characters, so the
+    conductor INSERTS just below them (``object.seat_entry``) -- keeping the band as the top slots and not
+    perturbing the actors it addresses (which seat below the band before it, so their uids stay valid)."""
     body = build_body(steps, uid_by_name, txids, once_flag, flag_class=flag_class, warmup=warmup,
                       owns_control=owns_control, exit_warp=exit_warp, say_flags=say_flags,
                       walk_calls=walk_calls)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
-    slot = EbScript.from_bytes(data).first_free_slot()
-    out = edit.append_entry(data, slot, entry)
+    out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
     return edit.activate(out, opcodes.init_code(slot, 0), spawn_wait_n=spawn_wait_n,
                          spawn_wait_occurrence=spawn_wait_occurrence)
