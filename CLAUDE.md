@@ -8,8 +8,9 @@
 > **The working brief — keep it lean.** It holds only durable, every-session facts. The project's
 > narrative lives in `git log` (descriptive, ~1 commit per feature) and the deep recipes in the
 > project-memory files (§9); don't reproduce them here. As work lands, update **§5 (current state)**
-> and add at most a **one-line** entry to **§10 (milestones)** — never a paragraph. (Consolidated
-> 2026-06-08; §10 de-journaled to a status list 2026-06-12 — see `git log` for the prior blow-by-blow.)
+> and add at most a **one-line** entry to **§10 (milestones)** — never a paragraph. (Reorganized
+> 2026-06-29: §5/§8/§10 de-journaled back to status lines + the memory store re-consolidated — see
+> `git log` for the prior blow-by-blow.)
 
 ---
 
@@ -22,16 +23,16 @@ gateways, encounters, events, story branching, cutscenes, ladders, jumps, props,
 **import/fork any of FF9's ~674 real fields**, carrying their NPCs/props/lighting/dialogue faithfully.
 Further pillars: **custom 3D battle backgrounds**, **multi-field campaigns** (Campaign-Editor IDE),
 **story-flag tooling**, **items/equipment/shops**. **Engine split (§5):** a *novel* field runs on **stock
-Memoria**; a *forked* field needs our **custom Memoria** (the s23–s28 fork-donor remap suite) for the
+Memoria**; a *forked* field needs our **custom Memoria** (the s23–s33 fork-donor remap suite) for the
 fork→donor logic redirects — so the shipped faithful-opening ships with custom Memoria, not stock. Likely the
 first practical reference for FF9 custom-field authoring.
 
 **North star — fork FIDELITY:** keep refining forked fields until the kit can recreate the
-*functioning game itself* from them. The measure: "fork a real field → does it play identically?" (★ 2026-06-18:
-the project is now moving toward a **PUBLIC BETA** as **Dream World IX** — see §2; fidelity stays the engineering
-goal, the beta is the distribution milestone, not a reason to cut fidelity corners.) The *physical* layer
-(scene/walkmesh/camera/mechanics/object-carry) is largely faithful + in-game proven; the *narrative-state*
-layer is the weak axis (a fork boots at scenario-zero). Honest gap map: **`ff9mapkit/docs/FORK_FIDELITY.md`**.
+*functioning game itself* from them. The measure: "fork a real field → does it play identically?" (Dream
+World IX shipped as a public beta — §2; fidelity stays the engineering goal, the beta is the distribution
+milestone, not a reason to cut corners.) The *physical* layer (scene/walkmesh/camera/mechanics/object-carry)
+is largely faithful + in-game proven; the *narrative-state* layer is the weak axis (a fork boots at
+scenario-zero). Honest gap map: **`ff9mapkit/docs/FORK_FIDELITY.md`**.
 Code lives at `ff9mapkit/` (package `ff9mapkit/ff9mapkit/`, Blender add-on `ff9mapkit/blender/`); the
 dev-loop tools at repo-root `tools/`.
 
@@ -48,14 +49,11 @@ dev-loop tools at repo-root `tools/`.
 - **Back up before editing any game/engine file** → `backups/<file>.<timestamp>`. The base
   game + the user's install are the only source of truth if we corrupt something.
 - **One change per in-game test.** When a build breaks, we need to know which edit did it.
-- **Commit FREELY — follow the FF-master merge discipline when hitting tested milestones.** Commit tested
-  milestones via commit-on-feature-branch → FF master (rebase-second). → `feedback-commit-freely`.
-- **PUBLIC BETA — ★ SHIPPED (2026-06-22). The repo is LIVE on public GitHub as Dream World IX (1.0.0b1).** The
-  old "NOTHING PUBLIC" gate is CLEARED: both conditions were met (the history scrub of SE-derived blobs + the
-  Dali playtest) and the user pushed. So public PRs / issues / a PyPI release / forum posts are now FAIR GAME —
-  but still treat outward-facing actions (a release, a forum post, a PR to Memoria) as confirm-first unless the
-  user has asked. The front-door (root README/LICENSE/DISCLAIMER), IP cleanup, and branding shipped. Fidelity
-  stays the engineering north star; the beta is the distribution milestone, not a reason to cut corners.
+- **Commit FREELY when hitting tested milestones.** Single-repo mode (worktrees shelved): commit on a
+  feature branch → `master` with a good message. → `feedback-commit-freely`, `project-single-repo-mode`.
+- **PUBLIC status — LIVE.** Dream World IX shipped to public GitHub as **1.0.0b1** (2026-06-22); the old
+  "NOTHING PUBLIC" gate is CLEARED. Public PRs / issues / a PyPI release / forum posts are FAIR GAME — but
+  treat outward-facing actions (a release, a forum post, a PR to Memoria) as **confirm-first** unless asked.
   → `feedback-commit-freely`, `project-ff9-public-beta`, `project-release-readiness`.
 
 **I CAN own, end to end:** the field event script (`.eb` bytecode, authored in Python — no
@@ -75,20 +73,19 @@ engine build, the build/deploy loop, version control, and all docs/notes.
 | Memoria.ini | `<game>\Memoria.ini` (engine toggles; dev build has boosters/ini cheats) |
 | Toolkit | `ff9mapkit/` — CLI `py -m ff9mapkit <cmd>` (run from the kit root so the local pkg shadows any editable install) |
 | Deploy tool | `tools/deploy_field.py <field.toml> [--id N]` (default test slot = field 4003) |
-| GUI apps | in **`apps/`** — ONE app now (GUI makeover COMPLETE, Phase 6): `ff9_workspace.pyw` (= `ff9_studio.pyw`, the front door) launches the **PySide6 Workspace** — one dockable window: a **journey ▸ campaign ▸ field ▸ object** tree + breadcrumb (**Open Journey…** opens a journeys.toml as the front door — the whole arc loads top-down, lints the namespace guarantee into Problems, and you drill into any member campaign to edit it), and as tabs the **Editor** (field/NPC/gateway/event/marker/cutscene/choice **+ party/startup** forms + catalog picker, incl. a battle-scene picker on encounters), **Map** (campaign graph), **Story State** + **Item & Equip** save editors, a **Battle** tab (`workspace/battledoc.py`: the encounter-first `[battlemap]`/`[scene]`/`[[scene.enemy]]` editor over `editor/battle_forms.py` + **Fork battle…** = `battle-import` create→auto-open with BBG/scene Browse pickers + Check; deploy via Build & Deploy), **Build & Deploy** (field/campaign/**journey**/battle, auto-detected — a journeys.toml gets a dry-run-playbook / one-shot-deploy / re-apply-links panel over `tools/deploy_journey.py`, opening a journey pre-aims it), and **Import** (fork a real field, with **Walk-as** player-swap; fork-report/read-dialogue/inspect-save), with the **Info Hub** as a sectioned **library** (category sidebar + per-section search + a rich detail pane: facts/animations/movement/parts/aliases + a ready `field.toml` snippet) + a **Ctrl-K** palette + a bottom Output/Problems console; the right **Inspector** gives per-node cards (a field's content rollup + clickable `campaign_graph` cross-refs "exits to / reached from", entity summaries with gateway-destination resolution, + a read-only encounter/party/startup rollup); dialogue fields (NPC/event/choice) carry a **live FF9-window wrap preview**. Creation is in the shell too — the toolbar folds New/Open into **3 hierarchy dropdowns** (**Field** / **Campaign** / **Journey**, each New + Open): **New Field…** (Ctrl-N) / **New Campaign…** (Ctrl-Shift-N) / **New Journey…** (a commented onboarding `journeys.toml` template) / campaign-root **Add field…** (thin dialogs over `pack.new_project`/`campaign.new_campaign`/`add_field`); plus **undo/redo** (Ctrl-Z / Ctrl-Shift-Z, a checkpoint-diff history over each field's `doc.data`, focus-aware so a focused text field undoes its own typing first). The 8 standalone tkinter `.pyw` (campaign_editor/import/build_gui/editor/dialogue/infohub/storystate/items) were **RETIRED** — everything they did is folded into the Workspace over the same tk-free backends (`editor/{forms,model,theme,feedback,breadcrumb,jobs}`, `campaign`, `save`, `save_items`, `flags`, `infohub`, `dialogue`). PySide6 = optional `gui` extra. → [[project-ff9-gui-makeover]] |
+| GUI app | **`apps/ff9_workspace.pyw`** — the one front-door app: a PySide6 **Workspace** (a journey ▸ campaign ▸ field ▸ object tree + Inspector). Tabs: Editor / Map / Story State / Item & Equip / Battle / Build & Deploy / Import, plus an Info Hub library + a Ctrl-K palette + a bottom Output/Problems console. The 8 old tkinter `.pyw` were RETIRED into it (same tk-free backends). PySide6 = optional `gui` extra. → [[project-ff9-gui-makeover]] |
 | Reference field scripts | `reference/test2/` (gitignored, 817 HW field-script exports) + `reference/field-manifest.tsv` (HW-index→field-id→name; index ≠ field id) |
 | FF9 field assets | `<game>\StreamingAssets\p0data*.bin` (UnityRaw 5.2.3 bundles; UnityPy reads them — `py -m pip install UnityPy`) |
 
-> **Layout in one breath** (full detail → [[project-ff9-git-layout]]): worktrees share one install but each
-> deploys into its OWN Memoria mod folder, pinned in a gitignored **`.ff9deploy.toml`** (`mod_folder` +
-> scratch-band `id`; override via `--mod-folder`/`$FF9_MOD_FOLDER`). `Memoria.ini [Mod] FolderNames` stacks
-> the folders; each folder's own DictionaryPatch/BattlePatch is read at launch. **Distinct ids are required
-> even across folders** (EventDB/SceneData are GLOBAL). Slots: master → `FF9CustomMap`/**30000** ·
-> `-battle-backgrounds` → `…-bb`/**30001** · `-infohub-catalog` → `…-ih`/**30002**; reach any via F6 → Warp.
-> **Field-id bands:** **10-3100** real (locked) · **4000-9899** shipped custom · **30000-32767** dev scratch
-> (engine `fldMapNo` is Int16 → max **32767**; a higher id registers but is unreachable).
-> **Merge discipline:** make CLAUDE.md edits on the *feature* branch; keep `master` **FF-only** (the second
-> concurrent feeder rebases). FF without checkout: `git -C C:\gd\FFIX merge --ff-only <branch>`.
+> **Layout in one breath** (full detail → [[project-ff9-git-layout]]): the working repo deploys into its OWN
+> Memoria mod folder, pinned in a gitignored **`.ff9deploy.toml`** (`mod_folder` + scratch-band `id`; override
+> via `--mod-folder`/`$FF9_MOD_FOLDER`). `Memoria.ini [Mod] FolderNames` stacks the folders; each folder's own
+> DictionaryPatch/BattlePatch is read at launch. **Distinct ids are required even across folders** (EventDB/
+> SceneData are GLOBAL). Slots: master → `FF9CustomMap`/**30000** · `-bb`/**30001** · `-ih`/**30002**; reach any
+> via F6 → Warp. **Field-id bands:** **10-3100** real (locked) · **4000-9899** shipped custom · **30000-32767**
+> dev scratch (engine `fldMapNo` is Int16 → max **32767**; a higher id registers but is unreachable).
+> **Workflow:** single-repo out of `Dream-World-IX` master (worktrees shelved → [[project-single-repo-mode]]);
+> make edits on a feature branch → `master`. `C:\gd\FFIX` is the read-only archive (Memoria source + old branches).
 
 ---
 
@@ -108,9 +105,9 @@ The proven fast loop — **edit → deploy → F6**:
 DictionaryPatch line), a BattlePatch change, or an engine-DLL rebuild. Reverting a deploy:
 `py tools/scroll_out/revert_deploy.py` (latest) or `revert_deploy_<id>.py`.
 
-**Text-block shadow (stacked worktree folders):** every worktree's test slot defaults `text_block` 1073,
+**Text-block shadow (stacked mod folders):** every test slot defaults `text_block` 1073,
 and the engine reads a field's `.mes` from the **highest-priority** `FolderNames` folder that defines it —
-so a lower-priority worktree's dialogue is SHADOWED (wrong text, but the *flags* are still correct → F6 →
+so a lower-priority folder's dialogue is SHADOWED (wrong text, but the *flags* are still correct → F6 →
 Flags is the reliable proof). `deploy_field.py` now **warns** (`deploystack.py`) and suggests a free real
 mesID; fix = a `text_block` no higher folder defines (it must be a real `MesDB` id — arbitrary ids don't
 load), or pin `text_block = N` in `.ff9deploy.toml`. → memory `project-ff9-text-block-shadow`.
@@ -125,96 +122,34 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
 
 ## 5. Current state (keep this updated)
 
-- **Dev engine** = stock Memoria `6b8bb2d5` + the **F6 debug menu** (`UIKeyTrigger.cs` +
-  `Ff9mkDebugMenu.cs`; patch `memoria-patches/s22-debug-menu-f6.patch`) **+ the s24–s28 FORK-DONOR REMAP
-  suite** (`memoria-patches/s24-fork-donor-remap.patch`: `ForkDonorPatch.txt` → `EffectiveFieldId`/
-  `ForkSiblingField`/`IsForkField` wrapping the hardcoded `fldMapNo == N` engine gates so they fire for a
-  custom FORK id — incl. s28 overworld→fork entry + the No-Encounter wrap) **+ s29** (`s29-fork-donor-softlocks.patch`,
-  2026-06-19: the SAME `EffectiveFieldId` wrap applied to the 10 remaining SOFTLOCK gates from the engine census
-  `ff9mapkit/docs/FORK_IDGATE_MAP.md` — Iifa/Burmecia/Gulug/Oeilvert/Esto-Gaza/Ipsen/Epilogue; built + deployed,
-  ⚠ **IN-GAME UNVERIFIED** — all fire at disc-2-to-4 beats, batched on confidence vs the proven s24 pattern; the
-  per-site checklist is in FORK_IDGATE_MAP.md) **+ s30** (`s30-doeventcode-fork-walk.patch`, 2026-06-22: the
-  `EffectiveFieldId` wrap on `EventEngine.DoEventCode.cs` — the file the s24 census MISSED because its ~150
-  per-field event gates use a local alias `Int16 mapNo = fldMapNo`, not the literal `fldMapNo` a grep censused.
-  Wraps every gate via a new `effMapNo` (non-gate uses stay raw). Restores the per-field scripted-WALK
-  destination corrections, found via the field-6003 "Blank jumps in hole" occlusion bug — without the
-  `destX 250→330` fixup the jumping characters land off-spot and draw ON TOP of the ground; ★ **IN-GAME PROVEN**
-  for the WALK position) **+ s31** (`s31-fork-name-keyed-overlay-offset.patch`, 2026-06-23: the SAME 6003 bug had
-  a SECOND cause s30 didn't cover — a whole **NAME-string-keyed** gate class the id-based `EffectiveFieldId` suite
-  can't reach. `FieldMapExtraOffset` tunes per-field overlay z-offsets keyed on the FBG NAME (`mapExtraOffsetList.txt`),
-  so a fork's deployed name misses the donor's row (field 53's overlay-29 `dz=-100`) and the floor stops occluding
-  the falling characters. Adds `DataPatchers.EffectiveFieldName(name)` — resolves a fork's FBG name → its donor's
-  via the id remap + the global `eventIDToFBGID` table — and routes `SetOffset`/`UpdateOverlayOffset` through it on
-  a dict miss. ★ **IN-GAME PROVEN 2026-06-23**; fixes the whole name-keyed-offset class for every fork. Durable
-  lesson: the fork-gate census must cover **name-keyed** gates too, not just id gates) **+ s32** (`s32-fork-name-gates.patch`,
-  2026-06-23: a follow-up 4-agent census found the REST of the name-keyed class — 7 more sites wrapped with the same
-  `EffectiveFieldName` lever (generalized to resolve by the PASSED NAME, correct even at cross-field call sites like
-  the SPS `ChangeFieldOrigin`). Tier-A gameplay-breaking on a fork: the Iifa minigame player+menu-control unlock (×2)
-  + the space-scene menu unlock (`UIManager.cs`), the Iifa rain offset (`FieldRainRenderer.cs`), the Oeilvert
-  star-display shader (`BGSCENE_DEF.cs`); Tier-B: SPS sprite z-offsets (`FieldMapSPSExtraOffset.cs`) + the Treasure-Hall
-  +8px nudge (`FieldMap.cs`). All identity-safe for real fields. The 2 area-title gates were INVESTIGATED + left as a
-  FALSE ALARM (no fix): `SetFieldMapAtlasName` (`atlas_<lang>` rename) is DEAD CODE (0 callers), English titles already
-  render on forks from the base `atlas` (in-game proven); the only gap is non-English `_<lang>.bgs` title GEOMETRY on
-  native forks — cosmetic, needs 7 localized sidecars/fork, not worth it. ⚠ s32 IN-GAME UNVERIFIED — the affected
-  fields are late-game, verify as those zones get forked) **+ s33** (`s33-fork-fldmapno-arg-lookups.patch`, 2026-06-23:
-  a THIRD fork-gate class — `fldMapNo` as a per-field LOOKUP ARGUMENT (not a `== N` compare or a name key). Found via
-  the blank menu **LOCATION** field on a fork: `loc_name.mes` is field-id-keyed, looked up at TWO sites — `EventEngine.cs:536`
-  (`mapNameStr`, the title) and `MainMenuUI.cs:497` (the in-field menu label, a SEPARATE direct call the title-bar fix
-  missed) → fork's custom id → empty → blank. Adds `FF9TextTool.FieldLocationName(fldMapNo)` = own-id-then-donor, routes
-  both through it. ★ Also AUTHORABLE: a new `LocationName <id> <title>` DictionaryPatch directive (`DataPatchers.CustomLocationNames`,
-  consulted first by `FieldLocationName`, survives language reloads) backs the kit's **`[field] location = "…"`** —
-  authors a from-scratch field's place-name OR overrides a fork's inherited donor title. A sweep added 4 siblings:
-  field→battle BGM fallback (`BattleSwirl`/`HonoluluFieldMain`, the BattlePatch override still wins), mesh-combine path
-  (`BGSCENE_DEF`, the 6 complex fields), smooth-cam exclusion (`FieldMap` ×2). Deferred: moogle auto-save (optional
-  setting only), field-audio preset + model swap (cosmetic). ★ the menu LOCATION fix is the reported bug; siblings IN-GAME
-  UNVERIFIED) **+ the s23 narrow-map fix**
-  (`memoria-patches/s23-narrow-map-fork-width.patch`, now SHIPPED — forked narrow fields no longer letterbox). Boosters are manual (ini cheats + F1–F4). **⚠ ENGINE-INDEPENDENCE IS SPLIT:** a *novel*
-  field (BG-borrow / from-scratch, not impersonating a real id) runs on **stock** Memoria — but **a FORKED
-  field REQUIRES the s23–s28 patches** (without them a custom-id fork loses Dante's off-mesh exemption, the
-  fake-battle return field, the Steiner push, narrow-map letterbox, the How-to-Play return, etc. — the
-  "forked field custom-logic redirects"). So **the shipped faithful-opening campaign ships with our CUSTOM
-  Memoria** (stock + s23–s28; the F6 menu is the only *dev-only* piece). This is why we're shipping our own
-  engine + holding the PRs until public release. Revert engine → no-edits rebuild:
-  `tools/restore_memoria_dll.py baseline`; true stock = re-run the patcher.
-- **F6 debug menu** (dev build, in **FIELD and BATTLE** — in-game proven 2026-06-09): a draggable tabbed
-  IMGUI popup —
-  **Warp** (reload field · warp to any registered custom id ≥4000 · seed an **arrival entrance** + a
-  **ScenarioCounter** on the warp — set `FieldEntrance`/scenario before the map change to reach a story-gated
-  fork at the right beat through the right door; a "Set now" button sets the scenario on the current field) ·
-  **Move** (teleport to x,z · right-click the field to copy the floor (x,z) under the cursor) ·
-  **Cheats** (booster toggles · full-heal · give item/gil) ·
-  **Flags** (get/set/clear a `gEventGlobal` story flag · snapshot/restore · reset-all) ·
-  **Time** (0.25–4× time-scale). The menu is a `DontDestroyOnLoad` MonoBehaviour so its OnGUI already
-  draws in battle; the F6 toggle gate (`UIKeyTrigger.Update`) was widened from `FieldHUD` to
-  `FieldHUD || BattleHUD`. In battle the field-only **Warp/Move** tabs show a "field only" note and
-  no-op; **Cheats/Flags/Time** operate on the shared party/flag/time state (handy for testing battle
-  maps). Battle is NOT auto-paused while open (so Time-tab slow-mo persists on close) and NGUI input
-  under the popup isn't blocked — keep the window top-left, off the battle command UI. **This SUPERSEDES
-  the old single-key F6-reload / F10-reset hotkeys — do not refer to those as current.**
-- **The Vivi hut is RETIRED to offline build-oracle status.** The two painted hut rooms (**4000** ext +
-  **4002** int, the 100%-kit-authored copy in **`release/FF9CustomMap/`**) were the S0 "can we make ANY
-  custom field?" proof; their only remaining job is the **byte-exact golden test** (`examples/vivi-hut/` →
-  the provenance manifest SHA), which needs zero in-game upkeep. **Do NOT re-polish the hut in-game — the
-  in-game showcase is the World Hub + verbatim forks.** (The live dev `FF9CustomMap` is a churned scratchpad:
-  test deploys overwrite scene folders, so the hut's `FBG_N11_HUT_*` scenes are usually absent — redeploy
-  from `release/` to actually play it.) Registered: 4000 HUT_EXT, 4002 HUT_INT, **4003 = the shared test slot**.
-- **New Game lands via a stock mod field-70 override (`Field(<id>)`), NOT a DLL edit** (the custom DLL is the
-  F6 menu + the s23–s28 fork suite above — but the New-Game *entry* itself is a pure mod override). Currently
-  points at the **forked faithful opening (6000 = Prima Vista)** via the NEW
-  `tools/wire_newgame_from_stock.py 6000` (extracts stock field 70, repoints its `Field(50)`→`Field(6000)`,
-  all 7 langs). Field 70's **opening FMV + fade are PRESERVED** (faithful intro → forked Prima Vista; not the
-  old seamless/no-FMV hub path). ★ The override is WIPED by every `deploy_campaign` wholesale-replace of
-  FF9CustomMap → RE-RUN `wire_newgame_from_stock.py 6000` after each opening re-deploy. Seamless no-FMV
-  variant = `tools/skip_opening_fmv.py`. Mechanism + starting-state capstone → [[project-ff9-new-game-entry]].
-- **Versions:** kit `0.10.0`, Blender add-on `0.9.20`. **Provenance gate is CLEARED at HEAD** — the
-  working tree ships ZERO Square-Enix bytes; base templates are regenerated from the user's own
-  install via `ff9mapkit extract-templates` (patches + SHA-256 manifest). `*.eb.bytes` /
-  `*.bgx` / `*.bgi.bytes` are gitignored (except our own hut quad). ⚠ **git HISTORY still contains
-  SE-derived blobs** (removed from HEAD but recoverable in old commits) → a `git-filter-repo` scrub
-  is REQUIRED before any public push (§2). Also removed at HEAD on `public-beta-prep`: a tracked
-  decompiled real field (`reference/field-0109-*.txt`) + the untracked `backups/` scratch.
-- **Public status: LIVE (1.0.0b1 on public GitHub, 2026-06-22 — see §2).** The push happened; the gate is
-  cleared. (Memoria PR #1433, FieldCreatorScene PNG-path fix — still left as-is, irrelevant to the toolkit.)
+- **Dev engine** = stock Memoria `6b8bb2d5` + the **F6 debug menu** (dev-only; patch `memoria-patches/s22`) +
+  the **s23–s33 FORK-DONOR REMAP suite** — every engine gate hardcoded on a real `fldMapNo` (or FBG name) is
+  wrapped so it fires for a custom FORK id. Four gate classes, four levers: `== N` compare + local-alias
+  `mapNo` (`EffectiveFieldId`, s23/s24/s29/s30), NAME-keyed (`EffectiveFieldName`, s31/s32), and lookup-arg
+  (`FieldLocationName`, s33; this also backs the authorable `[field] location`). Patches in `memoria-patches/`;
+  the per-site census + verification debt (which patches are still ⚠ IN-GAME UNVERIFIED) live in
+  **`ff9mapkit/docs/FORK_IDGATE_MAP.md`** → [[project-ff9-doeventcode-fork-gates]], [[project-ff9-fork-verification-harness]].
+- **⚠ ENGINE-INDEPENDENCE IS SPLIT (durable):** a *novel* field (BG-borrow / from-scratch) runs on **stock**
+  Memoria; a **FORKED field REQUIRES the s23–s33 suite** (else it loses Dante's off-mesh exemption, narrow-map
+  width, the fake-battle return, the softlock fixes, etc.). So **the shipped faithful-opening ships our CUSTOM
+  Memoria** (stock + s23–s33; only the F6 menu is dev-only) — which is why we ship our own engine + held the
+  PRs. Revert engine → no-edits rebuild: `tools/restore_memoria_dll.py baseline`; true stock = re-run the patcher.
+- **F6 debug menu** (dev build, in **FIELD and BATTLE**): a draggable tabbed IMGUI popup — **Warp** (reload ·
+  warp to any registered custom id · seed an arrival entrance + ScenarioCounter to reach a story-gated fork at
+  the right beat) · **Move** · **Cheats** (boosters / heal / give) · **Flags** (get/set/clear/snapshot a
+  `gEventGlobal` flag) · **Time**. Supersedes the old single-key F6-reload / F10-reset hotkeys.
+- **The Vivi hut is RETIRED to offline build-oracle status.** The painted hut rooms (4000 ext + 4002 int, the
+  100%-kit-authored copy in `release/FF9CustomMap/`) were the S0 proof; their only job now is the byte-exact
+  golden test (`examples/vivi-hut/` → the provenance manifest SHA). **Do NOT re-polish the hut in-game** — the
+  in-game showcase is the World Hub + verbatim forks. (4003 = the shared test slot.)
+- **New Game lands via a stock mod field-70 override (`Field(<id>)`), NOT a DLL edit** — currently the forked
+  faithful opening (6000 = Prima Vista), with field-70's opening FMV + fade PRESERVED. ★ The override is WIPED
+  by every `deploy_campaign` wholesale-replace of FF9CustomMap → RE-RUN `tools/wire_newgame_from_stock.py 6000`
+  after each opening re-deploy. → [[project-ff9-new-game-entry]].
+- **Versions:** kit `1.0.0b2`, Blender add-on `0.9.20`. **Provenance gate CLEARED at HEAD** — zero Square-Enix
+  bytes; base templates are regenerated from the user's own install via `ff9mapkit extract-templates`;
+  `*.eb.bytes`/`*.bgx`/`*.bgi.bytes` are gitignored (except our own hut quad). The git-history SE-bytes scrub
+  was DONE pre-push (2026-06-22). → [[project-release-readiness]].
 
 ---
 
@@ -225,7 +160,7 @@ real gameplay and reproducible in Python (zero Hades Workshop):
 
 - **Field & scene:** mint a custom field id (≥4000); single / **scrolling** / **multi-camera**
   cameras; human-painted art layers with depth-based occlusion; walkmesh authored from math OR
-  imported/reshaped from a real field.
+  imported/reshaped from a real field; the menu/title **place-name** via `[field] location`.
 - **Content:** NPCs (any model + animations, by name) · dialogue (speaker tag, auto-wrap) ·
   gateways (round-trip doors) · encounters (+ field/battle BGM, after-battle fix) · **events**
   (chests / gil / story flags / triggers) · **story branching** (flag-gated NPCs / doors /
@@ -366,7 +301,7 @@ mechanic above was grounded byte-for-byte against shipping FF9 data, not invente
   walk-to-a-point-behind orbit/softlock; **never `WaitTurn`/`WaitAnimation` on a player-cloned
   NPC** (its clips don't complete those → softlock — use instant turns + a fixed `Wait(40)`);
   `MoveInstantXZY` args are `(worldX, −worldY, worldZ)` + `SetPathing(1)` after (it disables
-  walkmesh collision).
+  walkmesh collision). → `project-ff9-cutscene-multiactor`.
 
 **Story flags — persistence** (the bug that bit every once-gated thing)
 - A var's **source** decides persistence: **GLOB (src 0) = save-backed `gEventGlobal`** (2048
@@ -380,16 +315,20 @@ mechanic above was grounded byte-for-byte against shipping FF9 data, not invente
 - A `once=true` event/cutscene won't replay for *testing* once its persistent flag is set —
   use `once=false`, a fresh New Game, a distinct flag index, or F6 → Flags → reset.
 
-**Dev engine** (`project-ff9-memoria-build`)
+**Fork gates / engine** (`project-ff9-memoria-build`, `project-ff9-doeventcode-fork-gates`)
 - Read dev hotkeys in a real MonoBehaviour `Update()` (e.g. `UIKeyTrigger`) via
   `UnityXInput.Input` — **NOT** `HonoLateUpdate` (the ~30 fps logical tick misses `GetKeyDown`).
+- **Any engine behavior hardcoded on a real `fldMapNo` (or FBG name) is LOST on a custom-id fork.** The
+  fork-gate census must sweep it in FOUR forms — a `== N` compare, a local alias (`Int16 mapNo = fldMapNo`),
+  a NAME key, and a lookup ARGUMENT — each fixed by a matching lever (`EffectiveFieldId` /
+  `EffectiveFieldName` / `FieldLocationName`, the s23–s33 suite). → `ff9mapkit/docs/FORK_IDGATE_MAP.md`.
 
 **Process** — Hades Workshop is fully OUT (atlas-clone UV bug + its export corrupts entry-adds; author `.eb`
 in Python, verify with `eb_disasm`/the kit). Never edit a bundled example in place (the form editor's Save
 rewrites the byte-exact golden oracle — author on a copy / `ff9mapkit new` / a Blender export). Grep alone
 can't prove a field unused (scenario-counter dispatch / runtime-computed ids / scripted `Field()` warps are
 invisible to it) — trust the user's game knowledge; NarrowMapList is a camera-WIDTH table, NOT a cutscene
-trigger (entry cutscenes run from the `.eb`). → `project_ff9_mint_gotchas`, `feedback_trust_user_game_knowledge`, `project_ff9_has_no_unused_fields`.
+trigger (entry cutscenes run from the `.eb`). → `project-ff9-mint-gotchas`, `feedback-trust-user-game-knowledge`, `project-ff9-has-no-unused-fields`.
 
 ---
 
@@ -405,63 +344,33 @@ trigger (entry cutscenes run from the `.eb`). → `project_ff9_mint_gotchas`, `f
 - **Per-pitch `sx/sy` canvas scale** — the map is exact scale-1; the "back-edge drift" was the
   character collision radius, not a map error.
 - **Grafting a render-only NPC's talk handler into a NON-verbatim fork (#14)** — proven 0-tractable (census of
-  675 fields: 55 NPCs lose their tag-3 handler, 0 blocked only by a graftable gesture — an NPC's interactive
-  tag-3 IS the field's quest logic, inseparable). Use **`--verbatim`**; read what an NPC does with
-  **`fork-report --explain`**. (#13, the story-event director/roster problem, is separate; its CORE is now
-  in-game proven — `--verbatim` + `[startup]` shows a beat-correct rotating roster — see §10.)
-  → [[project-ff9-fork-fidelity-worklist]]. **NOT a dead end** (don't re-conflate): ADDING NEW *self-contained*
-  kit content to a **verbatim** fork IS supported — a different problem #14 never tested. The whole additive set
-  — **`[[npc]]` · `[[gateway]]` (new exits) · `[[event]]` (item/gil/flag zones) · `[[prop]]` · `[[chest]]`
-  (a real openable, savable treasure chest)** — seats BELOW the engine's reserved last-9 party-character band via
-  the shared `object.seat_entry(reserve_party_band=)` (`insert_entry_before_band` + a +1 band-ref remap), each
-  re-linted after injection. ALL in-game proven 2026-06-24. **`[[chest]]` is now ALSO wired on the SYNTHESIZE
-  path** (from-scratch fields, not just verbatim forks; shares `_chest_received_box`/`_inject_chests`, text in
-  the field's own `.mes` via `collect_text` — ★ save/collision/animation in-game proven 2026-06-24). A box-position
-  fix landed for BOTH paths: the "Received X" box rendered TOP-RIGHT because `mes_entry` forced a dialogue default
-  `[STRT=10,1][TAIL=UPR]`; FF9 auto-centers a system window from its `[STRT=width,lines]` geometry, so the chest box
-  now passes the real field 200/407 geometry (item `[STRT=69,3]`, gil `[STRT=86,3]`, `TAIL=DEFT`) via a new per-line
-  `strts=` on `content.text.build_mes` (built `.mes` byte-matches the real box). ★ FULLY IN-GAME PROVEN 2026-06-24
-  on BOTH paths (save + collision + animation + centered box). Campaign caveat (enforced
-  by `build.validate`, fixed an aliasing blocker an adversarial review caught): a campaign-member chest must pin
-  an explicit `flag = N` — the auto `CHEST_FLAG_BASE` (8400, inside FF9's real chest bitfield) is NOT
-  per-member-partitioned, so two members' auto chests would alias → save corruption. → [[project-ff9-npc-on-verbatim]].
+  675 fields: an NPC's interactive tag-3 IS the field's quest logic, inseparable). Use **`--verbatim`**; read
+  what an NPC does with **`fork-report --explain`**. (★ NOT a dead end — don't re-conflate: ADDING NEW
+  *self-contained* kit content — `[[npc]]` · `[[gateway]]` · `[[event]]` · `[[prop]]` · `[[chest]]` — to a
+  *verbatim* fork IS supported + in-game proven; it seats below the engine's last-9 party band. Different
+  problem. → [[project-ff9-npc-on-verbatim]].)
 
 ---
 
 ## 9. Project memory (the deep recipes)
 
-Read these on demand — they hold the full technical detail this file only summarizes
-(`~/.claude/projects/C--gd-FFIX/memory/`, indexed by `MEMORY.md`):
+The full technical detail this file only summarizes lives in the project-memory store, **auto-loaded each
+session** and indexed by its `MEMORY.md` (`~/.claude/projects/C--gd-Dream-World-IX/memory/`). Read a topic file
+on demand — `MEMORY.md` carries a one-line hook for all ~74. (Consolidated 2026-06-29: the old `C--gd-FFIX`
+store was merged in after the single-repo migration left it orphaned; that path is now just a backup.)
 
-- `project-ff9-eb-script-tooling` — `.eb` format + opcode tables, Python injection, custom
-  text/MES, the F6 debug menu, the cutscene-in-LOOP rule, flag persistence.
-- `project-ff9-camera-math` — the projection invariant, decompose/synthesize, scale-1 canvas
-  map, character offset, yaw, multi-camera convention.
-- `project-ff9-import-frame` — the `vert + orgPos + floor.org` walkmesh frame; simple vs multi-floor forks.
-- `project-ff9-novel-bg-pipeline` — painted-BG / overlay-depth / occlusion pipeline.
-- `project-ff9-gateway-regions` — region trigger mechanics + IsInQuad dead zones.
+The load-bearing foundational recipes, by name:
+- `project-ff9-eb-script-tooling` — `.eb` format + opcode tables + Python injection; flag persistence; the F6 menu.
+- `project-ff9-camera-math` — the projection invariant (k=14/15), scale-1 canvas, character offset, yaw.
+- `project-ff9-import-frame` — the `vert + orgPos + floor.org` walkmesh frame; ship the real `.bgi` verbatim.
+- `project-ff9-novel-bg-pipeline` — painted-BG / overlay-depth / occlusion; `--native` is the seam-free path.
+- `project-ff9-gateway-regions` — region trigger mechanics + IsInQuad dead zones + the fade-before-`Field()` rule.
 - `project-ff9-encounters` — random battles + the after-battle Main_Reinit fix.
-- `project-ff9-ate-system` — Active Time Events: the "Press SELECT" optional cutscenes are almost all field-`.eb`
-  (GetChoose → `op_0B` jump table); engine does 3 things (blink opcode `AICON=0xD7` — NOT `BARATE`; `winATE=64`
-  flag; achievement-only `AteCheck` seen table). `--verbatim` carries them. Full teardown = `docs/ATE_SYSTEM.md`.
+- `project-ff9-story-flags` — the `gEventGlobal` heap map + the 5 verbs + the safe band (bit 8512).
 - `project-ff9-memoria-build` — local engine build toolchain + auto-deploy + version-match.
-- `project-ff9-object-carry` — faithful NPC/prop carry: verbatim `.eb`-entry graft + player-func graft +
-  text carry + the v1.5 STARTSEQ-helper closure; the cross-ref remap + the engine facts (tag 2 = push, etc.).
-- `project-ff9-savepoint` — the save point = `Menu(4,0)`; synthesize the region, don't graft the cluster.
-- `project-ff9-story-flags` — the `gEventGlobal` heap map + the 5 verbs + the safe band (bit 8512) + the
-  AES `SavedData_ww.dat` codec.
-- `project-ff9-jump-navigation` — navigable jumps = ladder mechanism minus the climb loop; the entry-table fix.
-- `project-ff9-battle-backgrounds` — custom 3D battle maps (all tiers) + the raw17 camera recipe.
-- `project-ff9-battle-tuning` — battle GAMEPLAY tuning (not backgrounds): the 4-channel model (raw16
-  `SB2_MON_PARM` / Data CSVs / battle `.eb` AI / field `.eb` wiring), the no-DLL boundary, the roadmap.
-  Full gap map = `docs/BATTLE_DESIGN.md`.
-- `project-ff9-infohub-authoring` — place any field model/prop/creature by NAME (archetypes/props/creatures);
-  the model→animation join; the Info Hub catalog + viewer + debug arena.
-- `project-ff9-import-fidelity` — `import --editable` = a scaffold (faithful carry now exists separately).
-- `project-ff9-worldmap-feasibility` — field-chain campaign done; custom overworld = the hardest unstarted.
-- `project-ff9-bg-borrow-solution`, `project-ff9-mint-proven`, `project-ff9-mint-gotchas` — minting + BG-borrow + HW dead-ends.
-- `feedback_trust_user_game_knowledge`, `project_ff9_has_no_unused_fields`,
-  `project_ff9_field_warp_pattern`, `reference_ff9_modding_community` — process + community.
+- `project-ff9-object-carry` / `project-ff9-verbatim-fork` — faithful NPC/prop carry + the truest fork.
+- `project-ff9-field-logic-map` — make a verbatim fork's `.eb` legible + editable in place.
+- `project-ff9-battle-backgrounds` / `project-ff9-battle-tuning` — custom battle maps + gameplay tuning.
 
 ---
 
@@ -479,84 +388,31 @@ editable/native forks + multi-floor seams · offline lint suite · multi-camera 
 cutscenes + flag persistence · form editor + scene/field split · provenance gate cleared (zero SE bytes) ·
 dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 
-**Pillars (all in-game proven):**
-- Battle backgrounds — all tiers (reskin / FBX / new-scene / camera), no DLL → [[project_ff9_battle_backgrounds]]
-- Campaigns — `import-chain` + the Campaign-Editor IDE → [[project_ff9_worldmap_feasibility]]
-- Navigable jumps + save points (synthesized & verbatim save-Moogle) → [[project_ff9_jump_navigation]], [[project_ff9_savepoint]]
-- Story flags — `gEventGlobal` mapped, 5 verbs, safe band ≥8512, `[startup]`/`[[on_entry]]` → [[project-ff9-story-flags]]
-- Faithful object/NPC carry → verbatim fork (`--verbatim` = the truest fork: real logic + real text) → [[project-ff9-verbatim-fork]], [[project_ff9_object_carry]]
+**Pillars (all in-game proven — detail in the named memory + `git log`):**
+- Battle backgrounds — all tiers (reskin / FBX / new-scene / camera), no DLL → [[project-ff9-battle-backgrounds]]
+- Battle tuning — enemy + player side + raw17 `btlseq` attack-choreography, no DLL → [[project-ff9-battle-tuning]]
+- Battle/party GUI — battle + party config folded into the Workspace (encounter-first) → [[project-ff9-battle-party-gui]]
+- Campaigns — `import-chain` + the Campaign-Editor IDE → [[project-ff9-worldmap-feasibility]], [[project-ff9-import-chain-coverage]]
+- Multi-campaign journey assembler — both link modes + zero-link deploy-derived auto-wiring → [[project-ff9-world-hub]], [[project-ff9-journey-single-folder]]
+- World Hub — playable journey selector (New Game → hub → verbatim forks) → [[project-ff9-world-hub]]
+- Navigable jumps + save points (synthesized & verbatim save-Moogle) → [[project-ff9-jump-navigation]], [[project-ff9-savepoint]]
+- Story flags — `gEventGlobal` mapped, 5 verbs, safe band ≥8512, field/campaign/journey scopes → [[project-ff9-story-flags]], [[project-ff9-flag-scope-hierarchy]]
+- Faithful object/NPC carry → verbatim fork (`--verbatim` = real logic + real text); additive content on a verbatim fork → [[project-ff9-verbatim-fork]], [[project-ff9-npc-on-verbatim]]
 - Non-Zidane donors + PC/party control (`--swap-player`, `[party]`) → [[project-ff9-non-zidane-donors]], [[project-ff9-pc-party-system]]
-- Items / equipment / shops + the New-Game starting-state capstone → [[project-ff9-items-equipment]], [[project-ff9-new-game-entry]]
-- Campaign-scale New-Game capstone — New Game → a forked verbatim CHAIN that plays its real story (Dali: wake-up → Garnet rejoins @2640), beat/bag/gear seeded on the entry; `tools/retarget_newgame_warp.py` + `import-chain --name-prefix` (cross-worktree FBG/EVT namespace); `deploy_campaign` auto-promotes start-state CSVs to the highest folder + ABORTS on a cross-folder EVT/FBG name collision (`--allow-name-collision` to override) → [[project-ff9-new-game-entry]]
+- Items / equipment / shops + save editor + the New-Game starting-state capstone → [[project-ff9-items-equipment]], [[project-ff9-save-item-layout]], [[project-ff9-new-game-entry]]
+- `fork-report` (offline fidelity preview) + verbatim-fork SPATIAL authoring (Blender markers) → [[project-ff9-npc-on-verbatim]], [[project-ff9-fork-fidelity-worklist]]
 - InfoHub authoring — place any model/prop/creature by name → [[project-ff9-infohub-authoring]]
-- `fork-report` — preview a fork's fidelity offline (roster/interaction/player/party/dialogue/items/camera + `--explain`)
-- Verbatim-fork SPATIAL authoring — place additive `[[npc]]`/`[[gateway]]`/`[[event]]` markers on a verbatim fork WITHOUT touching its byte-exact `.bgi`: a **verbatim-aware Blender export** (add-on `0.9.20`) writes the spatial markers ONLY (keeps `[walkmesh] bgi=`; never the obj round-trip that strands floors — the field-50 cargo-deck bug) and the spatial editor carries name+position only (model/dialogue = field.toml, joined by name); the **Workspace** surfaces a scene-placed NPC/marker with no `[[npc]]`/`[[marker]]` def as a 'needs definition' tree node + one-click **Define**, with **Refresh (F5)** re-reading the scene.toml after a re-export; a bare NPC (no model/preset) lints as a player-clone (Zidane). ★ in-game proven 2026-06-24. → [[project-ff9-npc-on-verbatim]]
-- World Hub — a playable journey selector (choice `warp` + `[player] model=` moogle PC): a `journeys.toml` → hub-field **generator** (`ff9mapkit gen-hub`; `docs/JOURNEYS.md` schema — `id`/`name`/`entry`/seed); New Game → hub (seamless); journeys warp into REAL verbatim forks (Dali 4100 + Treno-Pub 4501); an entry **camera-settle** (`[camera] entry_settle`) — the warp-in drift is an F6-debug-warp artifact, the shipped New-Game/gateway entries are clean. → [[project-ff9-world-hub]]
-- Multi-campaign journey **assembler** (`ff9mapkit/journey.py`; CLI `lint-journey`/`assemble-journey`; `tools/deploy_journey.py`) — BUILT: one unified `journeys.toml` (`[hub]` + bare `entry=<id>` OR multi-campaign `campaigns`/`entry={campaign,field}`/`[journey.seed]`/`[[journey.link]]` rows); resolves member NAMEs → global ids, assigns disjoint flag windows, lints the GLOBAL id-disjointness guarantee across every campaign of every journey (the §8 "whole job"); folds `hub.render_hub_field_toml` in so one renderer serves bare + multi; and the **deploy orchestration** — `build_deploy_plan`/`render_deploy_playbook`/`apply_link_rewrites` (+ `build_campaign(flag_base=)`, `deploy_campaign --flag-base`): each campaign into its own stacked folder at its flag window, each cross-campaign link realized by byte-patching the boundary `.eb` `Field(seam)` → next entry (`verbatim.remap_fields`, all langs, revert-guarded), then hub + New-Game retarget. `deploy_journey` (dry-run) prints the ordered playbook of proven, revert-guarded steps; `--apply-links` runs the one journey-unique step. ★ **IN-GAME PROVEN (2026-06-13)**: a forked Ice Cavern → Ice Cavern/Outside arc (6200-6211 + 6300, each its own folder/flag window) — walking out the cavern exit (6211) lands in the FORKED Outside (6300), the cross-campaign link firing. Gotcha: `deploy_campaign` wholesale-replaces a folder, so `--apply-links` must run LAST + be re-run after any campaign re-deploy (the playbook warns). ★ **WORLD-MAP LEG DONE + IN-GAME PROVEN (2026-06-13)**: an overworld-seam boundary (exit-to-world-map: a `WorldMap` op, no `Field()` to retarget) is wired by the second link mode **`worldmap_inject`** — body-replace its tag-2 walk-out region with the proven gateway `Field(dst)` warp body, reusing the region's own map-edge zone (no new entry slot / no double-exit). Walking out the forked Ice Cavern ENTRANCE's worldmap exit (6200) now lands in the forked Outside (6300). **The assembler is COMPLETE** (both link modes proven: `field_remap` + `worldmap_inject`). ★ **ONE-SHOT `deploy_journey --apply` + `[journey.seed]` capstone**: `--apply` pre-builds every campaign + the hub offline (fail before any game write), installs the prebuilt dists, applies the links, deploys the hub (auto-extracting its `borrow_field` camera) — New Game UNTOUCHED unless `--wire-newgame` (single-owner); one reverse-order `revert_journey.py`. `[journey.seed]` (scenario/party) bakes into the entry fork's own `.eb` via `build_campaign(seed_blocks=)` → `apply_seed_blocks`/`journey.seed_to_field_blocks` (per-journey-clean); seed inventory/equipment map to mod-GLOBAL New-Game CSVs (lint-warns; per-journey items want scripted `give_item`, a follow-up). Snappy menus: `[[choice]] instant=true` → FF9's `[IMME]` (hub default on). ★ **DEPLOY-DERIVED LINKS (2026-06-19, `a793903`):** a journey now needs ZERO `[[journey.link]]` rows — the deploy AUTO-WIRES every cross-campaign warp from the real `.eb` seams (`journey.campaign_connectivity`/`auto_seam_links`; one link per distinct `Field(to_real)`, batched per source member → one `.eb` patch; leak-proof). `[[journey.link]]` survives only as a manual OVERRIDE; "Fill entry from forks" fills the ENTRY only; an unreachable campaign = a lint warning (the game doesn't connect it), not a hand-fill. Region catalog also split by **story-state visit** (`--ids` cluster fork) + ordered **chronologically by entry seed**. ★ **IN-GAME PROVEN (2026-06-19)**: the scratch_2 5-arc zero-`[[journey.link]]` deploy (prima_vista 6000 / a_castle 6200 / alexandria 6400 / prima_vista_bshp 6600 / evil_forest 6800, each its own folder+flag window) played the whole Alexandria opening — Prima Vista → Castle → Town → crash → **Evil Forest** — the ~91 auto-derived cross-campaign seams firing in-fork, no hand-written links. Deploy gotcha (not a bug): the journey one-shot ABORTS exit-2 if a SUPERSEDED prior journey's folders still sit in `Memoria.ini FolderNames` on the same id band (the global-EventDB id-collision guard) — clear the stale folders from FolderNames first (a pre-flight collision report is the follow-up). → [[project-ff9-import-chain-coverage]], [[feedback-zones-organize-not-constrain]], [[project-ff9-world-hub]]
-- Active Time Events — full teardown + BOTH real flavors authorable & ★ IN-GAME PROVEN: the **OPTIONAL** Press-SELECT menu (`[ate]` = prompt + winATE menu + `GetChoose` branch; arms on a story-set avail WORD in `gEventGlobal` byte 236, NOT the scenario — each bit = one menu row) AND the **GREY UNSKIPPABLE** auto-ATE (`[cutscene] ate = true`, default `ate_mode = 6` = the grey force-show bottom-left "ACTIVE TIME EVENT" banner `ActiveTimeEvent.cs`; `ATE(6)…ATE(0)` + winATE caption). PLUS cold-reproduce REAL ATEs in `--verbatim` forks by seeding the beat. Test slots: synth menu @30007 · Lindblum Small-Town-Knight @30006 · real Eiko menu @30009 · real grey-unskippable (Gargant 956, `[startup] scenario=7006`) @30010 · authored grey banner @30008. ★ Mode map (676-field sweep, corrected from a wrong "mode 6 = transition fade" call the USER caught): mode 1 = optional/blue, **mode 6 = grey unskippable**, mode 2 unused, mode 5 = the single field-206 menu-open → [[project-ff9-ate-system]]
-- Offline field-art export — assemble Memoria's per-overlay `Overlay{i}.png` straight from the p0data atlas (`scene/bgart.py` + `extract._overlay_art`), replacing the hang-prone in-game `[Export] Field=1` startup dump; byte-exact vs the engine's own `atlas.png` crop, ≤3/255 across all 582 dumped fields (`tools/verify_overlay_export_parity.py`). Batch CLI **`ff9mapkit export-art [<field> | <campaign.toml> | --all]`** = the drop-in (writes `FieldMaps/<FBG>/Overlay{i}.png` + `atlas.png`, no launch); **`--composite`** = one clean background PNG/field (browsable gallery). **`ff9mapkit import-all`** = a foldered whole-game Blender archive (`<out>/<ZONE>/<FBG>/`, lightweight by default) → [[project-ff9-novel-bg-pipeline]]
-- Native-art repaint round-trip — make a `--native` fork's tile-packed `atlas.png` repaintable (seamless HD / Moguri-style) without the `.bgx` seam: **`ff9mapkit repaint-native <proj>`** unpacks the atlas into per-overlay spatial `Overlay{i}.png` layers (+ `repaint.manifest.json`); the artist repaints any layer; **`… --pack`** blits them back (`bgart.repack_overlay`, the inverse of `assemble_overlay`). Per-OVERLAY granularity dodges flat-composite overlap + multi-camera; writes only CHANGED cells (unmodified pack = byte-exact no-op, idempotent, no pristine copy) and **re-bleeds each repainted cell's edge 2px into the atlas margin** — the upscaled native render point-samples with `UVBorderShift=0.5` so a hi-res display grazes 1px into the margin (BGSCENE_DEF.cs:1322), and the bleed stops a stale-edge seam. Self-contained (no game/UnityPy; provenance net covers `atlas.png`/`Overlay*.png`). Native fork records `atlas_tile_size`. GUI: Import tab "Repaint a native fork's art" box, pre-aimed after a native fork. ★ **IN-GAME PROVEN (2026-06-22)**: repainted a native fork (ALXT field 100) → deployed the NATIVE `field.toml` → the repaint shows SEAMLESS in-game. (Gotcha the playtest surfaced: a native + an editable fork sharing one folder made `repaint-native` grab the editable one; now it prefers the native field.toml + editable is labelled SEAM-PRONE — deploy the NATIVE field.toml, never the `.bgx` editable one.) → [[project-ff9-native-repaint-workflow]]
-- Blender MULTI-CAMERA fidelity — the import drops ALL of a field's cameras (`FF9_Camera`+`_01`..) so its walkmesh is framed/modelable under each (not just cam0); and **per-camera ART** (`BGOVERLAY_DEF.camNdx` = which camera paints an overlay) gives each camera its own backdrop instead of all overlays jammed onto cam0's canvas. `compose_background(camera_index=K)` + `background_cam0K.png`; the **View Selected Camera** op matches render-res to a camera's range. 100% per-camera footprint coverage across 14 multi-cam fields; Blender-proven on Crystal World 2934. Editable forks of multi-cam fields warn → use `--verbatim` (faithful multi-cam path) → [[project-ff9-novel-bg-pipeline]]
-- Advanced interactables (moving platforms / elevators / lifts) — field `.eb` tile-motion (`MoveTileLoop`=rideable, `MoveTile`=one-shot, `AttachTile`=player rides); `--verbatim` CARRIES them. ★ IN-GAME PROVEN: rode a cold fork of the Lindblum Castle Lift (2151) end-to-end (picked Upper Level → ride → arrived via the live `Field()` seam). Authoring a declarative `[[platform]]` is the FRONTIER (opcode emit covered by `cmdasm`; needs `AttachTile`/`MoveTileLoop` arg semantics + walkmesh-anim authoring — overlaps #13) → [[project-ff9-moving-platforms-elevators]]
-- Field logic-map — make a verbatim fork's entangled `.eb` LEGIBLE + EDITABLE in place (sidesteps dead-end #14: don't extract a tag-3, map+edit the whole web). READ (`logic_map.build_logic_map` + `logic-map` CLI + GUI "Script" subtree/badge: entries→routines, resolved RunScript call graph, per-routine dialogue/items/flags) · DECODE (`disasm.decode_switch`: 0x06/0x0B/0x0D case→target, validated 5563/5563 boundary-aligned) · VALIDATE (`eblint.lint_eb`, the ailint analogue: decode/jump+switch-bounds/reachable-terminator, 676 fields lint 0-error) · EDIT (`logic_edit.py` `[[logic_edit]]`: old-guarded, lint-gated value swaps — field/item/gil/txid/flag + a verified `.mes` text splice; a **flag remap that crosses the 0xFF C4/E4 token boundary** is length-changing, rebuilt via the keystone — redirect a donor's narrative gate to a custom flag; **GUI authoring** of edits from the "Script" tree) · ADD (`logic_add.py` `[[logic_add]]`: length-CHANGING guarded additions — set_flag/give_item/give_gil/**show_line** (+ `message=` on any kind to ANNOUNCE its effect, the give_item "Received…" box), Phase 4a prepend + Phase 4b `where="after"` mid-insert, on the `cmdasm` labeled-disassemble→splice→reassemble keystone that relocates jumps/switch; a `show_line` line rides the `[[on_entry]]`-style `.mes` append-and-resolve channel). ★ IN-GAME PROVEN: `[[logic_edit]]` .mes line + give/display operand (2026-06-14, Dali Inn / Ice Cavern chest); GUI-authored Phoenix Down chest, Phase 4a once-guarded give, Phase 4b mid-insert give+gil, `show_line` give_item ANNOUNCE (2026-06-15). **GUI authoring of `[[logic_add]]`** (Script panel "Add effect…": give_item/give_gil/set_flag/show_line, prepend or after-an-instruction, dry-run-validated via `build.dry_run_logic_adds`) — DONE, so the panel authors BOTH value edits + length-changing adds. **Cross-0xFF flag remap** (a `flag_index` edit that crosses the C4/E4 width boundary, keystone-rebuilt) — ★ IN-GAME PROVEN (redirected a real Ice Cavern chest gate to a `[startup]`-set custom flag; lesson: remap EVERY use of the flag or the gate won't latch). **`switch_case` redirect** (re-point a jump-table `0x06/0x0B/0x0D` case/default arm to a different in-function target) — ★ IN-GAME PROVEN (a field-206 ATE warp-menu fork: redirected the top row → row 1's branch, picking it warped to field 112 not 208; ATE armed via a 4-global `[startup]` seed) · **`[[logic_add]] add_case`** (ADD a new dispatch arm to a switch — a scenario value / menu row that runs a reused effect then rejoins the default; `0x0B` contiguous `case="auto"`, `0x06` explicit value) — ★ IN-GAME PROVEN (field-206 Main_Init scenario switch: added case 1950 → give Phoenix Down, `[startup] scenario=1950` fired it on entry, once-guard held). **The ENTIRE logic-map edit tier is now in-game proven.** Known limitation: a `message`/`show_line` in an arm that runs at FIELD LOAD (Main_Init dispatch, pre-usercontrol) does not render — the EFFECT (give/flag) fires, but a bare `WindowSync` can't show at load. ★ Mechanism CORRECTED by the user (2026-06-16): wrapping it INLINE in the `Wait`+`DisableMove` dance does NOT hang — the message OPENS but sits UNDER the entry fade-out overlay (screen black) and its `WindowSync` blocks the fade-in until you press input to dismiss it; recoverable, not a crash, but UX-broken (reverted `8acc7fe`). It can't be fixed in place — an `add_case` arm runs synchronously inside Main_Init *before* the scene/fade exist, so any window it opens is under the black; `[[on_entry]]` works only because it runs as a separate `InitCode` coroutine the frame AFTER Main_Init (post-fade). **The field-load give+announce is ALREADY a built, proven path: a single `[[on_entry]]` block does items+gil+`message`, gated on `requires_scenario`/`requires_flag`** (so `add_case` = dispatch LOGIC, `[[on_entry]]` = load-time give+announce; the "atomic single-block" frontier is moot). ★ A/B IN-GAME PROVEN (2026-06-16, field-206 fork @4003): same `scenario=1950` entry — the add_case message stayed silent, the `[[on_entry]]` give+announce rendered post-fade. **`[[logic_add]] menu_row`** (the full coordinated MENU ROW: add a NEW selectable+labelled choice-menu row — `add_case` dispatch + best-effort `EnableDialogChoices` mask widen + a verified `.mes` row splice/`[PCHC]` count bump) — ★ IN-GAME PROVEN (Black Mage Village inn 3053 fork: the innkeeper's "Will you be staying? Yes/No" menu gained a "Get a free Potion!" row that gives a Potion + box; v1 targets base-0 contiguous, text-gated `[PCHC]`/no-pretag, rows==ncases menus, fails closed on `[PCHM]` + non-1:1 menus; `logic_edit.verified_mes_splice` shared with the dialogue rewrite; 3-lens review hardened the leg-A/leg-C alignment + trailing-tag + pretag-arity guards). **GUI authoring**: the Script panel's "Add menu row…" action (shown on a routine with a choice menu; menu-txid pre-filled, dry-run-gated, revert/undo like the other adds). **The logic-map EDIT tier is now COMPLETE — no open frontier.** → [[project-ff9-field-logic-map]]
-- Battle/party GUI — fold battle + party config into the Workspace, ENCOUNTER-FIRST (the engine's own unit: a scene IS a formation; per-enemy edits unlock once `[scene] monster_count` composes it). **P1** `[party]`/`[startup]` Editor forms (new `STRLIST`/`SCENARIOREF`/`FLAGDICTLIST` kinds) + Import **Walk-as** (`--swap-player`, single+region) + an encounter battle-scene Browse picker (`catalog.scene_name`). **P2** read-only encounter/party/startup rollup on the field Inspector card. **P3** a **Battle** tab (`workspace/battledoc.py` over `editor/battle_forms.py`): `[battlemap]`/`[scene]`/`[[scene.enemy]]` forms + **Fork battle…** (`battle-import` create→auto-open + install-gated BBG/scene Browse pickers) + Check; deploy via Build & Deploy. ★ **IN-GAME PROVEN (2026-06-21)**: GUI-forked a battle.toml → deployed → entered from field 4003 / scene 5000; a GUI stat+HP edit applied. ★★ **MUCH EXPANDED + IN-GAME PROVEN (2026-06-22)**: player-CSV tuning branch (Party & abilities) + donor stat baseline DONE; **enemy/scene side** — `[scene]` encounter-flags (`no_escape`/back_attack/…) + opening-camera floats (`camera_zoom` MAGNIFIES: >1 zooms in) + **FAITHFUL per-language forked-scene text** (reads the engine ResourceManager index in `mainData`→`resources.assets` by the real `EmbeddedAsset/Text/<lang>/Battle/<id>` path — collision-safe; heuristic kept as a fallback) + **`[[scene.ai_phase]]` boss-enrage form** + an AI/attack READOUT (Silver Dragon Claw→Aerial Slash below half). GUARDS: `[scene]` tuning is MINT-only (a bare-BBG override is refused, not a silent no-op); the AI enrage-able function is tag 5 (the attack executor). GOTCHA: a boss AI gates on ABSOLUTE HP (`cur.hp<10000`→RunBattleCode) so editing its max HP can trip it — nerf offense, not HP. ⚠ the battle.toml player-CSV carrier was **USER-FLAGGED as misplaced** (party=field, base party=journey; kept as a rare edge case, placement DEFERRED) → [[feedback-player-config-placement]]. Remaining: `[[scene.seq_patch]]`/`[[scene.ai_patch]]` patch forms; a journey base-party form; the player-tuning placement circle-back. → [[project-ff9-battle-party-gui]]
+- Active Time Events — both flavors authorable (optional blue menu + grey unskippable) → [[project-ff9-ate-system]]
+- Offline field-art export + native-art repaint round-trip + multi-camera fidelity → [[project-ff9-novel-bg-pipeline]], [[project-ff9-native-repaint-workflow]]
+- Advanced interactables (moving platforms / elevators) — `--verbatim` carries; declarative `[[platform]]` is the frontier → [[project-ff9-moving-platforms-elevators]]
+- Field logic-map — read/decode/validate/edit/add a verbatim fork's `.eb` in place; whole EDIT tier proven → [[project-ff9-field-logic-map]]
+- Verbatim authoring set — `[music]` rescore, `[[npc]] opens_shop`/`choice`, multi-actor `[cutscene]` conductor → [[project-ff9-verbatim-music]], [[project-ff9-cutscene-multiactor]]
+- FMV pipeline + SPS field-particle authoring → [[project-ff9-fmv-pipeline]], [[project-ff9-sps-authoring]]
 
-**Latest:** kit 1.0.0b2, 2274 tests (suite ~146s serial / ~64s `-n 6` via pytest-xdist; an in-process static-bundle
-cache stops it re-reading the 68 MB event bundle per install-gated call — a "2-hour" run is contention, not a
-regression → [[project-ff9-test-suite-perf]]). **Multi-campaign journey ASSEMBLER — BUILT** (`ff9mapkit/journey.py`
-+ CLI `lint-journey`/`assemble-journey` + `tools/deploy_journey.py`; 32 tests): one unified `journeys.toml` (`[hub]` + bare
-`entry=<id>` OR multi-campaign `campaigns`/`entry={campaign,field}`/`[journey.seed]`/`[[journey.link]]`); `load_journeys`/
-`resolve_journey` (member NAMEs → global ids, disjoint flag windows)/`lint_manifest` (the §8 GLOBAL id-disjointness guarantee
-across every campaign of every journey — one EventDB namespace, all registered at launch)/`manifest_to_hub_spec`+`generate_hub`
-(folds `hub.render_hub_field_toml` so ONE renderer serves bare + multi; `hub.hubspec_from_table` extracted); plus the deploy
-orchestration `build_deploy_plan`/`render_deploy_playbook`/`apply_link_rewrites` (+ `build_campaign(flag_base=)`,
-`deploy_campaign --flag-base`) — each campaign into its own stacked folder at its flag window, each cross-campaign link a
-byte-patch of the boundary `.eb` `Field(seam)`→next entry (`verbatim.remap_fields`, all langs, revert-guarded), then hub +
-New-Game retarget; `deploy_journey` (dry-run) prints the ordered playbook of proven revert-guarded steps, `--apply-links`
-runs the one journey-unique step. Open §6 decisions resolved in `docs/JOURNEYS.md §9` (NAMEs preferred; link `from.field`/
-alias `seam`; `[journey.seed]` IS the story_flags capstone; one-way). ★ **IN-GAME PROVEN (2026-06-13)**: a forked Ice
-Cavern → Ice Cavern/Outside arc (`import-chain 300 --verbatim` 6200-6211 + `312 --verbatim` 6300, each its own folder/flag
-window) — walking out the cavern exit (6211) warps into the FORKED Outside (6300), the cross-campaign link firing (the
-boundary's `Field(312)` seam retargeted → 6300). Gotcha: `deploy_campaign` wholesale-replaces a folder → `--apply-links`
-must run LAST + be re-run after any campaign re-deploy (else the link is wiped; symptom = landing on the real id). ★ **WORLD-MAP
-LEG DONE + IN-GAME PROVEN (2026-06-13)**: the 2nd link mode `worldmap_inject` (a 5-agent disasm of real fields 300/311/312
-found a real overworld handler is byte-identical to the kit gateway template but for its terminal `WorldMap(0xB6)` vs
-`Field(0x2B)` op) — body-replace the boundary's tag-2 walk-out region with the proven gateway `Field(dst)` warp body via
-`eb.edit.replace_function_body`, reusing the region's own map-edge zone (no new slot/zone/double-exit); walking out the forked
-cavern ENTRANCE's worldmap exit (6200) lands in the forked Outside (6300). **The assembler is COMPLETE** (both link modes
-proven). Before this: `deploy_campaign` productionized (auto-promote start-state CSVs to
-the highest folder + ABORT on a cross-folder EVT/FBG name collision; wires New Game via the field-70 retarget, not the
-broken field-100 hop) — ★ **IN-GAME PROVEN**: `--apply` → relaunch → New Game boots straight into the Dali chain.
-World-Hub: `gen-hub` generator + New Game → hub → REAL verbatim journeys (Dali 4100 + Treno-Pub 4501) + entry
-camera-settle — all IN-GAME PROVEN (the shipped entries are camera-clean; only the F6 debug warp drifts).
-Battle TUNING / encounter authoring (`battle_design`) — ★★ **PILLAR COMPREHENSIVELY COMPLETE, enemy AND player
-side, most in-game proven** (kit 0.9.90 lane; rebased onto master). Enemy combat identity (raw16 `[scene]` /
-`[[scene.enemy]]`: stats/affinities/status/defences/category/rewards/`flags` + **BODY re-skin** `model=`/`model_scene=`)
-· per-name BattlePatch (`[[battle_patch]]`/`[[battle_enemy]]`/`[[battle_attack]]` — the BP-only rate/element/limit
-levers + the enemy ATTACK table) · offline balance-lint (`scenelint.py`) · full enemy-**AI authoring** (Phase 6c:
-`[[scene.ai_phase]]`/`[[scene.ai_insert]]`/`ai_entry` — read→patch→assemble→splice→lint; a forked enrage-below-half
-boss in-game proven) · player CSV levers (`actiondelta`/`characterdelta`: `[[battle_action]]`/`[[status]]`/
-`[[status_set]]`/`[[magic_sword_set]]`/`[[character_param]]`/`[[command_set]]`/`[[ability_feature]]`/`[[learn]]` +
-BaseStats/Leveling/AbilityGems, all no-DLL CSV deltas). ★★ **raw17 `btlseq` attack-CHOREOGRAPHY — READ→PATCH→AUTHOR
-whole stack DONE + IN-GAME PROVEN (kit 0.9.89-0.9.90)**: format solved vs `btlseq.cs` + a 562-scene corpus (disasm
-3814/3814; codec byte-exact 562/562); `seqcodec`/`seqdis`/`battle-seq` (read) · `seqpatch`/`[[scene.seq_patch]]`
-(same-length operand patch — slow-mo'd the Goblin's Knife lunge) · `seqasm` (assembler, exact inverse 3525/3525) +
-`seqauthor`/`[[scene.seq_replace]]`/`[[scene.seq_insert]]` + `battle-seq --lint` (length-changing splice + repack —
-a brand-new `Wait` froze the Goblin mid-Knife). 3 adversarial-review rounds. **TIMING FACT: the sequence interpreter
-ticks ~15 fps (`Wait(150)`≈10 s).** The only raw17 piece left = a wholly-new attack SLOT (grow `seqCount` +
-coordinate raw16 `AA_DATA`+`.eb` AI; optional). Full detail → [[project-ff9-battle-tuning]] + `docs/BATTLE_DESIGN.md`.
-Frontier: #13 (story-event director/roster on rotating-cast fields) — ★ **core PROVEN** (a `--verbatim` fork +
-`[startup]` shows a beat-correct rotating roster: forking Dali Weapon Shop 354 at SC 2600 vs 11090, the shopkeeper
-changed + an NPC appeared, in-game 2026-06-12); the **roster-by-beat analyzer + the synth-fork director skip both
-LANDED + IN-GAME PROVEN** (offline beat→cast table via a symbolic Main_Init walk; and a non-`--verbatim` fork now
-DROPS cutscene warp-directors — proven on the Dali shop: fixed fork = 1 shopkeeper, director-carried control = 2);
-and a fork's auto-spawn now stays in the **main walkmesh region** (not a walled-off behind-counter pocket — the
-Dali spawn moved out of the 7-tri pocket into the 21-tri customer area). ★ **#13 TAIL NOW CLOSED** (all in-game
-proven): (c.2) the synth fork dedups duplicate-arg `InitObject` sites so a self-positioning NPC no longer stacks
-into a duplicate pair; (#9) the synth default spawn now lands on the donor's **real main arrival** (where the
-engine drops you walking in — Dali centroid `(83,209)` → real entrance `(439,-122)`), and `fork-report`'s
-**Arrival** line flags per-DOOR fidelity, steering it to `--verbatim` (a synth fork can't reconstruct the
-per-door table — its gateways are retargeted). → [[project-ff9-fork-fidelity-worklist]].
+**Frontier:** #13 (story-event director/roster on rotating-cast fields) — core + tail in-game proven →
+[[project-ff9-fork-fidelity-worklist]]. Custom OVERWORLD = the hardest unstarted thing → [[project-ff9-worldmap-feasibility]].
+
+**Latest:** kit **1.0.0b2**, 2274 tests (`py -m pytest -n 6`). See `git log` for the running narrative.
 
 ---
 
