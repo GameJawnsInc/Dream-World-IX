@@ -84,18 +84,28 @@ def actor_anim(uid: int, anim: int, hold: int = _cutscene.ANIM_HOLD) -> bytes:
     return opcodes.run_animation_ex(uid, int(anim)) + opcodes.wait(int(hold))
 
 
-def compile_steps(steps, uid_by_name, txids, *, say_flags: int = 128, relock: bool = False) -> bytes:
-    """Compile actor-tagged conductor steps to bytes. Each step is a dict with at most one action:
-    ``say`` / ``turn`` / ``anim`` (need an ``actor = "<name>"``; ``say`` without an actor = a narration
-    line), or ``wait`` / ``set_flag`` (conductor-level, no actor). ``say`` steps consume ``txids`` in order.
-    The actor name resolves to a UID via ``uid_by_name`` (or ``"player"`` -> 250).
+WALK_LEVEL = 2          # RunScript script-level for a walk call (matches real fields 565/909/2554)
+WALK_TAG_BASE = 20      # first walk-choreography tag added to an actor's entry (clear of inject_npc's 0/1/3)
 
-    ``relock`` prefixes every beat with ``DisableMove``: the field/engine re-grants player control while
-    its entry transition (fade + scrolling-camera settle) completes, at a time a fixed warmup can't predict
-    (in-game 2026-06-28: the player regained control as the camera settled). Re-asserting the lock before
-    each beat means any such re-grant is undone by the very next beat, so the lock holds for the scene."""
+
+def compile_steps(steps, uid_by_name, txids, *, say_flags: int = 128, relock: bool = False,
+                  walk_calls=None) -> bytes:
+    """Compile actor-tagged conductor steps to bytes. Each step is a dict with at most one action:
+    ``say`` / ``turn`` / ``anim`` / ``walk`` (need an ``actor = "<name>"``; ``say`` without an actor = a
+    narration line), or ``wait`` / ``set_flag`` (conductor-level, no actor). ``say`` steps consume ``txids``
+    in order. The actor name resolves to a UID via ``uid_by_name`` (or ``"player"`` -> 250).
+
+    A ``walk`` step compiles to ``RunScriptSync(2, uid, tag)`` -- the conductor can't walk an actor inline
+    (base ``Walk`` acts on the EXECUTING object and there is no targeted WalkEx), so the caller pre-generates
+    a walk-choreography tag on the actor's OWN entry (``edit.add_function``) and passes ``walk_calls`` (a
+    dict ``step_index -> (uid, tag)``); RunScriptSync runs it in the actor's context (so it animates) and
+    BLOCKS until it returns (sequential). ``walk_calls`` is required iff any step has ``walk``.
+
+    ``relock`` prefixes every beat with ``DisableMove`` -- see :func:`build_body` for why the entry control
+    grant needs the spin-lock + per-beat re-lock."""
+    walk_calls = walk_calls or {}
     out, ti = [], 0
-    for s in steps:
+    for i, s in enumerate(steps):
         if relock:
             out.append(opcodes.DISABLE_MOVE)          # re-lock: undo any entry-transition control re-grant
         name = s.get("actor")
@@ -117,15 +127,35 @@ def compile_steps(steps, uid_by_name, txids, *, say_flags: int = 128, relock: bo
             if uid is None:
                 raise ValueError(f"conductor step {s!r}: anim needs actor = \"<name>\"")
             out.append(actor_anim(uid, s["anim"]))
+        elif "walk" in s:
+            if i not in walk_calls:
+                raise ValueError(f"conductor step {s!r}: walk needs a pre-generated walk tag (walk_calls)")
+            w_uid, w_tag = walk_calls[i]
+            out.append(opcodes.run_script_sync(WALK_LEVEL, w_uid, w_tag))   # run the actor's walk tag, block
         else:
             raise ValueError(f"unknown conductor step: {s!r}")
     return b"".join(out)
 
 
+def walk_tag_body(x: int, z: int, speed: int | None = None) -> bytes:
+    """The body of a per-actor WALK tag, run via RunScript in the actor's own context (gExec == the actor,
+    so base ``Walk`` moves IT and animates). Reuses the kit's actor-walk recipe (SetWalkTurnSpeed(255) +
+    StopAnimation + InitWalk + Walk -- no WaitTurn/WaitAnimation, which hang on a player clone) + a RETURN
+    so the blocking ``RunScriptSync`` caller unblocks on arrival.
+
+    A base ``Walk`` SELF-BLOCKS until arrival, so if another actor's collision box sits in the path it never
+    arrives => softlock (in-game 2026-06-28: a walk into a neighbor locked). The cure is faithful STAGING --
+    author clear paths between an actor's start and its target (real FF9 does the same; the kit can't reroute
+    around live actors). A ``SetPathing(0)`` collision-off wrap was tried and dropped: off the walkmesh the
+    Walk can fail to register arrival (a different hang) and the actor can drift off-mesh -- clean spacing is
+    both safer and how the real game stages cutscene walks."""
+    return _cutscene.actor_walk(int(x), int(z), speed) + opcodes.RETURN
+
+
 def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_region.GLOB_BOOL,
                warmup: int = _cutscene.DEFAULT_WARMUP, owns_control: bool = True,
                exit_warp: int | None = None, say_flags: int = 128,
-               reorder: int = _cutscene.REORDER_WAIT) -> bytes:
+               reorder: int = _cutscene.REORDER_WAIT, walk_calls=None) -> bytes:
     """The conductor function body, run from a standalone ``InitCode``-armed code entry.
 
     Shape: ``[Wait(reorder)] [DisableMove] [Wait(warmup)] <beats> [EnableMove]`` gated
@@ -151,7 +181,8 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
         inner += wait_for_control_then_lock()         # ... spin to that grant, then re-lock (the lock that holds)
     elif warmup > 0:
         inner += opcodes.wait(int(warmup))            # no lock: still settle so the actors exist before the beats
-    inner += compile_steps(steps, uid_by_name, txids, say_flags=say_flags, relock=owns_control)
+    inner += compile_steps(steps, uid_by_name, txids, say_flags=say_flags, relock=owns_control,
+                           walk_calls=walk_calls)
     if owns_control and exit_warp is None:
         inner += opcodes.ENABLE_MOVE
     if once_flag is not None:
@@ -167,11 +198,13 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
 def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None = None,
                      flag_class=_region.GLOB_BOOL, warmup: int = _cutscene.DEFAULT_WARMUP,
                      owns_control: bool = True, exit_warp: int | None = None, say_flags: int = 128,
-                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
+                     walk_calls=None, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
     """Append the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init
-    (over a Wait filler), exactly like a narration cutscene. Returns new .eb bytes."""
+    (over a Wait filler), exactly like a narration cutscene. Returns new .eb bytes. ``walk_calls`` (a dict
+    ``step_index -> (uid, tag)``) maps each ``walk`` step to its pre-generated per-actor walk tag."""
     body = build_body(steps, uid_by_name, txids, once_flag, flag_class=flag_class, warmup=warmup,
-                      owns_control=owns_control, exit_warp=exit_warp, say_flags=say_flags)
+                      owns_control=owns_control, exit_warp=exit_warp, say_flags=say_flags,
+                      walk_calls=walk_calls)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     slot = EbScript.from_bytes(data).first_free_slot()
     out = edit.append_entry(data, slot, entry)

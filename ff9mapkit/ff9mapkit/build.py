@@ -3606,13 +3606,30 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         c_fclass, c_fidx = _cutscene.once_flag_for(cs)         # GLOB (once ever) or MAP (per-visit)
         if _auto.base is not None and "flag" not in cs and cs.get("once", True):
             c_fidx = _auto.cutscene()                          # campaign: pack into this member's flag block
+        # walk beats can't run inline (base Walk acts on the EXECUTING object; there's no targeted WalkEx),
+        # so generate a per-actor walk-choreography TAG on the actor's own [[npc]] entry and RunScript into
+        # it (animates in the actor's context, blocks until arrival). walk_calls: step index -> (uid, tag).
+        walk_calls = {}
+        if any("walk" in s for s in c_steps):
+            from .eb import edit as _eb_edit
+            move_reg = _position_registry(project)
+            next_tag = {}                                      # actor name -> next free walk tag
+            for i, s in enumerate(c_steps):
+                if "walk" not in s:
+                    continue
+                slot = npc_slots.get(s.get("actor"))           # validated to be a real NPC actor (not player)
+                pt = _resolve_point(s["walk"], move_reg)
+                t = next_tag.get(s["actor"], _conductor.WALK_TAG_BASE)
+                next_tag[s["actor"]] = t + 1
+                eb = _eb_edit.add_function(eb, slot, t, _conductor.walk_tag_body(pt[0], pt[1], s.get("speed")))
+                walk_calls[i] = (slot, t)
         eb = _conductor.inject_conductor(
             eb, c_steps, npc_slots, cutscene_txids,
             once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
             owns_control=bool(cs.get("owns_control", True)),
             exit_warp=(int(cs["exit_warp"]) if cs.get("exit_warp") else None),
-            say_flags=cs_say_flags)
+            say_flags=cs_say_flags, walk_calls=walk_calls)
 
     # cutscene (narration, no actor): an ordered, control-locked sequence on entry (once), run as a
     # standalone director code entry. Steps = say / wait / set_flag. An ACTOR cutscene was already
@@ -3986,8 +4003,9 @@ def _validate_conductor(project, cs, problems):
     if not names:
         problems.append("[cutscene] with [[cutscene.actor]] needs at least one named actor")
     known = set(names) | {"player"}
-    global_keys, actor_keys = ("say", "wait", "set_flag"), ("turn", "anim")
+    global_keys, actor_keys = ("say", "wait", "set_flag"), ("turn", "anim", "walk")
     npc_by_name = {n.get("name"): n for n in project.raw.get("npc", [])}
+    move_reg = _position_registry(project)
     steps = cs.get("steps")
     if not isinstance(steps, list) or not steps:
         problems.append("[cutscene] needs a non-empty steps = [ {actor=..., say=...}, ... ] list")
@@ -4017,6 +4035,14 @@ def _validate_conductor(project, cs, problems):
                             _animations.resolve(token, a)
                         except ValueError as e:
                             problems.append(f"[cutscene] step {k}: {e}")
+            if act == "walk":
+                if who == "player":                            # player-walk needs a tag on the player entry -- deferred
+                    problems.append(f"[cutscene] step {k}: walk is not yet supported for \"player\" (only [[npc]] "
+                                    f"actors can walk in a cutscene for now); use turn/anim/say on the player.")
+                try:
+                    _resolve_point(s["walk"], move_reg)        # [x, z] or a known marker/NPC name
+                except ValueError as e:
+                    problems.append(f"[cutscene] step {k}: {e}")
             t = s.get("tail")
             if t is not None and t not in _text.TAIL_CODES:
                 problems.append(f"[cutscene] step {k} tail {t!r} is not a valid TAIL code")

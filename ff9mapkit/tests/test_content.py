@@ -794,6 +794,70 @@ def test_conductor_two_actor_field_builds_end_to_end(tmp_path):
     assert opcodes.DISABLE_MOVE in body and opcodes.ENABLE_MOVE in body
 
 
+def test_conductor_walk_tag_body_is_animated_walk():
+    """A walk tag runs in the actor's own context (so base Walk animates it). Recipe: SetWalkTurnSpeed +
+    StopAnimation + InitWalk + Walk + RETURN -- no WaitTurn/WaitAnimation (they hang on a player clone).
+    Collision is handled by STAGING (clear paths), not a collision-off wrap (which can hang/drift off-mesh)."""
+    body = conductor.walk_tag_body(100, -50)
+    ops = [i.op for i in iter_code(body, 0, len(body))]
+    assert ops == [0x55, 0x42, 0x25, 0x23, 0x04]                   # SetWalkTurnSpeed/StopAnim/InitWalk/Walk/RET
+
+
+def test_conductor_walk_step_compiles_to_runscriptsync():
+    """The conductor can't walk an actor inline (no targeted WalkEx), so a walk beat is a RunScriptSync into
+    the actor's pre-generated walk tag (by uid) -- blocking, so it animates then the scene continues."""
+    body = conductor.compile_steps([{"actor": "npc", "walk": [10, 20]}], {"npc": 5}, [], walk_calls={0: (5, 20)})
+    assert opcodes.run_script_sync(conductor.WALK_LEVEL, 5, 20) in body
+    # without the pre-generated tag, compiling a walk beat is a hard error (not a silent no-op)
+    import pytest
+    with pytest.raises(ValueError):
+        conductor.compile_steps([{"actor": "npc", "walk": [10, 20]}], {"npc": 5}, [])
+
+
+def test_conductor_walk_field_builds_end_to_end(tmp_path):
+    """Full build: two NPCs each with a walk beat -> a walk tag (20) added to each NPC entry, and the
+    conductor RunScriptSyncs into (uid, 20) for each."""
+    from ff9mapkit import build
+    p = tmp_path / "w.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "W"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
+        '[player]\nspawn = [0, 150]\n\n'
+        '[[npc]]\nname = "lefty"\npreset = "vivi"\npos = [-100, 0]\ndialogue = "."\n\n'
+        '[[npc]]\nname = "righty"\npreset = "vivi"\npos = [100, 0]\ndialogue = "."\n\n'
+        '[cutscene]\nonce = true\nactor = ["lefty", "righty"]\n'
+        'steps = [ { actor = "lefty", walk = [0, -150] }, { actor = "righty", walk = [150, 100] } ]\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert [m for m in build.lint_logic(proj) if "cutscene" in m] == []
+    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch = build.collect_text(proj)
+    s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids))
+    walk_entries = [e.index for e in s.entries if not e.empty and e.func_by_tag(20)]
+    assert len(walk_entries) == 2                                  # both NPC entries got a walk tag
+    drv = next(e for e in s.entries if not e.empty and e.index != 0 and e.func_by_tag(0)
+               and any(i.op == 0x14 for i in iter_code(s.data, e.func_by_tag(0).abs_start, e.func_by_tag(0).abs_end)))
+    calls = [(i.imm(0), i.imm(1), i.imm(2)) for i in iter_code(s.data, drv.func_by_tag(0).abs_start,
+                                                               drv.func_by_tag(0).abs_end) if i.op == 0x14]
+    assert calls == [(2, walk_entries[0], 20), (2, walk_entries[1], 20)]  # RunScriptSync(level, uid, tag) per walk
+
+
+def test_conductor_player_walk_is_rejected(tmp_path):
+    """walk on \"player\" is deferred (it needs a tag on the player entry) -- the lint flags it clearly."""
+    from ff9mapkit import build
+    p = tmp_path / "pw.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "PW"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
+        '[player]\nspawn = [0, 150]\n\n'
+        '[[npc]]\nname = "vivi1"\npreset = "vivi"\npos = [-100, 0]\ndialogue = "."\n\n'
+        '[cutscene]\nactor = ["vivi1", "player"]\nsteps = [ { actor = "player", walk = [0, 0] } ]\n',
+        encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))            # conductor checks live in validate()
+    assert any("player" in m and "walk" in m for m in probs)
+
+
 def test_text_mes_format_and_mapping():
     line = text.mes_entry("I miss you Zidane", 500)
     assert line == "_[TXID=500][STRT=10,1][TAIL=UPR]I miss you Zidane[ENDN]"
