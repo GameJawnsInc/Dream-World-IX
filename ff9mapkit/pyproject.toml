@@ -39,9 +39,23 @@ dev = ["pytest>=7", "pytest-xdist>=3"]
 # `ff9mapkit save-edit` (the RECREATE verb) reads/writes FF9's AES-encrypted save; pycryptodome is
 # imported lazily, so it's only needed for that command (and the save tests skip without it).
 save = ["pycryptodome>=3.10"]
-# The modern PySide6 Workspace shell (apps/ff9_workspace.pyw, Phase 3 of the GUI makeover). Optional --
-# the tkinter apps/*.pyw suite is stdlib-only and unaffected; only the Qt shell needs this.
-gui = ["PySide6>=6.5"]
+# UnityPy reads FF9's p0data*.bin Unity assetbundles -- needed for the headline import/fork commands
+# (extract-templates, import, import-all, import-chain, list-fields, battle-import). Imported lazily, so
+# the from-scratch authoring path never needs it. Declaring it here lets `pip install ff9mapkit[assets]`
+# (or the bootstrap installer) set the headline feature up in one shot; the manual `pip install UnityPy`
+# in SETUP.md still works. NOTE (license): UnityPy transitively pulls `fmod_toolkit`, whose MIT wrapper
+# BUNDLES proprietary FMOD Engine binaries (Firelight EULA). That is fine here -- the user's own pip/uv
+# fetches it from PyPI, so the project redistributes nothing -- but any FROZEN/portable build that bakes
+# deps in must EXCLUDE the FMOD libs (UnityPy needs them only for audio extraction, which the kit never
+# invokes). See memory `project-ff9-installer-packaging`.
+assets = ["UnityPy"]
+# The modern PySide6 Workspace shell (apps/ff9_workspace.pyw == `ff9mapkit-workspace`). Optional -- the
+# tkinter apps/*.pyw suite is stdlib-only and unaffected; only the Qt shell needs this. Pinned to
+# PySide6-ESSENTIALS (not the full PySide6 meta-package) on purpose: the GPL-only Qt modules
+# (QtCharts/QtDataVisualization/QtGraphs) live in PySide6-Addons, so Essentials keeps the LGPLv3 path
+# clean and guarantees we never ship a GPL-only module. The Workspace uses only Essentials modules
+# (QtCore/QtGui/QtWidgets); audited 2026-06-28, zero Addons imports.
+gui = ["PySide6-Essentials>=6.5"]
 
 [project.urls]
 # Project "Dream World IX"; the PyPI package name stays "ff9mapkit".
@@ -51,6 +65,12 @@ Issues = "https://github.com/GameJawnsInc/Dream-World-IX/issues"
 
 [project.scripts]
 ff9mapkit = "ff9mapkit.cli:main"
+
+[project.gui-scripts]
+# Console-less launcher for the PySide6 Workspace (the apps/ff9_workspace.pyw target). gui-scripts (not
+# scripts) means pip/uv generate a pythonw-based .exe with no console window -- ideal for a desktop
+# shortcut. Needs the `gui` extra (PySide6); without it the launcher prints a friendly install hint.
+ff9mapkit-workspace = "ff9mapkit.workspace.shell:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

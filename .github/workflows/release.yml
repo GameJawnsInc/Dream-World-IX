@@ -1,0 +1,110 @@
+# Release pipeline for Dream World IX / ff9mapkit.
+#
+# Builds the (pure-Python) wheel + sdist, generates a license-compliant THIRD-PARTY-NOTICES.txt, and on a
+# version tag attaches them to a GitHub Release. Optional PyPI publish via Trusted Publishing (OIDC) is
+# wired but OFF until you opt in -- see the `pypi` job.
+#
+# IMPORTANT: pyproject.toml lives in the ff9mapkit/ subdirectory, not the repo root, so every build step
+# runs there. The wheel is py3-none-any (no compiled extensions in ff9mapkit itself).
+#
+# Trigger: push a tag like `v1.0.0b2`, or run manually from the Actions tab (build + notices only).
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build wheel + sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        working-directory: ff9mapkit
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build            # -> ff9mapkit/dist/*.whl + *.tar.gz
+      - name: Check metadata
+        working-directory: ff9mapkit
+        run: |
+          python -m pip install twine
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: ff9mapkit/dist/*
+
+  notices:
+    name: THIRD-PARTY-NOTICES (Windows)
+    # Generate on Windows so the aggregated license metadata matches the wheels Windows users actually get
+    # (Pillow / PySide6 / UnityPy ship platform-specific binaries).
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package + extras + pip-licenses
+        run: |
+          python -m pip install --upgrade pip pip-licenses
+          # Install into THIS interpreter so pip-licenses sees the real shipped dependency set.
+          python -m pip install ".[gui,save,assets]"
+        working-directory: ff9mapkit
+      - name: Generate THIRD-PARTY-NOTICES.txt
+        run: python tools/gen_third_party_notices.py -o THIRD-PARTY-NOTICES.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: third-party-notices
+          path: THIRD-PARTY-NOTICES.txt
+
+  release:
+    name: Attach to GitHub Release
+    needs: [build, notices]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write          # create/update the Release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: third-party-notices
+          path: notices
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true          # review the assets, then click Publish
+          generate_release_notes: true
+          files: |
+            dist/*
+            notices/THIRD-PARTY-NOTICES.txt
+
+  pypi:
+    name: Publish to PyPI (Trusted Publishing)
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') && vars.PUBLISH_TO_PYPI == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi          # add a `pypi` environment + a Trusted Publisher on PyPI to enable
+    permissions:
+      id-token: write          # OIDC -- no API token/secret needed once Trusted Publishing is configured
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

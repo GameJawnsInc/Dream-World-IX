@@ -30,9 +30,15 @@ Optional extras (pick what you need; details in §2):
 
 | Extra | Installs | Unlocks |
 |---|---|---|
-| `gui` | `PySide6 ≥ 6.5` | The desktop Workspace GUI (`apps/ff9_workspace.pyw`). |
+| `gui` | `PySide6-Essentials ≥ 6.5` | The desktop Workspace GUI (`apps/ff9_workspace.pyw`, or the installed `ff9mapkit-workspace` launcher). Essentials (not the full meta-package) keeps the LGPLv3 path clean. |
+| `assets` | `UnityPy` | The asset-reading commands (`import`, `import-all`, `import-chain`, `list-fields`, `battle-import`, `extract-templates`). Same as the manual `pip install UnityPy` below — just bundled into the extra. |
 | `save` | `pycryptodome ≥ 3.10` | `save-edit` (read/write FF9's AES-encrypted save). Imported lazily. |
 | `dev` | `pytest`, `pytest-xdist` | The offline test suite (`py -m pytest -n 6`). |
+
+> **One-shot install:** `pip install -e ".[gui,assets,save]"` (or, for non-developers, the
+> `installer/` bootstrap `setup.exe`) sets up the GUI + the headline fork commands + save editing in one
+> go. The bootstrap installs everything via [`uv`](https://docs.astral.sh/uv/) with no system Python
+> needed — see [`installer/README.md`](installer/README.md).
 
 ---
 
