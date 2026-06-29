@@ -3255,18 +3255,30 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
     """Inject a MULTI-ACTOR ``[cutscene]`` conductor into a VERBATIM fork: ONE director code entry, seated
     BELOW the donor's party band (so the 9 characters stay the top slots), that drives the additive ``[[npc]]``
     actors -- by their below-band uids in ``npc_slots`` -- and the player (250) via the ``*Ex`` opcodes. say /
-    turn / anim are wired; WALK is deferred on verbatim (it needs a walk tag on the actor's below-band entry --
-    a follow-up) and is skipped with a warning. The conductor is injected LAST, after every other additive
-    block, so the actor uids are settled. Returns the new bytes."""
+    turn / anim / walk are all wired; a ``walk`` beat adds a walk tag to the actor's below-band entry (same as
+    the synthesize path, but the entries sit below the band) and the conductor RunScripts into it. The conductor
+    is injected LAST, after every other additive block, so the actor uids are settled. Returns the new bytes."""
     cs = project.raw.get("cutscene")
     if not (cs and isinstance(cs.get("actor"), list) and cs.get("actor")):
         return eb
     steps = _resolve_conductor_steps(cs["steps"], project)
+    # walk beats -> a walk-choreography tag on the actor's below-band entry, RunScript'd by the conductor (the
+    # synth path's mechanism; here the actor entries sit below the band). add_function grows the entry but slot
+    # INDICES are stable, so the conductor's by-uid refs (and the later band insert) stay valid.
+    walk_calls = {}
     if any("walk" in s for s in steps):
-        n_walk = sum(1 for s in steps if "walk" in s)
-        warnings.append(f"[cutscene] {n_walk} walk beat(s) are not yet wired on a verbatim fork -- skipped "
-                        "(turn/anim/say work; walk works on a synthesized field).")
-        steps = [s for s in steps if "walk" not in s]
+        from .eb import edit as _eb_edit
+        move_reg = _position_registry(project)
+        next_tag = {}
+        for i, s in enumerate(steps):
+            if "walk" not in s:
+                continue
+            slot = npc_slots.get(s.get("actor"))                 # validated to be a real NPC actor (not player)
+            pt = _resolve_point(s["walk"], move_reg)
+            t = next_tag.get(s["actor"], _conductor.WALK_TAG_BASE)
+            next_tag[s["actor"]] = t + 1
+            eb = _eb_edit.add_function(eb, slot, t, _conductor.walk_tag_body(pt[0], pt[1], s.get("speed")))
+            walk_calls[i] = (slot, t)
     auto = _FlagAlloc(getattr(project, "flag_base", None))   # campaign-safe once-flag (matches the other verbatim blocks)
     c_fclass, c_fidx = _cutscene.once_flag_for(cs)
     if auto.base is not None and "flag" not in cs and cs.get("once", True):
@@ -3277,7 +3289,7 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
         warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
         owns_control=bool(cs.get("owns_control", True)),
         exit_warp=(int(cs["exit_warp"]) if cs.get("exit_warp") else None),
-        reserve_party_band=True)
+        walk_calls=walk_calls, reserve_party_band=True)
 
 
 def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *, warnings) -> bytes:

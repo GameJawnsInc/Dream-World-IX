@@ -281,6 +281,7 @@ def test_build_field_verbatim_with_cutscene_conductor_end_to_end(tmp_path):
     project.raw["npc"] = [{"name": "lefty", "preset": "vivi", "pos": [100, 200], "dialogue": "."},
                           {"name": "righty", "preset": "vivi", "pos": [300, 200], "dialogue": "."}]
     project.raw["cutscene"] = {"once": True, "actor": ["lefty", "righty", "player"], "steps": [
+        {"actor": "lefty", "walk": [800, 200]},                  # walk on a verbatim fork (a tag on lefty's below-band entry)
         {"actor": "lefty", "turn": 128},
         {"actor": "lefty", "say": "We exist on a verbatim fork."},
         {"actor": "righty", "anim": "glad"},
@@ -294,7 +295,7 @@ def test_build_field_verbatim_with_cutscene_conductor_end_to_end(tmp_path):
     assert ebs
     for p in ebs:
         s = EbScript.from_bytes(p.read_bytes())
-        assert s.entry_count == donor.entry_count + 3            # 2 NPCs + 1 conductor seated below the band
+        assert s.entry_count == donor.entry_count + 3            # 2 NPCs + 1 conductor seated below the band (a walk = a TAG, not an entry)
         cond = s.entry(band_lo + 2).func_by_tag(0)               # the conductor's single director function
         assert cond is not None
         speak_uids = {i.imm(0) for i in s.instrs(cond) if i.op == 0x95}   # WindowSyncEx targets, by uid
@@ -302,6 +303,10 @@ def test_build_field_verbatim_with_cutscene_conductor_end_to_end(tmp_path):
         ops = [i.op for i in s.instrs(cond)]
         assert 0x87 in ops and 0xBD in ops                       # TurnInstantEx + RunAnimationEx (drive actors by id)
         assert 0x2D in ops and 0x2E in ops                       # control lock + release
+        # the walk beat: lefty's below-band entry got a walk tag (20), and the conductor RunScriptSyncs into it
+        assert s.entry(band_lo).func_by_tag(20) is not None, "walk tag on lefty's below-band entry"
+        runscripts = [(i.imm(0), i.imm(1), i.imm(2)) for i in s.instrs(cond) if i.op == 0x14]
+        assert (2, band_lo, 20) in runscripts                    # RunScriptSync(level=2, uid=lefty, tag=20)
     blob = "".join(p.read_text(encoding="utf-8") for p in out.rglob("*.mes"))
     assert "We exist on a verbatim fork." in blob and "Neat." in blob    # say lines shipped on the appended channel
 
