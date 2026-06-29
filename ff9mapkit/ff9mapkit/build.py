@@ -27,6 +27,7 @@ from .content import ate as _ate
 from .content import camera as _camera
 from .content import choice as _choice
 from .content import cutscene as _cutscene
+from .content import conductor as _conductor
 from .content import encounter as _enc
 from .content import event as _event
 from .content import gateway as _gw
@@ -1493,7 +1494,9 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"{label} tail {t!r} is not a valid TAIL code "
                                 f"({', '.join(sorted(_text.TAIL_CODES))})")
     cs = project.raw.get("cutscene")
-    if cs is not None:
+    if cs is not None and isinstance(cs.get("actor"), list):
+        _validate_conductor(project, cs, problems)     # multi-actor CONDUCTOR (the central-director model)
+    elif cs is not None:
         steps = cs.get("steps")
         actor = cs.get("actor")
         global_keys = ("say", "wait", "set_flag")
@@ -3347,7 +3350,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     cs_ate_mode = (int(cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)) if cs and cs.get("ate") else None)
     cs_say_flags = _cutscene.ATE_CAPTION_FLAG if cs_ate_mode is not None else 128
     actor_choreo = None
-    if cs_actor:
+    if isinstance(cs_actor, str):     # LEGACY single-actor cutscene (spliced into one NPC's loop). A LIST
+                                      # of [[cutscene.actor]] is the multi-actor CONDUCTOR -- injected below.
         actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs_actor), None)
         steps = _resolve_anim_steps(cs["steps"], actor_npc)   # animation = "glad" -> the numeric id
         steps = _resolve_move_steps(steps, project, actor_npc)  # names -> [x,z]; @object walks stop short
@@ -3591,6 +3595,24 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                          flag_class=_region.GLOB_BOOL, requires_flag=gf, requires_set=gs)
             reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
             eb, _slot = _region.inject_region(eb, zone, rb, init_extra=reset)
+
+    # cutscene CONDUCTOR (multi-actor): a list of [[cutscene.actor]] -> ONE central director code entry that
+    # drives every actor BY UID (== its [[npc]] entry slot; player = 250) via the *Ex opcodes, paced with
+    # Wait -- FF9's faithful idiom (memory project-ff9-cutscene-multiactor). Injected here, AFTER the NPC loop,
+    # so npc_slots (name -> uid) is populated. Increment 1 = say/turn/anim + wait/set_flag (animated walk +
+    # parallel beats are later increments).
+    if isinstance(cs_actor, list) and cs_actor:
+        c_steps = _resolve_conductor_steps(cs["steps"], project)
+        c_fclass, c_fidx = _cutscene.once_flag_for(cs)         # GLOB (once ever) or MAP (per-visit)
+        if _auto.base is not None and "flag" not in cs and cs.get("once", True):
+            c_fidx = _auto.cutscene()                          # campaign: pack into this member's flag block
+        eb = _conductor.inject_conductor(
+            eb, c_steps, npc_slots, cutscene_txids,
+            once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
+            warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
+            owns_control=bool(cs.get("owns_control", True)),
+            exit_warp=(int(cs["exit_warp"]) if cs.get("exit_warp") else None),
+            say_flags=cs_say_flags)
 
     # cutscene (narration, no actor): an ordered, control-locked sequence on entry (once), run as a
     # standalone director code entry. Steps = say / wait / set_flag. An ACTOR cutscene was already
@@ -3942,6 +3964,83 @@ def _resolve_anim_steps(steps, actor_npc):
                 raise ValueError(f"cutscene animation {a!r} is a name, but the actor's model isn't a known "
                                  f"preset -- use a numeric anim id, or give the NPC a preset (vivi/zidane/...).")
             s = {**s, "animation": _animations.resolve(token, a)}
+        out.append(s)
+    return out
+
+
+def _validate_conductor(project, cs, problems):
+    """Validate a multi-actor CONDUCTOR cutscene: a ``[[cutscene.actor]]`` list (each ``name`` = an
+    ``[[npc]]`` or ``"player"``) + an actor-tagged ``steps`` list. Increment-1 vocab: ``say`` / ``turn`` /
+    ``anim`` (need an actor; ``say`` may be actor-less narration) + ``wait`` / ``set_flag`` (conductor-level)."""
+    actors = cs.get("actor") or []
+    names, npc_names = [], {n.get("name") for n in project.raw.get("npc", [])}
+    for i, a in enumerate(actors):
+        nm = a if isinstance(a, str) else (a.get("name") if isinstance(a, dict) else None)
+        if not nm:
+            problems.append(f"cutscene actor #{i} needs a name -- actor = [\"<npc name or 'player'>\", ...] "
+                            f"(or [[cutscene.actor]] with name = ...)")
+            continue
+        names.append(nm)
+        if nm != "player" and nm not in npc_names:
+            problems.append(f"cutscene actor {nm!r} is not a defined [[npc]] name (or \"player\")")
+    if not names:
+        problems.append("[cutscene] with [[cutscene.actor]] needs at least one named actor")
+    known = set(names) | {"player"}
+    global_keys, actor_keys = ("say", "wait", "set_flag"), ("turn", "anim")
+    npc_by_name = {n.get("name"): n for n in project.raw.get("npc", [])}
+    steps = cs.get("steps")
+    if not isinstance(steps, list) or not steps:
+        problems.append("[cutscene] needs a non-empty steps = [ {actor=..., say=...}, ... ] list")
+    else:
+        for k, s in enumerate(steps):
+            present = [key for key in global_keys + actor_keys if key in s]
+            if len(present) != 1:
+                problems.append(f"[cutscene] step {k} needs exactly one action "
+                                f"({' / '.join(global_keys + actor_keys)})")
+                continue
+            act, who = present[0], s.get("actor")
+            if (act in actor_keys or (act == "say" and who is not None)):
+                if who is None:
+                    problems.append(f"[cutscene] step {k} ({act}) needs actor = \"<name>\"")
+                elif who not in known:
+                    problems.append(f"[cutscene] step {k} actor {who!r} is not a declared [[cutscene.actor]] "
+                                    f"(or \"player\")")
+            if act == "anim":
+                a = s.get("anim")
+                if isinstance(a, str) and not a.strip().isdigit():
+                    token = _actor_token(npc_by_name.get(who))
+                    if token is None:
+                        problems.append(f"[cutscene] step {k} anim {a!r} is a name, but actor {who!r} has no "
+                                        f"known preset -- use a numeric id or give that [[npc]] a preset.")
+                    else:
+                        try:
+                            _animations.resolve(token, a)
+                        except ValueError as e:
+                            problems.append(f"[cutscene] step {k}: {e}")
+            t = s.get("tail")
+            if t is not None and t not in _text.TAIL_CODES:
+                problems.append(f"[cutscene] step {k} tail {t!r} is not a valid TAIL code")
+    if "exit_warp" in cs:
+        ew = cs["exit_warp"]
+        if not (isinstance(ew, int) and not isinstance(ew, bool) and ew > 0):
+            problems.append(f"[cutscene] exit_warp {ew!r} must be a field id (a positive int)")
+
+
+def _resolve_conductor_steps(steps, project):
+    """Resolve each multi-actor conductor step's named ``anim`` to a numeric id via THAT step's actor model
+    (the per-step analogue of :func:`_resolve_anim_steps` -- a conductor names its actor per step, not once
+    for the whole scene). Numeric ids pass through; ``player`` and actor-less steps are untouched."""
+    npc_by_name = {n.get("name"): n for n in project.raw.get("npc", [])}
+    out = []
+    for s in steps:
+        a = s.get("anim")
+        if a is not None and not isinstance(a, bool) and not isinstance(a, int) and not str(a).strip().isdigit():
+            actor_npc = npc_by_name.get(s.get("actor"))
+            token = _actor_token(actor_npc)
+            if token is None:
+                raise ValueError(f"conductor anim {a!r} is a name, but actor {s.get('actor')!r} has no known "
+                                 f"preset -- use a numeric anim id, or give that [[npc]] a preset.")
+            s = {**s, "anim": _animations.resolve(token, a)}
         out.append(s)
     return out
 

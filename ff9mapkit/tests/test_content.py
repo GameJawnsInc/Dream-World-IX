@@ -13,8 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from ff9mapkit import data
-from ff9mapkit.content import (camera, choice, cutscene, encounter, event, gateway, music, npc,
-                               prop, region, reinit, text)
+from ff9mapkit.content import (camera, choice, conductor, cutscene, encounter, event, gateway, music,
+                               npc, prop, region, reinit, text)
 from ff9mapkit.eb import EbScript, opcodes
 from ff9mapkit.eb.disasm import iter_code
 
@@ -652,6 +652,146 @@ def test_cutscene_injected_and_armed():
                                                       e.func_by_tag(0).abs_end)))
     assert cs is not None
     assert 0x07 in _ops(eb, 0, 0)                                     # InitCode arms it from Main_Init
+
+
+# --- multi-actor CONDUCTOR (the central-director model; memory project-ff9-cutscene-multiactor) ---
+
+def test_conductor_ex_opcodes_roundtrip():
+    """The targeted *Ex / RunScript helpers encode to bytes that disassemble back to the same opcode
+    (arg layouts verified vs the engine optables); the conductor drives actors with these."""
+    from ff9mapkit.eb.disasm import read_code
+    cases = [
+        (opcodes.window_sync_ex(11, 0, 128, 56), 0x95, 7),
+        (opcodes.turn_instant_ex(12, 128), 0x87, 4),
+        (opcodes.timed_turn_ex(12, 21, 16), 0xBB, 5),
+        (opcodes.wait_turn_ex(12), 0xBC, 3),
+        (opcodes.run_animation_ex(11, 2307), 0xBD, 5),
+        (opcodes.wait_animation_ex(11), 0xBE, 3),
+        (opcodes.run_script(2, 250, 16), 0x12, 5),
+        (opcodes.run_script_async(2, 11, 24), 0x10, 5),
+        (opcodes.run_shared_script(8), 0x43, 3),
+        (opcodes.wait_shared_script(), 0x44, 1),
+    ]
+    for b, op, length in cases:
+        ins, pos = read_code(b, 0)
+        assert ins.op == op and ins.length == length and pos == len(b), f"{op:#x} {b.hex()}"
+    # WindowSyncEx carries the TARGET object-id as operand 0 -- a conductor addressing an actor by id
+    ins, _ = read_code(opcodes.window_sync_ex(11, 0, 128, 56), 0)
+    assert ins.imm(0) == 11 and ins.imm(3) == 56
+
+
+def test_conductor_drives_two_actors_by_id():
+    """One conductor body drives TWO actors by uid (== their entry slots), gated once, control-locked."""
+    uid_by_name = {"garnet": 11, "steiner": 12}
+    steps = [{"actor": "garnet", "turn": 128}, {"actor": "garnet", "say": "Welcome home."},
+             {"actor": "steiner", "anim": 2307}, {"actor": "steiner", "say": "Princess!"}, {"wait": 20}]
+    body = conductor.build_body(steps, uid_by_name, [1000, 1001], once_flag=8100)
+    assert body.startswith(region.cond_not(region.GLOB_BOOL, 8100))    # gated by the once flag
+    # the reorder Wait (so the lock outlives Main_Init's EnableMove) sits inside the gate, before DisableMove
+    assert body.index(cutscene.wait(cutscene.REORDER_WAIT)) < body.index(opcodes.DISABLE_MOVE)
+    assert opcodes.turn_instant_ex(11, 128) in body                    # garnet turns, by id
+    assert opcodes.window_sync_ex(11, 0, 128, 1000) in body            # garnet's line, by id
+    assert opcodes.run_animation_ex(12, 2307) in body                  # steiner animates, by id
+    assert opcodes.window_sync_ex(12, 0, 128, 1001) in body            # steiner's line, by id
+    assert region.set_var(region.GLOB_BOOL, 8100, 1) in body           # once-guard set on completion
+    ops = [i.op for i in iter_code(body, 0, len(body))]                # decode (single-byte index() is unsafe)
+    assert 0x2D in ops and 0x2E in ops and ops.index(0x2D) < ops.index(0x2E)  # lock for the duration
+    assert body.endswith(opcodes.RETURN)
+
+
+def test_conductor_polls_for_control_grant_then_locks():
+    """In-game finding (2026-06-28, two iterations): the field re-grants control as its entry camera settles,
+    past any fixed warmup (the player could walk + dismiss the first window, THEN lost control). So the
+    conductor DisableMoves, then SPINS until the engine re-grants control (IsMovementEnabled, sysvar 2), then
+    re-locks -- the lock then lands AFTER the grant. The spin is bounded so it can't hang."""
+    spin = conductor.wait_for_control_then_lock(cap=5)
+    sops = [i.op for i in iter_code(spin, 0, len(spin))]
+    assert 0x03 in sops                                           # JMP_IF -> exits early the moment control is granted
+    assert sops.count(0x22) == 5                                  # one Wait per capped frame (bounded)
+    assert sops[-1] == 0x2D                                       # ends by locking (DisableMove) after the grant
+    # in build_body the spin sits after an early DisableMove; each beat still re-locks as a backstop
+    body = conductor.build_body([{"actor": "player", "say": "a"}, {"actor": "player", "turn": 64}],
+                                {}, [500], once_flag=None)
+    bops = [i.op for i in iter_code(body, 0, len(body))]
+    assert 0x03 in bops                                           # the control-grant poll is present
+    for k, op in enumerate(bops):                                 # each say/turn beat is re-locked (DisableMove)
+        if op in (0x95, 0x87):
+            assert bops[k - 1] == 0x2D, f"beat op {op:#x} not re-locked"
+    # owns_control = False -> no lock, no poll (the field keeps control)
+    body2 = conductor.build_body([{"actor": "player", "say": "a"}], {}, [500], once_flag=None, owns_control=False)
+    b2 = [i.op for i in iter_code(body2, 0, len(body2))]
+    assert 0x2D not in b2 and 0x03 not in b2
+
+
+def test_conductor_player_resolves_to_250():
+    body = conductor.build_body([{"actor": "player", "say": "..."}], {}, [1000], once_flag=None)
+    assert opcodes.window_sync_ex(250, 0, 128, 1000) in body           # "player" -> uid 250 (control char)
+
+
+def test_conductor_avoids_blocking_waits_on_actors():
+    """Softlock guard: anim/turn use the NON-blocking forms (RunAnimationEx+Wait, TurnInstantEx) -- never
+    WaitAnimationEx/WaitTurnEx, which hang on a player-cloned actor whose clip doesn't drive the wait."""
+    body = conductor.build_body([{"actor": "player", "anim": 1713}, {"actor": "player", "turn": 64}],
+                                {}, [], once_flag=None)
+    assert opcodes.run_animation_ex(250, 1713) in body and opcodes.turn_instant_ex(250, 64) in body
+    assert opcodes.wait_animation_ex(250) not in body and opcodes.wait_turn_ex(250) not in body
+
+
+def test_conductor_injected_and_armed():
+    out = conductor.inject_conductor(CLEAN, [{"actor": "player", "say": "hi"}], {}, [500], once_flag=8100)
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out                                        # structurally valid
+    assert 0x07 in _ops(eb, 0, 0)                                      # InitCode arms it from Main_Init
+    drv = next(e for e in eb.entries if not e.empty and e.index != 0 and e.func_by_tag(0)
+               and any(i.op == 0x95 for i in iter_code(eb.data, e.func_by_tag(0).abs_start,
+                                                        e.func_by_tag(0).abs_end)))
+    assert drv is not None                                             # the conductor entry drives by WindowSyncEx
+
+
+def test_conductor_exit_warp_replaces_enablemove():
+    body = conductor.build_body([{"actor": "player", "say": "bye"}], {}, [500], once_flag=8100, exit_warp=1153)
+    assert opcodes.ENABLE_MOVE not in body                             # destination restores control
+    assert any(i.op == 0x2B for i in iter_code(body, 0, len(body)))    # ends with Field(1153)
+
+
+def test_conductor_two_actor_field_builds_end_to_end(tmp_path):
+    """Full synth build: a field with two NPCs + a [cutscene] conductor injects one director entry that
+    drives both NPCs (by their entry slots) and the player (250). The string-list `actor = [...]` form
+    avoids the TOML array-of-tables ordering trap (steps must precede [[cutscene.actor]] otherwise)."""
+    from ff9mapkit import build
+    p = tmp_path / "c.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "C"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-200,-200],[200,-200],[200,200],[-200,200]]\n\n'
+        '[player]\nspawn = [0, 150]\n\n'
+        '[[npc]]\nname = "vivi1"\npreset = "vivi"\npos = [-80, 0]\ndialogue = "."\n\n'
+        '[[npc]]\nname = "vivi2"\npreset = "vivi"\npos = [80, 0]\ndialogue = "."\n\n'
+        '[cutscene]\nonce = true\nactor = ["vivi1", "vivi2", "player"]\n'
+        'steps = [\n'
+        '  { actor = "vivi1", turn = 128 },\n'
+        '  { actor = "vivi1", say = "Hello there." },\n'
+        '  { actor = "vivi2", anim = "glad" },\n'
+        '  { actor = "vivi2", say = "Hi!" },\n'
+        '  { actor = "player", say = "..." },\n'
+        '  { wait = 20 },\n'
+        ']\n', encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert build.lint_logic(proj) == [] or all("cutscene" not in m for m in build.lint_logic(proj))
+    mes, npc_txids, _ev, cs_txids, _ch, _oe, _ate, _chest = build.collect_text(proj)
+    assert len(cs_txids) == 3                                          # three say steps -> three txids
+    eb = build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids)
+    s = EbScript.from_bytes(eb)
+    assert s.to_bytes() == eb                                          # re-parses cleanly
+    # find the conductor entry (a code entry whose func 0 holds WindowSyncEx) and check it drives all three
+    drv = next(e for e in s.entries if not e.empty and e.index != 0 and e.func_by_tag(0)
+               and any(i.op == 0x95 for i in iter_code(s.data, e.func_by_tag(0).abs_start,
+                                                       e.func_by_tag(0).abs_end)))
+    body = s.data[drv.func_by_tag(0).abs_start:drv.func_by_tag(0).abs_end]
+    speak_uids = {i.imm(0) for i in iter_code(body, 0, len(body)) if i.op == 0x95}
+    assert 250 in speak_uids                                          # the player speaks, by uid 250
+    assert len([u for u in speak_uids if u != 250]) >= 1              # at least one NPC speaks, by its slot
+    assert opcodes.DISABLE_MOVE in body and opcodes.ENABLE_MOVE in body
 
 
 def test_text_mes_format_and_mapping():

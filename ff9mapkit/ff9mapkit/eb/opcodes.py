@@ -71,6 +71,67 @@ def run_script_sync(level: int, uid: int, tag: int) -> bytes:   # 0x14 (REQEW) a
     return encode(0x14, level, uid, tag)
 
 
+def run_script(level: int, uid: int, tag: int) -> bytes:       # 0x12 (REQSW) argsize [1,1,1]
+    """RunScript(level, uid, tag): run function ``tag`` on the object with this UID and CONTINUE (the callee
+    runs concurrently in its own context). Blocks only until the callee's entry script-level is free. The
+    multi-actor conductor's lever for an animated WALK on another actor (base ``Walk`` acts on gExec, so the
+    walk must run INSIDE the actor)."""
+    return encode(0x12, level, uid, tag)
+
+
+def run_script_async(level: int, uid: int, tag: int) -> bytes:  # 0x10 (REQ) argsize [1,1,1]
+    """RunScriptAsync(level, uid, tag): run function ``tag`` on the object with this UID, fire-and-return.
+    The conductor's parallel fan-out (start several actors at once)."""
+    return encode(0x10, level, uid, tag)
+
+
+def run_shared_script(entry: int) -> bytes:                    # 0x43 (STARTSEQ) argsize [1]
+    """RunSharedScript(entry): spawn a shared coroutine running ``entry`` bound to the EXECUTING object
+    (uid = gExec.uid + cSeqOfs); only ONE shared script per object at a time."""
+    return encode(0x43, entry)
+
+
+def wait_shared_script() -> bytes:                             # 0x44 (WAITSEQ) 0 args
+    """WaitSharedScript(): block until the shared script THIS object spawned (via RunSharedScript) ends.
+    NB this joins only the executing object's OWN shared script -- it is not a global async barrier."""
+    return encode(0x44)
+
+
+# --- targeted "Ex" opcodes: drive an object BY UID (operand 0) -- a CONDUCTOR drives any actor from one
+# function without a context switch. uid == the object's entry slot (sid); 250 = the control character.
+# (See content/conductor.py + memory project-ff9-cutscene-multiactor; arg layout verified vs _optables.)
+def window_sync_ex(uid: int, win: int, flags: int, text_id: int) -> bytes:   # 0x95 argsize [1,1,1,2]
+    """WindowSyncEx(uid, win, flags, text_id): open a dialogue window attributed to the object ``uid`` (its
+    tail points at that actor), blocking until dismissed. The conductor's per-actor ``say``."""
+    return encode(0x95, uid, win, flags, text_id)
+
+
+def turn_instant_ex(uid: int, angle: int) -> bytes:           # 0x87 (TurnInstantEx) argsize [1,1]
+    """TurnInstantEx(uid, angle): face ``angle`` INSTANTLY on object ``uid`` (0=S,64=W,128=N,192=E)."""
+    return encode(0x87, uid, angle)
+
+
+def timed_turn_ex(uid: int, angle: int, speed: int = 16) -> bytes:   # 0xBB argsize [1,1,1]
+    """TimedTurnEx(uid, angle, speed): face ``angle`` animated on object ``uid`` (pair WaitTurnEx -- but
+    avoid WaitTurnEx on a player-cloned actor: its turn anim may not complete -> hang)."""
+    return encode(0xBB, uid, angle, speed)
+
+
+def wait_turn_ex(uid: int) -> bytes:                          # 0xBC (WaitTurnEx) argsize [1]
+    """WaitTurnEx(uid): block until object ``uid`` finishes its TimedTurnEx. Hangs on a player clone."""
+    return encode(0xBC, uid)
+
+
+def run_animation_ex(uid: int, anim: int) -> bytes:           # 0xBD (RunAnimationEx) argsize [1,2]
+    """RunAnimationEx(uid, anim): play ``anim`` on object ``uid`` (async; pair a fixed Wait, not WaitAnimationEx)."""
+    return encode(0xBD, uid, anim)
+
+
+def wait_animation_ex(uid: int) -> bytes:                     # 0xBE (WaitAnimationEx) argsize [1]
+    """WaitAnimationEx(uid): block until object ``uid``'s animation ends. Hangs on a player clone -> avoid."""
+    return encode(0xBE, uid)
+
+
 def bubble(state: int) -> bytes:                               # 0x68 (BUBBLE) argsize [1]
     """Bubble(state): show(1)/hide(0) the floating "!" action-available prompt over the player. A
     ladder/sign region shows it on tread so the player knows to press the action button."""
