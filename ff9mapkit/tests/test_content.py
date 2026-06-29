@@ -858,6 +858,101 @@ def test_conductor_player_walk_is_rejected(tmp_path):
     assert any("player" in m and "walk" in m for m in probs)
 
 
+def test_conductor_group_parallel_by_with_prev():
+    """A step with with_prev joins the PRECEDING group; any other step starts a new one. with_prev on step 0
+    (no preceding group) falls back to a standalone leader (validation flags it)."""
+    steps = [{"walk": 1}, {"walk": 2, "with_prev": True}, {"say": "x"}, {"turn": 1}, {"turn": 2, "with_prev": True}]
+    assert [[i for i, _ in g] for g in conductor.group_parallel(steps)] == [[0, 1], [2], [3, 4]]
+    assert [[i for i, _ in g] for g in conductor.group_parallel([{"turn": 1, "with_prev": True}])] == [[0]]
+
+
+def test_conductor_parallel_walks_fork_async_then_drain():
+    """Two walks in one parallel group (the 2nd with_prev) FORK via RunScriptAsync (0x10, no level gate), then
+    the conductor DRAINS each actor's busy script level with RunScriptSync (0x14) into a bare-RETURN join tag
+    -- the engine's only async barrier (requestAcceptable = lv < obj.level). Order: both forks, THEN both
+    drains (so the walks run together, then the scene waits for both)."""
+    steps = [{"actor": "a", "walk": [0, 0]}, {"actor": "b", "walk": [1, 1], "with_prev": True}]
+    body = conductor.compile_steps(steps, {"a": 5, "b": 6}, [],
+                                   walk_calls={0: (5, 20), 1: (6, 20)}, join_tags={5: 19, 6: 19})
+    ops = [(i.op, i.imm(0), i.imm(1), i.imm(2)) for i in iter_code(body, 0, len(body))]
+    assert ops == [(0x10, 2, 5, 20), (0x10, 2, 6, 20), (0x14, 2, 5, 19), (0x14, 2, 6, 19)]
+    # a SINGLETON walk still compiles to a blocking RunScriptSync into the walk tag (unchanged, no async)
+    solo = conductor.compile_steps([{"actor": "a", "walk": [0, 0]}], {"a": 5}, [], walk_calls={0: (5, 20)})
+    assert [i.op for i in iter_code(solo, 0, len(solo))] == [0x14]
+
+
+def test_conductor_parallel_anim_absorbs_hold_into_join():
+    """A parallel anim FIRES (RunAnimationEx, no inline Wait) and its hold is absorbed into ONE join Wait, so
+    the anim plays while the walk runs async; then the walk's sync-drain blocks for the rest."""
+    steps = [{"actor": "a", "walk": [0, 0]}, {"actor": "b", "anim": 1713, "with_prev": True}]
+    body = conductor.compile_steps(steps, {"a": 5, "b": 6}, [], walk_calls={0: (5, 20)}, join_tags={5: 19})
+    ops = [i.op for i in iter_code(body, 0, len(body))]
+    assert ops == [0x10, 0xBD, 0x22, 0x14]                         # async walk, RunAnimationEx, Wait(hold), drain
+    assert ops.count(0x22) == 1                                    # the hold is the join Wait, not a per-anim Wait
+    assert opcodes.wait(cutscene.ANIM_HOLD) in body
+
+
+def test_conductor_parallel_walk_field_builds_end_to_end(tmp_path):
+    """Full synth build: two NPCs walk SIMULTANEOUSLY (the 2nd beat with_prev). Each NPC entry gets a walk tag
+    (20) AND the bare-RETURN join tag (19); the conductor forks both async then drains both (into tag 19)."""
+    from ff9mapkit import build
+    p = tmp_path / "par.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "PAR"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
+        '[player]\nspawn = [0, 150]\n\n'
+        '[[npc]]\nname = "lefty"\npreset = "vivi"\npos = [-100, 0]\ndialogue = "."\n\n'
+        '[[npc]]\nname = "righty"\npreset = "vivi"\npos = [100, 0]\ndialogue = "."\n\n'
+        '[cutscene]\nonce = true\nactor = ["lefty", "righty"]\n'
+        'steps = [ { actor = "lefty", walk = [0, -150] }, { actor = "righty", walk = [150, 100], with_prev = true } ]\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert [m for m in build.lint_logic(proj) if "cutscene" in m] == []
+    assert [m for m in build.validate(proj) if "with_prev" in m or "parallel" in m.lower()] == []
+    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch = build.collect_text(proj)
+    s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids))
+    parallel_entries = [e.index for e in s.entries if not e.empty and e.func_by_tag(20) and e.func_by_tag(19)]
+    assert len(parallel_entries) == 2                              # both NPC entries got a walk tag AND a join tag
+    drv = next(e for e in s.entries if not e.empty and e.index != 0 and e.func_by_tag(0)
+               and any(i.op == 0x10 for i in iter_code(s.data, e.func_by_tag(0).abs_start, e.func_by_tag(0).abs_end)))
+    cops = [(i.op, i.imm(0), i.imm(1), i.imm(2)) for i
+            in iter_code(s.data, drv.func_by_tag(0).abs_start, drv.func_by_tag(0).abs_end) if i.op in (0x10, 0x14)]
+    forks = [c for c in cops if c[0] == 0x10]
+    drains = [c for c in cops if c[0] == 0x14]
+    assert len(forks) == 2 and len(drains) == 2                    # two async forks, two sync-drains
+    assert all(d[3] == 19 for d in drains)                        # drains target the bare-RETURN join tag (imm2)
+    assert {f[2] for f in forks} == set(parallel_entries)         # forks target both NPC slots (imm1 = uid)
+    assert cops.index(forks[-1]) < cops.index(drains[0])          # fork BOTH, then join BOTH
+
+
+def test_conductor_parallel_validation(tmp_path):
+    """with_prev guards: not on step 0; only walk/anim/turn (say/wait/set_flag is a sequential barrier, as a
+    leader OR a follower); an actor can't act twice in one parallel group. A valid parallel scene is clean."""
+    from ff9mapkit import build
+    def probs(steps_toml):
+        p = tmp_path / "v.field.toml"
+        p.write_text(
+            '[field]\nid = 4003\nname = "V"\narea = 11\ntext_block = 1073\n\n'
+            '[camera]\npitch = 45\nfov = 42.2\n\n'
+            '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
+            '[player]\nspawn = [0, 150]\n\n'
+            '[[npc]]\nname = "a"\npreset = "vivi"\npos = [-100, 0]\ndialogue = "."\n\n'
+            '[[npc]]\nname = "b"\npreset = "vivi"\npos = [100, 0]\ndialogue = "."\n\n'
+            '[cutscene]\nactor = ["a", "b"]\nsteps = ' + steps_toml + '\n', encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+    assert any("step 0" in m and "with_prev" in m for m
+               in probs('[ { actor = "a", turn = 0, with_prev = true } ]'))
+    assert any("with_prev" in m and "barrier" in m.lower() for m
+               in probs('[ { actor = "a", turn = 0 }, { actor = "b", say = "hi", with_prev = true } ]'))
+    assert any("barrier" in m.lower() for m
+               in probs('[ { actor = "a", say = "hi" }, { actor = "b", turn = 0, with_prev = true } ]'))
+    assert any("already acts" in m for m
+               in probs('[ { actor = "a", turn = 0 }, { actor = "a", anim = "glad", with_prev = true } ]'))
+    assert [m for m in probs('[ { actor = "a", turn = 0 }, { actor = "b", turn = 64, with_prev = true } ]')
+            if "with_prev" in m or "parallel" in m.lower() or "barrier" in m.lower()] == []
+
+
 def test_text_mes_format_and_mapping():
     line = text.mes_entry("I miss you Zidane", 500)
     assert line == "_[TXID=500][STRT=10,1][TAIL=UPR]I miss you Zidane[ENDN]"

@@ -3251,6 +3251,43 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
     return eb, npc_slots
 
 
+def _gen_conductor_walk_tags(project: FieldProject, eb: bytes, steps, npc_slots):
+    """Shared by the synth + verbatim conductor wiring: add the per-actor choreography tags a conductor's
+    ``walk`` beats need. For each ``walk`` step, add a walk tag (20+) to the actor's entry (the conductor
+    ``RunScript``s into it -- base ``Walk`` acts on the executing object, so the walk must run in the actor's
+    own context). For each actor that walks inside a PARALLEL group (``with_prev``), also add ONE bare-RETURN
+    join tag -- the conductor async-forks the walk then ``RunScriptSync``s the join tag to block until the
+    walk frees the actor's script level. ``add_function`` grows an entry but keeps slot INDICES stable, so the
+    conductor's by-uid refs (and any later band insert) stay valid. Returns ``(eb, walk_calls, join_tags)``."""
+    walk_calls, join_tags = {}, {}
+    if not any("walk" in s for s in steps):
+        return eb, walk_calls, join_tags
+    from .eb import edit as _eb_edit
+    move_reg = _position_registry(project)
+    next_tag = {}                                          # actor name -> next free walk tag
+    for i, s in enumerate(steps):
+        if "walk" not in s:
+            continue
+        slot = npc_slots.get(s.get("actor"))               # validated to be a real NPC actor (not player)
+        pt = _resolve_point(s["walk"], move_reg)
+        t = next_tag.get(s["actor"], _conductor.WALK_TAG_BASE)
+        next_tag[s["actor"]] = t + 1
+        eb = _eb_edit.add_function(eb, slot, t, _conductor.walk_tag_body(pt[0], pt[1], s.get("speed")))
+        walk_calls[i] = (slot, t)
+    # actors that walk inside a parallel group (>1 member) need a join tag (async-fork + sync-drain)
+    parallel_actors = set()
+    for g in _conductor.group_parallel(steps):
+        if len(g) > 1:
+            parallel_actors |= {s.get("actor") for _i, s in g if "walk" in s and s.get("actor")}
+    for actor in sorted(parallel_actors):
+        slot = npc_slots.get(actor)
+        if slot is None:
+            continue
+        eb = _eb_edit.add_function(eb, slot, _conductor.PARALLEL_JOIN_TAG, _conductor.join_tag_body())
+        join_tags[slot] = _conductor.PARALLEL_JOIN_TAG
+    return eb, walk_calls, join_tags
+
+
 def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict, cutscene_txids, *, warnings) -> bytes:
     """Inject a MULTI-ACTOR ``[cutscene]`` conductor into a VERBATIM fork: ONE director code entry, seated
     BELOW the donor's party band (so the 9 characters stay the top slots), that drives the additive ``[[npc]]``
@@ -3263,22 +3300,8 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
         return eb
     steps = _resolve_conductor_steps(cs["steps"], project)
     # walk beats -> a walk-choreography tag on the actor's below-band entry, RunScript'd by the conductor (the
-    # synth path's mechanism; here the actor entries sit below the band). add_function grows the entry but slot
-    # INDICES are stable, so the conductor's by-uid refs (and the later band insert) stay valid.
-    walk_calls = {}
-    if any("walk" in s for s in steps):
-        from .eb import edit as _eb_edit
-        move_reg = _position_registry(project)
-        next_tag = {}
-        for i, s in enumerate(steps):
-            if "walk" not in s:
-                continue
-            slot = npc_slots.get(s.get("actor"))                 # validated to be a real NPC actor (not player)
-            pt = _resolve_point(s["walk"], move_reg)
-            t = next_tag.get(s["actor"], _conductor.WALK_TAG_BASE)
-            next_tag[s["actor"]] = t + 1
-            eb = _eb_edit.add_function(eb, slot, t, _conductor.walk_tag_body(pt[0], pt[1], s.get("speed")))
-            walk_calls[i] = (slot, t)
+    # synth path's mechanism; here the actor entries sit below the band); a parallel walk also gets a join tag.
+    eb, walk_calls, join_tags = _gen_conductor_walk_tags(project, eb, steps, npc_slots)
     auto = _FlagAlloc(getattr(project, "flag_base", None))   # campaign-safe once-flag (matches the other verbatim blocks)
     c_fclass, c_fidx = _cutscene.once_flag_for(cs)
     if auto.base is not None and "flag" not in cs and cs.get("once", True):
@@ -3289,7 +3312,7 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
         warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
         owns_control=bool(cs.get("owns_control", True)),
         exit_warp=(int(cs["exit_warp"]) if cs.get("exit_warp") else None),
-        walk_calls=walk_calls, reserve_party_band=True)
+        walk_calls=walk_calls, join_tags=join_tags, reserve_party_band=True)
 
 
 def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *, warnings) -> bytes:
@@ -3705,29 +3728,16 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         if _auto.base is not None and "flag" not in cs and cs.get("once", True):
             c_fidx = _auto.cutscene()                          # campaign: pack into this member's flag block
         # walk beats can't run inline (base Walk acts on the EXECUTING object; there's no targeted WalkEx),
-        # so generate a per-actor walk-choreography TAG on the actor's own [[npc]] entry and RunScript into
-        # it (animates in the actor's context, blocks until arrival). walk_calls: step index -> (uid, tag).
-        walk_calls = {}
-        if any("walk" in s for s in c_steps):
-            from .eb import edit as _eb_edit
-            move_reg = _position_registry(project)
-            next_tag = {}                                      # actor name -> next free walk tag
-            for i, s in enumerate(c_steps):
-                if "walk" not in s:
-                    continue
-                slot = npc_slots.get(s.get("actor"))           # validated to be a real NPC actor (not player)
-                pt = _resolve_point(s["walk"], move_reg)
-                t = next_tag.get(s["actor"], _conductor.WALK_TAG_BASE)
-                next_tag[s["actor"]] = t + 1
-                eb = _eb_edit.add_function(eb, slot, t, _conductor.walk_tag_body(pt[0], pt[1], s.get("speed")))
-                walk_calls[i] = (slot, t)
+        # so generate a per-actor walk-choreography TAG on the actor's own [[npc]] entry and RunScript into it
+        # (animates in the actor's context, blocks until arrival); a parallel walk also gets a join tag.
+        eb, walk_calls, join_tags = _gen_conductor_walk_tags(project, eb, c_steps, npc_slots)
         eb = _conductor.inject_conductor(
             eb, c_steps, npc_slots, cutscene_txids,
             once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
             owns_control=bool(cs.get("owns_control", True)),
             exit_warp=(int(cs["exit_warp"]) if cs.get("exit_warp") else None),
-            say_flags=cs_say_flags, walk_calls=walk_calls)
+            say_flags=cs_say_flags, walk_calls=walk_calls, join_tags=join_tags)
 
     # cutscene (narration, no actor): an ordered, control-locked sequence on entry (once), run as a
     # standalone director code entry. Steps = say / wait / set_flag. An ACTOR cutscene was already
@@ -4144,6 +4154,32 @@ def _validate_conductor(project, cs, problems):
             t = s.get("tail")
             if t is not None and t not in _text.TAIL_CODES:
                 problems.append(f"[cutscene] step {k} tail {t!r} is not a valid TAIL code")
+        # parallel beats (with_prev): a step marked with_prev runs together with the preceding beat. Only
+        # walk/anim/turn can run in parallel (say/wait/set_flag are sequential barriers), the group leader
+        # must be one of those too, and no actor may act twice in a group (it has one execution context).
+        if steps[0].get("with_prev"):
+            problems.append("[cutscene] step 0 can't have with_prev = true (nothing precedes it)")
+        _par_ok = ("walk", "anim", "turn")
+        for g in _conductor.group_parallel(steps):
+            if len(g) < 2:
+                continue
+            lead_k, lead_s = g[0]
+            lead_act = next((key for key in _par_ok if key in lead_s), None)
+            if lead_act is None:
+                problems.append(f"[cutscene] step {lead_k} has a with_prev beat after it but is a "
+                                f"say/wait/set_flag (a sequential barrier) -- only walk/anim/turn run in parallel")
+            seen = {lead_s.get("actor")} if lead_act else set()
+            for k, s in g[1:]:
+                act = next((key for key in _par_ok if key in s), None)
+                if act is None:
+                    problems.append(f"[cutscene] step {k}: only walk/anim/turn can run with_prev "
+                                    f"(say/wait/set_flag are sequential barriers)")
+                    continue
+                who = s.get("actor")
+                if who in seen:
+                    problems.append(f"[cutscene] step {k}: actor {who!r} already acts in this parallel group "
+                                    f"(an actor can't do two things at once)")
+                seen.add(who)
     if "exit_warp" in cs:
         ew = cs["exit_warp"]
         if not (isinstance(ew, int) and not isinstance(ew, bool) and ew > 0):

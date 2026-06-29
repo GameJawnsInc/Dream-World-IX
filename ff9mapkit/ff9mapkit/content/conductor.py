@@ -7,14 +7,20 @@ the ``*Ex`` opcode family (``WindowSyncEx`` / ``TimedTurnEx`` / ``RunAnimationEx
 context-switch into the actor. An actor's UID is its entry slot (``sid``); the player/control character is
 uid 250 (the engine remaps 250 -> the active control uid). Timing between beats is a plain ``Wait``.
 
-This module is the INCREMENT-1 director: SEQUENTIAL beats from a flat, actor-tagged ``steps`` list --
-``say`` / ``turn`` / ``anim`` driven on a named actor by id, plus ``wait`` / ``set_flag`` at the conductor
-level. Deliberately deferred (later increments, see the memory):
-  * animated WALK -- needs ``RunScript`` into a per-actor walk tag (base ``Walk`` only animates in the
-    actor's own tag-1 LOOP, state 1), so it's a bigger change than an inline ``*Ex`` op;
-  * PARALLEL beats ("these run together") -- FF9 forks with ``RunScriptAsync`` and joins on the script
-    *level* (``WaitSharedScript`` only joins the ONE shared script the SAME object spawned, not a global
-    barrier), which needs its own grounding pass.
+This module drives a flat, actor-tagged ``steps`` list. Beats run SEQUENTIALLY by default --
+``say`` / ``turn`` / ``anim`` / ``walk`` driven on a named actor by id, plus ``wait`` / ``set_flag`` at the
+conductor level -- but a beat marked ``with_prev = true`` runs IN PARALLEL with the beat(s) before it.
+
+PARALLEL beats ("these run together") use FF9's real async-fork + script-level join, confirmed in the engine
+(``EventEngine.DoEventCode.cs``: ``requestAcceptable(obj, lv) == lv < obj.level``):
+  * each parallel member is FORKED non-blocking -- a walk via ``RunScriptAsync`` (op 0x10, which bypasses the
+    level gate and spawns the walk in the actor's context), an anim via ``RunAnimationEx``, an instant turn
+    via ``TurnInstantEx``;
+  * the conductor then JOINS: one ``Wait`` covering the longest anim hold (anims play while walks run async),
+    then a ``RunScriptSync`` (op 0x14) into each walking actor's bare-``RETURN`` join tag -- which ``stay()``s
+    on the actor's busy script level until its async walk RETURNs (frees the level). That per-actor sync-drain
+    is the engine's ONLY async barrier (``WaitSharedScript`` only joins the SAME object's own shared script,
+    not a global wait). A ``say`` / ``wait`` / ``set_flag`` is a sequential barrier -- never ``with_prev``.
 
 Softlock care, mirroring the kit's existing cutscene rules on player-cloned actors:
   * ``turn`` uses ``TurnInstantEx`` (instant, no wait) -- never ``WaitTurnEx`` (a player clone's turn anim
@@ -87,54 +93,133 @@ def actor_anim(uid: int, anim: int, hold: int = _cutscene.ANIM_HOLD) -> bytes:
 
 WALK_LEVEL = 2          # RunScript script-level for a walk call (matches real fields 565/909/2554)
 WALK_TAG_BASE = 20      # first walk-choreography tag added to an actor's entry (clear of inject_npc's 0/1/3)
+PARALLEL_JOIN_TAG = 19  # a bare-RETURN tag added to a PARALLEL-walking actor's entry; the conductor
+                        # RunScriptSyncs into it to block until the actor's async walk frees its script
+                        # level (the join). Distinct from the walk tags (20+) and inject_npc's 0/1/3.
+
+
+def join_tag_body() -> bytes:
+    """The body of a parallel-walk JOIN tag: a bare ``RETURN``. The conductor ``RunScriptSync``s into it
+    AFTER forking an async walk on the same actor -- the sync ``stay()``s on the actor's busy script level
+    until the walk RETURNs (frees the level), then runs this (instant) and unblocks. Never polled (it's only
+    ever called explicitly), so a 1-byte body is safe (unlike a tag-3 talk func)."""
+    return opcodes.RETURN
+
+
+def group_parallel(steps):
+    """Group steps into PARALLEL runs: a step with ``with_prev = true`` joins the PRECEDING group; any other
+    step starts a new group. Returns a list of groups, each a list of ``(index, step)``. (A ``with_prev`` on
+    step 0 has no preceding group, so it becomes its own leader -- :func:`ff9mapkit.build._validate_conductor`
+    flags that as an error; here we stay permissive.)"""
+    groups = []
+    for i, s in enumerate(steps):
+        if s.get("with_prev") and groups:
+            groups[-1].append((i, s))
+        else:
+            groups.append([(i, s)])
+    return groups
+
+
+def _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, walk_calls):
+    """Emit ONE step run sequentially (blocking). Returns ``(bytes, new_ti)``. Vocab: ``say`` / ``turn`` /
+    ``anim`` / ``walk`` (need an ``actor = "<name>"``; ``say`` without one = a narration line) + ``wait`` /
+    ``set_flag`` (conductor-level). A ``walk`` is a ``RunScriptSync(2, uid, walk_tag)`` -- the conductor can't
+    walk an actor inline (base ``Walk`` acts on the EXECUTING object; no targeted WalkEx), so the caller
+    pre-generates a walk tag on the actor's OWN entry and passes ``walk_calls`` (``step_index -> (uid, tag)``);
+    the sync runs it in the actor's context (so it animates) and BLOCKS until it returns."""
+    name = s.get("actor")
+    uid = _uid_for(name, uid_by_name) if name else None
+    if "say" in s:
+        b = (actor_say(uid, txids[ti], flags=say_flags) if uid is not None
+             else _cutscene.say(txids[ti], flags=say_flags))
+        return b, ti + 1
+    if "wait" in s:
+        return opcodes.wait(int(s["wait"])), ti
+    if "set_flag" in s:
+        sf = s["set_flag"]
+        return _cutscene.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1), ti
+    if "turn" in s:
+        if uid is None:
+            raise ValueError(f"conductor step {s!r}: turn needs actor = \"<name>\"")
+        return actor_turn(uid, s["turn"]), ti
+    if "anim" in s:
+        if uid is None:
+            raise ValueError(f"conductor step {s!r}: anim needs actor = \"<name>\"")
+        return actor_anim(uid, s["anim"]), ti
+    if "walk" in s:
+        if i not in walk_calls:
+            raise ValueError(f"conductor step {s!r}: walk needs a pre-generated walk tag (walk_calls)")
+        w_uid, w_tag = walk_calls[i]
+        return opcodes.run_script_sync(WALK_LEVEL, w_uid, w_tag), ti   # run the actor's walk tag, block
+    raise ValueError(f"unknown conductor step: {s!r}")
+
+
+def _emit_parallel_group(group, uid_by_name, walk_calls, join_tags) -> bytes:
+    """Emit a PARALLEL group (2+ beats that run together). Each member is FORKED non-blocking, then the
+    conductor JOINS. Fork: a walk -> ``RunScriptAsync(2, uid, walk_tag)`` (op 0x10, no level gate -> always
+    spawns the walk in the actor's context); an anim -> ``RunAnimationEx`` (fire only, the hold is absorbed
+    into the join); an instant turn -> ``TurnInstantEx`` (no wait). Join (block until the whole group is done):
+    one ``Wait(max anim-hold)`` -- the anims play out while the walks run async alongside -- then a
+    ``RunScriptSync(2, uid, join_tag)`` per WALKING actor, which ``stay()``s on the actor's busy script level
+    until its async walk RETURNs (the engine's only async barrier). Only ``walk`` / ``turn`` / ``anim`` may be
+    parallel members (``say`` / ``wait`` / ``set_flag`` are sequential barriers -- enforced by validation)."""
+    fan, drains, max_hold = [], [], 0
+    for i, s in group:
+        name = s.get("actor")
+        uid = _uid_for(name, uid_by_name) if name else None
+        if "walk" in s:
+            if i not in walk_calls:
+                raise ValueError(f"conductor parallel step {s!r}: walk needs a pre-generated walk tag")
+            w_uid, w_tag = walk_calls[i]
+            fan.append(opcodes.run_script_async(WALK_LEVEL, w_uid, w_tag))   # non-blocking fork (no level gate)
+            jt = join_tags.get(w_uid)
+            if jt is None:
+                raise ValueError(f"conductor parallel step {s!r}: walk needs a join tag (join_tags)")
+            if w_uid not in {u for u, _ in drains}:
+                drains.append((w_uid, jt))
+        elif "turn" in s:
+            if uid is None:
+                raise ValueError(f"conductor parallel step {s!r}: turn needs actor = \"<name>\"")
+            fan.append(actor_turn(uid, s["turn"]))                          # instant -- nothing to join
+        elif "anim" in s:
+            if uid is None:
+                raise ValueError(f"conductor parallel step {s!r}: anim needs actor = \"<name>\"")
+            fan.append(opcodes.run_animation_ex(uid, int(s["anim"])))       # fire only; hold -> the join Wait
+            max_hold = max(max_hold, _cutscene.ANIM_HOLD)
+        else:
+            raise ValueError(f"conductor parallel step {s!r}: only walk/turn/anim may run with_prev")
+    out = b"".join(fan)
+    if max_hold:
+        out += opcodes.wait(max_hold)                  # anims play during this; walks run async alongside
+    for w_uid, jt in drains:
+        out += opcodes.run_script_sync(WALK_LEVEL, w_uid, jt)   # block until this actor's async walk frees its level
+    return out
 
 
 def compile_steps(steps, uid_by_name, txids, *, say_flags: int = 128, relock: bool = False,
-                  walk_calls=None) -> bytes:
-    """Compile actor-tagged conductor steps to bytes. Each step is a dict with at most one action:
-    ``say`` / ``turn`` / ``anim`` / ``walk`` (need an ``actor = "<name>"``; ``say`` without an actor = a
-    narration line), or ``wait`` / ``set_flag`` (conductor-level, no actor). ``say`` steps consume ``txids``
-    in order. The actor name resolves to a UID via ``uid_by_name`` (or ``"player"`` -> 250).
+                  walk_calls=None, join_tags=None) -> bytes:
+    """Compile actor-tagged conductor steps to bytes. Beats run sequentially unless ``with_prev = true`` runs
+    one IN PARALLEL with the preceding beat(s) -- see :func:`group_parallel`. A singleton group compiles via
+    :func:`_emit_sequential_step` (a walk -> blocking ``RunScriptSync``); a multi-member group via
+    :func:`_emit_parallel_group` (async fork + sync-drain join). ``say`` steps consume ``txids`` in order;
+    the actor name resolves to a UID via ``uid_by_name`` (or ``"player"`` -> 250). ``walk_calls``
+    (``step_index -> (uid, walk_tag)``) is required iff any step has ``walk``; ``join_tags``
+    (``uid -> join_tag``) iff any walk runs ``with_prev``.
 
-    A ``walk`` step compiles to ``RunScriptSync(2, uid, tag)`` -- the conductor can't walk an actor inline
-    (base ``Walk`` acts on the EXECUTING object and there is no targeted WalkEx), so the caller pre-generates
-    a walk-choreography tag on the actor's OWN entry (``edit.add_function``) and passes ``walk_calls`` (a
-    dict ``step_index -> (uid, tag)``); RunScriptSync runs it in the actor's context (so it animates) and
-    BLOCKS until it returns (sequential). ``walk_calls`` is required iff any step has ``walk``.
-
-    ``relock`` prefixes every beat with ``DisableMove`` -- see :func:`build_body` for why the entry control
-    grant needs the spin-lock + per-beat re-lock."""
+    ``relock`` prefixes every GROUP with ``DisableMove`` -- see :func:`build_body` for why the entry control
+    grant needs the spin-lock + per-group re-lock."""
     walk_calls = walk_calls or {}
+    join_tags = join_tags or {}
     out, ti = [], 0
-    for i, s in enumerate(steps):
+    for group in group_parallel(steps):
         if relock:
             out.append(opcodes.DISABLE_MOVE)          # re-lock: undo any entry-transition control re-grant
-        name = s.get("actor")
-        uid = _uid_for(name, uid_by_name) if name else None
-        if "say" in s:
-            out.append(actor_say(uid, txids[ti], flags=say_flags) if uid is not None
-                       else _cutscene.say(txids[ti], flags=say_flags))
-            ti += 1
-        elif "wait" in s:
-            out.append(opcodes.wait(int(s["wait"])))
-        elif "set_flag" in s:
-            sf = s["set_flag"]
-            out.append(_cutscene.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
-        elif "turn" in s:
-            if uid is None:
-                raise ValueError(f"conductor step {s!r}: turn needs actor = \"<name>\"")
-            out.append(actor_turn(uid, s["turn"]))
-        elif "anim" in s:
-            if uid is None:
-                raise ValueError(f"conductor step {s!r}: anim needs actor = \"<name>\"")
-            out.append(actor_anim(uid, s["anim"]))
-        elif "walk" in s:
-            if i not in walk_calls:
-                raise ValueError(f"conductor step {s!r}: walk needs a pre-generated walk tag (walk_calls)")
-            w_uid, w_tag = walk_calls[i]
-            out.append(opcodes.run_script_sync(WALK_LEVEL, w_uid, w_tag))   # run the actor's walk tag, block
+        if len(group) == 1:
+            i, s = group[0]
+            chunk, ti = _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, walk_calls)
+            out.append(chunk)
         else:
-            raise ValueError(f"unknown conductor step: {s!r}")
+            out.append(_emit_parallel_group(group, uid_by_name, walk_calls, join_tags))
     return b"".join(out)
 
 
@@ -156,7 +241,7 @@ def walk_tag_body(x: int, z: int, speed: int | None = None) -> bytes:
 def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_region.GLOB_BOOL,
                warmup: int = _cutscene.DEFAULT_WARMUP, owns_control: bool = True,
                exit_warp: int | None = None, say_flags: int = 128,
-               reorder: int = _cutscene.REORDER_WAIT, walk_calls=None) -> bytes:
+               reorder: int = _cutscene.REORDER_WAIT, walk_calls=None, join_tags=None) -> bytes:
     """The conductor function body, run from a standalone ``InitCode``-armed code entry.
 
     Shape: ``[Wait(reorder)] [DisableMove] [Wait(warmup)] <beats> [EnableMove]`` gated
@@ -183,7 +268,7 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
     elif warmup > 0:
         inner += opcodes.wait(int(warmup))            # no lock: still settle so the actors exist before the beats
     inner += compile_steps(steps, uid_by_name, txids, say_flags=say_flags, relock=owns_control,
-                           walk_calls=walk_calls)
+                           walk_calls=walk_calls, join_tags=join_tags)
     if owns_control and exit_warp is None:
         inner += opcodes.ENABLE_MOVE
     if once_flag is not None:
@@ -199,18 +284,19 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
 def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None = None,
                      flag_class=_region.GLOB_BOOL, warmup: int = _cutscene.DEFAULT_WARMUP,
                      owns_control: bool = True, exit_warp: int | None = None, say_flags: int = 128,
-                     walk_calls=None, reserve_party_band: bool = False,
+                     walk_calls=None, join_tags=None, reserve_party_band: bool = False,
                      spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
     """Seat the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init (over a
     Wait filler), exactly like a narration cutscene. Returns new .eb bytes. ``walk_calls`` (a dict
-    ``step_index -> (uid, tag)``) maps each ``walk`` step to its pre-generated per-actor walk tag.
+    ``step_index -> (uid, tag)``) maps each ``walk`` step to its pre-generated per-actor walk tag;
+    ``join_tags`` (``uid -> join_tag``) maps each PARALLEL-walking actor to its bare-RETURN join tag.
 
     ``reserve_party_band``: on a VERBATIM fork the donor's last 9 slots are the playable characters, so the
     conductor INSERTS just below them (``object.seat_entry``) -- keeping the band as the top slots and not
     perturbing the actors it addresses (which seat below the band before it, so their uids stay valid)."""
     body = build_body(steps, uid_by_name, txids, once_flag, flag_class=flag_class, warmup=warmup,
                       owns_control=owns_control, exit_warp=exit_warp, say_flags=say_flags,
-                      walk_calls=walk_calls)
+                      walk_calls=walk_calls, join_tags=join_tags)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
     return edit.activate(out, opcodes.init_code(slot, 0), spawn_wait_n=spawn_wait_n,

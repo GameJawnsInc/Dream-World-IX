@@ -312,6 +312,40 @@ def test_build_field_verbatim_with_cutscene_conductor_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_parallel_walk_end_to_end(tmp_path):
+    # Two additive NPCs walk SIMULTANEOUSLY on a verbatim fork (the 2nd beat with_prev): each below-band entry
+    # gets a walk tag (20) AND a bare-RETURN join tag (19); the below-band conductor forks BOTH async
+    # (RunScriptAsync) then drains BOTH (RunScriptSync into tag 19) -- the engine's async barrier on a fork.
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    project = build.FieldProject.load(toml)
+    project.raw["npc"] = [{"name": "lefty", "preset": "vivi", "pos": [100, 200], "dialogue": "."},
+                          {"name": "righty", "preset": "vivi", "pos": [300, 200], "dialogue": "."}]
+    project.raw["cutscene"] = {"once": True, "actor": ["lefty", "righty"], "steps": [
+        {"actor": "lefty", "walk": [800, 200]},
+        {"actor": "righty", "walk": [600, 400], "with_prev": True}]}   # righty walks together with lefty
+    assert build.validate(project) == []
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")          # must not raise
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE             # lefty=band_lo, righty=band_lo+1, conductor=band_lo+2
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        assert s.entry_count == donor.entry_count + 3                 # 2 NPCs + 1 conductor below the band (walks = TAGS)
+        for sl in (band_lo, band_lo + 1):                             # both NPC entries got a walk tag AND a join tag
+            assert s.entry(sl).func_by_tag(20) is not None and s.entry(sl).func_by_tag(19) is not None
+        cond = s.entry(band_lo + 2).func_by_tag(0)
+        forks = sorted((i.imm(1), i.imm(2)) for i in s.instrs(cond) if i.op == 0x10)   # RunScriptAsync(level, uid, tag)
+        drains = sorted((i.imm(1), i.imm(2)) for i in s.instrs(cond) if i.op == 0x14)  # RunScriptSync(level, uid, tag)
+        assert forks == [(band_lo, 20), (band_lo + 1, 20)]           # both walks forked async, by below-band uid
+        assert drains == [(band_lo, 19), (band_lo + 1, 19)]          # then both drained via the bare-RETURN join tag
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_readable_prop_end_to_end(tmp_path):
     # A readable [[prop]] (dialogue=) ADDED to a verbatim fork: the below-band prop object is NON-bare -- it
     # gets a tag-3 WindowSync into the appended-.mes channel, so it reads when examined (vs silent set-dressing).
