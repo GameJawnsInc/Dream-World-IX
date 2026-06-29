@@ -3258,33 +3258,51 @@ def _gen_conductor_walk_tags(project: FieldProject, eb: bytes, steps, npc_slots)
     own context). For each actor that walks inside a PARALLEL group (``with_prev``), also add ONE bare-RETURN
     join tag -- the conductor async-forks the walk then ``RunScriptSync``s the join tag to block until the
     walk frees the actor's script level. ``add_function`` grows an entry but keeps slot INDICES stable, so the
-    conductor's by-uid refs (and any later band insert) stay valid. Returns ``(eb, walk_calls, join_tags)``."""
+    conductor's by-uid refs (and any later band insert) stay valid. Returns ``(eb, walk_calls, join_tags)``.
+
+    The PLAYER walks too: ``"player"`` -> the tag goes on the player's OWN entry (``DefinePlayerCharacter``,
+    located by :func:`ff9mapkit.content.player.find_player_entry`), but the conductor addresses it by the
+    control-char sentinel uid 250 (``GetObjUID(250)`` -> the control character) -- so its add-target entry and
+    its conductor uid differ (an NPC's are the same, slot == uid). Same recipe the ladder uses for the player."""
     walk_calls, join_tags = {}, {}
     if not any("walk" in s for s in steps):
         return eb, walk_calls, join_tags
     from .eb import edit as _eb_edit
+    from .content import player as _player
     move_reg = _position_registry(project)
+    # the player entry index is stable across add_function (slot indices don't move), so resolve it once
+    player_entry = (_player.find_player_entry(EbScript.from_bytes(eb))
+                    if any(s.get("actor") == "player" and "walk" in s for s in steps) else None)
+
+    def _walk_target(actor):
+        """(entry index to add the tag to, uid the conductor addresses). Player: its own entry, uid 250."""
+        if actor == "player":
+            return player_entry, _conductor.PLAYER_UID
+        slot = npc_slots.get(actor)                        # an NPC: entry index == runtime uid
+        return slot, slot
+
     next_tag = {}                                          # actor name -> next free walk tag
     for i, s in enumerate(steps):
         if "walk" not in s:
             continue
-        slot = npc_slots.get(s.get("actor"))               # validated to be a real NPC actor (not player)
+        actor = s.get("actor")
+        entry_idx, uid = _walk_target(actor)
         pt = _resolve_point(s["walk"], move_reg)
-        t = next_tag.get(s["actor"], _conductor.WALK_TAG_BASE)
-        next_tag[s["actor"]] = t + 1
-        eb = _eb_edit.add_function(eb, slot, t, _conductor.walk_tag_body(pt[0], pt[1], s.get("speed")))
-        walk_calls[i] = (slot, t)
+        t = next_tag.get(actor, _conductor.WALK_TAG_BASE)
+        next_tag[actor] = t + 1
+        eb = _eb_edit.add_function(eb, entry_idx, t, _conductor.walk_tag_body(pt[0], pt[1], s.get("speed")))
+        walk_calls[i] = (uid, t)
     # actors that walk inside a parallel group (>1 member) need a join tag (async-fork + sync-drain)
     parallel_actors = set()
     for g in _conductor.group_parallel(steps):
         if len(g) > 1:
             parallel_actors |= {s.get("actor") for _i, s in g if "walk" in s and s.get("actor")}
     for actor in sorted(parallel_actors):
-        slot = npc_slots.get(actor)
-        if slot is None:
+        entry_idx, uid = _walk_target(actor)
+        if entry_idx is None:
             continue
-        eb = _eb_edit.add_function(eb, slot, _conductor.PARALLEL_JOIN_TAG, _conductor.join_tag_body())
-        join_tags[slot] = _conductor.PARALLEL_JOIN_TAG
+        eb = _eb_edit.add_function(eb, entry_idx, _conductor.PARALLEL_JOIN_TAG, _conductor.join_tag_body())
+        join_tags[uid] = _conductor.PARALLEL_JOIN_TAG
     return eb, walk_calls, join_tags
 
 
@@ -4143,11 +4161,8 @@ def _validate_conductor(project, cs, problems):
                             _animations.resolve(token, a)
                         except ValueError as e:
                             problems.append(f"[cutscene] step {k}: {e}")
-            if act == "walk":
-                if who == "player":                            # player-walk needs a tag on the player entry -- deferred
-                    problems.append(f"[cutscene] step {k}: walk is not yet supported for \"player\" (only [[npc]] "
-                                    f"actors can walk in a cutscene for now); use turn/anim/say on the player.")
-                try:
+            if act == "walk":                                  # walk on "player" runs in the player's own
+                try:                                           # entry (uid 250); an [[npc]] in its slot entry
                     _resolve_point(s["walk"], move_reg)        # [x, z] or a known marker/NPC name
                 except ValueError as e:
                     problems.append(f"[cutscene] step {k}: {e}")

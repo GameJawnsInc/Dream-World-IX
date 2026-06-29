@@ -346,6 +346,35 @@ def test_build_field_verbatim_parallel_walk_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_player_walk_end_to_end(tmp_path):
+    # The PLAYER walks in a conductor on a verbatim fork: the walk tag lands on the DONOR's player entry
+    # (DefinePlayerCharacter), NOT a below-band slot, and the conductor RunScriptSyncs into uid 250.
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object, player as _player
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    pe = _player.find_player_entry(donor)
+    project = build.FieldProject.load(toml)
+    project.raw["npc"] = [{"name": "lefty", "preset": "vivi", "pos": [100, 200], "dialogue": "."}]
+    project.raw["cutscene"] = {"once": True, "actor": ["lefty", "player"], "steps": [
+        {"actor": "lefty", "say": "Come here."},
+        {"actor": "player", "walk": [400, 300]}]}                    # the player walks (a tag on the donor's player entry)
+    assert build.validate(project) == []
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")         # must not raise (tag 20 free on the player entry)
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE            # lefty=band_lo, conductor=band_lo+1
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        assert s.entry(pe).func_by_tag(20) is not None              # the walk tag is on the DONOR player entry (index unchanged)
+        cond = s.entry(band_lo + 1).func_by_tag(0)
+        calls = [(i.imm(0), i.imm(1), i.imm(2)) for i in s.instrs(cond) if i.op == 0x14]
+        assert (2, 250, 20) in calls                                # conductor RunScriptSync(2, player=250, 20)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_readable_prop_end_to_end(tmp_path):
     # A readable [[prop]] (dialogue=) ADDED to a verbatim fork: the below-band prop object is NON-bare -- it
     # gets a tag-3 WindowSync into the appended-.mes channel, so it reads when examined (vs silent set-dressing).

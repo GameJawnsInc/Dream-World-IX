@@ -842,9 +842,12 @@ def test_conductor_walk_field_builds_end_to_end(tmp_path):
     assert calls == [(2, walk_entries[0], 20), (2, walk_entries[1], 20)]  # RunScriptSync(level, uid, tag) per walk
 
 
-def test_conductor_player_walk_is_rejected(tmp_path):
-    """walk on \"player\" is deferred (it needs a tag on the player entry) -- the lint flags it clearly."""
+def test_conductor_player_walk_supported(tmp_path):
+    """walk on \"player\" runs in the PLAYER's OWN entry (DefinePlayerCharacter), addressed by the control
+    sentinel uid 250: the walk tag lands on the player entry (NOT an NPC slot), and the conductor
+    RunScriptSyncs into (250, tag). No longer rejected by validation."""
     from ff9mapkit import build
+    from ff9mapkit.content import player as _player
     p = tmp_path / "pw.field.toml"
     p.write_text(
         '[field]\nid = 4003\nname = "PW"\narea = 11\ntext_block = 1073\n\n'
@@ -852,10 +855,21 @@ def test_conductor_player_walk_is_rejected(tmp_path):
         '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
         '[player]\nspawn = [0, 150]\n\n'
         '[[npc]]\nname = "vivi1"\npreset = "vivi"\npos = [-100, 0]\ndialogue = "."\n\n'
-        '[cutscene]\nactor = ["vivi1", "player"]\nsteps = [ { actor = "player", walk = [0, 0] } ]\n',
+        '[cutscene]\nactor = ["vivi1", "player"]\n'
+        'steps = [ { actor = "vivi1", say = "Follow me." }, { actor = "player", walk = [0, 0] } ]\n',
         encoding="utf-8")
-    probs = build.validate(build.FieldProject.load(p))            # conductor checks live in validate()
-    assert any("player" in m and "walk" in m for m in probs)
+    proj = build.FieldProject.load(p)
+    assert [m for m in build.validate(proj) if "walk" in m] == []  # player-walk is no longer flagged
+    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch = build.collect_text(proj)
+    s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids))
+    pe = _player.find_player_entry(s)
+    assert s.entry(pe).func_by_tag(20) is not None                # the walk tag landed on the PLAYER entry
+    assert not any(e.func_by_tag(20) for e in s.entries if not e.empty and e.index != pe)  # only there
+    drv = next(e for e in s.entries if not e.empty and e.index != 0 and e.func_by_tag(0)
+               and any(i.op == 0x95 for i in iter_code(s.data, e.func_by_tag(0).abs_start, e.func_by_tag(0).abs_end)))
+    calls = [(i.imm(0), i.imm(1), i.imm(2)) for i in iter_code(s.data, drv.func_by_tag(0).abs_start,
+                                                               drv.func_by_tag(0).abs_end) if i.op == 0x14]
+    assert (2, 250, 20) in calls                                  # RunScriptSync(level=2, uid=250 player, tag=20)
 
 
 def test_conductor_group_parallel_by_with_prev():
