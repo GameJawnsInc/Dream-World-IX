@@ -46,6 +46,12 @@ ArchitecturesInstallIn64BitMode=x64compatible
 SolidCompression=yes
 Compression=lzma2
 
+[Messages]
+; The bootstrap's PowerShell window closes on success, so surface the next steps on Setup's own
+; Finished page (which stays up). Both variants set in case the finished page has/has-not run-checkboxes.
+FinishedLabelNoIcons=Dream World IX is installed.%n%nTo finish setup, open a NEW terminal (so PATH refreshes) and run:%n%n        ff9mapkit doctor%n        ff9mapkit extract-templates%n%nThose point the kit at your legally-owned FF9 install and regenerate its base assets. The Start Menu shortcut "Dream World IX (Workspace)" opens the editor.
+FinishedLabel=Dream World IX is installed.%n%nTo finish setup, open a NEW terminal (so PATH refreshes) and run:%n%n        ff9mapkit doctor%n        ff9mapkit extract-templates%n%nThose point the kit at your legally-owned FF9 install and regenerate its base assets. The Start Menu shortcut "Dream World IX (Workspace)" opens the editor.
+
 [Files]
 Source: "bootstrap.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\ff9mapkit\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
