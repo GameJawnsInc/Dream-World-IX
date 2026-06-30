@@ -413,7 +413,7 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 **Frontier:** #13 (story-event director/roster on rotating-cast fields) — core + tail in-game proven →
 [[project-ff9-fork-fidelity-worklist]]. Custom OVERWORLD = the hardest unstarted thing → [[project-ff9-worldmap-feasibility]].
 
-**Latest:** kit **1.0.0b6** (public betas b3–b6: first PyPI release + uv-bootstrap Windows installer + `ff9mapkit setup` + Steam/GOG game-detect + GUI-works-installed; b6 GitHub draft awaits publish), 2380 tests (`py -m pytest -n 6`). See `git log` for the running narrative + `[[project-ff9-installer-packaging]]` for the onboarding/installer state + open threads (#1 engine-patches-in-installer, #4 icon).
+**Latest:** kit **1.0.0b7** (public betas b3–b7: PyPI + uv-bootstrap Windows installer + `ff9mapkit setup` + Steam/GOG game-detect + GUI-works-installed; **b7** = installer bundles+installs the engine patches [backed-up/version-aware], installed-GUI campaign/journey deploy + New-Game wiring [`ff9mapkit deploy-campaign`/`deploy-journey`/`newgame`; deploy orchestration extracted into `ff9mapkit/deploy.py`+`newgame.py`, the `tools/deploy_*.py` are now thin shims], Workspace app icon), 2404 tests (`py -m pytest -n 6`). The install-path features are NOT in-game proven on an installed copy yet (user playtests on the laptop). See `git log` + `[[project-ff9-installer-packaging]]` for the onboarding/installer state.
 
 ---
 
