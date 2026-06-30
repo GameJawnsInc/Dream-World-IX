@@ -16,10 +16,11 @@ import copy
 import html
 import os
 import sys
+import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QProcess, QSize
-from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtCore import Qt, QObject, QProcess, QSize, QUrl, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QFormLayout,
     QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
@@ -27,8 +28,10 @@ from PySide6.QtWidgets import (
     QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+from .. import __version__
 from .. import campaign as C
 from .. import save as _save
+from .. import update_check
 from ..editor import breadcrumb as bc
 from ..editor import feedback as fb
 from ..editor import forms
@@ -271,6 +274,12 @@ class BreadcrumbBar(QWidget):
         self._lay.addStretch(1)
 
 
+class _UpdateSignals(QObject):
+    """Marshals an update-check result from a worker thread back to the GUI thread (a queued signal)."""
+
+    done = Signal(dict)
+
+
 class Workspace(QMainWindow):
     """The shell: a project tree (left) + document tabs (center) + inspector (right) + Output/Problems
     dock (bottom), with a breadcrumb above. Open a campaign.toml to populate it."""
@@ -302,7 +311,8 @@ class Workspace(QMainWindow):
         self._content_crumbs = []                  # cached tree-driven trail -> restored when returning to a content tab
         self._content_chip = None                  # cached chip mode for the SELECTED node (hub/journey/campaign/field)
         self._loose_parent = (None, None, None)    # (campaign.toml, member, name) when a loose field is a campaign member
-        self.setWindowTitle("Dream World IX — Workspace")
+        self._update_result = None                 # last PyPI update-check result (None until checked)
+        self.setWindowTitle(f"Dream World IX — Workspace   ·   v{__version__}")
         self.setWindowIcon(_app_icon())
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
@@ -314,6 +324,125 @@ class Workspace(QMainWindow):
         self._build_central()
         self._build_dock()
         self.statusBar().showMessage("Open a campaign.toml to begin.")
+        self._build_version_label()
+
+    # ---- version + update check ----
+    def _build_version_label(self):
+        """A clickable version chip in the status bar — always shows the running version, and lights up
+        (accent) when a newer release is found. Clicking it opens the update dialog (manual check + the
+        upgrade command)."""
+        self.version_label = QLabel(f"v{__version__}")
+        self.version_label.setStyleSheet(f"color:{self.pal['muted']};padding:0 8px;")
+        self.version_label.setToolTip("ff9mapkit version — click to check for updates")
+        self.version_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.version_label.mousePressEvent = lambda _e: self._open_update_dialog()    # a clickable QLabel
+        self.statusBar().addPermanentWidget(self.version_label)
+
+    def startup_update_flow(self):
+        """First-run opt-in prompt, then (if opted in) a quiet once-a-day background check. Called from
+        :func:`main` AFTER show(); NEVER under --smoke (the smoke path returns before show, so no network
+        call and no modal ever run headless)."""
+        if not update_check.was_prompted():
+            ans = QMessageBox.question(
+                self, "Check for updates?",
+                "Check pypi.org once a day for a newer Dream World IX (ff9mapkit) release?\n\n"
+                "Only the version number is fetched — no personal data is sent. You can change this anytime "
+                "by clicking the version in the bottom-right.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            update_check.set_preference(ans == QMessageBox.StandardButton.Yes)
+        if update_check.should_check_now():
+            self._start_update_check()
+
+    def _start_update_check(self, manual=False):
+        """Run the PyPI check OFF the UI thread; the result returns via a queued signal (never blocks)."""
+        if getattr(self, "_upd_busy", False):
+            return
+        self._upd_busy = True
+        if manual and getattr(self, "_upd_dialog", None) is not None:
+            self._upd_check_btn.setEnabled(False)
+            self._refresh_update_dialog()
+        sig = _UpdateSignals()
+        sig.done.connect(lambda res, m=manual: self._on_update_result(res, m))
+        self._upd_sig = sig                            # keep the QObject alive until it fires
+        threading.Thread(target=lambda: sig.done.emit(update_check.check()), daemon=True).start()
+
+    def _on_update_result(self, res, manual):
+        self._upd_busy = False
+        self._update_result = res
+        if res.get("newer"):                           # light up the status-bar chip
+            self.version_label.setText(f"v{__version__}  ·  update ▸")
+            self.version_label.setStyleSheet(f"color:{self.pal['accent']};padding:0 8px;font-weight:600;")
+            self.version_label.setToolTip(f"ff9mapkit {res['latest']} is available — click for upgrade steps")
+        if getattr(self, "_upd_dialog", None) is not None:
+            self._upd_check_btn.setEnabled(True)
+            self._refresh_update_dialog()
+        elif manual:
+            self._open_update_dialog()
+
+    def _open_update_dialog(self):
+        dlg = QDialog(self)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dlg.setWindowTitle("Dream World IX — updates")
+        dlg.resize(470, 210)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(f"<b>ff9mapkit</b>   v{__version__}"))
+        self._upd_status = QLabel()
+        self._upd_status.setWordWrap(True)
+        self._upd_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        lay.addWidget(self._upd_status)
+        self._upd_cmd_box = QWidget()                  # shown only when a newer version exists
+        cb = QVBoxLayout(self._upd_cmd_box)
+        cb.setContentsMargins(0, 0, 0, 0)
+        cmd_row = QHBoxLayout()
+        self._upd_cmd = QLineEdit()
+        self._upd_cmd.setReadOnly(True)
+        cmd_row.addWidget(self._upd_cmd, 1)
+        copy = QPushButton("Copy")
+        copy.clicked.connect(lambda: QApplication.clipboard().setText(self._upd_cmd.text()))
+        cmd_row.addWidget(copy)
+        cb.addLayout(cmd_row)
+        pypi = QPushButton("Open the PyPI page")
+        pypi.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(update_check.PYPI_PROJECT_URL)))
+        cb.addWidget(pypi, alignment=Qt.AlignmentFlag.AlignLeft)
+        lay.addWidget(self._upd_cmd_box)
+        lay.addStretch(1)
+        row = QHBoxLayout()
+        self._upd_check_btn = QPushButton("Check for updates")
+        self._upd_check_btn.setEnabled(not getattr(self, "_upd_busy", False))
+        self._upd_check_btn.clicked.connect(lambda: self._start_update_check(manual=True))
+        row.addWidget(self._upd_check_btn)
+        row.addStretch(1)
+        close = QPushButton("Close")
+        close.clicked.connect(dlg.accept)
+        row.addWidget(close)
+        lay.addLayout(row)
+        self._upd_dialog = dlg
+        dlg.finished.connect(lambda _r: setattr(self, "_upd_dialog", None))
+        self._refresh_update_dialog()
+        dlg.exec()
+
+    def _refresh_update_dialog(self):
+        """Repaint the open update dialog from ``self._update_result`` / the busy flag (no-op if closed)."""
+        if getattr(self, "_upd_dialog", None) is None:
+            return
+        res = self._update_result
+        if getattr(self, "_upd_busy", False):
+            self._upd_status.setText("Checking pypi.org…")
+            self._upd_cmd_box.setVisible(False)
+        elif res is None:
+            self._upd_status.setText("Click “Check for updates” to ask pypi.org for a newer release.")
+            self._upd_cmd_box.setVisible(False)
+        elif not res.get("ok"):
+            self._upd_status.setText("Couldn't reach pypi.org (offline?). Try again later.")
+            self._upd_cmd_box.setVisible(False)
+        elif res.get("newer"):
+            self._upd_status.setText(f"<b>Update available:</b> {res['latest']}  (you have {res['current']}).<br>"
+                                     "Run this in a terminal, then restart the app:")
+            self._upd_cmd.setText(update_check.UPGRADE_COMMAND)
+            self._upd_cmd_box.setVisible(True)
+        else:
+            self._upd_status.setText(f"You're on the latest release (v{res['current']}).")
+            self._upd_cmd_box.setVisible(False)
 
     # ---- chrome ----
     def _build_toolbar(self):
@@ -6919,6 +7048,7 @@ def main(argv=None):
         _smoke(win)
         return
     win.show()
+    win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
     sys.exit(app.exec())
 
 
