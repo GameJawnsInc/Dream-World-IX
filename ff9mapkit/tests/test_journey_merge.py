@@ -6,8 +6,23 @@ collide, so the entry campaign wins. Pure/offline.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from ff9mapkit import journey as J
+from ff9mapkit import deploy as D
 from ff9mapkit.editor import jobs
+
+
+def test_single_folder_marker_recognizes_own_redeploy(tmp_path):
+    # The wholesale-replace guard must NOT false-abort when re-deploying the SAME journey whose ids changed (a
+    # re-fork): the `.ff9journey` marker identifies the folder as ours. Mirrors the FF9Playthrough s_gate re-fork.
+    man = SimpleNamespace(journeys=[SimpleNamespace(id="ff9_playthrough")])
+    root = tmp_path / "FF9CustomMap-ff9playthrough"
+    root.mkdir()
+    assert not D._folder_is_ours(root, man)                              # no marker -> treated as a foreign mod
+    (root / D._JOURNEY_MARKER).write_text(D._journey_signature(man), encoding="utf-8")
+    assert D._folder_is_ours(root, man)                                  # our marker -> ours (overwrite is safe)
+    assert not D._folder_is_ours(root, SimpleNamespace(journeys=[SimpleNamespace(id="other")]))  # different journey
 
 
 def _mkdist(root, *, fields, battle, csv_marker, asset, mesid, item_text=False):

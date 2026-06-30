@@ -654,6 +654,27 @@ def _apply_journey(manifest, plan, *, game, newgame, hub_out, backups_dir, rever
     return 0, str(unified)
 
 
+_JOURNEY_MARKER = ".ff9journey"     # written into a single-folder deploy so a re-deploy knows the folder is its own
+
+
+def _journey_signature(manifest) -> str:
+    """A stable id for a manifest's journey set, written into a single-folder deploy as ``.ff9journey``. A later
+    re-deploy of the SAME journey reads it back to recognize its OWN folder -- even when a re-fork changed campaign
+    ids (so the old ids would otherwise read as a 'foreign mod' to the wholesale-replace guard)."""
+    ids = sorted(j.id for j in getattr(manifest, "journeys", []) or [])
+    return ",".join(ids) if ids else "(bare)"
+
+
+def _folder_is_ours(live_root, manifest) -> bool:
+    """True if ``live_root`` carries a ``.ff9journey`` marker matching this manifest -- i.e. it's THIS journey's
+    prior single-folder deploy (safe to wholesale-replace), not an unrelated mod that happens to share the name."""
+    marker = Path(live_root) / _JOURNEY_MARKER
+    try:
+        return marker.is_file() and marker.read_text(encoding="utf-8").strip() == _journey_signature(manifest)
+    except OSError:
+        return False
+
+
 def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow_collision, hub_out,
                           backups_dir, reverts_dir, out, err):
     """ONE-SHOT single-folder deploy: build every campaign + the hub offline, MERGE them into ONE mod folder,
@@ -720,6 +741,7 @@ def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow
     all_dists = [hub_dist] + [built[s.folder] for s in plan.campaign_steps]
     merged = tmp / "merged"
     info = J.merge_dists(all_dists, out=merged, folder_name=folder, entry_dist=entry_dist)
+    (merged / _JOURNEY_MARKER).write_text(_journey_signature(manifest), encoding="utf-8")   # so a re-deploy knows it's ours
     out(f"\n=== 1. merge -> one folder '{folder}' ({info['fields']} fields, {info['dists_merged']} dist(s)) ===")
 
     # (1.5) collision guards vs the FOREIGN FolderNames stack (the merged folder's own ids/names are fine).
@@ -737,14 +759,22 @@ def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow
             "FolderNames folder. Drop the foreign folder from FolderNames, or pass allow_collision=True.")
         return 2, None
 
-    # (1.6) wholesale-replace TARGET guard: a DIFFERENT mod already under that folder name.
+    # (1.6) wholesale-replace TARGET guard: a DIFFERENT mod already under that folder name. A folder THIS journey
+    # deployed before carries our `.ff9journey` marker -> it is OURS (a re-fork may have changed campaign ids, so the
+    # foreign-id heuristic alone would false-abort) -> overwrite freely; the snapshot below keeps it revertable.
     if live_root.is_dir():
+        ours = _folder_is_ours(live_root, manifest)
         foreign_ids = set(DS.dictionary_ids_at(live_root).keys()) - set(DS.dictionary_ids_at(merged).keys())
-        if foreign_ids and not allow_collision:
+        if foreign_ids and ours:
             shown = sorted(foreign_ids)
-            err(f"\nABORT (no game files touched): folder '{folder}' already holds an UNRELATED mod -- it "
-                f"registers field ids {shown[:8]}{'...' if len(shown) > 8 else ''} this journey doesn't. Pick a "
-                f"different single_folder NAME, remove that folder, or pass allow_collision=True to overwrite it.")
+            out(f"  note: '{folder}' is this journey's prior deploy ({_JOURNEY_MARKER} matches); its now-stale id(s) "
+                f"{shown[:8]}{'...' if len(shown) > 8 else ''} (e.g. a re-forked campaign) will be replaced.")
+        elif foreign_ids and not allow_collision:
+            shown = sorted(foreign_ids)
+            err(f"\nABORT (no game files touched): folder '{folder}' already holds an UNRELATED mod (no "
+                f"'{_JOURNEY_MARKER}' marker for this journey) -- it registers field ids "
+                f"{shown[:8]}{'...' if len(shown) > 8 else ''} this journey doesn't. Pick a different single_folder "
+                f"NAME, remove that folder, or pass allow_collision=True to overwrite it.")
             return 2, None
 
     # (2) install: snapshot, script the snapshot-restore revert FIRST, then wholesale-replace.
