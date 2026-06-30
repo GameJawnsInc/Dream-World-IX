@@ -47,10 +47,10 @@ SolidCompression=yes
 Compression=lzma2
 
 [Messages]
-; The bootstrap's PowerShell window closes on success, so surface the next steps on Setup's own
-; Finished page (which stays up). Both variants set in case the finished page has/has-not run-checkboxes.
-FinishedLabelNoIcons=Dream World IX is installed, and first-time setup ran automatically -- detecting your FINAL FANTASY IX install and extracting its base assets.%n%nOpen "Dream World IX (Workspace)" from the Start Menu, or run  ff9mapkit  in a new terminal.%n%nIf your FF9 install wasn't found, open a new terminal and run:%n        ff9mapkit setup --game "<your FINAL FANTASY IX folder>"%n%nForked real fields also need the engine bundle (see the GitHub release / docs/ENGINE.md).
-FinishedLabel=Dream World IX is installed, and first-time setup ran automatically -- detecting your FINAL FANTASY IX install and extracting its base assets.%n%nOpen "Dream World IX (Workspace)" from the Start Menu, or run  ff9mapkit  in a new terminal.%n%nIf your FF9 install wasn't found, open a new terminal and run:%n        ff9mapkit setup --game "<your FINAL FANTASY IX folder>"%n%nForked real fields also need the engine bundle (see the GitHub release / docs/ENGINE.md).
+; Keep the Finished page short -- the bootstrap window already showed setup's result, and the
+; "Open Workspace" checkbox + Start-Menu shortcut handle launching.
+FinishedLabelNoIcons=Dream World IX is installed and set up.%n%nForked real fields also need the engine bundle -- see the GitHub release.
+FinishedLabel=Dream World IX is installed and set up.%n%nForked real fields also need the engine bundle -- see the GitHub release.
 
 [Files]
 Source: "bootstrap.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -69,9 +69,17 @@ Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\bootstrap.ps1"""; \
   StatusMsg: "Installing the Python toolchain and Dream World IX (downloads ~150 MB on first run)..."; \
   Flags: waituntilterminated
-Filename: "{#MyAppURL}#start-here"; Description: "Open the Setup guide in your browser"; Flags: postinstall shellexec nowait skipifsilent
+; Finished-page checkbox: launch the Workspace GUI. Check: only shown if the launcher actually exists
+; (i.e. the tool install succeeded). nowait so the wizard closes without waiting on the GUI.
+Filename: "{%USERPROFILE}\.local\bin\ff9mapkit-workspace.exe"; Description: "Open Dream World IX (Workspace)"; Flags: postinstall nowait skipifsilent; Check: WorkspaceExists
 
 [UninstallRun]
 Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\bootstrap.ps1"" -Uninstall"; \
   Flags: runhidden; RunOnceId: "UninstallFf9mapkitTool"
+
+[Code]
+function WorkspaceExists: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{%USERPROFILE}\.local\bin\ff9mapkit-workspace.exe'));
+end;
