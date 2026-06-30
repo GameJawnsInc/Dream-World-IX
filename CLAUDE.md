@@ -122,7 +122,7 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
 
 ## 5. Current state (keep this updated)
 
-- **Dev engine** = stock Memoria `6b8bb2d5` + the **F6 debug menu** (dev-only; patch `memoria-patches/s22`) +
+- **Dev engine** = stock Memoria `6b8bb2d5` + the **F6 debug menu** (patch `memoria-patches/s22`; user-facing — it SHIPS in the bundle, see below) +
   the **s23–s33 FORK-DONOR REMAP suite** — every engine gate hardcoded on a real `fldMapNo` (or FBG name) is
   wrapped so it fires for a custom FORK id. Four gate classes, four levers: `== N` compare + local-alias
   `mapNo` (`EffectiveFieldId`, s23/s24/s29/s30), NAME-keyed (`EffectiveFieldName`, s31/s32), and lookup-arg
@@ -132,9 +132,11 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
 - **⚠ ENGINE-INDEPENDENCE IS SPLIT (durable):** a *novel* field (BG-borrow / from-scratch) runs on **stock**
   Memoria; a **FORKED field REQUIRES the s23–s33 suite** (else it loses Dante's off-mesh exemption, narrow-map
   width, the fake-battle return, the softlock fixes, etc.). So **the shipped faithful-opening ships our CUSTOM
-  Memoria** (stock + s23–s33; only the F6 menu is dev-only) — which is why we ship our own engine + held the
-  PRs. Revert engine → no-edits rebuild: `tools/restore_memoria_dll.py baseline`; true stock = re-run the patcher.
-- **F6 debug menu** (dev build, in **FIELD and BATTLE**): a draggable tabbed IMGUI popup — **Warp** (reload ·
+  Memoria** (stock + s23–s33 + the **F6 menu** — the shipped `dwix-custom-memoria-*.zip` bundle IS the dev
+  engine; **F6 is a user-facing tool we KEEP and plan to grow**, ★ in-game verified shipping on a clean
+  installer run 2026-06-30) — which is why we ship our own engine + held the PRs. Revert engine → no-edits
+  rebuild: `tools/restore_memoria_dll.py baseline`; true stock = re-run the patcher.
+- **F6 debug menu** (ships in the engine bundle; in **FIELD and BATTLE**): a draggable tabbed IMGUI popup — **Warp** (reload ·
   warp to any registered custom id · seed an arrival entrance + ScenarioCounter to reach a story-gated fork at
   the right beat) · **Move** · **Cheats** (boosters / heal / give) · **Flags** (get/set/clear/snapshot a
   `gEventGlobal` flag) · **Time**. Supersedes the old single-key F6-reload / F10-reset hotkeys.
@@ -428,4 +430,4 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
   `.bgx`+PNGs+`.bgi`.
 - **field.toml / scene.toml** — the kit's logic file / Blender's spatial file (merged at build).
 - **GLOB vs MAP flag** — save-persistent (`gEventGlobal`) vs per-field-transient story state.
-- **F6 debug menu** — the dev-engine in-game tool (Warp/Move/Cheats/Flags/Time).
+- **F6 debug menu** — the in-game debug tool, shipped in the engine bundle (Warp/Move/Cheats/Flags/Time).
