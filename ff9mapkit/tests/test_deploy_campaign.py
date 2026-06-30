@@ -1,7 +1,8 @@
-"""Offline tests for tools/deploy_campaign.py (P4). The pure helpers (entry/mod-folder resolution, the
-dist summary, the revert-script generation) need no game; a guarded dry-run smoke test forks + dry-runs a
-tiny campaign when the FF9 install is present. The actual --apply install + in-game warp are verified by a
-human (Hard Constraint §2)."""
+"""Offline tests for campaign deploy. The orchestration now lives in the package (``ff9mapkit.deploy``); the
+pure helpers (entry resolution, the dist summary, the revert-script generation) are tested there directly,
+while the worktree mod-folder resolution + the dry-run ``main`` are tested via the thin repo shim
+(``tools/deploy_campaign.py``). A guarded dry-run smoke test forks + dry-runs a tiny campaign when the FF9
+install is present. The actual --apply install + in-game warp are verified by a human (Hard Constraint §2)."""
 
 import ast
 import importlib.util
@@ -9,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from ff9mapkit import campaign
+from ff9mapkit import campaign, deploy
 
 REPO = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location("deploy_campaign", REPO / "tools" / "deploy_campaign.py")
@@ -35,50 +36,53 @@ def test_resolve_mod_folder(monkeypatch):
 
 def test_resolve_entry():
     p = _plan()
-    assert dc.resolve_entry(p, None) == 30100        # manifest entry_field IC_ENT -> its new id
-    assert dc.resolve_entry(p, "IC_STP") == 30101    # by member name
-    assert dc.resolve_entry(p, "30101") == 30101     # by exact id
-    assert dc.resolve_entry(p, "99999") == 99999     # arbitrary id passthrough
+    assert deploy.resolve_entry(p, None) == 30100        # manifest entry_field IC_ENT -> its new id
+    assert deploy.resolve_entry(p, "IC_STP") == 30101    # by member name
+    assert deploy.resolve_entry(p, "30101") == 30101     # by exact id
+    assert deploy.resolve_entry(p, "99999") == 99999     # arbitrary id passthrough
 
 
 def test_expected_dist_summary():
-    s = dc.expected_dist_summary(_plan())
+    s = deploy.expected_dist_summary(_plan())
     assert any("2 FieldScene lines" in x and "30100..30101" in x for x in s)
     assert any("1 member scene dir" in x and "IC_ENT" in x for x in s)       # IC_ENT ships a scene dir; IC_STP borrows
 
 
 def test_render_revert_valid_and_complete(tmp_path):
     live, snap = tmp_path / "FF9CustomMap-ow", tmp_path / "snap"
-    warp = tmp_path / "revert_newgame_warp.py"
-    txt = dc.render_revert_campaign(live, snap, warp, "ICE", "20260609-000000")
+    warp = tmp_path / "revert_newgame_retarget.py"
+    txt = deploy.render_revert_campaign(live, snap, warp, "ICE", "20260609-000000")
     ast.parse(txt)                                                   # must be valid python
     assert "shutil.copytree(snap, live)" in txt and "runpy.run_path" in txt
-    no_warp = dc.render_revert_campaign(live, snap, None, "ICE", "20260609-000000")
+    no_warp = deploy.render_revert_campaign(live, snap, None, "ICE", "20260609-000000")
     ast.parse(no_warp)
     assert "runpy" not in no_warp                                    # no warp -> no warp-revert step
 
 
 def test_wires_newgame_via_retarget_not_legacy():
     # New Game must be wired by RETARGETING the field-70 override (the proven, install-robust path), NOT the
-    # legacy field-100-hop newgame_warp.py whose injection site doesn't exist on every install.
-    src = (REPO / "tools" / "deploy_campaign.py").read_text(encoding="utf-8")
-    assert "retarget_newgame_warp.py" in src          # the field-70 direct retarget tool
-    assert "revert_newgame_retarget.py" in src        # ...and its revert is chained into revert_campaign.py
-    assert "revert_newgame_warp.py" not in src        # the legacy field-100-hop revert is gone
+    # legacy field-100-hop newgame_warp.py whose injection site doesn't exist on every install. The logic now
+    # lives in the package: deploy calls newgame.retarget, which writes revert_newgame_retarget.py.
+    dsrc = (REPO / "ff9mapkit" / "ff9mapkit" / "deploy.py").read_text(encoding="utf-8")
+    nsrc = (REPO / "ff9mapkit" / "ff9mapkit" / "newgame.py").read_text(encoding="utf-8")
+    assert "newgame.retarget(" in dsrc                # deploy wires New Game via the field-70 retarget
+    assert "revert_newgame_retarget.py" in nsrc       # ...whose revert chains into revert_campaign.py
+    # the legacy field-100-hop revert (distinct from the current retarget revert) is gone from both
+    assert "revert_newgame_warp.py" not in dsrc and "revert_newgame_warp.py" not in nsrc
 
 
 def test_folder_order(tmp_path):
     g = tmp_path / "game"
     g.mkdir()
-    assert dc.folder_order(g) == []                                  # no Memoria.ini -> empty
+    assert deploy.folder_order(g) == []                              # no Memoria.ini -> empty
     (g / "Memoria.ini").write_text('[Mod]\nFolderNames = "X", "Y"\n', encoding="utf-8")
-    assert dc.folder_order(g) == ["X", "Y"]                          # highest first
+    assert deploy.folder_order(g) == ["X", "Y"]                      # highest first
 
 
 def test_resolve_highest_folder():
-    assert dc.resolve_highest_folder(["A", "B"], None) == "A"        # highest = first FolderNames entry
-    assert dc.resolve_highest_folder([], None) == "FF9CustomMap"     # unreadable stack -> canonical primary
-    assert dc.resolve_highest_folder(["A", "B"], "OVERRIDE") == "OVERRIDE"   # explicit --promote-csv-to wins
+    assert deploy.resolve_highest_folder(["A", "B"], None) == "A"    # highest = first FolderNames entry
+    assert deploy.resolve_highest_folder([], None) == "FF9CustomMap"  # unreadable stack -> canonical primary
+    assert deploy.resolve_highest_folder(["A", "B"], "OVERRIDE") == "OVERRIDE"   # explicit --promote-csv-to wins
 
 
 def test_render_revert_with_promoted_csvs(tmp_path):
@@ -86,13 +90,13 @@ def test_render_revert_with_promoted_csvs(tmp_path):
     csvs = [(r"C:\g\FF9CustomMap\StreamingAssets\Data\Items\InitialItems.csv",
              r"C:\repo\backups\InitialItems.csv.pre-ICE.20260612-000000"),     # had a prior -> restore
             (r"C:\g\FF9CustomMap\StreamingAssets\Data\Items\ShopItems.csv", None)]  # newly created -> delete
-    txt = dc.render_revert_campaign(live, snap, None, "ICE", "20260612-000000", csvs)
+    txt = deploy.render_revert_campaign(live, snap, None, "ICE", "20260612-000000", csvs)
     ast.parse(txt)                                                   # valid python
     assert "CSV_REVERTS" in txt
     assert "shutil.copyfile(_bkp, _dst)" in txt and "_dst.unlink()" in txt
     assert "Path(_bkp).is_file()" in txt                             # don't crash if a backup CSV vanished
     assert "if snap.is_dir():" in txt                                # never rmtree live without a snapshot
-    no_csv = dc.render_revert_campaign(live, snap, None, "ICE", "20260612-000000")
+    no_csv = deploy.render_revert_campaign(live, snap, None, "ICE", "20260612-000000")
     ast.parse(no_csv)
     assert "CSV_REVERTS" not in no_csv                               # no promotion -> no CSV block
 
@@ -113,8 +117,8 @@ def test_generated_revert_executes(tmp_path):
     dst2 = high / "ShopItems.csv"; dst2.write_text("CREATED", encoding="utf-8")      # 2) newly created -> remove
     dst3 = high / "DefaultEquipment.csv"; dst3.write_text("KEEP", encoding="utf-8")  # 3) backup vanished -> skip
     bk3 = bkdir / "gone.bk"                                                          #    (never created)
-    txt = dc.render_revert_campaign(live, snap, None, "ICE", "x",
-                                    [(str(dst1), str(bk1)), (str(dst2), None), (str(dst3), str(bk3))])
+    txt = deploy.render_revert_campaign(live, snap, None, "ICE", "x",
+                                        [(str(dst1), str(bk1)), (str(dst2), None), (str(dst3), str(bk3))])
     exec(compile(txt, "<revert>", "exec"), {})
     assert dst1.read_text(encoding="utf-8") == "OLD"                 # restored from backup
     assert not dst2.exists()                                         # newly created -> removed
@@ -126,7 +130,7 @@ def test_generated_revert_skips_when_snapshot_missing(tmp_path):
     live, snap = tmp_path / "live", tmp_path / "nope"               # snapshot does NOT exist
     live.mkdir()
     (live / "keep.txt").write_text("keep", encoding="utf-8")
-    txt = dc.render_revert_campaign(live, snap, None, "ICE", "x")
+    txt = deploy.render_revert_campaign(live, snap, None, "ICE", "x")
     exec(compile(txt, "<revert>", "exec"), {})
     assert (live / "keep.txt").exists()                             # snapshot missing -> live left untouched, not nuked
 
