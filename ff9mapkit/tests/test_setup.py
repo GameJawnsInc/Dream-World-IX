@@ -173,3 +173,12 @@ def test_parse_vdf_new_schema():
 def test_parse_vdf_old_schema():
     text = '"LibraryFolders"\n{\n    "1"   "E:\\\\Games\\\\Steam"\n    "2"   "F:\\\\Steam"\n}\n'
     assert config._parse_vdf_library_paths(text) == [r"E:\Games\Steam", r"F:\Steam"]
+
+
+# ---- installed vs repo: the GUI deploy-tools gate (PySide6-free; the Qt shell is covered by --smoke) ----
+def test_has_deploy_tools(tmp_path):
+    from ff9mapkit.editor import jobs
+    assert jobs.has_deploy_tools(tmp_path) is False              # installed-like: no tools/ in the wheel
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "deploy_field.py").write_text("", encoding="utf-8")
+    assert jobs.has_deploy_tools(tmp_path) is True               # repo checkout

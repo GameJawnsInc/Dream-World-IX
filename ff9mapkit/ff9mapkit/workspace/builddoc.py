@@ -32,6 +32,10 @@ class BuildDoc(QWidget):
         self.pal = pal
         self.repo = Path(repo_root)
         self.kit = self.repo / "ff9mapkit"             # `-m ff9mapkit build` cwd (local pkg shadows)
+        self.kit_cwd = self.kit if self.kit.is_dir() else None   # None -> run_job falls back to KIT (always valid)
+        # A repo checkout has the deploy scripts at <repo>/tools/; an installed copy (pip/uv/.exe) does NOT,
+        # so the test-slot / campaign / journey DEPLOYS (+ the F6 loop) are unavailable there. `build` works either way.
+        self.has_tools = jobs.has_deploy_tools(self.repo)
         self._run = run
         self._problems = problems
         self.kind = "field"
@@ -102,7 +106,7 @@ class BuildDoc(QWidget):
         tid = self.worktree_id or 4003
         self.rb_test = QRadioButton(f"Test slot {tid} — quick + reversible; play via F6 → Warp"
                                     + ("  (or New Game → hut door)" if tid == 4003 else ""))
-        self.rb_test.setChecked(True)
+        self.rb_test.setChecked(self.has_tools)        # installed copy: no F6 dev engine -> default to Install to game
         self.rb_game = QRadioButton(f"Install to game (shipping mod folder): {self.game_mod}"
                                     if self.game_mod else "Install to game — (game install not found)")
         if not self.game_mod:
@@ -126,6 +130,10 @@ class BuildDoc(QWidget):
         self.dest.setWordWrap(True)
         self.dest.setStyleSheet(f"color:{self.pal['accent']};")
         gv.addWidget(self.dest)
+        if not self.has_tools:                         # installed: no test-slot/F6 -> default to Install to game / Build only
+            self.rb_test.setEnabled(False)
+            self.rb_test.setText(self.rb_test.text() + "   (dev repo only)")
+            (self.rb_game if self.game_mod else self.rb_other).setChecked(True)  # safe now: self.dest exists
         self.field_box = box
         return box
 
@@ -375,6 +383,21 @@ class BuildDoc(QWidget):
     def _info(self, title, text):
         QMessageBox.information(self, title, text)
 
+    def _require_tools(self, what):
+        """Installed (non-repo) copies don't ship the deploy SCRIPTS (tools/). Show a clear, actionable
+        message instead of a cryptic 'no such file' and return False; True when the repo tools are present."""
+        if self.has_tools:
+            return True
+        self._warn(
+            f"{what} needs the source repo",
+            f"'{what}' runs ff9mapkit's development deploy scripts (the repo's tools/), which aren't part of "
+            "an installed copy.\n\n"
+            "To get a custom field into your game from an installed ff9mapkit:\n"
+            "  - use  Build to -> 'Install to game'  (it writes the mod into your FF9 folder; Memoria detects\n"
+            "    it automatically), then reach it via a [[gateway]] from an early field or by wiring New Game.\n\n"
+            "(The test-slot + F6 loop and reversible campaign/journey deploys are a dev-repo workflow.)")
+        return False
+
     def _picked(self):
         f = self.path.text().strip().strip('"')
         if not f or not Path(f).is_file():
@@ -463,6 +486,8 @@ class BuildDoc(QWidget):
 
     def _go_field(self, field):
         if self.rb_test.isChecked():
+            if not self._require_tools("Deploy to test slot"):
+                return
             tid = self.worktree_id or 4003
             reach = ("New Game → walk to the hut door (or F6 → Warp)" if tid == 4003
                      else f"F6 → Warp to field {tid}")
@@ -477,19 +502,21 @@ class BuildDoc(QWidget):
             if self._confirm("Install to game",
                              f"Build this field into the game mod folder?\n\n{self.game_mod}\n\n"
                              "Writes the field at its real id (may overwrite a field with the same id)."):
-                self._stream(jobs.build_argv(field, str(self.game_mod)), cwd=self.kit,
+                self._stream(jobs.build_argv(field, str(self.game_mod)), cwd=self.kit_cwd,
                              subject="Install to game", ok_headline=f"Built into {self.game_mod}")
         else:
             out = self.other.text().strip()
             if not out:
                 return self._warn("No folder", "Pick an output folder.")
-            self._stream(jobs.build_argv(field, out), cwd=self.kit, subject="Build",
+            self._stream(jobs.build_argv(field, out), cwd=self.kit_cwd, subject="Build",
                          ok_headline=f"Built into {out}")
 
     def _go_campaign(self, path):
         if self.rb_camp_build.isChecked():
-            self._stream(jobs.build_campaign_argv(path), cwd=self.kit, subject="Build campaign",
+            self._stream(jobs.build_campaign_argv(path), cwd=self.kit_cwd, subject="Build campaign",
                          ok_headline=f"Built campaign {self.plan.name}")
+            return
+        if not self._require_tools("Deploy campaign"):
             return
         wire = self.wire_newgame.isChecked()
         route = ("It also wires New Game to enter the chain (experimental)." if wire
@@ -505,6 +532,8 @@ class BuildDoc(QWidget):
                          ok_next=f"Relaunch once (new DictionaryPatch), then F6 → Warp → {entry} to walk the chain.")
 
     def _go_journey(self, path):
+        if not self._require_tools("Deploy journey"):
+            return
         if self.rb_jour_preview.isChecked():           # dry-run: print the playbook, no game writes -> no confirm
             self._stream(jobs.deploy_journey_argv(self.repo, path), cwd=self.repo,
                          subject="Journey deploy playbook (dry-run)",
@@ -550,6 +579,8 @@ class BuildDoc(QWidget):
                          ok_next=stackmsg)
 
     def _go_battle(self, battle):
+        if not self._require_tools("Deploy battle map"):
+            return
         trig = self.trigger.text().strip()
         if trig and not trig.isdigit():
             return self._warn("Bad trigger field", "Trigger field must be a field id number (or blank).")
@@ -566,6 +597,8 @@ class BuildDoc(QWidget):
 
     # ------------------------------------------------------------------ New Game entry (hub-less)
     def on_set_newgame(self):
+        if not self._require_tools("Set New Game entry"):
+            return
         fid = self.newgame_id.text().strip()
         if not fid.isdigit():
             return self._warn("Bad field id", "Enter the numeric field id New Game should land on "
@@ -580,6 +613,8 @@ class BuildDoc(QWidget):
                          ok_next="Relaunch the game, then New Game. Undo with 'Revert New Game'.")
 
     def on_revert_newgame(self):
+        if not self._require_tools("Revert New Game"):
+            return
         argv = jobs.revert_newgame_argv(self.repo)            # most-recent New-Game revert (from-stock OR retarget)
         if argv is None or not Path(argv[-1]).exists():
             return self._info("Nothing to revert", "No New-Game change to undo yet.")
@@ -590,6 +625,8 @@ class BuildDoc(QWidget):
 
     # ------------------------------------------------------------------ Revert
     def on_revert(self):
+        if not self._require_tools("Revert"):
+            return
         if self.kind == "battle":
             argv, what = jobs.revert_battle_argv(self.repo), "battle"
         elif self.kind == "campaign":

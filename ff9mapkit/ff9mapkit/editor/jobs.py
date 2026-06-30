@@ -80,6 +80,13 @@ def detect_deploy_target(repo_root):
     return mod, fid
 
 
+def has_deploy_tools(repo_root) -> bool:
+    """True if the deploy SCRIPTS (``tools/deploy_field.py`` etc.) are present -- i.e. this is a repo checkout,
+    not an installed wheel (the wheel ships no ``tools/``). The Workspace uses it to hide the dev-only deploy
+    paths (test-slot / campaign / journey / battle / reverts) for an installed copy."""
+    return (Path(repo_root) / "tools" / "deploy_field.py").is_file()
+
+
 def detect_deployed_fields(mod_folder):
     """``[(id, name), ...]`` of the FieldScene lines in the worktree mod folder's DictionaryPatch -- the
     fields whose encounter a battle-mint can repoint (the valid 'trigger field' choices)."""

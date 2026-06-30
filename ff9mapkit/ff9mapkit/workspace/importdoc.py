@@ -30,6 +30,10 @@ class ImportDoc(QWidget):
         super().__init__()
         self.pal = pal
         self.kit = Path(kit_root)                      # `-m ff9mapkit` cwd (this worktree's package)
+        # Default output base: the repo parent for a checkout; an installed copy's package dir is inside a
+        # venv, so write forked projects to a discoverable user folder instead (not buried in site-packages).
+        self.proj_base = (self.kit.parent if (self.kit / "pyproject.toml").is_file()
+                          else Path.home() / "Dream World IX")
         self._run = run
         self._on_forked = on_forked                    # called with the output DIR on a clean fork -> shell opens it
         # The tab body SCROLLS: this view stacks five tall group boxes, so a short window would otherwise
@@ -152,7 +156,7 @@ class ImportDoc(QWidget):
 
         out = QHBoxLayout()
         out.addWidget(QLabel("Write to:"))
-        self.out = QLineEdit(str(self.kit.parent / "imported"))
+        self.out = QLineEdit(str(self.proj_base / "imported"))
         browse = QPushButton("Browse…")
         browse.clicked.connect(self.browse_out)
         out.addWidget(self.out, 1)
@@ -269,7 +273,7 @@ class ImportDoc(QWidget):
         v.addWidget(swap_hint)
         out = QHBoxLayout()
         out.addWidget(QLabel("Write campaign to:"))
-        self.rg_out = QLineEdit(str(self.kit.parent / "campaign"))
+        self.rg_out = QLineEdit(str(self.proj_base / "campaign"))
         rbrowse = QPushButton("Browse…")
         rbrowse.clicked.connect(self.browse_region_out)
         out.addWidget(self.rg_out, 1)
