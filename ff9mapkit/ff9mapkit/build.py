@@ -863,6 +863,22 @@ def validate(project: FieldProject) -> list[str]:
         # on-exit story advance: set_scenario / set_flags fire when the player takes this exit
         _validate_story_writes(gw, "[[gateway]]", story_names, problems,
                                scenario_key="set_scenario", flags_key="set_flags")
+        # forced-ATE warp-in: ate = true flashes the grey banner WARNING before this exit warps (the faithful
+        # grey-ATE trigger -- pair with a plain [cutscene] + exit_warp on the destination, which returns you).
+        if "ate_mode" in gw and not gw.get("ate"):
+            problems.append("[[gateway]] ate_mode is set but ate is not true -- set ate = true to make this "
+                            "exit a forced-ATE warp (grey banner warning, then warp), or drop ate_mode.")
+        if gw.get("ate"):
+            m = gw.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)
+            if not isinstance(m, int) or isinstance(m, bool) or not (0 <= m <= 255):
+                problems.append(f"[[gateway]] ate_mode {m!r} must be an int 0..255 "
+                                f"(6 = grey unskippable ATE banner; ATE 0xD7 mode).")
+        if "ate_title" in gw:
+            if not gw.get("ate"):
+                problems.append("[[gateway]] ate_title is set but ate is not true -- set ate = true (it's the "
+                                "title window the forced-ATE warp-in shows), or drop ate_title.")
+            elif not isinstance(gw["ate_title"], str) or not gw["ate_title"].strip():
+                problems.append("[[gateway]] ate_title must be a non-empty string (the ATE title-window text).")
     for ev in project.raw.get("event", []):
         z = ev.get("zone", [])
         if len(z) not in (4, 5):
@@ -2475,7 +2491,9 @@ def _gateway_on_exit_body(gw: dict, names: dict) -> bytes:
     """The story-state advance a ``[[gateway]]`` applies when the player TAKES this exit: the raw
     ``set_var`` bytes from ``set_scenario`` (ScenarioCounter) + ``set_flags`` (gEventGlobal bits), built
     with the shared :func:`ff9mapkit.content.startup.startup_body`. ``b""`` when the gateway has neither
-    (so the build is byte-identical to a gateway without on-exit writes)."""
+    (so the build is byte-identical to a gateway without on-exit writes). (NB ``ate = true`` is NOT handled
+    here -- a forced-ATE warp-in routes to :func:`cutscene.inject_forced_ate` instead, because the banner +
+    timed warp must run in a RunScript'd player func, not inline in the region, or the region's Wait freezes.)"""
     sc = gw.get("set_scenario")
     if isinstance(sc, str):
         sc = _flags.resolve_scenario(sc)
@@ -3392,6 +3410,11 @@ def _inject_verbatim_gateways(project: FieldProject, eb: bytes, *, warnings) -> 
         zone = gw["zone"]
         if len(zone) == 4:
             zone = _gw.quad_zone(zone)
+        if gw.get("ate"):                               # a forced-ATE warp-in, seated below the party band
+            eb = _cutscene.inject_forced_ate(eb, [tuple(p) for p in zone], int(gw["to"]),
+                                             mode=int(gw.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)),
+                                             reserve_party_band=True)
+            continue
         gf, gs = _gate_of(gw)
         eb = _gw.inject_gateway(eb, int(gw["to"]), entrance=int(gw.get("entrance", 0)),
                                 zone=[tuple(p) for p in zone], gate_flag=gf, gate_require_set=gs,
@@ -3432,12 +3455,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  control_value: int = -1, event_txids: dict | None = None,
                  cutscene_txids: list | None = None, walkmesh=None,
                  choice_txids: dict | None = None, on_entry_txids: dict | None = None,
-                 ate_txids: dict | None = None, chest_txids: dict | None = None) -> bytes:
+                 ate_txids: dict | None = None, chest_txids: dict | None = None,
+                 gateway_txids: dict | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
     _auto = _FlagAlloc(getattr(project, "flag_base", None))
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
     choice_txids = choice_txids or {}
+    gateway_txids = gateway_txids or {}
     on_entry_txids = on_entry_txids or {}
     ate_txids = ate_txids or {}
     chest_txids = chest_txids or {}
@@ -3598,10 +3623,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 
     # gateways
     gw_names = _story_names(project)                    # [[flag]] name -> index, for set_flags resolution
-    for gw in project.raw.get("gateway", []):
+    for gi, gw in enumerate(project.raw.get("gateway", [])):
         zone = gw["zone"]
         if len(zone) == 4:
             zone = _gw.quad_zone(zone)
+        if gw.get("ate"):                               # a forced-ATE warp-in: grey banner WARNING + title, then warp
+            eb = _cutscene.inject_forced_ate(eb, [tuple(p) for p in zone], int(gw["to"]),
+                                             mode=int(gw.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)),
+                                             title_txid=gateway_txids.get(gi))
+            continue
         gf, gs = _gate_of(gw)
         eb = _gw.inject_gateway(eb, int(gw["to"]), entrance=int(gw.get("entrance", 0)),
                                 zone=[tuple(p) for p in zone], gate_flag=gf, gate_require_set=gs,
@@ -4483,8 +4513,9 @@ def _wrap_width(project: FieldProject):
 
 def collect_text(project: FieldProject):
     """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
-    chest_txids). All field text (NPC dialogue, event messages, cutscene 'say' lines, choice prompts +
-    replies, on-entry messages, the ATE menu, chest "Received X" boxes) shares one .mes block, in that order
+    chest_txids, gateway_txids). All field text (NPC dialogue, event messages, cutscene 'say' lines, choice
+    prompts + replies, on-entry messages, the ATE menu, chest "Received X" boxes, forced-ATE gateway titles)
+    shares one .mes block, in that order
     (so a field with no events/cutscene/choices/on_entry/ate/chests is byte-identical to the old layout).
     ``cutscene_txids`` is a list (one per 'say' step); ``choice_txids[c]`` = ``{"prompt": id, "replies":
     {opt_index: id}}``; ``on_entry_txids[k]`` = the txid of hook ``k``'s message (only for hooks that have
@@ -4572,8 +4603,20 @@ def collect_text(project: FieldProject):
     for k, ch in enumerate(project.raw.get("chest", [])):
         text, strt, tail = _chest_received_box(ch)
         ch_pos[k] = _add_raw(text, ch.get("tail") or tail, strt=strt)
+    # forced-ATE gateway titles: the winATE-captioned, CENTERED "title window" a `[[gateway]] ate = true` shows
+    # as it warps. Geometry verified vs real grey ATEs 956/2211: `[STRT=W,1][IMME][CENT=W]title` -- the engine
+    # auto-centers a system window from its [STRT] width (like the chest box) + [CENT] centers the text + [IMME]
+    # pops it fully drawn. W ~ the rendered text width (real STRT ~= text.measure * 7.2). The default dialogue
+    # geometry (10,1)+TAIL=UPR pins it TOP-RIGHT (the reported bug). Added LAST (after chests) -> byte-identical
+    # for a field without one.
+    gw_pos = {}
+    for gi, gw in enumerate(project.raw.get("gateway", [])):
+        if gw.get("ate") and gw.get("ate_title"):
+            _title = str(gw["ate_title"])
+            _w = max(8, round(_text.measure(_title) * 7.2))   # ~ the FF9 STRT width of the rendered title
+            gw_pos[gi] = _add_raw(f"[IMME][CENT={_w}]{_title}", "", strt=(_w, 1))   # NO tail -> the real ATE's true centre
     if not lines:
-        return "", {}, {}, [], {}, {}, {}, {}
+        return "", {}, {}, [], {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
@@ -4587,7 +4630,9 @@ def collect_text(project: FieldProject):
                   "replies": {oi: mapping[p] for oi, p in ate_reply_pos.items()}}
                  if ate_prompt_pos is not None else {})
     chest_txids = {k: mapping[p] for k, p in ch_pos.items()}
-    return body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids
+    gateway_txids = {gi: mapping[p] for gi, p in gw_pos.items()}   # forced-ATE title-window txids (by gw index)
+    return (body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
+            chest_txids, gateway_txids)
 
 
 # --------------------------------------------------------------------------- the build
@@ -4768,7 +4813,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     # faithful text carry: the donor's referenced dialogue, shipped VERBATIM per language and APPENDED after
     # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
@@ -4974,7 +5019,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
                               choice_txids=choice_txids, on_entry_txids=on_entry_txids,
-                              ate_txids=ate_txids, chest_txids=chest_txids)
+                              ate_txids=ate_txids, chest_txids=chest_txids, gateway_txids=gateway_txids)
             base = mes_body or ""
             inplace = base
             suffix = ""

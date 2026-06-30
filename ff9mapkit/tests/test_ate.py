@@ -262,3 +262,110 @@ def test_compulsory_ate_validation(tmp_path):
                for m in problems(_CUTSCENE_ATE_TOML.replace("ate = true", "ate_mode = 5")))
     assert any("must be an int 0..255" in m
                for m in problems(_CUTSCENE_ATE_TOML.replace("ate = true", "ate = true\nate_mode = 999")))
+
+
+# --- The FAITHFUL grey-ATE TRIGGER: the banner is a pre-warp WARNING on the ORIGIN (a forced-ATE warp-in),
+# NOT a held overlay on the destination scene. `[[gateway]] ate = true` -> ATE(6) flashes, clears, then the
+# gateway's fade + Field() warps you to the (plain) ATE scene, which `exit_warp`s you back. Grounded in real
+# field 956 (Gargan Roo): ATE(6) -> Wait(45) -> fade -> ATE(0) -> Field(scene). ---------------------------
+
+_GATEWAY_ATE_TOML = """
+[field]
+id = 4003
+name = "GATEROOM"
+area = 11
+text_block = 1073
+[camera]
+pitch = 45
+[walkmesh]
+quad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]
+[player]
+spawn = [0, -300]
+[[gateway]]
+to = 1853
+ate = true
+zone = [[-200, -200], [200, -200], [200, -500], [-200, -500]]
+"""
+
+
+def test_forced_ate_warp_body():
+    """The forced-ATE player func (RunScript'd from the trigger region, so its Waits tick under the lock --
+    NOT inline in the region, which would freeze). Verified vs real 956/2211: ATE(6) -> Wait -> fade -> ATE(0)
+    -> [WindowAsync title] -> Field. The banner clears BEFORE the warp; the title is a NON-blocking async
+    window, not a press-to-continue WindowSync."""
+    from ff9mapkit.content import event
+    body = _cs.forced_ate_warp_body(1153, mode=6)
+    assert body == (opcodes.ate(6) + opcodes.wait(_cs.ATE_WARN_FRAMES)
+                    + opcodes.fade_filter(*event.WARP_FADE) + opcodes.wait(25)
+                    + opcodes.ate(0) + opcodes.field(1153) + opcodes.RETURN)
+    # with a title: an ASYNC winATE window (0x20) before the Field -- NOT a blocking WindowSync (0x1F)
+    titled = _cs.forced_ate_warp_body(1153, mode=6, title_txid=500)
+    assert opcodes.window_async(0, _cs.ATE_CAPTION_FLAG, 500) in titled       # async (real grey-ATE behavior)
+    assert opcodes.window_sync(0, _cs.ATE_CAPTION_FLAG, 500) not in titled    # NOT blocking
+    assert opcodes.wait(_cs.ATE_WARN_FRAMES) in titled                        # the banner-warning Wait stays
+
+
+def test_gateway_ate_warp_in_warns_then_warps(tmp_path):
+    """`[[gateway]] ate = true` is a forced-ATE WARP-IN: a TREAD region RunScriptSyncs the player's forced-ATE
+    func (so the timed banner+warp aren't frozen by the region's move-lock -- a region body runs only while
+    usercontrol==1). The func flashes ATE(6), CLEARS ATE(0), and warps -- the banner clears BEFORE the Field,
+    not held over the destination scene (the divergence the user corrected)."""
+    from ff9mapkit.content.ladder import find_player_entry
+    eb = _build_eb(tmp_path, _GATEWAY_ATE_TOML, name="GATEROOM")
+    func = eb.entry(find_player_entry(eb)).func_by_tag(_cs.FORCED_ATE_TAG)
+    assert func is not None, "the forced-ATE warp func is grafted onto the player entry"
+    ops = list(eb.instrs(func))
+    assert [i.imm(0) for i in ops if i.op == 0xD7] == [6, 0]    # banner arm, then clear
+    k_a0 = next(k for k, i in enumerate(ops) if i.op == 0xD7 and i.imm(0) == 0)
+    k_field = next(k for k, i in enumerate(ops) if i.op == 0x2B)
+    assert k_a0 < k_field                                       # the banner clears BEFORE the warp
+    # a tread region RunScriptSyncs into the player func (level 2, uid 250, FORCED_ATE_TAG)
+    rs = [i for i in _all_instrs(eb) if i.op == 0x14]
+    assert any(i.imm(0) == 2 and i.imm(1) == 250 and i.imm(2) == _cs.FORCED_ATE_TAG for i in rs)
+    # a plain gateway (no ate) has no forced-ATE func and no banner -- the styling is opt-in
+    plain = _build_eb(tmp_path, _GATEWAY_ATE_TOML.replace("ate = true\n", ""), name="GATEROOM")
+    assert not any(i.op == 0xD7 for i in _all_instrs(plain))
+
+
+def test_gateway_ate_title_window(tmp_path):
+    """`[[gateway]] ate_title = "..."` shows a winATE-captioned, CENTERED title window (verified vs real
+    956/2211): the forced-ATE func gets an ASYNC WindowAsync(0, winATE, txid) (NOT blocking WindowSync), and the
+    title ships in the .mes with CENTERED system-window geometry ([STRT=W,1][IMME][CENT=W]) -- not top-right."""
+    from ff9mapkit.content.ladder import find_player_entry
+    from ff9mapkit.build import FieldProject, build_mod
+    from ff9mapkit.config import ModLayout
+    toml = _GATEWAY_ATE_TOML.replace("ate = true\n", 'ate = true\nate_title = "Meanwhile, elsewhere..."\n')
+    p = tmp_path / "t.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    eb = EbScript.from_bytes(ModLayout(out).eb_path("us", "EVT_GATEROOM.eb.bytes").read_bytes())
+    func = eb.entry(find_player_entry(eb)).func_by_tag(_cs.FORCED_ATE_TAG)
+    ws = [i for i in eb.instrs(func) if i.op == 0x20]           # WindowAsync = the async title window
+    assert len(ws) == 1 and ws[0].imm(1) == ate.WIN_ATE        # winATE caption flag (64)
+    assert not any(i.op == 0x1F for i in eb.instrs(func))      # NOT a blocking WindowSync
+    blob = "".join(q.read_text(encoding="utf-8") for q in out.rglob("*.mes"))
+    assert "Meanwhile, elsewhere..." in blob and f"[TXID={ws[0].imm(2)}]" in blob   # title shipped at that txid
+    assert "[IMME]" in blob and "[CENT=" in blob               # CENTERED system-window geometry (not top-right)
+
+
+def test_gateway_ate_validation(tmp_path):
+    """`[[gateway]]` ate guards: ate_mode needs ate = true; ate_mode must be 0..255."""
+    from ff9mapkit.build import FieldProject, validate
+
+    def problems(toml):
+        p = tmp_path / "gv.field.toml"
+        p.write_text(toml, encoding="utf-8")
+        return validate(FieldProject.load(p))
+
+    assert any("ate_mode is set but ate is not true" in m
+               for m in problems(_GATEWAY_ATE_TOML.replace("ate = true", "ate_mode = 6")))
+    assert any("must be an int 0..255" in m
+               for m in problems(_GATEWAY_ATE_TOML.replace("ate = true", "ate = true\nate_mode = 999")))
+    assert validate(FieldProject.load(_w(tmp_path, _GATEWAY_ATE_TOML))) == []   # the plain ate = true is clean
+
+
+def _w(tmp_path, toml):
+    p = tmp_path / "ok.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    return p

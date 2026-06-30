@@ -77,6 +77,76 @@ ATE_CAPTION_FLAG = 64
 ATE_DEFAULT_MODE = 6     # ATE(mode) HUD arm. 6 = the authentic GREY UNSKIPPABLE banner (default, in-game proven
                          # @30008); 1 = opt-in quiet no-icon variant. Avoid 5 (Blue force-show re-flashes press glyph)
 
+# How long the grey ATE banner shows as a pre-warp WARNING (real field 956 Gargan Roo: ATE(6) -> Wait(45) ->
+# fade -> ATE(0) -> Field(scene)). ~1.5s @ 30fps.
+ATE_WARN_FRAMES = 45
+FORCED_ATE_TAG = 38      # player-entry func tag for the forced-ATE warp sequence (clear of the conductor's
+                         # 19/20, the ladder's 17, the jump's 40)
+
+
+def forced_ate_warp_body(target: int, *, mode: int = ATE_DEFAULT_MODE, frames: int = ATE_WARN_FRAMES,
+                         title_txid: int | None = None) -> bytes:
+    """The forced-ATE player func body -- ``RunScript``'d from the trigger region (NOT run inline in the
+    region). It MUST run in the player's delegated context because a region's own tag-2 body is stepped only
+    while ``usercontrol == 1`` (``region.py``), so a ``DisableMove`` + ``Wait`` *inline in the region* FREEZES
+    -- the Wait never counts down and the warp never fires (the in-game bug). A ``RunScript``'d func's Waits
+    tick regardless of the lock (same reason the ladder/jump arcs are RunScript'd, not inlined).
+
+    Real grey ATEs 956 (Gargan Roo) + 2211 (Palace/Dock) verified byte-for-byte:
+    ``ATE(6) -> Wait(45) -> FadeFilter -> ATE(0) -> WindowAsync(0, winATE, title) -> Field``. The title there is a
+    NON-BLOCKING async window (``WindowAsync``, not a press-to-continue ``WindowSync``) shown CENTERED (its
+    centering is the .mes geometry ``[STRT=W,1][IMME][CENT=W]``, set in :func:`ff9mapkit.build.collect_text`).
+
+    ONE faithful deviation: the real game opens that WindowAsync AFTER the fade because it's a MULTI-screen ATE,
+    so the title rides the NEXT screen's fade-in. A single warp has no such screen -- a window opened on the
+    already-black screen is cleared by ``Field()`` before it draws (in-game: "no title window"). So the kit shows
+    the centered async title DURING the banner WARNING (before the fade), where it's actually on-screen -- same
+    visible result (centered title + grey banner as the ATE triggers), still async + centered. The banner clears
+    before the warp, so the destination scene has NO banner. Pair the trigger with a plain ``[cutscene]`` +
+    ``exit_warp`` on ``target`` (it warps the player back)."""
+    title = (opcodes.window_async(0, ATE_CAPTION_FLAG, int(title_txid)) if title_txid is not None else b"")
+    return (opcodes.ate(int(mode)) + title + opcodes.wait(int(frames))          # grey banner + centered title, the WARNING
+            + opcodes.fade_filter(*_event.WARP_FADE) + opcodes.wait(25)         # fade to black (the proven warp fade)
+            + opcodes.ate(0) + opcodes.field(int(target)) + opcodes.RETURN)     # clear banner, warp to the scene
+
+
+def forced_ate_region(zone, ate_tag: int = FORCED_ATE_TAG, *, player_uid: int = PLAYER_UID) -> bytes:
+    """A type-1 TREAD region that fires the forced-ATE warp the moment the player walks in -- the ladder/jump
+    dispatch shape: Init ``SetRegion`` / tread ``MOVEMENT_GATE; DisableMove; RunScriptSync(2, player, ate_tag)``.
+    The lock is set HERE (the region), but the timed sequence runs in the RunScript'd player func (so its Waits
+    tick). The func warps away, so control never returns to this region (the destination restores it)."""
+    import struct as _struct
+    init = _region.set_region(zone) + opcodes.RETURN
+    tread = (_region.MOVEMENT_GATE + opcodes.DISABLE_MOVE
+             + opcodes.run_script_sync(2, int(player_uid), int(ate_tag)))
+    funcs = [(0, init), (_region.RANGE_TAG, tread)]
+    table, pos = b"", len(funcs) * 4
+    for tag, body in funcs:
+        table += _struct.pack("<HH", tag, pos)
+        pos += len(body)
+    return bytes([_region.REGION_ENTRY_TYPE, len(funcs)]) + table + b"".join(b for _, b in funcs)
+
+
+def inject_forced_ate(data, zone, target: int, *, mode: int = ATE_DEFAULT_MODE,
+                      title_txid: int | None = None, ate_tag: int = FORCED_ATE_TAG,
+                      reserve_party_band: bool = False) -> bytes:
+    """Inject a forced-ATE warp-in (the faithful grey-ATE TRIGGER): graft the warp func onto the player entry
+    as ``ate_tag``, append a tread region that fires it, and arm it. The banner WARNS, then warps to ``target``
+    -- pair ``target`` with a plain ``[cutscene]`` + ``exit_warp`` to play the scene and return the player.
+    Returns new .eb bytes. (Native/synth: the player entry + a normal slot. ``reserve_party_band`` seats the
+    region below a verbatim fork's party band.)"""
+    from .ladder import find_player_entry
+    from . import object as _object
+    z = [tuple(p) for p in zone]
+    if len(z) == 4:                                            # IsInQuad-safe: double the last vertex
+        z = z + [z[-1]]
+    pe = find_player_entry(EbScript.from_bytes(data))
+    data = edit.add_function(data, pe, ate_tag,
+                             forced_ate_warp_body(int(target), mode=mode, title_txid=title_txid))
+    data, slot = _object.seat_entry(data, forced_ate_region(z, ate_tag),
+                                    reserve_party_band=reserve_party_band)
+    return edit.activate(data, opcodes.init_region(slot, 0))
+
 
 def say(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:
     """Step: open a dialogue/narration window showing ``text_id`` (blocks until the player dismisses).

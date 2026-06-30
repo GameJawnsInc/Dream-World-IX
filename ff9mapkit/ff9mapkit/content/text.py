@@ -55,9 +55,12 @@ def with_speaker(speaker, text: str) -> str:
 
 
 def mes_entry(text: str, txid: int, *, strt: tuple = (10, 1), tail: str = DEFAULT_TAIL) -> str:
-    """One ``.mes`` entry line that ADDS dialogue at ``txid`` without touching base text."""
+    """One ``.mes`` entry line that ADDS dialogue at ``txid`` without touching base text. A falsy ``tail``
+    (``""``/``None``) emits NO ``[TAIL]`` tag -- matching FF9's CENTERED system windows (a real grey-ATE title
+    window has no tail; a ``[TAIL]`` like ``DEFT``/``UPR`` would nudge it off the true centre)."""
     strt_s = ",".join(str(v) for v in strt)
-    return f"_[TXID={txid}][STRT={strt_s}][TAIL={tail}]{text}[ENDN]"
+    tail_s = f"[TAIL={tail}]" if tail else ""
+    return f"_[TXID={txid}][STRT={strt_s}]{tail_s}{text}[ENDN]"
 
 
 def build_mes(lines, *, start_txid: int = DEFAULT_BASE_TXID, tails=None, strts=None) -> tuple[str, dict]:
@@ -76,7 +79,8 @@ def build_mes(lines, *, start_txid: int = DEFAULT_BASE_TXID, tails=None, strts=N
     for i, line in enumerate(lines):
         txid = start_txid + i
         mapping[i] = txid
-        tail = (tails[i] if tails and i < len(tails) and tails[i] else DEFAULT_TAIL)
+        _t = tails[i] if (tails and i < len(tails)) else None
+        tail = DEFAULT_TAIL if _t is None else _t          # None = unspecified -> default; "" = explicit NO tail
         strt = (strts[i] if strts and i < len(strts) and strts[i] else (10, 1))
         entries.append(mes_entry(line, txid, strt=strt, tail=tail))
     return "\n".join(entries) + "\n", mapping
