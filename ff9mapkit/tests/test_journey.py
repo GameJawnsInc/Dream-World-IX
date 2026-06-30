@@ -1239,6 +1239,53 @@ to = { campaign = "zb", field = "B1" }
     assert lk.mode == "field_remap" and lk.remap == {700: 6100}    # precise door into the next campaign
 
 
+# ---- vehicle/airship overworld boundary: no tag-2 walk-out region -> NOT a worldmap_inject ----------
+def test_confirmed_no_walkout_undeterminable_is_false(tmp_path):
+    # No src_dir, or no verbatim .eb (a non-verbatim member) -> undeterminable -> False, so _seam_remap keeps
+    # its legacy worldmap_inject behavior and never NEWLY suppresses a wiring it can't disprove.
+    assert journey._confirmed_no_walkout(None, "X") is False
+    (tmp_path / "M").mkdir()
+    assert journey._confirmed_no_walkout(tmp_path, "M") is False        # no M/M.verbatim_eb.bin to read
+
+
+def test_deploy_plan_vehicle_overworld_not_auto_wired(tmp_path, monkeypatch):
+    # A boundary whose only onward seam is a VEHICLE/airship overworld nav-menu: its WorldMap op lives in a
+    # menu/cutscene func, so there is NO tag-2 walk-out region for apply_link_rewrites to body-replace. It must
+    # resolve to mode 'none' (not auto-wirable) -- NOT a worldmap_inject that hard-aborts the whole deploy when
+    # _worldmap_region_funcs finds nothing (the Hilda Garde / Blue Narciss bug).
+    monkeypatch.setattr(journey, "_confirmed_no_walkout", lambda *a, **k: True)
+    _make_campaign(tmp_path, "za", members=["A1", "A2"], id_base=6000, mod_folder="mf-a",
+                   seams=[{"frm": "A2", "to_real": "WORLDMAP", "kind": "overworld", "note": "airship menu"}])
+    _make_campaign(tmp_path, "zb", members=["B1"], id_base=6100, mod_folder="mf-b")
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["za", "zb"]
+entry = { campaign = "za", field = "A1" }
+[[journey.link]]
+from = { campaign = "za", field = "A2" }
+to = { campaign = "zb", field = "B1" }
+""")
+    lk = journey.build_deploy_plan(journey.load_journeys(p)).links[0]
+    assert lk.mode == "none" and not lk.retargetable            # not wired -> deploy skips it (no !! abort)
+    assert "vehicle" in lk.note and "World Hub" in lk.note       # the actionable playbook note
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_confirmed_no_walkout_real_vehicle_vs_walkout(tmp_path):
+    # Real data: Hilda Garde 1 (2261) + Blue Narciss (2855) are VEHICLES -- their WorldMap op is a nav-menu, so
+    # NO tag-2 walk-out region -> _confirmed_no_walkout True. Ice Cavern entrance (300) is a real walk-out -> False.
+    from ff9mapkit import extract
+    bundle = extract.EventBundle()
+    for fid, name in [(2261, "HLG1"), (2855, "BLNR")]:
+        (tmp_path / name).mkdir()
+        (tmp_path / name / f"{name}.verbatim_eb.bin").write_bytes(bundle.eb_for_id(fid))
+        assert journey._confirmed_no_walkout(tmp_path, name) is True, f"field {fid} (vehicle) has no walk-out region"
+    (tmp_path / "ICENT").mkdir()
+    (tmp_path / "ICENT" / "ICENT.verbatim_eb.bin").write_bytes(bundle.eb_for_id(300))
+    assert journey._confirmed_no_walkout(tmp_path, "ICENT") is False     # a genuine tag-2 walk-out zone
+
+
 # ---- pre-flight collision sweep (the "remove the superseded folder" report) --------------
 def _fake_game(tmp, foldernames, dicts):
     """A throwaway game dir: Memoria.ini with a FolderNames line + a DictionaryPatch.txt per folder. ``dicts``

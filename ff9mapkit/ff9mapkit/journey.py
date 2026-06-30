@@ -1358,8 +1358,29 @@ def tuning_to_field_blocks(tuning: dict) -> dict:
     return {"player_csv": blocks} if blocks else {}
 
 
+def _confirmed_no_walkout(src_dir, member_name: str) -> bool:
+    """True ONLY when we can POSITIVELY confirm a boundary member's forked ``.eb`` has NO tag-2 WorldMap
+    walk-out region -- i.e. its ``overworld`` seam is a VEHICLE/airship nav-menu or a scripted WorldMap call
+    (the ``WorldMap`` op lives in a menu/cutscene func, not a tread exit) rather than a walk-off-the-edge zone
+    :func:`apply_link_rewrites` could body-replace. :func:`_seam_remap` uses it to avoid planning a
+    ``worldmap_inject`` that can't apply -- the hard deploy-abort the Hilda Garde / Blue Narciss boundaries hit.
+    Reads the member's offline ``verbatim_eb.bin`` (the same bytecode that deploys; tag-2 presence is
+    structural, unaffected by the field_remap literal patches). Undeterminable -- no ``src_dir``, no verbatim
+    ``.eb`` (a non-verbatim member), or a parse error -> ``False``, so the classifier keeps its legacy
+    worldmap_inject behavior and never NEWLY suppresses a wiring it can't disprove."""
+    if src_dir is None:
+        return False
+    binp = Path(src_dir) / member_name / f"{member_name}.verbatim_eb.bin"
+    if not binp.is_file():
+        return False
+    try:
+        return not _worldmap_region_funcs(binp.read_bytes())
+    except Exception:                             # noqa: BLE001 -- any .eb parse failure -> legacy-safe (don't suppress)
+        return False
+
+
 def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: int, *,
-                dst_reals=frozenset()) -> dict:
+                dst_reals=frozenset(), src_dir=None) -> dict:
     """Resolve a boundary member's onward seam into the cross-campaign link MODE. Returns a dict
     ``{mode, remap, kinds, retargetable, note}``. ``dst_reals`` = the REAL field ids that ARE the next campaign
     (its members' donor ids); supplying it lets a door straight INTO the next campaign be told apart from an
@@ -1367,10 +1388,13 @@ def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: in
       * ``field_remap`` (PRECISE) -- the member has a ``Field()`` door whose target is in ``dst_reals`` (a real
         warp straight into the next campaign, e.g. a dungeon mouth -> the next field): patch that door to
         ``dst_id`` (``content.verbatim.remap_fields``). Beats the overworld -- the real door is the exact boundary.
-      * ``worldmap_inject`` -- NO door into the next campaign, but an OVERWORLD seam (a zone's world-map exit):
-        the boundary leaves to the world map, so body-REPLACE its walk-out region with a ``Field(dst_id)`` warp
-        (``apply_link_rewrites``). This is the cross-zone boundary for a world-connected chain, and is NOT
-        shadowed by the member's incidental in-zone ``Field()`` doors (the dali/south_gate fix).
+      * ``worldmap_inject`` -- NO door into the next campaign, but an OVERWORLD seam WITH a real tag-2 walk-out
+        region (a zone's world-map exit): the boundary leaves to the world map, so body-REPLACE its walk-out
+        region with a ``Field(dst_id)`` warp (``apply_link_rewrites``). This is the cross-zone boundary for a
+        world-connected chain, and is NOT shadowed by the member's incidental in-zone ``Field()`` doors (the
+        dali/south_gate fix). A VEHICLE/airship overworld seam (a nav-menu WorldMap op, no tag-2 walk-out region
+        -- Hilda Garde, Blue Narciss) is EXCLUDED here (:func:`_confirmed_no_walkout`): there is no region to
+        body-replace, so it falls through rather than planning an inject that hard-aborts the deploy.
       * ``field_remap`` (REPURPOSE) -- no overworld and exactly ONE out-of-chain ``Field()`` door (not into the
         next campaign): repurpose it to ``dst_id`` (the lone-onward-door heuristic).
       * ``none`` -- no onward seam, or several ``Field()`` doors and no overworld (ambiguous): not auto-wired.
@@ -1389,10 +1413,15 @@ def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: in
         return {"mode": "field_remap", "remap": {into_next[0]: dst_id}, "kinds": kinds, "retargetable": True,
                 "note": "" if len(into_next) == 1 else f"{len(into_next)} doors into the next campaign "
                         f"{into_next}; took the first"}
-    if "overworld" in kinds:                      # no door into the next campaign -> the world-map exit IS it
-        return {"mode": "worldmap_inject", "remap": {}, "kinds": kinds, "retargetable": True,
+    if "overworld" in kinds and not _confirmed_no_walkout(src_dir, member_name):
+        return {"mode": "worldmap_inject", "remap": {}, "kinds": kinds, "retargetable": True,   # world-map exit IS it
                 "note": "overworld exit -- body-replace the walk-out region with Field(dst) (elided world leg)"
                         + (f"; ignores {len(targets)} in-zone Field() door(s) {targets}" if targets else "")}
+    # An overworld seam whose WorldMap op has NO tag-2 walk-out region is a VEHICLE/airship nav-menu or a
+    # scripted WorldMap call (the op lives in a menu/cutscene func, not a tread exit) -- there is no region for
+    # apply_link_rewrites to body-replace, so DON'T plan a worldmap_inject that can't apply (it hard-aborts the
+    # deploy -- the Hilda Garde / Blue Narciss boundaries). Fall through to a real Field() door; a vehicle has
+    # none, so it lands on the vehicle-overworld 'none' below.
     if len(targets) == 1:                         # a lone out-of-chain Field() door -> repurpose it to the next
         return {"mode": "field_remap", "remap": {targets[0]: dst_id}, "kinds": kinds,
                 "retargetable": True, "note": ""}
@@ -1400,6 +1429,10 @@ def _seam_remap(src_plan: "_campaign.CampaignPlan", member_name: str, dst_id: in
         return {"mode": "none", "remap": {}, "kinds": kinds, "retargetable": False,
                 "note": f"{len(targets)} Field() seam targets {targets} -- ambiguous; pick a "
                         f"single-onward-seam boundary member, or split the boundary"}
+    if "overworld" in kinds:                      # vehicle/menu overworld, no field door -> not auto-wirable
+        return {"mode": "none", "remap": {}, "kinds": kinds, "retargetable": False,
+                "note": "overworld exit is a vehicle/airship nav-menu (no tag-2 walk-out region to convert) -- "
+                        "not auto-wirable; reach the next arc via the World Hub or an explicit [[journey.link]]"}
     return {"mode": "none", "remap": {}, "kinds": kinds, "retargetable": False,
             "note": "no onward seam on the boundary member -- nothing to retarget into the next campaign"}
 
@@ -1451,7 +1484,8 @@ def build_deploy_plan(manifest: JourneyManifest) -> JourneyDeployPlan:
             # the arrival member's DONOR id -> a boundary door that lands there is the precise cross-zone warp
             dst_real = next((m.real_id for m in dst_plan.members if m.new_id == lk["dst_id"]), None)
             sr = _seam_remap(src_plan, lk["src_field"], lk["dst_id"],
-                             dst_reals=frozenset({dst_real}) if dst_real else frozenset())
+                             dst_reals=frozenset({dst_real}) if dst_real else frozenset(),
+                             src_dir=plans[lk["src_campaign"]][1])
             if sr["mode"] == "field_remap" and sr["remap"]:
                 g = field_groups.get(lk["src_field"])
                 if g is None:
