@@ -152,7 +152,8 @@ class BuildDoc(QWidget):
         self.rb_camp_build = QRadioButton("Build only — compile every member to the campaign's dist/")
         self.cg.addButton(self.rb_camp_deploy)
         self.cg.addButton(self.rb_camp_build)
-        self.wire_newgame = QCheckBox("Wire New Game entry (experimental — off = reach the chain via F6 → Warp)")
+        self.wire_newgame = QCheckBox("Wire New Game entry (experimental — off = reach the chain via a gateway, "
+                                      "or F6 → Warp on a dev build)")
         cv.addWidget(self.rb_camp_deploy)
         cv.addWidget(self.rb_camp_build)
         cv.addWidget(self.wire_newgame)
