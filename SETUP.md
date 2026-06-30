@@ -381,6 +381,13 @@ tabbed document area, a right-hand **Inspector**, and a bottom **Output/Problems
 - A **Ctrl-K** command palette; an Inspector with per-node rollups and clickable
   "exits to / reached from" cross-refs.
 
+> **Installed vs. repo Workspace.** The installed `ff9mapkit-workspace` (the `.exe` / Start-Menu shortcut)
+> is the end-user front door: Build → *Install to game*, plus campaign/journey deploy and *Set New Game*.
+> The **dev-only** test slot (4003) + the F6 reload loop need the repo's `tools/`, so they're hidden on an
+> installed copy. To use them there, set **`FF9_REPO`** to your Dream World IX checkout (or launch the
+> Workspace from inside it) and reopen — they light up. Launching from the repo with
+> `py apps\ff9_workspace.pyw` gets dev mode automatically.
+
 ---
 
 ## 7. CLI command reference

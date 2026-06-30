@@ -30,11 +30,14 @@ class BuildDoc(QWidget):
     def __init__(self, pal, repo_root, *, run, problems):
         super().__init__()
         self.pal = pal
-        self.repo = Path(repo_root)
+        # Resolve the DEV repo: a repo launch passes its own root; an INSTALLED launch passes the venv dir,
+        # but can still light up dev mode if $FF9_REPO (or the cwd) points at a checkout -> resolve_dev_repo.
+        self.repo = jobs.resolve_dev_repo(repo_root)
         self.kit = self.repo / "ff9mapkit"             # `-m ff9mapkit build` cwd (local pkg shadows)
         self.kit_cwd = self.kit if self.kit.is_dir() else None   # None -> run_job falls back to KIT (always valid)
         # A repo checkout has the deploy scripts at <repo>/tools/; an installed copy (pip/uv/.exe) does NOT,
-        # so the test-slot / campaign / journey DEPLOYS (+ the F6 loop) are unavailable there. `build` works either way.
+        # so the test-slot DEPLOY + the F6 loop are unavailable there. `build` + campaign/journey/New-Game
+        # deploy work either way (the latter via the package CLI).
         self.has_tools = jobs.has_deploy_tools(self.repo)
         self._run = run
         self._problems = problems
@@ -133,6 +136,9 @@ class BuildDoc(QWidget):
         if not self.has_tools:                         # installed: no test-slot/F6 -> default to Install to game / Build only
             self.rb_test.setEnabled(False)
             self.rb_test.setText(self.rb_test.text() + "   (dev repo only)")
+            self.rb_test.setToolTip("The test slot + F6 reload loop need a source checkout. Set the FF9_REPO "
+                                    "environment variable to your Dream World IX repo (or launch it from there), "
+                                    "then reopen — this lights up.")
             (self.rb_game if self.game_mod else self.rb_other).setChecked(True)  # safe now: self.dest exists
         self.field_box = box
         return box
@@ -389,13 +395,15 @@ class BuildDoc(QWidget):
         if self.has_tools:
             return True
         self._warn(
-            f"{what} needs the source repo",
-            f"'{what}' runs ff9mapkit's development deploy scripts (the repo's tools/), which aren't part of "
-            "an installed copy.\n\n"
-            "To get a custom field into your game from an installed ff9mapkit:\n"
-            "  - use  Build to -> 'Install to game'  (it writes the mod into your FF9 folder; Memoria detects\n"
-            "    it automatically), then reach it via a [[gateway]] from an early field or by wiring New Game.\n\n"
-            "(The test-slot + F6 loop and reversible campaign/journey deploys are a dev-repo workflow.)")
+            f"{what} needs a dev checkout",
+            f"'{what}' uses the development deploy loop (the repo's tools/ + the F6 dev engine), which an "
+            "installed copy doesn't ship.\n\n"
+            "Two options:\n"
+            "  - Point this Workspace at your source checkout: set the FF9_REPO environment variable to your "
+            "Dream World IX repo (or launch apps\\ff9_workspace.pyw from it), then reopen — the test slot + F6 "
+            "light up.\n"
+            "  - Or use  Build -> 'Install to game'  (campaign / journey deploy + 'Set New Game' already work "
+            "on an installed copy).")
         return False
 
     def _picked(self):

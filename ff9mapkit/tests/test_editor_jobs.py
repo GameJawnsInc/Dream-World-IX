@@ -317,3 +317,24 @@ def test_newgame_pkg_argv_and_revert(tmp_path, monkeypatch):
     (tmp_path / "rv" / "revert_newgame_from_stock.py").write_text("x", encoding="utf-8")
     r = jobs.revert_newgame_pkg_argv()
     assert r and r[-1].endswith("revert_newgame_from_stock.py")
+
+
+def test_resolve_dev_repo(tmp_path, monkeypatch):
+    repo = tmp_path / "checkout"
+    (repo / "tools").mkdir(parents=True)
+    (repo / "tools" / "deploy_field.py").write_text("", encoding="utf-8")
+    venv = tmp_path / "venv_lib"; venv.mkdir()             # installed-like: no tools/
+    # 1) $FF9_REPO that IS a checkout wins, even when the default isn't one (and the cwd isn't either)
+    monkeypatch.chdir(venv)
+    monkeypatch.setenv("FF9_REPO", str(repo))
+    assert jobs.resolve_dev_repo(venv).resolve() == repo.resolve()
+    # 2) a bogus $FF9_REPO is ignored -> default not a repo + cwd not a repo -> default unchanged
+    monkeypatch.setenv("FF9_REPO", str(tmp_path / "nope"))
+    assert jobs.resolve_dev_repo(venv).resolve() == venv.resolve()
+    # 3) the default already a checkout -> kept (the normal apps/ff9_workspace.pyw launch)
+    monkeypatch.delenv("FF9_REPO", raising=False)
+    assert jobs.resolve_dev_repo(repo).resolve() == repo.resolve()
+    # 4) cwd-walk: installed default, but launched from inside a checkout subdir
+    sub = repo / "a" / "b"; sub.mkdir(parents=True)
+    monkeypatch.chdir(sub)
+    assert jobs.resolve_dev_repo(venv).resolve() == repo.resolve()

@@ -83,8 +83,33 @@ def detect_deploy_target(repo_root):
 def has_deploy_tools(repo_root) -> bool:
     """True if the deploy SCRIPTS (``tools/deploy_field.py`` etc.) are present -- i.e. this is a repo checkout,
     not an installed wheel (the wheel ships no ``tools/``). The Workspace uses it to hide the dev-only deploy
-    paths (test-slot / campaign / journey / battle / reverts) for an installed copy."""
+    paths (test-slot / battle / reverts) for an installed copy."""
     return (Path(repo_root) / "tools" / "deploy_field.py").is_file()
+
+
+def resolve_dev_repo(default_repo):
+    """The repo root the Workspace should use for the DEV deploy loop (the F6 test slot + ``tools/``).
+
+    Lets an INSTALLED Workspace light up dev mode against a source checkout, in precedence order:
+      1. ``$FF9_REPO`` -- if it points at a checkout (explicit opt-in; wins even over a repo launch);
+      2. ``default_repo`` -- if it already is a checkout (the normal ``apps/ff9_workspace.pyw`` launch);
+      3. a walk UP from the current directory -- an installed launcher started from inside a checkout;
+      4. else ``default_repo`` unchanged -- stay in installed / end-user mode (no test slot).
+    Always returns a ``Path``. An ``$FF9_REPO`` that isn't a checkout is ignored (never silently breaks)."""
+    import os
+    env = os.environ.get("FF9_REPO")
+    if env and has_deploy_tools(env):
+        return Path(env)
+    if has_deploy_tools(default_repo):
+        return Path(default_repo)
+    try:
+        cwd = Path.cwd()
+        for cand in (cwd, *cwd.parents):
+            if has_deploy_tools(cand):
+                return cand
+    except OSError:                      # cwd deleted / unreadable -> just fall back
+        pass
+    return Path(default_repo)
 
 
 def detect_deployed_fields(mod_folder):
