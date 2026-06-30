@@ -609,8 +609,6 @@ class BuildDoc(QWidget):
 
     # ------------------------------------------------------------------ New Game entry (hub-less)
     def on_set_newgame(self):
-        if not self._require_tools("Set New Game entry"):
-            return
         fid = self.newgame_id.text().strip()
         if not fid.isdigit():
             return self._warn("Bad field id", "Enter the numeric field id New Game should land on "
@@ -620,18 +618,22 @@ class BuildDoc(QWidget):
                          "stock (the opening FMV is preserved) and REPLACES the current New-Game landing "
                          "(single-owner), skipping any World Hub. Works even on a clean install / a fresh fork. "
                          "The field must already be deployed/registered; relaunch the game to test."):
-            self._stream(jobs.newgame_from_stock_argv(self.repo, fid), cwd=self.repo, subject="Set New Game entry",
+            # repo -> the dev tool; installed -> ff9mapkit newgame (same from-stock override, revert to cache)
+            if self.has_tools:
+                argv, cwd = jobs.newgame_from_stock_argv(self.repo, fid), self.repo
+            else:
+                argv, cwd = jobs.newgame_from_stock_pkg_argv(fid), self.kit_cwd
+            self._stream(argv, cwd=cwd, subject="Set New Game entry",
                          ok_headline=f"New Game now lands on field {fid}",
                          ok_next="Relaunch the game, then New Game. Undo with 'Revert New Game'.")
 
     def on_revert_newgame(self):
-        if not self._require_tools("Revert New Game"):
-            return
-        argv = jobs.revert_newgame_argv(self.repo)            # most-recent New-Game revert (from-stock OR retarget)
+        argv = (jobs.revert_newgame_argv(self.repo) if self.has_tools else jobs.revert_newgame_pkg_argv())
         if argv is None or not Path(argv[-1]).exists():
             return self._info("Nothing to revert", "No New-Game change to undo yet.")
+        cwd = self.repo if self.has_tools else self.kit_cwd
         if self._confirm("Revert New Game", "Restore the previous New-Game landing?"):
-            self._stream(argv, cwd=self.repo, subject="Revert New Game",
+            self._stream(argv, cwd=cwd, subject="Revert New Game",
                          ok_headline="Reverted the New-Game retarget",
                          ok_next="Relaunch to load the restored New-Game landing.")
 

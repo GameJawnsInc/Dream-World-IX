@@ -340,6 +340,25 @@ def revert_journey_pkg_argv():
     return [sys.executable, str(p)] if p else None
 
 
+def newgame_from_stock_pkg_argv(field_id, *, mod_folder="FF9CustomMap"):
+    """`ff9mapkit newgame <id>` -- point New Game at a deployed field (create the field-70 override from
+    stock). The installed-copy equivalent of tools/wire_newgame_from_stock.py."""
+    return [sys.executable, "-m", "ff9mapkit", "newgame", str(field_id), "--mod-folder", str(mod_folder)]
+
+
+def revert_newgame_pkg_argv():
+    """The most-recent installed-copy New-Game revert (from-stock or retarget) in the per-user cache, or None."""
+    try:
+        from .. import provision
+        rv = provision.deploy_reverts_dir()
+        cands = [p for p in (rv / "revert_newgame_from_stock.py", rv / "revert_newgame_retarget.py") if p.is_file()]
+        if not cands:
+            return None
+        return [sys.executable, str(max(cands, key=lambda x: x.stat().st_mtime))]
+    except Exception:
+        return None
+
+
 def revert_field_argv(repo_root):
     return [sys.executable, _tool(repo_root, "scroll_out", "revert_deploy.py")]
 

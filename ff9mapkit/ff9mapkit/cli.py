@@ -232,6 +232,28 @@ def _cmd_deploy_journey(args: argparse.Namespace) -> int:
     return report["rc"]
 
 
+def _cmd_newgame(args: argparse.Namespace) -> int:
+    """Point New Game at a deployed custom field id (the installed-copy New-Game wiring). Creates the field-70
+    override FROM STOCK by default (robust: works on a clean install / fresh fork); --retarget patches an
+    existing override. Reversible -- the revert script lands in the per-user deploy cache."""
+    from . import newgame, provision
+    try:
+        game = find_game_path(args.game)
+    except ConfigError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    bk, rv = provision.deploy_backups_dir(), provision.deploy_reverts_dir()
+    if args.retarget:
+        res = newgame.retarget(game, args.field_id, frm=args.frm, backups_dir=bk, reverts_dir=rv,
+                               dry_run=args.dry_run)
+    else:
+        res = newgame.wire_from_stock(game, args.field_id, mod_folder=args.mod_folder, backups_dir=bk,
+                                      reverts_dir=rv, dry_run=args.dry_run)
+    if res.get("revert"):
+        print(f"  revert: py {res['revert']}")
+    return 0 if res["ok"] else 2
+
+
 def _cmd_disasm(args: argparse.Namespace) -> int:
     from .eb import EbScript
 
@@ -3287,6 +3309,20 @@ def build_parser() -> argparse.ArgumentParser:
     dje.add_argument("--hub-out", dest="hub_out", default=None,
                      help="path for the emitted hub field.toml (default: hub.field.toml beside the journeys.toml)")
     dje.set_defaults(func=_cmd_deploy_journey)
+
+    ng = sub.add_parser("newgame",
+                        help="point New Game at a deployed custom field id (creates the field-70 override from "
+                             "stock; the opening FMV is preserved). The installed-copy New-Game wiring.")
+    ng.add_argument("field_id", type=int, help="the field id New Game should land on (must be deployed/registered)")
+    ng.add_argument("--mod-folder", dest="mod_folder", default="FF9CustomMap",
+                    help="mod folder to write the override into (default FF9CustomMap)")
+    ng.add_argument("--retarget", action="store_true",
+                    help="PATCH an existing field-70 override instead of creating one from stock")
+    ng.add_argument("--from", dest="frm", type=int, default=None,
+                    help="(--retarget) the override's current target id (default: auto-detected)")
+    ng.add_argument("--game", default=None, help="game install path (default: auto-detect)")
+    ng.add_argument("--dry-run", action="store_true", help="report only; write nothing")
+    ng.set_defaults(func=_cmd_newgame)
 
     return p
 

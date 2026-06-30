@@ -34,6 +34,12 @@ def test_emit_revert_writes_runnable_script(tmp_path):
     assert 'print("reverted")' in p.read_text(encoding="utf-8")
 
 
+def test_cli_registers_newgame():
+    from ff9mapkit import cli
+    ns = cli.build_parser().parse_args(["newgame", "6000"])
+    assert ns.func.__name__ == "_cmd_newgame" and ns.field_id == 6000 and ns.mod_folder == "FF9CustomMap"
+
+
 def _install_game():
     try:
         from ff9mapkit.config import find_game_path

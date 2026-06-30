@@ -304,3 +304,16 @@ def test_revert_pkg_argv_reads_cache(tmp_path, monkeypatch):
     a = jobs.revert_campaign_pkg_argv()
     assert a and a[-1].endswith("revert_campaign.py")
     assert jobs.revert_journey_pkg_argv() is None                       # journey revert still absent
+
+
+def test_newgame_pkg_argv_and_revert(tmp_path, monkeypatch):
+    a = jobs.newgame_from_stock_pkg_argv(6000)
+    assert a[1:4] == ["-m", "ff9mapkit", "newgame"] and a[4] == "6000"
+    assert a[a.index("--mod-folder") + 1] == "FF9CustomMap"
+    from ff9mapkit import provision
+    monkeypatch.setattr(provision, "deploy_reverts_dir", lambda: tmp_path / "rv")
+    assert jobs.revert_newgame_pkg_argv() is None                       # empty cache
+    (tmp_path / "rv").mkdir()
+    (tmp_path / "rv" / "revert_newgame_from_stock.py").write_text("x", encoding="utf-8")
+    r = jobs.revert_newgame_pkg_argv()
+    assert r and r[-1].endswith("revert_newgame_from_stock.py")
