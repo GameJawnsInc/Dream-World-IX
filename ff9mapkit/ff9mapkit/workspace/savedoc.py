@@ -378,7 +378,7 @@ class ItemEquipDoc(QWidget):
         row.addStretch(1)
         for label, cb in buttons:
             b = QPushButton(label)
-            if label == "Apply":
+            if label in ("Apply", "Give"):       # accent the primary COMMIT (Give = the key-items primary); Remove stays plain
                 b.setObjectName("accent")
             b.clicked.connect(lambda _=False, c=cb: c())
             row.addWidget(b)
@@ -441,7 +441,7 @@ class ItemEquipDoc(QWidget):
 
         self.ki_var = QLineEdit()
         self._section(lay, "Key items  (give / remove an important item by name)", [("name/id:", self.ki_var)],
-                      [("Preview", lambda: self._edit_keyitem(False, True)),
+                      [("Preview give", lambda: self._edit_keyitem(False, True)),
                        ("Give", lambda: self._edit_keyitem(True, True)),
                        ("Remove", lambda: self._edit_keyitem(True, False))])
 

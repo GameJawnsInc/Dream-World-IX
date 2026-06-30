@@ -216,7 +216,7 @@ class BattleDoc(QWidget):
         lv.addWidget(self.add_enemy_btn)
         self.add_aiphase_btn = QPushButton("Add AI phase")
         self.add_aiphase_btn.setToolTip("Add a boss-enrage AI branch: switch the enemy's attack when a stat "
-                                        "drops below a fraction (mint-only)")
+                                        "drops below a fraction (only on a from-scratch minted scene, not a reskin/fork)")
         self.add_aiphase_btn.clicked.connect(self._add_ai_phase)
         self.add_aiphase_btn.setEnabled(False)
         lv.addWidget(self.add_aiphase_btn)

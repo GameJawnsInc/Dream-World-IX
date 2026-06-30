@@ -237,7 +237,8 @@ class BuildDoc(QWidget):
         self.trigger = QLineEdit()
         self.trigger.setFixedWidth(90)
         tf.addWidget(self.trigger)
-        self.trigger_hint = QLabel("repoint a deployed field's encounter at the minted scene (mint only).")
+        self.trigger_hint = QLabel("repoint a deployed field's encounter at the minted scene (only for a "
+                                   "from-scratch new scene, not a reskin/fork).")
         self.trigger_hint.setWordWrap(True)
         self.trigger_hint.setStyleSheet(f"color:{self.pal['muted']};")
         tf.addWidget(self.trigger_hint, 1)
@@ -276,6 +277,8 @@ class BuildDoc(QWidget):
         self.campaign_box.setVisible(self.kind == "campaign")
         self.journey_box.setVisible(self.kind == "journey")
         self.battle_box.setVisible(self.kind == "battle")
+        self.rev.setEnabled(True)                  # default; _update_dest disables it for a field's no-undo destinations
+        self.rev.setToolTip("Undo the last deploy and restore the previous state.")
         if self.kind == "campaign" and self.plan is not None:
             ids = [m.new_id for m in self.plan.members]
             rng = f"{min(ids)}-{max(ids)}" if ids else "?"
@@ -283,6 +286,7 @@ class BuildDoc(QWidget):
                                 f"(ids {rng}) → {self.plan.mod_folder}")
             self.go.setText("Build / Deploy campaign")
             self.rev.setText("Revert campaign")
+            self.chk.setText("Check campaign")
             self.rb_camp_deploy.setText(f"Deploy to game (reversible) → {self.plan.mod_folder}")
         elif self.kind == "journey" and self.manifest is not None:
             m = self.manifest
@@ -292,19 +296,23 @@ class BuildDoc(QWidget):
                                 "→ each campaign stacks into its own mod folder.")
             self.go.setText("Build / Deploy journey")
             self.rev.setText("Revert journey")
+            self.chk.setText("Check journey")
             self._update_journey_hint()
         elif self.kind == "battle":
             deployed = jobs.detect_deployed_fields(self.mod_folder)
             avail = ("deployed: " + ", ".join(f"{i} ({n})" for i, n in deployed) + " — ") if deployed \
                 else "no fields deployed here yet — "
             self.trigger_hint.setText(avail + "repoint a deployed field's encounter at the minted scene "
-                                              "so you can fight it now (mint only; blank otherwise).")
+                                              "so you can fight it now (only for a from-scratch new scene; "
+                                              "blank otherwise).")
             self.status.setText(f"Battle map: {Path(self.path.text().strip()).name} → {self.mod_folder}")
             self.go.setText("Build / Deploy battle")
             self.rev.setText("Revert battle")
+            self.chk.setText("Check battle")
         else:
             self.go.setText("Build / Deploy")
             self.rev.setText("Revert test deploy")
+            self.chk.setText("Check logic")
             p = self.path.text().strip()
             if p and self.field_id is not None:
                 self.status.setText(f"Field: {self.field_name or Path(p).stem} (its own id: {self.field_id})"
@@ -323,12 +331,19 @@ class BuildDoc(QWidget):
         if self.rb_test.isChecked():
             msg = (f"→ deploys to field {tid} in {self.mod_folder} (your test slot; reversible). "
                    f"Your field's own id ({own}) is overridden — reach it via F6 → Warp to {tid}.")
+            self.rev.setEnabled(True)              # the test deploy writes a revert script
+            self.rev.setToolTip("Undo the last test-slot deploy (restores the slot's previous contents).")
         elif self.rb_game.isChecked():
             where = self.game_mod or "(game install not found)"
             msg = f"→ installs at field {own} (the field's OWN id) in {where} — overwrites any field {own} there."
+            self.rev.setEnabled(False)             # a direct game install overwrites in place -- no revert script
+            self.rev.setToolTip(f"A direct game install overwrites field {own} in place — there's no automatic "
+                                "undo. Restore from your backup, or re-install the original field.")
         else:
             folder = self.other.text().strip() or "(pick a folder)"
             msg = f"→ builds field {own} into {folder} — no game change."
+            self.rev.setEnabled(False)             # building into a plain folder deploys nothing to revert
+            self.rev.setToolTip("Builds into a plain folder — nothing was deployed to the game to revert.")
         self.dest.setText(msg)
 
     def _journey_newgame_mode(self) -> str:

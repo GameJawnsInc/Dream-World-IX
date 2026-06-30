@@ -41,6 +41,11 @@ class Field:
 
 
 # --- section specs (the editor's logic vocabulary) ---------------------------------------
+# One shared explanation of the speech-bubble pointer codes -- reused across the NPC / EVENT / CHEST / CHOICE
+# specs so the gloss reads identically everywhere (each spec appends its own default).
+_TAIL_HELP = ("speech-bubble pointer corner — UP/LO = upper/lower, R/L/C = right/left/center "
+              "(e.g. UPR = upper-right)")
+
 FIELD_SPEC = [
     Field("id", "Field ID", INT, "a unique number for your field (use >= 4000)"),
     Field("name", "Name", STR, "short tag, e.g. MY_ROOM (letters, digits, underscore)"),
@@ -59,7 +64,7 @@ NPC_SPEC = [
     Field("animset", "Animset id", OPTINT, "advanced: with a custom model (also add anims in the .toml)"),
     Field("dialogue", "Dialogue", STR, "the line shown when the player talks to it"),
     Field("speaker", "Speaker name", STR, "optional name before the line, e.g. Vivi (or [VIVI] for a renameable party name)"),
-    Field("tail", "Window tail", STR, "dialogue pointer corner: UPR/UPL/LOR/LOL/UPC/LOC (default UPR)"),
+    Field("tail", "Window tail", STR, _TAIL_HELP + ". Default UPR."),
     Field("pos", "Position (x, z)", COORD, "where it stands on the floor; usually placed in Blender"),
     Field("requires_flag", "Appears when flag set", FLAGREF,
           "story gate: show only after this flag (name or index) is set", catalog="flag"),
@@ -80,7 +85,7 @@ EVENT_SPEC = [
     Field("name", "Name", STR, "a label (links to its Blender marker)"),
     Field("message", "Message", STR, "text shown when the player steps in"),
     Field("speaker", "Speaker name", STR, "optional name before the message (blank for an unsigned popup)"),
-    Field("tail", "Window tail", STR, "dialogue pointer corner: UPR/UPL/LOR/LOL/UPC/LOC (default UPR)"),
+    Field("tail", "Window tail", STR, _TAIL_HELP + ". Default UPR."),
     Field("give_item", "Give item (id, count)", PAIR, "e.g. 232, 1"),
     Field("received", "Item-get window", BOOL, "give_item: show the canonical 'Received <item>!' window",
           default=False),
@@ -97,9 +102,8 @@ EVENT_SPEC = [
 ]
 CHEST_SPEC = [
     Field("pos", "Position (x, z)", COORD, "where the chest sits on the floor; usually placed in Blender"),
-    Field("model", "Chest model", STR, "treasure-chest model. TWO real looks: F0 (default, wooden) = F2, and "
-          "F1 = F3 (the game ships per-zone duplicate ids; F2 only differs by an unused dummy texture). Or a "
-          "raw id (75/91/701/702)"),
+    Field("model", "Chest model", STR, "leave blank for the default wooden chest. Advanced: F0 / F1 (two chest "
+          "looks), or a raw model id (e.g. 75 / 91 / 701 / 702)"),
     Field("item", "Reward item (id/name, count)", ITEMCOUNT, 'the treasure, e.g. "Potion, 1" (set item OR gil)',
           catalog="item"),
     Field("gil", "Reward gil", OPTINT, "give gil instead of an item (set item OR gil)"),
@@ -114,7 +118,7 @@ CHEST_SPEC = [
     Field("message", "Custom box text", STR, "advanced: replace the 'Received <item>!' box (you own the "
           "[WDTH]/codes); blank = the real FF9 box"),
     Field("box", "Box size (width, lines)", PAIR, "advanced: centers a custom message, e.g. 69, 3"),
-    Field("tail", "Window tail", STR, "advanced: pointer corner (default DEFT = the centered system box)"),
+    Field("tail", "Window tail", STR, _TAIL_HELP + ". Default DEFT (the centered system box)."),
 ]
 SPS_SPEC = [
     Field("id", "Effect ID", INT, "a unique number for this effect (use >= 5000; must not clash with a "
@@ -179,7 +183,7 @@ CHOICE_SPEC = [
     Field("once", "Fires once ever", BOOL, "walk-trigger only: on = once ever; off = once per visit", default=True),
     Field("prompt", "Prompt", STR, "the question shown above the options"),
     Field("speaker", "Speaker name", STR, "optional name before the prompt"),
-    Field("tail", "Window tail", STR, "UPR/UPL/LOR/LOL/UPC/LOC (default UPR)"),
+    Field("tail", "Window tail", STR, _TAIL_HELP + ". Default UPR."),
     Field("default", "Default row", OPTINT, "option index highlighted first (0 = top; default 0)"),
     Field("cancel", "Cancel row", OPTINT, "option index B/Cancel picks (-1 or blank = last row)"),
 ]

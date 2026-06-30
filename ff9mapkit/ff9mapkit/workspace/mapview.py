@@ -57,7 +57,8 @@ class CampaignMap(QGraphicsView):
         sc.clear()
         if lay is None:
             return
-        sc.setSceneRect(0, 0, lay.width, lay.height)
+        sc.setSceneRect(0, -42, max(lay.width, 560), lay.height + 42)   # a band at the top holds the legend
+        self._draw_legend(-34)
         muted = QColor(pal["muted"])
         for e in lay.edges:                                            # edges under the nodes
             pen = QPen(muted, 2)
@@ -75,6 +76,41 @@ class CampaignMap(QGraphicsView):
         for n in lay.nodes:
             self._node(n)
 
+    def _draw_legend(self, y):
+        """A swatch legend along the top band so the node-colour / edge-dash encoding is self-explanatory
+        (the tkinter Campaign Editor ships the same)."""
+        sc, pal = self._scene, self.pal
+        font = QFont("Segoe UI", 8)
+        x = 6
+        for col, label in ((pal["success"], "entry"), (pal["warn"], "needs export"),
+                           (pal["error"], "unreachable"), (pal["accent"], "open")):
+            sc.addEllipse(x, y + 2, 10, 10, QPen(QColor(col), 1), QBrush(QColor(col)))
+            t = sc.addSimpleText(label, font)
+            t.setBrush(QBrush(QColor(pal["muted"])))
+            t.setPos(x + 14, y)
+            x += 14 + t.boundingRect().width() + 16
+        for label in ("→ gateway", "– – gated", "~ seam"):
+            t = sc.addSimpleText(label, font)
+            t.setBrush(QBrush(QColor(pal["muted"])))
+            t.setPos(x, y)
+            x += t.boundingRect().width() + 16
+
+    _MODE_GLOSS = {"borrow": "BG-borrow — reuses the real field's art",
+                   "native": "native scene — ships its own art",
+                   "editable": "editable scene — re-authorable art",
+                   "verbatim": "verbatim — ships the real field's script + dialogue"}
+
+    def _node_tooltip(self, n):
+        bits = [f"{n.name} — id {n.new_id}", self._MODE_GLOSS.get(n.mode, n.mode)]
+        if not n.reachable:
+            bits.append("⚠ Not reachable from the entry field.")
+        elif n.needs_export:
+            bits.append("⚠ Needs a Blender export.")
+        elif n.is_entry:
+            bits.append("Entry field (where the campaign starts).")
+        bits.append("Double-click to open.")
+        return "\n".join(bits)
+
     def _node(self, n):
         sc, pal = self._scene, self.pal
         if not n.reachable:
@@ -91,14 +127,16 @@ class CampaignMap(QGraphicsView):
         sub_col = pal["accent_fg"] if current else pal["muted"]
         path = QPainterPath()
         path.addRoundedRect(QRectF(n.x, n.y, n.w, n.h), 10, 10)
-        sc.addPath(path, QPen(QColor(outline), 2 if outline != pal["border"] else 1), QBrush(QColor(fill)))
+        body = sc.addPath(path, QPen(QColor(outline), 2 if outline != pal["border"] else 1), QBrush(QColor(fill)))
         title = sc.addSimpleText(n.name, QFont("Segoe UI", 10, QFont.Weight.Bold))
         title.setBrush(QBrush(QColor(tcol)))
         title.setPos(n.cx - title.boundingRect().width() / 2, n.y + 8)
-        sub = sc.addSimpleText(f"id {n.new_id}" + ("" if n.mode == "borrow" else f" · {n.mode}"),
-                               QFont("Segoe UI", 8))
+        sub = sc.addSimpleText(f"id {n.new_id} · {n.mode}", QFont("Segoe UI", 8))   # show the mode for every node
         sub.setBrush(QBrush(QColor(sub_col)))
         sub.setPos(n.cx - sub.boundingRect().width() / 2, n.y + 26)
+        tip = self._node_tooltip(n)                       # status + mode gloss + the double-click affordance
+        for item in (body, title, sub):
+            item.setToolTip(tip)
 
     def _arrow_head(self, x1, y1, x2, y2, color, size=11):
         dx, dy = x2 - x1, y2 - y1
@@ -122,6 +160,12 @@ class CampaignMap(QGraphicsView):
             if n.x <= sp.x() <= n.x + n.w and n.y <= sp.y() <= n.y + n.h:
                 return n.name
         return None
+
+    def mouseMoveEvent(self, event):                       # noqa: N802 (Qt override)
+        if not event.buttons():                            # plain hover (not a pan-drag): hint that nodes open
+            over = self._node_at(event.position().toPoint())
+            self.viewport().setCursor(Qt.CursorShape.PointingHandCursor if over else Qt.CursorShape.OpenHandCursor)
+        super().mouseMoveEvent(event)
 
     def mouseDoubleClickEvent(self, event):                # noqa: N802 (Qt override)
         name = self._node_at(event.position().toPoint())

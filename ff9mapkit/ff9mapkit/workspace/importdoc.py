@@ -79,6 +79,8 @@ class ImportDoc(QWidget):
         self.field = QLineEdit()
         self.field.setPlaceholderText("field id or name")
         self.find_btn = QPushButton("Find…")
+        self.find_btn.setToolTip("List the real FF9 fields matching the box above (id + name) — the same lookup "
+                                 "as 'List fields' under Read & inspect.")
         self.find_btn.clicked.connect(self.on_find)
         self.preview_btn = QPushButton("Preview fidelity")
         self.preview_btn.clicked.connect(self.on_preview)
@@ -452,6 +454,7 @@ class ImportDoc(QWidget):
         self.list_filter = QLineEdit()
         self.list_filter.setFixedWidth(150)
         self.list_btn = QPushButton("List fields")
+        self.list_btn.setToolTip("List the real FF9 fields matching the filter (id + name).")
         self.list_btn.clicked.connect(self.on_list_fields)
         lst.addWidget(self.list_filter)
         lst.addWidget(self.list_btn)
