@@ -13,7 +13,7 @@
 ; (py tools\gen_third_party_notices.py -o installer\THIRD-PARTY-NOTICES.txt) -- it is bundled if present.
 
 #define MyAppName "Dream World IX"
-#define MyAppVersion "1.0.0b4"
+#define MyAppVersion "1.0.0b5"
 #define MyAppPublisher "GameJawnsInc"
 #define MyAppURL "https://github.com/GameJawnsInc/Dream-World-IX"
 
