@@ -15,4 +15,4 @@ Public surface is organized as:
   ff9mapkit.battle    — the battle.toml -> custom battle-background (BBG) builder (fork/edit/build a 3D battle map)
 """
 
-__version__ = "1.0.0b9"   # keep in lockstep with [project] version in pyproject.toml
+__version__ = "1.0.0b10"   # keep in lockstep with [project] version in pyproject.toml
