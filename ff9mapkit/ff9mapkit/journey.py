@@ -59,6 +59,11 @@ from .flags import CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG
 
 SCENARIO_MAX = 32767
 ID_LO, ID_HI = 4000, 32767                  # custom field-id band (Int16 cap; CLAUDE.md §3)
+WORLD_ID_LO, WORLD_ID_HI = 9000, 9012       # engine-RESERVED world-map location ids (EVT_WORLD_WORLD00..12, the
+#                                             WorldMap()/wldMapNo values). A forked FIELD id here clobbers the world
+#                                             script in the GLOBAL EventDB -> any field->overworld transition loads a
+#                                             field .eb name from the World/ folder -> not found -> black screen. The
+#                                             custom band MUST skip this sub-band (lint error below).
 _SLUG_RE = re.compile(r"^[A-Za-z0-9_]+$")    # a journey id slug -> hub-choice key + seed namespace
 
 
@@ -542,6 +547,12 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
         if not (ID_LO <= fid <= ID_HI):
             errors.append(f"{label}: field id {fid} out of band -- custom ids are {ID_LO}-{ID_HI} "
                           f"(the live fldMapNo is Int16, so a higher id registers but is unreachable)")
+        elif WORLD_ID_LO <= fid <= WORLD_ID_HI:
+            errors.append(f"{label}: field id {fid} collides with the engine-RESERVED world-map id band "
+                          f"{WORLD_ID_LO}-{WORLD_ID_HI} (EVT_WORLD_WORLD00..12) -- its FieldScene line clobbers the "
+                          f"world script in the GLOBAL EventDB, so any field->overworld transition black-screens "
+                          f"(the EVT_WORLD_* .eb is sought in the World/ folder under the fork's name). Re-fork this "
+                          f"campaign at an id-base whose whole range is clear of {WORLD_ID_LO}-{WORLD_ID_HI}.")
 
     # (f) per-journey resolution: entry, flag windows, links, seed
     for j in manifest.journeys:

@@ -721,6 +721,23 @@ def test_build_deploy_plan(tmp_path):
     assert lk.src_mod_folder == "FF9CustomMap-evf" and lk.dst_id == 6100
 
 
+def test_lint_world_band_id_collision(tmp_path):
+    # a campaign forked at --id-base 9000 puts members on the engine-reserved world-map ids 9000-9012, whose
+    # FieldScene lines clobber the EVT_WORLD_WORLD0X scripts in the GLOBAL EventDB -> field->overworld crashes.
+    # The lint must HARD-ERROR this (the bug that black-screened FF9Playthrough's s_gate at 9000-9012).
+    _make_campaign(tmp_path, "sg", members=["A1", "A2"], id_base=9000, mod_folder="mf-sg")
+    body = ('[[journey]]\nid = "j"\nname = "J"\ncampaigns = ["sg"]\n'
+            'entry = { campaign = "sg", field = "A1" }\n')
+    errs, _w = journey.lint_manifest(journey.load_journeys(_write_manifest(tmp_path, body)))
+    assert any("9000" in e and "world-map id band" in e for e in errs), errs
+    # a campaign clear of the band lints clean on the id-band axis
+    _make_campaign(tmp_path, "ok", members=["B1"], id_base=8820, mod_folder="mf-ok")
+    body2 = ('[[journey]]\nid = "j2"\nname = "J2"\ncampaigns = ["ok"]\n'
+             'entry = { campaign = "ok", field = "B1" }\n')
+    errs2, _w2 = journey.lint_manifest(journey.load_journeys(_write_manifest(tmp_path, body2)))
+    assert not any("world-map id band" in e for e in errs2), errs2
+
+
 def test_deploy_plan_overworld_seam_worldmap_inject(tmp_path):
     # EVF_EXIT's only seam is overworld (no Field() op) -> the link is auto-wired by worldmap_inject
     # (body-replace the walk-out region with a Field(dst) warp -- the elided world-map leg)

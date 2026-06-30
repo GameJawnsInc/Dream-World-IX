@@ -32,6 +32,10 @@ _DATA = Path(__file__).resolve().parent / "data" / "reference_arcs.toml"
 # shipped-custom range (4000-9899, CLAUDE.md sec 3).
 DEFAULT_ID_BASE = 6000
 ARC_ID_SPAN = 200
+# The engine reserves world-map location ids 9000-9012 (EVT_WORLD_WORLD00..12) in the GLOBAL EventDB; a forked
+# field id there clobbers the world script -> every field->overworld transition black-screens. So when arc bands
+# march past 8800 (12+ arcs / a large region-catalog set), skip the 200-band that holds 9000-9012.
+_WORLD_RESERVED_BASE = 9000
 
 # The journey assembler lays every campaign's GLOB flag window end-to-end inside ONE safe band (8512..16320 =
 # 7808 bits). At import-chain's defaults (25 members x 64 flags/field) a 12-arc chain needs 19200 bits and
@@ -267,8 +271,13 @@ def regenerate_region_catalog(out=None, pattern=None, *, split_visits=True, gap=
 
 # --------------------------------------------------------------------------- per-arc fork parameters
 def arc_id_base(index: int, *, base: int = DEFAULT_ID_BASE, span: int = ARC_ID_SPAN) -> int:
-    """The disjoint ``--id-base`` for arc ``index`` (0-based) so no two arcs share an EventDB id band."""
-    return base + index * span
+    """The disjoint ``--id-base`` for arc ``index`` (0-based) so no two arcs share an EventDB id band -- and so no
+    band lands on the engine-reserved world-map ids 9000-9012 (the band that would hold them is skipped, shifting
+    that arc + every higher one up one span; the journey/campaign lint hard-errors a stray id in that band too)."""
+    nb = base + index * span
+    if nb >= _WORLD_RESERVED_BASE:                # this band (and all above) would overlap/follow 9000-9012
+        nb += span                                # reserve the 9000-band; push past it
+    return nb
 
 
 def arc_name_prefixes(arcset: ReferenceArcSet) -> dict:

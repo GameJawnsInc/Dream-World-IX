@@ -28,6 +28,17 @@ def test_id_bases_are_disjoint_and_prefixes_unique():
     assert len(set(prefixes.values())) == len(prefixes), "FBG/EVT name prefixes must be unique (by-name resolution)"
 
 
+def test_arc_id_base_skips_reserved_world_band():
+    # ids 9000-9012 are engine-reserved world-map slots (EVT_WORLD_WORLD00..12); no arc band may touch them, or a
+    # fork there clobbers the world script in the GLOBAL EventDB and every field->overworld transition crashes.
+    bases = [refarc.arc_id_base(i) for i in range(73)]            # a big region-catalog-sized set marches past 9000
+    for b in bases:
+        assert not (b <= 9012 and b + refarc.ARC_ID_SPAN > 9000), f"band {b}..{b + refarc.ARC_ID_SPAN - 1} hits 9000-9012"
+    assert bases == sorted(set(bases))                            # still disjoint + monotonic
+    assert refarc.arc_id_base(14) == 8800                         # last band below the reserved one is unchanged
+    assert refarc.arc_id_base(15) == 9200                         # the naive-9000 band is bumped past 9000-9199
+
+
 def test_compose_region_fork_single_and_composed():
     # the GUI "Fork FF9 regions" catalog: one region -> its seed + its tag; several -> composed seeds, no prefix
     aset = refarc.load_reference_arcs()
