@@ -142,9 +142,11 @@ class ImportDoc(QWidget):
                                    "amarant"])
         self.swap_player.setCurrentText("")
         self.swap_player.currentTextChanged.connect(self._sync_mode)   # a Walk-as FORCES verbatim -> reflect it live
-        swap.addWidget(self.swap_player, 1)
+        self.swap_player.setMaximumWidth(180)     # a short char-name/GEO id -- don't fill the row (a full-width
+        swap.addWidget(self.swap_player)          # combo is a big wheel-scroll target in the scrolling panel)
         self.neutralize = QCheckBox("Neutralize scripted gestures")
         swap.addWidget(self.neutralize)
+        swap.addStretch(1)                        # left-align the compact combo + checkbox
         v.addLayout(swap)
         swap_hint = QLabel("Optional: control a different character (a playable name) or any model (a GEO id, "
                            "e.g. a moogle 199) instead of the field's real player. Implies a verbatim fork. On "
@@ -261,9 +263,11 @@ class ImportDoc(QWidget):
         self.rg_swap.setEditable(True)
         self.rg_swap.addItems(["", "zidane", "vivi", "steiner", "garnet", "freya", "quina", "eiko", "amarant"])
         self.rg_swap.setCurrentText("")
-        rswap.addWidget(self.rg_swap, 1)
+        self.rg_swap.setMaximumWidth(180)         # compact, like the single-fork Walk-as (don't capture wheel-scroll)
+        rswap.addWidget(self.rg_swap)
         self.rg_neutralize = QCheckBox("Neutralize scripted gestures")
         rswap.addWidget(self.rg_neutralize)
+        rswap.addStretch(1)
         v.addLayout(rswap)
         swap_hint = QLabel("Optional: play the WHOLE chain as a different character (a playable name) or any "
                            "model (a GEO id). Implies verbatim; cutscene members' scripted gestures glitch — "
@@ -433,6 +437,7 @@ class ImportDoc(QWidget):
         sav = QHBoxLayout()
         sav.addWidget(QLabel("Inspect save:"))
         self.save_path = QLineEdit()
+        self.save_path.setPlaceholderText("SavedData_ww.dat, a Memoria extra-save, or a save JSON")
         browse_s = QPushButton("Browse…")
         browse_s.clicked.connect(self.browse_save)
         self.save_btn = QPushButton("Inspect")

@@ -596,7 +596,8 @@ class BattleDoc(QWidget):
         v.setContentsMargins(8, 4, 8, 4)
         v.setSpacing(3)
         enrage = [f"entry {e}, function {t}" for (e, _ty, t, _r, n) in ai_funcs if n == 1]   # exactly one Attack
-        e_txt = " · ".join(enrage) if enrage else "none — no AI function has exactly one Attack (use ai_insert)"
+        e_txt = " · ".join(enrage) if enrage else ("none — no AI function has exactly one Attack to gate the "
+                                                   "enrage on (you'd need to author one in the battle AI script first)")
         e_lbl = QLabel(f"<b>Enrage-able</b> → set <b>Enemy AI entry</b> / <b>AI function</b> to: {html.escape(e_txt)}")
         e_lbl.setWordWrap(True)
         e_lbl.setStyleSheet(f"color:{self.pal['muted']};")

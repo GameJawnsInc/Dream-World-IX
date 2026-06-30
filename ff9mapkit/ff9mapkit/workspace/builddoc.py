@@ -229,7 +229,7 @@ class BuildDoc(QWidget):
     def _battle_box(self):
         box = QGroupBox("Deploy battle map")
         bv = QVBoxLayout(box)
-        self.battle_dest = QLabel(f"This worktree's mod folder: {self.mod_folder}")
+        self.battle_dest = QLabel(f"Test mod folder: {self.mod_folder}")
         self.battle_dest.setStyleSheet(f"color:{self.pal['muted']};")
         bv.addWidget(self.battle_dest)
         tf = QHBoxLayout()
@@ -321,7 +321,7 @@ class BuildDoc(QWidget):
         tid = self.worktree_id or 4003
         own = self.field_id if self.field_id is not None else "?"
         if self.rb_test.isChecked():
-            msg = (f"→ deploys to field {tid} in {self.mod_folder} (this worktree's test slot; reversible). "
+            msg = (f"→ deploys to field {tid} in {self.mod_folder} (your test slot; reversible). "
                    f"Your field's own id ({own}) is overridden — reach it via F6 → Warp to {tid}.")
         elif self.rb_game.isChecked():
             where = self.game_mod or "(game install not found)"

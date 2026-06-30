@@ -42,6 +42,7 @@ from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
+from .widgets import install_wheel_guard
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
@@ -305,6 +306,7 @@ class Workspace(QMainWindow):
         self.setWindowIcon(_app_icon())
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
+        install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
         self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
         self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon for clean rows,
         self._root_items = []                                 # so toggling the dot never resizes/shifts a row
@@ -356,6 +358,8 @@ class Workspace(QMainWindow):
         self.act_save_all.triggered.connect(self._save_all)
         tb.addAction(self.act_save_all)
         self.act_check = QAction("Check", self)
+        self.act_check.setToolTip("Validate the open field/campaign now, in-process (schema + story/flag "
+                                  "logic) — findings appear in the Problems panel. Fast; no subprocess.")
         self.act_check.triggered.connect(self.on_check)
         self.act_check.setEnabled(False)
         tb.addAction(self.act_check)
@@ -368,6 +372,8 @@ class Workspace(QMainWindow):
         self.act_refresh.triggered.connect(self.on_refresh_scene)
         tb.addAction(self.act_refresh)                  # always enabled: a benign read; no-ops if nothing's loaded
         self.act_lint_cli = QAction("Lint (CLI)", self)
+        self.act_lint_cli.setToolTip("Run the full `ff9mapkit lint` through the CLI (the complete validator "
+                                     "suite, in a subprocess) — output streams to the Output console.")
         self.act_lint_cli.triggered.connect(self.run_cli_lint)
         self.act_lint_cli.setEnabled(False)
         tb.addAction(self.act_lint_cli)
@@ -1749,7 +1755,10 @@ class Workspace(QMainWindow):
         addb = QPushButton("+ Add flag")
         addb.clicked.connect(lambda: add_row())
         rmb = QPushButton("− Remove")
+        rmb.setToolTip("Remove the selected flag row.")
+        rmb.setEnabled(tbl.currentRow() >= 0)            # nothing selected -> nothing to remove (don't no-op silently)
         rmb.clicked.connect(lambda: tbl.removeRow(tbl.currentRow()) if tbl.currentRow() >= 0 else None)
+        tbl.itemSelectionChanged.connect(lambda: rmb.setEnabled(tbl.currentRow() >= 0))
         btns.addWidget(addb)
         btns.addWidget(rmb)
         btns.addStretch(1)

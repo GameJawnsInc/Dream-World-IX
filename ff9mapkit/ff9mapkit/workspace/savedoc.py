@@ -430,9 +430,12 @@ class ItemEquipDoc(QWidget):
 
         self.ap_char_combo = QComboBox()
         self.ap_abil_var = QLineEdit("all")
+        self.ap_abil_var.setToolTip("An ability by name or id; 'all' = every ability. Advanced: AA:N = the Nth "
+                                    "action ability, SA:N = the Nth support ability.")
         self.ap_val_var = QLineEdit("master")
         self.ap_val_var.setFixedWidth(90)
-        self._section(lay, "Abilities  (AP / mastery — name / AA:X / SA:X / id / all)",
+        self.ap_val_var.setToolTip("AP to grant, or 'master' to fully learn the ability.")
+        self._section(lay, "Abilities  (give AP, or master an ability)",
                       [("who:", self.ap_char_combo), ("ability:", self.ap_abil_var), ("AP:", self.ap_val_var)],
                       [("Preview", lambda: self._edit_ap(False)), ("Apply", lambda: self._edit_ap(True))])
 
@@ -533,8 +536,9 @@ class ItemEquipDoc(QWidget):
             self.edit_target.setText("Editing disabled — this slot could not be decoded.")
             self.gil_var.setText("")
         elif extra is None:
-            self.edit_target.setText(f"Editing: {t['label']} (vanilla — main block). Gil, items, equipment "
-                                     "(by old-slot; slots 5-7 shared), stats, abilities, key items. Backed up first.")
+            self.edit_target.setText(f"Editing: {t['label']} (vanilla — main block). Gil, items, equipment, "
+                                     "stats, abilities, key items. Backed up first. (Some characters share one "
+                                     "equipment record in vanilla saves, so editing one can affect another.)")
             self.gil_var.setText(str(rep.gil) if rep.gil is not None else "")
         else:
             where = "the extra file" if container is None else "the main block + the extra mirror"
