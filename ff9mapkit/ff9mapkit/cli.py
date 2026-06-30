@@ -200,6 +200,38 @@ def _cmd_setup(args: argparse.Namespace) -> int:
     return rc
 
 
+def _cmd_deploy_campaign(args: argparse.Namespace) -> int:
+    """Reversibly install a built campaign into the live game + wire New Game (the installed-copy equivalent of
+    tools/deploy_campaign.py). SAFE BY DEFAULT: prints the plan; pass --apply to touch the game. Snapshots +
+    reverts go to a per-user cache (the wheel ships no repo tools/scroll_out)."""
+    from . import deploy, provision
+    from .deploy import DeployError
+    try:
+        report = deploy.deploy_campaign(
+            args.target, mod_folder=args.mod_folder, entry=args.entry, apply=args.apply,
+            allow_artless=args.allow_artless, no_warp=args.no_warp,
+            allow_name_collision=args.allow_name_collision, allow_id_collision=args.allow_id_collision,
+            flag_base=args.flag_base, no_promote_csv=args.no_promote_csv, promote_csv_to=args.promote_csv_to,
+            out_dist=args.out_dist, backups_dir=provision.deploy_backups_dir(),
+            reverts_dir=provision.deploy_reverts_dir())
+    except DeployError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return report["rc"]
+
+
+def _cmd_deploy_journey(args: argparse.Namespace) -> int:
+    """Deploy (or dry-run) a multi-campaign journey into the live game (the installed-copy equivalent of
+    tools/deploy_journey.py). Default = a dry-run playbook; --apply runs the one-shot install with one unified
+    revert. Snapshots + reverts go to a per-user cache."""
+    from . import deploy, provision
+    report = deploy.deploy_journey(
+        args.journeys, apply=args.apply, newgame=args.newgame, apply_links=args.apply_links,
+        single_folder=args.single_folder, allow_collision=args.allow_collision, hub_out=args.hub_out,
+        backups_dir=provision.deploy_backups_dir(), reverts_dir=provision.deploy_reverts_dir())
+    return report["rc"]
+
+
 def _cmd_disasm(args: argparse.Namespace) -> int:
     from .eb import EbScript
 
@@ -3207,6 +3239,54 @@ def build_parser() -> argparse.ArgumentParser:
     su.add_argument("--no-extract", action="store_true", help="skip the base-asset extraction step")
     su.add_argument("--no-fixtures", action="store_true", help="skip test fixtures during extraction")
     su.set_defaults(func=_cmd_setup)
+
+    dca = sub.add_parser("deploy-campaign",
+                         help="reversibly INSTALL a built campaign into the live game + wire New Game (SAFE by "
+                              "default: prints the plan; --apply touches the game). The installed-copy deploy.")
+    dca.add_argument("target", help="path to campaign.toml (built fresh) OR a prebuilt dist/ directory")
+    dca.add_argument("--mod-folder", dest="mod_folder", default="FF9CustomMap",
+                     help="Memoria mod folder to install into (default FF9CustomMap)")
+    dca.add_argument("--entry", default=None, help="New-Game entry: member name, field id, or omit for the manifest entry")
+    dca.add_argument("--out-dist", dest="out_dist", default=None, help="where to stage the build (default: target/dist)")
+    dca.add_argument("--allow-artless", action="store_true", dest="allow_artless",
+                     help="install editable members that lack exported art (they render with NO background)")
+    dca.add_argument("--no-warp", action="store_true", dest="no_warp", help="install the mod but skip New-Game wiring")
+    dca.add_argument("--allow-name-collision", action="store_true", dest="allow_name_collision",
+                     help="install even when EVT/FBG names collide with another FolderNames folder (default ABORT)")
+    dca.add_argument("--allow-id-collision", action="store_true", dest="allow_id_collision",
+                     help="install even when a field/scene id collides with another FolderNames folder (default ABORT)")
+    dca.add_argument("--flag-base", type=int, default=None, dest="flag_base",
+                     help="override the campaign's flag_base (the journey assembler's disjoint-window lever)")
+    dca.add_argument("--no-promote-csv", action="store_true", dest="no_promote_csv",
+                     help="do NOT promote the entry field's start-state CSVs to the highest FolderNames folder")
+    dca.add_argument("--promote-csv-to", dest="promote_csv_to", default=None,
+                     help="folder to promote start-state CSVs into (default: the highest Memoria.ini FolderNames folder)")
+    dca.add_argument("--apply", action="store_true", help="ACTUALLY touch the game (default: dry-run, prints the plan)")
+    dca.set_defaults(func=_cmd_deploy_campaign)
+
+    dje = sub.add_parser("deploy-journey",
+                         help="deploy (or dry-run) a multi-campaign JOURNEY into the live game: campaigns + links "
+                              "+ hub, one unified revert. Default = the dry-run playbook; --apply does the install.")
+    dje.add_argument("journeys", help="path to a journeys.toml ([hub] + [[journey]] rows)")
+    dje.add_argument("--apply", action="store_true",
+                     help="ONE-SHOT: deploy every campaign (seeded entry) + links + the hub field, one unified "
+                          "revert (default is a dry-run that prints the playbook). New Game is NOT touched unless "
+                          "you add --newgame hub|entry.")
+    dje.add_argument("--newgame", choices=("none", "hub", "entry"), default="none",
+                     help="with --apply, where New Game lands (SINGLE-OWNER). none (default) = unchanged, reach "
+                          "the hub via F6. hub = the hub selector menu. entry = straight into the opening field.")
+    dje.add_argument("--wire-newgame", action="store_const", const="hub", dest="newgame",
+                     help="back-compat alias for --newgame hub.")
+    dje.add_argument("--apply-links", action="store_true", dest="apply_links",
+                     help="EXECUTE ONLY the cross-campaign link .eb remaps (re-run after any campaign re-deploy)")
+    dje.add_argument("--single-folder", dest="single_folder", nargs="?", const="", default=None,
+                     help="with --apply, MERGE the whole journey into ONE stacked mod folder (a single FolderNames "
+                          "entry). Optional NAME (default FF9CustomMap-<hub>).")
+    dje.add_argument("--allow-collision", action="store_true", dest="allow_collision",
+                     help="(single-folder) install even if the merged journey collides with another FolderNames folder")
+    dje.add_argument("--hub-out", dest="hub_out", default=None,
+                     help="path for the emitted hub field.toml (default: hub.field.toml beside the journeys.toml)")
+    dje.set_defaults(func=_cmd_deploy_journey)
 
     return p
 

@@ -100,6 +100,19 @@ def field_cache_dir(field_id) -> Path:
     return cache_dir() / "fields" / str(field_id)
 
 
+def deploy_backups_dir() -> Path:
+    """Where ``ff9mapkit deploy-campaign`` / ``deploy-journey`` snapshot the live mod folder before a
+    (reversible) install. The repo ``tools/deploy_*.py`` shims use ``backups/`` instead; this per-user dir
+    is for an INSTALLED copy that has no repo. Under :func:`cache_dir` (installed -> a per-user cache)."""
+    return cache_dir() / "deploy" / "backups"
+
+
+def deploy_reverts_dir() -> Path:
+    """Where ``ff9mapkit deploy-campaign`` / ``deploy-journey`` write their revert scripts (undo a deploy with
+    ``python <path>``). The repo shims use ``tools/scroll_out/`` instead; this is the installed-copy home."""
+    return cache_dir() / "deploy" / "reverts"
+
+
 # ---- copy/insert patch format ---------------------------------------------------------------------
 # A patch transforms a base field's bytes into one of our derived blobs. It is a list of ops:
 #   ["c", off, length]   copy ``length`` bytes from the SOURCE at ``off`` (references, not bytes)

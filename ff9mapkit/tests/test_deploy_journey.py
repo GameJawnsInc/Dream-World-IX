@@ -64,3 +64,16 @@ def test_deploy_journey_dry_run_touches_nothing(tmp_path):
                                    verbose=False)
     assert report["ok"] is True and report["rc"] == 0 and report["revert"] is None
     assert not (tmp_path / "rv").exists() and not (tmp_path / "bk").exists()   # dry-run writes nothing
+
+
+def test_cli_registers_both_deploy_commands(tmp_path, monkeypatch):
+    """`ff9mapkit deploy-campaign` / `deploy-journey` are wired (the installed-copy multi-field deploy), and a
+    dry-run via cli.main returns 0 + the per-user cache (FF9MAPKIT_DATA here) stays clean."""
+    from ff9mapkit import cli
+    p = cli.build_parser()
+    assert p.parse_args(["deploy-campaign", "x"]).func.__name__ == "_cmd_deploy_campaign"
+    assert p.parse_args(["deploy-journey", "y"]).func.__name__ == "_cmd_deploy_journey"
+    if EXAMPLE.is_file():
+        monkeypatch.setenv("FF9MAPKIT_DATA", str(tmp_path))      # route the cache to tmp (dry-run writes nothing)
+        assert cli.main(["deploy-journey", str(EXAMPLE)]) == 0
+        assert not (tmp_path / "deploy").exists()
