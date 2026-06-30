@@ -26,6 +26,12 @@ the original field's tuned behavior. This is the set that makes a forked field p
 
 **Area-title gates — investigated, NO fix (a false alarm, resolved 2026-06-23):** the two deferred gates were *not* an asset risk. `FieldMap.SetFieldMapAtlasName` (the `atlas_<lang>` rename) has **zero runtime callers** — dead code — so the missing-texture premise never existed; the runtime atlas load is a flat `Load("atlas")` (`BGSCENE_DEF.cs:839`), and the title lettering is baked into the base `atlas.png` every fork ships (a native Mognet-Central fork renders the card, in-game proven — `FORK_FIDELITY.md`). So English area titles already work on forks (synth forks correctly *hide* them; `--verbatim` shows them via the carried donor `.eb`). `FieldMapLocalizeAreaTitle.GetInfo` only gates the **non-English** `_<lang>.bgs` title-*geometry* swap (`LoadLocalizationInfo` returns early for US), which a native/editable fork can't use without shipping 7 localized `.bgs` sidecars per fork — a cosmetic, non-English-only follow-up, intentionally left (BG-borrow + same-name forks already get it via the donor bundle).
 
+## Custom-overworld (Path C) — NEW capability
+
+| File | What it adds |
+|---|---|
+| `s34-worldmap-mesh-override.patch` | Load a world-map block TERRAIN mesh from a loose **`.ff9mesh`** file in a mod folder instead of the baked Resources mesh — so overworld geometry can be edited **without** an AssetBundle repack (FF9 is Unity 5.2.3; `AssetManager.LoadFromDisc<Mesh>` is unsupported, so there is no other loose-mesh hook). New class `Memoria.World.WorldMeshOverride` (reads the kit's [`ff9mapkit.world.mesh`](../ff9mapkit/ff9mapkit/world/mesh.py) format) + a 3-line hook in `WMWorldPrefabMaker.LoadMesh` after `Resources.Load`. The override mesh drives **both** the render and the walkmesh (collision + the per-triangle entry id in `tangent.x`) because `WMWorld.RegisterBlockComponent` feeds the same `MeshFilter.sharedMesh` into `WMBlock.AddWalkMesh`. Identity-safe: no override file → stock mesh. **Also add `<Compile Include="Memoria\World\WorldMeshOverride.cs" />` to the csproj.** ★ Built + deployed 2026-06-30 (clean, 0 warnings); IN-GAME UNVERIFIED — awaiting the first `world-deploy --spike` playtest. The foundation for Path C (geometry-edit the real world) and Path D (a minted continent's geometry). → `project-ff9-worldmap-feasibility`. |
+
 ## Dev tooling — shipped in the bundle, but NOT a fidelity patch
 
 | File | What it is |

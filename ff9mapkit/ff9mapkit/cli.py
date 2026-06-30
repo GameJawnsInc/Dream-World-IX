@@ -1451,6 +1451,29 @@ def _cmd_world_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_deploy(args: argparse.Namespace) -> int:
+    """Deploy an (optionally edited) overworld block as a loose .ff9mesh override (needs the WorldMeshOverride
+    engine patch). --spike raises the centre vertex for an unmistakable first-experiment bump."""
+    from .world import extract as W, mesh as M
+    try:
+        bm = W.read_block(args.block[0], args.block[1], disc=args.disc, lod=args.lod, game=args.game)
+        note = "faithful copy (no edit)"
+        if args.spike:
+            bi = M.raise_vertex_near_center(bm, args.spike)
+            note = f"raised vertex {bi} (nearest centre) by +{args.spike}"
+        dest = M.deploy_override(bm, mod_folder=args.mod_folder, game=args.game, lod=args.lod)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"deployed override -> {dest}")
+    print(f"  {note}")
+    print("  RELAUNCH the game (a new loose asset isn't hot-reloaded), reach the disc-1 overworld, walk onto "
+          f"block[{args.block[0]}][{args.block[1]}].")
+    print("  Memoria.log will show \"[WorldMeshOverride] loaded 'WorldMap/...'\" when the override is used "
+          "(confirms the hook fired even if the change is subtle).")
+    return 0
+
+
 def _cmd_battle_actions(args: argparse.Namespace) -> int:
     """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
     _safe_console()
@@ -3022,6 +3045,19 @@ def build_parser() -> argparse.ArgumentParser:
                     help="list the disc's terrain blocks instead of extracting one")
     we.add_argument("--out", help="output dir for the .obj + .mapids.json (default: current dir)")
     we.set_defaults(func=_cmd_world_extract)
+
+    wd = sub.add_parser("world-deploy",
+                        help="deploy an (optionally edited) overworld block as a loose .ff9mesh override "
+                             "(needs the WorldMeshOverride engine patch)")
+    wd.add_argument("--block", type=int, nargs=2, metavar=("X", "Y"), required=True,
+                    help="block grid coords, e.g. --block 3 7")
+    wd.add_argument("--disc", type=int, default=1, help="world disc: 1 or 4 (default 1)")
+    wd.add_argument("--lod", default="0_1", help="LOD dir (default 0_1, the walkmesh form)")
+    wd.add_argument("--mod-folder", required=True,
+                    help="the stacked FolderNames mod folder to deploy into (e.g. FF9CustomMap)")
+    wd.add_argument("--spike", type=float, default=0.0,
+                    help="raise the block's centre vertex by this many units -- a visible test bump")
+    wd.set_defaults(func=_cmd_world_deploy)
 
     bsc = sub.add_parser("battle-scene",
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")

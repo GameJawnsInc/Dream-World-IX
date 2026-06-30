@@ -1,0 +1,144 @@
+﻿diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorldPrefabMaker.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorldPrefabMaker.cs
+index b5df843f..1072c594 100644
+--- a/Assembly-CSharp/Global/WM/WMWorld/WMWorldPrefabMaker.cs
++++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorldPrefabMaker.cs
+@@ -180,6 +180,9 @@ public static class WMWorldPrefabMaker
+     private static Boolean LoadMesh(WMBlockPrefab block, String assetPath, String objectName, Material material)
+     {
+         Mesh mesh = Resources.Load(assetPath) as Mesh;
++        Mesh ff9Override = Memoria.World.WorldMeshOverride.TryLoad(assetPath);   // DWIX Path C: loose .ff9mesh override
++        if (ff9Override != null)
++            mesh = ff9Override;                                                  // drives render + walkmesh (same object)
+         Boolean result = false;
+         if (mesh != (UnityEngine.Object)null)
+         {
+diff --git a/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
+new file mode 100644
+index 00000000..eeba2a18
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
+@@ -0,0 +1,124 @@
++using System;
++using System.IO;
++using UnityEngine;
++using Memoria.Prime;
++
++namespace Memoria.World
++{
++    // Dream World IX -- custom-overworld Path C.
++    //
++    // Load a WORLD-MAP block terrain mesh from a LOOSE ".ff9mesh" file in a mod folder instead of the baked
++    // Resources mesh, so overworld geometry can be edited WITHOUT an AssetBundle repack (FF9 is Unity 5.2.3 and
++    // AssetManager.LoadFromDisc<Mesh/GameObject> is unsupported -- there is no loose-mesh hook, only this one).
++    //
++    // Hooked from WMWorldPrefabMaker.LoadMesh, right after `Resources.Load(assetPath) as Mesh`. The override mesh
++    // is assigned to the prefab's MeshFilter, and WMWorld.RegisterBlockComponent feeds that SAME MeshFilter.
++    // sharedMesh into WMBlock.AddWalkMesh -- so one override drives BOTH the render AND the walkmesh (collision +
++    // the per-triangle entry id in tangent.x). The kit (ff9mapkit.world.mesh) emits the file; the format is a
++    // verbatim dump of the kit's BlockMesh channels:
++    //
++    //   "F9WM" (4 bytes) | version i32 | vertexCount i32 | indexCount i32 | flags i32
++    //   vertices  v*3 f32 ; normals v*3 f32 (flag&1) ; uv v*2 f32 (flag&2) ; tangents v*4 f32 (flag&4) ; indices i*i32
++    //
++    // Identity-safe: no override file -> returns null and the engine keeps the stock Resources mesh.
++    public static class WorldMeshOverride
++    {
++        public const String Extension = ".ff9mesh";
++        private const Int32 SupportedVersion = 1;
++
++        // resourcePath = the Resources.Load path, e.g. "WorldMap/Disc1/0_1/r0/Block[0][0] Terrain".
++        // Returns a freshly built Mesh from the highest-priority mod folder that has an override, or null.
++        public static Mesh TryLoad(String resourcePath)
++        {
++            if (String.IsNullOrEmpty(resourcePath) || AssetManager.FolderHighToLow == null)
++                return null;
++            String rel = AssetManagerUtil.GetResourcesAssetsPath(true) + "/" + resourcePath + Extension;
++            foreach (AssetManager.AssetFolder folder in AssetManager.FolderHighToLow)
++            {
++                if (folder == null || String.IsNullOrEmpty(folder.FolderPath))
++                    continue;                          // the trailing "" default folder holds no overrides
++                String full = folder.FolderPath + rel;
++                if (!File.Exists(full))
++                    continue;
++                try
++                {
++                    Mesh mesh = ReadMesh(full, resourcePath);
++                    if (mesh != null)
++                        Log.Message("[WorldMeshOverride] loaded '" + resourcePath + "' from " + full);
++                    return mesh;
++                }
++                catch (Exception ex)
++                {
++                    Log.Error("[WorldMeshOverride] failed to read " + full + ": " + ex.Message);
++                    return null;
++                }
++            }
++            return null;
++        }
++
++        private static Mesh ReadMesh(String path, String name)
++        {
++            using (BinaryReader r = new BinaryReader(File.OpenRead(path)))
++            {
++                Byte[] magic = r.ReadBytes(4);
++                if (magic.Length != 4 || magic[0] != (Byte)'F' || magic[1] != (Byte)'9'
++                    || magic[2] != (Byte)'W' || magic[3] != (Byte)'M')
++                    throw new Exception("bad magic (not a .ff9mesh)");
++                Int32 version = r.ReadInt32();
++                if (version != SupportedVersion)
++                    throw new Exception("unsupported version " + version);
++                Int32 vcount = r.ReadInt32();
++                Int32 icount = r.ReadInt32();
++                Int32 flags = r.ReadInt32();
++                if (vcount <= 0 || vcount > 65535)     // Unity 5.2.3 has 16-bit mesh indices only
++                    throw new Exception("vertex count out of range: " + vcount);
++                if (icount < 0 || icount > vcount * 3)
++                    throw new Exception("index count out of range: " + icount);
++                Boolean hasN = (flags & 1) != 0, hasUv = (flags & 2) != 0, hasTan = (flags & 4) != 0;
++
++                Vector3[] verts = new Vector3[vcount];
++                for (Int32 i = 0; i < vcount; i++)
++                    verts[i] = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
++                Vector3[] normals = null;
++                if (hasN)
++                {
++                    normals = new Vector3[vcount];
++                    for (Int32 i = 0; i < vcount; i++)
++                        normals[i] = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
++                }
++                Vector2[] uvs = null;
++                if (hasUv)
++                {
++                    uvs = new Vector2[vcount];
++                    for (Int32 i = 0; i < vcount; i++)
++                        uvs[i] = new Vector2(r.ReadSingle(), r.ReadSingle());
++                }
++                Vector4[] tangents = null;
++                if (hasTan)
++                {
++                    tangents = new Vector4[vcount];
++                    for (Int32 i = 0; i < vcount; i++)
++                        tangents[i] = new Vector4(r.ReadSingle(), r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
++                }
++                Int32[] indices = new Int32[icount];
++                for (Int32 i = 0; i < icount; i++)
++                {
++                    Int32 idx = r.ReadInt32();
++                    if (idx < 0 || idx >= vcount)
++                        throw new Exception("index " + idx + " out of range");
++                    indices[i] = idx;
++                }
++
++                Mesh mesh = new Mesh();
++                mesh.name = "[ff9mesh] " + name;
++                mesh.vertices = verts;                 // set BEFORE triangles (Unity validates indices vs count)
++                if (normals != null) mesh.normals = normals;
++                if (uvs != null) mesh.uv = uvs;
++                if (tangents != null) mesh.tangents = tangents;   // tangent.x carries the per-triangle entry id
++                mesh.triangles = indices;              // single submesh (world terrain blocks have one)
++                mesh.RecalculateBounds();
++                return mesh;
++            }
++        }
++    }
++}

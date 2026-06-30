@@ -95,6 +95,43 @@ def test_real_block_0_0_roundtrips(tmp_path):
     assert 63 in summ["place_areas"]                           # block[0][0] has the area-63 entrance (vanilla data)
 
 
+# ---- the .ff9mesh loose-override format (engine WorldMeshOverride reads this) ----------------
+def test_ff9mesh_format_roundtrip(tmp_path):
+    from ff9mapkit.world import mesh as M
+    bm = _synthetic_block(tan0_x=27724, tan3_x=232)
+    p = M.write_ff9mesh(bm, tmp_path / "b.ff9mesh")
+    assert p.read_bytes()[:4] == b"F9WM"
+    d = M.read_ff9mesh(p)
+    assert d["version"] == 1 and d["vcount"] == bm.vcount
+    assert d["verts"] == bm.verts                          # geometry preserved
+    assert d["tangents"] == bm.tangents                    # tangent.x ids preserved (collision/entry fidelity)
+    assert d["normals"] is None and d["uvs"] is None        # synthetic block carries only pos + tangent channels
+    assert d["indices"] == bm.flat_index
+
+
+def test_override_relpath_matches_engine_search():
+    from ff9mapkit.world import mesh as M
+    # mirrors WMWorldPrefabMaker's Resources path + FF9_Data base the engine's WorldMeshOverride searches
+    assert M.override_relpath(1, 3, 7) == "FF9_Data/WorldMap/Disc1/0_1/r7/Block[3][7] Terrain.ff9mesh"
+
+
+def test_raise_vertex_edits_one_vertex():
+    from ff9mapkit.world import mesh as M
+    bm = _synthetic_block()
+    before = [list(v) for v in bm.verts]
+    bi = M.raise_vertex_near_center(bm, 8.0)
+    moved = [i for i in range(bm.vcount) if bm.verts[i] != before[i]]
+    assert moved == [bi] and bm.verts[bi][1] == before[bi][1] + 8.0
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_real_block_ff9mesh_roundtrip(tmp_path):
+    from ff9mapkit.world import mesh as M
+    bm = W.read_block(0, 0, disc=1)
+    d = M.read_ff9mesh(M.write_ff9mesh(bm, tmp_path / "r.ff9mesh"))
+    assert d["verts"] == bm.verts and d["tangents"] == bm.tangents and d["indices"] == bm.flat_index
+
+
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_list_blocks_and_sample_roundtrip():
     blocks = W.list_blocks(disc=1)
