@@ -128,17 +128,17 @@ end;
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if CurPageID = wpFinished then begin
+    // Keep this SHORT: the Finished page shows the label above the "Open Workspace" checkbox, so a tall
+    // multi-line caption gets clipped (the b9 "If you add..." cut-off). Two lines fit; details live in the
+    // setup output + docs.
     if WizardIsTaskSelected('engine') and FileExists(ExpandConstant('{app}\dwix-engine.zip')) then
       WizardForm.FinishedLabel.Caption :=
-        'Dream World IX is installed, with the Memoria engine patches — forked real fields are ready.' + #13#10 + #13#10 +
-        '(Patches apply only when Memoria is already installed. If you add Memoria later, run' + #13#10 +
-        '   ff9mapkit setup --install-engine   to apply them.)'
+        'Dream World IX is installed, with the Memoria engine patches.' + #13#10 +
+        'Forked real fields are ready to play.'
     else
       WizardForm.FinishedLabel.Caption :=
-        'Dream World IX is installed.' + #13#10 + #13#10 +
-        'To play FORKED real fields, add the Memoria engine patches:' + #13#10 +
-        '   ff9mapkit setup --install-engine' + #13#10 +
-        '(or re-run this installer and tick the engine option).';
+        'Dream World IX is installed.' + #13#10 +
+        'For forked real fields, run:  ff9mapkit setup --install-engine';
   end;
 end;
 
