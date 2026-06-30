@@ -293,6 +293,53 @@ def deploy_journey_argv(repo_root, journeys, *, apply=False, newgame="none", wir
     return a
 
 
+# ---- installed-copy deploy (no repo tools/): the package CLI + a per-user revert cache ----
+# An installed wheel ships no tools/, so the Workspace routes campaign/journey deploys through the package
+# CLI commands (ff9mapkit deploy-campaign / deploy-journey) instead of the tool scripts. Their snapshots +
+# revert scripts land in provision.deploy_reverts_dir() (a per-user cache), which the Revert button reads.
+def deploy_campaign_pkg_argv(path, *, wire_newgame=False, mod_folder="FF9CustomMap"):
+    """`ff9mapkit deploy-campaign <path> --apply` -- the installed-copy campaign deploy (no repo tools)."""
+    a = [sys.executable, "-m", "ff9mapkit", "deploy-campaign", str(path), "--apply",
+         "--mod-folder", str(mod_folder)]
+    if not wire_newgame:
+        a.append("--no-warp")
+    return a
+
+
+def deploy_journey_pkg_argv(path, *, apply=False, newgame="none", apply_links=False, single_folder=False):
+    """`ff9mapkit deploy-journey <path> [...]` -- the installed-copy journey deploy/dry-run (no repo tools)."""
+    a = [sys.executable, "-m", "ff9mapkit", "deploy-journey", str(path)]
+    if apply:
+        a.append("--apply")
+        if single_folder:
+            a.append("--single-folder")
+        if newgame and newgame != "none":
+            a += ["--newgame", newgame]
+    elif apply_links:
+        a.append("--apply-links")
+    return a
+
+
+def _cache_revert(name):
+    """The per-user-cache revert script an installed-copy deploy wrote (deploy_reverts_dir/<name>), or None."""
+    try:
+        from .. import provision
+        p = provision.deploy_reverts_dir() / name
+        return p if p.is_file() else None
+    except Exception:
+        return None
+
+
+def revert_campaign_pkg_argv():
+    p = _cache_revert("revert_campaign.py")
+    return [sys.executable, str(p)] if p else None
+
+
+def revert_journey_pkg_argv():
+    p = _cache_revert("revert_journey.py")
+    return [sys.executable, str(p)] if p else None
+
+
 def revert_field_argv(repo_root):
     return [sys.executable, _tool(repo_root, "scroll_out", "revert_deploy.py")]
 

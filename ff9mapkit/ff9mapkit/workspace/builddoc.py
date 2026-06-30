@@ -516,26 +516,38 @@ class BuildDoc(QWidget):
             self._stream(jobs.build_campaign_argv(path), cwd=self.kit_cwd, subject="Build campaign",
                          ok_headline=f"Built campaign {self.plan.name}")
             return
-        if not self._require_tools("Deploy campaign"):
-            return
         wire = self.wire_newgame.isChecked()
         route = ("It also wires New Game to enter the chain (experimental)." if wire
-                 else "Reach each screen in-game via F6 → Warp.")
+                 else "Reach each screen in-game via F6 → Warp." if self.has_tools
+                 else "Reach the chain via New Game (if wired) or a [[gateway]] from an early field.")
         if self._confirm("Deploy campaign",
                          f"Reversibly install campaign '{self.plan.name}' ({len(self.plan.members)} fields) "
                          f"into:\n\n{self.plan.mod_folder}\n\n{route}"):
             ids = [m.new_id for m in self.plan.members]
             entry = self.plan.members[0].new_id if self.plan.members else (min(ids) if ids else "?")
-            self._stream(jobs.deploy_campaign_argv(self.repo, path, wire_newgame=wire), cwd=self.repo,
-                         subject="Deploy campaign",
+            # Repo checkout -> the dev tool (reverts to tools/scroll_out); installed copy -> the package CLI
+            # (ff9mapkit deploy-campaign; reverts to a per-user cache). Same in-game-proven orchestration.
+            if self.has_tools:
+                argv, cwd = jobs.deploy_campaign_argv(self.repo, path, wire_newgame=wire), self.repo
+            else:
+                argv, cwd = jobs.deploy_campaign_pkg_argv(path, wire_newgame=wire,
+                                                          mod_folder=self.plan.mod_folder), self.kit_cwd
+            reach = (f"Relaunch once (new DictionaryPatch), then F6 → Warp → {entry} to walk the chain." if self.has_tools
+                     else f"Add '{self.plan.mod_folder}' to Memoria.ini FolderNames (Memoria auto-detects it), "
+                          f"relaunch once, then reach the chain via New Game / a gateway.")
+            self._stream(argv, cwd=cwd, subject="Deploy campaign",
                          ok_headline=f"Deployed campaign '{self.plan.name}' → {self.plan.mod_folder}",
-                         ok_next=f"Relaunch once (new DictionaryPatch), then F6 → Warp → {entry} to walk the chain.")
+                         ok_next=reach)
 
     def _go_journey(self, path):
-        if not self._require_tools("Deploy journey"):
-            return
+        # Repo checkout -> the dev tool (cwd=repo, reverts to tools/scroll_out); installed copy -> the package
+        # CLI (ff9mapkit deploy-journey, reverts to a per-user cache). Same orchestration either way.
+        def _jargv(**kw):
+            return (jobs.deploy_journey_argv(self.repo, path, **kw) if self.has_tools
+                    else jobs.deploy_journey_pkg_argv(path, **kw))
+        jcwd = self.repo if self.has_tools else self.kit_cwd
         if self.rb_jour_preview.isChecked():           # dry-run: print the playbook, no game writes -> no confirm
-            self._stream(jobs.deploy_journey_argv(self.repo, path), cwd=self.repo,
+            self._stream(_jargv(), cwd=jcwd,
                          subject="Journey deploy playbook (dry-run)",
                          ok_headline="Printed the journey deploy playbook (no game files touched)",
                          ok_next="Review the ordered steps above, then choose 'Deploy journey to game' to run them.")
@@ -545,7 +557,7 @@ class BuildDoc(QWidget):
                              "Re-apply ONLY the cross-campaign link .eb rewrites?\n\nRun this after re-deploying "
                              "a campaign — deploy_campaign wholesale-replaces its folder, wiping the boundary "
                              "links. The campaigns must already be deployed."):
-                self._stream(jobs.deploy_journey_argv(self.repo, path, apply_links=True), cwd=self.repo,
+                self._stream(_jargv(apply_links=True), cwd=jcwd,
                              subject="Re-apply journey links",
                              ok_headline="Re-applied the cross-campaign links",
                              ok_next="Relaunch and playtest the campaign boundary.")
@@ -573,8 +585,8 @@ class BuildDoc(QWidget):
                         f"ones), relaunch once, then {reach}. Playtest." if single else
                         f"Stack every campaign + hub folder in Memoria.ini [Mod] FolderNames, relaunch once, "
                         f"then {reach}. Playtest.")
-            self._stream(jobs.deploy_journey_argv(self.repo, path, apply=True, newgame=mode, single_folder=single),
-                         cwd=self.repo, subject="Deploy journey",
+            self._stream(_jargv(apply=True, newgame=mode, single_folder=single),
+                         cwd=jcwd, subject="Deploy journey",
                          ok_headline=f"Deployed journey '{name}'" + (" (single folder)" if single else ""),
                          ok_next=stackmsg)
 
@@ -625,20 +637,23 @@ class BuildDoc(QWidget):
 
     # ------------------------------------------------------------------ Revert
     def on_revert(self):
-        if not self._require_tools("Revert"):
-            return
-        if self.kind == "battle":
-            argv, what = jobs.revert_battle_argv(self.repo), "battle"
-        elif self.kind == "campaign":
-            argv, what = jobs.revert_campaign_argv(self.repo), "campaign"
+        # campaign/journey reverts work for an installed copy too -- the package deploy writes them to a
+        # per-user cache (jobs.revert_*_pkg_argv); battle + the test-slot field revert are dev-repo-only.
+        if self.kind == "campaign":
+            argv = jobs.revert_campaign_argv(self.repo) if self.has_tools else jobs.revert_campaign_pkg_argv()
+            what = "campaign"
         elif self.kind == "journey":
-            argv = jobs.revert_journey_argv(self.repo)       # the MOST RECENT journey revert (full or links-only)
+            argv = (jobs.revert_journey_argv(self.repo) if self.has_tools else jobs.revert_journey_pkg_argv())
             what = ("journey links" if argv and Path(argv[-1]).name == "revert_journey_links.py" else "journey")
         else:
-            argv, what = jobs.revert_field_argv(self.repo), "test field"
+            if not self._require_tools("Revert"):
+                return
+            argv = jobs.revert_battle_argv(self.repo) if self.kind == "battle" else jobs.revert_field_argv(self.repo)
+            what = "battle" if self.kind == "battle" else "test field"
         if argv is None or not Path(argv[-1]).exists():
             return self._info("Nothing to revert", f"No {what} deploy to undo yet.")
+        cwd = self.repo if self.has_tools else self.kit_cwd
         if self._confirm(f"Revert {what}", f"Restore the game to before the last {what} deploy?"):
-            self._stream(argv, cwd=self.repo, subject=f"Revert {what}",
+            self._stream(argv, cwd=cwd, subject=f"Revert {what}",
                          ok_headline=f"Reverted the last {what} deploy",
                          ok_next="Relaunch the game to load the restored state.")

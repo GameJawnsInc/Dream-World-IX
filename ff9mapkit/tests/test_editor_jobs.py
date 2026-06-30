@@ -273,3 +273,34 @@ def test_detect_deploy_target_reads_pin(tmp_path):
     assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap", None)   # no file -> defaults
     (tmp_path / ".ff9deploy.toml").write_text('mod_folder = "FF9CustomMap-ic"\nid = 30004\n', encoding="utf-8")
     assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap-ic", 30004)
+
+
+# ---- installed-copy deploy: the package CLI argv builders + per-user revert cache --------------------
+def test_deploy_campaign_pkg_argv():
+    a = jobs.deploy_campaign_pkg_argv("c.toml", mod_folder="FF9CustomMap-ow")
+    assert a[1:3] == ["-m", "ff9mapkit"] and a[3] == "deploy-campaign" and a[4] == "c.toml"
+    assert "--apply" in a and a[a.index("--mod-folder") + 1] == "FF9CustomMap-ow"
+    assert "--no-warp" in a                                              # New Game off by default
+    assert "--no-warp" not in jobs.deploy_campaign_pkg_argv("c.toml", wire_newgame=True)  # warp on -> no flag
+
+
+def test_deploy_journey_pkg_argv():
+    base = jobs.deploy_journey_pkg_argv("j.toml")
+    assert base[3] == "deploy-journey" and base[-1] == "j.toml"
+    assert "--apply" not in base and "--apply-links" not in base        # default = dry-run
+    ap = jobs.deploy_journey_pkg_argv("j.toml", apply=True, newgame="hub", single_folder=True)
+    assert "--apply" in ap and "--single-folder" in ap and ap[ap.index("--newgame") + 1] == "hub"
+    assert "--newgame" not in jobs.deploy_journey_pkg_argv("j.toml", apply=True, newgame="none")
+    lk = jobs.deploy_journey_pkg_argv("j.toml", apply_links=True)
+    assert "--apply-links" in lk and "--apply" not in lk
+
+
+def test_revert_pkg_argv_reads_cache(tmp_path, monkeypatch):
+    from ff9mapkit import provision
+    monkeypatch.setattr(provision, "deploy_reverts_dir", lambda: tmp_path / "rv")
+    assert jobs.revert_campaign_pkg_argv() is None and jobs.revert_journey_pkg_argv() is None   # empty cache
+    (tmp_path / "rv").mkdir()
+    (tmp_path / "rv" / "revert_campaign.py").write_text("print('x')", encoding="utf-8")
+    a = jobs.revert_campaign_pkg_argv()
+    assert a and a[-1].endswith("revert_campaign.py")
+    assert jobs.revert_journey_pkg_argv() is None                       # journey revert still absent
