@@ -46,6 +46,14 @@ from .style import qss
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
 
+
+def _app_icon() -> QIcon:
+    """The Workspace window / taskbar icon -- our multi-resolution ``dreamworldix.ico``, shipped beside
+    this module as package data. Returns an empty ``QIcon`` if it's missing (e.g. a partial checkout)
+    so the GUI still launches. Lazy: QIcon defers the actual decode until first paint."""
+    ico = Path(__file__).resolve().parent / "dreamworldix.ico"
+    return QIcon(str(ico)) if ico.is_file() else QIcon()
+
 # section key -> forms spec.  Single tables + the list-entity kinds the Qt editor can edit today.
 # (cutscene steps + choice options are list-in-list sub-editors -- a Phase-4b follow-up.)
 _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "music": forms.MUSIC_SPEC,
@@ -294,6 +302,7 @@ class Workspace(QMainWindow):
         self._content_chip = None                  # cached chip mode for the SELECTED node (hub/journey/campaign/field)
         self._loose_parent = (None, None, None)    # (campaign.toml, member, name) when a loose field is a campaign member
         self.setWindowTitle("Dream World IX — Workspace")
+        self.setWindowIcon(_app_icon())
         self.resize(1280, 820)
         self.setStyleSheet(qss(pal))
         self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
@@ -6895,6 +6904,7 @@ def main(argv=None):
     if smoke:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
+    app.setWindowIcon(_app_icon())                 # so dialogs/taskbar inherit our icon, not Qt's default
     win = Workspace(pick_palette("dark" if smoke else "auto"))
     if smoke:
         _smoke(win)

@@ -45,6 +45,10 @@ PrivilegesRequiredOverridesAllowed=dialog
 RedirectionGuard=no
 OutputBaseFilename=DreamWorldIX-Setup
 LicenseFile=..\ff9mapkit\LICENSE
+; The Setup .exe + wizard icon. Canonical art lives in the package (it's also the Qt window icon,
+; shipped as wheel data) so there's ONE committed .ico; the installer references it by relative path.
+; Regenerate from installer\icon\*.png -- see installer\icon\README.md.
+SetupIconFile=..\ff9mapkit\ff9mapkit\workspace\dreamworldix.ico
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -73,11 +77,14 @@ Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion skipif
 ; The engine bundle (3 patched managed DLLs). Bundled only if you copied it in as dwix-engine.zip
 ; (see header); the "engine" task + bootstrap only act on it when it's actually present.
 Source: "dwix-engine.zip"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; The app icon for the Start-Menu shortcut (same .ico as SetupIconFile + the Qt window icon).
+Source: "..\ff9mapkit\ff9mapkit\workspace\dreamworldix.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; uv's default tool bin dir is %USERPROFILE%\.local\bin. The launcher exists after the [Run] step below;
-; the shortcut is created pointing at it (Windows resolves it once the target appears).
-Name: "{autoprograms}\{#MyAppName} (Workspace)"; Filename: "{%USERPROFILE}\.local\bin\ff9mapkit-workspace.exe"; Comment: "Open the Dream World IX Workspace GUI"
+; the shortcut is created pointing at it (Windows resolves it once the target appears). IconFilename
+; gives the shortcut our icon directly (the console-less launcher carries no embedded icon of its own).
+Name: "{autoprograms}\{#MyAppName} (Workspace)"; Filename: "{%USERPROFILE}\.local\bin\ff9mapkit-workspace.exe"; IconFilename: "{app}\dreamworldix.ico"; Comment: "Open the Dream World IX Workspace GUI"
 Name: "{autoprograms}\{#MyAppName} on GitHub"; Filename: "{#MyAppURL}"
 
 [Run]

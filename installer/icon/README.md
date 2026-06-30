@@ -16,12 +16,18 @@ it (but the hand-drawn smalls look noticeably crisper at 16/24/32).
 
 ## Build the `.ico` (done by the toolchain, not you)
 
+The canonical `.ico` is committed in the **package** (it's also the Qt window icon, shipped as
+wheel data); the installer references it by relative path. Regenerate it into that one location:
+
 ```
 magick installer/icon/icon_16.png installer/icon/icon_24.png installer/icon/icon_32.png \
        installer/icon/icon_48.png installer/icon/icon_64.png installer/icon/icon_128.png \
-       installer/icon/icon_256.png  installer/dreamworldix.ico
+       installer/icon/icon_256.png  ff9mapkit/ff9mapkit/workspace/dreamworldix.ico
 ```
 
-The resulting `installer/dreamworldix.ico` is wired into:
-- the installer (`SetupIconFile`) + the Start-Menu shortcut, and
-- the Qt Workspace window icon (`ff9mapkit/workspace/shell.py`).
+That one `ff9mapkit/ff9mapkit/workspace/dreamworldix.ico` is wired into:
+- the installer (`SetupIconFile` + the Start-Menu shortcut `IconFilename`), and
+- the Qt Workspace window/taskbar icon (`ff9mapkit/ff9mapkit/workspace/shell.py` → `_app_icon()`).
+
+Note: if a PNG exports off-size (e.g. a tool auto-trims transparent edges), pad it back to exact
+dimensions before assembling, e.g. `magick icon_32.png -background none -gravity center -extent 32x32 PNG32:icon_32.png`.
