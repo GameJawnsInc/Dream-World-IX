@@ -1,17 +1,27 @@
-﻿diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorldPrefabMaker.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorldPrefabMaker.cs
-index b5df843f..1072c594 100644
---- a/Assembly-CSharp/Global/WM/WMWorld/WMWorldPrefabMaker.cs
-+++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorldPrefabMaker.cs
-@@ -180,6 +180,9 @@ public static class WMWorldPrefabMaker
-     private static Boolean LoadMesh(WMBlockPrefab block, String assetPath, String objectName, Material material)
-     {
-         Mesh mesh = Resources.Load(assetPath) as Mesh;
-+        Mesh ff9Override = Memoria.World.WorldMeshOverride.TryLoad(assetPath);   // DWIX Path C: loose .ff9mesh override
-+        if (ff9Override != null)
-+            mesh = ff9Override;                                                  // drives render + walkmesh (same object)
-         Boolean result = false;
-         if (mesh != (UnityEngine.Object)null)
+﻿diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+index 75cf50e5..a5028e2b 100644
+--- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
++++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+@@ -733,6 +733,19 @@ public class WMWorld : Singleton<WMWorld>
+         copy.localPosition = Vector3.zero;
+         copy.localScale = new Vector3(1f, 1f, 1f);
+         Mesh mesh = copy.GetComponent<MeshFilter>().sharedMesh;
++        // DWIX Path C: a loose ".ff9mesh" override for this block's terrain -- the RUNTIME block-stream path (the
++        // editor-only WMWorldPrefabMaker.LoadMesh never runs). The override drives BOTH the walkmesh below AND the
++        // rendered mesh (one object). InitialX/InitialY = the block's grid coords; transform.name = the part ("Terrain").
++        Mesh ff9Override = Memoria.World.WorldMeshOverride.TryLoad(String.Format(
++            "WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] {4}", this.currentDisc, block.InitialY, block.InitialX,
++            block.InitialY, transform.name));
++        if (ff9Override != (UnityEngine.Object)null)
++        {
++            mesh = ff9Override;
++            MeshFilter mf = copy.GetComponent<MeshFilter>();
++            if (mf != (UnityEngine.Object)null)
++                mf.sharedMesh = ff9Override;
++        }
+         if (form1)
          {
+             block.AddWalkMeshForm1(mesh);
 diff --git a/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
 new file mode 100644
 index 00000000..eeba2a18
