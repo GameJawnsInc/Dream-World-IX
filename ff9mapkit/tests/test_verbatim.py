@@ -406,6 +406,34 @@ def test_build_field_verbatim_player_walk_end_to_end(tmp_path):
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_build_field_verbatim_conductor_exit_warp_end_to_end(tmp_path):
+    # A conductor on a verbatim fork with `exit_warp`: the below-band director ENDS with a fade + Field(target)
+    # (the warp-back) instead of EnableMove -- the player is warped out after the scene (the same lever the
+    # forced-ATE scene uses to return the player). exit_warp sits OUTSIDE the once-gate so it always fires.
+    from ff9mapkit import build, extract
+    from ff9mapkit.eb import EbScript
+    from ff9mapkit.content import object as _object
+    _meta, toml = extract.write_native_project("fbg_n06_vgdl_map101_dl_inn_0", tmp_path, name="DV", verbatim=True)
+    donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
+    project = build.FieldProject.load(toml)
+    project.raw["npc"] = [{"name": "lefty", "preset": "vivi", "pos": [100, 200], "dialogue": "."}]
+    project.raw["cutscene"] = {"once": True, "actor": ["lefty"], "exit_warp": 1153,
+                               "steps": [{"actor": "lefty", "say": "The scene ends -- and out you go."}]}
+    assert build.validate(project) == []
+    out = tmp_path / "mod"
+    build.build_mod([project], out, mod_name="FF9CustomMap")         # must not raise
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE            # lefty=band_lo, conductor=band_lo+1
+    ebs = [p for p in out.rglob("*.eb.bytes")]
+    assert ebs
+    for p in ebs:
+        s = EbScript.from_bytes(p.read_bytes())
+        cond = s.entry(band_lo + 1).func_by_tag(0)
+        ops = [i.op for i in s.instrs(cond)]
+        assert 1153 in [i.imm(0) for i in s.instrs(cond) if i.op == 0x2B]   # ends with Field(exit_warp) -- the warp-back
+        assert 0x2E not in ops                                      # NO EnableMove (the destination restores control)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_build_field_verbatim_with_readable_prop_end_to_end(tmp_path):
     # A readable [[prop]] (dialogue=) ADDED to a verbatim fork: the below-band prop object is NON-bare -- it
     # gets a tag-3 WindowSync into the appended-.mes channel, so it reads when examined (vs silent set-dressing).
