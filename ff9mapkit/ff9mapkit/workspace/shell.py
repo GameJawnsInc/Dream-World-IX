@@ -341,7 +341,10 @@ class Workspace(QMainWindow):
     def startup_update_flow(self):
         """First-run opt-in prompt, then (if opted in) a quiet once-a-day background check. Called from
         :func:`main` AFTER show(); NEVER under --smoke (the smoke path returns before show, so no network
-        call and no modal ever run headless)."""
+        call and no modal ever run headless). NO-OP from a SOURCE CHECKOUT — not uv/pip-managed, so a dev
+        updates via git, not `uv tool upgrade` (set FF9MAPKIT_UPDATE_CHECK=1 to force it on for testing)."""
+        if not update_check.auto_check_allowed():
+            return
         if not update_check.was_prompted():
             ans = QMessageBox.question(
                 self, "Check for updates?",
@@ -385,7 +388,8 @@ class Workspace(QMainWindow):
         dlg.setWindowTitle("Dream World IX — updates")
         dlg.resize(470, 210)
         lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel(f"<b>ff9mapkit</b>   v{__version__}"))
+        tag = "" if update_check.is_installed() else "  ·  source checkout"
+        lay.addWidget(QLabel(f"<b>ff9mapkit</b>   v{__version__}{tag}"))
         self._upd_status = QLabel()
         self._upd_status.setWordWrap(True)
         self._upd_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -435,11 +439,17 @@ class Workspace(QMainWindow):
         elif not res.get("ok"):
             self._upd_status.setText("Couldn't reach pypi.org (offline?). Try again later.")
             self._upd_cmd_box.setVisible(False)
-        elif res.get("newer"):
+        elif res.get("newer") and update_check.is_installed():
             self._upd_status.setText(f"<b>Update available:</b> {res['latest']}  (you have {res['current']}).<br>"
                                      "Run this in a terminal, then restart the app:")
             self._upd_cmd.setText(update_check.UPGRADE_COMMAND)
             self._upd_cmd_box.setVisible(True)
+        elif res.get("newer"):                         # newer on PyPI, but we're a SOURCE CHECKOUT (not uv/pip)
+            self._upd_status.setText(f"The latest published release is <b>{res['latest']}</b> — you're running "
+                                     f"v{res['current']} from a <b>source checkout</b>. Update the checkout with "
+                                     "<code>git pull</code>; <code>uv tool upgrade</code> only affects an "
+                                     "installed copy.")
+            self._upd_cmd_box.setVisible(False)
         else:
             self._upd_status.setText(f"You're on the latest release (v{res['current']}).")
             self._upd_cmd_box.setVisible(False)

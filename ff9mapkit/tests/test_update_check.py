@@ -85,6 +85,16 @@ def test_check_records_and_reports(state, monkeypatch):
     assert json.loads(state.read_text())["last_seen_latest"] == "9.9.9"
 
 
+def test_auto_check_allowed_installed_vs_checkout(monkeypatch):
+    monkeypatch.delenv("FF9MAPKIT_UPDATE_CHECK", raising=False)
+    monkeypatch.setattr(uc, "is_installed", lambda: True)
+    assert uc.auto_check_allowed() is True            # an installed copy is uv/pip-managed
+    monkeypatch.setattr(uc, "is_installed", lambda: False)
+    assert uc.auto_check_allowed() is False           # a source checkout: don't auto-nag (git pull, not uv)
+    monkeypatch.setenv("FF9MAPKIT_UPDATE_CHECK", "1")
+    assert uc.auto_check_allowed() is True            # the dev override forces it on from a checkout
+
+
 def test_check_offline_is_safe(state, monkeypatch):
     monkeypatch.setattr(uc, "fetch_latest", lambda *a, **k: None)
     res = uc.check(now=5000)

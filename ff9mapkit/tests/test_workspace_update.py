@@ -13,6 +13,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication            # noqa: E402
 
 from ff9mapkit import __version__                     # noqa: E402
+from ff9mapkit import update_check as uc              # noqa: E402
 from ff9mapkit.editor.theme import pick_palette       # noqa: E402
 from ff9mapkit.workspace import shell                 # noqa: E402
 
@@ -50,3 +51,13 @@ def test_offline_result_leaves_chip_plain(app):
     w = _win(app)
     w._on_update_result({"current": __version__, "latest": None, "ok": False, "newer": False}, manual=False)
     assert w.version_label.text() == f"v{__version__}"
+
+
+def test_startup_flow_skips_on_source_checkout(app, monkeypatch):
+    # a checkout must NOT prompt or auto-check (it's not uv/pip-managed) -- assert no modal is raised
+    monkeypatch.setattr(uc, "auto_check_allowed", lambda: False)
+    raised = []
+    monkeypatch.setattr(shell.QMessageBox, "question", lambda *a, **k: raised.append(1))
+    w = _win(app)
+    w.startup_update_flow()
+    assert raised == []

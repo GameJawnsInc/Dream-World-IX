@@ -13,6 +13,7 @@ auto-update: tell the user a version is out and the one command to run (:data:`U
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import urllib.request
@@ -65,6 +66,18 @@ def set_preference(enabled: bool) -> None:
     st["enabled"] = bool(enabled)
     st["prompted"] = True
     save_state(st)
+
+
+def is_installed() -> bool:
+    """True when running from an INSTALLED copy (uv tool / pip / the .exe), False from a source checkout."""
+    return provision._is_installed_pkg()
+
+
+def auto_check_allowed() -> bool:
+    """Whether the AUTOMATIC check (first-run prompt + once-a-day launch check) should run at all. Only an
+    INSTALLED copy is uv/pip-managed; a source checkout updates via ``git pull``, not ``uv tool upgrade``, so
+    auto-nagging it would point at the wrong thing. ``FF9MAPKIT_UPDATE_CHECK=1`` forces it on (dev testing)."""
+    return bool(os.environ.get("FF9MAPKIT_UPDATE_CHECK")) or is_installed()
 
 
 # ----------------------------------------------------------------- version comparison
