@@ -138,14 +138,29 @@ if (-not (Test-Path (Join-Path $bin "ff9mapkit.exe"))) {
   Fail "install reported success but ff9mapkit.exe is missing from $bin."
 }
 
+# --- 4. First-time setup: detect FF9, remember it, extract base assets, report Memoria ----------
+# `ff9mapkit setup` does the whole bring-your-own-install step in one shot. Non-fatal: if FF9 isn't
+# auto-detected it just exits non-zero and we tell the user how to point it at their install.
+$ff9 = Join-Path $bin "ff9mapkit.exe"
+Write-Host ""
+Write-Host "Running first-time setup (detecting your FINAL FANTASY IX install)..."
+& $ff9 setup
+$setupRc = $LASTEXITCODE
+
 Write-Host ""
 Write-Host "===================================================================="
 Write-Host " Dream World IX installed."
 Write-Host "   GUI:  $bin\ff9mapkit-workspace.exe   (Start Menu shortcut created)"
-Write-Host "   CLI:  ff9mapkit   (open a NEW terminal so PATH refreshes, then 'ff9mapkit doctor')"
-Write-Host ""
-Write-Host " Next: point the kit at your legally-owned FF9 install + extract base assets:"
-Write-Host "   ff9mapkit doctor"
-Write-Host "   ff9mapkit extract-templates"
+Write-Host "   CLI:  ff9mapkit   (open a NEW terminal so PATH refreshes)"
+if ($setupRc -eq 0) {
+  Write-Host ""
+  Write-Host " You're set up. To play FORKED real fields, install the engine bundle (optional):"
+  Write-Host "     ff9mapkit setup --install-engine <dwix-custom-memoria.zip>"
+} else {
+  Write-Host ""
+  Write-Host " Setup couldn't finish automatically (FF9 not found, or UnityPy/extract issue)."
+  Write-Host " Open a NEW terminal and run:"
+  Write-Host "     ff9mapkit setup --game `"<path to your FINAL FANTASY IX folder>`""
+}
 Write-Host "===================================================================="
 exit 0

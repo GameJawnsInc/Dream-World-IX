@@ -49,8 +49,8 @@ Compression=lzma2
 [Messages]
 ; The bootstrap's PowerShell window closes on success, so surface the next steps on Setup's own
 ; Finished page (which stays up). Both variants set in case the finished page has/has-not run-checkboxes.
-FinishedLabelNoIcons=Dream World IX is installed.%n%nTo finish setup, open a NEW terminal (so PATH refreshes) and run:%n%n        ff9mapkit doctor%n        ff9mapkit extract-templates%n%nThose point the kit at your legally-owned FF9 install and regenerate its base assets. The Start Menu shortcut "Dream World IX (Workspace)" opens the editor.
-FinishedLabel=Dream World IX is installed.%n%nTo finish setup, open a NEW terminal (so PATH refreshes) and run:%n%n        ff9mapkit doctor%n        ff9mapkit extract-templates%n%nThose point the kit at your legally-owned FF9 install and regenerate its base assets. The Start Menu shortcut "Dream World IX (Workspace)" opens the editor.
+FinishedLabelNoIcons=Dream World IX is installed, and first-time setup ran automatically -- detecting your FINAL FANTASY IX install and extracting its base assets.%n%nOpen "Dream World IX (Workspace)" from the Start Menu, or run  ff9mapkit  in a new terminal.%n%nIf your FF9 install wasn't found, open a new terminal and run:%n        ff9mapkit setup --game "<your FINAL FANTASY IX folder>"%n%nForked real fields also need the engine bundle (see the GitHub release / docs/ENGINE.md).
+FinishedLabel=Dream World IX is installed, and first-time setup ran automatically -- detecting your FINAL FANTASY IX install and extracting its base assets.%n%nOpen "Dream World IX (Workspace)" from the Start Menu, or run  ff9mapkit  in a new terminal.%n%nIf your FF9 install wasn't found, open a new terminal and run:%n        ff9mapkit setup --game "<your FINAL FANTASY IX folder>"%n%nForked real fields also need the engine bundle (see the GitHub release / docs/ENGINE.md).
 
 [Files]
 Source: "bootstrap.ps1"; DestDir: "{app}"; Flags: ignoreversion

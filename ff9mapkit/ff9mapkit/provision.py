@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 
 from .config import LANGS
@@ -40,9 +41,34 @@ PROVENANCE = _PKG_DATA / "provenance"          # tracked: ships our patches + ma
 MANIFEST = PROVENANCE / "manifest.json"
 
 
+def _is_installed_pkg() -> bool:
+    """True when running from an INSTALLED wheel (pip / uv / the .exe), False in a repo/editable checkout.
+    A checkout has the package sitting next to its ``pyproject.toml``; an installed wheel (site-packages /
+    a uv tools venv) does not. Used to keep generated files OUT of the read-only, upgrade-wiped package dir."""
+    return not (_PKG_DATA.parent.parent / "pyproject.toml").is_file()
+
+
+def _user_dir(sub: str) -> Path:
+    """A stable, per-user, writable home for an installed package's generated files (the package's own
+    ``data/`` is read-only on some installs and is wiped by ``uv tool upgrade``). Platform-native, stdlib-only:
+    ``%LOCALAPPDATA%\\ff9mapkit`` on Windows, ``~/Library/Application Support/ff9mapkit`` on macOS, else
+    ``$XDG_DATA_HOME``/``~/.local/share/ff9mapkit``."""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    elif sys.platform == "darwin":
+        base = str(Path.home() / "Library" / "Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base) / "ff9mapkit" / sub
+
+
 def data_dir() -> Path:
     env = os.environ.get("FF9MAPKIT_DATA")
-    return Path(env) if env else _PKG_DATA
+    if env:
+        return Path(env)
+    # Repo / editable checkout: keep using the in-tree data dir (dev workflow + the test suite rely on it).
+    # Installed wheel: the package data dir is read-only / wiped on upgrade, so use a per-user dir instead.
+    return _user_dir("data") if _is_installed_pkg() else _PKG_DATA
 
 
 def blank_dir() -> Path:
@@ -64,6 +90,8 @@ def cache_dir() -> Path:
     env = os.environ.get("FF9MAPKIT_DATA")
     if env:
         return Path(env)
+    if _is_installed_pkg():
+        return _user_dir("cache")
     return Path(__file__).resolve().parent.parent / ".ff9mapkit-cache"
 
 

@@ -19,6 +19,7 @@ offline (build into a temp dir, diff against the deployed assets).
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,6 +59,25 @@ def _read_user_config() -> dict:
             return tomllib.load(fh)
     except (OSError, ValueError):
         return {}
+
+
+def save_game_path(game_path: str | os.PathLike) -> Path:
+    """Persist ``game_path`` into the user config (``~/.ff9mapkit.toml``) so later commands resolve the
+    install without ``--game`` / ``$FF9_GAME_PATH``. Surgical: rewrites only the ``game_path`` line and
+    preserves any other keys/comments. Stores the path with forward slashes so the TOML basic string can
+    never trip a backslash escape on Windows (``Path`` reads forward slashes fine). Returns the config path.
+    """
+    p = str(Path(game_path).resolve()).replace("\\", "/")
+    line = f'game_path = "{p}"'
+    existing = USER_CONFIG.read_text(encoding="utf-8") if USER_CONFIG.is_file() else ""
+    if re.search(r"(?m)^[ \t]*game_path[ \t]*=", existing):
+        new = re.sub(r"(?m)^[ \t]*game_path[ \t]*=.*$", line, existing)
+    elif existing.strip():
+        new = existing.rstrip("\n") + "\n" + line + "\n"
+    else:
+        new = line + "\n"
+    USER_CONFIG.write_text(new, encoding="utf-8")
+    return USER_CONFIG
 
 
 def find_game_path(explicit: str | os.PathLike | None = None) -> Path:

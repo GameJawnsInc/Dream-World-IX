@@ -30,6 +30,7 @@ Subcommands are wired up incrementally as the library lands:
     models/scenes/catalog - the Info Hub: browse models (+ their animations), battle scenes, or
                             search every reference catalog by name
     extract-templates - regenerate base assets from the user's own FF9 install (no game data shipped)
+    setup     - one-shot: find the FF9 install, remember it, extract base assets, report Memoria status
 
 Anything not yet implemented prints a clear "coming in Phase N" message rather than failing
 with an import error, so the installed console script is always runnable.
@@ -102,6 +103,80 @@ def _cmd_extract_templates(args: argparse.Namespace) -> int:
         return 1
     print(f"\nOK -- {len(rep['verified'])} assets regenerated + verified against the manifest.")
     return 0
+
+
+def _cmd_setup(args: argparse.Namespace) -> int:
+    """One-shot post-install setup: find the FF9 install, remember it in the user config, regenerate the
+    base assets, and report the Memoria engine status. ``--install-engine <zip>`` additionally installs the
+    Dream World IX engine bundle (backed up first). Safe to re-run; returns non-zero only so a calling
+    script (e.g. the installer) can tell -- it never needs to block."""
+    from . import memoria, provision
+    from .config import save_game_path
+
+    # 1) resolve the install, and remember it so future commands need no --game/$FF9_GAME_PATH
+    try:
+        game = find_game_path(args.game)
+    except ConfigError as e:
+        print(str(e), file=sys.stderr)
+        print("\nOnce you know the path, run:  ff9mapkit setup --game \"<path>\"", file=sys.stderr)
+        return 2
+    print(f"Found FINAL FANTASY IX:  {game}")
+    try:
+        cfg = save_game_path(game)
+        print(f"  remembered in {cfg}  (future commands won't need --game)")
+    except OSError as e:                                  # noqa: BLE001 - config write is best-effort
+        print(f"  (couldn't save the config: {e})", file=sys.stderr)
+
+    rc = 0
+    # 2) regenerate the base assets (the one-time bring-your-own-install step; reads YOUR install)
+    if not args.no_extract:
+        if provision.templates_present() and not args.force:
+            print("Base assets:  already extracted (use --force to redo).")
+        elif not _has_unitypy():
+            print("Base assets:  SKIPPED -- UnityPy isn't installed (it reads FF9's assetbundles).\n"
+                  "  Install it:  pip install UnityPy   (or reinstall ff9mapkit with the [assets] extra)",
+                  file=sys.stderr)
+            rc = 1
+        else:
+            print("Base assets:  regenerating from your install (ff9mapkit ships no game data)...")
+            try:
+                rep = provision.extract_templates(game=str(game), fixtures=not args.no_fixtures, verbose=True)
+                print(f"  OK -- {len(rep['verified'])} assets regenerated + verified.")
+            except Exception as e:                       # noqa: BLE001
+                print(f"  extract-templates failed: {e}", file=sys.stderr)
+                rc = 1
+
+    # 3) Memoria engine status (forked fields need it; novel/from-scratch fields run on stock Memoria)
+    st = memoria.memoria_status(game)
+    if st["installed"]:
+        print("Memoria engine:  detected -- forked real fields will work.")
+    else:
+        print("Memoria engine:  NOT detected.")
+        print("  From-scratch / BG-borrow fields run on stock Memoria. To play FORKED real fields, install\n"
+              "  Memoria + the Dream World IX engine bundle (dwix-custom-memoria-*.zip) -- see docs/ENGINE.md,\n"
+              "  or re-run:  ff9mapkit setup --install-engine <bundle.zip>")
+
+    # 4) opt-in: install the engine bundle (backed up; never touches Memoria.ini)
+    if args.install_engine:
+        zp = Path(args.install_engine)
+        if not zp.is_file():
+            print(f"--install-engine: file not found: {zp}", file=sys.stderr)
+            return 1
+        import datetime  # noqa: PLC0415
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        print(f"Engine bundle:  installing {zp.name} (backing up the originals first)...")
+        try:
+            rep = memoria.install_engine_bundle(game, zp, stamp=stamp)
+            print(f"  backed up {len(rep['backed_up'])} DLL(s) -> {rep['backup_root']}")
+            print(f"  installed {len(rep['installed'])} DLL(s) into x64 + x86 Managed.")
+            print("  Relaunch FF9 to load it.  (Undo: copy the backup DLLs back over the Managed ones.)")
+        except Exception as e:                           # noqa: BLE001
+            print(f"  engine install failed: {e}", file=sys.stderr)
+            return 1
+
+    if rc == 0:
+        print("\nSetup complete.  Try 'ff9mapkit doctor', or open the GUI with 'ff9mapkit-workspace'.")
+    return rc
 
 
 def _cmd_disasm(args: argparse.Namespace) -> int:
@@ -3100,6 +3175,17 @@ def build_parser() -> argparse.ArgumentParser:
                         help="regenerate the kit's base assets from YOUR FF9 install (ships no game data)")
     xt.add_argument("--no-fixtures", action="store_true", help="skip the test fixtures (templates only)")
     xt.set_defaults(func=_cmd_extract_templates)
+
+    su = sub.add_parser("setup",
+                        help="one-shot post-install setup: find your FF9 install, remember it, extract base "
+                             "assets, report Memoria status (--install-engine ZIP to install the engine bundle)")
+    su.add_argument("--install-engine", metavar="ZIP", default=None,
+                    help="also install the Dream World IX engine bundle (dwix-custom-memoria-*.zip) -- backs "
+                         "up the originals; needed only to play FORKED real fields")
+    su.add_argument("--force", action="store_true", help="re-extract the base assets even if already present")
+    su.add_argument("--no-extract", action="store_true", help="skip the base-asset extraction step")
+    su.add_argument("--no-fixtures", action="store_true", help="skip test fixtures during extraction")
+    su.set_defaults(func=_cmd_setup)
 
     return p
 

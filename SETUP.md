@@ -44,6 +44,13 @@ Optional extras (pick what you need; details in §2):
 
 ## 2. Setup (one time)
 
+> **Fast path:** after installing (and especially if you used the `installer/` bootstrap, which runs it
+> for you), just run **`ff9mapkit setup`**. It auto-detects your FF9 install, remembers it in
+> `~/.ff9mapkit.toml`, runs `extract-templates`, and reports the Memoria engine status — doing §2.2–§2.4
+> in one shot. Add `--game "<path>"` if it isn't auto-found, or `--install-engine <dwix-custom-memoria.zip>`
+> to also install the engine bundle (backed up; needed only for *forked* fields). The manual steps below
+> are the breakdown of what `setup` does.
+
 ### 2.1 Install the package
 
 The install must run **from the package directory** (`ff9mapkit/`, where `pyproject.toml` lives),
@@ -359,6 +366,7 @@ tabbed document area, a right-hand **Inspector**, and a bottom **Output/Problems
 
 | command | what it does |
 |---|---|
+| `setup` | One-shot: find your FF9 install, remember it, extract base assets, report Memoria (`--install-engine ZIP` installs the engine bundle; `--game`, `--force`, `--no-extract`). |
 | `doctor` | Resolve paths + sanity-check the install (game/mod paths, templates extracted). |
 | `extract-templates` | Regenerate base assets from your install (`--no-fixtures` = templates only). |
 
