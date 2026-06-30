@@ -65,7 +65,155 @@ DARK = {
     "error": "#ff6b6b",
     "warn": "#e0a93b",
 }
-THEMES = {"light": LIGHT, "dark": DARK}
+
+# --- popular community palettes ------------------------------------------------------------
+# Same KEY SET as LIGHT/DARK (a test asserts it across every theme), so the app reads any colour from
+# whichever is active. Each is the well-known scheme's canonical hues, with `muted` lifted a touch where
+# the original "comment" grey was too low-contrast for hint text, and `accent_fg` chosen for legible text
+# ON the accent (dark text under light accents like Dracula purple / Gruvbox orange).
+NORD = {                        # https://www.nordtheme.com  (Polar Night + Frost + Aurora)
+    "dark": True,
+    "bg": "#2e3440",            # nord0
+    "surface": "#323a48",
+    "surface_btn": "#3b4252",   # nord1
+    "field": "#3b4252",
+    "text": "#eceff4",          # nord6 (snow storm)
+    "muted": "#8a93a5",
+    "accent": "#5e81ac",        # nord10 (frost, deep blue)
+    "accent_fg": "#ffffff",     # white over the mid-blue accent (snow-storm #eceff4 was a touch low-contrast)
+    "accent_hover": "#6a8cb6",
+    "accent_pressed": "#547299",
+    "help": "#b48ead",          # nord15 (aurora, purple)
+    "help_hover": "#c29bbb",
+    "border": "#434c5e",        # nord2
+    "success": "#a3be8c",       # nord14 (green)
+    "hover": "#3b4252",
+    "pressed": "#434c5e",
+    "scroll": "#4c566a",        # nord3
+    "log_bg": "#272c36",
+    "log_fg": "#d8dee9",        # nord4
+    "error": "#bf616a",         # nord11 (red)
+    "warn": "#ebcb8b",          # nord13 (yellow)
+}
+DRACULA = {                     # https://draculatheme.com
+    "dark": True,
+    "bg": "#282a36",
+    "surface": "#2d2f3b",
+    "surface_btn": "#3a3d4d",
+    "field": "#21222c",
+    "text": "#f8f8f2",
+    "muted": "#8b91b8",         # comment #6272a4, lifted for hint legibility
+    "accent": "#bd93f9",        # purple
+    "accent_fg": "#282a36",
+    "accent_hover": "#caa6fb",
+    "accent_pressed": "#a87ee8",
+    "help": "#ff79c6",          # pink
+    "help_hover": "#ff92d0",
+    "border": "#44475a",        # current line
+    "success": "#50fa7b",       # green
+    "hover": "#3a3d4d",
+    "pressed": "#44475a",
+    "scroll": "#44475a",
+    "log_bg": "#21222c",
+    "log_fg": "#f8f8f2",
+    "error": "#ff5555",         # red
+    "warn": "#f1fa8c",          # yellow
+}
+SOLARIZED_DARK = {              # https://ethanschoonover.com/solarized
+    "dark": True,
+    "bg": "#002b36",            # base03
+    "surface": "#073642",       # base02
+    "surface_btn": "#0b4350",
+    "field": "#073642",
+    "text": "#93a1a1",          # base1
+    "muted": "#6b8a8a",
+    "accent": "#268bd2",        # blue
+    "accent_fg": "#ffffff",     # white over the blue accent (base3 cream reads low-contrast on it)
+    "accent_hover": "#3597db",
+    "accent_pressed": "#1f78ba",
+    "help": "#6c71c4",          # violet
+    "help_hover": "#7e83cf",
+    "border": "#0e4a59",
+    "success": "#859900",       # green
+    "hover": "#0b4350",
+    "pressed": "#0e4a59",
+    "scroll": "#586e75",        # base01
+    "log_bg": "#00212b",
+    "log_fg": "#839496",        # base0
+    "error": "#dc322f",         # red
+    "warn": "#b58900",          # yellow
+}
+SOLARIZED_LIGHT = {
+    "dark": False,
+    "bg": "#fdf6e3",            # base3
+    "surface": "#fbf3da",
+    "surface_btn": "#f4ecd3",
+    "field": "#fffdf5",
+    "text": "#586e75",          # base01
+    "muted": "#657b83",         # base00 (base1 #93a1a1 is too low-contrast for hint text on the cream bg)
+    "accent": "#268bd2",        # blue
+    "accent_fg": "#ffffff",     # white over the blue accent
+    "accent_hover": "#1f7ec0",
+    "accent_pressed": "#1a6ca8",
+    "help": "#6c71c4",          # violet
+    "help_hover": "#595fb8",
+    "border": "#e6dcc0",
+    "success": "#728a00",       # deepened green for light-bg legibility
+    "hover": "#f3ebd2",
+    "pressed": "#ece3c8",
+    "scroll": "#cfc8b0",
+    "log_bg": "#eee8d5",        # base2
+    "log_fg": "#586e75",
+    "error": "#dc322f",         # red
+    "warn": "#b58900",          # yellow
+}
+GRUVBOX_DARK = {                # https://github.com/morhetz/gruvbox
+    "dark": True,
+    "bg": "#282828",            # bg0
+    "surface": "#32302f",       # bg0_s
+    "surface_btn": "#3c3836",   # bg1
+    "field": "#3c3836",
+    "text": "#ebdbb2",          # fg1
+    "muted": "#a89984",         # gray
+    "accent": "#fe8019",        # bright orange
+    "accent_fg": "#282828",
+    "accent_hover": "#ff8f33",
+    "accent_pressed": "#e36f12",
+    "help": "#d3869b",          # bright purple
+    "help_hover": "#dd9aab",
+    "border": "#504945",        # bg2
+    "success": "#b8bb26",       # bright green
+    "hover": "#3c3836",
+    "pressed": "#504945",
+    "scroll": "#665c54",        # bg3
+    "log_bg": "#1d2021",        # bg0_h
+    "log_fg": "#d5c4a1",        # fg2
+    "error": "#fb4934",         # bright red
+    "warn": "#fabd2f",          # bright yellow
+}
+
+# All selectable palettes (keyed by mode string). "auto" is a meta-mode (follow the OS) -- not in here.
+THEMES = {
+    "light": LIGHT,
+    "dark": DARK,
+    "nord": NORD,
+    "dracula": DRACULA,
+    "solarized-dark": SOLARIZED_DARK,
+    "solarized-light": SOLARIZED_LIGHT,
+    "gruvbox-dark": GRUVBOX_DARK,
+}
+
+# (mode, display label) in picker order. "auto" leads (the default); the rest mirror THEMES.
+THEME_CHOICES = [
+    ("auto", "Match system"),
+    ("light", "Light"),
+    ("dark", "Dark"),
+    ("nord", "Nord"),
+    ("dracula", "Dracula"),
+    ("solarized-dark", "Solarized Dark"),
+    ("solarized-light", "Solarized Light"),
+    ("gruvbox-dark", "Gruvbox Dark"),
+]
 
 
 def detect_os_dark() -> bool:
@@ -89,12 +237,13 @@ def detect_os_dark() -> bool:
 
 
 def pick_palette(mode: str = "auto") -> dict:
-    """Choose a palette. ``mode``: ``"light"`` / ``"dark"`` / ``"auto"`` (match the OS, default)."""
-    if mode == "light":
-        return LIGHT
-    if mode == "dark":
-        return DARK
-    return DARK if detect_os_dark() else LIGHT
+    """Choose a palette by ``mode``: ``"auto"`` (match the OS light/dark, default), or any key in
+    :data:`THEMES` (``"light"`` / ``"dark"`` / ``"nord"`` / ``"dracula"`` / ``"solarized-dark"`` /
+    ``"solarized-light"`` / ``"gruvbox-dark"``). An unknown/empty mode falls back to ``"auto"`` so a stale
+    saved preference never crashes the app."""
+    if mode in (None, "", "auto"):
+        return DARK if detect_os_dark() else LIGHT
+    return THEMES.get(mode) or (DARK if detect_os_dark() else LIGHT)
 
 
 def apply_theme(root, mode: str = "auto") -> dict:

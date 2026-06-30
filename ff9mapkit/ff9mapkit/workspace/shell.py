@@ -22,14 +22,16 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QObject, QProcess, QSize, QUrl, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QFormLayout,
-    QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
-    QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTextEdit,
-    QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog,
+    QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QMenu, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter,
+    QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .. import __version__
 from .. import campaign as C
+from .. import prefs
+from .. import provision
 from .. import save as _save
 from .. import update_check
 from ..editor import breadcrumb as bc
@@ -37,7 +39,7 @@ from ..editor import feedback as fb
 from ..editor import forms
 from ..editor import jobs
 from ..editor.model import FieldDoc, protected_reason
-from ..editor.theme import pick_palette
+from ..editor.theme import THEME_CHOICES, pick_palette
 from .battledoc import BattleDoc
 from .builddoc import BuildDoc
 from .forms_qt import build_form, pick_catalog, read
@@ -49,6 +51,27 @@ from .widgets import install_wheel_guard
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
+
+# The detached PowerShell helper for the one-click "Upgrade & restart" (see Workspace._run_upgrade). It
+# waits for the app to exit so uv isn't fighting a locked venv, upgrades, then relaunches the GUI. All
+# inputs are passed as parameters (no string interpolation -> no injection); a failure leaves the console
+# open so the user can read it. Windows-only path (the caller gates on os.name == "nt").
+_UPGRADE_PS1 = r"""param([int]$AppPid, [string]$Uv, [string]$Launcher)
+$host.UI.RawUI.WindowTitle = 'Dream World IX - updating'
+Write-Host 'Waiting for Dream World IX to close...'
+try { Wait-Process -Id $AppPid -Timeout 120 -ErrorAction SilentlyContinue } catch {}
+Start-Sleep -Milliseconds 800
+Write-Host 'Upgrading ff9mapkit from PyPI...'
+& $Uv tool upgrade ff9mapkit
+if ($LASTEXITCODE -eq 0) {
+    Write-Host 'Done. Relaunching Dream World IX...'
+    if (Test-Path $Launcher) { Start-Process $Launcher }
+} else {
+    Write-Host ''
+    Write-Host "Upgrade failed (exit $LASTEXITCODE). Run this manually:  uv tool upgrade ff9mapkit"
+    Read-Host 'Press Enter to close'
+}
+"""
 
 
 def _app_icon() -> QIcon:
@@ -241,7 +264,16 @@ class BreadcrumbBar(QWidget):
             f"background:{col};color:#ffffff;border-radius:3px;padding:1px 7px;font-weight:600;")
         self._chip.setVisible(True)
 
+    def repaint_pal(self, pal):
+        """Re-tint the bar for a LIVE theme switch: its own background/border (set once in __init__ and
+        not QSS-driven) plus the trail labels (rebuilt from the new palette). The persistent chip is
+        re-driven by the caller (it knows the current mode -> the right palette key)."""
+        self.pal = pal
+        self.setStyleSheet(f"background:{pal['surface']};border-bottom:1px solid {pal['border']};")
+        self.set(self._crumbs)                      # rebuild the trail in the new palette
+
     def set(self, crumbs):
+        self._crumbs = list(crumbs)                # remembered so a theme switch can rebuild the trail
         while self._lay.count() > 1:               # keep index 0 (the persistent chip); clear the trail after it
             w = self._lay.takeAt(1).widget()
             if w:
@@ -332,11 +364,44 @@ class Workspace(QMainWindow):
         (accent) when a newer release is found. Clicking it opens the update dialog (manual check + the
         upgrade command)."""
         self.version_label = QLabel(f"v{__version__}")
-        self.version_label.setStyleSheet(f"color:{self.pal['muted']};padding:0 8px;")
         self.version_label.setToolTip("ff9mapkit version — click to check for updates")
         self.version_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self.version_label.mousePressEvent = lambda _e: self._open_update_dialog()    # a clickable QLabel
         self.statusBar().addPermanentWidget(self.version_label)
+        self._retint_version_chip()
+
+    def _retint_version_chip(self):
+        """Paint the status-bar version chip for the current palette + update state (plain vs. accented
+        'update available'). Re-callable so a live theme switch recolours it without a rebuild."""
+        res = self._update_result
+        if res and res.get("newer"):
+            self.version_label.setStyleSheet(f"color:{self.pal['accent']};padding:0 8px;font-weight:600;")
+        else:
+            self.version_label.setStyleSheet(f"color:{self.pal['muted']};padding:0 8px;")
+
+    def _retint_hub_button(self):
+        """Re-apply the Info Hub button's violet tint for the current palette (after a theme switch)."""
+        if getattr(self, "_hub_btn", None) is not None:
+            self._hub_btn.setStyleSheet(
+                f"QToolButton {{ background:{self.pal['help']}; color:{self.pal['accent_fg']}; "
+                f"border:1px solid {self.pal['help']}; border-radius:6px; padding:6px 12px; font-weight:600; }}"
+                f"QToolButton:hover {{ background:{self.pal['help_hover']}; border-color:{self.pal['help_hover']}; }}")
+
+    def retheme(self, pal):
+        """Apply ``pal`` LIVE: swap the global stylesheet, then re-tint the always-alive inline-styled
+        chrome (version chip, Info Hub button, the unsaved-changes dot). Panels that get rebuilt on
+        navigation read the new ``self.pal`` automatically; the one currently open keeps its inline hint
+        colours until it's next rebuilt (clicking away and back refreshes it)."""
+        self.pal = pal
+        self.setStyleSheet(qss(pal))
+        self._dot_icon = self._make_dot_icon(pal["warn"])     # new rows use the re-tinted dot
+        self._retint_version_chip()
+        self._retint_hub_button()
+        if getattr(self, "crumb", None) is not None:
+            self.crumb.repaint_pal(pal)                       # bar bg/border + trail labels (not QSS-driven)
+            self._set_chip(getattr(self, "_chip_mode", None)) # re-tint the persistent chip from the new palette
+        if getattr(self, "insp_body", None) is not None:
+            self.insp_body.setStyleSheet(f"color:{pal['muted']};")   # the always-alive inspector base colour
 
     def startup_update_flow(self):
         """First-run opt-in prompt, then (if opted in) a quiet once-a-day background check. Called from
@@ -374,8 +439,8 @@ class Workspace(QMainWindow):
         self._update_result = res
         if res.get("newer"):                           # light up the status-bar chip
             self.version_label.setText(f"v{__version__}  ·  update ▸")
-            self.version_label.setStyleSheet(f"color:{self.pal['accent']};padding:0 8px;font-weight:600;")
             self.version_label.setToolTip(f"ff9mapkit {res['latest']} is available — click for upgrade steps")
+        self._retint_version_chip()
         if getattr(self, "_upd_dialog", None) is not None:
             self._upd_check_btn.setEnabled(True)
             self._refresh_update_dialog()
@@ -386,7 +451,7 @@ class Workspace(QMainWindow):
         dlg = QDialog(self)
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         dlg.setWindowTitle("Dream World IX — updates")
-        dlg.resize(470, 210)
+        dlg.resize(480, 250)
         lay = QVBoxLayout(dlg)
         tag = "" if update_check.is_installed() else "  ·  source checkout"
         lay.addWidget(QLabel(f"<b>ff9mapkit</b>   v{__version__}{tag}"))
@@ -405,9 +470,17 @@ class Workspace(QMainWindow):
         copy.clicked.connect(lambda: QApplication.clipboard().setText(self._upd_cmd.text()))
         cmd_row.addWidget(copy)
         cb.addLayout(cmd_row)
+        btn_row = QHBoxLayout()
+        self._upd_go = QPushButton("Upgrade && restart")    # && -> a literal & in a Qt button label
+        self._upd_go.setObjectName("accent")
+        self._upd_go.setToolTip("Close the app, run `uv tool upgrade ff9mapkit`, and reopen")
+        self._upd_go.clicked.connect(self._run_upgrade)
+        btn_row.addWidget(self._upd_go)
         pypi = QPushButton("Open the PyPI page")
         pypi.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(update_check.PYPI_PROJECT_URL)))
-        cb.addWidget(pypi, alignment=Qt.AlignmentFlag.AlignLeft)
+        btn_row.addWidget(pypi)
+        btn_row.addStretch(1)
+        cb.addLayout(btn_row)
         lay.addWidget(self._upd_cmd_box)
         lay.addStretch(1)
         row = QHBoxLayout()
@@ -453,6 +526,140 @@ class Workspace(QMainWindow):
         else:
             self._upd_status.setText(f"You're on the latest release (v{res['current']}).")
             self._upd_cmd_box.setVisible(False)
+
+    def _run_upgrade(self):
+        """Tier-3 one-click upgrade for an INSTALLED copy. ``uv`` can't replace the tool's venv while THIS
+        process is running (Windows holds the loaded DLLs locked), so we hand off to a small detached
+        helper that waits for us to exit, runs the upgrade, then relaunches — and quit. Anything we can't
+        resolve (no ``uv`` on PATH, or not Windows) degrades to showing the manual command."""
+        import shutil
+        import subprocess
+
+        uv = shutil.which("uv")
+        if not uv or os.name != "nt":
+            QMessageBox.information(
+                self, "Upgrade ff9mapkit",
+                "Run this in a terminal, then reopen the app:\n\n"
+                f"    {update_check.UPGRADE_COMMAND}")
+            return
+        if getattr(self, "proc", None) and self.proc.state() != QProcess.ProcessState.NotRunning:
+            QMessageBox.information(                        # a job child shares this venv -> would hold it locked
+                self, "Upgrade ff9mapkit",
+                "A build/deploy job is still running. Let it finish, then upgrade.")
+            return
+        latest = (self._update_result or {}).get("latest") or "the latest release"
+        if QMessageBox.question(
+                self, "Upgrade & restart",
+                f"Update to {latest}?\n\nThe app will close, update from PyPI in a terminal window, "
+                "and reopen automatically.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes) != QMessageBox.StandardButton.Yes:
+            return
+        if not self._maybe_prompt_unsaved():               # QApplication.quit() skips closeEvent -> guard here
+            return
+        launcher = (shutil.which("ff9mapkit-workspace")
+                    or str(Path.home() / ".local" / "bin" / "ff9mapkit-workspace.exe"))
+        try:
+            script = provision._user_dir("config") / "upgrade.ps1"
+            script.parent.mkdir(parents=True, exist_ok=True)
+            script.write_text(_UPGRADE_PS1, encoding="utf-8")
+            subprocess.Popen(                              # detached: survives our exit in its own console
+                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+                 "-AppPid", str(os.getpid()), "-Uv", uv, "-Launcher", launcher],
+                creationflags=subprocess.CREATE_NEW_CONSOLE)
+        except OSError as e:
+            QMessageBox.warning(
+                self, "Upgrade ff9mapkit",
+                f"Couldn't start the updater ({e}). Run this in a terminal instead:\n\n"
+                f"    {update_check.UPGRADE_COMMAND}")
+            return
+        QApplication.quit()
+
+    def _open_preferences(self):
+        """A small settings dialog: pick a theme (applied live as you choose) and toggle the daily update
+        check. The theme persists via :mod:`..prefs`; Cancel/Esc reverts the live preview."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Preferences")
+        dlg.setMinimumWidth(440)
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        combo = QComboBox()
+        for mode, label in THEME_CHOICES:
+            combo.addItem(label, mode)
+        ix = combo.findData(prefs.theme())
+        combo.setCurrentIndex(ix if ix >= 0 else 0)
+        combo.currentIndexChanged.connect(lambda i: self.retheme(pick_palette(combo.itemData(i))))
+        form.addRow("Theme", combo)
+        lay.addLayout(form)
+        hint = QLabel("Applies instantly. “Match system” follows your Windows light/dark setting.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        lay.addWidget(hint)
+        chk = QCheckBox("Check pypi.org once a day for a newer release")
+        chk.setChecked(update_check.is_enabled())
+        if not update_check.is_installed():
+            chk.setEnabled(False)
+            chk.setToolTip("Source checkout — update with `git pull`, not the PyPI check.")
+        lay.addWidget(chk)
+        lay.addStretch(1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        lay.addWidget(bb)
+        original = self.pal
+        state = {"ok": False}
+
+        def _accept():
+            state["ok"] = True
+            prefs.set_theme(combo.currentData())
+            if update_check.is_installed():               # don't write update state for a source checkout
+                update_check.set_preference(chk.isChecked())
+            dlg.accept()
+
+        bb.accepted.connect(_accept)
+        bb.rejected.connect(dlg.reject)
+        dlg.finished.connect(lambda _r: None if state["ok"] else self.retheme(original))
+        dlg.exec()
+
+    def _open_about(self):
+        """An About box: icon, version + install mode, the provenance/license one-liner, and links."""
+        mode = "installed" if update_check.is_installed() else "source checkout"
+        dlg = QDialog(self)
+        dlg.setWindowTitle("About Dream World IX")
+        dlg.setMinimumWidth(470)
+        lay = QVBoxLayout(dlg)
+        head = QHBoxLayout()
+        icon = QLabel()
+        icon.setPixmap(_app_icon().pixmap(48, 48))
+        head.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
+        title = QLabel(f"<b>Dream World IX</b> · ff9mapkit<br>"
+                       f"<span style='color:{self.pal['muted']}'>v{__version__} · {mode}</span>")
+        head.addWidget(title, 1)
+        lay.addLayout(head)
+        body = QLabel(
+            "Build brand-new playable <i>Final Fantasy IX</i> fields — and faithfully fork the real ones — "
+            "for the Memoria engine.<br><br>"
+            "Ships no Final Fantasy IX game data; it operates only on a copy of the game you legally own. "
+            "Unofficial, fan-made, not affiliated with or endorsed by Square Enix.<br><br>"
+            "<a href='https://github.com/GameJawnsInc/Dream-World-IX'>Project on GitHub</a> &nbsp;·&nbsp; "
+            "<a href='https://pypi.org/project/ff9mapkit/'>PyPI</a> &nbsp;·&nbsp; "
+            "<a href='https://github.com/GameJawnsInc/Dream-World-IX/issues'>Report an issue</a><br><br>"
+            "MIT licensed (© 2026 GameJawnsInc). The bundled engine patches modify "
+            "<a href='https://github.com/Albeoris/Memoria'>Memoria</a> (MIT, © Albeoris).")
+        body.setWordWrap(True)
+        body.setOpenExternalLinks(True)
+        body.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        lay.addWidget(body)
+        lay.addStretch(1)
+        row = QHBoxLayout()
+        upd = QPushButton("Check for updates…")
+        upd.clicked.connect(lambda: (dlg.accept(), self._open_update_dialog()))
+        row.addWidget(upd)
+        row.addStretch(1)
+        close = QPushButton("Close")
+        close.setObjectName("accent")
+        close.clicked.connect(dlg.accept)
+        row.addWidget(close)
+        lay.addLayout(row)
+        dlg.exec()
 
     # ---- chrome ----
     def _build_toolbar(self):
@@ -522,19 +729,20 @@ class Workspace(QMainWindow):
         self.act_hub.triggered.connect(self._open_catalog)
         tb.addAction(self.act_hub)
         self._hub_btn = tb.widgetForAction(self.act_hub)   # color it violet (= the 'info / reference' hue, like
-        if self._hub_btn is not None:                       # the Info Hub's own ? badge) so the popup stands out
-            self._hub_btn.setStyleSheet(
-                f"QToolButton {{ background:{self.pal['help']}; color:{self.pal['accent_fg']}; "
-                f"border:1px solid {self.pal['help']}; border-radius:6px; padding:6px 12px; font-weight:600; }}"
-                f"QToolButton:hover {{ background:{self.pal['help_hover']}; border-color:{self.pal['help_hover']}; }}")
+        self._retint_hub_button()                           # the Info Hub's own ? badge) so the popup stands out
         spacer = QWidget()
-        spacer.setSizePolicy(spacer.sizePolicy().Policy.Expanding, spacer.sizePolicy().Policy.Preferred)
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         tb.addWidget(spacer)
         search = QPushButton("⌕   Search content & commands   (Ctrl-K)")
         search.setObjectName("search")
         search.setFixedWidth(320)
         search.clicked.connect(self._open_palette)
         tb.addWidget(search)
+        self._settings_btn = self._menu_button(tb, "⚙", "Preferences, About, and updates", [
+            ("Preferences…", self._open_preferences),
+            ("Check for updates…", self._open_update_dialog),
+            ("About Dream World IX", self._open_about),
+        ])
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self._save_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
@@ -2606,6 +2814,7 @@ class Workspace(QMainWindow):
 
     def _set_chip(self, mode):
         """Drive the breadcrumb's left chip from a mode name (battle = warn-coloured to read as off-spine)."""
+        self._chip_mode = mode                     # remembered so a live theme switch can re-tint the chip
         chips = {"hub": ("HUB", "accent"), "journey": ("JOURNEY", "accent"), "campaign": ("CAMPAIGN", "accent"),
                  "field": ("FIELD", "accent"), "battle": ("BATTLE", "warn"),
                  "save": ("SAVE", "accent"), "build": ("BUILD", "accent")}
@@ -2717,6 +2926,9 @@ class Workspace(QMainWindow):
             ("Go to Item & Equip", "view", lambda: self.tabs.setCurrentWidget(self.item_equip)),
             ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
+            ("Preferences…", "command", self._open_preferences),
+            ("Check for updates…", "command", self._open_update_dialog),
+            ("About Dream World IX", "command", self._open_about),
         ]
         if self.plan is not None and self.campaign_path is not None:
             cmds.insert(2, ("Add field to campaign…", "command", self.on_add_field))
@@ -7026,6 +7238,15 @@ def _smoke(win):
     win._close_project()
     assert win.story_state.flag_names == {}, "Close drops the authored-flag annotation"
 
+    # live re-theming: every palette swaps in without error + re-tints the chrome; the settings commands exist
+    from ..editor.theme import THEMES as _THEMES
+    for _mode in _THEMES:
+        win.retheme(pick_palette(_mode))
+        assert win.pal is _THEMES[_mode], _mode
+    win.retheme(pick_palette("auto"))                  # back to the OS-derived default
+    _labels = {c[0] for c in win._command_index()}
+    assert {"Preferences…", "About Dream World IX", "Check for updates…"} <= _labels, _labels
+
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
           f"objects, breadcrumb, EDITOR forms (NPC+field+party+startup round-trip) + cutscene/choice sub-editors + "
           f"catalog picker (+ scene-id) + Open Field (standalone authored) + Save docs (Story State SC "
@@ -7043,7 +7264,8 @@ def _smoke(win):
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
-          f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired")
+          f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired "
+          f"+ live theme switch ({len(_THEMES)} palettes) + Preferences/About commands")
 
 
 def main(argv=None):
@@ -7053,7 +7275,7 @@ def main(argv=None):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
     app.setWindowIcon(_app_icon())                 # so dialogs/taskbar inherit our icon, not Qt's default
-    win = Workspace(pick_palette("dark" if smoke else "auto"))
+    win = Workspace(pick_palette("dark" if smoke else prefs.theme()))
     if smoke:
         _smoke(win)
         return

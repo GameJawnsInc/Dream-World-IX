@@ -7,11 +7,13 @@ from ff9mapkit.editor import theme
 from ff9mapkit.workspace import style
 
 
-def test_qss_renders_for_both_palettes():
-    for pal in (theme.LIGHT, theme.DARK):
+def test_qss_renders_for_every_palette():
+    # qss() is a Template.substitute over the palette -> a palette missing ANY $name key would raise here.
+    for mode, pal in theme.THEMES.items():
         css = style.qss(pal)
-        assert isinstance(css, str) and len(css) > 500
-        assert pal["accent"] in css and pal["bg"] in css and pal["text"] in css
+        assert isinstance(css, str) and len(css) > 500, mode
+        assert pal["accent"] in css and pal["bg"] in css and pal["text"] in css, mode
+        assert "$" not in css, mode             # every placeholder substituted
 
 
 def test_qss_leaves_no_unsubstituted_placeholders():
