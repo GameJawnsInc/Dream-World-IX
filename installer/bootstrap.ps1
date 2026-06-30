@@ -32,7 +32,11 @@
 param(
   [switch] $Uninstall,
   [string] $PythonVersion = "3.12",
-  [string] $Spec = "ff9mapkit[gui,assets,save]"
+  [string] $Spec = "ff9mapkit[gui,assets,save]",
+  # When the "engine patches" task is selected, the installer passes the bundled engine zip here and
+  # we fold an --install-engine into the single `setup` call below. Empty => base setup only. The
+  # Python side owns all the safety (Memoria-present check, version warning, backup) so this stays dumb.
+  [string] $EngineZip = ""
 )
 
 function Fail($msg) {
@@ -140,11 +144,20 @@ if (-not (Test-Path (Join-Path $bin "ff9mapkit.exe"))) {
 
 # --- 4. First-time setup: detect FF9, remember it, extract base assets, report Memoria ----------
 # `ff9mapkit setup` does the whole bring-your-own-install step in one shot. Non-fatal: if FF9 isn't
-# auto-detected it just exits non-zero and we tell the user how to point it at their install.
+# auto-detected it just exits non-zero and we tell the user how to point it at their install. When the
+# installer passed -EngineZip (the "engine patches" task), fold an --install-engine into the SAME run --
+# the Python side backs up the originals, is version-aware (skips if already applied), and no-ops with
+# instructions if Memoria isn't installed yet, so this stays a simple pass-through.
 $ff9 = Join-Path $bin "ff9mapkit.exe"
+$engineRequested = ($EngineZip -ne "") -and (Test-Path $EngineZip)
 Write-Host ""
 Write-Host "Running first-time setup (detecting your FINAL FANTASY IX install)..."
-& $ff9 setup
+if ($engineRequested) {
+  Write-Host "  (will also install the Memoria engine patches, backing up your originals)"
+  & $ff9 setup --install-engine "$EngineZip"
+} else {
+  & $ff9 setup
+}
 $setupRc = $LASTEXITCODE
 
 Write-Host ""
@@ -154,8 +167,13 @@ Write-Host "   GUI:  $bin\ff9mapkit-workspace.exe   (Start Menu shortcut created
 Write-Host "   CLI:  ff9mapkit   (open a NEW terminal so PATH refreshes)"
 if ($setupRc -eq 0) {
   Write-Host ""
-  Write-Host " You're set up. To play FORKED real fields, install the engine bundle (optional):"
-  Write-Host "     ff9mapkit setup --install-engine <dwix-custom-memoria.zip>"
+  if ($engineRequested) {
+    Write-Host " Engine patches: see the setup output above for whether they were applied."
+    Write-Host " (A later Memoria update / re-patch reverts them -- just re-run setup --install-engine.)"
+  } else {
+    Write-Host " You're set up. To play FORKED real fields, install the engine bundle (optional):"
+    Write-Host "     ff9mapkit setup --install-engine <dwix-custom-memoria.zip>"
+  }
 } else {
   Write-Host ""
   Write-Host " Setup couldn't finish automatically (FF9 not found, or UnityPy/extract issue)."

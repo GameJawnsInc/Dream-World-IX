@@ -110,6 +110,8 @@ def _cmd_setup(args: argparse.Namespace) -> int:
     base assets, and report the Memoria engine status. ``--install-engine <zip>`` additionally installs the
     Dream World IX engine bundle (backed up first). Safe to re-run; returns non-zero only so a calling
     script (e.g. the installer) can tell -- it never needs to block."""
+    from pathlib import Path
+
     from . import memoria, provision
     from .config import save_game_path
 
@@ -156,20 +158,39 @@ def _cmd_setup(args: argparse.Namespace) -> int:
               "  Memoria + the Dream World IX engine bundle (dwix-custom-memoria-*.zip) -- see docs/ENGINE.md,\n"
               "  or re-run:  ff9mapkit setup --install-engine <bundle.zip>")
 
-    # 4) opt-in: install the engine bundle (backed up; never touches Memoria.ini)
+    # 4) opt-in: install the engine bundle (backed up; never touches Memoria.ini). Version-aware +
+    #    graceful, so the installer can pass --install-engine unconditionally (Memoria may be absent).
     if args.install_engine:
         zp = Path(args.install_engine)
         if not zp.is_file():
             print(f"--install-engine: file not found: {zp}", file=sys.stderr)
             return 1
+        if not st["installed"]:
+            # Memoria isn't here yet (common when our installer runs first) -- non-fatal; show how to
+            # apply it later. (Novel / BG-borrow fields don't need it; only forked real fields do.)
+            print("Engine bundle:  SKIPPED -- Memoria isn't installed in this FF9 folder yet.")
+            print("  Forked real fields need Memoria. Install it (https://github.com/Albeoris/Memoria),")
+            print(f'  then re-run:  ff9mapkit setup --install-engine "{zp}"')
+            return rc
+        cmp = memoria.engine_compat(game, zp)
+        if cmp["already_applied"] and not args.force:
+            print(f"Engine bundle:  Dream World IX patches already installed "
+                  f"(Assembly-CSharp v{cmp['installed']}) -- nothing to do.")
+            print("  (--force reinstalls. If you later update or re-patch Memoria, re-run this to reapply.)")
+            return rc
+        if cmp["installed"] and cmp["bundle"] and cmp["installed"] != cmp["bundle"]:
+            print(f"Engine bundle:  replacing your Memoria engine (Assembly-CSharp v{cmp['installed']}) with")
+            print(f"  the Dream World IX patched build (v{cmp['bundle']}, based on Memoria {memoria.BASE_COMMIT}).")
+        else:
+            print(f"Engine bundle:  installing {zp.name} (backing up the originals first)...")
         import datetime  # noqa: PLC0415
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        print(f"Engine bundle:  installing {zp.name} (backing up the originals first)...")
         try:
             rep = memoria.install_engine_bundle(game, zp, stamp=stamp)
             print(f"  backed up {len(rep['backed_up'])} DLL(s) -> {rep['backup_root']}")
-            print(f"  installed {len(rep['installed'])} DLL(s) into x64 + x86 Managed.")
-            print("  Relaunch FF9 to load it.  (Undo: copy the backup DLLs back over the Managed ones.)")
+            print(f"  installed {len(rep['installed'])} DLL(s) into x64 + x86 Managed. Relaunch FF9 to load it.")
+            print("  NOTE: a later Memoria update / re-patch OVERWRITES these -- just re-run this to reapply.")
+            print("  (Undo: copy the backed-up DLLs back over the Managed ones.)")
         except Exception as e:                           # noqa: BLE001
             print(f"  engine install failed: {e}", file=sys.stderr)
             return 1

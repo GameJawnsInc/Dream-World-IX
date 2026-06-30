@@ -11,6 +11,11 @@
 ;
 ; Optional (recommended) before compiling: drop a generated THIRD-PARTY-NOTICES.txt next to this script
 ; (py tools\gen_third_party_notices.py -o installer\THIRD-PARTY-NOTICES.txt) -- it is bundled if present.
+;
+; Engine patches: copy the engine bundle in as installer\dwix-engine.zip BEFORE compiling
+; (cp C:\gd\dwix-custom-memoria-<ver>.zip installer\dwix-engine.zip). If present it's bundled and the
+; "engine patches" task runs `ff9mapkit setup --install-engine` (backed up, version-aware, graceful if
+; Memoria is absent). If you DON'T copy it, the task is harmless -- no zip ships, no engine install runs.
 
 #define MyAppName "Dream World IX"
 #define MyAppVersion "1.0.0b6"
@@ -49,14 +54,25 @@ Compression=lzma2
 [Messages]
 ; Keep the Finished page short -- the bootstrap window already showed setup's result, and the
 ; "Open Workspace" checkbox + Start-Menu shortcut handle launching.
-FinishedLabelNoIcons=Dream World IX is installed and set up.%n%nForked real fields also need the engine bundle -- see the GitHub release.
-FinishedLabel=Dream World IX is installed and set up.%n%nForked real fields also need the engine bundle -- see the GitHub release.
+FinishedLabelNoIcons=Dream World IX is installed and set up.%n%nForked real fields need the Memoria engine patches (the setup window above shows their status).
+FinishedLabel=Dream World IX is installed and set up.%n%nForked real fields need the Memoria engine patches (the setup window above shows their status).
+
+[Tasks]
+; Opt-in engine-patch install. Default CHECKED: playing FORKED real fields (the headline feature) needs
+; the patched Memoria build, and the install is fully reversible -- it BACKS UP the originals, is version-
+; aware (skips if our build is already in place), and degrades to a no-op-with-instructions if Memoria
+; isn't installed yet. Power users who only build NOVEL fields (which run on stock Memoria) can untick it.
+; The actual work is done by `ff9mapkit setup --install-engine` via bootstrap.ps1 (see {code:EngineArg}).
+Name: "engine"; Description: "Install the Memoria engine patches (needed to PLAY forked real fields)"; GroupDescription: "Engine patches:"
 
 [Files]
 Source: "bootstrap.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\ff9mapkit\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 ; Bundled only if you generated it before compiling (see header).
 Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; The engine bundle (3 patched managed DLLs). Bundled only if you copied it in as dwix-engine.zip
+; (see header); the "engine" task + bootstrap only act on it when it's actually present.
+Source: "dwix-engine.zip"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 ; uv's default tool bin dir is %USERPROFILE%\.local\bin. The launcher exists after the [Run] step below;
@@ -65,8 +81,11 @@ Name: "{autoprograms}\{#MyAppName} (Workspace)"; Filename: "{%USERPROFILE}\.loca
 Name: "{autoprograms}\{#MyAppName} on GitHub"; Filename: "{#MyAppURL}"
 
 [Run]
+; {code:EngineArg} appends ` -EngineZip "{app}\dwix-engine.zip"` IFF the engine task is ticked AND the
+; zip actually shipped -- so the single bootstrap call folds the (backed-up, version-aware) engine
+; install into its one `ff9mapkit setup` run. Empty otherwise => plain setup.
 Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\bootstrap.ps1"""; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\bootstrap.ps1""{code:EngineArg}"; \
   StatusMsg: "Installing the Python toolchain and Dream World IX (downloads ~150 MB on first run)..."; \
   Flags: waituntilterminated
 ; Finished-page checkbox: launch the Workspace GUI. Check: only shown if the launcher actually exists
@@ -82,4 +101,15 @@ Filename: "powershell.exe"; \
 function WorkspaceExists: Boolean;
 begin
   Result := FileExists(ExpandConstant('{%USERPROFILE}\.local\bin\ff9mapkit-workspace.exe'));
+end;
+
+// Appended to bootstrap.ps1's parameters: pass the bundled engine zip ONLY when the user ticked the
+// "engine" task AND the zip actually shipped (a dev may compile without copying it in). The leading
+// space matters -- it's concatenated right after the closing quote of the -File argument.
+function EngineArg(Param: String): String;
+begin
+  if WizardIsTaskSelected('engine') and FileExists(ExpandConstant('{app}\dwix-engine.zip')) then
+    Result := ' -EngineZip "' + ExpandConstant('{app}\dwix-engine.zip') + '"'
+  else
+    Result := '';
 end;

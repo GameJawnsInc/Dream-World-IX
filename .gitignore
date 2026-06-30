@@ -226,3 +226,12 @@ tworoom/pand_lift/
 tworoom/pand_elv/
 # Treno Residence verbatim fork (SE-derived scene/.eb/.bgi bytes; local scratch)
 tworoom/treno_plat/
+
+# Installer build artifacts (regenerable; not committed). dwix-engine.zip = the compiled-DLL engine
+# bundle copied in before compiling; dreamworldix.ico is generated from installer/icon/*.png (those PNGs
+# ARE source art -> committed); Output/ + THIRD-PARTY-NOTICES.txt are produced at build time. (*.exe
+# already covers DreamWorldIX-Setup.exe.)
+installer/dwix-engine.zip
+installer/dreamworldix.ico
+installer/Output/
+installer/THIRD-PARTY-NOTICES.txt

@@ -134,6 +134,84 @@ def test_bundle_missing_dll_raises(tmp_path):
         memoria.bundle_dll_members(_make_bundle(tmp_path, complete=False))
 
 
+# ---- engine version detection (advisory: graceful None when unreadable / off-Windows) --------------
+def test_read_assembly_version_none_on_missing(tmp_path):
+    assert memoria.read_assembly_version(tmp_path / "nope.dll") is None
+
+
+def test_read_assembly_version_none_on_non_pe(tmp_path):
+    f = tmp_path / "fake.dll"
+    f.write_bytes(b"not a real PE file with no VS_VERSIONINFO resource")
+    assert memoria.read_assembly_version(f) is None           # no version resource -> None, never raises
+
+
+def test_bundle_assembly_version_none_on_fake_bundle(tmp_path):
+    # The fake bundle's DLLs carry no version resource -> None (and None off Windows). Never raises.
+    assert memoria.bundle_assembly_version(_make_bundle(tmp_path)) is None
+
+
+def test_engine_compat_already_applied(tmp_path, monkeypatch):
+    # installed FileVersion == bundle's -> the live engine IS our patched build -> skip-able.
+    monkeypatch.setattr(memoria, "read_assembly_version", lambda p: "1.1.9670.29463")
+    monkeypatch.setattr(memoria, "bundle_assembly_version", lambda z: "1.1.9670.29463")
+    cmp = memoria.engine_compat(_make_game(tmp_path), _make_bundle(tmp_path))
+    assert cmp["already_applied"] is True
+    assert cmp["installed"] == cmp["bundle"] == "1.1.9670.29463"
+
+
+def test_engine_compat_differs_means_install(tmp_path, monkeypatch):
+    # A stock/other Memoria (or one reverted by a re-patch) reads a different version -> (re)apply.
+    monkeypatch.setattr(memoria, "read_assembly_version", lambda p: "1.1.1000.1")
+    monkeypatch.setattr(memoria, "bundle_assembly_version", lambda z: "1.1.9670.29463")
+    assert memoria.engine_compat(_make_game(tmp_path), _make_bundle(tmp_path))["already_applied"] is False
+
+
+def test_engine_compat_unreadable_not_applied(tmp_path, monkeypatch):
+    # Off Windows / unreadable -> both None -> never claims "already applied" (so the caller installs).
+    monkeypatch.setattr(memoria, "read_assembly_version", lambda p: None)
+    monkeypatch.setattr(memoria, "bundle_assembly_version", lambda z: None)
+    assert memoria.engine_compat(_make_game(tmp_path), _make_bundle(tmp_path))["already_applied"] is False
+
+
+# ---- `setup --install-engine` CLI behavior the installer depends on (graceful + version-aware) ------
+def _setup_args(game, zp, **over):
+    import argparse
+    base = dict(game=str(game), install_engine=str(zp), no_extract=True, force=False, no_fixtures=True)
+    base.update(over)
+    return argparse.Namespace(**base)
+
+
+def test_setup_install_engine_graceful_when_memoria_absent(tmp_path, monkeypatch, capsys):
+    """The installer passes --install-engine unconditionally; with no Memoria yet it must NOT fail or
+    swap anything -- just print how to apply it later and return 0 (base setup still succeeded)."""
+    from ff9mapkit import cli
+    game = _make_game(tmp_path, memoria_installed=False)       # an FF9 dir, but no Memoria installed
+    zp = _make_bundle(tmp_path)
+    monkeypatch.setattr(cli, "find_game_path", lambda g: game)
+    monkeypatch.setattr(config, "save_game_path", lambda g: tmp_path / ".ff9mapkit.toml")
+    rc = cli._cmd_setup(_setup_args(game, zp))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "SKIPPED" in out and "Memoria isn't installed" in out
+    assert not (game / "dwix-engine-backups").exists()        # nothing was swapped/backed up
+
+
+def test_setup_install_engine_skips_when_already_applied(tmp_path, monkeypatch, capsys):
+    """When the live engine already IS our build (version match), skip -- no needless re-swap/backup."""
+    from ff9mapkit import cli
+    game = _make_game(tmp_path, memoria_installed=True)
+    zp = _make_bundle(tmp_path)
+    monkeypatch.setattr(cli, "find_game_path", lambda g: game)
+    monkeypatch.setattr(config, "save_game_path", lambda g: tmp_path / ".ff9mapkit.toml")
+    monkeypatch.setattr(memoria, "engine_compat",
+                        lambda g, z: {"installed": "1.1.9670.29463", "bundle": "1.1.9670.29463",
+                                      "already_applied": True})
+    rc = cli._cmd_setup(_setup_args(game, zp))
+    out = capsys.readouterr().out
+    assert rc == 0 and "already installed" in out
+    assert not (game / "dwix-engine-backups").exists()        # skipped -> no swap, no backup
+
+
 # ---- game-install detection (Steam + GOG; rejects MS Store) ----------------------------------------
 def _make_ff9_root(tmp_path, *, launcher=True, streaming=True, managed=True):
     root = tmp_path / "FINAL FANTASY IX"
