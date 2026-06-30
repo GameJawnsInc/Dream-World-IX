@@ -19,7 +19,7 @@ for fork fidelity — see [`ff9mapkit/docs/ENGINE.md`](ff9mapkit/docs/ENGINE.md)
 | Need | Detail |
 |---|---|
 | **Python ≥ 3.11** | Hard floor — the kit uses stdlib `tomllib` (3.11+). |
-| **A legally-owned Steam FF9 + Memoria** | The kit reads base assets *from your install*; it bundles zero game bytes. |
+| **A legally-owned FF9 (Steam or GOG) + Memoria** | The kit reads base assets *from your install*; it bundles zero game bytes. Both are the same moddable Unity port (auto-detected). The Microsoft Store / Game Pass version is **not** moddable. |
 | **Pillow ≥ 9.0** | The only hard runtime dependency (composites art layers + renders paint guides). Installed automatically. |
 | **UnityPy** (separate `pip install`) | Needed only for `extract-templates`, `import`, `list-fields`, and `battle-import` — anything that reads FF9's `p0data*.bin` assetbundles. Not a declared extra. |
 

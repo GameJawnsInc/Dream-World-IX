@@ -46,6 +46,15 @@ _COMMON_STEAM_PATHS = (
     r"D:\SteamLibrary\steamapps\common\FINAL FANTASY IX",
 )
 
+# FF9 store identifiers -- used to read the per-game install path from the Windows registry (the SAME keys
+# Memoria's patcher reads, so we resolve exactly the folder it patches -- correct even on a secondary drive
+# / custom Steam library). Steam + GOG are the same Unity port with an identical on-disk layout; the
+# Microsoft Store / Xbox Game Pass build is a different, non-Unity, DRM-locked package Memoria can't patch,
+# so the detector never targets it.  Refs: Albeoris/Memoria Memoria.Patcher/GameInfo/.
+_STEAM_APPID = "377840"
+_GOG_GAMEID = "1375008492"
+_FF9_DIRNAME = "FINAL FANTASY IX"
+
 
 class ConfigError(RuntimeError):
     """Raised when a required path cannot be resolved or does not exist."""
@@ -80,34 +89,129 @@ def save_game_path(game_path: str | os.PathLike) -> Path:
     return USER_CONFIG
 
 
+def _is_ff9_root(p: Path) -> bool:
+    """True if ``p`` is a real, MODDABLE FF9 install (Steam or GOG -- same layout). Keys off Memoria's own
+    sentinel (``FF9_Launcher.exe``) plus ``StreamingAssets`` and the managed-DLL tree -- which also rejects
+    the un-moddable Microsoft Store build (no launcher / no Managed dir) and stale empty folders."""
+    try:
+        return ((p / "FF9_Launcher.exe").is_file()
+                and (p / "StreamingAssets").is_dir()
+                and ((p / "x64" / "FF9_Data" / "Managed").is_dir()
+                     or (p / "x86" / "FF9_Data" / "Managed").is_dir()))
+    except OSError:
+        return False
+
+
+def _reg_str(hive, subkey: str, value: str) -> str | None:
+    """Read one registry string value, trying the 64-bit THEN 32-bit view (FF9's keys live under
+    ``WOW6432Node`` on 64-bit Windows). Windows-only; returns None elsewhere or if the key/value is absent."""
+    if os.name != "nt":
+        return None
+    import winreg  # noqa: PLC0415 - Windows-only, lazy
+    for view in (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY):
+        try:
+            with winreg.OpenKeyEx(hive, subkey, 0, winreg.KEY_READ | view) as key:
+                data, _ = winreg.QueryValueEx(key, value)
+                if data:
+                    return str(data)
+        except OSError:
+            continue
+    return None
+
+
+def _registry_candidates() -> list[Path]:
+    """FF9 roots from the per-game Steam + GOG registry keys (the exact keys Memoria reads). These point at
+    the ACTUAL install dir, so they find FF9 even on a secondary drive or a custom-named Steam library."""
+    if os.name != "nt":
+        return []
+    import winreg  # noqa: PLC0415
+    out: list[Path] = []
+    steam = _reg_str(winreg.HKEY_LOCAL_MACHINE,
+                     rf"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App {_STEAM_APPID}",
+                     "InstallLocation")
+    if steam:
+        out.append(Path(steam))
+    gog = _reg_str(winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\GOG.com\Games\{_GOG_GAMEID}", "path")
+    if gog:
+        out.append(Path(gog))
+    return out
+
+
+def _parse_vdf_library_paths(text: str) -> list[str]:
+    """Library-folder paths from a Steam ``libraryfolders.vdf`` -- handles both the old ``"1" "<path>"`` and
+    the new ``"path" "<path>"`` schemas (and ignores the new schema's ``"apps"`` appid->buildid map). The
+    file doubles its backslashes, so they're unescaped here."""
+    keyed = re.findall(r'"path"\s+"([^"]+)"', text) if '"path"' in text \
+        else re.findall(r'"\d+"\s+"([^"]+)"', text)
+    return [p.replace("\\\\", "\\") for p in keyed]
+
+
+def _steam_library_candidates() -> list[Path]:
+    """FF9 under every Steam library (a fallback when the per-game Uninstall key is missing): locate Steam
+    via the registry, parse ``libraryfolders.vdf``, and join ``steamapps/common/FINAL FANTASY IX``."""
+    if os.name != "nt":
+        return []
+    import winreg  # noqa: PLC0415
+    steam = (_reg_str(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath")
+             or _reg_str(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"))
+    if not steam:
+        return []
+    steam_dir = Path(steam)
+    out: list[Path] = [steam_dir / "steamapps" / "common" / _FF9_DIRNAME]
+    for vdf in (steam_dir / "steamapps" / "libraryfolders.vdf", steam_dir / "config" / "libraryfolders.vdf"):
+        try:
+            text = vdf.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for lib in _parse_vdf_library_paths(text):
+            out.append(Path(lib) / "steamapps" / "common" / _FF9_DIRNAME)
+    return out
+
+
+def _fallback_candidates() -> list[Path]:
+    """Last-resort default install folders (Steam + GOG) if registry/library lookups don't resolve."""
+    gog = [Path(b) / _FF9_DIRNAME for b in
+           (r"C:\GOG Games", r"D:\GOG Games", r"C:\Program Files (x86)\GOG Galaxy\Games")]
+    return [Path(p) for p in _COMMON_STEAM_PATHS] + gog
+
+
 def find_game_path(explicit: str | os.PathLike | None = None) -> Path:
     """Resolve the Final Fantasy IX install folder.
 
-    Order: explicit arg > $FF9_GAME_PATH > ~/.ff9mapkit.toml(game_path) > common Steam dirs.
-    Raises ConfigError with actionable guidance if none of them point at a real folder.
+    Order: explicit arg > ``$FF9_GAME_PATH`` > ``~/.ff9mapkit.toml`` (``game_path``) > auto-detect. The
+    auto-detector mirrors Memoria's: the per-game Steam + GOG registry keys, then a Steam-library scan, then
+    the common default folders. Explicit/env/config paths are trusted if they exist; auto-detected ones are
+    validated as a real, moddable FF9 install (which also skips the un-moddable Microsoft Store build).
+    Raises ConfigError with actionable guidance if nothing resolves.
     """
-    candidates: list[Path] = []
-    if explicit:
-        candidates.append(Path(explicit))
-    env = os.environ.get("FF9_GAME_PATH")
-    if env:
-        candidates.append(Path(env))
-    cfg = _read_user_config().get("game_path")
-    if cfg:
-        candidates.append(Path(cfg))
-    candidates.extend(Path(p) for p in _COMMON_STEAM_PATHS)
-
-    for c in candidates:
+    # 1) user-specified -- trusted on existence
+    for c in (Path(p) for p in (explicit, os.environ.get("FF9_GAME_PATH"),
+                                _read_user_config().get("game_path")) if p):
         if c.is_dir():
             return c.resolve()
 
+    # 2) auto-detect Steam + GOG, validated as a real install; de-dupe by resolved path
+    seen: set[Path] = set()
+    for c in _registry_candidates() + _steam_library_candidates() + _fallback_candidates():
+        try:
+            rc = c.resolve()
+        except OSError:
+            continue
+        if rc in seen:
+            continue
+        seen.add(rc)
+        if _is_ff9_root(c):
+            return rc
+
     raise ConfigError(
-        "Could not locate the Final Fantasy IX install folder.\n"
+        "Could not locate the Final Fantasy IX install folder (checked Steam + GOG via the registry,\n"
+        "the Steam libraries, and the common install paths).\n"
         "Set it one of these ways:\n"
         "  - pass --game \"<path>\" on the command line\n"
         "  - export FF9_GAME_PATH=\"<path>\"\n"
         f"  - add  game_path = \"<path>\"  to {USER_CONFIG}\n"
-        "The folder should contain FF9_Launcher.exe and a StreamingAssets directory."
+        "The folder should contain FF9_Launcher.exe and a StreamingAssets directory.\n"
+        "(The Microsoft Store / Xbox Game Pass version is not moddable -- use the Steam or GOG release.)"
     )
 
 

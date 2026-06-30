@@ -132,3 +132,44 @@ def test_install_engine_refuses_without_memoria(tmp_path):
 def test_bundle_missing_dll_raises(tmp_path):
     with pytest.raises(ValueError):
         memoria.bundle_dll_members(_make_bundle(tmp_path, complete=False))
+
+
+# ---- game-install detection (Steam + GOG; rejects MS Store) ----------------------------------------
+def _make_ff9_root(tmp_path, *, launcher=True, streaming=True, managed=True):
+    root = tmp_path / "FINAL FANTASY IX"
+    root.mkdir(parents=True, exist_ok=True)
+    if launcher:
+        (root / "FF9_Launcher.exe").write_bytes(b"")
+    if streaming:
+        (root / "StreamingAssets").mkdir(exist_ok=True)
+    if managed:
+        (root / "x64" / "FF9_Data" / "Managed").mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def test_is_ff9_root_accepts_real_layout(tmp_path):
+    assert config._is_ff9_root(_make_ff9_root(tmp_path)) is True
+
+
+def test_is_ff9_root_rejects_incomplete(tmp_path):
+    assert config._is_ff9_root(_make_ff9_root(tmp_path / "a", launcher=False)) is False   # MS Store-like
+    assert config._is_ff9_root(_make_ff9_root(tmp_path / "b", streaming=False)) is False
+    assert config._is_ff9_root(_make_ff9_root(tmp_path / "c", managed=False)) is False
+    assert config._is_ff9_root(tmp_path / "nope") is False
+
+
+def test_parse_vdf_new_schema():
+    text = (
+        '"libraryfolders"\n{\n'
+        '    "0"\n    {\n'
+        '        "path"    "C:\\\\Program Files (x86)\\\\Steam"\n'
+        '        "apps" { "377840" "12345678" }\n'      # appid->buildid must NOT be read as a library
+        '    }\n'
+        '    "1"\n    {\n        "path"    "E:\\\\SteamLibrary"\n    }\n}\n'
+    )
+    assert config._parse_vdf_library_paths(text) == [r"C:\Program Files (x86)\Steam", r"E:\SteamLibrary"]
+
+
+def test_parse_vdf_old_schema():
+    text = '"LibraryFolders"\n{\n    "1"   "E:\\\\Games\\\\Steam"\n    "2"   "F:\\\\Steam"\n}\n'
+    assert config._parse_vdf_library_paths(text) == [r"E:\Games\Steam", r"F:\Steam"]
