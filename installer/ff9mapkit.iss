@@ -18,7 +18,7 @@
 ; Memoria is absent). If you DON'T copy it, the task is harmless -- no zip ships, no engine install runs.
 
 #define MyAppName "Dream World IX"
-#define MyAppVersion "1.0.0b7"
+#define MyAppVersion "1.0.0b8"
 #define MyAppPublisher "GameJawnsInc"
 #define MyAppURL "https://github.com/GameJawnsInc/Dream-World-IX"
 
@@ -56,10 +56,11 @@ SolidCompression=yes
 Compression=lzma2
 
 [Messages]
-; Keep the Finished page short -- the bootstrap window already showed setup's result, and the
-; "Open Workspace" checkbox + Start-Menu shortcut handle launching.
-FinishedLabelNoIcons=Dream World IX is installed and set up.%n%nForked real fields need the Memoria engine patches (the setup window above shows their status).
-FinishedLabel=Dream World IX is installed and set up.%n%nForked real fields need the Memoria engine patches (the setup window above shows their status).
+; Keep the Finished page short. NOTE: the bootstrap PowerShell window CLOSES when it finishes, so by the
+; time this page shows there is no "window above" -- point at `ff9mapkit setup` (which reports the engine
+; status and can apply it) rather than a vanished window.
+FinishedLabelNoIcons=Dream World IX is installed.%n%nForked real fields need the Memoria engine patches. Run  ff9mapkit setup  to check the engine status, or  ff9mapkit setup --install-engine  to apply it.
+FinishedLabel=Dream World IX is installed.%n%nForked real fields need the Memoria engine patches. Run  ff9mapkit setup  to check the engine status, or  ff9mapkit setup --install-engine  to apply it.
 
 [Tasks]
 ; Opt-in engine-patch install. Default CHECKED: playing FORKED real fields (the headline feature) needs
