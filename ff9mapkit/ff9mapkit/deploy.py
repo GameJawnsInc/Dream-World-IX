@@ -358,3 +358,523 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     out(f"Then PLAYTEST and report.   revert: py {rev}")
     report.update(ok=True, rc=0)
     return report
+
+
+# --------------------------------------------------------------------------- journey deploy
+def _stamp() -> str:
+    return datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def _game_or_none():
+    """``find_game_path`` RAISES when no install resolves; the dry-run / offline path wants a soft None."""
+    try:
+        return find_game_path()
+    except Exception:
+        return None
+
+
+def _render_link_revert(results, stamp) -> str:
+    """A revert that restores every backed-up boundary .eb the link step patched."""
+    pairs = [(live, bkp) for r in results for live, bkp in r.get("backups", [])]
+    lines = [f'"""Revert journey link rewrites ({stamp}): restore the boundary .eb backups."""',
+             "import shutil", "from pathlib import Path", "PAIRS = ["]
+    lines += [f"    ({live!r}, {bkp!r})," for live, bkp in pairs]
+    lines += ["]", "for live, bkp in PAIRS:",
+              "    if Path(bkp).is_file(): shutil.copyfile(bkp, live); print('restored', live)",
+              "    else: print('WARNING: backup missing --', bkp)",
+              f"print('reverted journey links {stamp}')", ""]
+    return "\n".join(lines)
+
+
+def _render_unified_revert(captured, stamp) -> str:
+    """ONE revert that runs each captured per-step revert in REVERSE deploy order (undo New Game -> hub ->
+    links -> campaigns). Each child revert is a complete, self-contained script run via runpy."""
+    lines = [f'"""Revert journey deploy ({stamp}): run each step\'s revert in reverse order."""',
+             "import runpy", "from pathlib import Path", "REVERTS = ["]
+    lines += [f"    r{p!r}," for p in reversed(captured) if p]
+    lines += ["]", "for _r in REVERTS:",
+              "    _p = Path(_r)",
+              "    if _p.is_file():",
+              "        print('--- reverting', _p.name)",
+              "        runpy.run_path(str(_p), run_name='__main__')",
+              "    else:",
+              "        print('WARNING: revert missing --', _p)",
+              f"print('reverted journey deploy {stamp}')", ""]
+    return "\n".join(lines)
+
+
+def _render_folder_revert(live_root, snap, stamp) -> str:
+    """A revert that restores a wholesale/overlay folder install from its pre-install snapshot."""
+    return "\n".join([
+        f'"""Revert journey folder install ({stamp}): restore {Path(live_root).name}."""',
+        "import shutil", "from pathlib import Path",
+        f"live = Path(r{str(live_root)!r})", f"snap = Path(r{str(snap)!r})",
+        "if snap.is_dir():",
+        "    shutil.rmtree(live, ignore_errors=True)",
+        "    shutil.copytree(snap, live)",
+        "    print('restored', live)",
+        "else:",
+        "    print('WARNING: snapshot missing -- left', live, 'untouched:', snap)",
+        f"print('reverted folder install {stamp}')", ""])
+
+
+def _capture_path(src, reverts_dir, dst_name):
+    """Copy a step's returned revert script to a per-step name (so the next step's same-named revert can't
+    overwrite it). Returns the captured path str, or None if the source wasn't written."""
+    if not src:
+        return None
+    src = Path(src)
+    if not src.is_file():
+        return None
+    reverts_dir = Path(reverts_dir)
+    reverts_dir.mkdir(parents=True, exist_ok=True)
+    dst = reverts_dir / dst_name
+    shutil.copyfile(src, dst)
+    return str(dst)
+
+
+def _run_links(plan, game, stamp, *, backups_dir, reverts_dir, mod_folder_override=None, out=print):
+    """Apply the cross-campaign link .eb rewrites. Returns ``(revert_path_or_None, all_wirable_links_found)``."""
+    from . import journey as J
+    wirable = [lk for lk in plan.links if lk.retargetable]
+    if not wirable:
+        out("  (no auto-wirable cross-campaign links -- overworld-only/ambiguous; see the playbook notes)")
+        return None, True
+    bdir = Path(backups_dir) / f"journey-links.{stamp}"
+    results = J.apply_link_rewrites(plan, game, dry_run=False, backup_dir=bdir,
+                                    mod_folder_override=mod_folder_override)
+    ok = True
+    for r in results:
+        if r["found"] and r["mode"] == "worldmap_inject":
+            out(f"  linked {r['eb']}: overworld exit -> Field({r['dst_id']}) region  "
+                f"({r['regions']} region(s), {r['langs']} lang file(s))")
+        elif r["found"]:
+            out(f"  linked {r['eb']}: {r['remap']}  ({r['langs']} lang file(s))")
+        elif r["mode"] == "worldmap_inject":
+            ok = False
+            out(f"  !! {r['eb']}: no tag-2 WorldMap walk-out region in the deployed .eb -- boundary a VERBATIM fork?")
+        else:
+            ok = False
+            out(f"  !! {r['eb']}: no Field({list(r['remap'])[0] if r['remap'] else '?'}) in the deployed "
+                f".eb -- boundary a VERBATIM fork?")
+    if not any(r["found"] for r in results):
+        return None, ok
+    reverts_dir = Path(reverts_dir)
+    reverts_dir.mkdir(parents=True, exist_ok=True)
+    rev = reverts_dir / "revert_journey_links.py"
+    rev.write_text(_render_link_revert(results, stamp), encoding="utf-8", newline="\n")
+    return str(rev), ok
+
+
+def _single_folder_name(manifest, single_folder) -> str:
+    """The one merged ``FF9CustomMap-*`` folder name: an explicit ``single_folder`` if non-empty, else derived
+    from the hub name (distinct from any campaign's own folder)."""
+    from . import hub as _hub
+    if isinstance(single_folder, str) and single_folder:
+        nm = single_folder
+        return nm if nm.startswith("FF9CustomMap") else f"FF9CustomMap-{nm}"
+    token = _hub.name_token(manifest.hub.get("name", "journey")).lower() if manifest.hub else "journey"
+    return f"FF9CustomMap-{token}"
+
+
+def _install_hub(hub_toml, hub_id, hub_folder, game, *, backups_dir, reverts_dir, stamp, out):
+    """Build the hub field.toml and install it into its DEDICATED folder via a non-destructive OVERLAY (so a
+    prior New-Game override in that folder survives -- matching deploy_field's per-id merge spirit), snapshotting
+    first. Returns the per-step revert path."""
+    import tempfile
+
+    from . import build as B
+    live_root = Path(game) / hub_folder
+    tmp = Path(tempfile.mkdtemp(prefix="ff9-hub-"))
+    dist = tmp / "mod"
+    B.build_mod([B.FieldProject.load(hub_toml)], dist, mod_name=hub_folder)
+    live_root.mkdir(parents=True, exist_ok=True)
+    snap = Path(backups_dir) / f"{hub_folder}.pre-hub-{hub_id}.{stamp}"
+    snap.parent.mkdir(parents=True, exist_ok=True)
+    if snap.exists():
+        shutil.rmtree(snap, ignore_errors=True)
+    shutil.copytree(live_root, snap)
+    shutil.copytree(dist, live_root, dirs_exist_ok=True)    # overlay -- preserves a prior New-Game override
+    out(f"installed hub field {hub_id} -> {live_root}  (snapshot {snap.name})")
+    reverts_dir = Path(reverts_dir)
+    reverts_dir.mkdir(parents=True, exist_ok=True)
+    rev = reverts_dir / f"revert_journey_hub_{hub_id}.py"
+    rev.write_text(_render_folder_revert(live_root, snap, stamp), encoding="utf-8", newline="\n")
+    return str(rev)
+
+
+def _apply_journey(manifest, plan, *, game, newgame, hub_out, backups_dir, reverts_dir, out, err):
+    """The ONE-SHOT in-game deploy: each campaign (seeded entry) -> links -> hub -> New Game, with ONE unified
+    revert. Returns ``(rc, unified_revert_path_or_None)``."""
+    import tempfile
+
+    from . import build as B
+    from . import campaign as C
+    from . import journey as J
+    from . import newgame as _ng
+    if plan.folder_conflicts:
+        err("ABORT: campaigns share a mod_folder (deploy wholesale-replaces it):")
+        for mf, a, b in plan.folder_conflicts:
+            err(f"  {a!r} and {b!r} both -> {mf!r} -- give each its OWN mod_folder.")
+        return 2, None
+    if game is None:
+        err("no FF9 install found -- can't deploy.")
+        return 2, None
+    if plan.hub_field_id is None:
+        err("ABORT: the manifest has no [hub] id to deploy New Game into.")
+        return 2, None
+
+    hub_name = manifest.hub.get("name") if manifest.hub else None
+    col = J.preflight_collisions(plan, game, hub_name=hub_name)
+    if col.has_blockers:
+        err("\n" + J.render_collision_report(col))
+        return 2, None
+
+    stamp = _stamp()
+    highest = resolve_highest_folder(folder_order(game), None)
+    hub_folder = plan.hub_folder or highest
+    captured: list = []
+    reverts_dir = Path(reverts_dir)
+    reverts_dir.mkdir(parents=True, exist_ok=True)
+    unified = reverts_dir / "revert_journey.py"
+
+    def _flush():
+        unified.write_text(_render_unified_revert(captured, stamp), encoding="utf-8", newline="\n")
+
+    def _abort(msg):
+        _flush()
+        err(f"\nABORT mid-deploy: {msg}")
+        err(f"Partial state is reversible: py {unified}")
+        return 2, str(unified)
+
+    # (0) PRE-FLIGHT (NO game files touched): build every campaign + emit/build the hub, all offline.
+    hub_toml = Path(hub_out) if hub_out else (manifest.path.parent / "hub.field.toml")
+    out("\n=== 0. pre-flight: build every campaign + the hub offline (no game files touched) ===")
+    built: dict = {}
+    for s in plan.campaign_steps:
+        dist = s.campaign_path.parent / "dist"
+        seednote = f" + seed {s.seed_blocks}" if s.seed_blocks else ""
+        out(f"  building {s.folder} (flag_base {s.flag_base}{seednote}) -> {dist}")
+        try:
+            C.build_campaign(s.campaign_path, out=dist, flag_base=s.flag_base, seed_blocks=s.seed_blocks,
+                             text_block_base=s.text_block_base, extra_flag_names=J.manifest_flag_names(manifest))
+        except Exception as e:                            # noqa: BLE001
+            err(f"\nABORT (no game files touched): campaign {s.folder} does not build -- {e}")
+            return 2, None
+        built[s.folder] = dist
+    try:
+        info = J.generate_hub(manifest.path, out_path=hub_toml, extract_camera=True, game=game)
+        with tempfile.TemporaryDirectory() as td:
+            B.build_mod([B.FieldProject.load(hub_toml)], Path(td) / "mod", mod_name="preflight")
+    except Exception as e:                                # noqa: BLE001
+        err(f"\nABORT (no game files touched): the hub does not build -- {e}")
+        if any(k in str(e).lower() for k in ("borrow", "camera", "scene", ".bgx")):
+            err("  Provision the hub camera: set [hub] borrow_field = <real field id> (auto-extracted via "
+                "UnityPy), or place the [hub] camera .bgx beside the journeys.toml.")
+        return 2, None
+    out(f"  all {len(built)} campaign(s) + the hub build OK -> {hub_toml}  (camera: {info['spec'].camera})")
+
+    col = J.preflight_collisions(plan, game, dists=built, hub_name=hub_name)
+    if col.has_blockers:
+        err("\n" + J.render_collision_report(col))
+        return 2, None
+    stale_note = J.render_collision_report(col)
+    if stale_note:
+        out("\n" + stale_note)
+
+    # (1) INSTALL each prebuilt campaign dist -> its own stacked folder (no_warp; the hub owns New Game).
+    out("\n=== 1. install campaigns ===")
+    for s in plan.campaign_steps:
+        rep = deploy_campaign(built[s.folder], game=game, mod_folder=s.mod_folder, apply=True, no_warp=True,
+                              allow_id_collision=True, backups_dir=backups_dir, reverts_dir=reverts_dir,
+                              verbose=(out is print))
+        if rep["rc"] != 0:
+            return _abort(f"campaign install for {s.folder} failed (rc {rep['rc']})")
+        cap = _capture_path(rep["revert"], reverts_dir, f"revert_journey_campaign_{s.folder}.py")
+        if cap:
+            captured.append(cap)
+        _flush()
+
+    # (2) cross-campaign links (LAST relative to campaign deploys -- the wholesale-replace gotcha)
+    out("\n=== 2. links ===")
+    link_rev, links_ok = _run_links(plan, game, stamp, backups_dir=backups_dir, reverts_dir=reverts_dir, out=out)
+    if link_rev:
+        captured.append(link_rev)
+        _flush()
+    if not links_ok:
+        return _abort("a cross-campaign link did not apply (see !! above)")
+
+    # (3) deploy the hub field into its DEDICATED folder
+    out(f"\n=== 3. hub (folder {hub_folder}) ===")
+    try:
+        hub_rev = _install_hub(hub_toml, plan.hub_field_id, hub_folder, game, backups_dir=backups_dir,
+                               reverts_dir=reverts_dir, stamp=stamp, out=out)
+    except Exception as e:                                # noqa: BLE001
+        return _abort(f"hub install (id {plan.hub_field_id}) failed -- {e}")
+    captured.append(hub_rev)
+    _flush()
+
+    # (4) OPTIONALLY point New Game at this journey -- into the SAME dedicated hub folder. SINGLE-OWNER, opt-in.
+    if newgame in ("hub", "entry"):
+        if newgame == "entry" and plan.entry_field_id is None:
+            return _abort("newgame='entry' needs a SINGLE-journey manifest (a multi-journey hub has no single "
+                          "opening -- use newgame='hub').")
+        target = plan.hub_field_id if newgame == "hub" else plan.entry_field_id
+        what = "the hub menu" if newgame == "hub" else "the opening, no menu"
+        out(f"\n=== 4. New Game -> {what} (field {target}, folder {hub_folder}) ===")
+        res = _ng.wire_from_stock(game, target, mod_folder=hub_folder, backups_dir=backups_dir,
+                                  reverts_dir=reverts_dir, verbose=(out is print))
+        if not res["ok"]:
+            return _abort("New-Game wiring (wire_from_stock) failed")
+        cap = _capture_path(res["revert"], reverts_dir, "revert_journey_newgame.py")
+        if cap:
+            captured.append(cap)
+        _flush()
+    else:
+        out("\n=== 4. New Game: SKIPPED (New Game UNCHANGED; newgame='hub'|'entry' to opt in) ===")
+
+    out("\n=== MANUAL STEPS (this tool cannot do these) ===")
+    folders = [hub_folder] + [s.mod_folder for s in plan.campaign_steps]
+    out("1. Memoria.ini [Mod] FolderNames -- STACK these (HIGHEST first), then your video/passthrough mods below:")
+    out("   FolderNames = " + ", ".join(f'"{f}"' for f in folders) + ', "<your other mods, e.g. Moguri>"')
+    if plan.campaign_steps:
+        lo = min(s.id_lo for s in plan.campaign_steps)
+        hi = max(s.id_hi for s in plan.campaign_steps)
+        out(f"   This journey uses field ids {lo}..{hi} -- REMOVE any OTHER custom-field folder that deploys in "
+            f"that range (EventDB is GLOBAL, so an overlap black-screens).")
+    out("2. RELAUNCH once -- the new ids only register on a fresh launch.")
+    if newgame == "hub":
+        out(f"3. New Game now lands on the hub (field {plan.hub_field_id}); pick a journey, PLAYTEST.")
+    elif newgame == "entry":
+        out(f"3. New Game now lands STRAIGHT in the opening (field {plan.entry_field_id}) -- no menu; "
+            f"PLAYTEST. (The hub still exists; reach it via F6 -> Warp {plan.hub_field_id}.)")
+    else:
+        out(f"3. Reach the hub via F6 -> Warp {plan.hub_field_id} (New Game is UNCHANGED). Pick a journey, PLAYTEST.")
+    out(f"Revert EVERYTHING (reverse order): py {unified}")
+    return 0, str(unified)
+
+
+def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow_collision, hub_out,
+                          backups_dir, reverts_dir, out, err):
+    """ONE-SHOT single-folder deploy: build every campaign + the hub offline, MERGE them into ONE mod folder,
+    install it (snapshot + wholesale-replace), apply the links IN that folder, optionally wire New Game. Returns
+    ``(rc, unified_revert_path_or_None)``."""
+    import tempfile
+
+    from . import build as B
+    from . import campaign as C
+    from . import deploystack as DS
+    from . import journey as J
+    from . import newgame as _ng
+    if game is None:
+        err("no FF9 install found -- can't deploy.")
+        return 2, None
+    if plan.hub_field_id is None:
+        err("ABORT: the manifest has no [hub] id to deploy New Game into.")
+        return 2, None
+    folder = _single_folder_name(manifest, single_folder)
+    stamp = _stamp()
+    live_root = Path(game) / folder
+    captured: list = []
+    reverts_dir = Path(reverts_dir)
+    reverts_dir.mkdir(parents=True, exist_ok=True)
+    unified = reverts_dir / "revert_journey.py"
+
+    def _flush():
+        unified.write_text(_render_unified_revert(captured, stamp), encoding="utf-8", newline="\n")
+
+    def _abort(msg):
+        _flush()
+        err(f"\nABORT mid-deploy: {msg}")
+        err(f"Partial state is reversible: py {unified}")
+        return 2, str(unified)
+
+    # (0) PRE-FLIGHT: build every campaign + the hub to its own dist, all OFFLINE.
+    out("\n=== 0. pre-flight: build every campaign + the hub offline (no game files touched) ===")
+    hub_toml = Path(hub_out) if hub_out else (manifest.path.parent / "hub.field.toml")
+    built: dict = {}
+    for s in plan.campaign_steps:
+        dist = s.campaign_path.parent / "dist"
+        out(f"  building {s.folder} (flag_base {s.flag_base}) -> {dist}")
+        try:
+            C.build_campaign(s.campaign_path, out=dist, flag_base=s.flag_base, seed_blocks=s.seed_blocks,
+                             text_block_base=s.text_block_base, extra_flag_names=J.manifest_flag_names(manifest))
+        except Exception as e:                            # noqa: BLE001
+            err(f"\nABORT (no game files touched): campaign {s.folder} does not build -- {e}")
+            return 2, None
+        built[s.folder] = dist
+    tmp = Path(tempfile.mkdtemp(prefix="ff9-journey-merge-"))
+    hub_dist = tmp / "hub_dist"
+    try:
+        J.generate_hub(manifest.path, out_path=hub_toml, extract_camera=True, game=game)
+        B.build_mod([B.FieldProject.load(hub_toml)], hub_dist, mod_name="hub")
+    except Exception as e:                                # noqa: BLE001
+        err(f"\nABORT (no game files touched): the hub does not build -- {e}")
+        return 2, None
+    out(f"  all {len(built)} campaign(s) + the hub build OK")
+
+    # (1) MERGE every dist (+ the hub) into one merged dist (entry campaign LAST so its start-state wins).
+    entry_step = next((s for s in plan.campaign_steps if s.seed_blocks), None) or (
+        plan.campaign_steps[0] if plan.campaign_steps else None)
+    entry_dist = built.get(entry_step.folder) if entry_step else None
+    all_dists = [hub_dist] + [built[s.folder] for s in plan.campaign_steps]
+    merged = tmp / "merged"
+    info = J.merge_dists(all_dists, out=merged, folder_name=folder, entry_dist=entry_dist)
+    out(f"\n=== 1. merge -> one folder '{folder}' ({info['fields']} fields, {info['dists_merged']} dist(s)) ===")
+
+    # (1.5) collision guards vs the FOREIGN FolderNames stack (the merged folder's own ids/names are fine).
+    order = folder_order(game)
+    nwarn = DS.name_collision_warning(
+        DS.check_name_collisions(game, folder, DS.eb_names_at(merged), DS.scene_names_at(merged),
+                                 folder_names=order), folder)
+    iwarn = DS.id_collision_warning(
+        DS.check_id_collisions(game, folder, DS.dictionary_ids_at(merged).keys(), folder_names=order), folder)
+    for w in (nwarn, iwarn):
+        if w:
+            out("\n  !! " + w)
+    if (nwarn or iwarn) and not allow_collision:
+        err("\nABORT before install (no game files touched): the merged journey collides with another "
+            "FolderNames folder. Drop the foreign folder from FolderNames, or pass allow_collision=True.")
+        return 2, None
+
+    # (1.6) wholesale-replace TARGET guard: a DIFFERENT mod already under that folder name.
+    if live_root.is_dir():
+        foreign_ids = set(DS.dictionary_ids_at(live_root).keys()) - set(DS.dictionary_ids_at(merged).keys())
+        if foreign_ids and not allow_collision:
+            shown = sorted(foreign_ids)
+            err(f"\nABORT (no game files touched): folder '{folder}' already holds an UNRELATED mod -- it "
+                f"registers field ids {shown[:8]}{'...' if len(shown) > 8 else ''} this journey doesn't. Pick a "
+                f"different single_folder NAME, remove that folder, or pass allow_collision=True to overwrite it.")
+            return 2, None
+
+    # (2) install: snapshot, script the snapshot-restore revert FIRST, then wholesale-replace.
+    live_root.mkdir(parents=True, exist_ok=True)
+    snap = Path(backups_dir) / f"{folder}.pre-journey.{stamp}"
+    snap.parent.mkdir(parents=True, exist_ok=True)
+    if snap.exists():
+        shutil.rmtree(snap, ignore_errors=True)
+    shutil.copytree(live_root, snap)
+    rev = reverts_dir / "revert_journey_single_folder.py"
+    rev.write_text(_render_folder_revert(live_root, snap, stamp), encoding="utf-8", newline="\n")
+    captured.append(str(rev))
+    _flush()
+    try:
+        shutil.rmtree(live_root, ignore_errors=True)
+        shutil.copytree(merged, live_root)
+    except OSError as e:
+        return _abort(f"install copy failed mid-write ({e}) -- run the revert to restore the snapshot")
+    out(f"=== 2. installed merged dist -> {live_root}  (snapshot {snap.name}) ===")
+
+    # (3) cross-campaign links -- all .eb live in the ONE merged folder now.
+    out("\n=== 3. links ===")
+    link_rev, links_ok = _run_links(plan, game, stamp, backups_dir=backups_dir, reverts_dir=reverts_dir,
+                                    mod_folder_override=folder, out=out)
+    if link_rev:
+        captured.append(link_rev)
+        _flush()
+    if not links_ok:
+        return _abort("a cross-campaign link did not apply (see !! above)")
+
+    # (4) OPTIONAL New Game -> the merged folder (single-owner).
+    if newgame in ("hub", "entry"):
+        if newgame == "entry" and plan.entry_field_id is None:
+            return _abort("newgame='entry' needs a SINGLE-journey manifest (use newgame='hub').")
+        target = plan.hub_field_id if newgame == "hub" else plan.entry_field_id
+        what = "the hub menu" if newgame == "hub" else "the opening, no menu"
+        out(f"\n=== 4. New Game -> {what} (field {target}, folder {folder}) ===")
+        res = _ng.wire_from_stock(game, target, mod_folder=folder, backups_dir=backups_dir,
+                                  reverts_dir=reverts_dir, verbose=(out is print))
+        if not res["ok"]:
+            return _abort("New-Game wiring (wire_from_stock) failed")
+        cap = _capture_path(res["revert"], reverts_dir, "revert_journey_newgame.py")
+        if cap:
+            captured.append(cap)
+        _flush()
+    else:
+        out("\n=== 4. New Game: SKIPPED (newgame='hub'|'entry' to opt in) ===")
+
+    out("\n=== MANUAL STEPS (this tool cannot do these) ===")
+    out("1. Memoria.ini [Mod] FolderNames -- this whole journey is now ONE folder. Put it HIGHEST:")
+    out(f'   FolderNames = "{folder}", "<your other mods, e.g. Moguri>"')
+    if plan.campaign_steps:
+        lo = min(s.id_lo for s in plan.campaign_steps)
+        hi = max(s.id_hi for s in plan.campaign_steps)
+        out(f"   This journey uses field ids {lo}..{hi} -- REMOVE any OTHER custom-field folder in that range "
+            f"(incl. this journey's OLD per-campaign folders, now superseded).")
+    out("2. RELAUNCH once -- the new ids only register on a fresh launch.")
+    if newgame in ("hub", "entry"):
+        tgt = plan.hub_field_id if newgame == "hub" else plan.entry_field_id
+        out(f"3. New Game lands on field {tgt}; PLAYTEST.")
+    else:
+        out(f"3. Reach the hub via F6 -> Warp {plan.hub_field_id} (New Game UNCHANGED). PLAYTEST.")
+    out(f"Revert EVERYTHING (reverse order): py {unified}")
+    return 0, str(unified)
+
+
+def deploy_journey(journeys, *, game=None, apply=False, newgame="none", apply_links=False, single_folder=None,
+                   allow_collision=False, hub_out=None, backups_dir, reverts_dir, verbose=True) -> dict:
+    """Deploy (or dry-run) a multi-campaign journey manifest. SAFE BY DEFAULT: with ``apply=False`` it lints +
+    prints the resolved namespace + the ordered deploy playbook and touches nothing. ``apply=True`` runs the
+    whole playbook in one shot (each campaign -> links -> hub -> optional New Game) with ONE unified revert;
+    ``single_folder`` (a name or ``""``) merges the journey into ONE folder; ``apply_links`` re-applies only the
+    cross-campaign link rewrites. Returns ``{ok, rc, revert}``."""
+    from . import journey as J
+    out, err = _emit(verbose)
+    report: dict = {"ok": False, "rc": 2, "revert": None}
+    jpath = Path(journeys)
+    try:
+        manifest = J.load_journeys(jpath)
+        errors, warnings = J.lint_manifest(manifest)
+    except (J.JourneyError, FileNotFoundError, ValueError) as e:
+        err(str(e))
+        return report
+    for w in warnings:
+        out("  warn:", w)
+    if errors:
+        err("journey lint FAILED:")
+        for e in errors:
+            err("  error:", e)
+        return report
+
+    plan = J.build_deploy_plan(manifest)
+    out(J.render_journey_plan(manifest))
+    game = game if game is not None else _game_or_none()
+
+    if apply:
+        if single_folder is not None:
+            rc, rev = _apply_journey_single(manifest, plan, game=game, newgame=newgame, single_folder=single_folder,
+                                            allow_collision=allow_collision, hub_out=hub_out,
+                                            backups_dir=backups_dir, reverts_dir=reverts_dir, out=out, err=err)
+        else:
+            rc, rev = _apply_journey(manifest, plan, game=game, newgame=newgame, hub_out=hub_out,
+                                     backups_dir=backups_dir, reverts_dir=reverts_dir, out=out, err=err)
+        report.update(ok=(rc == 0), rc=rc, revert=rev)
+        return report
+
+    if apply_links:
+        if game is None:
+            err("no FF9 install found -- can't apply link rewrites.")
+            return report
+        stamp = _stamp()
+        rev, _ok = _run_links(plan, game, stamp, backups_dir=backups_dir, reverts_dir=reverts_dir, out=out)
+        if rev:
+            out(f"link rewrites applied. RELAUNCH + PLAYTEST.  revert: py {rev}")
+        report.update(ok=True, rc=0, revert=rev)
+        return report
+
+    # --- dry-run: the playbook ---
+    hub_o = hub_out or str((jpath.parent / "hub.field.toml"))
+    out(J.render_deploy_playbook(manifest, hub_toml=hub_o, journeys_ref=str(jpath)))
+    if single_folder is not None:
+        folder = _single_folder_name(manifest, single_folder)
+        out(f"\n*** single_folder: with apply=True, the whole journey MERGES into ONE folder '{folder}' "
+            f"(one FolderNames entry) instead of the per-campaign folders above. ***")
+    if game is not None:
+        hub_name = manifest.hub.get("name") if manifest.hub else None
+        rep = J.render_collision_report(J.preflight_collisions(plan, game, hub_name=hub_name))
+        if rep:
+            out("\n" + rep)
+            out("(FBG scene-name collisions are only verified at apply, after the offline build.)")
+    out("DRY-RUN -- no game files touched. Re-run with apply=True for the one-shot install (one unified revert).")
+    report.update(ok=True, rc=0)
+    return report
