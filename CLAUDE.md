@@ -408,11 +408,12 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - Field logic-map — read/decode/validate/edit/add a verbatim fork's `.eb` in place; whole EDIT tier proven → [[project-ff9-field-logic-map]]
 - Verbatim authoring set — `[music]` rescore, `[[npc]] opens_shop`/`choice`, multi-actor `[cutscene]` conductor → [[project-ff9-verbatim-music]], [[project-ff9-cutscene-multiactor]]
 - FMV pipeline + SPS field-particle authoring → [[project-ff9-fmv-pipeline]], [[project-ff9-sps-authoring]]
+- Onboarding + Windows installer — uv-bootstrap `.exe` + `ff9mapkit setup` (detect FF9 → save config → extract → Memoria report; opt-in `--install-engine`) + Steam/GOG auto-detect + the GUI working for installed (.exe/pip/uv) users → [[project-ff9-installer-packaging]]
 
 **Frontier:** #13 (story-event director/roster on rotating-cast fields) — core + tail in-game proven →
 [[project-ff9-fork-fidelity-worklist]]. Custom OVERWORLD = the hardest unstarted thing → [[project-ff9-worldmap-feasibility]].
 
-**Latest:** kit **1.0.0b2**, 2274 tests (`py -m pytest -n 6`). See `git log` for the running narrative.
+**Latest:** kit **1.0.0b6** (public betas b3–b6: first PyPI release + uv-bootstrap Windows installer + `ff9mapkit setup` + Steam/GOG game-detect + GUI-works-installed; b6 GitHub draft awaits publish), 2380 tests (`py -m pytest -n 6`). See `git log` for the running narrative + `[[project-ff9-installer-packaging]]` for the onboarding/installer state + open threads (#1 engine-patches-in-installer, #4 icon).
 
 ---
 
