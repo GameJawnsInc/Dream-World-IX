@@ -90,6 +90,21 @@ def test_remap_fields_patches_destinations():
     assert _vb.remap_fields(eb, {}) == eb
 
 
+def test_fork_donor_id_reads_native_source_field():
+    """deploy_field auto-emits ForkDonorPatch for NATIVE/SYNTH forks too: build._verbatim_donor_id resolves the
+    donor from `[field] source_field` (the native import's record), not only `[verbatim_eb] donor`."""
+    from ff9mapkit.build import _verbatim_donor_id
+
+    class _P:
+        def __init__(self, raw):
+            self.raw = raw
+
+    assert _verbatim_donor_id(_P({"field": {"source_field": 351}})) == 351   # native fork
+    assert _verbatim_donor_id(_P({"verbatim_eb": {"donor": 1860}})) == 1860  # verbatim fork (unchanged)
+    assert _verbatim_donor_id(_P({"field": {"borrow_field": 100}})) == 100   # BG-borrow form
+    assert _verbatim_donor_id(_P({"field": {}})) is None                     # a non-fork synth field -> no emit
+
+
 def _game_ready():
     try:
         import UnityPy  # noqa: F401,PLC0415
@@ -134,6 +149,22 @@ def test_import_verbatim_ships_the_whole_donor_eb(tmp_path):
     project.raw["verbatim_eb"]["retarget"] = {exits[0]: 4100}
     shipped = _vb.verbatim_eb(project)
     assert 4100 in _fields(shipped) and exits[0] not in _fields(shipped)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_native_import_records_donor_for_forkdonorpatch(tmp_path):
+    # A NATIVE (non-verbatim) import now records `[field] source_field = <donor real id>`, so deploy_field can
+    # auto-emit ForkDonorPatch (name-keyed occlusion/location fidelity) -- no more hand-written `<fork> <donor>`.
+    from ff9mapkit import extract
+    from ff9mapkit.build import FieldProject, _verbatim_donor_id
+    from ff9mapkit.dialogue import _resolve_field_id
+    fbg = "fbg_n06_vgdl_map101_dl_inn_0"
+    donor = _resolve_field_id(fbg)
+    _m, toml = extract.write_native_project(fbg, tmp_path, name="DV")    # native scene, NOT verbatim
+    proj = FieldProject.load(toml)
+    assert "verbatim_eb" not in proj.raw                                 # it's a native fork
+    assert proj.raw["field"].get("source_field") == donor               # donor recorded in [field]
+    assert _verbatim_donor_id(proj) == donor                            # -> deploy_field emits ForkDonorPatch
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

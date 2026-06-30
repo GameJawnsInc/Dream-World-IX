@@ -1829,6 +1829,16 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
     wb = meta["walkmesh_bounds"]
     x, z = meta["player_start"]
     scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
+    # The donor's REAL field id (FBG -> id): a fork MIRRORS this field's geometry, so deploy auto-emits the
+    # ForkDonorPatch `<forkId> <donorId>` -> the engine's name-keyed fidelity (s31 occlusion z-offset,
+    # FieldLocationName) resolves for the custom id. Recorded as `[verbatim_eb] donor` (verbatim) OR
+    # `[field] source_field` (native/synth) -- both read by build._verbatim_donor_id + emitted by deploy_field.
+    from .dialogue import _resolve_field_id as _rfi
+    try:
+        _src_fid = _rfi(field)
+    except (FileNotFoundError, ValueError):
+        _src_fid = None
+    source_field_line = ""
     if verbatim:
         # VERBATIM .eb fork (docs/FORK_FIDELITY.md, the entry-0 carry): ship the donor's WHOLE event script;
         # the build runs the real logic instead of synthesizing. No declarative content (it's all in the .eb).
@@ -1845,11 +1855,7 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         # Donor battle BGM: a verbatim fork carries the real Battle()/BattleEx() ops, but its custom id misses
         # the engine's (fldMapNo, scene) song lookup -> the boss/special theme is lost. Auto-emit [[battle_bgm]]
         # for the donor's scripted battle scenes whose song is non-zero (build -> a scene-keyed Music: line).
-        from .dialogue import _resolve_field_id
-        try:
-            _donor_fid = _resolve_field_id(field)
-        except (FileNotFoundError, ValueError):
-            _donor_fid = None
+        _donor_fid = _src_fid
         bgm_pairs = _donor_battle_bgm_pairs(donor_eb, _donor_fid, game)
         bgm_blocks = _render_battle_bgm_blocks(bgm_pairs)
         # retarget the Field() exits: import-chain pre-fills a LIVE table (doors warp into the chain's own
@@ -1894,6 +1900,9 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
             field, game, out_dir=out, name=name, id_remap=id_remap, live_seams=live_seams,
             graft_player_funcs=graft_player_funcs, carry_text=carry_text, graft_savepoint=graft_savepoint)
         meta["imported_content"] = content_summary
+        if _src_fid is not None and _src_fid != field_id:        # record the donor -> deploy auto-emits ForkDonorPatch
+            source_field_line = (f"source_field = {_src_fid}   # the real field this NATIVE fork mirrors; deploy "
+                                 f"emits ForkDonorPatch so name-keyed fidelity (occlusion/location) resolves\n")
         control_line = (f"control_direction = {control_dir}   # imported WASD-vs-camera tuning\n"
                         if control_dir is not None else "")
         content_tail = (
@@ -1913,6 +1922,7 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         f'name = "{name}"\n'
         f"area = {safe_area}\n"
         f"text_block = {text_block}\n"
+        f"{source_field_line}"
         f"{_walkmesh_hotfix_line(field)}"
         f"{_area_title_hide_lines(meta, verbatim=verbatim)}"
         f'bgs = "scene.bgs.bytes"   # NATIVE scene (per-tile depth) -> seamless render, NO .bgx / no tile seams\n'

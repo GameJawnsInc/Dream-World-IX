@@ -137,16 +137,17 @@ live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline
 if info.get("location_lines"):                  # the directive is read from DictionaryPatch at LAUNCH, not on F6
     print(f"  + {info['location_lines'][0]}  -> RELAUNCH to apply (DictionaryPatch is read at launch, not F6)")
 
-# ForkDonorPatch.txt: a VERBATIM fork needs its `<forkId> <donorRealId>` mapping so the engine's fork-donor
-# remap suite (s24-s33: off-mesh exemptions, the NAME-keyed overlay-occlusion offsets, scroll binds, ...) still
-# fires for the custom id. deploy_field historically did NOT emit this (only deploy_campaign did), so a verbatim
-# fork deployed here lost ALL fork-donor behaviors -- most visibly, character-vs-overlay OCCLUSION broke for the
-# whole donor field (s31 FieldMapExtraOffset can't resolve the fork name -> donor). Emit it (merged non-clobbering
-# so other ids' mappings survive, reversible). Read at LAUNCH -> RELAUNCH to apply.
+# ForkDonorPatch.txt: ANY fork (verbatim OR native/synth) needs its `<forkId> <donorRealId>` mapping so the
+# engine's fork-donor remap suite (s24-s33: off-mesh exemptions, the NAME-keyed overlay-occlusion offsets, scroll
+# binds, ...) still fires for the custom id. deploy_field historically emitted it ONLY for verbatim forks, so a
+# NATIVE/SYNTH fork lost ALL fork-donor behaviors -- most visibly, character-vs-overlay OCCLUSION broke for the
+# whole donor field (s31 FieldMapExtraOffset can't resolve the fork name -> donor; the recurring hand-written
+# `4003 1860`). The donor is now recorded by the import (`[verbatim_eb] donor` OR `[field] source_field`) and
+# read by _verbatim_donor_id, so emit for both. Merged non-clobbering, reversible. Read at LAUNCH -> RELAUNCH.
 fork_revert_code = ""
 _donor = B._verbatim_donor_id(proj)
 _fdp = live.root / "ForkDonorPatch.txt"
-if "verbatim_eb" in proj.raw and _donor and _donor != FID:
+if _donor and _donor != FID:
     _had_fdp = _fdp.exists()
     if _had_fdp:
         shutil.copyfile(_fdp, BK / f"ForkDonorPatch.txt.preDEPLOY.{STAMP}")

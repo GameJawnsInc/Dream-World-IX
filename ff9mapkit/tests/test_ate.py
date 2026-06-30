@@ -369,3 +369,20 @@ def _w(tmp_path, toml):
     p = tmp_path / "ok.field.toml"
     p.write_text(toml, encoding="utf-8")
     return p
+
+
+def test_legacy_cutscene_ate_is_deprecated(tmp_path):
+    """`[cutscene] ate = true` (the OLD held-banner model) now lint-warns toward the faithful `[[gateway]] ate`
+    warp-in trigger -- it still builds (a warning, not an error)."""
+    from ff9mapkit.build import FieldProject, lint_logic, validate
+    base = ('[field]\nid = 4003\nname = "D"\narea = 11\ntext_block = 1073\n\n'
+            '[camera]\npitch = 45\nfov = 42.2\n\n'
+            '[walkmesh]\nquad = [[-200,-200],[200,-200],[200,200],[-200,200]]\n\n'
+            '[player]\nspawn = [0, 0]\n\n')
+    p = tmp_path / "d.field.toml"
+    p.write_text(base + '[cutscene]\nate = true\nsteps = [ { say = "An ATE." } ]\n', encoding="utf-8")
+    proj = FieldProject.load(p)
+    assert any("held-banner" in w and "[[gateway]] ate" in w for w in lint_logic(proj))
+    assert validate(proj) == []                                # deprecated, but still valid (warning, not error)
+    p.write_text(base + '[cutscene]\nsteps = [ { say = "Hi." } ]\n', encoding="utf-8")   # no ate -> no warning
+    assert not any("held-banner" in w for w in lint_logic(FieldProject.load(p)))

@@ -1839,6 +1839,16 @@ def lint_logic(project: FieldProject) -> list[str]:
             for ln in _text.overflow_lines(t, wrap):
                 out.append(f"{who} has a word too wide to fit one line ({ln!r}) -- it will overflow; "
                            f"shorten it or raise [dialogue] wrap.")
+    # DEPRECATION: `[cutscene] ate = true` is the OLD, unfaithful forced-ATE model -- a grey banner held over
+    # THIS in-place cutscene. A real grey ATE WARPS you to a dedicated scene and back (verified vs 6 real grey
+    # ATEs; see project-ff9-ate-system). Steer to the faithful trigger; the held-banner still builds (not an error).
+    _cs = raw.get("cutscene")
+    if isinstance(_cs, dict) and _cs.get("ate"):
+        out.append("[cutscene] ate = true is the OLD held-banner ATE styling (a grey banner over this in-place "
+                   "cutscene) -- NOT how a real grey ATE works (it WARPS you to a scene, plays it, and warps you "
+                   "back). For a faithful forced ATE use `[[gateway]] ate = true` (the warp-in trigger: banner "
+                   "warning + centered title window, then the warp) + a plain [cutscene] + exit_warp on the "
+                   "destination field. This held-banner flavor still builds, but it isn't faithful.")
 
     # reference-data sanity (Info Hub): an [[npc]] model id / animation id the engine won't recognise.
     # A model NAME is handled by validate() (fatal); here we WARN on a raw id outside the known tables
@@ -3183,9 +3193,10 @@ _UID_HOTFIX_DONORS = frozenset((900, 2803))
 
 
 def _verbatim_donor_id(project: FieldProject):
-    """Best-effort donor field id of a verbatim fork (for engine-hotfix warnings). ``import --verbatim``
-    records it as ``[verbatim_eb] donor``; ``None`` when an older fork's toml lacks it (the warn is then
-    skipped -- only fields 900/2803 are affected, so a missing hint just means no warn)."""
+    """Best-effort donor field id of ANY fork (verbatim OR native/synth), for engine-hotfix warnings AND the
+    deploy-time ForkDonorPatch `<forkId> <donorId>` mapping. The import records it as ``[verbatim_eb] donor``
+    (verbatim) or ``[field] source_field`` (native/synth); ``borrow_field`` is the BG-borrow form. ``None``
+    when an older fork's toml lacks it (the warn/emit is then skipped -- pre-record forks need a hand-added line)."""
     for blk, key in (("verbatim_eb", "donor"), ("field", "source_field"), ("field", "borrow_field")):
         v = (project.raw.get(blk) or {}).get(key)
         if isinstance(v, bool):
