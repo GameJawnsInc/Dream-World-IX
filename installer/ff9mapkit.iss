@@ -120,3 +120,54 @@ begin
   else
     Result := '';
 end;
+
+// Best-effort read of the saved FF9 path from ~/.ff9mapkit.toml (written by `ff9mapkit setup`), so the
+// uninstall reminder can point at the exact engine-backup folder. Returns '' if it can't be read.
+function ReadGamePath(): String;
+var
+  cfg: String;
+  lines: TArrayOfString;
+  i, p, q: Integer;
+  line: String;
+begin
+  Result := '';
+  cfg := ExpandConstant('{%USERPROFILE}\.ff9mapkit.toml');
+  if not FileExists(cfg) then exit;
+  if not LoadStringsFromFile(cfg, lines) then exit;
+  for i := 0 to GetArrayLength(lines) - 1 do begin
+    line := Trim(lines[i]);
+    if Copy(line, 1, 9) = 'game_path' then begin
+      p := Pos('"', line);
+      if p > 0 then begin
+        q := Pos('"', Copy(line, p + 1, Length(line)));
+        if q > 0 then
+          Result := Copy(line, p + 1, q - 1);
+      end;
+    end;
+  end;
+end;
+
+// After uninstall, remind the user that their GAME wasn't changed -- the engine patches (if applied)
+// are a separate Memoria mod, and their originals are backed up. Skipped on a silent uninstall.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  game, backups, msg: String;
+begin
+  if (CurUninstallStep = usPostUninstall) and (not UninstallSilent()) then begin
+    game := ReadGamePath();
+    if game <> '' then
+      backups := game + '/dwix-engine-backups/'
+    else
+      backups := 'your FINAL FANTASY IX folder, under  dwix-engine-backups/';
+    msg :=
+      'Dream World IX has been removed (the ff9mapkit tool was uninstalled via uv).' + #13#10 + #13#10 +
+      'This did NOT change your game. If you installed the engine patches, your original Memoria DLLs' + #13#10 +
+      'are backed up in:' + #13#10 + #13#10 +
+      '    ' + backups + #13#10 + #13#10 +
+      'To restore stock Memoria, copy the backed-up DLLs back over  x64/FF9_Data/Managed  and' + #13#10 +
+      'x86/FF9_Data/Managed  (or just re-run the Memoria patcher).' + #13#10 + #13#10 +
+      'Left in place: uv + its Python (shared), and your settings/extracted assets in' + #13#10 +
+      '%LOCALAPPDATA%\ff9mapkit.';
+    MsgBox(msg, mbInformation, MB_OK);
+  end;
+end;

@@ -134,6 +134,29 @@ pip install -e ".[dev]"
 py -m pytest -n 6        # 1,500+ offline golden-master tests; -n 6 ≈ 2.6× faster than serial
 ```
 
+### 2.6 Updating & uninstalling
+
+**Installed via the `.exe` / `uv`** (the non-developer path):
+
+- **Update** — easiest is one terminal command: **`uv tool upgrade ff9mapkit`** (pulls the latest
+  release from PyPI; no re-download). Re-running a *newer* `DreamWorldIX-Setup.exe` also works and
+  upgrades **in place** — same app id, so there's **no need to uninstall first**. Re-run the `.exe`
+  when a release ships a new engine bundle or icon; for code-only updates `uv tool upgrade` is enough.
+- **Uninstall** — *Settings → Apps* (Add/Remove Programs) → **"Dream World IX"**, or the Start-Menu
+  uninstaller. It runs `uv tool uninstall ff9mapkit` and removes the installer's files.
+
+Three things uninstall **leaves in place on purpose**:
+- `uv` and its managed Python (shared — other tools may use them).
+- Your settings + extracted assets in `%LOCALAPPDATA%\ff9mapkit`.
+- The engine patches you may have applied to your **game** — those are a separate Memoria mod, not
+  part of the toolkit. To restore stock Memoria, copy the originals back from
+  `<your FF9 folder>\dwix-engine-backups\<timestamp>\` over `x64\FF9_Data\Managed` + `x86\…`, or just
+  re-run the Memoria patcher. (The uninstaller reminds you of this folder.)
+
+**Installed editable** (`pip install -e .`, the dev path): update with `git pull` then re-run
+`pip install -e ".[…]"`; "uninstall" is `pip uninstall ff9mapkit` (your checkout + `~/.ff9mapkit.toml`
+stay).
+
 ---
 
 ## 3. Orientation — how to think about it
@@ -245,7 +268,10 @@ py tools\scroll_out\revert_deploy_4003.py   # a specific id (surgical: drops onl
 
 **Bigger deploys:** `tools\deploy_campaign.py <campaign.toml>` installs a multi-field campaign and
 wires New Game to its entry; `tools\deploy_journey.py <journeys.toml>` orchestrates campaigns + the
-hub. Both are dry-run by default (add `--apply`) and need a relaunch after applying.
+hub. Both are dry-run by default (add `--apply`) and need a relaunch after applying. (An **installed**
+copy without the repo `tools/` uses the package equivalents — `ff9mapkit deploy-campaign`,
+`deploy-journey`, and `ff9mapkit newgame <id>` to point New Game at a field; the Workspace GUI picks
+the right one automatically. Their snapshots + revert scripts go to `%LOCALAPPDATA%\ff9mapkit\cache`.)
 
 **Shipped path (no dev engine):** `ff9mapkit build … --mod-name MyMod`, copy the built mod folder
 into the game install, register it in `Memoria.ini [Mod] FolderNames`, and launch. This is the
