@@ -56,11 +56,11 @@ SolidCompression=yes
 Compression=lzma2
 
 [Messages]
-; Keep the Finished page short. NOTE: the bootstrap PowerShell window CLOSES when it finishes, so by the
-; time this page shows there is no "window above" -- point at `ff9mapkit setup` (which reports the engine
-; status and can apply it) rather than a vanished window.
-FinishedLabelNoIcons=Dream World IX is installed.%n%nForked real fields need the Memoria engine patches. Run  ff9mapkit setup  to check the engine status, or  ff9mapkit setup --install-engine  to apply it.
-FinishedLabel=Dream World IX is installed.%n%nForked real fields need the Memoria engine patches. Run  ff9mapkit setup  to check the engine status, or  ff9mapkit setup --install-engine  to apply it.
+; The Finished-page text is set DYNAMICALLY in [Code] CurPageChanged, keyed on whether the "engine patches"
+; task was ticked -- when it was, the installer already applied the patches, so the page should SAY so rather
+; than tell the user to do it manually (the b8 confusion). These static values are a fallback only.
+FinishedLabelNoIcons=Dream World IX is installed.
+FinishedLabel=Dream World IX is installed.
 
 [Tasks]
 ; Opt-in engine-patch install. Default CHECKED: playing FORKED real fields (the headline feature) needs
@@ -120,6 +120,26 @@ begin
     Result := ' -EngineZip "' + ExpandConstant('{app}\dwix-engine.zip') + '"'
   else
     Result := '';
+end;
+
+// Set the Finished-page text to match what actually happened: if the "engine patches" task ran, the
+// installer ALREADY applied them (when Memoria was present), so say that -- don't tell the user to do it
+// manually. Otherwise point them at the command to add them. (Mirrors EngineArg's condition.)
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = wpFinished then begin
+    if WizardIsTaskSelected('engine') and FileExists(ExpandConstant('{app}\dwix-engine.zip')) then
+      WizardForm.FinishedLabel.Caption :=
+        'Dream World IX is installed, with the Memoria engine patches — forked real fields are ready.' + #13#10 + #13#10 +
+        '(Patches apply only when Memoria is already installed. If you add Memoria later, run' + #13#10 +
+        '   ff9mapkit setup --install-engine   to apply them.)'
+    else
+      WizardForm.FinishedLabel.Caption :=
+        'Dream World IX is installed.' + #13#10 + #13#10 +
+        'To play FORKED real fields, add the Memoria engine patches:' + #13#10 +
+        '   ff9mapkit setup --install-engine' + #13#10 +
+        '(or re-run this installer and tick the engine option).';
+  end;
 end;
 
 // Best-effort read of the saved FF9 path from ~/.ff9mapkit.toml (written by `ff9mapkit setup`), so the
