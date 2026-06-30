@@ -1420,6 +1420,37 @@ def _cmd_battle_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_extract(args: argparse.Namespace) -> int:
+    """Extract an overworld block's terrain mesh (the Path-C geometry-edit foundation) -> .obj + .mapids.json."""
+    from .world import extract as W
+    try:
+        if args.list:
+            blocks = W.list_blocks(disc=args.disc, lod=args.lod, game=args.game)
+            for (x, y) in blocks:
+                print(f"  block[{x}][{y}]")
+            print(f"disc{args.disc}: {len(blocks)} terrain block(s)")
+            return 0
+        if not args.block:
+            print("give a block to extract: world-extract --block X Y  (or --list)", file=sys.stderr)
+            return 2
+        x, y = args.block
+        summ = W.extract_block(x, y, disc=args.disc, lod=args.lod, out_dir=(args.out or "."), game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"block[{x}][{y}] '{summ['name']}': {summ['vertices']} verts / {summ['triangles']} tris  "
+          f"(round-trip {'OK' if summ['roundtrip'] else 'FAILED -- decode not lossless!'})")
+    if summ["place_entrances"]:
+        print("  place entrances: " + ", ".join(f"area {e['area']} (x{e['tris']} tris)"
+                                                 for e in summ["place_entrances"]))
+    else:
+        print("  (no place-entrance tiles -- plain terrain block)")
+    print(f"  topograph types present: {summ['topographs']}")
+    print(f"  -> {summ['files']['obj']}")
+    print(f"  -> {summ['files']['mapids']}")
+    return 0
+
+
 def _cmd_battle_actions(args: argparse.Namespace) -> int:
     """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
     _safe_console()
@@ -2979,6 +3010,18 @@ def build_parser() -> argparse.ArgumentParser:
     bac.add_argument("--script-ids", action="store_true",
                      help="dump the scriptId->formula catalog (the data-vs-DLL boundary)")
     bac.set_defaults(func=_cmd_battle_actions)
+
+    we = sub.add_parser("world-extract",
+                        help="extract an overworld block's terrain mesh (geometry + per-tile ids) -- Path C "
+                             "geometry-edit foundation (needs UnityPy)")
+    we.add_argument("--disc", type=int, default=1, help="world disc: 1 or 4 (default 1)")
+    we.add_argument("--block", type=int, nargs=2, metavar=("X", "Y"),
+                    help="block grid coords to extract, e.g. --block 3 7")
+    we.add_argument("--lod", default="0_1", help="LOD dir (0_1 = the walkmesh form, default; 0_2 = far LOD)")
+    we.add_argument("--list", action="store_true",
+                    help="list the disc's terrain blocks instead of extracting one")
+    we.add_argument("--out", help="output dir for the .obj + .mapids.json (default: current dir)")
+    we.set_defaults(func=_cmd_world_extract)
 
     bsc = sub.add_parser("battle-scene",
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")
