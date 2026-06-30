@@ -128,7 +128,9 @@ def test_preferences_writes_update_optin_only_when_installed(app, monkeypatch):
         monkeypatch.setattr(shell.update_check, "set_preference", lambda v: calls.append(v))
 
         def fake_exec(dlg):
-            dlg.findChild(QCheckBox).setChecked(True)
+            chk = dlg.findChild(QCheckBox)               # only present on an installed copy
+            if chk is not None:
+                chk.setChecked(True)
             dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok).click()
             return 1
 
@@ -138,6 +140,25 @@ def test_preferences_writes_update_optin_only_when_installed(app, monkeypatch):
 
     assert run_ok(True) == [True]      # installed copy persists the opt-in
     assert run_ok(False) == []         # source checkout never writes update-check state
+
+
+def test_preferences_update_toggle_only_on_installed(app, monkeypatch):
+    # installed -> a real clickable checkbox; source checkout -> NO dead/disabled checkbox (a note instead)
+    monkeypatch.setattr(shell.prefs, "theme", lambda: "dark")
+    seen = {}
+
+    def fake_exec(dlg):
+        seen["chk"] = dlg.findChild(QCheckBox)
+        dlg.reject()
+        return 0
+
+    monkeypatch.setattr(shell.QDialog, "exec", fake_exec, raising=False)
+    monkeypatch.setattr(shell.update_check, "is_installed", lambda: True)
+    _win(app)._open_preferences()
+    assert seen["chk"] is not None
+    monkeypatch.setattr(shell.update_check, "is_installed", lambda: False)
+    _win(app)._open_preferences()
+    assert seen["chk"] is None
 
 
 def test_upgrade_ps1_is_parameterized():

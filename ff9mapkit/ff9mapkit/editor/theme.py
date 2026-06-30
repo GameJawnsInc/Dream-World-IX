@@ -19,24 +19,26 @@ from __future__ import annotations
 # from whichever palette is active. Colours are plain "#rrggbb" strings.
 LIGHT = {
     "dark": False,
-    "bg": "#f4f5f7",            # window background
-    "surface": "#ffffff",       # tree / form surface
-    "surface_btn": "#ffffff",   # neutral button face
-    "field": "#ffffff",         # entry / listbox background
+    # A SOFT light scheme (toned down from the old pure-white look, which read as too bright): a calm
+    # grey page with off-white surfaces, not glaring #ffffff panels.
+    "bg": "#e8eaed",            # window background (soft grey, not white)
+    "surface": "#f4f5f7",       # tree / form surface (off-white, not pure white)
+    "surface_btn": "#f4f5f7",   # neutral button face
+    "field": "#fbfcfd",         # entry / listbox background (just-off-white, so inputs still read as 'open')
     "text": "#1b1f24",          # primary text
-    "muted": "#6b7280",         # secondary text (hints)
+    "muted": "#646b76",         # secondary text (hints) -- a touch darker for the dimmer bg
     "accent": "#2f6feb",        # primary buttons, tree selection
     "accent_fg": "#ffffff",     # text on accent
     "accent_hover": "#256ae0",
     "accent_pressed": "#1f5fcc",
     "help": "#7c3aed",          # help / info affordance (violet -- distinct from accent/success/warn)
     "help_hover": "#6d28d9",
-    "border": "#d6dae0",
+    "border": "#d2d6dc",
     "success": "#1a8f5a",       # "placed in Blender" / OK lines
-    "hover": "#eef1f4",         # neutral button hover
-    "pressed": "#e3e7ec",
-    "scroll": "#c3c8cf",        # scrollbar thumb
-    "log_bg": "#eef0f3",
+    "hover": "#dfe2e7",         # neutral button hover
+    "pressed": "#d4d8de",
+    "scroll": "#bcc1c9",        # scrollbar thumb
+    "log_bg": "#e1e3e7",
     "log_fg": "#374151",
     "error": "#c0392b",
     "warn": "#9a6b00",
@@ -145,24 +147,26 @@ SOLARIZED_DARK = {              # https://ethanschoonover.com/solarized
 }
 SOLARIZED_LIGHT = {
     "dark": False,
-    "bg": "#fdf6e3",            # base3
-    "surface": "#fbf3da",
-    "surface_btn": "#f4ecd3",
-    "field": "#fffdf5",
+    # Uses base2 (#eee8d5) as the page rather than the brighter base3 (#fdf6e3) -- the dimmer canonical
+    # Solarized-Light option, so it isn't glaring (the "too bright" feedback).
+    "bg": "#eee8d5",            # base2
+    "surface": "#f4eeda",
+    "surface_btn": "#e8e1cd",
+    "field": "#f7f1de",
     "text": "#586e75",          # base01
-    "muted": "#657b83",         # base00 (base1 #93a1a1 is too low-contrast for hint text on the cream bg)
+    "muted": "#5c727a",         # deepened base00 for hint legibility on the dimmer cream
     "accent": "#268bd2",        # blue
     "accent_fg": "#ffffff",     # white over the blue accent
     "accent_hover": "#1f7ec0",
     "accent_pressed": "#1a6ca8",
     "help": "#6c71c4",          # violet
     "help_hover": "#595fb8",
-    "border": "#e6dcc0",
+    "border": "#ddd6bf",
     "success": "#728a00",       # deepened green for light-bg legibility
-    "hover": "#f3ebd2",
-    "pressed": "#ece3c8",
-    "scroll": "#cfc8b0",
-    "log_bg": "#eee8d5",        # base2
+    "hover": "#e6dfc9",
+    "pressed": "#ded7c0",
+    "scroll": "#c9c2aa",
+    "log_bg": "#e4ddc8",
     "log_fg": "#586e75",
     "error": "#dc322f",         # red
     "warn": "#b58900",          # yellow

@@ -595,12 +595,17 @@ class Workspace(QMainWindow):
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{self.pal['muted']};")
         lay.addWidget(hint)
-        chk = QCheckBox("Check pypi.org once a day for a newer release")
-        chk.setChecked(update_check.is_enabled())
-        if not update_check.is_installed():
-            chk.setEnabled(False)
-            chk.setToolTip("Source checkout — update with `git pull`, not the PyPI check.")
-        lay.addWidget(chk)
+        if update_check.is_installed():
+            chk = QCheckBox("Check pypi.org once a day for a newer release")
+            chk.setChecked(update_check.is_enabled())
+            lay.addWidget(chk)
+        else:                                          # a source checkout: no auto-check (you update via git)
+            chk = None                                 # -> a plain explanation, not a dead/disabled checkbox
+            note = QLabel("Update checks apply to installed copies — you're running from a source checkout "
+                          "(update with git pull).")
+            note.setWordWrap(True)
+            note.setStyleSheet(f"color:{self.pal['muted']};")
+            lay.addWidget(note)
         lay.addStretch(1)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         lay.addWidget(bb)
@@ -610,7 +615,7 @@ class Workspace(QMainWindow):
         def _accept():
             state["ok"] = True
             prefs.set_theme(combo.currentData())
-            if update_check.is_installed():               # don't write update state for a source checkout
+            if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
             dlg.accept()
 
