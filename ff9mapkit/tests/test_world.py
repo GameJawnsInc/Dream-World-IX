@@ -124,6 +124,127 @@ def test_raise_vertex_edits_one_vertex():
     assert moved == [bi] and bm.verts[bi][1] == before[bi][1] + 8.0
 
 
+# ---- world-grid frame (block world placement; Memoria WMWorld.cs) ----------------------------
+def test_block_world_origin_negates_z():
+    assert W.block_world_origin(0, 0) == (0, 0)
+    assert W.block_world_origin(13, 16) == (832, -1024)     # x*64 ; -y*64 (Z negated)
+    assert W.block_world_origin(14, 17) == (896, -1088)
+
+
+def test_footprint_nearest_dist():
+    # block[13][16] world footprint: x[832,896] z[-1088,-1024]
+    assert W.footprint_nearest_dist(13, 16, 864, -1056) == 0.0      # a point inside -> 0
+    assert abs(W.footprint_nearest_dist(13, 16, 822, -1056) - 10.0) < 1e-9   # 10u left of the x edge
+    assert abs(W.footprint_nearest_dist(13, 16, 832, -1014) - 10.0) < 1e-9   # 10u above the z edge
+
+
+def test_blocks_touched_is_the_crack_free_set():
+    blocks = {(12, 16), (13, 16), (14, 16), (15, 16), (20, 20)}
+    # centre on the 13/14 seam (world x=896), radius 40 reaches only 13 & 14 (12/15 edges are 64u away)
+    assert W.blocks_touched(896.0, -1056.0, 40.0, blocks) == [(13, 16), (14, 16)]
+    assert (20, 20) not in W.blocks_touched(896.0, -1056.0, 40.0, blocks)
+
+
+# ---- purposeful terrain reshaping (tear-free deforms) ----------------------------------------
+def _flat_block(positions, normals=None):
+    """A minimal BlockMesh from explicit vertex positions (+ optional normals) -- for the deform unit tests
+    (no packed bytes needed; the deforms operate on chan_arrays)."""
+    n = len(positions)
+    channels = {W.CH_POS: (0, 3)}
+    chan = {W.CH_POS: [list(p) for p in positions]}
+    stride = 12
+    if normals is not None:
+        channels[W.CH_NRM] = (12, 3)
+        chan[W.CH_NRM] = [list(v) for v in normals]
+        stride = 24
+    tris = [[i, i + 1, i + 2] for i in range(0, n - 2, 3)] or [[0, 0, 0]]
+    return W.BlockMesh(name="Block[0][0] Terrain", disc=1, x=0, y=0, lod="0_1", vcount=n, stride=stride,
+                       channels=channels, chan_arrays=chan, flat_index=list(range(n)), tris=tris,
+                       raw_vbuf=b"", raw_ibuf=b"", use32=False, submeshes=[(0, n)])
+
+
+def test_deform_radial_hill_and_watertight():
+    from ff9mapkit.world import mesh as M
+    # two COINCIDENT centre corners (0,0) + a mid-radius vert + one past the rim
+    bm = _flat_block([[0, 0, 0], [0, 0, 0], [5, 0, 0], [20, 0, 0]])
+    n = M.deform_radial(bm, amount=10.0, radius=10.0, center=(0.0, 0.0), falloff="smooth")
+    ys = [v[1] for v in bm.verts]
+    assert ys[0] == ys[1]                       # coincident corners move IDENTICALLY -> no tear
+    assert abs(ys[0] - 10.0) < 1e-9             # peak == amount at the centre
+    assert 0 < ys[2] < ys[0]                    # partial at mid-radius
+    assert ys[3] == 0.0                         # past the rim: untouched
+    assert n == 3                               # rim vert not counted
+
+
+def test_deform_radial_crater_lowers():
+    from ff9mapkit.world import mesh as M
+    bm = _flat_block([[0, 0, 0]])
+    M.deform_radial(bm, amount=-8.0, radius=10.0, center=(0.0, 0.0))
+    assert abs(bm.verts[0][1] + 8.0) < 1e-9     # centre sinks by the depth (crater)
+
+
+def test_deform_radial_seam_continuous_across_blocks():
+    from ff9mapkit.world import mesh as M
+    # the SAME world point on the 13|14 seam: block13 local x=64 (origin 832) and block14 local x=0 (origin 896)
+    # both map to world x=896 -> a world-XZ deform must give them the identical delta (else the seam cracks).
+    b13 = _flat_block([[64.0, 0.0, -32.0]])
+    b14 = _flat_block([[0.0, 0.0, -32.0]])
+    ctr = (896.0, -1056.0)
+    M.deform_radial(b13, amount=8.0, radius=200.0, center=ctr, world_origin=W.block_world_origin(13, 16))
+    M.deform_radial(b14, amount=8.0, radius=200.0, center=ctr, world_origin=W.block_world_origin(14, 16))
+    assert abs(b13.verts[0][1] - b14.verts[0][1]) < 1e-9     # identical -> watertight seam
+
+
+def test_deform_ridge_raises_along_segment():
+    from ff9mapkit.world import mesh as M
+    bm = _flat_block([[0, 0, 0], [5, 0, 0], [0, 0, 20]])     # on-line, off-to-side, on-line
+    M.deform_ridge(bm, p0=(0.0, 0.0), p1=(0.0, 100.0), amount=6.0, radius=10.0)
+    ys = [v[1] for v in bm.verts]
+    assert abs(ys[0] - 6.0) < 1e-9 and abs(ys[2] - 6.0) < 1e-9   # on the ridge line -> full height
+    assert 0 < ys[1] < 6.0                                        # off to the side -> partial
+
+
+def test_flatten_region_pulls_to_height():
+    from ff9mapkit.world import mesh as M
+    bm = _flat_block([[0, 10, 0], [3, 20, 0], [100, 50, 0]])
+    M.flatten_region(bm, radius=10.0, center=(0.0, 0.0), height=0.0)
+    ys = [v[1] for v in bm.verts]
+    assert abs(ys[0]) < 1e-9                     # centre fully flattened to the target
+    assert 0 < ys[1] < 20.0                      # partially pulled toward it
+    assert ys[2] == 50.0                         # outside the radius: untouched
+
+
+def test_falloff_endpoints_and_monotonic():
+    from ff9mapkit.world import mesh as M
+    for kind in ("smooth", "gauss", "cone"):
+        assert M._falloff(0.0, kind) == 1.0      # full weight at the centre
+        assert M._falloff(1.0, kind) == 0.0      # zero at/after the rim (no step -> no crease)
+        assert M._falloff(1.5, kind) == 0.0
+        prev = 1.0
+        for i in range(1, 10):
+            w = M._falloff(i / 10.0, kind)
+            assert w <= prev + 1e-9              # monotonically non-increasing
+            prev = w
+
+
+def test_recompute_normals_unit_and_oriented():
+    from ff9mapkit.world import mesh as M
+    bm = _flat_block([[0, 0, 0], [10, 0, 0], [0, 0, 10]], normals=[[0, 1, 0]] * 3)
+    bm.verts[0][1] = 5.0                         # tilt the triangle (stale normals now point straight up)
+    M.recompute_normals(bm)
+    for nrm in bm.normals:
+        assert abs(sum(c * c for c in nrm) ** 0.5 - 1.0) < 1e-6   # unit length
+        assert nrm[1] > 0                        # sign-aligned to the original +Y facing (not inside-out)
+
+
+def test_ff9mesh_roundtrip_with_normals(tmp_path):
+    from ff9mapkit.world import mesh as M
+    bm = _flat_block([[0, 0, 0], [1, 2, 3], [4, 5, 6]], normals=[[0, 1, 0], [0, 1, 0], [0, 1, 0]])
+    d = M.read_ff9mesh(M.write_ff9mesh(bm, tmp_path / "n.ff9mesh"))
+    assert d["verts"] == bm.verts and d["normals"] == bm.normals
+    assert d["tangents"] is None and d["uvs"] is None
+
+
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_real_block_ff9mesh_roundtrip(tmp_path):
     from ff9mapkit.world import mesh as M

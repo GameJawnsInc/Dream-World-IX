@@ -13,6 +13,7 @@ The engine override search is the Resources loose-asset path: a block's file liv
 """
 from __future__ import annotations
 
+import math
 import struct
 from pathlib import Path
 
@@ -108,3 +109,142 @@ def raise_vertex_near_center(bm, amount: float) -> int:
             best, bi = d, i
     verts[bi][1] += amount
     return bi
+
+
+# --------------------------------------------------------------------------------------------------
+# Purposeful terrain reshaping (Path C step 3).
+#
+# The world block mesh is FLAT/UNINDEXED: coincident triangle corners are *separate* vertices, so moving
+# a single vertex (like ``raise_vertex_near_center``) TEARS the surface. Every reshape below applies a Y
+# delta that is a pure function of a vertex's WORLD-XZ position -- so coincident corners always get the
+# identical delta and the mesh stays watertight (no seam cracks), including across block boundaries.
+#
+# ``world_origin=(ox, oz)`` is the block's world origin (``extract.block_world_origin``): pass it so a hill
+# / ridge can span several blocks continuously (the deform reasons in world XZ). For a self-contained
+# block-local edit leave it (0, 0) and the default centre is the block's own XZ centroid.
+# --------------------------------------------------------------------------------------------------
+
+def _falloff(t: float, kind: str = "smooth") -> float:
+    """Deform weight in ``[0, 1]``: 1 at the centre (``t=0``), 0 at/after the rim (``t>=1``), where
+    ``t = distance / radius``. ``smooth`` (default) is a smoothstep dome -- C1 at the rim (zero slope), so the
+    edit blends creaselessly into the untouched terrain; ``gauss`` is a rim-windowed bell (rounder peak); ``cone``
+    is linear (a sharp-tipped cone)."""
+    if t <= 0.0:
+        return 1.0
+    if t >= 1.0:
+        return 0.0
+    if kind == "cone":
+        return 1.0 - t
+    if kind == "gauss":                                  # windowed so it hits exactly 0 at the rim (no step)
+        k = 2.5
+        g = math.exp(-(k * t) ** 2)
+        g0 = math.exp(-(k) ** 2)
+        return (g - g0) / (1.0 - g0)
+    s = t * t * (3.0 - 2.0 * t)                          # smoothstep 0->1
+    return 1.0 - s                                       # dome: 1 at centre -> 0 at rim, flat slope both ends
+
+
+def _xz_centroid(bm, ox: float = 0.0, oz: float = 0.0):
+    verts = bm.verts
+    cx = sum(v[0] for v in verts) / len(verts) + ox
+    cz = sum(v[2] for v in verts) / len(verts) + oz
+    return cx, cz
+
+
+def _dist_point_segment(px, pz, ax, az, bx, bz) -> float:
+    dx, dz = bx - ax, bz - az
+    L2 = dx * dx + dz * dz
+    if L2 <= 1e-9:
+        return math.hypot(px - ax, pz - az)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / L2))
+    return math.hypot(px - (ax + t * dx), pz - (az + t * dz))
+
+
+def deform_radial(bm, *, amount: float, radius: float, center=None, falloff: str = "smooth",
+                  world_origin=(0.0, 0.0)) -> int:
+    """RESHAPE: raise a smooth HILL (``amount > 0``) or sink a CRATER (``amount < 0``) within ``radius`` world
+    units of ``center`` (world XZ; default = the block's centroid). Tear-free (see module note). ``+Y`` is up in
+    these meshes (proven by the whole-block lift). Mutates ``bm`` in place (tangents/ids untouched). Returns the
+    number of vertices moved."""
+    ox, oz = world_origin
+    cx, cz = center if center is not None else _xz_centroid(bm, ox, oz)
+    moved = 0
+    for v in bm.verts:
+        w = _falloff(math.hypot(v[0] + ox - cx, v[2] + oz - cz) / radius, falloff)
+        if w > 0.0:
+            v[1] += amount * w
+            moved += 1
+    return moved
+
+
+def deform_ridge(bm, *, p0, p1, amount: float, radius: float, falloff: str = "smooth",
+                 world_origin=(0.0, 0.0)) -> int:
+    """RESHAPE: raise a RIDGE (``amount > 0``) or carve a VALLEY (``amount < 0``) of half-width ``radius`` along the
+    world-XZ segment ``p0 -> p1`` (each an ``(x, z)`` pair). Tear-free. Returns the number of vertices moved."""
+    ox, oz = world_origin
+    (ax, az), (bx, bz) = p0, p1
+    moved = 0
+    for v in bm.verts:
+        w = _falloff(_dist_point_segment(v[0] + ox, v[2] + oz, ax, az, bx, bz) / radius, falloff)
+        if w > 0.0:
+            v[1] += amount * w
+            moved += 1
+    return moved
+
+
+def flatten_region(bm, *, radius: float, center=None, height=None, falloff: str = "smooth",
+                   world_origin=(0.0, 0.0)) -> int:
+    """RESHAPE: flatten toward ``height`` (default = the mean Y under the disc) within ``radius`` -- a plateau /
+    clearing. Each vertex Y is blended toward ``height`` by the falloff weight (fully flat at the centre, untouched
+    at the rim), so the surrounding terrain stitches in smoothly. Tear-free. Returns the number of vertices moved."""
+    ox, oz = world_origin
+    cx, cz = center if center is not None else _xz_centroid(bm, ox, oz)
+    if height is None:
+        ys = [v[1] for v in bm.verts if math.hypot(v[0] + ox - cx, v[2] + oz - cz) < radius]
+        height = sum(ys) / len(ys) if ys else 0.0
+    moved = 0
+    for v in bm.verts:
+        w = _falloff(math.hypot(v[0] + ox - cx, v[2] + oz - cz) / radius, falloff)
+        if w > 0.0:
+            v[1] += (height - v[1]) * w
+            moved += 1
+    return moved
+
+
+def recompute_normals(bm, *, tol: float = 1e-3) -> int:
+    """Recompute smooth vertex normals after a geometry edit (a Y-only deform leaves the stored normals stale ->
+    wrong terrain shading). Position-welds coincident corners (the mesh is unindexed) so a shared grid node gets ONE
+    averaged normal (smooth shading, no faceting at triangle seams), and sign-aligns each welded normal to the
+    group's ORIGINAL stored normal so the winding/orientation is preserved (no inside-out darkening). No-op if the
+    mesh has no normal channel. Mutates ``bm.normals`` in place. Returns the vertex count updated."""
+    norms = bm.normals
+    if norms is None:
+        return 0
+    verts = bm.tris and bm.verts
+    acc = [[0.0, 0.0, 0.0] for _ in range(bm.vcount)]
+    for a, b, c in bm.tris:                               # area-weighted face normals -> each corner
+        va, vb, vc = verts[a], verts[b], verts[c]
+        ux, uy, uz = vb[0] - va[0], vb[1] - va[1], vb[2] - va[2]
+        wx, wy, wz = vc[0] - va[0], vc[1] - va[1], vc[2] - va[2]
+        nx, ny, nz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+        for i in (a, b, c):
+            acc[i][0] += nx
+            acc[i][1] += ny
+            acc[i][2] += nz
+    groups = {}
+    for i, v in enumerate(verts):
+        groups.setdefault((round(v[0] / tol), round(v[1] / tol), round(v[2] / tol)), []).append(i)
+    for idxs in groups.values():
+        sx = sum(acc[i][0] for i in idxs)
+        sy = sum(acc[i][1] for i in idxs)
+        sz = sum(acc[i][2] for i in idxs)
+        L = math.sqrt(sx * sx + sy * sy + sz * sz) or 1.0
+        nx, ny, nz = sx / L, sy / L, sz / L
+        ox = sum(norms[i][0] for i in idxs)              # original orientation of this welded node
+        oy = sum(norms[i][1] for i in idxs)
+        oz = sum(norms[i][2] for i in idxs)
+        if nx * ox + ny * oy + nz * oz < 0.0:            # keep the artist's facing (flip if inverted)
+            nx, ny, nz = -nx, -ny, -nz
+        for i in idxs:
+            norms[i][0], norms[i][1], norms[i][2] = nx, ny, nz
+    return bm.vcount

@@ -29,6 +29,38 @@ from .. import config
 CH_POS, CH_NRM, CH_UV, CH_TAN = 0, 1, 3, 7
 _WM_BUNDLE_HINT = ".ff9mapkit-worldmap-bundle.json"
 
+# World-map block grid frame (verified in Memoria WMWorld.cs:454-458 + the GetAbsolutePositionOf variants, and
+# corroborated empirically -- every disc-1 block's local verts span x[0,64] z[-64,0], only Y differs per block):
+# a block is 64x64 Unity units; its LOCAL verts are translated to world by the engine, worldVert = block_world_origin
+# + localVert, with Z NEGATED (grid row y advances toward -Z). This is THE frame for cross-block (seam-continuous)
+# geometry edits -- a deform must be evaluated in world XZ so coincident seam verts get the identical delta.
+BLOCK_SIZE = 64
+
+
+def block_world_origin(x: int, y: int) -> tuple:
+    """The ``(worldX, worldZ)`` origin the engine translates block ``[x][y]``'s LOCAL verts by:
+    ``worldVert = (x*64 + localX, localY, -y*64 + localZ)``. Z is negated. (Memoria ``WMWorld.cs``:
+    ``transform.position.x = x*64``, ``.z = -y*64``; the mesh copy sits at ``localPosition = 0``.)"""
+    return (x * BLOCK_SIZE, -y * BLOCK_SIZE)
+
+
+def footprint_nearest_dist(x: int, y: int, cx: float, cz: float) -> float:
+    """World-XZ distance from point ``(cx, cz)`` to the NEAREST point of block ``[x][y]``'s 64x64 world footprint
+    (``x*64..x*64+64`` by ``-y*64-64..-y*64``); 0 if the point is inside. The crack-free deploy test: a reshape of
+    radius ``r`` about ``(cx, cz)`` touches block ``[x][y]`` iff this <= ``r`` -- and any block it does NOT touch has
+    its whole footprint (incl. shared edges) beyond ``r``, so those seams stay at zero delta on both sides."""
+    fx0, fx1 = x * BLOCK_SIZE, x * BLOCK_SIZE + BLOCK_SIZE
+    fz1, fz0 = -y * BLOCK_SIZE, -y * BLOCK_SIZE - BLOCK_SIZE
+    ddx = max(fx0 - cx, 0.0, cx - fx1)
+    ddz = max(fz0 - cz, 0.0, cz - fz1)
+    return (ddx * ddx + ddz * ddz) ** 0.5
+
+
+def blocks_touched(cx: float, cz: float, radius: float, blocks) -> list:
+    """The subset of existing ``blocks`` (``(x, y)`` pairs, e.g. from :func:`list_blocks`) whose world footprint comes
+    within ``radius`` of ``(cx, cz)`` -- the exact, crack-free set to redeploy for a radius-``radius`` reshape."""
+    return sorted((x, y) for (x, y) in blocks if footprint_nearest_dist(x, y, cx, cz) <= radius)
+
 
 def decode_id(idall: int) -> dict:
     """Unpack a per-triangle ``tangent.x`` value (the engine's ``IDALL``) into its bit-fields, mirroring

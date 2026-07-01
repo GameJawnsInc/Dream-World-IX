@@ -1452,28 +1452,91 @@ def _cmd_world_extract(args: argparse.Namespace) -> int:
 
 
 def _cmd_world_deploy(args: argparse.Namespace) -> int:
-    """Deploy an (optionally edited) overworld block as a loose .ff9mesh override (needs the WorldMeshOverride
-    engine patch). --spike raises the centre vertex for an unmistakable first-experiment bump."""
+    """Deploy an (optionally reshaped) overworld block, or a whole reshaped region, as loose .ff9mesh override(s)
+    (needs the WorldMeshOverride engine patch). Reshapes (--hill/--crater/--flatten) are seam-continuous: the edit
+    is evaluated in WORLD XZ and every block whose footprint the radius touches is redeployed, so nothing tears."""
     from .world import extract as W, mesh as M
+
+    if args.flatten and (args.hill or args.crater):
+        print("pick one of --hill / --crater / --flatten", file=sys.stderr)
+        return 2
+    if args.hill and args.crater:
+        print("pick --hill OR --crater, not both", file=sys.stderr)
+        return 2
+    reshape = bool(args.hill or args.crater or args.flatten) and not (args.lift or args.spike)
+    hill_amt = args.hill if args.hill else (-args.crater if args.crater else 0.0)
+
+    def _explicit():
+        if args.cluster:
+            x0, y0, x1, y1 = args.cluster
+            return [(x, y) for x in range(min(x0, x1), max(x0, x1) + 1)
+                    for y in range(min(y0, y1), max(y0, y1) + 1)]
+        return [(args.block[0], args.block[1])] if args.block else []
+
+    explicit = _explicit()
+    if not explicit and not (reshape and args.center):
+        print("give a target: --block X Y, --cluster XMIN YMIN XMAX YMAX, or (with a reshape) --center WX WZ",
+              file=sys.stderr)
+        return 2
+
     try:
-        bm = W.read_block(args.block[0], args.block[1], disc=args.disc, lod=args.lod, game=args.game)
-        note = "faithful copy (no edit)"
-        if args.lift:
-            M.lift_block(bm, args.lift)
-            note = f"lifted the WHOLE block by +{args.lift} (unmistakable plateau)"
-        elif args.spike:
-            bi = M.raise_vertex_near_center(bm, args.spike)
-            note = f"raised vertex {bi} (nearest centre) by +{args.spike}"
-        dest = M.deploy_override(bm, mod_folder=args.mod_folder, game=args.game, lod=args.lod)
+        if args.center:
+            cx, cz = args.center
+        else:                                             # centre of the explicit block(s)' world footprint
+            oxs = [x * W.BLOCK_SIZE for (x, _) in explicit]
+            ozt = [-y * W.BLOCK_SIZE for (_, y) in explicit]
+            cx = (min(oxs) + max(oxs) + W.BLOCK_SIZE) / 2.0
+            cz = (min(ozt) + max(ozt) - W.BLOCK_SIZE) / 2.0
+
+        if reshape:                                       # crack-free set: every block the radius actually reaches
+            allblocks = set(W.list_blocks(disc=args.disc, lod=args.lod, game=args.game))
+            targets = W.blocks_touched(cx, cz, args.radius, allblocks)
+            targets = sorted(set(targets) | {b for b in explicit if b in allblocks})
+            if not targets:
+                print(f"no disc-{args.disc} blocks within radius {args.radius:g} of world ({cx:.0f},{cz:.0f})",
+                      file=sys.stderr)
+                return 2
+        else:
+            targets = explicit
+
+        written = []
+        for (x, y) in targets:
+            bm = W.read_block(x, y, disc=args.disc, lod=args.lod, game=args.game)
+            ox, oz = W.block_world_origin(x, y)
+            if args.lift:
+                M.lift_block(bm, args.lift)
+                op = f"lift +{args.lift:g}"
+            elif args.spike:
+                bi = M.raise_vertex_near_center(bm, args.spike)
+                op = f"spike vtx {bi} +{args.spike:g}"
+            elif args.flatten:
+                n = M.flatten_region(bm, radius=args.radius, center=(cx, cz), height=args.height,
+                                     falloff=args.falloff, world_origin=(ox, oz))
+                op = f"flatten r{args.radius:g} ({n} v)"
+            elif reshape:
+                n = M.deform_radial(bm, amount=hill_amt, radius=args.radius, center=(cx, cz),
+                                    falloff=args.falloff, world_origin=(ox, oz))
+                op = f"{'hill' if hill_amt > 0 else 'crater'} {hill_amt:+g} r{args.radius:g} ({n} v)"
+            else:
+                op = "faithful copy"
+            if reshape and not args.no_normals:
+                M.recompute_normals(bm)
+            dest = M.deploy_override(bm, mod_folder=args.mod_folder, game=args.game, lod=args.lod)
+            written.append((x, y, op, dest))
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
-    print(f"deployed override -> {dest}")
-    print(f"  {note}")
-    print("  RELAUNCH the game (a new loose asset isn't hot-reloaded), reach the disc-1 overworld, walk onto "
-          f"block[{args.block[0]}][{args.block[1]}].")
-    print("  Memoria.log will show \"[WorldMeshOverride] loaded 'WorldMap/...'\" when the override is used "
-          "(confirms the hook fired even if the change is subtle).")
+
+    print(f"deployed {len(written)} block override(s) into {args.mod_folder}")
+    if reshape:
+        kind = "flatten" if args.flatten else ("hill" if hill_amt > 0 else "crater")
+        print(f"  {kind}: centre world ({cx:.0f},{cz:.0f}) radius {args.radius:g} falloff {args.falloff}"
+              + ("" if args.no_normals else " + smooth normals"))
+    for (x, y, op, _) in written:
+        print(f"  [{x}][{y}]: {op}")
+    print("  RELAUNCH the game (a new loose asset isn't hot-reloaded), reach the disc-%d overworld, walk to the edit."
+          % args.disc)
+    print("  Memoria.log shows \"[WorldMeshOverride] loaded ...\" per block when the hook fires.")
     return 0
 
 
@@ -3050,18 +3113,37 @@ def build_parser() -> argparse.ArgumentParser:
     we.set_defaults(func=_cmd_world_extract)
 
     wd = sub.add_parser("world-deploy",
-                        help="deploy an (optionally edited) overworld block as a loose .ff9mesh override "
+                        help="deploy an (optionally reshaped) overworld block/region as loose .ff9mesh override(s) "
                              "(needs the WorldMeshOverride engine patch)")
-    wd.add_argument("--block", type=int, nargs=2, metavar=("X", "Y"), required=True,
-                    help="block grid coords, e.g. --block 3 7")
+    wd.add_argument("--block", type=int, nargs=2, metavar=("X", "Y"),
+                    help="a single block, e.g. --block 3 7 (faithful copy / lift / spike / a small local hill)")
+    wd.add_argument("--cluster", type=int, nargs=4, metavar=("XMIN", "YMIN", "XMAX", "YMAX"),
+                    help="a rectangular block span; its centre seeds a reshape (deployed as-is for --lift/--spike)")
     wd.add_argument("--disc", type=int, default=1, help="world disc: 1 or 4 (default 1)")
     wd.add_argument("--lod", default="0_1", help="LOD dir (default 0_1, the walkmesh form)")
     wd.add_argument("--mod-folder", required=True,
                     help="the stacked FolderNames mod folder to deploy into (e.g. FF9CustomMap)")
+    # purposeful reshaping (seam-continuous; auto-redeploys every block the radius touches)
+    wd.add_argument("--hill", type=float, default=0.0,
+                    help="raise a smooth HILL of this peak height (world units), e.g. --hill 24")
+    wd.add_argument("--crater", type=float, default=0.0,
+                    help="sink a smooth CRATER of this depth (world units)")
+    wd.add_argument("--flatten", action="store_true", help="flatten the region to a plateau/clearing")
+    wd.add_argument("--height", type=float, default=None,
+                    help="target height for --flatten (default: the region's mean height)")
+    wd.add_argument("--radius", type=float, default=96.0,
+                    help="reshape radius in world units (default 96 = 1.5 blocks)")
+    wd.add_argument("--center", type=float, nargs=2, metavar=("WX", "WZ"),
+                    help="reshape centre in world XZ (default: the --block/--cluster centre)")
+    wd.add_argument("--falloff", choices=["smooth", "gauss", "cone"], default="smooth",
+                    help="reshape falloff shape (default smooth = creaseless smoothstep dome)")
+    wd.add_argument("--no-normals", action="store_true",
+                    help="skip the smooth-normal recompute after a reshape (leaves stale shading)")
+    # diagnostics (single-vertex / whole-block, no auto-expand -- the override-mechanism proofs)
     wd.add_argument("--spike", type=float, default=0.0,
-                    help="raise the block's centre vertex by this many units -- a small test bump")
+                    help="[diag] raise the centre vertex by N units (tears on the unindexed mesh; a hook test)")
     wd.add_argument("--lift", type=float, default=0.0,
-                    help="raise the WHOLE block by this many units -- an unmistakable plateau (overrides --spike)")
+                    help="[diag] raise the WHOLE block(s) by N units -- an unmistakable plateau")
     wd.set_defaults(func=_cmd_world_deploy)
 
     bsc = sub.add_parser("battle-scene",
