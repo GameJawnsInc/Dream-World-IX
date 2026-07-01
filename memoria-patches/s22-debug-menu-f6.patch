@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..85370037
+index 00000000..fb2fc1f7
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,759 @@
+@@ -0,0 +1,1080 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -36,12 +36,18 @@ index 00000000..85370037
 +//   Flags  -- get/set/clear a gEventGlobal story flag (matches the kit's set_flag: VariableType.Bit ->
 +//             gEventGlobal[N>>3] bit N&7); snapshot/restore the whole flag state; reset-all.
 +//   Time   -- a time-scale control (slow-mo / fast) for inspecting cutscenes & movement.
-+// Header shows the current field id + name + the player's (x,z), live. Adding an action = one button.
++//   World  -- OVERWORLD only: swap the movement/vehicle mode (gEventGlobal[190] + w_movementChange) so you can
++//             walk/fly/sail onto any terrain to reach an entrance under test. Swaps the movement PROFILE onto the
++//             current character (Zidane keeps his model); null-safe + disc/story-independent (fly in disc 1).
++// Header shows the current field id + name + the player's (x,z), live (or the disc + vehicle mode on the overworld).
++// Adding an action = one button.
 +public class Ff9mkDebugMenu : MonoBehaviour
 +{
 +    private static Ff9mkDebugMenu _instance;
 +    private Boolean _open;
-+    private Boolean _priorControl;          // field user-control state to restore when the menu closes
++    private Boolean _priorControl;          // user-control state to restore when the hold is released
++    private Boolean _disableControl = true; // "Disable control" checkbox: pause player input while the menu is open (default on)
++    private Boolean _controlHeld;           // whether user control is CURRENTLY held off by us (so we restore exactly once)
 +
 +    private Rect _win = new Rect(24f, 24f, 380f, 520f);
 +    private Vector2 _scroll;
@@ -51,6 +57,9 @@ index 00000000..85370037
 +    private String _scenarioText = "";       // [ff9mapkit] optional ScenarioCounter to set before the warp (blank = leave as-is) -- seed a story beat to reach a story-gated fork
 +    private String _txText = "0";
 +    private String _tzText = "0";
++    private String _wxText = "0";       // [ff9mapkit] overworld teleport target X (world units), World tab
++    private String _wzText = "0";       // [ff9mapkit] overworld teleport target Z (world units, NEGATIVE going down the grid)
++    private Boolean _worldBoxesInit;    // auto-fill the teleport boxes with the live pos on the first World-tab draw (avoids the 0,0 ocean-corner default)
 +    private String _flagText = "8000";
 +    private String _itemText = "236";       // a Potion, by default
 +    private String _itemCountText = "1";
@@ -72,7 +81,7 @@ index 00000000..85370037
 +    private Boolean _pendingWarpReset;
 +
 +    private const Int32 WinId = 0x4F9DEB;
-+    private static readonly String[] Tabs = { "Warp", "Move", "Cheats", "Flags", "Time" };
++    private static readonly String[] Tabs = { "Warp", "Move", "Cheats", "Flags", "Time", "World" };
 +    private static readonly Single[] Speeds = { 0.25f, 0.5f, 1f, 2f, 4f };
 +
 +    // lazily-built styling
@@ -97,6 +106,13 @@ index 00000000..85370037
 +        get { return PersistenSingleton<UIManager>.Instance.State == UIManager.UIState.BattleHUD; }
 +    }
 +
++    // The OVERWORLD (world map) state. The World tab operates here; the field-only tabs (Warp/Move) no-op with a
++    // note, and vehicle-mode swap is refused off the world map.
++    private static Boolean InWorld
++    {
++        get { return PersistenSingleton<UIManager>.Instance.State == UIManager.UIState.WorldHUD; }
++    }
++
 +    private static void Ensure()
 +    {
 +        if (_instance != null)
@@ -114,23 +130,35 @@ index 00000000..85370037
 +    {
 +        if (open == _open)
 +            return;
++        // Control hold is governed by the "Disable control" checkbox (drawn at the top of the window). On open apply
++        // it; on close ALWAYS release so the player is never left frozen. NOTE: the OVERWORLD teleport wants control
++        // LIVE to stick -- uncheck "Disable control" before teleporting on the world map.
++        ApplyControlHold(open && _disableControl);
++        _open = open;
++    }
++
++    // Pause/resume EventEngine user control (so the d-pad / action button don't drive the character behind the popup).
++    // Idempotent via _controlHeld: we capture the prior state once when first holding, and restore it once when releasing.
++    private void ApplyControlHold(Boolean wantHold)
++    {
 +        try
 +        {
 +            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
-+            if (open)
++            if (wantHold && !_controlHeld)
 +            {
 +                _priorControl = ee.GetUserControl();
 +                ee.SetUserControl(false);
++                _controlHeld = true;
 +            }
-+            else
++            else if (!wantHold && _controlHeld)
 +            {
 +                ee.SetUserControl(_priorControl);
++                _controlHeld = false;
 +            }
 +        }
 +        catch (Exception)
 +        {
 +        }
-+        _open = open;
 +    }
 +
 +    private void Update()
@@ -160,6 +188,15 @@ index 00000000..85370037
 +        GUILayout.Label("ff9mapkit debug   (F6 closes)", _title);
 +        GUILayout.Label(CurrentInfo(), _label);
 +
++        // "Disable control" toggle: hold player input off while the menu is up (stops the character walking behind the
++        // popup). Uncheck it to move -- and note the overworld teleport needs it OFF to stick.
++        Boolean wantHold = GUILayout.Toggle(_disableControl, " Disable control (freeze the character while the menu is open)");
++        if (wantHold != _disableControl)
++        {
++            _disableControl = wantHold;
++            ApplyControlHold(wantHold);
++        }
++
 +        GUILayout.BeginHorizontal();                            // tab bar
 +        for (Int32 i = 0; i < Tabs.Length; i++)
 +            if (GUILayout.Button(Tabs[i], i == _tab ? _tabOn : _button))
@@ -174,7 +211,8 @@ index 00000000..85370037
 +            case 1: DrawMove(); break;
 +            case 2: DrawCheats(); break;
 +            case 3: DrawFlags(); break;
-+            default: DrawTime(); break;
++            case 4: DrawTime(); break;
++            default: DrawWorld(); break;
 +        }
 +        GUILayout.EndScrollView();
 +
@@ -191,6 +229,11 @@ index 00000000..85370037
 +        if (InBattle)
 +        {
 +            GUILayout.Label("Field only — warp/reload run from a field, not in battle.", _label);
++            return;
++        }
++        if (InWorld)
++        {
++            GUILayout.Label("Field only — warp/reload run from a field, not the overworld. Use the World tab to change vehicle.", _label);
 +            return;
 +        }
 +        if (GUILayout.Button("Reload field", _button))
@@ -229,6 +272,11 @@ index 00000000..85370037
 +        if (InBattle)
 +        {
 +            GUILayout.Label("Field only — teleport / point-pick run from a field, not in battle.", _label);
++            return;
++        }
++        if (InWorld)
++        {
++            GUILayout.Label("Field only — teleport / point-pick run from a field, not the overworld. Use the World tab.", _label);
 +            return;
 +        }
 +        Section("Teleport (x, z) on this field");
@@ -314,6 +362,272 @@ index 00000000..85370037
 +        GUILayout.EndHorizontal();
 +        GUILayout.Label("slows/speeds animation + movement (close the menu to watch a cutscene). "
 +                        + "Some logic runs on a fixed tick.", _label);
++    }
++
++    // OVERWORLD vehicle/movement swap. w_movementChange() re-reads gEventGlobal[190] as the control mode in the
++    // normal (non-Bee) world scene, so setting the byte + calling it repoints the movement PROFILE (terrain limit,
++    // flight, speed, camera) onto the currently-controlled character. It is NULL-SAFE (it never derefs the
++    // chocobo/plane actor pointers without a guard, and the controlled char is always present on the overworld),
++    // so ANY mode works in ANY disc/story state -- e.g. become an airship in disc 1 to fly to a test entrance.
++    // NOTE: this does not swap the controlled ACTOR, so Zidane keeps his model (a faithful model+position swap
++    // would repoint EventEngine's controlUID to the vehicle actor -- a later increment; this is the safe first cut).
++    private void DrawWorld()
++    {
++        if (!InWorld)
++        {
++            GUILayout.Label("Overworld only — open this on the world map (F6 now works there too).", _label);
++            return;
++        }
++
++        if (!_worldBoxesInit)                                   // seed the teleport boxes with the live pos, not 0,0
++        {
++            WMActor a0 = ff9.w_moveActorPtr;
++            if (a0 != (UnityEngine.Object)null)
++            {
++                Vector3 wp0 = a0.RealPosition;
++                _wxText = ((Int32)wp0.x).ToString();
++                _wzText = ((Int32)wp0.z).ToString();
++                _worldBoxesInit = true;
++            }
++        }
++
++        Section("Position (live)");
++        GUILayout.Label(WorldReadout(), _label);
++
++        Section("Teleport (world X, Z)");
++        GUILayout.BeginHorizontal();
++        _wxText = GUILayout.TextField(_wxText, 8, _field, GUILayout.Width(84f));
++        _wzText = GUILayout.TextField(_wzText, 8, _field, GUILayout.Width(84f));
++        if (GUILayout.Button("Go", _button, GUILayout.Width(44f)))
++            WorldTeleport();
++        if (GUILayout.Button("Copy", _button, GUILayout.Width(56f)))
++            CopyWorldPos();
++        GUILayout.EndHorizontal();
++        GUILayout.Label("Absolute world units (x 0..1535, z 0..−1279 — z is NEGATIVE). Uses the stock reposition "
++                        + "(SetPosition + re-ground); target LAND on foot, or swap vehicle first for water/air.", _label);
++
++        Section("Vehicle / movement mode");
++        Int32 cur = CurrentControlNo();
++        GUILayout.Label("current: " + cur + "  " + VehicleName(cur), _label);
++        VehicleButton("On foot", 0);
++        VehicleButton("Chocobo — plains", 1);
++        VehicleButton("Chocobo — mountains", 4);
++        VehicleButton("Chocobo — all terrain", 5);
++        VehicleButton("Chocobo — FLYING", 6);
++        VehicleButton("Blue Narciss — boat (water)", 7);
++        VehicleButton("Hilda Garde III — airship", 8);
++        VehicleButton("Invincible — airship", 9);
++        GUILayout.Label("Swaps the MOVEMENT profile (terrain access / flight / speed / camera) onto the current "
++                        + "character — Zidane keeps his model. Works in any disc & story state. Flying modes cross "
++                        + "water/mountains to reach any entrance under test.", _label);
++
++        Section("Disc");
++        Byte disc = 0;
++        try { disc = ff9.w_frameDisc; } catch (Exception) { }
++        if (GUILayout.Button("Disc " + disc + "  →  switch to " + (disc == 1 ? "4" : "1"), _button))
++            ToggleDisc();
++        GUILayout.Label("Reloads the world map (fade to black). COARSE switch — it does not advance the "
++                        + "ScenarioCounter/party, so a mismatched save may show wrong geometry. Same path the stock "
++                        + "debug menu uses (disc 1↔4 only).", _label);
++    }
++
++    private void VehicleButton(String label, Int32 mode)
++    {
++        Boolean on = CurrentControlNo() == mode;
++        if (GUILayout.Button((on ? "● " : "○ ") + label, on ? _tabOn : _button))
++            SetVehicle(mode);
++    }
++
++    private void SetVehicle(Int32 mode)
++    {
++        try
++        {
++            if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.WorldHUD)
++            {
++                _status = "vehicle swap: overworld only";
++                return;
++            }
++            Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++            if (g == null || g.Length <= 190)
++            {
++                _status = "vehicle swap: no gEventGlobal";
++                return;
++            }
++            g[190] = (Byte)mode;
++            ff9.w_movementChange();       // re-reads gEventGlobal[190] (non-Bee scene) -> applies the profile
++            _status = "movement mode -> " + mode + "  " + VehicleName(mode) + "   (close the menu and move)";
++        }
++        catch (Exception err)
++        {
++            _status = "vehicle swap failed: " + err.Message;
++        }
++    }
++
++    private static Int32 CurrentControlNo()
++    {
++        try { return FF9StateSystem.EventState.gEventGlobal[190]; }
++        catch (Exception) { return -1; }
++    }
++
++    private static String VehicleName(Int32 n)
++    {
++        switch (n)
++        {
++            case 0: return "(on foot)";
++            case 1: return "(chocobo · plains)";
++            case 2:
++            case 3:
++            case 4: return "(chocobo · mountain)";
++            case 5: return "(chocobo · all terrain)";
++            case 6: return "(gold chocobo · flying)";
++            case 7: return "(Blue Narciss · boat)";
++            case 8: return "(Hilda Garde III · airship)";
++            case 9: return "(Invincible · airship)";
++            default: return "(?)";
++        }
++    }
++
++    // Live overworld state read-out (read-only). RealPosition = ABSOLUTE (un-wrapped) world pos, the value the
++    // minimap + w_frameGetParameter use; cells are 32u (z divides by -32); block = InitialX/Y content identity vs
++    // CurrentX/Y wrapped screen slot; IDALL/topograph under the player via m_moveActorID. w_moveActorPtr overrides
++    // Unity ==, so guard with the (UnityEngine.Object)null form (and originalActor separately — m_moveActorID
++    // doesn't guard it).
++    private static String WorldReadout()
++    {
++        try
++        {
++            WMActor a = ff9.w_moveActorPtr;
++            if (a == (UnityEngine.Object)null || a.originalActor == null)
++                return "(no controlled actor yet)";
++            Vector3 wp = a.RealPosition;
++            Int32 cellX = (Int32)(wp.x / 32f);
++            Int32 cellZ = (Int32)(wp.z / -32f);
++            Int32 idall = ff9.m_moveActorID;
++            Int32 ev = ff9.m_GetIDEvent(idall), area = ff9.m_GetIDArea(idall), topo = ff9.m_GetIDTopograph(idall);
++            String blk = "blk (--)";
++            WMWorld w = ff9.world;
++            if (w != null)
++            {
++                WMBlock b = w.GetAbsoluteBlock(a.transform);
++                if (b != null)
++                    blk = String.Format("blk init({0},{1}) cur({2},{3})", b.InitialX, b.InitialY, b.CurrentX, b.CurrentY);
++            }
++            return String.Format(
++                "pos ({0:F0}, {1:F0}, {2:F0})   cell ({3}, {4})\n{5}\nIDALL 0x{6:X4}   ev {7}  area {8}  topo {9}",
++                wp.x, wp.y, wp.z, cellX, cellZ, blk, idall, ev, area, topo);
++        }
++        catch (Exception e)
++        {
++            return "readout unavailable: " + e.Message;
++        }
++    }
++
++    private void CopyWorldPos()
++    {
++        try
++        {
++            WMActor a = ff9.w_moveActorPtr;
++            if (a == (UnityEngine.Object)null)
++                return;
++            Vector3 wp = a.RealPosition;
++            _wxText = ((Int32)wp.x).ToString();
++            _wzText = ((Int32)wp.z).ToString();
++            GUIUtility.systemCopyBuffer = (Int32)wp.x + ", " + (Int32)wp.z;
++            _status = "copied world (" + (Int32)wp.x + ", " + (Int32)wp.z + ") -> boxes + clipboard";
++        }
++        catch (Exception)
++        {
++        }
++    }
++
++    // OVERWORLD teleport. TWO things must happen or the player snaps back: (1) reposition via the engine's OWN
++    // EventEngine.SetActorPosition (writes po.pos[] + po.lastx/y/z THEN the wmActor transform, DoEventCode.cs:3439),
++    // and (2) tell Memoria's 60fps world smoother to skip a couple ticks (SmoothFrameUpdater_World.Skip) -- else its
++    // ResetState() re-asserts the pre-teleport position every tick (full trace at the Skip call below). Guards
++    // (adversarially reviewed): only on the wrapping, non-Bee overworld; non-dummy actor + valid PosObj; CLAMP into the
++    // 24x20 grid first (out-of-grid coords can throw). Y carries the current height; InitSlice re-grounds it.
++    private void WorldTeleport()
++    {
++        try
++        {
++            Single wx, wz;
++            if (!Single.TryParse(_wxText, out wx) || !Single.TryParse(_wzText, out wz))
++            {
++                _status = "teleport: enter numeric X, Z";
++                return;
++            }
++            WMWorld w = ff9.world;
++            if (w == null || !w.Settings.WrapWorld || FF9StateSystem.World.IsBeeScene)
++            {
++                _status = "teleport: only on the wrapping overworld";
++                return;
++            }
++            WMActor a = ff9.w_moveActorPtr;
++            if (a == (UnityEngine.Object)null || a == ff9.w_moveDummyCharacter)
++            {
++                _status = "teleport: no controlled actor";
++                return;
++            }
++            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++            PosObj po = ee.GetControlChar();
++            if (po == null || po.pos == null || po.pos.Length < 3)
++            {
++                _status = "teleport: no controlled PosObj";
++                return;
++            }
++            Single cy = a.RealPosition.y;                        // keep current height; movement/InitSlice re-grounds Y
++            Int32 px = (Int32)(wx * 256f), py = (Int32)(cy * 256f), pz = (Int32)(wz * 256f);
++            Int32 bx = px / 16384, bz = Math.Abs(pz) / 16384;    // 1 block = 16384 fixed-point (64u)
++            if (bx < 0 || bx >= 24 || bz < 0 || bz >= 20)
++            {
++                _status = "teleport: (" + (Int32)wx + ", " + (Int32)wz + ") is outside the 24x20 grid (x 0..1535, z 0..-1279)";
++                return;
++            }
++            // Engine's own overworld reposition: writes the PosObj record (pos + lastx/y/z) AND the wmActor transform.
++            ee.SetActorPosition(po, (Single)px, (Single)py, (Single)pz);
++            ff9.w_movementChrInitSlice();                        // re-ground Y (matches WMBeeMenu.cs:205)
++            ff9.w_movementAutoPilotOFF();                        // cancel any active auto-walk target (idempotent if none)
++            // THE REVERTER (root cause, found 2026-07-01): Memoria's 60fps world smoother, Memoria.SmoothFrameUpdater_World.
++            // Each logical tick it caches the actor's position; ResetState() at the START of the NEXT tick
++            // (HonoBehaviorSystem.cs:111, runs BEFORE movement) UNCONDITIONALLY snaps transform.position back to that
++            // cached value (SmoothFrameUpdater_World.cs:191) -- writing the transform DIRECTLY, not via the WMActor.pos
++            // property, which is why the prior setter-probes "never saw" the write and we mis-blamed a native driver.
++            // The old teleport held ~2 render frames (Apply()'s Lerp is skipped for big moves, sqrMag >= 100f) then
++            // snapped on the first tick's ResetState. Fix = the game's OWN pattern for repositioning the world control
++            // actor: skip smoothing a couple ticks (DoEventCode.cs:1009 CC/DefinePlayerCharacter + SceneDirector.cs:124
++            // both do exactly this). Skip clears every actor's _smoothUpdateRegistered so ResetState/Apply pass it over;
++            // the next RegisterState re-seeds prev+actual from the NEW pos. (Game uses 1; 2 gives margin for the fact
++            // that our write comes from OnGUI at an arbitrary phase vs the tick.)
++            Memoria.SmoothFrameUpdater_World.Skip = 2;
++            _status = "teleported to world (" + (Int32)wx + ", " + (Int32)wz + ")";
++        }
++        catch (Exception err)
++        {
++            _status = "teleport failed: " + err.Message;
++        }
++    }
++
++    // Disc 1<->4 toggle via the stock debug path (w_frameSetParameter 501 up / 502 down, WMBeeMenu.cs:127-139).
++    // 501 also runs ResetBlockForms + w_worldChangeBlockSet + sets w_frameScenePtr; SetDisc issues the fade+reload.
++    private void ToggleDisc()
++    {
++        try
++        {
++            if (ff9.w_frameDisc == 1)
++                ff9.w_frameSetParameter(501, 11090);   // disc1 -> disc4 (>= 11090 threshold)
++            else if (ff9.w_frameDisc == 4)
++                ff9.w_frameSetParameter(502, 0);        // disc4 -> disc1 (reset)
++            else
++            {
++                _status = "disc switch: unexpected disc " + ff9.w_frameDisc;
++                return;
++            }
++            _status = "disc switch requested — world reloads (fade)";
++        }
++        catch (Exception err)
++        {
++            _status = "disc switch failed: " + err.Message;
++        }
 +    }
 +
 +    private void BoosterToggle(String label, Int32 idx)
@@ -716,6 +1030,13 @@ index 00000000..85370037
 +    {
 +        if (InBattle)
 +            return String.Format("battle {0}   (Cheats / Flags / Time work here)", FF9StateSystem.Battle.battleMapIndex);
++        if (InWorld)
++        {
++            Byte disc = 0;
++            try { disc = ff9.w_frameDisc; } catch (Exception) { }
++            Int32 cn = CurrentControlNo();
++            return String.Format("overworld  (disc {0})   mode {1} {2}", disc, cn, VehicleName(cn));
++        }
 +        Int32 id = FF9StateSystem.Common.FF9.fldMapNo;
 +        String name;
 +        if (!EventEngineUtils.eventIDToFBGID.TryGetValue(id, out name))
@@ -776,10 +1097,10 @@ index 00000000..85370037
 +    }
 +}
 diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
-index b8091950..cdaad5e2 100644
+index b8091950..eb9103ef 100644
 --- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
 +++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
-@@ -155,6 +155,21 @@ public class UIKeyTrigger : MonoBehaviour
+@@ -155,6 +155,23 @@ public class UIKeyTrigger : MonoBehaviour
              AccelerateKeyNavigation();
              if (HandleMenuControlKeyPressCustomInput())
                  return;
@@ -788,11 +1109,13 @@ index b8091950..cdaad5e2 100644
 +            // instead of one-hotkey-per-function. Read here (UIKeyTrigger.Update runs every render frame =
 +            // reliable GetKeyDown, unlike FieldMap.HonoLateUpdate's ~30fps tick which dropped presses) and
 +            // intercepted before HandleBoosterButton so F6 doesn't also fire the LvMax-disabled SFX. Dev
-+            // engine only; not part of the shipped mod. Allowed in FIELD and BATTLE -- the menu is a
-+            // DontDestroyOnLoad MonoBehaviour so its OnGUI already draws in either; in battle the
-+            // field-only tabs (Warp/Move) no-op + show a note, while Cheats/Flags/Time work.
++            // engine only; not part of the shipped mod. Allowed in FIELD, BATTLE, and the OVERWORLD (WorldHUD)
++            // -- the menu is a DontDestroyOnLoad MonoBehaviour so its OnGUI already draws in any of them; the
++            // field-only tabs (Warp/Move) no-op + show a note off-field, the overworld World tab no-ops off the
++            // world map, while Cheats/Flags/Time work in all three (shared party/flag/time state).
 +            UIManager.UIState st = PersistenSingleton<UIManager>.Instance.State;
-+            if ((st == UIManager.UIState.FieldHUD || st == UIManager.UIState.BattleHUD)
++            if ((st == UIManager.UIState.FieldHUD || st == UIManager.UIState.BattleHUD
++                 || st == UIManager.UIState.WorldHUD)
 +                && UnityXInput.Input.GetKeyDown(KeyCode.F6))
 +            {
 +                Ff9mkDebugMenu.Toggle();

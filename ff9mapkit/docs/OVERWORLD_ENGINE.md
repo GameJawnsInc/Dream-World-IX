@@ -1,8 +1,9 @@
 # Overworld (WorldMap / "WM") engine mechanics — Memoria/FF9
 
 Reverse-engineered while building the **F6 overworld debug tools** (2026-07-01). It is all C# in the Memoria
-engine (built from FF9's own game bytes), so every mechanic here is ultimately traceable — including the one
-still-open problem at the bottom. Companion: the F6 menu lives in `Ff9mkDebugMenu.cs`; `ff9mapkit world-locate`
+engine (built from FF9's own game bytes), so every mechanic here is ultimately traceable — including the teleport
+reverter at the bottom, which turned out to be exactly that: plain C# (Memoria's frame smoother), **not** the
+native driver we first suspected. Companion: the F6 menu lives in `Ff9mkDebugMenu.cs`; `ff9mapkit world-locate`
 decodes the entrance dispatch.
 
 ## Update / tick architecture
@@ -58,28 +59,36 @@ decodes the entrance dispatch.
   `SetPosition(fixedPt) + w_movementChrInitSlice()`; disc = 501/502; change char = `WMScriptDirector.SetToNextChracter`.
   It is the ground-truth reference the F6 tools copy.
 
-## OPEN PROBLEM — F6 overworld teleport reverts (UNSOLVED)
-`SetActorPosition`/`SetPosition` moves the player; it holds ~2 render frames, then the player snaps back to the
-**exact** prior position on the first logical tick and stays there. Exhaustively investigated 2026-07-01
-(~16 engine builds with in-game stack-trace probes writing to `Memoria.log`):
+## SOLVED — F6 overworld teleport (the `SmoothFrameUpdater_World` reverter) ★ IN-GAME PROVEN 2026-07-01
+`SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
+prior position on the first logical tick. **Root cause: `Memoria.SmoothFrameUpdater_World`** — Memoria's own
+60fps world frame-interpolation smoother (active when render fps > the 20fps logical tick; `SmoothFrameUpdater_World.cs:45`),
+which keeps its **own** committed position store per `WMActor` (`_smoothUpdatePosPrevious`/`_smoothUpdatePosActual`,
+captured each tick in `RegisterState()`). Two of its methods write the actor transform **DIRECTLY**, bypassing every
+`WMActor.pos`/`pos0`/`pos1`/`pos2`/`SetPosition` property:
 
-- **Ruled out:** block-wrap (`BlockShift = 0` the whole time), autopilot (plane-only), navigation, renderer
-  culling, camera event-aim (`ff9.GetEventAim()` == False), the `ProcessEvents` collision-revert (line ~79 —
-  probe never fired), the world `.eb` `MoveToward` (it moves OTHER world actors — idx 18/20/21 — never the
-  player), the `TranslatingObjectsGroup` parent (fixed at origin), and control state (reverts with control on OR off).
-- **Definitive finding:** ungated stack-trace probes on ALL `WMActor` position setters (`pos`/`pos0`/`pos1`/`pos2`/
-  `SetPosition`) fire for **every other actor but NEVER the player**, and there is no direct
-  `transform.position`/`localPosition` write on the player anywhere in code. Yet the player's transform DOES move
-  (parent fixed at origin ⇒ `localPosition` itself changes). So the writer leaves **zero C# footprint** → a
-  Unity-native / animation binding re-asserts a *committed* position each frame. That committed store is NOT
-  `originalActor.pos` / `lastx` / `transform` (all three get reverted **to** the prior value, not read from).
-- **Next leads (for the resume):**
-  1. Inspect the player's `WMActor` / `actor.go` GameObject for an `Animation`/`Animator` with **root motion**
-     (Memoria's `WMActor.UpdateAnimationViaScript` samples `actor.go`'s `Animation`). If root motion drives the
-     transform, that's the native writer — but it restoring an absolute *world* pos is odd, so verify.
-  2. Find the hidden "committed position" the native driver reads each frame, and set it in the teleport (the
-     thing to update is neither `pos[]`, `lastx`, nor the transform).
-  3. Replicate the FULL board/place sequence including whatever `DefinePlayerCharacter` (event `CC`) /
-     `w_movementChrConstructor` caches for the control actor.
-- **Meanwhile:** the F6 **vehicle-swap → flying** mode reaches anywhere in any disc/state, which covers the
-  original "reach an entrance under test" goal; the teleport button is kept as a WIP scaffold and marked as such.
+- `ResetState()` (`SmoothFrameUpdater_World.cs:191`) — `wmActor.transform.position = wmActor._smoothUpdatePosActual;`,
+  an **unconditional** snap to the cached pos, run at the **START of every logical tick BEFORE movement**
+  (`HonoBehaviorSystem.cs:111`, inside the `MainLoopUpdateCount` loop). **This is the reverter.**
+- `Apply()` (`cs:145`) — a per-render-frame `Vector3.Lerp(prev, actual, t)`, **guarded** by `frameMove.sqrMagnitude < 100f`
+  (`cs:144`) so a *big* teleport delta is **skipped** → the player visibly holds ~2 render frames, then the next
+  tick's `ResetState` snaps him back. Every symptom, explained.
+
+Because both writes hit `transform.position` directly (not the `pos` property), the earlier stack-trace probes —
+which were on the `WMActor.pos*` **property setters** — never fired for the player, and we wrongly concluded a
+"non-C# native driver." It was plain Memoria C# the whole time. **Lead #1 (animation) is refuted**:
+`UpdateAnimationViaScript` samples `originalActor.go`, which `addGameObjectToWMActor` (`WMWorld.cs:224`) parents
+**under** the `_WM` transform — so animation only moves the model's *local* pose inside the parent; it cannot
+re-assert the parent's world position.
+
+**The fix (the game's OWN idiom):** after repositioning, set `SmoothFrameUpdater_World.Skip = N`. The `Skip` setter
+clears every actor's `_smoothUpdateRegistered` flag, so `ResetState` (guarded `!_smoothUpdateRegistered`) and `Apply`
+(guarded `_skipCount > 0`) pass the actor over until the next `RegisterState` re-seeds prev+actual from the **new**
+transform. The engine does exactly this whenever it repositions the world control actor —
+`EventEngine.DoEventCode.cs:1009` (the `CC`/`DefinePlayerCharacter` opcode) and `SceneDirector.cs:124` (scene change).
+`Ff9mkDebugMenu.WorldTeleport` now does, in order: `EventEngine.SetActorPosition` (writes `po.pos[]` + `lastx/y/z` +
+the wmActor transform) → `w_movementChrInitSlice` (re-ground Y) → `w_movementAutoPilotOFF` → **`SmoothFrameUpdater_World.Skip = 2`**
+(the game uses 1; 2 gives margin because the F6 write lands from OnGUI at an arbitrary phase vs the tick). The movement
+tick itself is NOT a reverter — `w_movementUpdate`/`w_movementControl` read the *current* transform (`lastx/y/z` are
+re-derived from `pos0/1/2` each tick) and `w_movementSetheight` rewrites only Y, so the teleported XZ survives.
+Engine patch: `memoria-patches/s22-debug-menu-f6.patch`.
