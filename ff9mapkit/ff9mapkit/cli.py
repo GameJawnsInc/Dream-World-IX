@@ -1496,6 +1496,12 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
                 print(f"no disc-{args.disc} blocks within radius {args.radius:g} of world ({cx:.0f},{cz:.0f})",
                       file=sys.stderr)
                 return 2
+        elif args.cluster:                                # a multi-block lift/spike/faithful: skip ocean gaps
+            allblocks = set(W.list_blocks(disc=args.disc, lod=args.lod, game=args.game))
+            targets = [b for b in explicit if b in allblocks]
+            if not targets:
+                print("none of the --cluster blocks exist as terrain on this disc", file=sys.stderr)
+                return 2
         else:
             targets = explicit
 
