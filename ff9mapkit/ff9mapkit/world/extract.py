@@ -215,17 +215,34 @@ def _decode_world_mesh(mesh_pptr, *, disc: int, x: int, y: int, lod: str) -> Blo
                      raw_vbuf=raw, raw_ibuf=ib, use32=use32, submeshes=submeshes)
 
 
-def read_block(x: int, y: int, *, disc: int = 1, lod: str = "0_1", game=None) -> BlockMesh:
-    """Decode disc ``disc`` block ``(x, y)``'s terrain mesh. ``x`` in 0..23, ``y`` in 0..19."""
+def read_block(x: int, y: int, *, disc: int = 1, lod: str = "0_1", part: str = "terrain", game=None) -> BlockMesh:
+    """Decode disc ``disc`` block ``(x, y)``'s sub-mesh. ``x`` in 0..23, ``y`` in 0..19. ``part`` selects the block
+    layer: ``"terrain"`` (ground + walkmesh + the tangent.x entrance IDALL) or ``"object"`` (the baked buildings /
+    towns / trees + decorative geometry). Only ~63 blocks carry an ``object`` mesh (those with a structure);
+    :func:`list_object_blocks` enumerates them."""
     env = _worldmap_env(disc, game)
-    target = f"worldmap/disc{disc}/{lod}/r{y}/block[{x}][{y}] terrain"
+    target = f"worldmap/disc{disc}/{lod}/r{y}/block[{x}][{y}] {part.lower()}"
     for o in env.objects:
         if o.type.name != "Mesh":
             continue
         c = (getattr(o, "container", None) or "").lower()
         if c.endswith(target) or (target in c):
             return _decode_world_mesh(o, disc=disc, x=x, y=y, lod=lod)
-    raise ValueError(f"disc{disc} block[{x}][{y}] terrain mesh not found (looked for container {target!r})")
+    raise ValueError(f"disc{disc} block[{x}][{y}] {part} mesh not found (looked for container {target!r})")
+
+
+def list_object_blocks(*, disc: int = 1, lod: str = "0_1", game=None) -> list:
+    """Every ``(x, y)`` that carries an ``object`` (building/structure) sub-mesh -- the blocks with a town/dungeon/
+    landmark you can copy from or augment. (~63 of the ~260 terrain blocks on disc 1.)"""
+    import re
+    env = _worldmap_env(disc, game)
+    pat = re.compile(rf"worldmap/disc{disc}/{lod}/r\d+/block\[(\d+)\]\[(\d+)\] object(?:\.asset)?$")
+    found = set()
+    for k in env.container:
+        m = pat.search((k or "").lower())
+        if m:
+            found.add((int(m.group(1)), int(m.group(2))))
+    return sorted(found)
 
 
 def list_blocks(*, disc: int = 1, lod: str = "0_1", game=None) -> list:

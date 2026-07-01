@@ -72,18 +72,65 @@ def read_ff9mesh(path) -> dict:
             "uvs": uvs, "tangents": tangents, "indices": indices}
 
 
-def override_relpath(disc: int, x: int, y: int, lod: str = "0_1") -> str:
-    """The mod-folder-relative path the engine's ``WorldMeshOverride`` searches for a block's override (under
-    ``FF9_Data``, mirroring ``WMWorldPrefabMaker``'s Resources path + the ``.ff9mesh`` extension)."""
-    return f"FF9_Data/WorldMap/Disc{disc}/{lod}/r{y}/Block[{x}][{y}] Terrain.ff9mesh"
+def override_relpath(disc: int, x: int, y: int, lod: str = "0_1", part: str = "Terrain") -> str:
+    """The mod-folder-relative path the engine's ``WorldMeshOverride`` searches for a block sub-mesh override (under
+    ``FF9_Data``, mirroring ``WMWorldPrefabMaker``'s Resources path + the ``.ff9mesh`` extension). ``part`` matches
+    the engine's ``transform.name`` (WMWorld.RegisterBlockComponent interpolates it into the lookup): ``"Terrain"``
+    (ground + walkmesh + IDALL) or ``"Object"`` (baked buildings/structures). The s34 hook is generic over ``part``,
+    so an ``Object`` override loads exactly like a ``Terrain`` one -- for a block that HAS a stock Object component."""
+    return f"FF9_Data/WorldMap/Disc{disc}/{lod}/r{y}/Block[{x}][{y}] {part}.ff9mesh"
 
 
-def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1") -> Path:
+def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: str = "Terrain") -> Path:
     """Write ``bm`` as a loose ``.ff9mesh`` override into ``<game>/<mod_folder>/<override_relpath>`` -- where the
-    custom engine (WorldMeshOverride) picks it up at world load. The mod_folder must be a stacked ``FolderNames``
-    entry (e.g. ``FF9CustomMap``). Returns the written path."""
-    dest = config.find_game_path(game) / mod_folder / override_relpath(bm.disc, bm.x, bm.y, lod)
+    custom engine (WorldMeshOverride) picks it up at world load. ``part`` = the block layer (``"Terrain"`` default,
+    or ``"Object"`` for the building mesh). The mod_folder must be a stacked ``FolderNames`` entry (e.g.
+    ``FF9CustomMap``). Returns the written path."""
+    dest = config.find_game_path(game) / mod_folder / override_relpath(bm.disc, bm.x, bm.y, lod, part)
     return write_ff9mesh(bm, dest)
+
+
+def sample_ground_y(terrain_bm, lx: float, lz: float) -> float:
+    """The terrain surface Y at block-LOCAL ``(lx, lz)`` -- the nearest terrain vertex's Y. Used to seat a placed
+    building on the ground (both the Terrain and Object meshes live in the block's local frame at ``localPosition=0``,
+    so their Y are directly comparable)."""
+    best, by = None, 0.0
+    for v in terrain_bm.verts:
+        d = (v[0] - lx) ** 2 + (v[2] - lz) ** 2
+        if best is None or d < best:
+            best, by = d, v[1]
+    return by
+
+
+def place_building(dst_object_bm, src_object_bm, *, translate=(0.0, 0.0, 0.0), set_idall=None):
+    """Append ``src_object_bm``'s geometry (a copied building/structure) onto ``dst_object_bm`` (a block's existing
+    Object mesh), shifted by ``translate`` (dst block-LOCAL units). Returns a NEW merged
+    :class:`~ff9mapkit.world.extract.BlockMesh` (deploy it with ``deploy_override(..., part="Object")``). The mesh is
+    FLAT/unindexed, so appending = concatenate every channel + offset the index buffer; UVs/normals/tangent carry over
+    so the copy renders with the shared world Object atlas. ``set_idall`` (optional) forces the appended tiles'
+    ``tangent.x`` IDALL (the Object mesh is added to the WALKMESH form-1, so the building is collision -- keep the
+    source's solid topograph, or pass e.g. ``encode_id(0, 0, <solid topo>)`` to normalize). Requires the two meshes to
+    share channels (both are stock Object meshes → they do)."""
+    from .extract import BlockMesh, CH_POS, CH_TAN
+    if set(dst_object_bm.channels) != set(src_object_bm.channels):
+        raise ValueError(f"channel mismatch dst{sorted(dst_object_bm.channels)} vs src{sorted(src_object_bm.channels)}")
+    dx, dy, dz = translate
+    off = dst_object_bm.vcount
+    chan = {}
+    for ci in dst_object_bm.channels:
+        d = [list(v) for v in dst_object_bm.chan_arrays[ci]]
+        s = [list(v) for v in src_object_bm.chan_arrays[ci]]
+        if ci == CH_POS:
+            s = [[v[0] + dx, v[1] + dy, v[2] + dz] for v in s]
+        elif ci == CH_TAN and set_idall is not None:
+            s = [[float(set_idall)] + v[1:] for v in s]
+        chan[ci] = d + s
+    flat = list(dst_object_bm.flat_index) + [i + off for i in src_object_bm.flat_index]
+    tris = [list(t) for t in dst_object_bm.tris] + [[a + off, b + off, c + off] for (a, b, c) in src_object_bm.tris]
+    return BlockMesh(name=dst_object_bm.name, disc=dst_object_bm.disc, x=dst_object_bm.x, y=dst_object_bm.y,
+                     lod=dst_object_bm.lod, vcount=dst_object_bm.vcount + src_object_bm.vcount,
+                     stride=dst_object_bm.stride, channels=dict(dst_object_bm.channels), chan_arrays=chan,
+                     flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
 
 def lift_block(bm, amount: float) -> int:

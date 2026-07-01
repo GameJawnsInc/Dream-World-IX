@@ -127,3 +127,16 @@ entered the journey's forked Ice Cavern (**map 7000**, via the `s28 ForkSiblingF
 The kit primitives all exist (`eb.edit.add_function`, `world.mesh.retarget_tiles`/`deploy_override`,
 `world.locate.area_to_fields`); a first-class `world-entrance` command (clone-or-synthesize + multi-WORLDxx deploy) is
 the productization step. See memory `project-ff9-worldmap-feasibility`.
+
+### The building layer (the town/dungeon model) — ★ s34-overridable, proven 2026-07-01
+Each block loads TWO baked meshes (WMWorldPrefabMaker.cs:37,102): **"Terrain"** (ground + walkmesh + IDALL) and
+**"Object"** (the buildings/towns/trees). `WMWorld.RegisterBlockComponent` (WMWorld.cs:728) runs the `s34` override
+for BOTH, interpolating `transform.name` — so a `.ff9mesh` at `…Block[X][Y] Object.ff9mesh` overrides the building mesh
+with **no engine change**. ~63 of ~260 blocks carry an Object mesh (`extract.list_object_blocks`). Kit:
+`extract.read_block(part="object")`, `mesh.deploy_override(…, part="Object")`, `mesh.place_building(dst, src, translate)`
+(append a copied structure — flat/unindexed mesh concat + index offset; UV/tangent carry over → the shared object atlas).
+★ Copied Alexandria's castle onto the cell-(35,25) entrance → it rendered + warped. **Polish gotchas:** the Object mesh
+is added to the WALKMESH (form-1), so a raw copy is 3D collision you snag on → give the building tiles an *impassable*
+topograph (`w_movementCheckTopographID`, ff9.cs:5769, a bit outside the on-foot `limit` mask) so you're blocked at the
+perimeter; and a flat-based building on sloped terrain buries/floats → seat it on a `flatten_region` pad. A block with
+NO stock Object mesh needs a small `s34` tweak (fire the Object override when `prefab.ObjectForm1==null`).
