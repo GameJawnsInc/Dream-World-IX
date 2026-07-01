@@ -1602,8 +1602,11 @@ def _cmd_world_locate(args: argparse.Namespace) -> int:
         blk = " ".join("[%d][%d]" % b for b in r["blocks"]) or "(no entrance tiles found)"
         print(f"area {r['area']:>2}: {_dests(r['destinations'])}")
         print(f"         blocks: {blk}")
-    print(f"\n{len(rows)} area(s). Blocks are the authoritative geography (the IDALL area is the dispatch key); "
-          "field destinations are BASE-game (a deployed journey may field_remap them).")
+    print(f"\n{len(rows)} area(s). Read: BOTH blocks + a field = a walk-on overworld entrance (the tile's IDALL "
+          "area is the dispatch case) -- the reliable place->blocks map; FIELD only = a scripted/return "
+          "destination with no walk-on tile; BLOCKS only = walkable terrain, no warp. Destinations are BASE-game "
+          "-- a deployed journey may field_remap them (base area 2 -> Alexandria 1856; the user's journey remaps "
+          "it to a Dali fork, which is why the runtime Dali spot reads as area 2).")
     return 0
 
 
