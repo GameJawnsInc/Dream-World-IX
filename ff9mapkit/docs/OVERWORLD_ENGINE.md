@@ -48,13 +48,19 @@ decodes the entrance dispatch.
   `WMWorld.SetDisc(1|4)` → `SceneDirector.Replace("WorldMapDebug", FadeOutToBlack_FadeIn)`. Switch via
   `ff9.w_frameSetParameter(501, 11090)` (→disc4) / `(502, 0)` (→disc1) — the stock `WMBeeMenu` pattern. It's a
   COARSE switch (doesn't advance ScenarioCounter/party), so a mismatched save can show wrong geometry.
-- **Entrance dispatch** (RE'd 2026-06-30): walking an event tile fires `ff9.WorldEvent(cellX,cellZ,id)` which
-  packs `num = 0x8000 | (cellZ<<8 & 0x3F00) | (cellX<<2 & 0xFC) | (id&3)`; `EventEngine.GetIP` matches `num`
-  against the world `.eb` entry-table ids; the matched entry runs a 2-level switch (vehicle `gEventGlobal[190]`
-  → on-foot AREA switch keyed on the tile IDALL area → ScenarioCounter branch) → `Field(dest)` (MAPJUMP 0x2B).
-  **An overworld entrance is a world-`.eb` ENTRY keyed to a cell** — a tile's event bits only TRIGGER the lookup;
-  editing tile IDALL cannot create an entrance. `ff9mapkit world-locate` decodes place→blocks→field; journeys
-  re-point exits via `worldmap_inject`/`field_remap` (the world is one shared entity, not per-journey).
+- **Entrance dispatch** (fully byte-resolved 2026-07-01): walking an event tile fires `ff9.WorldEvent(cellX,cellZ,id)`
+  which packs `num = 0x8000 | (cellZ<<8 & 0x3F00) | (cellX<<2 & 0xFC) | (id&3)` and `Request(objUID0, 1, num)`;
+  `EventEngine.GetIP` matches `num` against object-0's **function TAGS** (not entry ids) — so **an entrance is a
+  FUNCTION in object 0 whose tag == the cell `num`** (53 of them on disc-1 WORLD00). No matching func → silent no-op
+  (that's why a bare tile-IDALL edit can't create an entrance). The func sets a place index `Map.Byte[39]` + hands off
+  (`RunScriptAsync 6 1 11`) to the shared dispatcher (object 1, `tag-1`): vehicle switch → func-0xB does
+  `Byte[24]=Byte[39]+100` → the dispatcher's conditional `Byte[24]-=100` → `Byte[29]=Byte[24]` → the base-2 AREA switch
+  (60 cases) on `Byte[29]` → ScenarioCounter → `Field(dest)` (0x2B). **So the destination is the func's `Byte[39]`
+  (== the switch case); the tile's IDALL area is only designer-correlated, NOT the dispatch key.** Interaction is the
+  standard action-button `!` prompt, not a tread warp. `ff9mapkit world-locate` decodes area→field; journeys re-point
+  via `worldmap_inject`/`field_remap`. **⚠ 13 DISPATCHERS:** the disc-1 overworld runs one of `EVT_WORLD_WORLD00..12`
+  (p0data7) picked by the world MapNo (9000-9012 = entry/story state) — a new entrance must be added to the WORLDxx
+  actually loaded (see below).
 - **The game's own debug menu:** `WMBeeMenu` (the "Bee scene" = `WorldMapDebug`). Teleport buttons =
   `SetPosition(fixedPt) + w_movementChrInitSlice()`; disc = 501/502; change char = `WMScriptDirector.SetToNextChracter`.
   It is the ground-truth reference the F6 tools copy.
@@ -92,3 +98,32 @@ the wmActor transform) → `w_movementChrInitSlice` (re-ground Y) → `w_movemen
 tick itself is NOT a reverter — `w_movementUpdate`/`w_movementControl` read the *current* transform (`lastx/y/z` are
 re-derived from `pos0/1/2` each tick) and `w_movementSetheight` rewrites only Y, so the teleported XZ survives.
 Engine patch: `memoria-patches/s22-debug-menu-f6.patch`.
+
+## Authoring a NEW overworld entrance (★ in-game proven 2026-07-01)
+First authored overworld connectivity: a plain road cell (35,25, east of Dali) → custom `!` prompt → Confirm →
+entered the journey's forked Ice Cavern (**map 7000**, via the `s28 ForkSiblingField` redirect of the dispatcher's
+`Field(300)`). Recipe:
+
+1. **Pick the cell + destination.** `num = 0x8000|(cellZ<<8)|(cellX<<2)|event`. The F6 **World** tab shows the live
+   cell (`w_worldPos2Cell` = `(int)(x/32), (int)(z/-32)`, identical to the readout) — use it as the targeting oracle.
+   The destination is chosen by cloning a func whose `Byte[39]` routes there (each existing entrance func is `Byte[39]
+   == its dispatch case`; e.g. `0x9895` → case 4 → Field 300 = Ice Cavern).
+2. **Add the trigger func** to object-0 of the world `.eb`: `ff9mapkit.eb.edit.add_function(worldeb, 0, num, body)`
+   where `body` is a VERBATIM clone of an ungated entrance func (`0x9895`: 29 B, no story-gate, no position check —
+   `if Byte[24]==100 && on-foot { Byte[39]=4; RunScriptAsync 6 1 11 } return`). Round-trips byte-exact; the 56+ existing
+   funcs + the dispatcher stay identical.
+3. **⚠ Add it to the RIGHT dispatcher(s).** The disc-1 overworld runs one of `EVT_WORLD_WORLD00..12` by entry/story
+   MapNo (9000-9012). Add the func to **every full dispatcher that has your clone source** (WORLD00/02/03/07/09/10/11
+   all have `0x9895` + the area-4 case; WORLD01/04/06/12 are tiny cutscene states; WORLD05/08 have area-4 but not
+   `0x9895`). Missing the loaded WORLDxx = silent no-op (the bug that made the first build fail — it was only in WORLD00).
+4. **Set the tile event bits.** `ff9mapkit.world.mesh.retarget_tiles(bm, event=1, area=4, center=<cell centre>,
+   radius<=16)` + `deploy_override(...)` — a loose `.ff9mesh` (needs the `s34` WorldMeshOverride engine patch). Keep the
+   radius inside the 32-unit cell so it doesn't spill into a neighbour's entrance.
+5. **Deploy + relaunch.** World `.eb` → `<mod>/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/
+   world/<lang>/EVT_WORLD_WORLDxx.eb.bytes` for **all 7 langs** (loader uses `Localization.CurrentSymbol`; bytecode is
+   language-identical, the 84-byte name is cosmetic). Relaunch (or exit+re-enter the overworld) to reload. On foot, walk
+   the cell and press **Confirm** on the `!`.
+
+The kit primitives all exist (`eb.edit.add_function`, `world.mesh.retarget_tiles`/`deploy_override`,
+`world.locate.area_to_fields`); a first-class `world-entrance` command (clone-or-synthesize + multi-WORLDxx deploy) is
+the productization step. See memory `project-ff9-worldmap-feasibility`.
