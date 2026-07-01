@@ -1458,7 +1458,10 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
     try:
         bm = W.read_block(args.block[0], args.block[1], disc=args.disc, lod=args.lod, game=args.game)
         note = "faithful copy (no edit)"
-        if args.spike:
+        if args.lift:
+            M.lift_block(bm, args.lift)
+            note = f"lifted the WHOLE block by +{args.lift} (unmistakable plateau)"
+        elif args.spike:
             bi = M.raise_vertex_near_center(bm, args.spike)
             note = f"raised vertex {bi} (nearest centre) by +{args.spike}"
         dest = M.deploy_override(bm, mod_folder=args.mod_folder, game=args.game, lod=args.lod)
@@ -3056,7 +3059,9 @@ def build_parser() -> argparse.ArgumentParser:
     wd.add_argument("--mod-folder", required=True,
                     help="the stacked FolderNames mod folder to deploy into (e.g. FF9CustomMap)")
     wd.add_argument("--spike", type=float, default=0.0,
-                    help="raise the block's centre vertex by this many units -- a visible test bump")
+                    help="raise the block's centre vertex by this many units -- a small test bump")
+    wd.add_argument("--lift", type=float, default=0.0,
+                    help="raise the WHOLE block by this many units -- an unmistakable plateau (overrides --spike)")
     wd.set_defaults(func=_cmd_world_deploy)
 
     bsc = sub.add_parser("battle-scene",

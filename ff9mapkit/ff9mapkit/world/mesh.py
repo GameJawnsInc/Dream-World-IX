@@ -85,6 +85,15 @@ def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1") -> Path
     return write_ff9mesh(bm, dest)
 
 
+def lift_block(bm, amount: float) -> int:
+    """EDIT: raise EVERY vertex of the block by ``amount`` units -- an unmistakable whole-block lift (a floating
+    plateau with a sharp cliff at the block edges) to confirm the override renders. Mutates ``bm`` in place;
+    tangents/ids untouched. Returns the vertex count changed."""
+    for v in bm.verts:
+        v[1] += amount
+    return bm.vcount
+
+
 def raise_vertex_near_center(bm, amount: float) -> int:
     """EDIT (first-experiment helper): raise the vertex nearest the block's XZ centre by ``amount`` units -- an
     unmistakable spike to confirm the loose override is loaded + drives render/collision. Returns the vertex index.
