@@ -118,11 +118,30 @@ def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "objec
 
 
 def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part: str = "object", lod: str = "0_1",
-                   topograph: int = _TOPO_IMPASSABLE, game=None) -> dict:
+                   topograph: int = _TOPO_IMPASSABLE, at=None, seat: bool = False, game=None) -> dict:
     """Read an edited OBJ, rebuild it as the TARGET block's ``part`` ``.ff9mesh``, and deploy the loose override.
-    ``into_block=(x, y)`` picks the block whose local frame + override path the result is written into. Returns a
-    summary (dest path, counts)."""
+    ``into_block=(x, y)`` picks the block whose local frame + override path the result is written into.
+
+    Placement (so you can MODEL AT THE ORIGIN in Blender and drop it where you want): ``at=(worldX, worldZ)`` shifts
+    the mesh so its XZ centroid lands at that world spot; ``seat=True`` then drops it so its lowest point rests on the
+    terrain surface there (samples the block's Terrain mesh). Omit both to treat the OBJ as already world-positioned
+    (e.g. a `world-mesh-export` file). Returns a summary."""
     obj = read_obj(obj_path)
+    V = obj["V"]
+    if not V:
+        raise ValueError("OBJ has no vertices")
+    if at is not None or seat:
+        xs = [v[0] for v in V]; zs = [v[2] for v in V]; ys = [v[1] for v in V]
+        cx, cz, ymin = sum(xs) / len(xs), sum(zs) / len(zs), min(ys)
+        wx, wz = at if at is not None else (cx, cz)
+        dx, dz = (wx - cx, wz - cz) if at is not None else (0.0, 0.0)
+        dy = 0.0
+        if seat:
+            tx, ty = into_block
+            ox, oz = W.block_world_origin(tx, ty)
+            ter = W.read_block(tx, ty, disc=disc, lod=lod, part="terrain", game=game)
+            dy = M.sample_ground_y(ter, wx - ox, wz - oz) - ymin      # lowest point -> ground
+        obj["V"] = [(v[0] + dx, v[1] + dy, v[2] + dz) for v in V]
     bm = obj_to_blockmesh(obj, into_block=into_block, disc=disc, part=part, lod=lod, topograph=topograph)
     dest = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=part.capitalize())
     return {"dest": str(dest), "into_block": list(into_block), "verts": bm.vcount, "tris": len(bm.tris)}

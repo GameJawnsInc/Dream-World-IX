@@ -1673,7 +1673,8 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
     from .world import blendio as BIO
     try:
         info = BIO.build_from_obj(args.obj, into_block=tuple(args.into_block), mod_folder=args.mod_folder,
-                                  disc=args.disc, part=args.part, lod=args.lod, topograph=args.topograph, game=args.game)
+                                  disc=args.disc, part=args.part, lod=args.lod, topograph=args.topograph,
+                                  at=(tuple(args.at) if args.at else None), seat=args.seat, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -3348,6 +3349,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="topograph stamped on every triangle's IDALL (default 59 = the stock impassable structure "
                           "type; a building blocks on-foot)")
     wmb.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
+    wmb.add_argument("--at", type=float, nargs=2, metavar=("WX", "WZ"),
+                     help="place the mesh's XZ centre at this WORLD spot (so you can MODEL AT THE ORIGIN in Blender "
+                          "and drop it here); omit to treat the OBJ as already world-positioned")
+    wmb.add_argument("--seat", action="store_true",
+                     help="drop the mesh so its lowest point rests on the terrain surface at --at (auto-ground)")
     wmb.set_defaults(func=_cmd_world_mesh_build)
 
     bsc = sub.add_parser("battle-scene",
