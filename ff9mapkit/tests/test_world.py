@@ -262,6 +262,31 @@ def test_real_block_ff9mesh_roundtrip(tmp_path):
     assert d["verts"] == bm.verts and d["tangents"] == bm.tangents and d["indices"] == bm.flat_index
 
 
+# ---- overworld entrance dispatch decode (world-locate) ---------------------------------------
+def test_sc_condition_parse():
+    from ff9mapkit.world import locate as L
+    assert L._sc_condition("opDC(0) op7D(96,34) op18 op7F") == "SC < 8800"     # 96+34*256=8800, op18=<
+    assert L._sc_condition("opDC(0) op7D(236,9) op1A op7F") == "SC <= 2540"    # 236+9*256=2540, op1A=<=
+    assert L._sc_condition("opD5(29) op7F") is None                            # not a ScenarioCounter gate
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_area_to_fields_matches_dispatch():
+    from ff9mapkit.world import locate as L
+    a = L.area_to_fields()
+    assert a[2] == [("SC < 8800", 1856), ("default", 2450)]      # Dali spot's tile area (mod remaps to the fork)
+    assert a[14] == [("SC <= 2540", 359), ("default", 350)]
+    assert a[4] == [("default", 300)]
+    assert a[24][0][1] == 2152 and a[24][-1] == ("default", 602)  # 3-way ScenarioCounter branch
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_locate_dali_spot_is_area2():
+    from ff9mapkit.world import locate as L
+    b = L.area_to_blocks(disc=1)
+    assert (17, 12) in b[2] and (18, 13) in b[2]                 # the Dali overworld spot = area-2 (runtime-proven)
+
+
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_list_blocks_and_sample_roundtrip():
     blocks = W.list_blocks(disc=1)

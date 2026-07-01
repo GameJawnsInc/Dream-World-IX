@@ -1565,6 +1565,48 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_locate(args: argparse.Namespace) -> int:
+    """Decode the overworld ENTRANCE dispatch: which world blocks/tiles (IDALL area) lead to which field, with
+    the ScenarioCounter branches. The area IS the dispatch switch key, so the blocks are the true geography."""
+    from .world import locate as Loc
+    try:
+        rows = Loc.locate(disc=args.disc, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    def _dests(ds):
+        if not ds:
+            return "(no entrance)"
+        out = []
+        for d in ds:
+            f = "(no warp)" if d["field"] is None else ("field %d" % d["field"] + (" %s" % d["name"] if d["name"] else ""))
+            out.append((d["condition"] + " -> " if (d["condition"] != "default" or len(ds) > 1) else "") + f)
+        return " | ".join(out)
+
+    if args.block:
+        bx, by = args.block
+        rows = [r for r in rows if (bx, by) in r["blocks"]]
+        if not rows:
+            print(f"block [{bx}][{by}] carries no overworld entrance (plain terrain)")
+            return 0
+    elif args.area is not None:
+        rows = [r for r in rows if r["area"] == args.area]
+    elif args.field is not None:
+        rows = [r for r in rows if any(d["field"] == args.field for d in r["destinations"])]
+        if not rows:
+            print(f"no overworld area leads to field {args.field}")
+            return 0
+
+    for r in rows:
+        blk = " ".join("[%d][%d]" % b for b in r["blocks"]) or "(no entrance tiles found)"
+        print(f"area {r['area']:>2}: {_dests(r['destinations'])}")
+        print(f"         blocks: {blk}")
+    print(f"\n{len(rows)} area(s). Blocks are the authoritative geography (the IDALL area is the dispatch key); "
+          "field destinations are BASE-game (a deployed journey may field_remap them).")
+    return 0
+
+
 def _cmd_battle_actions(args: argparse.Namespace) -> int:
     """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
     _safe_console()
@@ -3173,6 +3215,16 @@ def build_parser() -> argparse.ArgumentParser:
     wd.add_argument("--lift", type=float, default=0.0,
                     help="[diag] raise the WHOLE block(s) by N units -- an unmistakable plateau")
     wd.set_defaults(func=_cmd_world_deploy)
+
+    wl = sub.add_parser("world-locate",
+                        help="decode which overworld blocks/tiles (IDALL area) lead to which field -- the entrance "
+                             "dispatch, with ScenarioCounter branches (the reliable place->blocks map)")
+    wl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wl.add_argument("--area", type=int, help="show only this IDALL area id")
+    wl.add_argument("--block", type=int, nargs=2, metavar=("X", "Y"),
+                    help="show the entrance(s) carried by this block")
+    wl.add_argument("--field", type=int, help="show which areas/blocks lead to this destination field id")
+    wl.set_defaults(func=_cmd_world_locate)
 
     bsc = sub.add_parser("battle-scene",
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")
