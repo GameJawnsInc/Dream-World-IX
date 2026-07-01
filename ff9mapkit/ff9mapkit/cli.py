@@ -1505,9 +1505,28 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
         else:
             targets = explicit
 
+        # read all targets first, so the entrance-safety refusal below never leaves a partial deploy
+        bms = [W.read_block(x, y, disc=args.disc, lod=args.lod, game=args.game) for (x, y) in targets]
+
+        # SAFETY: a reshape that raises/lowers a place-ENTRANCE block softlocks the player -- the spawn/field-exit
+        # drops the actor at the tile's STALE pre-raise Y, below the new surface, and foot movement raycasts DOWN
+        # so it never reaches the raised tiles -- AND sinks the entrance prop model into a pit. Refuse unless forced.
+        if reshape and not args.allow_entrances:
+            ent = [(bm.x, bm.y, sorted({W.decode_id(i)["area"] for i in W.block_mapids(bm) if W.decode_id(i)["event"]}))
+                   for bm in bms]
+            ent = [(x, y, a) for (x, y, a) in ent if a]
+            if ent:
+                print("REFUSED: this reshape touches place-ENTRANCE block(s) -- raising/lowering them softlocks the "
+                      "player (embed) and sinks the entrance prop into a pit:", file=sys.stderr)
+                for (x, y, a) in ent:
+                    print(f"  [{x}][{y}] entrance area(s) {a}", file=sys.stderr)
+                print("  move the edit off them (adjust --center / smaller --radius), or pass --allow-entrances to "
+                      "override.", file=sys.stderr)
+                return 2
+
         written = []
-        for (x, y) in targets:
-            bm = W.read_block(x, y, disc=args.disc, lod=args.lod, game=args.game)
+        for bm in bms:
+            x, y = bm.x, bm.y
             ox, oz = W.block_world_origin(x, y)
             if args.lift:
                 M.lift_block(bm, args.lift)
@@ -3145,6 +3164,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="reshape falloff shape (default smooth = creaseless smoothstep dome)")
     wd.add_argument("--no-normals", action="store_true",
                     help="skip the smooth-normal recompute after a reshape (leaves stale shading)")
+    wd.add_argument("--allow-entrances", action="store_true",
+                    help="override the safety refusal when a reshape touches a place-entrance block "
+                         "(raising/lowering those softlocks the player + pits the entrance prop)")
     # diagnostics (single-vertex / whole-block, no auto-expand -- the override-mechanism proofs)
     wd.add_argument("--spike", type=float, default=0.0,
                     help="[diag] raise the centre vertex by N units (tears on the unindexed mesh; a hook test)")

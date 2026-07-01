@@ -123,17 +123,20 @@ def raise_vertex_near_center(bm, amount: float) -> int:
 # / ridge can span several blocks continuously (the deform reasons in world XZ). For a self-contained
 # block-local edit leave it (0, 0) and the default centre is the block's own XZ centroid.
 #
-# AUTHORING GOTCHAS (in-game proven 2026-07-01 -- the render/collision mechanism is solid; these are the
-# real traps when reshaping the LIVE overworld):
-#   * SLOPE COMPOUNDS. A deform ADDS to the natural relief; the overworld has a walk-slope gate
-#     (ff9.w_movementControl), so natural-slope + edit-slope can exceed it even when the edit alone is gentle
-#     (~17deg trapped the player at Dali). Budget the *combined* grade; centre edits on flat ground, not on
-#     the natural slope, and keep the added grade well under the vanilla walkable grass angle.
+# AUTHORING GOTCHAS (in-game 2026-07-01 -- the render/collision mechanism is solid; these are the real traps
+# when reshaping the LIVE overworld):
+#   * WALKABILITY IS TOPOGRAPH, NOT SLOPE. The overworld move gate (ff9.w_movementRoundCheck ->
+#     w_movementCheckTopographID) only checks the target tile's TOPOGRAPH against the control's allowed set
+#     (`limit`) -- there is NO slope/step-height gate. A reshape leaves tangent.x (topograph) untouched, so a
+#     raised slope stays walkable at ANY grade. (Earlier "slope compounds" theory was WRONG.)
+#   * PLACEMENT / EMBED is the real trap. What froze the player at Dali: a spawn / field-exit drops the actor
+#     at the tile's STALE (pre-raise) Y, BELOW the new surface, and foot movement raycasts DOWN from the actor,
+#     so it never reaches the raised tiles -> stuck in every direction (field re-entry did NOT fix it, because
+#     the entry Y is effectively fixed). RULE: do NOT reshape terrain under a spawn / field-entry tile; reshape
+#     AWAY from entries and the player walking in from adjacent unraised ground lands on top and moves fine.
 #   * FIELD-ENTRANCE PITS. Raising a block lifts the entrance *tiles* but NOT the entrance *prop models*
-#     (they stay at their old Y), leaving the props sunk in a visible pit. Avoid reshaping the blocks that
-#     carry a place entrance (``extract.block_summary(...)['place_entrances']``).
-#   * SAVE-EMBED. Raising terrain under a player's *saved* world position buries them below the new surface;
-#     they must re-enter the overworld (field exit) to be re-placed on top.
+#     (they stay at their old Y), leaving the props sunk in a visible pit. Another reason to avoid reshaping
+#     blocks that carry a place entrance (``extract.block_summary(...)['place_entrances']``).
 #   * COORDINATES. A block's edit key is its InitialX/InitialY == the mesh-file coord == the extraction coord
 #     (the wrap's CurrentX/CurrentY is only screen position). To find which blocks a place occupies, trust the
 #     runtime (F6 / a ground raycast), NOT the offline area->place decoder -- its area labels are unreliable.

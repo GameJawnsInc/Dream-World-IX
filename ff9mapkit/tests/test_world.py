@@ -237,6 +237,15 @@ def test_recompute_normals_unit_and_oriented():
         assert nrm[1] > 0                        # sign-aligned to the original +Y facing (not inside-out)
 
 
+def test_entrance_block_detection_predicate():
+    # the predicate world-deploy uses to REFUSE reshaping a place-entrance block (softlock + prop-pit trap)
+    entr = _synthetic_block(tan0_x=27724, tan3_x=232)          # tri0 = event1/area44 entrance ; tri1 = plain land
+    hits = sorted({W.decode_id(i)["area"] for i in W.block_mapids(entr) if W.decode_id(i)["event"]})
+    assert hits == [44]                                        # flagged as an entrance block (area 44)
+    plain = _synthetic_block(tan0_x=232, tan3_x=232)           # both plain terrain -> not an entrance block
+    assert not [i for i in W.block_mapids(plain) if W.decode_id(i)["event"]]
+
+
 def test_ff9mesh_roundtrip_with_normals(tmp_path):
     from ff9mapkit.world import mesh as M
     bm = _flat_block([[0, 0, 0], [1, 2, 3], [4, 5, 6]], normals=[[0, 1, 0], [0, 1, 0], [0, 1, 0]])
