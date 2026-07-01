@@ -1646,8 +1646,9 @@ def _cmd_world_retarget(args: argparse.Namespace) -> int:
                     for c, f in fs))
         except (RuntimeError, FileNotFoundError, ValueError):
             pass
-    print("  RELAUNCH, reach the overworld, walk onto the retargeted tile(s) -- an entrance fires on contact "
-          "(don't place one on the player's spawn tile). A deployed journey may field_remap the destination.")
+    print("  RELAUNCH + reach the overworld. TOPOGRAPH edits change WALKABILITY/encounters (the move gate reads "
+          "the tile topograph). NOTE: --event/--area alone do NOT create a warp -- an overworld entrance is a "
+          "world .eb ENTRY keyed to the cell position (GetIP); a plain tile with event bits warps nowhere.")
     return 0
 
 
@@ -3271,8 +3272,8 @@ def build_parser() -> argparse.ArgumentParser:
     wl.set_defaults(func=_cmd_world_locate)
 
     wr = sub.add_parser("world-retarget",
-                        help="LEVER B: rewrite a world tile's entry id (tangent.x IDALL) to MAKE or MOVE an "
-                             "overworld entrance (deployed as a loose .ff9mesh override; geometry untouched)")
+                        help="edit a world tile's IDALL (tangent.x): topograph = WALKABILITY/terrain (in-game "
+                             "proven); event/area = trigger flag only -- a real entrance needs a world .eb entry")
     wr.add_argument("--block", type=int, nargs=2, metavar=("X", "Y"), required=True,
                     help="the block to edit (pick with world-locate)")
     wr.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
@@ -3280,7 +3281,8 @@ def build_parser() -> argparse.ArgumentParser:
     wr.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
     wr.add_argument("--area", type=int, help="set the entrance AREA (the dispatch case = which place; see world-locate)")
     wr.add_argument("--event", type=int, choices=[0, 1, 2, 3],
-                    help="set the event bits: 1-3 = a place entrance, 0 = plain land (make an entrance = --event 1)")
+                    help="set the event-trigger bits (0=land, 1-3=fires WorldEvent) -- NOTE: bits alone do NOT make "
+                         "a working entrance; the destination is a world .eb entry keyed to the cell")
     wr.add_argument("--topograph", type=int, help="set the topograph/terrain type (default: keep each tile's own)")
     wr.add_argument("--center", type=float, nargs=2, metavar=("WX", "WZ"),
                     help="limit to tiles within --radius of this world XZ (default: the whole block)")

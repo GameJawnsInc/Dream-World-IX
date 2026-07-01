@@ -270,14 +270,23 @@ def recompute_normals(bm, *, tol: float = 1e-3) -> int:
 
 def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, radius=None,
                    world_origin=(0.0, 0.0), only_entrances: bool = False) -> int:
-    """LEVER B (custom overworld connectivity): rewrite the per-triangle entry id (IDALL, stored in ``tangent.x``)
-    for tiles in a region -- turn plain terrain into a place ENTRANCE, or change which place an existing entrance
-    reaches. ``event`` (0=land, 1-3=entrance), ``area`` (0-63 = the dispatch case = which place; see ``world-locate``),
-    and ``topograph`` (0-63 = terrain type) each default to KEEP the tile's current value. Sets tangent.x on all 3
-    corner verts of each affected triangle (the engine reads the HIT triangle's first-corner tangent.x as the mapid,
-    WMBlock.cs). ``center``+``radius`` (world XZ) limit the region; ``only_entrances`` restricts to tiles already
-    carrying an entrance (event!=0). Geometry (verts/normals/uv) is UNTOUCHED -- so no embed/reshape side effects.
-    Returns the triangle count changed. Deploy via :func:`deploy_override` (same loose ``.ff9mesh`` path as a reshape)."""
+    """Rewrite the per-triangle IDALL (stored in ``tangent.x``) for tiles in a region. ``event`` (0=land, 1-3=
+    entrance-trigger bits), ``area`` (0-63), ``topograph`` (0-63 = terrain type) each default to KEEP the tile's
+    current value. Sets tangent.x on all 3 corner verts of each affected triangle (the engine reads the HIT
+    triangle's first-corner tangent.x as the mapid, WMBlock.cs). ``center``+``radius`` (world XZ) limit the region;
+    ``only_entrances`` restricts to tiles already carrying event bits. Geometry (verts/normals/uv) is UNTOUCHED.
+    Returns the triangle count changed. Deploy via :func:`deploy_override` (same loose ``.ff9mesh`` path).
+
+    WHAT THIS CONTROLS (in-game verified 2026-07-01):
+      * ``topograph`` -> WALKABILITY + terrain type. The overworld move gate (``ff9.w_movementRoundCheck`` ->
+        ``w_movementCheckTopographID``) reads the tile topograph from this tangent.x, so this genuinely changes
+        where the player can walk / encounter rates. This is the reliable use of tile retargeting.
+      * ``event``/``area`` do NOT create a working ENTRANCE on their own. An overworld entrance is a world ``.eb``
+        ENTRY keyed to the CELL POSITION: walking on an event tile fires ``ff9.WorldEvent`` which packs a cell tag
+        ``0x8000|(cellZ<<8)|(cellX<<2)|event`` and ``GetIP``-matches it against the world ``.eb`` entry table; NO
+        matching entry -> silent no-op (PROVEN: setting event+area on a plain block warped nowhere). So the entry,
+        not the tile, defines the destination. Creating/moving an entrance needs a world ``.eb`` entry for that
+        cell (Lever A+ = world-.eb authoring); the tile's ``event``/``area`` are only the trigger flag + cosmetic."""
     from .extract import decode_id, encode_id
     tan = bm.tangents
     if tan is None:
