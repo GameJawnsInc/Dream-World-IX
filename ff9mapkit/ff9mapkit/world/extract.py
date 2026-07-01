@@ -76,6 +76,14 @@ def decode_id(idall: int) -> dict:
             "topograph": (idall & 0xFC) >> 2, "flags": idall & 3}
 
 
+def encode_id(event: int = 0, area: int = 0, topograph: int = 0, flags: int = 0) -> int:
+    """Pack ``{event, area, topograph, flags}`` back into an IDALL (the inverse of :func:`decode_id`) -- the
+    per-triangle ``tangent.x`` value. ``event`` 0=plain land, 1-3=a place entrance; ``area`` 0-63 = the entrance
+    dispatch case; ``topograph`` 0-63 = terrain type (movement/encounters). Used to RE-POINT a world tile
+    (Lever B: make a plain tile an entrance, or change which place an entrance reaches)."""
+    return ((event & 3) << 14) | ((area & 0x3F) << 8) | ((topograph & 0x3F) << 2) | (flags & 3)
+
+
 def _unitypy():
     from ..extract import _unitypy as _u           # reuse the field extractor's lazy import + error message
     return _u()

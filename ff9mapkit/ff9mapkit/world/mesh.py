@@ -266,3 +266,37 @@ def recompute_normals(bm, *, tol: float = 1e-3) -> int:
         for i in idxs:
             norms[i][0], norms[i][1], norms[i][2] = nx, ny, nz
     return bm.vcount
+
+
+def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, radius=None,
+                   world_origin=(0.0, 0.0), only_entrances: bool = False) -> int:
+    """LEVER B (custom overworld connectivity): rewrite the per-triangle entry id (IDALL, stored in ``tangent.x``)
+    for tiles in a region -- turn plain terrain into a place ENTRANCE, or change which place an existing entrance
+    reaches. ``event`` (0=land, 1-3=entrance), ``area`` (0-63 = the dispatch case = which place; see ``world-locate``),
+    and ``topograph`` (0-63 = terrain type) each default to KEEP the tile's current value. Sets tangent.x on all 3
+    corner verts of each affected triangle (the engine reads the HIT triangle's first-corner tangent.x as the mapid,
+    WMBlock.cs). ``center``+``radius`` (world XZ) limit the region; ``only_entrances`` restricts to tiles already
+    carrying an entrance (event!=0). Geometry (verts/normals/uv) is UNTOUCHED -- so no embed/reshape side effects.
+    Returns the triangle count changed. Deploy via :func:`deploy_override` (same loose ``.ff9mesh`` path as a reshape)."""
+    from .extract import decode_id, encode_id
+    tan = bm.tangents
+    if tan is None:
+        raise ValueError("block mesh has no tangent channel -- no IDALL to edit")
+    ox, oz = world_origin
+    verts, changed = bm.verts, 0
+    for tri in bm.tris:
+        d = decode_id(int(round(tan[tri[0]][0])))
+        if only_entrances and not d["event"]:
+            continue
+        if center is not None and radius is not None:
+            cx = (verts[tri[0]][0] + verts[tri[1]][0] + verts[tri[2]][0]) / 3.0 + ox
+            cz = (verts[tri[0]][2] + verts[tri[1]][2] + verts[tri[2]][2]) / 3.0 + oz
+            if math.hypot(cx - center[0], cz - center[1]) > radius:
+                continue
+        idall = encode_id(d["event"] if event is None else event,
+                          d["area"] if area is None else area,
+                          d["topograph"] if topograph is None else topograph, d["flags"])
+        for vi in tri:
+            tan[vi][0] = float(idall)
+        changed += 1
+    return changed

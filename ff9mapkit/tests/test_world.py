@@ -237,6 +237,26 @@ def test_recompute_normals_unit_and_oriented():
         assert nrm[1] > 0                        # sign-aligned to the original +Y facing (not inside-out)
 
 
+def test_encode_decode_id_roundtrip():
+    for (e, a, t, f) in [(0, 0, 58, 0), (1, 44, 19, 0), (2, 14, 0, 0), (3, 63, 63, 3)]:
+        assert W.decode_id(W.encode_id(e, a, t, f)) == {"event": e, "area": a, "topograph": t, "flags": f}
+
+
+def test_retarget_tiles_make_and_move_entrance():
+    from ff9mapkit.world import mesh as M
+    # LEVER B: two plain tiles (topograph 58) -> make them an entrance to area 5, topograph preserved
+    bm = _synthetic_block(tan0_x=232, tan3_x=232)
+    assert M.retarget_tiles(bm, event=1, area=5) == 2
+    summ = W.block_summary(bm)
+    assert summ["place_areas"] == [5] and all(e["event"] == 1 for e in summ["place_entrances"])
+    assert W.decode_id(int(round(bm.tangents[0][0])))["topograph"] == 58          # topograph kept
+    # only_entrances: re-point the entrance tile only, leave plain land alone
+    bm2 = _synthetic_block(tan0_x=27724, tan3_x=232)                              # tri0 = area44 entrance ; tri1 = plain
+    assert M.retarget_tiles(bm2, area=9, only_entrances=True) == 1
+    assert W.block_summary(bm2)["place_areas"] == [9]                             # area 44 -> area 9
+    assert W.decode_id(int(round(bm2.tangents[3][0])))["event"] == 0             # the plain tile is untouched
+
+
 def test_entrance_block_detection_predicate():
     # the predicate world-deploy uses to REFUSE reshaping a place-entrance block (softlock + prop-pit trap)
     entr = _synthetic_block(tan0_x=27724, tan3_x=232)          # tri0 = event1/area44 entrance ; tri1 = plain land

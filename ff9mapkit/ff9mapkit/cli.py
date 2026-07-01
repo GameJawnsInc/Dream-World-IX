@@ -1610,6 +1610,47 @@ def _cmd_world_locate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_retarget(args: argparse.Namespace) -> int:
+    """LEVER B: rewrite a world tile's entry id (tangent.x IDALL) to MAKE or MOVE an overworld entrance, deployed
+    as a loose .ff9mesh override (geometry untouched). --event 1 --area N makes plain land an entrance to area N;
+    --area N --only-entrances re-points an existing entrance. Needs the WorldMeshOverride engine patch."""
+    from .world import extract as W, mesh as M
+    if args.event is None and args.area is None and args.topograph is None:
+        print("nothing to change: give --event and/or --area (and optionally --topograph)", file=sys.stderr)
+        return 2
+    x, y = args.block
+    try:
+        bm = W.read_block(x, y, disc=args.disc, lod=args.lod, game=args.game)
+        before = W.block_summary(bm)["place_entrances"]
+        n = M.retarget_tiles(bm, event=args.event, area=args.area, topograph=args.topograph,
+                             center=(tuple(args.center) if args.center else None), radius=args.radius,
+                             world_origin=W.block_world_origin(x, y), only_entrances=args.only_entrances)
+        if n == 0:
+            print("no tiles matched (check --center/--radius/--only-entrances vs this block's tiles)", file=sys.stderr)
+            return 2
+        after = W.block_summary(bm)["place_entrances"]
+        dest = M.deploy_override(bm, mod_folder=args.mod_folder, game=args.game, lod=args.lod)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"retargeted {n} tile(s) on block[{x}][{y}] -> {dest}")
+    print(f"  entrances before: {[(e['area'], e['event']) for e in before]}")
+    print(f"  entrances after:  {[(e['area'], e['event']) for e in after]}")
+    if args.area is not None:
+        try:
+            from .world import locate as Loc
+            fs = Loc.area_to_fields(game=args.game).get(args.area)
+            if fs:
+                print("  area %d on foot -> " % args.area + " | ".join(
+                    ((c + ": ") if c != "default" else "") + ("field %d" % f if f is not None else "(no warp)")
+                    for c, f in fs))
+        except (RuntimeError, FileNotFoundError, ValueError):
+            pass
+    print("  RELAUNCH, reach the overworld, walk onto the retargeted tile(s) -- an entrance fires on contact "
+          "(don't place one on the player's spawn tile). A deployed journey may field_remap the destination.")
+    return 0
+
+
 def _cmd_battle_actions(args: argparse.Namespace) -> int:
     """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
     _safe_console()
@@ -3228,6 +3269,25 @@ def build_parser() -> argparse.ArgumentParser:
                     help="show the entrance(s) carried by this block")
     wl.add_argument("--field", type=int, help="show which areas/blocks lead to this destination field id")
     wl.set_defaults(func=_cmd_world_locate)
+
+    wr = sub.add_parser("world-retarget",
+                        help="LEVER B: rewrite a world tile's entry id (tangent.x IDALL) to MAKE or MOVE an "
+                             "overworld entrance (deployed as a loose .ff9mesh override; geometry untouched)")
+    wr.add_argument("--block", type=int, nargs=2, metavar=("X", "Y"), required=True,
+                    help="the block to edit (pick with world-locate)")
+    wr.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wr.add_argument("--lod", default="0_1", help="LOD dir (default 0_1)")
+    wr.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
+    wr.add_argument("--area", type=int, help="set the entrance AREA (the dispatch case = which place; see world-locate)")
+    wr.add_argument("--event", type=int, choices=[0, 1, 2, 3],
+                    help="set the event bits: 1-3 = a place entrance, 0 = plain land (make an entrance = --event 1)")
+    wr.add_argument("--topograph", type=int, help="set the topograph/terrain type (default: keep each tile's own)")
+    wr.add_argument("--center", type=float, nargs=2, metavar=("WX", "WZ"),
+                    help="limit to tiles within --radius of this world XZ (default: the whole block)")
+    wr.add_argument("--radius", type=float, help="region radius in world units around --center")
+    wr.add_argument("--only-entrances", action="store_true",
+                    help="only retarget tiles that ALREADY carry an entrance (re-point, don't create)")
+    wr.set_defaults(func=_cmd_world_retarget)
 
     bsc = sub.add_parser("battle-scene",
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")
