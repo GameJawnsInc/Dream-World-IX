@@ -118,7 +118,8 @@ def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "objec
 
 
 def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part: str = "object", lod: str = "0_1",
-                   topograph: int = _TOPO_IMPASSABLE, at=None, seat: bool = False, game=None) -> dict:
+                   topograph: int = _TOPO_IMPASSABLE, at=None, seat: bool = False, keep_block: bool = False,
+                   game=None) -> dict:
     """Read an edited OBJ, rebuild it as the TARGET block's ``part`` ``.ff9mesh``, and deploy the loose override.
     ``into_block=(x, y)`` picks the block whose local frame + override path the result is written into.
 
@@ -143,5 +144,14 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
             dy = M.sample_ground_y(ter, wx - ox, wz - oz) - ymin      # lowest point -> ground
         obj["V"] = [(v[0] + dx, v[1] + dy, v[2] + dz) for v in V]
     bm = obj_to_blockmesh(obj, into_block=into_block, disc=disc, part=part, lod=lod, topograph=topograph)
+    merged_with_stock = False
+    if keep_block:                                                  # keep the block's stock structures (e.g. a town)
+        try:
+            stock = W.read_block(into_block[0], into_block[1], disc=disc, lod=lod, part=part, game=game)
+            bm = M.place_building(stock, bm, translate=(0.0, 0.0, 0.0))   # append the new mesh onto the stock
+            merged_with_stock = True
+        except (ValueError, FileNotFoundError):
+            pass                                                   # no stock mesh here -> just the new one
     dest = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=part.capitalize())
-    return {"dest": str(dest), "into_block": list(into_block), "verts": bm.vcount, "tris": len(bm.tris)}
+    return {"dest": str(dest), "into_block": list(into_block), "verts": bm.vcount, "tris": len(bm.tris),
+            "kept_stock": merged_with_stock}
