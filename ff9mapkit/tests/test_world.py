@@ -314,3 +314,42 @@ def test_list_blocks_and_sample_roundtrip():
     sample = blocks[::max(1, len(blocks) // 12)]              # ~12 spread across the grid
     for (x, y) in sample:
         assert W.roundtrip_ok(W.read_block(x, y, disc=1)), f"block[{x}][{y}] not lossless"
+
+
+def test_blendio_obj_to_blockmesh(tmp_path):
+    """Offline: OBJ -> BlockMesh does world->target-local frame conversion, unindexes, preserves UV, stamps IDALL."""
+    from ff9mapkit.world import blendio as BIO, mesh as M
+    from ff9mapkit.world.extract import decode_id, block_world_origin
+    ox, oz = block_world_origin(2, 3)                         # target block origin
+    obj_text = "\n".join([
+        "o Block_2_3_object",
+        f"v {ox + 10:.3f} 5.0 {oz - 4:.3f}",
+        f"v {ox + 20:.3f} 6.0 {oz - 8:.3f}",
+        f"v {ox + 30:.3f} 7.0 {oz - 2:.3f}",
+        "vt 0.1 0.2", "vt 0.3 0.4", "vt 0.5 0.6",
+        "vn 0 1 0", "vn 0 1 0", "vn 0 1 0",
+        "f 1/1/1 2/2/2 3/3/3",
+    ]) + "\n"
+    p = tmp_path / "b.obj"
+    p.write_text(obj_text)
+    obj = BIO.read_obj(p)
+    assert len(obj["V"]) == 3 and len(obj["faces"]) == 1
+    bm = BIO.obj_to_blockmesh(obj, into_block=(2, 3), part="object", topograph=59)
+    assert bm.vcount == 3 and len(bm.tris) == 1 and (bm.x, bm.y) == (2, 3)
+    assert abs(bm.verts[0][0] - 10.0) < 1e-4 and abs(bm.verts[0][2] + 4.0) < 1e-4   # world -> local
+    assert abs(bm.uvs[1][0] - 0.3) < 1e-4                                            # UV preserved
+    assert all(decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] == 59 for t in bm.tris)
+    M.write_ff9mesh(bm, tmp_path / "b.ff9mesh")               # writes the loose override format
+    rt = M.read_ff9mesh(tmp_path / "b.ff9mesh")
+    assert rt["vcount"] == 3 and len(rt["indices"]) == 3
+
+
+def test_blendio_quad_triangulates(tmp_path):
+    """A quad face fan-triangulates to two triangles (Blender may export n-gons)."""
+    from ff9mapkit.world import blendio as BIO
+    p = tmp_path / "q.obj"
+    p.write_text("\n".join(["v 0 0 0", "v 1 0 0", "v 1 0 -1", "v 0 0 -1", "f 1 2 3 4"]) + "\n")
+    obj = BIO.read_obj(p)
+    assert len(obj["faces"]) == 2
+    bm = BIO.obj_to_blockmesh(obj, into_block=(0, 0))
+    assert len(bm.tris) == 2 and bm.vcount == 6

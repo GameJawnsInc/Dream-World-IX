@@ -140,3 +140,12 @@ is added to the WALKMESH (form-1), so a raw copy is 3D collision you snag on →
 topograph (`w_movementCheckTopographID`, ff9.cs:5769, a bit outside the on-foot `limit` mask) so you're blocked at the
 perimeter; and a flat-based building on sloped terrain buries/floats → seat it on a `flatten_region` pad. A block with
 NO stock Object mesh needs a small `s34` tweak (fire the Object override when `prefab.ObjectForm1==null`).
+
+**Blender mesh-surgery round-trip** (`world/blendio.py`, ★ round-trip byte/geometry-exact): `world-mesh-export
+--block X Y [--block …] --part object --out m.obj` writes the block(s)' sub-mesh to a Wavefront OBJ in WORLD coords
+(UVs + normals preserved; several blocks line up so you can splice a multi-block structure — Alexandria is `[19][10]`
+fragment + `[20][10]` keep). Edit in Blender (default OBJ axes, Y-up). `world-mesh-build m.obj --into-block X Y --part
+object --topograph 59 --mod-folder <mod>` rebuilds it into that block's local frame + loose `.ff9mesh`, unindexing the
+flat mesh and STAMPING a uniform IDALL (topo 59 = impassable — the right model for a solid building), then deploys via
+the s34 Object override. Buildings are clean because their IDALL is uniform; per-triangle TERRAIN IDALL (walkmesh) is
+the follow-up (needs a spatial re-derive or a Blender face-attribute sidecar).

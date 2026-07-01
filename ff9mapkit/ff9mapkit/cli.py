@@ -1652,6 +1652,38 @@ def _cmd_world_retarget(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_mesh_export(args: argparse.Namespace) -> int:
+    """Export block sub-mesh(es) to an OBJ for Blender mesh-surgery (splice a multi-block building / reshape / model)."""
+    from .world import blendio as BIO
+    blocks = [tuple(b) for b in args.block]
+    try:
+        info = BIO.export_obj(blocks, disc=args.disc, part=args.part, lod=args.lod, out=args.out, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"exported {len(info['blocks'])} block(s) {args.part} mesh -> {info['path']}  "
+          f"({info['verts']} verts, {info['tris']} tris; WORLD coords, Y-up)")
+    print(f"  edit in Blender (default OBJ axes), then: world-mesh-build <obj> --into-block X Y --part {args.part} "
+          "--mod-folder <mod>")
+    return 0
+
+
+def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
+    """Rebuild an edited OBJ into a block's loose .ff9mesh override + deploy (Object=building; IDALL stamped uniform)."""
+    from .world import blendio as BIO
+    try:
+        info = BIO.build_from_obj(args.obj, into_block=tuple(args.into_block), mod_folder=args.mod_folder,
+                                  disc=args.disc, part=args.part, lod=args.lod, topograph=args.topograph, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    bx, by = info["into_block"]
+    print(f"built {args.part} override for block[{bx}][{by}] "
+          f"({info['verts']} verts, {info['tris']} tris, topograph {args.topograph}) -> {info['dest']}")
+    print("  RELAUNCH or re-enter the overworld. (Object mesh drives render + walkmesh; topo 59 = impassable blocker.)")
+    return 0
+
+
 def _cmd_battle_actions(args: argparse.Namespace) -> int:
     """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
     _safe_console()
@@ -3290,6 +3322,33 @@ def build_parser() -> argparse.ArgumentParser:
     wr.add_argument("--only-entrances", action="store_true",
                     help="only retarget tiles that ALREADY carry an entrance (re-point, don't create)")
     wr.set_defaults(func=_cmd_world_retarget)
+
+    wme = sub.add_parser("world-mesh-export",
+                         help="export a block Object/Terrain sub-mesh to OBJ for Blender mesh surgery (splice a "
+                              "multi-block building, reshape, or model new) -- UVs+normals preserved, world coords")
+    wme.add_argument("--block", type=int, nargs=2, metavar=("X", "Y"), action="append", required=True,
+                     help="a block to export; repeatable -- e.g. --block 20 10 --block 19 10 to splice a multi-block structure")
+    wme.add_argument("--part", choices=["object", "terrain"], default="object",
+                     help="object = buildings/structures (default); terrain = ground/walkmesh")
+    wme.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wme.add_argument("--lod", default="0_1", help="LOD dir (default 0_1)")
+    wme.add_argument("--out", required=True, help="output .obj path")
+    wme.set_defaults(func=_cmd_world_mesh_export)
+
+    wmb = sub.add_parser("world-mesh-build",
+                         help="rebuild an edited OBJ into a block's loose .ff9mesh override + deploy (Object = a "
+                              "building; the per-triangle IDALL is stamped uniformly -- topo 59 = impassable)")
+    wmb.add_argument("obj", help="the edited .obj exported from Blender")
+    wmb.add_argument("--into-block", type=int, nargs=2, metavar=("X", "Y"), required=True,
+                     help="the TARGET block whose local frame + override path the mesh is written into")
+    wmb.add_argument("--part", choices=["object", "terrain"], default="object")
+    wmb.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wmb.add_argument("--lod", default="0_1", help="LOD dir (default 0_1)")
+    wmb.add_argument("--topograph", type=int, default=59,
+                     help="topograph stamped on every triangle's IDALL (default 59 = the stock impassable structure "
+                          "type; a building blocks on-foot)")
+    wmb.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
+    wmb.set_defaults(func=_cmd_world_mesh_build)
 
     bsc = sub.add_parser("battle-scene",
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")
