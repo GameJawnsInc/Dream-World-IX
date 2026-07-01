@@ -417,6 +417,9 @@ def test_entrance_read_block_stacked_prefers_override(tmp_path):
     assert got.vcount == bm.vcount and got.tangents == bm.tangents     # read the override, not p0data
     # a block with no override + no install returns None under missing_ok (never raising into p0data)
     assert EN.read_block_stacked("FF9CustomMap", 9, 9, part="object", game=tmp_path, missing_ok=True) is None
+    # fresh=True IGNORES the override -> falls through to p0data (missing here) instead of returning it
+    assert EN.read_block_stacked("FF9CustomMap", 0, 0, disc=1, part="terrain", game=tmp_path,
+                                 fresh=True, missing_ok=True) is None
 
 
 # --- install-gated: real dispatchers + destination table ---
@@ -513,3 +516,20 @@ def test_entrance_missing_building_rejected_before_write(tmp_path):
     with pytest.raises(ValueError, match=r"--building OBJ not found"):
         EN.author_entrance(cell=(35, 25), mod_folder="X", case=4, game=tmp_path,
                            building={"obj": str(tmp_path / "nope.obj")}, dry_run=True)
+
+
+def test_entrance_flatten_pad_capped_to_building(tmp_path):
+    """A --flatten-pad wider than the building is capped to the footprint, so the flat (step-prone) ground stays
+    under the impassable structure instead of leaving a walkable edge-step you get stuck on."""
+    from ff9mapkit.world import entrance as EN
+    # a 20(X) x 6(Z) base: inscribed radius from the centroid = min half-extent = 3 (the shallow Z side), NOT the
+    # 10.4 corner -- so a wide circular pad is capped to keep it under the narrow side too (the real castle bug).
+    obj = tmp_path / "b.obj"
+    obj.write_text("v -10 0 -3\nv 10 0 -3\nv 10 0 3\nv -10 0 3\nf 1 2 3 4\n")
+    summ = {}
+    r = EN._capped_flatten_radius(14.0, {"obj": str(obj)}, summ)
+    assert abs(r - 3.0) < 1e-6 and summ["notes"] and "capped" in summ["notes"][0]   # inscribed (min extent), not corner
+    summ2 = {}                                                              # requested < footprint -> unchanged, no note
+    assert EN._capped_flatten_radius(2.0, {"obj": str(obj)}, summ2) == 2.0 and not summ2.get("notes")
+    summ3 = {}                                                              # no building -> not capped but warns
+    assert EN._capped_flatten_radius(14.0, None, summ3) == 14.0 and summ3["notes"]

@@ -1704,7 +1704,7 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             cell=tuple(args.cell), mod_folder=args.mod_folder, field=args.field, case=args.case, event=args.event,
             disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
             trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
-            flatten_pad=args.flatten_pad, dry_run=args.dry_run, game=args.game)
+            flatten_pad=args.flatten_pad, fresh=args.fresh, dry_run=args.dry_run, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -1731,6 +1731,8 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             print(f"  building (planned): {b['obj']} at {tuple(b['at'])} seat={b['seat']} keep_block={b['keep_block']}")
         else:
             print(f"  building: {b['verts']} verts / {b['tris']} tris (kept stock town: {b['kept_stock']}) -> {b['dest']}")
+    for note in info.get("notes", []):
+        print(f"  note: {note}")
     if info.get("warning"):
         print(f"  WARNING: {info['warning']}", file=sys.stderr)
     if info["backups"]:
@@ -3454,8 +3456,14 @@ def build_parser() -> argparse.ArgumentParser:
     wen.add_argument("--topograph", type=int, default=59,
                      help="topograph stamped on the building's tiles (default 59 = impassable structure)")
     wen.add_argument("--flatten-pad", type=float, metavar="RADIUS",
-                     help="first flatten a pad of this radius under the building to the seat height (fixes stuck/"
-                          "embed where the flat-based building meets sloped ground)")
+                     help="[steep ground only] flatten a pad of this radius under the building to the seat height. "
+                          "Auto-capped to the building footprint so the flat ground stays UNDER the impassable "
+                          "structure (a wider pad leaves walkable edge-steps you get stuck on). Usually unneeded -- "
+                          "seating alone handles most spots; the building skirt hides a small float.")
+    wen.add_argument("--fresh", action="store_true",
+                     help="re-read this block's terrain/object from PRISTINE p0data, ignoring any already-deployed "
+                          "override -- use when RE-doing a block (a flatten pad or a kept building otherwise COMPOUNDS "
+                          "on each re-run). Drops other entrances' event tiles in the same block.")
     wen.add_argument("--dry-run", action="store_true",
                      help="compute + print the full plan (dispatchers, case, tiles, building) without writing anything")
     wen.set_defaults(func=_cmd_world_entrance)

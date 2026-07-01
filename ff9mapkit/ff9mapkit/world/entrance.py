@@ -218,13 +218,15 @@ def resolve_destination(*, field=None, case=None, game=None) -> dict:
 # --------------------------------------------------------------------------- stacked block reads (compose edits)
 
 def read_block_stacked(mod_folder: str, x: int, y: int, *, disc: int = 1, lod: str = "0_1", part: str = "terrain",
-                       game=None, missing_ok: bool = False):
+                       game=None, missing_ok: bool = False, fresh: bool = False):
     """Read block ``(x, y)``'s ``part`` mesh, preferring an already-deployed mod-folder ``.ff9mesh`` OVERRIDE (so a
-    new edit stacks on a prior one) and falling back to the pristine p0data block. ``missing_ok`` returns ``None``
-    when neither exists (e.g. a block with no stock Object mesh)."""
-    dest = config.find_game_path(game) / mod_folder / M.override_relpath(disc, x, y, lod, part.capitalize())
-    if dest.is_file():
-        return M.blockmesh_from_ff9mesh(dest, disc=disc, x=x, y=y, lod=lod, part=part)
+    new edit stacks on a prior one) and falling back to the pristine p0data block. ``fresh=True`` IGNORES the override
+    and reads pristine -- for re-iterating a block cleanly (GEOMETRY edits like a flatten pad / a kept building would
+    otherwise COMPOUND on re-run). ``missing_ok`` returns ``None`` when neither exists (a block with no stock mesh)."""
+    if not fresh:
+        dest = config.find_game_path(game) / mod_folder / M.override_relpath(disc, x, y, lod, part.capitalize())
+        if dest.is_file():
+            return M.blockmesh_from_ff9mesh(dest, disc=disc, x=x, y=y, lod=lod, part=part)
     try:
         return W.read_block(x, y, disc=disc, lod=lod, part=part, game=game)
     except (ValueError, FileNotFoundError):
@@ -240,16 +242,51 @@ def _timestamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
+def _capped_flatten_radius(requested: float, building, summary: dict) -> float:
+    """Cap a ``--flatten-pad`` radius to the building's XZ footprint so the flattened (step-prone) ground stays UNDER
+    the impassable structure. A flatten pad WIDER than the building leaves flat ground meeting the bumpy natural
+    terrain out in the WALKABLE approach -- an edge step you can walk down into but (the overworld only raycasts DOWN)
+    can't climb back out of = stuck. With ``radius == footprint`` the smoothstep falloff reaches natural terrain
+    exactly at the building perimeter, so nothing walkable has a step. Records a note when it caps / when there's no
+    building to hide the pad."""
+    if not building:
+        summary.setdefault("notes", []).append(
+            "flatten-pad with no --building reshapes WALKABLE ground -- its edge is a step you can get stuck on; "
+            "prefer seating the structure (no flatten) or add a building to cover the pad")
+        return requested
+    from . import blendio as BIO
+    ov = BIO.read_obj(building["obj"])["V"]
+    if not ov:
+        return requested
+    # The building seats with its XZ CENTROID at the pad centre; the pad must stay under it on EVERY side, so the
+    # safe radius is the INSCRIBED circle from the centroid to the footprint's bounding box (min extent), NOT the max
+    # corner distance -- an asymmetric structure (wide in X, shallow in Z) would otherwise leave the pad poking past
+    # its narrow sides into walkable ground (the stuck-step).
+    xs = [v[0] for v in ov]; zs = [v[2] for v in ov]
+    bcx = sum(xs) / len(xs); bcz = sum(zs) / len(zs)
+    foot_r = min(bcx - min(xs), max(xs) - bcx, bcz - min(zs), max(zs) - bcz)
+    if requested > foot_r:
+        summary.setdefault("notes", []).append(
+            f"flatten-pad {requested:.0f} capped to the building's inscribed footprint {foot_r:.1f} -- a wider flat "
+            f"pad pokes past the structure into walkable ground, leaving an edge-step you get stuck on. (Seating "
+            f"alone usually suffices; the building skirt hides a small float.)")
+        return foot_r
+    return requested
+
+
 def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int = 1, disc: int = 1, lod: str = "0_1",
                     trigger_at=None, trigger_radius: float = 14.0, set_tile_area: bool = True,
-                    building=None, flatten_pad=None, backup_dir=None, dry_run: bool = False, game=None) -> dict:
+                    building=None, flatten_pad=None, fresh: bool = False, backup_dir=None,
+                    dry_run: bool = False, game=None) -> dict:
     """Author + deploy a complete overworld entrance at ``cell=(cell_x, cell_z)`` into ``mod_folder``.
 
     Destination: ``field=<id>`` (resolved to a dispatch case) or ``case=<n>`` (raw). ``event`` is the tile trigger
     id (1-3). ``trigger_at``/``trigger_radius`` place the event-tile cluster (default: the cell centre, r=14, kept
     inside the 32u cell). ``building`` (a dict ``{obj, at?, seat?, keep_block?, topograph?}``) additionally models +
     seats a structure in the cell. ``flatten_pad=radius`` first flattens a pad under the building to the seat height
-    (fixes stuck/embed on sloped ground). ``dry_run`` computes + reports the plan without writing. Returns a summary."""
+    (auto-capped to the building footprint so it never leaves a walkable edge-step; seating alone usually suffices).
+    ``fresh`` re-reads the block from pristine p0data (ignoring a prior deployed override) so re-doing a block doesn't
+    COMPOUND its geometry. ``dry_run`` computes + reports the plan without writing. Returns a summary."""
     from ..eb.model import EbScript
     from ..eb import edit as E
 
@@ -311,15 +348,17 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
                                                "out_len": len(out_by_lang["us"])})
 
     # (2) event tile(s) on the cell's terrain block (+ optional flatten pad under the building), stacked
-    ter = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part="terrain", game=game)
+    ter = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part="terrain", game=game, fresh=fresh)
     at = tuple(trigger_at) if trigger_at else (cwx, cwz)
     n_flat = 0
     if flatten_pad:
         pad_at = tuple(building["at"]) if (building and building.get("at")) else (cwx, cwz)
+        eff_r = _capped_flatten_radius(float(flatten_pad), building, summary)
         pad_h = M.sample_ground_y(ter, pad_at[0] - bx * W.BLOCK_SIZE, pad_at[1] + by * W.BLOCK_SIZE)
-        n_flat = M.flatten_region(ter, radius=float(flatten_pad), center=pad_at, height=pad_h,
+        n_flat = M.flatten_region(ter, radius=eff_r, center=pad_at, height=pad_h,
                                   world_origin=W.block_world_origin(bx, by))
         M.recompute_normals(ter)
+        summary["flatten_radius"] = eff_r
     n_tiles = M.retarget_tiles(ter, event=event, area=(the_case if set_tile_area else None),
                                center=at, radius=trigger_radius, world_origin=W.block_world_origin(bx, by))
     summary["tiles_set"] = n_tiles
@@ -341,7 +380,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
         else:
             from . import blendio as BIO
             stock = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part="object", game=game,
-                                       missing_ok=True) if keep else None
+                                       missing_ok=True, fresh=fresh) if keep else None
             summary["building"] = BIO.build_from_obj(
                 building["obj"], into_block=(bx, by), mod_folder=mod_folder, disc=disc, part="object", lod=lod,
                 topograph=building.get("topograph", 59), at=b_at, seat=building.get("seat", True),

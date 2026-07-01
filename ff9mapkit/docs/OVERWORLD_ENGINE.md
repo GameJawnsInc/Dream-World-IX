@@ -150,11 +150,18 @@ What it does, generalizing + hardening the manual recipe:
   **skips** a dispatcher that already has the cell's tag (never clobbers). `--dry-run` prints the full plan writing nothing.
 - **Event tiles + building.** Sets the cell's terrain event bits (`event`/`area`, radius kept inside the 32u cell — warns if
   0 tiles match), and with `--building` places+seats the OBJ as the Object mesh (folds `world-mesh-build`: `--building-at`,
-  `--no-seat`, `--replace-town`, `--topograph`, `--flatten-pad` for sloped ground).
+  `--no-seat`, `--replace-town`, `--topograph`).
+- **⚠ SEAT, don't flatten.** `--flatten-pad R` reshapes WALKABLE ground; on bumpy terrain the former high bumps become
+  local walls you get stuck against (the overworld only raycasts DOWN, so you can't climb back out). It's auto-capped to
+  the building's INSCRIBED footprint (min centroid-to-edge, not the max corner — an asymmetric building would poke a
+  circular pad past its narrow side into walkable ground) so any step stays under the impassable structure. **Seating
+  alone is the right default** — the skirt hides a small float.
+- **⚠ Stacking compounds geometry.** Re-reading the deployed override composes event tiles across entrances, but a
+  flatten pad / a kept building COMPOUNDS on re-run (a 2nd castle stacks on the 1st). Use **`--fresh`** to re-read the
+  block from pristine p0data for a clean re-iteration.
 
-**⚠ still needs an in-game playtest** (I can't see the game): the command reproduces the proven cell-(35,25)→Ice-Cavern
-result byte-for-byte in the states it already covered, and now also covers `WORLD05/08`. See memory
-`project-ff9-worldmap-feasibility`.
+**★ IN-GAME PROVEN 2026-07-01:** a Blender-modelled castle spawned assembled + grounded at the command's cell, the `!`
+prompt fired, warped to the forked Ice Cavern. See memory `project-ff9-worldmap-feasibility`.
 
 ### The building layer (the town/dungeon model) — ★ s34-overridable, proven 2026-07-01
 Each block loads TWO baked meshes (WMWorldPrefabMaker.cs:37,102): **"Terrain"** (ground + walkmesh + IDALL) and
