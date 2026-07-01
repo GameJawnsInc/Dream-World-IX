@@ -159,6 +159,12 @@ What it does, generalizing + hardening the manual recipe:
 - **⚠ Stacking compounds geometry.** Re-reading the deployed override composes event tiles across entrances, but a
   flatten pad / a kept building COMPOUNDS on re-run (a 2nd castle stacks on the 1st). Use **`--fresh`** to re-read the
   block from pristine p0data for a clean re-iteration.
+- **⚠ Triggers go BESIDE the building, never under it.** The event tiles are excluded from the building's world
+  bounding box (`entrance._building_world_box` → `retarget_tiles(exclude_box=)`), so the player triggers from walkable
+  land and can leave — a trigger tile UNDER the impassable structure boxes the player (the soft-lock the castle caused;
+  the asymmetric castle OBJ reaches ~15u west of its anchor, swallowing a nearby tile). A live soft-lock escapes via
+  **F6 → World → Teleport**. On-foot walkability is `w_movementCheckTopographID(limit, id)` (ff9.cs:5769) with on-foot
+  `limit = {0x0010667F, 0xD8FF3CFF}` — **topo 10/36 walkable, 49/59 blocked** (a building's topo-59 is the wall).
 
 **★ IN-GAME PROVEN 2026-07-01:** a Blender-modelled castle spawned assembled + grounded at the command's cell, the `!`
 prompt fired, warped to the forked Ice Cavern. See memory `project-ff9-worldmap-feasibility`.

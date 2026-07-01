@@ -257,6 +257,25 @@ def test_retarget_tiles_make_and_move_entrance():
     assert W.decode_id(int(round(bm2.tangents[3][0])))["event"] == 0             # the plain tile is untouched
 
 
+def test_retarget_tiles_exclude_box_skips_under_building():
+    from ff9mapkit.world import mesh as M
+    # two plain tiles: tri0 centroid ~(1,-1), tri1 ~(4,-4). A box over tri1 (an impassable building) skips it, so an
+    # entrance-trigger tile is never placed under the structure (the soft-lock the castle caused).
+    bm = _synthetic_block(tan0_x=232, tan3_x=232)
+    n = M.retarget_tiles(bm, event=1, area=5, exclude_box=(3.0, 5.0, -5.0, -3.0))
+    assert n == 1
+    ev = [W.decode_id(int(round(bm.tangents[t[0]][0])))["event"] for t in bm.tris]
+    assert ev == [1, 0]                                       # tri0 set; tri1 (under the building box) left plain
+
+
+def test_building_world_box(tmp_path):
+    from ff9mapkit.world import entrance as EN
+    obj = tmp_path / "b.obj"
+    obj.write_text("v -10 0 -3\nv 10 0 -3\nv 10 0 3\nv -10 0 3\nf 1 2 3 4\n")   # 20x6, centroid (0,0)
+    box = EN._building_world_box({"obj": str(obj), "at": (100.0, -200.0)}, (0.0, 0.0), margin=2.0)
+    assert box == (88.0, 112.0, -205.0, -195.0)               # centroid -> (100,-200), padded 2u
+
+
 def test_entrance_block_detection_predicate():
     # the predicate world-deploy uses to REFUSE reshaping a place-entrance block (softlock + prop-pit trap)
     entr = _synthetic_block(tan0_x=27724, tan3_x=232)          # tri0 = event1/area44 entrance ; tri1 = plain land

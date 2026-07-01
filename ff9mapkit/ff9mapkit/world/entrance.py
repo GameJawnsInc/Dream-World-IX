@@ -242,6 +242,21 @@ def _timestamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
+def _building_world_box(building, default_at, margin: float = 2.0):
+    """The world-XZ bounding box ``(xmin, xmax, zmin, zmax)`` a building occupies once placed (its XZ centroid at its
+    ``at`` / ``default_at``), padded by ``margin``. Entrance-trigger tiles are kept OUT of this box so the player never
+    triggers from UNDER the impassable structure (which would box them in -- the soft-lock the castle caused)."""
+    from . import blendio as BIO
+    ov = BIO.read_obj(building["obj"])["V"]
+    if not ov:
+        return None
+    at = tuple(building["at"]) if building.get("at") else default_at
+    xs = [v[0] for v in ov]; zs = [v[2] for v in ov]
+    bcx = sum(xs) / len(xs); bcz = sum(zs) / len(zs)
+    return (at[0] + (min(xs) - bcx) - margin, at[0] + (max(xs) - bcx) + margin,
+            at[1] + (min(zs) - bcz) - margin, at[1] + (max(zs) - bcz) + margin)
+
+
 def _capped_flatten_radius(requested: float, building, summary: dict) -> float:
     """Cap a ``--flatten-pad`` radius to the building's XZ footprint so the flattened (step-prone) ground stays UNDER
     the impassable structure. A flatten pad WIDER than the building leaves flat ground meeting the bumpy natural
@@ -359,10 +374,14 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
                                   world_origin=W.block_world_origin(bx, by))
         M.recompute_normals(ter)
         summary["flatten_radius"] = eff_r
+    excl = _building_world_box(building, (cwx, cwz)) if building else None   # keep triggers OUT from under the building
     n_tiles = M.retarget_tiles(ter, event=event, area=(the_case if set_tile_area else None),
-                               center=at, radius=trigger_radius, world_origin=W.block_world_origin(bx, by))
+                               center=at, radius=trigger_radius, world_origin=W.block_world_origin(bx, by),
+                               exclude_box=excl)
     summary["tiles_set"] = n_tiles
     summary["pad_flattened"] = n_flat
+    if excl:
+        summary["building_box"] = [round(v, 1) for v in excl]
     if not dry_run:
         summary["terrain_override"] = str(M.deploy_override(ter, mod_folder=mod_folder, game=game, lod=lod,
                                                             part="Terrain"))
