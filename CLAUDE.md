@@ -136,10 +136,12 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   engine; **F6 is a user-facing tool we KEEP and plan to grow**, ★ in-game verified shipping on a clean
   installer run 2026-06-30) — which is why we ship our own engine + held the PRs. Revert engine → no-edits
   rebuild: `tools/restore_memoria_dll.py baseline`; true stock = re-run the patcher.
-- **F6 debug menu** (ships in the engine bundle; in **FIELD and BATTLE**): a draggable tabbed IMGUI popup — **Warp** (reload ·
+- **F6 debug menu** (ships in the engine bundle; in **FIELD, BATTLE, and the OVERWORLD**): a draggable tabbed IMGUI popup — **Warp** (reload ·
   warp to any registered custom id · seed an arrival entrance + ScenarioCounter to reach a story-gated fork at
   the right beat) · **Move** · **Cheats** (boosters / heal / give) · **Flags** (get/set/clear/snapshot a
-  `gEventGlobal` flag) · **Time**. Supersedes the old single-key F6-reload / F10-reset hotkeys.
+  `gEventGlobal` flag) · **Time** · **World** (overworld only: live pos/cell/disc/vehicle readout · vehicle-mode swap ·
+  disc 1↔4 · a working teleport — which defeats Memoria's `SmoothFrameUpdater_World` reverter via `Skip`, ★ in-game
+  proven → [[project-ff9-f6-overworld-debug]]). Supersedes the old single-key F6-reload / F10-reset hotkeys.
 - **The Vivi hut is RETIRED to offline build-oracle status.** The painted hut rooms (4000 ext + 4002 int, the
   100%-kit-authored copy in `release/FF9CustomMap/`) were the S0 proof; their only job now is the byte-exact
   golden test (`examples/vivi-hut/` → the provenance manifest SHA). **Do NOT re-polish the hut in-game** — the
