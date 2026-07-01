@@ -72,6 +72,32 @@ def read_ff9mesh(path) -> dict:
             "uvs": uvs, "tangents": tangents, "indices": indices}
 
 
+def blockmesh_from_ff9mesh(path, *, disc: int, x: int, y: int, lod: str = "0_1", part: str = "terrain"):
+    """Reconstruct a :class:`~ff9mapkit.world.extract.BlockMesh` from a loose ``.ff9mesh`` override (the inverse of
+    :func:`deploy_override`). Lets a later edit STACK on an already-deployed override instead of re-reading the
+    pristine p0data block -- e.g. a second entrance in the same block adds its event tiles / building onto the first
+    one's terrain / object override rather than dropping it. The mesh is flat/unindexed, so ``tris`` regroups the
+    stored index buffer in 3s; ``stride`` is nominal (the write path reads channels directly, never re-packs)."""
+    from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    d = read_ff9mesh(path)
+    chan = {CH_POS: [list(v) for v in d["verts"]]}
+    channels = {CH_POS: (0, 3)}
+    if d["normals"]:
+        chan[CH_NRM] = [list(v) for v in d["normals"]]
+        channels[CH_NRM] = (12, 3)
+    if d["uvs"]:
+        chan[CH_UV] = [list(v) for v in d["uvs"]]
+        channels[CH_UV] = (24, 2)
+    if d["tangents"]:
+        chan[CH_TAN] = [list(v) for v in d["tangents"]]
+        channels[CH_TAN] = (32, 4)
+    idx = list(d["indices"])
+    tris = [[idx[i], idx[i + 1], idx[i + 2]] for i in range(0, len(idx) - 2, 3)]
+    return BlockMesh(name=f"Block[{x}][{y}] {part.capitalize()}", disc=disc, x=x, y=y, lod=lod, vcount=d["vcount"],
+                     stride=48, channels=channels, chan_arrays=chan, flat_index=idx, tris=tris,
+                     raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
 def override_relpath(disc: int, x: int, y: int, lod: str = "0_1", part: str = "Terrain") -> str:
     """The mod-folder-relative path the engine's ``WorldMeshOverride`` searches for a block sub-mesh override (under
     ``FF9_Data``, mirroring ``WMWorldPrefabMaker``'s Resources path + the ``.ff9mesh`` extension). ``part`` matches

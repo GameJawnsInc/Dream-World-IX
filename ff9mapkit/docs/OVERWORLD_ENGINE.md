@@ -120,13 +120,41 @@ entered the journey's forked Ice Cavern (**map 7000**, via the `s28 ForkSiblingF
    radius<=16)` + `deploy_override(...)` — a loose `.ff9mesh` (needs the `s34` WorldMeshOverride engine patch). Keep the
    radius inside the 32-unit cell so it doesn't spill into a neighbour's entrance.
 5. **Deploy + relaunch.** World `.eb` → `<mod>/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/
-   world/<lang>/EVT_WORLD_WORLDxx.eb.bytes` for **all 7 langs** (loader uses `Localization.CurrentSymbol`; bytecode is
-   language-identical, the 84-byte name is cosmetic). Relaunch (or exit+re-enter the overworld) to reload. On foot, walk
-   the cell and press **Confirm** on the `!`.
+   world/<lang>/EVT_WORLD_WORLDxx.eb.bytes` for **all 7 langs** (loader uses `Localization.CurrentSymbol`). ⚠ **Patch each
+   language's OWN dispatcher, don't clone US to all** — unlike field scripts, the world dispatchers are NOT fully
+   language-identical: **JP** carries localized inline event dialogue in the dispatcher entries + a distinct layout (its
+   `WORLD00` is 16 B shorter than US); uk/es/fr/gr/it are code-identical to US. Cloning US bytecode into `jp/` clobbers
+   the Japanese overworld dialogue. Relaunch (or exit+re-enter the overworld) to reload. On foot, walk the cell and press
+   **Confirm** on the `!`.
 
-The kit primitives all exist (`eb.edit.add_function`, `world.mesh.retarget_tiles`/`deploy_override`,
-`world.locate.area_to_fields`); a first-class `world-entrance` command (clone-or-synthesize + multi-WORLDxx deploy) is
-the productization step. See memory `project-ff9-worldmap-feasibility`.
+### `world-entrance` — the whole flow in one command (`world/entrance.py`)
+The five steps above (+ the optional building below) are folded into one command, `ff9mapkit world-entrance`
+(module `world/entrance.py`), so a whole entrance is a single call:
+
+```
+ff9mapkit world-entrance --cell 35 25 --field 300 --mod-folder FF9CustomMap \
+    [--building castle.obj --flatten-pad 14] [--dry-run]
+```
+
+What it does, generalizing + hardening the manual recipe:
+- **Destination.** `--field N` inverts `area_to_fields` to the dispatch case (prefers a `default` branch; errors with the
+  reachable-field list if N isn't overworld-reachable); `--case C` sets `Byte[39]` directly. `--field 300` → case 4 (Ice
+  Cavern), the proven default.
+- **Trigger func.** Clones WORLD00's `0x9895` body and **patches its single `Byte[39]=<case>` literal** (`D5 27 7D <lo>
+  <hi>`, unique in the 29 B body) to the chosen case — so ONE proven template routes to any reachable field. Re-disassembled
+  to confirm `Byte[39]==case` + `RunScriptAsync(6,1,11)` before use.
+- **Dispatcher coverage.** Deploys to **every dispatcher whose base-2 area switch carries that case** (not just those with
+  `0x9895`): all 9 (`WORLD00/02/03/05/07/08/09/10/11`) carry case 4 — the manual spike missed `WORLD05/08`. All 7 langs.
+- **Stacking + idempotency.** Reads the mod-folder `.eb`/`.ff9mesh` as the base when present (so a 2nd entrance ADDS to the
+  1st, and terrain/building overrides compose via `mesh.blockmesh_from_ff9mesh`), backs up each pre-edit dispatcher, and
+  **skips** a dispatcher that already has the cell's tag (never clobbers). `--dry-run` prints the full plan writing nothing.
+- **Event tiles + building.** Sets the cell's terrain event bits (`event`/`area`, radius kept inside the 32u cell — warns if
+  0 tiles match), and with `--building` places+seats the OBJ as the Object mesh (folds `world-mesh-build`: `--building-at`,
+  `--no-seat`, `--replace-town`, `--topograph`, `--flatten-pad` for sloped ground).
+
+**⚠ still needs an in-game playtest** (I can't see the game): the command reproduces the proven cell-(35,25)→Ice-Cavern
+result byte-for-byte in the states it already covered, and now also covers `WORLD05/08`. See memory
+`project-ff9-worldmap-feasibility`.
 
 ### The building layer (the town/dungeon model) — ★ s34-overridable, proven 2026-07-01
 Each block loads TWO baked meshes (WMWorldPrefabMaker.cs:37,102): **"Terrain"** (ground + walkmesh + IDALL) and

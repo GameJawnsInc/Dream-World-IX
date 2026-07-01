@@ -1686,6 +1686,62 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_entrance(args: argparse.Namespace) -> int:
+    """One-shot: author a whole custom OVERWORLD ENTRANCE -- the trigger function (into every world dispatcher that
+    carries the destination case, all 7 langs), the event tiles, and (optionally) a modelled building -- all folded
+    into one deploy. Reversible = delete the printed files (or re-deploy the journey)."""
+    from pathlib import Path
+    from .world import entrance as EN
+    if (args.field is None) == (args.case is None):
+        print("give a destination: exactly one of --field <id> or --case <n> (see `world-locate`)", file=sys.stderr)
+        return 2
+    building = None
+    if args.building:
+        building = {"obj": args.building, "at": (tuple(args.building_at) if args.building_at else None),
+                    "seat": not args.no_seat, "keep_block": not args.replace_town, "topograph": args.topograph}
+    try:
+        info = EN.author_entrance(
+            cell=tuple(args.cell), mod_folder=args.mod_folder, field=args.field, case=args.case, event=args.event,
+            disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
+            trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
+            flatten_pad=args.flatten_pad, dry_run=args.dry_run, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    tag = info["tag_hex"]
+    fld = info["field"]
+    head = "PLAN (dry run -- nothing written)" if info["dry_run"] else "authored overworld entrance"
+    print(f"{head}: cell {tuple(info['cell'])} tag {tag} -> case {info['case']}"
+          + (f" -> field {fld}" if fld is not None else " (case has no default field)"))
+    print(f"  {info['dest_note']}")
+    wrote = info["dispatchers_written"]
+    print(f"  trigger func -> {len(wrote)} dispatcher(s) x {len(info['langs'])} langs"
+          f" = {len(wrote) * len(info['langs'])} .eb file(s): {', '.join(w['name'].replace('evt_world_', '') for w in wrote) or '(none)'}")
+    if info["dispatchers_skipped"]:
+        print(f"  skipped (cell already has an entrance there): {', '.join(s.replace('evt_world_', '') for s in info['dispatchers_skipped'])}")
+    pad = f", flattened {info['pad_flattened']} pad verts" if info.get("pad_flattened") else ""
+    print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} area={info['case']} "
+          f"in block{tuple(info['block'])}{pad}")
+    if info.get("terrain_override"):
+        print(f"    -> {info['terrain_override']}")
+    if info.get("building"):
+        b = info["building"]
+        if b.get("planned"):
+            print(f"  building (planned): {b['obj']} at {tuple(b['at'])} seat={b['seat']} keep_block={b['keep_block']}")
+        else:
+            print(f"  building: {b['verts']} verts / {b['tris']} tris (kept stock town: {b['kept_stock']}) -> {b['dest']}")
+    if info.get("warning"):
+        print(f"  WARNING: {info['warning']}", file=sys.stderr)
+    if info["backups"]:
+        print(f"  backed up {len(info['backups'])} pre-edit dispatcher file(s) -> {Path(info['backups'][0]).parent}")
+    if not info["dry_run"]:
+        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, walk to the "
+              "cell -- an \"!\" action prompt fires the warp. (Mesh overrides need the WorldMeshOverride engine patch.)"
+              % info.get("disc", args.disc))
+    return 0
+
+
 def _cmd_battle_actions(args: argparse.Namespace) -> int:
     """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
     _safe_console()
@@ -3359,6 +3415,50 @@ def build_parser() -> argparse.ArgumentParser:
                      help="merge with the block's STOCK structures (keep e.g. the town already there) instead of "
                           "replacing them")
     wmb.set_defaults(func=_cmd_world_mesh_build)
+
+    wen = sub.add_parser("world-entrance",
+                         help="author a WHOLE custom overworld entrance in one shot: the trigger function (into "
+                              "every world dispatcher that carries the destination case, all 7 langs) + the event "
+                              "tiles + an optional modelled building. Needs the WorldMeshOverride engine patch.")
+    wen.add_argument("--cell", type=int, nargs=2, metavar=("X", "Z"), required=True,
+                     help="the overworld CELL to place the entrance (32u cells; see the F6 World tab / world-locate)")
+    wen.add_argument("--field", type=int,
+                     help="destination base field id (resolved to a dispatch case; e.g. --field 300 = Ice Cavern). "
+                          "A fork/journey field_remap/s28 then sends it on to your fork")
+    wen.add_argument("--case", type=int,
+                     help="destination dispatch case directly (== Map.Byte[39]; the AREA switch case). Alternative "
+                          "to --field for power users")
+    wen.add_argument("--event", type=int, choices=[1, 2, 3], default=1,
+                     help="the tile trigger id (default 1) -- must match the tag's low bits; the base game uses 1")
+    wen.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wen.add_argument("--lod", default="0_1", help="LOD dir (default 0_1, the walkmesh form)")
+    wen.add_argument("--mod-folder", required=True,
+                     help="the stacked FolderNames mod folder to deploy into (e.g. FF9CustomMap)")
+    wen.add_argument("--trigger-at", type=float, nargs=2, metavar=("WX", "WZ"),
+                     help="world XZ centre of the event-tile cluster (default: the cell centre). Keep it INSIDE the "
+                          "cell -- tiles that spill into a neighbour pack a different tag and fire nothing")
+    wen.add_argument("--trigger-radius", type=float, default=14.0,
+                     help="event-tile cluster radius in world units (default 14; the cell is 32u wide)")
+    wen.add_argument("--no-tile-area", action="store_true",
+                     help="do NOT stamp the cosmetic tile AREA (dispatch reads Byte[39], not the tile area; the "
+                          "stamp just keeps world-locate reporting the entrance)")
+    # optional building (folds world-mesh-build in)
+    wen.add_argument("--building", help="an OBJ modelled/exported in Blender to place + seat as the cell's structure")
+    wen.add_argument("--building-at", type=float, nargs=2, metavar=("WX", "WZ"),
+                     help="world XZ to drop the building's centre (default: the cell centre)")
+    wen.add_argument("--no-seat", action="store_true",
+                     help="don't auto-drop the building onto the terrain surface (place at its modelled height)")
+    wen.add_argument("--replace-town", action="store_true",
+                     help="REPLACE the block's stock Object structures instead of merging the building alongside them "
+                          "(default: keep e.g. an existing town)")
+    wen.add_argument("--topograph", type=int, default=59,
+                     help="topograph stamped on the building's tiles (default 59 = impassable structure)")
+    wen.add_argument("--flatten-pad", type=float, metavar="RADIUS",
+                     help="first flatten a pad of this radius under the building to the seat height (fixes stuck/"
+                          "embed where the flat-based building meets sloped ground)")
+    wen.add_argument("--dry-run", action="store_true",
+                     help="compute + print the full plan (dispatchers, case, tiles, building) without writing anything")
+    wen.set_defaults(func=_cmd_world_entrance)
 
     bsc = sub.add_parser("battle-scene",
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")

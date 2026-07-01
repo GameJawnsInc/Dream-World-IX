@@ -353,3 +353,163 @@ def test_blendio_quad_triangulates(tmp_path):
     assert len(obj["faces"]) == 2
     bm = BIO.obj_to_blockmesh(obj, into_block=(0, 0))
     assert len(bm.tris) == 2 and bm.vcount == 6
+
+
+# ---- overworld ENTRANCE authoring (world-entrance) --------------------------------------------
+def test_entrance_pack_unpack_cell_tag():
+    from ff9mapkit.world import entrance as EN
+    # the WorldEvent GetIP key: 0x8000 | (cellZ<<8) | (cellX<<2) | event  (verified vs real object-0 tags)
+    assert EN.pack_cell_tag(35, 25, 1) == 0x998D
+    assert EN.pack_cell_tag(37, 24, 1) == 0x9895            # WORLD00's real Ice-Cavern func tag
+    assert EN.unpack_cell_tag(0x998D) == (35, 25, 1)
+    assert EN.unpack_cell_tag(0x9895) == (37, 24, 1)
+    assert EN.unpack_cell_tag(0x0004) is None               # top bit unset -> an ordinary object func, not a cell
+    # round-trip across the valid ranges
+    for cx, cz, ev in [(0, 0, 1), (63, 127, 3), (35, 25, 2)]:
+        assert EN.unpack_cell_tag(EN.pack_cell_tag(cx, cz, ev)) == (cx, cz, ev)
+    for bad in [(64, 0, 1), (0, 128, 1), (0, 0, 0), (0, 0, 4)]:
+        with pytest.raises(ValueError):
+            EN.pack_cell_tag(*bad)
+
+
+def test_entrance_cell_geometry():
+    from ff9mapkit.world import entrance as EN
+    assert EN.cell_to_block(35, 25) == (17, 12)             # 32u cells, 64u blocks (proven in-game placement)
+    assert EN.cell_to_block(37, 24) == (18, 12)
+    assert EN.cell_to_block(0, 0) == (0, 0)
+    assert EN.cell_world_center(35, 25) == (1136, -816)     # matches the F6 World-tab cell readout (Z negated)
+    assert EN.cell_world_center(0, 0) == (16, -16)
+
+
+def test_entrance_patch_byte39_synthetic():
+    from ff9mapkit.world import entrance as EN
+    # a SYNTHETIC entrance-func body (our own opcode bytes -- op_05{ Byte[39]=4 } ; op_04), NOT game data
+    body = bytes([0x05, 0xD5, 0x27, 0x7D, 0x04, 0x00, 0x2C, 0x7F, 0x04])
+    assert EN.byte39_value(body) == 4
+    patched = EN.patch_byte39(body, 13)
+    assert EN.byte39_value(patched) == 13
+    assert patched[4] == 13 and patched[:4] == body[:4] and patched[5:] == body[5:]   # only the literal moved
+    with pytest.raises(ValueError):                         # a body with no Byte[39] assignment is rejected
+        EN.patch_byte39(bytes([0x05, 0x7F, 0x04]), 4)
+
+
+def test_entrance_blockmesh_from_ff9mesh_reconstructs():
+    """A deployed .ff9mesh reconstructs into an editable BlockMesh (so a 2nd entrance STACKS on the 1st)."""
+    from ff9mapkit.world import mesh as M
+    import tempfile
+    bm = _synthetic_block(tan0_x=27724, tan3_x=232)
+    with tempfile.TemporaryDirectory() as d:
+        p = M.write_ff9mesh(bm, f"{d}/b.ff9mesh")
+        rt = M.blockmesh_from_ff9mesh(p, disc=1, x=0, y=0, part="terrain")
+    assert rt.vcount == bm.vcount and len(rt.tris) == len(bm.tris)
+    assert rt.verts == bm.verts and rt.tangents == bm.tangents
+    # and the reconstruction is itself editable: retarget still works on it
+    assert M.retarget_tiles(rt, area=9, only_entrances=True) == 1
+
+
+def test_entrance_read_block_stacked_prefers_override(tmp_path):
+    """read_block_stacked returns the mod-folder override when present (offline, no install needed)."""
+    from ff9mapkit.world import entrance as EN, mesh as M
+    bm = _synthetic_block(tan0_x=27724, tan3_x=232)
+    dest = tmp_path / "FF9CustomMap" / M.override_relpath(1, 0, 0, "0_1", "Terrain")
+    M.write_ff9mesh(bm, dest)
+    got = EN.read_block_stacked("FF9CustomMap", 0, 0, disc=1, part="terrain", game=tmp_path)
+    assert got.vcount == bm.vcount and got.tangents == bm.tangents     # read the override, not p0data
+    # a block with no override + no install returns None under missing_ok (never raising into p0data)
+    assert EN.read_block_stacked("FF9CustomMap", 9, 9, part="object", game=tmp_path, missing_ok=True) is None
+
+
+# --- install-gated: real dispatchers + destination table ---
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_entrance_func_body_real_template():
+    from ff9mapkit.world import entrance as EN
+    body = EN.entrance_func_body(4)                         # the proven Ice-Cavern case, from the real 0x9895
+    assert EN.byte39_value(body) == 4 and len(body) == 29
+    assert EN.byte39_value(EN.entrance_func_body(13)) == 13  # redirect the destination via the literal patch
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_entrance_resolve_destination():
+    from ff9mapkit.world import entrance as EN
+    assert EN.resolve_destination(field=300)["case"] == 4          # Ice Cavern <- case 4
+    assert EN.resolve_destination(case=4)["field"] == 300
+    with pytest.raises(ValueError):
+        EN.resolve_destination(field=999999)                       # unreachable -> actionable error
+    with pytest.raises(ValueError):
+        EN.resolve_destination(field=300, case=4)                  # not both
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_entrance_dispatcher_cases():
+    from ff9mapkit.world import entrance as EN
+    disp = EN.load_world_dispatchers()
+    assert len(disp) == 13                                          # WORLD00..12
+    assert 4 in EN.dispatcher_cases(disp["evt_world_world00"])      # WORLD00 routes case 4
+    assert EN.dispatcher_cases(disp["evt_world_world01"]) is None   # a cutscene state has no area switch
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_entrance_add_function_e2e():
+    """Author the trigger func into a real dispatcher; it disassembles correctly and corrupts nothing."""
+    from ff9mapkit.world import entrance as EN
+    from ff9mapkit.eb.model import EbScript
+    from ff9mapkit.eb import edit as E, disasm as D
+    disp = EN.load_world_dispatchers()
+    base = disp["evt_world_world00"]
+    s0 = EbScript.from_bytes(base)
+    tag = EN.pack_cell_tag(50, 40, 1)                              # a fresh cell not already in WORLD00
+    out = E.add_function(base, 0, tag, EN.entrance_func_body(13, dispatchers=disp))
+    s1 = EbScript.from_bytes(out)
+    nf = s1.entry(0).func_by_tag(tag)
+    assert nf is not None
+    ins = list(D.iter_code(s1.data, nf.abs_start, nf.abs_end))
+    assert any(i.op == 0x10 and i.imm(0) == 6 for i in ins)         # RunScriptAsync(6, 1, 11)
+    assert EN.byte39_value(out[nf.abs_start:nf.abs_end]) == 13
+    for f in s0.entry(0).funcs:                                     # every prior func byte-identical
+        g = s1.entry(0).func_by_tag(f.tag)
+        assert base[f.abs_start:f.abs_end] == out[g.abs_start:g.abs_end]
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_entrance_author_dry_run():
+    from ff9mapkit.world import entrance as EN
+    # cell (35,25) -> the proven Dali-adjacent block [17][12]; field 300 = Ice Cavern (case 4). A nonexistent mod
+    # folder means the base is pristine p0data (no prior deploy to stack on).
+    info = EN.author_entrance(cell=(35, 25), mod_folder="FF9CustomMap_test_nonexistent", field=300, dry_run=True)
+    assert info["dry_run"] and info["tag_hex"] == "0x998D"
+    assert info["block"] == [17, 12] and info["case"] == 4 and info["field"] == 300
+    # case 4 lives in all 9 area-switch dispatchers; each is either written or (if it already had the cell) skipped
+    assert len(info["dispatchers_written"]) + len(info["dispatchers_skipped"]) == 9
+    assert info["dispatchers_written"] and info["tiles_set"] > 0    # the cell's terrain tiles were matched
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_entrance_patches_each_language_own_base():
+    """The world dispatchers are NOT language-identical (JP carries localized dialogue + a distinct layout), so the
+    entrance func must be patched into EACH language's own base -- cloning US to jp/ would clobber JP dialogue."""
+    from ff9mapkit.world import entrance as EN
+    from ff9mapkit.eb.model import EbScript
+    from ff9mapkit.eb import edit as E
+    alld = EN.load_all_dispatchers()
+    assert len(alld) == 13 and {"us", "jp", "uk", "fr"} <= set(alld["evt_world_world00"])
+    langs = alld["evt_world_world00"]
+    assert langs["jp"] != langs["us"]                              # JP is a distinct dispatcher (16 B shorter)
+    tag = EN.pack_cell_tag(50, 40, 1)
+    body = EN.entrance_func_body(4, dispatchers={n: L["us"] for n, L in alld.items()})
+    out_us = E.add_function(langs["us"], 0, tag, body)
+    out_jp = E.add_function(langs["jp"], 0, tag, body)
+    assert out_jp != out_us                                        # patched separately -> JP layout preserved
+    # every pre-existing dispatcher func (entry 1 = where the localized dialogue lives) is byte-identical in JP
+    s0, s1 = EbScript.from_bytes(langs["jp"]), EbScript.from_bytes(out_jp)
+    for f in s0.entry(1).funcs:
+        g = s1.entry(1).func_by_tag(f.tag)
+        assert g is not None and langs["jp"][f.abs_start:f.abs_end] == out_jp[g.abs_start:g.abs_end]
+
+
+def test_entrance_missing_building_rejected_before_write(tmp_path):
+    """A bad --building path fails FAST (before any .eb write) so it can't leave a half-deploy. Offline: the guard
+    raises before load_world_dispatchers is reached."""
+    from ff9mapkit.world import entrance as EN
+    with pytest.raises(ValueError, match=r"--building OBJ not found"):
+        EN.author_entrance(cell=(35, 25), mod_folder="X", case=4, game=tmp_path,
+                           building={"obj": str(tmp_path / "nope.obj")}, dry_run=True)

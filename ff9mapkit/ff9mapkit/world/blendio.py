@@ -119,14 +119,19 @@ def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "objec
 
 def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part: str = "object", lod: str = "0_1",
                    topograph: int = _TOPO_IMPASSABLE, at=None, seat: bool = False, keep_block: bool = False,
-                   game=None) -> dict:
+                   stock_bm=None, terrain_bm=None, game=None) -> dict:
     """Read an edited OBJ, rebuild it as the TARGET block's ``part`` ``.ff9mesh``, and deploy the loose override.
     ``into_block=(x, y)`` picks the block whose local frame + override path the result is written into.
 
     Placement (so you can MODEL AT THE ORIGIN in Blender and drop it where you want): ``at=(worldX, worldZ)`` shifts
     the mesh so its XZ centroid lands at that world spot; ``seat=True`` then drops it so its lowest point rests on the
     terrain surface there (samples the block's Terrain mesh). Omit both to treat the OBJ as already world-positioned
-    (e.g. a `world-mesh-export` file). Returns a summary."""
+    (e.g. a `world-mesh-export` file).
+
+    ``terrain_bm`` / ``stock_bm`` let a caller supply the seat-reference terrain and the ``keep_block`` merge base
+    explicitly (e.g. an already-deployed override so a placement STACKS on a prior edit / seats on a flattened pad,
+    rather than re-reading pristine p0data). Both default to a fresh pristine read of ``into_block``. Returns a
+    summary."""
     obj = read_obj(obj_path)
     V = obj["V"]
     if not V:
@@ -140,18 +145,21 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
         if seat:
             tx, ty = into_block
             ox, oz = W.block_world_origin(tx, ty)
-            ter = W.read_block(tx, ty, disc=disc, lod=lod, part="terrain", game=game)
+            ter = terrain_bm if terrain_bm is not None else W.read_block(tx, ty, disc=disc, lod=lod,
+                                                                         part="terrain", game=game)
             dy = M.sample_ground_y(ter, wx - ox, wz - oz) - ymin      # lowest point -> ground
         obj["V"] = [(v[0] + dx, v[1] + dy, v[2] + dz) for v in V]
     bm = obj_to_blockmesh(obj, into_block=into_block, disc=disc, part=part, lod=lod, topograph=topograph)
     merged_with_stock = False
     if keep_block:                                                  # keep the block's stock structures (e.g. a town)
         try:
-            stock = W.read_block(into_block[0], into_block[1], disc=disc, lod=lod, part=part, game=game)
+            stock = stock_bm
+            if stock is None:
+                stock = W.read_block(into_block[0], into_block[1], disc=disc, lod=lod, part=part, game=game)
             bm = M.place_building(stock, bm, translate=(0.0, 0.0, 0.0))   # append the new mesh onto the stock
             merged_with_stock = True
         except (ValueError, FileNotFoundError):
-            pass                                                   # no stock mesh here -> just the new one
+            pass                                                   # no stock mesh / channel mismatch -> just the new one
     dest = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=part.capitalize())
     return {"dest": str(dest), "into_block": list(into_block), "verts": bm.vcount, "tris": len(bm.tris),
             "kept_stock": merged_with_stock}
