@@ -156,23 +156,48 @@ def apply_palette_uvs(bm, palette: dict | None = None, *, topograph=None, varian
                      tris=[list(t) for t in bm.tris], raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
 
-def stamp_uv_rect(bm, uv_rect, *, only_zero: bool = True):
+def stamp_uv_rect(bm, uv_rect, *, only_zero: bool = True, project: str = "box"):
     """Stamp an EXPLICIT UV rect ``(umin, vmin, umax, vmax)`` onto ``bm``'s faces (default: only zero-UV faces) --
-    for a CUSTOM tile painted into free atlas space (T3), where the target UVs aren't a learned donor. Each triangle
-    gets three corners of the rect; returns a copy (or ``bm`` unchanged if nothing to stamp)."""
-    from .extract import BlockMesh, CH_UV
+    for a CUSTOM tile painted into free atlas space (T3), where the target UVs aren't a learned donor.
+
+    ``project="box"`` (default) PLANAR-projects each triangle by vertex position (each face plane's two axes,
+    normalized over the stamped-vertex bbox) so the tile WRAPS cleanly per face -- one full tile per face, no diagonal
+    half-cut. ``project="corner"`` is the crude "3 rect corners per tri" (each face split diagonally). Returns a copy
+    (or ``bm`` unchanged if nothing to stamp)."""
+    from .extract import BlockMesh, CH_POS, CH_UV
     if CH_UV not in bm.channels:
         return bm
     u0, v0, u1, v1 = uv_rect
-    triplet = [[u0, v0], [u1, v0], [u1, v1]]                 # a right-triangle of the tile per face-tri
     uvch = [list(v) for v in bm.chan_arrays[CH_UV]]
-    changed = 0
-    for tri in bm.tris:
-        if only_zero and not _is_zero_uv([uvch[i] for i in tri]):
-            continue
-        for vi, uv in zip(tri, triplet):
-            uvch[vi] = list(uv)
-        changed += 1
+    pos = bm.chan_arrays.get(CH_POS)
+    faces = [tri for tri in bm.tris if not (only_zero and not _is_zero_uv([uvch[i] for i in tri]))]
+    if not faces:
+        return bm
+    if project == "box" and pos is not None:
+        vids = {i for tri in faces for i in tri}            # bbox over ONLY the stamped verts (the new geometry)
+        lo = [min(pos[i][k] for i in vids) for k in range(3)]
+        hi = [max(pos[i][k] for i in vids) for k in range(3)]
+        span = [(hi[k] - lo[k]) or 1.0 for k in range(3)]
+
+        def box_uv(tri, i):
+            p, q, r = pos[tri[0]], pos[tri[1]], pos[tri[2]]
+            n = [(q[1]-p[1])*(r[2]-p[2]) - (q[2]-p[2])*(r[1]-p[1]),   # face normal (cross e1,e2)
+                 (q[2]-p[2])*(r[0]-p[0]) - (q[0]-p[0])*(r[2]-p[2]),
+                 (q[0]-p[0])*(r[1]-p[1]) - (q[1]-p[1])*(r[0]-p[0])]
+            axes = sorted(range(3), key=lambda k: abs(n[k]))[:2]     # the two in-plane axes (drop the normal axis)
+            a, b = axes
+            na = (pos[i][a] - lo[a]) / span[a]
+            nb = (pos[i][b] - lo[b]) / span[b]
+            return [u0 + (u1 - u0) * na, v0 + (v1 - v0) * nb]
+        for tri in faces:
+            for i in tri:
+                uvch[i] = box_uv(tri, i)
+    else:
+        triplet = [[u0, v0], [u1, v0], [u1, v1]]            # a right-triangle of the tile per face-tri
+        for tri in faces:
+            for vi, uv in zip(tri, triplet):
+                uvch[vi] = list(uv)
+    changed = len(faces)
     if not changed:
         return bm
     chan = {ci: ([list(v) for v in uvch] if ci == CH_UV else [list(v) for v in bm.chan_arrays[ci]])

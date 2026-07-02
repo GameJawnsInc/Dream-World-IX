@@ -82,11 +82,16 @@ def test_stamp_uv_rect_stamps_a_custom_region():
     real = [(0.5, 0.5)] * 3
     bm = _mesh([(59, zero), (59, real)])                       # tri0 zero-UV, tri1 already textured
     rect = (0.95, 0.001, 0.999, 0.05)                          # a NEW tile's UV region (T3)
-    out = P.stamp_uv_rect(bm, rect, only_zero=True)
-    uv = out.chan_arrays[CH_UV]
-    assert uv[0] == [0.95, 0.001] and uv[1] == [0.999, 0.001] and uv[2] == [0.999, 0.05]   # rect corners on tri0
+    # project="corner": the crude 3-rect-corners-per-tri
+    uv = P.stamp_uv_rect(bm, rect, only_zero=True, project="corner").chan_arrays[CH_UV]
+    assert uv[0] == [0.95, 0.001] and uv[1] == [0.999, 0.001] and uv[2] == [0.999, 0.05]
     assert uv[3] == uv[4] == uv[5] == [0.5, 0.5]               # textured tri untouched
-    assert P.stamp_uv_rect(bm, rect, only_zero=False).chan_arrays[CH_UV][3] == [0.95, 0.001]   # force all
+    # project="box" (default): planar-projected UVs stay INSIDE the rect and vary (a real wrap, not a fixed triplet)
+    uvb = P.stamp_uv_rect(bm, rect, only_zero=True).chan_arrays[CH_UV]
+    for i in range(3):
+        assert 0.95 <= uvb[i][0] <= 0.999 and 0.001 <= uvb[i][1] <= 0.05
+    assert uvb[3] == [0.5, 0.5]                                # textured tri still untouched
+    assert P.stamp_uv_rect(bm, rect, only_zero=False, project="corner").chan_arrays[CH_UV][3] == [0.95, 0.001]
 
 
 def test_is_zero_uv():
