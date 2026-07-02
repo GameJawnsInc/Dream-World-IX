@@ -435,12 +435,18 @@ block), so topograph is a usable **key for a learned UV palette** — with the c
 buckets (topo 49 spans many tiles), so the robust unit is "a real donor face's UV triplet," modal tile as default.
 
 **No-DLL feasibility — three tiers:**
-- **T1 — reuse existing atlas tiles via UVs (★ BUILT, no DLL).** Learn `topograph → real donor UV triplets` from
-  shipping blocks; stamp them onto new/UV-less faces (which otherwise carry `[0,0]` = the atlas corner). `world/palette.py`:
+- **T1 — reuse existing atlas tiles via UVs (★ IN-GAME PROVEN 2026-07-02, no DLL).** Learn `topograph → real donor UV
+  triplets` from shipping blocks; stamp them onto new/UV-less faces (which otherwise carry `[0,0]` = the atlas corner,
+  which is a **blank white** tile). ★ Proven: a small test box stamped with a real Alexandria wall tile (UV ≈0.58,0.45)
+  rendered the masonry wall in-game, side-by-side with a plain `[0,0]` box that rendered solid white. `world/palette.py`:
   `build_palette` (cached per disc/part) · `pick_uvs` · `apply_palette_uvs` (per-triangle, only zero-UV faces).
   `world-mesh-build --texture` applies it (covers a UV-less Blender model + the `add_solid_base` hull);
   `world-texture-palette` inspects it. **Tiling caveat:** a real tri's UV rect is ~5-6% of the atlas, so a donor
-  triplet is stamped PER TRIANGLE — don't stretch one tile across a big face.
+  triplet is stamped PER TRIANGLE — don't stretch one tile across a big face. **Tile-choice caveat:** `pick_uvs`'s
+  MODAL default can be a blank/backing tile — the object atlas's most-common topo-59 face is the white filler at
+  UV ≈(0.15,0.93), and the corner (0,0) is blank white; real walls are mid-atlas (e.g. ≈0.58,0.45). So the modal is a
+  real tile but not always the *wanted* look; a `variant` pick or an explicit donor face gives control, and an
+  atlas-PNG preview/picker is the natural UX follow-up.
 - **T2 — HD atlas reskin (tractable, no DLL, art task).** Drop a PNG at the terrain/object atlas override path (the
   `SearchAssetOnDisc` mod path) to replace the atlas at the *same* UV layout. Out of kit scope (no atlas-image code);
   documented for users who want HD terrain.
