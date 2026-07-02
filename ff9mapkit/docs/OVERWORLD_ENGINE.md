@@ -159,12 +159,18 @@ What it does, generalizing + hardening the manual recipe:
 - **⚠ Stacking compounds geometry.** Re-reading the deployed override composes event tiles across entrances, but a
   flatten pad / a kept building COMPOUNDS on re-run (a 2nd castle stacks on the 1st). Use **`--fresh`** to re-read the
   block from pristine p0data for a clean re-iteration.
-- **⚠ Triggers go BESIDE the building, never under it.** The event tiles are excluded from the building's world
-  bounding box (`entrance._building_world_box` → `retarget_tiles(exclude_box=)`), so the player triggers from walkable
-  land and can leave — a trigger tile UNDER the impassable structure boxes the player (the soft-lock the castle caused;
-  the asymmetric castle OBJ reaches ~15u west of its anchor, swallowing a nearby tile). A live soft-lock escapes via
-  **F6 → World → Teleport**. On-foot walkability is `w_movementCheckTopographID(limit, id)` (ff9.cs:5769) with on-foot
-  `limit = {0x0010667F, 0xD8FF3CFF}` — **topo 10/36 walkable, 49/59 blocked** (a building's topo-59 is the wall).
+- **⚠ Buildings need a SOLID base — a hollow 3D model boxes the player.** The castle soft-lock's real cause (NOT the
+  town, which was 30u away): a hollow model's tris become per-triangle collision, but its interior gaps (a courtyard, a
+  split between towers) have no tri, so the down-raycast reaches the ground and the player walks INTO the model and is
+  boxed by the surrounding walls — on ANY cell. Fix: `mesh.add_solid_base` fills the building's XZ convex hull with an
+  impassable footprint (topo-59, at min-Y+0.5), so you stop at its edge like a real solid-based town.
+  `world-entrance` defaults it on (`--hollow-building` to skip). Triggers are also excluded from the building box
+  (`entrance._building_world_box` → `retarget_tiles(exclude_box=)`) so the `!` fires from walkable land beside it.
+- **⚠ Walkability / escape.** A live soft-lock escapes via **F6 → World → Teleport**. On-foot walkability is
+  `w_movementCheckTopographID(limit, id)` (ff9.cs:5769) with on-foot `limit = {0x0010667F, 0xD8FF3CFF}` — **topo 10/36
+  walkable, 49/59 blocked** (a building's topo-59 is the wall). `world-entrance` also LINTS the cell
+  (`_cell_openness_note`) and warns on mostly-blocked (river/cliff) cells; an open, all-walkable cell is roomier but the
+  solid base is what prevents the box.
 
 **★ IN-GAME PROVEN 2026-07-01:** a Blender-modelled castle spawned assembled + grounded at the command's cell, the `!`
 prompt fired, warped to the forked Ice Cavern. See memory `project-ff9-worldmap-feasibility`.

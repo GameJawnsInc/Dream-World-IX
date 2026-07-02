@@ -128,6 +128,62 @@ def sample_ground_y(terrain_bm, lx: float, lz: float) -> float:
     return by
 
 
+def _convex_hull_xz(pts):
+    """2D convex hull (monotone chain) of ``(x, z)`` points, counter-clockwise, no repeated endpoint."""
+    pts = sorted(set(pts))
+    if len(pts) < 3:
+        return pts
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower = []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def add_solid_base(bm, *, topograph: int = 59, lift: float = 0.5):
+    """Append a SOLID collision footprint (the XZ convex hull of ``bm``, fan-triangulated at its lowest Y + ``lift``,
+    stamped ``topograph``) so a hollow 3D building blocks like a real town instead of leaving walk-in courtyard
+    pockets you get boxed in. The hull FILLS interior gaps (a courtyard, a split between towers), so the whole
+    footprint is impassable and the player stops at its edge (they trigger the entrance from OUTSIDE it). The fill
+    sits just above the seated base so the engine's down-raycast hits it before the ground. Returns a new merged
+    :class:`~ff9mapkit.world.extract.BlockMesh` (same channels as ``bm``)."""
+    from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+    verts = bm.verts
+    hull = _convex_hull_xz([(v[0], v[2]) for v in verts])
+    if len(hull) < 3:
+        return bm
+    y = min(v[1] for v in verts) + lift
+    idall = float(encode_id(event=0, area=0, topograph=topograph))
+    fan_pos, fan_nrm, fan_uv, fan_tan, fan_tris, fan_flat = [], [], [], [], [], []
+    vi = 0
+    for k in range(1, len(hull) - 1):                     # fan: (hull0, hull_k, hull_{k+1})
+        for (hx, hz) in (hull[0], hull[k], hull[k + 1]):
+            fan_pos.append([hx, y, hz])
+            fan_nrm.append([0.0, 1.0, 0.0])
+            fan_uv.append([0.0, 0.0])
+            fan_tan.append([idall, 0.0, 0.0, 1.0])
+            fan_flat.append(vi); vi += 1
+        fan_tris.append([vi - 3, vi - 2, vi - 1])
+    off = bm.vcount
+    add = {CH_POS: fan_pos, CH_NRM: fan_nrm, CH_UV: fan_uv, CH_TAN: fan_tan}
+    chan = {ci: [list(v) for v in bm.chan_arrays[ci]] + [list(v) for v in add.get(ci, [])] for ci in bm.channels}
+    flat = list(bm.flat_index) + [i + off for i in fan_flat]
+    tris = [list(t) for t in bm.tris] + [[a + off, b + off, c + off] for (a, b, c) in fan_tris]
+    return BlockMesh(name=bm.name, disc=bm.disc, x=bm.x, y=bm.y, lod=bm.lod, vcount=off + vi, stride=bm.stride,
+                     channels=dict(bm.channels), chan_arrays=chan, flat_index=flat, tris=tris,
+                     raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
 def place_building(dst_object_bm, src_object_bm, *, translate=(0.0, 0.0, 0.0), set_idall=None):
     """Append ``src_object_bm``'s geometry (a copied building/structure) onto ``dst_object_bm`` (a block's existing
     Object mesh), shifted by ``translate`` (dst block-LOCAL units). Returns a NEW merged

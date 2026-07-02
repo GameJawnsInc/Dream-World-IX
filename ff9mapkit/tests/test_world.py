@@ -268,6 +268,36 @@ def test_retarget_tiles_exclude_box_skips_under_building():
     assert ev == [1, 0]                                       # tri0 set; tri1 (under the building box) left plain
 
 
+def test_add_solid_base_fills_hollow_footprint():
+    from ff9mapkit.world import mesh as M
+    # a "building" = two separate clusters with a GAP between (like the castle's split towers). The solid base
+    # fills the convex hull, so the gap becomes impassable and can't box a player who walks in.
+    ch = {W.CH_POS: [[0, 5, 0], [2, 5, 0], [0, 5, 2], [20, 5, 0], [22, 5, 0], [20, 5, 2]],
+          W.CH_NRM: [[0, 1, 0]] * 6, W.CH_UV: [[0, 0]] * 6,
+          W.CH_TAN: [[float(W.encode_id(0, 0, 59)), 0, 0, 1]] * 6}
+    bm = W.BlockMesh(name="Block[0][0] Object", disc=1, x=0, y=0, lod="0_1", vcount=6, stride=48,
+                     channels={W.CH_POS: (0, 3), W.CH_NRM: (12, 3), W.CH_UV: (24, 2), W.CH_TAN: (32, 4)},
+                     chan_arrays=ch, flat_index=[0, 1, 2, 3, 4, 5], tris=[[0, 1, 2], [3, 4, 5]],
+                     raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+    base = M.add_solid_base(bm, topograph=59, lift=0.5)
+    assert base.vcount > bm.vcount and len(base.tris) > len(bm.tris)
+
+    def pip(px, pz, t):
+        (ax, az), (bx, bz), (cx, cz) = t
+        d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
+        if abs(d) < 1e-9:
+            return False
+        a = ((bz - cz) * (px - cx) + (cx - bx) * (pz - cz)) / d
+        b = ((cz - az) * (px - cx) + (ax - cx) * (pz - cz)) / d
+        return a >= -0.01 and b >= -0.01 and (1 - a - b) >= -0.01
+
+    fill = [[(base.verts[t[i]][0], base.verts[t[i]][2]) for i in range(3)] for t in base.tris[len(bm.tris):]]
+    assert any(pip(10.0, 1.0, t) for t in fill)                  # the gap (10,1) is now covered -> no walk-in
+    assert all(W.decode_id(int(round(base.tangents[i][0])))["topograph"] == 59
+               for i in range(bm.vcount, base.vcount))           # fill is impassable
+    assert abs(base.verts[bm.vcount][1] - 5.5) < 1e-6            # sits at min-Y (5) + lift (0.5)
+
+
 def test_cell_openness_note_flags_bad_spots():
     from ff9mapkit.world import entrance as EN
     # 2-tile cell: tri0 walkable (topo10), tri1 blocked (topo49 river/cliff) -> >20% blocked -> POOR SPOT note

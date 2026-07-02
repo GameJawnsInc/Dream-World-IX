@@ -447,5 +447,6 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
             summary["building"] = BIO.build_from_obj(
                 building["obj"], into_block=(bx, by), mod_folder=mod_folder, disc=disc, part="object", lod=lod,
                 topograph=building.get("topograph", 59), at=b_at, seat=building.get("seat", True),
-                keep_block=keep, stock_bm=stock, terrain_bm=ter, game=game)
+                keep_block=keep, solid_base=building.get("solid_base", True), stock_bm=stock, terrain_bm=ter,
+                game=game)
     return summary

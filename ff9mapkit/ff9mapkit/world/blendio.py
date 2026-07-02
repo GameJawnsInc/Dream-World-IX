@@ -119,7 +119,7 @@ def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "objec
 
 def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part: str = "object", lod: str = "0_1",
                    topograph: int = _TOPO_IMPASSABLE, at=None, seat: bool = False, keep_block: bool = False,
-                   stock_bm=None, terrain_bm=None, game=None) -> dict:
+                   solid_base: bool = False, stock_bm=None, terrain_bm=None, game=None) -> dict:
     """Read an edited OBJ, rebuild it as the TARGET block's ``part`` ``.ff9mesh``, and deploy the loose override.
     ``into_block=(x, y)`` picks the block whose local frame + override path the result is written into.
 
@@ -150,6 +150,8 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
             dy = M.sample_ground_y(ter, wx - ox, wz - oz) - ymin      # lowest point -> ground
         obj["V"] = [(v[0] + dx, v[1] + dy, v[2] + dz) for v in V]
     bm = obj_to_blockmesh(obj, into_block=into_block, disc=disc, part=part, lod=lod, topograph=topograph)
+    if solid_base:                                                 # fill the footprint so a hollow model can't box you
+        bm = M.add_solid_base(bm, topograph=topograph)
     merged_with_stock = False
     if keep_block:                                                  # keep the block's stock structures (e.g. a town)
         try:

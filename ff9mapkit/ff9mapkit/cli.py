@@ -1698,7 +1698,8 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     building = None
     if args.building:
         building = {"obj": args.building, "at": (tuple(args.building_at) if args.building_at else None),
-                    "seat": not args.no_seat, "keep_block": not args.replace_town, "topograph": args.topograph}
+                    "seat": not args.no_seat, "keep_block": not args.replace_town, "topograph": args.topograph,
+                    "solid_base": not args.hollow_building}
     try:
         info = EN.author_entrance(
             cell=tuple(args.cell), mod_folder=args.mod_folder, field=args.field, case=args.case, event=args.event,
@@ -3455,6 +3456,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "(default: keep e.g. an existing town)")
     wen.add_argument("--topograph", type=int, default=59,
                      help="topograph stamped on the building's tiles (default 59 = impassable structure)")
+    wen.add_argument("--hollow-building", action="store_true",
+                     help="skip the auto SOLID collision base -- by default the building's footprint (convex hull) is "
+                          "filled impassable so a hollow 3D model (courtyards/gaps) can't box the player who walks "
+                          "into it. Only pass this if your model's base is already solid.")
     wen.add_argument("--flatten-pad", type=float, metavar="RADIUS",
                      help="[steep ground only] flatten a pad of this radius under the building to the seat height. "
                           "Auto-capped to the building footprint so the flat ground stays UNDER the impassable "
