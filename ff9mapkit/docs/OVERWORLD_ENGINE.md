@@ -461,9 +461,16 @@ buckets (topo 49 spans many tiles), so the robust unit is "a real donor face's U
   (same UV layout) → `world-atlas-reskin` deploys it to `<mod>/StreamingAssets/assets/resources/worldmap/textures/
   res(1_24)_<terrain|objects>.png` (the `SearchAssetOnDisc` mod path, `AssetManager.cs:804`, checked before the
   embedded asset). Replace the *pixels*, keep the *tile positions*, and all existing geometry reskins for free.
-- **T3 — genuinely new atlas content (frontier).** A *new appearance not already in the atlas* needs repainting the
-  atlas PNG (T2) AND authoring custom geometry+UVs pointing at the new region (T1) — plus a new material entry needs
-  code (`ObjectNameToPaths` is hardcoded). The T1+T2 combo is the only no-DLL route; art-heavy, not a first build.
+- **T3 — genuinely new atlas content (★ pipeline built 2026-07-02, no DLL).** FF9's atlases have ample UNUSED
+  (fully-transparent) space — **124 free 32px cells in terrain, 373 in object** — so a *new* appearance goes into a
+  free region of the EXISTING atlas (no new material needed). `world-atlas-add-tile <tile.png>` finds a free gap
+  (`atlas.find_free_region`), composites the tile with a **1px UV inset** (dodges the configurable bilinear bleed,
+  `WMBlock.SetTextureFilterMode`→`WorldSmoothTexture`), deploys the reskin, and prints the UV rect; then
+  `world-mesh-build --tile-uv Umin,Vmin,Umax,Vmax` stamps that region on custom geometry (`palette.stamp_uv_rect`).
+  ★ Proven the pipeline end-to-end offline with a magenta test tile (rendered on a box, forest/bridge kept via
+  `--keep-block`); the *art* (a nice tile) is the human's, the plumbing is done. (A genuinely SEPARATE atlas — vs a
+  free-region add — would need a new material entry in the code-hardcoded `ObjectNameToPaths`, `WMBlock.cs:310`; the
+  free-region route avoids that entirely.)
 
 Open: the atlas tile-grid pitch is inferred (~5-6%/tri), not read from a constant; the palette is disc-1-derived
 (per-disc rebuild if the mapping differs). (Resolved: object atlas = 1024² like terrain; atlas lives in p0data3 as

@@ -173,8 +173,8 @@ def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "objec
 
 def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part: str = "object", lod: str = "0_1",
                    topograph: int = _TOPO_IMPASSABLE, at=None, seat: bool = False, keep_block: bool = False,
-                   solid_base: bool = False, texture: bool = False, tile=None, stock_bm=None, terrain_bm=None,
-                   game=None) -> dict:
+                   solid_base: bool = False, texture: bool = False, tile=None, tile_uv=None, stock_bm=None,
+                   terrain_bm=None, game=None) -> dict:
     """Read an edited OBJ, rebuild it as the TARGET block's ``part`` ``.ff9mesh``, and deploy the loose override.
     ``into_block=(x, y)`` picks the block whose local frame + override path the result is written into.
 
@@ -227,7 +227,12 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
         except (ValueError, FileNotFoundError):
             pass                                                   # bare block -> nothing to replace
     textured = 0
-    if texture or tile is not None:                                # stamp real atlas tiles onto UV-less new faces
+    if tile_uv is not None:                                        # a CUSTOM tile painted into free atlas space (T3)
+        from . import palette as PAL
+        before = bm
+        bm = PAL.stamp_uv_rect(bm, tile_uv)
+        textured = 1 if bm is not before else 0
+    elif texture or tile is not None:                              # stamp real atlas tiles onto UV-less new faces
         from . import palette as PAL
         before = bm
         topo = tile[0] if tile is not None else None               # --tile TOPO:VARIANT forces one picked tile

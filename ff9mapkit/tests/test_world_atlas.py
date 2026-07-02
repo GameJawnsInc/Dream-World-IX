@@ -95,6 +95,46 @@ def test_tile_catalog_renders(tmp_path, monkeypatch):
     assert im.width > 50 and im.height > 20                  # a real contact sheet (2 topo rows)
 
 
+def test_find_free_region_and_paint_tile():
+    # 128x128 atlas, all opaque except a transparent bottom-right 48x48 corner
+    im = Image.new("RGBA", (128, 128), (10, 20, 30, 255))
+    for y in range(80, 128):
+        for x in range(80, 128):
+            im.putpixel((x, y), (0, 0, 0, 0))
+    box = A.find_free_region(im, 48, cell=16)
+    assert box is not None
+    l, t, r, b = box
+    assert l >= 80 and t >= 80 and (r - l) == 48                # the free corner
+    assert A.find_free_region(Image.new("RGBA", (64, 64), (1, 1, 1, 255)), 48) is None   # no gap -> None
+    # paint a tile in -> region becomes opaque, uv rect is INSET (strictly inside the painted box)
+    painted, uv = A.paint_tile(im, A.make_test_tile(48), box, inset=1)
+    from PIL import ImageStat
+    assert ImageStat.Stat(painted.crop(box).getchannel("A")).mean[0] > 250   # now opaque
+    u0, v0, u1, v1 = uv
+    assert l / 128 < u0 < u1 < r / 128                         # umin inset in from the box's left edge
+    assert 0.0 <= v0 < v1 <= 1.0
+
+
+def test_make_test_tile():
+    t = A.make_test_tile(32)
+    assert t.size == (32, 32) and t.mode == "RGBA"
+    assert t.getpixel((0, 0))[3] == 255                        # opaque
+
+
+def test_add_tile_stubbed(tmp_path, monkeypatch):
+    from ff9mapkit import config
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    im = Image.new("RGBA", (128, 128), (10, 20, 30, 255))
+    for y in range(80, 128):
+        for x in range(80, 128):
+            im.putpixel((x, y), (0, 0, 0, 0))
+    monkeypatch.setattr(A, "load_atlas", lambda part="object", game=None: im)
+    info = A.add_tile(A.make_test_tile(48), "object", mod_folder="FF9CustomMap", tile_px=48)
+    assert "uv_rect" in info and len(info["uv_rect"]) == 4
+    dest = tmp_path / "FF9CustomMap" / "StreamingAssets/assets/resources/worldmap/textures/res(1_24)_objects.png"
+    assert dest.is_file()                                      # the reskinned atlas was deployed
+
+
 def _game_ready() -> bool:
     try:
         return (config.find_game_path(None) / "StreamingAssets").is_dir()

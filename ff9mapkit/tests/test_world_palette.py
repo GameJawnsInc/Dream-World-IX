@@ -77,6 +77,18 @@ def test_apply_palette_uvs_per_triangle_topograph_and_noop():
     assert P.apply_palette_uvs(bm, {}) is bm
 
 
+def test_stamp_uv_rect_stamps_a_custom_region():
+    zero = [(0.0, 0.0)] * 3
+    real = [(0.5, 0.5)] * 3
+    bm = _mesh([(59, zero), (59, real)])                       # tri0 zero-UV, tri1 already textured
+    rect = (0.95, 0.001, 0.999, 0.05)                          # a NEW tile's UV region (T3)
+    out = P.stamp_uv_rect(bm, rect, only_zero=True)
+    uv = out.chan_arrays[CH_UV]
+    assert uv[0] == [0.95, 0.001] and uv[1] == [0.999, 0.001] and uv[2] == [0.999, 0.05]   # rect corners on tri0
+    assert uv[3] == uv[4] == uv[5] == [0.5, 0.5]               # textured tri untouched
+    assert P.stamp_uv_rect(bm, rect, only_zero=False).chan_arrays[CH_UV][3] == [0.95, 0.001]   # force all
+
+
 def test_is_zero_uv():
     assert P._is_zero_uv([(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)])
     assert not P._is_zero_uv([(0.0, 0.0), (0.1, 0.0), (0.0, 0.0)])

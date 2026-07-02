@@ -162,6 +162,90 @@ def atlas_override_path(part: str, *, mod_folder: str, game=None):
     return Path(root) / _OVERRIDE_REL.format(name=_part_name(part))
 
 
+def _px_to_uv(px: int, py: int, w: int, h: int) -> tuple:
+    """Pixel → UV (inverse of :func:`_uv_to_px`; V flipped)."""
+    return (px / float(w), 1.0 - py / float(h))
+
+
+def find_free_region(img, tile_px: int = 48, *, cell: int = 16, alpha_thresh: int = 8):
+    """Find an unused (fully-transparent) square of ``tile_px`` px in the atlas -- room to PAINT a NEW tile (T3).
+    Scans a ``cell``-px occupancy grid; returns the pixel box ``(l, t, r, b)`` of the first free spot, or ``None`` if
+    the atlas has no gap that big. Searches from the bottom-right (where the free space clusters)."""
+    from PIL import ImageStat
+    w, h = img.size
+    need = max(1, -(-tile_px // cell))                       # cells per side (ceil)
+    free = {}                                                # (cx,cy) cell -> is-free
+
+    def cell_free(cx, cy):
+        key = (cx, cy)
+        if key not in free:
+            box = img.crop((cx * cell, cy * cell, cx * cell + cell, cy * cell + cell))
+            a = box.getchannel("A") if box.mode == "RGBA" else None
+            free[key] = (a is not None and ImageStat.Stat(a).mean[0] < alpha_thresh)
+        return free[key]
+
+    ncx, ncy = w // cell, h // cell
+    for cy in range(ncy - need, -1, -1):                     # bottom-up, right-to-left (free space clusters low/right)
+        for cx in range(ncx - need, -1, -1):
+            if all(cell_free(cx + dx, cy + dy) for dy in range(need) for dx in range(need)):
+                l, t = cx * cell, cy * cell
+                return (l, t, l + tile_px, t + tile_px)
+    return None
+
+
+def load_tile_png(path):
+    """Load a tile PNG as an RGBA PIL image (the new-art the user painted). Raises if missing/unreadable."""
+    from pathlib import Path
+    from PIL import Image
+    p = Path(path)
+    if not p.is_file():
+        raise ValueError(f"tile PNG not found: {p}")
+    return Image.open(p).convert("RGBA")
+
+
+def make_test_tile(size: int = 44, kind: str = "checker"):
+    """A procedural TEST tile (a functional pattern, not art) to prove the T3 pipeline -- a bright checker or solid."""
+    from PIL import Image
+    img = Image.new("RGBA", (size, size), (255, 0, 255, 255))     # magenta = unmistakably custom
+    if kind == "checker":
+        px = img.load()
+        for y in range(size):
+            for x in range(size):
+                if ((x // 6) + (y // 6)) % 2:
+                    px[x, y] = (30, 220, 90, 255)             # green/magenta checker
+    return img
+
+
+def paint_tile(img, tile, box, *, inset: int = 1):
+    """Composite ``tile`` (a PIL image) into the atlas ``img`` at pixel ``box`` (l,t,r,b). Returns
+    ``(new_img, uv_rect)`` where ``uv_rect = (umin, vmin, umax, vmax)`` is INSET by ``inset`` px so bilinear sampling
+    stays strictly inside the painted tile (no bleed into the surrounding transparent gap)."""
+    out = img.convert("RGBA").copy()
+    l, t, r, b = box
+    out.paste(tile.convert("RGBA").resize((r - l, b - t)), (l, t))
+    w, h = out.size
+    u0, v_b = _px_to_uv(l + inset, b - inset, w, h)          # bottom-left (V flips, so b→vmin)
+    u1, v_t = _px_to_uv(r - inset, t + inset, w, h)          # top-right
+    return out, (u0, v_b, u1, v_t)
+
+
+def add_tile(tile, part: str = "terrain", *, mod_folder: str, game=None, tile_px: int = 48):
+    """Paint a NEW ``tile`` (PIL image) into a free atlas region + deploy the reskinned atlas (T3). Returns
+    ``{uv_rect, box, dest}`` -- stamp ``uv_rect`` onto custom geometry (``world-mesh-build --tile-uv``). Raises if the
+    atlas has no free gap of ``tile_px``. RELAUNCH to apply."""
+    img = load_atlas(part, game=game)
+    box = find_free_region(img, tile_px)
+    if box is None:
+        raise ValueError(f"no free {tile_px}px region in the {part} atlas to add a tile")
+    painted, uv_rect = paint_tile(img, tile, box)
+    import tempfile
+    from pathlib import Path
+    tmp = Path(tempfile.gettempdir()) / f"ff9_atlas_{part}_reskin.png"
+    painted.save(tmp)
+    dest = deploy_atlas(tmp, part, mod_folder=mod_folder, game=game)
+    return {"uv_rect": uv_rect, "box": box, "dest": str(dest)}
+
+
 def deploy_atlas(png_path, part: str = "terrain", *, mod_folder: str, game=None):
     """Copy a repainted atlas PNG to its mod-override path (T2 HD reskin, no DLL; keep the same UV layout).
     Returns the written ``Path``. RELAUNCH to apply."""

@@ -156,6 +156,32 @@ def apply_palette_uvs(bm, palette: dict | None = None, *, topograph=None, varian
                      tris=[list(t) for t in bm.tris], raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
 
+def stamp_uv_rect(bm, uv_rect, *, only_zero: bool = True):
+    """Stamp an EXPLICIT UV rect ``(umin, vmin, umax, vmax)`` onto ``bm``'s faces (default: only zero-UV faces) --
+    for a CUSTOM tile painted into free atlas space (T3), where the target UVs aren't a learned donor. Each triangle
+    gets three corners of the rect; returns a copy (or ``bm`` unchanged if nothing to stamp)."""
+    from .extract import BlockMesh, CH_UV
+    if CH_UV not in bm.channels:
+        return bm
+    u0, v0, u1, v1 = uv_rect
+    triplet = [[u0, v0], [u1, v0], [u1, v1]]                 # a right-triangle of the tile per face-tri
+    uvch = [list(v) for v in bm.chan_arrays[CH_UV]]
+    changed = 0
+    for tri in bm.tris:
+        if only_zero and not _is_zero_uv([uvch[i] for i in tri]):
+            continue
+        for vi, uv in zip(tri, triplet):
+            uvch[vi] = list(uv)
+        changed += 1
+    if not changed:
+        return bm
+    chan = {ci: ([list(v) for v in uvch] if ci == CH_UV else [list(v) for v in bm.chan_arrays[ci]])
+            for ci in bm.channels}
+    return BlockMesh(name=bm.name, disc=bm.disc, x=bm.x, y=bm.y, lod=bm.lod, vcount=bm.vcount, stride=bm.stride,
+                     channels=dict(bm.channels), chan_arrays=chan, flat_index=list(bm.flat_index),
+                     tris=[list(t) for t in bm.tris], raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
 def palette_summary(palette: dict) -> list:
     """``[(topograph, n_tiles, n_faces, modal_uv_triplet)]`` sorted by topograph -- for the inspect CLI."""
     out = []

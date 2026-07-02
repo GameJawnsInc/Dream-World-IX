@@ -1680,10 +1680,19 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
             except ValueError:
                 print("--tile must be TOPOGRAPH:VARIANT (e.g. 52:0); see `world-atlas-catalog`", file=sys.stderr)
                 return 2
+        tile_uv = None
+        if args.tile_uv:
+            try:
+                tile_uv = tuple(float(x) for x in args.tile_uv.split(","))
+                assert len(tile_uv) == 4
+            except (ValueError, AssertionError):
+                print("--tile-uv must be umin,vmin,umax,vmax (from `world-atlas-add-tile`)", file=sys.stderr)
+                return 2
         info = BIO.build_from_obj(args.obj, into_block=tuple(args.into_block), mod_folder=args.mod_folder,
                                   disc=args.disc, part=args.part, lod=args.lod, topograph=args.topograph,
                                   at=(tuple(args.at) if args.at else None), seat=args.seat,
-                                  keep_block=args.keep_block, texture=args.texture, tile=tile, game=args.game)
+                                  keep_block=args.keep_block, texture=args.texture, tile=tile, tile_uv=tile_uv,
+                                  game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -1756,6 +1765,25 @@ def _cmd_world_atlas_reskin(args: argparse.Namespace) -> int:
         return 2
     print(f"deployed the repainted {args.part} atlas -> {dest}")
     print("  RELAUNCH to apply. Keep the same UV layout (tile positions) or existing geometry will sample wrong.")
+    return 0
+
+
+def _cmd_world_atlas_add_tile(args: argparse.Namespace) -> int:
+    """T3: paint a NEW tile into a FREE (unused) atlas region + deploy the reskinned atlas. Prints the UV rect to
+    stamp on custom geometry with `world-mesh-build --tile-uv`. Give a tile PNG, or omit for a magenta test pattern."""
+    from .world import atlas as A
+    try:
+        tile = A.load_tile_png(args.png) if args.png else A.make_test_tile(args.size)
+        info = A.add_tile(tile, args.part, mod_folder=args.mod_folder, game=args.game, tile_px=args.size)
+    except (ValueError, ConfigError, FileNotFoundError, ImportError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    u0, v0, u1, v1 = info["uv_rect"]
+    print(f"painted a new {args.part} tile at atlas px {info['box']} -> reskinned atlas {info['dest']}")
+    print(f"  UV rect: {u0:.4f},{v0:.4f},{u1:.4f},{v1:.4f}")
+    print(f"  now stamp it on geometry:  world-mesh-build <obj> --into-block X Y --part {args.part} "
+          f"--tile-uv {u0:.4f},{v0:.4f},{u1:.4f},{v1:.4f} --mod-folder {args.mod_folder}")
+    print("  RELAUNCH to apply.")
     return 0
 
 
@@ -3689,6 +3717,9 @@ def build_parser() -> argparse.ArgumentParser:
     wmb.add_argument("--tile", metavar="TOPO:VARIANT",
                      help="force ONE specific atlas tile on all new faces (e.g. 52:0 = a castle wall); pick it from "
                           "`world-atlas-catalog`. Implies --texture")
+    wmb.add_argument("--tile-uv", metavar="Umin,Vmin,Umax,Vmax",
+                     help="stamp a CUSTOM UV rect on all new faces -- the region a NEW tile you painted via "
+                          "`world-atlas-add-tile` occupies (T3)")
     wmb.set_defaults(func=_cmd_world_mesh_build)
 
     wtp = sub.add_parser("world-texture-palette",
@@ -3722,6 +3753,15 @@ def build_parser() -> argparse.ArgumentParser:
     war.add_argument("--part", choices=["terrain", "object"], default="terrain")
     war.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
     war.set_defaults(func=_cmd_world_atlas_reskin)
+
+    wat = sub.add_parser("world-atlas-add-tile",
+                         help="T3: paint a NEW tile into a FREE atlas region + deploy the reskin; prints the UV rect "
+                              "to stamp on custom geometry via `world-mesh-build --tile-uv`")
+    wat.add_argument("png", nargs="?", help="a tile PNG to add (omit for a magenta test pattern)")
+    wat.add_argument("--part", choices=["terrain", "object"], default="object")
+    wat.add_argument("--size", type=int, default=48, help="tile size in atlas px (default 48)")
+    wat.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wat.set_defaults(func=_cmd_world_atlas_add_tile)
 
     wmt = sub.add_parser("world-mesh-trim",
                          help="auto-remove faces from a building OBJ: --floor drops the low flat base courtyard-floor/"
