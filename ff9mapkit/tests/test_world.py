@@ -317,6 +317,16 @@ def test_cell_openness_note_flags_bad_spots():
     assert summ3.get("notes") and any("town" in n.lower() for n in summ3["notes"])
 
 
+def test_retarget_tiles_only_box_blocks_footprint():
+    from ff9mapkit.world import mesh as M
+    # two plain tiles: tri0 centroid ~(1,-1), tri1 ~(4,-4). only_box over tri0 blocks JUST the footprint tile 59.
+    bm = _synthetic_block(tan0_x=W.encode_id(0, 0, 10), tan3_x=W.encode_id(0, 0, 10))
+    n = M.retarget_tiles(bm, topograph=59, only_box=(0.0, 2.0, -2.0, 0.0))
+    assert n == 1
+    topos = [W.decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] for t in bm.tris]
+    assert topos == [59, 10]                                  # tri0 (in box) blocked; tri1 (outside) untouched
+
+
 def test_building_world_box(tmp_path):
     from ff9mapkit.world import entrance as EN
     obj = tmp_path / "b.obj"

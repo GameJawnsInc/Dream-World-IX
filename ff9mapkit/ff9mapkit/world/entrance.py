@@ -330,17 +330,18 @@ def _capped_flatten_radius(requested: float, building, summary: dict) -> float:
 
 def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int = 1, disc: int = 1, lod: str = "0_1",
                     trigger_at=None, trigger_radius: float = 14.0, set_tile_area: bool = True,
-                    building=None, flatten_pad=None, fresh: bool = False, backup_dir=None,
-                    dry_run: bool = False, game=None) -> dict:
+                    building=None, flatten_pad=None, block_footprint: bool = True, fresh: bool = False,
+                    backup_dir=None, dry_run: bool = False, game=None) -> dict:
     """Author + deploy a complete overworld entrance at ``cell=(cell_x, cell_z)`` into ``mod_folder``.
 
     Destination: ``field=<id>`` (resolved to a dispatch case) or ``case=<n>`` (raw). ``event`` is the tile trigger
     id (1-3). ``trigger_at``/``trigger_radius`` place the event-tile cluster (default: the cell centre, r=14, kept
     inside the 32u cell). ``building`` (a dict ``{obj, at?, seat?, keep_block?, topograph?}``) additionally models +
-    seats a structure in the cell. ``flatten_pad=radius`` first flattens a pad under the building to the seat height
-    (auto-capped to the building footprint so it never leaves a walkable edge-step; seating alone usually suffices).
-    ``fresh`` re-reads the block from pristine p0data (ignoring a prior deployed override) so re-doing a block doesn't
-    COMPOUND its geometry. ``dry_run`` computes + reports the plan without writing. Returns a summary."""
+    seats a structure in the cell. ``block_footprint`` (default True) makes the TERRAIN under the building impassable
+    (topo 59) so the player stops at its edge and can't wander into a hollow model's interior and get boxed -- the
+    terrain conforms to the ground, so it blocks reliably where a flat prop base would bury/float on uneven land.
+    ``flatten_pad=radius`` optionally flattens a pad under the building. ``fresh`` re-reads the block from pristine
+    p0data (ignoring a prior deployed override) so re-doing a block doesn't COMPOUND. ``dry_run`` reports the plan."""
     from ..eb.model import EbScript
     from ..eb import edit as E
 
@@ -418,11 +419,16 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
                                   world_origin=W.block_world_origin(bx, by))
         M.recompute_normals(ter)
         summary["flatten_radius"] = eff_r
-    excl = _building_world_box(building, (cwx, cwz)) if building else None   # keep triggers OUT from under the building
+    excl = _building_world_box(building, (cwx, cwz)) if building else None   # the building's world footprint box
+    n_block = 0
+    if excl and block_footprint:                            # make the terrain UNDER the building impassable (conforms
+        n_block = M.retarget_tiles(ter, topograph=59, only_box=excl,       # to the ground) so you stop at its edge --
+                                   world_origin=W.block_world_origin(bx, by))   # never inside a hollow model = no box
     n_tiles = M.retarget_tiles(ter, event=event, area=(the_case if set_tile_area else None),
                                center=at, radius=trigger_radius, world_origin=W.block_world_origin(bx, by),
-                               exclude_box=excl)
+                               exclude_box=excl)             # triggers OUTSIDE the footprint (walkable land beside it)
     summary["tiles_set"] = n_tiles
+    summary["footprint_blocked"] = n_block
     summary["pad_flattened"] = n_flat
     if excl:
         summary["building_box"] = [round(v, 1) for v in excl]
@@ -447,6 +453,6 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
             summary["building"] = BIO.build_from_obj(
                 building["obj"], into_block=(bx, by), mod_folder=mod_folder, disc=disc, part="object", lod=lod,
                 topograph=building.get("topograph", 59), at=b_at, seat=building.get("seat", True),
-                keep_block=keep, solid_base=building.get("solid_base", True), stock_bm=stock, terrain_bm=ter,
+                keep_block=keep, solid_base=building.get("solid_base", False), stock_bm=stock, terrain_bm=ter,
                 game=game)
     return summary

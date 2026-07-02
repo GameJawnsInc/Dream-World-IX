@@ -398,7 +398,7 @@ def recompute_normals(bm, *, tol: float = 1e-3) -> int:
 
 
 def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, radius=None,
-                   world_origin=(0.0, 0.0), only_entrances: bool = False, exclude_box=None) -> int:
+                   world_origin=(0.0, 0.0), only_entrances: bool = False, exclude_box=None, only_box=None) -> int:
     """Rewrite the per-triangle IDALL (stored in ``tangent.x``) for tiles in a region. ``event`` (0=land, 1-3=
     entrance-trigger bits), ``area`` (0-63), ``topograph`` (0-63 = terrain type) each default to KEEP the tile's
     current value. Sets tangent.x on all 3 corner verts of each affected triangle (the engine reads the HIT
@@ -406,7 +406,10 @@ def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, ra
     ``only_entrances`` restricts to tiles already carrying event bits. ``exclude_box`` (world XZ
     ``(xmin, xmax, zmin, zmax)``) SKIPS tiles whose centroid falls inside it -- used to keep entrance-trigger tiles
     OUT from under a building footprint (a tile under an impassable structure boxes the player who triggers there).
-    Geometry (verts/normals/uv) is UNTOUCHED. Returns the triangle count changed.
+    ``only_box`` (same form) is the INVERSE -- restrict to tiles INSIDE it; with ``topograph=59`` it makes the terrain
+    UNDER a building impassable so the whole footprint blocks and the player stops at its EDGE (the terrain conforms to
+    the ground, so it blocks reliably where a flat floating prop base would bury/float). Geometry (verts/normals/uv) is
+    UNTOUCHED. Returns the triangle count changed.
 
     WHAT THIS CONTROLS (in-game verified 2026-07-01):
       * ``topograph`` -> WALKABILITY + terrain type. The overworld move gate (``ff9.w_movementRoundCheck`` ->
@@ -428,7 +431,7 @@ def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, ra
         d = decode_id(int(round(tan[tri[0]][0])))
         if only_entrances and not d["event"]:
             continue
-        if (center is not None and radius is not None) or exclude_box is not None:
+        if (center is not None and radius is not None) or exclude_box is not None or only_box is not None:
             cx = (verts[tri[0]][0] + verts[tri[1]][0] + verts[tri[2]][0]) / 3.0 + ox
             cz = (verts[tri[0]][2] + verts[tri[1]][2] + verts[tri[2]][2]) / 3.0 + oz
             if center is not None and radius is not None and math.hypot(cx - center[0], cz - center[1]) > radius:
@@ -437,6 +440,10 @@ def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, ra
                 xmn, xmx, zmn, zmx = exclude_box
                 if xmn <= cx <= xmx and zmn <= cz <= zmx:
                     continue                                  # tile under the building -> skip (would box the player)
+            if only_box is not None:
+                xmn, xmx, zmn, zmx = only_box
+                if not (xmn <= cx <= xmx and zmn <= cz <= zmx):
+                    continue                                  # only tiles INSIDE the box (the footprint block)
         idall = encode_id(d["event"] if event is None else event,
                           d["area"] if area is None else area,
                           d["topograph"] if topograph is None else topograph, d["flags"])

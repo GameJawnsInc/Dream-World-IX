@@ -1698,14 +1698,14 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     building = None
     if args.building:
         building = {"obj": args.building, "at": (tuple(args.building_at) if args.building_at else None),
-                    "seat": not args.no_seat, "keep_block": not args.replace_town, "topograph": args.topograph,
-                    "solid_base": not args.hollow_building}
+                    "seat": not args.no_seat, "keep_block": not args.replace_town, "topograph": args.topograph}
     try:
         info = EN.author_entrance(
             cell=tuple(args.cell), mod_folder=args.mod_folder, field=args.field, case=args.case, event=args.event,
             disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
             trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
-            flatten_pad=args.flatten_pad, fresh=args.fresh, dry_run=args.dry_run, game=args.game)
+            flatten_pad=args.flatten_pad, block_footprint=not args.hollow_building, fresh=args.fresh,
+            dry_run=args.dry_run, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -1722,8 +1722,9 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if info["dispatchers_skipped"]:
         print(f"  skipped (cell already has an entrance there): {', '.join(s.replace('evt_world_', '') for s in info['dispatchers_skipped'])}")
     pad = f", flattened {info['pad_flattened']} pad verts" if info.get("pad_flattened") else ""
+    blk = f", {info['footprint_blocked']} tiles blocked under the building" if info.get("footprint_blocked") else ""
     print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} area={info['case']} "
-          f"in block{tuple(info['block'])}{pad}")
+          f"in block{tuple(info['block'])}{pad}{blk}")
     if info.get("terrain_override"):
         print(f"    -> {info['terrain_override']}")
     if info.get("building"):
@@ -3457,9 +3458,9 @@ def build_parser() -> argparse.ArgumentParser:
     wen.add_argument("--topograph", type=int, default=59,
                      help="topograph stamped on the building's tiles (default 59 = impassable structure)")
     wen.add_argument("--hollow-building", action="store_true",
-                     help="skip the auto SOLID collision base -- by default the building's footprint (convex hull) is "
-                          "filled impassable so a hollow 3D model (courtyards/gaps) can't box the player who walks "
-                          "into it. Only pass this if your model's base is already solid.")
+                     help="don't block the building's footprint -- by default the TERRAIN under the building is made "
+                          "impassable so you stop at its edge and can't wander into a hollow 3D model (courtyards/gaps) "
+                          "and get boxed. Pass this to leave the footprint walkable (a decorative walk-through prop).")
     wen.add_argument("--flatten-pad", type=float, metavar="RADIUS",
                      help="[steep ground only] flatten a pad of this radius under the building to the seat height. "
                           "Auto-capped to the building footprint so the flat ground stays UNDER the impassable "
