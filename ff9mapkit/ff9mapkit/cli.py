@@ -1866,6 +1866,68 @@ def _cmd_world_encounter_rate(args: argparse.Namespace) -> int:
     return 0
 
 
+_FRIENDLY_NAMES = ("Mu", "Ghost", "Ladybug", "Yeti", "Nymph", "Jabberwock", "Feather Circle", "Garuda", "Yan")
+
+
+def _cmd_world_encounters(args: argparse.Namespace) -> int:
+    """Inspect / re-table the overworld random-encounter TABLE (discmr.img sub-table 3, 355 records). `--list`
+    (or no `--config`) dumps it; `--config <toml>` applies [[set]]/[remap] edits and deploys a whole-file
+    discmr.img override into the mod folder. No DLL (AssetManager mod-override); RELAUNCH to apply."""
+    from .world import worldpack as WP
+    try:
+        d = WP.load_discmr(args.disc, game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if not args.config:                                            # inspect
+        print(f"discmr.img disc{args.disc}: {len(d.encounters)} encounter records, {len(d.specials)} special rows")
+        if args.all:
+            for i, r in enumerate(d.encounters):
+                print(f"  [{i:3}] topo={r.topograph:2} fog={r.fog} scene={r.scene}")
+        else:                                                      # per-topograph summary (author-friendly)
+            from collections import defaultdict
+            by_topo: dict = defaultdict(list)
+            for i, r in enumerate(d.encounters):
+                by_topo[r.topograph].append(r)
+            print("  topograph -> records (distinct scene[0] ids):  [--all for every record]")
+            for topo in sorted(by_topo):
+                rs = by_topo[topo]
+                s0 = sorted({r.scene[0] for r in rs})
+                print(f"    topo {topo:2}: {len(rs):2} rec  scene[0]={s0}")
+        print("  special rows (the Friendly-Monster creatures; 1-based indices into the table):")
+        for i, area in enumerate(d.specials):
+            live = [a for a in area if a != WP.SPECIAL_EMPTY]
+            print(f"    [{i}] {_FRIENDLY_NAMES[i]}: {live}")
+        return 0
+    if not args.mod_folder:
+        print("--config requires --mod-folder (where to deploy the modified discmr.img)", file=sys.stderr)
+        return 2
+    import tomllib
+    try:
+        with open(args.config, "rb") as fh:
+            doc = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f"cannot read {args.config}: {e}", file=sys.stderr)
+        return 2
+    cfg = doc.get("encounters", doc)                               # accept an [encounters] block or a bare doc
+    try:
+        summary = WP.apply_config(d, cfg)
+        dest = WP.deploy_discmr(d, mod_folder=args.mod_folder, game=args.game, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    for s in summary["sets"]:
+        m = s["match"]
+        sel = ", ".join(f"{k}={v}" for k, v in m.items() if v is not None) or "all"
+        print(f"  set [{sel}] -> {s['count']} record(s)")
+    if summary["remapped"]:
+        print(f"  remapped {summary['remapped']} scene slot(s)")
+    print(f"  {'would write' if args.dry_run else 'wrote'} {dest}")
+    if not args.dry_run:
+        print("  RELAUNCH the game to apply. The mod folder must be in Memoria.ini [Mod] FolderNames.")
+    return 0
+
+
 def _cmd_battle_actions(args: argparse.Namespace) -> int:
     """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
     _safe_console()
@@ -3652,6 +3714,20 @@ def build_parser() -> argparse.ArgumentParser:
     wer.add_argument("--dry-run", action="store_true",
                      help="print the per-dispatcher before->after rates, write nothing")
     wer.set_defaults(func=_cmd_world_encounter_rate)
+
+    wet = sub.add_parser("world-encounters",
+                         help="inspect / re-table the overworld random-encounter TABLE (discmr.img): which battle "
+                              "scenes spawn on which terrain. --list dumps it; --config applies edits + deploys a "
+                              "discmr.img override. No DLL (AssetManager mod-override); relaunch to apply.")
+    wet.add_argument("--disc", type=int, default=1, choices=[1, 4],
+                     help="which disc's discmr.img (default 1; disc 4 has its own late-game table)")
+    wet.add_argument("--list", action="store_true", help="inspect the table (per-topograph summary), write nothing")
+    wet.add_argument("--all", action="store_true", help="with --list: print every one of the 355 records")
+    wet.add_argument("--config", help="a .toml with [[set]] (index|topograph[+fog] -> scene[]/pattern/pad) and/or "
+                                      "[remap] (old_scene_id = new_scene_id) edits; an [encounters] block or bare doc")
+    wet.add_argument("--mod-folder", help="mod folder to deploy the modified discmr.img into (required with --config)")
+    wet.add_argument("--dry-run", action="store_true", help="with --config: print the edit summary, write nothing")
+    wet.set_defaults(func=_cmd_world_encounters)
 
     bsc = sub.add_parser("battle-scene",
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")

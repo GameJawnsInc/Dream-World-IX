@@ -515,7 +515,7 @@ nextMapNo)` (`WMScriptDirector.cs:208`; the mapper is a `(worldMapNo → (battle
 |---|---|---|
 | **Encounter *rate*** | ★ **BUILT** (`world-encounter-rate`) — free, no DLL/codec | rewrites the world `.eb` SET-sysvar case-26 writes (`w_frameEventBattleProb`) — same surface as `world-entrance`. See below. |
 | **Per-vehicle encounter on/off** | free | `TransportControls.csv` col 12 (`CsvParser.Boolean`), already patched by `WorldConfiguration.PatchWorldCHRControl`. ⚠ the two airships hold **22/23** in that Boolean column — unexplained (open q). |
-| **Re-table which monsters spawn where** | no DLL, **needs a kit codec** | edit `EncountData.scene[]`/`pattern`/`pad` and repack `discmr.img` (2-layer: sector-TOC + pointer-table pack) as a mod-folder override — `AssetManager.LoadBytes` honors it. |
+| **Re-table which monsters spawn where** | ★ **BUILT** (`world-encounters`) — no DLL | edits `EncountData.scene[]`/`pattern`/`pad` in place + deploys a whole-file `discmr.img` mod override (`AssetManager.LoadBytes` honors it). See below. |
 | **Clean CSV authoring seam** | small DLL patch | a `Data/World/WorldEncounters.csv` + `PatchWorldEncounter()` mirroring the existing 3 world patchers (`DataResources.cs` exposes only TransportControls/WeatherColors/Environment today; no encounter hook). s23–s33-class change. |
 | **Friendly/special-zone authoring** | research | via event-globals 194/198 + the 9 special records; blocked on the open questions. |
 
@@ -536,13 +536,29 @@ preserving the game's relative danger and staying idempotent by always deriving 
 per-language `.eb` shadow (the writes are language-identical in count, JP at different offsets) that STACKS on any
 `world-entrance` edit (reads the mod-folder override if present). RELAUNCH / re-enter the overworld to apply.
 
+### `world-encounters` — re-table the monsters (★ built 2026-07-02, no DLL; awaits in-game)
+
+`ff9mapkit world-encounters --list [--all] [--disc 1|4]` inspects the table; `--config <toml> --mod-folder <mod>
+[--disc N] [--dry-run]` edits + deploys (`world/worldpack.py`). The `Discmr` codec parses the two-layer container
+(sector-TOC → pointer pack) and edits the 355 `EncountData` **in place** — re-tabling only changes record *values*,
+never counts, so it rewrites the 3550 encount bytes at their absolute offset and leaves the 2 pad bytes + every
+other pack section verbatim (`Discmr(x).to_bytes() == x` for an unedited image, proven on both discs). The edit
+config: `[[set]]` matches by `index` or `topograph` (+ optional `fog`) and sets `scene` (a 4-list or per-slot
+`scene0..3`) / `pattern` / `pad`; `[remap]` swaps a battle-scene id for another across every slot (e.g. "replace
+formation 358 with 999 everywhere"). Deploy writes a **whole-file** `discmr.img` override at
+`<mod>/StreamingAssets/assets/resources/worldmap/wmap/disc{N}/discmr.img.bytes` (the `AssetManager` bundle-branch
+path, `AssetManager.cs:593` → `Assets/Resources/…​.bytes`, case-insensitive; the same convention the `.eb` overrides
+use). Disc 1 and disc 4 have separate tables (disc 4 also backs the `i+254` alternate band); edit both to fully
+re-table. RELAUNCH to apply (it's a bundled asset, not F6-reloadable).
+
 ### Open questions (confirm before building an authoring feature)
 
-- Dump `discmr.img` at `ExtractPosition(data,3)` and divide by 355 to confirm the on-disk **10-byte** stride in the
-  real asset (code says 10; verify against bytes).
+- ~~Confirm the 10-byte stride against real bytes~~ → **confirmed** (`world/worldpack.py` parses both discs, span
+  off[3]→off[4] = 3552 = 355×10 + 2 pad; round-trip identity holds).
+- ~~Whether the kit needs an `.img` codec~~ → **built** (`world/worldpack.py`).
 - The exact `m_GetIDArea` mask (reported `(IDALL & 0x3F00)>>8`).
-- ~~What the 9 special records are~~ → the 9 **Friendly-Monster** creatures (resolved above). Still: when
-  **event-globals 194 & 198** flip along the sidequest.
+- The 9 special records are the **Friendly-Monster** creatures (resolved above). Still: when **event-globals
+  194 & 198** flip along the sidequest.
 - The airship **encount = 22/23** in a Boolean-parsed CSV column — rate? mask?
-- Whether `ff9mapkit` needs a net-new `.img` sector-TOC + pointer-table codec (nothing reads `discmr.img` today) —
-  the gate for the monster-**table** re-authoring tier.
+- **In-game**: confirm the `discmr.img` mod-override path takes (the codec is byte-proven offline; the override
+  path is derived from `AssetManager` source, not yet in-game verified) — and that disc 1 vs disc 4 both need editing.
