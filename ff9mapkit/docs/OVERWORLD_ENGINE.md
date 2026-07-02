@@ -88,6 +88,53 @@ decodes the entrance dispatch.
   `SetPosition(fixedPt) + w_movementChrInitSlice()`; disc = 501/502; change char = `WMScriptDirector.SetToNextChracter`.
   It is the ground-truth reference the F6 tools copy.
 
+## The 13 world states (dispatchers) + the exit cascade (RE 2026-07-02)
+
+The overworld is not one script — it is **13 event-script dispatchers `EVT_WORLD_WORLD00..12` = `EventDB[9000..9012]`**
+(`FF9DBAll.Events.cs:1834-1846`). Exactly one is loaded as the world's per-frame brain, keyed by `ff.wldMapNo`.
+
+**How the game picks one — the shared "exit cascade" (settled, byte-verified):** `WorldMap()` opcode `0xB6` →
+`EventEngine.SetNextMap(arg)` → `ff9InitStateWorldMap(arg)` sets `ff.wldMapNo = arg` and loads `EventDB[arg]`
+(`ff9.cs:9132-9150`) — **the opcode argument IS the wldMapNo.** But no field hardcodes a single target: all **79
+world-exit fields carry a byte-IDENTICAL cascade** (verified identical in field 300 Ice Cavern e2/tag2 and field
+2800 Dragon Gate e21/tag2) that emits **all 13** targets and selects by **`(ScenarioCounter band) × (Map.Byte[2]
+region key)`** — a chain of `opDC(0)` SC gates, each with a `opD8(2)` switch on the per-visit region/coast key.
+The SC band boundaries (5990 · [9615..9790] · 10400 · 11090) are identical across exit fields, and **11090 is
+exactly `GetDisc()`'s disc-4 threshold**. `9009` is every band's **default arm** (the all-vehicle, all-field superset).
+
+**Disc model:** ONE shared set of 13 for all four discs — no separate disc-4 family. SC<5990 → disc-1 {9000,9002,
+9010,9011}+9001; 5990–10399 → disc-2/3 {9003,9005}+{9004,9006,9012}; 10400–11089 → late-disc-3 {9007}+9012;
+≥11090 → disc-4 {9008}+9012; every band defaults to 9009. Disc 4 loads distinct **art** (`WorldMap/wmap/disc4/*`,
+only `WorldDisc1`/`WorldDisc4` prefabs exist) but the **same `.eb` dispatcher family**.
+
+| wldMapNo | role | disc / beat | vehicles boardable | notes |
+|---|---|---|---|---|
+| **9000** | free-roam | disc 1, most-open | foot + chocobo (0–6) | largest disc-1 entrance table (57 funcs); + Chocobo Forest/Hot&Cold |
+| **9001** | **cutscene** | disc 1 (SC ~2910) | — | Cargo Ship → Field(503) |
+| **9002** | free-roam, foot-only | disc 1, **earliest** | foot only | baseline Mist Continent (21 funcs, no chocobo) |
+| **9003** | free-roam | disc 2–3 | foot + chocobo + fly + **boat (7)** | first boat state; + harbors {2173,2403} |
+| **9004** | **cutscene** | disc 3 (~9400) | — | Hilda Garde 1 → Field(2261) |
+| **9005** | free-roam | disc 3, Outer Continent | foot + chocobo (0–6) | cascade routes here on 9615≤SC≤9790 |
+| **9006** | **cutscene** | disc 3 (~9400–9600) | — | Track Kuja → Field(2856) |
+| **9007** | free-roam | late disc 3 | + **Hilda Garde III (8)** | own SC tier 10400–11089; + shrines {2550,2551} |
+| **9008** | free-roam | **disc 4** | + **Invincible (9)** | sole state at SC≥11090; + {2752,2901 Memoria}; disc-4 art |
+| **9009** | free-roam **superset** | all discs (default) | fullest (foot/chocobo/boat/Invincible) | every band's default arm; 63 fields |
+| **9010** | free-roam, foot-only | disc 1, mid | foot only | baseline (same set as 9002/9011) |
+| **9011** | free-roam, foot-only | disc 1, mid | foot only | baseline; the F6-proven safe vehicle-swap state |
+| **9012** | **cutscene** | discs 2–4 (reused) | scripted (self-sets 190=6) | Chocobo Treasure → Field(1953) |
+
+**Roles:** free-roam area-switch states (9000/02/03/05/07/08/09/10/11) each have the full entry-1/tag-1 dispatcher
+(vehicle switch → base-2 AREA switch, ~59 cases → `Field()`) + a big entry-0 entrance-func table; the 4 cutscene
+states (9001/04/06/12, named verbatim in `eventWorldMaps`, `ff9.cs:10344`) have no AREA switch and warp to a fixed
+field. **A custom entrance must be added to the WORLDxx actually loaded at that beat** (`world-entrance` targets it).
+
+**Still fuzzy / open RE:** (1) the `Map.Byte[2]` region-key → state map **within** a band is not enumerated (so *why*
+9002 vs 9010 vs 9011 at a given disc-1 moment is inferred from entrance-count/field-set, not proven — trace where
+each exit field writes `Map.Byte[2]` via `opD9(2,…)`). (2) disc-1 sub-state ordering (9002 earliest → 9000 most-open)
+is inferred, not fresh-save-confirmed. (3) **⚠ four world `.eb` outside the "13": `9100 = EVT_WORLD_WORLDTS`,
+`9101 = EVT_WORLD_WORLDSV`, `286 = ..._LND00`, `287 = ..._TRE00`** (`FF9DBAll.Events.cs:1847-1848`) — likely
+title/save/landing/treasure sub-scenes; not yet disassembled.
+
 ## SOLVED — F6 overworld teleport (the `SmoothFrameUpdater_World` reverter) ★ IN-GAME PROVEN 2026-07-01
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
 prior position on the first logical tick. **Root cause: `Memoria.SmoothFrameUpdater_World`** — Memoria's own
