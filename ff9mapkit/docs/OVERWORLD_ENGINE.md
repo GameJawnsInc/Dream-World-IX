@@ -193,7 +193,11 @@ already-solved `FieldLocationName`/s33/`[field] location` seam.
 | Add / move a marker at custom coords | `w_naviLocationPos` is a compiled array — no data hook | **yes** | high |
 | Fire the continent banner for a custom scenePtr | hardcoded `ff9.cs:8683` switch | **yes** | high |
 
-**★ Built (2026-07-02) — `[startup] reveal_markers`.** The reveal-via-flag win is now a declarative surface:
+**★ Built + IN-GAME PROVEN (2026-07-02) — `[startup] reveal_markers`.** Proof: revealed Lindblum (locId 24,
+bit 760) — flag read 1 after entering the field, and the overworld marker changed from **"?" to "Lindblum."**
+**In-game refinement:** an undiscovered marker with valid coords still SHOWS (as `"?"`); the discovery bit reveals
+its NAME — so the bit gates the label, not the dot's existence (refines the `w_naviLocationAvailable` render-loop
+reading in System 1). The reveal-via-flag win is now a declarative surface:
 ```toml
 [startup]
 reveal_markers = ["Alexandria", "Ice Cavern", 5, "all"]   # names (ALL matching slots), locIds 0-63, or "all"
