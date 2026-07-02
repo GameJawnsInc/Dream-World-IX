@@ -1837,6 +1837,35 @@ def _cmd_world_rename_markers(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_encounter_rate(args: argparse.Namespace) -> int:
+    """Retune the overworld random-encounter FREQUENCY: rewrite the world dispatchers' RunWorldCode(26) writes
+    (w_frameEventBattleProb) per-language into the mod folder. No DLL (a plain .eb immediate rewrite, stacking on
+    world-entrance); RELAUNCH or re-enter the overworld to apply."""
+    from pathlib import Path
+    from .world import encounter as EC
+    langs = None if args.lang == "all" else [args.lang]
+    try:
+        summary = EC.deploy_encounter_rate(
+            mod_folder=args.mod_folder, game=args.game,
+            multiplier=args.multiplier, set_prob=args.set_prob, peaceful=args.peaceful,
+            langs=langs, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would retune" if args.dry_run else "retuned"
+    print(f"{verb} overworld encounter rate ({summary['mode']}) across {len(summary['dispatchers'])} dispatcher(s)")
+    for d in summary["dispatchers"]:
+        for w in (d.get("writes") or []):
+            beat = "Main_Init" if w["tag"] == 0 else "Main_Reinit" if w["tag"] == 10 else f"tag{w['tag']}"
+            print(f"  {d['name']} {beat}: prob {w['from']} (p=1/{w['from']+1}) -> {w['to']} (p=1/{w['to']+1})")
+    if not args.dry_run:
+        lang_names = sorted({Path(p).parent.name for p in summary["written"]})
+        print(f"  wrote {len(summary['written'])} .eb file(s) [{', '.join(lang_names)}]")
+        print("  RELAUNCH the game (or re-enter the overworld) to apply. The mod folder must be in "
+              "Memoria.ini [Mod] FolderNames.")
+    return 0
+
+
 def _cmd_battle_actions(args: argparse.Namespace) -> int:
     """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
     _safe_console()
@@ -3602,6 +3631,27 @@ def build_parser() -> argparse.ArgumentParser:
                      help="language to rename in (default: all 7; or a single us/uk/jp/es/fr/gr/it)")
     wrm.add_argument("--dry-run", action="store_true", help="print `locId (old) -> new`, write nothing")
     wrm.set_defaults(func=_cmd_world_rename_markers)
+
+    wer = sub.add_parser("world-encounter-rate",
+                         help="retune the overworld random-encounter FREQUENCY: rewrite the world dispatchers' "
+                              "RunWorldCode(26) rate writes (w_frameEventBattleProb) per-language into a mod folder. "
+                              "No DLL (a plain .eb immediate rewrite); relaunch to apply.")
+    wer.add_argument("--mod-folder", required=True,
+                     help="the FolderNames mod folder to write into (e.g. FF9CustomMap)")
+    _grp = wer.add_mutually_exclusive_group(required=True)
+    _grp.add_argument("--multiplier", type=float, metavar="F",
+                      help="encounter-FREQUENCY multiplier: 2.0 = twice as many encounters, 0.5 = half "
+                           "(scales the game's own per-zone rates, preserving their relative danger; idempotent)")
+    _grp.add_argument("--set", dest="set_prob", type=int, metavar="PROB",
+                      help="force an absolute w_frameEventBattleProb everywhere (advanced; p = 1/(PROB+1), so lower "
+                           "= more encounters). e.g. 231 = the vanilla standard rate")
+    _grp.add_argument("--peaceful", action="store_true",
+                      help="a near-encounter-free overworld (prob = 65535 -> p = 1/65536)")
+    wer.add_argument("--lang", default="all",
+                     help="language to retune (default: all 7; or a single us/uk/jp/es/fr/gr/it)")
+    wer.add_argument("--dry-run", action="store_true",
+                     help="print the per-dispatcher before->after rates, write nothing")
+    wer.set_defaults(func=_cmd_world_encounter_rate)
 
     bsc = sub.add_parser("battle-scene",
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")

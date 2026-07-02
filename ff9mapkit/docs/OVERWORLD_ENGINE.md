@@ -493,9 +493,12 @@ Pack sub-table 4 = **9** records of `{ UInt16 area[12] }` (24 B each, 216 B; `ff
 (`w_frameBattleScenePtr[N-1]`); `0` = empty slot. At world init a bitmask from **event-globals 194 & 198** selects
 which of the 9 records are active (`ff9.cs:8892`); each active record's target rows get `scene[3]` overwritten with
 their own `scene[2]` (`ff9.cs:8900`), and every active `scene[3]` is added to `w_friendlyBattles` (`ff9.cs:8706`).
-When `SettingsState.IsFriendlyBattleOnly`, `SelectScene()` filters encounters to that set. (What the 9 records
-*are* narratively — Qu's-Marsh frogs? disc-gated zones? — and the swap's intent are open questions; the mechanism
-is settled.)
+When `SettingsState.IsFriendlyBattleOnly`, `SelectScene()` filters encounters to that set. **The 9 records are the
+9 FRIENDLY-MONSTER sidequest creatures** (user-confirmed, 2026-07-02): `0` Mu · `1` Ghost · `2` Ladybug · `3` Yeti
+· `4` Nymph · `5` Jabberwock · `6` Feather Circle · `7` Garuda · `8` Yan — each record's `area[12]` = the overworld
+areas that creature roams, and event-globals 194/198 are the quest-progress bitmask of which are currently
+placeable. The `scene[2]→scene[3]` swap makes the friendly creature the encounter's overriding scene where its
+areas match. (Still open: exactly when 194/198 flip along the quest.)
 
 ### Battle handoff
 
@@ -510,7 +513,7 @@ nextMapNo)` (`WMScriptDirector.cs:208`; the mapper is a `(worldMapNo → (battle
 
 | Lever | Cost | Notes |
 |---|---|---|
-| **Encounter *rate* per zone** | free (no DLL, no codec) | edit world `.eb` SET-sysvar case-26 writes (`w_frameEventBattleProb`) — same surface as `world-entrance`. |
+| **Encounter *rate*** | ★ **BUILT** (`world-encounter-rate`) — free, no DLL/codec | rewrites the world `.eb` SET-sysvar case-26 writes (`w_frameEventBattleProb`) — same surface as `world-entrance`. See below. |
 | **Per-vehicle encounter on/off** | free | `TransportControls.csv` col 12 (`CsvParser.Boolean`), already patched by `WorldConfiguration.PatchWorldCHRControl`. ⚠ the two airships hold **22/23** in that Boolean column — unexplained (open q). |
 | **Re-table which monsters spawn where** | no DLL, **needs a kit codec** | edit `EncountData.scene[]`/`pattern`/`pad` and repack `discmr.img` (2-layer: sector-TOC + pointer-table pack) as a mod-folder override — `AssetManager.LoadBytes` honors it. |
 | **Clean CSV authoring seam** | small DLL patch | a `Data/World/WorldEncounters.csv` + `PatchWorldEncounter()` mirroring the existing 3 world patchers (`DataResources.cs` exposes only TransportControls/WeatherColors/Environment today; no encounter hook). s23–s33-class change. |
@@ -520,11 +523,26 @@ nextMapNo)` (`WMScriptDirector.cs:208`; the mapper is a `(worldMapNo → (battle
 through the mod-override path, so a whole-file repack works; only a *targeted patch* needs the engine seam. And the
 encounter *rate* is already free via the world `.eb`.
 
+### `world-encounter-rate` — retune the rate (★ built 2026-07-02, no DLL; awaits in-game)
+
+`ff9mapkit world-encounter-rate --mod-folder <mod> [--multiplier F | --set PROB | --peaceful]` (`world/encounter.py`).
+It rewrites every immediate `RunWorldCode(26, value)` write in the world dispatchers' `.eb` — probed empirically as
+**exactly 18 writes**: the 9 free-roam states (9000/02/03/05/07/08/09/10/11) each carry 2 (entry-0 tag-0 `Main_Init` +
+entry-0 tag-10 `Main_Reinit`); the 4 cutscene states carry none. The game ships only two danger values, `prob 231`
+(p=1/232, standard) and `prob 365` (p=1/366, the gentler disc-1 `Main_Init` rate that normalizes to 232 after the first
+battle). `--multiplier` is an encounter-**frequency** scale (2.0 = twice as many; it divides the period `prob+1`,
+preserving the game's relative danger and staying idempotent by always deriving from the pristine dispatcher);
+`--set` forces an absolute `w_frameEventBattleProb`; `--peaceful` sets `0xFFFF` (≈no encounters). Deploy is a
+per-language `.eb` shadow (the writes are language-identical in count, JP at different offsets) that STACKS on any
+`world-entrance` edit (reads the mod-folder override if present). RELAUNCH / re-enter the overworld to apply.
+
 ### Open questions (confirm before building an authoring feature)
 
 - Dump `discmr.img` at `ExtractPosition(data,3)` and divide by 355 to confirm the on-disk **10-byte** stride in the
   real asset (code says 10; verify against bytes).
 - The exact `m_GetIDArea` mask (reported `(IDALL & 0x3F00)>>8`).
-- What the **9 special records** are in-game; when **event-globals 194 & 198** get set; the `scene[3]←scene[2]` swap intent.
+- ~~What the 9 special records are~~ → the 9 **Friendly-Monster** creatures (resolved above). Still: when
+  **event-globals 194 & 198** flip along the sidequest.
 - The airship **encount = 22/23** in a Boolean-parsed CSV column — rate? mask?
-- Whether `ff9mapkit` needs a net-new `.img` sector-TOC + pointer-table codec (nothing reads `discmr.img` today).
+- Whether `ff9mapkit` needs a net-new `.img` sector-TOC + pointer-table codec (nothing reads `discmr.img` today) —
+  the gate for the monster-**table** re-authoring tier.
