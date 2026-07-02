@@ -84,6 +84,60 @@ def read_obj(path) -> dict:
     return {"V": V, "VT": VT, "VN": VN, "faces": faces}
 
 
+def write_obj(obj: dict, path) -> Path:
+    """Write a parsed OBJ dict (from :func:`read_obj`) back to a Wavefront OBJ. Preserves the ``v``/``vt``/``vn``
+    pools verbatim and re-emits ``f`` lines with their original 1-based indices (an unreferenced vertex left by a
+    face filter is harmless -- :func:`obj_to_blockmesh` only walks faces)."""
+    out = ["# ff9mapkit mesh edit"]
+    out += [f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}" for v in obj["V"]]
+    out += [f"vt {u[0]:.6f} {u[1]:.6f}" for u in obj.get("VT", [])]
+    out += [f"vn {n[0]:.6f} {n[1]:.6f} {n[2]:.6f}" for n in obj.get("VN", [])]
+    for face in obj["faces"]:
+        toks = []
+        for (vi, ti, ni) in face:
+            s = str(vi)
+            if ni:
+                s += f"/{ti if ti else ''}/{ni}"
+            elif ti:
+                s += f"/{ti}"
+            toks.append(s)
+        out.append("f " + " ".join(toks))
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return path
+
+
+def _face_normal_y_and_cy(V, face):
+    """The unit normal's Y component + the centroid Y of a triangle ``face`` ((v,vt,vn) 1-based)."""
+    import math
+    p = [V[c[0] - 1] if c[0] > 0 else V[c[0]] for c in face]
+    ux, uy, uz = p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]
+    wx, wy, wz = p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]
+    nx, ny, nz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+    length = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+    return ny / length, (p[0][1] + p[1][1] + p[2][1]) / 3.0
+
+
+def trim_floor(obj: dict, *, base_height: float = 6.0, up_threshold: float = 0.5) -> dict:
+    """Return a copy of ``obj`` with the LOW, UP-FACING triangles dropped -- a building's base courtyard-floor /
+    ground apron, the flat faces that read as a brown "dirt" patch under the top-down overworld camera. Keeps walls
+    (near-vertical), towers, and roofs (up-facing but HIGH). A face is "floor" iff its unit normal points up
+    (``ny > up_threshold``) AND its centroid sits within ``base_height`` of the mesh's lowest vertex. Only ``faces``
+    is filtered; verts are kept (an unreferenced vert is harmless). Adds ``dropped``/``kept`` counts to the result."""
+    V = obj["V"]
+    if not V:
+        return {**obj, "dropped": 0, "kept": len(obj["faces"])}
+    ymin = min(v[1] for v in V)
+    kept = []
+    for f in obj["faces"]:
+        ny, cy = _face_normal_y_and_cy(V, f)
+        if ny > up_threshold and cy < ymin + base_height:
+            continue                                   # low + up-facing = base floor/apron -> drop
+        kept.append(f)
+    return {**obj, "faces": kept, "dropped": len(obj["faces"]) - len(kept), "kept": len(kept)}
+
+
 def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "object", lod: str = "0_1",
                      topograph: int = _TOPO_IMPASSABLE):
     """Build a :class:`~ff9mapkit.world.extract.BlockMesh` (flat/unindexed, in the TARGET block's local frame) from a

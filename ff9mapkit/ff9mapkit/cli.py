@@ -1686,6 +1686,27 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_mesh_trim(args: argparse.Namespace) -> int:
+    """Auto-remove faces from a building OBJ. `--floor` drops the low flat base courtyard-floor/apron -- the flat
+    faces that read as a brown 'dirt' patch under the top-down overworld camera -- keeping walls/towers/roofs."""
+    from .world import blendio as BIO
+    if not args.floor:
+        print("nothing to trim: pass --floor (drops the low flat base floor/apron faces)", file=sys.stderr)
+        return 2
+    try:
+        obj = BIO.read_obj(args.obj)
+        before = len(obj["faces"])
+        trimmed = BIO.trim_floor(obj, base_height=args.base_height, up_threshold=args.up_threshold)
+        BIO.write_obj(trimmed, args.out)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"trimmed {before} -> {trimmed['kept']} tris (dropped {trimmed['dropped']} low up-facing base floor/apron "
+          f"face(s)) -> {args.out}")
+    print("  walls/towers/roofs kept; deploy with `world-entrance --building <out>` (or `world-mesh-build`).")
+    return 0
+
+
 def _cmd_world_entrance(args: argparse.Namespace) -> int:
     """One-shot: author a whole custom OVERWORLD ENTRANCE -- the trigger function (into every world dispatcher that
     carries the destination case, all 7 langs), the event tiles, and (optionally) a modelled building -- all folded
@@ -3419,6 +3440,19 @@ def build_parser() -> argparse.ArgumentParser:
                      help="merge with the block's STOCK structures (keep e.g. the town already there) instead of "
                           "replacing them")
     wmb.set_defaults(func=_cmd_world_mesh_build)
+
+    wmt = sub.add_parser("world-mesh-trim",
+                         help="auto-remove faces from a building OBJ: --floor drops the low flat base courtyard-floor/"
+                              "apron that reads as a dirt patch under the overworld camera (keeps walls/towers/roofs)")
+    wmt.add_argument("obj", help="the input .obj (e.g. a world-mesh-export of a castle)")
+    wmt.add_argument("--out", required=True, help="output path for the trimmed .obj")
+    wmt.add_argument("--floor", action="store_true",
+                     help="drop the low up-facing base floor/apron faces (the flat 'dirt mound' look)")
+    wmt.add_argument("--base-height", type=float, default=6.0,
+                     help="how far above the mesh's lowest Y still counts as 'floor' (default 6)")
+    wmt.add_argument("--up-threshold", type=float, default=0.5,
+                     help="min upward normal component (0-1) for a face to count as floor (default 0.5)")
+    wmt.set_defaults(func=_cmd_world_mesh_trim)
 
     wen = sub.add_parser("world-entrance",
                          help="author a WHOLE custom overworld entrance in one shot: the trigger function (into "

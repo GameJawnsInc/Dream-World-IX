@@ -455,6 +455,23 @@ def test_blendio_obj_to_blockmesh(tmp_path):
     assert rt["vcount"] == 3 and len(rt["indices"]) == 3
 
 
+def test_blendio_trim_floor(tmp_path):
+    """trim_floor drops LOW up-facing faces (base floor/apron) while keeping walls + high roofs; round-trips via OBJ."""
+    from ff9mapkit.world import blendio as BIO
+    obj = {"V": [[0, 0, 0], [0, 0, 4], [4, 0, 0],        # 1-3: low flat FLOOR (up-facing, Y0) -> drop
+                 [0, 0, 0], [4, 0, 0], [0, 10, 0],       # 4-6: vertical WALL -> keep
+                 [0, 20, 0], [0, 20, 4], [4, 20, 0]],    # 7-9: high flat ROOF (up-facing, Y20) -> keep
+           "VT": [], "VN": [],
+           "faces": [((1, 0, 0), (2, 0, 0), (3, 0, 0)),
+                     ((4, 0, 0), (5, 0, 0), (6, 0, 0)),
+                     ((7, 0, 0), (8, 0, 0), (9, 0, 0))]}
+    t = BIO.trim_floor(obj, base_height=6.0, up_threshold=0.5)
+    assert t["dropped"] == 1 and t["kept"] == 2 and len(t["faces"]) == 2   # only the base floor removed
+    p = BIO.write_obj(t, tmp_path / "trimmed.obj")
+    rt = BIO.read_obj(p)
+    assert len(rt["faces"]) == 2 and len(rt["V"]) == 9                       # faces filtered, vert pool preserved
+
+
 def test_blendio_quad_triangulates(tmp_path):
     """A quad face fan-triangulates to two triangles (Blender may export n-gons)."""
     from ff9mapkit.world import blendio as BIO
