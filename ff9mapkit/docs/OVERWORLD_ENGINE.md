@@ -571,7 +571,9 @@ path, `AssetManager.cs:593` → `Assets/Resources/…​.bytes`, case-insensitiv
 use). Disc 1 and disc 4 have separate tables (disc 4 also backs the `i+254` alternate band); edit both to fully
 re-table. RELAUNCH to apply (it's a bundled asset, not F6-reloadable).
 
-**The zone/area layout (the selection key — ★ built + verified against the real table).** The 355 records are laid
+**The zone/area layout (the selection key — ★ IN-GAME PROVEN 2026-07-02).** A zone-0-only edit (`[[set]] area = 0`)
+changed *only* the Alexandria/Mist start (F6 `area` 0/1 → uniform scene 359) while every other region kept its normal
+encounters — confirming area → zone → table-slice end-to-end. The 355 records are laid
 out **zone-by-zone**. Two hardcoded engine LUTs (baked into `world/worldpack.py`): `w_worldAreaZone` (`ff9.cs:1348`)
 maps each overworld **area** (0–63, the 6-bit `m_GetIDArea` tile field the F6 World tab prints) → one of **25 zones**;
 `w_worldZoneFigure` (`ff9.cs:1415`) gives each zone its count of topograph entries (×2 fog twins = its record count).
