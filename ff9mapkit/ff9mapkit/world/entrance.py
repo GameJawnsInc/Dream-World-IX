@@ -242,6 +242,45 @@ def _timestamp() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
+# on-foot walkable topographs, decoded from Memoria's on-foot control limit {0x0010667F, 0xD8FF3CFF} (ff9.cs:1487):
+# w_movementCheckTopographID tests bit `topo` of the 64-bit mask (check[0]=topo 32-63, check[1]=topo 0-31).
+_WALK_TOPO = frozenset(t for t in range(64)
+                       if (((0x0010667F >> (t - 32)) & 1) if t >= 32 else ((0xD8FF3CFF >> t) & 1)))
+
+
+def _cell_openness_note(ter, cwx, cwz, ox, oz, summary, stock_obj=None):
+    """Warn if the entrance cell is a POOR spot: much BLOCKED terrain (topo not on-foot-walkable = river/cliff) or an
+    existing building/town collision beside it -- both pinch a trap-pocket around a placed structure (the cell-(35,25)
+    soft-lock: 34% topo-49 river + Dali town adjacent). A good entrance cell is open walkable land."""
+    from .extract import decode_id
+    walk = blocked = 0
+    for tri in ter.tris:
+        cx = (ter.verts[tri[0]][0] + ter.verts[tri[1]][0] + ter.verts[tri[2]][0]) / 3.0 + ox
+        cz = (ter.verts[tri[0]][2] + ter.verts[tri[1]][2] + ter.verts[tri[2]][2]) / 3.0 + oz
+        if abs(cx - cwx) <= 16 and abs(cz - cwz) <= 16:
+            if decode_id(int(round(ter.tangents[tri[0]][0])))["topograph"] in _WALK_TOPO:
+                walk += 1
+            else:
+                blocked += 1
+    total = walk + blocked
+    if total and blocked / total > 0.20:
+        summary.setdefault("notes", []).append(
+            f"POOR SPOT: the entrance cell is {100 * blocked / total:.0f}% BLOCKED terrain (topo not on-foot-"
+            f"walkable -- river/cliff); the player may get trapped. Prefer an open, all-walkable cell.")
+    if stock_obj is not None:
+        near = 0
+        for tri in stock_obj.tris:
+            if decode_id(int(round(stock_obj.tangents[tri[0]][0])))["topograph"] == 59:
+                cx = (stock_obj.verts[tri[0]][0] + stock_obj.verts[tri[1]][0] + stock_obj.verts[tri[2]][0]) / 3.0 + ox
+                cz = (stock_obj.verts[tri[0]][2] + stock_obj.verts[tri[1]][2] + stock_obj.verts[tri[2]][2]) / 3.0 + oz
+                if abs(cx - cwx) <= 22 and abs(cz - cwz) <= 22:
+                    near += 1
+        if near:
+            summary.setdefault("notes", []).append(
+                f"POOR SPOT: an existing town/building ({near} collision tiles) is beside this cell -- placing a "
+                f"structure here can pinch a trap-pocket against it. Prefer an open cell away from towns.")
+
+
 def _building_world_box(building, default_at, margin: float = 2.0):
     """The world-XZ bounding box ``(xmin, xmax, zmin, zmax)`` a building occupies once placed (its XZ centroid at its
     ``at`` / ``default_at``), padded by ``margin``. Entrance-trigger tiles are kept OUT of this box so the player never
@@ -364,6 +403,11 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
 
     # (2) event tile(s) on the cell's terrain block (+ optional flatten pad under the building), stacked
     ter = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part="terrain", game=game, fresh=fresh)
+    try:                                                    # WARN if the cell is a poor spot (river/cliff or a town)
+        _stock_obj = W.read_block(bx, by, disc=disc, lod=lod, part="object", game=game)
+    except (ValueError, FileNotFoundError):
+        _stock_obj = None
+    _cell_openness_note(ter, cwx, cwz, *W.block_world_origin(bx, by), summary, stock_obj=_stock_obj)
     at = tuple(trigger_at) if trigger_at else (cwx, cwz)
     n_flat = 0
     if flatten_pad:

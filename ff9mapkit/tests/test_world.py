@@ -268,6 +268,25 @@ def test_retarget_tiles_exclude_box_skips_under_building():
     assert ev == [1, 0]                                       # tri0 set; tri1 (under the building box) left plain
 
 
+def test_cell_openness_note_flags_bad_spots():
+    from ff9mapkit.world import entrance as EN
+    # 2-tile cell: tri0 walkable (topo10), tri1 blocked (topo49 river/cliff) -> >20% blocked -> POOR SPOT note
+    ter = _synthetic_block(tan0_x=W.encode_id(0, 0, 10), tan3_x=W.encode_id(0, 0, 49))
+    summ = {}
+    EN._cell_openness_note(ter, 2.0, -2.0, 0.0, 0.0, summ)
+    assert summ.get("notes") and any("BLOCKED" in n for n in summ["notes"])
+    # all-walkable cell (topo 10 + 36) -> no note
+    ter2 = _synthetic_block(tan0_x=W.encode_id(0, 0, 10), tan3_x=W.encode_id(0, 0, 36))
+    summ2 = {}
+    EN._cell_openness_note(ter2, 2.0, -2.0, 0.0, 0.0, summ2)
+    assert not summ2.get("notes")
+    # an adjacent town (stock object carrying topo-59 collision) -> trap-pocket warning
+    town = _synthetic_block(tan0_x=W.encode_id(0, 0, 59), tan3_x=W.encode_id(0, 0, 59))
+    summ3 = {}
+    EN._cell_openness_note(ter2, 2.0, -2.0, 0.0, 0.0, summ3, stock_obj=town)
+    assert summ3.get("notes") and any("town" in n.lower() for n in summ3["notes"])
+
+
 def test_building_world_box(tmp_path):
     from ff9mapkit.world import entrance as EN
     obj = tmp_path / "b.obj"
