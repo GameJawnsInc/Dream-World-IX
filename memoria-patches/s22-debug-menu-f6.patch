@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..fb2fc1f7
+index 00000000..83167835
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,1080 @@
+@@ -0,0 +1,1152 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -38,7 +38,8 @@ index 00000000..fb2fc1f7
 +//   Time   -- a time-scale control (slow-mo / fast) for inspecting cutscenes & movement.
 +//   World  -- OVERWORLD only: swap the movement/vehicle mode (gEventGlobal[190] + w_movementChange) so you can
 +//             walk/fly/sail onto any terrain to reach an entrance under test. Swaps the movement PROFILE onto the
-+//             current character (Zidane keeps his model); null-safe + disc/story-independent (fly in disc 1).
++//             current character (Zidane keeps his model). GATED per world state: only modes the loaded
++//             EVT_WORLD_WORLDxx dispatcher handles are offered -- forcing an unhandled one crashes the event script.
 +// Header shows the current field id + name + the player's (x,z), live (or the disc + vehicle mode on the overworld).
 +// Adding an action = one button.
 +public class Ff9mkDebugMenu : MonoBehaviour
@@ -366,11 +367,13 @@ index 00000000..fb2fc1f7
 +
 +    // OVERWORLD vehicle/movement swap. w_movementChange() re-reads gEventGlobal[190] as the control mode in the
 +    // normal (non-Bee) world scene, so setting the byte + calling it repoints the movement PROFILE (terrain limit,
-+    // flight, speed, camera) onto the currently-controlled character. It is NULL-SAFE (it never derefs the
-+    // chocobo/plane actor pointers without a guard, and the controlled char is always present on the overworld),
-+    // so ANY mode works in ANY disc/story state -- e.g. become an airship in disc 1 to fly to a test entrance.
-+    // NOTE: this does not swap the controlled ACTOR, so Zidane keeps his model (a faithful model+position swap
-+    // would repoint EventEngine's controlUID to the vehicle actor -- a later increment; this is the safe first cut).
++    // flight, speed, camera) onto the currently-controlled character. The C# call is null-safe -- BUT it is NOT
++    // safe in any state: each overworld state runs a different EVT_WORLD_WORLDxx event-script dispatcher, and
++    // forcing a mode that state's per-frame vehicle switch never handles drives its air/boat nav arm on
++    // uninitialised state -> a CalcStack expression underflow ("[CalcStack.pop] topOfStackID == 0") -> crash
++    // (repro: airship on WORLD00). So the buttons are GATED to VehicleAllowByWorld (the modes each dispatcher
++    // actually handles, derived byte-exact from the .eb). This does not swap the controlled ACTOR, so Zidane
++    // keeps his model (a faithful model+position swap would repoint EventEngine's controlUID -- a later increment).
 +    private void DrawWorld()
 +    {
 +        if (!InWorld)
@@ -408,18 +411,21 @@ index 00000000..fb2fc1f7
 +
 +        Section("Vehicle / movement mode");
 +        Int32 cur = CurrentControlNo();
-+        GUILayout.Label("current: " + cur + "  " + VehicleName(cur), _label);
-+        VehicleButton("On foot", 0);
-+        VehicleButton("Chocobo — plains", 1);
-+        VehicleButton("Chocobo — mountains", 4);
-+        VehicleButton("Chocobo — all terrain", 5);
-+        VehicleButton("Chocobo — FLYING", 6);
-+        VehicleButton("Blue Narciss — boat (water)", 7);
-+        VehicleButton("Hilda Garde III — airship", 8);
-+        VehicleButton("Invincible — airship", 9);
++        Int32 allowMask = VehicleAllowMask();
++        GUILayout.Label("current: " + cur + "  " + VehicleName(cur) + "     world state " + WorldMapNo(), _label);
++        VehicleButton("On foot", 0, allowMask);
++        VehicleButton("Chocobo — plains", 1, allowMask);
++        VehicleButton("Chocobo — mountains", 4, allowMask);
++        VehicleButton("Chocobo — all terrain", 5, allowMask);
++        VehicleButton("Chocobo — FLYING", 6, allowMask);
++        VehicleButton("Blue Narciss — boat (water)", 7, allowMask);
++        VehicleButton("Hilda Garde III — airship", 8, allowMask);
++        VehicleButton("Invincible — airship", 9, allowMask);
 +        GUILayout.Label("Swaps the MOVEMENT profile (terrain access / flight / speed / camera) onto the current "
-+                        + "character — Zidane keeps his model. Works in any disc & story state. Flying modes cross "
-+                        + "water/mountains to reach any entrance under test.", _label);
++                        + "character — Zidane keeps his model. Only modes the CURRENT world state (WORLDxx) handles "
++                        + "are enabled — forcing an unhandled vehicle drives that state's event script onto "
++                        + "uninitialised nav state and crashes it. Gold-chocobo FLYING (6) is offered in the "
++                        + "open-world states and crosses water/mountains to reach a test entrance.", _label);
 +
 +        Section("Disc");
 +        Byte disc = 0;
@@ -431,9 +437,67 @@ index 00000000..fb2fc1f7
 +                        + "debug menu uses (disc 1↔4 only).", _label);
 +    }
 +
-+    private void VehicleButton(String label, Int32 mode)
++    // [ff9mapkit] Per-world-state vehicle allow-list. Each overworld state runs a DIFFERENT EVT_WORLD_WORLDxx
++    // event-script dispatcher (wldMapNo 9000+N -> WORLD00..12). Forcing gEventGlobal[190] to a mode the LOADED
++    // dispatcher's per-frame vehicle switch was never written to handle drives its air/boat NAV arm on
++    // uninitialised state -> a CalcStack expression underflow ("[CalcStack.pop] topOfStackID == 0" spam) -> crash.
++    // So we offer only the modes each dispatcher handles, derived byte-exact from the .eb (setter + switch census):
++    //   * vehicle-discriminating states (per-frame switch with cases beyond foot) -> the modes their boarding
++    //     menus initialise (the game's own safe set), e.g. WORLD00 = on-foot..gold-chocobo-flight (0-6);
++    //   * benign free-roam states (foot-only switch whose default is an idle Wait->loop) -> ALL modes are safe
++    //     no-ops (the C# movement profile still swaps), so allow everything (WORLD02/10/11);
++    //   * cutscene states (no vehicle switch) -> foot only, so a swap can't disturb their scripted autopilot.
++    // Bitmask: bit m set => mode m allowed. Modes: 0 foot, 1-5 chocobo, 6 gold-flight, 7 boat, 8/9 airship.
++    private const Int32 AllVehicleModes = 0x3FF;   // 0..9
++    private static readonly Dictionary<Int32, Int32> VehicleAllowByWorld = new Dictionary<Int32, Int32>
++    {
++        { 9000, 0x07F },          // WORLD00  0-6      disc-1 open world; flight = gold chocobo (6)
++        { 9001, 0x001 },          // WORLD01  0        Cargo Ship (cutscene, no vehicle switch)
++        { 9002, AllVehicleModes },// WORLD02  0-9      benign foot-only switch (idle default)
++        { 9003, 0x0FF },          // WORLD03  0-7      + Blue Narciss (boat)
++        { 9004, 0x001 },          // WORLD04  0        Hilda Garde 1 (cutscene)
++        { 9005, 0x07F },          // WORLD05  0-6
++        { 9006, 0x001 },          // WORLD06  0        Track Kuja (cutscene)
++        { 9007, 0x17F },          // WORLD07  0-6,8    + Hilda Garde III
++        { 9008, 0x27F },          // WORLD08  0-6,9    + Invincible
++        { 9009, 0x2FF },          // WORLD09  0-7,9
++        { 9010, AllVehicleModes },// WORLD10  0-9      benign foot-only switch
++        { 9011, AllVehicleModes },// WORLD11  0-9      benign foot-only switch (the proven-safe test state)
++        { 9012, 0x001 },          // WORLD12  0        Chocobo Treasure (cutscene)
++    };
++
++    // The loaded overworld dispatcher id (wldMapNo, 9000-9012), or -1 if unavailable.
++    private static Int32 WorldMapNo()
++    {
++        try { return FF9StateSystem.Common.FF9.wldMapNo; }
++        catch (Exception) { return -1; }
++    }
++
++    // The allowed-vehicle bitmask for the current world state. An unlisted state -> foot only (0x001), the
++    // crash-safe default (every dispatcher handles case 0 = on foot).
++    private static Int32 VehicleAllowMask()
++    {
++        return VehicleAllowByWorld.TryGetValue(WorldMapNo(), out Int32 mask) ? mask : 0x001;
++    }
++
++    private static Boolean VehicleAllowed(Int32 mode)
++    {
++        return mode >= 0 && mode <= 9 && (VehicleAllowMask() & (1 << mode)) != 0;
++    }
++
++    private void VehicleButton(String label, Int32 mode, Int32 allowMask)
 +    {
 +        Boolean on = CurrentControlNo() == mode;
++        if ((allowMask & (1 << mode)) == 0)
++        {
++            // Greyed + non-clickable: this world state's dispatcher doesn't handle this vehicle (forcing it
++            // would crash the event script). GUI.enabled=false is the IMGUI disable idiom.
++            Boolean prev = GUI.enabled;
++            GUI.enabled = false;
++            GUILayout.Button("○ " + label + "   — n/a in this world state", _button);
++            GUI.enabled = prev;
++            return;
++        }
 +        if (GUILayout.Button((on ? "● " : "○ ") + label, on ? _tabOn : _button))
 +            SetVehicle(mode);
 +    }
@@ -445,6 +509,14 @@ index 00000000..fb2fc1f7
 +            if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.WorldHUD)
 +            {
 +                _status = "vehicle swap: overworld only";
++                return;
++            }
++            // [ff9mapkit] Refuse a mode the loaded WORLDxx dispatcher can't handle -- forcing it crashes the world
++            // event script (CalcStack underflow). The buttons already grey these out; this is the belt-and-braces guard.
++            if (!VehicleAllowed(mode))
++            {
++                _status = "mode " + mode + " " + VehicleName(mode) + " isn't handled by world state "
++                          + WorldMapNo() + " — would crash. Use gold-chocobo flight (6) where offered.";
 +                return;
 +            }
 +            Byte[] g = FF9StateSystem.EventState.gEventGlobal;

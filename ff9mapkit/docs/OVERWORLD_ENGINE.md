@@ -39,8 +39,33 @@ decodes the entrance dispatch.
   0 foot · 1–5 chocobo (terrain variants) · 6 gold-flying · 7 Blue Narciss (boat) · 8 Hilda Garde III · 9
   Invincible. Boarding is event-driven (swaps the controlled actor). The F6 **vehicle swap** does the null-safe
   *profile* swap (`[190]` + `w_movementChange`): terrain access / flight / speed / camera change, but Zidane keeps
-  his model, and flying gives flying *collision* without ascent (no actor swap). Works in any disc/story state.
+  his model, and flying gives flying *collision* without ascent (no actor swap).
   `gEventGlobal[102]` = a separate `wmID` used by `WorldConfiguration`.
+- **⚠ The profile swap is NOT safe in every world state (crash class).** `w_movementChange` is C#-null-safe, but
+  each overworld state runs a different `EVT_WORLD_WORLDxx` event-script dispatcher, and forcing `[190]` to a
+  mode that state's **per-frame vehicle switch (entry-1/tag-1, `op_0B` on `Global.Byte[190]`)** was never written
+  to handle drives its air/boat **nav arm** on uninitialised `Map.Byte[24/25/26]` state → a `CalcStack`
+  expression underflow (`[CalcStack.pop] topOfStackID == 0`, spammed per-frame) → crash. Repro: airship on
+  WORLD00 (9000). The underflow itself is soft (`CalcStack.pop` returns 0 and continues); the crash is a
+  secondary fault off the corrupt branch. Boarding sets `[190]` **and** the nav state together, so the real game
+  never hits this — but F6 forces only the byte. **Fix (s22, F6 menu):** the vehicle buttons are gated per
+  `wldMapNo` to the modes each dispatcher actually handles (`VehicleAllowByWorld` in `Ff9mkDebugMenu.cs`), with a
+  belt-and-braces refuse in `SetVehicle`. The allow-list, derived byte-exact from the 13 dispatchers (setter +
+  switch census — `ff9mapkit/eb` disasm):
+
+  | wldMapNo | dispatcher | switch shape | allowed modes |
+  |---|---|---|---|
+  | 9000, 9005 | WORLD00/05 | vehicle-discriminating | 0–6 (incl. gold-chocobo flight) |
+  | 9003 | WORLD03 | vehicle-discriminating | 0–7 (+ boat) |
+  | 9007 | WORLD07 | vehicle-discriminating | 0–6, 8 (+ Hilda Garde III) |
+  | 9008 | WORLD08 | vehicle-discriminating | 0–6, 9 (+ Invincible) |
+  | 9009 | WORLD09 | vehicle-discriminating | 0–7, 9 |
+  | 9002, 9010, 9011 | WORLD02/10/11 | foot-only switch, **benign** idle default | 0–9 (all — no-op, profile still swaps) |
+  | 9001, 9004, 9006, 9012 | WORLD01/04/06/12 | cutscene, no vehicle switch | 0 (foot only) |
+
+  For open-world entrance testing, **gold-chocobo flight (mode 6)** is available in the disc-1 open states and
+  crosses water/mountains, so the crashing airship modes aren't needed there. Residual (in-game to confirm):
+  whether a setter-census mode is safe when *forced* without boarding's nav setup — verify mode 6 on WORLD00.
 - **Chocobo:** summonable on track topographs 3/18/21/22/28 (`w_frameChocoboCheck`) + Gysahl (event layer);
   `ff9.w_moveChocoboPtr` / `w_movePlanePtr`, availability via `originalActor.isEnableRenderer`.
 - **Discs:** `WorldConfiguration.GetDisc()` = `ff9.w_frameScenePtr >= 11090 ? 4 : 1`; stored in `ff9.w_frameDisc`
