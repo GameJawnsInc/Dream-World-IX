@@ -92,6 +92,11 @@ def test_apply_config_set_and_remap():
     assert all(d.encounters[i].scene == [1, 2, 3, 4] for i in d.match(topograph=5))
     # remap ran AFTER the set; 1000 == record 0's scene[1] (topograph 0, untouched by the set) -> survives
     assert summary["remapped"] == 1 and d.encounters[0].scene[1] == 12345
+    # `all = true` matches every record (the uniform-overworld / override-path test)
+    d2 = WP.Discmr.from_bytes(data)
+    s2 = WP.apply_config(d2, {"set": [{"all": True, "scene": [359, 359, 359, 359]}]})
+    assert s2["sets"][0]["count"] == WP.ENCOUNT_COUNT
+    assert all(r.scene == [359, 359, 359, 359] for r in d2.encounters)
     # a matcher-less or no-match set raises
     with pytest.raises(ValueError):
         WP.apply_config(d, {"set": [{"scene": [0, 0, 0, 0]}]})

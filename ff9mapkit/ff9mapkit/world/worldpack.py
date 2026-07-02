@@ -212,9 +212,12 @@ def apply_config(discmr: Discmr, cfg: dict) -> dict:
             raise ValueError(f"[[set]] #{k} must be a table")
         idx = item.get("index")
         topo = item.get("topograph")
-        if idx is None and topo is None:
-            raise ValueError(f"[[set]] #{k} needs a matcher: `index` or `topograph`")
-        targets = discmr.match(index=idx, topograph=topo, fog=item.get("fog"))
+        if item.get("all"):                              # match EVERY record (a uniform overworld / a path test)
+            targets = discmr.match()
+        elif idx is None and topo is None:
+            raise ValueError(f"[[set]] #{k} needs a matcher: `all`, `index`, or `topograph`")
+        else:
+            targets = discmr.match(index=idx, topograph=topo, fog=item.get("fog"))
         if not targets:
             raise ValueError(f"[[set]] #{k} matched no records (index={idx} topograph={topo} fog={item.get('fog')})")
         scene = item.get("scene")
@@ -223,8 +226,8 @@ def apply_config(discmr: Discmr, cfg: dict) -> dict:
             scene = per or None
         for i in targets:
             discmr.set_encounter(i, scene=scene, pattern=item.get("pattern"), pad=item.get("pad"))
-        summary["sets"].append({"match": {"index": idx, "topograph": topo, "fog": item.get("fog")},
-                                "count": len(targets)})
+        summary["sets"].append({"match": {"all": item.get("all"), "index": idx, "topograph": topo,
+                                          "fog": item.get("fog")}, "count": len(targets)})
     remap = cfg.get("remap") or {}
     if remap:
         summary["remapped"] = discmr.remap_scene(remap)

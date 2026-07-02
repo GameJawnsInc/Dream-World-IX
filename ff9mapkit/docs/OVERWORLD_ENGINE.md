@@ -470,6 +470,11 @@ a flat area lookup:
 
 ### The per-frame trigger — `.eb`-driven
 
+> ⚠ **Correction (in-game 2026-07-02):** `case 205` below is a world-`.eb` sysvar and its `w_frameEventBattleProb`
+> denominator IS the proven *rate* lever — but its `topograph∈[36,38]` clause is **not** "the only tiles that fire."
+> Battles were observed on other topographs; the operative trigger is the EventEngine step-accumulator
+> `ProcessEncount` (`EventEngine.ProcessEvents.cs:462`). Read the clause below as *one* gate, not the whole story.
+
 The trigger is **polled by the world `.eb`** as GET-sysvar **case 205** (`ff9.cs:4235`), i.e. it lives in the 13
 world dispatchers, not a hidden native loop. Fires (returns 1) only when **all** hold:
 
@@ -536,7 +541,22 @@ preserving the game's relative danger and staying idempotent by always deriving 
 per-language `.eb` shadow (the writes are language-identical in count, JP at different offsets) that STACKS on any
 `world-entrance` edit (reads the mod-folder override if present). RELAUNCH / re-enter the overworld to apply.
 
-### `world-encounters` — re-table the monsters (★ built 2026-07-02, no DLL; awaits in-game)
+### `world-encounters` — re-table the monsters (★ IN-GAME PROVEN 2026-07-02, no DLL)
+
+**★ Confirmed in-game 2026-07-02:** setting **all 355 records** to one scene (`[[set]] all = true`) made every
+overworld battle the identical fight (scene 359 = Mist-Continent Pythons/Goblins on the forest BG), everywhere on
+the map — so the `discmr.img` override *loads* and the codec is byte-correct. **Targeting lesson (the thing that
+first fooled the test):** record SELECTION is **zone-slice-primary** — `w_worldGetBattleScenePtr` (`ff9.cs:9079`)
+scans only the current *area*'s slice of the table (`w_worldZoneInfo[zone..zone+1]`), matches `topograph` + `fog`
+within it, and **falls back to the slice's last record** when nothing matches. So a `topograph=`-only edit can miss
+the record that actually fires (its zone had no topograph match → the fallback record, a different topograph, fired).
+Use `all = true` for a uniform overworld, or (for surgical per-area re-tabling) target the specific record `index`
+— a by-*area/zone* matcher is the natural next refinement. Also note the operative encounter TRIGGER is the
+EventEngine step-accumulator `ProcessEncount` (`EventEngine.ProcessEvents.cs:462`: `_encountBase += encratio` →
+`random8() < _encountBase>>3` → `SelectScene`→`w_worldGetBattleScenePtr`), **not** the `case 205` topograph-36–38
+gate I first fixated on (that gate is a separate world-`.eb` sysvar path; empirically battles fire on other
+topographs too). The *rate* lever (`w_frameEventBattleProb`) is still real + proven — just don't read the
+`case 205` topograph clause as "the only tiles that fire."
 
 `ff9mapkit world-encounters --list [--all] [--disc 1|4]` inspects the table; `--config <toml> --mod-folder <mod>
 [--disc N] [--dry-run]` edits + deploys (`world/worldpack.py`). The `Discmr` codec parses the two-layer container
