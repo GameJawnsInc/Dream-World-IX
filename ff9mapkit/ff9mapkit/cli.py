@@ -1672,10 +1672,18 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
     """Rebuild an edited OBJ into a block's loose .ff9mesh override + deploy (Object=building; IDALL stamped uniform)."""
     from .world import blendio as BIO
     try:
+        tile = None
+        if args.tile:
+            try:
+                t, v = args.tile.split(":")
+                tile = (int(t), int(v))
+            except ValueError:
+                print("--tile must be TOPOGRAPH:VARIANT (e.g. 52:0); see `world-atlas-catalog`", file=sys.stderr)
+                return 2
         info = BIO.build_from_obj(args.obj, into_block=tuple(args.into_block), mod_folder=args.mod_folder,
                                   disc=args.disc, part=args.part, lod=args.lod, topograph=args.topograph,
                                   at=(tuple(args.at) if args.at else None), seat=args.seat,
-                                  keep_block=args.keep_block, texture=args.texture, game=args.game)
+                                  keep_block=args.keep_block, texture=args.texture, tile=tile, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -1705,6 +1713,46 @@ def _cmd_world_texture_palette(args: argparse.Namespace) -> int:
     for topo, ntiles, nfaces, modal in PAL.palette_summary(pal):
         m = "  ".join(f"({u:.3f},{v:.3f})" for u, v in modal) if modal else "-"
         print(f"  topo {topo:2}: {ntiles:4} tiles  {nfaces:5} faces   modal {m}")
+    return 0
+
+
+def _cmd_world_atlas_extract(args: argparse.Namespace) -> int:
+    """Extract the shared overworld texture atlas (res(1_24)_terrain/_objects, 1024x1024) to a PNG -- for previewing
+    or repainting (drop the repainted PNG back via `world-atlas-reskin` for a no-DLL HD reskin)."""
+    from .world import atlas as A
+    try:
+        dest = A.extract_atlas(args.part, out=args.out, game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError, ImportError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"extracted the {args.part} atlas (1024x1024) -> {dest}")
+    return 0
+
+
+def _cmd_world_atlas_catalog(args: argparse.Namespace) -> int:
+    """Render a visual tile CATALOG (contact sheet): each topograph's real donor tiles as labeled thumbnails, so you
+    pick a look by eye and pass `world-mesh-build --tile TOPO:VARIANT`."""
+    from .world import atlas as A
+    try:
+        dest = A.tile_catalog(args.part, disc=args.disc, out=args.out, per_topo=args.per_topo, game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError, ImportError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"wrote the {args.part} tile catalog -> {dest}")
+    print("  pick a tile by its TOPO:VARIANT label, then: world-mesh-build <obj> ... --tile TOPO:VARIANT")
+    return 0
+
+
+def _cmd_world_atlas_reskin(args: argparse.Namespace) -> int:
+    """Deploy a repainted atlas PNG as a no-DLL HD reskin (T2) -- keep the SAME UV layout, replace the pixels."""
+    from .world import atlas as A
+    try:
+        dest = A.deploy_atlas(args.png, args.part, mod_folder=args.mod_folder, game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"deployed the repainted {args.part} atlas -> {dest}")
+    print("  RELAUNCH to apply. Keep the same UV layout (tile positions) or existing geometry will sample wrong.")
     return 0
 
 
@@ -3634,7 +3682,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "replacing them")
     wmb.add_argument("--texture", action="store_true",
                      help="stamp real atlas tiles onto UV-less new faces (a Blender model without UVs, or the "
-                          "--solid-base hull) from the learned palette -- so they render textured, not [0,0] smear")
+                          "--solid-base hull) from the learned palette -- so they render textured, not [0,0] white")
+    wmb.add_argument("--tile", metavar="TOPO:VARIANT",
+                     help="force ONE specific atlas tile on all new faces (e.g. 52:0 = a castle wall); pick it from "
+                          "`world-atlas-catalog`. Implies --texture")
     wmb.set_defaults(func=_cmd_world_mesh_build)
 
     wtp = sub.add_parser("world-texture-palette",
@@ -3645,6 +3696,29 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.add_argument("--max-blocks", type=int, default=24, help="how many real blocks to sample (default 24)")
     wtp.add_argument("--no-cache", action="store_true", help="force a fresh scan instead of the cached palette")
     wtp.set_defaults(func=_cmd_world_texture_palette)
+
+    wax = sub.add_parser("world-atlas-extract",
+                         help="extract the shared overworld texture atlas (terrain/object, 1024x1024) to a PNG for "
+                              "previewing or repainting")
+    wax.add_argument("--part", choices=["terrain", "object"], default="terrain")
+    wax.add_argument("--out", required=True, help="output PNG path")
+    wax.set_defaults(func=_cmd_world_atlas_extract)
+
+    wac = sub.add_parser("world-atlas-catalog",
+                         help="render a visual tile CATALOG (each topograph's real donor tiles as labeled thumbnails) "
+                              "so you can pick a texture by eye for `world-mesh-build --tile`")
+    wac.add_argument("--part", choices=["terrain", "object"], default="terrain")
+    wac.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wac.add_argument("--per-topo", type=int, default=8, help="thumbnails per topograph row (default 8)")
+    wac.add_argument("--out", required=True, help="output PNG (contact sheet) path")
+    wac.set_defaults(func=_cmd_world_atlas_catalog)
+
+    war = sub.add_parser("world-atlas-reskin",
+                         help="deploy a repainted atlas PNG as a no-DLL HD reskin (T2): same UV layout, new pixels")
+    war.add_argument("png", help="the repainted atlas PNG (1024x1024, same tile layout)")
+    war.add_argument("--part", choices=["terrain", "object"], default="terrain")
+    war.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    war.set_defaults(func=_cmd_world_atlas_reskin)
 
     wmt = sub.add_parser("world-mesh-trim",
                          help="auto-remove faces from a building OBJ: --floor drops the low flat base courtyard-floor/"

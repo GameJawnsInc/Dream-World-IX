@@ -173,7 +173,8 @@ def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "objec
 
 def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part: str = "object", lod: str = "0_1",
                    topograph: int = _TOPO_IMPASSABLE, at=None, seat: bool = False, keep_block: bool = False,
-                   solid_base: bool = False, texture: bool = False, stock_bm=None, terrain_bm=None, game=None) -> dict:
+                   solid_base: bool = False, texture: bool = False, tile=None, stock_bm=None, terrain_bm=None,
+                   game=None) -> dict:
     """Read an edited OBJ, rebuild it as the TARGET block's ``part`` ``.ff9mesh``, and deploy the loose override.
     ``into_block=(x, y)`` picks the block whose local frame + override path the result is written into.
 
@@ -220,10 +221,12 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
         except (ValueError, FileNotFoundError):
             pass                                                   # no stock mesh / channel mismatch -> just the new one
     textured = 0
-    if texture:                                                    # stamp real atlas tiles onto UV-less new faces
+    if texture or tile is not None:                                # stamp real atlas tiles onto UV-less new faces
         from . import palette as PAL
         before = bm
-        bm = PAL.apply_palette_uvs(bm, disc=disc, part=part, game=game)   # per-tri, by topograph; leaves real UVs
+        topo = tile[0] if tile is not None else None               # --tile TOPO:VARIANT forces one picked tile
+        variant = tile[1] if tile is not None else 0
+        bm = PAL.apply_palette_uvs(bm, disc=disc, part=part, topograph=topo, variant=variant, game=game)
         textured = 1 if bm is not before else 0
     dest = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=part.capitalize())
     return {"dest": str(dest), "into_block": list(into_block), "verts": bm.vcount, "tris": len(bm.tris),

@@ -60,33 +60,40 @@ def sample_donor_faces(disc: int = 1, part: str = "terrain", *, blocks=None, max
 
 
 def build_palette(disc: int = 1, part: str = "terrain", *, blocks=None, max_blocks: int = 24, game=None,
-                  cache: bool = True) -> dict:
+                  cache: bool = True, skip_blank: bool = False) -> dict:
     """``{topograph: [(uv_triplet, count), ...]}`` (donor tiles ranked most-frequent first) learned from real blocks.
 
-    Cached per ``(disc, part)`` next to StreamingAssets (first build scans blocks; later ones are instant). Pass
-    ``cache=False`` / an explicit ``blocks`` list to force a fresh scan."""
+    Real donor faces always carry real UVs, so the modal default is already a real tile (the transparent ``[0,0]``
+    that renders white is the NO-palette default, never a sampled tile). ``skip_blank`` is an optional safety that
+    loads the atlas and drops any transparent-alpha tile (``atlas.filter_blank``) -- normally a no-op, off by default so
+    build_palette needs no atlas/Pillow. Cached per ``(disc, part)`` next to StreamingAssets (first build scans blocks;
+    later ones are instant). Pass ``cache=False`` / an explicit ``blocks`` list to force a fresh scan."""
     import collections
     from pathlib import Path
     from .. import config
-    cache_path = None
-    if cache and blocks is None:
+    cache_path, palette = None, None
+    if cache and blocks is None:                         # cache holds the RAW (unfiltered) palette -> skip_blank-agnostic
         try:
             cache_path = Path(config.find_game_path(game)) / "StreamingAssets" / f"{_PALETTE_CACHE}_{part}_disc{disc}.json"
             if cache_path.is_file():
                 raw = json.loads(cache_path.read_text(encoding="utf-8"))
-                return {int(k): [(tuple(map(tuple, uv)), n) for uv, n in v] for k, v in raw.items()}
+                palette = {int(k): [(tuple(map(tuple, uv)), n) for uv, n in v] for k, v in raw.items()}
         except (OSError, ValueError, config.ConfigError):
             cache_path = None
-    counts: dict = collections.defaultdict(collections.Counter)
-    for topo, triplet in sample_donor_faces(disc, part, blocks=blocks, max_blocks=max_blocks, game=game):
-        counts[topo][triplet] += 1
-    palette = {topo: [(uv, n) for uv, n in c.most_common()] for topo, c in counts.items()}
-    if cache_path is not None and palette:
-        try:
-            cache_path.write_text(json.dumps({str(k): [[list(map(list, uv)), n] for uv, n in v]
-                                              for k, v in palette.items()}), encoding="utf-8")
-        except OSError:
-            pass
+    if palette is None:
+        counts: dict = collections.defaultdict(collections.Counter)
+        for topo, triplet in sample_donor_faces(disc, part, blocks=blocks, max_blocks=max_blocks, game=game):
+            counts[topo][triplet] += 1
+        palette = {topo: [(uv, n) for uv, n in c.most_common()] for topo, c in counts.items()}
+        if cache_path is not None and palette:
+            try:
+                cache_path.write_text(json.dumps({str(k): [[list(map(list, uv)), n] for uv, n in v]
+                                                  for k, v in palette.items()}), encoding="utf-8")
+            except OSError:
+                pass
+    if skip_blank and palette:                           # drop transparent-filler tiles via the atlas alpha
+        from . import atlas as A
+        palette = A.filter_blank(palette, part, game=game)
     return palette
 
 

@@ -442,21 +442,28 @@ buckets (topo 49 spans many tiles), so the robust unit is "a real donor face's U
   `build_palette` (cached per disc/part) · `pick_uvs` · `apply_palette_uvs` (per-triangle, only zero-UV faces).
   `world-mesh-build --texture` applies it (covers a UV-less Blender model + the `add_solid_base` hull);
   `world-texture-palette` inspects it. **Tiling caveat:** a real tri's UV rect is ~5-6% of the atlas, so a donor
-  triplet is stamped PER TRIANGLE — don't stretch one tile across a big face. **Tile-choice caveat:** `pick_uvs`'s
-  MODAL default can be a blank/backing tile — the object atlas's most-common topo-59 face is the white filler at
-  UV ≈(0.15,0.93), and the corner (0,0) is blank white; real walls are mid-atlas (e.g. ≈0.58,0.45). So the modal is a
-  real tile but not always the *wanted* look; a `variant` pick or an explicit donor face gives control, and an
-  atlas-PNG preview/picker is the natural UX follow-up.
-- **T2 — HD atlas reskin (tractable, no DLL, art task).** Drop a PNG at the terrain/object atlas override path (the
-  `SearchAssetOnDisc` mod path) to replace the atlas at the *same* UV layout. Out of kit scope (no atlas-image code);
-  documented for users who want HD terrain.
+  triplet is stamped PER TRIANGLE — don't stretch one tile across a big face. **The modal is always a REAL tile**
+  (probed: 0/2604 terrain and 0/1219 object palette tiles are transparent — real faces carry real UVs; the white
+  box in testing was the *no-palette* `[0,0]` default, which is a transparent atlas corner, not a palette pick). So
+  the picker below is for choosing *which* real tile (a wall vs a road vs bark), not for avoiding white.
+- **The atlas + tile PICKER (★ built).** `world/atlas.py` extracts the two shared **1024×1024 RGBA** atlases
+  (`res(1_24)_terrain`/`_objects`, p0data3; `WMBlock.cs:312-315`) — resolving the object-atlas dimension (also 1024²).
+  `world-atlas-extract` dumps the PNG; `world-atlas-catalog` renders a contact sheet (each topograph's real donor
+  tiles as labeled `TOPO:VARIANT` thumbnails); `world-mesh-build --tile TOPO:VARIANT` forces the picked tile on all
+  new faces (e.g. `--tile 52:0` = a castle wall). Blank tiles (should any exist) are detected by **alpha** (the
+  transparent-white `[0,0]` corner) via `atlas.tile_is_blank`/`filter_blank` (opt-in `build_palette(skip_blank=True)`).
+  UV→pixel is `(u·1024, (1-v)·1024)` (Unity V is bottom-up).
+- **T2 — HD atlas reskin (★ deploy built, no DLL; repaint is the art task).** `world-atlas-extract` → repaint the PNG
+  (same UV layout) → `world-atlas-reskin` deploys it to `<mod>/StreamingAssets/assets/resources/worldmap/textures/
+  res(1_24)_<terrain|objects>.png` (the `SearchAssetOnDisc` mod path, `AssetManager.cs:804`, checked before the
+  embedded asset). Replace the *pixels*, keep the *tile positions*, and all existing geometry reskins for free.
 - **T3 — genuinely new atlas content (frontier).** A *new appearance not already in the atlas* needs repainting the
   atlas PNG (T2) AND authoring custom geometry+UVs pointing at the new region (T1) — plus a new material entry needs
   code (`ObjectNameToPaths` is hardcoded). The T1+T2 combo is the only no-DLL route; art-heavy, not a first build.
 
-Open: the Object atlas exact dims are undeclared (terrain is 1024²); the atlas tile-grid pitch is inferred (~5-6%/tri),
-not read from a constant; the palette is disc-1-derived (per-disc rebuild if the mapping differs); extracting the atlas
-PNG to *preview* which tile a UV picks is the natural next step (also resolves where the atlas lives in p0data).
+Open: the atlas tile-grid pitch is inferred (~5-6%/tri), not read from a constant; the palette is disc-1-derived
+(per-disc rebuild if the mapping differs). (Resolved: object atlas = 1024² like terrain; atlas lives in p0data3 as
+`res(1_24)_*`; the extract/catalog/reskin tools are built.)
 
 ## Overworld encounters + the world-pack binary (RE 2026-07-02)
 
