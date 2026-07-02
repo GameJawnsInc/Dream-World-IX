@@ -1799,6 +1799,44 @@ def _cmd_world_environment(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_rename_markers(args: argparse.Namespace) -> int:
+    """Rename overworld minimap markers: rewrite the world text block (68) txid-0 label at ``locId+1`` and shadow
+    it per-language into the mod folder (``embeddedasset/text/<lang>/field/68.mes``). No DLL; RELAUNCH to apply."""
+    import tomllib
+    from .world import navimap as NM
+    try:
+        with open(args.config, "rb") as fh:
+            doc = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f"cannot read {args.config}: {e}", file=sys.stderr)
+        return 2
+    cfg = doc.get("marker_rename", [])
+    try:
+        renames = NM.resolve_renames(cfg)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if not renames:
+        print("no [[marker_rename]] entries found (need {name|locid, to})", file=sys.stderr)
+        return 2
+    if args.dry_run:
+        for loc in sorted(renames):
+            print(f"  locId {loc} ({NM.MARKER_NAMES.get(loc, '?')}) -> {renames[loc]!r}")
+        return 0
+    langs = None if args.lang == "all" else [args.lang]
+    try:
+        written = NM.deploy_marker_renames(cfg, mod_folder=args.mod_folder, game=args.game, langs=langs)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    lang_names = sorted({p.parent.parent.name for p in written})
+    print(f"renamed {len(renames)} marker(s) -> {len(written)} .mes file(s) [{', '.join(lang_names)}]")
+    for loc in sorted(renames):
+        print(f"  locId {loc} ({NM.MARKER_NAMES.get(loc, '?')}) -> {renames[loc]!r}")
+    print("  RELAUNCH the game to apply. The mod folder must be in Memoria.ini [Mod] FolderNames.")
+    return 0
+
+
 def _cmd_battle_actions(args: argparse.Namespace) -> int:
     """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
     _safe_console()
@@ -3552,6 +3590,18 @@ def build_parser() -> argparse.ArgumentParser:
                           "<mod>/StreamingAssets/Data/World/Environment.txt")
     wev.add_argument("--dry-run", action="store_true", help="print the Environment.txt it would write, write nothing")
     wev.set_defaults(func=_cmd_world_environment)
+
+    wrm = sub.add_parser("world-rename-markers",
+                         help="rename overworld minimap MARKER labels: rewrite the world text (block 68), shadowed "
+                              "per-language into the mod folder. No DLL; relaunch to apply.")
+    wrm.add_argument("config", help="a .toml with [[marker_rename]] entries: {name = <current label> | locid = "
+                                    "<0-63>, to = <new label>}. A name renames every slot it owns (South Gate = 6-10).")
+    wrm.add_argument("--mod-folder", required=True,
+                     help="the FolderNames mod folder to write into (e.g. FF9CustomMap)")
+    wrm.add_argument("--lang", default="all",
+                     help="language to rename in (default: all 7; or a single us/uk/jp/es/fr/gr/it)")
+    wrm.add_argument("--dry-run", action="store_true", help="print `locId (old) -> new`, write nothing")
+    wrm.set_defaults(func=_cmd_world_rename_markers)
 
     bsc = sub.add_parser("battle-scene",
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")

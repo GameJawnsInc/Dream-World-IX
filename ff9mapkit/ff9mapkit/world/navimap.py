@@ -93,3 +93,81 @@ def resolve_markers(entries) -> list[int]:
 def marker_presets(entries) -> list[tuple[int, int]]:
     """``reveal_markers`` -> ``(bit_index, 1)`` GLOB-bit presets for :func:`content.startup.startup_body`."""
     return [(marker_bit(loc), 1) for loc in resolve_markers(entries)]
+
+
+# --------------------------------------------------------------------------- marker RENAME (world text block 68)
+# The marker's world-map LABEL is FF9TextTool.GetTableText(0u)[locId+1] (WorldHUD.cs:826): the world text block
+# (mesID 68, shared by all EVT_WORLD_WORLD00..12) txid-0, split by newline AFTER its leading [TBLE=...] tag
+# (DialogBoxSymbols.ParseTextSplitTags ignores the TBLE offset numbers, DialogBoxSymbols.cs:35-38). So renaming a
+# marker = replace the locId+1'th newline-entry of that one message -- no offset math -- and ship the .mes as a
+# mod-folder shadow (embeddedasset/text/<lang>/field/68.mes). A name repeats across slots (South Gate = 6-10), so
+# by-NAME renames every slot it owns; use a locId to rename ONE dot.
+WORLD_TEXT_BLOCK = 68
+
+
+def resolve_renames(cfg_list) -> dict:
+    """``[{locid|name, to}]`` -> ``{locId: new_name}``. A ``name`` renames every slot it owns. Raises ValueError
+    on an unknown/out-of-range selector, a missing/blank ``to``, or a ``to`` containing a newline (would add a
+    marker). Later entries win on a locId collision."""
+    out: dict[int, str] = {}
+    for i, item in enumerate(cfg_list or []):
+        if not isinstance(item, dict):
+            raise ValueError(f"marker_rename #{i} must be a table with (locid | name) + to")
+        to = item.get("to")
+        if not isinstance(to, str) or not to.strip():
+            raise ValueError(f"marker_rename #{i} needs a non-empty `to` (the new label)")
+        if "\n" in to:
+            raise ValueError(f"marker_rename #{i} `to` must be a single line (no newline)")
+        sel = item["locid"] if item.get("locid") is not None else item.get("name")
+        if sel is None:
+            raise ValueError(f"marker_rename #{i} needs a `locid` (0-63) or a `name`")
+        for loc in resolve_markers([sel]):
+            out[loc] = to
+    return out
+
+
+def apply_marker_renames(mes_body: str, renames: dict) -> str:
+    """Return ``mes_body`` (a world text block 68 ``.mes``) with the marker labels in ``renames`` ({locId: name})
+    applied to txid-0. Byte-preserving elsewhere (a single splice of the one message's text). A no-op (returns the
+    input) if ``renames`` is empty or txid-0 is absent."""
+    if not renames:
+        return mes_body
+    from ..dialogue import parse_mes
+    t0 = parse_mes(mes_body).get(0)
+    if t0 is None or t0.text is None:
+        return mes_body
+    text = t0.text
+    tag_end = text.find("]") + 1 if text.startswith("[TBLE=") else 0   # skip the leading [TBLE=...] tag
+    prefix, rest = text[:tag_end], text[tag_end:]
+    entries = rest.split("\n")
+    for loc, name in renames.items():
+        idx = loc + 1                                                  # [0]=Dummy, [locId+1]=the label
+        if 0 <= idx < len(entries):
+            entries[idx] = name
+    new_text = prefix + "\n".join(entries)
+    return mes_body.replace(text, new_text, 1) if new_text != text else mes_body
+
+
+def deploy_marker_renames(cfg_list, *, mod_folder: str, game=None, langs=None) -> list:
+    """Write the marker-rename override into ``<mod>/FF9_Data/embeddedasset/text/<lang>/field/68.mes`` for each
+    language (so it shadows the base world text). Returns the written ``Path`` list. RELAUNCH to apply. Raises
+    ``ValueError`` on a bad config."""
+    from pathlib import Path
+    from .. import config, dialogue
+    renames = resolve_renames(cfg_list)                                # validates
+    if not renames:
+        return []
+    langs = list(langs) if langs else list(config.LANGS)
+    root = config.find_mod_root(config.find_game_path(game), mod_folder)
+    layout = config.ModLayout(root)
+    written = []
+    for lang in langs:
+        base = dialogue.extract_field_mes(9000, lang=lang, game=game, zone_id=WORLD_TEXT_BLOCK)
+        if not base:
+            continue                                                   # this lang's block 68 not found -> skip
+        out = apply_marker_renames(base, renames)
+        dest = Path(layout.mes_path(lang, WORLD_TEXT_BLOCK))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(out, encoding="utf-8")
+        written.append(dest)
+    return written

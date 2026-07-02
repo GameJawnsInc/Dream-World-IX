@@ -210,6 +210,20 @@ campaign/journey scope (the startup merge carries `reveal_markers`). Reveal-only
 `flags = [{flag = <736+locId>, value = 0}]`. ⚠ a new marker still needs coords (a DLL) — this reveals the 64 existing
 slots, and disc-4 force-unlocks a few regardless.
 
+**★ Built (2026-07-02) — `world-rename-markers` (rename a marker's label).** The other minimap no-DLL win.
+`GetTableText(0u)[locId+1]` reads world text **block 68** (shared by all WORLD00..12) txid-0, newline-split after
+its `[TBLE=…]` tag — and `ParseTextSplitTags` **ignores the TBLE offset numbers** (`DialogBoxSymbols.cs:35-38`), so
+renaming is a pure splice of the `locId+1`-th line (no offset math). `ff9mapkit world-rename-markers <cfg.toml>
+--mod-folder <mod>` rewrites txid-0 and shadows it per-language into `FF9_Data/embeddedasset/text/<lang>/field/68.mes`
+(`navimap.deploy_marker_renames`):
+```toml
+[[marker_rename]]
+name = "Lindblum"      # or locid = 24 (a name renames EVERY slot it owns; South Gate = 6-10)
+to   = "Falcon City"
+```
+Splices only the target line (other 63 names + all other txids byte-identical); `--lang all` (default) writes every
+language, `--lang us` just one. RELAUNCH to apply. ⏳ awaits an in-game playtest.
+
 **Discovery-WRITE path — RESOLVED (probe 2026-07-02).** No engine write (only reads + the disc-4 force-OR):
 each field's **exit cascade sets `GLOB bit (736+locId) = 1`** (the `.eb` token `opE4(lo,hi)` with `lo+hi*256 =
 736+locId`, then `op7D(1,0) op2C`), revealing the markers **reachable from that exit**. Confirmed across **50 of
@@ -258,7 +272,7 @@ on = true
 ```
 Valid enum names: `environment.WORLD_PLACES` / `WORLD_EFFECTS` (baked from `Memoria/World/WorldPlace.cs` +
 `WorldEffect.cs`). RELAUNCH to apply (parsed at overworld init). The `Title` token (banner rect/timing) is not yet
-exposed. ⏳ awaits an in-game playtest.
+exposed. **★ in-game proven 2026-07-02** (`mist = false` forced the disc-1 Mist-Continent mist off).
 
 ## SOLVED — F6 overworld teleport (the `SmoothFrameUpdater_World` reverter) ★ IN-GAME PROVEN 2026-07-01
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
