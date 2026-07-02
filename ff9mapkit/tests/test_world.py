@@ -348,6 +348,18 @@ def test_entrance_building_world_hull(tmp_path):
     assert not M._point_in_polygon(115.0, -200.0, hull)                      # 5u past the 10u half-width -> walkable
 
 
+def test_entrance_hull_anchors_by_bbox_center_not_centroid(tmp_path):
+    from ff9mapkit.world import entrance as EN
+    # asymmetric OBJ: 3 verts clustered near x=0, one far at x=20 -> centroid x=5.25 but bbox-centre x=10.
+    # bbox-centre anchoring must seat the FOOTPRINT symmetrically on the target (span [90,110], not the
+    # centroid-pulled [94.75,114.75]) so the model doesn't bulge to one side of the cell.
+    obj = tmp_path / "asym.obj"
+    obj.write_text("v 0 0 0\nv 0 0 4\nv 1 0 2\nv 20 0 2\nf 1 2 3\nf 1 3 4\n")
+    hull = EN._building_world_hull({"obj": str(obj), "at": (100.0, -200.0)}, (0.0, 0.0))
+    xs = [p[0] for p in hull]
+    assert abs(min(xs) - 90.0) < 1e-6 and abs(max(xs) - 110.0) < 1e-6   # centred on 100 (bbox), not 94.75 (centroid)
+
+
 def test_building_world_box(tmp_path):
     from ff9mapkit.world import entrance as EN
     obj = tmp_path / "b.obj"

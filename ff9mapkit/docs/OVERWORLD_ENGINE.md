@@ -159,18 +159,24 @@ What it does, generalizing + hardening the manual recipe:
 - **⚠ Stacking compounds geometry.** Re-reading the deployed override composes event tiles across entrances, but a
   flatten pad / a kept building COMPOUNDS on re-run (a 2nd castle stacks on the 1st). Use **`--fresh`** to re-read the
   block from pristine p0data for a clean re-iteration.
-- **⚠ Buildings box the player unless you BLOCK THE TERRAIN under them.** The castle soft-lock's real cause (NOT the
-  town, 30u away): a hollow 3D model's tris become per-triangle collision, but its interior gaps have no tri and its
-  base buries into higher ground, so the down-raycast hits WALKABLE terrain inside the footprint — the player wanders
-  in and is boxed by the parts that stick up. A floating convex-hull base (`add_solid_base`) FAILED: buried on uneven
-  ground. The fix that holds: **make the TERRAIN under the building impassable** (`retarget_tiles(topograph=59,
-  only_polygon=<building world HULL>)`) — the terrain conforms to the ground, so the whole footprint blocks and the
-  player stops at its EDGE. Use the tight convex HULL (`_building_world_hull`), NOT a padded bbox — a bbox leaves an
-  invisible collision skirt ~2u beyond the visible model (in-game). `world-entrance` does this by default
-  (`block_footprint`; `--hollow-building` to skip). Triggers use `exclude_polygon=<hull>` so the `!` fires just
-  outside it. ★ IN-GAME: fixed the stuck-inside trap (enterable → Ice Cavern); the hull removes the invisible skirt.
-  Diagnose a trap with a point-in-triangle walkability map (`scratchpad/walk_fine.py`): if the spot reads walkable it's
-  NOT a topograph trap. Deploy on FLAT open cells so the block conforms cleanly.
+- **⚠ Building = RENDER-ONLY object + TERRAIN-block collision (never the object mesh as a collider).** Four layered
+  fixes made a Blender building work at an entrance: (1) **render on ANY cell** — the s34 hook only overrode an
+  EXISTING Object component, so a building on an open cell was INVISIBLE; `WMWorld.RegisterBareObjectOverride` now
+  CREATES an Object component on a bare block (names it "Object" → object-atlas material). (2) **render-only** — do NOT
+  feed the object mesh to `AddWalkMeshForm1`; a 3D building as a collider makes its back-face-culled walls + sub-ground
+  base into INVISIBLE collision. (3) **collision = the TERRAIN under the building's convex HULL set to topo-59**
+  (`retarget_tiles(topograph=59, only_polygon=<hull>)`) — conforms to the ground (a floating prop base buries/floats);
+  topo has ZERO render effect (UV-only, byte-verified) so it's invisible. (4) **place by bbox-CENTRE, not vertex
+  centroid** (`build_from_obj`/`_building_world_hull`) — an asymmetric model's centroid bulges it ~15u off-cell.
+  `world-entrance` does all this by default; triggers use `exclude_polygon=<hull>`.
+- **⚠⚠ Pick a genuinely OPEN cell — check the WHOLE BLOCK, not a 16u radius.** The repeated stuck + "dirt mounds"
+  were (a) my footprint block, and (b) the block's OWN natural terrain (block[18][12] = 195 topo-49 dirt/river tiles;
+  the cell centre was walkable so a 16u scan passed it, but the surroundings are river). Scan the block's blocked-
+  fraction: block[15][15] is 0% blocked (clean grass). The solid footprint is also SPAWN-FRAGILE — teleporting/returning
+  INTO it = stuck. For an entrance building, **`--hollow-building`** (render-only + no footprint block = zero blocked
+  tiles = never stuck) is the safe default unless the arrival point is guaranteed outside the footprint. Diagnose a
+  trap with a point-in-triangle walkability map (`scratchpad/walk_fine.py`): if the spot reads walkable it's not a
+  topograph trap (look at the placement / a spawn inside the footprint).
 - **⚠ Walkability / escape.** A live soft-lock escapes via **F6 → World → Teleport**. On-foot walkability is
   `w_movementCheckTopographID(limit, id)` (ff9.cs:5769) with on-foot `limit = {0x0010667F, 0xD8FF3CFF}` — **topo 10/36
   walkable, 49/59 blocked** (a building's topo-59 is the wall). `world-entrance` also LINTS the cell

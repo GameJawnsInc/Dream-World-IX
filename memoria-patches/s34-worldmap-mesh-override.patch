@@ -1,8 +1,20 @@
-﻿diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
-index 75cf50e5..a5028e2b 100644
+diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+index 75cf50e5..893baf39 100644
 --- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
 +++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
-@@ -733,6 +733,19 @@ public class WMWorld : Singleton<WMWorld>
+@@ -515,6 +515,11 @@ public class WMWorld : Singleton<WMWorld>
+             RegisterBlockComponent(block, prefab.ObjectForm1, true, false);
+         if (prefab.TerrainForm1)
+             RegisterBlockComponent(block, prefab.TerrainForm1, true, false);
++        // DWIX Path C (s34): a BARE block (open land, no stock ObjectForm1) that has a loose "Object" .ff9mesh
++        // override -- create + render it. Without this the building is INVISIBLE (the RegisterBlockComponent calls
++        // above only OVERRIDE an existing component; open blocks have no Object component to override).
++        if (!prefab.ObjectForm1 && prefab.TerrainForm1)
++            RegisterBareObjectOverride(block, prefab.TerrainForm1);
+         if (prefab.ObjectForm2)
+             RegisterBlockComponent(block, prefab.ObjectForm2, false, true);
+         if (prefab.TerrainForm2)
+@@ -733,6 +738,19 @@ public class WMWorld : Singleton<WMWorld>
          copy.localPosition = Vector3.zero;
          copy.localScale = new Vector3(1f, 1f, 1f);
          Mesh mesh = copy.GetComponent<MeshFilter>().sharedMesh;
@@ -22,6 +34,39 @@ index 75cf50e5..a5028e2b 100644
          if (form1)
          {
              block.AddWalkMeshForm1(mesh);
+@@ -745,6 +763,32 @@ public class WMWorld : Singleton<WMWorld>
+         }
+     }
+ 
++    // DWIX Path C (s34): RENDER a loose "Object" .ff9mesh override on a BARE block (no stock ObjectForm1). Copies the
++    // block's TerrainForm1 as a render host (a working MeshFilter/MeshRenderer at localPosition 0), swaps in the
++    // override mesh, and names it "Object" so WMBlock.SetupPreloadedMaterials (keyed by GameObject name via
++    // MaterialDatabase) assigns the world OBJECT-atlas material -- same as a stock building. No-op unless the override
++    // exists. RENDER-ONLY: the mesh is NOT fed to the Form1 walkmesh -- a whole 3D building mesh as a collider makes
++    // its back-face-culled walls + below-ground base into INVISIBLE collision. Collision instead comes from the
++    // world-entrance TERRAIN footprint (topograph 59 under the building's hull), which is flat + conforms to the
++    // ground, so the player stops at the visible edge with nothing invisible to bump.
++    private void RegisterBareObjectOverride(WMBlock block, Transform template)
++    {
++        Mesh ff9Override = Memoria.World.WorldMeshOverride.TryLoad(String.Format(
++            "WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] Object", this.currentDisc, block.InitialY, block.InitialX,
++            block.InitialY));
++        if (ff9Override == (UnityEngine.Object)null)
++            return;
++        Transform copy = UnityEngine.Object.Instantiate<Transform>(template);
++        copy.name = "Object";
++        copy.parent = block.transform;
++        copy.localPosition = Vector3.zero;
++        copy.localScale = new Vector3(1f, 1f, 1f);
++        MeshFilter mf = copy.GetComponent<MeshFilter>();
++        if (mf != (UnityEngine.Object)null)
++            mf.sharedMesh = ff9Override;
++        block.AddForm1Transform(copy);   // render + visibility only (Form1); NO AddWalkMeshForm1 -- see note above
++    }
++
+     private IEnumerator LoadBlockAsync(Int32 disc, WMBlock block)
+     {
+         this.loadingInBackground = true;
 diff --git a/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
 new file mode 100644
 index 00000000..eeba2a18

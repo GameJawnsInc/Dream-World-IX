@@ -291,7 +291,7 @@ def _building_world_box(building, default_at, margin: float = 2.0):
         return None
     at = tuple(building["at"]) if building.get("at") else default_at
     xs = [v[0] for v in ov]; zs = [v[2] for v in ov]
-    bcx = sum(xs) / len(xs); bcz = sum(zs) / len(zs)
+    bcx = (min(xs) + max(xs)) / 2.0; bcz = (min(zs) + max(zs)) / 2.0   # bbox centre (matches build_from_obj's anchor)
     return (at[0] + (min(xs) - bcx) - margin, at[0] + (max(xs) - bcx) + margin,
             at[1] + (min(zs) - bcz) - margin, at[1] + (max(zs) - bcz) + margin)
 
@@ -305,8 +305,8 @@ def _building_world_hull(building, default_at):
     if not ov:
         return None
     at = tuple(building["at"]) if building.get("at") else default_at
-    bcx = sum(v[0] for v in ov) / len(ov)
-    bcz = sum(v[2] for v in ov) / len(ov)
+    xs = [v[0] for v in ov]; zs = [v[2] for v in ov]
+    bcx = (min(xs) + max(xs)) / 2.0; bcz = (min(zs) + max(zs)) / 2.0   # bbox centre (matches build_from_obj's anchor)
     hull = M._convex_hull_xz([(v[0], v[2]) for v in ov])
     return [(at[0] + (hx - bcx), at[1] + (hz - bcz)) for (hx, hz) in hull] or None
 

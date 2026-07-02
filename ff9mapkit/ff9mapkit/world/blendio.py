@@ -138,7 +138,10 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
         raise ValueError("OBJ has no vertices")
     if at is not None or seat:
         xs = [v[0] for v in V]; zs = [v[2] for v in V]; ys = [v[1] for v in V]
-        cx, cz, ymin = sum(xs) / len(xs), sum(zs) / len(zs), min(ys)
+        # anchor by the XZ BOUNDING-BOX centre, not the vertex centroid: an asymmetric/vertex-dense model (e.g. a
+        # castle with detailed towers on one side) has its centroid pulled off-centre, so a centroid anchor bulges
+        # the model ~15u to one side of the target cell. The bbox centre seats it symmetrically on the cell.
+        cx, cz, ymin = (min(xs) + max(xs)) / 2.0, (min(zs) + max(zs)) / 2.0, min(ys)
         wx, wz = at if at is not None else (cx, cz)
         dx, dz = (wx - cx, wz - cz) if at is not None else (0.0, 0.0)
         dy = 0.0
