@@ -406,7 +406,11 @@ with **no engine change**. ~63 of ~260 blocks carry an Object mesh (`extract.lis
 is added to the WALKMESH (form-1), so a raw copy is 3D collision you snag on → give the building tiles an *impassable*
 topograph (`w_movementCheckTopographID`, ff9.cs:5769, a bit outside the on-foot `limit` mask) so you're blocked at the
 perimeter; and a flat-based building on sloped terrain buries/floats → seat it on a `flatten_region` pad. A block with
-NO stock Object mesh needs a small `s34` tweak (fire the Object override when `prefab.ObjectForm1==null`).
+NO stock Object mesh needs a small `s34` tweak (fire the Object override when `prefab.ObjectForm1==null`). **★ GOTCHA
+(in-game 2026-07-02): an Object `.ff9mesh` override REPLACES the whole block's Object mesh — so deploying just your
+structure WIPES the block's stock objects (trees, bridges, a town).** Use `world-mesh-build --keep-block` (or
+`place_building(stock, new)`) to APPEND onto the stock mesh; `build_from_obj` now reports `replaced_stock_tris` and the
+CLI warns when a plain deploy would delete stock geometry.
 
 **Blender mesh-surgery round-trip** (`world/blendio.py`, ★ round-trip byte/geometry-exact): `world-mesh-export
 --block X Y [--block …] --part object --out m.obj` writes the block(s)' sub-mesh to a Wavefront OBJ in WORLD coords

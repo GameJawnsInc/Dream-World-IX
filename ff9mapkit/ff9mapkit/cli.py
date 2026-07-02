@@ -1690,6 +1690,9 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
     bx, by = info["into_block"]
     print(f"built {args.part} override for block[{bx}][{by}] "
           f"({info['verts']} verts, {info['tris']} tris, topograph {args.topograph}) -> {info['dest']}")
+    if info.get("replaced_stock_tris") and not args.keep_block:
+        print(f"  ⚠ this REPLACED the block's stock {args.part} mesh ({info['replaced_stock_tris']} tris -- e.g. "
+              f"trees/bridges/town). Re-run with --keep-block to append instead of replace.")
     if args.texture:
         print(f"  textured UV-less faces from the learned {args.part} atlas palette"
               f"{' (applied)' if info.get('textured') else ' (nothing to stamp -- OBJ already has UVs)'}")

@@ -210,7 +210,7 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
     bm = obj_to_blockmesh(obj, into_block=into_block, disc=disc, part=part, lod=lod, topograph=topograph)
     if solid_base:                                                 # fill the footprint so a hollow model can't box you
         bm = M.add_solid_base(bm, topograph=topograph)
-    merged_with_stock = False
+    merged_with_stock, replaced_stock_tris = False, 0
     if keep_block:                                                  # keep the block's stock structures (e.g. a town)
         try:
             stock = stock_bm
@@ -220,6 +220,12 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
             merged_with_stock = True
         except (ValueError, FileNotFoundError):
             pass                                                   # no stock mesh / channel mismatch -> just the new one
+    else:                                                          # a full override REPLACES the block's stock `part` mesh
+        try:                                                       # -> warn if that wipes real geometry (trees/bridge/town)
+            stock = stock_bm or W.read_block(into_block[0], into_block[1], disc=disc, lod=lod, part=part, game=game)
+            replaced_stock_tris = len(stock.tris)
+        except (ValueError, FileNotFoundError):
+            pass                                                   # bare block -> nothing to replace
     textured = 0
     if texture or tile is not None:                                # stamp real atlas tiles onto UV-less new faces
         from . import palette as PAL
@@ -230,4 +236,4 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
         textured = 1 if bm is not before else 0
     dest = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=part.capitalize())
     return {"dest": str(dest), "into_block": list(into_block), "verts": bm.vcount, "tris": len(bm.tris),
-            "kept_stock": merged_with_stock, "textured": bool(textured)}
+            "kept_stock": merged_with_stock, "replaced_stock_tris": replaced_stock_tris, "textured": bool(textured)}
