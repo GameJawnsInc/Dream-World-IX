@@ -397,8 +397,23 @@ def recompute_normals(bm, *, tol: float = 1e-3) -> int:
     return bm.vcount
 
 
+def _point_in_polygon(px, pz, poly) -> bool:
+    """Ray-cast point-in-polygon test for a world-XZ ``(x, z)`` polygon (ordered vertices)."""
+    inside = False
+    n = len(poly)
+    j = n - 1
+    for i in range(n):
+        xi, zi = poly[i]
+        xj, zj = poly[j]
+        if (zi > pz) != (zj > pz) and px < (xj - xi) * (pz - zi) / (zj - zi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
 def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, radius=None,
-                   world_origin=(0.0, 0.0), only_entrances: bool = False, exclude_box=None, only_box=None) -> int:
+                   world_origin=(0.0, 0.0), only_entrances: bool = False, exclude_box=None, only_box=None,
+                   exclude_polygon=None, only_polygon=None) -> int:
     """Rewrite the per-triangle IDALL (stored in ``tangent.x``) for tiles in a region. ``event`` (0=land, 1-3=
     entrance-trigger bits), ``area`` (0-63), ``topograph`` (0-63 = terrain type) each default to KEEP the tile's
     current value. Sets tangent.x on all 3 corner verts of each affected triangle (the engine reads the HIT
@@ -431,7 +446,8 @@ def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, ra
         d = decode_id(int(round(tan[tri[0]][0])))
         if only_entrances and not d["event"]:
             continue
-        if (center is not None and radius is not None) or exclude_box is not None or only_box is not None:
+        if any(r is not None for r in (radius if center is not None else None,
+                                       exclude_box, only_box, exclude_polygon, only_polygon)):
             cx = (verts[tri[0]][0] + verts[tri[1]][0] + verts[tri[2]][0]) / 3.0 + ox
             cz = (verts[tri[0]][2] + verts[tri[1]][2] + verts[tri[2]][2]) / 3.0 + oz
             if center is not None and radius is not None and math.hypot(cx - center[0], cz - center[1]) > radius:
@@ -444,6 +460,10 @@ def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, ra
                 xmn, xmx, zmn, zmx = only_box
                 if not (xmn <= cx <= xmx and zmn <= cz <= zmx):
                     continue                                  # only tiles INSIDE the box (the footprint block)
+            if exclude_polygon is not None and _point_in_polygon(cx, cz, exclude_polygon):
+                continue                                      # tile inside the building outline -> skip (trigger)
+            if only_polygon is not None and not _point_in_polygon(cx, cz, only_polygon):
+                continue                                      # only tiles inside the building OUTLINE (tight block)
         idall = encode_id(d["event"] if event is None else event,
                           d["area"] if area is None else area,
                           d["topograph"] if topograph is None else topograph, d["flags"])

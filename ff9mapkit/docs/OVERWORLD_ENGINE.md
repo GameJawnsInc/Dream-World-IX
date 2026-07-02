@@ -164,9 +164,11 @@ What it does, generalizing + hardening the manual recipe:
   base buries into higher ground, so the down-raycast hits WALKABLE terrain inside the footprint — the player wanders
   in and is boxed by the parts that stick up. A floating convex-hull base (`add_solid_base`) FAILED: buried on uneven
   ground. The fix that holds: **make the TERRAIN under the building impassable** (`retarget_tiles(topograph=59,
-  only_box=<building bbox>)`) — the terrain conforms to the ground, so the whole footprint blocks and the player stops
-  at its EDGE. `world-entrance` does this by default (`block_footprint`; `--hollow-building` to skip). Triggers are
-  excluded from the same box (`_building_world_box` → `exclude_box`) so the `!` fires from walkable land beside it.
+  only_polygon=<building world HULL>)`) — the terrain conforms to the ground, so the whole footprint blocks and the
+  player stops at its EDGE. Use the tight convex HULL (`_building_world_hull`), NOT a padded bbox — a bbox leaves an
+  invisible collision skirt ~2u beyond the visible model (in-game). `world-entrance` does this by default
+  (`block_footprint`; `--hollow-building` to skip). Triggers use `exclude_polygon=<hull>` so the `!` fires just
+  outside it. ★ IN-GAME: fixed the stuck-inside trap (enterable → Ice Cavern); the hull removes the invisible skirt.
   Diagnose a trap with a point-in-triangle walkability map (`scratchpad/walk_fine.py`): if the spot reads walkable it's
   NOT a topograph trap. Deploy on FLAT open cells so the block conforms cleanly.
 - **⚠ Walkability / escape.** A live soft-lock escapes via **F6 → World → Teleport**. On-foot walkability is

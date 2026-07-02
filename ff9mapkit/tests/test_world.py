@@ -327,6 +327,27 @@ def test_retarget_tiles_only_box_blocks_footprint():
     assert topos == [59, 10]                                  # tri0 (in box) blocked; tri1 (outside) untouched
 
 
+def test_retarget_tiles_polygon_matches_outline():
+    from ff9mapkit.world import mesh as M
+    poly = [(0.0, 0.0), (3.0, 0.0), (0.0, -3.0)]              # a triangle containing tri0 ~(1,-1) but not tri1 ~(4,-4)
+    assert M._point_in_polygon(1.0, -1.0, poly) and not M._point_in_polygon(4.0, -4.0, poly)
+    bm = _synthetic_block(tan0_x=W.encode_id(0, 0, 10), tan3_x=W.encode_id(0, 0, 10))
+    assert M.retarget_tiles(bm, topograph=59, only_polygon=poly) == 1        # only the tile inside the outline
+    assert [W.decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] for t in bm.tris] == [59, 10]
+    bm2 = _synthetic_block(tan0_x=232, tan3_x=232)
+    assert M.retarget_tiles(bm2, event=1, exclude_polygon=poly) == 1         # skip the tile inside the outline
+    assert [W.decode_id(int(round(bm2.tangents[t[0]][0])))["event"] for t in bm2.tris] == [0, 1]
+
+
+def test_entrance_building_world_hull(tmp_path):
+    from ff9mapkit.world import entrance as EN, mesh as M
+    obj = tmp_path / "b.obj"
+    obj.write_text("v -10 0 -3\nv 10 0 -3\nv 10 0 3\nv -10 0 3\nf 1 2 3 4\n")   # 20x6 rect, centroid (0,0)
+    hull = EN._building_world_hull({"obj": str(obj), "at": (100.0, -200.0)}, (0.0, 0.0))
+    assert M._point_in_polygon(100.0, -200.0, hull)                          # centre blocked
+    assert not M._point_in_polygon(115.0, -200.0, hull)                      # 5u past the 10u half-width -> walkable
+
+
 def test_building_world_box(tmp_path):
     from ff9mapkit.world import entrance as EN
     obj = tmp_path / "b.obj"

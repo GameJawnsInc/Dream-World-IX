@@ -296,6 +296,21 @@ def _building_world_box(building, default_at, margin: float = 2.0):
             at[1] + (min(zs) - bcz) - margin, at[1] + (max(zs) - bcz) + margin)
 
 
+def _building_world_hull(building, default_at):
+    """The building's XZ CONVEX HULL in WORLD coords (its centroid placed at ``at``/``default_at``) -- the tight
+    outline of the structure, so the footprint block matches the VISIBLE castle instead of a padded bounding box
+    (which leaves an invisible collision skirt beyond the towers). Returns a list of ``(x, z)`` or ``None``."""
+    from . import blendio as BIO, mesh as M
+    ov = BIO.read_obj(building["obj"])["V"]
+    if not ov:
+        return None
+    at = tuple(building["at"]) if building.get("at") else default_at
+    bcx = sum(v[0] for v in ov) / len(ov)
+    bcz = sum(v[2] for v in ov) / len(ov)
+    hull = M._convex_hull_xz([(v[0], v[2]) for v in ov])
+    return [(at[0] + (hx - bcx), at[1] + (hz - bcz)) for (hx, hz) in hull] or None
+
+
 def _capped_flatten_radius(requested: float, building, summary: dict) -> float:
     """Cap a ``--flatten-pad`` radius to the building's XZ footprint so the flattened (step-prone) ground stays UNDER
     the impassable structure. A flatten pad WIDER than the building leaves flat ground meeting the bumpy natural
@@ -419,19 +434,19 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
                                   world_origin=W.block_world_origin(bx, by))
         M.recompute_normals(ter)
         summary["flatten_radius"] = eff_r
-    excl = _building_world_box(building, (cwx, cwz)) if building else None   # the building's world footprint box
+    hull = _building_world_hull(building, (cwx, cwz)) if building else None   # the building's tight world outline
     n_block = 0
-    if excl and block_footprint:                            # make the terrain UNDER the building impassable (conforms
-        n_block = M.retarget_tiles(ter, topograph=59, only_box=excl,       # to the ground) so you stop at its edge --
-                                   world_origin=W.block_world_origin(bx, by))   # never inside a hollow model = no box
+    if hull and block_footprint:                            # make the terrain UNDER the building impassable (conforms
+        n_block = M.retarget_tiles(ter, topograph=59, only_polygon=hull,   # to the ground; the tight HULL avoids an
+                                   world_origin=W.block_world_origin(bx, by))   # invisible collision skirt beyond it)
     n_tiles = M.retarget_tiles(ter, event=event, area=(the_case if set_tile_area else None),
                                center=at, radius=trigger_radius, world_origin=W.block_world_origin(bx, by),
-                               exclude_box=excl)             # triggers OUTSIDE the footprint (walkable land beside it)
+                               exclude_polygon=hull)         # triggers OUTSIDE the building outline (walkable beside it)
     summary["tiles_set"] = n_tiles
     summary["footprint_blocked"] = n_block
     summary["pad_flattened"] = n_flat
-    if excl:
-        summary["building_box"] = [round(v, 1) for v in excl]
+    if hull:
+        summary["building_hull_pts"] = len(hull)
     if not dry_run:
         summary["terrain_override"] = str(M.deploy_override(ter, mod_folder=mod_folder, game=game, lod=lod,
                                                             part="Terrain"))
