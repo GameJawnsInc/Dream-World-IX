@@ -222,7 +222,7 @@ name = "Lindblum"      # or locid = 24 (a name renames EVERY slot it owns; South
 to   = "Falcon City"
 ```
 Splices only the target line (other 63 names + all other txids byte-identical); `--lang all` (default) writes every
-language, `--lang us` just one. RELAUNCH to apply. ⏳ awaits an in-game playtest.
+language, `--lang us` just one. RELAUNCH to apply. **★ in-game proven 2026-07-02** (renamed Lindblum → "Falcon City").
 
 **Discovery-WRITE path — RESOLVED (probe 2026-07-02).** No engine write (only reads + the disc-4 force-OR):
 each field's **exit cascade sets `GLOB bit (736+locId) = 1`** (the `.eb` token `opE4(lo,hi)` with `lo+hi*256 =
