@@ -416,3 +416,115 @@ object --topograph 59 --mod-folder <mod>` rebuilds it into that block's local fr
 flat mesh and STAMPING a uniform IDALL (topo 59 = impassable — the right model for a solid building), then deploys via
 the s34 Object override. Buildings are clean because their IDALL is uniform; per-triangle TERRAIN IDALL (walkmesh) is
 the follow-up (needs a spatial re-derive or a Blender face-attribute sidecar).
+
+## Overworld encounters + the world-pack binary (RE 2026-07-02)
+
+The last un-RE'd overworld data system. Fully traced through the Memoria C# (5-finder workflow + a direct
+cross-check of every load-bearing line). Two halves: a **baked binary table** (which monsters, keyed by
+terrain) and a **live per-frame trigger** whose *rate* the world `.eb` itself pokes.
+
+### The world-pack container (`discmr.img`)
+
+All native overworld tables live inside one asset per disc — `w_fileImagename[0]` =
+**`WorldMap/wmap/disc1/discmr.img`** (disc-4 twin `…/disc4/discmr.img`, `ff9.cs:353-367`). It is a **two-layer
+container**:
+
+1. **Sector TOC** — the first 2048-byte sector is a table of `w_fileImageSectorInfo[]` `{start, length}` records
+   (each in 2048-byte disc sectors), read at `ff9.cs:3626`.
+2. **The pack** — section **index 1** (`w_fileImageSectorInfo[1]`) is read into the fixed **92160-byte**
+   `w_memorySPSData` buffer (`ff9.cs:8676`). This buffer is itself a **pointer-table pack**: `w_framePackExtractPosition(data, no)`
+   (`ff9.cs:4267`) reads `count = ReadInt32(@0)`, then returns `ReadInt32(@ 4 + no*4)` = the absolute byte offset of
+   sub-table `no`. `w_framePackGetPtr_*(data, no)` seeks there and deserializes.
+
+Sub-table indices (`kWorldPack*`, `ff9.cs:9591+`): **3 = EncountTable**, **4 = EncountSpecial**, 0 EffectAreaBin,
+1 ChocoboPal, 2 PaletVolcano, 5 ColorTable(weather), 6 AnimationTable(texture scroll), 7 SpsData, 41 EffectBin,
+53-65 the named world SPS effects, **66 = ModelSea** (the `sNWBBlockHeader` sea geometry).
+
+**Load path is mod-overridable.** `FF9Pc_SeekReadB` reads via **`AssetManager.LoadBytes(fileName)`** (`ff9.cs:2476`)
+— the same FolderNames-stacked path every other mod asset uses. So a mod folder that ships a replacement
+`WorldMap/wmap/disc1/discmr.img` is honored. (Caveat: it's whole-file replacement of a two-layer binary, so it
+needs a kit codec — see feasibility.)
+
+### The 355-record encounter table (`EncountData`)
+
+`w_frameBattleScenePtr` = pack sub-table 3, an array of **355** `EncountData` (`ff9.cs:8698`;
+`WMBinarayReaderExtension.cs:82-94`). **Packed record = 10 bytes** — the reader is sequential, no alignment padding:
+
+```
+UInt16 scene[4];   // 8 B — battle-scene ids (scene[3] = the special/friendly variant, see below)
+Byte   pattern;    // 1 B — topographId = (pattern >> 2); low 2 bits = scene-slot select
+Byte   pad;        // 1 B — hasFog = (pad & 1); (pad >> 1) = reserved
+```
+
+(355 × 10 = 3550 B. Two workflow readers reported 6 and 12 — both wrong: 6 was a miscount, 12 is the C# managed
+`sizeof` with struct alignment. The **binary stride is 10**.)
+
+**Record selection — `w_worldGetBattleScenePtr()` (`ff9.cs:9079`):** it is keyed by **zone × topograph × fog**, not
+a flat area lookup:
+1. `zoneId = w_worldArea2Zone(area)` (`w_worldAreaZone[]` LUT); the table is sliced per zone by the CSR array
+   `w_worldZoneInfo[zoneId .. zoneId+1]` (a `Byte[26]`, built at load from `w_worldZoneFigure[zone]*2`, `ff9.cs:8666-8675`).
+2. Within the slice, pick the record whose **`(pattern>>2) == m_GetIDTopograph(actor)` AND `(pad&1) == w_frameFog`**
+   (`ff9.cs:9093`). So the *same* terrain gives a different monster set with mist up vs down.
+3. **Disc-4 alternate band:** if `w_frameDisc==4 && i<100`, it returns `w_frameBattleScenePtr[i + 254]` instead
+   (`ff9.cs:9095-9100`) — the disc-4 monster re-table lives +254 records up in the same array.
+
+### The per-frame trigger — `.eb`-driven
+
+The trigger is **polled by the world `.eb`** as GET-sysvar **case 205** (`ff9.cs:4235`), i.e. it lives in the 13
+world dispatchers, not a hidden native loop. Fires (returns 1) only when **all** hold:
+
+- `w_frameEncountEnable` (armed from `w_frameEncountMask` when the vehicle's `encount` flag is set, the player is
+  moving, topograph≠52, and no title banner — `ff9.cs:5380`),
+- `w_moveCHRControl_Move` (position changed this frame),
+- **topograph ∈ [36,38]** (the encounter-eligible land band),
+- `w_frameCounter > 400` (post-load settle), and the HUD is not FullMap,
+- the RNG roll hits: `((random8()<<8 | random8()) % (w_frameEventBattleProb+1)) == 1` → **per-frame p = 1 / (w_frameEventBattleProb+1)**.
+- Short-circuit above all of it: `FF9StateSystem.Settings.IsNoEncounter` → always 0.
+
+**The rate is authorable with NO DLL and NO codec:** `w_frameEventBattleProb` is a `UInt16` (`ff9.cs:10088`) set
+by the world `.eb` via **SET-sysvar case 26** (`ff9.cs:3920`). Each dispatcher pokes it as you cross regions — so
+editing the world `.eb`'s case-26 writes (the same surface we already author for `world-entrance`) re-tunes the
+overworld encounter rate per zone. Danger-level = *just this denominator*.
+
+### Special / friendly encounters (`sworldEncountSpecial`)
+
+Pack sub-table 4 = **9** records of `{ UInt16 area[12] }` (24 B each, 216 B; `ff9.cs:11321`,
+`WMBinarayReaderExtension.cs:144`). A non-zero `area[j] = N` is a **1-based index** into the 355-table
+(`w_frameBattleScenePtr[N-1]`); `0` = empty slot. At world init a bitmask from **event-globals 194 & 198** selects
+which of the 9 records are active (`ff9.cs:8892`); each active record's target rows get `scene[3]` overwritten with
+their own `scene[2]` (`ff9.cs:8900`), and every active `scene[3]` is added to `w_friendlyBattles` (`ff9.cs:8706`).
+When `SettingsState.IsFriendlyBattleOnly`, `SelectScene()` filters encounters to that set. (What the 9 records
+*are* narratively — Qu's-Marsh frogs? disc-gated zones? — and the swap's intent are open questions; the mechanism
+is settled.)
+
+### Battle handoff
+
+Trigger → `ff9worldInternalBattleEncountStart()` (`WMScriptDirector.cs:154`, sets the state attrs) →
+`SelectScene()` picks a `scene[]` slot → the id lands in `FF9StateWorldMap.nextMapNo` (an `Int16` that here holds
+a **battle-scene id**, not a map no) → BGM via `FF9SndMetaData.GetMusicForBattle(BtlBgmMapperForWorldMap, wldMapNo,
+nextMapNo)` (`WMScriptDirector.cs:208`; the mapper is a `(worldMapNo → (battleSceneId → songId))` dict loaded from
+`EmbeddedAsset/Manifest/Sounds/WldBtlEncountBgmMetaData.txt`) → `SceneDirector.Replace("BattleMap", SwirlInBlack)`
+(`WMScriptDirector.cs:222`).
+
+### No-DLL feasibility (what this unlocks)
+
+| Lever | Cost | Notes |
+|---|---|---|
+| **Encounter *rate* per zone** | free (no DLL, no codec) | edit world `.eb` SET-sysvar case-26 writes (`w_frameEventBattleProb`) — same surface as `world-entrance`. |
+| **Per-vehicle encounter on/off** | free | `TransportControls.csv` col 12 (`CsvParser.Boolean`), already patched by `WorldConfiguration.PatchWorldCHRControl`. ⚠ the two airships hold **22/23** in that Boolean column — unexplained (open q). |
+| **Re-table which monsters spawn where** | no DLL, **needs a kit codec** | edit `EncountData.scene[]`/`pattern`/`pad` and repack `discmr.img` (2-layer: sector-TOC + pointer-table pack) as a mod-folder override — `AssetManager.LoadBytes` honors it. |
+| **Clean CSV authoring seam** | small DLL patch | a `Data/World/WorldEncounters.csv` + `PatchWorldEncounter()` mirroring the existing 3 world patchers (`DataResources.cs` exposes only TransportControls/WeatherColors/Environment today; no encounter hook). s23–s33-class change. |
+| **Friendly/special-zone authoring** | research | via event-globals 194/198 + the 9 special records; blocked on the open questions. |
+
+**Correction vs the first-pass verdict:** re-tabling monsters is *not* impossible without a DLL — the `.img` loads
+through the mod-override path, so a whole-file repack works; only a *targeted patch* needs the engine seam. And the
+encounter *rate* is already free via the world `.eb`.
+
+### Open questions (confirm before building an authoring feature)
+
+- Dump `discmr.img` at `ExtractPosition(data,3)` and divide by 355 to confirm the on-disk **10-byte** stride in the
+  real asset (code says 10; verify against bytes).
+- The exact `m_GetIDArea` mask (reported `(IDALL & 0x3F00)>>8`).
+- What the **9 special records** are in-game; when **event-globals 194 & 198** get set; the `scene[3]←scene[2]` swap intent.
+- The airship **encount = 22/23** in a Boolean-parsed CSV column — rate? mask?
+- Whether `ff9mapkit` needs a net-new `.img` sector-TOC + pointer-table codec (nothing reads `discmr.img` today).
