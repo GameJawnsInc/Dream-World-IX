@@ -149,6 +149,54 @@ compare + animation ids) → **vestigial dev leftovers** (TS = title-screen, SV 
 ids have **no `.eb` asset at all** → dead name registrations. So custom overworld authoring targets exactly the 13
 (9000–9012); nothing else is reachable.
 
+## Minimap / place-names — FOUR distinct subsystems (RE 2026-07-02)
+
+"Place name" conflates four independent layers. Keeping them apart is the point:
+
+**1. Minimap MARKERS (the town/dungeon dots).** `ff9.w_naviLocationPos` = a **hardcoded C# `navipos[2,64]`**
+(`struct { Int16 vx,vy; Int32 tx,ty; }`, `ff9.cs:10608`; built by literals `ff9.cs:421-1318`). Indexed
+`[w_naviMapno, locationId]` — `w_naviMapno = (w_frameScenePtr>=5990) ? 1 : 0` (`ff9.cs:8678`; dim0 = disc-1/2/3,
+dim1 = disc-4/Terra). `vx/vy` = **baked minimap pixels**; `tx/ty` = **world coords** (fixed-point, used *only*
+for airship autopilot). Render: `WorldHUD.cs:785-816` loops 0..63, spawns a `LocationPointer` at `vx/vy`
+directly (markers do NOT use the live `w_naviGetPos` projection — that's the moving player/vehicle BLIP, a
+separate pipeline, `ff9.cs:6939`). **Visibility gate = save flags:** `w_naviLocationAvailable` (`ff9.cs:6957`)
+draws marker `n` iff `(vx|vy)!=0` AND unlock-bit `n` is set — the 64 bits are `gEventGlobal` bytes 92/94/96/98
+(`keventNaviLocF0..F3`, `FF9Define.cs:183`) = **bits 736-799**. Disc-4 force-ORs `0x7C0`/`0xC000` into word 92
+(`ff9.cs:6925`). Marker NAME = the world field's own text table 0: `FF9TextTool.GetTableText(0u)[locId+1]`
+(`WorldHUD.cs:826`; special-case `63→49` Chocobo's Paradise).
+
+**2. In-menu location NAME (the header on approach / in the menu).** `FF9TextTool.WorldLocationText(GetSysvar(192))`
+(`UIManager.cs:544`, `MainMenuUI.cs:499`; also tile-area-keyed at `ff9.cs:3750`), from a `worldLocationText`
+dict loaded from embedded `/ETC/worldloc.mes`. **`SetWorldLocationText` (`FF9TextTool.cs:791`) does NOT go
+through `TextPatcher.PatchDatabaseString`** (unlike item/ability text) → **the kit's `TextPatch.txt >DATABASE`
+cannot reach these**; the only no-DLL override is the legacy Memoria `[Import] Text=true` →
+`StreamingAssets/Text/<LANG>/ETC/WorldLocations` (a single dir, NOT FolderNames-stacked).
+
+**3. Continent-title BANNER (the big "Mist Continent" card).** `w_naviTitle` (set in `w_worldSystemConstructor`,
+`ff9.cs:8682-8697`) = a **hardcoded scenePtr switch** — only `2400/5990/9605/9890 → 0/1/2/3`. Render =
+a pre-rendered **language-keyed sprite** (`FF9UIDataTool.LoadWorldTitle`, `WorldHUD.cs:883`); rect/fade timing
+tunable via `WorldConfiguration` `Title` tokens (FolderNames-stacked), but the TRIGGER is hardcoded.
+
+**4. Player/vehicle BLIP.** live `w_naviGetPos(x,z)` world→normalized projection (`ff9.cs:6939`).
+
+**⚠ don't confuse:** `w_worldLocX/Z/SENum` (`ff9.cs:1446`) is a **3-entry** proximity/SE table (Cleyra / Wind
+Shrine / Earth Shrine), NOT the 64-marker table. And the field-entry place-name banner is the *separate*,
+already-solved `FieldLocationName`/s33/`[field] location` seam.
+
+**Authoring seams (no-DLL vs. rebuild):**
+| Capability | Seam | DLL? | Diff |
+|---|---|---|---|
+| **Reveal/hide an existing marker via a flag** | `gEventGlobal` bits 736-799 (kit already names them, `flags.py:81`) | **no** | **low ★ cleanest win** |
+| **Rename an existing marker's map label** | world field `.mes` table 0 (`GetTableText(0)[locId+1]`) | **no** | med |
+| Rename the in-menu approach name | legacy `[Import] Text` → `ETC/WorldLocations` only (not the kit's TextPatch) | no* | high |
+| Add / move a marker at custom coords | `w_naviLocationPos` is a compiled array — no data hook | **yes** | high |
+| Fire the continent banner for a custom scenePtr | hardcoded `ff9.cs:8683` switch | **yes** | high |
+
+**Open:** the marker-discovery WRITE path (which `.eb` op sets `keventNaviLocF0..F3` per town — read + disc-4
+override traced, per-town write not); the full `locationId → name` map (dump text table 0 + the 64 slots).
+Kit's `worldmap_unlocks` band is 736-**823** (lumps in adjacent discovery bits e.g. `mognet_central` 815); the
+**marker** bits are exactly 736-**799** (64).
+
 ## SOLVED — F6 overworld teleport (the `SmoothFrameUpdater_World` reverter) ★ IN-GAME PROVEN 2026-07-01
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
 prior position on the first logical tick. **Root cause: `Memoria.SmoothFrameUpdater_World`** — Memoria's own
