@@ -128,12 +128,26 @@ only `WorldDisc1`/`WorldDisc4` prefabs exist) but the **same `.eb` dispatcher fa
 states (9001/04/06/12, named verbatim in `eventWorldMaps`, `ff9.cs:10344`) have no AREA switch and warp to a fixed
 field. **A custom entrance must be added to the WORLDxx actually loaded at that beat** (`world-entrance` targets it).
 
-**Still fuzzy / open RE:** (1) the `Map.Byte[2]` region-key → state map **within** a band is not enumerated (so *why*
-9002 vs 9010 vs 9011 at a given disc-1 moment is inferred from entrance-count/field-set, not proven — trace where
-each exit field writes `Map.Byte[2]` via `opD9(2,…)`). (2) disc-1 sub-state ordering (9002 earliest → 9000 most-open)
-is inferred, not fresh-save-confirmed. (3) **⚠ four world `.eb` outside the "13": `9100 = EVT_WORLD_WORLDTS`,
-`9101 = EVT_WORLD_WORLDSV`, `286 = ..._LND00`, `287 = ..._TRE00`** (`FF9DBAll.Events.cs:1847-1848`) — likely
-title/save/landing/treasure sub-scenes; not yet disassembled.
+**Region-key selection — RESOLVED 2026-07-02.** Within an SC band the state is picked by a **global region key
+`opD8(2)`** (GLOB source, *not* `Map.Byte[2]` as first thought — a persistent `gEventGlobal` 16-bit value at index 2)
+that **each exit field writes itself, SC-gated**, then the shared cascade's `op_0B`/`op_06` switch maps region-key →
+`WorldMap(wldMapNo)`. Decoded from field 300's cascade (entry-2/tag-2, 19 `WorldMap` ops) and swept across all **61**
+WorldMap-emitting fields — the region-key write is **per-field/heterogeneous** (field 300 writes {41,71}; field 262
+{35,46,66,75}), confirming these are region-partitioned, not one shared value. Disc-1 partition (low SC band): region
+key → **9000** {17,23,24,26,27,28,33,38,41,44,46,64,66,83}, **9002** {67–78}, **9010** {18,30,37}, **9011**
+{35,36,42,43,45,50}, **9001** {52}; any **un-cased key → switch default = 9009** (no field writes 9009's own key 62).
+So the four disc-1 free-roam states are distinguished by **which coast/area you exit into (× story)**, not a linear
+sequence — all four are live. Disc-2/3 band → {9003 (bulk), 9005, 9004:key53, 9006:key55, 9012:key85}; late-disc-3 →
+{9007 (bulk), 9012:85}; disc-4 → {9008 (bulk), 9012:85}; every band defaults to 9009. *(The exact real-world area
+each small key names is a further nicety; the state map itself is settled.)*
+
+**The "13" ARE the complete LIVE set — RESOLVED 2026-07-02.** EventDB also registers `9100=WORLDTS`, `9101=WORLDSV`,
+`234=PAGE_1`, `286/598=WORLD_LND00/WM_LND00`, `287/599=WORLD_TRE00/WM_TRE00` (`FF9DBAll.Events.cs:1831-1850`) — but
+`9100/9101` ship an `.eb` **only under `jp/`** (both 21760 B, full dispatchers, near-copies of a big WORLDxx) and are
+**never invoked** by any field's exit cascade *or* any engine C# path (the only `9100/9101` refs are an unrelated SC
+compare + animation ids) → **vestigial dev leftovers** (TS = title-screen, SV = save experiments). The LND/TRE/PAGE
+ids have **no `.eb` asset at all** → dead name registrations. So custom overworld authoring targets exactly the 13
+(9000–9012); nothing else is reachable.
 
 ## SOLVED — F6 overworld teleport (the `SmoothFrameUpdater_World` reverter) ★ IN-GAME PROVEN 2026-07-01
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
