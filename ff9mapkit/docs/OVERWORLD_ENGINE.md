@@ -523,7 +523,7 @@ nextMapNo)` (`WMScriptDirector.cs:208`; the mapper is a `(worldMapNo → (battle
 through the mod-override path, so a whole-file repack works; only a *targeted patch* needs the engine seam. And the
 encounter *rate* is already free via the world `.eb`.
 
-### `world-encounter-rate` — retune the rate (★ built 2026-07-02, no DLL; awaits in-game)
+### `world-encounter-rate` — retune the rate (★ in-game proven 2026-07-02, no DLL)
 
 `ff9mapkit world-encounter-rate --mod-folder <mod> [--multiplier F | --set PROB | --peaceful]` (`world/encounter.py`).
 It rewrites every immediate `RunWorldCode(26, value)` write in the world dispatchers' `.eb` — probed empirically as
