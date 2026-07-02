@@ -417,6 +417,41 @@ flat mesh and STAMPING a uniform IDALL (topo 59 = impassable — the right model
 the s34 Object override. Buildings are clean because their IDALL is uniform; per-triangle TERRAIN IDALL (walkmesh) is
 the follow-up (needs a spatial re-derive or a Blender face-attribute sidecar).
 
+## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
+
+**The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas
+(`WMConstants.cs:83-85`) bound to the single static `WMWorldPrefabMaker.TerrainMaterial`; `LoadMesh` gives *every*
+block's Terrain mesh that same material (`WMWorldPrefabMaker.cs:193`). Buildings/props use a paired global **Object**
+atlas (`ObjectMaterial`). A block's mesh selects *which tile* it draws purely by its **per-vertex UVs** (normalized
+0–1; `pixel = uv × 1024`). Beyond those two there are ~9 special materials (Beach/River/Stream/Falls/Sea1-6/Volcano),
+some **animated** by `WMRenderTextureBank` (frame-swap or `_Offset` scroll) — those are hardcoded per-material in C#.
+The static atlas textures load through `WMBlock.LoadMaterialsFromDisc` → `AssetManager.SearchAssetOnDisc`, which checks
+**mod paths first** (`WMBlock.cs:290-297`) — so an atlas PNG in the mod folder wins (Moguri's HD-reskin hook).
+
+**Topograph does not select the texture — but it *correlates* with it.** Texture is chosen only by UV; the
+per-triangle `topograph` (`tangent.x` IDALL) drives walkability/encounters. Empirically, though, real faces of the
+same topograph reuse a small, stable set of atlas tiles (probed across blocks; the *same* tile UVs recur block after
+block), so topograph is a usable **key for a learned UV palette** — with the caveat that some topographs are broad
+buckets (topo 49 spans many tiles), so the robust unit is "a real donor face's UV triplet," modal tile as default.
+
+**No-DLL feasibility — three tiers:**
+- **T1 — reuse existing atlas tiles via UVs (★ BUILT, no DLL).** Learn `topograph → real donor UV triplets` from
+  shipping blocks; stamp them onto new/UV-less faces (which otherwise carry `[0,0]` = the atlas corner). `world/palette.py`:
+  `build_palette` (cached per disc/part) · `pick_uvs` · `apply_palette_uvs` (per-triangle, only zero-UV faces).
+  `world-mesh-build --texture` applies it (covers a UV-less Blender model + the `add_solid_base` hull);
+  `world-texture-palette` inspects it. **Tiling caveat:** a real tri's UV rect is ~5-6% of the atlas, so a donor
+  triplet is stamped PER TRIANGLE — don't stretch one tile across a big face.
+- **T2 — HD atlas reskin (tractable, no DLL, art task).** Drop a PNG at the terrain/object atlas override path (the
+  `SearchAssetOnDisc` mod path) to replace the atlas at the *same* UV layout. Out of kit scope (no atlas-image code);
+  documented for users who want HD terrain.
+- **T3 — genuinely new atlas content (frontier).** A *new appearance not already in the atlas* needs repainting the
+  atlas PNG (T2) AND authoring custom geometry+UVs pointing at the new region (T1) — plus a new material entry needs
+  code (`ObjectNameToPaths` is hardcoded). The T1+T2 combo is the only no-DLL route; art-heavy, not a first build.
+
+Open: the Object atlas exact dims are undeclared (terrain is 1024²); the atlas tile-grid pitch is inferred (~5-6%/tri),
+not read from a constant; the palette is disc-1-derived (per-disc rebuild if the mapping differs); extracting the atlas
+PNG to *preview* which tile a UV picks is the natural next step (also resolves where the atlas lives in p0data).
+
 ## Overworld encounters + the world-pack binary (RE 2026-07-02)
 
 The last un-RE'd overworld data system. Fully traced through the Memoria C# (5-finder workflow + a direct

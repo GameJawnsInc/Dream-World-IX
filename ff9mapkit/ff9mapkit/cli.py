@@ -1675,14 +1675,36 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
         info = BIO.build_from_obj(args.obj, into_block=tuple(args.into_block), mod_folder=args.mod_folder,
                                   disc=args.disc, part=args.part, lod=args.lod, topograph=args.topograph,
                                   at=(tuple(args.at) if args.at else None), seat=args.seat,
-                                  keep_block=args.keep_block, game=args.game)
+                                  keep_block=args.keep_block, texture=args.texture, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
     bx, by = info["into_block"]
     print(f"built {args.part} override for block[{bx}][{by}] "
           f"({info['verts']} verts, {info['tris']} tris, topograph {args.topograph}) -> {info['dest']}")
+    if args.texture:
+        print(f"  textured UV-less faces from the learned {args.part} atlas palette"
+              f"{' (applied)' if info.get('textured') else ' (nothing to stamp -- OBJ already has UVs)'}")
     print("  RELAUNCH or re-enter the overworld. (Object mesh drives render + walkmesh; topo 59 = impassable blocker.)")
+    return 0
+
+
+def _cmd_world_texture_palette(args: argparse.Namespace) -> int:
+    """Inspect the learned atlas UV palette (topograph -> donor tiles) used by `world-mesh-build --texture`."""
+    from .world import palette as PAL
+    try:
+        pal = PAL.build_palette(disc=args.disc, part=args.part, max_blocks=args.max_blocks,
+                                cache=not args.no_cache, game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if not pal:
+        print(f"no {args.part} UV palette found for disc {args.disc} (no blocks with UVs?)", file=sys.stderr)
+        return 2
+    print(f"{args.part} atlas UV palette (disc {args.disc}): topograph -> #distinct tiles, #donor faces, modal tile")
+    for topo, ntiles, nfaces, modal in PAL.palette_summary(pal):
+        m = "  ".join(f"({u:.3f},{v:.3f})" for u, v in modal) if modal else "-"
+        print(f"  topo {topo:2}: {ntiles:4} tiles  {nfaces:5} faces   modal {m}")
     return 0
 
 
@@ -3610,7 +3632,19 @@ def build_parser() -> argparse.ArgumentParser:
     wmb.add_argument("--keep-block", action="store_true",
                      help="merge with the block's STOCK structures (keep e.g. the town already there) instead of "
                           "replacing them")
+    wmb.add_argument("--texture", action="store_true",
+                     help="stamp real atlas tiles onto UV-less new faces (a Blender model without UVs, or the "
+                          "--solid-base hull) from the learned palette -- so they render textured, not [0,0] smear")
     wmb.set_defaults(func=_cmd_world_mesh_build)
+
+    wtp = sub.add_parser("world-texture-palette",
+                         help="inspect the learned overworld atlas UV palette (topograph -> real donor tiles) that "
+                              "`world-mesh-build --texture` stamps onto new geometry")
+    wtp.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wtp.add_argument("--part", choices=["terrain", "object"], default="terrain")
+    wtp.add_argument("--max-blocks", type=int, default=24, help="how many real blocks to sample (default 24)")
+    wtp.add_argument("--no-cache", action="store_true", help="force a fresh scan instead of the cached palette")
+    wtp.set_defaults(func=_cmd_world_texture_palette)
 
     wmt = sub.add_parser("world-mesh-trim",
                          help="auto-remove faces from a building OBJ: --floor drops the low flat base courtyard-floor/"
