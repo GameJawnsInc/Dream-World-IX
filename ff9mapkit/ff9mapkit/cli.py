@@ -1881,6 +1881,16 @@ def _cmd_world_encounters(args: argparse.Namespace) -> int:
         return 2
     if not args.config:                                            # inspect
         print(f"discmr.img disc{args.disc}: {len(d.encounters)} encounter records, {len(d.specials)} special rows")
+        if getattr(args, "zones", False):                          # per-ZONE breakdown (the selection unit)
+            print("  zone -> areas (F6 'area' field) -> record slice -> topographs:  "
+                  "target with [[set]] area=N or zone=Z")
+            for z in range(WP.ZONE_COUNT):
+                sl = WP.zone_slice(z)
+                topos = sorted({d.encounters[i].topograph for i in sl})
+                s0 = sorted({d.encounters[i].scene[0] for i in sl})
+                print(f"    zone {z:2}: areas {WP.zone_areas(z)}  rec {sl.start}-{sl.stop - 1}  "
+                      f"topo {topos}  scene[0]={s0}")
+            return 0
         if args.all:
             for i, r in enumerate(d.encounters):
                 print(f"  [{i:3}] topo={r.topograph:2} fog={r.fog} scene={r.scene}")
@@ -3722,9 +3732,11 @@ def build_parser() -> argparse.ArgumentParser:
     wet.add_argument("--disc", type=int, default=1, choices=[1, 4],
                      help="which disc's discmr.img (default 1; disc 4 has its own late-game table)")
     wet.add_argument("--list", action="store_true", help="inspect the table (per-topograph summary), write nothing")
+    wet.add_argument("--zones", action="store_true",
+                     help="inspect by ZONE (the selection unit): each zone's areas, record slice + topographs")
     wet.add_argument("--all", action="store_true", help="with --list: print every one of the 355 records")
-    wet.add_argument("--config", help="a .toml with [[set]] (index|topograph[+fog] -> scene[]/pattern/pad) and/or "
-                                      "[remap] (old_scene_id = new_scene_id) edits; an [encounters] block or bare doc")
+    wet.add_argument("--config", help="a .toml with [[set]] (all|index|area|zone|topograph[+fog] -> scene[]/pattern/"
+                                      "pad) and/or [remap] (old_scene_id = new_scene_id) edits; [encounters] or bare doc")
     wet.add_argument("--mod-folder", help="mod folder to deploy the modified discmr.img into (required with --config)")
     wet.add_argument("--dry-run", action="store_true", help="with --config: print the edit summary, write nothing")
     wet.set_defaults(func=_cmd_world_encounters)

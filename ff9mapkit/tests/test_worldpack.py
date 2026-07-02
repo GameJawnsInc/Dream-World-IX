@@ -104,6 +104,43 @@ def test_apply_config_set_and_remap():
         WP.apply_config(d, {"set": [{"topograph": 99, "scene": [0, 0, 0, 0]}]})
 
 
+def test_zone_layout_matches_the_engine_lut():
+    info = WP.zone_info()
+    assert info[0] == 0 and info[-1] == 254                   # disc-1 zones fill records 0..253
+    assert len(info) == 27                                    # 25 zones + terminator
+    # slices partition 0..253 contiguously
+    covered = [i for z in range(WP.ZONE_COUNT) for i in WP.zone_slice(z)]
+    assert covered == list(range(254))
+    # known area->zone anchors (ff9.cs:1348): areas 0,1 -> zone 0; 4-7 -> zone 2; 63 -> zone 24
+    assert WP.area_to_zone(0) == 0 and WP.area_to_zone(1) == 0
+    assert [WP.area_to_zone(a) for a in (4, 5, 6, 7)] == [2, 2, 2, 2]
+    assert WP.area_to_zone(63) == 24
+    assert WP.zone_areas(0) == [0, 1] and WP.zone_areas(2) == [4, 5, 6, 7]
+    assert list(WP.zone_slice(0)) == [0, 1, 2, 3, 4, 5]       # zone 0 = 3 topographs x 2 fog
+    for bad in (-1, WP.AREA_COUNT):
+        with pytest.raises(ValueError):
+            WP.area_to_zone(bad)
+    with pytest.raises(ValueError):
+        WP.zone_slice(WP.ZONE_COUNT)
+
+
+def test_match_and_apply_by_area_and_zone():
+    data, _ = _synth_discmr()
+    d = WP.Discmr.from_bytes(data)
+    assert d.match(zone=0) == [0, 1, 2, 3, 4, 5]              # zone 0 slice
+    assert d.match(area=1) == [0, 1, 2, 3, 4, 5]              # area 1 -> zone 0 (same slice)
+    assert d.match(area=4) == list(range(12, 26))             # area 4 -> zone 2 -> records 12..25
+    # a zone + topograph sub-filter narrows within the slice
+    assert set(d.match(zone=0)) >= set(d.match(zone=0, topograph=d.encounters[3].topograph))
+    with pytest.raises(ValueError):
+        d.match(area=0, zone=1)                               # mutually exclusive
+    # apply_config area matcher edits exactly that zone's records
+    s = WP.apply_config(d, {"set": [{"area": 4, "scene": [7, 7, 7, 7]}]})
+    assert s["sets"][0]["count"] == 14
+    assert all(d.encounters[i].scene == [7, 7, 7, 7] for i in range(12, 26))
+    assert d.encounters[11].scene != [7, 7, 7, 7] and d.encounters[26].scene != [7, 7, 7, 7]
+
+
 def test_bad_image_is_rejected():
     with pytest.raises(ValueError):
         WP.Discmr.from_bytes(b"\x00" * 16)                    # too small

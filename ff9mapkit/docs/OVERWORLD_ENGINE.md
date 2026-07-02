@@ -550,8 +550,8 @@ first fooled the test):** record SELECTION is **zone-slice-primary** — `w_worl
 scans only the current *area*'s slice of the table (`w_worldZoneInfo[zone..zone+1]`), matches `topograph` + `fog`
 within it, and **falls back to the slice's last record** when nothing matches. So a `topograph=`-only edit can miss
 the record that actually fires (its zone had no topograph match → the fallback record, a different topograph, fired).
-Use `all = true` for a uniform overworld, or (for surgical per-area re-tabling) target the specific record `index`
-— a by-*area/zone* matcher is the natural next refinement. Also note the operative encounter TRIGGER is the
+Use `all = true` for a uniform overworld, target a specific record `index`, or — the proper surgical lever — scope
+by **`area`/`zone`** (below). Also note the operative encounter TRIGGER is the
 EventEngine step-accumulator `ProcessEncount` (`EventEngine.ProcessEvents.cs:462`: `_encountBase += encratio` →
 `random8() < _encountBase>>3` → `SelectScene`→`w_worldGetBattleScenePtr`), **not** the `case 205` topograph-36–38
 gate I first fixated on (that gate is a separate world-`.eb` sysvar path; empirically battles fire on other
@@ -570,6 +570,18 @@ formation 358 with 999 everywhere"). Deploy writes a **whole-file** `discmr.img`
 path, `AssetManager.cs:593` → `Assets/Resources/…​.bytes`, case-insensitive; the same convention the `.eb` overrides
 use). Disc 1 and disc 4 have separate tables (disc 4 also backs the `i+254` alternate band); edit both to fully
 re-table. RELAUNCH to apply (it's a bundled asset, not F6-reloadable).
+
+**The zone/area layout (the selection key — ★ built + verified against the real table).** The 355 records are laid
+out **zone-by-zone**. Two hardcoded engine LUTs (baked into `world/worldpack.py`): `w_worldAreaZone` (`ff9.cs:1348`)
+maps each overworld **area** (0–63, the 6-bit `m_GetIDArea` tile field the F6 World tab prints) → one of **25 zones**;
+`w_worldZoneFigure` (`ff9.cs:1415`) gives each zone its count of topograph entries (×2 fog twins = its record count).
+The CSR `zone_info[z] = 2·Σ figure[0..z-1]` places zone `z` at records `[zone_info[z], zone_info[z+1])`. The disc-1
+zones sum to exactly **254 records (0–253)** — which is precisely why the disc-4 alternate offset is `+254`
+(`ff9.cs:9095`): records 254–354 are the disc-4 band. So the authoring flow is: stand where you want to change
+encounters → read `area` off F6 → `[[set]] area = N` (or `zone = Z`), optionally `+ topograph/fog` to narrow within
+the slice. `world-encounters --zones` prints the whole `zone → areas → record-slice → topographs` map. Example: zone 0
+(areas 0,1 = the Alexandria/Mist start) = records 0–5, topographs {0,13,37} — record 4 (topo 37) is scene 359, the
+grass encounter proven above.
 
 ### Open questions (confirm before building an authoring feature)
 

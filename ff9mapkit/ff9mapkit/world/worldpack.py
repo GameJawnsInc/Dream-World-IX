@@ -39,6 +39,49 @@ SPECIAL_SIZE = 24                 # u16 area[12]
 SPECIAL_EMPTY = 0xFFFF            # an unused area slot
 _CONTAINER_RE = "worldmap/wmap/disc{disc}/discmr"
 
+# Engine zone layout -- baked functional LUTs (ff9.cs:1348 `w_worldAreaZone`, 1415 `w_worldZoneFigure`), like the
+# opcode / scene catalogs. The overworld TILE carries a 6-bit `area` (0..64, `m_GetIDArea`); `w_worldGetBattleScenePtr`
+# maps it area->ZONE, then scans only that zone's slice of the table for a topograph+fog match (falling back to the
+# slice's last record). The 355 records are laid out ZONE-BY-ZONE: zone z = records ``[zone_info[z], zone_info[z+1])``
+# where ``zone_info[z] = 2 * sum(figure[0..z-1])`` (x2 = the fog twins). Disc-1 zones fill records 0..253; the disc-4
+# alternate band is +254 (records 254..354) -- which is exactly why 254 is the alternate offset in ff9.cs:9095.
+_AREA_ZONE = (0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7, 7, 7, 7, 7, 7, 7, 8, 9, 9, 9, 10, 11, 11, 11, 11, 11,
+              12, 12, 13, 13, 14, 14, 14, 14, 15, 15, 15, 16, 16, 17, 18, 18, 18, 18, 18, 19, 19, 19, 19, 20, 20,
+              21, 21, 21, 22, 22, 23, 24)
+_ZONE_FIGURE = (3, 3, 7, 4, 5, 7, 2, 6, 2, 9, 2, 7, 6, 4, 7, 10, 5, 7, 7, 6, 4, 6, 4, 2, 2, 0)
+ZONE_COUNT = 25                  # zones 0..24 (the 26th figure entry is the 0 terminator)
+AREA_COUNT = len(_AREA_ZONE)     # 65 overworld areas (0..64)
+
+
+def zone_info() -> list:
+    """The zone CSR: ``zone_info[z]`` = the first record index of zone ``z`` (``2*sum(figure[0..z-1])``); the disc-1
+    zones fill records 0..253. Length 27 (``zone_info[26]`` == the 254 total)."""
+    info = [0]
+    for fig in _ZONE_FIGURE:
+        info.append(info[-1] + fig * 2)
+    return info
+
+
+def area_to_zone(area: int) -> int:
+    """The zone that overworld ``area`` (0..64, the ``m_GetIDArea`` tile field shown by F6) belongs to."""
+    if not 0 <= area < AREA_COUNT:
+        raise ValueError(f"overworld area must be 0..{AREA_COUNT - 1} (got {area})")
+    return _AREA_ZONE[area]
+
+
+def zone_slice(zone: int) -> range:
+    """The disc-1 record range ``[start, end)`` for ``zone`` (0..24) -- the records that fire when the player is in
+    any area of that zone. (For disc 4 the same layout holds in disc4/discmr.img; the +254 alternate band is separate.)"""
+    if not 0 <= zone < ZONE_COUNT:
+        raise ValueError(f"zone must be 0..{ZONE_COUNT - 1} (got {zone})")
+    info = zone_info()
+    return range(info[zone], info[zone + 1])
+
+
+def zone_areas(zone: int) -> list:
+    """The overworld areas that map to ``zone`` (the inverse of :data:`_AREA_ZONE`)."""
+    return [a for a, z in enumerate(_AREA_ZONE) if z == zone]
+
 
 @dataclass
 class EncountRecord:
@@ -144,12 +187,22 @@ class Discmr:
                     n += 1
         return n
 
-    def match(self, *, index=None, topograph=None, fog=None) -> list:
-        """Indices of records matching the filter: an exact ``index``, and/or a ``topograph`` (``pattern>>2``) with
-        optional ``fog`` (0/1). No filter -> every record."""
+    def match(self, *, index=None, topograph=None, fog=None, area=None, zone=None) -> list:
+        """Indices of records matching the filter: an exact ``index``; a ``zone`` (0..24) or an ``area`` (0..64,
+        the F6 tile field -> its zone) to scope to that region's table slice; and/or a ``topograph`` (``pattern>>2``)
+        with optional ``fog`` (0/1). No filter -> every record. ``area``/``zone`` are mutually exclusive."""
+        if area is not None and zone is not None:
+            raise ValueError("give area OR zone, not both")
+        zslice = None
+        if area is not None:
+            zone = area_to_zone(area)
+        if zone is not None:
+            zslice = frozenset(zone_slice(zone))
         out = []
         for i, r in enumerate(self.encounters):
             if index is not None and i != index:
+                continue
+            if zslice is not None and i not in zslice:
                 continue
             if topograph is not None and r.topograph != topograph:
                 continue
@@ -212,22 +265,25 @@ def apply_config(discmr: Discmr, cfg: dict) -> dict:
             raise ValueError(f"[[set]] #{k} must be a table")
         idx = item.get("index")
         topo = item.get("topograph")
+        area = item.get("area")
+        zone = item.get("zone")
         if item.get("all"):                              # match EVERY record (a uniform overworld / a path test)
             targets = discmr.match()
-        elif idx is None and topo is None:
-            raise ValueError(f"[[set]] #{k} needs a matcher: `all`, `index`, or `topograph`")
+        elif idx is None and topo is None and area is None and zone is None:
+            raise ValueError(f"[[set]] #{k} needs a matcher: `all`, `index`, `area`, `zone`, or `topograph`")
         else:
-            targets = discmr.match(index=idx, topograph=topo, fog=item.get("fog"))
+            targets = discmr.match(index=idx, topograph=topo, fog=item.get("fog"), area=area, zone=zone)
         if not targets:
-            raise ValueError(f"[[set]] #{k} matched no records (index={idx} topograph={topo} fog={item.get('fog')})")
+            raise ValueError(f"[[set]] #{k} matched no records "
+                             f"(index={idx} area={area} zone={zone} topograph={topo} fog={item.get('fog')})")
         scene = item.get("scene")
         if scene is None:                                # per-slot scene0..scene3
             per = {s: item[f"scene{s}"] for s in range(4) if f"scene{s}" in item}
             scene = per or None
         for i in targets:
             discmr.set_encounter(i, scene=scene, pattern=item.get("pattern"), pad=item.get("pad"))
-        summary["sets"].append({"match": {"all": item.get("all"), "index": idx, "topograph": topo,
-                                          "fog": item.get("fog")}, "count": len(targets)})
+        summary["sets"].append({"match": {"all": item.get("all"), "index": idx, "area": area, "zone": zone,
+                                          "topograph": topo, "fog": item.get("fog")}, "count": len(targets)})
     remap = cfg.get("remap") or {}
     if remap:
         summary["remapped"] = discmr.remap_scene(remap)
