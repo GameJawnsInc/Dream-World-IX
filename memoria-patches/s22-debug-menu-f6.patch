@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..83167835
+index 00000000..8a201c28
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,1152 @@
+@@ -0,0 +1,1147 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -422,10 +422,11 @@ index 00000000..83167835
 +        VehicleButton("Hilda Garde III — airship", 8, allowMask);
 +        VehicleButton("Invincible — airship", 9, allowMask);
 +        GUILayout.Label("Swaps the MOVEMENT profile (terrain access / flight / speed / camera) onto the current "
-+                        + "character — Zidane keeps his model. Only modes the CURRENT world state (WORLDxx) handles "
-+                        + "are enabled — forcing an unhandled vehicle drives that state's event script onto "
-+                        + "uninitialised nav state and crashes it. Gold-chocobo FLYING (6) is offered in the "
-+                        + "open-world states and crosses water/mountains to reach a test entrance.", _label);
++                        + "character — Zidane keeps his model. Swap is only safe on the benign free-roam states "
++                        + "whose event script has no vehicle nav (WORLD02/10/11 — all modes work there). On states "
++                        + "that gate vehicles behind an in-game boarding sequence (WORLD00 etc.) only On foot is "
++                        + "offered, because forcing a mode skips the boarding nav setup and crashes the script. To "
++                        + "reach a test entrance on those states, use Teleport above (vehicle-independent).", _label);
 +
 +        Section("Disc");
 +        Byte disc = 0;
@@ -438,32 +439,26 @@ index 00000000..83167835
 +    }
 +
 +    // [ff9mapkit] Per-world-state vehicle allow-list. Each overworld state runs a DIFFERENT EVT_WORLD_WORLDxx
-+    // event-script dispatcher (wldMapNo 9000+N -> WORLD00..12). Forcing gEventGlobal[190] to a mode the LOADED
-+    // dispatcher's per-frame vehicle switch was never written to handle drives its air/boat NAV arm on
-+    // uninitialised state -> a CalcStack expression underflow ("[CalcStack.pop] topOfStackID == 0" spam) -> crash.
-+    // So we offer only the modes each dispatcher handles, derived byte-exact from the .eb (setter + switch census):
-+    //   * vehicle-discriminating states (per-frame switch with cases beyond foot) -> the modes their boarding
-+    //     menus initialise (the game's own safe set), e.g. WORLD00 = on-foot..gold-chocobo-flight (0-6);
-+    //   * benign free-roam states (foot-only switch whose default is an idle Wait->loop) -> ALL modes are safe
-+    //     no-ops (the C# movement profile still swaps), so allow everything (WORLD02/10/11);
-+    //   * cutscene states (no vehicle switch) -> foot only, so a swap can't disturb their scripted autopilot.
++    // event-script dispatcher (wldMapNo 9000+N -> WORLD00..12). BOARDING a vehicle sets gEventGlobal[190] AND
++    // the per-vehicle NAV state (Map.Byte[24/25/26]) together; the F6 swap pokes ONLY the byte. So on any state
++    // whose per-frame vehicle switch has real nav arms (chocobo / air / boat), forcing a mode -- even one the
++    // game legitimately uses there -- drives that arm on uninitialised nav state -> a CalcStack expression
++    // underflow ("[CalcStack.pop] topOfStackID == 0", spammed per-frame) -> crash. In-game proven: on WORLD00,
++    // BOTH chocobo (1-5) and airship (7-9) crash; only foot (0) is safe. The ONLY states where a swap is safe
++    // are the BENIGN ones whose vehicle switch sends every non-foot mode to an idle Wait->loop default (no nav
++    // arm): WORLD02/10/11 -- there the swap is a safe no-op and the C# movement profile still changes, so all
++    // modes work (WORLD11 in-game proven). Everywhere else -> foot only. (To reach a test entrance on a gated
++    // state, use the World-tab Teleport, which is vehicle-independent.)
 +    // Bitmask: bit m set => mode m allowed. Modes: 0 foot, 1-5 chocobo, 6 gold-flight, 7 boat, 8/9 airship.
 +    private const Int32 AllVehicleModes = 0x3FF;   // 0..9
++    private const Int32 FootOnly = 0x001;          // 0
 +    private static readonly Dictionary<Int32, Int32> VehicleAllowByWorld = new Dictionary<Int32, Int32>
 +    {
-+        { 9000, 0x07F },          // WORLD00  0-6      disc-1 open world; flight = gold chocobo (6)
-+        { 9001, 0x001 },          // WORLD01  0        Cargo Ship (cutscene, no vehicle switch)
-+        { 9002, AllVehicleModes },// WORLD02  0-9      benign foot-only switch (idle default)
-+        { 9003, 0x0FF },          // WORLD03  0-7      + Blue Narciss (boat)
-+        { 9004, 0x001 },          // WORLD04  0        Hilda Garde 1 (cutscene)
-+        { 9005, 0x07F },          // WORLD05  0-6
-+        { 9006, 0x001 },          // WORLD06  0        Track Kuja (cutscene)
-+        { 9007, 0x17F },          // WORLD07  0-6,8    + Hilda Garde III
-+        { 9008, 0x27F },          // WORLD08  0-6,9    + Invincible
-+        { 9009, 0x2FF },          // WORLD09  0-7,9
-+        { 9010, AllVehicleModes },// WORLD10  0-9      benign foot-only switch
-+        { 9011, AllVehicleModes },// WORLD11  0-9      benign foot-only switch (the proven-safe test state)
-+        { 9012, 0x001 },          // WORLD12  0        Chocobo Treasure (cutscene)
++        { 9002, AllVehicleModes },// WORLD02  benign foot-only switch (idle default) -> all modes are safe no-ops
++        { 9010, AllVehicleModes },// WORLD10  benign foot-only switch
++        { 9011, AllVehicleModes },// WORLD11  benign foot-only switch (the proven-safe test state)
++        // Every other world state (00/03/05/07/08/09 have real vehicle nav arms; 01/04/06/12 are cutscenes)
++        // falls to the FootOnly default below -- forcing a non-foot mode there crashes the event script.
 +    };
 +
 +    // The loaded overworld dispatcher id (wldMapNo, 9000-9012), or -1 if unavailable.
@@ -473,11 +468,11 @@ index 00000000..83167835
 +        catch (Exception) { return -1; }
 +    }
 +
-+    // The allowed-vehicle bitmask for the current world state. An unlisted state -> foot only (0x001), the
-+    // crash-safe default (every dispatcher handles case 0 = on foot).
++    // The allowed-vehicle bitmask for the current world state. An unlisted state -> FootOnly, the crash-safe
++    // default (every dispatcher handles case 0 = on foot; only the benign no-nav states allow more).
 +    private static Int32 VehicleAllowMask()
 +    {
-+        return VehicleAllowByWorld.TryGetValue(WorldMapNo(), out Int32 mask) ? mask : 0x001;
++        return VehicleAllowByWorld.TryGetValue(WorldMapNo(), out Int32 mask) ? mask : FootOnly;
 +    }
 +
 +    private static Boolean VehicleAllowed(Int32 mode)

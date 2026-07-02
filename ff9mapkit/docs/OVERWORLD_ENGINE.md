@@ -42,30 +42,28 @@ decodes the entrance dispatch.
   his model, and flying gives flying *collision* without ascent (no actor swap).
   `gEventGlobal[102]` = a separate `wmID` used by `WorldConfiguration`.
 - **⚠ The profile swap is NOT safe in every world state (crash class).** `w_movementChange` is C#-null-safe, but
-  each overworld state runs a different `EVT_WORLD_WORLDxx` event-script dispatcher, and forcing `[190]` to a
-  mode that state's **per-frame vehicle switch (entry-1/tag-1, `op_0B` on `Global.Byte[190]`)** was never written
-  to handle drives its air/boat **nav arm** on uninitialised `Map.Byte[24/25/26]` state → a `CalcStack`
-  expression underflow (`[CalcStack.pop] topOfStackID == 0`, spammed per-frame) → crash. Repro: airship on
-  WORLD00 (9000). The underflow itself is soft (`CalcStack.pop` returns 0 and continues); the crash is a
-  secondary fault off the corrupt branch. Boarding sets `[190]` **and** the nav state together, so the real game
-  never hits this — but F6 forces only the byte. **Fix (s22, F6 menu):** the vehicle buttons are gated per
-  `wldMapNo` to the modes each dispatcher actually handles (`VehicleAllowByWorld` in `Ff9mkDebugMenu.cs`), with a
-  belt-and-braces refuse in `SetVehicle`. The allow-list, derived byte-exact from the 13 dispatchers (setter +
-  switch census — `ff9mapkit/eb` disasm):
+  each overworld state runs a different `EVT_WORLD_WORLDxx` event-script dispatcher. **Boarding a vehicle sets
+  `[190]` AND the per-vehicle nav state (`Map.Byte[24/25/26]`) together; the F6 swap pokes only the byte.** So on
+  any state whose **per-frame vehicle switch (entry-1/tag-1, `op_0B` on `Global.Byte[190]`)** has real nav arms
+  (chocobo / air / boat), forcing a mode — *even one the game legitimately uses there* — drives that arm on
+  uninitialised nav state → a `CalcStack` expression underflow (`[CalcStack.pop] topOfStackID == 0`, spammed
+  per-frame) → crash. **In-game proven (2026-07-02): on WORLD00 both chocobo (1–5) AND airship (7–9) crash;
+  only foot (0) is safe.** The underflow itself is soft (`CalcStack.pop` returns 0 and continues); the crash is a
+  secondary fault off the corrupt branch. The real game never hits this because it always boards through the
+  event sequence. **Fix (s22, F6 menu, commit 887ea62 + follow-up):** the vehicle buttons are gated per
+  `wldMapNo` (`VehicleAllowByWorld` in `Ff9mkDebugMenu.cs`) + a belt-and-braces refuse in `SetVehicle`:
 
   | wldMapNo | dispatcher | switch shape | allowed modes |
   |---|---|---|---|
-  | 9000, 9005 | WORLD00/05 | vehicle-discriminating | 0–6 (incl. gold-chocobo flight) |
-  | 9003 | WORLD03 | vehicle-discriminating | 0–7 (+ boat) |
-  | 9007 | WORLD07 | vehicle-discriminating | 0–6, 8 (+ Hilda Garde III) |
-  | 9008 | WORLD08 | vehicle-discriminating | 0–6, 9 (+ Invincible) |
-  | 9009 | WORLD09 | vehicle-discriminating | 0–7, 9 |
-  | 9002, 9010, 9011 | WORLD02/10/11 | foot-only switch, **benign** idle default | 0–9 (all — no-op, profile still swaps) |
-  | 9001, 9004, 9006, 9012 | WORLD01/04/06/12 | cutscene, no vehicle switch | 0 (foot only) |
+  | 9002, 9010, 9011 | WORLD02/10/11 | foot-only switch, **benign** idle default (no nav arm) | **0–9 (all)** — safe no-op, C# profile still swaps (WORLD11 ★in-game) |
+  | 9000, 9003, 9005, 9007, 9008, 9009 | WORLD00/03/05/07/08/09 | vehicle-discriminating (real nav arms) | **0 (foot only)** — any non-foot mode crashes |
+  | 9001, 9004, 9006, 9012 | WORLD01/04/06/12 | cutscene, no vehicle switch | **0 (foot only)** (conservative) |
 
-  For open-world entrance testing, **gold-chocobo flight (mode 6)** is available in the disc-1 open states and
-  crosses water/mountains, so the crashing airship modes aren't needed there. Residual (in-game to confirm):
-  whether a setter-census mode is safe when *forced* without boarding's nav setup — verify mode 6 on WORLD00.
+  **Reaching a test entrance on a gated state (WORLD00 etc.):** use the vehicle-independent **World-tab
+  Teleport** (absolute X/Z, re-grounds) — the swap can't fly you there. Making a vehicle actually work on a
+  discriminating state would require replicating the boarding nav-state setup, or a *profile-decouple* (set the
+  C# movement profile — `w_moveCHRControl_No`/`w_moveCHRControlPtr`, both `public static` — WITHOUT touching
+  `[190]`, so the `.eb` stays on its safe foot arm). Both are unproven follow-ups.
 - **Chocobo:** summonable on track topographs 3/18/21/22/28 (`w_frameChocoboCheck`) + Gysahl (event layer);
   `ff9.w_moveChocoboPtr` / `w_movePlanePtr`, availability via `originalActor.isEnableRenderer`.
 - **Discs:** `WorldConfiguration.GetDisc()` = `ff9.w_frameScenePtr >= 11090 ? 4 : 1`; stored in `ff9.w_frameDisc`
