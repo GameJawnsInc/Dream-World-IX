@@ -503,6 +503,8 @@ def apply_seed_blocks(raw: dict, blocks: dict) -> None:
             su["scenario"] = blocks["startup"]["scenario"]
         if blocks["startup"].get("flags"):
             su["flags"] = list(su.get("flags", [])) + list(blocks["startup"]["flags"])
+        if blocks["startup"].get("reveal_markers"):
+            su["reveal_markers"] = list(su.get("reveal_markers", [])) + list(blocks["startup"]["reveal_markers"])
     if "party" in blocks:
         add = list(raw.setdefault("party", {}).get("add", []))
         for m in blocks["party"].get("add", []):

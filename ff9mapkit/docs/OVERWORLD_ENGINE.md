@@ -193,6 +193,19 @@ already-solved `FieldLocationName`/s33/`[field] location` seam.
 | Add / move a marker at custom coords | `w_naviLocationPos` is a compiled array — no data hook | **yes** | high |
 | Fire the continent banner for a custom scenePtr | hardcoded `ff9.cs:8683` switch | **yes** | high |
 
+**★ Built (2026-07-02) — `[startup] reveal_markers`.** The reveal-via-flag win is now a declarative surface:
+```toml
+[startup]
+reveal_markers = ["Alexandria", "Ice Cavern", 5, "all"]   # names (ALL matching slots), locIds 0-63, or "all"
+```
+on any field compiles to `set GLOB.bit[736+locId] = 1` presets prepended to that field's Main_Init — **byte-identical
+to the game's own exit-cascade discovery write** (`opE4(736+locId)=1`), so entering the field reveals those markers
+(persisted, save-backed). By-name resolves every slot a name owns (`"South Gate"` → 6-10; `"Qu's Marsh"` →
+21/29/40/45). Registry + resolver: `ff9mapkit/world/navimap.py` (`MARKER_NAMES`, `resolve_markers`); it composes at
+campaign/journey scope (the startup merge carries `reveal_markers`). Reveal-only (set to 1); to hide, use a raw
+`flags = [{flag = <736+locId>, value = 0}]`. ⚠ a new marker still needs coords (a DLL) — this reveals the 64 existing
+slots, and disc-4 force-unlocks a few regardless.
+
 **Discovery-WRITE path — RESOLVED (probe 2026-07-02).** No engine write (only reads + the disc-4 force-OR):
 each field's **exit cascade sets `GLOB bit (736+locId) = 1`** (the `.eb` token `opE4(lo,hi)` with `lo+hi*256 =
 736+locId`, then `op7D(1,0) op2C`), revealing the markers **reachable from that exit**. Confirmed across **50 of

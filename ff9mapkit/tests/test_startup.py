@@ -203,3 +203,42 @@ def test_startup_lint_warns_only_on_reserved_band(tmp_path):
     # presetting a REAL story bit (non-reserved) is the whole point -> no warning
     p.write_text(BASE + "\n[startup]\nflags = [{flag = 2600, value = 1}]\n", encoding="utf-8")
     assert lint_flag_bands(FieldProject.load(p)) == []
+
+
+# --------------------------------------------------------------------------- [startup] reveal_markers
+# Reveal overworld minimap markers by setting their gEventGlobal discovery bit (736+locId) -- the exact
+# GLOB-bit set the game's own exit cascade emits (opE4(736+locId)=1). See ff9mapkit/world/navimap.py.
+
+def test_reveal_markers_by_name_sets_discovery_bits(tmp_path):
+    from ff9mapkit.world import navimap
+    body = _main_init_bytes(_build_eb(tmp_path, BASE + '\n[startup]\nreveal_markers = ["Ice Cavern"]\n'))
+    # "Ice Cavern" is locId 3 AND 11 -> both bits set, byte-identical to the game's discovery write
+    assert region.set_var(region.GLOB_BOOL, navimap.marker_bit(3), 1) in body    # bit 739
+    assert region.set_var(region.GLOB_BOOL, navimap.marker_bit(11), 1) in body   # bit 747
+
+
+def test_reveal_markers_by_id_and_all(tmp_path):
+    from ff9mapkit.world import navimap
+    body = _main_init_bytes(_build_eb(tmp_path, BASE + "\n[startup]\nreveal_markers = [5]\n"))
+    assert region.set_var(region.GLOB_BOOL, 736 + 5, 1) in body                  # Treno (locId 5)
+    # resolver: names (all slots), normalization, 'all', dedupe, error surface
+    assert navimap.resolve_markers(["South Gate"]) == [6, 7, 8, 9, 10]
+    assert navimap.resolve_markers(["qus marsh"]) == [21, 29, 40, 45]            # punctuation/case-insensitive
+    assert navimap.resolve_markers([1, "Alexandria", 1]) == [1]                  # name==id, deduped
+    assert navimap.resolve_markers("all") == list(range(64))
+    assert navimap.marker_bit(0) == 736 and navimap.marker_bit(63) == 799
+
+
+def test_reveal_markers_absent_injects_nothing(tmp_path):
+    """No reveal_markers -> no navi bits at all (a field without [startup] stays byte-identical)."""
+    body = _main_init_bytes(_build_eb(tmp_path, BASE))
+    assert region.set_var(region.GLOB_BOOL, 739, 1) not in body
+
+
+def test_reveal_markers_validation(tmp_path):
+    assert any("unknown worldmap marker" in m for m in
+               _problems(tmp_path, BASE + '\n[startup]\nreveal_markers = ["Nowhere"]\n'))
+    assert any("locId must be 0..63" in m for m in
+               _problems(tmp_path, BASE + "\n[startup]\nreveal_markers = [64]\n"))
+    # a valid mix passes clean
+    assert _problems(tmp_path, BASE + '\n[startup]\nreveal_markers = ["Alexandria", 3, "all"]\n') == []

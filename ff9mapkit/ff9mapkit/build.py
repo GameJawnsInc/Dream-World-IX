@@ -319,7 +319,8 @@ def _story_names(project: FieldProject) -> dict:
 
 def _validate_story_writes(d: dict, label: str, names: dict, problems: list, *,
                            scenario_key: str = "scenario", flags_key: str = "flags",
-                           words_key: str | None = None, bytes_key: str | None = None) -> None:
+                           words_key: str | None = None, bytes_key: str | None = None,
+                           markers_key: str | None = None) -> None:
     """Validate a story-state write block -- the ``[startup]`` presets OR a ``[[gateway]]``'s on-exit
     advance (``set_scenario``/``set_flags``). ``<scenario_key>`` is 0..SCENARIO_MAX or an area name;
     ``<flags_key>`` is a list of ``{flag = <index|name>, value = 0|1}``. ``<words_key>`` (only ``[startup]``
@@ -392,6 +393,18 @@ def _validate_story_writes(d: dict, label: str, names: dict, problems: list, *,
                 if isinstance(val, bool) or not isinstance(val, int) or not (0 <= val <= _startup.BYTE_VALUE_MAX):
                     problems.append(f"{label} {bytes_key} #{i} value must be 0..{_startup.BYTE_VALUE_MAX} "
                                     f"(a single byte; use `words` for a 16-bit value) (got {val!r})")
+    if markers_key is not None:
+        mk = d.get(markers_key)
+        if mk is not None:
+            if not isinstance(mk, (list, str, int)) or isinstance(mk, bool):
+                problems.append(f"{label} {markers_key} must be a list of location names / locIds (0-63) "
+                                f"or the string 'all'")
+            else:
+                from .world import navimap as _navimap
+                try:
+                    _navimap.resolve_markers(mk)
+                except ValueError as e:
+                    problems.append(f"{label} {markers_key}: {e}")
 
 
 def _validate_party(pty, problems: list) -> None:
@@ -1110,7 +1123,8 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[startup] must be a table (scenario = N|\"area\", flags = [{flag, value}], "
                             "words = [{byte, value}] (16-bit), and/or bytes = [{byte, value}] (single byte))")
         else:
-            _validate_story_writes(su, "[startup]", story_names, problems, words_key="words", bytes_key="bytes")
+            _validate_story_writes(su, "[startup]", story_names, problems, words_key="words", bytes_key="bytes",
+                                   markers_key="reveal_markers")
     oe = project.raw.get("on_entry")                     # field-load beats ([[on_entry]]: gated, once)
     if oe is not None:
         _validate_on_entry(oe, story_names, problems)
@@ -2563,6 +2577,10 @@ def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
     if isinstance(sc, str):
         sc = _flags.resolve_scenario(sc)
     presets = [(_flags.resolve(p["flag"], names), int(p.get("value", 1))) for p in su.get("flags", [])]
+    # [ff9mapkit] reveal_markers = [...] -> the overworld minimap discovery bits (736+locId); a plain GLOB-bit
+    # set, exactly what the game's own exit cascade emits (opE4(736+locId)=1). See world.navimap.
+    from .world import navimap as _navimap
+    presets += _navimap.marker_presets(su.get("reveal_markers"))
     words = [(int(w["byte"]), int(w["value"])) for w in su.get("words", [])]
     byte_writes = [(int(b["byte"]), int(b["value"])) for b in su.get("bytes", [])]
     return _startup.inject_startup(eb, presets, sc, words, byte_writes)
