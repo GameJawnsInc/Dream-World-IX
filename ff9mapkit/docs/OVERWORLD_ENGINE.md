@@ -225,6 +225,41 @@ Oeilvert … Ipsen's Castle … Memoria (54) … Chocobo's Air Garden. **Slot co
 Kit's `worldmap_unlocks` band is 736-**823** (lumps in adjacent discovery bits e.g. `mognet_central` 815); the
 **marker** bits are exactly 736-**799** (64).
 
+## Overworld weather / environment — `Environment.txt` (★ built 2026-07-02, no DLL)
+
+`WorldConfiguration.PatchWorldEnvironment` (`WorldConfiguration.cs:93`) reads a per-mod-folder
+`StreamingAssets/Data/World/Environment.txt` (FolderNames-stacked) that overrides the overworld's **mist / rain /
+weather-light / world-effects / place alternate-forms** (+ the continent-banner rect). Line grammar
+`^(Place|Effect|Mist|Disc4|Rain|Light|Title)\s+(.*)$`; each `[Condition=<expr>]` is **NCalc** (`using NCalc`), so
+`true`/`false` force on/off and a modifier is active if ANY of its conditions holds (conditions may reference world
+state via `NCalcUtility.worldNCalcParameters`). **Kit: `ff9mapkit world-environment <cfg.toml> --mod-folder <mod>`**
+emits the file (`ff9mapkit/world/environment.py`, `build_environment_txt`/`write_environment`):
+```toml
+[world_environment]
+mist  = false                    # force the Mist-Continent mist OFF (true = on; omit a key = engine default)
+disc4 = "w_frameDisc == 4"       # NCalc condition passthrough
+
+[[world_environment.rain]]       # -> Rain Add [Position] [RadiusLarge] [RadiusSmall] [RainSpeed] [RainStrength]
+position = [700, -800]           # WORLD units (engine ×256 via ff9.S); the numeric params are optional
+radius_large = 400
+strength = 220
+
+[[world_environment.light]]      # -> Light Add [Position] [Radius] [Light]
+position = [900, -600]
+light = 2
+
+[[world_environment.effect]]     # force a WorldEffect on/off (AlexandriaWaterfall, SandStorm, WindShrine, Windmill…)
+name = "AlexandriaWaterfall"
+on = false
+
+[[world_environment.place]]      # force a WorldPlace alternate-form (Alexandria/Cleyra/Lindblum destroyed, …)
+name = "Alexandria"
+on = true
+```
+Valid enum names: `environment.WORLD_PLACES` / `WORLD_EFFECTS` (baked from `Memoria/World/WorldPlace.cs` +
+`WorldEffect.cs`). RELAUNCH to apply (parsed at overworld init). The `Title` token (banner rect/timing) is not yet
+exposed. ⏳ awaits an in-game playtest.
+
 ## SOLVED — F6 overworld teleport (the `SmoothFrameUpdater_World` reverter) ★ IN-GAME PROVEN 2026-07-01
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
 prior position on the first logical tick. **Root cause: `Memoria.SmoothFrameUpdater_World`** — Memoria's own

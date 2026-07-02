@@ -1767,6 +1767,38 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_environment(args: argparse.Namespace) -> int:
+    """Emit Memoria's ``Environment.txt`` into a mod folder from a ``[world_environment]`` toml -- overworld
+    weather (mist/rain/light), world effects, and place alternate-forms. No DLL (a stock-Memoria seam);
+    RELAUNCH to apply."""
+    import tomllib
+    from .world import environment as ENV
+    try:
+        with open(args.config, "rb") as fh:
+            doc = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f"cannot read {args.config}: {e}", file=sys.stderr)
+        return 2
+    cfg = doc.get("world_environment", doc)             # accept a [world_environment] block or a bare doc
+    problems = ENV.validate_environment(cfg)
+    if problems:
+        for p in problems:
+            print(f"  {p}", file=sys.stderr)
+        return 2
+    if args.dry_run:
+        print(ENV.build_environment_txt(cfg), end="")
+        return 0
+    try:
+        dest = ENV.write_environment(cfg, mod_folder=args.mod_folder, game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"wrote {dest}")
+    print("  RELAUNCH the game (or re-enter the overworld) to apply. The mod folder must be in "
+          "Memoria.ini [Mod] FolderNames.")
+    return 0
+
+
 def _cmd_battle_actions(args: argparse.Namespace) -> int:
     """List the shared PLAYER ability table (Actions.csv) + the scriptId formula catalog (read-live)."""
     _safe_console()
@@ -3507,6 +3539,19 @@ def build_parser() -> argparse.ArgumentParser:
     wen.add_argument("--dry-run", action="store_true",
                      help="compute + print the full plan (dispatchers, case, tiles, building) without writing anything")
     wen.set_defaults(func=_cmd_world_entrance)
+
+    wev = sub.add_parser("world-environment",
+                         help="author overworld WEATHER / effects: emit Memoria's Environment.txt (force mist on/off, "
+                              "add rain / weather-light zones, toggle world effects, force place alternate-forms) into "
+                              "a mod folder from a [world_environment] toml. No DLL (stock-Memoria seam); relaunch to apply.")
+    wev.add_argument("config", help="a .toml with a [world_environment] table: mist/disc4 = true|false|<NCalc>, plus "
+                                    "[[world_environment.rain]] / [[..light]] / [[..effect]] / [[..place]] lists "
+                                    "(a bare doc with those keys also works)")
+    wev.add_argument("--mod-folder", required=True,
+                     help="the FolderNames mod folder to write into (e.g. FF9CustomMap); file -> "
+                          "<mod>/StreamingAssets/Data/World/Environment.txt")
+    wev.add_argument("--dry-run", action="store_true", help="print the Environment.txt it would write, write nothing")
+    wev.set_defaults(func=_cmd_world_environment)
 
     bsc = sub.add_parser("battle-scene",
                          help="inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)")
