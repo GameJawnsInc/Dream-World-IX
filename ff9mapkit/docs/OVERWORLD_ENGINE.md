@@ -155,8 +155,9 @@ ids have **no `.eb` asset at all** → dead name registrations. So custom overwo
 
 **1. Minimap MARKERS (the town/dungeon dots).** `ff9.w_naviLocationPos` = a **hardcoded C# `navipos[2,64]`**
 (`struct { Int16 vx,vy; Int32 tx,ty; }`, `ff9.cs:10608`; built by literals `ff9.cs:421-1318`). Indexed
-`[w_naviMapno, locationId]` — `w_naviMapno = (w_frameScenePtr>=5990) ? 1 : 0` (`ff9.cs:8678`; dim0 = disc-1/2/3,
-dim1 = disc-4/Terra). `vx/vy` = **baked minimap pixels**; `tx/ty` = **world coords** (fixed-point, used *only*
+`[w_naviMapno, locationId]` — `w_naviMapno = (w_frameScenePtr>=5990) ? 1 : 0` (`ff9.cs:8678`; **dim0 = disc 1**
+(`<5990`, the Mist Continent, 26 markers), **dim1 = disc 2+** (`>=5990`, the expanded/Outer/Forgotten world +
+disc-4 — one shared coord layout, NOT a separate disc-4/Terra map as first labelled)). `vx/vy` = **baked minimap pixels**; `tx/ty` = **world coords** (fixed-point, used *only*
 for airship autopilot). Render: `WorldHUD.cs:785-816` loops 0..63, spawns a `LocationPointer` at `vx/vy`
 directly (markers do NOT use the live `w_naviGetPos` projection — that's the moving player/vehicle BLIP, a
 separate pipeline, `ff9.cs:6939`). **Visibility gate = save flags:** `w_naviLocationAvailable` (`ff9.cs:6957`)
@@ -192,8 +193,18 @@ already-solved `FieldLocationName`/s33/`[field] location` seam.
 | Add / move a marker at custom coords | `w_naviLocationPos` is a compiled array — no data hook | **yes** | high |
 | Fire the continent banner for a custom scenePtr | hardcoded `ff9.cs:8683` switch | **yes** | high |
 
-**Open:** the marker-discovery WRITE path (which `.eb` op sets `keventNaviLocF0..F3` per town — read + disc-4
-override traced, per-town write not); the full `locationId → name` map (dump text table 0 + the 64 slots).
+**Discovery-WRITE path — RESOLVED (probe 2026-07-02).** No engine write (only reads + the disc-4 force-OR):
+each field's **exit cascade sets `GLOB bit (736+locId) = 1`** (the `.eb` token `opE4(lo,hi)` with `lo+hi*256 =
+736+locId`, then `op7D(1,0) op2C`), revealing the markers **reachable from that exit**. Confirmed across **50 of
+61** WorldMap fields: field 300 Ice Cavern → bit 739 (locId 3); field 262 Evil Forest → locId 1/2/3
+(Alexandria/Evil Forest/Ice Cavern); the South-Gate fields → the locId 6-10 cluster; Alexandria Port (2403) →
+locId 0. **So a mod reveals ANY marker with `set GLOB.bit[736+locId]=1` (no DLL) — this is the flag win, exactly.**
+**Full `locationId → name` map — CAPTURED** (split world txid-0 by `\n`, index `locId+1`): 64 names — disc-1 (0-25)
+= Alexandria Harbor · Alexandria · Evil Forest · Ice Cavern · Quan's Dwelling · Treno · South Gate ×5 · Ice Cavern ·
+Observatory Mtn · Dali · North Gate ×2 · Gizamaluke's Grotto · Burmecia · Cleyra · Chocobo's Forest · Gizamaluke's ·
+Qu's Marsh · Pinnacle Rocks · Lindblum Dragon's Gate · Lindblum · Lindblum Harbor; 26-63 (dim1) = Earth Shrine …
+Oeilvert … Ipsen's Castle … Memoria (54) … Chocobo's Air Garden. **Slot counts: dim0 = 26 markers (0-25), 38 free
+(26-63); dim1 ≈ 54 (0-48, 54-58), 10 free** — so the table has ample room, but a new marker's coords still need a DLL.
 Kit's `worldmap_unlocks` band is 736-**823** (lumps in adjacent discovery bits e.g. `mognet_central` 815); the
 **marker** bits are exactly 736-**799** (64).
 
