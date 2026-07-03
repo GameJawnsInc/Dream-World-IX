@@ -61,8 +61,14 @@ scratch-author) is contingent on it.
 
 ## 0b. Implementation status (branch `custom_models`, updated during Phase 0)
 
-**★ Phase 0/1 PROVEN IN-GAME (2026-07-02): the export→re-import round-trip is COMPLETE and DLL-FREE.**
-A real FF9 field character (Vivi, id 8) extracted by the kit → skinned FBX-ASCII → re-imported on **stock
+**★★ Phase 0/1 PROVEN IN-GAME + ZERO-DLL CONFIRMED (2026-07-02): the export→re-import round-trip is COMPLETE
+and needs NO engine change.** Two FF9 field characters (Vivi id 8, Zidane id 98) extracted by the kit →
+skinned FBX-ASCII → re-imported render, skin, orient, move, **and animate identically on the user's
+FULLY-STOCK Memoria** (a temporary diagnostic engine build was used to find the last bug, then reverted;
+the pillar works with zero engine edits). Generality: 17/19 of a diverse offline batch (monsters, NPCs,
+props, subs, mains) export cleanly. Known limitation: a few models with per-bone bind variation (Garnet's
+dual hair, some flans) need bind-pose bone TRS instead of the global vertex bake (future refinement).
+The first proof was on Vivi (id 8): extracted → skinned FBX-ASCII → re-imported on **stock
 Memoria's own importer** renders, skins, orients, moves, **and animates identically**. It took 4 in-game
 iterations, each a real bug fixed **on the data side** (no engine change required): (1) a missing FBX node
 colon (parse error → null model), (2) a root bone with a null parent (`ModelImporter.cs:108` NRE → worked
