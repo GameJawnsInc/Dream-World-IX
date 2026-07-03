@@ -184,6 +184,52 @@ def add_solid_base(bm, *, topograph: int = 59, lift: float = 0.5):
                      raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
 
+def flat_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, seg: int = 8, topograph: int = 0,
+                    height: float = 0.0, lod: str = "0_1"):
+    """Build a fresh FLAT, WALKABLE terrain :class:`~ff9mapkit.world.extract.BlockMesh` filling one 64x64 block in
+    LOCAL space (verts x[0,64] z[-64,0], Y=``height``) -- the primitive for RECLAIMING an OCEAN cell as land, where
+    there is no stock terrain mesh to :func:`deform_radial`. (The ``s34`` engine Path-D divert routes a designated sea
+    cell onto a land donor prefab so ``RegisterBlockComponent`` swaps THIS override in as its Terrain render+walkmesh.)
+
+    ``seg`` x ``seg`` quads, two triangles each, emitted as FRESH verts per triangle (the stock world blocks are
+    flat/unindexed: ``vcount == indexCount``; sharing verts would desync the index buffer -> garbage cross-cell faces).
+    Every triangle's ``tangent.x`` = ``encode_id(topograph=topograph)`` so the whole cell is one walkable topograph
+    (default **0** = plains, the most-common on-foot-walkable real-land face; the mask 0x0010667F/0xD8FF3CFF admits it,
+    topo 49/58/59 do NOT). Stored normals are (0,1,0); UVs are [0,0] -> stamp real atlas UVs with
+    :func:`ff9mapkit.world.palette.apply_palette_uvs` before deploy.
+
+    WINDING is what makes it walkable, NOT the stored normal: the engine's up-facing walkmesh filter tests the
+    GEOMETRIC triangle normal ``Cross(v1-v0, v2-v0)`` (``WMBlock.cs:70`` builds it, ``WMPhysics.cs:22`` rejects any
+    tri with ``Dot(up, n) <= 0.1``). These two tris per quad wind so that geometric normal is **+Y** (verified: for a
+    flat tri the normal Y = ``e1.z*e2.x - e1.x*e2.z``; both windings below give ``+step^2``)."""
+    from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+    idall = float(encode_id(event=0, area=0, topograph=topograph))
+    step = 64.0 / seg                                       # fixed 64u overworld block (extract.BLOCK_SIZE)
+    pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
+    vi = 0
+
+    def emit(px, pz):
+        nonlocal vi
+        pos.append([px, height, pz]); nrm.append([0.0, 1.0, 0.0])
+        uv.append([0.0, 0.0]); tan.append([idall, 0.0, 0.0, 1.0])
+        flat.append(vi); vi += 1
+
+    for i in range(seg):
+        for j in range(seg):
+            x0, x1 = i * step, (i + 1) * step
+            z0, z1 = -j * step, -(j + 1) * step                 # z0 nearer 0, z1 more negative (grid marches -Z)
+            c00, c10, c11, c01 = (x0, z0), (x1, z0), (x1, z1), (x0, z1)
+            for (a, b, c) in ((c00, c11, c01), (c00, c10, c11)):   # both UP-wound (+Y geometric normal)
+                base = vi
+                emit(*a); emit(*b); emit(*c)
+                tris.append([base, base + 1, base + 2])
+    chan = {CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan}
+    channels = {CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}
+    return BlockMesh(name=f"Block[{x}][{y}] Terrain", disc=disc, x=x, y=y, lod=lod, vcount=vi, stride=48,
+                     channels=channels, chan_arrays=chan, flat_index=flat, tris=tris,
+                     raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
 def place_building(dst_object_bm, src_object_bm, *, translate=(0.0, 0.0, 0.0), set_idall=None):
     """Append ``src_object_bm``'s geometry (a copied building/structure) onto ``dst_object_bm`` (a block's existing
     Object mesh), shifted by ``translate`` (dst block-LOCAL units). Returns a NEW merged

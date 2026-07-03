@@ -1790,6 +1790,53 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_cells(spec: str):
+    """Parse a ``"x,y;x,y;..."`` (or whitespace-separated) cell list into ``[(x,y), ...]``. Also accepts a rectangular
+    range ``"x0-x1,y0-y1"`` -> every cell in the box (a coast-to-island bridge / a small landmass)."""
+    cells = []
+    for tok in spec.replace(" ", ";").split(";"):
+        tok = tok.strip()
+        if not tok:
+            continue
+        xs, ys = tok.split(",")
+        xr = [int(v) for v in xs.split("-")]
+        yr = [int(v) for v in ys.split("-")]
+        for x in range(min(xr), max(xr) + 1):
+            for y in range(min(yr), max(yr) + 1):
+                cells.append((x, y))
+    # de-dup, keep order
+    seen, out = set(), []
+    for c in cells:
+        if c not in seen:
+            seen.add(c); out.append(c)
+    return out
+
+
+def _cmd_world_reclaim(args: argparse.Namespace) -> int:
+    """RECLAIM ocean cells as walkable LAND (Path D -- new continent). Synthesizes a fresh flat, textured, walkable
+    terrain override for each sea cell; the custom engine's s34 divert renders it as land. RELAUNCH to apply."""
+    from .world import terrain as T
+    try:
+        cells = _parse_cells(args.cells)
+        if not cells:
+            print("no cells parsed -- give e.g. --cells '2,5;3,5' or a range '2-4,5-6'", file=sys.stderr)
+            return 2
+        summary = T.reclaim(args.mod_folder, cells=cells, disc=args.disc, topograph=args.topograph,
+                            seg=args.seg, height=args.height, game=args.game, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would reclaim" if args.dry_run else "reclaimed"
+    print(f"{verb} {len(summary['cells'])} ocean cell(s) as walkable land "
+          f"(disc {summary['disc']}, topograph {summary['topograph']}):")
+    for c in summary["cells"]:
+        print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts")
+    if not args.dry_run:
+        print("  Needs the CUSTOM engine (s34 ocean->land divert). RELAUNCH (or exit+re-enter the overworld).")
+        print("  A lone cell is an ISLAND -- reach it via F6->World->Teleport, or bridge from the coast with more cells.")
+    return 0
+
+
 def _cmd_world_atlas_reskin(args: argparse.Namespace) -> int:
     """Deploy a repainted atlas PNG as a no-DLL HD reskin (T2) -- keep the SAME UV layout, replace the pixels."""
     from .world import atlas as A
@@ -3807,6 +3854,21 @@ def build_parser() -> argparse.ArgumentParser:
     wtr.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wtr.add_argument("--dry-run", action="store_true", help="report the blocks it would reshape, write nothing")
     wtr.set_defaults(func=_cmd_world_terrain)
+
+    wrc = sub.add_parser("world-reclaim",
+                         help="RECLAIM ocean cells as walkable LAND (Path D -- new continent): synthesize a flat, "
+                              "textured, walkable terrain override per sea cell. Needs the custom engine; relaunch.")
+    wrc.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wrc.add_argument("--cells", required=True,
+                     help="sea cells to reclaim: 'x,y;x,y' (e.g. '2,5;3,5') or a range 'x0-x1,y0-y1' (a landmass). "
+                          "Grid is 24x20; a lone cell is an island, a contiguous run bridges from the coast.")
+    wrc.add_argument("--topograph", type=int, default=0,
+                     help="walkable terrain type (default 0 = plains; 49/58/59 are BLOCKED)")
+    wrc.add_argument("--seg", type=int, default=8, help="tessellation per 64u block edge (default 8)")
+    wrc.add_argument("--height", type=float, default=0.0, help="flat land Y (default 0 = sea/coast level)")
+    wrc.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wrc.add_argument("--dry-run", action="store_true", help="report the cells it would reclaim, write nothing")
+    wrc.set_defaults(func=_cmd_world_reclaim)
 
     wat = sub.add_parser("world-atlas-add-tile",
                          help="T3: paint a NEW tile into a FREE atlas region + deploy the reskin; prints the UV rect "

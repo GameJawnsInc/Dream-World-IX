@@ -440,6 +440,43 @@ faces). And **multi-block**: a deform wider than one 64u block is applied to EVE
 at the grid boundary). Reshape keeps the stock texture + walkability topograph. ★ Proven: a seamless walkable grassy
 hill across blocks (16,14)+(16,15).
 
+## New continent — RECLAIM ocean cells as walkable land (`world-reclaim`, Path D · s34 extension · ⚠ awaits playtest)
+
+The overworld is a **fixed 24×20 = 480-block grid where every ocean cell already exists as a real `WMBlock`** — it
+just short-circuits to one shared `SeaBlockPrefab` (`WMWorld.cs:495` initial load + `:1180` streaming reload). So "new
+continent" is **make designated ocean cells load land**, not mint a new world. `ff9mapkit world-reclaim --mod-folder
+<mod> --cells "x,y;x,y"` (or a range `x0-x1,y0-y1`) synthesizes a fresh flat, textured, **walkable** terrain override
+per sea cell (`world/terrain.py` `reclaim` → `mesh.flat_block_mesh` + `palette.apply_palette_uvs` → a loose
+`Block[x][y] Terrain.ff9mesh`, deployed like any Terrain override).
+
+**Why it needs an engine change (the make-or-break, RE'd over the WM source):** `block.IsSea` is read in EXACTLY two
+places, both pure prefab-routing to `SeaBlockPrefab` — there is **NO** downstream movement / collision / encounter /
+camera gate on it (walkability is 100% the mesh's `tangent.x` topograph, `WMBlock.Raycast@210`; `w_worldSeaBlockPtr` /
+`HasSea` are dead code). But a sea cell short-circuits to `SeaBlockPrefab` — which carries only **Sea** forms, **no
+`TerrainForm1`** (verified offline: block `[12][0]` has only `sea4`/`sea6` meshes) — *before* the s34 override hook can
+fire. So on stock/current Memoria, dropping a Terrain override on an ocean cell is a **no-op**.
+
+**The s34 extension (data-driven divert; `memoria-patches/s34-worldmap-mesh-override.patch`):** at BOTH sea call sites,
+if `WorldMeshOverride.HasLandOverride(disc, x, y)` (a `File.Exists` check for the cell's loose `Block[x][y]
+Terrain.ff9mesh`), route the cell onto a cached **plain land DONOR prefab** (`Block[12][10]` — has a `Terrain` child,
+no town `Object`; null-guarded) instead of `SeaBlockPrefab`. `RegisterBlockComponent` then swaps our per-cell override
+(keyed on the TARGET block's `InitialX/InitialY`, not the donor's) in as the cell's Terrain **render + walkmesh +
+topograph**. `IsSea` is left untouched (harmless — the divert no longer consults `SeaBlockPrefab` for that cell) and
+grid placement is `InitialX/InitialY`-driven, so the donor's own coords are irrelevant. BOTH sites must stay identical
+or a reclaimed cell renders on first load then reverts to ocean after streaming out/back.
+
+**Authoring facts (reuse the reshape stack):** the flat plane is built in **LOCAL** block space (x[0,64] z[-64,0],
+Y=`height` default 0 = sea/coast level — real land bottoms out at Y=0), **fresh verts per triangle** (flat/unindexed),
+**up-wound** so the *geometric* normal `Cross(v1-v0, v2-v0)` is +Y (the walkmesh up-facing filter uses that, NOT the
+stored vertex normal — `WMBlock.cs:70` / `WMPhysics.cs:22`), `tangent.x = encode_id(topograph)` with **topograph 0 =
+walkable plains** (the on-foot mask `0x0010667F/0xD8FF3CFF` admits 0/10/17/36…; **49/58/59 are BLOCKED** — 59 is the
+building-footprint wall, NOT walkable, so do not use it for ground), and palette-stamped terrain-atlas UVs so it
+textures like stock land. **Reachability:** a lone reclaimed cell is an ISLAND (the surrounding stock sea stays
+non-walkable on foot) — prove render+collide with **F6 → World → Teleport** onto the cell's world center
+(`x*64+32, -(y*64+32)`); ship on-foot reachability as a **contiguous bridge of reclaimed cells from the coast** (each
+cell just needs its own override — the divert is per-cell/data-driven). This is the FOUNDATION of a true new landmass;
+the remaining Path-D frontier is scale + a coastline/height pass + true new-continent geography.
+
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 
 **The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas

@@ -73,3 +73,34 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
                 M.deploy_override(ter, mod_folder=mod_folder, game=game, part="Terrain")
             summary["blocks"].append({"block": [bx, by], "moved": moved})
     return summary
+
+
+def reclaim(mod_folder: str, *, cells, disc: int = 1, topograph: int = 0, seg: int = 8, height: float = 0.0,
+            game=None, dry_run: bool = False) -> dict:
+    """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
+    coords, 0..23 x 0..19) gets a fresh flat, walkable, textured terrain override so a designated SEA cell renders +
+    collides as land. Unlike :func:`reshape` (which reads + displaces a stock terrain mesh, and SKIPS sea cells that
+    have none), this SYNTHESIZES the mesh from scratch (:func:`ff9mapkit.world.mesh.flat_block_mesh`) at the cell's
+    own local block origin, stamps real terrain-atlas UVs (:func:`ff9mapkit.world.palette.apply_palette_uvs`), and
+    deploys a ``Block[x][y] Terrain.ff9mesh`` override.
+
+    Requires the CUSTOM engine: the shipped ``s34`` divert routes a sea cell carrying such an override onto a land
+    donor prefab (``WorldMeshOverride.HasLandOverride`` gate) instead of the ocean ``SeaBlockPrefab`` -- a stock sea
+    cell short-circuits before the override can fire, so on stock Memoria this is a no-op. A LONE reclaimed cell is an
+    ISLAND (the surrounding stock sea stays non-walkable on foot); build a contiguous BRIDGE of cells from the coast
+    for an on-foot-reachable landmass, or reach a lone cell via F6->World->Teleport / a world entrance. RELAUNCH (or
+    exit+re-enter the overworld) to load. ``topograph`` default 0 = walkable plains (topo 49/58/59 are BLOCKED)."""
+    from . import mesh as M
+    from . import palette as PAL
+    cells = [tuple(c) for c in cells]
+    for (bx, by) in cells:
+        if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
+            raise ValueError(f"cell ({bx},{by}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    summary = {"op": "reclaim", "disc": disc, "topograph": topograph, "dry_run": dry_run, "cells": []}
+    for (bx, by) in cells:
+        bm = M.flat_block_mesh(disc=disc, x=bx, y=by, seg=seg, topograph=topograph, height=height)
+        bm = PAL.apply_palette_uvs(bm, topograph=topograph, disc=disc, part="terrain", game=game)
+        if not dry_run:
+            M.deploy_override(bm, mod_folder=mod_folder, game=game, part="Terrain")
+        summary["cells"].append({"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount})
+    return summary

@@ -1,8 +1,26 @@
 diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
-index 75cf50e5..893baf39 100644
+index 75cf50e5..15cec034 100644
 --- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
 +++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
-@@ -515,6 +515,11 @@ public class WMWorld : Singleton<WMWorld>
+@@ -494,7 +494,16 @@ public class WMWorld : Singleton<WMWorld>
+         block.IsReady = true;
+         if (block.IsSea)
+         {
+-            this.LoadBlock(this.SeaBlockPrefab, block);
++            // DWIX Path D (new continent): RECLAIM a designated ocean cell as walkable LAND. A stock sea cell
++            // short-circuits to the shared SeaBlockPrefab BEFORE the s34 override can fire; instead route a cell that
++            // carries a loose "Block[x][y] Terrain.ff9mesh" override onto a plain LAND donor prefab, so
++            // RegisterBlockComponent's override (keyed on this block's InitialX/InitialY) swaps our mesh in as the
++            // cell's Terrain render + walkmesh (+ walkable topograph in tangent.x). Identity when no override exists.
++            if (this.LandDonorPrefab != (UnityEngine.Object)null
++                && Memoria.World.WorldMeshOverride.HasLandOverride(disc, initialX, initialY))
++                this.LoadBlock(this.LandDonorPrefab, block);
++            else
++                this.LoadBlock(this.SeaBlockPrefab, block);
+         }
+         else
+         {
+@@ -515,6 +524,11 @@ public class WMWorld : Singleton<WMWorld>
              RegisterBlockComponent(block, prefab.ObjectForm1, true, false);
          if (prefab.TerrainForm1)
              RegisterBlockComponent(block, prefab.TerrainForm1, true, false);
@@ -14,7 +32,7 @@ index 75cf50e5..893baf39 100644
          if (prefab.ObjectForm2)
              RegisterBlockComponent(block, prefab.ObjectForm2, false, true);
          if (prefab.TerrainForm2)
-@@ -733,6 +738,19 @@ public class WMWorld : Singleton<WMWorld>
+@@ -733,6 +747,19 @@ public class WMWorld : Singleton<WMWorld>
          copy.localPosition = Vector3.zero;
          copy.localScale = new Vector3(1f, 1f, 1f);
          Mesh mesh = copy.GetComponent<MeshFilter>().sharedMesh;
@@ -34,7 +52,7 @@ index 75cf50e5..893baf39 100644
          if (form1)
          {
              block.AddWalkMeshForm1(mesh);
-@@ -745,6 +763,32 @@ public class WMWorld : Singleton<WMWorld>
+@@ -745,6 +772,32 @@ public class WMWorld : Singleton<WMWorld>
          }
      }
  
@@ -67,12 +85,52 @@ index 75cf50e5..893baf39 100644
      private IEnumerator LoadBlockAsync(Int32 disc, WMBlock block)
      {
          this.loadingInBackground = true;
+@@ -1060,6 +1113,14 @@ public class WMWorld : Singleton<WMWorld>
+         String arg = String.Format("Block[{0}][{1}]f", 12, 0);
+         String name = String.Format("WorldMap/Prefabs/WorldDisc{0}/r{1}/{2}", 1, 0, arg);
+         this.SeaBlockPrefab = AssetManager.Load<GameObject>(name, false);
++        // DWIX Path D (s34): cache a plain LAND donor prefab (a "Terrain" child, no town "Object") so a designated
++        // SEA cell carrying a loose "Block[x][y] Terrain.ff9mesh" override can be RECLAIMED as walkable land. The
++        // donor is only a render/walkmesh HOST -- RegisterBlockComponent replaces its Terrain mesh with the per-cell
++        // override (keyed on the TARGET block's InitialX/InitialY, not the donor's), and grid placement is
++        // InitialX/InitialY-driven too, so the donor's own coords are irrelevant. Block[12][10] is a verified plain
++        // land cell on disc 1. Null-guarded at the divert sites (no reclaim where the donor is absent, e.g. disc 4).
++        String landDonorName = String.Format("WorldMap/Prefabs/WorldDisc{0}/r{1}/Block[{2}][{3}]", this.currentDisc, 10, 12, 10);
++        this.LandDonorPrefab = AssetManager.Load<GameObject>(landDonorName, false);
+         this.DetectUnseenBlocks();
+         for (Int32 y = 0; y < 20; y++)
+         {
+@@ -1135,7 +1196,14 @@ public class WMWorld : Singleton<WMWorld>
+                 {
+                     if (wmblock.IsSea)
+                     {
+-                        this.LoadBlock(this.SeaBlockPrefab, wmblock);
++                        // DWIX Path D: mirror the LoadBlock(disc) reclaim divert on the STREAMING reload path, or a
++                        // reclaimed cell renders as land on first load then reverts to ocean after it streams out of
++                        // sight and back (this branch re-tests IsSea every re-entry). Both sites must stay identical.
++                        if (this.LandDonorPrefab != (UnityEngine.Object)null
++                            && Memoria.World.WorldMeshOverride.HasLandOverride(this.currentDisc, wmblock.InitialX, wmblock.InitialY))
++                            this.LoadBlock(this.LandDonorPrefab, wmblock);
++                        else
++                            this.LoadBlock(this.SeaBlockPrefab, wmblock);
+                         wmblock.IsReady = true;
+                     }
+                     else if (this.BackgroundLoadingCount < FF9StateSystem.World.MaximumLoadAsynce)
+@@ -1945,6 +2013,8 @@ public class WMWorld : Singleton<WMWorld>
+ 
+     public GameObject SeaBlockPrefab;
+ 
++    public GameObject LandDonorPrefab;   // DWIX Path D: plain-land donor prefab (host) for reclaimed ocean cells (s34)
++
+     public WorldSPSSystem WorldSPSSystem;
+ 
+     private GlobalFog _globalFog;
 diff --git a/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
 new file mode 100644
-index 00000000..eeba2a18
+index 00000000..44744873
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,150 @@
 +using System;
 +using System.IO;
 +using UnityEngine;
@@ -129,6 +187,32 @@ index 00000000..eeba2a18
 +                }
 +            }
 +            return null;
++        }
++
++        // DWIX Path D (new continent): does a loose override file exist for this resource path in ANY mod folder,
++        // WITHOUT building the mesh? The cheap divert-gate WMWorld uses to decide whether a designated SEA cell has
++        // been reclaimed as land (mirrors TryLoad's folder+File.Exists loop; returns bool, no ReadMesh).
++        public static Boolean Exists(String resourcePath)
++        {
++            if (String.IsNullOrEmpty(resourcePath) || AssetManager.FolderHighToLow == null)
++                return false;
++            String rel = AssetManagerUtil.GetResourcesAssetsPath(true) + "/" + resourcePath + Extension;
++            foreach (AssetManager.AssetFolder folder in AssetManager.FolderHighToLow)
++            {
++                if (folder == null || String.IsNullOrEmpty(folder.FolderPath))
++                    continue;
++                if (File.Exists(folder.FolderPath + rel))
++                    return true;
++            }
++            return false;
++        }
++
++        // DWIX Path D: is ocean block (x,y) on `disc` designated to be RECLAIMED as walkable land? True iff a loose
++        // "Block[x][y] Terrain.ff9mesh" override exists for it. The resource key MUST match RegisterBlockComponent's
++        // TryLoad key exactly ("WorldMap/Disc{d}/0_1/r{y}/Block[{x}][{y}] Terrain") so the divert + the swap agree.
++        public static Boolean HasLandOverride(Int32 disc, Int32 x, Int32 y)
++        {
++            return Exists(String.Format("WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] Terrain", disc, y, x, y));
 +        }
 +
 +        private static Mesh ReadMesh(String path, String name)
