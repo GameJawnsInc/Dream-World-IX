@@ -548,7 +548,8 @@ def _emit_model_to(model: dict, dest_dir, geo_id: int) -> dict:
     # Fold any nested-child mesh into a same-texture sibling first -- the loose-FBX importer flattens the
     # hierarchy + drops such renderers (Garnet's rubber_band scrunchie); merging keeps them visible. No-op
     # unless a mesh carries `parent` (only real-model structs do), so foreign-glTF re-rigs pass through.
-    merged = extract.merge_nested_child_meshes(model, warn=lambda m: None)
+    merge_warnings: list = []
+    extract.merge_nested_child_meshes(model, warn=merge_warnings.append)
     text, meta = fbx_skin.emit_skinned_fbx(model)
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
@@ -557,7 +558,8 @@ def _emit_model_to(model: dict, dest_dir, geo_id: int) -> dict:
     for stem, img in (model.get("textures") or {}).items():
         img.save(str(dest / f"{stem}.png"))
         saved.append(f"{stem}.png")
-    return {"fbx": str(dest / f"{geo_id}.fbx"), "textures": saved, "euler_max_err": meta["euler_max_err"]}
+    return {"fbx": str(dest / f"{geo_id}.fbx"), "textures": saved, "euler_max_err": meta["euler_max_err"],
+            "merge_warnings": merge_warnings}
 
 
 def source_from_gltf(path) -> tuple:
@@ -666,4 +668,4 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
     dest = Path(mod_folder) / "StreamingAssets" / "Assets" / "Resources" / "Models" / str(type_int) / str(tid)
     info = _emit_model_to(model, dest, tid)
     return {"id": tid, "type_int": type_int, "mode": mode, "source": like, "path": info["fbx"],
-            "textures": info["textures"]}
+            "textures": info["textures"], "merge_warnings": info.get("merge_warnings", [])}

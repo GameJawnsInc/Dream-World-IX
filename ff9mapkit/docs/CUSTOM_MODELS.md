@@ -190,6 +190,32 @@ Replicating that giant `localBounds` in `CreateCustomModel` was *safe* but did *
 which (with the `OnBecameVisible`/`enabled` probe above) pinned it as a **disabled renderer**, not culling. The merge
 is the answer; the standalone-render + DLL path is closed.
 
+### The general rule for story-evolved models (the Garnet lesson, generalized)
+
+Garnet's hair-swap is one member of a family, and the transferable payload is a **rule**, not a mesh trick. FF9's
+per-model appearance logic is keyed on the GEO **name** (not the numeric id), so:
+
+- **Two axes of "story evolution."** (1) *Mesh-swap-within-one-model* — the engine hides/shows child meshes of a
+  single GEO by state (Garnet's `long_hair`/`short_hair` by `ScenarioCounter>=10300`; `garnetShortHairTable`, 12
+  models — the *only* true instance in the game). (2) *Separate-GEO-id-per-state* — the game loads a **different GEO
+  id** at different beats (field: `.eb SetModel`; battle: `CharacterParameters.csv`). A story-evolved character is
+  therefore **several ids, not one** (Garnet 7 field forms, Zidane 6, Steiner 2, Vivi 2).
+- **OVERRIDE preserves, MINT bypasses.** Re-import at the *real* id (same name) and every name-keyed engine branch
+  still fires — the hair-swap, Zidane's `{F3,F4,F5}_ZDN` per-form texture reassign, `CustomModelField` per-map swaps.
+  MINT at a new id ≥6000 (a novel name) and **none** of it fires — the model shows its plain default (both hairs, no
+  swap). Good for a clean custom character; wrong if you wanted the engine to evolve it for you.
+- **Editing one form leaves the others stock.** Override every form you care about, or the character reverts to
+  vanilla at the beats that load a different id.
+- **Reserved child-mesh names are a contract.** `long_hair`, `short_hair`, `field_model`, `battle_model`,
+  `mesh0..N` must survive the round-trip unchanged (the per-mesh named export preserves them).
+
+This rule is encoded in **`ff9mapkit/models/appearance.py`** (`appearance_notes(geo, minted=)`, the transcribed
+`GARNET_HAIR_SWAP`/`ZDN_TEXTURE_REASSIGN` tables + a char→forms map) and printed as `NOTE:` lines by `model-gltf` /
+`model-export` / `model-import` / `model-mint`, so no future story-evolved model gets the Garnet surprise unwarned.
+The nested-child merge is a *separate*, name-independent fix (it addresses the importer's renderer-disable, not the
+scenario logic) and stays on for **both** override and mint; its "no same-texture sibling" warning (e.g.
+`GEO_MON_F0_EFM`) now surfaces at the CLI instead of being silently dropped.
+
 **KNOWN LIMIT: late-game short-hair floating scrunchie.** Once merged into the always-visible body, the
 scrunchie shows in *every* scene — so at `ScenarioCounter>=10300` (Garnet's short-hair look, when the prefab
 hid `rubber_band` with `long_hair`) it reads as a floating tie. EARLY game (the common case, what the user

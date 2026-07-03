@@ -90,8 +90,10 @@ def export_mint(source_token: str, new_id: int, dest_dir, new_name=None, *, game
     id (the folder + filename) changes. Returns the manifest (+ the written paths)."""
     man = mint_manifest(source_token, new_id, new_name, game=game)
     model = extract.read_model(source_token, game=game)
-    extract.merge_nested_child_meshes(model)     # fold nested-child meshes the loose-FBX importer would drop
+    merge_warnings: list = []
+    extract.merge_nested_child_meshes(model, warn=merge_warnings.append)   # fold nested-child meshes the loose-FBX importer would drop
     text, meta = fbx_skin.emit_skinned_fbx(model)
+    man["merge_warnings"] = merge_warnings
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
     (dest / f"{new_id}.fbx").write_text(text, encoding="ascii", newline="\n")

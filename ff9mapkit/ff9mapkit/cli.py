@@ -1381,6 +1381,7 @@ def _cmd_model_export(args: argparse.Namespace) -> int:
             meta = mexport.deploy_override(args.model, args.deploy, game=args.game)
             print(f"deployed {meta['geo']} (id {meta['geo_id']}) -> {meta['path']}")
             print(f"  euler round-trip max err {meta['euler_max_err']:.1e} (0.0 = exact)")
+            _print_model_notes(meta["geo"], minted=False, merge_warnings=meta.get("merge_warnings"))
             print("Next: F6 -> Reload field (or warp to a field that uses this model) and confirm it "
                   "renders + animates IDENTICALLY. Revert by deleting that Models/<type>/<id>/ subfolder.")
             return 0
@@ -1394,7 +1395,18 @@ def _cmd_model_export(args: argparse.Namespace) -> int:
     print(f"  euler round-trip max err {meta['euler_max_err']:.1e} (0.0 = exact)")
     print(f"  wrote: {meta['fbx']}")
     print(f"To override this model in-game (no DLL), place it at:  <modfolder>/{meta['engine_path']}")
+    _print_model_notes(meta["geo"], minted=False, merge_warnings=meta.get("merge_warnings"))
     return 0
+
+
+def _print_model_notes(geo, *, minted, merge_warnings=None):
+    """Surface the merge warnings + the engine appearance-logic notes (THE RULE: name-keyed engine appearance
+    is preserved by an OVERRIDE, bypassed by a MINT; a story-evolved character is several ids)."""
+    from .models import appearance
+    for w in (merge_warnings or []):
+        print(f"  WARN: {w}")
+    for note in appearance.appearance_notes(geo, minted=minted):
+        print(f"  NOTE: {note}")
 
 
 def _cmd_model_mint(args: argparse.Namespace) -> int:
@@ -1421,6 +1433,7 @@ def _cmd_model_mint(args: argparse.Namespace) -> int:
         print(f"  (appended to {man['dictionary_patch']})")
     print(f"  place it:  [[npc]] model = {man['id']}   (borrows {man['anims_from']}'s animset by name)")
     print("  RELAUNCH FF9 to register the new id (a 3DModel line is read at launch, like a FieldScene line).")
+    _print_model_notes(man["source"], minted=True, merge_warnings=man.get("merge_warnings"))
     return 0
 
 
@@ -1439,6 +1452,7 @@ def _cmd_model_gltf(args: argparse.Namespace) -> int:
     print(f"  (each part is a SEPARATE named object in Blender -- edit one without disturbing the others)")
     for w in man.get("warnings", []):
         print(f"  WARN: {w}")
+    _print_model_notes(man["geo"], minted=False, merge_warnings=None)
     print("Open in Blender: File > Import > glTF 2.0. It comes in rigged + textured; switch to the Animation "
           "workspace + pick an Action to scrub a clip. (Model is Y-up, ~scale 0.01 of FF9 units.)")
     return 0
@@ -1461,6 +1475,8 @@ def _cmd_model_import(args: argparse.Namespace) -> int:
     print(f"  wrote: {r['path']}  (+ {len(r['textures'])} texture(s))")
     print("  F6 -> Reload field (or warp to a field using this model) to see the edit. Revert by deleting "
           f"that Models/<type>/{r['id']}/ folder.")
+    if r.get("source"):
+        _print_model_notes(r["source"], minted=int(r["id"]) >= 6000, merge_warnings=r.get("merge_warnings"))
     return 0
 
 
