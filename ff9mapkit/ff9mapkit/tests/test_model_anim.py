@@ -10,6 +10,8 @@ import math
 import os
 import tempfile
 
+import pytest
+
 from ff9mapkit.models import anim, gltf, _gltf_io
 
 
@@ -153,6 +155,53 @@ def test_is_edited_detects_change_and_ignores_sign_flip():
     assert anim._is_edited({0: {"rot": [(0.0, (0.0, 0.0, 0.0, 1.0)), (0.5, (0.7, 0.0, 0.0, 0.7))]}}, src)
     # a bone the source clip doesn't animate -> edited
     assert anim._is_edited({9: {"rot": [(0.0, (0.0, 0.0, 0.0, 1.0))]}}, src)
+
+
+def test_is_edited_catches_a_scale_only_edit():
+    """Review's HIGH finding: _is_edited had no scale arm, so a scale-only squash/stretch (rotation/position
+    untouched) was judged 'unchanged' and silently dropped. It must now register as an edit."""
+    src = {"bones": {"bone000": {"bone": 0, "rot": [(0.0, (0.0, 0.0, 0.0, 1.0))],
+                                 "scale": [(0.0, (1.0, 1.0, 1.0)), (0.5, (1.0, 1.0, 1.0))]}}}
+    edit = {0: {"rot": [(0.0, (0.0, 0.0, 0.0, 1.0))],
+                "scale": [(0.0, (1.0, 1.0, 1.0)), (0.5, (1.3, 0.8, 1.3))]}}   # squash/stretch, rot unchanged
+    assert anim._is_edited(edit, src)
+    assert not anim._is_edited({0: {"scale": [(0.0, (1.0, 1.0, 1.0)), (0.5, (1.0, 1.0, 1.0))]}}, src)  # identical
+
+
+def test_is_edited_catches_a_sub_degree_rotation():
+    """Review's MEDIUM finding: eps=1e-3 gave a ~5deg dead zone that swallowed subtle edits. A 1deg tilt must
+    now register (eps 1e-6 -> ~0.16deg), while float noise (a hair off) must not."""
+    src = {"bones": {"bone000": {"bone": 0, "rot": [(0.0, (0.0, 0.0, 0.0, 1.0))]}}}
+    a = math.radians(1.0)
+    assert anim._is_edited({0: {"rot": [(0.0, (math.sin(a / 2), 0.0, 0.0, math.cos(a / 2)))]}}, src)
+    assert not anim._is_edited({0: {"rot": [(0.0, (1e-9, 0.0, 0.0, 1.0))]}}, src)   # noise, not an edit
+
+
+def test_clip_to_anim_json_rejects_non_finite():
+    """Review's finding: json.dumps(allow_nan) would emit bare NaN/Infinity (invalid JSON the engine misreads).
+    _r fails loud instead."""
+    bad = {"name": "x", "sample_rate": 30.0,
+           "bones": {"bone000": {"bone": 0, "rot": [(0.0, (float("nan"), 0.0, 0.0, 1.0))]}}}
+    with pytest.raises(ValueError, match="non-finite"):
+        anim.clip_to_anim_json(bad)
+
+
+def test_parse_reads_a_scale_channel_verbatim():
+    """A Blender scale channel parses verbatim (scale is mirror-invariant -- no coordinate flip, no unit bake)."""
+    path = _tmp("ff9mk_anim_scale.glb")
+    buf = _gltf_io.GltfBuffer()
+    scales = [(1.0, 1.0, 1.0), (1.3, 0.8, 1.3)]
+    tin = buf.add([0.0, 0.5], _gltf_io.FLOAT, "SCALAR", minmax=True)
+    sout = buf.add([c for v in scales for c in v], _gltf_io.FLOAT, "VEC3")
+    a = {"name": "9", "samplers": [{"input": tin, "output": sout, "interpolation": "LINEAR"}],
+         "channels": [{"sampler": 0, "target": {"node": 0, "path": "scale"}}]}
+    g = {"nodes": [{"name": "bone005"}], "animations": [a],
+         "accessors": buf.accessors, "bufferViews": buf.bufferViews}
+    _gltf_io.write_glb(g, buf.blob, path)
+    gg, blob = _gltf_io.read_glb(path)
+    pa = anim.parse_gltf_animations(gg, blob)[0]
+    sc = pa["bones"][5]["scale"]
+    assert abs(sc[1][1][0] - 1.3) < 1e-4 and abs(sc[1][1][1] - 0.8) < 1e-4    # verbatim, unflipped
 
 
 def test_full_faithful_write_carries_the_edit_into_engine_json():

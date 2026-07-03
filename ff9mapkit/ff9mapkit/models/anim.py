@@ -65,10 +65,26 @@ def list_clip_keys(env5, geo_id: int) -> list:
 
 # ---------------------------------------------------------------- serialization: raw clip -> .anim JSON
 
+# Edit-detection thresholds, set just above the MEASURED float32 round-trip noise floor (a diverse
+# 31.7k-bone sweep: rotation 1-|dot| ~2e-16 -- quadratic in the component error, so effectively machine
+# eps -- and position ~9e-5 units). A false POSITIVE is cheap (the override is a faithful splice of the
+# source, plays ~identically), so we bias sensitive; a false NEGATIVE silently drops a real edit, which is
+# the failure to avoid. rot 1e-6 => ~0.16deg dead zone (was 1e-3 => ~5.1deg, a real bug the review caught).
+_EPS_TIME = 1e-4     # seconds (keys sit at 1/30s; tolerates Blender's tiny time re-quantization)
+_EPS_ROT = 1e-6      # on (1 - normalized|dot|); ~0.16deg, ~1e10 above the noise floor
+_EPS_POS = 5e-3      # FF9 units; ~55x above the 9e-5 noise floor, still sub-visible
+_EPS_SCALE = 1e-4    # scale ~1.0; catches a 0.01% size change
+
+
 def _r(x) -> float:
     """Round to 6 decimals -- quaternions live in [-1,1] (sub-micro) and positions in hundreds of units
-    (sub-micron), so 6 dp is lossless for playback while keeping the JSON small + diff-friendly."""
-    return round(float(x), 6)
+    (sub-micron), so 6 dp is lossless for playback while keeping the JSON small + diff-friendly. REJECTS a
+    non-finite value (fail loud rather than emit NaN/Infinity -- invalid JSON the engine's SimpleJSON reads
+    as a culture-dependent 0/garbage; a NaN only reaches here from a corrupt glTF, so surfacing it is right)."""
+    x = float(x)
+    if not math.isfinite(x):
+        raise ValueError(f"non-finite animation value {x!r} -- refusing to write invalid JSON (corrupt glTF?)")
+    return round(x, 6)
 
 
 def _frames(curve, ncomp: int) -> list:
@@ -200,10 +216,11 @@ def splice_edits_onto_clip(source_clip: dict, edited_bones: dict, *, model_bones
     return clip
 
 
-def _is_edited(edited_bones: dict, source_clip: dict, *, eps: float = 1e-3) -> bool:
+def _is_edited(edited_bones: dict, source_clip: dict) -> bool:
     """True if any glTF-derived (FF9-space) curve DIFFERS from the source clip -> the clip was actually
-    edited and is worth overriding. Rotations compare by |dot| (a whole-quaternion sign flip is the SAME
-    rotation, so ``_sign_continuous`` re-hemispherising doesn't read as an edit); positions componentwise."""
+    edited and is worth overriding. Compares ALL THREE channels (rotation by normalized |dot| -- a whole-
+    quaternion sign flip is the SAME rotation, so ``_sign_continuous`` re-hemispherising doesn't read as an
+    edit; position + SCALE componentwise), each against its own noise-floor-derived epsilon."""
     num_src = {ch.get("bone"): ch for ch in source_clip.get("bones", {}).values() if ch.get("bone") is not None}
     for bn, edit in edited_bones.items():
         src = num_src.get(bn)
@@ -215,19 +232,21 @@ def _is_edited(edited_bones: dict, source_clip: dict, *, eps: float = 1e-3) -> b
             if len(rot) != len(s):
                 return True
             for (te, qe), (ts, qs) in zip(rot, s):
-                if abs(te - ts) > eps:
+                if abs(te - ts) > _EPS_TIME:
                     return True
                 ne = math.sqrt(sum(a * a for a in qe)) or 1.0
                 ns = math.sqrt(sum(a * a for a in qs)) or 1.0
-                if abs(sum(a * b for a, b in zip(qe, qs))) / (ne * ns) < 1.0 - eps:   # normalized -> cos angle
+                if 1.0 - abs(sum(a * b for a, b in zip(qe, qs))) / (ne * ns) > _EPS_ROT:   # 1 - cos(angle)
                     return True
-        pos = edit.get("pos")
-        if pos is not None:
-            s = src.get("pos") or []
-            if len(pos) != len(s):
+        for chan, eps in (("pos", _EPS_POS), ("scale", _EPS_SCALE)):
+            c = edit.get(chan)
+            if c is None:
+                continue
+            s = src.get(chan) or []
+            if len(c) != len(s):                                     # a channel the source lacks -> an edit
                 return True
-            for (te, pe), (ts, ps) in zip(pos, s):
-                if abs(te - ts) > eps or any(abs(a - b) > eps * 100 for a, b in zip(pe, ps)):
+            for (te, ve), (ts, vs) in zip(c, s):
+                if abs(te - ts) > _EPS_TIME or any(abs(a - b) > eps for a, b in zip(ve, vs)):
                     return True
     return False
 
@@ -291,19 +310,39 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
     except (RuntimeError, FileNotFoundError, ValueError, KeyError):
         pass
     env5 = _load_env5(game)
-    written, skipped = [], []
+    # Fallback routing: if Blender dropped an animation's extras and it's an ACTION-named clip ("idle"/"walk"),
+    # the numeric-name fallback fails -> resolve the label to its on-disc anim key via the catalog so the edit
+    # isn't silently lost.
+    label_to_key = {}
+    if geo_name:
+        try:
+            from .. import catalog
+            on_disc = set(list_clip_keys(env5, gid))
+            for lbl, k in (catalog.animations_for_model(geo_name) or {}).items():
+                if k in on_disc:
+                    label_to_key[str(lbl).lower()] = k
+        except Exception:   # noqa: BLE001  -- catalog/install optional; fallback is best-effort
+            pass
+    written, skipped, warnings, seen = [], [], [], set()
     for pa in parse_gltf_animations(gltf, blob, scale=scale):
         key = pa["key"]
+        if key is None and pa["label"]:
+            key = label_to_key.get(pa["label"].lower())
         if key is None:
+            warnings.append(f"animation {pa['label'] or '<unnamed>'!r} has no routable key (extras dropped + "
+                            f"non-numeric name) -- NOT written; rename the Action to its numeric anim key")
             skipped.append(pa["label"] or "<unnamed>")
             continue
         source_clip = _gltf_io.read_clip(env5, gid, key) or {"name": pa["label"], "sample_rate": 30.0, "bones": {}}
         if not force and not _is_edited(pa["bones"], source_clip):
             skipped.append((key, "unchanged"))
             continue
-        merged = splice_edits_onto_clip(source_clip, pa["bones"], model_bones=model_bones)
+        if key in seen:
+            warnings.append(f"two animations map to key {key} -- keeping the last-written")
+        merged = splice_edits_onto_clip(source_clip, pa["bones"], model_bones=model_bones, warn=warnings.append)
         p = anim_disc_path(mod_folder, gid, key)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(clip_to_anim_json(merged), encoding="utf-8", newline="\n")
         written.append(str(p))
-    return {"written": written, "skipped": skipped, "geo_id": gid}
+        seen.add(key)
+    return {"written": written, "skipped": skipped, "warnings": warnings, "geo_id": gid}

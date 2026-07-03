@@ -1481,6 +1481,8 @@ def _cmd_model_import(args: argparse.Namespace) -> int:
         print(f"  animations: skipped ({anims['error']})")
     elif not args.no_anims:
         print("  animations: no changed clips to write (untouched clips keep the bundled version)")
+    for w in anims.get("warnings", []):
+        print(f"  WARN: {w}")
     print("  F6 -> Reload field (or warp to a field using this model) to see the edit. Revert by deleting "
           f"that Models/<type>/{r['id']}/ folder"
           + ("" if not anims.get("written") else " + the Animations/<geoId>/ overrides") + ".")

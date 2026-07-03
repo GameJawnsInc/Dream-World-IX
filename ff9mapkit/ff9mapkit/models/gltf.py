@@ -296,6 +296,19 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
                 pacc = buf.add(pout, FLOAT, "VEC3")
                 samplers.append({"input": tin, "output": pacc, "interpolation": "LINEAR"})
                 channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": "translation"}})
+            # scale channel -- mirror-invariant (no coord flip, no unit bake), emitted ONLY where it actually
+            # varies (nearly every FF9 bone carries a CONSTANT scale curve; exporting those would bloat the
+            # glTF + clutter Blender). So a modder can scrub + edit a real squash/stretch clip.
+            scl = ch.get("scale")
+            if scl and len(scl) >= 2:
+                v0 = scl[0][1]
+                if any(abs(c - c0) > 1e-4 for _, v in scl for c, c0 in zip(v, v0)):
+                    times = [t for t, _ in scl]
+                    sout = [c for _, v in scl for c in v]
+                    tin = buf.add(times, FLOAT, "SCALAR", minmax=True)
+                    sacc = buf.add(sout, FLOAT, "VEC3")
+                    samplers.append({"input": tin, "output": sacc, "interpolation": "LINEAR"})
+                    channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": "scale"}})
         if channels:
             # Stamp the routing key so the return path (models.anim) can write each clip back to
             # Animations/{geoId}/{key}.anim even if Blender renames the Action -- extras survive a glTF
