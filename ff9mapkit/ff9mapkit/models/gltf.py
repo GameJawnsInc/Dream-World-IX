@@ -455,8 +455,8 @@ def import_gltf(path, *, scale: float = DEFAULT_SCALE) -> dict:
             tris = [[idx[i], idx[i + 2], idx[i + 1]] for i in range(0, len(idx) - 2, 3)]   # un-reverse winding
             subs.append({"material_idx": base_mat, "tris": tris})
             materials.append({"name": f"mat{base_mat}", "texture": mat_stem(prim.get("material", -1))})
-        meshes.append({"name": gltf["meshes"][0].get("name", "mesh"), "verts": verts,
-                       "normals": normals, "uvs": uvs, "submeshes": subs, "weights": weights})
+        meshes.append({"name": f"mesh{len(meshes)}", "verts": verts,   # DISTINCT per mesh (was all named after
+                       "normals": normals, "uvs": uvs, "submeshes": subs, "weights": weights})  # meshes[0])
 
     # embedded images -> PIL, keyed by the same stem the materials reference (self-consistent for re-emit)
     textures = {}
@@ -573,6 +573,17 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
             # id/type/textures, take the edited geometry + weights (keyed by FF9 bone number) from the glTF.
             edited = import_gltf(gltf_path, scale=scale)
             orig = extract.read_model(like, game=game)
+            # Restore the ORIGINAL mesh GameObject names (match each edited mesh to the closest-vertex-count
+            # original). The engine has NAME-keyed per-model branches -- e.g. Garnet's `garnetShortHairTable`
+            # in ModelFactory.CreateModel does GetChildByName("long_hair"/"short_hair") to hide a hair mesh by
+            # scenario; a re-rig whose meshes were renamed (Blender merges them to one name) NREs there and
+            # mis-renders her hair as flailing spikes. Names are cosmetic to skinning but load-bearing here.
+            if len(edited["meshes"]) == len(orig["meshes"]):
+                avail = list(range(len(orig["meshes"])))
+                for em in edited["meshes"]:
+                    j = min(avail, key=lambda k: abs(len(orig["meshes"][k]["verts"]) - len(em["verts"])))
+                    em["name"] = orig["meshes"][j]["name"]
+                    avail.remove(j)
             model = {"geo": orig["geo"], "geo_id": orig["geo_id"], "type_int": orig["type_int"],
                      "root_bone": orig["root_bone"], "bones": orig["bones"],
                      "meshes": edited["meshes"], "materials": edited["materials"],
