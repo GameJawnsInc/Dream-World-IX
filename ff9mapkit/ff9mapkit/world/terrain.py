@@ -75,32 +75,63 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
     return summary
 
 
-def reclaim(mod_folder: str, *, cells, disc: int = 1, topograph: int = 0, seg: int = 8, height: float = 0.0,
-            game=None, dry_run: bool = False) -> dict:
+_DIRS = [(-1, 0), (1, 0), (0, 1), (0, -1)]
+
+
+def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
+            height: float | None = None, seg: int = 8, beach: float = 18.0, grass_topo: int = 17,
+            shore_topo: int = 58, game=None, dry_run: bool = False) -> dict:
     """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
-    coords, 0..23 x 0..19) gets a fresh flat, walkable, textured terrain override so a designated SEA cell renders +
-    collides as land. Unlike :func:`reshape` (which reads + displaces a stock terrain mesh, and SKIPS sea cells that
-    have none), this SYNTHESIZES the mesh from scratch (:func:`ff9mapkit.world.mesh.flat_block_mesh`) at the cell's
-    own local block origin, stamps real terrain-atlas UVs (:func:`ff9mapkit.world.palette.apply_palette_uvs`), and
+    coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
+    collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
+    this SYNTHESIZES the mesh, stamps real terrain-atlas UVs (:func:`ff9mapkit.world.palette.apply_palette_uvs`), and
     deploys a ``Block[x][y] Terrain.ff9mesh`` override.
 
+    ``profile`` shapes the land:
+      * ``"island"`` (default) -- a NATURAL island: a walkable grass plateau at ``Y=height`` that ramps down to a sand
+        SHORE ring (blocked topo 58) at the waterline on every OPEN-WATER edge, so it blends into the sea like a real
+        coast instead of a flat slab (:func:`ff9mapkit.world.mesh.island_block_mesh`). Water-facing edges are computed
+        per cell from the reclaimed set + the real-land set (a cell edge whose neighbour is another reclaimed cell or
+        real land gets NO beach -- interior/seam). Per-tri grass/shore topographs are palette-textured individually.
+      * ``"flat"`` -- a bare flat slab at ``Y=height`` of one ``topograph`` (0 = plains). Cheapest; z-fights the sea
+        surface at ``height=0`` (lift it a few units for an open-ocean cell), fine flush (``height=0``) against a coast.
+
     Requires the CUSTOM engine: the shipped ``s34`` divert routes a sea cell carrying such an override onto a land
-    donor prefab (``WorldMeshOverride.HasLandOverride`` gate) instead of the ocean ``SeaBlockPrefab`` -- a stock sea
-    cell short-circuits before the override can fire, so on stock Memoria this is a no-op. A LONE reclaimed cell is an
-    ISLAND (the surrounding stock sea stays non-walkable on foot); build a contiguous BRIDGE of cells from the coast
-    for an on-foot-reachable landmass, or reach a lone cell via F6->World->Teleport / a world entrance. RELAUNCH (or
-    exit+re-enter the overworld) to load. ``topograph`` default 0 = walkable plains (topo 49/58/59 are BLOCKED)."""
+    donor prefab (``WorldMeshOverride.HasLandOverride`` gate) instead of ``SeaBlockPrefab`` -- a stock sea cell
+    short-circuits before the override can fire, so on stock Memoria this is a no-op. A LONE reclaimed cell is an
+    ISLAND (surrounding stock sea non-walkable on foot); build a contiguous BRIDGE of cells from the coast for an
+    on-foot-reachable landmass, or reach a lone cell via F6->World->Teleport. RELAUNCH (or exit+re-enter) to load."""
     from . import mesh as M
     from . import palette as PAL
+    from . import extract as X
     cells = [tuple(c) for c in cells]
     for (bx, by) in cells:
         if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
             raise ValueError(f"cell ({bx},{by}) out of the {GRID_X}x{GRID_Y} overworld grid")
-    summary = {"op": "reclaim", "disc": disc, "topograph": topograph, "dry_run": dry_run, "cells": []}
+    if height is None:
+        height = 6.0 if profile == "island" else 0.0
+    reclaimed = set(cells)
+    land = set()
+    if profile == "island":
+        try:                                              # real-land set: a neighbour that is real coast is NOT water
+            land = set(X.list_blocks(disc=disc, game=game))
+        except Exception:                                 # noqa: BLE001 -- offline/no install -> treat non-reclaimed as water
+            land = set()
+    summary = {"op": "reclaim", "profile": profile, "disc": disc, "topograph": topograph,
+               "dry_run": dry_run, "cells": []}
     for (bx, by) in cells:
-        bm = M.flat_block_mesh(disc=disc, x=bx, y=by, seg=seg, topograph=topograph, height=height)
-        bm = PAL.apply_palette_uvs(bm, topograph=topograph, disc=disc, part="terrain", game=game)
+        if profile == "island":
+            water = [(dx, dy) for (dx, dy) in _DIRS if (bx + dx, by + dy) not in reclaimed
+                     and (bx + dx, by + dy) not in land]
+            bm = M.island_block_mesh(disc=disc, x=bx, y=by, water_dirs=water, seg=seg, height=height,
+                                     beach=beach, grass_topo=grass_topo, shore_topo=shore_topo)
+            bm = PAL.apply_palette_uvs(bm, topograph=None, disc=disc, part="terrain", game=game)  # per-tri grass/shore
+            info = {"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount, "water_edges": len(water)}
+        else:
+            bm = M.flat_block_mesh(disc=disc, x=bx, y=by, seg=seg, topograph=topograph, height=height)
+            bm = PAL.apply_palette_uvs(bm, topograph=topograph, disc=disc, part="terrain", game=game)
+            info = {"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount}
         if not dry_run:
             M.deploy_override(bm, mod_folder=mod_folder, game=game, part="Terrain")
-        summary["cells"].append({"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount})
+        summary["cells"].append(info)
     return summary

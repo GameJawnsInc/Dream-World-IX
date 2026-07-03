@@ -50,15 +50,32 @@ def test_flat_block_mesh_topograph_walkable_and_roundtrips(tmp_path):
     assert r["normals"] and r["uvs"] and r["tangents"]
 
 
+def test_island_block_mesh_profile():
+    # a CORNER cell (water on 2 edges) ramps from underwater up to the plateau, mixing shore+grass, all walkable
+    corner = M.island_block_mesh(disc=1, x=1, y=16, water_dirs=[(-1, 0), (0, -1)], seg=8, height=6.0, beach=18.0)
+    ys = [v[1] for v in corner.verts]
+    assert min(ys) < 0 and max(ys) == 6.0                    # dips under the sea at the shore, plateau inland
+    assert all(_geom_normal_y(corner, t) > 0 for t in corner.tris)          # every ramp face still up-facing
+    topos = {X.decode_id(int(round(corner.tangents[t[0]][0])))["topograph"] for t in corner.tris}
+    assert 58 in topos and 17 in topos                       # sand shore ring + grass top
+    # an INTERIOR cell (no water edge) is a flat grass plateau
+    interior = M.island_block_mesh(disc=1, x=2, y=17, water_dirs=[], seg=8, height=6.0)
+    assert {v[1] for v in interior.verts} == {6.0}
+    assert {X.decode_id(int(round(interior.tangents[t[0]][0])))["topograph"] for t in interior.tris} == {17}
+
+
 def test_reclaim_dry_run_and_dispatch(monkeypatch):
     deployed = []
     monkeypatch.setattr(PAL, "apply_palette_uvs", lambda bm, **k: bm)          # no install needed
+    monkeypatch.setattr(X, "list_blocks", lambda **k: [(3, 12)])               # a real-coast neighbour of (2,12)
     monkeypatch.setattr(M, "deploy_override", lambda bm, **k: deployed.append((bm.x, bm.y, k.get("part"))))
-    s = T.reclaim("MOD", cells=[(2, 12), (2, 13)], dry_run=True)
-    assert s["op"] == "reclaim" and s["topograph"] == 0 and s["disc"] == 1
+    s = T.reclaim("MOD", cells=[(2, 12), (2, 13)], dry_run=True)               # island profile (default)
+    assert s["op"] == "reclaim" and s["profile"] == "island" and s["disc"] == 1
     assert [c["cell"] for c in s["cells"]] == [[2, 12], [2, 13]]
+    # (2,12): neighbours (3,12)=real land [no beach], (2,13)=reclaimed [no beach], (1,12)+(2,11)=water -> 2 edges
+    assert s["cells"][0]["water_edges"] == 2
     assert deployed == []                                                     # dry-run writes nothing
-    T.reclaim("MOD", cells=[(2, 12)], topograph=17)
+    T.reclaim("MOD", cells=[(2, 12)], profile="flat", topograph=17)
     assert deployed == [(2, 12, "Terrain")]                                   # deploys the Terrain override
 
 

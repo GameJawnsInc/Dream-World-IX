@@ -230,6 +230,72 @@ def flat_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, seg: int = 8, topo
                      raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
 
+def island_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, water_dirs, seg: int = 8, height: float = 6.0,
+                       beach: float = 18.0, grass_topo: int = 17, shore_topo: int = 58, shore_frac: float = 0.28,
+                       shore_dip: float = -1.0, lod: str = "0_1"):
+    """Synthesize ONE block of a NATURAL island (vs :func:`flat_block_mesh`'s bare slab): a walkable GRASS plateau at
+    ``Y=height`` that ramps DOWN to the waterline on each WATER-facing edge, textured grass (``grass_topo`` 17) on the
+    flat top and SAND/SHORE (``shore_topo`` 58 -- the real waterline topograph, and BLOCKED, so the player stops at the
+    beach exactly like a real coast) on the low ring. Modelled on the real coastline RE (topo 58 at Y≈0, topo 17 flat
+    grass, topo 49 cliff).
+
+    ``water_dirs`` = the grid dirs (subset of ``{(-1,0),(1,0),(0,1),(0,-1)}``) whose neighbour is OPEN WATER for this
+    cell; an INTERIOR island cell passes an EMPTY set -> a flat plateau (no beach). A vertex's Y ramps from ``shore_dip``
+    (just under the sea, at a water edge) up to ``height`` over ``beach`` units inland -- so edges DIP under the water
+    for a seamless blend and the top is a walkable plateau. ``shore_frac`` = the fraction of ``height`` below which a
+    face is textured shore/sand (the beach band width). WINDING gives the +Y geometric normal regardless of the height
+    profile (normal.y = e1.z*e2.x - e1.x*e2.z depends only on XZ), so every ramp face stays walkable + up-facing; a gentle
+    ramp keeps ``Dot(up, n) > 0.1``. Call :func:`recompute_normals` after for correct slope shading."""
+    from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+    wd = set(tuple(d) for d in water_dirs)
+    idg, ids = float(encode_id(topograph=grass_topo)), float(encode_id(topograph=shore_topo))
+    step = 64.0 / seg
+
+    def edge_dist(lx, lz, d):                                # world-XZ distance from (lx,lz) to this cell edge
+        if d == (-1, 0):
+            return lx                                        # west edge local x=0
+        if d == (1, 0):
+            return 64.0 - lx                                 # east edge local x=64
+        if d == (0, -1):
+            return -lz                                       # north edge local z=0 (lz in [-64,0])
+        return lz + 64.0                                     # south edge local z=-64
+
+    def hgt(lx, lz):
+        if not wd:
+            return height                                    # interior cell -> flat plateau
+        m = min(edge_dist(lx, lz, d) for d in wd)
+        return shore_dip + (height - shore_dip) * max(0.0, min(1.0, m / beach))
+
+    shore_y = height * shore_frac
+    pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
+    vi = 0
+
+    def emit(px, pz, idall):
+        nonlocal vi
+        pos.append([px, hgt(px, pz), pz]); nrm.append([0.0, 1.0, 0.0])
+        uv.append([0.0, 0.0]); tan.append([idall, 0.0, 0.0, 1.0])
+        flat.append(vi); vi += 1
+
+    for i in range(seg):
+        for j in range(seg):
+            x0, x1 = i * step, (i + 1) * step
+            z0, z1 = -j * step, -(j + 1) * step
+            c00, c10, c11, c01 = (x0, z0), (x1, z0), (x1, z1), (x0, z1)
+            cy = 0.25 * (hgt(*c00) + hgt(*c10) + hgt(*c11) + hgt(*c01))    # quad mean height -> shore vs grass
+            idall = ids if cy < shore_y else idg
+            for (a, b, c) in ((c00, c11, c01), (c00, c10, c11)):           # both UP-wound (+Y geometric normal)
+                base = vi
+                emit(*a, idall); emit(*b, idall); emit(*c, idall)
+                tris.append([base, base + 1, base + 2])
+    chan = {CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan}
+    channels = {CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}
+    bm = BlockMesh(name=f"Block[{x}][{y}] Terrain", disc=disc, x=x, y=y, lod=lod, vcount=vi, stride=48,
+                   channels=channels, chan_arrays=chan, flat_index=flat, tris=tris,
+                   raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+    recompute_normals(bm)                                    # slope shading (winding already gives up-facing geom normal)
+    return bm
+
+
 def place_building(dst_object_bm, src_object_bm, *, translate=(0.0, 0.0, 0.0), set_idall=None):
     """Append ``src_object_bm``'s geometry (a copied building/structure) onto ``dst_object_bm`` (a block's existing
     Object mesh), shifted by ``translate`` (dst block-LOCAL units). Returns a NEW merged

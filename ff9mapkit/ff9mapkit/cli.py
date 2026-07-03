@@ -1821,16 +1821,18 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
         if not cells:
             print("no cells parsed -- give e.g. --cells '2,5;3,5' or a range '2-4,5-6'", file=sys.stderr)
             return 2
-        summary = T.reclaim(args.mod_folder, cells=cells, disc=args.disc, topograph=args.topograph,
-                            seg=args.seg, height=args.height, game=args.game, dry_run=args.dry_run)
+        summary = T.reclaim(args.mod_folder, cells=cells, disc=args.disc, profile=args.profile,
+                            topograph=args.topograph, seg=args.seg, height=args.height, beach=args.beach,
+                            game=args.game, dry_run=args.dry_run)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
     verb = "would reclaim" if args.dry_run else "reclaimed"
     print(f"{verb} {len(summary['cells'])} ocean cell(s) as walkable land "
-          f"(disc {summary['disc']}, topograph {summary['topograph']}):")
+          f"(disc {summary['disc']}, profile {summary['profile']}):")
     for c in summary["cells"]:
-        print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts")
+        edges = f", {c['water_edges']} water edge(s)" if "water_edges" in c else ""
+        print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts{edges}")
     if not args.dry_run:
         print("  Needs the CUSTOM engine (s34 ocean->land divert). RELAUNCH (or exit+re-enter the overworld).")
         print("  A lone cell is an ISLAND -- reach it via F6->World->Teleport, or bridge from the coast with more cells.")
@@ -3862,10 +3864,16 @@ def build_parser() -> argparse.ArgumentParser:
     wrc.add_argument("--cells", required=True,
                      help="sea cells to reclaim: 'x,y;x,y' (e.g. '2,5;3,5') or a range 'x0-x1,y0-y1' (a landmass). "
                           "Grid is 24x20; a lone cell is an island, a contiguous run bridges from the coast.")
+    wrc.add_argument("--profile", choices=["island", "flat"], default="island",
+                     help="'island' (default) = grass plateau ramping to a sand shore ring at the waterline (blends "
+                          "into the sea like a real coast); 'flat' = a bare slab of one --topograph")
+    wrc.add_argument("--height", type=float, default=None,
+                     help="land Y: island plateau height (default 6) or flat-slab Y (default 0 = coast level)")
+    wrc.add_argument("--beach", type=float, default=18.0,
+                     help="island shore ramp width in units (default 18) -- how far the beach slopes inland")
     wrc.add_argument("--topograph", type=int, default=0,
-                     help="walkable terrain type (default 0 = plains; 49/58/59 are BLOCKED)")
+                     help="flat-profile terrain type (default 0 = plains; 49/58/59 are BLOCKED)")
     wrc.add_argument("--seg", type=int, default=8, help="tessellation per 64u block edge (default 8)")
-    wrc.add_argument("--height", type=float, default=0.0, help="flat land Y (default 0 = sea/coast level)")
     wrc.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wrc.add_argument("--dry-run", action="store_true", help="report the cells it would reclaim, write nothing")
     wrc.set_defaults(func=_cmd_world_reclaim)
