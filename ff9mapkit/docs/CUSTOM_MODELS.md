@@ -68,7 +68,8 @@ FULLY-STOCK Memoria** (a temporary diagnostic engine build was used to find the 
 the pillar works with zero engine edits). Generality: 17/19 of a diverse offline batch (monsters, NPCs,
 props, subs, mains) export cleanly.
 
-**★ Robust bind correction (2026-07-02, offline-proven; Garnet in-game check pending).** The former "a few
+**★ Robust bind correction (2026-07-02, in-game PROVEN).** Garnet (185) renders her ponytail scrunchie
+(`rubber_band`) correctly AND walks correctly with the custom FBX — user-confirmed in-game. The former "a few
 models mis-orient" gap turned out to be mis-diagnosed. The engine recomputes bindpose from bone-rest TRS and
 assigns **one** bindpose array to **every** mesh (`ModelImporter.cs:356,388`), so a per-mesh authoring
 transform has to be baked into that mesh's **verts**. Measuring the whole catalog
