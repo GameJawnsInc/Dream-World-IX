@@ -77,6 +77,61 @@ def write_glb(gltf: dict, blob: bytes, path) -> None:
         f.write(bin_bytes)
 
 
+# --------------------------------------------------------------------- glTF READER (the return path)
+
+_READ_FMT = {5126: ("f", 4), 5125: ("I", 4), 5123: ("H", 2), 5121: ("B", 1), 5122: ("h", 2), 5120: ("b", 1)}
+_READ_NC = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
+_NORM_DENOM = {5121: 255.0, 5123: 65535.0, 5120: 127.0, 5122: 32767.0}
+
+
+def read_glb(path) -> tuple:
+    """Parse a ``.glb`` (or a ``.gltf`` + external/embedded ``.bin``) -> (gltf_dict, binary_blob)."""
+    data = open(path, "rb").read()
+    if data[:4] == b"glTF":                                  # binary container
+        _magic, _ver, _total = struct.unpack_from("<III", data, 0)
+        jlen, _jtype = struct.unpack_from("<II", data, 12)
+        gltf = json.loads(data[20:20 + jlen].decode("utf-8"))
+        blob, off = b"", 20 + jlen
+        while off + 8 <= len(data):
+            clen, ctype = struct.unpack_from("<II", data, off)
+            if ctype == 0x004E4942:                          # 'BIN\0'
+                blob = data[off + 8: off + 8 + clen]
+            off += 8 + clen
+        return gltf, blob
+    gltf = json.loads(data.decode("utf-8"))                  # JSON .gltf
+    buf = (gltf.get("buffers") or [{}])[0]
+    uri = buf.get("uri", "")
+    if uri.startswith("data:"):
+        import base64
+        blob = base64.b64decode(uri.split(",", 1)[1])
+    elif uri:
+        from urllib.parse import unquote
+        from pathlib import Path as _P
+        blob = open(_P(path).parent / unquote(uri), "rb").read()
+    else:
+        blob = b""
+    return gltf, blob
+
+
+def decode_accessor(gltf: dict, blob: bytes, index: int) -> list:
+    """Accessor index -> list of component tuples (respects byteStride, componentType, and `normalized`).
+    Raises on a sparse accessor (Blender rarely emits it) so a bad re-export fails loud, not silent."""
+    a = gltf["accessors"][index]
+    if "sparse" in a:
+        raise ValueError("glTF sparse accessor is unsupported -- re-export from Blender without sparse")
+    bv = gltf["bufferViews"][a["bufferView"]]
+    base = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+    fmt, sz = _READ_FMT[a["componentType"]]
+    nc = _READ_NC[a["type"]]
+    stride = bv.get("byteStride") or nc * sz
+    denom = _NORM_DENOM.get(a["componentType"], 1.0) if a.get("normalized") else 1.0
+    out = []
+    for i in range(a["count"]):
+        vals = struct.unpack_from("<%d%s" % (nc, fmt), blob, base + i * stride)
+        out.append(tuple(v / denom for v in vals) if denom != 1.0 else vals)
+    return out
+
+
 # --------------------------------------------------------------------- animation clip reader
 
 def _kf(k, ncomp):

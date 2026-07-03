@@ -10,10 +10,11 @@ the FF9 (left-handed, Y-DOWN) -> glTF (right-handed, Y-up) change, which is a si
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from .. import catalog, config
-from . import extract, _gltf_io
+from . import extract, _gltf_io, fbx_skin
 from ._gltf_io import GltfBuffer, FLOAT, UNSIGNED_INT, UNSIGNED_SHORT, ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER
 from .fbx_skin import _mat_trs, _mat_mul, _mat_inv
 
@@ -307,3 +308,203 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
             "bones": len(bones), "meshes": len(meshes), "primitives": len(primitives),
             "verts": sum(len(m["verts"]) for m in meshes), "textures": len(gltf_images),
             "anims": anim_labels, "scale": s, "warnings": warnings}
+
+
+# ================================================================ RETURN path: glTF -> kit Model struct
+# The inverse of the forward conversion. negate-Y is an involution, so the axis flip is the SAME op; only the
+# uniform scale un-bakes (divide by S) and the winding/UV flips reverse (they're also self-inverse).
+
+def _icpos(v, s):
+    return [v[0] / s, -v[1] / s, v[2] / s]
+
+
+def _icnrm(v):
+    return [v[0], -v[1], v[2]]
+
+
+def _icquat(q):
+    return [-q[0], q[1], -q[2], q[3]]
+
+
+def _node_local_trs(node):
+    """A glTF node's local (translation, rotation xyzw, scale). Decomposes ``matrix`` if present (else TRS)."""
+    if "matrix" in node:
+        import math
+        m = node["matrix"]                                   # column-major 16
+        col = [[m[c * 4 + r] for r in range(4)] for c in range(4)]
+        t = [col[3][0], col[3][1], col[3][2]]
+        sx = math.sqrt(sum(col[0][k] ** 2 for k in range(3))) or 1.0
+        sy = math.sqrt(sum(col[1][k] ** 2 for k in range(3))) or 1.0
+        sz = math.sqrt(sum(col[2][k] ** 2 for k in range(3))) or 1.0
+        R = [[col[0][0] / sx, col[1][0] / sy, col[2][0] / sz],
+             [col[0][1] / sx, col[1][1] / sy, col[2][1] / sz],
+             [col[0][2] / sx, col[1][2] / sy, col[2][2] / sz]]
+        tr = R[0][0] + R[1][1] + R[2][2]
+        if tr > 0:
+            w = math.sqrt(tr + 1.0) * 0.5
+            x = (R[2][1] - R[1][2]) / (4 * w); y = (R[0][2] - R[2][0]) / (4 * w); z = (R[1][0] - R[0][1]) / (4 * w)
+        else:
+            i = max(range(3), key=lambda k: R[k][k])
+            j, k = (i + 1) % 3, (i + 2) % 3
+            sN = math.sqrt(1.0 + R[i][i] - R[j][j] - R[k][k]) * 2.0
+            q = [0.0, 0.0, 0.0, 0.0]
+            q[3] = (R[k][j] - R[j][k]) / sN
+            q[i] = 0.25 * sN
+            q[j] = (R[j][i] + R[i][j]) / sN
+            q[k] = (R[k][i] + R[i][k]) / sN
+            x, y, z, w = q
+        return t, [x, y, z, w], [sx, sy, sz]
+    return (list(node.get("translation", [0.0, 0.0, 0.0])),
+            list(node.get("rotation", [0.0, 0.0, 0.0, 1.0])),
+            list(node.get("scale", [1.0, 1.0, 1.0])))
+
+
+def import_gltf(path, *, scale: float = DEFAULT_SCALE) -> dict:
+    """Parse a glTF ``.glb``/``.gltf`` back into the kit's Model struct (the shape ``fbx_skin.emit_skinned_fbx``
+    consumes), applying the inverse (negate-Y, /scale) conversion. Full round-trip: skeleton + skin + mesh.
+
+    Skeleton nodes MUST be named ``boneNNN`` (the kit's bone-number key); a skin joint that isn't fails loud.
+    Weights are re-keyed to FF9 bone NUMBER via the joint->node->name map, pruned + capped at 4."""
+    s = float(scale)
+    gltf, blob = _gltf_io.read_glb(path)
+    nodes = gltf.get("nodes", [])
+    skins = gltf.get("skins", [])
+    if not skins:
+        raise ValueError("glTF has no skin -- this importer expects a skinned FF9 model (armature + mesh)")
+    skin = skins[0]
+    joints = skin["joints"]
+
+    parent_of = {}
+    for ni, node in enumerate(nodes):
+        for ch in node.get("children", []) or []:
+            parent_of[ch] = ni
+    name_of = {ni: nodes[ni].get("name", f"node{ni}") for ni in range(len(nodes))}
+
+    def bone_name(ni):
+        nm = name_of[ni]
+        if not re.fullmatch(r"bone\d+", str(nm)):
+            raise ValueError(f"glTF skin joint node {nm!r} isn't named boneNNN -- can't map it to an FF9 bone. "
+                             f"Rename armature bones back to bone000.. (don't rename/add non-FF9 bones).")
+        return nm
+
+    joint_set = set(joints)
+    bones = []
+    for ni in joints:
+        nm = bone_name(ni)
+        p = parent_of.get(ni)
+        parent_name = bone_name(p) if (p is not None and p in joint_set) else None    # a non-joint parent -> root
+        t, q, sc = _node_local_trs(nodes[ni])
+        bones.append({"name": nm, "parent": parent_name,
+                      "pos": _icpos(t, s), "rot": _icquat(q), "scale": sc})
+    root_bone = next((b["name"] for b in bones if b["parent"] is None), bones[0]["name"] if bones else None)
+    num_of_joint = {j: extract._bone_num(bone_name(joints[j])) for j in range(len(joints))}
+
+    # materials: glTF material -> {name, texture stem} (recovered from the base-color image name)
+    gmats = gltf.get("materials", [])
+    gtex = gltf.get("textures", [])
+    gimg = gltf.get("images", [])
+
+    def mat_stem(gi):
+        try:
+            ti = gmats[gi]["pbrMetallicRoughness"]["baseColorTexture"]["index"]
+            return gimg[gtex[ti]["source"]].get("name")
+        except Exception:
+            return None
+
+    # group primitives by POSITION accessor -> one kit mesh per distinct vertex set
+    meshes, materials = [], []
+    by_pos: dict = {}
+    for gm in gltf.get("meshes", []):
+        for prim in gm.get("primitives", []):
+            by_pos.setdefault(prim["attributes"]["POSITION"], []).append(prim)
+    for pos_acc, prims in by_pos.items():
+        p0 = prims[0]
+        verts = [_icpos(v, s) for v in _gltf_io.decode_accessor(gltf, blob, pos_acc)]
+        attrs = p0["attributes"]
+        normals = [_icnrm(n) for n in _gltf_io.decode_accessor(gltf, blob, attrs["NORMAL"])] \
+            if "NORMAL" in attrs else None
+        uvs = [[u, 1.0 - v] for u, v in _gltf_io.decode_accessor(gltf, blob, attrs["TEXCOORD_0"])] \
+            if "TEXCOORD_0" in attrs else [[0.0, 0.0]] * len(verts)
+        weights = [[0, 0.0]] * len(verts)
+        if "JOINTS_0" in attrs and "WEIGHTS_0" in attrs:
+            J = _gltf_io.decode_accessor(gltf, blob, attrs["JOINTS_0"])
+            W = _gltf_io.decode_accessor(gltf, blob, attrs["WEIGHTS_0"])
+            weights = []
+            for jv, wv in zip(J, W):
+                infl = [(num_of_joint.get(int(j), 0), float(w)) for j, w in zip(jv, wv) if w > 0.0]
+                tot = sum(w for _, w in infl) or 1.0
+                weights.append([(bn, w / tot) for bn, w in infl])
+        subs = []
+        for prim in prims:
+            base_mat = len(materials)
+            idx = [int(x[0]) for x in _gltf_io.decode_accessor(gltf, blob, prim["indices"])]
+            tris = [[idx[i], idx[i + 2], idx[i + 1]] for i in range(0, len(idx) - 2, 3)]   # un-reverse winding
+            subs.append({"material_idx": base_mat, "tris": tris})
+            materials.append({"name": f"mat{base_mat}", "texture": mat_stem(prim.get("material", -1))})
+        meshes.append({"name": gltf["meshes"][0].get("name", "mesh"), "verts": verts,
+                       "normals": normals, "uvs": uvs, "submeshes": subs, "weights": weights})
+
+    return {"geo": None, "geo_id": None, "type_int": None, "root_bone": root_bone,
+            "bones": bones, "meshes": meshes, "materials": materials, "textures": {}}
+
+
+def apply_gltf_edit(source_token: str, path, *, scale: float = DEFAULT_SCALE, game=None) -> dict:
+    """v1 (safest) return path: keep the ORIGINAL model's skeleton + per-vertex weights + textures, and splice
+    in only the EDITED geometry (verts / normals / uvs) from the glTF. Guards that each mesh's vertex COUNT is
+    unchanged (a retexture / reshape edit) -- adding/removing verts needs the full :func:`import_gltf` re-rig.
+    Returns a Model struct ready for ``fbx_skin.emit_skinned_fbx``."""
+    orig = extract.read_model(source_token, game=game)
+    edited = import_gltf(path, scale=scale)
+    if len(edited["meshes"]) != len(orig["meshes"]):
+        raise ValueError(f"glTF has {len(edited['meshes'])} mesh(es) but {orig['geo']} has {len(orig['meshes'])} "
+                         f"-- v1 mesh-edit needs the same mesh split; use the full re-rig path for structural changes")
+    for i, (om, em) in enumerate(zip(orig["meshes"], edited["meshes"])):
+        if len(em["verts"]) != len(om["verts"]):
+            raise ValueError(f"mesh #{i} ({om['name']}): glTF has {len(em['verts'])} verts, original has "
+                             f"{len(om['verts'])} -- v1 keeps the rig, so vertex COUNT must match (reshape/retexture "
+                             f"only). Add/remove verts via the full re-rig path.")
+        om["verts"] = em["verts"]                            # splice edited geometry onto the original rig
+        if em["normals"]:
+            om["normals"] = em["normals"]
+        om["uvs"] = em["uvs"]
+    return orig
+
+
+def _emit_model_to(model: dict, dest_dir, geo_id: int) -> dict:
+    """Emit a Model struct as the engine-facing skinned FBX-ASCII + its textures into ``dest_dir`` (the target
+    ``Models/{type}/{id}/`` folder). ``fbx_skin.emit_skinned_fbx``'s euler self-check + validate gate applies."""
+    text, meta = fbx_skin.emit_skinned_fbx(model)
+    dest = Path(dest_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / f"{geo_id}.fbx").write_text(text, encoding="ascii", newline="\n")
+    saved = []
+    for stem, img in (model.get("textures") or {}).items():
+        img.save(str(dest / f"{stem}.png"))
+        saved.append(f"{stem}.png")
+    return {"fbx": str(dest / f"{geo_id}.fbx"), "textures": saved, "euler_max_err": meta["euler_max_err"]}
+
+
+def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale: float = DEFAULT_SCALE, game=None) -> dict:
+    """Bring a (Blender-edited) glTF back into the game: import it, emit the FBX + textures into ``mod_folder``
+    at ``Models/{type}/{id}/`` (an override -- deletes to revert). ``like="<GEO>"`` uses the v1 mesh-splice
+    (keep the source's rig + textures, take only edited geometry -- vertex count must match); else a full
+    re-rig from the glTF (needs ``geo_id`` for the target id/type). ``geo_id`` overrides the target id (default:
+    the source id -> a straight override of that model; or a mint id >=6000)."""
+    if like:
+        model = apply_gltf_edit(like, gltf_path, scale=scale, game=game)
+        type_int, src_id = model["type_int"], model["geo_id"]
+    else:
+        model = import_gltf(gltf_path, scale=scale)
+        if geo_id is None:
+            raise ValueError("a full re-rig import needs --id (the target model id + its type); pass --like <GEO> "
+                             "to keep an existing model's rig + type instead")
+        nm = extract.MODELS.get(int(geo_id))
+        type_int = extract._TYPE_INT.get(nm.split("_")[1].lower()) if nm else None
+        if type_int is None:
+            raise ValueError(f"can't derive the model type for id {geo_id} (not a known GEO id) -- use --like <GEO>")
+        src_id = int(geo_id)
+    tid = int(geo_id) if geo_id is not None else src_id
+    dest = Path(mod_folder) / "StreamingAssets" / "Assets" / "Resources" / "Models" / str(type_int) / str(tid)
+    info = _emit_model_to(model, dest, tid)
+    return {"id": tid, "type_int": type_int, "mode": "mesh-splice" if like else "re-rig",
+            "source": like, "path": info["fbx"], "textures": info["textures"]}

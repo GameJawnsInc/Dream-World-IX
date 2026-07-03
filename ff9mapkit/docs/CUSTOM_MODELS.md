@@ -113,8 +113,20 @@ verbatim and set `inverseBindMatrices[j] = inverse(boneWorld_rest[j])` (recomput
 independent of the per-mesh bake G (which lives in the verts), so glTF's one-IBM-per-joint reproduces the correct
 pose *and* animation, mirroring the engine; the rest-pose identity `world·IBM = I` is verified to 9.4e-08.
 Animations read straight from the legacy `.anim` clips in p0data5 (quaternion rotation curves + root translation,
-30 fps, LINEAR-faithful; `models/_gltf_io.read_clip`). The RETURN half (edited glTF → engine) is designed but not
-yet built — v1 = mesh-only edit (keep the original skeleton + weights, guard vertex count), v2 = full re-rig.
+30 fps, LINEAR-faithful; `models/_gltf_io.read_clip`).
+
+**★ Blender edit loop — RETURN half (2026-07-03, round-trip exact offline; in-game edit pending).** Edited glTF
+back into the game: **`ff9mapkit model-import <edited.glb> --like <GEO> --deploy <MODFOLDER>`** parses the glTF
+(`_gltf_io.read_glb` + `decode_accessor`, byteStride/normalized-aware) → a Model struct via the *inverse*
+conversion (negate-Y is an involution, so the same axis flip, `/scale`, un-reverse winding, un-flip UV) →
+`fbx_skin.emit_skinned_fbx` → a loose-FBX override. Two modes: **v1 `--like <GEO>`** (recommended) keeps the
+source's rig + weights + textures and splices in only the edited geometry (guards vertex-count-per-mesh
+unchanged — reshape/retexture; textures are a direct PNG swap); **v2 full re-rig** (no `--like`) rebuilds
+bones+weights from the glTF, remapping joints → FF9 bone numbers by node name (a non-`boneNNN` joint fails loud).
+The **round-trip identity** `read_model → export_gltf → import_gltf` reproduces the struct to bones 1e-14 / verts
+1e-5 (float32) / weights 1e-8 with 0 influence-set mismatches on Vivi *and* Garnet — proving the negate-Y
+forward+inverse are consistent. The full WarpedEdge loop now exists end-to-end (`model-gltf` → Blender →
+`model-import`); only in-game proof of an actual edit remains.
 
 The first proof was on Vivi (id 8): extracted → skinned FBX-ASCII → re-imported on **stock
 Memoria's own importer** renders, skins, orients, moves, **and animates identically**. It took 4 in-game

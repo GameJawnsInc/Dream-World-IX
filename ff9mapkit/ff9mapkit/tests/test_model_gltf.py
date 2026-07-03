@@ -137,3 +137,77 @@ def test_read_clip_shape_contract():
     assert b["rot"][1] == (0.5, (0.0, 0.7, 0.0, 0.7))
     assert clip["bones"]["bone000"]["pos"][0] == (0.0, (1.0, 2.0, 3.0))
     assert _gltf_io.read_clip(_Bundle(), 8, 999) is None            # missing clip -> None
+
+
+# --------------------------------------------------------------------------- return path (glTF -> struct)
+
+def test_inverse_conversions_undo_the_forward():
+    """The return path's axis flip must invert the forward one exactly (negate-Y is an involution; scale /s)."""
+    for v in ([1.0, 2.0, 3.0], [-1.5, 0.5, -2.0]):
+        assert all(abs(a - b) < 1e-9 for a, b in zip(gltf._icpos(gltf._cpos(v, 0.01), 0.01), v))
+        assert all(abs(a - b) < 1e-9 for a, b in zip(gltf._icnrm(gltf._cnrm(v)), v))
+    for q in _QUATS:
+        assert all(abs(a - b) < 1e-9 for a, b in zip(gltf._icquat(gltf._cquat(q)), q))
+
+
+def test_read_glb_and_decode_accessor_roundtrip():
+    buf = _gltf_io.GltfBuffer()
+    a = buf.add([1.0, -2.0, 3.0, 4.0, 5.0, -6.0], _gltf_io.FLOAT, "VEC3", minmax=True)
+    b = buf.add([7, 8, 9], _gltf_io.UNSIGNED_INT, "SCALAR")
+    import tempfile
+    import os
+    path = os.path.join(tempfile.gettempdir(), "ff9mk_rt.glb")
+    _gltf_io.write_glb({"accessors": buf.accessors, "bufferViews": buf.bufferViews}, buf.blob, path)
+    g, blob = _gltf_io.read_glb(path)
+    assert _gltf_io.decode_accessor(g, blob, a) == [(1.0, -2.0, 3.0), (4.0, 5.0, -6.0)]
+    assert _gltf_io.decode_accessor(g, blob, b) == [(7,), (8,), (9,)]
+
+
+def _min_skinned_glb(path):
+    """A minimal skinned glTF (1 bone, 1 triangle, weighted to bone000) via the writer -- for import tests."""
+    buf = _gltf_io.GltfBuffer()
+    pos = buf.add([0, 0, 0, 1, 0, 0, 0, 1, 0], _gltf_io.FLOAT, "VEC3", minmax=True)
+    joints = buf.add([0, 0, 0, 0] * 3, _gltf_io.UNSIGNED_SHORT, "VEC4")
+    weights = buf.add([1, 0, 0, 0] * 3, _gltf_io.FLOAT, "VEC4")
+    idx = buf.add([0, 2, 1], _gltf_io.UNSIGNED_INT, "SCALAR")           # already reverse-wound (as the exporter emits)
+    ibm = buf.add([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], _gltf_io.FLOAT, "MAT4")
+    g = {"scene": 0, "scenes": [{"nodes": [0, 1]}],
+         "nodes": [{"name": "bone000", "translation": [1.0, 2.0, 3.0], "rotation": [0.0, 0.0, 0.0, 1.0]},
+                   {"name": "Mesh", "mesh": 0, "skin": 0}],
+         "meshes": [{"primitives": [{"attributes": {"POSITION": pos, "JOINTS_0": joints, "WEIGHTS_0": weights},
+                                     "indices": idx}]}],
+         "skins": [{"joints": [0], "inverseBindMatrices": ibm, "skeleton": 0}],
+         "accessors": buf.accessors, "bufferViews": buf.bufferViews}
+    _gltf_io.write_glb(g, buf.blob, path)
+
+
+def test_import_gltf_rebuilds_the_model_struct():
+    import tempfile
+    import os
+    path = os.path.join(tempfile.gettempdir(), "ff9mk_min.glb")
+    _min_skinned_glb(path)
+    m = gltf.import_gltf(path, scale=1.0)
+    assert [b["name"] for b in m["bones"]] == ["bone000"] and m["bones"][0]["parent"] is None
+    assert m["bones"][0]["pos"] == [1.0, -2.0, 3.0]                      # negate-Y inverse of translation
+    assert len(m["meshes"]) == 1
+    me = m["meshes"][0]
+    assert me["verts"] == [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, -1.0, 0.0]]   # negate-Y on positions
+    assert me["submeshes"][0]["tris"] == [[0, 1, 2]]                    # winding un-reversed (0,2,1 -> 0,1,2)
+    assert me["weights"] == [[(0, 1.0)], [(0, 1.0)], [(0, 1.0)]]        # JOINTS_0 -> FF9 bone number 0
+    # the reconstructed struct must emit a valid FBX (the same gate the forward path passes)
+    from ff9mapkit.models import fbx_skin as _fs
+    m["root_bone"] = "bone000"
+    text, meta = _fs.emit_skinned_fbx(m)
+    assert meta["bones"] == 1 and meta["meshes"] == 1
+
+
+def test_import_rejects_a_non_bone_joint_name():
+    import tempfile
+    import os
+    path = os.path.join(tempfile.gettempdir(), "ff9mk_badbone.glb")
+    _min_skinned_glb(path)
+    g, blob = _gltf_io.read_glb(path)
+    g["nodes"][0]["name"] = "Spine_01"          # a Blender-renamed bone the kit can't map to an FF9 number
+    _gltf_io.write_glb(g, blob, path)
+    with pytest.raises(ValueError, match="boneNNN|bone000"):
+        gltf.import_gltf(path, scale=1.0)

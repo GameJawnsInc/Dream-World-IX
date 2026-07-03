@@ -1443,6 +1443,26 @@ def _cmd_model_gltf(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_model_import(args: argparse.Namespace) -> int:
+    """Bring a (Blender-edited) glTF back into the game -> a loose-FBX override (the edit loop return path)."""
+    from .models import gltf as mgltf
+    if not args.deploy:
+        print("model-import needs --deploy MODFOLDER (where to write the override)", file=sys.stderr)
+        return 2
+    try:
+        r = mgltf.deploy_edit(args.gltf, args.deploy, like=args.like, geo_id=args.id,
+                              scale=args.scale, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"imported glTF -> model id {r['id']} ({r['mode']}"
+          + (f", rig from {r['source']}" if r['source'] else "") + ")")
+    print(f"  wrote: {r['path']}  (+ {len(r['textures'])} texture(s))")
+    print("  F6 -> Reload field (or warp to a field using this model) to see the edit. Revert by deleting "
+          f"that Models/<type>/{r['id']}/ folder.")
+    return 0
+
+
 def _cmd_battle_build(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .battle.build import BattleBuildError, BattleProject, build_battle_mod
@@ -3582,6 +3602,21 @@ def build_parser() -> argparse.ArgumentParser:
                     help="uniform scale bake (default 0.01: FF9's hundreds-of-units models -> a few Blender metres)")
     mg.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     mg.set_defaults(func=_cmd_model_gltf)
+
+    mi = sub.add_parser("model-import",
+                        help="bring a Blender-edited glTF back into the game as a loose-FBX override (return path)")
+    mi.add_argument("gltf", help="the edited .glb/.gltf file (exported from Blender)")
+    mi.add_argument("--like", default=None,
+                    help="GEO name/id whose rig + textures to KEEP (v1 mesh-splice: take only edited geometry; "
+                         "vertex count must match). Recommended -- omit only for a full re-rig from the glTF.")
+    mi.add_argument("--id", type=int, default=None,
+                    help="target model id to write (default: the --like source's id -> a straight override; a "
+                         "mint id >=6000 for a new model)")
+    mi.add_argument("--deploy", metavar="MODFOLDER", default=None,
+                    help="mod folder to write the override into (Models/<type>/<id>/)")
+    mi.add_argument("--scale", type=float, default=0.01, help="the scale the glTF was exported at (default 0.01)")
+    mi.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mi.set_defaults(func=_cmd_model_import)
 
     bb = sub.add_parser("battle-build", help="compile a battle.toml into a Memoria mod (custom battle map)")
     bb.add_argument("battle", nargs="+", help="one or more battle.toml files")
