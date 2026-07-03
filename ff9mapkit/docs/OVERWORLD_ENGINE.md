@@ -440,7 +440,7 @@ faces). And **multi-block**: a deform wider than one 64u block is applied to EVE
 at the grid boundary). Reshape keeps the stock texture + walkability topograph. ★ Proven: a seamless walkable grassy
 hill across blocks (16,14)+(16,15).
 
-## New continent — RECLAIM ocean cells as walkable land (`world-reclaim`, Path D · s34 extension · ⚠ awaits playtest)
+## New continent — RECLAIM ocean cells as walkable land (`world-reclaim`, Path D · s34 extension · ★ in-game proven 2026-07-02)
 
 The overworld is a **fixed 24×20 = 480-block grid where every ocean cell already exists as a real `WMBlock`** — it
 just short-circuits to one shared `SeaBlockPrefab` (`WMWorld.cs:495` initial load + `:1180` streaming reload). So "new
@@ -476,6 +476,16 @@ non-walkable on foot) — prove render+collide with **F6 → World → Teleport*
 (`x*64+32, -(y*64+32)`); ship on-foot reachability as a **contiguous bridge of reclaimed cells from the coast** (each
 cell just needs its own override — the divert is per-cell/data-driven). This is the FOUNDATION of a true new landmass;
 the remaining Path-D frontier is scale + a coastline/height pass + true new-continent geography.
+
+★ **PROVEN 2026-07-02** (screenshot): a 2-cell strip (2,12)+(2,13) rendered as walkable grassy land, player stood +
+walked on it, and was blocked at every sea seam (island behavior, as designed). **TWO lessons from the first run:**
+(1) ⚠ **do NOT add a serialized field to `WMWorld`** — the donor cache field must be `[NonSerialized]`; a public field
+broke the baked-prefab deserialization → NRE flood → overworld blackscreen (Unity's `output_log.txt`, not Memoria.log
+— see `project-ff9-memoria-build`). (2) **`--height 0` z-fights with the sea surface** (the flat plane is coplanar with
+the water → interlaced green/blue strips; functional but ugly). Deploy an open-ocean island at **`--height` a few units
+above 0** to clear the wave plane. ⚠ Raising height under a STANDING player embeds them (down-ray from `player.y+2.34`
+misses the higher surface) — teleport away + back (F6 re-grounds) after a height change, or set height before first
+arrival. A coast-flush BRIDGE wants `--height 0` at the shore (matches the coast, which bottoms at Y=0).
 
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 
