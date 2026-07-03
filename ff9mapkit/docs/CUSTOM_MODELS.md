@@ -154,16 +154,30 @@ Fix: **`export_gltf` now emits ONE named glTF mesh + node PER FF9 part** (`long_
 extra → node/object name → mesh name, `.001` stripped), so the re-rig restores names **by NAME** (`_restore_mesh_names`),
 falling back to vertex-count only for genuinely-nameless parts. A nameless part gets a synthetic `__part{i}`
 placeholder that can't collide with FF9's real `mesh0`/`mesh1` names. Round-trip verified faithful (max vert err
-2.4e-5) with **name preservation across a 79-model sweep (0 fail)**; clean Garnet re-import deployed to
-`FF9CustomMap` id 185 (mesh-splice, all 4 names intact) — awaiting the human's in-game look.
+2.4e-5) with **name preservation across a 79-model sweep (0 fail)**.
 
-**KNOWN LIMIT (engine, not fixable via loose-FBX): late-game short-hair floating scrunchie.** Because the
-importer flattens meshes AND assigns one material per mesh, a re-imported Garnet can't nest `rubber_band` under
-`long_hair` NOR merge it in (the scrunchie is texture `185_0`, the hair `185_1`). So at `ScenarioCounter>=10300`
-(short hair) the engine hides `long_hair` but the sibling `rubber_band` stays visible = a floating scrunchie.
-EARLY game is perfect (short_hair hidden, ponytail+scrunchie shown). Only affects an *override* of the 12
-hair-swap models viewed in a late-game short-hair scene; would need a small DLL change to fix (declined —
-custom models stay zero-DLL).
+**★★ NESTED-CHILD meshes are DROPPED by the importer → merge fix (2026-07-03, in-game proven).** The
+per-part export still left Garnet's scrunchie invisible in-game. Root cause, pinned by an in-game diagnostic
+(scaled the `rubber_band` 3× + shoved it out sideways — *still* nothing): the engine's loose-FBX importer
+parents every mesh straight to the base object with **no explicit rootBone/bounds** on the
+`SkinnedMeshRenderer`, so a small **single-bone nested-child** renderer (the 38-vert scrunchie, a child of
+`long_hair` in the prefab) gets **frustum-dropped** where the top-level body/hair meshes still draw. The
+geometry/material/skin/bind-bake were all provably faithful — it's a *render-side* drop, not a data bug, and
+it can't be nested back (importer flattens) or given bounds (no DLL). **Fix: `extract.merge_nested_child_meshes`
+folds each nested-child mesh into the largest top-level mesh that shares its texture** — the scrunchie (`185_0`)
+merges into the body (`mesh0`, also `185_0`), inheriting a renderer that reliably draws. Runs at every
+engine-FBX emit (`_emit_model_to` for `model-import`, `export.py`, `mint.py`); the re-rig carries the `parent`
+merge-hint via `_restore_mesh_names`. Same-texture is required (one material per mesh); it's a **no-op for 517
+of 520 models** (only 3 have nested meshes: both Garnet field/battle variants merge cleanly; `GEO_MON_F0_EFM`'s
+parts have unique textures → left standalone + warned). ★ In-game proven: the scrunchie renders once merged
+(id 185, ScenarioCounter 0, long ponytail). *In Blender the scrunchie stays a separate editable object — the
+merge is engine-emit-only.*
+
+**KNOWN LIMIT: late-game short-hair floating scrunchie.** Once merged into the always-visible body, the
+scrunchie shows in *every* scene — so at `ScenarioCounter>=10300` (Garnet's short-hair look, when the prefab
+hid `rubber_band` with `long_hair`) it reads as a floating tie. EARLY game (the common case, what the user
+tests) is correct. Only affects an *override* of the 12 hair-swap models in a late-game short-hair scene; a
+scenario-aware hide would need a DLL change (declined — custom models stay zero-DLL).
 
 The first proof was on Vivi (id 8): extracted → skinned FBX-ASCII → re-imported on **stock
 Memoria's own importer** renders, skins, orients, moves, **and animates identically**. It took 4 in-game

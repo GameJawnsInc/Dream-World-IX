@@ -326,3 +326,51 @@ def test_small_per_bone_jitter_still_bakes_one_family():
     G = extract._bind_correction(bones, samples)
     assert G is not None                                   # one family -> baked (old rule returned None)
     assert G[1][1] < -0.9 and G[2][2] < -0.9               # it's the flip family
+
+
+# --------------------------------------------------------------- nested-child mesh merge (engine drop fix)
+
+def _mesh(name, nverts, mat_idx, parent=None, base=0):
+    """A minimal mesh dict: nverts verts, one submesh of nverts//3 tris pointing at mat_idx."""
+    verts = [[float(base + i), 0.0, 0.0] for i in range(nverts)]
+    tris = [[i, i + 1, i + 2] for i in range(0, nverts - 2, 3)]
+    return {"name": name, "verts": verts, "normals": [[0.0, 1.0, 0.0]] * nverts,
+            "uvs": [[0.0, 0.0]] * nverts, "submeshes": [{"material_idx": mat_idx, "tris": tris}],
+            "weights": [[(0, 1.0)]] * nverts, "parent": parent}
+
+
+def test_merge_folds_nested_child_into_same_texture_sibling():
+    """Garnet's case: a nested child (rubber_band, tex 185_0) merges into the largest same-texture top-level
+    mesh (body), tris re-based by the body's vert count; the child is removed."""
+    model = {"materials": [{"texture": "185_1"}, {"texture": "185_0"}, {"texture": "185_0"}, {"texture": "185_2"}],
+             "meshes": [_mesh("long_hair", 9, 0), _mesh("rubber_band", 6, 1, parent="long_hair"),
+                        _mesh("mesh0", 12, 2, base=100), _mesh("short_hair", 9, 3)]}
+    merged = extract.merge_nested_child_meshes(model)
+    assert merged == [("rubber_band", "mesh0")]
+    names = [m["name"] for m in model["meshes"]]
+    assert names == ["long_hair", "mesh0", "short_hair"]     # rubber_band folded away
+    body = next(m for m in model["meshes"] if m["name"] == "mesh0")
+    assert len(body["verts"]) == 18                          # 12 body + 6 scrunchie
+    # the child's triangle got re-based by the body's original vert count (12)
+    assert [12, 13, 14] in body["submeshes"][0]["tris"]
+
+
+def test_merge_leaves_child_with_no_same_texture_target_and_warns():
+    """A nested child whose texture no top-level sibling shares (GEO_MON_F0_EFM) is left standalone + warned
+    -- merging would repaint it (one-material-per-mesh)."""
+    warned = []
+    model = {"materials": [{"texture": "A"}, {"texture": "B"}],
+             "meshes": [_mesh("mesh0", 12, 0), _mesh("mesh1", 6, 1, parent="mesh0")]}
+    merged = extract.merge_nested_child_meshes(model, warn=warned.append)
+    assert merged == []
+    assert [m["name"] for m in model["meshes"]] == ["mesh0", "mesh1"]   # untouched
+    assert warned and "mesh1" in warned[0]
+
+
+def test_merge_is_a_noop_without_nesting():
+    """Every model without nested meshes (517 of 520) passes through unchanged."""
+    model = {"materials": [{"texture": "T"}],
+             "meshes": [_mesh("mesh0", 12, 0), _mesh("mesh1", 9, 0)]}
+    before = [m["name"] for m in model["meshes"]]
+    assert extract.merge_nested_child_meshes(model) == []
+    assert [m["name"] for m in model["meshes"]] == before

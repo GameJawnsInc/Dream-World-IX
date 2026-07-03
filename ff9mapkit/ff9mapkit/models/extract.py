@@ -242,9 +242,9 @@ def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
     # --- walk the transform hierarchy: collect bones + SkinnedMeshRenderers ---
     bones: list[dict] = []          # {name, parent, pos, rot, scale}  (hierarchy/pre-order)
     bone_pid_to_name: dict = {}      # transform pathid -> bone name (for skin remap)
-    smr_pids: list = []
+    smr_pids: list = []              # (smr_pathid, enclosing_mesh_go_name)  enclosing = nearest ANCESTOR mesh GO
 
-    def walk(tr_pid, tr_tt, parent_name, in_battle):
+    def walk(tr_pid, tr_tt, parent_name, in_battle, enclosing_mesh):
         if not tr_tt:
             return
         go_pid = _pid(tr_tt.get("m_GameObject", {}))
@@ -265,22 +265,29 @@ def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
                 "scale": _vec3(tr_tt.get("m_LocalScale"), (1.0, 1.0, 1.0)),
             })
             bone_pid_to_name[tr_pid] = name
+        has_smr = False
         if go_tt and not here_battle:
             for tn, pid in b.components(go_tt):
                 if tn == "SkinnedMeshRenderer":
-                    smr_pids.append(pid)
+                    smr_pids.append((pid, enclosing_mesh))   # this SMR's nearest ancestor mesh GO
+                    has_smr = True
         child_parent = name if is_bone else parent_name
+        # A GO carrying an SMR becomes the "enclosing mesh" for its descendants -- so a mesh nested UNDER
+        # another mesh (e.g. Garnet's rubber_band scrunchie under long_hair) is recorded as a child. The
+        # engine's loose-FBX importer FLATTENS that nesting away; we keep it here so the emitter can merge a
+        # dropped nested-child renderer back into a sibling.
+        child_enclosing = name if has_smr else enclosing_mesh
         for ch in tr_tt.get("m_Children", []):
             cpid = _pid(ch)
-            walk(cpid, b.tt(cpid), child_parent, here_battle)
+            walk(cpid, b.tt(cpid), child_parent, here_battle, child_enclosing)
 
     root_tpid, root_ttr = b.transform_of(root_tt)
-    walk(root_tpid, root_ttr, None, False)
+    walk(root_tpid, root_ttr, None, False, None)
     root_bone = next((bn["name"] for bn in bones if bn["parent"] is None), None)
 
     # --- each SkinnedMeshRenderer -> a mesh (geometry + skin remapped to bone numbers) ---
     smrs: list[dict] = []
-    for smr_pid in smr_pids:
+    for smr_pid, mesh_parent in smr_pids:
         smr = b.tt(smr_pid)
         mesh_pid = _pid(smr.get("m_Mesh", {}))
         if not mesh_pid:
@@ -309,7 +316,8 @@ def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
                     infl.append((idx_to_num[bi], wt))
             remapped.append(infl)
         smrs.append({"name": mesh["name"], "mesh": mesh, "idx_to_num": idx_to_num,
-                     "mat_stems": mat_stems, "weights": remapped, "samples": samples})
+                     "mat_stems": mat_stems, "weights": remapped, "samples": samples,
+                     "mesh_parent": mesh_parent})
 
     return {"geo": geo, "geo_id": gid, "type_int": tint, "bundle": b,
             "bones": bones, "root_bone": root_bone, "smrs": smrs}
@@ -343,7 +351,8 @@ def read_model(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
                               "texture": mat_stems[si] if si < len(mat_stems) else (
                                   mat_stems[0] if mat_stems else None)})
         me = {"name": mesh["name"], "verts": mesh["verts"], "normals": mesh["normals"],
-              "uvs": mesh["uvs"], "submeshes": subs, "weights": s["weights"]}
+              "uvs": mesh["uvs"], "submeshes": subs, "weights": s["weights"],
+              "parent": s.get("mesh_parent")}   # nearest ancestor MESH GO name (None = top-level) -> merge hint
 
         # --- bind-pose correction (PER MESH) -----------------------------------------------------
         # FF9's Unity import baked a coordinate transform into every model's m_BindPose that the
@@ -371,6 +380,66 @@ def read_model(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
     return {"geo": c["geo"], "geo_id": c["geo_id"], "type_int": c["type_int"], "root_bone": c["root_bone"],
             "bones": bones, "meshes": meshes, "materials": materials, "textures": textures,
             "bind_correction": non_null[0] if non_null else None, "per_mesh_bind": per_mesh_G}
+
+
+def merge_nested_child_meshes(model: dict, warn=None) -> list:
+    """Fold each mesh that was a NESTED CHILD of another mesh (in the source prefab) into the largest
+    top-level mesh sharing its texture. Mutates ``model['meshes']`` in place; returns [(child, target), ...].
+
+    WHY: the engine's loose-FBX importer (``ModelImporter.CreateCustomModel``) parents EVERY mesh straight
+    to the base object -- it reads no FBX mesh hierarchy -- and gives each ``SkinnedMeshRenderer`` no
+    explicit rootBone/bounds. A small nested-child renderer (Garnet's 38-vert ``rubber_band`` scrunchie, a
+    child of ``long_hair``) is then frustum-DROPPED where the top-level body/hair meshes still draw
+    (in-game proven: it renders once merged, invisible standalone even scaled 3x). Merging its verts into a
+    sibling makes them part of a renderer that reliably draws.
+
+    Same-texture is REQUIRED (the importer reads ONE material per mesh -- submesh 0 -- so a two-texture
+    merge would repaint the child with the target's texture). A nested child with no same-texture top-level
+    target is left standalone (merging would corrupt it) and reported via ``warn``. Only ~3 real FF9 models
+    have nested meshes (both Garnet field/battle variants merge cleanly; GEO_MON_F0_EFM's parts have unique
+    textures -> left standalone). A no-op for every model without nesting -- and for structs that never
+    carried parent info (e.g. a foreign glTF import), so it's safe to call on any engine-bound emit."""
+    meshes = model.get("meshes") or []
+    mats = model.get("materials") or []
+
+    def tex(me):
+        subs = me.get("submeshes") or []
+        if not subs:
+            return None
+        mi = subs[0]["material_idx"]
+        return mats[mi].get("texture") if 0 <= mi < len(mats) else None
+
+    nested = [me for me in meshes if me.get("parent") is not None]
+    if not nested:
+        return []
+    merged, drop = [], set()
+    for child in nested:
+        t = tex(child)
+        targets = [o for o in meshes if o is not child and o.get("parent") is None and tex(o) == t]
+        if not targets:
+            if warn:
+                warn(f"mesh {child['name']!r} was nested under {child['parent']!r} with no same-texture "
+                     f"sibling to merge into -- it may not render (the loose-FBX importer drops nested-child "
+                     f"renderers)")
+            continue
+        target = max(targets, key=lambda o: len(o["verts"]))
+        off = len(target["verts"])
+        target["verts"] = list(target["verts"]) + list(child["verts"])
+        if target.get("normals") is not None and child.get("normals") is not None:
+            target["normals"] = list(target["normals"]) + list(child["normals"])
+        else:
+            target["normals"] = None                       # mixed normals -> drop (emitter handles no-normals)
+        target["uvs"] = list(target["uvs"]) + list(child["uvs"])
+        target["weights"] = list(target["weights"]) + list(child["weights"])
+        tris = target["submeshes"][0]["tris"]
+        for sub in child["submeshes"]:
+            tris = tris + [[a + off, b + off, c + off] for a, b, c in sub["tris"]]
+        target["submeshes"][0]["tris"] = tris
+        merged.append((child["name"], target["name"]))
+        drop.add(id(child))
+    if drop:
+        model["meshes"] = [me for me in meshes if id(me) not in drop]
+    return merged
 
 
 def bind_diagnostics(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:

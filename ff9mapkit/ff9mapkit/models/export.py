@@ -27,6 +27,7 @@ def export_model(token: str, out_dir, *, game=None, flat: bool = False) -> dict:
     mod folder. ``flat=True`` writes ``{geoId}.fbx`` + textures directly in ``out_dir`` (for editing).
     Returns a manifest dict (geo, geo_id, type_int, bones, meshes, verts, textures, fbx path, meta)."""
     model = extract.read_model(token, game=game)
+    extract.merge_nested_child_meshes(model)     # fold nested-child meshes the loose-FBX importer would drop
     text, meta = fbx_skin.emit_skinned_fbx(model)
 
     out = Path(out_dir)
@@ -56,6 +57,7 @@ def deploy_override(token: str, mod_folder, *, game=None) -> dict:
     """Export the (unedited) model straight into ``mod_folder`` at the engine override path -- the Phase-1
     fidelity test: does the loose FBX render + animate identically to the bundled model in-game."""
     model = extract.read_model(token, game=game)
+    extract.merge_nested_child_meshes(model)     # fold nested-child meshes the loose-FBX importer would drop
     text, meta = fbx_skin.emit_skinned_fbx(model)
     dest = Path(mod_folder) / "StreamingAssets" / "Assets" / "Resources" / "Models" \
         / str(model["type_int"]) / str(model["geo_id"])

@@ -545,6 +545,10 @@ def apply_gltf_edit(source_token: str, path, *, scale: float = DEFAULT_SCALE, ga
 def _emit_model_to(model: dict, dest_dir, geo_id: int) -> dict:
     """Emit a Model struct as the engine-facing skinned FBX-ASCII + its textures into ``dest_dir`` (the target
     ``Models/{type}/{id}/`` folder). ``fbx_skin.emit_skinned_fbx``'s euler self-check + validate gate applies."""
+    # Fold any nested-child mesh into a same-texture sibling first -- the loose-FBX importer flattens the
+    # hierarchy + drops such renderers (Garnet's rubber_band scrunchie); merging keeps them visible. No-op
+    # unless a mesh carries `parent` (only real-model structs do), so foreign-glTF re-rigs pass through.
+    merged = extract.merge_nested_child_meshes(model, warn=lambda m: None)
     text, meta = fbx_skin.emit_skinned_fbx(model)
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
@@ -582,17 +586,19 @@ def source_from_gltf(path) -> tuple:
 
 
 def _restore_mesh_names(edited_meshes: list, orig_meshes: list) -> None:
-    """Rename each edited mesh to its matching ORIGINAL part name, in place. Name-match first (the robust
-    path -- ``import_gltf`` carries part names), then a closest-vertex-count fallback for any part that
-    arrived unnamed / unrecognized (old fused-mesh exports, heavy Blender renames). See the caller for WHY
-    part names are load-bearing (engine NAME-keyed branches like Garnet's hair swap)."""
-    orig_names = {m["name"] for m in orig_meshes}
+    """Rename each edited mesh to its matching ORIGINAL part name (and carry its ``parent`` merge-hint), in
+    place. Name-match first (the robust path -- ``import_gltf`` carries part names), then a closest-vertex-
+    count fallback for any part that arrived unnamed / unrecognized (old fused-mesh exports, heavy Blender
+    renames). See the caller for WHY part names are load-bearing (engine NAME-keyed branches like Garnet's
+    hair swap); ``parent`` lets the emitter re-merge a nested-child mesh the importer would drop."""
+    by_name = {m["name"]: m for m in orig_meshes}
     used: set = set()
     unmatched: list = []
     for em in edited_meshes:
         nm = re.sub(r"\.\d+$", "", str(em.get("name") or ""))
-        if nm in orig_names and nm not in used:
+        if nm in by_name and nm not in used:
             em["name"] = nm
+            em["parent"] = by_name[nm].get("parent")
             used.add(nm)
         else:
             unmatched.append(em)
@@ -602,6 +608,7 @@ def _restore_mesh_names(edited_meshes: list, orig_meshes: list) -> None:
             break
         j = min(avail, key=lambda k: abs(len(orig_meshes[k]["verts"]) - len(em["verts"])))
         em["name"] = orig_meshes[j]["name"]
+        em["parent"] = orig_meshes[j].get("parent")
         avail.remove(j)
 
 
