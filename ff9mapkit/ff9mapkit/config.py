@@ -259,6 +259,14 @@ class ModLayout:
         """Folder holding ``<fbg>.bgx``, ``<fbg>.bgi.bytes`` and the overlay PNGs."""
         return self.fieldmaps_dir / fbg_name
 
+    # --- loose 3D model override / MINT: the engine probes this before the bundle (ModelFactory) ---
+    def model_dir(self, type_int: int, geo_id: int) -> Path:
+        """``…/Assets/Resources/Models/<typeInt>/<id>/`` — holds ``<id>.fbx`` + its ``<stem>.png`` textures.
+        The folder ``ModelFactory.CreateModel`` probes on disc before the bundle: an OVERRIDE when ``id`` is
+        a real GEO id, a MINT when it's a new id registered via a ``3DModel <id> <name>`` DictionaryPatch
+        line. Casing matches ``_battle_resources`` (capitalized Assets/Resources), verbatim-proven in-game."""
+        return self.root / "StreamingAssets" / "Assets" / "Resources" / "Models" / str(type_int) / str(geo_id)
+
     # --- battle background (BBG): a loose FBX + image#.png the engine loads instead of the bundle ---
     @property
     def battlemap_all_dir(self) -> Path:

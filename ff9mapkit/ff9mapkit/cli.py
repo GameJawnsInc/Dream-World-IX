@@ -1397,6 +1397,33 @@ def _cmd_model_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_model_mint(args: argparse.Namespace) -> int:
+    """Mint a NEW additive GEO model id (a fresh SetModel target, not an override) -- DLL-free."""
+    from pathlib import Path
+    from .models import mint as mmint
+    try:
+        if args.deploy:
+            man = mmint.deploy_mint(args.source, args.id, args.deploy, args.name, game=args.game)
+            where = "--deploy MODFOLDER"
+        else:
+            man = mmint.mint_manifest(args.source, args.id, args.name, game=args.game)
+            dest = Path(args.out) / "Models" / str(man["type_int"]) / str(man["id"])
+            mmint.export_mint(args.source, args.id, dest, new_name=man["name"], game=args.game)
+            man["fbx"] = str(dest / f"{man['id']}.fbx")
+            where = args.out
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"minted GEO id {man['id']} = {man['name']} (type {man['type_int']}) from {man['source']}")
+    print(f"  wrote: {man['fbx']}  (into {where})")
+    print(f"  register it with this DictionaryPatch line:  {man['directive']}")
+    if args.deploy:
+        print(f"  (appended to {man['dictionary_patch']})")
+    print(f"  place it:  [[npc]] model = {man['id']}   (borrows {man['anims_from']}'s animset by name)")
+    print("  RELAUNCH FF9 to register the new id (a 3DModel line is read at launch, like a FieldScene line).")
+    return 0
+
+
 def _cmd_battle_build(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .battle.build import BattleBuildError, BattleProject, build_battle_mod
@@ -3509,6 +3536,21 @@ def build_parser() -> argparse.ArgumentParser:
                          "(the Phase-1 fidelity test) instead of writing to --out")
     me.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     me.set_defaults(func=_cmd_model_export)
+
+    mm = sub.add_parser("model-mint",
+                        help="mint a NEW additive GEO model id (a fresh SetModel target, not an override) -- DLL-free")
+    mm.add_argument("source", help="GEO name or id whose geometry to re-export to the new id (e.g. GEO_NPC_F1_BBA)")
+    mm.add_argument("--id", type=int, required=True,
+                    help="the new GEO id (>= 6000 -- clear of every real id, which top out at 5511)")
+    mm.add_argument("--name", default=None,
+                    help="the new GEO name GEO_<GROUP>_<FORM>_<TOKEN> (default: auto from source + id; the "
+                         "GROUP sets the model type + path). Must NOT be a real FF9 name.")
+    mm.add_argument("--deploy", metavar="MODFOLDER", default=None,
+                    help="deploy into MODFOLDER: write the FBX AND append the `3DModel` directive to its "
+                         "DictionaryPatch.txt (RELAUNCH to register)")
+    mm.add_argument("--out", default=".", help="dir to write the Models/<type>/<id>/ tree into (default: .)")
+    mm.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mm.set_defaults(func=_cmd_model_mint)
 
     bb = sub.add_parser("battle-build", help="compile a battle.toml into a Memoria mod (custom battle map)")
     bb.add_argument("battle", nargs="+", help="one or more battle.toml files")

@@ -1592,6 +1592,20 @@ def validate(project: FieldProject) -> list[str]:
             if actor is not None:
                 problems.append("[cutscene] then_warp is only supported on a narration cutscene (no actor) "
                                 "-- the actor path splices into an NPC loop, which doesn't take the end-warp.")
+
+    # [[mint]] -- a NEW additive GEO model id. resolve_mint() carries the full rule set (band >= 6000,
+    # from XOR fbx, novel non-real name, valid group->type); surface its errors as build problems, and
+    # catch a within-field id collision (two mints / a mint vs a real id the field also SetModels).
+    mint_ids = []
+    for i, mb in enumerate(project.raw.get("mint", []) or []):
+        try:
+            from .models import mint as _mint
+            man = _mint.resolve_mint(mb)
+            if man["id"] in mint_ids:
+                problems.append(f"[[mint]] #{i}: id {man['id']} is declared twice in this field")
+            mint_ids.append(man["id"])
+        except Exception as e:
+            problems.append(f"[[mint]] #{i}: {e}")
     return problems
 
 
@@ -1869,9 +1883,10 @@ def lint_logic(project: FieldProject) -> list[str]:
     # (it may be valid -- the tables aren't a hard whitelist -- but a typo usually isn't).
     def _is_raw_int(v):
         return (isinstance(v, int) and not isinstance(v, bool)) or (isinstance(v, str) and v.strip().lstrip("-").isdigit())
+    mint_ids = {int(mb["id"]) for mb in (raw.get("mint", []) or []) if "id" in mb and _is_raw_int(mb["id"])}
     for i, n in enumerate(raw.get("npc", [])):
         mv = n.get("model")
-        if mv is not None and _is_raw_int(mv) and _catalog.model(int(mv)) is None:
+        if mv is not None and _is_raw_int(mv) and int(mv) not in mint_ids and _catalog.model(int(mv)) is None:
             out.append(f"[[npc]] {n.get('name', '#' + str(i))!r} model id {int(mv)} isn't in the model table "
                        f"-- it may not render. Run `ff9mapkit models` to find a valid id/name.")
         for slot, aid in (n.get("anims") or {}).items():
@@ -4677,6 +4692,7 @@ class FieldResult:
     text_block: int = 1073          # the field's mesID -- the `field/<text_block>.mes` key (may be SHARED)
     register_text_block: bool = False   # custom mesID -> emit a MessageFile line so the FieldScene gate passes
     location_line: str | None = None    # authored `LocationName <id> <title>` directive ([field] location)
+    mint_lines: list = _dc_field(default_factory=list)   # `3DModel <id> <name>` directives for [[mint]] ids
     # per-language .mes pieces, written by build_mod (NOT build_field) so members that SHARE a text_block
     # merge instead of last-writer-wins clobbering: {lang: (base, inplace, suffix)} where `base` is the
     # donor/synth body, `inplace` is base with its in-place rewrites (logic_edit text / menu_row), and
@@ -4734,6 +4750,28 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     fbg = project.fbg
     layout.ensure_dirs(fbg, langs=langs)
+
+    # [[mint]] -- ADDITIVE custom model ids (a NEW GEO id, not an override). For each: stage the loose FBX
+    # into Models/<type>/<id>/ (re-export a `from` model, or copy an author's `fbx`) + collect its
+    # `3DModel <id> <name>` DictionaryPatch directive (DLL-free: DataPatchers registers the id at launch).
+    # Pre-fill a placement's animset from the mint so `[[npc]]/[[prop]] model = <mintId>` borrows the
+    # source's gestures with no manual `anims`. Must run BEFORE build_script (which reads those anims). mint.py
+    mint_lines: list = []
+    mint_blocks = project.raw.get("mint", []) or []
+    if mint_blocks:
+        from .models import mint as _mint
+        mints = [_mint.resolve_mint(b) for b in mint_blocks]
+        mints_by_id = {m["id"]: m for m in mints}
+        for blk in (project.raw.get("npc", []) or []) + (project.raw.get("prop", []) or []):
+            mid = blk.get("model")
+            mid_int = mid if isinstance(mid, int) else (
+                int(mid) if isinstance(mid, str) and mid.strip().isdigit() else None)
+            man = mints_by_id.get(mid_int)
+            if man and not blk.get("anims") and man.get("anims"):
+                blk["anims"] = dict(man["anims"])
+        for blk, man in zip(mint_blocks, mints):
+            _mint.stage_mint(blk, layout.model_dir(man["type_int"], man["id"]), base_dir=project.base_dir)
+            mint_lines.append(man["directive"])
 
     camera = resolve_camera(project)
     warnings = list(lint_logic(project))          # story/flag sanity (dangling requires, collisions, dup names)
@@ -5078,7 +5116,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     bgm_pairs = [(int(b["scene"]), int(b["song"])) for b in project.raw.get("battle_bgm", [])]
     return FieldResult(dict_line=dict_line, battle=battle, battle_bgm=bgm_pairs, fbg=fbg, warnings=warnings,
                        name=project.name, text_block=project.text_block, mes_parts=mes_parts,
-                       register_text_block=project.register_text_block, location_line=location_line)
+                       register_text_block=project.register_text_block, location_line=location_line,
+                       mint_lines=mint_lines)
 
 
 def _field_name(project) -> str:
@@ -5477,11 +5516,15 @@ def _dictionary_lines(results) -> list:
     text-shadow cure."""
     mes_reg = sorted({r.text_block for r in results if getattr(r, "register_text_block", False)})
     field_lines: list[str] = []
+    mint_lines: list[str] = []
     for r in results:
         field_lines.append(r.dict_line)
         if getattr(r, "location_line", None):    # [field] location -> the LocationName <id> <title> directive
             field_lines.append(r.location_line)
-    return [f"MessageFile {b} MES_DWIX_{b}" for b in mes_reg] + field_lines
+        for ml in getattr(r, "mint_lines", []) or []:   # [[mint]] -> `3DModel <id> <name>` (dedup across members)
+            if ml not in mint_lines:
+                mint_lines.append(ml)
+    return [f"MessageFile {b} MES_DWIX_{b}" for b in mes_reg] + mint_lines + field_lines
 
 
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
@@ -5567,4 +5610,8 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
             # [field] location) -- NOT folded into "dictionary" (which is the one-FieldScene-line-per-field view
             # used for field counts / [0] summaries). deploy_field.py / deploy_campaign append these too.
             "location_lines": [r.location_line for r in results if r.location_line],
+            # [[mint]] `3DModel <id> <name>` directives (order-preserving dedup) -- deploy_field.py /
+            # deploy_campaign append these to DictionaryPatch AND the staged Models/<type>/<id>/ FBX ships.
+            "mint_lines": list(dict.fromkeys(ml for r in results
+                                             for ml in (getattr(r, "mint_lines", []) or []))),
             "warnings": [w for r in results for w in r.warnings] + start_warnings}

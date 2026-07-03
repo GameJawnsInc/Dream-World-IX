@@ -129,11 +129,22 @@ for L in LANGS:
     if sm.exists():                                        # dialogue: deploy the field's .mes block
         live.mes_path(L, text_block).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(sm, live.mes_path(L, text_block))
+# [[mint]] loose-model FBX tree (NEW additive GEO ids) -- ship the whole staged Models/ (merge into live)
+src_models = tl.root / "StreamingAssets" / "Assets" / "Resources" / "Models"
+if src_models.is_dir():
+    shutil.copytree(src_models, live.root / "StreamingAssets" / "Assets" / "Resources" / "Models",
+                    dirs_exist_ok=True)
+mint_lines = info.get("mint_lines", [])
+mint_ids = {ml.split()[1] for ml in mint_lines if len(ml.split()) >= 2}
 dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines()
-      if ln.strip() and ln.split()[1:2] != [str(FID)]]
+      if ln.strip() and ln.split()[1:2] != [str(FID)]           # drop this field's old FieldScene/LocationName
+      and not (ln.startswith("3DModel ") and ln.split()[1:2] and ln.split()[1] in mint_ids)]  # drop stale mint ids
+dp += mint_lines                               # `3DModel <id> <name>` -- register minted ids (read at launch)
 dp.append(info["dictionary"][0])
 dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
+if mint_lines:
+    print(f"  + {len(mint_lines)} mint 3DModel line(s) + staged Models/ -> RELAUNCH to register the new id(s)")
 if info.get("location_lines"):                  # the directive is read from DictionaryPatch at LAUNCH, not on F6
     print(f"  + {info['location_lines'][0]}  -> RELAUNCH to apply (DictionaryPatch is read at launch, not F6)")
 

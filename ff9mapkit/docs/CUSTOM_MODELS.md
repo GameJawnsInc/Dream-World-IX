@@ -85,6 +85,22 @@ divergent G. Catalog sweep: 522 models, 0 errors, 0 gaps, 517 unchanged, 26 dive
 of models with per-bone *jitter* (fields EFM 201/347, sub MRC 109, battle-form MON_B3_*) bake their majority
 flip (~2° residual) instead of shipping 180°-wrong; it's never worse than no bake by bone count, and returns
 `None` only when no family holds a majority (one scattered mesh in battle-monster 350).
+
+**★★ New-GEO-id MINTING (2026-07-02, in-game PROVEN) — DLL-FREE.** Minting *adds* a brand-new GEO model id (a
+fresh `SetModel` target) instead of *overriding* a real one — the gateway to placing net-new / edited models
+by id. Like "import needs a DLL," the "minting needs a DLL" belief was stale: the pinned engine already ships
+the pieces. **Register** with the `3DModel <id> <GEO_NAME>` DictionaryPatch directive (`DataPatchers.cs:574`
+→ `FF9BattleDB.GEO[id]=name` at load; sibling `3DModelAnimation` registers custom anims). **Render**:
+`SetModel(id)` → `GEO.GetValue(id)` → name → `GetModelType` (group→type) → `Models/{type}/{id}/{id}.fbx`, probed
+on disc first (the loose-FBX importer). **Animate**: anims resolve by the *animation name's* tokens, not the
+model's id — so a mint reuses any real model's animset by playing its `ANH_` names (our exporter keeps the bone
+numbers so clips bind). Real GEO ids top out at 5511, so the mint band is **≥6000** (2-byte `SetModel` id; never
+reuse a real *name* — it would hijack the reverse lookup). Proven in-game: id 6000 = a re-export of BBA idling in
+the test field, additive (real BBA id 10 untouched). Kit: `models/mint.py`; a declarative **`[[mint]]`** block
+(`id` + `from = "<GEO>"` re-export OR `fbx = "<path>"` custom model; optional `name`/`anims_from`) → the build
+emits the `3DModel` line, stages the FBX, and auto-borrows the source's animset so a bare `[[npc]]/[[prop]]
+model = <mintId>` needs no manual `anims`; CLI **`ff9mapkit model-mint <src> --id N [--deploy|--out]`**.
+`deploy_field.py` now syncs the staged `Models/` tree + the mint directives.
 The first proof was on Vivi (id 8): extracted → skinned FBX-ASCII → re-imported on **stock
 Memoria's own importer** renders, skins, orients, moves, **and animates identically**. It took 4 in-game
 iterations, each a real bug fixed **on the data side** (no engine change required): (1) a missing FBX node
