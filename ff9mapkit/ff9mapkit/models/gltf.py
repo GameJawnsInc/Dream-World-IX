@@ -434,14 +434,19 @@ def import_gltf(path, *, scale: float = DEFAULT_SCALE) -> dict:
             if "NORMAL" in attrs else None
         uvs = [[u, 1.0 - v] for u, v in _gltf_io.decode_accessor(gltf, blob, attrs["TEXCOORD_0"])] \
             if "TEXCOORD_0" in attrs else [[0.0, 0.0]] * len(verts)
-        weights = [[0, 0.0]] * len(verts)
+        root_num = extract._bone_num(root_bone) if root_bone else None
+        if root_num is None:
+            root_num = extract._bone_num(bones[0]["name"]) if bones else 0
+        weights = [[(root_num, 1.0)]] * len(verts)           # unskinned mesh -> bind to root (never weightless)
         if "JOINTS_0" in attrs and "WEIGHTS_0" in attrs:
             J = _gltf_io.decode_accessor(gltf, blob, attrs["JOINTS_0"])
             W = _gltf_io.decode_accessor(gltf, blob, attrs["WEIGHTS_0"])
             weights = []
             for jv, wv in zip(J, W):
                 infl = [(num_of_joint.get(int(j), 0), float(w)) for j, w in zip(jv, wv) if w > 0.0]
-                tot = sum(w for _, w in infl) or 1.0
+                if not infl:
+                    infl = [(root_num, 1.0)]                 # Blender may zero a vertex's weights -> a weightless
+                tot = sum(w for _, w in infl) or 1.0         # vertex collapses to the origin; bind it to the root
                 weights.append([(bn, w / tot) for bn, w in infl])
         subs = []
         for prim in prims:
