@@ -177,32 +177,28 @@ mesh on export. UV *seams* (per-corner UVs) aren't preserved — battle reshapin
 ## Import / edit a character model (3D)
 
 Character + field models are **another separate pillar** — rigged, skinned, animated Unity models, not
-flat art — with their own *3D Model* box. Unlike the field boxes (which run purely in Blender), the
-model loop needs the `ff9mapkit` CLI (it reads/writes the game's `p0data` via UnityPy, which Blender's
-Python doesn't have), so the two buttons **shell out** to it. Set it up once in **Preferences ▸ Add-ons ▸
-FF9 Map Kit** (also editable inline in the box):
+flat art — with their own *3D Model* box. Same division of labour as *Import/Export Field*: the add-on
+does the **`.glb` in/out**, and the `ff9mapkit` CLI does the `p0data` work (it reads/writes the game via
+UnityPy, which Blender's Python doesn't have). So the add-on never runs the toolkit — you do, with
+whatever `ff9mapkit` you have.
 
-- **ff9mapkit command** — how to run the CLI. **If you installed with the Windows executable (or any
-  pip/uv install), leave this as `ff9mapkit`** — the add-on auto-finds it on PATH *or* at
-  `~/.local/bin` (where the installer's `uv tool install` puts it), so it works even if Blender started
-  before your PATH refreshed. Change it only for a source checkout (`py -m ff9mapkit`) or a venv (the
-  full path to its Python + ` -m ff9mapkit`).
-- **Mod folder** — the Memoria mod folder to deploy into (e.g. `<FF9>/FF9CustomMap`).
+1. **Make a `.glb`** at the CLI: `ff9mapkit model-gltf GEO_MAIN_F0_VIV --out model.glb` (a GEO name or id;
+   `--anims auto|all|none`; see `ff9mapkit models`). It comes rigged + textured with the idle/walk/run
+   clips.
+2. **Import Model** → pick that `.glb` (it's plain glTF, so *File ▸ Import ▸ glTF 2.0* works too).
+3. **Edit** — reshape the mesh, tweak weights, or pose/keyframe a clip (switch to the *Animation*
+   workspace to scrub). Each FF9 part is its own named object; **don't rename the `bone000…` bones** —
+   the engine binds animation by that name.
+4. **Export Model** → a Save dialog for the `.glb` (optionally fill **Mod folder** / **Like** / **Mesh
+   only** / **Selected only**). It writes the `.glb` with the exact glTF settings the kit expects and
+   **copies the ready-to-run command to your clipboard**, e.g.
+   `ff9mapkit model-import "…/model.glb" --deploy "<FF9CustomMap>"`.
+5. **Run that command** in a terminal. One edited model round-trips its mesh **and** any changed animation
+   clips (untouched clips keep the bundled version; *Mesh only* = `--no-anims`).
+6. In-game: **F6 → Reload field** to see it (**RELAUNCH** FF9 if it's a brand-new minted id).
 
-Then:
-
-1. **Import Model** → type a GEO (e.g. `GEO_MAIN_F0_VIV`, or an id — see `ff9mapkit models`) and pick
-   which **Clips** to bring (auto / all / none). It runs `model-gltf` and imports the result: a rigged,
-   textured model with its idle/walk/run clips (switch to the *Animation* workspace to scrub them).
-2. **Edit** — reshape the mesh, tweak weights, or pose/keyframe a clip. Each FF9 part is its own named
-   object; **don't rename the bones** (`bone000`…) — the engine binds animation by that name.
-3. **Export Model** → deploys back with the exact glTF settings the kit expects, then runs
-   `model-import --deploy <mod>`. **One edited model round-trips its mesh AND any changed animation
-   clips** in one click (untouched clips keep the bundled version; `Mesh only` skips animation).
-4. In-game: **F6 → Reload field** to see it (or **RELAUNCH** FF9 if it's a brand-new minted id).
-
-If the CLI can't be found or errors, the operator reports the exact manual command so you're never
-stuck. `Like` is normally left blank (the source model is auto-detected from the glTF stamp).
+`Like` is normally left blank (the source model is auto-detected from the `.glb` stamp). If your CLI
+predates these commands (`invalid choice: 'model-import'`), update `ff9mapkit`.
 
 ## Scrolling rooms (larger-than-screen)
 

@@ -494,10 +494,12 @@ the stamp on an action-named clip; an unroutable clip WARNS, never silently drop
 three channels (rotation by normalized |dot| — sign-flip-safe; position + scale) against noise-floor-derived
 epsilons (rot ~0.16°, measured float32 floor ~1e-15). `--no-anims` for mesh-only. HARDENED by a 5-lens
 adversarial review (fixed: scale-channel blindness that dropped squash/stretch edits; a ~5° rotation dead zone;
-silent unroutable-key drops; NaN emission). The **Blender add-on** now wraps the whole loop in two one-click
-operators — **Import FF9 Model** (runs `model-gltf` → imports the rigged `.glb`) and **Export FF9 Model**
-(exports the scene → runs `model-import --deploy`), shelling out to the `ff9mapkit` CLI (the CLI command + mod
-folder live in Add-on Preferences; graceful fallback prints the manual command). **Phase 3 is complete.**
+silent unroutable-key drops; NaN emission). The **Blender add-on** adds an *Import/Export FF9 Model*
+pair that follows the same division of labour as *Export Field* → `ff9mapkit build`: the add-on does only the
+`.glb` I/O and the CLI does the `p0data` work. **Import Model** file-picks a `.glb` the user made with
+`ff9mapkit model-gltf` (plain glTF); **Export Model** writes the `.glb` with the kit's expected glTF settings
+and copies the ready-to-run `ff9mapkit model-import … --deploy <mod>` command to the clipboard. No subprocess,
+no CLI-version coupling. **Phase 3 is complete.**
 
 **Phase 4 — SCRATCH AUTHOR on an existing GEO id. `no-DLL`.**
 Ship a wholly new mesh + rig reusing a donor GEO's `bone###` names (so stock clips drive it) or ship
