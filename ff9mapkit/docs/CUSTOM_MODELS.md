@@ -157,21 +157,31 @@ placeholder that can't collide with FF9's real `mesh0`/`mesh1` names. Round-trip
 2.4e-5) with **name preservation across a 79-model sweep (0 fail)**.
 
 **★★ NESTED-CHILD meshes are DROPPED by the importer → merge fix (2026-07-03, in-game proven).** The
-per-part export still left Garnet's scrunchie invisible in-game. Root cause, pinned by an in-game diagnostic
-(scaled the `rubber_band` 3× + shoved it out sideways — *still* nothing): the engine's loose-FBX importer
-parents every mesh straight to the base object with **no explicit rootBone/bounds** on the
-`SkinnedMeshRenderer`, so a small **single-bone nested-child** renderer (the 38-vert scrunchie, a child of
-`long_hair` in the prefab) gets **frustum-dropped** where the top-level body/hair meshes still draw. The
-geometry/material/skin/bind-bake were all provably faithful — it's a *render-side* drop, not a data bug, and
-it can't be nested back (importer flattens) or given bounds (no DLL). **Fix: `extract.merge_nested_child_meshes`
-folds each nested-child mesh into the largest top-level mesh that shares its texture** — the scrunchie (`185_0`)
-merges into the body (`mesh0`, also `185_0`), inheriting a renderer that reliably draws. Runs at every
-engine-FBX emit (`_emit_model_to` for `model-import`, `export.py`, `mint.py`); the re-rig carries the `parent`
-merge-hint via `_restore_mesh_names`. Same-texture is required (one material per mesh); it's a **no-op for 517
-of 520 models** (only 3 have nested meshes: both Garnet field/battle variants merge cleanly; `GEO_MON_F0_EFM`'s
-parts have unique textures → left standalone + warned). ★ In-game proven: the scrunchie renders once merged
-(id 185, ScenarioCounter 0, long ponytail). *In Blender the scrunchie stays a separate editable object — the
-merge is engine-emit-only.*
+per-part export still left Garnet's scrunchie invisible in-game — and the cause turned out **not** to be a data
+bug **nor frustum culling** (both ruled out in-game; see "Dead ends" below). A logging-DLL diagnostic dumping every
+renderer's state proved the standalone `rubber_band` renderer is *textbook-perfect*: `enabled`, weighted 100% to
+bone 22, `BakeMesh` bounds a real 58×23×23 box **at the ponytail** (`c=(0,-246,46)`), correct on-screen world
+bounds, same `185_0` material + `Unlit/Transparent Cutout` shader as the body, 26 tris — **identical to the body
+`mesh0` (which renders), just tiny + single-bone** (`long_hair` is *also* single-bone and renders). It simply draws
+no pixels standalone, yet the **same verts weighted to the same bone render the instant they're in another mesh's
+draw call**. Conclusion: a Unity `SkinnedMeshRenderer` engine anomaly for a tiny standalone skinned draw (likely
+losing to the surrounding `long_hair` geometry) — unreachable by our FBX or a bounds/DLL tweak. **Fix:
+`extract.merge_nested_child_meshes`** folds each nested-child mesh into the largest top-level mesh that shares its
+texture — the scrunchie (`185_0`) merges into the body (`mesh0`, also `185_0`), so it rides a renderer that already
+works. Runs at every engine-FBX emit (`_emit_model_to` for `model-import`, `export.py`, `mint.py`); the re-rig
+carries the `parent` merge-hint via `_restore_mesh_names`. Same-texture is required (one material per mesh); it's a
+**no-op for 517 of 520 models** (only 3 have nested meshes: both Garnet field/battle variants merge cleanly;
+`GEO_MON_F0_EFM`'s parts have unique textures → left standalone + warned). ★ In-game proven: the scrunchie renders
+once merged (id 185, ScenarioCounter 0, long ponytail). *In Blender the scrunchie stays a separate editable object —
+the merge is engine-emit-only.*
+
+**Dead ends (proven in-game 2026-07-03 — don't re-explore for this):** the scrunchie drop is **not** frustum
+culling. `SkinnedMeshRenderer.updateWhenOffscreen = true` on the loose-FBX renderers made it *worse* (headless /
+per-camera phasing on normal meshes) because it **defeats the engine's own anti-cull hack** — `FieldMapActor
+.ForcedNonCullingMesh` (`FieldMapActor.cs:316`) forces a near-infinite `localBounds` on every SMR, and that giant
+box is the *only* reason FF9 loose-FBX heads/bodies render at all (their real skinned bounds are junk).
+Replicating that giant `localBounds` in `CreateCustomModel` was *safe* but did **not** make the scrunchie appear —
+confirming it isn't a bounds/culling problem. The merge is the answer; the standalone-render + DLL path is closed.
 
 **KNOWN LIMIT: late-game short-hair floating scrunchie.** Once merged into the always-visible body, the
 scrunchie shows in *every* scene — so at `ScenarioCounter>=10300` (Garnet's short-hair look, when the prefab
