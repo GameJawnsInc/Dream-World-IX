@@ -10,7 +10,7 @@ Blender. register()/unregister() are no-ops outside Blender.
 bl_info = {
     "name": "FF9 Map Kit",
     "author": "FF9 Map Kit contributors",
-    "version": (0, 9, 20),
+    "version": (0, 9, 21),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > FF9 Map Kit",
     "description": "Visually author FF9 custom-field cameras + walkmeshes; export for ff9mapkit build.",
@@ -27,14 +27,16 @@ except ImportError:
 def register():
     if not _HAS_BPY:
         return
-    from . import ops, ui
+    from . import model_ops, ops, ui
     ops.register()
+    model_ops.register()      # after ops (uses the scene props it registers), before ui
     ui.register()
 
 
 def unregister():
     if not _HAS_BPY:
         return
-    from . import ops, ui
+    from . import model_ops, ops, ui
     ui.unregister()
+    model_ops.unregister()
     ops.unregister()

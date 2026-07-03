@@ -819,3 +819,40 @@ def blender_meshdata_to_group(name, bverts, faces, face_material, materials, uvs
             submeshes.append({"texture": tex, "tris": tris})
     return {"name": name, "verts": uverts, "normals": un,
             "uvs": [list(uv) for uv in uvs], "submeshes": submeshes}
+
+
+# --------------------------------------------------------------------------- model edit loop (CLI argv)
+# The model operators shell out to the `ff9mapkit` CLI (the only env with UnityPy + the install). These
+# build the sub-command argv (bpy-free, so they are unit-tested); the operator prepends the configured
+# command (['ff9mapkit'] or ['py','-m','ff9mapkit']) and runs it.
+
+def safe_stem(token: str) -> str:
+    """A filesystem-safe stem for a temp .glb from a GEO name/id (GEO_MAIN_F0_VIV -> GEO_MAIN_F0_VIV, 8 -> 8)."""
+    return "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(token)) or "model"
+
+
+def model_gltf_argv(geo: str, *, anims: str = "auto", scale=None, out=None, game=None) -> list:
+    """`ff9mapkit model-gltf <geo> --anims <anims> [--scale] [--out] [--game]` (the Import half)."""
+    argv = ["model-gltf", str(geo), "--anims", str(anims)]
+    if scale is not None:
+        argv += ["--scale", str(scale)]
+    if out:
+        argv += ["--out", str(out)]
+    if game:
+        argv += ["--game", str(game)]
+    return argv
+
+
+def model_import_argv(glb: str, mod_folder: str, *, like=None, model_id=None,
+                      no_anims: bool = False, game=None) -> list:
+    """`ff9mapkit model-import <glb> --deploy <mod> [--like] [--id] [--no-anims] [--game]` (the Export half)."""
+    argv = ["model-import", str(glb), "--deploy", str(mod_folder)]
+    if like:
+        argv += ["--like", str(like)]
+    if model_id is not None:
+        argv += ["--id", str(model_id)]
+    if no_anims:
+        argv += ["--no-anims"]
+    if game:
+        argv += ["--game", str(game)]
+    return argv

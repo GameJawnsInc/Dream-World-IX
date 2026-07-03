@@ -6,7 +6,7 @@ import os
 
 import bpy
 
-from . import ops
+from . import model_ops, ops
 from .vendor import cam
 
 
@@ -180,6 +180,21 @@ class FF9MK_PT_panel(bpy.types.Panel):
             box.prop(p, "bbg_dir")
         else:
             box.label(text="Import a BBG_B###.fbx / battle.toml to reshape", icon="INFO")
+
+        # Character / field MODELS (a separate pillar too): import a rigged model, edit mesh + clips,
+        # export back. Shells out to the ff9mapkit CLI (set it + the mod folder in Add-on Preferences).
+        box = layout.box()
+        box.label(text="3D Model", icon="ARMATURE_DATA")
+        prefs = context.preferences.addons.get(model_ops.ADDON_ID)
+        prefs = prefs.preferences if prefs else None
+        if prefs is not None:
+            box.prop(prefs, "ff9mapkit_cmd")
+            box.prop(prefs, "mod_folder")
+        row = box.row(align=True)
+        row.operator("ff9mk.import_model", icon="IMPORT", text="Import Model")
+        row.operator("ff9mk.export_model", icon="EXPORT", text="Export Model")
+        box.label(text="Import a GEO, edit mesh/pose/clips, Export to the mod folder. RELAUNCH FF9 for a new id.",
+                  icon="INFO")
 
 
 def register():

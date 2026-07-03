@@ -174,6 +174,33 @@ painted plane — so they have their own loop in the *Battle Map (3D)* box.
 Geometry (verts/UVs/triangles/textures) round-trips exactly; normals are recomputed from your edited
 mesh on export. UV *seams* (per-corner UVs) aren't preserved — battle reshaping is geometry-first.
 
+## Import / edit a character model (3D)
+
+Character + field models are **another separate pillar** — rigged, skinned, animated Unity models, not
+flat art — with their own *3D Model* box. Unlike the field boxes (which run purely in Blender), the
+model loop needs the `ff9mapkit` CLI (it reads/writes the game's `p0data` via UnityPy, which Blender's
+Python doesn't have), so the two buttons **shell out** to it. Set it up once in **Preferences ▸ Add-ons ▸
+FF9 Map Kit** (also editable inline in the box):
+
+- **ff9mapkit command** — how to run the CLI, e.g. `ff9mapkit` (a pip/uv install on PATH), `py -m
+  ff9mapkit`, or a full path to a venv Python + `-m ff9mapkit`.
+- **Mod folder** — the Memoria mod folder to deploy into (e.g. `<FF9>/FF9CustomMap`).
+
+Then:
+
+1. **Import Model** → type a GEO (e.g. `GEO_MAIN_F0_VIV`, or an id — see `ff9mapkit models`) and pick
+   which **Clips** to bring (auto / all / none). It runs `model-gltf` and imports the result: a rigged,
+   textured model with its idle/walk/run clips (switch to the *Animation* workspace to scrub them).
+2. **Edit** — reshape the mesh, tweak weights, or pose/keyframe a clip. Each FF9 part is its own named
+   object; **don't rename the bones** (`bone000`…) — the engine binds animation by that name.
+3. **Export Model** → deploys back with the exact glTF settings the kit expects, then runs
+   `model-import --deploy <mod>`. **One edited model round-trips its mesh AND any changed animation
+   clips** in one click (untouched clips keep the bundled version; `Mesh only` skips animation).
+4. In-game: **F6 → Reload field** to see it (or **RELAUNCH** FF9 if it's a brand-new minted id).
+
+If the CLI can't be found or errors, the operator reports the exact manual command so you're never
+stuck. `Like` is normally left blank (the source model is auto-detected from the glTF stamp).
+
 ## Scrolling rooms (larger-than-screen)
 
 Tick **Scrolling room** in the *Camera* box and set **Canvas W/H** (e.g. `768 × 448` = 2× wide).
