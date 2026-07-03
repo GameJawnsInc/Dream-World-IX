@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..c1bfe843
+index 00000000..cf3ffdfa
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,1378 @@
+@@ -0,0 +1,1474 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -58,10 +58,20 @@ index 00000000..c1bfe843
 +    private Boolean _controlHeld;           // whether user control is CURRENTLY held off by us (so we restore exactly once)
 +
 +    // [ff9mapkit] Persisted debug prefs (PlayerPrefs, Memoria's own settings store -- survives relaunch, per-machine).
-+    // Favorites: a set of pinned field ids surfaced as one-click warp buttons at the top of the Warp / World tabs.
-+    private readonly HashSet<Int32> _favorites = new HashSet<Int32>();
++    // Favorites: ONE combined list of pinned destinations -- a field WARP (id) OR an overworld SPOT teleport (world x,z)
++    // -- surfaced as one-click buttons at the top of BOTH the Warp and World tabs (context decides what a click does).
++    private struct Pin
++    {
++        public Boolean World;   // false = field warp (A = field id); true = overworld teleport (A = world X, B = world Z)
++        public Int32 A;
++        public Int32 B;
++        public Pin(Boolean world, Int32 a, Int32 b) { this.World = world; this.A = a; this.B = b; }
++        public String Encode() { return this.World ? ("w:" + this.A + ":" + this.B) : ("f:" + this.A); }
++        public Boolean Same(Pin o) { return this.World == o.World && this.A == o.A && (!this.World || this.B == o.B); }
++    }
++    private readonly List<Pin> _pins = new List<Pin>();
 +    private Boolean _prefsLoaded;                                   // LoadPrefs is idempotent (load once, lazily)
-+    private const String PrefFavorites = "ff9mk_debug_favorites";   // CSV of ids, e.g. "5000,6000,4003"
++    private const String PrefFavorites = "ff9mk_debug_favorites";   // CSV of tokens: "f:<id>" warp / "w:<x>:<z>" spot (legacy bare int = warp)
 +    private const String PrefDisableControl = "ff9mk_debug_disable_control"; // 0/1
 +
 +    private Rect _win = new Rect(24f, 24f, 380f, 520f);
@@ -121,10 +131,13 @@ index 00000000..c1bfe843
 +        try
 +        {
 +            _disableControl = PlayerPrefs.GetInt(PrefDisableControl, 0) != 0;   // default 0 = OFF
-+            _favorites.Clear();
++            _pins.Clear();
 +            foreach (String tok in PlayerPrefs.GetString(PrefFavorites, "").Split(','))
-+                if (Int32.TryParse(tok.Trim(), out Int32 id))
-+                    _favorites.Add(id);
++            {
++                Pin pin;
++                if (TryDecodePin(tok.Trim(), out pin) && !PinsContains(pin))
++                    _pins.Add(pin);
++            }
 +        }
 +        catch (Exception)
 +        {
@@ -135,11 +148,9 @@ index 00000000..c1bfe843
 +    {
 +        try
 +        {
-+            List<Int32> ids = new List<Int32>(_favorites);
-+            ids.Sort();
-+            String[] parts = new String[ids.Count];
-+            for (Int32 i = 0; i < ids.Count; i++)
-+                parts[i] = ids[i].ToString();
++            String[] parts = new String[_pins.Count];
++            for (Int32 i = 0; i < _pins.Count; i++)
++                parts[i] = _pins[i].Encode();
 +            PlayerPrefs.SetString(PrefFavorites, String.Join(",", parts));
 +            PlayerPrefs.Save();
 +        }
@@ -147,6 +158,42 @@ index 00000000..c1bfe843
 +        {
 +        }
 +    }
++
++    // Decode one stored token: "f:<id>" (field warp), "w:<x>:<z>" (overworld spot), or a legacy bare "<id>" (field warp).
++    private static Boolean TryDecodePin(String tok, out Pin pin)
++    {
++        pin = new Pin(false, 0, 0);
++        if (String.IsNullOrEmpty(tok))
++            return false;
++        String[] p = tok.Split(':');
++        if (p.Length == 1 && Int32.TryParse(p[0], out Int32 legacy))              // legacy bare id -> field warp
++        {
++            pin = new Pin(false, legacy, 0);
++            return true;
++        }
++        if (p.Length == 2 && p[0] == "f" && Int32.TryParse(p[1], out Int32 fid))  // field warp
++        {
++            pin = new Pin(false, fid, 0);
++            return true;
++        }
++        if (p.Length == 3 && p[0] == "w" && Int32.TryParse(p[1], out Int32 wx) && Int32.TryParse(p[2], out Int32 wz)) // overworld spot
++        {
++            pin = new Pin(true, wx, wz);
++            return true;
++        }
++        return false;
++    }
++
++    private Boolean PinsContains(Pin pin)
++    {
++        foreach (Pin p in _pins)
++            if (p.Same(pin))
++                return true;
++        return false;
++    }
++
++    private Boolean HasFieldPin(Int32 id) { return PinsContains(new Pin(false, id, 0)); }
++    private Boolean HasWorldPin(Int32 x, Int32 z) { return PinsContains(new Pin(true, x, z)); }
 +
 +    private void SaveDisableControlPref()
 +    {
@@ -160,20 +207,52 @@ index 00000000..c1bfe843
 +        }
 +    }
 +
-+    // Pin/unpin a field id in the persisted favorites (toggle).
-+    private void ToggleFavorite(Int32 id)
++    // Pin/unpin a destination in the combined favorites (toggle): remove an equal pin if present, else append it.
++    private void TogglePin(Pin pin)
 +    {
-+        if (!_favorites.Remove(id))
-+            _favorites.Add(id);
++        for (Int32 i = 0; i < _pins.Count; i++)
++            if (_pins[i].Same(pin))
++            {
++                _pins.RemoveAt(i);
++                SaveFavorites();
++                return;
++            }
++        _pins.Add(pin);
 +        SaveFavorites();
 +    }
 +
-+    private void ToggleFavoriteFromText(String text)
++    private void RemovePin(Pin pin)
++    {
++        for (Int32 i = 0; i < _pins.Count; i++)
++            if (_pins[i].Same(pin))
++            {
++                _pins.RemoveAt(i);
++                SaveFavorites();
++                return;
++            }
++    }
++
++    private void ToggleFavorite(Int32 id)                    // field-warp pin (a registered-field row)
++    {
++        TogglePin(new Pin(false, id, 0));
++    }
++
++    private void ToggleFavoriteFromText(String text)         // field-warp pin from a typed field id
 +    {
 +        if (Int32.TryParse(text, out Int32 id))
-+            ToggleFavorite(id);
++            TogglePin(new Pin(false, id, 0));
 +        else
 +            _status = "pin: enter a numeric field id first";
++    }
++
++    private void ToggleWorldPinFromText(String xText, String zText)   // overworld-spot pin from the world X,Z boxes
++    {
++        // Parse as Single to match the teleport's Go (WorldTeleport uses Single.TryParse); pins are integer-encoded in
++        // the "w:<x>:<z>" token, so round to the stored int (the ~1/256-unit loss is immaterial on a 1536-unit grid).
++        if (Single.TryParse(xText, out Single x) && Single.TryParse(zText, out Single z))
++            TogglePin(new Pin(true, (Int32)Math.Round(x), (Int32)Math.Round(z)));
++        else
++            _status = "pin: enter numeric world X, Z first";
 +    }
 +
 +    private static String FieldName(Int32 id)
@@ -182,30 +261,36 @@ index 00000000..c1bfe843
 +        return EventEngineUtils.eventIDToFBGID.TryGetValue(id, out name) ? name : "?";
 +    }
 +
-+    // Draw the pinned favorites as one-click warp buttons (+ unpin). `world` picks the warp path: the overworld
-+    // World-tab warp (SetNextMap+attr) vs the field Warp-tab faded warp. Iterates a COPY so unpin-mid-draw is safe.
++    // Draw the ONE combined favorites list (field warps + overworld spots) as one-click buttons (+ unpin). `world` is the
++    // current context (World tab vs a field tab): a field-warp pin warps via the right path for the context; an
++    // overworld-spot pin teleports on the world map and is GREYED on a field tab (you can't world-teleport off the
++    // overworld). Iterates a COPY so unpin-mid-draw is safe.
 +    private void DrawFavorites(Boolean world)
 +    {
-+        if (_favorites.Count == 0)
++        if (_pins.Count == 0)
 +            return;
-+        Section("★ Favorites (click to warp)");
-+        List<Int32> ids = new List<Int32>(_favorites);
-+        ids.Sort();
-+        foreach (Int32 id in ids)
++        Section("★ Favorites (click to go)");
++        List<Pin> pins = new List<Pin>(_pins);
++        foreach (Pin pin in pins)
 +        {
 +            GUILayout.BeginHorizontal();
-+            if (GUILayout.Button("★ " + id + "   " + FieldName(id), _button))
++            if (pin.World)
++            {
++                Boolean prev = GUI.enabled;
++                GUI.enabled = world;                                       // overworld teleport is only usable on the world map
++                if (GUILayout.Button("world (" + pin.A + ", " + pin.B + ")", _button))
++                    WorldTeleportTo(pin.A, pin.B);
++                GUI.enabled = prev;
++            }
++            else if (GUILayout.Button(pin.A + "   " + FieldName(pin.A), _button))
 +            {
 +                if (world)
-+                    WorldWarp(id);
++                    WorldWarp(pin.A);
 +                else
-+                    Warp(id, false);
++                    Warp(pin.A, false);
 +            }
 +            if (GUILayout.Button("unpin", _button, GUILayout.Width(56f)))
-+            {
-+                _favorites.Remove(id);
-+                SaveFavorites();
-+            }
++                RemovePin(pin);
 +            GUILayout.EndHorizontal();
 +        }
 +    }
@@ -361,7 +446,7 @@ index 00000000..c1bfe843
 +        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(112f));
 +        if (GUILayout.Button("Go", _button, GUILayout.Width(48f)))
 +            WarpTo(_warpText);
-+        Boolean favTyped = Int32.TryParse(_warpText, out Int32 typedId) && _favorites.Contains(typedId);
++        Boolean favTyped = Int32.TryParse(_warpText, out Int32 typedId) && HasFieldPin(typedId);
 +        if (GUILayout.Button(favTyped ? "★ pin" : "☆ pin", favTyped ? _tabOn : _button, GUILayout.Width(64f)))
 +            ToggleFavoriteFromText(_warpText);                  // pin/unpin the typed id
 +        GUILayout.EndHorizontal();
@@ -389,7 +474,7 @@ index 00000000..c1bfe843
 +            GUILayout.BeginHorizontal();
 +            if (GUILayout.Button(kv.Key + "   " + kv.Value, _button))
 +                Warp(kv.Key, false);
-+            Boolean fav = _favorites.Contains(kv.Key);
++            Boolean fav = HasFieldPin(kv.Key);
 +            if (GUILayout.Button(fav ? "★" : "☆", fav ? _tabOn : _button, GUILayout.Width(28f)))
 +                ToggleFavorite(kv.Key);
 +            GUILayout.EndHorizontal();
@@ -530,7 +615,7 @@ index 00000000..c1bfe843
 +        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(112f));
 +        if (GUILayout.Button("Go", _button, GUILayout.Width(48f)))
 +            WorldWarpTo(_warpText);
-+        Boolean favW = Int32.TryParse(_warpText, out Int32 widW) && _favorites.Contains(widW);
++        Boolean favW = Int32.TryParse(_warpText, out Int32 widW) && HasFieldPin(widW);
 +        if (GUILayout.Button(favW ? "★ pin" : "☆ pin", favW ? _tabOn : _button, GUILayout.Width(64f)))
 +            ToggleFavoriteFromText(_warpText);
 +        GUILayout.EndHorizontal();
@@ -549,13 +634,18 @@ index 00000000..c1bfe843
 +        GUILayout.BeginHorizontal();
 +        _wxText = GUILayout.TextField(_wxText, 8, _field, GUILayout.Width(84f));
 +        _wzText = GUILayout.TextField(_wzText, 8, _field, GUILayout.Width(84f));
-+        if (GUILayout.Button("Go", _button, GUILayout.Width(44f)))
++        if (GUILayout.Button("Go", _button, GUILayout.Width(40f)))
 +            WorldTeleport();
-+        if (GUILayout.Button("Copy", _button, GUILayout.Width(56f)))
++        if (GUILayout.Button("Copy", _button, GUILayout.Width(48f)))
 +            CopyWorldPos();
++        Boolean favSpot = Single.TryParse(_wxText, out Single spXf) && Single.TryParse(_wzText, out Single spZf)
++                          && HasWorldPin((Int32)Math.Round(spXf), (Int32)Math.Round(spZf));   // match Go's Single parse; pins are int-encoded
++        if (GUILayout.Button(favSpot ? "★ pin" : "☆ pin", favSpot ? _tabOn : _button, GUILayout.Width(56f)))
++            ToggleWorldPinFromText(_wxText, _wzText);          // pin/unpin this world spot into the shared Favorites list
 +        GUILayout.EndHorizontal();
 +        GUILayout.Label("Absolute world units (x 0..1535, z 0..−1279 — z is NEGATIVE). Uses the stock reposition "
-+                        + "(SetPosition + re-ground); target LAND on foot, or swap vehicle first for water/air.", _label);
++                        + "(SetPosition + re-ground); target LAND on foot, or swap vehicle first for water/air. "
++                        + "★ pin saves this spot to Favorites (shown on both tabs).", _label);
 +
 +        Section("Vehicle / movement mode");
 +        Int32 cur = CurrentControlNo();
@@ -763,14 +853,20 @@ index 00000000..c1bfe843
 +    // 24x20 grid first (out-of-grid coords can throw). Y carries the current height; InitSlice re-grounds it.
 +    private void WorldTeleport()
 +    {
++        Single wx, wz;
++        if (!Single.TryParse(_wxText, out wx) || !Single.TryParse(_wzText, out wz))
++        {
++            _status = "teleport: enter numeric X, Z";
++            return;
++        }
++        WorldTeleportTo(wx, wz);
++    }
++
++    // The overworld teleport core (parameterized), shared by the World-tab X,Z box and a pinned overworld SPOT favorite.
++    private void WorldTeleportTo(Single wx, Single wz)
++    {
 +        try
 +        {
-+            Single wx, wz;
-+            if (!Single.TryParse(_wxText, out wx) || !Single.TryParse(_wzText, out wz))
-+            {
-+                _status = "teleport: enter numeric X, Z";
-+                return;
-+            }
 +            WMWorld w = ff9.world;
 +            if (w == null || !w.Settings.WrapWorld || FF9StateSystem.World.IsBeeScene)
 +            {
