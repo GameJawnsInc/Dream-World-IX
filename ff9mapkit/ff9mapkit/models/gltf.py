@@ -297,7 +297,11 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
                 samplers.append({"input": tin, "output": pacc, "interpolation": "LINEAR"})
                 channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": "translation"}})
         if channels:
-            gltf_anims.append({"name": label, "samplers": samplers, "channels": channels})
+            # Stamp the routing key so the return path (models.anim) can write each clip back to
+            # Animations/{geoId}/{key}.anim even if Blender renames the Action -- extras survive a glTF
+            # round-trip as Action custom properties; a purely-numeric name is the fallback.
+            gltf_anims.append({"name": label, "samplers": samplers, "channels": channels,
+                               "extras": {"ff9_anim_key": key, "ff9_anim_label": label}})
             anim_labels.append(label)
 
     # --- assemble ---
@@ -614,9 +618,11 @@ def _restore_mesh_names(edited_meshes: list, orig_meshes: list) -> None:
         avail.remove(j)
 
 
-def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, game=None) -> dict:
+def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, game=None,
+                write_anims=True) -> dict:
     """Bring a (Blender-edited) glTF back into the game: import it, emit the FBX + textures into ``mod_folder``
-    at ``Models/{type}/{id}/`` (an override -- deletes to revert).
+    at ``Models/{type}/{id}/`` (an override -- deletes to revert), AND (``write_anims``) write back any clip
+    whose curves changed as a loose ``.anim`` override -- so ONE edited glTF round-trips mesh AND animation.
 
     If ``like`` is not given, the source model is AUTO-DETECTED from the glTF's ``asset.extras`` stamp (any
     file exported by ``model-gltf``), so a round-tripped edit needs no --like. ``like="<GEO>"`` uses the v1
@@ -667,5 +673,14 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
 
     dest = Path(mod_folder) / "StreamingAssets" / "Assets" / "Resources" / "Models" / str(type_int) / str(tid)
     info = _emit_model_to(model, dest, tid)
+    # Round-trip the animations too: write back only clips whose curves changed (spliced onto the pristine
+    # source), so an edit to the mesh alone leaves every clip on its byte-faithful bundled version.
+    anims = {"written": [], "skipped": []}
+    if write_anims:
+        try:
+            from . import anim as _anim
+            anims = _anim.deploy_gltf_anim_edits(gltf_path, mod_folder, geo=like, scale=scale, game=game)
+        except (RuntimeError, FileNotFoundError, ValueError, KeyError) as e:
+            anims = {"written": [], "skipped": [], "error": str(e)}
     return {"id": tid, "type_int": type_int, "mode": mode, "source": like, "path": info["fbx"],
-            "textures": info["textures"], "merge_warnings": info.get("merge_warnings", [])}
+            "textures": info["textures"], "merge_warnings": info.get("merge_warnings", []), "anims": anims}

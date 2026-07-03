@@ -469,15 +469,25 @@ indistinguishably from the bundled model. **This is the make-or-break gate.**
 - If deformation is wrong → small/medium DLL for `ModelImporter.cs:111`, then re-test.
 - If stock clips don't bind → check `bone###` naming/hierarchy parity first (data fix, likely no DLL).
 
-**Phase 2 — Custom ANIMATION round-trip. `no-DLL` (verify §4).**
-Export a stock `ANH_` clip to `.anim` (JSON), re-import unedited at `Animations/…/<ANH…>.anim`.
-*Proven when:* the human confirms the loose `.anim` plays identically. If not → small DLL to route
-`AnimationClipReader` into the clip-load path.
+**Phase 2 — Custom ANIMATION round-trip. `no-DLL` — BUILT + offline-proven; awaits the in-game gate.**
+The loose-`.anim` override path is **confirmed in the pinned engine, zero DLL**: `AssetManager.Load<
+AnimationClip>("Animations/{geoId}/{key}")` probes each mod folder on disc FIRST (`LoadMultiple` bundle-asset
+branch → `LoadFromDisc` → `AnimationClipReader.ReadAnimationClipFromDisc`) and a JSON or binary clip at
+`<mod>/StreamingAssets/Assets/Resources/Animations/{geoId}/{key}.anim` **shadows the bundled p0data5 clip** —
+exactly parallel to the loose-FBX model override. We emit JSON (the same shape the engine's own ModelViewer
+writes via `ParseToJSON`; the JSON reader keys curves by each bone's **full hierarchy path**, which is what the
+nested `bone{id:D3}` skeleton from `ModelImporter.CreateCustomModel` needs). CLI: **`ff9mapkit model-anim <GEO>
+[--clips …] --deploy MOD`** dumps/deploys a model's real clips as editable JSON (`models/anim.py`).
+*Proven when:* the human confirms a dumped-then-redeployed loose `.anim` plays identically. (Tangents: the JSON
+reader has a TODO and ignores them → keys land with Unity default tangents, same as an engine ModelViewer save.)
 
-**Phase 3 — EDIT. `no-DLL` (assuming Phase 1–2 green).**
-Round-trip an *edited* mesh (move a vert / repaint) and an *edited* clip.
-*Proven when:* the human sees the edit in-game, no other regression. Blender add-on gets
-"Import FF9 Model / Export FF9 Model" operators (reuse the add-on's marker/IO scaffolding).
+**Phase 3 — EDIT. `no-DLL` — mesh+clip round-trip BUILT (offline-proven); Blender operators pending.**
+`model-import <edited.glb> --deploy MOD` now round-trips **mesh AND animation from ONE edited `.glb`**: it
+writes back only the clips whose curves actually CHANGED (spliced onto the pristine source clip, so untouched
+bones/channels stay byte-faithful and untouched clips keep the bundled version), routing each to
+`Animations/{geoId}/{key}.anim` via a stamped `ff9_anim_key`. Edit-detection is sign-flip-safe (a whole-
+quaternion negation is the same rotation). `--no-anims` for mesh-only. *Proven when:* the human sees an edited
+clip in-game, no other regression. Remaining: Blender add-on "Import/Export FF9 Model" one-click operators.
 
 **Phase 4 — SCRATCH AUTHOR on an existing GEO id. `no-DLL`.**
 Ship a wholly new mesh + rig reusing a donor GEO's `bone###` names (so stock clips drive it) or ship

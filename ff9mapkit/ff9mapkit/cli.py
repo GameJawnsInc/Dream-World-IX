@@ -1466,17 +1466,52 @@ def _cmd_model_import(args: argparse.Namespace) -> int:
         return 2
     try:
         r = mgltf.deploy_edit(args.gltf, args.deploy, like=args.like, geo_id=args.id,
-                              scale=args.scale, game=args.game)
+                              scale=args.scale, game=args.game, write_anims=not args.no_anims)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
     print(f"imported glTF -> model id {r['id']} ({r['mode']}"
           + (f", rig from {r['source']}" if r['source'] else "") + ")")
     print(f"  wrote: {r['path']}  (+ {len(r['textures'])} texture(s))")
+    anims = r.get("anims") or {}
+    if anims.get("written"):
+        print(f"  animations: wrote {len(anims['written'])} edited clip override(s) -> "
+              f"Animations/{anims.get('geo_id')}/*.anim")
+    elif anims.get("error"):
+        print(f"  animations: skipped ({anims['error']})")
+    elif not args.no_anims:
+        print("  animations: no changed clips to write (untouched clips keep the bundled version)")
     print("  F6 -> Reload field (or warp to a field using this model) to see the edit. Revert by deleting "
-          f"that Models/<type>/{r['id']}/ folder.")
+          f"that Models/<type>/{r['id']}/ folder"
+          + ("" if not anims.get("written") else " + the Animations/<geoId>/ overrides") + ".")
     if r.get("source"):
         _print_model_notes(r["source"], minted=int(r["id"]) >= 6000, merge_warnings=r.get("merge_warnings"))
+    return 0
+
+
+def _cmd_model_anim(args: argparse.Namespace) -> int:
+    """Dump/deploy a model's REAL animation clips as loose ``.anim`` JSON -- hand-edit the numbers, or prove
+    the loose-override path. DLL-free: the engine reads Animations/{geoId}/{key}.anim from the mod folder."""
+    from pathlib import Path
+    from .models import anim as manim
+    try:
+        if args.deploy:
+            r = manim.deploy_source_anims(args.model, args.deploy, which=args.clips, game=args.game)
+            where = Path(args.deploy)
+        else:
+            r = manim.deploy_source_anims(args.model, args.out, which=args.clips, game=args.game)
+            where = Path(args.out)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"{'deployed' if args.deploy else 'dumped'} {len(r['written'])} clip(s) for {r['geo']} "
+          f"(id {r['geo_id']}) -> {where}/StreamingAssets/Assets/Resources/Animations/{r['geo_id']}/")
+    if not r["written"]:
+        print(f"  (no clips matched; available keys: {', '.join(map(str, r['keys'])) or 'none'})")
+    else:
+        print(f"  keys: {', '.join(str(Path(w).stem) for w in r['written'])}")
+        print("  Edit the JSON (time/x/y/z/w per bone) and re-deploy, or edit the .glb in Blender + "
+              "`model-import`. RELAUNCH or F6 -> Reload field to apply.")
     return 0
 
 
@@ -3864,8 +3899,24 @@ def build_parser() -> argparse.ArgumentParser:
                     help="mod folder to write the override into (Models/<type>/<id>/)")
     mi.add_argument("--scale", type=float, default=None,
                     help="the scale the glTF was exported at (default: auto from the glTF stamp, else 0.01)")
+    mi.add_argument("--no-anims", action="store_true",
+                    help="import the mesh only -- skip writing back any edited animation clips (by default an "
+                         "edited .glb round-trips mesh AND changed clips as loose .anim overrides)")
     mi.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     mi.set_defaults(func=_cmd_model_import)
+
+    ma = sub.add_parser("model-anim",
+                        help="dump/deploy a model's animation clips as editable loose .anim JSON (DLL-free)")
+    ma.add_argument("model", help="GEO name or model id whose clips to dump, e.g. GEO_MAIN_F0_VIV or 8")
+    ma.add_argument("--clips", default="all",
+                    help="which clips: 'all' (default) or a comma/space list of anim KEYS (see `model-gltf "
+                         "--anims all` output / the folder listing)")
+    ma.add_argument("--out", default=".", help="dir to write the Animations/<geoId>/ tree into (default: .)")
+    ma.add_argument("--deploy", metavar="MODFOLDER", default=None,
+                    help="write straight into MODFOLDER's StreamingAssets override path instead of --out "
+                         "(the loose-override-path proof; F6 -> Reload field to apply)")
+    ma.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    ma.set_defaults(func=_cmd_model_anim)
 
     bb = sub.add_parser("battle-build", help="compile a battle.toml into a Memoria mod (custom battle map)")
     bb.add_argument("battle", nargs="+", help="one or more battle.toml files")
