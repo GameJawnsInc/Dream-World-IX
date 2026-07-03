@@ -107,6 +107,24 @@ def override_relpath(disc: int, x: int, y: int, lod: str = "0_1", part: str = "T
     return f"FF9_Data/WorldMap/Disc{disc}/{lod}/r{y}/Block[{x}][{y}] {part}.ff9mesh"
 
 
+def donor_sidecar_relpath(disc: int, x: int, y: int, lod: str = "0_1") -> str:
+    """The mod-folder-relative path of a cell's per-cell COASTAL DONOR sidecar (Path D faithful coast) -- mirrors
+    :func:`override_relpath` but part ``Donor`` + ``.txt``. The engine (``WorldMeshOverride.TryReadDonorPath``) reads
+    it to pick which REAL coastal block prefab (its Beach/Sea/foam) renders on this reclaimed cell."""
+    return f"FF9_Data/WorldMap/Disc{disc}/{lod}/r{y}/Block[{x}][{y}] Donor.txt"
+
+
+def deploy_donor_sidecar(donor_x: int, donor_y: int, *, mod_folder: str, disc: int, x: int, y: int,
+                         lod: str = "0_1", game=None) -> Path:
+    """Write the per-cell donor sidecar for reclaimed cell ``(x, y)``: a one-line ``"dx,dy"`` naming the real coastal
+    donor block whose beach/sea/foam sub-meshes the engine should render on this cell. Deployed next to the cell's
+    ``Terrain.ff9mesh`` override; the engine's ``TryReadDonorPath`` searches the stacked ``FolderNames`` for it."""
+    dest = config.find_game_path(game) / mod_folder / donor_sidecar_relpath(disc, x, y, lod)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"{donor_x},{donor_y}", encoding="utf-8")
+    return dest
+
+
 def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: str = "Terrain") -> Path:
     """Write ``bm`` as a loose ``.ff9mesh`` override into ``<game>/<mod_folder>/<override_relpath>`` -- where the
     custom engine (WorldMeshOverride) picks it up at world load. ``part`` = the block layer (``"Terrain"`` default,
@@ -182,6 +200,119 @@ def add_solid_base(bm, *, topograph: int = 59, lift: float = 0.5):
     return BlockMesh(name=bm.name, disc=bm.disc, x=bm.x, y=bm.y, lod=bm.lod, vcount=off + vi, stride=bm.stride,
                      channels=dict(bm.channels), chan_arrays=chan, flat_index=flat, tris=tris,
                      raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
+def flat_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, seg: int = 8, topograph: int = 0,
+                    height: float = 0.0, lod: str = "0_1"):
+    """Build a fresh FLAT, WALKABLE terrain :class:`~ff9mapkit.world.extract.BlockMesh` filling one 64x64 block in
+    LOCAL space (verts x[0,64] z[-64,0], Y=``height``) -- the primitive for RECLAIMING an OCEAN cell as land, where
+    there is no stock terrain mesh to :func:`deform_radial`. (The ``s34`` engine Path-D divert routes a designated sea
+    cell onto a land donor prefab so ``RegisterBlockComponent`` swaps THIS override in as its Terrain render+walkmesh.)
+
+    ``seg`` x ``seg`` quads, two triangles each, emitted as FRESH verts per triangle (the stock world blocks are
+    flat/unindexed: ``vcount == indexCount``; sharing verts would desync the index buffer -> garbage cross-cell faces).
+    Every triangle's ``tangent.x`` = ``encode_id(topograph=topograph)`` so the whole cell is one walkable topograph
+    (default **0** = plains, the most-common on-foot-walkable real-land face; the mask 0x0010667F/0xD8FF3CFF admits it,
+    topo 49/58/59 do NOT). Stored normals are (0,1,0); UVs are [0,0] -> stamp real atlas UVs with
+    :func:`ff9mapkit.world.palette.apply_palette_uvs` before deploy.
+
+    WINDING is what makes it walkable, NOT the stored normal: the engine's up-facing walkmesh filter tests the
+    GEOMETRIC triangle normal ``Cross(v1-v0, v2-v0)`` (``WMBlock.cs:70`` builds it, ``WMPhysics.cs:22`` rejects any
+    tri with ``Dot(up, n) <= 0.1``). These two tris per quad wind so that geometric normal is **+Y** (verified: for a
+    flat tri the normal Y = ``e1.z*e2.x - e1.x*e2.z``; both windings below give ``+step^2``)."""
+    from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+    idall = float(encode_id(event=0, area=0, topograph=topograph))
+    step = 64.0 / seg                                       # fixed 64u overworld block (extract.BLOCK_SIZE)
+    pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
+    vi = 0
+
+    def emit(px, pz):
+        nonlocal vi
+        pos.append([px, height, pz]); nrm.append([0.0, 1.0, 0.0])
+        uv.append([0.0, 0.0]); tan.append([idall, 0.0, 0.0, 1.0])
+        flat.append(vi); vi += 1
+
+    for i in range(seg):
+        for j in range(seg):
+            x0, x1 = i * step, (i + 1) * step
+            z0, z1 = -j * step, -(j + 1) * step                 # z0 nearer 0, z1 more negative (grid marches -Z)
+            c00, c10, c11, c01 = (x0, z0), (x1, z0), (x1, z1), (x0, z1)
+            for (a, b, c) in ((c00, c11, c01), (c00, c10, c11)):   # both UP-wound (+Y geometric normal)
+                base = vi
+                emit(*a); emit(*b); emit(*c)
+                tris.append([base, base + 1, base + 2])
+    chan = {CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan}
+    channels = {CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}
+    return BlockMesh(name=f"Block[{x}][{y}] Terrain", disc=disc, x=x, y=y, lod=lod, vcount=vi, stride=48,
+                     channels=channels, chan_arrays=chan, flat_index=flat, tris=tris,
+                     raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
+def island_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, water_dirs, seg: int = 10, height: float = 6.0,
+                       beach: float = 22.0, grass_topo: int = 0, shore_topo: int = 20, shore_frac: float = 0.30,
+                       shore_dip: float = 0.0, lod: str = "0_1"):
+    """Synthesize ONE block of a NATURAL island (vs :func:`flat_block_mesh`'s bare slab): a walkable GRASS plateau at
+    ``Y=height`` that ramps DOWN to the waterline on each WATER-facing edge, textured GREEN GRASS (``grass_topo`` 0 --
+    the atlas green tile, verified by sampling atlas pixel colors) on the flat top and TAN SAND (``shore_topo`` 20) on
+    the low ring, so it reads as a grassy island with a sandy beach. Both topographs are WALKABLE (the player can walk
+    the whole island down to the waterline; the surrounding stock sea is the wall). NOTE the atlas has no bright-white
+    sand tile (real FF9 white beaches are a sea-side foam effect); topo 20 is the sandiest walkable land tile.
+
+    ``water_dirs`` = the grid dirs (subset of ``{(-1,0),(1,0),(0,1),(0,-1)}``) whose neighbour is OPEN WATER for this
+    cell; an INTERIOR island cell passes an EMPTY set -> a flat plateau (no beach). A vertex's Y ramps from ``shore_dip``
+    (just under the sea, at a water edge) up to ``height`` over ``beach`` units inland -- so edges DIP under the water
+    for a seamless blend and the top is a walkable plateau. ``shore_frac`` = the fraction of ``height`` below which a
+    face is textured shore/sand (the beach band width). WINDING gives the +Y geometric normal regardless of the height
+    profile (normal.y = e1.z*e2.x - e1.x*e2.z depends only on XZ), so every ramp face stays walkable + up-facing; a gentle
+    ramp keeps ``Dot(up, n) > 0.1``. Call :func:`recompute_normals` after for correct slope shading."""
+    from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+    wd = set(tuple(d) for d in water_dirs)
+    idg, ids = float(encode_id(topograph=grass_topo)), float(encode_id(topograph=shore_topo))
+    step = 64.0 / seg
+
+    def edge_dist(lx, lz, d):                                # world-XZ distance from (lx,lz) to this cell edge
+        if d == (-1, 0):
+            return lx                                        # west edge local x=0
+        if d == (1, 0):
+            return 64.0 - lx                                 # east edge local x=64
+        if d == (0, -1):
+            return -lz                                       # north edge local z=0 (lz in [-64,0])
+        return lz + 64.0                                     # south edge local z=-64
+
+    def hgt(lx, lz):
+        if not wd:
+            return height                                    # interior cell -> flat plateau
+        m = min(edge_dist(lx, lz, d) for d in wd)
+        return shore_dip + (height - shore_dip) * max(0.0, min(1.0, m / beach))
+
+    shore_y = height * shore_frac
+    pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
+    vi = 0
+
+    def emit(px, pz, idall):
+        nonlocal vi
+        pos.append([px, hgt(px, pz), pz]); nrm.append([0.0, 1.0, 0.0])
+        uv.append([0.0, 0.0]); tan.append([idall, 0.0, 0.0, 1.0])
+        flat.append(vi); vi += 1
+
+    for i in range(seg):
+        for j in range(seg):
+            x0, x1 = i * step, (i + 1) * step
+            z0, z1 = -j * step, -(j + 1) * step
+            c00, c10, c11, c01 = (x0, z0), (x1, z0), (x1, z1), (x0, z1)
+            cy = 0.25 * (hgt(*c00) + hgt(*c10) + hgt(*c11) + hgt(*c01))    # quad mean height -> shore vs grass
+            idall = ids if cy < shore_y else idg
+            for (a, b, c) in ((c00, c11, c01), (c00, c10, c11)):           # both UP-wound (+Y geometric normal)
+                base = vi
+                emit(*a, idall); emit(*b, idall); emit(*c, idall)
+                tris.append([base, base + 1, base + 2])
+    chan = {CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan}
+    channels = {CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}
+    bm = BlockMesh(name=f"Block[{x}][{y}] Terrain", disc=disc, x=x, y=y, lod=lod, vcount=vi, stride=48,
+                   channels=channels, chan_arrays=chan, flat_index=flat, tris=tris,
+                   raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+    recompute_normals(bm)                                    # slope shading (winding already gives up-facing geom normal)
+    return bm
 
 
 def place_building(dst_object_bm, src_object_bm, *, translate=(0.0, 0.0, 0.0), set_idall=None):

@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..8a201c28
+index 00000000..c1bfe843
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,1147 @@
+@@ -0,0 +1,1378 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -29,17 +29,22 @@ index 00000000..8a201c28
 +//
 +// Tabs:
 +//   Warp   -- reload the current field; warp to any REGISTERED custom field (eventIDToFBGID id>=4000)
-+//             or a typed id -> hop between per-branch slots (4003/5000/5001) live.
++//             or a typed id -> hop between per-branch slots (4003/5000/5001) live. PIN any id (star button)
++//             into a persisted Favorites list surfaced at the top for one-click warps (PlayerPrefs, survives relaunch).
 +//   Move   -- read the player pos / teleport to a typed (x,z); RIGHT-CLICK the field to copy the floor
 +//             (x,z) under the cursor to the clipboard (reuses FF9's own click-to-move math).
 +//   Cheats -- boosters (the F1-F4 toggles) + full-heal party + give item/gil.
 +//   Flags  -- get/set/clear a gEventGlobal story flag (matches the kit's set_flag: VariableType.Bit ->
 +//             gEventGlobal[N>>3] bit N&7); snapshot/restore the whole flag state; reset-all.
 +//   Time   -- a time-scale control (slow-mo / fast) for inspecting cutscenes & movement.
-+//   World  -- OVERWORLD only: swap the movement/vehicle mode (gEventGlobal[190] + w_movementChange) so you can
-+//             walk/fly/sail onto any terrain to reach an entrance under test. Swaps the movement PROFILE onto the
-+//             current character (Zidane keeps his model). GATED per world state: only modes the loaded
-+//             EVT_WORLD_WORLDxx dispatcher handles are offered -- forcing an unhandled one crashes the event script.
++//   World  -- OVERWORLD only: WARP overworld->field via the game's own transition (also the reliable escape if an
++//             entrance leaves you stuck); RESTORE control (unfreeze) if a script left you frozen; swap the
++//             movement/vehicle mode (gEventGlobal[190] + w_movementChange) so you can walk/fly/sail onto any
++//             terrain to reach an entrance under test (swaps the PROFILE onto the current character -- Zidane keeps
++//             his model; GATED per world state: only modes the loaded EVT_WORLD_WORLDxx dispatcher handles are
++//             offered, forcing an unhandled one crashes the event script); teleport within the map; disc switch.
++// The "Disable control" checkbox (freeze the character while the menu is open) and the Warp Favorites persist across
++// launches via PlayerPrefs (keys "ff9mk_debug_*"); the checkbox now defaults OFF.
 +// Header shows the current field id + name + the player's (x,z), live (or the disc + vehicle mode on the overworld).
 +// Adding an action = one button.
 +public class Ff9mkDebugMenu : MonoBehaviour
@@ -47,8 +52,17 @@ index 00000000..8a201c28
 +    private static Ff9mkDebugMenu _instance;
 +    private Boolean _open;
 +    private Boolean _priorControl;          // user-control state to restore when the hold is released
-+    private Boolean _disableControl = true; // "Disable control" checkbox: pause player input while the menu is open (default on)
++    private Boolean _disableControl;        // "Disable control" checkbox: pause player input while the menu is open.
++                                            // Defaults OFF (persisted; see LoadPrefs) -- the character keeps moving behind
++                                            // the popup unless you tick it. (Was on-by-default; flipped per user request.)
 +    private Boolean _controlHeld;           // whether user control is CURRENTLY held off by us (so we restore exactly once)
++
++    // [ff9mapkit] Persisted debug prefs (PlayerPrefs, Memoria's own settings store -- survives relaunch, per-machine).
++    // Favorites: a set of pinned field ids surfaced as one-click warp buttons at the top of the Warp / World tabs.
++    private readonly HashSet<Int32> _favorites = new HashSet<Int32>();
++    private Boolean _prefsLoaded;                                   // LoadPrefs is idempotent (load once, lazily)
++    private const String PrefFavorites = "ff9mk_debug_favorites";   // CSV of ids, e.g. "5000,6000,4003"
++    private const String PrefDisableControl = "ff9mk_debug_disable_control"; // 0/1
 +
 +    private Rect _win = new Rect(24f, 24f, 380f, 520f);
 +    private Vector2 _scroll;
@@ -92,7 +106,108 @@ index 00000000..8a201c28
 +    public static void Toggle()
 +    {
 +        Ensure();
++        _instance.LoadPrefs();                       // idempotent; ensures the persisted "Disable control" default is applied
 +        _instance.SetOpen(!_instance._open);
++    }
++
++    // [ff9mapkit] Load the persisted debug prefs once (favorites + the "Disable control" default). PlayerPrefs is
++    // Memoria's own settings store (cf. UISavedOption / UIInput) -- on Windows it lives in the registry, so it
++    // survives a relaunch. Robust to a missing/garbage value (defaults: control OFF, no favorites).
++    private void LoadPrefs()
++    {
++        if (_prefsLoaded)
++            return;
++        _prefsLoaded = true;
++        try
++        {
++            _disableControl = PlayerPrefs.GetInt(PrefDisableControl, 0) != 0;   // default 0 = OFF
++            _favorites.Clear();
++            foreach (String tok in PlayerPrefs.GetString(PrefFavorites, "").Split(','))
++                if (Int32.TryParse(tok.Trim(), out Int32 id))
++                    _favorites.Add(id);
++        }
++        catch (Exception)
++        {
++        }
++    }
++
++    private void SaveFavorites()
++    {
++        try
++        {
++            List<Int32> ids = new List<Int32>(_favorites);
++            ids.Sort();
++            String[] parts = new String[ids.Count];
++            for (Int32 i = 0; i < ids.Count; i++)
++                parts[i] = ids[i].ToString();
++            PlayerPrefs.SetString(PrefFavorites, String.Join(",", parts));
++            PlayerPrefs.Save();
++        }
++        catch (Exception)
++        {
++        }
++    }
++
++    private void SaveDisableControlPref()
++    {
++        try
++        {
++            PlayerPrefs.SetInt(PrefDisableControl, _disableControl ? 1 : 0);
++            PlayerPrefs.Save();
++        }
++        catch (Exception)
++        {
++        }
++    }
++
++    // Pin/unpin a field id in the persisted favorites (toggle).
++    private void ToggleFavorite(Int32 id)
++    {
++        if (!_favorites.Remove(id))
++            _favorites.Add(id);
++        SaveFavorites();
++    }
++
++    private void ToggleFavoriteFromText(String text)
++    {
++        if (Int32.TryParse(text, out Int32 id))
++            ToggleFavorite(id);
++        else
++            _status = "pin: enter a numeric field id first";
++    }
++
++    private static String FieldName(Int32 id)
++    {
++        String name;
++        return EventEngineUtils.eventIDToFBGID.TryGetValue(id, out name) ? name : "?";
++    }
++
++    // Draw the pinned favorites as one-click warp buttons (+ unpin). `world` picks the warp path: the overworld
++    // World-tab warp (SetNextMap+attr) vs the field Warp-tab faded warp. Iterates a COPY so unpin-mid-draw is safe.
++    private void DrawFavorites(Boolean world)
++    {
++        if (_favorites.Count == 0)
++            return;
++        Section("★ Favorites (click to warp)");
++        List<Int32> ids = new List<Int32>(_favorites);
++        ids.Sort();
++        foreach (Int32 id in ids)
++        {
++            GUILayout.BeginHorizontal();
++            if (GUILayout.Button("★ " + id + "   " + FieldName(id), _button))
++            {
++                if (world)
++                    WorldWarp(id);
++                else
++                    Warp(id, false);
++            }
++            if (GUILayout.Button("unpin", _button, GUILayout.Width(56f)))
++            {
++                _favorites.Remove(id);
++                SaveFavorites();
++            }
++            GUILayout.EndHorizontal();
++        }
 +    }
 +
 +    public static Boolean IsOpen
@@ -195,6 +310,7 @@ index 00000000..8a201c28
 +        if (wantHold != _disableControl)
 +        {
 +            _disableControl = wantHold;
++            SaveDisableControlPref();               // remember the choice across launches
 +            ApplyControlHold(wantHold);
 +        }
 +
@@ -239,11 +355,15 @@ index 00000000..8a201c28
 +        }
 +        if (GUILayout.Button("Reload field", _button))
 +            Reload(false);
++        DrawFavorites(false);                                   // pinned quick-warps (persisted)
 +        Section("Warp to field");
 +        GUILayout.BeginHorizontal();
-+        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(120f));
-+        if (GUILayout.Button("Go", _button, GUILayout.Width(64f)))
++        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(112f));
++        if (GUILayout.Button("Go", _button, GUILayout.Width(48f)))
 +            WarpTo(_warpText);
++        Boolean favTyped = Int32.TryParse(_warpText, out Int32 typedId) && _favorites.Contains(typedId);
++        if (GUILayout.Button(favTyped ? "★ pin" : "☆ pin", favTyped ? _tabOn : _button, GUILayout.Width(64f)))
++            ToggleFavoriteFromText(_warpText);                  // pin/unpin the typed id
 +        GUILayout.EndHorizontal();
 +        // [ff9mapkit] Arrival entrance: a real gateway sets FieldEntrance just before Field(target), so the
 +        // destination .eb places the player at that door + inits the scroll/camera there. A bare F6 warp left
@@ -263,9 +383,17 @@ index 00000000..8a201c28
 +        if (GUILayout.Button("Set now", _button, GUILayout.Width(64f)))
 +            SetScenarioNow();
 +        GUILayout.EndHorizontal();
++        Section("Registered custom fields (☆ to pin)");
 +        foreach (KeyValuePair<Int32, String> kv in RegisteredFields())
++        {
++            GUILayout.BeginHorizontal();
 +            if (GUILayout.Button(kv.Key + "   " + kv.Value, _button))
 +                Warp(kv.Key, false);
++            Boolean fav = _favorites.Contains(kv.Key);
++            if (GUILayout.Button(fav ? "★" : "☆", fav ? _tabOn : _button, GUILayout.Width(28f)))
++                ToggleFavorite(kv.Key);
++            GUILayout.EndHorizontal();
++        }
 +    }
 +
 +    private void DrawMove()
@@ -396,6 +524,26 @@ index 00000000..8a201c28
 +
 +        Section("Position (live)");
 +        GUILayout.Label(WorldReadout(), _label);
++
++        Section("Warp to field");
++        GUILayout.BeginHorizontal();
++        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(112f));
++        if (GUILayout.Button("Go", _button, GUILayout.Width(48f)))
++            WorldWarpTo(_warpText);
++        Boolean favW = Int32.TryParse(_warpText, out Int32 widW) && _favorites.Contains(widW);
++        if (GUILayout.Button(favW ? "★ pin" : "☆ pin", favW ? _tabOn : _button, GUILayout.Width(64f)))
++            ToggleFavoriteFromText(_warpText);
++        GUILayout.EndHorizontal();
++        GUILayout.Label("Overworld → field via the game's OWN transition (fades in). This is also the reliable ESCAPE "
++                        + "if an entrance left you stuck: it fires even with control frozen. A forked destination is "
++                        + "redirected by the s28 fork-donor map (enter a donor id).", _label);
++        DrawFavorites(true);                                    // pinned quick-warps (shared with the Warp tab)
++
++        Section("Restore control (unfreeze)");
++        if (GUILayout.Button("Unfreeze player — restore control", _button))
++            RestoreControl();
++        GUILayout.Label("Re-enables user control + cancels auto-walk. Use if a warp/script left you frozen on the "
++                        + "overworld but you'd rather stay than warp out.", _label);
 +
 +        Section("Teleport (world X, Z)");
 +        GUILayout.BeginHorizontal();
@@ -652,6 +800,12 @@ index 00000000..8a201c28
 +            }
 +            // Engine's own overworld reposition: writes the PosObj record (pos + lastx/y/z) AND the wmActor transform.
 +            ee.SetActorPosition(po, (Single)px, (Single)py, (Single)pz);
++            // DWIX Path D: force the DESTINATION block to load + become IsReady BEFORE grounding. w_nwpHit early-returns
++            // defaultHeight=0 on a !IsReady block (ff9.cs:7150), so warping into a not-yet-streamed cell -- especially a
++            // reclaimed COAST with a tall hill -- stranded the player at Y=0 under the terrain (had to fly in on a vehicle
++            // + switch to foot). w_movementChrInitSlice sky-casts (infinite from +400u), so once the block is ready it
++            // grounds correctly. GetAbsoluteBlock resolves the target cell by world position regardless of player distance.
++            w.ForceLoadBlockReadyAt(new Vector3(wx, cy, wz));
 +            ff9.w_movementChrInitSlice();                        // re-ground Y (matches WMBeeMenu.cs:205)
 +            ff9.w_movementAutoPilotOFF();                        // cancel any active auto-walk target (idempotent if none)
 +            // THE REVERTER (root cause, found 2026-07-01): Memoria's 60fps world smoother, Memoria.SmoothFrameUpdater_World.
@@ -671,6 +825,82 @@ index 00000000..8a201c28
 +        catch (Exception err)
 +        {
 +            _status = "teleport failed: " + err.Message;
++        }
++    }
++
++    private void WorldWarpTo(String text)
++    {
++        if (Int32.TryParse(text, out Int32 id))
++            WorldWarp(id);
++        else
++            _status = "world warp: enter a numeric field id";
++    }
++
++    // OVERWORLD -> FIELD warp using the GAME'S OWN transition path -- the exact levers WMScriptDirector.HonoUpdate20FPS
++    // case 4 sets when a world .eb runs the Field(N) opcode:
++    //   SetNextMap(id)  -> because ff9Sys.mode==3 (WORLD) this writes FF9StateSystem.World.FF9World.map.nextMapNo
++    //   map.nextMode=1  -> "enter a field" (vs 2 = battle)
++    //   ff9Sys.attr |= 0x1000 (4096) -> arms the shutdown branch
++    // On the NEXT 20fps world tick the engine itself calls ff9ShutdownStateWorldMap() (mode->1, prevMode->3, applying
++    // the s28 ForkSiblingField redirect so a DONOR id lands on its fork) then SceneDirector.Replace("FieldMap", ...,
++    // needFade:TRUE) -- so the fade-out/in is free and we don't touch SceneDirector ourselves. Crucially the shutdown
++    // check (WMScriptDirector.cs:191, attr & 0x3001) runs OUTSIDE the usercontrol / attr&256 gate, so this fires even
++    // when the player is FROZEN -- which is why this doubles as the escape from a stuck overworld. FieldEntrance /
++    // ScenarioCounter are seeded exactly like the field Warp tab. (Mirror of the field warp, which uses the field
++    // buffer + attr|=8u; the world loop tests attr & 0x3001 and the field loop tests attr & 15, hence the different bit.)
++    private void WorldWarp(Int32 mapNo)
++    {
++        try
++        {
++            if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.WorldHUD)
++            {
++                _status = "world warp: overworld only";
++                return;
++            }
++            FF9StateSystem sys = PersistenSingleton<FF9StateSystem>.Instance;
++            if (sys.mode != 3)                                   // SetNextMap routes by mode; must be WORLD (3)
++            {
++                _status = "world warp: not in world mode (" + sys.mode + ")";
++                return;
++            }
++            if (Int32.TryParse(_entranceText, out Int32 entr) && entr >= 0)
++                FF9StateSystem.EventState.FieldEntrance = entr;  // arrive as if through a chosen door (blank = leave as-is)
++            if (Int32.TryParse(_scenarioText, out Int32 scn) && scn >= 0)
++                FF9StateSystem.EventState.ScenarioCounter = scn; // seed a story beat for a story-gated fork
++            PersistenSingleton<EventEngine>.Instance.SetNextMap(mapNo);
++            FF9StateSystem.World.FF9World.map.nextMode = 1;
++            sys.attr |= 4096u;                                   // 0x1000 -> shutdown+Replace on the next world tick (with fade)
++            _status = "warping to field " + mapNo + " …";
++            // The destination field loads a FRESH EventContext and re-enables control via its own .eb, so drop our
++            // control-hold bookkeeping here (do NOT stamp the stale overworld _priorControl onto it -- same idiom as
++            // RestoreControl). Skipping this stranded _controlHeld=true, which silently no-op'd the "Disable control"
++            // freeze the first time the menu was reopened in the destination.
++            _controlHeld = false;
++            _open = false;                                       // the transition takes over; the field .eb re-enables control
++        }
++        catch (Exception err)
++        {
++            _status = "world warp failed: " + err.Message;
++        }
++    }
++
++    // Force-restore user control on the overworld (belt-and-braces "unfreeze"): a warp/entrance script that ran
++    // DisableMove (usercontrol=0) but never re-enabled it leaves the player frozen with no escape. SetUserControl(true)
++    // flips usercontrol back on (same lever the "Disable control" checkbox uses, which is proven to freeze/unfreeze the
++    // overworld character), and w_movementAutoPilotOFF cancels any half-set auto-walk target. If control still won't
++    // stick, use "Warp to field" above -- that leaves the overworld entirely and the destination .eb re-establishes control.
++    private void RestoreControl()
++    {
++        try
++        {
++            PersistenSingleton<EventEngine>.Instance.SetUserControl(true);
++            _controlHeld = false;                                // we no longer hold it off -> a plain close won't re-freeze
++            try { ff9.w_movementAutoPilotOFF(); } catch (Exception) { }
++            _status = "control restored";
++        }
++        catch (Exception err)
++        {
++            _status = "restore control failed: " + err.Message;
 +        }
 +    }
 +
@@ -738,6 +968,7 @@ index 00000000..8a201c28
 +            _pendingWarpScenario = Int32.TryParse(_scenarioText, out Int32 scn) && scn >= 0 ? scn : -1;
 +            _pendingWarpReset = resetFlags;
 +            _pendingWarpTimer = WarpFadeWait;
++            _controlHeld = false;   // the destination re-establishes control on a fresh context; don't strand the hold (see WorldWarp)
 +            _open = false;
 +            return true;
 +        }

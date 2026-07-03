@@ -1763,17 +1763,247 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
     """Rebuild an edited OBJ into a block's loose .ff9mesh override + deploy (Object=building; IDALL stamped uniform)."""
     from .world import blendio as BIO
     try:
+        tile = None
+        if args.tile:
+            try:
+                t, v = args.tile.split(":")
+                tile = (int(t), int(v))
+            except ValueError:
+                print("--tile must be TOPOGRAPH:VARIANT (e.g. 52:0); see `world-atlas-catalog`", file=sys.stderr)
+                return 2
+        tile_uv = None
+        if args.tile_uv:
+            try:
+                tile_uv = tuple(float(x) for x in args.tile_uv.split(","))
+                assert len(tile_uv) == 4
+            except (ValueError, AssertionError):
+                print("--tile-uv must be umin,vmin,umax,vmax (from `world-atlas-add-tile`)", file=sys.stderr)
+                return 2
         info = BIO.build_from_obj(args.obj, into_block=tuple(args.into_block), mod_folder=args.mod_folder,
                                   disc=args.disc, part=args.part, lod=args.lod, topograph=args.topograph,
                                   at=(tuple(args.at) if args.at else None), seat=args.seat,
-                                  keep_block=args.keep_block, game=args.game)
+                                  keep_block=args.keep_block, texture=args.texture, tile=tile, tile_uv=tile_uv,
+                                  game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
     bx, by = info["into_block"]
     print(f"built {args.part} override for block[{bx}][{by}] "
           f"({info['verts']} verts, {info['tris']} tris, topograph {args.topograph}) -> {info['dest']}")
+    if info.get("replaced_stock_tris") and not args.keep_block:
+        print(f"  ⚠ this REPLACED the block's stock {args.part} mesh ({info['replaced_stock_tris']} tris -- e.g. "
+              f"trees/bridges/town). Re-run with --keep-block to append instead of replace.")
+    if args.texture:
+        print(f"  textured UV-less faces from the learned {args.part} atlas palette"
+              f"{' (applied)' if info.get('textured') else ' (nothing to stamp -- OBJ already has UVs)'}")
     print("  RELAUNCH or re-enter the overworld. (Object mesh drives render + walkmesh; topo 59 = impassable blocker.)")
+    return 0
+
+
+def _cmd_world_texture_palette(args: argparse.Namespace) -> int:
+    """Inspect the learned atlas UV palette (topograph -> donor tiles) used by `world-mesh-build --texture`."""
+    from .world import palette as PAL
+    try:
+        pal = PAL.build_palette(disc=args.disc, part=args.part, max_blocks=args.max_blocks,
+                                cache=not args.no_cache, game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if not pal:
+        print(f"no {args.part} UV palette found for disc {args.disc} (no blocks with UVs?)", file=sys.stderr)
+        return 2
+    print(f"{args.part} atlas UV palette (disc {args.disc}): topograph -> #distinct tiles, #donor faces, modal tile")
+    for topo, ntiles, nfaces, modal in PAL.palette_summary(pal):
+        m = "  ".join(f"({u:.3f},{v:.3f})" for u, v in modal) if modal else "-"
+        print(f"  topo {topo:2}: {ntiles:4} tiles  {nfaces:5} faces   modal {m}")
+    return 0
+
+
+def _cmd_world_atlas_extract(args: argparse.Namespace) -> int:
+    """Extract the shared overworld texture atlas (res(1_24)_terrain/_objects, 1024x1024) to a PNG -- for previewing
+    or repainting (drop the repainted PNG back via `world-atlas-reskin` for a no-DLL HD reskin)."""
+    from .world import atlas as A
+    try:
+        dest = A.extract_atlas(args.part, out=args.out, game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError, ImportError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"extracted the {args.part} atlas (1024x1024) -> {dest}")
+    return 0
+
+
+def _cmd_world_atlas_catalog(args: argparse.Namespace) -> int:
+    """Render a visual tile CATALOG (contact sheet): each topograph's real donor tiles as labeled thumbnails, so you
+    pick a look by eye and pass `world-mesh-build --tile TOPO:VARIANT`."""
+    from .world import atlas as A
+    try:
+        dest = A.tile_catalog(args.part, disc=args.disc, out=args.out, per_topo=args.per_topo, game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError, ImportError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"wrote the {args.part} tile catalog -> {dest}")
+    print("  pick a tile by its TOPO:VARIANT label, then: world-mesh-build <obj> ... --tile TOPO:VARIANT")
+    return 0
+
+
+def _cmd_world_terrain(args: argparse.Namespace) -> int:
+    """Reshape walkable overworld terrain (raise/lower/flatten a hill, or a ridge/valley) by deforming the stock mesh
+    across every block it touches. No DLL (loose Terrain override via s34); RELAUNCH to apply."""
+    from .world import terrain as T
+    at = seg = None
+    if args.at:
+        at = tuple(args.at)
+    if args.ridge:
+        seg = ((args.ridge[0], args.ridge[1]), (args.ridge[2], args.ridge[3]))
+    amount = None
+    if args.raise_h is not None:
+        amount = abs(args.raise_h)
+    elif args.lower is not None:
+        amount = -abs(args.lower)
+    try:
+        summary = T.reshape(args.mod_folder, at=at, seg=seg, radius=args.radius, amount=amount,
+                            flatten=args.flatten, height=args.height, disc=args.disc, falloff=args.falloff,
+                            game=args.game, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would reshape" if args.dry_run else "reshaped"
+    print(f"{verb} terrain ({summary['op']}, radius {summary['radius']}) across {len(summary['blocks'])} block(s):")
+    for b in summary["blocks"]:
+        print(f"  block {tuple(b['block'])}: moved {b['moved']} verts")
+    if summary["skipped_sea"]:
+        print(f"  (skipped {len(summary['skipped_sea'])} sea/no-terrain block(s): {summary['skipped_sea']})")
+    if not summary["blocks"]:
+        print("  nothing moved -- check --at/--radius (is the spot on land, in range?)", file=sys.stderr)
+        return 2
+    if not args.dry_run:
+        print("  RELAUNCH to apply. Reshaping keeps the stock texture + walkability (single surface = walkable).")
+    return 0
+
+
+def _parse_cells(spec: str):
+    """Parse a ``"x,y;x,y;..."`` (or whitespace-separated) cell list into ``[(x,y), ...]``. Also accepts a rectangular
+    range ``"x0-x1,y0-y1"`` -> every cell in the box (a coast-to-island bridge / a small landmass)."""
+    cells = []
+    for tok in spec.replace(" ", ";").split(";"):
+        tok = tok.strip()
+        if not tok:
+            continue
+        xs, ys = tok.split(",")
+        xr = [int(v) for v in xs.split("-")]
+        yr = [int(v) for v in ys.split("-")]
+        for x in range(min(xr), max(xr) + 1):
+            for y in range(min(yr), max(yr) + 1):
+                cells.append((x, y))
+    # de-dup, keep order
+    seen, out = set(), []
+    for c in cells:
+        if c not in seen:
+            seen.add(c); out.append(c)
+    return out
+
+
+def _cmd_world_reclaim(args: argparse.Namespace) -> int:
+    """RECLAIM ocean cells as walkable LAND (Path D -- new continent). Synthesizes a fresh flat, textured, walkable
+    terrain override for each sea cell; the custom engine's s34 divert renders it as land. RELAUNCH to apply."""
+    from .world import terrain as T
+    try:
+        cells = _parse_cells(args.cells)
+        if not cells:
+            print("no cells parsed -- give e.g. --cells '2,5;3,5' or a range '2-4,5-6'", file=sys.stderr)
+            return 2
+        summary = T.reclaim(args.mod_folder, cells=cells, disc=args.disc, profile=args.profile,
+                            topograph=args.topograph, seg=args.seg, height=args.height, beach=args.beach,
+                            game=args.game, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would reclaim" if args.dry_run else "reclaimed"
+    print(f"{verb} {len(summary['cells'])} ocean cell(s) as walkable land "
+          f"(disc {summary['disc']}, profile {summary['profile']}):")
+    for c in summary["cells"]:
+        edges = f", {c['water_edges']} water edge(s)" if "water_edges" in c else ""
+        print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts{edges}")
+    if not args.dry_run:
+        print("  Needs the CUSTOM engine (s34 ocean->land divert). RELAUNCH (or exit+re-enter the overworld).")
+        print("  A lone cell is an ISLAND -- reach it via F6->World->Teleport, or bridge from the coast with more cells.")
+    return 0
+
+
+def _cmd_world_coast(args: argparse.Namespace) -> int:
+    """FAITHFUL coast (Path D): place a REAL FF9 coastal block at target ocean cells -- copy its terrain + write the
+    Donor.txt sidecar so the engine renders that block's animated beach/sea/foam. `--list` browses coastal donors."""
+    from .world import terrain as T
+    from .world import extract as X
+    if args.list:
+        try:
+            donors = X.list_coastal_donors(disc=args.disc, game=args.game, beach_only=not args.all_coasts)
+        except (ValueError, ConfigError, FileNotFoundError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        kind = "coastal" if args.all_coasts else "beach"
+        print(f"{len(donors)} real {kind} donor block(s) on disc {args.disc} (x,y -> sub-meshes) -- pick one for --donor:")
+        for (x, y), subs in donors.items():
+            print(f"  {x},{y}: {', '.join(subs)}")
+        print("  (18,15) is the proven donor. Copy its coast to an ocean cell: world-coast --cells X,Y --donor 18,15")
+        return 0
+    if not args.cells or not args.donor:
+        print("give --cells and --donor (or --list to browse donors)", file=sys.stderr)
+        return 2
+    try:
+        cells = _parse_cells(args.cells)
+        dx, dy = (int(v) for v in args.donor.split(","))
+        # warn (don't block) if the donor isn't a coastal block -- it'll render land but no beach/foam
+        try:
+            coastal = X.list_coastal_donors(disc=args.disc, game=args.game, beach_only=False)
+            if (dx, dy) not in coastal:
+                print(f"  note: donor ({dx},{dy}) has no beach/sea sub-mesh -- it renders land but NO beach/foam "
+                      f"(use --list for real coast donors)", file=sys.stderr)
+        except Exception:  # noqa: BLE001 -- donor-quality warning is best-effort
+            pass
+        summary = T.coast(args.mod_folder, cells=cells, donor=(dx, dy), disc=args.disc, game=args.game,
+                          dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would place" if args.dry_run else "placed"
+    print(f"{verb} real coast (donor block {tuple(summary['donor'])}) at {len(summary['cells'])} cell(s):")
+    for c in summary["cells"]:
+        print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts + Donor.txt")
+    if not args.dry_run:
+        print("  Needs the custom engine (per-cell coastal donor). RELAUNCH to apply.")
+    return 0
+
+
+def _cmd_world_atlas_reskin(args: argparse.Namespace) -> int:
+    """Deploy a repainted atlas PNG as a no-DLL HD reskin (T2) -- keep the SAME UV layout, replace the pixels."""
+    from .world import atlas as A
+    try:
+        dest = A.deploy_atlas(args.png, args.part, mod_folder=args.mod_folder, game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"deployed the repainted {args.part} atlas -> {dest}")
+    print("  RELAUNCH to apply. Keep the same UV layout (tile positions) or existing geometry will sample wrong.")
+    return 0
+
+
+def _cmd_world_atlas_add_tile(args: argparse.Namespace) -> int:
+    """T3: paint a NEW tile into a FREE (unused) atlas region + deploy the reskinned atlas. Prints the UV rect to
+    stamp on custom geometry with `world-mesh-build --tile-uv`. Give a tile PNG, or omit for a magenta test pattern."""
+    from .world import atlas as A
+    try:
+        tile = A.load_tile_png(args.png) if args.png else A.make_test_tile(args.size)
+        info = A.add_tile(tile, args.part, mod_folder=args.mod_folder, game=args.game, tile_px=args.size)
+    except (ValueError, ConfigError, FileNotFoundError, ImportError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    u0, v0, u1, v1 = info["uv_rect"]
+    print(f"painted a new {args.part} tile at atlas px {info['box']} -> reskinned atlas {info['dest']}")
+    print(f"  UV rect: {u0:.4f},{v0:.4f},{u1:.4f},{v1:.4f}")
+    print(f"  now stamp it on geometry:  world-mesh-build <obj> --into-block X Y --part {args.part} "
+          f"--tile-uv {u0:.4f},{v0:.4f},{u1:.4f},{v1:.4f} --mod-folder {args.mod_folder}")
+    print("  RELAUNCH to apply.")
     return 0
 
 
@@ -3758,7 +3988,109 @@ def build_parser() -> argparse.ArgumentParser:
     wmb.add_argument("--keep-block", action="store_true",
                      help="merge with the block's STOCK structures (keep e.g. the town already there) instead of "
                           "replacing them")
+    wmb.add_argument("--texture", action="store_true",
+                     help="stamp real atlas tiles onto UV-less new faces (a Blender model without UVs, or the "
+                          "--solid-base hull) from the learned palette -- so they render textured, not [0,0] white")
+    wmb.add_argument("--tile", metavar="TOPO:VARIANT",
+                     help="force ONE specific atlas tile on all new faces (e.g. 52:0 = a castle wall); pick it from "
+                          "`world-atlas-catalog`. Implies --texture")
+    wmb.add_argument("--tile-uv", metavar="Umin,Vmin,Umax,Vmax",
+                     help="stamp a CUSTOM UV rect on all new faces -- the region a NEW tile you painted via "
+                          "`world-atlas-add-tile` occupies (T3)")
     wmb.set_defaults(func=_cmd_world_mesh_build)
+
+    wtp = sub.add_parser("world-texture-palette",
+                         help="inspect the learned overworld atlas UV palette (topograph -> real donor tiles) that "
+                              "`world-mesh-build --texture` stamps onto new geometry")
+    wtp.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wtp.add_argument("--part", choices=["terrain", "object"], default="terrain")
+    wtp.add_argument("--max-blocks", type=int, default=24, help="how many real blocks to sample (default 24)")
+    wtp.add_argument("--no-cache", action="store_true", help="force a fresh scan instead of the cached palette")
+    wtp.set_defaults(func=_cmd_world_texture_palette)
+
+    wax = sub.add_parser("world-atlas-extract",
+                         help="extract the shared overworld texture atlas (terrain/object, 1024x1024) to a PNG for "
+                              "previewing or repainting")
+    wax.add_argument("--part", choices=["terrain", "object"], default="terrain")
+    wax.add_argument("--out", required=True, help="output PNG path")
+    wax.set_defaults(func=_cmd_world_atlas_extract)
+
+    wac = sub.add_parser("world-atlas-catalog",
+                         help="render a visual tile CATALOG (each topograph's real donor tiles as labeled thumbnails) "
+                              "so you can pick a texture by eye for `world-mesh-build --tile`")
+    wac.add_argument("--part", choices=["terrain", "object"], default="terrain")
+    wac.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wac.add_argument("--per-topo", type=int, default=8, help="thumbnails per topograph row (default 8)")
+    wac.add_argument("--out", required=True, help="output PNG (contact sheet) path")
+    wac.set_defaults(func=_cmd_world_atlas_catalog)
+
+    war = sub.add_parser("world-atlas-reskin",
+                         help="deploy a repainted atlas PNG as a no-DLL HD reskin (T2): same UV layout, new pixels")
+    war.add_argument("png", help="the repainted atlas PNG (1024x1024, same tile layout)")
+    war.add_argument("--part", choices=["terrain", "object"], default="terrain")
+    war.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    war.set_defaults(func=_cmd_world_atlas_reskin)
+
+    wtr = sub.add_parser("world-terrain",
+                         help="reshape WALKABLE overworld terrain -- raise/lower/flatten a hill or a ridge/valley by "
+                              "deforming the stock mesh across every block it touches (seamless). No DLL; relaunch.")
+    wtr.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wtr.add_argument("--radius", type=float, required=True, help="reshape radius (world units)")
+    _shape = wtr.add_mutually_exclusive_group(required=True)
+    _shape.add_argument("--at", type=float, nargs=2, metavar=("X", "Z"), help="a radial hill/crater centre (world XZ)")
+    _shape.add_argument("--ridge", type=float, nargs=4, metavar=("X0", "Z0", "X1", "Z1"),
+                        help="a ridge/valley along the world-XZ segment (X0,Z0)->(X1,Z1)")
+    _op = wtr.add_mutually_exclusive_group(required=True)
+    _op.add_argument("--raise", dest="raise_h", type=float, metavar="H", help="raise by H (a hill / ridge)")
+    _op.add_argument("--lower", type=float, metavar="H", help="lower by H (a crater / valley)")
+    _op.add_argument("--flatten", action="store_true", help="flatten toward --height (default the local mean); radial")
+    wtr.add_argument("--height", type=float, help="with --flatten: the target Y (default = the local mean)")
+    wtr.add_argument("--falloff", default="smooth", help="edge falloff (default smooth)")
+    wtr.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wtr.add_argument("--dry-run", action="store_true", help="report the blocks it would reshape, write nothing")
+    wtr.set_defaults(func=_cmd_world_terrain)
+
+    wrc = sub.add_parser("world-reclaim",
+                         help="RECLAIM ocean cells as walkable LAND (Path D -- new continent): synthesize a flat, "
+                              "textured, walkable terrain override per sea cell. Needs the custom engine; relaunch.")
+    wrc.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wrc.add_argument("--cells", required=True,
+                     help="sea cells to reclaim: 'x,y;x,y' (e.g. '2,5;3,5') or a range 'x0-x1,y0-y1' (a landmass). "
+                          "Grid is 24x20; a lone cell is an island, a contiguous run bridges from the coast.")
+    wrc.add_argument("--profile", choices=["island", "flat"], default="island",
+                     help="'island' (default) = grass plateau ramping to a sand shore ring at the waterline (blends "
+                          "into the sea like a real coast); 'flat' = a bare slab of one --topograph")
+    wrc.add_argument("--height", type=float, default=None,
+                     help="land Y: island plateau height (default 6) or flat-slab Y (default 0 = coast level)")
+    wrc.add_argument("--beach", type=float, default=22.0,
+                     help="island shore ramp width in units (default 22) -- how far the beach slopes inland")
+    wrc.add_argument("--topograph", type=int, default=0,
+                     help="flat-profile terrain type (default 0 = plains; 49/58/59 are BLOCKED)")
+    wrc.add_argument("--seg", type=int, default=10, help="tessellation per 64u block edge (default 10)")
+    wrc.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wrc.add_argument("--dry-run", action="store_true", help="report the cells it would reclaim, write nothing")
+    wrc.set_defaults(func=_cmd_world_reclaim)
+
+    wct = sub.add_parser("world-coast",
+                         help="FAITHFUL coast (Path D): place a REAL FF9 coastal block at ocean cells -- copies its "
+                              "terrain + animated beach/sea/foam (via a Donor.txt sidecar). --list browses donors.")
+    wct.add_argument("--mod-folder", help="the FolderNames mod folder to deploy into")
+    wct.add_argument("--cells", help="target ocean cells: 'x,y;x,y' or a range 'x0-x1,y0-y1'")
+    wct.add_argument("--donor", help="the REAL coastal donor block 'dx,dy' to copy (e.g. 18,15; see --list)")
+    wct.add_argument("--list", action="store_true", help="list real coastal donor blocks (with a beach) and exit")
+    wct.add_argument("--all-coasts", action="store_true", help="with --list: include sea-fringed coasts, not just beaches")
+    wct.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wct.add_argument("--dry-run", action="store_true", help="report what it would place, write nothing")
+    wct.set_defaults(func=_cmd_world_coast)
+
+    wat = sub.add_parser("world-atlas-add-tile",
+                         help="T3: paint a NEW tile into a FREE atlas region + deploy the reskin; prints the UV rect "
+                              "to stamp on custom geometry via `world-mesh-build --tile-uv`")
+    wat.add_argument("png", nargs="?", help="a tile PNG to add (omit for a magenta test pattern)")
+    wat.add_argument("--part", choices=["terrain", "object"], default="object")
+    wat.add_argument("--size", type=int, default=48, help="tile size in atlas px (default 48)")
+    wat.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wat.set_defaults(func=_cmd_world_atlas_add_tile)
 
     wmt = sub.add_parser("world-mesh-trim",
                          help="auto-remove faces from a building OBJ: --floor drops the low flat base courtyard-floor/"

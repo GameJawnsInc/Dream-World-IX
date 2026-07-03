@@ -245,6 +245,29 @@ def list_object_blocks(*, disc: int = 1, lod: str = "0_1", game=None) -> list:
     return sorted(found)
 
 
+def list_coastal_donors(*, disc: int = 1, lod: str = "0_1", game=None, beach_only: bool = True) -> dict:
+    """``{(x, y): [sub-meshes]}`` for every LAND block that carries a coastal water sub-mesh -- the real COAST pieces
+    a faithful reclaim (``terrain.coast`` / ``world-coast``) can copy so the reclaimed cell renders that block's
+    animated beach + sea + foam (Path D). ``beach_only`` (default) keeps only blocks with a dedicated ``beach1`` mesh
+    (a proper sandy beach, e.g. (18,15) -- the proven donor); set False to also include plain ``sea``-fringed coasts.
+    The white sand + foam is the ``beach1``/``sea`` sub-mesh (animated ``WMRenderTextureBank``), NOT a terrain tile,
+    which is why these must be CARRIED, not textured. Detected by the block's bundle sub-mesh containers."""
+    import re
+    env = _worldmap_env(disc, game)
+    land = set(list_blocks(disc=disc, lod=lod, game=game))
+    pat = re.compile(rf"worldmap/disc{disc}/{lod}/r\d+/block\[(\d+)\]\[(\d+)\] (beach1|beach2|sea\d)")
+    found: dict = {}
+    for k in env.container:
+        m = pat.search((k or "").lower())
+        if m:
+            xy = (int(m.group(1)), int(m.group(2)))
+            if xy in land:
+                found.setdefault(xy, set()).add(m.group(3))
+    out = {xy: sorted(subs) for xy, subs in sorted(found.items())
+           if (not beach_only or any(s.startswith("beach") for s in subs))}
+    return out
+
+
 def list_blocks(*, disc: int = 1, lod: str = "0_1", game=None) -> list:
     """Every ``(x, y)`` whose terrain mesh exists for ``disc`` (sorted) -- the real grid the engine streams."""
     import re

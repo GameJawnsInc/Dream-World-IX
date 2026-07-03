@@ -406,7 +406,11 @@ with **no engine change**. ~63 of ~260 blocks carry an Object mesh (`extract.lis
 is added to the WALKMESH (form-1), so a raw copy is 3D collision you snag on → give the building tiles an *impassable*
 topograph (`w_movementCheckTopographID`, ff9.cs:5769, a bit outside the on-foot `limit` mask) so you're blocked at the
 perimeter; and a flat-based building on sloped terrain buries/floats → seat it on a `flatten_region` pad. A block with
-NO stock Object mesh needs a small `s34` tweak (fire the Object override when `prefab.ObjectForm1==null`).
+NO stock Object mesh needs a small `s34` tweak (fire the Object override when `prefab.ObjectForm1==null`). **★ GOTCHA
+(in-game 2026-07-02): an Object `.ff9mesh` override REPLACES the whole block's Object mesh — so deploying just your
+structure WIPES the block's stock objects (trees, bridges, a town).** Use `world-mesh-build --keep-block` (or
+`place_building(stock, new)`) to APPEND onto the stock mesh; `build_from_obj` now reports `replaced_stock_tris` and the
+CLI warns when a plain deploy would delete stock geometry.
 
 **Blender mesh-surgery round-trip** (`world/blendio.py`, ★ round-trip byte/geometry-exact): `world-mesh-export
 --block X Y [--block …] --part object --out m.obj` writes the block(s)' sub-mesh to a Wavefront OBJ in WORLD coords
@@ -416,6 +420,148 @@ object --topograph 59 --mod-folder <mod>` rebuilds it into that block's local fr
 flat mesh and STAMPING a uniform IDALL (topo 59 = impassable — the right model for a solid building), then deploys via
 the s34 Object override. Buildings are clean because their IDALL is uniform; per-triangle TERRAIN IDALL (walkmesh) is
 the follow-up (needs a spatial re-derive or a Blender face-attribute sidecar).
+
+## Walkable new land — RESHAPE, don't overlay (`world-terrain`, ★ in-game proven 2026-07-02)
+
+`ff9mapkit world-terrain --mod-folder <mod> --radius R (--at X,Z | --ridge X0,Z0,X1,Z1) (--raise H | --lower H |
+--flatten)` authors walkable terrain — a hill/crater/plateau or a ridge/valley (`world/terrain.py` → `deform_radial` /
+`deform_ridge` / `flatten_region`). **The load-bearing lesson: RESHAPE the stock terrain verts; do NOT overlay a new
+mesh.** Why (ground-follow RE): the player's Y is a **down-raycast from `player.y + rayStartOffsetY` (2.34375)** for
+`rayDistance` (2.8) (`ff9.cs:7141` `w_nwpHit`), and the walkmesh only accepts **up-facing** triangles (`Dot(up, normal)
+> 0.1`, `WMPhysics.cs:22`), and a per-frame **triangle cache** re-hits the player's current tri first (`WMBlock.cs:145`).
+Net effect: a mesh *overlaid on top of* intact ground is **non-walkable** — the stock surface underneath keeps winning
+the raycast (so an overlay is decoration/props, not ground you climb). Displacing the existing verts leaves a **single
+walkmesh surface** → walkable. Three more facts baked into `world-terrain` (each a real bug hit + fixed): build in the
+block's **LOCAL frame** (verts are local; a world-coord mesh lands off-block and is culled); **winding** must be
+up-facing to match stock (`geom-normal Y ≥ 0`, else back-face-culled + walkmesh-rejected — seen through); the index
+buffer (`flat_index`) IS the triangle list, so emit **fresh verts per triangle** (shared verts desync it → garbage
+faces). And **multi-block**: a deform wider than one 64u block is applied to EVERY touched block with the SAME
+**world-space** center/radius/amount, so shared block-edge verts move identically → **seamless** (else the hill is cut
+at the grid boundary). Reshape keeps the stock texture + walkability topograph. ★ Proven: a seamless walkable grassy
+hill across blocks (16,14)+(16,15).
+
+## New continent — RECLAIM ocean cells as walkable land (`world-reclaim`, Path D · s34 extension · ★ in-game proven 2026-07-02)
+
+The overworld is a **fixed 24×20 = 480-block grid where every ocean cell already exists as a real `WMBlock`** — it
+just short-circuits to one shared `SeaBlockPrefab` (`WMWorld.cs:495` initial load + `:1180` streaming reload). So "new
+continent" is **make designated ocean cells load land**, not mint a new world. `ff9mapkit world-reclaim --mod-folder
+<mod> --cells "x,y;x,y"` (or a range `x0-x1,y0-y1`) synthesizes a fresh flat, textured, **walkable** terrain override
+per sea cell (`world/terrain.py` `reclaim` → `mesh.flat_block_mesh` + `palette.apply_palette_uvs` → a loose
+`Block[x][y] Terrain.ff9mesh`, deployed like any Terrain override).
+
+**Why it needs an engine change (the make-or-break, RE'd over the WM source):** `block.IsSea` is read in EXACTLY two
+places, both pure prefab-routing to `SeaBlockPrefab` — there is **NO** downstream movement / collision / encounter /
+camera gate on it (walkability is 100% the mesh's `tangent.x` topograph, `WMBlock.Raycast@210`; `w_worldSeaBlockPtr` /
+`HasSea` are dead code). But a sea cell short-circuits to `SeaBlockPrefab` — which carries only **Sea** forms, **no
+`TerrainForm1`** (verified offline: block `[12][0]` has only `sea4`/`sea6` meshes) — *before* the s34 override hook can
+fire. So on stock/current Memoria, dropping a Terrain override on an ocean cell is a **no-op**.
+
+**The s34 extension (data-driven divert; `memoria-patches/s34-worldmap-mesh-override.patch`):** at BOTH sea call sites,
+if `WorldMeshOverride.HasLandOverride(disc, x, y)` (a `File.Exists` check for the cell's loose `Block[x][y]
+Terrain.ff9mesh`), route the cell onto a cached **plain land DONOR prefab** (`Block[12][10]` — has a `Terrain` child,
+no town `Object`; null-guarded) instead of `SeaBlockPrefab`. `RegisterBlockComponent` then swaps our per-cell override
+(keyed on the TARGET block's `InitialX/InitialY`, not the donor's) in as the cell's Terrain **render + walkmesh +
+topograph**. `IsSea` is left untouched (harmless — the divert no longer consults `SeaBlockPrefab` for that cell) and
+grid placement is `InitialX/InitialY`-driven, so the donor's own coords are irrelevant. BOTH sites must stay identical
+or a reclaimed cell renders on first load then reverts to ocean after streaming out/back.
+
+**Authoring facts (reuse the reshape stack):** the flat plane is built in **LOCAL** block space (x[0,64] z[-64,0],
+Y=`height` default 0 = sea/coast level — real land bottoms out at Y=0), **fresh verts per triangle** (flat/unindexed),
+**up-wound** so the *geometric* normal `Cross(v1-v0, v2-v0)` is +Y (the walkmesh up-facing filter uses that, NOT the
+stored vertex normal — `WMBlock.cs:70` / `WMPhysics.cs:22`), `tangent.x = encode_id(topograph)` with **topograph 0 =
+walkable plains** (the on-foot mask `0x0010667F/0xD8FF3CFF` admits 0/10/17/36…; **49/58/59 are BLOCKED** — 59 is the
+building-footprint wall, NOT walkable, so do not use it for ground), and palette-stamped terrain-atlas UVs so it
+textures like stock land. **Reachability:** a lone reclaimed cell is an ISLAND (the surrounding stock sea stays
+non-walkable on foot) — prove render+collide with **F6 → World → Teleport** onto the cell's world center
+(`x*64+32, -(y*64+32)`); ship on-foot reachability as a **contiguous bridge of reclaimed cells from the coast** (each
+cell just needs its own override — the divert is per-cell/data-driven). This is the FOUNDATION of a true new landmass;
+the remaining Path-D frontier is scale + a coastline/height pass + true new-continent geography.
+
+★ **PROVEN 2026-07-02** (screenshot): a 2-cell strip (2,12)+(2,13) rendered as walkable grassy land, player stood +
+walked on it, and was blocked at every sea seam (island behavior, as designed). **TWO lessons from the first run:**
+(1) ⚠ **do NOT add a serialized field to `WMWorld`** — the donor cache field must be `[NonSerialized]`; a public field
+broke the baked-prefab deserialization → NRE flood → overworld blackscreen (Unity's `output_log.txt`, not Memoria.log
+— see `project-ff9-memoria-build`). (2) **`--height 0` z-fights with the sea surface** (the flat plane is coplanar with
+the water → interlaced green/blue strips; functional but ugly). Deploy an open-ocean island at **`--height` a few units
+above 0** to clear the wave plane. ⚠ Raising height under a STANDING player embeds them (down-ray from `player.y+2.34`
+misses the higher surface) — teleport away + back (F6 re-grounds) after a height change, or set height before first
+arrival. A coast-flush BRIDGE wants `--height 0` at the shore (matches the coast, which bottoms at Y=0).
+
+### FAITHFUL coast — `world-coast` (place a REAL FF9 coastline, ★ in-game proven 2026-07-02, per-cell donor + F6 fix)
+
+The synthetic `island` profile is a STYLIZED grass/sand slab; a real FF9 coast is layered **animated sub-meshes**
+(`terrain` land + `sea3/4/5` water + a dedicated `beach1` sand/foam mesh driven by `WMRenderTextureBank` — NOT the
+terrain atlas, which is why no terrain tile can reproduce the white foam). To author a *genuine* coast, CARRY a real
+coastal block: `ff9mapkit world-coast --cells X,Y --donor dx,dy` copies the real donor block's terrain (real shape +
+shore rim + UVs + walkable topographs) to the cell's Terrain override **and** writes a `Block[x][y] Donor.txt` sidecar
+= `"dx,dy"`. **Engine (s34 per-cell donor):** the sea-cell divert calls `ResolveReclaimDonor` → `WorldMeshOverride.
+TryReadDonorPath` reads the sidecar → loads THAT real coastal block prefab as the donor (cached in a `[NonSerialized]
+Dictionary`; `LoadBlock` renders its `Beach1/Sea/foam` gated on `prefab.<field>`, not `block.Number`, so they carry
+onto the cell), falling back to the plain inland donor (Block[12][10]) when no sidecar. ★ IN-GAME PROVEN 2026-07-02: a real beach +
+foam rendered on cell (2,17) via a `Donor.txt`=`"18,15"` sidecar (per-cell, not a hardcode), faithfully walkable.
+`ff9mapkit world-coast --list` browses the 44 real beach donors. ⚠ do NOT donor block 219 (Water Shrine — its form-2
+sea is target-`Number`-gated). Trade-off: faithful land is a MOSAIC of real coast pieces (assembled from FF9's actual
+coastline blocks), not an arbitrary outline — the next frontier is authoring coastlines from scratch.
+
+**F6 teleport fix (bundled):** warping onto varied coastal terrain stranded the player under it — NOT a short re-ground
+ray (`w_movementChrInitSlice` already sky-casts infinitely from +400u), but `w_nwpHit` early-returning `defaultHeight=0`
+on a destination block not yet `IsReady` at warp time. Fix: `WMWorld.ForceLoadBlockReadyAt(pos)` force-loads the target
+block (synchronous `LoadBlock` sets `IsReady`) before grounding. Observable only on a FAR/unstreamed warp.
+
+## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
+
+**The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas
+(`WMConstants.cs:83-85`) bound to the single static `WMWorldPrefabMaker.TerrainMaterial`; `LoadMesh` gives *every*
+block's Terrain mesh that same material (`WMWorldPrefabMaker.cs:193`). Buildings/props use a paired global **Object**
+atlas (`ObjectMaterial`). A block's mesh selects *which tile* it draws purely by its **per-vertex UVs** (normalized
+0–1; `pixel = uv × 1024`). Beyond those two there are ~9 special materials (Beach/River/Stream/Falls/Sea1-6/Volcano),
+some **animated** by `WMRenderTextureBank` (frame-swap or `_Offset` scroll) — those are hardcoded per-material in C#.
+The static atlas textures load through `WMBlock.LoadMaterialsFromDisc` → `AssetManager.SearchAssetOnDisc`, which checks
+**mod paths first** (`WMBlock.cs:290-297`) — so an atlas PNG in the mod folder wins (Moguri's HD-reskin hook).
+
+**Topograph does not select the texture — but it *correlates* with it.** Texture is chosen only by UV; the
+per-triangle `topograph` (`tangent.x` IDALL) drives walkability/encounters. Empirically, though, real faces of the
+same topograph reuse a small, stable set of atlas tiles (probed across blocks; the *same* tile UVs recur block after
+block), so topograph is a usable **key for a learned UV palette** — with the caveat that some topographs are broad
+buckets (topo 49 spans many tiles), so the robust unit is "a real donor face's UV triplet," modal tile as default.
+
+**No-DLL feasibility — three tiers:**
+- **T1 — reuse existing atlas tiles via UVs (★ IN-GAME PROVEN 2026-07-02, no DLL).** Learn `topograph → real donor UV
+  triplets` from shipping blocks; stamp them onto new/UV-less faces (which otherwise carry `[0,0]` = the atlas corner,
+  which is a **blank white** tile). ★ Proven: a small test box stamped with a real Alexandria wall tile (UV ≈0.58,0.45)
+  rendered the masonry wall in-game, side-by-side with a plain `[0,0]` box that rendered solid white. `world/palette.py`:
+  `build_palette` (cached per disc/part) · `pick_uvs` · `apply_palette_uvs` (per-triangle, only zero-UV faces).
+  `world-mesh-build --texture` applies it (covers a UV-less Blender model + the `add_solid_base` hull);
+  `world-texture-palette` inspects it. **Tiling caveat:** a real tri's UV rect is ~5-6% of the atlas, so a donor
+  triplet is stamped PER TRIANGLE — don't stretch one tile across a big face. **The modal is always a REAL tile**
+  (probed: 0/2604 terrain and 0/1219 object palette tiles are transparent — real faces carry real UVs; the white
+  box in testing was the *no-palette* `[0,0]` default, which is a transparent atlas corner, not a palette pick). So
+  the picker below is for choosing *which* real tile (a wall vs a road vs bark), not for avoiding white.
+- **The atlas + tile PICKER (★ built).** `world/atlas.py` extracts the two shared **1024×1024 RGBA** atlases
+  (`res(1_24)_terrain`/`_objects`, p0data3; `WMBlock.cs:312-315`) — resolving the object-atlas dimension (also 1024²).
+  `world-atlas-extract` dumps the PNG; `world-atlas-catalog` renders a contact sheet (each topograph's real donor
+  tiles as labeled `TOPO:VARIANT` thumbnails); `world-mesh-build --tile TOPO:VARIANT` forces the picked tile on all
+  new faces (e.g. `--tile 52:0` = a castle wall). Blank tiles (should any exist) are detected by **alpha** (the
+  transparent-white `[0,0]` corner) via `atlas.tile_is_blank`/`filter_blank` (opt-in `build_palette(skip_blank=True)`).
+  UV→pixel is `(u·1024, (1-v)·1024)` (Unity V is bottom-up).
+- **T2 — HD atlas reskin (★ deploy built, no DLL; repaint is the art task).** `world-atlas-extract` → repaint the PNG
+  (same UV layout) → `world-atlas-reskin` deploys it to `<mod>/StreamingAssets/assets/resources/worldmap/textures/
+  res(1_24)_<terrain|objects>.png` (the `SearchAssetOnDisc` mod path, `AssetManager.cs:804`, checked before the
+  embedded asset). Replace the *pixels*, keep the *tile positions*, and all existing geometry reskins for free.
+- **T3 — genuinely new atlas content (★ pipeline built 2026-07-02, no DLL).** FF9's atlases have ample UNUSED
+  (fully-transparent) space — **124 free 32px cells in terrain, 373 in object** — so a *new* appearance goes into a
+  free region of the EXISTING atlas (no new material needed). `world-atlas-add-tile <tile.png>` finds a free gap
+  (`atlas.find_free_region`), composites the tile with a **1px UV inset** (dodges the configurable bilinear bleed,
+  `WMBlock.SetTextureFilterMode`→`WorldSmoothTexture`), deploys the reskin, and prints the UV rect; then
+  `world-mesh-build --tile-uv Umin,Vmin,Umax,Vmax` stamps that region on custom geometry (`palette.stamp_uv_rect`).
+  ★ Proven the pipeline end-to-end offline with a magenta test tile (rendered on a box, forest/bridge kept via
+  `--keep-block`); the *art* (a nice tile) is the human's, the plumbing is done. (A genuinely SEPARATE atlas — vs a
+  free-region add — would need a new material entry in the code-hardcoded `ObjectNameToPaths`, `WMBlock.cs:310`; the
+  free-region route avoids that entirely.)
+
+Open: the atlas tile-grid pitch is inferred (~5-6%/tri), not read from a constant; the palette is disc-1-derived
+(per-disc rebuild if the mapping differs). (Resolved: object atlas = 1024² like terrain; atlas lives in p0data3 as
+`res(1_24)_*`; the extract/catalog/reskin tools are built.)
 
 ## Overworld encounters + the world-pack binary (RE 2026-07-02)
 
