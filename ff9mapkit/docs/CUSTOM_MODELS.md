@@ -115,8 +115,13 @@ pose *and* animation, mirroring the engine; the rest-pose identity `world·IBM =
 Animations read straight from the legacy `.anim` clips in p0data5 (quaternion rotation curves + root translation,
 30 fps, LINEAR-faithful; `models/_gltf_io.read_clip`).
 
-**★ Blender edit loop — RETURN half (2026-07-03, round-trip exact offline; in-game edit pending).** Edited glTF
-back into the game: **`ff9mapkit model-import <edited.glb> --like <GEO> --deploy <MODFOLDER>`** parses the glTF
+**★★ Blender edit loop — COMPLETE + in-game PROVEN (2026-07-03).** A user reshaped Vivi in Blender → glTF →
+`model-import` → the edited Vivi renders in-game, still animating on the original skeleton — the full loop
+(`model-gltf` → Blender → `model-import`) proven end-to-end, DLL-free. Blender-round-trip robustness: Blender
+drops `asset.extras` + seam-splits verts (Vivi 1810→1843), so `model-import` auto-detects the source by matching
+the mesh NAME (`GEO_MAIN_F0_VIV.001`) and auto-falls back from the v1 mesh-splice to a hybrid re-rig (keep the
+pristine skeleton + id/type + textures, take the edited geometry + weights from the glTF) — so
+`model-import <edited.glb> --deploy <mod>` needs zero flags. Edited glTF back into the game: **`ff9mapkit model-import <edited.glb> --like <GEO> --deploy <MODFOLDER>`** parses the glTF
 (`_gltf_io.read_glb` + `decode_accessor`, byteStride/normalized-aware) → a Model struct via the *inverse*
 conversion (negate-Y is an involution, so the same axis flip, `/scale`, un-reverse winding, un-flip UV) →
 `fbx_skin.emit_skinned_fbx` → a loose-FBX override. Two modes: **v1 `--like <GEO>`** (recommended) keeps the
