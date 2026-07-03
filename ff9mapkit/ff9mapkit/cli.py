@@ -1755,6 +1755,41 @@ def _cmd_world_atlas_catalog(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_terrain(args: argparse.Namespace) -> int:
+    """Reshape walkable overworld terrain (raise/lower/flatten a hill, or a ridge/valley) by deforming the stock mesh
+    across every block it touches. No DLL (loose Terrain override via s34); RELAUNCH to apply."""
+    from .world import terrain as T
+    at = seg = None
+    if args.at:
+        at = tuple(args.at)
+    if args.ridge:
+        seg = ((args.ridge[0], args.ridge[1]), (args.ridge[2], args.ridge[3]))
+    amount = None
+    if args.raise_h is not None:
+        amount = abs(args.raise_h)
+    elif args.lower is not None:
+        amount = -abs(args.lower)
+    try:
+        summary = T.reshape(args.mod_folder, at=at, seg=seg, radius=args.radius, amount=amount,
+                            flatten=args.flatten, height=args.height, disc=args.disc, falloff=args.falloff,
+                            game=args.game, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would reshape" if args.dry_run else "reshaped"
+    print(f"{verb} terrain ({summary['op']}, radius {summary['radius']}) across {len(summary['blocks'])} block(s):")
+    for b in summary["blocks"]:
+        print(f"  block {tuple(b['block'])}: moved {b['moved']} verts")
+    if summary["skipped_sea"]:
+        print(f"  (skipped {len(summary['skipped_sea'])} sea/no-terrain block(s): {summary['skipped_sea']})")
+    if not summary["blocks"]:
+        print("  nothing moved -- check --at/--radius (is the spot on land, in range?)", file=sys.stderr)
+        return 2
+    if not args.dry_run:
+        print("  RELAUNCH to apply. Reshaping keeps the stock texture + walkability (single surface = walkable).")
+    return 0
+
+
 def _cmd_world_atlas_reskin(args: argparse.Namespace) -> int:
     """Deploy a repainted atlas PNG as a no-DLL HD reskin (T2) -- keep the SAME UV layout, replace the pixels."""
     from .world import atlas as A
@@ -3753,6 +3788,25 @@ def build_parser() -> argparse.ArgumentParser:
     war.add_argument("--part", choices=["terrain", "object"], default="terrain")
     war.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
     war.set_defaults(func=_cmd_world_atlas_reskin)
+
+    wtr = sub.add_parser("world-terrain",
+                         help="reshape WALKABLE overworld terrain -- raise/lower/flatten a hill or a ridge/valley by "
+                              "deforming the stock mesh across every block it touches (seamless). No DLL; relaunch.")
+    wtr.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wtr.add_argument("--radius", type=float, required=True, help="reshape radius (world units)")
+    _shape = wtr.add_mutually_exclusive_group(required=True)
+    _shape.add_argument("--at", type=float, nargs=2, metavar=("X", "Z"), help="a radial hill/crater centre (world XZ)")
+    _shape.add_argument("--ridge", type=float, nargs=4, metavar=("X0", "Z0", "X1", "Z1"),
+                        help="a ridge/valley along the world-XZ segment (X0,Z0)->(X1,Z1)")
+    _op = wtr.add_mutually_exclusive_group(required=True)
+    _op.add_argument("--raise", dest="raise_h", type=float, metavar="H", help="raise by H (a hill / ridge)")
+    _op.add_argument("--lower", type=float, metavar="H", help="lower by H (a crater / valley)")
+    _op.add_argument("--flatten", action="store_true", help="flatten toward --height (default the local mean); radial")
+    wtr.add_argument("--height", type=float, help="with --flatten: the target Y (default = the local mean)")
+    wtr.add_argument("--falloff", default="smooth", help="edge falloff (default smooth)")
+    wtr.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wtr.add_argument("--dry-run", action="store_true", help="report the blocks it would reshape, write nothing")
+    wtr.set_defaults(func=_cmd_world_terrain)
 
     wat = sub.add_parser("world-atlas-add-tile",
                          help="T3: paint a NEW tile into a FREE atlas region + deploy the reskin; prints the UV rect "

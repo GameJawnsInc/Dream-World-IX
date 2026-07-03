@@ -421,6 +421,25 @@ flat mesh and STAMPING a uniform IDALL (topo 59 = impassable — the right model
 the s34 Object override. Buildings are clean because their IDALL is uniform; per-triangle TERRAIN IDALL (walkmesh) is
 the follow-up (needs a spatial re-derive or a Blender face-attribute sidecar).
 
+## Walkable new land — RESHAPE, don't overlay (`world-terrain`, ★ in-game proven 2026-07-02)
+
+`ff9mapkit world-terrain --mod-folder <mod> --radius R (--at X,Z | --ridge X0,Z0,X1,Z1) (--raise H | --lower H |
+--flatten)` authors walkable terrain — a hill/crater/plateau or a ridge/valley (`world/terrain.py` → `deform_radial` /
+`deform_ridge` / `flatten_region`). **The load-bearing lesson: RESHAPE the stock terrain verts; do NOT overlay a new
+mesh.** Why (ground-follow RE): the player's Y is a **down-raycast from `player.y + rayStartOffsetY` (2.34375)** for
+`rayDistance` (2.8) (`ff9.cs:7141` `w_nwpHit`), and the walkmesh only accepts **up-facing** triangles (`Dot(up, normal)
+> 0.1`, `WMPhysics.cs:22`), and a per-frame **triangle cache** re-hits the player's current tri first (`WMBlock.cs:145`).
+Net effect: a mesh *overlaid on top of* intact ground is **non-walkable** — the stock surface underneath keeps winning
+the raycast (so an overlay is decoration/props, not ground you climb). Displacing the existing verts leaves a **single
+walkmesh surface** → walkable. Three more facts baked into `world-terrain` (each a real bug hit + fixed): build in the
+block's **LOCAL frame** (verts are local; a world-coord mesh lands off-block and is culled); **winding** must be
+up-facing to match stock (`geom-normal Y ≥ 0`, else back-face-culled + walkmesh-rejected — seen through); the index
+buffer (`flat_index`) IS the triangle list, so emit **fresh verts per triangle** (shared verts desync it → garbage
+faces). And **multi-block**: a deform wider than one 64u block is applied to EVERY touched block with the SAME
+**world-space** center/radius/amount, so shared block-edge verts move identically → **seamless** (else the hill is cut
+at the grid boundary). Reshape keeps the stock texture + walkability topograph. ★ Proven: a seamless walkable grassy
+hill across blocks (16,14)+(16,15).
+
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 
 **The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas
