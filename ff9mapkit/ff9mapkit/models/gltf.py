@@ -115,9 +115,10 @@ def _select_anim_keys(geo, geo_id, anims, p0d5_env):
 
 # ---------------------------------------------------------------- exporter
 
-def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SCALE, game=None) -> dict:
-    """Write a ``.glb`` for ``token`` (GEO name or id) at ``out_path``. Returns a manifest (counts + anims)."""
-    model = extract.read_model(token, game=game)
+def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SCALE, game=None, _model=None) -> dict:
+    """Write a ``.glb`` for ``token`` (GEO name or id) at ``out_path``. Returns a manifest (counts + anims).
+    ``_model`` is an internal hook to pass a pre-read struct (bulk sweeps) and skip the p0data4 read."""
+    model = _model if _model is not None else extract.read_model(token, game=game)
     bones = model["bones"]
     meshes = model["meshes"]
     materials = model["materials"]
@@ -247,10 +248,11 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
                 prim["material"] = sub["material_idx"]
             primitives.append(prim)
 
-    # --- animations ---
-    p0d5 = config.find_game_path(game) / "StreamingAssets" / "p0data5.bin"
-    env5 = extract._unitypy().load(str(p0d5))
-    selected = _select_anim_keys(model["geo"], model["geo_id"], anims, env5)
+    # --- animations (skip the p0data5 load entirely when no clips are wanted) ---
+    selected = []
+    if anims not in (None, "none", "off"):
+        env5 = extract._unitypy().load(str(config.find_game_path(game) / "StreamingAssets" / "p0data5.bin"))
+        selected = _select_anim_keys(model["geo"], model["geo_id"], anims, env5)
     gltf_anims: list = []
     anim_labels: list = []
     for label, key in selected:

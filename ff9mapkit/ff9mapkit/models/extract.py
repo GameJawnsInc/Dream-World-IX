@@ -315,13 +315,14 @@ def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
             "bones": bones, "root_bone": root_bone, "smrs": smrs}
 
 
-def read_model(token: str, game=None) -> dict:
+def read_model(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
     """Read a real model prefab -> the Model struct consumed by :mod:`ff9mapkit.models.fbx_skin`.
 
     ``token`` is a GEO name (``GEO_NPC_F0_...``) or a model id. Returns a dict:
       geo, geo_id, type_int, root_bone, bones[], meshes[], materials[], textures{stem: PIL.Image}.
-    Bone weights in each mesh are REMAPPED to FF9 bone NUMBERS (skeleton-order-independent)."""
-    c = _collect(token, game)
+    Bone weights in each mesh are REMAPPED to FF9 bone NUMBERS (skeleton-order-independent).
+    Pass ``bundle`` to reuse an already-loaded p0data4 across many models (bulk sweeps)."""
+    c = _collect(token, game, bundle=bundle)
     bones, smrs, b = c["bones"], c["smrs"], c["bundle"]
 
     meshes: list[dict] = []
