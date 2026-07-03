@@ -3608,13 +3608,15 @@ def build_parser() -> argparse.ArgumentParser:
     mi.add_argument("gltf", help="the edited .glb/.gltf file (exported from Blender)")
     mi.add_argument("--like", default=None,
                     help="GEO name/id whose rig + textures to KEEP (v1 mesh-splice: take only edited geometry; "
-                         "vertex count must match). Recommended -- omit only for a full re-rig from the glTF.")
+                         "vertex count must match). AUTO-DETECTED from the glTF stamp if we exported it, so you "
+                         "usually don't pass this; give it for a foreign glTF or to force a different source.")
     mi.add_argument("--id", type=int, default=None,
-                    help="target model id to write (default: the --like source's id -> a straight override; a "
-                         "mint id >=6000 for a new model)")
+                    help="target model id to write (default: the source's id -> a straight override; a mint id "
+                         ">=6000 for a new model). Only needed for a full re-rig of an unstamped glTF.")
     mi.add_argument("--deploy", metavar="MODFOLDER", default=None,
                     help="mod folder to write the override into (Models/<type>/<id>/)")
-    mi.add_argument("--scale", type=float, default=0.01, help="the scale the glTF was exported at (default 0.01)")
+    mi.add_argument("--scale", type=float, default=None,
+                    help="the scale the glTF was exported at (default: auto from the glTF stamp, else 0.01)")
     mi.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     mi.set_defaults(func=_cmd_model_import)
 

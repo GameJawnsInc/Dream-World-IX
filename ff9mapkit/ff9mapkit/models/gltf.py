@@ -285,6 +285,9 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
 
     # --- assemble ---
     gltf = {
+        # stamp the source model + scale so `model-import` can auto-detect them (no need to retype --like)
+        "asset": {"version": "2.0", "generator": "ff9mapkit",
+                  "extras": {"ff9_geo": model["geo"], "ff9_geo_id": model["geo_id"], "ff9_scale": s}},
         "scene": 0,
         "scenes": [{"nodes": [node_of[model["root_bone"]], mesh_node]}],
         "nodes": nodes,
@@ -484,12 +487,31 @@ def _emit_model_to(model: dict, dest_dir, geo_id: int) -> dict:
     return {"fbx": str(dest / f"{geo_id}.fbx"), "textures": saved, "euler_max_err": meta["euler_max_err"]}
 
 
-def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale: float = DEFAULT_SCALE, game=None) -> dict:
+def source_from_gltf(path) -> tuple:
+    """A glTF we exported stamps its source model + scale in ``asset.extras`` -> (geo_name, scale) so
+    ``model-import`` can auto-detect them. (None, None) for a file without the stamp (a foreign glTF)."""
+    try:
+        gltf, _ = _gltf_io.read_glb(path)
+        ex = (gltf.get("asset") or {}).get("extras") or {}
+        return ex.get("ff9_geo"), ex.get("ff9_scale")
+    except Exception:
+        return None, None
+
+
+def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, game=None) -> dict:
     """Bring a (Blender-edited) glTF back into the game: import it, emit the FBX + textures into ``mod_folder``
-    at ``Models/{type}/{id}/`` (an override -- deletes to revert). ``like="<GEO>"`` uses the v1 mesh-splice
-    (keep the source's rig + textures, take only edited geometry -- vertex count must match); else a full
-    re-rig from the glTF (needs ``geo_id`` for the target id/type). ``geo_id`` overrides the target id (default:
-    the source id -> a straight override of that model; or a mint id >=6000)."""
+    at ``Models/{type}/{id}/`` (an override -- deletes to revert).
+
+    If ``like`` is not given, the source model is AUTO-DETECTED from the glTF's ``asset.extras`` stamp (any
+    file exported by ``model-gltf``), so a round-tripped edit needs no --like. ``like="<GEO>"`` uses the v1
+    mesh-splice (keep the source's rig + textures, take only edited geometry -- vertex count must match); a
+    glTF with no stamp AND no ``like`` falls back to a full re-rig (needs ``geo_id`` for the target id/type).
+    ``geo_id`` overrides the target id (default: the source id -> a straight override; or a mint id >=6000)."""
+    stamp_geo, stamp_scale = source_from_gltf(gltf_path)
+    if like is None and geo_id is None and stamp_geo is not None:
+        like = stamp_geo                                     # auto: a glTF we exported knows its own source
+    if scale is None:
+        scale = float(stamp_scale) if stamp_scale is not None else DEFAULT_SCALE
     if like:
         model = apply_gltf_edit(like, gltf_path, scale=scale, game=game)
         type_int, src_id = model["type_int"], model["geo_id"]

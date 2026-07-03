@@ -211,3 +211,21 @@ def test_import_rejects_a_non_bone_joint_name():
     _gltf_io.write_glb(g, blob, path)
     with pytest.raises(ValueError, match="boneNNN|bone000"):
         gltf.import_gltf(path, scale=1.0)
+
+
+def test_source_stamp_auto_detected_from_gltf():
+    """model-import auto-detects the source model from the glTF's asset.extras stamp -- so a round-tripped
+    edit needs no --like. A foreign glTF (no stamp) -> (None, None)."""
+    import tempfile
+    import os
+    buf = _gltf_io.GltfBuffer()
+    pos = buf.add([0, 0, 0, 1, 0, 0, 0, 1, 0], _gltf_io.FLOAT, "VEC3", minmax=True)
+    common = {"accessors": buf.accessors, "bufferViews": buf.bufferViews,
+              "meshes": [{"primitives": [{"attributes": {"POSITION": pos}}]}]}
+    path = os.path.join(tempfile.gettempdir(), "ff9mk_stamp.glb")
+    _gltf_io.write_glb({"asset": {"version": "2.0", "extras":
+                        {"ff9_geo": "GEO_MAIN_F0_VIV", "ff9_geo_id": 8, "ff9_scale": 0.02}}, **common},
+                       buf.blob, path)
+    assert gltf.source_from_gltf(path) == ("GEO_MAIN_F0_VIV", 0.02)
+    _gltf_io.write_glb({"asset": {"version": "2.0"}, **common}, buf.blob, path)
+    assert gltf.source_from_gltf(path) == (None, None)
