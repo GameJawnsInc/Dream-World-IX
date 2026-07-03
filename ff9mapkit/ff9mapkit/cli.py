@@ -1373,6 +1373,30 @@ def _cmd_battle_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_model_export(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from .models import export as mexport
+    try:
+        if args.deploy:
+            meta = mexport.deploy_override(args.model, args.deploy, game=args.game)
+            print(f"deployed {meta['geo']} (id {meta['geo_id']}) -> {meta['path']}")
+            print(f"  euler round-trip max err {meta['euler_max_err']:.1e} (0.0 = exact)")
+            print("Next: F6 -> Reload field (or warp to a field that uses this model) and confirm it "
+                  "renders + animates IDENTICALLY. Revert by deleting that Models/<type>/<id>/ subfolder.")
+            return 0
+        meta = mexport.export_model(args.model, Path(args.out), game=args.game, flat=args.flat)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"exported {meta['geo']} (id {meta['geo_id']}, type {meta['type_int']}): "
+          f"{meta['meshes']} mesh / {meta['verts']} verts / {meta['bones']} bones / "
+          f"{len(meta['textures'])} texture(s)")
+    print(f"  euler round-trip max err {meta['euler_max_err']:.1e} (0.0 = exact)")
+    print(f"  wrote: {meta['fbx']}")
+    print(f"To override this model in-game (no DLL), place it at:  <modfolder>/{meta['engine_path']}")
+    return 0
+
+
 def _cmd_battle_build(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .battle.build import BattleBuildError, BattleProject, build_battle_mod
@@ -3472,6 +3496,19 @@ def build_parser() -> argparse.ArgumentParser:
                     help="ship the geometry under a NEW bbg number (e.g. BBG_B200) = a wholly original map "
                          "(the kit authors a static INB for it), instead of overriding the forked slot.")
     bi.set_defaults(func=_cmd_battle_import)
+
+    me = sub.add_parser("model-export",
+                        help="export a REAL FF9 field/character model to an editable skinned FBX (needs UnityPy)")
+    me.add_argument("model", help="GEO name or model id to export, e.g. GEO_MAIN_F0_VIV or 8 (see `models`)")
+    me.add_argument("--out", default=".", help="dir to write the Models/<type>/<id>/ tree into (default: .)")
+    me.add_argument("--flat", action="store_true",
+                    help="write <id>.fbx + textures directly in --out (for editing) instead of the engine "
+                         "Models/<type>/<id>/ override layout")
+    me.add_argument("--deploy", metavar="MODFOLDER", default=None,
+                    help="export the UNEDITED model straight into MODFOLDER at the engine override path "
+                         "(the Phase-1 fidelity test) instead of writing to --out")
+    me.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    me.set_defaults(func=_cmd_model_export)
 
     bb = sub.add_parser("battle-build", help="compile a battle.toml into a Memoria mod (custom battle map)")
     bb.add_argument("battle", nargs="+", help="one or more battle.toml files")
