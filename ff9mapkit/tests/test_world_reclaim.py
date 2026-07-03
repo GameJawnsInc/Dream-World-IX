@@ -54,14 +54,14 @@ def test_island_block_mesh_profile():
     # a CORNER cell (water on 2 edges) ramps from underwater up to the plateau, mixing shore+grass, all walkable
     corner = M.island_block_mesh(disc=1, x=1, y=16, water_dirs=[(-1, 0), (0, -1)], seg=8, height=6.0, beach=18.0)
     ys = [v[1] for v in corner.verts]
-    assert min(ys) < 0 and max(ys) == 6.0                    # dips under the sea at the shore, plateau inland
+    assert min(ys) == 0.0 and max(ys) == 6.0                 # ramps from the waterline (0) up to the plateau (6)
     assert all(_geom_normal_y(corner, t) > 0 for t in corner.tris)          # every ramp face still up-facing
     topos = {X.decode_id(int(round(corner.tangents[t[0]][0])))["topograph"] for t in corner.tris}
-    assert 58 in topos and 17 in topos                       # sand shore ring + grass top
+    assert 20 in topos and 0 in topos                        # tan-sand shore ring (20) + green-grass top (0)
     # an INTERIOR cell (no water edge) is a flat grass plateau
     interior = M.island_block_mesh(disc=1, x=2, y=17, water_dirs=[], seg=8, height=6.0)
     assert {v[1] for v in interior.verts} == {6.0}
-    assert {X.decode_id(int(round(interior.tangents[t[0]][0])))["topograph"] for t in interior.tris} == {17}
+    assert {X.decode_id(int(round(interior.tangents[t[0]][0])))["topograph"] for t in interior.tris} == {0}
 
 
 def test_reclaim_dry_run_and_dispatch(monkeypatch):

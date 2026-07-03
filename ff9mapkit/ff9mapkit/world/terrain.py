@@ -79,8 +79,8 @@ _DIRS = [(-1, 0), (1, 0), (0, 1), (0, -1)]
 
 
 def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
-            height: float | None = None, seg: int = 8, beach: float = 18.0, grass_topo: int = 17,
-            shore_topo: int = 58, game=None, dry_run: bool = False) -> dict:
+            height: float | None = None, seg: int = 10, beach: float = 22.0, grass_topo: int = 0,
+            shore_topo: int = 20, game=None, dry_run: bool = False) -> dict:
     """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
     coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
     collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
@@ -88,9 +88,10 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     deploys a ``Block[x][y] Terrain.ff9mesh`` override.
 
     ``profile`` shapes the land:
-      * ``"island"`` (default) -- a NATURAL island: a walkable grass plateau at ``Y=height`` that ramps down to a sand
-        SHORE ring (blocked topo 58) at the waterline on every OPEN-WATER edge, so it blends into the sea like a real
-        coast instead of a flat slab (:func:`ff9mapkit.world.mesh.island_block_mesh`). Water-facing edges are computed
+      * ``"island"`` (default) -- a NATURAL island: a walkable GREEN-GRASS plateau at ``Y=height`` that ramps down to a
+        TAN-SAND shore ring at the waterline on every OPEN-WATER edge, so it blends into the sea like a real coast
+        instead of a flat slab (:func:`ff9mapkit.world.mesh.island_block_mesh`; grass/sand topographs chosen by sampling
+        real atlas pixel colors, not frequency). Water-facing edges are computed
         per cell from the reclaimed set + the real-land set (a cell edge whose neighbour is another reclaimed cell or
         real land gets NO beach -- interior/seam). Per-tri grass/shore topographs are palette-textured individually.
       * ``"flat"`` -- a bare flat slab at ``Y=height`` of one ``topograph`` (0 = plains). Cheapest; z-fights the sea

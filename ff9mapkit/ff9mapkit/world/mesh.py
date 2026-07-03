@@ -230,14 +230,15 @@ def flat_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, seg: int = 8, topo
                      raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
 
-def island_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, water_dirs, seg: int = 8, height: float = 6.0,
-                       beach: float = 18.0, grass_topo: int = 17, shore_topo: int = 58, shore_frac: float = 0.28,
-                       shore_dip: float = -1.0, lod: str = "0_1"):
+def island_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, water_dirs, seg: int = 10, height: float = 6.0,
+                       beach: float = 22.0, grass_topo: int = 0, shore_topo: int = 20, shore_frac: float = 0.30,
+                       shore_dip: float = 0.0, lod: str = "0_1"):
     """Synthesize ONE block of a NATURAL island (vs :func:`flat_block_mesh`'s bare slab): a walkable GRASS plateau at
-    ``Y=height`` that ramps DOWN to the waterline on each WATER-facing edge, textured grass (``grass_topo`` 17) on the
-    flat top and SAND/SHORE (``shore_topo`` 58 -- the real waterline topograph, and BLOCKED, so the player stops at the
-    beach exactly like a real coast) on the low ring. Modelled on the real coastline RE (topo 58 at Y≈0, topo 17 flat
-    grass, topo 49 cliff).
+    ``Y=height`` that ramps DOWN to the waterline on each WATER-facing edge, textured GREEN GRASS (``grass_topo`` 0 --
+    the atlas green tile, verified by sampling atlas pixel colors) on the flat top and TAN SAND (``shore_topo`` 20) on
+    the low ring, so it reads as a grassy island with a sandy beach. Both topographs are WALKABLE (the player can walk
+    the whole island down to the waterline; the surrounding stock sea is the wall). NOTE the atlas has no bright-white
+    sand tile (real FF9 white beaches are a sea-side foam effect); topo 20 is the sandiest walkable land tile.
 
     ``water_dirs`` = the grid dirs (subset of ``{(-1,0),(1,0),(0,1),(0,-1)}``) whose neighbour is OPEN WATER for this
     cell; an INTERIOR island cell passes an EMPTY set -> a flat plateau (no beach). A vertex's Y ramps from ``shore_dip``

@@ -3869,11 +3869,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "into the sea like a real coast); 'flat' = a bare slab of one --topograph")
     wrc.add_argument("--height", type=float, default=None,
                      help="land Y: island plateau height (default 6) or flat-slab Y (default 0 = coast level)")
-    wrc.add_argument("--beach", type=float, default=18.0,
-                     help="island shore ramp width in units (default 18) -- how far the beach slopes inland")
+    wrc.add_argument("--beach", type=float, default=22.0,
+                     help="island shore ramp width in units (default 22) -- how far the beach slopes inland")
     wrc.add_argument("--topograph", type=int, default=0,
                      help="flat-profile terrain type (default 0 = plains; 49/58/59 are BLOCKED)")
-    wrc.add_argument("--seg", type=int, default=8, help="tessellation per 64u block edge (default 8)")
+    wrc.add_argument("--seg", type=int, default=10, help="tessellation per 64u block edge (default 10)")
     wrc.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wrc.add_argument("--dry-run", action="store_true", help="report the cells it would reclaim, write nothing")
     wrc.set_defaults(func=_cmd_world_reclaim)
