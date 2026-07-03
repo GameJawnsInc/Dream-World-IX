@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
-index 75cf50e5..15cec034 100644
+index 75cf50e5..95b1e640 100644
 --- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
 +++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
 @@ -494,7 +494,16 @@ public class WMWorld : Singleton<WMWorld>
@@ -116,11 +116,18 @@ index 75cf50e5..15cec034 100644
                          wmblock.IsReady = true;
                      }
                      else if (this.BackgroundLoadingCount < FF9StateSystem.World.MaximumLoadAsynce)
-@@ -1945,6 +2013,8 @@ public class WMWorld : Singleton<WMWorld>
+@@ -1945,6 +2013,15 @@ public class WMWorld : Singleton<WMWorld>
  
      public GameObject SeaBlockPrefab;
  
-+    public GameObject LandDonorPrefab;   // DWIX Path D: plain-land donor prefab (host) for reclaimed ocean cells (s34)
++    // DWIX Path D: plain-land donor prefab (host) for reclaimed ocean cells (s34). [NonSerialized] is CRITICAL --
++    // WMWorld is a MonoBehaviour baked into the pre-built WorldDisc prefab; adding a SERIALIZED (public) field shifts
++    // its serialization layout, so the baked component deserializes corrupt ("different serialization layout ...
++    // expected N bytes"), nulls its world-pack arrays, and floods NREs (GetkWorldPackEffectArch / SmoothFrameUpdater_
++    // World.RegisterState) -> overworld blackscreen. This is a pure RUNTIME cache (assigned in LoadBlocks), never in
++    // the editor, so excluding it from serialization keeps the baked layout intact.
++    [System.NonSerialized]
++    public GameObject LandDonorPrefab;
 +
      public WorldSPSSystem WorldSPSSystem;
  
