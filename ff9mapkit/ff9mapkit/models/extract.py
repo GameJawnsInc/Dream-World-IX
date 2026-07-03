@@ -222,14 +222,18 @@ def _decode_mesh_tt(bundle: _Bundle, mesh_pid):
             "submeshes": submeshes, "skin": skin, "bindposes": bindposes, "vcount": vcount}
 
 
-def read_model(token: str, game=None) -> dict:
-    """Read a real model prefab -> the Model struct consumed by :mod:`ff9mapkit.models.fbx_skin`.
+def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
+    """Walk a real model prefab -> raw bones + per-SMR meshes (NO bind correction applied yet).
 
-    ``token`` is a GEO name (``GEO_NPC_F0_...``) or a model id. Returns a dict:
-      geo, geo_id, type_int, root_bone, bones[], meshes[], materials[], textures{stem: PIL.Image}.
-    Bone weights in each mesh are REMAPPED to FF9 bone NUMBERS (skeleton-order-independent)."""
+    Shared by :func:`read_model` (which applies the correction + reads textures) and
+    :func:`bind_diagnostics` (which characterizes the bind-space variation). Returns a dict:
+      geo, geo_id, type_int, bundle, bones[], root_bone, smrs[] where each smr is
+      {name, mesh(decoded), idx_to_num, mat_stems, weights, samples=[(bone_name, m_BindPose)]}.
+    Bone weights are REMAPPED to FF9 bone NUMBERS (skeleton-order-independent); ``samples`` carry the
+    m_BindPose per bone of THIS mesh (kept per-SMR so the correction can be computed mesh-by-mesh).
+    Pass ``bundle`` to reuse an already-loaded p0data4 across many models (bulk sweeps)."""
     geo, gid, tint = resolve_geo(token)
-    b = _Bundle(game)
+    b = bundle if bundle is not None else _Bundle(game)
     root_pid = b.find_prefab_go(tint, gid)
     if root_pid is None:
         raise FileNotFoundError(f"{geo} (id {gid}) not found at models/{tint}/{gid}/{gid}.fbx in p0data4.bin")
@@ -275,10 +279,7 @@ def read_model(token: str, game=None) -> dict:
     root_bone = next((bn["name"] for bn in bones if bn["parent"] is None), None)
 
     # --- each SkinnedMeshRenderer -> a mesh (geometry + skin remapped to bone numbers) ---
-    meshes: list[dict] = []
-    materials: list[dict] = []
-    texture_stems: set = set()
-    bind_samples: list = []          # (bone_name, m_BindPose) for the global bind-correction below
+    smrs: list[dict] = []
     for smr_pid in smr_pids:
         smr = b.tt(smr_pid)
         mesh_pid = _pid(smr.get("m_Mesh", {}))
@@ -291,16 +292,14 @@ def read_model(token: str, game=None) -> dict:
         for bp in smr_bones:
             bn_name = bone_pid_to_name.get(_pid(bp))
             idx_to_num.append(_bone_num(bn_name))
+        samples = []                 # (bone_name, m_BindPose) for THIS mesh only
         for j, bindpose in enumerate(mesh.get("bindposes", [])):
             if j < len(idx_to_num) and idx_to_num[j] is not None:
-                bind_samples.append((f"bone{idx_to_num[j]:03d}", bindpose))
+                samples.append((f"bone{idx_to_num[j]:03d}", bindpose))
         # materials for this renderer (per submesh)
         mat_stems = []
         for mp in smr.get("m_Materials", []):
-            stem = _maintex_stem(b, _pid(mp))
-            mat_stems.append(stem)
-            if stem:
-                texture_stems.add(stem)
+            mat_stems.append(_maintex_stem(b, _pid(mp)))
         # remap per-vertex weights to bone numbers, prune zero-weight influences
         remapped = []
         for w in mesh["skin"]:
@@ -309,6 +308,32 @@ def read_model(token: str, game=None) -> dict:
                 if wt > 0.0 and 0 <= bi < len(idx_to_num) and idx_to_num[bi] is not None:
                     infl.append((idx_to_num[bi], wt))
             remapped.append(infl)
+        smrs.append({"name": mesh["name"], "mesh": mesh, "idx_to_num": idx_to_num,
+                     "mat_stems": mat_stems, "weights": remapped, "samples": samples})
+
+    return {"geo": geo, "geo_id": gid, "type_int": tint, "bundle": b,
+            "bones": bones, "root_bone": root_bone, "smrs": smrs}
+
+
+def read_model(token: str, game=None) -> dict:
+    """Read a real model prefab -> the Model struct consumed by :mod:`ff9mapkit.models.fbx_skin`.
+
+    ``token`` is a GEO name (``GEO_NPC_F0_...``) or a model id. Returns a dict:
+      geo, geo_id, type_int, root_bone, bones[], meshes[], materials[], textures{stem: PIL.Image}.
+    Bone weights in each mesh are REMAPPED to FF9 bone NUMBERS (skeleton-order-independent)."""
+    c = _collect(token, game)
+    bones, smrs, b = c["bones"], c["smrs"], c["bundle"]
+
+    meshes: list[dict] = []
+    materials: list[dict] = []
+    texture_stems: set = set()
+    per_mesh_G: list = []
+    for s in smrs:
+        mesh = s["mesh"]
+        mat_stems = s["mat_stems"]
+        for stem in mat_stems:
+            if stem:
+                texture_stems.add(stem)
         base_mat = len(materials)
         subs = []
         for si, tris in enumerate(mesh["submeshes"]):
@@ -316,31 +341,75 @@ def read_model(token: str, game=None) -> dict:
             materials.append({"name": f"{mesh['name']}_mat{si}",
                               "texture": mat_stems[si] if si < len(mat_stems) else (
                                   mat_stems[0] if mat_stems else None)})
-        meshes.append({"name": mesh["name"], "verts": mesh["verts"], "normals": mesh["normals"],
-                       "uvs": mesh["uvs"], "submeshes": subs, "weights": remapped})
+        me = {"name": mesh["name"], "verts": mesh["verts"], "normals": mesh["normals"],
+              "uvs": mesh["uvs"], "submeshes": subs, "weights": s["weights"]}
 
-    # --- bind-pose correction ---------------------------------------------------------------------
-    # FF9's Unity import baked a GLOBAL transform into every model's m_BindPose that the engine's FBX
-    # importer DROPS (ModelImporter recomputes bindpose from the bone REST pose, not the stored
-    # m_BindPose). Left uncorrected the re-imported model renders transformed -- Vivi came in
-    # upside-down (a 180-deg X flip). We recover that global G = boneWorld * m_BindPose (verified
-    # constant across every bone) and bake it into the verts + normals, so the engine's recomputed
-    # bindpose reproduces the ORIGINAL rendering, through animation. Derived from THIS model's own data
-    # (not hardcoded), so it self-corrects if a model's bake differs; None (no bake) if inconsistent.
-    G = _bind_correction(bones, bind_samples)
-    if G is not None:
-        R = [row[:3] for row in G[:3]]
-        for me in meshes:
+        # --- bind-pose correction (PER MESH) -----------------------------------------------------
+        # FF9's Unity import baked a coordinate transform into every model's m_BindPose that the
+        # engine's FBX importer DROPS (ModelImporter recomputes bindpose from the bone REST pose, not
+        # the stored m_BindPose). Left uncorrected the re-imported model renders transformed -- Vivi
+        # came in upside-down (a 180-deg X flip). We recover G = boneWorld * m_BindPose and bake it
+        # into the verts + normals, so the engine's recomputed bindpose reproduces the ORIGINAL
+        # render, through animation. G is computed PER MESH: the bake is a global space conversion but
+        # it can DIFFER between a character's SkinnedMeshRenderers (e.g. body vs a separately-authored
+        # hair mesh) -- a single global G mis-orients the odd mesh out, so each mesh gets its own.
+        # (When every mesh shares one G -- Vivi/Zidane -- this is byte-identical to the old bake.)
+        # Derived from THIS mesh's own bindposes (self-correcting); None (no bake) if inconsistent
+        # WITHIN the mesh (a per-bone bind variation the vertex bake can't express -- rare/none in FF9).
+        G = _bind_correction(bones, s["samples"])
+        per_mesh_G.append(G)
+        if G is not None:
+            R = [row[:3] for row in G[:3]]
             me["verts"] = [_affine(G, v) for v in me["verts"]]
             if me["normals"]:
                 me["normals"] = [_mat3_vec(R, n) for n in me["normals"]]
+        meshes.append(me)
 
-    # --- textures ---
-    textures = _read_textures(b, gid, texture_stems)
-
-    return {"geo": geo, "geo_id": gid, "type_int": tint, "root_bone": root_bone,
+    textures = _read_textures(b, c["geo_id"], texture_stems)
+    non_null = [g for g in per_mesh_G if g is not None]
+    return {"geo": c["geo"], "geo_id": c["geo_id"], "type_int": c["type_int"], "root_bone": c["root_bone"],
             "bones": bones, "meshes": meshes, "materials": materials, "textures": textures,
-            "bind_correction": G}
+            "bind_correction": non_null[0] if non_null else None, "per_mesh_bind": per_mesh_G}
+
+
+def bind_diagnostics(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
+    """Characterize a model's bind-space variation (offline; the input to choosing a correction).
+
+    For every SkinnedMeshRenderer, compute G = boneWorld * m_BindPose for each of its bones and report:
+      * ``within_dev`` -- max rotation-3x3 spread of G ACROSS the bones of THIS mesh (0 => the bake is a
+        single per-mesh transform the vertex bake handles exactly; >0 => a per-bone variation it can't).
+      * ``g0`` -- this mesh's representative G (its first bone's).
+    Plus ``across_dev`` -- the max rotation spread of the per-mesh g0 BETWEEN meshes (>threshold =>
+    a single GLOBAL bake mis-orients some mesh; the per-mesh bake is what fixes it)."""
+    c = _collect(token, game, bundle=bundle)
+    bones = c["bones"]
+    from .fbx_skin import _mat_trs, _mat_mul
+    byname = {bn["name"]: bn for bn in bones}
+    cache: dict = {}
+
+    def world(name):
+        if name in cache:
+            return cache[name]
+        bn = byname[name]
+        loc = _mat_trs(bn["pos"], bn["rot"], bn["scale"])
+        cache[name] = loc if bn["parent"] is None else _mat_mul(world(bn["parent"]), loc)
+        return cache[name]
+
+    def rot_dev(mats):
+        if len(mats) < 2:
+            return 0.0
+        m0 = mats[0]
+        return max(abs(m[r][col] - m0[r][col]) for m in mats for r in range(3) for col in range(3))
+
+    per_mesh = []
+    for s in c["smrs"]:
+        gs = [_mat_mul(world(name), bp) for name, bp in s["samples"] if name in byname]
+        per_mesh.append({"mesh": s["name"], "nbones": len(gs),
+                         "within_dev": rot_dev(gs), "g0": gs[0] if gs else None})
+    g0s = [m["g0"] for m in per_mesh if m["g0"] is not None]
+    across_dev = rot_dev(g0s)
+    return {"geo": c["geo"], "geo_id": c["geo_id"], "type_int": c["type_int"],
+            "nmeshes": len(c["smrs"]), "per_mesh": per_mesh, "across_dev": across_dev}
 
 
 def _bone_num(name):
@@ -351,9 +420,20 @@ def _bone_num(name):
 
 
 def _bind_correction(bones, samples):
-    """The GLOBAL transform G = boneWorld * m_BindPose that FF9 baked into every bindpose and the engine
-    drops. Verified constant across all (bone, bindpose) samples; returns the 4x4 (row-major) or None if
-    there are no skinned samples or they don't agree on a single G (then we don't risk a wrong bake)."""
+    """The transform G = boneWorld * m_BindPose that FF9 baked into a mesh's bindposes and the engine
+    DROPS (it recomputes each bindpose from the bone rest pose, discarding the stored m_BindPose). Return
+    the single 4x4 (row-major) to bake into THIS mesh's verts + normals, or None if no single transform
+    is safe.
+
+    Almost every FF9 mesh shares ONE G across all its bones (a clean coordinate flip -> bake it, and
+    the round-trip is exact). A few have per-bone rotational jitter or a genuine mix of flip families;
+    we cluster the per-bone G by rotation FAMILY (coordinate flips differ by >=2.0 in the 3x3, while
+    per-bone jitter is <0.2, so a 0.5 threshold separates families yet absorbs jitter) and return the
+    DOMINANT family's transform when it holds a strict majority of the bones. That degrades gracefully:
+    a mesh whose bones MOSTLY agree still gets baked (e.g. one stray bone can't veto a whole flipped
+    mesh into shipping un-baked -- which the old all-or-nothing rule did, leaving it visibly flipped).
+    A dominant bake is never worse than no bake by bone count. None only when NO family is a majority,
+    so any single bake would be a coin-flip -- then we don't risk one."""
     if not samples:
         return None
     from .fbx_skin import _mat_trs, _mat_mul
@@ -371,11 +451,23 @@ def _bind_correction(bones, samples):
     gs = [_mat_mul(world(name), bp) for name, bp in samples if name in byname]
     if not gs:
         return None
-    g0 = gs[0]
-    # Consistency on the ROTATION 3x3 only -- orientation is what the bake corrects; the translation part
-    # of G can jitter a little per bone without mattering (the model is hundreds of units tall).
-    dev = max(abs(g[r][c] - g0[r][c]) for g in gs for r in range(3) for c in range(3))
-    return g0 if dev < 1e-2 else None
+
+    # Cluster on the ROTATION 3x3 only -- orientation is what the bake corrects; G's translation jitters
+    # harmlessly per bone (the model is hundreds of units tall). Each cluster keeps its first G as the
+    # representative; a later G joins if within 0.5 of that rep.
+    def rot_dist(a, b):
+        return max(abs(a[r][c] - b[r][c]) for r in range(3) for c in range(3))
+
+    clusters: list = []                    # each: [representative_G, count]
+    for g in gs:
+        for cl in clusters:
+            if rot_dist(g, cl[0]) < 0.5:
+                cl[1] += 1
+                break
+        else:
+            clusters.append([g, 1])
+    rep, count = max(clusters, key=lambda c: c[1])
+    return rep if count * 2 > len(gs) else None
 
 
 def _affine(M, v):

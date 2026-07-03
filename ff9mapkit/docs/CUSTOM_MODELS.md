@@ -66,8 +66,24 @@ and needs NO engine change.** Two FF9 field characters (Vivi id 8, Zidane id 98)
 skinned FBX-ASCII → re-imported render, skin, orient, move, **and animate identically on the user's
 FULLY-STOCK Memoria** (a temporary diagnostic engine build was used to find the last bug, then reverted;
 the pillar works with zero engine edits). Generality: 17/19 of a diverse offline batch (monsters, NPCs,
-props, subs, mains) export cleanly. Known limitation: a few models with per-bone bind variation (Garnet's
-dual hair, some flans) need bind-pose bone TRS instead of the global vertex bake (future refinement).
+props, subs, mains) export cleanly.
+
+**★ Robust bind correction (2026-07-02, offline-proven; Garnet in-game check pending).** The former "a few
+models mis-orient" gap turned out to be mis-diagnosed. The engine recomputes bindpose from bone-rest TRS and
+assigns **one** bindpose array to **every** mesh (`ModelImporter.cs:356,388`), so a per-mesh authoring
+transform has to be baked into that mesh's **verts**. Measuring the whole catalog
+(`extract.bind_diagnostics`) showed the bake `G = boneWorld·m_BindPose` is **constant within each mesh**
+(per-bone spread ≤~1e-6 across 522 models) but **differs between a character's SkinnedMeshRenderers** — e.g.
+Garnet's body/hair are identity while her 38-vertex **`rubber_band`** (ponytail tie) is a 180° X-flip. The
+old *global* bake saw the mix, gave up (`None`), and baked nothing → the odd mesh shipped flipped. Fix:
+compute + bake **G per mesh** (`_collect` separates the walk from correction; `read_model` runs
+`_bind_correction` on each SMR's own bindposes). This is exact — an offline **engine-skinning simulation**
+test reproduces the original skin through animation even for a bone *shared* between two meshes with
+divergent G. Catalog sweep: 522 models, 0 errors, 0 gaps, 517 unchanged, 26 divergent-SMR models corrected.
+`_bind_correction` also upgraded from all-or-nothing to a **dominant rotation-family vote**, so the handful
+of models with per-bone *jitter* (fields EFM 201/347, sub MRC 109, battle-form MON_B3_*) bake their majority
+flip (~2° residual) instead of shipping 180°-wrong; it's never worse than no bake by bone count, and returns
+`None` only when no family holds a majority (one scattered mesh in battle-monster 350).
 The first proof was on Vivi (id 8): extracted → skinned FBX-ASCII → re-imported on **stock
 Memoria's own importer** renders, skins, orients, moves, **and animates identically**. It took 4 in-game
 iterations, each a real bug fixed **on the data side** (no engine change required): (1) a missing FBX node
