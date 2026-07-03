@@ -487,6 +487,27 @@ above 0** to clear the wave plane. ⚠ Raising height under a STANDING player em
 misses the higher surface) — teleport away + back (F6 re-grounds) after a height change, or set height before first
 arrival. A coast-flush BRIDGE wants `--height 0` at the shore (matches the coast, which bottoms at Y=0).
 
+### FAITHFUL coast — `world-coast` (place a REAL FF9 coastline, ★ in-game proven; the per-cell-donor build ⚠ awaits playtest)
+
+The synthetic `island` profile is a STYLIZED grass/sand slab; a real FF9 coast is layered **animated sub-meshes**
+(`terrain` land + `sea3/4/5` water + a dedicated `beach1` sand/foam mesh driven by `WMRenderTextureBank` — NOT the
+terrain atlas, which is why no terrain tile can reproduce the white foam). To author a *genuine* coast, CARRY a real
+coastal block: `ff9mapkit world-coast --cells X,Y --donor dx,dy` copies the real donor block's terrain (real shape +
+shore rim + UVs + walkable topographs) to the cell's Terrain override **and** writes a `Block[x][y] Donor.txt` sidecar
+= `"dx,dy"`. **Engine (s34 per-cell donor):** the sea-cell divert calls `ResolveReclaimDonor` → `WorldMeshOverride.
+TryReadDonorPath` reads the sidecar → loads THAT real coastal block prefab as the donor (cached in a `[NonSerialized]
+Dictionary`; `LoadBlock` renders its `Beach1/Sea/foam` gated on `prefab.<field>`, not `block.Number`, so they carry
+onto the cell), falling back to the plain inland donor (Block[12][10]) when no sidecar. ★ PROVEN with a global hardcode
+(donor 18,15 rendered a real beach + foam, faithfully walkable); the per-cell sidecar generalization awaits a playtest.
+`ff9mapkit world-coast --list` browses the 44 real beach donors. ⚠ do NOT donor block 219 (Water Shrine — its form-2
+sea is target-`Number`-gated). Trade-off: faithful land is a MOSAIC of real coast pieces (assembled from FF9's actual
+coastline blocks), not an arbitrary outline — the next frontier is authoring coastlines from scratch.
+
+**F6 teleport fix (bundled):** warping onto varied coastal terrain stranded the player under it — NOT a short re-ground
+ray (`w_movementChrInitSlice` already sky-casts infinitely from +400u), but `w_nwpHit` early-returning `defaultHeight=0`
+on a destination block not yet `IsReady` at warp time. Fix: `WMWorld.ForceLoadBlockReadyAt(pos)` force-loads the target
+block (synchronous `LoadBlock` sets `IsReady`) before grounding. Observable only on a FAR/unstreamed warp.
+
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 
 **The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas

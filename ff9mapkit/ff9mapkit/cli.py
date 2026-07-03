@@ -1839,6 +1839,51 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_coast(args: argparse.Namespace) -> int:
+    """FAITHFUL coast (Path D): place a REAL FF9 coastal block at target ocean cells -- copy its terrain + write the
+    Donor.txt sidecar so the engine renders that block's animated beach/sea/foam. `--list` browses coastal donors."""
+    from .world import terrain as T
+    from .world import extract as X
+    if args.list:
+        try:
+            donors = X.list_coastal_donors(disc=args.disc, game=args.game, beach_only=not args.all_coasts)
+        except (ValueError, ConfigError, FileNotFoundError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        kind = "coastal" if args.all_coasts else "beach"
+        print(f"{len(donors)} real {kind} donor block(s) on disc {args.disc} (x,y -> sub-meshes) -- pick one for --donor:")
+        for (x, y), subs in donors.items():
+            print(f"  {x},{y}: {', '.join(subs)}")
+        print("  (18,15) is the proven donor. Copy its coast to an ocean cell: world-coast --cells X,Y --donor 18,15")
+        return 0
+    if not args.cells or not args.donor:
+        print("give --cells and --donor (or --list to browse donors)", file=sys.stderr)
+        return 2
+    try:
+        cells = _parse_cells(args.cells)
+        dx, dy = (int(v) for v in args.donor.split(","))
+        # warn (don't block) if the donor isn't a coastal block -- it'll render land but no beach/foam
+        try:
+            coastal = X.list_coastal_donors(disc=args.disc, game=args.game, beach_only=False)
+            if (dx, dy) not in coastal:
+                print(f"  note: donor ({dx},{dy}) has no beach/sea sub-mesh -- it renders land but NO beach/foam "
+                      f"(use --list for real coast donors)", file=sys.stderr)
+        except Exception:  # noqa: BLE001 -- donor-quality warning is best-effort
+            pass
+        summary = T.coast(args.mod_folder, cells=cells, donor=(dx, dy), disc=args.disc, game=args.game,
+                          dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would place" if args.dry_run else "placed"
+    print(f"{verb} real coast (donor block {tuple(summary['donor'])}) at {len(summary['cells'])} cell(s):")
+    for c in summary["cells"]:
+        print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts + Donor.txt")
+    if not args.dry_run:
+        print("  Needs the custom engine (per-cell coastal donor). RELAUNCH to apply.")
+    return 0
+
+
 def _cmd_world_atlas_reskin(args: argparse.Namespace) -> int:
     """Deploy a repainted atlas PNG as a no-DLL HD reskin (T2) -- keep the SAME UV layout, replace the pixels."""
     from .world import atlas as A
@@ -3877,6 +3922,18 @@ def build_parser() -> argparse.ArgumentParser:
     wrc.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wrc.add_argument("--dry-run", action="store_true", help="report the cells it would reclaim, write nothing")
     wrc.set_defaults(func=_cmd_world_reclaim)
+
+    wct = sub.add_parser("world-coast",
+                         help="FAITHFUL coast (Path D): place a REAL FF9 coastal block at ocean cells -- copies its "
+                              "terrain + animated beach/sea/foam (via a Donor.txt sidecar). --list browses donors.")
+    wct.add_argument("--mod-folder", help="the FolderNames mod folder to deploy into")
+    wct.add_argument("--cells", help="target ocean cells: 'x,y;x,y' or a range 'x0-x1,y0-y1'")
+    wct.add_argument("--donor", help="the REAL coastal donor block 'dx,dy' to copy (e.g. 18,15; see --list)")
+    wct.add_argument("--list", action="store_true", help="list real coastal donor blocks (with a beach) and exit")
+    wct.add_argument("--all-coasts", action="store_true", help="with --list: include sea-fringed coasts, not just beaches")
+    wct.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wct.add_argument("--dry-run", action="store_true", help="report what it would place, write nothing")
+    wct.set_defaults(func=_cmd_world_coast)
 
     wat = sub.add_parser("world-atlas-add-tile",
                          help="T3: paint a NEW tile into a FREE atlas region + deploy the reskin; prints the UV rect "

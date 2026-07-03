@@ -78,6 +78,37 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
 _DIRS = [(-1, 0), (1, 0), (0, 1), (0, -1)]
 
 
+def coast(mod_folder: str, *, cells, donor, disc: int = 1, lod: str = "0_1", game=None,
+          dry_run: bool = False) -> dict:
+    """FAITHFUL coast: reclaim each ``(x, y)`` in ``cells`` as a VERBATIM copy of the real coastal ``donor``=(dx, dy)
+    block -- copy the donor's Terrain mesh (real land shape + shore rim + real UVs + walkable topographs) to the cell's
+    Terrain override, AND write a ``Donor.txt`` sidecar naming the donor so the engine's per-cell divert loads that
+    real coastal block prefab (its animated Beach/Sea/foam sub-meshes render on the cell). Unlike :func:`reclaim` (which
+    SYNTHESIZES a stylized grass/sand island), this carries a genuine FF9 coastline -- the north-star "recreate from
+    real bytes". A continent is assembled from real coast pieces (:func:`ff9mapkit.world.extract.list_coastal_donors`
+    lists them). Requires the CUSTOM engine (per-cell coastal-donor s34). RELAUNCH to apply."""
+    import dataclasses
+    from . import extract as X, mesh as M
+    dx, dy = donor
+    cells = [tuple(c) for c in cells]
+    for (bx, by) in cells:
+        if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
+            raise ValueError(f"cell ({bx},{by}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    if not (0 <= dx < GRID_X and 0 <= dy < GRID_Y):
+        raise ValueError(f"donor ({dx},{dy}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    donor_bm = X.read_block(dx, dy, disc=disc, lod=lod, part="terrain", game=game)   # real coast terrain (raises if not land)
+    summary = {"op": "coast", "donor": [dx, dy], "disc": disc, "dry_run": dry_run, "cells": []}
+    for (bx, by) in cells:
+        # verts are block-LOCAL (localPosition 0), so relocation is just re-tagging x/y/name; deploy_override +
+        # RegisterBlockComponent place it by InitialX/InitialY. The donor's beach/sea come from the prefab (via the sidecar).
+        bm = dataclasses.replace(donor_bm, x=bx, y=by, name=f"Block[{bx}][{by}] Terrain")
+        if not dry_run:
+            M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain")
+            M.deploy_donor_sidecar(dx, dy, mod_folder=mod_folder, disc=disc, x=bx, y=by, lod=lod, game=game)
+        summary["cells"].append({"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount})
+    return summary
+
+
 def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
             height: float | None = None, seg: int = 10, beach: float = 22.0, grass_topo: int = 0,
             shore_topo: int = 20, game=None, dry_run: bool = False) -> dict:

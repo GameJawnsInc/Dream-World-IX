@@ -107,6 +107,24 @@ def override_relpath(disc: int, x: int, y: int, lod: str = "0_1", part: str = "T
     return f"FF9_Data/WorldMap/Disc{disc}/{lod}/r{y}/Block[{x}][{y}] {part}.ff9mesh"
 
 
+def donor_sidecar_relpath(disc: int, x: int, y: int, lod: str = "0_1") -> str:
+    """The mod-folder-relative path of a cell's per-cell COASTAL DONOR sidecar (Path D faithful coast) -- mirrors
+    :func:`override_relpath` but part ``Donor`` + ``.txt``. The engine (``WorldMeshOverride.TryReadDonorPath``) reads
+    it to pick which REAL coastal block prefab (its Beach/Sea/foam) renders on this reclaimed cell."""
+    return f"FF9_Data/WorldMap/Disc{disc}/{lod}/r{y}/Block[{x}][{y}] Donor.txt"
+
+
+def deploy_donor_sidecar(donor_x: int, donor_y: int, *, mod_folder: str, disc: int, x: int, y: int,
+                         lod: str = "0_1", game=None) -> Path:
+    """Write the per-cell donor sidecar for reclaimed cell ``(x, y)``: a one-line ``"dx,dy"`` naming the real coastal
+    donor block whose beach/sea/foam sub-meshes the engine should render on this cell. Deployed next to the cell's
+    ``Terrain.ff9mesh`` override; the engine's ``TryReadDonorPath`` searches the stacked ``FolderNames`` for it."""
+    dest = config.find_game_path(game) / mod_folder / donor_sidecar_relpath(disc, x, y, lod)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"{donor_x},{donor_y}", encoding="utf-8")
+    return dest
+
+
 def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: str = "Terrain") -> Path:
     """Write ``bm`` as a loose ``.ff9mesh`` override into ``<game>/<mod_folder>/<override_relpath>`` -- where the
     custom engine (WorldMeshOverride) picks it up at world load. ``part`` = the block layer (``"Terrain"`` default,

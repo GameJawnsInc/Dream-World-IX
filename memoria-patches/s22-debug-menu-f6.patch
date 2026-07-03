@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..8a201c28
+index 00000000..8ae71069
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,1147 @@
+@@ -0,0 +1,1153 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -652,6 +652,12 @@ index 00000000..8a201c28
 +            }
 +            // Engine's own overworld reposition: writes the PosObj record (pos + lastx/y/z) AND the wmActor transform.
 +            ee.SetActorPosition(po, (Single)px, (Single)py, (Single)pz);
++            // DWIX Path D: force the DESTINATION block to load + become IsReady BEFORE grounding. w_nwpHit early-returns
++            // defaultHeight=0 on a !IsReady block (ff9.cs:7150), so warping into a not-yet-streamed cell -- especially a
++            // reclaimed COAST with a tall hill -- stranded the player at Y=0 under the terrain (had to fly in on a vehicle
++            // + switch to foot). w_movementChrInitSlice sky-casts (infinite from +400u), so once the block is ready it
++            // grounds correctly. GetAbsoluteBlock resolves the target cell by world position regardless of player distance.
++            w.ForceLoadBlockReadyAt(new Vector3(wx, cy, wz));
 +            ff9.w_movementChrInitSlice();                        // re-ground Y (matches WMBeeMenu.cs:205)
 +            ff9.w_movementAutoPilotOFF();                        // cancel any active auto-walk target (idempotent if none)
 +            // THE REVERTER (root cause, found 2026-07-01): Memoria's 60fps world smoother, Memoria.SmoothFrameUpdater_World.

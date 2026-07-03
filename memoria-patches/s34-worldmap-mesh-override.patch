@@ -1,26 +1,66 @@
 diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
-index 75cf50e5..95b1e640 100644
+index 75cf50e5..4a5064ae 100644
 --- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
 +++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
-@@ -494,7 +494,16 @@ public class WMWorld : Singleton<WMWorld>
+@@ -494,7 +494,17 @@ public class WMWorld : Singleton<WMWorld>
          block.IsReady = true;
          if (block.IsSea)
          {
 -            this.LoadBlock(this.SeaBlockPrefab, block);
 +            // DWIX Path D (new continent): RECLAIM a designated ocean cell as walkable LAND. A stock sea cell
 +            // short-circuits to the shared SeaBlockPrefab BEFORE the s34 override can fire; instead route a cell that
-+            // carries a loose "Block[x][y] Terrain.ff9mesh" override onto a plain LAND donor prefab, so
-+            // RegisterBlockComponent's override (keyed on this block's InitialX/InitialY) swaps our mesh in as the
-+            // cell's Terrain render + walkmesh (+ walkable topograph in tangent.x). Identity when no override exists.
++            // carries a loose "Block[x][y] Terrain.ff9mesh" override onto a donor prefab (ResolveReclaimDonor: a per-cell
++            // REAL COASTAL block if a "Donor.txt" sidecar names one -- carrying its beach/sea/foam -- else the plain
++            // inland fallback). RegisterBlockComponent's override (keyed on this block's InitialX/InitialY) swaps our
++            // terrain mesh in as the cell's render + walkmesh. Identity when no override exists.
 +            if (this.LandDonorPrefab != (UnityEngine.Object)null
 +                && Memoria.World.WorldMeshOverride.HasLandOverride(disc, initialX, initialY))
-+                this.LoadBlock(this.LandDonorPrefab, block);
++                this.LoadBlock(this.ResolveReclaimDonor(disc, initialX, initialY), block);
 +            else
 +                this.LoadBlock(this.SeaBlockPrefab, block);
          }
          else
          {
-@@ -515,6 +524,11 @@ public class WMWorld : Singleton<WMWorld>
+@@ -505,6 +515,38 @@ public class WMWorld : Singleton<WMWorld>
+         }
+     }
+ 
++    // DWIX Path D (faithful coast): pick the donor prefab for a reclaimed sea cell. A per-cell "Block[x][y] Donor.txt"
++    // sidecar names a REAL COASTAL block -> load + cache it (its Beach/Sea/foam render on the cell); no sidecar (or bad
++    // coords) -> the plain inland LandDonorPrefab. Never null when the caller already passed HasLandOverride.
++    private GameObject ResolveReclaimDonor(Int32 disc, Int32 x, Int32 y)
++    {
++        String donorPath = Memoria.World.WorldMeshOverride.TryReadDonorPath(disc, x, y);
++        if (String.IsNullOrEmpty(donorPath))
++            return this.LandDonorPrefab;
++        if (this.CoastalDonorCache == null)
++            this.CoastalDonorCache = new System.Collections.Generic.Dictionary<String, GameObject>();
++        GameObject donor;
++        if (!this.CoastalDonorCache.TryGetValue(donorPath, out donor) || donor == (UnityEngine.Object)null)
++        {
++            donor = AssetManager.Load<GameObject>(donorPath, false);
++            if (donor == (UnityEngine.Object)null)
++                donor = this.LandDonorPrefab;                // bad/missing donor block -> inland fallback (no NRE)
++            this.CoastalDonorCache[donorPath] = donor;
++        }
++        return donor;
++    }
++
++    // DWIX: force a single block to load + become IsReady NOW (synchronous), by world position. For the F6 teleport:
++    // the destination block may not be streamed at warp time, and w_nwpHit early-returns defaultHeight=0 on a !IsReady
++    // block (ff9.cs:7150) -> the player is stranded under coastal terrain. LoadBlock sets IsReady, so grounding
++    // (w_movementChrInitSlice, which sky-casts) then finds the real surface. No-op if already ready / off-grid.
++    public void ForceLoadBlockReadyAt(Vector3 worldPos)
++    {
++        WMBlock block = this.GetAbsoluteBlock(worldPos);
++        if (block != (UnityEngine.Object)null && !block.IsReady)
++            this.LoadBlock(this.currentDisc, block);
++    }
++
+     private void LoadBlock(GameObject blockObjectPrefab, WMBlock block)
+     {
+         WMBlockPrefab prefab = blockObjectPrefab.GetComponent<WMBlockPrefab>();
+@@ -515,6 +557,11 @@ public class WMWorld : Singleton<WMWorld>
              RegisterBlockComponent(block, prefab.ObjectForm1, true, false);
          if (prefab.TerrainForm1)
              RegisterBlockComponent(block, prefab.TerrainForm1, true, false);
@@ -32,7 +72,7 @@ index 75cf50e5..95b1e640 100644
          if (prefab.ObjectForm2)
              RegisterBlockComponent(block, prefab.ObjectForm2, false, true);
          if (prefab.TerrainForm2)
-@@ -733,6 +747,19 @@ public class WMWorld : Singleton<WMWorld>
+@@ -733,6 +780,19 @@ public class WMWorld : Singleton<WMWorld>
          copy.localPosition = Vector3.zero;
          copy.localScale = new Vector3(1f, 1f, 1f);
          Mesh mesh = copy.GetComponent<MeshFilter>().sharedMesh;
@@ -52,7 +92,7 @@ index 75cf50e5..95b1e640 100644
          if (form1)
          {
              block.AddWalkMeshForm1(mesh);
-@@ -745,6 +772,32 @@ public class WMWorld : Singleton<WMWorld>
+@@ -745,6 +805,32 @@ public class WMWorld : Singleton<WMWorld>
          }
      }
  
@@ -85,7 +125,7 @@ index 75cf50e5..95b1e640 100644
      private IEnumerator LoadBlockAsync(Int32 disc, WMBlock block)
      {
          this.loadingInBackground = true;
-@@ -1060,6 +1113,14 @@ public class WMWorld : Singleton<WMWorld>
+@@ -1060,6 +1146,19 @@ public class WMWorld : Singleton<WMWorld>
          String arg = String.Format("Block[{0}][{1}]f", 12, 0);
          String name = String.Format("WorldMap/Prefabs/WorldDisc{0}/r{1}/{2}", 1, 0, arg);
          this.SeaBlockPrefab = AssetManager.Load<GameObject>(name, false);
@@ -95,12 +135,17 @@ index 75cf50e5..95b1e640 100644
 +        // override (keyed on the TARGET block's InitialX/InitialY, not the donor's), and grid placement is
 +        // InitialX/InitialY-driven too, so the donor's own coords are irrelevant. Block[12][10] is a verified plain
 +        // land cell on disc 1. Null-guarded at the divert sites (no reclaim where the donor is absent, e.g. disc 4).
++        // DWIX Path D: the plain-inland FALLBACK donor [12][10] (a Terrain child, no town Object, no beach/sea) --
++        // used for a reclaimed cell with a Terrain override but no "Donor.txt" sidecar. A cell WITH a Donor.txt gets
++        // its named REAL COASTAL block instead (ResolveReclaimDonor), carrying that block's Beach/Sea/foam sub-meshes.
 +        String landDonorName = String.Format("WorldMap/Prefabs/WorldDisc{0}/r{1}/Block[{2}][{3}]", this.currentDisc, 10, 12, 10);
 +        this.LandDonorPrefab = AssetManager.Load<GameObject>(landDonorName, false);
++        if (this.CoastalDonorCache == null)                  // initializer doesn't run on a baked/deserialized instance
++            this.CoastalDonorCache = new System.Collections.Generic.Dictionary<String, GameObject>();
          this.DetectUnseenBlocks();
          for (Int32 y = 0; y < 20; y++)
          {
-@@ -1135,7 +1196,14 @@ public class WMWorld : Singleton<WMWorld>
+@@ -1135,7 +1234,14 @@ public class WMWorld : Singleton<WMWorld>
                  {
                      if (wmblock.IsSea)
                      {
@@ -110,13 +155,13 @@ index 75cf50e5..95b1e640 100644
 +                        // sight and back (this branch re-tests IsSea every re-entry). Both sites must stay identical.
 +                        if (this.LandDonorPrefab != (UnityEngine.Object)null
 +                            && Memoria.World.WorldMeshOverride.HasLandOverride(this.currentDisc, wmblock.InitialX, wmblock.InitialY))
-+                            this.LoadBlock(this.LandDonorPrefab, wmblock);
++                            this.LoadBlock(this.ResolveReclaimDonor(this.currentDisc, wmblock.InitialX, wmblock.InitialY), wmblock);
 +                        else
 +                            this.LoadBlock(this.SeaBlockPrefab, wmblock);
                          wmblock.IsReady = true;
                      }
                      else if (this.BackgroundLoadingCount < FF9StateSystem.World.MaximumLoadAsynce)
-@@ -1945,6 +2013,15 @@ public class WMWorld : Singleton<WMWorld>
+@@ -1945,6 +2051,21 @@ public class WMWorld : Singleton<WMWorld>
  
      public GameObject SeaBlockPrefab;
  
@@ -129,15 +174,21 @@ index 75cf50e5..95b1e640 100644
 +    [System.NonSerialized]
 +    public GameObject LandDonorPrefab;
 +
++    // DWIX Path D (faithful coast): per-cell coastal donor prefabs, cached by "dx,dy" donor coord (so a coast piece
++    // reused across many cells loads once). [NonSerialized] is MANDATORY -- same baked-WorldDisc-layout blackscreen
++    // as LandDonorPrefab above. Null-guarded at every use (field initializers don't run on a deserialized MonoBehaviour).
++    [System.NonSerialized]
++    public System.Collections.Generic.Dictionary<String, GameObject> CoastalDonorCache;
++
      public WorldSPSSystem WorldSPSSystem;
  
      private GlobalFog _globalFog;
 diff --git a/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
 new file mode 100644
-index 00000000..44744873
+index 00000000..5a7bbc22
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,188 @@
 +using System;
 +using System.IO;
 +using UnityEngine;
@@ -220,6 +271,44 @@ index 00000000..44744873
 +        public static Boolean HasLandOverride(Int32 disc, Int32 x, Int32 y)
 +        {
 +            return Exists(String.Format("WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] Terrain", disc, y, x, y));
++        }
++
++        // DWIX Path D (FAITHFUL COAST): read the per-cell donor sidecar "Block[x][y] Donor.txt" (content "dx,dy" =
++        // the REAL coastal block whose Beach/Sea/foam sub-meshes should render on this reclaimed cell) and return that
++        // donor's block-prefab Resources path, or null (no sidecar -> the divert falls back to the plain inland donor).
++        // Same folder search + base key as Exists(), but File.ReadAllText the ".txt" instead of File.Exists a ".ff9mesh".
++        public static String TryReadDonorPath(Int32 disc, Int32 x, Int32 y)
++        {
++            if (AssetManager.FolderHighToLow == null)
++                return null;
++            String rel = AssetManagerUtil.GetResourcesAssetsPath(true) + "/"
++                + String.Format("WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] Donor", disc, y, x, y) + ".txt";
++            foreach (AssetManager.AssetFolder folder in AssetManager.FolderHighToLow)
++            {
++                if (folder == null || String.IsNullOrEmpty(folder.FolderPath))
++                    continue;
++                String full = folder.FolderPath + rel;
++                if (!File.Exists(full))
++                    continue;
++                try
++                {
++                    String[] parts = File.ReadAllText(full).Trim().Split(',');
++                    if (parts.Length < 2)
++                    {
++                        Log.Error("[WorldMeshOverride] bad Donor.txt (need 'dx,dy'): " + full);
++                        return null;
++                    }
++                    Int32 dx = Int32.Parse(parts[0].Trim());
++                    Int32 dy = Int32.Parse(parts[1].Trim());
++                    return String.Format("WorldMap/Prefabs/WorldDisc{0}/r{1}/Block[{2}][{3}]", disc, dy, dx, dy);
++                }
++                catch (Exception ex)
++                {
++                    Log.Error("[WorldMeshOverride] failed Donor.txt " + full + ": " + ex.Message);
++                    return null;
++                }
++            }
++            return null;
 +        }
 +
 +        private static Mesh ReadMesh(String path, String name)
