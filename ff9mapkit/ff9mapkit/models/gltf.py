@@ -451,8 +451,33 @@ def import_gltf(path, *, scale: float = DEFAULT_SCALE) -> dict:
         meshes.append({"name": gltf["meshes"][0].get("name", "mesh"), "verts": verts,
                        "normals": normals, "uvs": uvs, "submeshes": subs, "weights": weights})
 
+    # embedded images -> PIL, keyed by the same stem the materials reference (self-consistent for re-emit)
+    textures = {}
+    for img in gltf.get("images", []) or []:
+        stem = img.get("name")
+        raw = None
+        if "bufferView" in img:
+            bv = gltf["bufferViews"][img["bufferView"]]
+            o = bv.get("byteOffset", 0)
+            raw = blob[o:o + bv["byteLength"]]
+        elif str(img.get("uri", "")).startswith("data:"):
+            import base64
+            raw = base64.b64decode(img["uri"].split(",", 1)[1])
+        if stem and raw:
+            try:
+                from PIL import Image
+                import io
+                textures[stem] = Image.open(io.BytesIO(raw))
+            except Exception:
+                pass
+
     return {"geo": None, "geo_id": None, "type_int": None, "root_bone": root_bone,
-            "bones": bones, "meshes": meshes, "materials": materials, "textures": {}}
+            "bones": bones, "meshes": meshes, "materials": materials, "textures": textures}
+
+
+class TopologyMismatch(ValueError):
+    """The edited glTF's vertex/mesh topology differs from the source (Blender commonly seam-splits verts on
+    export) -- the v1 mesh-splice can't map onto the original weights; deploy_edit falls back to the re-rig."""
 
 
 def apply_gltf_edit(source_token: str, path, *, scale: float = DEFAULT_SCALE, game=None) -> dict:
@@ -463,13 +488,12 @@ def apply_gltf_edit(source_token: str, path, *, scale: float = DEFAULT_SCALE, ga
     orig = extract.read_model(source_token, game=game)
     edited = import_gltf(path, scale=scale)
     if len(edited["meshes"]) != len(orig["meshes"]):
-        raise ValueError(f"glTF has {len(edited['meshes'])} mesh(es) but {orig['geo']} has {len(orig['meshes'])} "
-                         f"-- v1 mesh-edit needs the same mesh split; use the full re-rig path for structural changes")
+        raise TopologyMismatch(f"glTF has {len(edited['meshes'])} mesh(es) but {orig['geo']} has "
+                               f"{len(orig['meshes'])} -- mesh split differs")
     for i, (om, em) in enumerate(zip(orig["meshes"], edited["meshes"])):
         if len(em["verts"]) != len(om["verts"]):
-            raise ValueError(f"mesh #{i} ({om['name']}): glTF has {len(em['verts'])} verts, original has "
-                             f"{len(om['verts'])} -- v1 keeps the rig, so vertex COUNT must match (reshape/retexture "
-                             f"only). Add/remove verts via the full re-rig path.")
+            raise TopologyMismatch(f"mesh #{i} ({om['name']}): glTF has {len(em['verts'])} verts, original has "
+                                   f"{len(om['verts'])} (Blender seam-splits verts) -- vertex count changed")
         om["verts"] = em["verts"]                            # splice edited geometry onto the original rig
         if em["normals"]:
             om["normals"] = em["normals"]
@@ -530,21 +554,36 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
         like = stamp_geo                                     # auto: a glTF we exported knows its own source
     if scale is None:
         scale = float(stamp_scale) if stamp_scale is not None else DEFAULT_SCALE
+
     if like:
-        model = apply_gltf_edit(like, gltf_path, scale=scale, game=game)
-        type_int, src_id = model["type_int"], model["geo_id"]
+        _geo, src_id, type_int = extract.resolve_geo(like)
+        tid = int(geo_id) if geo_id is not None else src_id
+        try:
+            model = apply_gltf_edit(like, gltf_path, scale=scale, game=game)     # v1: pristine rig, splice geometry
+            mode = "mesh-splice"
+        except TopologyMismatch:
+            # Blender changed the topology (seam-split verts) -> HYBRID re-rig: keep the pristine SKELETON +
+            # id/type/textures, take the edited geometry + weights (keyed by FF9 bone number) from the glTF.
+            edited = import_gltf(gltf_path, scale=scale)
+            orig = extract.read_model(like, game=game)
+            model = {"geo": orig["geo"], "geo_id": orig["geo_id"], "type_int": orig["type_int"],
+                     "root_bone": orig["root_bone"], "bones": orig["bones"],
+                     "meshes": edited["meshes"], "materials": edited["materials"],
+                     "textures": edited["textures"] or orig["textures"]}
+            mode = "re-rig (topology changed)"
     else:
         model = import_gltf(gltf_path, scale=scale)
         if geo_id is None:
             raise ValueError("a full re-rig import needs --id (the target model id + its type); pass --like <GEO> "
-                             "to keep an existing model's rig + type instead")
+                             "or a glTF we exported (auto-detected) to keep an existing model's rig + type")
         nm = extract.MODELS.get(int(geo_id))
         type_int = extract._TYPE_INT.get(nm.split("_")[1].lower()) if nm else None
         if type_int is None:
             raise ValueError(f"can't derive the model type for id {geo_id} (not a known GEO id) -- use --like <GEO>")
-        src_id = int(geo_id)
-    tid = int(geo_id) if geo_id is not None else src_id
+        tid = int(geo_id)
+        mode = "re-rig"
+
     dest = Path(mod_folder) / "StreamingAssets" / "Assets" / "Resources" / "Models" / str(type_int) / str(tid)
     info = _emit_model_to(model, dest, tid)
-    return {"id": tid, "type_int": type_int, "mode": "mesh-splice" if like else "re-rig",
-            "source": like, "path": info["fbx"], "textures": info["textures"]}
+    return {"id": tid, "type_int": type_int, "mode": mode, "source": like, "path": info["fbx"],
+            "textures": info["textures"]}
