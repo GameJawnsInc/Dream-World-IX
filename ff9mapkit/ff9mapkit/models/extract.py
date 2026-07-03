@@ -169,13 +169,19 @@ def _decode_mesh_tt(bundle: _Bundle, mesh_pid):
             s = int(c.get("stream", 0))
             csize, _ = _FMT.get(int(c.get("format", 0)), (4, "<%df"))
             strides[s] = max(strides.get(s, 0), int(c["offset"]) + int(c["dimension"]) * csize)
+    # Each stream is a contiguous vcount*stride block; a stream's START is 16-byte aligned, so an
+    # intermediate stream is padded up to align the NEXT one -- but the LAST stream is NOT padded (the
+    # buffer may or may not pad its tail to 16). So the data size is in [minTotal, align16(minTotal)].
     starts, cur = {}, 0
-    for s in sorted(strides):
+    order = sorted(strides)
+    for i, s in enumerate(order):
         starts[s] = cur
-        cur += (strides[s] * vcount + 15) & ~15          # 16-byte align each stream block
-    if cur != len(data):
+        cur += strides[s] * vcount
+        if i < len(order) - 1:
+            cur = (cur + 15) & ~15                        # align the next stream's start
+    if not (cur <= len(data) <= ((cur + 15) & ~15)):
         raise ValueError(f"mesh {md.get('m_Name')!r}: vertex data size mismatch "
-                         f"(streams {strides} -> {cur} != {len(data)})")
+                         f"(streams {strides} -> {cur}, data {len(data)})")
 
     def rd(ch, vi):
         s = int(ch.get("stream", 0))
@@ -234,13 +240,19 @@ def read_model(token: str, game=None) -> dict:
     bone_pid_to_name: dict = {}      # transform pathid -> bone name (for skin remap)
     smr_pids: list = []
 
-    def walk(tr_pid, tr_tt, parent_name):
+    def walk(tr_pid, tr_tt, parent_name, in_battle):
         if not tr_tt:
             return
         go_pid = _pid(tr_tt.get("m_GameObject", {}))
         go_tt = b.tt(go_pid)
         name = go_tt.get("m_Name") if go_tt else None
         is_bone = bool(name and re.fullmatch(r"bone\d+", str(name)))
+        # A character prefab bundles BOTH field (mesh*) and battle (battle_model*) geometry; the engine
+        # HIDES the battle_model subtree in field mode (ModelFactory.CreateModel disables it). Exclude it
+        # from a FIELD export -- else we'd export hidden geometry AND pollute the bind-pose correction
+        # with the battle bind space (which differs -> the correction goes inconsistent). Bones are the
+        # shared skeleton, so they're kept regardless.
+        here_battle = in_battle or bool(name and str(name).lower().startswith("battle_model"))
         if is_bone:
             bones.append({
                 "name": name, "parent": parent_name,
@@ -249,17 +261,17 @@ def read_model(token: str, game=None) -> dict:
                 "scale": _vec3(tr_tt.get("m_LocalScale"), (1.0, 1.0, 1.0)),
             })
             bone_pid_to_name[tr_pid] = name
-        if go_tt:
+        if go_tt and not here_battle:
             for tn, pid in b.components(go_tt):
                 if tn == "SkinnedMeshRenderer":
                     smr_pids.append(pid)
         child_parent = name if is_bone else parent_name
         for ch in tr_tt.get("m_Children", []):
             cpid = _pid(ch)
-            walk(cpid, b.tt(cpid), child_parent)
+            walk(cpid, b.tt(cpid), child_parent, here_battle)
 
     root_tpid, root_ttr = b.transform_of(root_tt)
-    walk(root_tpid, root_ttr, None)
+    walk(root_tpid, root_ttr, None, False)
     root_bone = next((bn["name"] for bn in bones if bn["parent"] is None), None)
 
     # --- each SkinnedMeshRenderer -> a mesh (geometry + skin remapped to bone numbers) ---
@@ -360,7 +372,9 @@ def _bind_correction(bones, samples):
     if not gs:
         return None
     g0 = gs[0]
-    dev = max(abs(g[r][c] - g0[r][c]) for g in gs for r in range(4) for c in range(4))
+    # Consistency on the ROTATION 3x3 only -- orientation is what the bake corrects; the translation part
+    # of G can jitter a little per bone without mattering (the model is hundreds of units tall).
+    dev = max(abs(g[r][c] - g0[r][c]) for g in gs for r in range(3) for c in range(3))
     return g0 if dev < 1e-2 else None
 
 
