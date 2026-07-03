@@ -434,9 +434,13 @@ The overworld is a fixed 24×20 grid where every sea cell already exists as a `W
 `SeaBlockPrefab`; the s34 divert routes a sea cell carrying a loose Terrain override onto a plain LAND donor prefab so
 our synthesized flat walkable mesh renders as land (`world-reclaim` CLI; `mesh.flat_block_mesh`/`terrain.reclaim`).
 LESSON: the donor cache field on `WMWorld` must be `[NonSerialized]` (a serialized field on the baked MonoBehaviour
-→ deserialize-corrupt → blackscreen). → [[project-ff9-overworld-terrain-authoring]]. Remaining overworld frontier:
-scale a reclaimed landmass into a real CONTINENT (coastline/height ramp, towns+entrances via `world-entrance --building`);
-texturing new geometry (atlas UVs); productize the bare-block render gate.
+→ deserialize-corrupt → blackscreen). **FAITHFUL COAST (★ in-game proven 2026-07-02): `world-coast` carries a REAL FF9
+coastline** (terrain + animated `beach1`/`sea`/foam) onto reclaimed ocean via a per-cell `Donor.txt` sidecar → the s34
+divert loads that real coastal block as the donor (`ResolveReclaimDonor`/`TryReadDonorPath`); the beach/foam are
+animated `WMRenderTextureBank` sub-meshes, NOT terrain tiles, so they must be carried not textured. Bundled an F6
+teleport fix (`ForceLoadBlockReadyAt` — warp-then-stuck was a not-yet-`IsReady` destination block, not a short ray).
+→ [[project-ff9-overworld-terrain-authoring]]. Remaining overworld frontier: author coastlines FROM SCRATCH (vs real-piece
+mosaics); scale to a real CONTINENT (towns+entrances via `world-entrance --building`); texture new geometry (atlas UVs).
 
 **Latest:** kit **1.0.0b9** (public betas b3–b9: PyPI + uv-bootstrap Windows installer + `ff9mapkit setup` + Steam/GOG game-detect + GUI-works-installed; **b7** = installer bundles+installs the engine patches [backed-up/version-aware], installed-GUI campaign/journey deploy + New-Game wiring [`ff9mapkit deploy-campaign`/`deploy-journey`/`newgame`; deploy orchestration extracted into `ff9mapkit/deploy.py`+`newgame.py`, the `tools/deploy_*.py` are now thin shims], Workspace app icon; **b8** = installed Workspace lights up the dev test-slot/F6 loop against a checkout via `$FF9_REPO`/cwd-walk [`jobs.resolve_dev_repo`], installer Finished-page wording fix; **b9** = Workspace UX pass [app-wide combo wheel-guard, destination-aware Revert, campaign-Map legend/tooltips, copy/affordance cleanups] + an opt-in, install-aware update check [version chip + once-a-day PyPI check, `ff9mapkit/update_check.py`]; **b10** = Workspace settings pass — a 7-theme picker [Light/Dark + Nord/Dracula/Solarized Dark/Light/Gruvbox, `editor/theme.py` + `prefs.py`, live preview, persisted], Preferences + About dialogs [⚙ menu], a one-click "Upgrade & restart" for installed copies [detached uv-upgrade helper, `_run_upgrade`/`_UPGRADE_PS1`], light-theme tone-down + installer Finished-page clip fix → [[project-ff9-gui-makeover]]; **b11** = maintenance bump, no functional change [cut to give b10's one-click updater a live target to upgrade to]), 2448 tests (`py -m pytest -n 6`). The install-path features are NOT in-game proven on an installed copy yet (user playtests on the laptop). See `git log` + `[[project-ff9-installer-packaging]]` for the onboarding/installer state.
 

@@ -487,7 +487,7 @@ above 0** to clear the wave plane. ⚠ Raising height under a STANDING player em
 misses the higher surface) — teleport away + back (F6 re-grounds) after a height change, or set height before first
 arrival. A coast-flush BRIDGE wants `--height 0` at the shore (matches the coast, which bottoms at Y=0).
 
-### FAITHFUL coast — `world-coast` (place a REAL FF9 coastline, ★ in-game proven; the per-cell-donor build ⚠ awaits playtest)
+### FAITHFUL coast — `world-coast` (place a REAL FF9 coastline, ★ in-game proven 2026-07-02, per-cell donor + F6 fix)
 
 The synthetic `island` profile is a STYLIZED grass/sand slab; a real FF9 coast is layered **animated sub-meshes**
 (`terrain` land + `sea3/4/5` water + a dedicated `beach1` sand/foam mesh driven by `WMRenderTextureBank` — NOT the
@@ -497,8 +497,8 @@ shore rim + UVs + walkable topographs) to the cell's Terrain override **and** wr
 = `"dx,dy"`. **Engine (s34 per-cell donor):** the sea-cell divert calls `ResolveReclaimDonor` → `WorldMeshOverride.
 TryReadDonorPath` reads the sidecar → loads THAT real coastal block prefab as the donor (cached in a `[NonSerialized]
 Dictionary`; `LoadBlock` renders its `Beach1/Sea/foam` gated on `prefab.<field>`, not `block.Number`, so they carry
-onto the cell), falling back to the plain inland donor (Block[12][10]) when no sidecar. ★ PROVEN with a global hardcode
-(donor 18,15 rendered a real beach + foam, faithfully walkable); the per-cell sidecar generalization awaits a playtest.
+onto the cell), falling back to the plain inland donor (Block[12][10]) when no sidecar. ★ IN-GAME PROVEN 2026-07-02: a real beach +
+foam rendered on cell (2,17) via a `Donor.txt`=`"18,15"` sidecar (per-cell, not a hardcode), faithfully walkable.
 `ff9mapkit world-coast --list` browses the 44 real beach donors. ⚠ do NOT donor block 219 (Water Shrine — its form-2
 sea is target-`Number`-gated). Trade-off: faithful land is a MOSAIC of real coast pieces (assembled from FF9's actual
 coastline blocks), not an arbitrary outline — the next frontier is authoring coastlines from scratch.
