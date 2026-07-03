@@ -1,7 +1,7 @@
 """Offline tests for the glTF exporter (the Blender edit loop's forward half) -- no install/UnityPy needed.
 
-The exporter's load-bearing convention is the Unity(LH,Y-up)->glTF(RH,Y-up) change = a negate-X mirror with
-the quaternion remap (x,-y,-z,w). That's the error-prone part, so the key test proves the quaternion remap
+The exporter's load-bearing convention is the FF9(LH,Y-DOWN)->glTF(RH,Y-up) change = a negate-Y mirror with
+the quaternion remap (-x,y,-z,w). That's the error-prone part, so the key test proves the quaternion remap
 is the correct COMPANION to the point mirror (mirror(rot(q,p)) == rot(cquat(q), mirror(p))). The binary
 machinery (accessor builder + .glb writer) is validated by writing + parsing back. The full skinned export +
 rest-pose identity is covered by the in-Blender check + the on-disc gltf_check probe (needs the install).
@@ -27,7 +27,7 @@ def _rot(q, p):
     return [sum(R[i][k] * p[k] for k in range(3)) for i in range(3)]
 
 
-_MIRROR_X = lambda v: [-v[0], v[1], v[2]]
+_MIRROR_Y = lambda v: [v[0], -v[1], v[2]]
 
 _QUATS = [
     [0.0, 0.0, 0.0, 1.0],
@@ -39,29 +39,29 @@ _QUATS = [
 _POINTS = [[1.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 3.0], [1.5, -2.0, 0.7], [-1.0, 1.0, -1.0]]
 
 
-def test_cquat_is_the_negate_x_mirror_companion():
-    """The core correctness proof: for the negate-X coordinate mirror M, the rotation q becomes _cquat(q) so
+def test_cquat_is_the_negate_y_mirror_companion():
+    """The core correctness proof: for the negate-Y coordinate mirror M, the rotation q becomes _cquat(q) so
     that M(q·p) == _cquat(q)·M(p) for all p. If this holds, the skeleton + animation transform consistently
     under the handedness flip (this is exactly what keeps the rig from twisting)."""
     for q in _QUATS:
         for p in _POINTS:
-            lhs = _MIRROR_X(_rot(q, p))
-            rhs = _rot(gltf._cquat(q), _MIRROR_X(p))
+            lhs = _MIRROR_Y(_rot(q, p))
+            rhs = _rot(gltf._cquat(q), _MIRROR_Y(p))
             assert all(abs(a - b) < 1e-6 for a, b in zip(lhs, rhs)), f"q={q} p={p}: {lhs} != {rhs}"
 
 
-def test_cquat_maps_90_yaw_to_minus_90_yaw():
-    """Sanity check from the spec: a Unity +90deg yaw about +Y mirrors to a -90deg yaw about +Y."""
-    q = _norm([0.0, math.sin(math.radians(45)), 0.0, math.cos(math.radians(45))])
+def test_cquat_preserves_a_yaw_about_the_flipped_axis():
+    """A rotation ABOUT the flipped (Y) axis is preserved under a negate-Y mirror (Y is the mirror's normal),
+    so its quaternion is unchanged -- a targeted check of the remap's fixed axis."""
+    q = _norm([0.0, math.sin(math.radians(45)), 0.0, math.cos(math.radians(45))])   # 90deg yaw about +Y
     c = gltf._cquat(q)
-    assert abs(c[1] + q[1]) < 1e-9 and abs(c[3] - q[3]) < 1e-9   # y negated, w kept -> opposite-sign yaw
-    assert abs(c[0]) < 1e-9 and abs(c[2]) < 1e-9
+    assert all(abs(a - b) < 1e-9 for a, b in zip(c, q))
 
 
-def test_cpos_and_cnrm_negate_x_only():
-    assert gltf._cpos([2.0, 3.0, 4.0], 1.0) == [-2.0, 3.0, 4.0]
-    assert gltf._cpos([2.0, 3.0, 4.0], 0.01) == [-0.02, 0.03, 0.04]   # scale bake
-    assert gltf._cnrm([2.0, 3.0, 4.0]) == [-2.0, 3.0, 4.0]            # no scale on normals
+def test_cpos_and_cnrm_negate_y_only():
+    assert gltf._cpos([2.0, 3.0, 4.0], 1.0) == [2.0, -3.0, 4.0]
+    assert gltf._cpos([2.0, 3.0, 4.0], 0.01) == [0.02, -0.03, 0.04]   # scale bake
+    assert gltf._cnrm([2.0, 3.0, 4.0]) == [2.0, -3.0, 4.0]            # no scale on normals
 
 
 def test_mat4_colmajor_transposes_row_major():

@@ -6,7 +6,7 @@ skin, textures, AND the model's idle/walk/run clips so a modder can open + scrub
 Reuses ``extract.read_model`` for geometry (verts are already bind-corrected -- the per-mesh bake G lives in
 the vertices, so the glTF skin's inverseBindMatrices are purely rest-derived and one-per-joint) and
 ``_gltf_io`` for the coordinate-independent binary/animation machinery. The only convention this file owns is
-the Unity(left-handed, Y-up) -> glTF(right-handed, Y-up) change, which is a single-axis mirror: **negate X**.
+the FF9 (left-handed, Y-DOWN) -> glTF (right-handed, Y-up) change, which is a single-axis mirror: **negate Y**.
 """
 from __future__ import annotations
 
@@ -21,22 +21,28 @@ DEFAULT_SCALE = 0.01                # FF9 models are ~hundreds of units tall; 0.
 DEFAULT_ACTIONS = ("idle", "walk", "run", "turn_l", "turn_r")
 
 
-# ---------------------------------------------------------------- Unity(LH,Y-up) -> glTF(RH,Y-up): negate X
+# ---------------------------------------------------------------- FF9 -> glTF(RH,Y-up): negate Y
+#
+# FF9's engine world is effectively Y-DOWN (the model's "up" is toward -Y -- Vivi's head sits at min-Y; cf.
+# the walkmesh's `-worldY` and the canvas Y-inversion). glTF/Blender want RIGHT-handed **Y-UP**. A single-axis
+# **negate-Y** mirror does BOTH at once: it flips Y-down->Y-up (model stands upright) AND flips handedness
+# (LH->RH). (A negate-X mirror -- the mainstream Unity->glTF convention for Y-UP source models -- would leave
+# FF9 upside-down.) det = -1, so triangle winding is reversed at emit (see the primitive loop).
 
 def _cpos(v, s):
-    """Position / bone translation: mirror X, apply the uniform scale bake."""
-    return [-v[0] * s, v[1] * s, v[2] * s]
+    """Position / bone translation: mirror Y (FF9 Y-down -> glTF Y-up), apply the uniform scale bake."""
+    return [v[0] * s, -v[1] * s, v[2] * s]
 
 
 def _cnrm(v):
-    """Normal: mirror X, no scale."""
-    return [-v[0], v[1], v[2]]
+    """Normal: mirror Y, no scale."""
+    return [v[0], -v[1], v[2]]
 
 
 def _cquat(q):
-    """Rotation quaternion (x,y,z,w) under a negate-X coordinate mirror -> (x,-y,-z,w) (keep the flipped
-    axis' component + w, negate the two perpendicular components). The load-bearing remap."""
-    return [q[0], -q[1], -q[2], q[3]]
+    """Rotation quaternion (x,y,z,w) under a negate-Y coordinate mirror -> (-x,y,-z,w) (keep the flipped
+    axis' component (y) + w, negate the two perpendicular components (x,z)). The load-bearing remap."""
+    return [-q[0], q[1], -q[2], q[3]]
 
 
 def _mat4_colmajor(m):
