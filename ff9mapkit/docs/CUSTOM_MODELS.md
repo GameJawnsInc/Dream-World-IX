@@ -101,6 +101,21 @@ the test field, additive (real BBA id 10 untouched). Kit: `models/mint.py`; a de
 emits the `3DModel` line, stages the FBX, and auto-borrows the source's animset so a bare `[[npc]]/[[prop]]
 model = <mintId>` needs no manual `anims`; CLI **`ff9mapkit model-mint <src> --id N [--deploy|--out]`**.
 `deploy_field.py` now syncs the staged `Models/` tree + the mint directives.
+
+**★ Blender edit loop — FORWARD half (2026-07-03, offline-validated; in-Blender check pending).** Hades Workshop
+exports mangle the mesh and AssetStudio drops the animations; **`ff9mapkit model-gltf <model> [--anims] [--scale]`**
+writes a self-contained **`.glb`** (glTF 2.0) Blender opens natively — clean skeleton + skin + textures + the
+model's idle/walk/run clips, so a modder can scrub the walk cycle and edit the model. DLL-free (offline UnityPy).
+The load-bearing conversion is Unity(left-handed, Y-up) → glTF(right-handed, Y-up) = a single-axis **negate-X**
+mirror: positions/normals `(-x,y,z)`, quaternion **`(x,-y,-z,w)`**, reverse triangle winding + `doubleSided`,
+`v→1-v` UVs, uniform scale bake `S≈0.01`, quaternion sign-continuity. Export the already-bind-corrected verts
+verbatim and set `inverseBindMatrices[j] = inverse(boneWorld_rest[j])` (recomputed from the converted nodes) —
+independent of the per-mesh bake G (which lives in the verts), so glTF's one-IBM-per-joint reproduces the correct
+pose *and* animation, mirroring the engine; the rest-pose identity `world·IBM = I` is verified to 9.4e-08.
+Animations read straight from the legacy `.anim` clips in p0data5 (quaternion rotation curves + root translation,
+30 fps, LINEAR-faithful; `models/_gltf_io.read_clip`). The RETURN half (edited glTF → engine) is designed but not
+yet built — v1 = mesh-only edit (keep the original skeleton + weights, guard vertex count), v2 = full re-rig.
+
 The first proof was on Vivi (id 8): extracted → skinned FBX-ASCII → re-imported on **stock
 Memoria's own importer** renders, skins, orients, moves, **and animates identically**. It took 4 in-game
 iterations, each a real bug fixed **on the data side** (no engine change required): (1) a missing FBX node

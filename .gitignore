@@ -135,6 +135,10 @@ _scratch_ate/
 # Battle-map geometry + minted-scene assets forked from the install by `ff9mapkit battle-import`
 # (SE-derived; regenerate any time). Same zero-SE-bytes posture as the field *.eb.bytes/*.bgx — never commit.
 *.fbx
+# custom-model exports forked from the install (`model-export`/`model-gltf`): SE-derived, never commit
+*.glb
+*.gltf
+/gltf_demo/
 *bbg*_geom.json
 # tier-c MINT forked scene assets (the `scene/` dir battle-import --fork-scene writes: raw16/raw17 + eb/mes)
 *.raw16.bytes

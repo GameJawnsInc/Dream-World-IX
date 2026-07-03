@@ -1424,6 +1424,25 @@ def _cmd_model_mint(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_model_gltf(args: argparse.Namespace) -> int:
+    """Export a real FF9 model + its animations to a Blender-openable glTF (.glb)."""
+    from .models import gltf as mgltf
+    out = args.out or f"{str(args.model).replace('/', '_')}.glb"
+    try:
+        man = mgltf.export_gltf(args.model, out, anims=args.anims, scale=args.scale, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"exported {man['geo']} (id {man['geo_id']}) -> {man['path']}")
+    print(f"  {man['bones']} bones / {man['primitives']} primitives / {man['verts']} verts / "
+          f"{man['textures']} texture(s) / anims: {', '.join(man['anims']) or 'none'}")
+    for w in man.get("warnings", []):
+        print(f"  WARN: {w}")
+    print("Open in Blender: File > Import > glTF 2.0. It comes in rigged + textured; switch to the Animation "
+          "workspace + pick an Action to scrub a clip. (Model is Y-up, ~scale 0.01 of FF9 units.)")
+    return 0
+
+
 def _cmd_battle_build(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .battle.build import BattleBuildError, BattleProject, build_battle_mod
@@ -3551,6 +3570,18 @@ def build_parser() -> argparse.ArgumentParser:
     mm.add_argument("--out", default=".", help="dir to write the Models/<type>/<id>/ tree into (default: .)")
     mm.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     mm.set_defaults(func=_cmd_model_mint)
+
+    mg = sub.add_parser("model-gltf",
+                        help="export a REAL FF9 model + its animations to a Blender-openable glTF (.glb) -- the edit loop")
+    mg.add_argument("model", help="GEO name or model id to export, e.g. GEO_MAIN_F0_VIV or 8 (see `models`)")
+    mg.add_argument("--out", default=None, help="output .glb path (default: <geo>.glb in the current dir)")
+    mg.add_argument("--anims", default="auto",
+                    help="which clips to embed: 'auto' (idle/walk/run/turns), 'all' (the model's whole folder), "
+                         "'none', or a comma/space list of action labels or raw anim ids")
+    mg.add_argument("--scale", type=float, default=0.01,
+                    help="uniform scale bake (default 0.01: FF9's hundreds-of-units models -> a few Blender metres)")
+    mg.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mg.set_defaults(func=_cmd_model_gltf)
 
     bb = sub.add_parser("battle-build", help="compile a battle.toml into a Memoria mod (custom battle map)")
     bb.add_argument("battle", nargs="+", help="one or more battle.toml files")
