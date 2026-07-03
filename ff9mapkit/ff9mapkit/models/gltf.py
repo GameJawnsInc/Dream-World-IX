@@ -124,11 +124,10 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
     materials = model["materials"]
     s = float(scale)
 
-    # bone bookkeeping: node index (bones first, then the mesh node), joint index (position in skin.joints),
+    # bone bookkeeping: node index (bones first, then the mesh nodes), joint index (position in skin.joints),
     # bone NUMBER -> joint index (weights are keyed by FF9 bone number).
     by_name = {b["name"]: b for b in bones}
     node_of = {b["name"]: i for i, b in enumerate(bones)}       # bone name -> glTF node index
-    mesh_node = len(bones)
     joint_of_num = {extract._bone_num(b["name"]): i for i, b in enumerate(bones)}
     children = {b["name"]: [] for b in bones}
     for b in bones:
@@ -172,11 +171,6 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
         if children[b["name"]]:
             n["children"] = children[b["name"]]
         nodes.append(n)
-    # Name the mesh node + carry the source stamp in NODE extras too (Blender preserves node extras as object
-    # custom properties + round-trips them on export, and keeps object/mesh NAMES -- unlike asset.extras, which
-    # Blender drops -- so `model-import` can auto-detect the source even after a Blender edit).
-    nodes.append({"name": model["geo"], "mesh": 0, "skin": 0,
-                  "extras": {"ff9_geo": model["geo"], "ff9_geo_id": model["geo_id"], "ff9_scale": s}})
 
     # --- textures / materials (embed PNGs into the buffer as image bufferViews) ---
     img_of_stem: dict = {}
@@ -206,8 +200,17 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
         gltf_materials.append({"name": mat["name"], "pbrMetallicRoughness": pbr,
                                "alphaMode": "MASK", "alphaCutoff": 0.5, "doubleSided": True})
 
-    # --- mesh primitives (one per submesh; verts already bake-corrected -> emit verbatim, converted) ---
-    primitives: list = []
+    # --- mesh primitives: ONE named glTF mesh + node PER FF9 part (not one fused mesh) --------------------
+    # Each FF9 SkinnedMeshRenderer (body / long_hair / rubber_band / short_hair / ...) becomes its own glTF
+    # mesh + node, NAMED after the part, so Blender shows distinct editable objects. That (a) stops a
+    # proportional-edit on one part from dragging a small neighbour (Garnet's 38-vert scrunchie sat fused to
+    # the shoulder in the old single-mesh export), and (b) lets the return path match parts BY NAME (robust)
+    # instead of a vertex-count heuristic. The engine's ModelFactory has NAME-keyed per-model branches
+    # (Garnet's garnetShortHairTable does GetChildByName("long_hair"/"short_hair")), so part names are
+    # load-bearing -- carry them faithfully. Each mesh node stamps ff9_geo/ff9_mesh in extras (Blender keeps
+    # node extras as object custom properties + round-trips them), so `model-import` auto-detects the source.
+    gltf_meshes: list = []
+    mesh_nodes: list = []
     warnings: list = []
     for mi, me in enumerate(meshes):
         if model.get("per_mesh_bind") and mi < len(model["per_mesh_bind"]) and model["per_mesh_bind"][mi] is None \
@@ -238,6 +241,7 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
         attrs["TEXCOORD_0"] = buf.add(uv_flat, FLOAT, "VEC2", target=ARRAY_BUFFER)
         attrs["JOINTS_0"] = buf.add(joints_flat, UNSIGNED_SHORT, "VEC4", target=ARRAY_BUFFER)
         attrs["WEIGHTS_0"] = buf.add(weights_flat, FLOAT, "VEC4", target=ARRAY_BUFFER)
+        prims: list = []
         for sub in me["submeshes"]:
             idx = []
             for a, b2, c in sub["tris"]:
@@ -246,7 +250,14 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
             prim = {"attributes": attrs, "indices": idx_acc, "mode": 4}
             if sub["material_idx"] < len(gltf_materials):
                 prim["material"] = sub["material_idx"]
-            primitives.append(prim)
+            prims.append(prim)
+        part = me.get("name") or f"mesh{mi}"
+        gltf_meshes.append({"name": part, "primitives": prims})
+        node_idx = len(nodes)
+        nodes.append({"name": part, "mesh": mi, "skin": 0,
+                      "extras": {"ff9_geo": model["geo"], "ff9_geo_id": model["geo_id"],
+                                 "ff9_scale": s, "ff9_mesh": part}})
+        mesh_nodes.append(node_idx)
 
     # --- animations (skip the p0data5 load entirely when no clips are wanted) ---
     selected = []
@@ -295,9 +306,9 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
         "asset": {"version": "2.0", "generator": "ff9mapkit",
                   "extras": {"ff9_geo": model["geo"], "ff9_geo_id": model["geo_id"], "ff9_scale": s}},
         "scene": 0,
-        "scenes": [{"nodes": [node_of[model["root_bone"]], mesh_node]}],
+        "scenes": [{"nodes": [node_of[model["root_bone"]], *mesh_nodes]}],
         "nodes": nodes,
-        "meshes": [{"name": model["geo"], "primitives": primitives}],
+        "meshes": gltf_meshes,
         "skins": [skin],
         "materials": gltf_materials,
         "samplers": [{"magFilter": 9728, "minFilter": 9728, "wrapS": 10497, "wrapT": 10497}],
@@ -314,7 +325,8 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
     out.parent.mkdir(parents=True, exist_ok=True)
     _gltf_io.write_glb(gltf, buf.blob, out)
     return {"geo": model["geo"], "geo_id": model["geo_id"], "path": str(out),
-            "bones": len(bones), "meshes": len(meshes), "primitives": len(primitives),
+            "bones": len(bones), "meshes": len(meshes),
+            "primitives": sum(len(gm["primitives"]) for gm in gltf_meshes),
             "verts": sum(len(m["verts"]) for m in meshes), "textures": len(gltf_images),
             "anims": anim_labels, "scale": s, "warnings": warnings}
 
@@ -420,6 +432,25 @@ def import_gltf(path, *, scale: float = DEFAULT_SCALE) -> dict:
         except Exception:
             return None
 
+    # Recover each part's NAME (the load-bearing bit -- see export_gltf). Prefer the mesh node's ff9_mesh
+    # extra (survives a Blender round-trip as an object custom property), then the node/object NAME, then the
+    # glTF mesh name; strip Blender's ".001" dedup suffix. Keyed by POSITION accessor so it attaches to the
+    # right vertex set below (a file we emit gives one POSITION accessor per part).
+    node_name_of_mesh: dict = {}
+    node_extra_of_mesh: dict = {}
+    for node in nodes:
+        if "mesh" in node:
+            node_name_of_mesh.setdefault(node["mesh"], node.get("name"))
+            ex = node.get("extras") or {}
+            if ex.get("ff9_mesh"):
+                node_extra_of_mesh.setdefault(node["mesh"], ex["ff9_mesh"])
+    name_of_pos: dict = {}
+    for mesh_i, gm in enumerate(gltf.get("meshes", [])):
+        part = node_extra_of_mesh.get(mesh_i) or node_name_of_mesh.get(mesh_i) or gm.get("name")
+        part = re.sub(r"\.\d+$", "", str(part)) if part else None
+        for prim in gm.get("primitives", []):
+            name_of_pos.setdefault(prim["attributes"]["POSITION"], part)
+
     # group primitives by POSITION accessor -> one kit mesh per distinct vertex set
     meshes, materials = [], []
     by_pos: dict = {}
@@ -455,8 +486,11 @@ def import_gltf(path, *, scale: float = DEFAULT_SCALE) -> dict:
             tris = [[idx[i], idx[i + 2], idx[i + 1]] for i in range(0, len(idx) - 2, 3)]   # un-reverse winding
             subs.append({"material_idx": base_mat, "tris": tris})
             materials.append({"name": f"mat{base_mat}", "texture": mat_stem(prim.get("material", -1))})
-        meshes.append({"name": f"mesh{len(meshes)}", "verts": verts,   # DISTINCT per mesh (was all named after
-                       "normals": normals, "uvs": uvs, "submeshes": subs, "weights": weights})  # meshes[0])
+        # Real carried names (incl. FF9's common "mesh0"/"mesh1") match by name downstream; a genuinely
+        # nameless part gets a SYNTHETIC placeholder that can't collide with a real part name, so the re-rig
+        # routes it through the order-independent vertex-count fallback instead of a naive name-match.
+        meshes.append({"name": name_of_pos.get(pos_acc) or f"__part{len(meshes)}", "verts": verts,
+                       "normals": normals, "uvs": uvs, "submeshes": subs, "weights": weights})
 
     # embedded images -> PIL, keyed by the same stem the materials reference (self-consistent for re-emit)
     textures = {}
@@ -547,6 +581,30 @@ def source_from_gltf(path) -> tuple:
     return None, None
 
 
+def _restore_mesh_names(edited_meshes: list, orig_meshes: list) -> None:
+    """Rename each edited mesh to its matching ORIGINAL part name, in place. Name-match first (the robust
+    path -- ``import_gltf`` carries part names), then a closest-vertex-count fallback for any part that
+    arrived unnamed / unrecognized (old fused-mesh exports, heavy Blender renames). See the caller for WHY
+    part names are load-bearing (engine NAME-keyed branches like Garnet's hair swap)."""
+    orig_names = {m["name"] for m in orig_meshes}
+    used: set = set()
+    unmatched: list = []
+    for em in edited_meshes:
+        nm = re.sub(r"\.\d+$", "", str(em.get("name") or ""))
+        if nm in orig_names and nm not in used:
+            em["name"] = nm
+            used.add(nm)
+        else:
+            unmatched.append(em)
+    avail = [i for i, m in enumerate(orig_meshes) if m["name"] not in used]
+    for em in unmatched:
+        if not avail:
+            break
+        j = min(avail, key=lambda k: abs(len(orig_meshes[k]["verts"]) - len(em["verts"])))
+        em["name"] = orig_meshes[j]["name"]
+        avail.remove(j)
+
+
 def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, game=None) -> dict:
     """Bring a (Blender-edited) glTF back into the game: import it, emit the FBX + textures into ``mod_folder``
     at ``Models/{type}/{id}/`` (an override -- deletes to revert).
@@ -573,17 +631,14 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
             # id/type/textures, take the edited geometry + weights (keyed by FF9 bone number) from the glTF.
             edited = import_gltf(gltf_path, scale=scale)
             orig = extract.read_model(like, game=game)
-            # Restore the ORIGINAL mesh GameObject names (match each edited mesh to the closest-vertex-count
-            # original). The engine has NAME-keyed per-model branches -- e.g. Garnet's `garnetShortHairTable`
-            # in ModelFactory.CreateModel does GetChildByName("long_hair"/"short_hair") to hide a hair mesh by
-            # scenario; a re-rig whose meshes were renamed (Blender merges them to one name) NREs there and
-            # mis-renders her hair as flailing spikes. Names are cosmetic to skinning but load-bearing here.
-            if len(edited["meshes"]) == len(orig["meshes"]):
-                avail = list(range(len(orig["meshes"])))
-                for em in edited["meshes"]:
-                    j = min(avail, key=lambda k: abs(len(orig["meshes"][k]["verts"]) - len(em["verts"])))
-                    em["name"] = orig["meshes"][j]["name"]
-                    avail.remove(j)
+            # Restore the ORIGINAL mesh GameObject names. The engine has NAME-keyed per-model branches -- e.g.
+            # Garnet's `garnetShortHairTable` in ModelFactory.CreateModel does GetChildByName("long_hair"/
+            # "short_hair") to hide a hair mesh by scenario; a re-rig whose parts lost their names NREs there
+            # and mis-renders her hair as flailing spikes. Names are cosmetic to skinning but load-bearing
+            # here. Match BY NAME first (import_gltf now carries each part's name faithfully); only fall back
+            # to a closest-vertex-count guess for parts that arrive unnamed (an old fused-mesh export, or a
+            # part Blender renamed past recognition).
+            _restore_mesh_names(edited["meshes"], orig["meshes"])
             model = {"geo": orig["geo"], "geo_id": orig["geo_id"], "type_int": orig["type_int"],
                      "root_bone": orig["root_bone"], "bones": orig["bones"],
                      "meshes": edited["meshes"], "materials": edited["materials"],

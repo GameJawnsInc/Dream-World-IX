@@ -133,6 +133,38 @@ The **round-trip identity** `read_model → export_gltf → import_gltf` reprodu
 forward+inverse are consistent. The full WarpedEdge loop now exists end-to-end (`model-gltf` → Blender →
 `model-import`); only in-game proof of an actual edit remains.
 
+**★★ Multi-mesh characters — per-part named export (2026-07-03).** Making a *main character* like Garnet
+robust exposed two engine facts + one export flaw:
+- **The loose-FBX importer FLATTENS all meshes to siblings** under the base object (`ModelImporter.cs:390-391`:
+  `meshGo.transform.parent = baseObject.transform`, unconditional) — it reads NO FBX mesh-to-mesh parenting.
+  So a re-imported model can't reproduce a nested prefab hierarchy (e.g. Garnet's `rubber_band` scrunchie is a
+  *child* of `long_hair` in the original prefab).
+- **Mesh GameObject NAMES are load-bearing.** `ModelFactory.CreateModel` (`ModelFactory.cs:148-170`) runs a
+  NAME-keyed branch for the 12 models in `garnetShortHairTable`: `GetChildByName("long_hair"/"short_hair")
+  .GetComponentsInChildren<Renderer>()` disables one hair mesh by `ScenarioCounter>=10300` (or the `GarnetHair`
+  ini). Lose the names and it NREs → hair renders as flailing spikes.
+- **The old forward export FUSED all of a model's meshes into ONE glTF mesh** — so in Blender the user saw a
+  single object; a proportional-edit on the shoulder dragged Garnet's 38-vert scrunchie (fused right next to it)
+  out of shape (looked like the scrunchie "vanished"). And the return path could only recover part names by a
+  fragile closest-vertex-count guess.
+
+Fix: **`export_gltf` now emits ONE named glTF mesh + node PER FF9 part** (`long_hair` / `rubber_band` / `mesh0` /
+`short_hair`), each stamped with `ff9_geo`/`ff9_mesh` node-extras. In Blender they're **separate editable objects**
+(edit one without disturbing a neighbour), and the return path (`import_gltf`) **carries each part's name** (node
+extra → node/object name → mesh name, `.001` stripped), so the re-rig restores names **by NAME** (`_restore_mesh_names`),
+falling back to vertex-count only for genuinely-nameless parts. A nameless part gets a synthetic `__part{i}`
+placeholder that can't collide with FF9's real `mesh0`/`mesh1` names. Round-trip verified faithful (max vert err
+2.4e-5) with **name preservation across a 79-model sweep (0 fail)**; clean Garnet re-import deployed to
+`FF9CustomMap` id 185 (mesh-splice, all 4 names intact) — awaiting the human's in-game look.
+
+**KNOWN LIMIT (engine, not fixable via loose-FBX): late-game short-hair floating scrunchie.** Because the
+importer flattens meshes AND assigns one material per mesh, a re-imported Garnet can't nest `rubber_band` under
+`long_hair` NOR merge it in (the scrunchie is texture `185_0`, the hair `185_1`). So at `ScenarioCounter>=10300`
+(short hair) the engine hides `long_hair` but the sibling `rubber_band` stays visible = a floating scrunchie.
+EARLY game is perfect (short_hair hidden, ponytail+scrunchie shown). Only affects an *override* of the 12
+hair-swap models viewed in a late-game short-hair scene; would need a small DLL change to fix (declined —
+custom models stay zero-DLL).
+
 The first proof was on Vivi (id 8): extracted → skinned FBX-ASCII → re-imported on **stock
 Memoria's own importer** renders, skins, orients, moves, **and animates identically**. It took 4 in-game
 iterations, each a real bug fixed **on the data side** (no engine change required): (1) a missing FBX node

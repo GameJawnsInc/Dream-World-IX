@@ -213,6 +213,83 @@ def test_import_rejects_a_non_bone_joint_name():
         gltf.import_gltf(path, scale=1.0)
 
 
+def _two_part_skinned_glb(path, node_names, mesh_names=None, extras=None):
+    """A skinned glTF with 1 bone + TWO mesh parts (distinct POSITION accessors), so import must split + name
+    them. ``node_names``/``mesh_names`` set the node/mesh names; ``extras`` sets each mesh node's extras."""
+    buf = _gltf_io.GltfBuffer()
+    tri = [0, 2, 1]
+    meshes, nodes = [], [{"name": "bone000", "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0]}]
+    for i in range(2):
+        n = 3 + i                                                # distinct vert counts (3 and 4) -> distinct accessors
+        flat = [x for k in range(n) for x in (float(k), 0.0, 0.0)]
+        pos = buf.add(flat, _gltf_io.FLOAT, "VEC3", minmax=True)
+        joints = buf.add([0, 0, 0, 0] * n, _gltf_io.UNSIGNED_SHORT, "VEC4")
+        weights = buf.add([1, 0, 0, 0] * n, _gltf_io.FLOAT, "VEC4")
+        idx = buf.add(tri, _gltf_io.UNSIGNED_INT, "SCALAR")
+        meshes.append({"name": (mesh_names or node_names)[i],
+                       "primitives": [{"attributes": {"POSITION": pos, "JOINTS_0": joints, "WEIGHTS_0": weights},
+                                       "indices": idx}]})
+        node = {"name": node_names[i], "mesh": i, "skin": 0}
+        if extras:
+            node["extras"] = extras[i]
+        nodes.append(node)
+    ibm = buf.add([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], _gltf_io.FLOAT, "MAT4")
+    g = {"scene": 0, "scenes": [{"nodes": [0, 1, 2]}], "nodes": nodes, "meshes": meshes,
+         "skins": [{"joints": [0], "inverseBindMatrices": ibm, "skeleton": 0}],
+         "accessors": buf.accessors, "bufferViews": buf.bufferViews}
+    _gltf_io.write_glb(g, buf.blob, path)
+
+
+def test_import_carries_part_names_from_nodes():
+    """Each FF9 part is its own named glTF mesh/node; import must re-key each kit mesh to that part name
+    (Blender's .001 dedup suffix stripped) -- the load-bearing bit for the engine's NAME-keyed branches."""
+    import os
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), "ff9mk_parts.glb")
+    _two_part_skinned_glb(path, ["long_hair", "rubber_band.001"])
+    m = gltf.import_gltf(path, scale=1.0)
+    assert sorted(me["name"] for me in m["meshes"]) == ["long_hair", "rubber_band"]
+
+
+def test_import_prefers_ff9_mesh_extra_over_node_name():
+    """If Blender renamed the object but kept the ff9_mesh custom property, the extra wins (survives edits)."""
+    import os
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), "ff9mk_partsx.glb")
+    _two_part_skinned_glb(path, ["Cube", "Cube.001"],
+                          extras=[{"ff9_mesh": "mesh0"}, {"ff9_mesh": "short_hair"}])
+    m = gltf.import_gltf(path, scale=1.0)
+    assert sorted(me["name"] for me in m["meshes"]) == ["mesh0", "short_hair"]
+
+
+def test_import_nameless_part_gets_synthetic_placeholder():
+    """A genuinely nameless part must NOT be called 'mesh0' (a real, common FF9 part name) -- it gets a
+    synthetic '__part' placeholder so the re-rig routes it through the order-independent count fallback."""
+    import os
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), "ff9mk_noname.glb")
+    _two_part_skinned_glb(path, [None, None], mesh_names=[None, None])
+    m = gltf.import_gltf(path, scale=1.0)
+    assert all(me["name"].startswith("__part") for me in m["meshes"])
+
+
+def test_restore_mesh_names_by_name_then_count():
+    """Name-match wins (incl. real 'mesh0'); unnamed synthetic placeholders fall to the vertex-count match --
+    and a '__part' placeholder never false-matches the real 'mesh0'."""
+    orig = [{"name": "long_hair", "verts": [0] * 904}, {"name": "rubber_band", "verts": [0] * 38},
+            {"name": "mesh0", "verts": [0] * 1542}, {"name": "short_hair", "verts": [0] * 680}]
+    # names present (possibly reordered + a .001 suffix) -> matched by name, not position
+    edited = [{"name": "mesh0", "verts": [0] * 1500}, {"name": "short_hair.001", "verts": [0] * 690},
+              {"name": "rubber_band", "verts": [0] * 40}, {"name": "long_hair", "verts": [0] * 920}]
+    gltf._restore_mesh_names(edited, orig)
+    assert [e["name"] for e in edited] == ["mesh0", "short_hair", "rubber_band", "long_hair"]
+    # nameless placeholders -> count fallback (920~long_hair, 40~rubber_band, 1500~mesh0, 690~short_hair)
+    edited2 = [{"name": "__part0", "verts": [0] * 920}, {"name": "__part1", "verts": [0] * 40},
+               {"name": "__part2", "verts": [0] * 1500}, {"name": "__part3", "verts": [0] * 690}]
+    gltf._restore_mesh_names(edited2, orig)
+    assert [e["name"] for e in edited2] == ["long_hair", "rubber_band", "mesh0", "short_hair"]
+
+
 def test_source_stamp_auto_detected_from_gltf():
     """model-import auto-detects the source model from the glTF's asset.extras stamp -- so a round-tripped
     edit needs no --like. A foreign glTF (no stamp) -> (None, None)."""

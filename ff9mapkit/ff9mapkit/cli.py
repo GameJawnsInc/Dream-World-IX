@@ -1434,8 +1434,9 @@ def _cmd_model_gltf(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
     print(f"exported {man['geo']} (id {man['geo_id']}) -> {man['path']}")
-    print(f"  {man['bones']} bones / {man['primitives']} primitives / {man['verts']} verts / "
+    print(f"  {man['bones']} bones / {man['meshes']} mesh part(s) / {man['verts']} verts / "
           f"{man['textures']} texture(s) / anims: {', '.join(man['anims']) or 'none'}")
+    print(f"  (each part is a SEPARATE named object in Blender -- edit one without disturbing the others)")
     for w in man.get("warnings", []):
         print(f"  WARN: {w}")
     print("Open in Blender: File > Import > glTF 2.0. It comes in rigged + textured; switch to the Animation "
