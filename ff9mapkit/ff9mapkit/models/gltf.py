@@ -171,7 +171,11 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
         if children[b["name"]]:
             n["children"] = children[b["name"]]
         nodes.append(n)
-    nodes.append({"name": "Mesh", "mesh": 0, "skin": 0})
+    # Name the mesh node + carry the source stamp in NODE extras too (Blender preserves node extras as object
+    # custom properties + round-trips them on export, and keeps object/mesh NAMES -- unlike asset.extras, which
+    # Blender drops -- so `model-import` can auto-detect the source even after a Blender edit).
+    nodes.append({"name": model["geo"], "mesh": 0, "skin": 0,
+                  "extras": {"ff9_geo": model["geo"], "ff9_geo_id": model["geo_id"], "ff9_scale": s}})
 
     # --- textures / materials (embed PNGs into the buffer as image bufferViews) ---
     img_of_stem: dict = {}
@@ -488,14 +492,28 @@ def _emit_model_to(model: dict, dest_dir, geo_id: int) -> dict:
 
 
 def source_from_gltf(path) -> tuple:
-    """A glTF we exported stamps its source model + scale in ``asset.extras`` -> (geo_name, scale) so
-    ``model-import`` can auto-detect them. (None, None) for a file without the stamp (a foreign glTF)."""
+    """Detect the source model + export scale of a glTF WE produced -> (geo_name, scale|None), so
+    ``model-import`` needs no --like. Robust to a Blender round-trip by checking, in order: ``asset.extras``
+    (a raw un-edited file), any NODE's ``extras`` (Blender keeps node extras as object custom properties),
+    then any mesh/node NAME that matches a real GEO name (Blender keeps names; a ``.001`` suffix is stripped).
+    (None, None) for a foreign glTF with none of these."""
     try:
         gltf, _ = _gltf_io.read_glb(path)
-        ex = (gltf.get("asset") or {}).get("extras") or {}
-        return ex.get("ff9_geo"), ex.get("ff9_scale")
     except Exception:
         return None, None
+    ex = (gltf.get("asset") or {}).get("extras") or {}
+    if ex.get("ff9_geo"):
+        return ex["ff9_geo"], ex.get("ff9_scale")
+    for node in gltf.get("nodes", []) or []:
+        nex = node.get("extras") or {}
+        if nex.get("ff9_geo"):
+            return nex["ff9_geo"], nex.get("ff9_scale")
+    for nm in ([m.get("name") for m in gltf.get("meshes", []) or []]
+               + [n.get("name") for n in gltf.get("nodes", []) or []]):
+        base = re.sub(r"\.\d+$", "", str(nm or ""))          # strip Blender's ".001" dedup suffix
+        if base in extract._NAME_TO_ID:
+            return base, None                                # name match -> scale unknown, falls back to 0.01
+    return None, None
 
 
 def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, game=None) -> dict:

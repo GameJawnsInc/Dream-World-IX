@@ -227,5 +227,16 @@ def test_source_stamp_auto_detected_from_gltf():
                         {"ff9_geo": "GEO_MAIN_F0_VIV", "ff9_geo_id": 8, "ff9_scale": 0.02}}, **common},
                        buf.blob, path)
     assert gltf.source_from_gltf(path) == ("GEO_MAIN_F0_VIV", 0.02)
+    # node extras (Blender keeps these as object custom properties across a round-trip)
+    _gltf_io.write_glb({"asset": {"version": "2.0"},
+                        "nodes": [{"name": "x", "extras": {"ff9_geo": "GEO_MAIN_F0_ZDN", "ff9_scale": 0.01}}],
+                        **common}, buf.blob, path)
+    assert gltf.source_from_gltf(path) == ("GEO_MAIN_F0_ZDN", 0.01)
+    # NAME fallback: Blender drops extras but keeps the mesh name (+ a .001 dedup suffix)
+    _gltf_io.write_glb({"asset": {"version": "2.0", "generator": "Khronos glTF Blender I/O"},
+                        "meshes": [{"name": "GEO_MAIN_F0_VIV.001", "primitives": [{"attributes": {"POSITION": pos}}]}],
+                        "accessors": buf.accessors, "bufferViews": buf.bufferViews}, buf.blob, path)
+    assert gltf.source_from_gltf(path) == ("GEO_MAIN_F0_VIV", None)
+    # a truly foreign glTF -> nothing
     _gltf_io.write_glb({"asset": {"version": "2.0"}, **common}, buf.blob, path)
     assert gltf.source_from_gltf(path) == (None, None)
