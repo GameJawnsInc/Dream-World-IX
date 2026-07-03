@@ -162,10 +162,16 @@ bug **nor frustum culling** (both ruled out in-game; see "Dead ends" below). A l
 renderer's state proved the standalone `rubber_band` renderer is *textbook-perfect*: `enabled`, weighted 100% to
 bone 22, `BakeMesh` bounds a real 58×23×23 box **at the ponytail** (`c=(0,-246,46)`), correct on-screen world
 bounds, same `185_0` material + `Unlit/Transparent Cutout` shader as the body, 26 tris — **identical to the body
-`mesh0` (which renders), just tiny + single-bone** (`long_hair` is *also* single-bone and renders). It simply draws
-no pixels standalone, yet the **same verts weighted to the same bone render the instant they're in another mesh's
-draw call**. Conclusion: a Unity `SkinnedMeshRenderer` engine anomaly for a tiny standalone skinned draw (likely
-losing to the surrounding `long_hair` geometry) — unreachable by our FBX or a bounds/DLL tweak. **Fix:
+`mesh0` (which renders), just tiny + single-bone** (`long_hair` is *also* single-bone and renders). **Definitive root
+cause (proven by an `OnBecameVisible`/`enabled` probe DLL): the scrunchie's `Renderer.enabled == false` — it is
+DISABLED once during the field's character-show setup, NOT culled.** At the settled frame `long_hair`/`mesh0` report
+`isVisible=True` while `rubber_band`/`short_hair` are `enabled=false`; a probe forcing `renderer.enabled = true` (fired
+exactly *once*, at frame 1) made the scrunchie render perfectly and stay visible for the whole session. The disabling
+pass is a one-shot in the field char-show — **not** the `garnetShortHairTable` hair-swap (that targets `short_hair`;
+early-game `long_hair` is *enabled* yet the orphaned scrunchie isn't), exact line unpinned (the disabler runs *after*
+`CreateModel`, so a creation-time re-enable wouldn't stick — diminishing returns). **Why the merge works, now fully
+explained:** it puts the scrunchie verts into the *body* renderer, which char-show always enables — so there's no lone
+scrunchie renderer to disable. **Fix:
 `extract.merge_nested_child_meshes`** folds each nested-child mesh into the largest top-level mesh that shares its
 texture — the scrunchie (`185_0`) merges into the body (`mesh0`, also `185_0`), so it rides a renderer that already
 works. Runs at every engine-FBX emit (`_emit_model_to` for `model-import`, `export.py`, `mint.py`); the re-rig
@@ -181,7 +187,8 @@ per-camera phasing on normal meshes) because it **defeats the engine's own anti-
 .ForcedNonCullingMesh` (`FieldMapActor.cs:316`) forces a near-infinite `localBounds` on every SMR, and that giant
 box is the *only* reason FF9 loose-FBX heads/bodies render at all (their real skinned bounds are junk).
 Replicating that giant `localBounds` in `CreateCustomModel` was *safe* but did **not** make the scrunchie appear —
-confirming it isn't a bounds/culling problem. The merge is the answer; the standalone-render + DLL path is closed.
+which (with the `OnBecameVisible`/`enabled` probe above) pinned it as a **disabled renderer**, not culling. The merge
+is the answer; the standalone-render + DLL path is closed.
 
 **KNOWN LIMIT: late-game short-hair floating scrunchie.** Once merged into the always-visible body, the
 scrunchie shows in *every* scene — so at `ScenarioCounter>=10300` (Garnet's short-hair look, when the prefab
