@@ -21,6 +21,7 @@ vertical axis; the exact constants are pinned by the offline round-trip + semant
 from __future__ import annotations
 
 import math
+import shlex
 
 from .vendor import bgi, cam, guide
 
@@ -829,6 +830,28 @@ def blender_meshdata_to_group(name, bverts, faces, face_material, materials, uvs
 def safe_stem(token: str) -> str:
     """A filesystem-safe stem for a temp .glb from a GEO name/id (GEO_MAIN_F0_VIV -> GEO_MAIN_F0_VIV, 8 -> 8)."""
     return "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(token)) or "model"
+
+
+def resolve_kit_argv(configured, path_hit, local_bin_hit) -> list:
+    """Resolve the argv PREFIX that runs the ``ff9mapkit`` CLI, robustly across install methods:
+
+      * ``configured`` -- the user's pref string. If they set anything OTHER than the bare default
+        ("ff9mapkit"), honor it verbatim (e.g. "py -m ff9mapkit", or a full venv-python path) -- shlex-split.
+      * else ``path_hit`` -- ``shutil.which("ff9mapkit")`` (a pip/uv install already on PATH).
+      * else ``local_bin_hit`` -- the uv-tool launcher at ``~/.local/bin/ff9mapkit[.exe]`` (where the Windows
+        EXECUTABLE installer's ``uv tool install`` puts it). This is the load-bearing bit: it lets the add-on
+        find an exe-installed CLI even when Blender inherited a STALE PATH (the classic "PATH not refreshed
+        until re-login" gotcha), so the exe user needs no manual config.
+      * else ["ff9mapkit"] -- last resort; the operator's FileNotFoundError branch then prints the fallback.
+    """
+    raw = (configured or "").strip()
+    if raw and raw.lower() != "ff9mapkit":
+        return shlex.split(raw, posix=False)
+    if path_hit:
+        return [path_hit]
+    if local_bin_hit:
+        return [local_bin_hit]
+    return ["ff9mapkit"]
 
 
 def model_gltf_argv(geo: str, *, anims: str = "auto", scale=None, out=None, game=None) -> list:

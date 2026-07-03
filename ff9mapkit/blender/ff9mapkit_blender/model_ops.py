@@ -16,7 +16,7 @@ can't be found or errors, the operator reports the exact manual command so the u
 from __future__ import annotations
 
 import os
-import shlex
+import shutil
 import subprocess
 import tempfile
 
@@ -37,8 +37,9 @@ class FF9MK_ModelPreferences(bpy.types.AddonPreferences):
     ff9mapkit_cmd: bpy.props.StringProperty(
         name="ff9mapkit command", default="ff9mapkit",
         description="How to run the kit CLI (it needs UnityPy + the FF9 install -- so NOT Blender's Python). "
-                    "e.g. 'ff9mapkit' (pip/uv install on PATH), 'py -m ff9mapkit', or a full path to a "
-                    "venv python followed by '-m ff9mapkit'")
+                    "Leave as 'ff9mapkit' for a normal install: the add-on auto-finds it on PATH or at "
+                    "~/.local/bin (where the .exe installer's `uv tool install` puts it). Change it only for a "
+                    "checkout ('py -m ff9mapkit') or a venv (full path to its python + ' -m ff9mapkit')")
     mod_folder: bpy.props.StringProperty(
         name="Mod folder", subtype="DIR_PATH", default="",
         description="Export target: the Memoria mod folder to write the loose-FBX + .anim override into "
@@ -62,10 +63,15 @@ def _prefs(context):
 
 
 def _base_argv(context):
-    """The configured CLI command split into an argv prefix (['ff9mapkit'] or ['py','-m','ff9mapkit'])."""
+    """The argv prefix that runs the CLI. Honors an explicit pref; else finds an installed ``ff9mapkit`` on
+    PATH; else the uv-tool launcher at ``~/.local/bin`` (where the EXECUTABLE installer puts it -- so an
+    exe-installed user works even if Blender's PATH is stale). See ``bridge.resolve_kit_argv``."""
     p = _prefs(context)
-    cmd = (p.ff9mapkit_cmd if p else "").strip() or "ff9mapkit"
-    return shlex.split(cmd, posix=False)
+    configured = p.ff9mapkit_cmd if p else ""
+    cand = os.path.join(os.path.expanduser("~"), ".local", "bin",
+                        "ff9mapkit.exe" if os.name == "nt" else "ff9mapkit")
+    local_hit = cand if os.path.isfile(cand) else None
+    return bridge.resolve_kit_argv(configured, shutil.which("ff9mapkit"), local_hit)
 
 
 def _game_arg(context):

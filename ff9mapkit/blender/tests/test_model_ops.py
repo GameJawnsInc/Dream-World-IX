@@ -35,3 +35,19 @@ def test_model_import_argv_omits_falsey_options():
     """A blank --like / no id / anims-on must not emit stray flags (they'd confuse the CLI parser)."""
     argv = bridge.model_import_argv("x.glb", "MOD", like="", model_id=None, no_anims=False)
     assert "--like" not in argv and "--id" not in argv and "--no-anims" not in argv
+
+
+def test_resolve_kit_argv_honors_an_explicit_config():
+    """A non-default configured command wins verbatim (shlex, Windows-path safe)."""
+    assert bridge.resolve_kit_argv("py -m ff9mapkit", "C:/x/ff9mapkit.exe", "H") == ["py", "-m", "ff9mapkit"]
+    assert bridge.resolve_kit_argv(r"C:\venv\python.exe -m ff9mapkit", None, None) == \
+        [r"C:\venv\python.exe", "-m", "ff9mapkit"]                       # backslashes preserved (posix=False)
+
+
+def test_resolve_kit_argv_default_falls_through_path_then_local_bin():
+    """The bare/blank default resolves PATH first, then the uv-tool ~/.local/bin launcher (the EXE-install
+    case -- works even if Blender's PATH is stale), then the bare name as a last resort."""
+    assert bridge.resolve_kit_argv("ff9mapkit", "C:/Scripts/ff9mapkit.exe", "H/x.exe") == ["C:/Scripts/ff9mapkit.exe"]
+    assert bridge.resolve_kit_argv("", "C:/Scripts/ff9mapkit.exe", None) == ["C:/Scripts/ff9mapkit.exe"]
+    assert bridge.resolve_kit_argv("ff9mapkit", None, "H/.local/bin/ff9mapkit.exe") == ["H/.local/bin/ff9mapkit.exe"]
+    assert bridge.resolve_kit_argv("", None, None) == ["ff9mapkit"]      # nothing found -> operator reports fallback

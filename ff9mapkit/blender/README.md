@@ -182,8 +182,11 @@ model loop needs the `ff9mapkit` CLI (it reads/writes the game's `p0data` via Un
 Python doesn't have), so the two buttons **shell out** to it. Set it up once in **Preferences ▸ Add-ons ▸
 FF9 Map Kit** (also editable inline in the box):
 
-- **ff9mapkit command** — how to run the CLI, e.g. `ff9mapkit` (a pip/uv install on PATH), `py -m
-  ff9mapkit`, or a full path to a venv Python + `-m ff9mapkit`.
+- **ff9mapkit command** — how to run the CLI. **If you installed with the Windows executable (or any
+  pip/uv install), leave this as `ff9mapkit`** — the add-on auto-finds it on PATH *or* at
+  `~/.local/bin` (where the installer's `uv tool install` puts it), so it works even if Blender started
+  before your PATH refreshed. Change it only for a source checkout (`py -m ff9mapkit`) or a venv (the
+  full path to its Python + ` -m ff9mapkit`).
 - **Mod folder** — the Memoria mod folder to deploy into (e.g. `<FF9>/FF9CustomMap`).
 
 Then:
