@@ -86,8 +86,10 @@ bundled version). It prints which clips it wrote.
 
 ## 6. Test in-game
 
-**F6 ▸ Reload field**, then move Vivi so she runs. If the change doesn't show, **relaunch** FF9 (animation
-clips can be cached across a reload). Revert by deleting the written files under
+**Relaunch FF9**, then move Vivi so she runs. An animation change needs a **relaunch**, not just an F6
+field-reload: the engine caches loaded clips by file path (`AnimationClipReader.LoadedClips`) and a field
+reload re-requests the same path, so it keeps the *cached* clip. (A **mesh** edit *does* show on F6 — only
+`.anim` clips need the relaunch.) Revert by deleting the written files under
 `FF9CustomMap\StreamingAssets\Assets\Resources\Animations\8\`.
 
 ---

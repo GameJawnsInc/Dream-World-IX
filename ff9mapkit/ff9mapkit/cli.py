@@ -1483,9 +1483,15 @@ def _cmd_model_import(args: argparse.Namespace) -> int:
         print("  animations: no changed clips to write (untouched clips keep the bundled version)")
     for w in anims.get("warnings", []):
         print(f"  WARN: {w}")
-    print("  F6 -> Reload field (or warp to a field using this model) to see the edit. Revert by deleting "
-          f"that Models/<type>/{r['id']}/ folder"
-          + ("" if not anims.get("written") else " + the Animations/<geoId>/ overrides") + ".")
+    if anims.get("written"):
+        # The engine caches loaded clips in a static AnimationClipReader.LoadedClips (keyed by path, checked
+        # before disc), and F6 field-reload re-requests the SAME path -> it gets the cached clip. So a
+        # re-deployed .anim needs a RELAUNCH; only the mesh/FBX is picked up by F6.
+        print(f"  RELAUNCH FF9 to apply the .anim clip(s) (F6 field-reload keeps the cached clip); the MESH "
+              f"shows on F6. Revert: delete Models/<type>/{r['id']}/ + Animations/{anims.get('geo_id')}/.")
+    else:
+        print(f"  F6 -> Reload field (or warp to a field using this model) to see the edit. Revert by "
+              f"deleting that Models/<type>/{r['id']}/ folder.")
     if r.get("source"):
         _print_model_notes(r["source"], minted=int(r["id"]) >= 6000, merge_warnings=r.get("merge_warnings"))
     return 0
@@ -1513,7 +1519,8 @@ def _cmd_model_anim(args: argparse.Namespace) -> int:
     else:
         print(f"  keys: {', '.join(str(Path(w).stem) for w in r['written'])}")
         print("  Edit the JSON (time/x/y/z/w per bone) and re-deploy, or edit the .glb in Blender + "
-              "`model-import`. RELAUNCH or F6 -> Reload field to apply.")
+              "`model-import`. RELAUNCH FF9 to apply (the engine caches clips by path; F6 field-reload "
+              "keeps the cached one).")
     return 0
 
 
