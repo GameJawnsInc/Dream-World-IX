@@ -193,6 +193,48 @@ def bone_paths(model_bones: list) -> dict:
             if extract._bone_num(b["name"]) is not None}
 
 
+def _sample_curve(curve: list, t: float):
+    """Linear-interpolate a piecewise-linear curve [(time, value_tuple)...] at time ``t`` (clamped at the
+    ends). FF9 clips + the engine both interpolate per-component linearly, so this is exact between keys."""
+    if not curve:
+        return None
+    if t <= curve[0][0]:
+        return curve[0][1]
+    if t >= curve[-1][0]:
+        return curve[-1][1]
+    for i in range(1, len(curve)):
+        t0, v0 = curve[i - 1]
+        t1, v1 = curve[i]
+        if t <= t1:
+            f = (t - t0) / (t1 - t0) if t1 > t0 else 0.0
+            return tuple(a + (b - a) * f for a, b in zip(v0, v1))
+    return curve[-1][1]
+
+
+def _curve_changed(edit_curve, src_curve, kind: str) -> bool:
+    """Did an edited channel MEANINGFULLY differ from the source? Compares the two curves by their sampled
+    MOTION -- at the union of both curves' key times (exact for piecewise-linear) -- NOT by key count/layout.
+    So Blender's re-sampling (which changes the keyframe count but preserves the motion) reads as UNCHANGED,
+    while a real pose edit reads as changed. ``kind`` in {rot, pos, scale}; rotation compares by normalized
+    |dot| (sign-flip-safe), position/scale componentwise, each against its noise-floor epsilon."""
+    e, s = edit_curve or [], src_curve or []
+    if bool(e) != bool(s):                       # one curve has the channel, the other doesn't -> a change
+        return True
+    if not e:
+        return False
+    eps = {"rot": _EPS_ROT, "pos": _EPS_POS, "scale": _EPS_SCALE}[kind]
+    for t in sorted({tv for tv, _ in e} | {tv for tv, _ in s}):
+        ve, vs = _sample_curve(e, t), _sample_curve(s, t)
+        if kind == "rot":
+            ne = math.sqrt(sum(a * a for a in ve)) or 1.0
+            ns = math.sqrt(sum(a * a for a in vs)) or 1.0
+            if 1.0 - abs(sum(a * b for a, b in zip(ve, vs))) / (ne * ns) > eps:
+                return True
+        elif any(abs(a - b) > eps for a, b in zip(ve, vs)):
+            return True
+    return False
+
+
 def splice_edits_onto_clip(source_clip: dict, edited_bones: dict, *, model_bones=None,
                            warn=None) -> dict:
     """Overlay per-bone edited curves onto a deep copy of ``source_clip`` (keeping every untouched bone +
@@ -211,43 +253,27 @@ def splice_edits_onto_clip(source_clip: dict, edited_bones: dict, *, model_bones
             continue
         entry = bones.setdefault(path, {"bone": bn})
         for chan in ("rot", "pos", "scale"):
-            if chan in edit:
+            # Replace only a channel that actually CHANGED -- an untouched channel (or one Blender merely
+            # re-sampled to the same motion) keeps the source's byte-faithful keys, so a mesh/one-bone edit
+            # doesn't rewrite every bone with Blender's resampled version.
+            if chan in edit and _curve_changed(edit.get(chan), entry.get(chan), chan):
                 entry[chan] = edit[chan]
     return clip
 
 
 def _is_edited(edited_bones: dict, source_clip: dict) -> bool:
-    """True if any glTF-derived (FF9-space) curve DIFFERS from the source clip -> the clip was actually
-    edited and is worth overriding. Compares ALL THREE channels (rotation by normalized |dot| -- a whole-
-    quaternion sign flip is the SAME rotation, so ``_sign_continuous`` re-hemispherising doesn't read as an
-    edit; position + SCALE componentwise), each against its own noise-floor-derived epsilon."""
+    """True if any glTF-derived (FF9-space) curve MEANINGFULLY differs from the source clip -> the clip was
+    actually edited and is worth overriding. Compares by sampled MOTION (see :func:`_curve_changed`), so it
+    is robust to Blender re-sampling the keyframe count while preserving the motion; only a channel the edit
+    actually carries is checked (the exporter drops constant position/scale, which is not an edit)."""
     num_src = {ch.get("bone"): ch for ch in source_clip.get("bones", {}).values() if ch.get("bone") is not None}
     for bn, edit in edited_bones.items():
         src = num_src.get(bn)
         if src is None:
-            return True
-        rot = edit.get("rot")
-        if rot is not None:
-            s = src.get("rot") or []
-            if len(rot) != len(s):
+            return True                                              # a bone the source clip doesn't animate
+        for chan in ("rot", "pos", "scale"):
+            if chan in edit and _curve_changed(edit.get(chan), src.get(chan), chan):
                 return True
-            for (te, qe), (ts, qs) in zip(rot, s):
-                if abs(te - ts) > _EPS_TIME:
-                    return True
-                ne = math.sqrt(sum(a * a for a in qe)) or 1.0
-                ns = math.sqrt(sum(a * a for a in qs)) or 1.0
-                if 1.0 - abs(sum(a * b for a, b in zip(qe, qs))) / (ne * ns) > _EPS_ROT:   # 1 - cos(angle)
-                    return True
-        for chan, eps in (("pos", _EPS_POS), ("scale", _EPS_SCALE)):
-            c = edit.get(chan)
-            if c is None:
-                continue
-            s = src.get(chan) or []
-            if len(c) != len(s):                                     # a channel the source lacks -> an edit
-                return True
-            for (te, ve), (ts, vs) in zip(c, s):
-                if abs(te - ts) > _EPS_TIME or any(abs(a - b) > eps for a, b in zip(ve, vs)):
-                    return True
     return False
 
 
@@ -323,7 +349,12 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
                     label_to_key[str(lbl).lower()] = k
         except Exception:   # noqa: BLE001  -- catalog/install optional; fallback is best-effort
             pass
-    written, skipped, warnings, seen = [], [], [], set()
+    written, skipped, warnings = [], [], []
+    # GROUP the parsed animations by their resolved clip key first. A scene with the model imported more than
+    # once stacks duplicate actions (run.001 ...) that all route to the same key; writing them in order would
+    # let a pristine/re-sampled duplicate CLOBBER the user's edit last-wins. Instead, per key, pick an EDITED
+    # candidate (so the real edit beats the pristine copies) and write each key exactly once.
+    by_key: dict = {}
     for pa in parse_gltf_animations(gltf, blob, scale=scale):
         key = pa["key"]
         if key is None and pa["label"]:
@@ -333,16 +364,20 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
                             f"non-numeric name) -- NOT written; rename the Action to its numeric anim key")
             skipped.append(pa["label"] or "<unnamed>")
             continue
-        source_clip = _gltf_io.read_clip(env5, gid, key) or {"name": pa["label"], "sample_rate": 30.0, "bones": {}}
-        if not force and not _is_edited(pa["bones"], source_clip):
-            skipped.append((key, "unchanged"))
+        by_key.setdefault(key, []).append(pa)
+    for key, group in by_key.items():
+        source_clip = _gltf_io.read_clip(env5, gid, key) or {"name": str(key), "sample_rate": 30.0, "bones": {}}
+        edited = group if force else [pa for pa in group if _is_edited(pa["bones"], source_clip)]
+        if not edited:
+            skipped.append((key, "unchanged"))                       # every copy matches the source -> keep bundled
             continue
-        if key in seen:
-            warnings.append(f"two animations map to key {key} -- keeping the last-written")
-        merged = splice_edits_onto_clip(source_clip, pa["bones"], model_bones=model_bones, warn=warnings.append)
+        if len(group) > 1:
+            warnings.append(f"{len(group)} animations map to key {key} ({len(edited)} edited) -- "
+                            f"using the edited one" + (" (last of several)" if len(edited) > 1 else ""))
+        merged = splice_edits_onto_clip(source_clip, edited[-1]["bones"], model_bones=model_bones,
+                                        warn=warnings.append)
         p = anim_disc_path(mod_folder, gid, key)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(clip_to_anim_json(merged), encoding="utf-8", newline="\n")
         written.append(str(p))
-        seen.add(key)
     return {"written": written, "skipped": skipped, "warnings": warnings, "geo_id": gid}

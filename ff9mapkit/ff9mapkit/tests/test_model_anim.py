@@ -204,6 +204,62 @@ def test_parse_reads_a_scale_channel_verbatim():
     assert abs(sc[1][1][0] - 1.3) < 1e-4 and abs(sc[1][1][1] - 0.8) < 1e-4    # verbatim, unflipped
 
 
+def _mid(a, b):
+    return tuple((x + y) / 2 for x, y in zip(a, b))
+
+
+def test_curve_changed_ignores_resampling_but_catches_real_edits():
+    """The key robustness: Blender re-samples (adds/removes keys) while preserving the motion. A curve with
+    extra keys sampled ON the original linear segments must read as UNCHANGED; a key moved OFF the line reads
+    as changed (compared by sampled motion, not key count)."""
+    src = [(0.0, (0.0, 0.0, 0.0, 1.0)), (1.0, (0.0, 0.7071, 0.0, 0.7071))]
+    resampled = [(0.0, src[0][1]), (0.5, _mid(src[0][1], src[1][1])), (1.0, src[1][1])]   # denser, same motion
+    assert not anim._curve_changed(resampled, src, "rot")
+    edited = [(0.0, src[0][1]), (0.5, (0.0, 0.0, 0.0, 1.0)), (1.0, src[1][1])]             # midpoint snapped back
+    assert anim._curve_changed(edited, src, "rot")
+    # position: same story
+    ps = [(0.0, (0.0, 0.0, 0.0)), (1.0, (30.0, 0.0, 0.0))]
+    assert not anim._curve_changed([(0.0, (0.0, 0.0, 0.0)), (0.5, (15.0, 0.0, 0.0)), (1.0, (30.0, 0.0, 0.0))], ps, "pos")
+    assert anim._curve_changed([(0.0, (0.0, 0.0, 0.0)), (0.5, (15.0, 9.0, 0.0)), (1.0, (30.0, 0.0, 0.0))], ps, "pos")
+
+
+def test_is_edited_robust_to_resampling():
+    """An untouched clip round-tripped through Blender comes back re-sampled (different key COUNT, same
+    motion). It must NOT read as edited (else every clip gets needlessly rewritten with the resampled copy)."""
+    src = {"bones": {"bone000": {"bone": 0, "rot": [(0.0, (0.0, 0.0, 0.0, 1.0)), (1.0, (0.0, 0.7071, 0.0, 0.7071))]}}}
+    resampled = {0: {"rot": [(0.0, (0.0, 0.0, 0.0, 1.0)),
+                             (0.5, _mid((0.0, 0.0, 0.0, 1.0), (0.0, 0.7071, 0.0, 0.7071))),
+                             (1.0, (0.0, 0.7071, 0.0, 0.7071))]}}                          # 2->3 keys, same motion
+    assert not anim._is_edited(resampled, src)
+    real = {0: {"rot": [(0.0, (0.0, 0.0, 0.0, 1.0)), (0.5, (0.0, 0.0, 0.0, 1.0)), (1.0, (0.0, 0.7071, 0.0, 0.7071))]}}
+    assert anim._is_edited(real, src)
+
+
+def test_splice_keeps_source_curve_when_only_resampled():
+    """A bone whose curve Blender only RE-SAMPLED (same motion) keeps the source's byte-faithful keys -- so a
+    one-bone edit doesn't rewrite every other bone with a resampled version."""
+    src = {"bones": {"bone000": {"bone": 0, "rot": [(0.0, (0.0, 0.0, 0.0, 1.0)), (1.0, (0.0, 0.7071, 0.0, 0.7071))]}}}
+    resampled = {0: {"rot": [(0.0, (0.0, 0.0, 0.0, 1.0)),
+                             (0.5, _mid((0.0, 0.0, 0.0, 1.0), (0.0, 0.7071, 0.0, 0.7071))),
+                             (1.0, (0.0, 0.7071, 0.0, 0.7071))]}}
+    merged = anim.splice_edits_onto_clip(src, resampled)
+    assert merged["bones"]["bone000"]["rot"] == src["bones"]["bone000"]["rot"]            # 2-key source kept, not the 3-key resample
+
+
+def test_collision_prefers_the_edited_duplicate_over_pristine():
+    """When duplicate actions map to the same clip key (a scene imported more than once), the deploy picks an
+    EDITED candidate, not last-wins -- so a pristine/re-sampled copy can't clobber the user's edit. This is
+    the exact filter the deploy loop applies (`[pa for pa in group if _is_edited(...)]` -> last)."""
+    src = {"bones": {"bone000": {"bone": 0, "rot": [(0.0, (0.0, 0.0, 0.0, 1.0)), (1.0, (0.0, 0.7071, 0.0, 0.7071))]}}}
+    pristine = {0: {"rot": [(0.0, (0.0, 0.0, 0.0, 1.0)),                                   # re-sampled, same motion
+                            (0.5, _mid((0.0, 0.0, 0.0, 1.0), (0.0, 0.7071, 0.0, 0.7071))),
+                            (1.0, (0.0, 0.7071, 0.0, 0.7071))]}}
+    edited = {0: {"rot": [(0.0, (0.0, 0.0, 0.0, 1.0)), (1.0, (0.7071, 0.0, 0.0, 0.7071))]}}   # different axis
+    for group in ([pristine, edited], [edited, pristine]):                                 # order must not matter
+        chosen = [b for b in group if anim._is_edited(b, src)]
+        assert len(chosen) == 1 and chosen[-1] is edited                                   # pristine filtered out
+
+
 def test_full_faithful_write_carries_the_edit_into_engine_json():
     """End-to-end (offline): splice an edit onto the source clip, serialize, and confirm the JSON the engine
     would read carries the edit at the correct hierarchy path while the untouched bone stays put."""

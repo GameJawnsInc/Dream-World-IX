@@ -490,9 +490,13 @@ CurrentCulture, so a comma-decimal LOCALE (de-DE/fr-FR) misreads a loose `.anim`
 back only the clips whose curves actually CHANGED (spliced onto the pristine source clip, so untouched
 bones/channels stay byte-faithful and untouched clips keep the bundled version), routing each to
 `Animations/{geoId}/{key}.anim` via a stamped `ff9_anim_key` (+ a catalog label→key fallback if Blender drops
-the stamp on an action-named clip; an unroutable clip WARNS, never silently drops). Edit-detection compares all
-three channels (rotation by normalized |dot| — sign-flip-safe; position + scale) against noise-floor-derived
-epsilons (rot ~0.16°, measured float32 floor ~1e-15). `--no-anims` for mesh-only. HARDENED by a 5-lens
+the stamp on an action-named clip; an unroutable clip WARNS, never silently drops). Edit-detection compares the three
+channels by SAMPLED MOTION (at the union of both curves' key times — exact for piecewise-linear), so it's
+robust to Blender re-sampling the keyframe COUNT while preserving the motion; a pure resample reads as
+unchanged, only a real pose edit writes. Rotation compares by normalized |dot| (sign-flip-safe); the splice
+replaces only genuinely-changed channels, so untouched bones stay byte-faithful. On a key collision (a scene
+imported more than once → duplicate actions), the deploy groups by clip key and picks an EDITED candidate
+(not last-wins), so a pristine copy can't clobber the edit. `--no-anims` for mesh-only. HARDENED by a 5-lens
 adversarial review (fixed: scale-channel blindness that dropped squash/stretch edits; a ~5° rotation dead zone;
 silent unroutable-key drops; NaN emission). The **Blender add-on** adds an *Import/Export FF9 Model*
 pair that follows the same division of labour as *Export Field* → `ff9mapkit build`: the add-on does only the
