@@ -90,13 +90,30 @@ def _select_anim_keys(geo, geo_id, anims, p0d5_env):
             if aid is not None and aid in on_disc_set:
                 picked.append((act, aid))
         if len({a for _, a in picked}) < 3:                    # thin/mismatched catalog -> top up from the folder
+            # Prefer ON-FOOT locomotion clips (idle/stand/run/walk/turn) over mount/misc, and give every clip a
+            # FRIENDLY label (its ANH action suffix) instead of a raw numeric id -- so an overworld WALKER like
+            # Zidane comes in standing with readable Action names, not straddling an (absent) chocobo with clips
+            # named "1143". (His lowest-id clips are the chocobo-RIDING ones -- disc order alone surfaced those.)
             seen = {a for _, a in picked}
-            for aid in on_disc:
+            id_to_label = {aid: lbl for lbl, aid in actions.items()}
+            _ON_FOOT = ("idle", "idle1", "idle2", "stand", "run", "walk", "turn", "turn_l", "turn_r")
+
+            def _lbl(k):
+                lbl = id_to_label.get(k)
+                if lbl:
+                    return lbl
+                nm = catalog.animation_name(k)                 # ANH_SUB_W0_001_FLY_CHO -> "fly_cho"
+                parts = nm.split("_") if nm else []
+                return "_".join(parts[4:]).lower() if len(parts) >= 5 else str(k)
+
+            rank = {k: i for i, k in enumerate(on_disc)}
+            cand = [(_lbl(k), k) for k in on_disc if k not in seen]
+            cand.sort(key=lambda lk: (lk[0] not in _ON_FOOT, rank[lk[1]]))   # on-foot first, else disc order
+            for lbl, aid in cand:
                 if len(picked) >= 4:
                     break
-                if aid not in seen:
-                    picked.append((str(aid), aid))
-                    seen.add(aid)
+                picked.append((lbl, aid))
+                seen.add(aid)
     else:
         toks = [t for t in str(anims).replace(",", " ").split() if t]
         for t in toks:
