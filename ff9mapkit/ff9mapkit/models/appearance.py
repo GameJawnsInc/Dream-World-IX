@@ -12,6 +12,7 @@ per-form texture reassign ~75-91). Pure/offline -- no install needed; only the n
 from __future__ import annotations
 
 import re
+from typing import NamedTuple
 
 from .._modeldb import MODELS
 
@@ -64,6 +65,41 @@ def is_scenario_gated(geo_name) -> bool:
     """True if this exact model has name-keyed engine appearance logic (hair-swap or the ZDN texture reassign)."""
     name = _canon(geo_name)
     return name in GARNET_HAIR_SWAP or name in ZDN_TEXTURE_REASSIGN
+
+
+class Appearance(NamedTuple):
+    """A model's story/scenario APPEARANCE profile (offline; name-keyed). All fields default to the plain
+    look, so :data:`NO_APPEARANCE` is the "nothing special" singleton the catalog attaches to most models."""
+    forms: tuple = ()               # the character's GEO_MAIN_F*_<CHAR> field forms (incl. this one); () if <=1
+    scenario_gated: bool = False    # this exact model has name-keyed engine appearance logic
+    gate_kind: str = ""             # "" | "hair-swap" | "texture-reassign"
+
+    @property
+    def story_evolved(self) -> bool:
+        """True if the character has >1 field form the game swaps between across the story."""
+        return len(self.forms) > 1
+
+    @property
+    def special(self) -> bool:
+        """True if there's anything worth surfacing (story forms and/or a name-keyed engine gate)."""
+        return self.story_evolved or self.scenario_gated
+
+
+NO_APPEARANCE = Appearance()
+
+
+def appearance_of(token) -> Appearance:
+    """The APPEARANCE profile of a model (by GEO name or id). :data:`NO_APPEARANCE` (the singleton) for a
+    plain / unknown model, so ``catalog.Model.appearance`` is cheap and identity-comparable for the common case."""
+    name = _canon(token)
+    if not name:
+        return NO_APPEARANCE
+    forms = tuple(character_forms(name))
+    gate_kind = ("hair-swap" if name in GARNET_HAIR_SWAP else
+                 "texture-reassign" if name in ZDN_TEXTURE_REASSIGN else "")
+    if len(forms) <= 1 and not gate_kind:
+        return NO_APPEARANCE
+    return Appearance(forms if len(forms) > 1 else (), bool(gate_kind), gate_kind)
 
 
 def appearance_notes(token, *, minted: bool = False) -> list:

@@ -3299,6 +3299,19 @@ def _print_model_detail(m) -> int:
     formk = C.FORM_KIND.get(m.form[:1], "?")
     print(f"model {m.id}: {m.name}")
     print(f"  group {m.group} ({m.kind})  |  form {m.form} ({formk})  |  token {m.token}")
+    ap = m.appearance
+    if ap.story_evolved:
+        others = [f for f in ap.forms if f != m.name]
+        print(f"  story-evolved: {len(ap.forms)} field forms -- {', '.join(ap.forms)}")
+        print(f"    the game loads a different form per story beat; editing THIS id leaves the others stock"
+              + (f" (override each: {', '.join(others)})." if others else "."))
+    if ap.scenario_gated:
+        what = {"hair-swap": "the engine hides long_hair/short_hair by ScenarioCounter (name-keyed)",
+                "texture-reassign": "the engine rebuilds this form's textures per story beat (name-keyed)",
+                }.get(ap.gate_kind, ap.gate_kind)
+        print(f"  scenario-gated look: {what}.")
+        print("    an OVERRIDE (re-import at this id) preserves it; a MINT (new id) bypasses it "
+              "(see `model-import`/`model-mint` for the fix).")
     acts = C.animation_actions(m.id)
     if not acts:
         print("  no animations found for this model's (group, token) "
@@ -3336,8 +3349,11 @@ def _cmd_models(args: argparse.Namespace) -> int:
     for m in rows:
         tag = f"{m.kind}/{m.form}"
         extra = f"   {len(C.animations_for_model(m.id))} anims" if args.anims else ""
-        print(f"  {m.id:>4}  {m.name:<22} {tag:<16}{extra}".rstrip())
-    print(f"\nName one to see its gestures:  ff9mapkit models {rows[0].name}")
+        marks = (["gated"] if m.appearance.scenario_gated else []) + \
+                (["evolved"] if m.appearance.story_evolved else [])
+        ap = f"   ({'/'.join(marks)})" if marks else ""
+        print(f"  {m.id:>4}  {m.name:<22} {tag:<16}{extra}{ap}".rstrip())
+    print(f"\nName one to see its gestures + appearance:  ff9mapkit models {rows[0].name}")
     return 0
 
 

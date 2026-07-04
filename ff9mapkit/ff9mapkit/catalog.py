@@ -34,6 +34,7 @@ from ._itemdb import ITEMS
 from ._modeldb import MODELS
 from ._scenedb import SCENES
 from .animations import TOKENS as _CHAR_ALIAS     # friendly playable name -> token (vivi -> VIV)
+from .models.appearance import Appearance, NO_APPEARANCE, appearance_of  # story-forms / name-keyed gate census
 
 # GEO/ANH group code -> human label (the model's role).
 GROUP_KIND = {
@@ -57,6 +58,7 @@ class Model(NamedTuple):
     token: str          # VIV / BAR / EGG / 000 ...
     kind: str           # playable / npc / monster / object / sub-character / weapon
     field: bool         # True for field-form (F*) models -- the ones you place as a field NPC
+    appearance: Appearance = NO_APPEARANCE   # story forms + name-keyed engine gate (NO_APPEARANCE if plain)
 
 
 def _parse_geo(name: str):
@@ -70,7 +72,7 @@ def _parse_geo(name: str):
 def _model_info(mid: int, name: str) -> Model:
     grp, form, token = _parse_geo(name)
     return Model(mid, name, grp, form, token,
-                 GROUP_KIND.get(grp, "other"), form[:1] == "F")
+                 GROUP_KIND.get(grp, "other"), form[:1] == "F", appearance_of(name))
 
 
 # ---------------------------------------------------------------- models -----

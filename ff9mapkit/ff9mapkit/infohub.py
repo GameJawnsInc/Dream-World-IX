@@ -525,6 +525,12 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
         d.facts = [("kind", e.kind), ("model", m.name), ("role", m.kind), ("form", m.form)]
         if e.kind == "prop":
             d.facts.append(("pose", str(_props.resolve(e.name)[1])))
+        if m.appearance.story_evolved:
+            d.facts.append(("forms", f"story-evolved -- {len(m.appearance.forms)} field forms: "
+                                     f"{', '.join(m.appearance.forms)}"))
+        if m.appearance.scenario_gated:
+            d.facts.append(("appearance", f"scenario-gated ({m.appearance.gate_kind}) -- "
+                                          f"an override preserves it, a mint bypasses it"))
         if dsc:
             d.facts.append(("desc", dsc))
         d.anims = _cat.animation_actions(m.id)

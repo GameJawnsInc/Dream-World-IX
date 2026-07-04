@@ -212,6 +212,10 @@ per-model appearance logic is keyed on the GEO **name** (not the numeric id), so
 This rule is encoded in **`ff9mapkit/models/appearance.py`** (`appearance_notes(geo, minted=)`, the transcribed
 `GARNET_HAIR_SWAP`/`ZDN_TEXTURE_REASSIGN` tables + a char→forms map) and printed as `NOTE:` lines by `model-gltf` /
 `model-export` / `model-import` / `model-mint`, so no future story-evolved model gets the Garnet surprise unwarned.
+It also rides on the catalog: `appearance_of()` attaches an `Appearance` (story `forms` + name-keyed gate) to every
+**`catalog.Model`**, so **`ff9mapkit models <char>`** flags it *before* you export — the list tags each form
+`(gated/evolved)`, and the detail view spells out the form set + the override-vs-mint consequence (same facts show in
+the GUI Info Hub). Discover the gotcha by browsing, not only at import time.
 The nested-child merge is a *separate*, name-independent fix (it addresses the importer's renderer-disable, not the
 scenario logic) and stays on for **both** override and mint; its "no same-texture sibling" warning (e.g.
 `GEO_MON_F0_EFM`) now surfaces at the CLI instead of being silently dropped.
