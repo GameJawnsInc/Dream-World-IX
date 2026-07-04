@@ -397,6 +397,61 @@ def _node_local_trs(node):
             list(node.get("scale", [1.0, 1.0, 1.0])))
 
 
+def _root_parent_matrix(root_ni, parent_of, nodes, joint_set):
+    """Compose the LOCAL matrices of a skin root joint's non-joint ancestors (the Blender Armature object / any
+    empties BETWEEN the scene and bone000), top-down, into one row-major 4x4. Identity when the root joint is a
+    direct scene child (our own export) OR every such ancestor is untransformed (a normal Blender re-export --
+    ``export_yup`` bakes the axis conversion into the bones and leaves the Armature node identity)."""
+    chain = []
+    ni = parent_of.get(root_ni)
+    while ni is not None and ni not in joint_set:
+        chain.append(ni)
+        ni = parent_of.get(ni)
+    m = [[1.0 if i == j else 0.0 for j in range(4)] for i in range(4)]
+    for ni in reversed(chain):                                # top-down so m = A_top * ... * A_bottom
+        t, q, sc = _node_local_trs(nodes[ni])
+        m = _mat_mul(m, _mat_trs(t, q, sc))
+    return m
+
+
+def _looks_identity(m, *, eps_t=1e-3, eps_r=1e-4, eps_s=1e-3) -> bool:
+    """True if a row-major 4x4 is (within tolerance) identity -- no translation, rotation, non-unit scale, or
+    shear. Tolerances are generous so float noise in a clean Blender export never trips the non-identity guard,
+    yet any DELIBERATE armature move/rotate/scale (>~1mm / >~0.006deg / >0.1%) is caught."""
+    for i in range(3):
+        for j in range(3):
+            if abs(m[i][j] - (1.0 if i == j else 0.0)) > (eps_s if i == j else eps_r):
+                return False
+    return all(abs(m[i][3]) <= eps_t for i in range(3))
+
+
+def check_root_parent_transforms(nodes, joints) -> None:
+    """Raise if any skin root joint has a NON-identity non-joint ancestor -- a live transform on the Blender
+    Armature object (or a parent empty) that FF9 can't carry on a root bone. The engine parents a model's root
+    bone to the identity base object (``ModelImporter.cs`` root branch -- its own TODO: intermediate
+    GameObjects would be needed for a real root-parent transform), and our engine-facing FBX gives the root an
+    IDENTITY 'Armature' Null. Such a transform would otherwise be SILENTLY DROPPED in every import path (the
+    stamped/``--like`` paths keep the pristine skeleton; a re-rig drops the non-joint parent) -> the model
+    imports at the wrong size/orientation with no warning. Refuse it loudly with the one-click Blender fix."""
+    joint_set = set(joints)
+    parent_of = {}
+    for ni, node in enumerate(nodes):
+        for ch in node.get("children", []) or []:
+            parent_of[ch] = ni
+    for ni in joints:
+        if parent_of.get(ni) in joint_set:
+            continue                                          # not a root joint (its parent is another bone)
+        if not _looks_identity(_root_parent_matrix(ni, parent_of, nodes, joint_set)):
+            nm = nodes[ni].get("name", f"node{ni}") if ni < len(nodes) else f"node{ni}"
+            raise ValueError(
+                f"the object above {nm} (the Blender Armature / a parent empty) has a live transform "
+                f"(move / rotate / scale) that FF9 can't carry on a root bone -- it would be dropped and the "
+                f"model would import at the wrong size or orientation. In Blender select the Armature (and any "
+                f"parent), then Object > Apply > All Transforms (Ctrl+A) so the transform bakes into the bones "
+                f"+ mesh, and re-export. (A non-uniform armature scale must be applied too; per-bone scale "
+                f"inside the rig is fine.)")
+
+
 def import_gltf(path, *, scale: float = DEFAULT_SCALE) -> dict:
     """Parse a glTF ``.glb``/``.gltf`` back into the kit's Model struct (the shape ``fbx_skin.emit_skinned_fbx``
     consumes), applying the inverse (negate-Y, /scale) conversion. Full round-trip: skeleton + skin + mesh.
@@ -411,6 +466,7 @@ def import_gltf(path, *, scale: float = DEFAULT_SCALE) -> dict:
         raise ValueError("glTF has no skin -- this importer expects a skinned FF9 model (armature + mesh)")
     skin = skins[0]
     joints = skin["joints"]
+    check_root_parent_transforms(nodes, joints)               # refuse a live armature transform FF9 can't carry
 
     parent_of = {}
     for ni, node in enumerate(nodes):

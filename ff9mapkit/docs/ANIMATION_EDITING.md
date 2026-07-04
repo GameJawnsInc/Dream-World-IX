@@ -126,7 +126,9 @@ Revert by deleting the written files under `FF9CustomMap\StreamingAssets\Assets\
 - **Don't add bones** or a new mesh expecting the stock clips to drive them — animation editing edits the
   existing rig's motion. (New geometry is the mesh-edit loop; a new skeleton is out of scope.)
 - **Scale/orientation:** leave the imported scale (~0.01) and **+Y up** as-is; the kit handles the
-  FF9↔glTF conversion. Don't apply the armature or re-orient the whole rig.
+  FF9↔glTF conversion. Don't apply the armature or re-orient the whole rig. *(If you do move/scale/rotate the
+  **Armature object**, import **refuses** it — FF9 can't carry a transform on the root bone — so either reset
+  the Armature to identity or **Object ▸ Apply ▸ All Transforms** (Ctrl-A) to bake it into the bones + mesh.)*
 
 ## Troubleshooting
 
@@ -137,6 +139,7 @@ Revert by deleting the written files under `FF9CustomMap\StreamingAssets\Assets\
 | `two animations map to key N`, or way more clips written than you edited | Duplicate actions from importing the model more than once. Start from **File ▸ New**, import once; keep Export Model's "Export ALL actions" **off**. |
 | My edit didn't take / the run looks stock | Your edited clip lost the last-wins race to a pristine duplicate (see above), **or** the edited bone had too few keys and holds a pose. Clean scene + keep the bone's original keys. |
 | "no changed clips to write" | Your edit was below the detection threshold, or you edited a different Action than the one exported. Re-check you edited the `run` Action. |
+| Import: *"the object above bone000 … has a live transform"* | You moved / scaled / rotated the **Armature** object (FF9 can't carry a root-bone parent transform). Reset the Armature to identity, or **Object ▸ Apply ▸ All Transforms** (Ctrl-A), then re-export. |
 | Change doesn't show in-game | F6 reload can keep a cached clip — **relaunch** FF9. Confirm the `.anim` landed under `Animations/8/`. |
 | A limb animates nothing after editing | A bone got renamed (check for `bone024.001` etc.). Rename it back to `bone024`. |
 

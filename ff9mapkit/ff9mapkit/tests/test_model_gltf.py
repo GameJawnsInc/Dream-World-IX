@@ -213,6 +213,71 @@ def test_import_rejects_a_non_bone_joint_name():
         gltf.import_gltf(path, scale=1.0)
 
 
+def _armature_wrapped_glb(path, *, translation=None, rotation=None, scale=None):
+    """The minimal skinned glb, but with bone000 re-parented under an 'Armature' node carrying the given
+    transform (as a Blender re-export structures a skeleton) -- to exercise the root-parent-transform guard."""
+    _min_skinned_glb(path)
+    g, blob = _gltf_io.read_glb(path)
+    arm = {"name": "Armature", "children": [0]}                 # node 0 is bone000
+    if translation is not None:
+        arm["translation"] = translation
+    if rotation is not None:
+        arm["rotation"] = rotation
+    if scale is not None:
+        arm["scale"] = scale
+    arm_i = len(g["nodes"])
+    g["nodes"].append(arm)
+    g["scenes"][0]["nodes"] = [arm_i, 1]                        # armature + the mesh node
+    _gltf_io.write_glb(g, blob, path)
+
+
+def test_import_accepts_an_identity_armature_parent():
+    """A normal Blender re-export wraps the root bone in an IDENTITY Armature node (viviexport.glb/Untitled.glb
+    do exactly this) -- that must import cleanly, no false positive on the proven round-trip."""
+    import os
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), "ff9mk_arm_id.glb")
+    _armature_wrapped_glb(path)                                 # no transform on the Armature -> identity
+    m = gltf.import_gltf(path, scale=1.0)
+    assert m["bones"][0]["name"] == "bone000" and m["bones"][0]["parent"] is None
+    # an explicit unit transform (what some exporters emit) is still identity
+    _armature_wrapped_glb(path, translation=[0.0, 0.0, 0.0], rotation=[0.0, 0.0, 0.0, 1.0], scale=[1.0, 1.0, 1.0])
+    assert gltf.import_gltf(path, scale=1.0)["bones"][0]["name"] == "bone000"
+
+
+@pytest.mark.parametrize("kw", [
+    {"scale": [2.0, 2.0, 2.0]},                                # a uniform armature scale (the common "grow the model")
+    {"scale": [1.0, 2.0, 1.0]},                                # a non-uniform armature scale (the engine-TODO shear risk)
+    {"translation": [0.0, 5.0, 0.0]},                          # a moved armature
+    {"rotation": [0.70710678, 0.0, 0.0, 0.70710678]},          # a 90deg-rotated armature
+])
+def test_import_rejects_a_live_armature_transform(kw, tmp_path):
+    """A live (un-applied) transform on the Armature above bone000 is silently un-carryable -> import must
+    refuse it and point at Object > Apply > All Transforms, not import a wrong-scale/orientation model."""
+    path = str(tmp_path / "live.glb")                          # tmp_path is per-case -> safe under pytest-xdist
+    _armature_wrapped_glb(path, **kw)
+    with pytest.raises(ValueError, match="Apply|Ctrl\\+A|root bone"):
+        gltf.import_gltf(path, scale=1.0)
+
+
+def test_looks_identity_and_root_parent_matrix_units():
+    """The two pure helpers behind the guard: identity detection tolerances + ancestor-matrix composition."""
+    I = [[1.0 if i == j else 0.0 for j in range(4)] for i in range(4)]
+    assert gltf._looks_identity(I)
+    noisy = [row[:] for row in I]
+    noisy[0][0] = 1.0 + 5e-4                                    # sub-tolerance float noise -> still identity
+    noisy[2][3] = 5e-4
+    assert gltf._looks_identity(noisy)
+    scaled = [row[:] for row in I]
+    scaled[1][1] = 2.0                                          # a real 2x scale -> not identity
+    assert not gltf._looks_identity(scaled)
+    # a translated armature composes into the root-parent matrix's translation column
+    nodes = [{"name": "bone000"}, {"name": "Armature", "children": [0], "translation": [1.0, 2.0, 3.0]}]
+    m = gltf._root_parent_matrix(0, {0: 1}, nodes, {0})
+    assert [m[i][3] for i in range(3)] == [1.0, 2.0, 3.0]
+    assert gltf._root_parent_matrix(0, {}, [{"name": "bone000"}], {0}) == I   # no ancestor -> identity
+
+
 def _two_part_skinned_glb(path, node_names, mesh_names=None, extras=None):
     """A skinned glTF with 1 bone + TWO mesh parts (distinct POSITION accessors), so import must split + name
     them. ``node_names``/``mesh_names`` set the node/mesh names; ``extras`` sets each mesh node's extras."""
